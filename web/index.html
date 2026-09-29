@@ -4260,7 +4260,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
    a nothingness space" (the page-level body padding was most of it). The
    body becomes a viewport-height grid with explicit rows for the three
    that need one (the rail heads, the lists, the person -- the header is
-   auto-placed among the pre-rail tracks, which is what `repeat(38, auto)`
+   auto-placed among the pre-rail tracks, which is what `repeat(39, auto)`
    protects), the lists' row is the one that flexes, and every region
    scrolls inside itself.
    ⚠️ "EVER" IS THE GOAL, NOT THE MECHANISM, and the distinction is the
@@ -4282,7 +4282,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
        discussion gets its breathing room from its own padding instead. */
     column-gap: 0; align-content: stretch;
     /* 🛑 `overflow-y: auto`, NOT `hidden`, and the row below carries a FLOOR.
-       These two are one fix for one hole: the 38 pre-rail tracks are `auto`
+       These two are one fix for one hole: the 39 pre-rail tracks are `auto`
        and take whatever the notices need, while the row holding #alist and
        #panel-projects was `minmax(0, 1fr)` and could be squeezed to ZERO. With
        `overflow: hidden` that content was then unreachable -- no page scroll
@@ -4315,7 +4315,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
        rail head plus about four rows: enough that the row is recognisably
        itself and can be scrolled inside, rather than a sliver. Below that the
        grid exceeds the viewport and the body scroll above carries it. */
-    grid-template-rows: repeat(38, auto) auto minmax(200px, 1fr) auto; }
+    grid-template-rows: repeat(39, auto) auto minmax(200px, 1fr) auto; }
   html[data-layout="consolidated"] body.consolidated > * { grid-column: 1 / -1; }
   /* ⚠️ #conn CARRIES NO HORIZONTAL MARGIN OF ITS OWN (its `.conn {` rule carries margin-bottom
      only): it is a rounded, bordered card drawn against the body's
@@ -4328,7 +4328,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      inset here rather than inventing one keeps the two cards, which
      appear in the same place, agreeing about where the edge is. */
   html[data-layout="consolidated"] body.consolidated > #conn { margin-left: var(--space-8); margin-right: var(--space-8); }
-  html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 39; }
+  html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 40; }
   /* #867 (Josh, 2026-08-25 11:02): "hide that scrollbar inside of
      agents." Still scrolls -- scrollbar-width/-ms-overflow-style hide
      the track, not the ability to scroll it; content wheels and
@@ -4344,7 +4344,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      agents as well", and his own bound on it: "within reason... not crazy
      tight but a bit tighter". MEASURED at 6px between consecutive rows before
      this change, on a three-agent fixture. */
-  html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 40; margin: 0; display: flex; flex-direction: column; gap: 4px;
+  html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 41; margin: 0; display: flex; flex-direction: column; gap: 4px;
     min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated > #alist::-webkit-scrollbar { display: none; }
   /* The person, pinned under the list on a deeper ground so the row is not
@@ -4362,7 +4362,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      (--k-side-2, the .me treatment), full column width with no radius or
      float-gap, so the agents column reads as ONE column with the person
      pinned at its foot and the rule running unbroken down its edge. */
-  /* The pin is STRUCTURAL, AND ITS SCOPE IS THE VIEWPORT IT FITS IN: row 41
+  /* The pin is STRUCTURAL, AND ITS SCOPE IS THE VIEWPORT IT FITS IN: row 42
      is the body grid's last track, sized by this element, so while the grid
      fits 100vh the strip sits at the viewport foot by construction.
      ⚠️ THAT IS NO LONGER "ALWAYS", and the qualifier is not decoration. The
@@ -4375,7 +4375,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      passed over here, only a trade being stated: below the floor,
      reachability beats the visual pin, which is the same call the overflow
      change makes. In every window a person actually uses, it is pinned. */
-  html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 41; display: flex; align-items: center; gap: 6px;
+  html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 42; display: flex; align-items: center; gap: 6px;
     margin: 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 0; background: var(--k-side-2, #ebe8e2); }
   html[data-layout="consolidated"] body.consolidated .railme-go { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
   html[data-layout="consolidated"] body.consolidated .railme-face { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; overflow: hidden;
@@ -4653,7 +4653,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated.fold-a { grid-template-columns: 48px minmax(0, 1fr); }
   html[data-layout="consolidated"] body.consolidated.fold-a .railhead#rail-agents { flex-direction: column; margin-left: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents .railacts { flex-direction: column; }
-  /* #3948: the project notice sits in the Agents rail head (a body child of its own would overrun the 38
+  /* #3948: the project notice sits in the Agents rail head (a body child of its own would overrun the 39
      pre-rail rows), so the head wraps and the notice takes the whole line under the name and the +.
      Folded, the rail is a 48px strip of letters with no room for a sentence, and a notice squeezed into it
      reads as noise; it goes with the name. ⚠️ That also silences it while folded, the same as the rows'
@@ -4712,7 +4712,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      the discussion and the right column all run to the viewport's bottom
      edge (the person's strip lives only in column 1). min-height: 0 lets
      the panel shrink to its row instead of forcing the page taller. */
-  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 39 / span 3; max-width: none; margin: 0; padding-top: 0 !important; min-height: 0; }
+  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 40 / span 3; max-width: none; margin: 0; padding-top: 0 !important; min-height: 0; }
   /* #774: the empty-centre sentence sits where the open project would. */
   /* #3597 (Josh, 0.6.91 QA): centred in the empty display column, both ways, not pinned top-left. */
   html[data-layout="consolidated"] body.consolidated #pj-none { grid-column: 2; grid-row: 1; align-self: center; justify-self: center; text-align: center; margin: 0; max-width: 34rem; }
@@ -5060,7 +5060,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      against #rail-agents, traced to #pj-list-view's own top padding
      (shared with #alist at :1995, which needs it; the projects rail
      does not, since #panel-projects already zeroes its own top padding
-     to sit flush with row 39). */
+     to sit flush with row 40). */
   html[data-layout="consolidated"] body.consolidated #pj-list-view { grid-column: 1; padding-top: 0; }
   html[data-layout="consolidated"] body.consolidated #panel-projects > :not(#pj-list-view) { grid-column: 2; }
   /* #3126 (Josh, 6.68): tighter spacing between projects (was gap 8px). */
@@ -8581,6 +8581,43 @@ body.consolidated .tkcard:hover { border-color: transparent; }
    review rounds. Removed rather than commented, per this codebase's own rule
    about `.pjthread`: a rule that parses green and renders never is worse than
    no rule. With it gone, the same defect renders transparent and is obvious. */
+/* #4356: the first screen, built to Mona's approved mockup (Josh: "perfect!"). Measured from her
+   2560x1600 light and dark PNGs at 1280x800: the K 61 wide, three 280x225 cards 22 apart, the art in
+   the cards' top, the label under it. Its own tokens: the wizard behind it is one light look in both
+   themes, and this screen has an approved dark version. Above the boot cover and the wizard. */
+#fr-choice { --frc-bg: #faf9f7; --frc-card: #ffffff; --frc-border: #e3e1dc; --frc-ink: #14161a;
+             --frc-line: #4a4f57; --frc-dim: #9c9ea3; --frc-gold: #e3b341; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) #fr-choice { --frc-bg: #0c0d0f; --frc-card: #17191c; --frc-border: #2a2d31;
+                                             --frc-ink: #f5f5f4; --frc-line: #a9adb3; --frc-dim: #676a6e; }
+}
+/* The offsets below are the mockup's, measured at 1280x800: 47.8px under the block places it where
+   Mona's centred column sits (not the window's centre), the K sits 2.5px left of centre as drawn, and
+   27.5px / 36.7px are her gaps from the K to the heading and the heading to the cards. */
+.frc-back { position: fixed; inset: 0; z-index: 70; background: var(--frc-bg); overflow-y: auto;
+            display: flex; padding: var(--space-8) var(--space-5) calc(var(--space-8) + 47.8px); }
+/* The tab layout reserves a scrollbar gutter on <html> (#1309), which a fixed layer cannot paint over: on a Mac
+   that draws classic scrollbars (a mouse attached; CI's runner) a strip of the page showed down the right edge
+   beside this screen (#4489's CI). While the screen is up the page does not scroll and reserves nothing, as for
+   the restart screen (html.restart-up). :has follows every way the screen is shown or hidden. */
+html:has(> body > #fr-choice:not([hidden])) { overflow: hidden; scrollbar-gutter: auto; }
+.frc-box { margin: auto; display: flex; flex-direction: column; align-items: center;
+           max-width: 884px; width: 100%; text-align: center; }
+.frc-logo { width: 61px; height: 73.5px; display: block; margin-bottom: 27.5px; position: relative; left: -2.5px; }
+.frc-title { font: 700 26px/1.2 var(--font-ui); letter-spacing: -0.025em; margin: 0 0 36.7px; color: var(--frc-ink); }
+.frc-buttons { display: flex; flex-wrap: wrap; gap: 22px; justify-content: center; width: 100%; }
+.frc-btn { flex: 0 1 280px; min-height: 225px; box-sizing: border-box; padding: 30px 19px 16px; border-radius: 16px;
+           border: 1px solid var(--frc-border); background: var(--frc-card); color: var(--frc-ink);
+           display: flex; flex-direction: column; align-items: center; cursor: pointer;
+           font: 600 17px/22px var(--font-ui); }
+.frc-art { display: block; flex: none; width: 278px; height: 90px; margin: 0 -19px 32.5px;
+           fill: none; stroke: var(--frc-line); stroke-width: 4; stroke-linejoin: round; }
+.frc-art .frc-gold { fill: var(--frc-gold); stroke: none; }
+.frc-art .frc-fill { fill: var(--frc-line); stroke: none; }
+.frc-art .frc-dim { stroke: var(--frc-dim); stroke-width: 3.5; stroke-linecap: round; }
+.frc-btn:hover:not(:disabled) { border-color: var(--frc-gold); }
+.frc-btn:focus-visible { outline: 2px solid var(--frc-gold); outline-offset: 2px; }
+.frc-btn:disabled { opacity: 0.6; cursor: default; }
 .fr-back { position: fixed; inset: 0; z-index: 60;
            overflow-y: auto; display: flex; justify-content: center;
            padding: var(--space-8) var(--space-5); }
@@ -9567,6 +9604,9 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-theme="dark"] .lrow:hover { border-color: rgba(245,245,244,.30); }
 :root[data-theme="dark"] .pj-row:hover { border-color: rgba(245,245,244,.30); box-shadow: 0 2px 6px rgba(0,0,0,.35); }
 
+:root[data-theme="dark"] #fr-choice { --frc-bg: #0c0d0f; --frc-card: #17191c; --frc-border: #2a2d31;
+                                             --frc-ink: #f5f5f4; --frc-line: #a9adb3; --frc-dim: #676a6e; }
+
 :root[data-theme="dark"] #firstrun { --label-2: #4a4f57; --separator: #e3e1dc; }
 
 :root[data-theme="dark"] .s7-dock {background:rgba(60,60,64,.5);border-color:rgba(120,118,112,.4)}
@@ -9656,7 +9696,7 @@ body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.att
 #plus-stars { position: absolute; inset: 0; width: 100%; height: 100%;
   display: block; z-index: 0; pointer-events: none; }
 #s-sec-plus > *:not(#plus-stars) { position: relative; z-index: 1; }
-/* #4080: the Lost your phone? dialog is a child of this section (the body's 38-row limit), and the rule above, at id
+/* #4080: the Lost your phone? dialog is a child of this section (the body's 39-row limit), and the rule above, at id
    specificity, would make it position:relative, a block at the foot of the pane. Give it back the .rm-back overlay. */
 #s-sec-plus > #plus-lost-modal { position: fixed; inset: 0; z-index: 50; }
 /* 0.7.03 walk, against Josh's 22:22 mock: while connected the status line and the device message are empty, and their
@@ -12374,6 +12414,30 @@ window.kosmosMeasureScrollbarWidth();
 
      Deep-linkable as /?first-run=1 (and &fr-step=N), which is the only way to
      screenshot it on a machine that has already been through it. -->
+<!-- #4356: the first screen, before first run. Shown only in the Mac app, and only when the app
+     says this computer has not chosen yet (?mode=unset, first run not done) or its choice could not be
+     read (?mode=unreadable). Josh's copy rule (#4356, 2026-09-28): the logo, this heading and the
+     buttons, NOTHING else on the screen; Mona's line art is on the buttons (inline SVG below). Three
+     buttons since Josh's 10:31 ruling; the third one's words are Splinter's proposal and may change.
+     THE LABELS LIVE HERE ONLY: web.firstrun-choice-4356.test.js and the browser check pin them. -->
+<div class="frc-back" id="fr-choice" hidden>
+  <div class="frc-box">
+    <!-- The gold dotted K from Mona's approved mockup (#4356), recovered from its light and dark
+         versions by difference matting, so it is the mark's own pixels on no background. A raster, on
+         purpose: the vector K (kosmos-community web/public/kosmos-k.svg) has the same dot positions
+         but different dot sizes and golds, so it is not the approved mark. It is 122x147 and drawn at
+         61x73.5, native on a 2x screen and never scaled up; the test pins that. -->
+    <img class="frc-logo" src="data:image/png;base64,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" alt="Kosmos" width="61" height="73.5">
+    <h1 class="frc-title" id="frc-title">How would you like to set up Kosmos on this computer?</h1>
+    <div class="frc-buttons" role="group" aria-labelledby="frc-title">
+      <!-- Mona's line art (#4356, approved by Josh): gold dots are agents. Drawn in the mockup's own
+           2x coordinates, card-relative, so it lines up with her PNGs; decorative (aria-hidden). -->
+      <button type="button" class="frc-btn" data-mode="run"><svg class="frc-art" viewBox="0 60 556 180" width="278" height="90" aria-hidden="true" focusable="false"><rect x="195.5" y="90.5" width="164" height="109" rx="10"/><path d="M181 215.5H374L364 230.5H192Z"/><circle class="frc-gold" cx="242" cy="145" r="11"/><circle class="frc-gold" cx="277.5" cy="133.5" r="11"/><circle class="frc-gold" cx="313" cy="145" r="11"/></svg><span>Run agents on this computer</span></button>
+      <button type="button" class="frc-btn" data-mode="connect"><svg class="frc-art" viewBox="0 60 556 180" width="278" height="90" aria-hidden="true" focusable="false"><rect x="70.5" y="90.5" width="164" height="109" rx="10"/><path d="M56 215.5H249L239 230.5H67Z"/><path class="frc-dim" d="M122 145H184M122 164.5H161"/><circle class="frc-fill" cx="260" cy="145" r="7.5"/><path d="M274 145H285M292 145H302"/><circle class="frc-fill" cx="314.5" cy="145" r="7.5"/><rect x="320.5" y="74.5" width="179" height="121" rx="10"/><path d="M390.5 197.5V223.5M370 223.5H451"/><circle class="frc-gold" cx="375" cy="135" r="11"/><circle class="frc-gold" cx="410" cy="124" r="11"/><circle class="frc-gold" cx="445" cy="135" r="11"/></svg><span>Connect to agents on another computer</span></button>
+      <button type="button" class="frc-btn" data-mode="both"><svg class="frc-art" viewBox="0 60 556 180" width="278" height="90" aria-hidden="true" focusable="false"><rect x="70.5" y="90.5" width="164" height="109" rx="10"/><path d="M56 215.5H249L239 230.5H67Z"/><circle class="frc-gold" cx="118" cy="145" r="11"/><circle class="frc-gold" cx="153" cy="133" r="11"/><circle class="frc-gold" cx="188" cy="145" r="11"/><circle class="frc-fill" cx="260" cy="145" r="7.5"/><path d="M274 145H285M292 145H302"/><circle class="frc-fill" cx="314.5" cy="145" r="7.5"/><rect x="320.5" y="74.5" width="179" height="121" rx="10"/><path d="M390.5 197.5V223.5M370 223.5H451"/><circle class="frc-gold" cx="375" cy="135" r="11"/><circle class="frc-gold" cx="410" cy="124" r="11"/><circle class="frc-gold" cx="445" cy="135" r="11"/></svg><span>Run agents here and connect to other computers</span></button>
+    </div>
+  </div>
+</div>
 <div class="fr-back" id="firstrun" hidden>
   <!-- The pack's dot field (#44, Josh's clean-install catch): the setup
        backdrop animates the same slow pale drift the pack draws behind its
@@ -16719,8 +16783,8 @@ window.kosmosMeasureScrollbarWidth();
 <!-- #4080: "Lost your phone?" opens this, in place of the essay that sat on the Kosmos Plus pane (Josh, 22:06:
        "all of this probably doesnt belong on that page"). The reset keeps its ids and its two-step arm (#733).
        The words are shortened; "always" is kept, per Josh's 2026-08-29 ruling that the second step ALWAYS happens.
-       It sits INSIDE the Kosmos Plus section, not as a direct child of <body>: the consolidated grid reserves 38 rows
-       for body's children (web.consolidated-980.test.js) and main already has 38. The section's own child rule would
+       It sits INSIDE the Kosmos Plus section, not as a direct child of <body>: the consolidated grid reserves 39 rows
+       for body's children (web.consolidated-980.test.js) and main already has 39. The section's own child rule would
        make it position:relative, so a rule restores the fixed overlay (#s-sec-plus > #plus-lost-modal; review round 3). -->
   <div class="rm-back" id="plus-lost-modal" hidden>
     <div class="rm-box" role="dialog" aria-modal="true" aria-labelledby="plus-lost-t" aria-describedby="plus-lost-say">
@@ -20019,6 +20083,11 @@ document.getElementById('uc-go').addEventListener('click', async () => {
   back.innerHTML = '<div class="upd-msg" role="alert" tabindex="-1">'
     + '<canvas class="upd-k" width="176" height="206" role="img" aria-label="Updating"></canvas>'
     + '<b>' + esc(updateOverlayLead(true, downloading, undefined, rollingBack)) + '</b> Your agents keep working.</div>';
+  /* #4356: an update over the first screen is shown, not hidden under it: the screen goes (and its
+     inert hold with it), so the person sees why the buttons stopped; the reload that ends every
+     update brings the screen back, still asking (review round 21). */
+  { const frc = document.getElementById('fr-choice');
+    if (frc && !frc.hidden) { frc.hidden = true; if (typeof frChoiceInert === 'function') frChoiceInert(false); } }
   document.body.appendChild(back);
   /* After it is in the document: the loader measures the canvas, and a detached
      one has no layout to measure. */
@@ -20386,8 +20455,10 @@ function paintRestartScreen(down, deviceIsOffline) {
   /* A world switch restarts the board on purpose and can take minutes (worldswReconnect), so it
      stands down like an update does. Any stand-down also restarts the 15 s clock, so a board still
      down afterwards gets a fresh wait rather than the screen on the very next poll. */
+  /* #4356: nor while Connect on the first screen stops this board on purpose (FR_CHOICE_CONNECTING). */
   if (!down || deviceIsOffline || remote || !served || UPDATING_NOW || WORLDSW_SWITCHING
-    || (typeof ENGINE_RESTARTING !== 'undefined' && ENGINE_RESTARTING)) {
+    || (typeof ENGINE_RESTARTING !== 'undefined' && ENGINE_RESTARTING)
+    || (typeof FR_CHOICE_CONNECTING !== 'undefined' && FR_CHOICE_CONNECTING)) {
     BOARD_NO_ANSWER_SINCE = null;
     if (shown) {
       shown.remove();
@@ -20398,6 +20469,14 @@ function paintRestartScreen(down, deviceIsOffline) {
       const back = RESTART_SCREEN_RETURN;
       RESTART_SCREEN_RETURN = null;
       if (back && back.isConnected && typeof back.focus === 'function') back.focus();
+      /* #4356: the board came back without a reload, and the first screen it hid is still waiting for
+         an answer (firstRunBoot awaits it): give it back, with its own inert hold, or first run
+         never opens (review round 26). */
+      if (typeof FR_CHOICE_HIDDEN_BY_RESTART !== 'undefined' && FR_CHOICE_HIDDEN_BY_RESTART) {
+        FR_CHOICE_HIDDEN_BY_RESTART = false;
+        const frc = document.getElementById('fr-choice');
+        if (frc && FR_CHOICE_PENDING && typeof frChoiceInert === 'function') { frc.hidden = false; frChoiceInert(true); }
+      }
     }
     return;
   }
@@ -20422,6 +20501,14 @@ function paintRestartScreen(down, deviceIsOffline) {
   /* Josh (via Splinter, 10:39): nothing else on the screen, so the version and the address that did
      not answer go to the log, not onto the page. */
   if (detail.length) { try { console.info('Kosmos requires a full restart: ' + asSentence(detail.join(', '))); } catch { /* no console */ } }
+  /* #4356: a board that is really down under the first screen shows this screen, not dead buttons:
+     the first screen goes (and gives back only its own inert holds) before this one takes the page. */
+  { const frc = document.getElementById('fr-choice');
+    if (frc && !frc.hidden) {
+      frc.hidden = true;
+      if (typeof frChoiceInert === 'function') frChoiceInert(false);
+      if (typeof FR_CHOICE_PENDING !== 'undefined' && FR_CHOICE_PENDING) FR_CHOICE_HIDDEN_BY_RESTART = true;
+    } }
   RESTART_SCREEN_RETURN = document.activeElement;
   document.body.appendChild(back);
   document.documentElement.classList.add('restart-up');
@@ -21449,8 +21536,9 @@ function syncUrl() {
     } else if (tab && tab !== 'agents') {
       q.set('tab', tab);
     }
-    /* Carry through the two debugging knobs a person may have typed. */
-    for (const k of ['limit', 'first-run']) { const v = new URLSearchParams(location.search).get(k); if (v) q.set(k, v); }
+    /* Carry through the two debugging knobs a person may have typed, and #4356's ?mode=, which the
+       Mac app puts there for first run to read (dropping it here lost the first screen). */
+    for (const k of ['limit', 'first-run', 'mode']) { const v = new URLSearchParams(location.search).get(k); if (v) q.set(k, v); }
     const want = q.toString() ? '?' + q.toString() : location.pathname;
     const have = location.search || location.pathname;
     if (want !== have) history.replaceState(null, '', q.toString() ? '?' + q.toString() : location.pathname);
@@ -28436,7 +28524,7 @@ function cnHeld() {
   if (document.getElementById('whatsnew')) return true;
   // The same covering set as tipModalOpen, less this notice itself, plus the boot cover: it sits over
   // everything until first run's check answers, and a notice under it would be recorded as seen unseen.
-  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice), .fr-back:not([hidden]), .upd-back, .restart-back, dialog[open], #boot-cover:not([hidden])');   // #4343: not behind the restart screen
+  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open], #boot-cover:not([hidden])');   // #4343: not behind the restart screen
 }
 function cnOpen() {
   if (document.getElementById('cmnotice')) return;
@@ -28503,7 +28591,7 @@ async function communityNoticeCheck() {
    one (first run, the update overlay) owns the keys, and the keys are taken in the capture phase and
    stopped, so one Escape closes one window. */
 function cnCovered() {
-  return !!document.querySelector('.fr-back:not([hidden]), .upd-back');
+  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back');
 }
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || cnCovered()) return;
@@ -28952,7 +29040,8 @@ document.addEventListener('keydown', (e) => {
      attribute; the inner `.rm-box[aria-modal]` is NOT itself `hidden`-toggled, so we
      test the backdrop, not aria-modal. Keeps a keystroke during a destructive-action
      confirmation from being stolen into the composer. */
-  if (document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden])')) return;
+  // #4356: and the first screen (.frc-back), which covers the board as first run does.
+  if (document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden])')) return;
   const c = activeComposer();
   if (!c) return;
   /* Focus WITHOUT preventDefault so the character that triggered this keydown
@@ -35015,7 +35104,7 @@ function wnWire(back) {
 function wnCovered() {
   // Only windows drawn OVER this one (round 3): the other .rm-back dialogs sit under it at the same layer.
   // #4288 part B: and the one-time Community notice, so the two windows never stack. #4343: and the restart screen.
-  return !!document.querySelector('.fr-back:not([hidden]), .upd-back, #cmnotice, .restart-back');
+  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, #cmnotice, .restart-back');
 }
 /* In the capture phase, and stopped once handled (round 12): a dialog open UNDER the window keeps its own
    document-level Escape and Tab handlers, and one Escape must not close both. */
@@ -63452,6 +63541,27 @@ function frClose() {
  * ⚠️ AND THE SECOND CLICK ALWAYS PROCEEDS, whatever happened. Somewhere to say
  * it is not the same as somewhere to be stuck.
  */
+/* #4356: "Run agents here and connect to other computers" is today's first run, then Kosmos Plus
+   sign-in as its last step: the Settings sign-in that already exists (plusSiEnter), not a new one.
+   The app says so with ?mode=both, so a first run finished after a relaunch still ends there. */
+let FR_FORCED = false;   // first run opened by hand (Settings' re-run, ?first-run=1), not first-time setup
+function frPlusLast() {
+  // The first-time setup of a both computer only: a re-run from Settings does not push the sign-in again.
+  return !FR_FORCED && new URLSearchParams(location.search).get('mode') === 'both';
+}
+function frPlusSignIn() {
+  showTab('settings');
+  settingsGo('plus');
+  plusSiEnter();
+}
+/* #4356: how first run ends, whichever way it closes. On a "both" computer the Kosmos Plus sign-in is
+   the last step and takes the place of the ending the screen offered (the agents list, or Create an
+   agent, which stays one click away on the board). Josh: the sign-in is the LAST step. */
+function frEnd(then) {
+  frClose();
+  if (frPlusLast()) frPlusSignIn(); else then();
+}
+
 async function frFinish(then) {
   /**
    * ⚠️ ONE FLAG, NOT A DISABLED BUTTON. The first version guarded re-entry by
@@ -63506,14 +63616,14 @@ async function frFinish(then) {
     why = err.message;
   }
   FR_FINISHING = false;
-  if (ok || FR_FORGOT) { frClose(); then(); return; }
+  if (ok || FR_FORGOT) { frEnd(then); return; }
   FR_FORGOT = true;
   next.disabled = false;
   document.getElementById('fr-forgot').innerHTML =
     '<div class="fr-note"><b>We could not remember that you have been here.</b> '
     + 'Everything else works; this may just appear again the next time you open it. ('
     + esc(why) + ')</div>';
-  frActions({ label: 'Carry on anyway', go: () => { frClose(); then(); } });
+  frActions({ label: 'Carry on anyway', go: () => frEnd(then) });
 }
 
 // ⚠️ Skipping MARKS IT SEEN, and that is not a bug. The flag records that
@@ -63699,7 +63809,8 @@ function tipMenuOpen() {
 }
 
 function tipModalOpen() {
-  return !!document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .upd-back, .restart-back, dialog[open]');
+  // #4356: the first screen (.frc-back) covers the board as first run does; no tip opens under it.
+  return !!document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open]');
 }
 
 function tipVisibleAny(sel) {
@@ -64489,6 +64600,9 @@ function asbShows() {
   if (!ASB.setting || ASB.setting.on !== true || ASB.holding) return false;
   const fr = document.getElementById('firstrun');
   if (fr && !fr.hidden) return false;
+  // #4356: nor under the first screen, which covers the board as first run does.
+  const frc = document.getElementById('fr-choice');
+  if (frc && !frc.hidden) return false;
   return !!asbGuideRow() || asbIsHosted() || asbStepping();
 }
 /* The hosted assistant has just ended, and the person has yet to read why: folded with the dot, or open for the
@@ -65212,6 +65326,114 @@ function asbStart() {
    win32-board-copy: a platform copy layer is back, for Windows rather than for the
    Success screen alone: onWindows() and windowsCopyTable() at the top of this script. */
 
+/* #4356: the app's own handler for this computer's choice: the Mac app's kosmosMode handler, or
+   the Windows app's window (WebView2), which takes { kosmosMode: "run|connect|both" } the way it
+   takes { kosmosBadge: n } (#4381, Homer's half). Absent in a browser, and on a board opened any
+   other way, so the choice screen never shows there; and only an app that knows the choice puts
+   ?mode= on the address (frChoiceWanted), so an older Windows app never shows it either. A WebView2
+   post cannot fail, so the page believes it was heard: the Windows app must handle { kosmosMode }
+   before it ever puts ?mode= on its address, or a choice is dropped (#4381). */
+function frChoiceBridge() {
+  const h = window.webkit && window.webkit.messageHandlers;
+  if (h && h.kosmosMode) return h.kosmosMode;
+  const wv = window.chrome && window.chrome.webview;
+  if (wv && typeof wv.postMessage === 'function') return { postMessage: (mode) => wv.postMessage({ kosmosMode: mode }) };
+  return null;
+}
+
+/* #4356: the app puts ?mode=unset on a computer that has not chosen, and ?mode=unreadable when its
+   stored choice could not be read. An unread choice asks again even after first run, rather than
+   quietly becoming one of the three. */
+function frChoiceWanted(done) {
+  if (!frChoiceBridge()) return false;
+  // Only on this computer's own board: in connect mode the window shows ANOTHER computer's page,
+  // which is this same page, and a crafted ?mode= there must not raise the screen over it.
+  if (!/^(127\.0\.0\.1|localhost)$/.test(location.hostname)) return false;
+  const mode = new URLSearchParams(location.search).get('mode');
+  return mode === 'unreadable' || (mode === 'unset' && !done);
+}
+
+/* #4356: once the app has the choice, the address stops asking. Reload keeps the address, and the
+   app no longer hears a choice it has already made, so the screen would come back with buttons that
+   do nothing. `both` stays on the address, as the app itself puts it there, because the end of
+   first run reads it (frPlusLast). */
+function frChoiceForget(mode) {
+  try {
+    const u = new URL(location.href);
+    if (!u.searchParams.has('mode')) return;
+    if (mode === 'both') u.searchParams.set('mode', 'both'); else u.searchParams.delete('mode');
+    history.replaceState(history.state, '', u.pathname + u.search + u.hash);
+  } catch { /* the address keeps ?mode=; the app still ignores a second choice */ }
+}
+
+/* #4356: the page under the first screen is inert while it is up, INCLUDING what arrives later: seven
+   places append to <body> (the setup assistant's layer, toasts, tips), and a layer added after the
+   screen went up would take Tab and screen-reader focus from behind it (review round 4). */
+let FR_CHOICE_WATCH = null;
+let FR_CHOICE_INERTED = [];   // only what this screen made inert is given back, as the restart screen (#4343) does
+let FR_CHOICE_CONNECTING = false;   // Connect was chosen: the board is being stopped on purpose
+let FR_CHOICE_PENDING = false;      // the first screen is waiting for an answer (frChoose)
+let FR_CHOICE_HIDDEN_BY_RESTART = false;   // the restart screen hid it, and gives it back if it clears
+function frChoiceHold(n) {
+  if (n.nodeType !== 1 || n.id === 'fr-choice' || n.inert) return;
+  n.inert = true;
+  FR_CHOICE_INERTED.push(n);
+}
+function frChoiceInert(on) {
+  if (FR_CHOICE_WATCH) { FR_CHOICE_WATCH.disconnect(); FR_CHOICE_WATCH = null; }
+  if (!on) {
+    FR_CHOICE_INERTED.forEach((n) => { n.inert = false; });
+    FR_CHOICE_INERTED = [];
+    return;
+  }
+  document.querySelectorAll('body > *:not(#fr-choice)').forEach(frChoiceHold);
+  if (typeof MutationObserver === 'function') {
+    FR_CHOICE_WATCH = new MutationObserver((recs) => {
+      for (const r of recs) for (const n of r.addedNodes) frChoiceHold(n);
+    });
+    FR_CHOICE_WATCH.observe(document.body, { childList: true });
+  }
+}
+
+/* #4356: show the first screen and resolve with the choice. Run agents, and Run agents here and
+   connect, hide it and first run carries on. Connect leaves it up, buttons disabled, while the app
+   stops the board here and loads Kosmos Plus sign-in; if the app cannot be told, the buttons stay
+   live rather than sit dead. */
+function frChoose() {
+  const el = document.getElementById('fr-choice');
+  const btns = [...el.querySelectorAll('.frc-btn')];
+  return new Promise((resolve) => {
+    btns.forEach((b) => {
+      b.onclick = () => {
+        const mode = b.dataset.mode;
+        let told = true;
+        try { frChoiceBridge().postMessage(mode); } catch { told = false; }
+        // The app has its answer and stops listening, so a Reload must not ask again. Told or not, a
+        // both choice keeps ?mode=both for this session's last step (frPlusLast); if the app did not
+        // hear it, the next launch asks again anyway.
+        if (told || mode === 'both') frChoiceForget(mode);
+        if (mode !== 'connect' || told) FR_CHOICE_PENDING = false;
+        if (mode === 'connect') {
+          if (!told) return;
+          FR_CHOICE_CONNECTING = true;   // the board goes down now on purpose: no restart screen over it
+          btns.forEach((x) => { x.disabled = true; });
+          resolve('connect');
+          return;
+        }
+        el.hidden = true;
+        frChoiceInert(false);
+        resolve(mode);
+      };
+    });
+    FR_CHOICE_PENDING = true;
+    el.hidden = false;
+    // Everything else on the page goes inert while the screen is up, as first run's frOpen does: no
+    // Tab, click or screen reader reaches the board under it (and first run re-applies its own).
+    frChoiceInert(true);
+    revealBoot();
+  });
+}
+
 async function firstRunBoot(force, step) {
   try {
     let state;
@@ -65225,7 +65447,13 @@ async function firstRunBoot(force, step) {
     // The net effect was still "no overlay", but by accident rather than by the
     // rule three lines up, and an accident is not a fail-closed guarantee.
     if (!state || typeof state !== 'object') return;
-    if (state.done && !force) return;
+    // #4356: this computer's choice comes first. Connect hands the window to the app. A choice asked
+    // again after first run (an unreadable one) skips the wizard, so "both" goes straight to its
+    // last step, the Kosmos Plus sign-in.
+    const chose = frChoiceWanted(state.done) ? await frChoose() : null;
+    if (chose === 'connect') return;
+    if (state.done && !force) { if (chose === 'both') frPlusSignIn(); return; }
+    FR_FORCED = !!force;
     FR = state;
     frOpen();
     // ⚠️ Only after `frOpen` has painted step 1, so a forced deep link cannot
