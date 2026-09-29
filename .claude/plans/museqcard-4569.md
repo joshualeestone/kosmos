@@ -23,6 +23,10 @@ when the queue empties or the agent goes idle.
 - Rejected: the report's free text (hidden by ruling, and wrongly quoted); a new board route (the report already
   goes to the board every turn).
 
+- Known and accepted (review round 2): reports are separate processes, so a working report sent in the last
+  milliseconds of a turn can land after the idle one and show a stale count until the working report decays
+  (REPORT_WORKING_DECAY_MS). The heartbeat already had this window; the note timer adds at most one report per 1.5 s.
+
 ## Weakest premise
 That the line reads right in the card's task slot at every width: measured on the page's own taskLine / stateReason
 source, not in a browser (a stub harness for a Muse card with a queue does not exist yet).
@@ -34,5 +38,7 @@ source, not in a browser (a stub harness for a Muse card with a queue does not e
 - engine/selfreport.waiting-4569.test.js: kept and read back; idle, text, yours > n, zero, fraction not kept; an
   emptied queue clears; status carries it on a fresh working report only (control: no count; a stale report).
 - server.report-readback-2709.test.js: the route passes the count through and drops a bad one.
+- engine/status.muse-waiting-4569.test.js: status.snapshot() puts the count on the pane card and on the paneless
+  card (a live agent with a token and no pane), and a stale report puts none (each builder's line measured red).
 - web.muse-waiting-4569.test.js: the card / list / agent page line, called with noQuote as they call it, and without;
   no count, a nonsense count, or a non-working state shows nothing.
