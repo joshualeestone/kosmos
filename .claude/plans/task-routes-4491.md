@@ -51,6 +51,8 @@ onto main.
   letting a current assignee past membership, which reopens the non-member write this slice closes. If the project
   list cannot be read at delivery time, everyone is told, as before. Residual, stated: task built still refuses a
   departed assignee's mark (it did before this slice, on the pane path).
+  The other task notifications (parts, close, reopen, heard-by) still reach departed assignees: filed as #4540
+  (claimed:angel), out of this slice's scope.
 - The paneless test is one helper (panelessCaller), shared by both handlers with sameAgentName/projectHasAgent.
 
 ## Weakest premise

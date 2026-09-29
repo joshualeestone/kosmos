@@ -304,6 +304,7 @@ test('task message does not tell an assignee that has left the project, and says
   const r = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-board-token': BOARD, 'sec-fetch-site': 'same-origin', origin: base }, body: { text: 'from the person' } });
   assert.equal(r.code, 200, r.text.slice(0, 160));
   const delivered = JSON.parse(r.text).delivered;
+  assert.deepEqual(delivered.map((d) => d.agent).sort(), ['gone-agent', 'mara'], 'expected exactly one entry per assignee: ' + JSON.stringify(delivered));
   const gone = delivered.find((d) => d.agent === 'gone-agent');
   assert.ok(gone && /not on this project any more/.test(gone.because), 'the departed assignee was told, or not said: ' + JSON.stringify(delivered));
   /* CONTROL: the member is still sent the notification (whatever its delivery outcome), so the filter is membership. */

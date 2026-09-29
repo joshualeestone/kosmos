@@ -3762,8 +3762,7 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    hold the person's credential for its everyday verbs, and a request carrying only an agent
    token is that agent, never the person. Person-only routes (removing, restarting or
    reconfiguring agents, settings, POST /api/agents) are not in this set (nor AGENT_TOKEN_ROUTE_PATTERNS below) and
-   keep requiring the
-   board token. The header only, never `token` in the body: this gate runs before the body is
+   keep requiring the board token. The header only, never `token` in the body: this gate runs before the body is
    read, and the handlers resolve the header first (presentedAgentToken), so both see the same
    caller. Not in REMOTE_AGENT_ROUTES, so a DIRECT network peer is still refused by
    remoteWriteGuard. ⚠️ Kosmos+ tunnel traffic reaches this board over loopback, so that guard
@@ -16572,8 +16571,8 @@ const server = http.createServer(async (req, res) => {
            names itself with its per-run agent token, resolved through the chain
            /api/msg, /api/post and /api/react use. BEFORE the message is recorded: a
            presented token that does not resolve is refused, never recorded as "An
-           agent" (a bad credential is not swapped for a weaker one). No token leaves
-           the pane path below exactly as it was. */
+           agent" (a bad credential is not swapped for a weaker one). With no token, the
+           pane identifies the caller (below), as task built resolves it. */
         const roster = safeRoster();
         /* A token cannot be checked against a roster nobody could read: say that,
            as /api/msg does, rather than a refusal that blames the token. */
@@ -16656,7 +16655,7 @@ const server = http.createServer(async (req, res) => {
         const senderName = clean(senderCard && senderCard.sessionName);
         /* #3564: a swarm switched off in this project is not told about its tasks. */
         const offHere = projects.swarmOffSet(id);
-        const others = senderName ? named.filter((m) => !sameAgentName(m, senderName, byKey)) : named;
+        const others = senderCard && senderCard.sessionName ? named.filter((m) => !sameAgentName(m, senderCard.sessionName, byKey)) : named;
         /* #4491 slice 3: an assignee that has left the project stays on its tasks (removal does not unassign), but is
            not told about them: its reply would be refused as not on the project. Said in `delivered`, like an Off
            swarm. If the project list cannot be read here, everyone is told, as before. */
