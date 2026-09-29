@@ -77,6 +77,8 @@ const look = (page) => page.evaluate(() => {
     titleTop: title ? r(title).top : null,
     btns: btns.map((b) => ({ text: b.innerText.trim(), name: b.getAttribute('aria-label'), top: r(b).top, left: r(b).left, h: r(b).height, disabled: b.disabled })),
     covered: shown && pts.every(([x, y]) => el.contains(document.elementFromPoint(x, y))),
+    // The tab layout's scrollbar gutter must not show beside the screen on a Mac with classic scrollbars (#4489 CI).
+    gutter: (() => { const cs = getComputedStyle(document.documentElement); return { gutter: cs.scrollbarGutter, overflow: cs.overflowY }; })(),
     // What sits at each sampled point, so a red here names what shows around the screen (#4489 CI).
     hits: pts.map(([x, y]) => { const h = document.elementFromPoint(x, y); if (h && el.contains(h)) return null; return [Math.round(x), Math.round(y), h ? h.tagName.toLowerCase() + (h.id ? '#' + h.id : '') + (h.className && typeof h.className === 'string' ? '.' + h.className.trim().split(/\s+/).join('.') : '') : '(nothing: outside the page, e.g. a scrollbar)']; }).filter(Boolean),
     focused: document.activeElement && document.activeElement.classList.contains('frc-btn') ? document.activeElement.innerText.trim() : null,
@@ -91,7 +93,7 @@ const look = (page) => page.evaluate(() => {
   const server = await srv.start(0);
   const port = server.address().port;
   const base = 'http://127.0.0.1:' + port + '/';
-  const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
+  const browser = await chromium.launch({ headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] });   // real scrollbars: the tab layout's gutter is what CI (a Mac with classic scrollbars) saw
   try {
     const errs = [];
     const open = async (url, { bridge = true, width = 1280 } = {}) => {
@@ -116,6 +118,7 @@ const look = (page) => page.evaluate(() => {
       'C1 the buttons sit side by side in order, Run on the left', JSON.stringify(s.btns));
     chk(s.btns.length === 3 && s.btns.every((b) => b.h >= 150), 'C1 the buttons are large');
     chk(s.covered, 'C1 nothing of the board or the wizard shows around the screen', JSON.stringify(s.hits));
+    chk(s.gutter.gutter === 'auto' && s.gutter.overflow === 'hidden', 'C1 the page reserves no scrollbar gutter beside the screen and does not scroll under it', JSON.stringify(s.gutter));
     chk(s.focused === null, 'C1 no button shows focus on load, as in the approved mockup', String(s.focused));
     await page.keyboard.press('Tab');
     chk((await look(page)).focused === RUN, 'C1 and Tab reaches Run agents first');
@@ -133,6 +136,7 @@ const look = (page) => page.evaluate(() => {
     s = await look(page);
     chk(JSON.stringify(s.posted) === '["run"]', 'C2 Run agents tells the app "run"', JSON.stringify(s.posted));
     chk(!s.shown && s.wizard, 'C2 the screen goes and first run opens');
+    chk(s.gutter.gutter === 'stable' && s.gutter.overflow !== 'hidden', 'C2 and the page scrolls and keeps its gutter again', JSON.stringify(s.gutter));
     chk(!/[?&]mode=/.test(s.search), 'C2 the address no longer asks, so a Reload does not show the screen again', s.search);
     await page.context().close();
 

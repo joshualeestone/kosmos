@@ -8552,6 +8552,11 @@ body.consolidated .tkcard:hover { border-color: transparent; }
    27.5px / 36.7px are her gaps from the K to the heading and the heading to the cards. */
 .frc-back { position: fixed; inset: 0; z-index: 70; background: var(--frc-bg); overflow-y: auto;
             display: flex; padding: var(--space-8) var(--space-5) calc(var(--space-8) + 47.8px); }
+/* The tab layout reserves a scrollbar gutter on <html> (#1309), which a fixed layer cannot paint over: on a Mac
+   that draws classic scrollbars (a mouse attached; CI's runner) a strip of the page showed down the right edge
+   beside this screen (#4489's CI). While the screen is up the page does not scroll and reserves nothing, as for
+   the restart screen (html.restart-up). :has follows every way the screen is shown or hidden. */
+html:has(> body > #fr-choice:not([hidden])) { overflow: hidden; scrollbar-gutter: auto; }
 .frc-box { margin: auto; display: flex; flex-direction: column; align-items: center;
            max-width: 884px; width: 100%; text-align: center; }
 .frc-logo { width: 61px; height: 73.5px; display: block; margin-bottom: 27.5px; position: relative; left: -2.5px; }
