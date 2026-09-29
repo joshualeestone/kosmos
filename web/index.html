@@ -13981,6 +13981,7 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <p class="rolelimit" id="team-seeded-msg" role="status" aria-live="polite" hidden></p>
     </div>
+    <p class="rolelimit" id="team-orgchart-msg" role="status" aria-live="polite" hidden></p>
     <div class="nak-team-opt" id="team-orgchart-opt" hidden>
       <p class="flabel" id="team-orgchart-label">Or upload an org chart</p>
       <div class="importrow">
@@ -46290,7 +46291,11 @@ function chooseCreatePath(path) {
   const kind = document.querySelector('input[name="create-kind"][value="' + (path === 'swarm' ? 'swarm' : 'agent') + '"]');
   if (kind) kind.checked = true;
   swarmCreatePaint();
-  if (path === 'team') { cstep('team'); loadSeededTeams(); document.getElementById('cstep-team-title').focus(); return; }
+  if (path === 'team') {
+    cstep('team'); loadSeededTeams(); document.getElementById('cstep-team-title').focus();
+    if (!(ROLES && ROLES.length)) loadRoles('pm');   // the org chart needs the roles' own entry; a failed load is retried here
+    return;
+  }
   document.getElementById('cstep-role-title').textContent = path === 'swarm' ? 'What should this swarm do?' : 'What should this agent do?';
   cstep('role');
   document.getElementById('cstep-role-title').focus();   // the chosen card is now hidden; keep the keyboard on the new screen
@@ -46409,6 +46414,7 @@ function roleByKey(key) {
   return (ROLES || []).find((r) => r.key === key) || null;
 }
 
+let ROLES_FAILED = false;   // #4556 review: the last roles load failed (the Team screen says so)
 let ROLES_GEN = 0;   // #4556: only the latest call applies its default (openCreate and a path choice can both be in flight)
 async function loadRoles(initialMode) {
   const gen = ++ROLES_GEN;
@@ -46426,6 +46432,7 @@ async function loadRoles(initialMode) {
   // cleared it -- a screen showing a selection the page did not have.
   if (ROLES && ROLES.length) { updateRecPill(); paintPathOptions(); pickMode(mode); return; }
   msg.textContent = 'Loading…';
+  ROLES_FAILED = false;
   try {
     const res = await fetch('/api/roles', { cache: 'no-store' });
     if (!res.ok) throw new Error('status ' + res.status);
@@ -46443,6 +46450,7 @@ async function loadRoles(initialMode) {
     if (gen === ROLES_GEN) pickMode(mode);
   } catch (err) {
     if (gen !== ROLES_GEN) return;   // #4556: a newer load owns the screen; a stale failure must not empty it
+    if (ROLES && ROLES.length) return;   // another load already filled the list; this failure must not empty it
     // ⚠️ Do NOT fall back to a hardcoded list. The blurb a person reads while
     // choosing has to be the copy the agent is actually created from, and a
     // local copy of the menu is exactly how those two drift apart.
@@ -46452,7 +46460,9 @@ async function loadRoles(initialMode) {
     // no-hardcoded-list rule exists for, arriving through a stale cache).
     OWN_ROLE = null;
     CREATE_MODELS = [];
-    ['pick-pm', 'pick-list', 'pick-own', 'pick-import', 'rolepick', 'importpick'].forEach((id) => {
+    ROLES_FAILED = true;
+    paintTeamOrgchartNote();
+    ['pick-pm', 'pick-list', 'pick-own', 'pick-import', 'rolepick', 'importpick', 'team-orgchart-opt'].forEach((id) => {
       document.getElementById(id).hidden = true;
     });
     // Not `esc()`: this goes into textContent, which does its own escaping, so
@@ -46535,6 +46545,15 @@ function paintPathOptions() {
   if (listName) listName.textContent = swarmPath ? 'Pick a role' : 'Pick another role';
   /* The org chart creates every row down the `own` path, so it is offered on the same condition as `own`. */
   document.getElementById('team-orgchart-opt').hidden = !OWN_ROLE;
+  paintTeamOrgchartNote();
+}
+/* #4556 review: when the roles could not be read the org chart cannot be offered, and the Team screen says so
+   rather than showing only "Ready-made teams are coming soon." */
+function paintTeamOrgchartNote() {
+  const m = document.getElementById('team-orgchart-msg');
+  const say = ROLES_FAILED && !OWN_ROLE
+    ? 'We could not load what uploading an org chart needs just now. Go back and choose Team again to try again.' : '';
+  m.textContent = say; m.hidden = !say;
 }
 
 /**

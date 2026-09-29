@@ -26,6 +26,8 @@
  *   K8 the race: openCreate's roles load answers AFTER the Swarm path's, and the Swarm screen still opens on the
  *      role menu with no Project Manager picked (ROLES_GEN);
  *   K9 a board with no define-your-own role offers no org chart on the Team screen (it creates down that path).
+ *   K10 the roles cannot be read: the Team screen says the org chart cannot be offered (not only "coming soon"),
+ *       and choosing Team again tries again and offers it once they load.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-newagent-paths-4556.js
  */
@@ -53,6 +55,7 @@ let SEEDED = null;   // null: 404, as before #4555
 let ROLES_DELAY_ONCE = 0;   // K8: hold the next /api/roles this many ms
 let IMPORT_DELAY = 0;       // K3b: hold /api/agent-import this many ms
 let NO_OWN = false;          // K9: serve no define-your-own role
+let ROLES_FAIL = false;      // K10: /api/roles answers 500
 const ROLES = {
   roles: [
     { key: 'pm', label: 'Project Manager', blurb: 'Runs the work.', group: 'Running the work' },
@@ -68,6 +71,7 @@ const json = (res, body) => { res.writeHead(200, { 'content-type': 'application/
 const server = http.createServer((req, res) => {
   const u = req.url.split('?')[0];
   if (u === '/api/roles') {
+    if (ROLES_FAIL) { res.writeHead(500, { 'content-type': 'application/json' }); return res.end('{}'); }
     const body = NO_OWN ? { ...ROLES, own: null } : ROLES;
     const wait = ROLES_DELAY_ONCE; ROLES_DELAY_ONCE = 0;
     if (wait) { setTimeout(() => json(res, body), wait); return; }
@@ -296,6 +300,23 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
       await page.waitForTimeout(400);
       const k9c = await page.evaluate(() => document.getElementById('team-orgchart-opt').hidden);
       ok(t + ' K9 the org chart is offered only when the board serves a define-your-own role', k9 === true && k9c === false, JSON.stringify([k9, k9c]));
+
+      // K10: the roles cannot be read. The Team screen says why there is no org chart, and choosing Team again retries.
+      ROLES_FAIL = true;
+      await page.evaluate(() => { SEEDED_TEAMS = null; ROLES = null; OWN_ROLE = null; openCreate(); });
+      await page.click('#cstep-kind [data-path="team"]');
+      await page.waitForTimeout(400);
+      const k10 = await page.evaluate(() => ({ opt: document.getElementById('team-orgchart-opt').hidden,
+        note: document.getElementById('team-orgchart-msg').hidden ? '' : document.getElementById('team-orgchart-msg').textContent }));
+      ROLES_FAIL = false;
+      await page.click('#create-path-back');
+      await page.waitForTimeout(200);
+      await page.click('#cstep-kind [data-path="team"]');
+      await page.waitForTimeout(400);
+      const k10r = await page.evaluate(() => ({ opt: document.getElementById('team-orgchart-opt').hidden,
+        note: document.getElementById('team-orgchart-msg').hidden }));
+      ok(t + ' K10 unreadable roles: the Team screen says the org chart cannot be offered', k10.opt === true && /could not load what uploading an org chart needs/.test(k10.note), JSON.stringify(k10));
+      ok(t + ' K10 and choosing Team again tries again and offers it', k10r.opt === false && k10r.note === true, JSON.stringify(k10r));
       await ctx.close();
     }
   }
@@ -307,6 +328,6 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-newagent-paths-4556: ' + pass + ' passed (New Agent opens on Single / Team / Swarm with line art, one row on desktop and stacked on a phone; each path\'s second screen offers only its own options; no Agent / Swarm selector on step 2, the Swarm card alone on the Swarm path; Team says coming soon without a catalogue and hands a chosen team to openTeamCreate; Back returns to the choice and focus to the card; a late roles load cannot pick the Project Manager on the Swarm path; no org chart without a define-your-own role). problems: none');
+  console.log('render-newagent-paths-4556: ' + pass + ' passed (New Agent opens on Single / Team / Swarm with line art, one row on desktop and stacked on a phone; each path\'s second screen offers only its own options; no Agent / Swarm selector on step 2, the Swarm card alone on the Swarm path; Team says coming soon without a catalogue and hands a chosen team to openTeamCreate; Back returns to the choice and focus to the card; a late roles load cannot pick the Project Manager on the Swarm path; no org chart without a define-your-own role; unreadable roles are said on the Team screen and retried). problems: none');
   process.exit(0);
 })().catch((e) => { console.error('FAIL  render-newagent-paths-4556: ' + (e && e.message ? e.message.split('\n')[0] : e)); server.close(); process.exit(1); });
