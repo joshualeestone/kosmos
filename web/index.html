@@ -65657,13 +65657,18 @@ function asbCloseWire() {
   // Keyboard focus leaving the bubble for anything but its X (Shift+Tab back, a click elsewhere) takes the X away.
   bub.addEventListener('blur', (e) => { if (e.relatedTarget !== x && !bub.matches(':hover')) asbCloseShow(false); });
   x.addEventListener('blur', (e) => { if (e.relatedTarget !== bub && !bub.matches(':hover')) asbCloseShow(false); });
-  let msgTimer = 0;
+  let msgTimer = 0, fillTimer = 0;
   x.addEventListener('click', async (e) => {
     e.stopPropagation();
+    // As the Settings switch: nothing is saved before the setting has been read.
+    if (!ASB.setting) return;
     const ok = await asbSwitchOff({ fromX: true });
     if (ok === null) return;
     const msg = document.getElementById('asb-close-msg');
     if (ok) {
+      // An earlier failure's words must not outlive a success.
+      clearTimeout(msgTimer); clearTimeout(fillTimer);
+      if (msg) { msg.hidden = true; msg.textContent = ''; }
       asbCloseShow(false);
       asbFocusPage();
       return;
@@ -65676,8 +65681,8 @@ function asbCloseWire() {
       // text changes is not read), and a repeat failure is a change again (as asp-msg does in asbOpen).
       msg.textContent = '';
       msg.hidden = false;
-      clearTimeout(msgTimer);
-      setTimeout(() => { msg.textContent = 'We could not turn the Kosmos Guide off just now. Try again in a moment.'; }, 60);
+      clearTimeout(msgTimer); clearTimeout(fillTimer);
+      fillTimer = setTimeout(() => { msg.textContent = 'We could not turn the Kosmos Guide off just now. Try again in a moment.'; }, 60);
       msgTimer = setTimeout(() => { msg.hidden = true; msg.textContent = ''; }, 5000);
     }
   });

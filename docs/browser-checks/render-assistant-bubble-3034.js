@@ -252,7 +252,18 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk(busy === true, 'B2x a click while a save is running says nothing (it is not a failure)');
     chk((await saOn()) === true, 'B2x and that click recorded nothing');
     x0 = await xs();
+    // A fresh failure (words showing), then at once a success: the success takes the words away.
+    let refusedY = 0;
+    const refuseY = (route) => { if (route.request().method() === 'POST' && refusedY === 0) { refusedY++; return route.fulfill({ status: 500, body: '{}' }); } return route.continue(); };
+    await page.route('**/api/settings', refuseY);
     await page.mouse.click(x0.cx, x0.cy);
+    const shownAgain = await waitFor(page, () => /could not turn the Kosmos Guide off/.test(document.getElementById('asb-close-msg').textContent) && !document.getElementById('asb-close-msg').hidden, 3000);
+    await page.unroute('**/api/settings', refuseY);
+    chk(refusedY === 1 && shownAgain, 'B2x precondition: a fresh failure is showing its words', JSON.stringify({ refusedY, shownAgain }));
+    x0 = await xs();
+    await page.mouse.click(x0.cx, x0.cy);
+    const msgGone = await waitFor(page, () => document.getElementById('asb-close-msg').hidden, 1500);
+    chk(msgGone, 'B2x a success right after a failure takes the failure words away (well inside their 5 s)');
     chk(await waitFor(page, () => document.getElementById('asb').hidden && !document.getElementById('asb-close').classList.contains('on'), 4000),
       'B2x a click on the circle hides the bubble and its X');
     const xOff = await saOn();
