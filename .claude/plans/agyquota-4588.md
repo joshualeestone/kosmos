@@ -35,3 +35,23 @@ turn (agy has no screen reader here; the resume is unmeasured on a real agy). A 
   server.agyquota-4588.test.js 1/1; the existing status/selfreport/agy files 677/677.
 - Controls: no runner filter, no stagger, no timer (two spellings), no card copy, no page line: each reds its test.
   The first timer pin was a text match that a mutation passed; it now anchors on the assignment.
+
+## Review iteration 1 (blind, opus)
+0 BLOCKER, 5 WARNING, all taken:
+- (W, SELF) the card and the stored text promised "Kosmos resumes it at 9:47 PM": false with the sweep off, and 9:47 is
+  the reset, not the resume (six agents on one account are typed into over several minutes). Both now state the reset
+  ("The Google quota resets at 9:47 PM"), which is true in every case; the record keeps Google's words for diagnosis.
+- (W) the detail header quoted the report (raw RESOURCE_EXHAUSTED text and a stale "Resets in", #215), and after the
+  reset it kept saying Paused. The quota branch now gives Kosmos's own sentence, and a quota report whose reset has
+  passed reads as idle with "its ... quota reset at H:MM" (quotaResetOf split out of quotaPauseUntil).
+- (W) accountproblem.js's generic rate_limited arm told the person and the manager "It looks like ... Add credits ...":
+  hedged on a firm reading, and wrong advice for a subscription allowance. A firm antigravity branch names the shared
+  account and the reset, and no credits.
+- (W) the resume book is in memory, so an agent whose last report is an old quota stop would be typed into again after
+  every board restart: a reset older than six hours (Google's five-hour window) is left alone.
+- (W) the stagger equalled the 60 s tick, so jitter could double the spacing: it is 55 s.
+- (N, taken) "Resets in 500ms" read as 500 minutes (m(?!s)); the "nothing else writes one" comment now names the
+  Windows CLI's --auto --until; the card field notes that paneless cards carry no quotaUntil (agy always has a pane);
+  the page test uses a real card's shape and pins the grid and the detail path.
+- (N, left) the bridge's absolute `until` follows its own clock (a skewed remote machine shifts the pause).
+Controls: each fix reds its test when removed. The engine regression set: 728/728.
