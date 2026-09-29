@@ -121,9 +121,23 @@ The agent re-RUNS the command, which would carry a new key. So the BOARD has to 
   the in-flight wait needs); a route-level end-to-end arm (each layer has its own arms: engine fold, route federation,
   both CLIs against stubs).
 
+## Review round 7 (fable): 2 WARNINGs + 2 CONVENTIONs fixed, NITs
+- W: an outside party's reply in a federated room is an `external` row, and it did not break the quiet. It does now.
+  Arm (with a VALID external row: fromKind + external:true, or record() drops it; my first fixture lacked both and
+  tested nothing), red on the previous engine.
+- W: on Windows only a TIMED-OUT first attempt kept "maybe"; a RESET first attempt whose retry failed (refused, or
+  reset again) still said "Is it running" and handed the copy back. Any failed retry after a non-refused first now
+  says "may have been delivered" (exit 3), for msg and post. Arms for reset-then-refused and reset-then-reset, red.
+  Found alongside: the refused detector only read cause.code; it now also reads an AggregateError's cause.errors and
+  the message (tools.windows-kosmos-cli-570's refused fixture carries the code in the message).
+- CONVENTION: two more stale "two minutes" test comments (messages.test.js) fixed.
+- NITs fixed: quietSince's predicate renamed inConversation; resetForTests clears IN_FLIGHT_SENDS; the federation
+  control differs from the arm only in `duplicate`; a doubled phrase in the weakest premise.
+- DEFERRED: an async withFleet (the arms capture board.agents before their first await; noted here as the trap).
+
 ## Weakest premise
 An agent that MEANS to send the identical text twice within five minutes, to the same place, answering the same
-message, with nothing said in that conversation in between (by anyone, the sender included), within five minutes, gets one copy. After round 3 that is narrow: the realistic case is a
+message, with nothing said in that conversation in between (by anyone, the sender included), gets one copy. After round 3 that is narrow: the realistic case is a
 nudge repeated into a silent room, and the cost of the other error is a room full of copies.
 
 ## Status

@@ -640,7 +640,7 @@ test('#460: a verbatim requote of another author\'s earlier post is tagged with 
     assert.deepEqual(rows[1].quotes, [{ of: first.id, from: 'mara', start: body.indexOf(QUOTE), end: body.indexOf(QUOTE) + QUOTE.length }]);
     assert.equal(body.slice(rows[1].quotes[0].start, rows[1].quotes[0].end), QUOTE);
     // Negative control (a): the same words posted again by their original author (with a tail: an
-    // identical repeat inside two minutes is one post since #4580).
+    // identical repeat inside five minutes is one post since #4580).
     armSender('mara-discord');
     arm([ok(), ok()]);
     messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: QUOTE + ', as I said' }, board.agents, MEMBERS);
@@ -2564,7 +2564,7 @@ test('#4447: a long room post leaves exactly one file in each member\'s own Inbo
   });
 });
 
-/* #4580: identical sends inside two minutes are one message now, so each spill brief is numbered: the
+/* #4580: identical sends inside five minutes are one message now, so each spill brief is numbered: the
    tests are about where a long message lands, not about repeats. */
 let briefN = 0;
 const brief = () => 'brief ' + (++briefN) + ': ' + 'the lease detail '.repeat(80);
@@ -3078,6 +3078,21 @@ test('#4580: a reply that STARTED after the first copy breaks the quiet even whe
     arm([ok(), ok()]);
     const again = messages.send({ fromPane: '%7', to: 'mara', text: 'yes' }, board.agents);
     assert.equal(again.duplicate, undefined, 'a real second answer was folded: ' + JSON.stringify(again));
+    assert.notEqual(again.id, first.id);
+  });
+});
+
+test('#4580: an outside party speaking in a federated room (an external row) breaks the quiet', () => {
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const first = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'agreed' }, board.agents, MEMBERS);
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'external', id: 'x1', project: 'henderson-lease', from: 'their agent', fromKind: 'agent', external: true, text: 'and the price?', at: new Date(Date.now() + 1000).toISOString() }) + '\n');
+    messages.resetForTests();
+    armSender('mara-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const again = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'agreed' }, board.agents, MEMBERS);
+    assert.equal(again.duplicate, undefined, 'a real answer to the outside party was folded: ' + JSON.stringify(again));
     assert.notEqual(again.id, first.id);
   });
 });
