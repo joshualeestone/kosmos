@@ -907,10 +907,11 @@ cp "$HERE/run-tests.sh" "$RT2/tools/"; cp "$HERE"/lib/*.sh "$RT2/tools/lib/"
 # The stand-in node reports EVERY name in the lib's list, so the assertion follows the list (review 20).
 { printf '#!/bin/sh\n'; for v in $KOSMOS_WAIT_CONTROL_VARS; do printf 'echo "SEEN %s=${%s:-unset}"\n' "$v" "$v"; done; printf 'exit 0\n'; } > "$T/fakebin/node"
 chmod +x "$T/fakebin/node"
+# Every other listed name set to 1, built here: a case pattern's ")" inside a nested $( ) ends the substitution on bash 3.2.
+_ovr=""; for v in $KOSMOS_WAIT_CONTROL_VARS; do [ "$v" = KOSMOS_NO_WAIT ] || [ "$v" = KOSMOS_WAIT_MAX_S ] || _ovr="$_ovr $v=1"; done
 out="$(cd "$RT2" && env KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
   KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TEST_PART=node KOSMOS_TEST_PART_LOCAL=1 KOSMOS_SHELL_SHARD= \
-  $(for v in $KOSMOS_WAIT_CONTROL_VARS; do case "$v" in KOSMOS_NO_WAIT|KOSMOS_WAIT_MAX_S) ;; *) printf '%s=1 ' "$v" ;; esac; done) \
-  PATH="$T/fakebin:$PATH" bash tools/run-tests.sh 2>&1)"
+  $_ovr PATH="$T/fakebin:$PATH" bash tools/run-tests.sh 2>&1)"
 rm -rf "$RT2"
 # One list: run-tests.sh unsets the lib's list, not its own copy (review 19).
 grep -q '^unset ${KOSMOS_WAIT_CONTROL_VARS:-}$' "$HERE/run-tests.sh" && pass "#4609 run-tests.sh unsets the lib's one list of wait controls" \
