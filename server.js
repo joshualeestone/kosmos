@@ -808,7 +808,6 @@ function boardTokenOk(req) {
   }
 }
 const create = require('./engine/create');
-const win32keyed = require('./engine/win32keyed');   // #4416: the launcher's pinned Gemini/Grok model
 const setupAssistant = require('./engine/setup-assistant'); // #3034: the once-ever default setup helper
 /* #2129 fallback: the trust-and-restart route writes the Claude-side folder-trust
    key through the same writer the create path uses (native-realpath-keyed since
@@ -2493,8 +2492,8 @@ function markGuide(rows, guideName) {
     a.isGuide = Boolean(guideName) && a.sessionName === guideName;
     if (!a.isGuide) continue;
     a.role = roles.GUIDE_TITLE;
-    /* Claude only: plannedModelName is read as a model id by the OpenAI picker, and the page already names
-       another runner ("OpenAI Codex") when no model is known. */
+    /* Claude only: every other runner's card already names its provider when no model is known ("OpenAI Codex",
+       "Gemini", "Grok"), and a Gemini or Grok job's pinned default is named by plannedFor. */
     if (!a.modelName && !a.plannedModelName && (!a.runner || a.runner === 'claude')) {
       a.plannedModelName = 'Claude (its default model)';
     }
@@ -4296,18 +4295,10 @@ const server = http.createServer((req, res) => {
         // would prefer the job for it while this never populated the field, so
         // "Will start on" would silently stop appearing.
         if (a.modelName && a.state !== STATE.STOPPED) return null;
-        const arg = create.plannedModelArg(a.sessionName);
-        if (arg) return modelDisplayName(arg);
-        /* #4416: the plist read above is Mac-only; on Windows the job is a Scheduled Task, and readJob carries its
-           model. A Gemini or Grok job with no model starts on the one the launcher pins (win32keyed.DEFAULT_MODEL,
-           held equal to bin/agent-supervisor.sh by engine/modelname-4416.test.js), so name it, marked as the default
-           rather than a choice. Only these two: Codex and Antigravity pick their own, which we cannot name before
-           they have run. */
-        let job = null;
-        try { job = create.readJob(a.sessionName); } catch { job = null; }
-        if (job && job.model) return modelDisplayName(job.model);
-        const pinned = job && job.runner && win32keyed.DEFAULT_MODEL[job.runner];
-        return pinned ? modelDisplayName(pinned) + ' (default)' : null;
+        /* #4416: ONE read of the job, on either platform (create.plannedModelOf). A Gemini or Grok job with no model
+           starts on the launcher's pinned model, marked as the default rather than a choice. */
+        const planned = create.plannedModelOf(a.sessionName);
+        return planned ? modelDisplayName(planned.id) + (planned.isDefault ? ' (default)' : '') : null;
       };
       /* One list read per poll rather than per agent: `accounts.list()` stats a
          handful of directories, and doing it thirteen times a tick to answer

@@ -15,6 +15,8 @@ const path = require('node:path');
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-model-4416-'));
 process.env.AGENT_WORKFORCE_CODEX_HOME = path.join(SANDBOX, '.codex');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'LaunchAgents');   // #3605: never the real LaunchAgents
+fs.mkdirSync(process.env.AGENT_WORKFORCE_LAUNCH, { recursive: true });
 const codex = require('./codexsession');
 const status = require('./status');
 const keyed = require('./win32keyed');
@@ -32,6 +34,7 @@ test('#4416: an id the table does not know is read in plain language', () => {
     ['grok-code-fast-1', 'Grok Code Fast 1'],
     ['gpt-5.6-sol', 'GPT 5.6 Sol'],             // a real codex rollout on this Mac
     ['claude-opus-6', 'Claude Opus 6'],         // a future Claude with a one-part version reads too
+    ['gpt-oss-120b', 'GPT OSS 120b'],           // an acronym is not read as a word ("Oss")
   ];
   for (const [id, want] of rows) assert.equal(status.modelDisplayName(id), want, id);
 });
@@ -79,12 +82,30 @@ test('#4416: a Gemini or Grok job with no model names the one the launcher pins,
   const sh = read('bin/agent-supervisor.sh');
   assert.ok(sh.includes('GEMINI_MODEL="${MODEL:-' + keyed.DEFAULT_MODEL.gemini + '}"'), 'the supervisor pins a different Gemini default than the board names');
   assert.ok(sh.includes('GROK_MODEL="${MODEL:-' + keyed.DEFAULT_MODEL.grok + '}"'), 'the supervisor pins a different Grok default than the board names');
-  /* plannedFor lives inside the request handler's closure, so its wiring is pinned by source; the value it
-     produces is pinned behaviourally on the next line. */
+  /* Behaviour, from REAL launch files (plistFor, the writer create uses) in a sandbox: what each job starts on. */
+  const create = require('./create');
+  const job = (name, model, runner) => fs.writeFileSync(create.plistPath(name), create.plistFor(name, '/bin/claude', '/usr/bin/tmux', model, null, runner));
+  job('plan-gem', null, 'gemini');
+  job('plan-grok', null, 'grok');
+  job('plan-grok-pick', 'grok-4.5', 'grok');
+  job('plan-claude', null, 'claude');
+  job('plan-claude-opus', 'claude-opus-5', 'claude');
+  job('plan-codex', null, 'codex');
+  job('plan-codex-pick', 'gpt-5.6-sol', 'codex');
+  assert.deepEqual(create.plannedModelOf('plan-gem'), { id: keyed.DEFAULT_MODEL.gemini, isDefault: true });
+  assert.deepEqual(create.plannedModelOf('plan-grok'), { id: keyed.DEFAULT_MODEL.grok, isDefault: true });
+  assert.deepEqual(create.plannedModelOf('plan-grok-pick'), { id: 'grok-4.5', isDefault: false }, 'a chosen model lost to the default');
+  assert.equal(create.plannedModelOf('plan-claude'), null, 'Claude with no --model was given a model it was never told');
+  assert.deepEqual(create.plannedModelOf('plan-claude-opus'), { id: 'claude-opus-5', isDefault: false });
+  assert.equal(create.plannedModelOf('plan-codex'), null, 'Codex picks its own; nothing to name');
+  assert.equal(create.plannedModelOf('never-made'), null, 'no job at all');
+  // The OpenAI picker's raw id is the job's CHOICE, never a pinned default.
+  assert.equal(create.plannedModelId('plan-codex-pick'), 'gpt-5.6-sol');
+  assert.equal(create.plannedModelId('plan-gem'), null);
+  // And the board's wording of it (plannedFor in server.js is these two lines over this function).
   const server = read('server.js');
-  assert.match(server, /if \(job && job\.model\) return modelDisplayName\(job\.model\);/, 'a Windows job\'s own model is ignored for the pinned default');
-  assert.match(server, /return pinned \? modelDisplayName\(pinned\) \+ ' \(default\)' : null;/);
-  assert.equal(status.modelDisplayName(keyed.DEFAULT_MODEL.grok) + ' (default)', 'Grok 4.6 (default)');
+  assert.match(server, /const planned = create\.plannedModelOf\(a\.sessionName\);\n\s*return planned \? modelDisplayName\(planned\.id\) \+ \(planned\.isDefault \? ' \(default\)' : ''\) : null;/);
+  assert.equal(status.modelDisplayName(create.plannedModelOf('plan-grok').id) + ' (default)', 'Grok 4.6 (default)');
 });
 
 /* The shipped page functions, lifted with their real dependencies (the #2140 check does the same). */
@@ -108,6 +129,7 @@ test('#4416: every runner shows its own model, never "Claude <another vendor\'s 
   const { modelLine } = pageFns();
   assert.equal(modelLine({ runner: 'codex', modelName: 'GPT 5.6 Sol', state: 'working' }), 'GPT 5.6 Sol');
   assert.equal(modelLine({ runner: 'codex', state: 'working' }), 'OpenAI Codex', 'no turn yet: the provider');
+  assert.equal(modelLine({ runner: 'codex', modelName: 'o3', state: 'working' }), 'OpenAI o3', 'a bare codex model name gets its vendor');
   assert.equal(modelLine({ runner: 'gemini', modelName: 'Gemini 3.8 Flash', state: 'working' }), 'Gemini 3.8 Flash');
   assert.equal(modelLine({ runner: 'grok', plannedModelName: 'Grok 4.6 (default)', state: 'stopped' }), 'Grok 4.6 (default)');
   assert.equal(modelLine({ modelName: 'Sonnet 5', state: 'working' }), 'Claude Sonnet 5', 'control: a Claude agent is still prefixed');
@@ -138,4 +160,13 @@ test('#4416: the OpenAI picker keys on the RAW id, on either platform', () => {
     'the stopped list reads the launch file for every agent, whatever its runner');
   assert.match(server, /runner: rowRunner,/, 'the stopped row\'s runner and its plannedModelId gate read two different derivations');
   assert.equal(require('./create').plannedModelId('../escape'), null, 'an unvalidated name reads nothing');
+});
+
+test('#4416: the Gemini/Grok model menu and the switch dialog say what the card says, not "picks its own model"', () => {
+  const page = read('web/index.html');
+  assert.match(page, /const runsOn = \(a\.runner === 'gemini' \|\| a\.runner === 'grok'\) \? \(a\.modelName \|\| a\.plannedModelName\) : '';/,
+    'the menu no longer reads the model the card shows');
+  assert.match(page, /esc\(runsOn \? 'Runs on ' \+ runsOn : word \+ ' picks its own model'\)/);
+  assert.match(page, /do not cross: it starts on Kosmos\\u2019s default ' \+ label \+ ' model, '/,
+    'switching to Gemini or Grok still says it picks its own model');
 });

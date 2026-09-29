@@ -5492,9 +5492,9 @@ function grokLastCompletionAt(agentName) {
  * model rests on is that this platform never talks to the API directly. Not
  * worth breaking for a label.
  *
- * An ID we do not recognise renders raw. New models ship often, and an
- * unfamiliar accurate name beats a confident wrong one -- the same rule the
- * status board follows.
+ * An ID this table does not know is read into words by readableModelId below,
+ * or shown raw when reading it could mis-say its version (#4416). New models
+ * ship often, and an unfamiliar accurate name beats a confident wrong one.
  */
 const MODEL_NAMES = {
   'claude-opus-5-5': 'Claude Opus 5.5', // #3459: added to the picker; name it here too so a running 5.5 agent is not shown its raw id
@@ -5513,7 +5513,8 @@ const MODEL_NAMES = {
    "Haiku 4 5"); so an id with two number-only parts side by side, or a date part, stays raw, and only then. Ids that
    write their version with a dot (gemini-3.8-flash, grok-4.6, gpt-5.6-sol) read cleanly: "Gemini 3.8 Flash",
    "Grok 4.6", "GPT 5.6 Sol". PURE; exported for its test. */
-const MODEL_WORDS = { gpt: 'GPT', gemini: 'Gemini', grok: 'Grok', claude: 'Claude', codex: 'Codex', llama: 'Llama', qwen: 'Qwen', kimi: 'Kimi', mistral: 'Mistral', muse: 'Muse', mini: 'mini', nano: 'nano' };
+const MODEL_WORDS = { gpt: 'GPT', gemini: 'Gemini', grok: 'Grok', claude: 'Claude', codex: 'Codex', llama: 'Llama', qwen: 'Qwen', kimi: 'Kimi', mistral: 'Mistral', muse: 'Muse', mini: 'mini', nano: 'nano',
+  oss: 'OSS', vl: 'VL', hd: 'HD', tts: 'TTS', ai: 'AI' };   // acronyms, so they are not read as words ("Oss")
 function readableModelId(id) {
   const parts = String(id || '').split('-');
   if (!parts.length || parts.some((p) => !/^[A-Za-z0-9.]+$/.test(p))) return null;   // anything but plain words and numbers
@@ -5580,7 +5581,7 @@ function readModel(agentName, exactSession) {
    * ⚠️ AND THE FALLBACK IS DELIBERATELY NOT "REFUSE THE UNRECOGNISED". Mona
    * proposed accepting only ids `MODEL_NAMES` knows; that would report "we
    * could not tell" the day a genuinely new model ships, which is exactly what
-   * `modelDisplayName`'s `return id` was written to avoid. A future
+   * `modelDisplayName`'s fall-through (read or raw, never refused) avoids. A future
    * `claude-opus-6` looks like a model and should be shown; `<synthetic>` does
    * not and is dropped above. The two questions are separated rather than
    * merged: BRACKETS decide "is this an id at all", the table decides "do we

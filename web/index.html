@@ -17909,10 +17909,9 @@ function asSentence(s) {
 }
 function modelLine(a) {
   /* Provider-first ("Claude Opus 5"), guarded so a modelName that already
-     carries the provider does not become "Claude Claude...". ⚠️ The prefix
-     ASSUMES every agent runs Claude, which is true of everything the
-     engine can create today -- the day a second provider lands, this line
-     would stamp "Claude" onto its names and MUST change with it. */
+     carries the provider does not become "Claude Claude...". The "Claude"
+     prefix is only for a Claude agent: every other runner returns below
+     before it is reached. */
   /* ⚠️ THE PLANNED MODEL COUNTS HERE, with no tense and no marker, and that is
      Mona Lisa's ruling (2026-08-19) rather than a shortcut. A TENSE IS ASSERTED
      BY WORDS, NOT BY A VALUE: "Right now:" appears exactly once in this page,
@@ -17948,7 +17947,7 @@ function modelLine(a) {
   const name = (notRunning && a.plannedModelName) || a.modelName || a.plannedModelName;
   /* #4416 (Josh 15:18: knowing "what actual model these things are on"): the model its rollout names (engine
      codexsession, read by the board, never asked of the agent), e.g. "GPT 5.6 Sol"; the provider while none is known. */
-  if (a.runner === 'codex') return name || 'OpenAI Codex';
+  if (a.runner === 'codex') return name ? (/^(?:gpt|openai|codex)\b/i.test(name) ? name : 'OpenAI ' + name) : 'OpenAI Codex';   // "o3" alone is less recognisable than "OpenAI o3"
   /* #3566: a Gemini or Grok agent's model is its own vendor's, never a Claude one, so it
      gets no "Claude " prefix (#4416: the engine reads the id into words, "Gemini 3.8
      Flash"), or the provider when none is known. */
@@ -41834,9 +41833,8 @@ async function paintModelPicker(a) {
      -- the exact "Claude models under an OpenAI agent" bug Josh flagged on the create
      form (#2167), here on the detail surface. Delegate and return. */
   if (a && (a.provider === 'openai' || a.runner === 'codex')) { await paintOpenaiDetailModel(a, forWhom); return; }
-  /* #3566: a Gemini or Grok agent runs its CLI's own default model and Kosmos has no
-     list of theirs to offer, so the menu states that as its one option and Switch
-     stays down. The Claude flow below would otherwise offer Claude models under a
+  /* #3566: Kosmos has no list of Gemini's or Grok's models to offer, so the menu states
+     what the agent runs as its one option and Switch stays down. The Claude flow below would otherwise offer Claude models under a
      Gemini agent, the #2167 "Claude models under an OpenAI agent" shape again. */
   if (a && (a.runner === 'gemini' || a.runner === 'grok' || a.runner === 'antigravity' || a.runner === 'muse')) {   // #3568: antigravity too; #3939 3c-3b: muse
     /* An OpenAI models fetch started for this panel (e.g. just before a switch to Gemini)
@@ -41844,7 +41842,10 @@ async function paintModelPicker(a) {
     OPENAI_DETAIL_GEN += 1;
     if (msg && msg.textContent) msg.textContent = '';
     const word = a.runner === 'grok' ? 'Grok' : a.runner === 'muse' ? 'Meta Muse' : 'Gemini';   // gemini and antigravity (Gemini by subscription)
-    const one = '<option value="" selected>' + esc(word + ' picks its own model') + '</option>';
+    /* #4416: a Gemini or Grok agent runs the model its job names, or the one Kosmos pins when it names none, so the
+       menu says the same model the card does. Antigravity and Muse really do pick their own. */
+    const runsOn = (a.runner === 'gemini' || a.runner === 'grok') ? (a.modelName || a.plannedModelName) : '';
+    const one = '<option value="" selected>' + esc(runsOn ? 'Runs on ' + runsOn : word + ' picks its own model') + '</option>';
     if (sel.innerHTML !== one) sel.innerHTML = one;
     sel.dataset.current = '';
     sel.disabled = true;
@@ -43899,7 +43900,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
         : toAgy
           ? 'Its ' + fromWord + ' model and account choices do not cross: Gemini picks its own model, and it runs on your Google subscription through Antigravity. If Antigravity is not signed in yet, sign in first: in Settings, AI Models, choose Add a provider, then Google Gemini.'
         : toOther
-          ? 'Its ' + fromWord + ' model and account choices do not cross: ' + label + ' picks its own model, '
+          ? 'Its ' + fromWord + ' model and account choices do not cross: it starts on Kosmos\u2019s default ' + label + ' model, '
             + ((() => {
               const on = switchAcctShown();
               if (on) return 'and it will run on ' + on + '.';

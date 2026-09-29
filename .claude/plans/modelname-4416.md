@@ -18,6 +18,12 @@ by asking the agent.
 - Page: Codex names its model ("OpenAI Codex" only while none is known). The OpenAI picker's current choice reads a
   new raw `plannedModelId` (codex only), because plannedModelName is now a readable name no option value matches.
 
+- Review iteration 3: create.plannedModelOf reads the job ONCE ({ id, isDefault }), tested against real launch files
+  written by plistFor in a sandbox (Claude none, Gemini/Grok pinned default, a chosen model kept, Codex none). The
+  Gemini/Grok model menu now says "Runs on <the card's model>" and the switch dialog "starts on Kosmos's default
+  <provider> model" instead of "picks its own model", which stopped being true once Kosmos passes -m. Antigravity
+  and Muse still say "picks its own", because they do. A bare codex model reads "OpenAI o3".
+
 ## Rejected
 - A pure dash-to-space transform for every id: "Claude Haiku 4 5" on the next dashed version.
 - Asking agents to report their model: self-report is unreliable (the card says so).
