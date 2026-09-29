@@ -17918,7 +17918,7 @@ function start(port = PORT) {
       }, Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) : 60 * 1000); // the env is the test seam only
       if (recommenderSweep && typeof recommenderSweep.unref === 'function') recommenderSweep.unref();
       /* #3595 phase 2: the Assigner runner. Reads assigner-setting every tick. For an agent on the
-         board that reads idle, whose commitments read clear and that has no open part of any task,
+         board that reads idle, whose commitments leave it free (assigner.commitmentsFree, #4552) and that has no open part of any task,
          for engine/assigner.js's IDLE_MS, it gives the next task nobody is on in a live project the
          agent belongs to, through givePart in its assigner mode (see givePart). Phase 3: with
          nothing to hand out, it asks the agent (chat.deliver) to draft tasks toward a project's

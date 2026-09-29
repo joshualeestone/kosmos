@@ -41,3 +41,13 @@ fix. What would change my mind: a promise dropped because the Assigner handed th
   each reds tests.
 - Related suites green: assigner (32), commitments (65), assigner-give-3595 (6), recommender-assigner-2619 (13).
 - Not yet measured: a live board after release (April's run, without the hand-written record).
+
+## Challenge loop
+### Iteration 1 (opus): on the first design; its two blockers are the reason for the redesign (see above).
+### Iteration 2 (sonnet)
+- WARNING decided, intended: the same "free" set feeds the phase-3 goal ask, so a never-reported idle agent with
+  nothing to give is now also asked to draft tasks toward a project goal. It is the same "no work" judgement and
+  Josh's spec is about agents continuing to work. Tested, with a control that an agent holding stated work is not.
+- CONVENTION fixed: the server's Assigner runner comment said "commitments read clear"; it now names commitmentsFree.
+- NIT taken: a direct step test that 'free' is given like 'clear', with 'unknown' still not given.
+- NIT noted: future-dated with a non-empty list falls to not-free by the same path as the tested empty one.

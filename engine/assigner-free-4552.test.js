@@ -148,3 +148,46 @@ test('nothing is written in the agent\'s name: a never-reported agent still read
     assert.equal(commitments.read(w.who).neverReported, true, 'the Assigner wrote a record');
   } finally { w.restore(); }
 });
+
+test('step takes \'free\' like \'clear\' (tick\'s contract); control: \'unknown\' is still not given', () => {
+  const w = world('stepfree');
+  try {
+    const cards = status.snapshot().agents;
+    const run = (st) => {
+      const base = { roster: cards, setting: { on: true }, records: projects.readAll(), commitments: new Map([[w.who, st]]) };
+      const T0 = Date.now();
+      const first = a.step({ prev: undefined, ...base, now: T0 });
+      return a.step({ prev: first.next, ...base, now: T0 + a.IDLE_MS }).toAssign.filter((x) => x.session === w.who).length;
+    };
+    assert.equal(run('free'), 1);
+    assert.equal(run('clear'), 1);
+    assert.equal(run('unknown'), 0);
+  } finally { w.restore(); }
+});
+
+test('the goal ask reaches a never-reported agent too (same "no work" judgement): with no task to give and a goal, it is asked', () => {
+  const board = fleet.install([fleet.agent('goalask', { state: 'idle' })]);
+  try {
+    const card = board.agents.find((c) => (c.sessionName || '').startsWith('goalask'));
+    const p = projects.create({ name: 'Goal Test ' + (++seq) });
+    projects.addAgent(p.id, card.sessionName, board.agents);
+    const asked = [];
+    const o = {
+      readSetting: () => ({ on: true }), readRoster: () => status.snapshot().agents, readRecords: () => projects.readAll(),
+      readCommitment: (s) => commitments.read(s), readGoal: (proj) => (proj.id === p.id ? 'ship the beta' : null),
+      give: () => ({ ok: true }), ask: (session) => { asked.push(session); return { state: DELIVERY.PLACED }; }, DELIVERY,
+    };
+    assert.equal(commitments.read(card.sessionName).neverReported, true, 'fixture: never reported');
+    const T0 = Date.now();
+    const first = a.tick({ prev: undefined, now: T0, ...o });
+    a.tick({ prev: first.next, now: T0 + a.IDLE_MS, ...o });
+    assert.deepEqual(asked, [card.sessionName]);
+    // Control: an agent that stated work is not asked.
+    commitments.report(card.sessionName, [{ id: 'x', what: 'finishing the export' }]);
+    const asked2 = [];
+    const o2 = { ...o, ask: (session) => { asked2.push(session); return { state: DELIVERY.PLACED }; } };
+    const f2 = a.tick({ prev: undefined, now: T0, ...o2 });
+    a.tick({ prev: f2.next, now: T0 + a.IDLE_MS, ...o2 });
+    assert.deepEqual(asked2, [], 'an agent holding stated work was asked to draft tasks');
+  } finally { board.restore(); }
+});
