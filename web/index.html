@@ -54530,14 +54530,19 @@ function voiceBridge() {
 /* Where the heard words go: between what was before the caret and what was after it, with one space on
    each side where the neighbours need it. PURE, for the node suite. */
 function voiceSplice(before, heard, after, max) {
-  const b = String(before || ''), a = String(after || ''), h = String(heard || '').trim();
+  const b = String(before || ''), a = String(after || '');
+  let h = String(heard || '').trim();
   if (!h) return { text: b + a, caret: b.length };
   const lead = b && !/\s$/.test(b) ? ' ' : '';
   const tail = a && !/^\s/.test(a) ? ' ' : '';
-  let text = b + lead + h + tail + a;
-  let caret = b.length + lead.length + h.length;
-  if (max > 0 && text.length > max) { text = text.slice(0, max); caret = Math.min(caret, max); }   // the box's own cap still holds
-  return { text, caret };
+  /* The box's own cap still holds, and (review 7) it is the HEARD words that give way, never the person's text: cutting
+     the joined string from its end dropped what they had typed after the caret. No room at all: the box is unchanged. */
+  if (max > 0) {
+    const room = max - (b.length + lead.length + tail.length + a.length);
+    if (room <= 0) return { text: b + a, caret: b.length };
+    if (h.length > room) h = h.slice(0, room);
+  }
+  return { text: b + lead + h + tail + a, caret: b.length + lead.length + h.length };
 }
 function voicePaint(btn, state) {
   if (!btn) return;

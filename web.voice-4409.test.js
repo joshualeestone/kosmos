@@ -45,6 +45,10 @@ test('#4409: heard words land at the caret, spaced from their neighbours, and ne
   assert.deepEqual(voiceSplice('a\n', 'b', '\nc', 0), { text: 'a\nb\nc', caret: 3 }, 'an existing line break is a space');
   assert.deepEqual(voiceSplice('keep', '   ', ' this', 0), { text: 'keep this', caret: 4 }, 'nothing heard leaves the box as it was');
   assert.deepEqual(voiceSplice('abc', 'long text', '', 6), { text: 'abc lo', caret: 6 }, 'the 10,000 cap is a property of the box, and dictation does not get around it');
+  // Review 7: at the cap the HEARD words give way, never the person's text after the caret.
+  assert.deepEqual(voiceSplice('ab', 'hello', 'XYZ', 8), { text: 'ab h XYZ', caret: 4 }, 'the person\'s text after the caret was cut to fit the heard words');
+  assert.deepEqual(voiceSplice('abcd', 'hello', 'XYZ', 8), { text: 'abcdXYZ', caret: 4 }, 'with no room the box changed');
+  assert.deepEqual(voiceSplice('ab', 'hi', 'XYZ', 100), { text: 'ab hi XYZ', caret: 5 }, 'control: under the cap nothing is trimmed');
 });
 
 test('#4409: a message is read as words: code announced, links named, markdown marks silent', () => {

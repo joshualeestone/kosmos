@@ -62,6 +62,10 @@ SFSpeechRecognizer(en-US) supportsOnDeviceRecognition true. The mic was never st
   listening line is written only into an empty line. ACCEPTED: #d-say-msg is role=alert (assertive), so "Listening"
   interrupts a screen reader; #pj-room-msg is display:none while empty, and a live region shown with its text in one
   step can be announced unreliably by VoiceOver. Both are existing elements' semantics, not changed here.
+- Review iteration 7: (WARNING) at the box's 10,000 cap the joined text was cut from its end, deleting what the
+  person had typed after the caret. Now the heard words give way (trimmed to the room left, or none at all).
+  ACCEPTED: an arrow, Home or End key stops dictation (any key does). That loses nothing and says so; re-reading the
+  caret mid-dictation would be a different design.
 - DEFERRED: the browser check covers the DM composer only; the room and Guide mics share the same functions.
 ## Rejected
 - The page's webkitSpeechRecognition: needs the same permissions and entitlement, and the page cannot demand
