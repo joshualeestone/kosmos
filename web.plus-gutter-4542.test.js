@@ -30,3 +30,7 @@ test('#4542: the rule keeps #4216\'s guards (classic scrollbars only, not the co
     assert.ok(line.includes(guard), 'missing guard ' + guard);
   }
 });
+
+test('#4542 review: the body fills the window under the same guards, so a short Plus page keeps its gradient to the bottom', () => {
+  assert.match(PAGE, /html\[data-scrollbar-classic\]:not\(\[data-layout="consolidated"\]\):not\(\.tip-dimming\):has\(> body\.plus-active\) > body \{ min-height: 100vh; \}/);
+});

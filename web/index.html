@@ -1646,8 +1646,13 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
    so the strip reads as the gradient's own edge. This is a second copy of that colour: web.plus-gutter-4542.test.js
    pins it to the body.plus-active gradient's last stop, so the two cannot drift. Rejected: dropping the gutter on
    Plus (a 15px jump into the section, what #1309 prevents), and moving the Plus tokens to the root (the largest
-   change, for the same pixels). Same guards as #4216 above: classic scrollbars only, not while the tour dims. */
+   change, for the same pixels). Same guards as #4216 above: classic scrollbars only, not the consolidated layout, not
+   while the tour dims. A root with a colour of its own no longer lets the body's gradient paint the canvas, so the body
+   fills at least the window (as tip-dimming's does, above): a Plus page shorter than a tall window keeps its gradient to
+   the bottom instead of a flat band under it. Specificity (0,4,2): a later root rule for a dialog over Plus (#4506) has
+   to outrank it. */
 html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):has(> body.plus-active) { background-color: #0b1428; }
+html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):has(> body.plus-active) > body { min-height: 100vh; }
 html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .tipcard .tip-dots { display: flex; gap: 5px; }
 .tipcard .tip-dots i { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--k-ink-2) 35%, transparent); }
