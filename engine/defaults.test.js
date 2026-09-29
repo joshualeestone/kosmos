@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: 'c236f83d3ad6e06e' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -405,7 +405,8 @@ test('#2909 v15: formatted messages are written across lines, per surface, and t
   const sec = defaults.sections().find((x) => x.heading === '### Formatted messages need line breaks');
   assert.ok(sec, 'the section is its own heading, so missingFrom re-offers it to existing agents');
   assert.match(sec.text, /kosmos post --stdin <project> <<'KOSMOS_MSG'/, 'a room post pipes a quoted heredoc');
-  assert.match(sec.text, /IFS= read -r -d '' msg <<'KOSMOS_MSG' \|\| true[\s\S]*kosmos reply "\$msg"/, 'kosmos reply has no --stdin, so the heredoc is read into a variable first');
+  assert.match(sec.text, /kosmos reply --stdin <<'KOSMOS_MSG'/, 'a reply to the person pipes a quoted heredoc too (#4582)');
+  assert.ok(!/has no `--stdin`/.test(sec.text), 'the section no longer says kosmos reply lacks --stdin (#4582)');
   assert.ok(!/\$\(cat <</.test(sec.text), 'not $(cat <<...): macOS bash 3.2 cannot parse it when the message holds an apostrophe');
   assert.ok(!/kosmos msg --stdin/.test(sec.text), 'kosmos msg is stored as one line (messages.send), so it is not offered as a way to format');
   assert.ok(!/<<'?EOF/.test(sec.text), 'not EOF: a message line that is exactly EOF would end the heredoc early');
@@ -456,8 +457,8 @@ test('#2909 v15: the section\'s shell examples run as written in bash and zsh, a
     assert.equal(r.status, 0, sh + ' ran the examples: ' + r.stderr);
     const got = fs.readFileSync(out, 'utf8');
     assert.match(got, /post\|--stdin\|proj\|## What changed\n\n- it's `x` and \$HOME\n/, sh + ': the room post arrives with its lines and characters intact');
-    assert.match(got, /reply\|## What changed\n\n- it's `x` and \$HOME\n\|/, sh + ': the reply arrives with its lines and characters intact');
-    assert.match(got, /DONE/, sh + ': the script carried on past the reply (set -e did not stop it)');
+    assert.match(got, /reply\|--stdin\|## What changed\n\n- it's `x` and \$HOME\n/, sh + ': the reply arrives with its lines and characters intact');
+    assert.match(got, /DONE/, sh + ': the script carried on past the reply');
   }
   assert.ok(ran >= 1, 'neither /bin/bash nor /bin/zsh exists, so the examples were never run');
 });

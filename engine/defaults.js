@@ -278,20 +278,15 @@ const BLOCK = [
   'KOSMOS_MSG',
   '```',
   '',
-  '**In your reply to the person,** `kosmos reply` has no `--stdin`, so read the',
-  'heredoc into a variable and pass that:',
+  '**In your reply to the person,** pipe it into `kosmos reply --stdin`:',
   '',
   '```',
-  "IFS= read -r -d '' msg <<'KOSMOS_MSG' || true",
+  "kosmos reply --stdin <<'KOSMOS_MSG'",
   '## What changed',
   '',
   '- the first point',
   'KOSMOS_MSG',
-  'kosmos reply "$msg"',
   '```',
-  '',
-  'The `|| true` matters: `read` ends non-zero when it reaches the end of the',
-  'message, which would otherwise stop a script before the reply is sent.',
   '',
   '**A message to another agent** (`kosmos msg`) is kept and delivered as one',
   'line, so formatting it changes nothing; write it plainly.',
@@ -720,13 +715,12 @@ function block() {
  *     storeText) and a reply to the person (#1927, chat.js appendMessage) keep
  *     them; `kosmos msg` to another agent does NOT (messages.send stores
  *     cleanMessage, one line), so the section says not to format those.
- *     `kosmos post` takes `--stdin` (#3591); `kosmos reply` takes only an
- *     argument, so the heredoc is read into a variable first (`IFS= read -r
- *     -d ''`). Not `"$(cat <<'KOSMOS_MSG' ...)"`: macOS's bash 3.2 fails to parse
- *     that when the message holds an apostrophe (measured); zsh and bash 3.2
- *     both take the read form. `|| true` because read ends non-zero at the end
- *     of its input, which under `set -e` would stop the script before the reply
- *     (measured in both shells).
+ *     `kosmos post` takes `--stdin` (#3591), and since #4582 so does `kosmos
+ *     reply`, so both pipe the quoted heredoc. (Before #4582 the reply read it
+ *     into a variable with `IFS= read -r -d '' ... || true`; agents that hold
+ *     that older copy keep a form that still works.) Never `"$(cat <<'KOSMOS_MSG'
+ *     ...)"`: macOS's bash 3.2 fails to parse that when the message holds an
+ *     apostrophe (measured).
  *     Delimiter KOSMOS_MSG, not EOF: a message line that is exactly the
  *     delimiter would end the heredoc and run the rest as commands. PowerShell
  *     cannot pipe into kosmos (kosmos.ps1 never reads piped input); a
@@ -790,8 +784,17 @@ function block() {
  *     when it has none; engine/dmfiles.js spliceTop), which needs no consent because that block is Kosmos's.
  *     WEAKEST PREMISE, NAMED: that the earlier section is what the agent obeyed. It said so itself, which is the
  *     least reliable kind of evidence; the pointer above the doctrine covers the case whatever the reason.
+ *
+ *  19. kosmos#4582 (Josh's Five Families project, #4580 item 5, four of five families): `kosmos reply` now
+ *     takes `--stdin`, as `post` does, so "Formatted messages need line breaks" pipes the quoted heredoc into
+ *     `kosmos reply --stdin` instead of reading it into a variable first (`IFS= read -r -d '' msg ... || true`).
+ *     SAME HEADING: it reaches new agents and agents with a managed span; an agent holding the old copy keeps a
+ *     form that still works, so nothing breaks for it. The PowerShell here-string form is unchanged (kosmos.ps1
+ *     never reads piped input).
+ *     WEAKEST PREMISE, NAMED: that agents use the heredoc form rather than a quoted argument. The families said
+ *     the missing flag is what pushed them to the workaround; whether they switch is seen only after release.
  */
-const DOCTRINE_VERSION = 18;
+const DOCTRINE_VERSION = 19;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
