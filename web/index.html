@@ -65646,9 +65646,8 @@ async function asbSwitchOff(opts) {
    the bubble, so Tab goes on to it), hidden when the pointer leaves both. A click on it switches the Guide off. */
 const ASB_CLOSE_HOLD_MS = 1000;
 /* The X's failure words belong to the X: gone with it (bubble hidden, chat opened, a later success). */
-var ASB_CLOSE_MSG = { hideTimer: 0, fillTimer: 0 };   // var: asbPaint may run before this line
 function asbCloseMsgClear() {
-  clearTimeout(ASB_CLOSE_MSG.hideTimer); clearTimeout(ASB_CLOSE_MSG.fillTimer);
+  clearTimeout(ASB.closeHideTimer); clearTimeout(ASB.closeFillTimer);
   const msg = document.getElementById('asb-close-msg');
   if (msg) { msg.hidden = true; msg.textContent = ''; }
 }
@@ -65691,9 +65690,9 @@ function asbCloseWire() {
       // text changes is not read), and a repeat failure is a change again (as asp-msg does in asbOpen).
       msg.textContent = '';
       msg.hidden = false;
-      clearTimeout(ASB_CLOSE_MSG.hideTimer); clearTimeout(ASB_CLOSE_MSG.fillTimer);
-      ASB_CLOSE_MSG.fillTimer = setTimeout(() => { msg.textContent = 'We could not turn the Kosmos Guide off just now. Try again in a moment.'; }, 60);
-      ASB_CLOSE_MSG.hideTimer = setTimeout(asbCloseMsgClear, 5000);
+      clearTimeout(ASB.closeHideTimer); clearTimeout(ASB.closeFillTimer);
+      ASB.closeFillTimer = setTimeout(() => { msg.textContent = 'We could not turn the Kosmos Guide off just now. Try again in a moment.'; }, 60);
+      ASB.closeHideTimer = setTimeout(asbCloseMsgClear, 5000);
     }
   });
 }
