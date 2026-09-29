@@ -29249,13 +29249,16 @@ function orgPlace(nodes) {
 
      - Each first-ring agent owns a slice of the circle sized by its LEAF count (the people at the ends of
        its branch, who are what fill the outer rings), and sits at the slice's centre.
-     - A manager's reports share a window centred on the manager: its slice, but never wider than the
-       tangent angle acos(r_manager / r_report), so each line runs steadily AWAY from the hub. Each report
-       gets a sub-slice by its own leaf count and sits at its centre, so a lone report is straight out and
-       a pair is centred on its manager (#352).
+     - A manager's reports share a window centred on the manager: its slice, capped. For a manager that has
+       a manager, the cap is the tangent angle acos(r_manager / r_report), so each line runs steadily AWAY
+       from the hub. A first-ring manager's reports stay within ~85 degrees either side of it, so no line
+       folds back past the hub (their lines can still come within ~107px of it; the manager sits at 120).
+       Each report gets a sub-slice by its own leaf count and sits at its centre, so a lone report is
+       straight out and a pair is centred on its manager (#352).
      - Why nothing crosses: every line stays inside its manager's slice (sibling slices never overlap), and
-       the tangent cap keeps each line's distance from the hub rising, so a manager's own line and its
-       reports' lines meet only at the manager. web.org-sectors-4434.test.js counts crossings.
+       below the first ring the tangent cap keeps each line's distance from the hub rising, so a manager's
+       own line and its reports' lines meet only at the manager. web.org-sectors-4434.test.js counts
+       crossings.
      - Each ring's radius grows from its base until no two nodes on it are closer than ORG_MIN_ARC.
      Same input, same positions: nothing here is random or order-dependent beyond the input order. */
   const kids = new Map();
