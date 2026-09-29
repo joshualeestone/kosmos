@@ -144,7 +144,7 @@ const ORG_PAD = pageConst('ORG_PAD');
 const ORG_PAD_MIN = pageConst('ORG_PAD_MIN');
 const HUB = { x: 600, y: 600 };   // the re-parent test's canvas; settled() re-centres on its own
 const fitOf = (() => {
-  const src = ['orgNatural', 'orgFit'].map((name) => {
+  const src = ['orgNatural', 'orgFloorOf', 'orgFit'].map((name) => {
     const at = SCRIPT.indexOf('function ' + name + '(');
     let d = 0;
     for (let k = SCRIPT.indexOf('{', at); k < SCRIPT.length; k += 1) {
@@ -154,7 +154,7 @@ const fitOf = (() => {
   }).join('\n');
   // eslint-disable-next-line no-new-func
   return new Function('const ORG_PAD = ' + pageConst('ORG_PAD') + '; const ORG_PAD_MIN = ' + pageConst('ORG_PAD_MIN')
-    + '; const ORG_SQUEEZE_MIN = ' + pageConst('ORG_SQUEEZE_MIN') + ';\n' + src + '\nreturn orgFit;')();
+    + '; const ORG_SQUEEZE_MIN = ' + pageConst('ORG_SQUEEZE_MIN') + ';\n' + src + '\nreturn { orgFit, orgFloorOf };')();
 })();
 /* `avail` (optional): the width the chart must fit, squeezed as paintOrg squeezes it (orgFit scales every
    radius by k; the canvas is fit.size). The settle then ends with orgPlanarRepair, as orgLiveSettle does. */
@@ -165,15 +165,7 @@ function canvasFor(placed, avail) {
   for (const s of placed.values()) maxR = Math.max(maxR, s.r);
   let size = Math.round((maxR + ORG_PAD) * 2);
   if (avail) {
-    let closest = Infinity;
-    const spots = [...placed.values()];
-    for (let i = 0; i < spots.length; i += 1) {
-      for (let j = i + 1; j < spots.length; j += 1) {
-        closest = Math.min(closest, Math.hypot(Math.cos(spots[i].ang) * spots[i].r - Math.cos(spots[j].ang) * spots[j].r,
-          Math.sin(spots[i].ang) * spots[i].r - Math.sin(spots[j].ang) * spots[j].r));
-      }
-    }
-    const fit = fitOf(maxR, avail, Number.isFinite(closest) ? 46 / closest : 0);
+    const fit = fitOf.orgFit(maxR, avail, fitOf.orgFloorOf(placed));   // the page's own floor, as paintOrg calls it
     if (fit.k < 1) for (const s of placed.values()) s.r *= fit.k;
     size = fit.size;
   }
@@ -579,6 +571,18 @@ test('a tree already at its placement is painted there and not animated: first l
     page.orgLiveStart(map, placed, cx, cy, size);   // a repaint, same layout
     assert.equal(run().frames, 0, 'randomTree(' + seed + ', ' + n + '): a repaint after the repair ran the physics again (the snap repeats)');
   }
+});
+
+test('paintOrg squeezes with the page\'s own floor for the placement, as this file\'s canvasFor does (#4434, review it5)', () => {
+  /* canvasFor calls orgFloorOf and orgFit as paintOrg does; this pins paintOrg to the same call, so the
+     squeezed tests measure the squeeze the page makes. Without the floor, faces overlap on a phone (review it5:
+     34 of 100 random trees at 375px, closest 42.9px). */
+  const at = SCRIPT.indexOf('function paintOrg(');
+  const body = SCRIPT.slice(at, SCRIPT.indexOf('\n}', at));
+  assert.match(body, /orgFit\(maxR, viewW, orgFloorOf\(placed\)\)/, 'paintOrg no longer squeezes with the tree floor');
+  const { placed } = firstPaint(cards(UNEVEN));
+  assert.ok(fitOf.orgFloorOf(placed) > 0, 'CONTROL: a tree gets no floor');
+  assert.equal(fitOf.orgFloorOf(firstPaint(cards([['f1'], ['f2'], ['f3']])).placed), 0, 'a flat fleet got a floor');
 });
 
 test('orgLiveStart gives each tree node its placed home and spring rest, as this file\'s settle does', () => {
