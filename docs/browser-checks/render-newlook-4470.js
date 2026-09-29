@@ -141,6 +141,15 @@ const TOKEN_CONTRAST = `(() => {
   probe.remove();
   return { pairs, wide: document.documentElement.scrollWidth > window.innerWidth };
 })()`;
+/* The left box's task split into parts: visible avatars left in its part lines, and whether the held part's
+   dot is filled and the "Nobody yet" part's dot hollow. */
+const PARTS = `(() => {
+  const row = [...document.querySelectorAll('#pj-one-view .pjsplit .tkcard')].find((c) => c.querySelector('.tkcard-parts'));
+  if (!row) return { found: false };
+  const dot = (el) => { if (!el) return 'absent'; const b = getComputedStyle(el.querySelector('b'), '::before'); return b.backgroundColor !== 'rgba(0, 0, 0, 0)' ? 'filled' : (b.boxShadow && b.boxShadow !== 'none' ? 'hollow' : 'none'); };
+  return { found: true, avatars: [...row.querySelectorAll('.tkcard-part .lav')].filter((a) => a.getClientRects().length).length,
+    held: dot(row.querySelector('.tkcard-part:not(.none)')), nobody: dot(row.querySelector('.tkcard-part.none')) };
+})()`;
 const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmid .composer .composerbox')).backgroundColor`;
 
 (async () => {
@@ -159,6 +168,9 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
        its subtask has to say "Part of #1" on its own. */
     for (const w of ['Draft the menu', 'Call the florist', 'Print the badges']) tasks.create(proj.id, { sentence: w });
     tasks.create(proj.id, { sentence: 'Send the reminders', who: 'bo', parent: t1.number });
+    /* A task split into two parts, one held by Ada and one by nobody. */
+    const split = tasks.create(proj.id, { sentence: 'Set up the room', who: 'ada' });
+    tasks.addPart(proj.id, split.number, { sentence: 'Chairs' });
     server = await srv.start(0);
     const URL = 'http://127.0.0.1:' + server.address().port;
     browser = await chromium.launch({ headless: process.env.HEADED === '0' });
@@ -217,6 +229,9 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
         `${tag} On: tasks are compact rows (the number with a hash sign, no box), and the agent's claim line still shows`, JSON.stringify(tk));
       const labs = await page.evaluate(`[...document.querySelectorAll('#pj-one-view .pjsplit .dlab')].filter((h) => h.getClientRects().length).map((h) => getComputedStyle(h).textTransform)`);
       chk(labs.length >= 3 && labs.every((x) => x === 'none'), `${tag} On: the left box's headings are sentence case`, JSON.stringify(labs));
+      const parts = await page.evaluate(PARTS);
+      chk(parts.found && parts.avatars === 0 && parts.held === 'filled' && parts.nobody === 'hollow',
+        `${tag} On: a task in parts shows each part with a dot (hollow for the part nobody holds), no avatars`, JSON.stringify(parts));
       const partOf = await page.evaluate(PART_OF);
       chk(partOf.found && partOf.above, `${tag} On: a subtask's "Part of" line sits above its title, as it reads`, JSON.stringify(partOf));
       const hdOn = await page.evaluate(HEAD_PLACE);
@@ -283,9 +298,9 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
       await page.reload({ waitUntil: 'networkidle' });
       await clearFirstRun(page);
       const back = await page.evaluate(PAGE_STATE);
-      const pjOff = await page.evaluate(TASKS_PLACE);
       await page.evaluate(async (id) => { await loadProjects(); showTab('projects'); openProject(id); }, proj.id);
       await page.waitForSelector('#pj-one-agents .pj-member', { timeout: 8000 });
+      const pjOff = await page.evaluate(TASKS_PLACE);   // read with the project OPEN, where a stuck move would show
       const stOff = await page.evaluate(MEMBER_WORD);
       const hdOff = await page.evaluate(HEAD_PLACE);
       chk(hdOff.aboveCols && !hdOff.rootShown && hdOff.nameShown, `${tag} Off: the crumb row is back above the columns, no "Projects" root, the name shows`, JSON.stringify(hdOff));
