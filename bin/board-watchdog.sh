@@ -139,10 +139,11 @@ BUSY_SINCE_RAW="$(state_get busy_since)"
 # in: the worst case is one redundant, idempotent kosmos start on the first post-boot
 # run, since cmd_start no-ops when the board is already answering.)
 BOOT="$(boot_epoch)"
+UNREACH_MARK="$STATE_DIR/board-watchdog.unreachable"   # #4636: an exit-5 spell, logged once (see below)
 # #4636: an unreachable spell's marker from before this boot is stale: the first spell after a reboot is logged.
-if [ -n "$BOOT" ] && [ -f "$STATE_DIR/board-watchdog.unreachable" ] \
-   && [ "$(num "$(/usr/bin/stat -f %m "$STATE_DIR/board-watchdog.unreachable" 2>/dev/null)")" -lt "$BOOT" ]; then
-  rm -f "$STATE_DIR/board-watchdog.unreachable" 2>/dev/null || true
+if [ -n "$BOOT" ] && [ -f "$UNREACH_MARK" ] \
+   && [ "$(num "$(/usr/bin/stat -f %m "$UNREACH_MARK" 2>/dev/null)")" -lt "$BOOT" ]; then
+  rm -f "$UNREACH_MARK" 2>/dev/null || true
 fi
 if [ -n "$BOOT" ] && [ -n "$DOWN_SINCE_RAW" ] && [ "$(num "$DOWN_SINCE_RAW")" -lt "$BOOT" ]; then
   DOWN_SINCE_RAW=""; BUSY_SINCE_RAW=""; LAST_KICK=0; FAILS=0
@@ -159,7 +160,7 @@ STATUS_RC=0
 bash "$KOSMOS_BIN" status >/dev/null 2>&1 || STATUS_RC=$?
 if [ "$STATUS_RC" -eq 0 ]; then
   [ -f "$ALERT" ] && { rm -f "$ALERT" 2>/dev/null || true; log "board healthy again; cleared crash-loop alert"; }
-  rm -f "$STATE_DIR/board-watchdog.unreachable" 2>/dev/null || true   # #4636: an unreachable spell ends here too
+  rm -f "$UNREACH_MARK" 2>/dev/null || true   # #4636: an unreachable spell ends here too
   state_put "" "$LAST_KICK" 0             # clear the down streak and the fail count
   exit 0
 fi
@@ -167,8 +168,7 @@ fi
 # #4636: status exit 5 is "a listener is there, but this shell cannot connect to it" (a sandbox, a network
 # rule, a local network fault). The watchdog cannot tell anything about the board from here, and restarting
 # it would not help, so it kicks nothing and ends any down streak (a later down reading starts a fresh
-# GRACE). Logged once per spell, not every tick: a marker file holds the spell.
-UNREACH_MARK="$STATE_DIR/board-watchdog.unreachable"
+# GRACE). Logged once per spell, not every tick: a marker file ($UNREACH_MARK) holds the spell.
 if [ "$STATUS_RC" -eq 5 ]; then
   if [ ! -f "$UNREACH_MARK" ]; then
     log "cannot reach the board from this shell (status exit 5); leaving it alone until it can"

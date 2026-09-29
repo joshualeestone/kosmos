@@ -224,7 +224,7 @@ test('a sandboxed shell, the board STOPPED: the board it launches would be sandb
 
 /* The re-probe, driven in bash 3.2 with the real functions: /usr/bin/curl and the lsof listener lookup are
    stubbed (bash allows a function named /usr/bin/curl), so the arms decide the exact sequence of answers. */
-function probe(curlAnswers) {
+function probe(curlAnswers, listeners) {
   const script = `
 set -euo pipefail
 source "${CLI}"
@@ -238,11 +238,15 @@ calls() { cat "$_cf"; }
     *) printf '%s\\n%s\\n%s' '{"app":"kosmos","ok":true}' 0.01 200; return 0 ;;
   esac
 }
-_ipv4_listener() { printf '%s' "4242 node"; }
+_lf="$(mktemp)"; echo 0 > "$_lf"; trap 'rm -f "$_cf" "$_lf"' EXIT
+_ipv4_listener() {   # the lsof lookup: answers from LISTENERS, one per call ("none" is no listener)
+  local _n; _n=$(( $(cat "$_lf") + 1 )); echo "$_n" > "$_lf"
+  case "$(echo "\${LISTENERS:-yes,yes,yes,yes}" | cut -d, -f$_n)" in none) return 1 ;; *) printf '%s' "4242 node" ;; esac
+}
 _health_probe 2; echo "first=$HEALTH_STATE flag=[$_HEALTH_REPROBE] pid=[$_UNREACH_PID] calls=$(calls)"
 _health_probe 2; echo "second=$HEALTH_STATE flag=[$_HEALTH_REPROBE] calls=$(calls)"
 `;
-  return new Promise((resolve) => execFile('/bin/bash', ['-c', script], { env: { ...env(1), ANSWERS: curlAnswers } },
+  return new Promise((resolve) => execFile('/bin/bash', ['-c', script], { env: { ...env(1), ANSWERS: curlAnswers, ...(listeners ? { LISTENERS: listeners } : {}) } },
     (err, so, se) => resolve({ code: err ? err.code : 0, out: (so + se).trim() })));
 }
 
@@ -254,6 +258,39 @@ test('the one re-probe: a board that answers on the second try is up; one that n
   assert.match(never.out, /first=unreachable flag=\[\] pid=\[4242\] calls=2/, never.out);
   // The flag was reset, so the next probe starts clean (and a board now answering reads up).
   assert.match(never.out, /second=up flag=\[\] calls=3/, never.out);
+  // A listener that exits during the half second: the re-probe's refusal looks again and reads down.
+  const gone = await probe('refuse,refuse,refuse', 'yes,none,none');
+  assert.match(gone.out, /first=down flag=\[\]/, gone.out);
+});
+
+test('a board whose connection queue is FULL (wedged) is not "unreachable": the OS drops the connect, curl times out', async () => {
+  // Measured on macOS: a full accept queue drops new connects silently (curl 28), never refuses them (curl 7).
+  const py = spawn('/usr/bin/python3', ['-c', 'import socket,time\ns=socket.socket();s.bind(("127.0.0.1",0));s.listen(1)\nprint(s.getsockname()[1],flush=True)\ntime.sleep(60)'], { stdio: ['ignore', 'pipe', 'ignore'] });
+  const held = [];
+  try {
+    const port = await new Promise((resolve, reject) => {
+      py.stdout.once('data', (d) => resolve(Number(String(d).trim())));
+      py.once('error', reject);
+      py.once('exit', (c) => reject(new Error('the python listener exited before listening: ' + c)));
+    });
+    for (let i = 0; i < 4; i++) { const c = require('node:net').connect(port, '127.0.0.1'); c.on('error', () => {}); held.push(c); }
+    await new Promise((ok) => setTimeout(ok, 500));
+    const r = await new Promise((resolve) => execFile('/bin/bash', ['-c', 'source "' + CLI + '"; _health_probe 2; echo "state=$HEALTH_STATE"'],
+      { env: env(port) }, (err, so) => resolve(String(so).trim())));
+    assert.doesNotMatch(r, /state=unreachable/, r);
+    assert.match(r, /state=(busy|stranger)/, r);
+  } finally { held.forEach((c) => c.destroy()); py.kill('SIGKILL'); }
+});
+
+const PS_DENIED_IN_SANDBOX = HAVE_SANDBOX && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/bin/ps', '-p', String(process.pid)]).status !== 0;
+test('a sandboxed shell, stop with this install\'s board.pid: "cannot be stopped from here", board left alone', { skip: !PS_DENIED_IN_SANDBOX && 'ps works in this sandbox, so stop goes by the pid (and stops it), which is right there' }, async () => {
+  const h = {};
+  const r = await withBoard('ok', (p, pid) => run(CLI, ['stop'], env(p, {}, h, pid), true));
+  assert.equal(r.died, false, r.out);
+  assert.notEqual(r.code, 0, r.out);
+  assert.match(r.out, /Kosmos is running at .*so it cannot be stopped from here and was left alone/);
+  assert.doesNotMatch(r.out, /not started by this command/);
+  assert.equal(fs.existsSync(path.join(h.home, 'board.stopped')), false, 'stop wrote the deliberate-stop marker');
 });
 
 test('CONTROL: without the guard, the sandboxed status says "not running" and start blames another app (the #4636 bug)', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {

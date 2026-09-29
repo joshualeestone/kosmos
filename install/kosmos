@@ -378,7 +378,9 @@ _health_refused() {   # <the probe's budget, to re-probe with>
 _ipv4_listener() {
   _lsof_present || return 1
   local _l _o
-  _l="$(/usr/sbin/lsof -nP -i4TCP:"$PORT" -sTCP:LISTEN -Fpcn 2>/dev/null)" || return 1
+  # -S 2: lsof gives up on a stalled kernel call after 2 s (its default is 15), so a loaded machine or a dead
+  # mount cannot hold a hook's report past its budget on a board that is only down.
+  _l="$(/usr/sbin/lsof -S 2 -nP -i4TCP:"$PORT" -sTCP:LISTEN -Fpcn 2>/dev/null)" || return 1
   _o="$(/usr/bin/awk -v port="$PORT" '
     /^p/ { p = substr($0, 2); next }
     /^c/ { c = substr($0, 2); next }
@@ -1007,7 +1009,7 @@ _await_board_up() {
         local _k
         kill "$_pid" 2>/dev/null || true
         for _k in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$_pid" 2>/dev/null || break; sleep 0.3; done
-        kill -0 "$_pid" 2>/dev/null && kill -9 "$_pid" 2>/dev/null
+        if kill -0 "$_pid" 2>/dev/null; then kill -9 "$_pid" 2>/dev/null || true; fi
         for _k in 1 2 3 4 5; do kill -0 "$_pid" 2>/dev/null || break; sleep 0.2; done
         # ASKED IS NOT STOPPED (cmd_stop's rule): the pidfile is the only handle on it, so it goes only once
         # the process is gone.
@@ -1015,6 +1017,9 @@ _await_board_up() {
           die "Kosmos cannot be started from this shell: $(_unreachable_why). The board it launched (process $_pid) would be blocked the same way and could not be stopped again; stop it from a normal Terminal with 'kosmos stop', then start it there."
         fi
         rm -f "$PIDFILE" 2>/dev/null || true
+        # Nothing was left started, so a deliberate stop a person made stands (cmd_start's _had_stop_marker,
+        # visible here because bash locals are dynamically scoped; empty for any other caller).
+        if [ -n "${_had_stop_marker:-}" ]; then : > "$STOP_MARKER" 2>/dev/null || true; fi
         die "Kosmos cannot be started from this shell: $(_unreachable_why), and a board started here would be blocked the same way, so it was stopped again. Start it from a normal Terminal (or ask the person who runs this computer)."
       fi
     fi
@@ -1047,6 +1052,9 @@ cmd_start() {
   # brought the board back. Persistent "stopped means stopped" is the intended
   # semantic (the card's requirement); it does not affect crash recovery, which is
   # marker-ABSENT and still relaunches.
+  # #4636, the one exception: a start from a shell that cannot connect to the board, which then refuses (or
+  # stops the board it launched there), puts back a marker it cleared. It started nothing, so a person's
+  # deliberate stop stands; a start that FAILS to bind still clears it, as above.
   local _had_stop_marker=""
   [ -f "$STOP_MARKER" ] && _had_stop_marker=1
   rm -f "$STOP_MARKER" 2>/dev/null || true
@@ -1358,7 +1366,11 @@ cmd_stop() {
     fi
     die "Kosmos is running at $URL but is busy, and it was not started by this command, so it was left alone. If it stays like this, 'kosmos restart' frees it."
   elif [ "$HEALTH_STATE" = unreachable ]; then
-    # #4636: something listens and this shell cannot reach it. Not "not running", and no stop marker.
+    # #4636: something listens and this shell cannot reach it. Not "not running", and no stop marker. When it is
+    # this install's own board (its pid is in board.pid) this shell simply cannot confirm or stop it from here.
+    if _unreachable_is_ours; then
+      die "$(_unreachable_lead) $(_unreachable_why), so it cannot be stopped from here and was left alone. Stop it from a normal Terminal."
+    fi
     die "$(_unreachable_lead) $(_unreachable_why), and it was not started by this command, so it was left alone."
   else
     # #2955: already down, but the user explicitly asked to stop it, so record
