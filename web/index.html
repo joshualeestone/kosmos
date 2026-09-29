@@ -42291,6 +42291,7 @@ function plusSiShow(step) {
   }
   const title = document.getElementById('plus-si-title');
   if (title) title.textContent = step === 'plus-si-done' ? "You're signed in to Kosmos+" : 'Sign in to activate Kosmos+';
+  { const sp = document.getElementById('plus-si-spin'); if (sp) sp.hidden = true; }   // #4608: a step change ends any wait
   const out = document.getElementById('plus-si-cancel');
   if (out) {
     const label = plusSiWayOut(step);
@@ -42996,7 +42997,7 @@ async function plusSiDoRegister(name, owned) {
      at the 15s every other step uses and tell a healthy sign-in to check it is online. */
   let r;
   try { r = await plusSiPost('/api/remote/signin-register', { name }, PLUS_REGISTER_TIMEOUT_MS); }
-  catch (e) { siRestore(); throw e; }
+  catch (e) { siRestore(); if (!owned) plusSiMsg(''); throw e; }
   PLUS_SI_REGISTERING = false;
   if (r.stale) return;
   siRestore();
