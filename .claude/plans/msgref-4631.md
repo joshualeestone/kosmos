@@ -12,7 +12,7 @@ Card: kosmos#4631 (Josh, 2026-09-29 14:42; Splinter's calls on the card).
 - An agent's instructions tell it to point at a message by who said it and what it was about, and to write
   "message 530" at most, never the bare id. Existing agents get it (new doctrine heading).
 - Every input that takes a message id (post --in-reply-to, react, the room's reply) also takes "530",
-  "#530", "message 530" and "message 530 in <room>", so a person can paste a copied reference.
+  "message 530" and "message 530 in <room>", so a person can paste a copied reference.
 - Any message on the page: right-click (ctrl-click on a Mac), ctrl-click on Windows, or a button in the hover
   bar copies a reference a person can paste to an agent, with a toast saying what was copied.
 
@@ -62,5 +62,6 @@ step is the envelope's wording, which is the agents' own command syntax and so r
   inside backticks), with a control that the scan sees the block's own `[m3]`.
 - engine/messages.test.js: messageIdOf's accepted and refused shapes.
 - engine/reactions-2255.test.js: react takes "12" and "message 12 in <room>" (red without the change).
-- docs/browser-checks/render-msgref-4631.js (new, gated): R1 to R8 plus controls, run as Windows and Mac.
+- docs/browser-checks/render-msgref-4631.js (new, gated): R1 to R12 plus controls, in Chromium as Windows and Mac and
+  in real WebKit, where the Mac's right-click selects the word first and a clicked button takes no focus.
 - render-room-reply-3745, render-dm-reply-4256, render-room-msgbox-2806: the bar's order and button count.

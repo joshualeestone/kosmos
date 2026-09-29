@@ -14,6 +14,8 @@
  *   R8  Escape and a click outside close the menu
  *   R9  a name that opens the agent is left alone; R10 keyboard (menu key at the message, focus back, Tab closes);
  *   R11 a touchscreen long-press keeps the system menu
+ *   R12 REAL WebKit: a right-click on a word opens the menu and a real click on the item copies (SKIPPED, said so, where
+ *       WebKit is not installed)
  * Controls: the number is hidden until hover (the bar's own opacity), and a row with nothing to name offers no menu.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-msgref-4631.js [shots-dir]
@@ -199,6 +201,9 @@ async function paintRoom(page) {
       chk(selTaken === false, tag + 'R5 a right-click with text selected keeps the browser menu (its Copy)', String(selTaken));
       const plainTaken = await post.evaluate((row) => { const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }); row.querySelector('.msg-bd').dispatchEvent(ev); return ev.defaultPrevented; });
       chk(plainTaken === true, tag + 'CONTROL: the same right-click without a selection is taken', String(plainTaken));
+      const guest = await page.evaluate(() => { const d = document.createElement('div'); d.className = 'msg ext'; d.setAttribute('data-mid', 'x-1b2c'); d.innerHTML = '<div class="msg-bd">Hi</div>';
+        document.getElementById('pj-room').appendChild(d); const t = msgRefText(d); d.remove(); return t; });
+      chk(guest === '', tag + 'CONTROL: a room row with no number (an outside guest) offers nothing to copy', JSON.stringify(guest));
       await page.keyboard.press('Escape');
 
       if (platform === 'Win32') {
@@ -254,6 +259,56 @@ async function paintRoom(page) {
       }
       chk(errs.length === 0, tag + 'no page errors', errs.join(' | '));
       await ctx.close();
+    }
+    // R12: REAL WebKit (Safari and the Mac app's engine), which the Chromium passes above cannot stand in for. WebKit
+    // selects the word under the pointer before it fires contextmenu, and does not focus a clicked button; each of
+    // those once kept the menu from opening or from copying. A real right-click on a word, then a real click on the
+    // menu item.
+    let wk = null;
+    try { wk = await require('playwright').webkit.launch({ headless: process.env.HEADED === '0' }); }
+    catch (e) { console.log('SKIPPED  [webkit] R12: WebKit is not installed here (' + String(e && e.message || e).split('\n')[0] + '), so the Mac engine was NOT checked'); }
+    if (wk) {
+      try {
+        const ctx = await wk.newContext({ viewport: { width: 1280, height: 900 }, timezoneId: 'America/Chicago', locale: 'en-US' });
+        const page = await ctx.newPage();
+        const errs = [];
+        page.on('pageerror', (e) => errs.push(e.message));
+        await page.addInitScript(() => {
+          Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' });
+          window.setInterval = () => 0;
+          window.__copied = [];
+          Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (t) => { window.__copied.push(t); } } });
+          window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+        });
+        await page.goto(PAGE);
+        await paintRoom(page);
+        const word = await page.evaluate(() => {
+          const p = document.querySelector('#pj-room .msg[data-mid="m530"] .msg-bd p') || document.querySelector('#pj-room .msg[data-mid="m530"] .msg-bd');
+          const tn = document.createTreeWalker(p, NodeFilter.SHOW_TEXT).nextNode();
+          const r = document.createRange(); const i = tn.textContent.indexOf('AtlasGrid'); r.setStart(tn, i); r.setEnd(tn, i + 9);
+          const b = r.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+        });
+        await page.mouse.click(word.x, word.y, { button: 'right' });
+        await page.waitForTimeout(150);
+        const r12a = await page.evaluate(() => ({ open: !!document.getElementById('msg-menu') && !document.getElementById('msg-menu').hidden,
+          sel: String(getSelection()) }));
+        chk(r12a.open && r12a.sel === '', '[webkit] R12 a real right-click on a word opens the menu (and leaves no stray word selected)', JSON.stringify(r12a));
+        if (r12a.open) {
+          await page.click('#msg-menu-copy');
+          await page.waitForTimeout(150);
+        }
+        const r12b = await page.evaluate(() => ({ copied: window.__copied.slice(), hidden: !document.getElementById('msg-menu') || document.getElementById('msg-menu').hidden }));
+        chk(r12b.copied[0] === 'message 530 in Kosmos Growth' && r12b.hidden, '[webkit] R12 a real click on the item copies the reference', JSON.stringify(r12b));
+        // Text the person had selected themselves still gets the browser's menu (its Copy).
+        await page.evaluate(() => { const bd = document.querySelector('#pj-room .msg[data-mid="m531"] .msg-bd'); const r = document.createRange(); r.selectNodeContents(bd); getSelection().removeAllRanges(); getSelection().addRange(r); });
+        const own = await page.evaluate(() => { const b = document.querySelector('#pj-room .msg[data-mid="m531"] .msg-bd').getBoundingClientRect(); return { x: b.left + 30, y: b.top + b.height / 2 }; });
+        await page.mouse.click(own.x, own.y, { button: 'right' });
+        await page.waitForTimeout(150);
+        const r12c = await page.evaluate(() => !document.getElementById('msg-menu') || document.getElementById('msg-menu').hidden);
+        chk(r12c, '[webkit] R12 CONTROL: with the person\'s own selection, the browser keeps its menu', String(r12c));
+        chk(errs.length === 0, '[webkit] no page errors', errs.join(' | '));
+        await ctx.close();
+      } finally { await wk.close(); }
     }
   } finally {
     await browser.close();
