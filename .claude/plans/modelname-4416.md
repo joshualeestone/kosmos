@@ -24,6 +24,11 @@ by asking the agent.
   <provider> model" instead of "picks its own model", which stopped being true once Kosmos passes -m. Antigravity
   and Muse still say "picks its own", because they do. A bare codex model reads "OpenAI o3".
 
+- Review iteration 4: the Gemini/Grok menu read `modelName || plannedModelName` while the card prefers the job for a
+  stopped agent, so a stopped Gemini that last ran Pro said "Runs on Gemini 3.8 Pro" beside a card saying "Gemini 3.8
+  Flash (default)". Now ONE derivation, cardModelName, read by modelLine and menuRunsOn; a behavioural test lifts both
+  (reverting menuRunsOn to the old expression reds it). DEFERRED (cosmetic): ids outside MODEL_WORDS keep simple
+  casing ("Chatgpt 4o Latest", "GPT 5.6 mini"); no version is mis-said.
 ## Rejected
 - A pure dash-to-space transform for every id: "Claude Haiku 4 5" on the next dashed version.
 - Asking agents to report their model: self-report is unreliable (the card says so).

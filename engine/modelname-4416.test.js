@@ -120,9 +120,9 @@ function pageFns() {
     if (script[k] === '{') depth += 1;
     else if (script[k] === '}') { depth -= 1; if (depth === 0) { end = k + 1; break; } }
   }
-  const prelude = script.slice(at, end) + ';\n' + page.liftAll(script, ['cardStOf', 'modelLine', 'runsOnLine']);
+  const prelude = script.slice(at, end) + ';\n' + page.liftAll(script, ['cardStOf', 'cardModelName', 'menuRunsOn', 'modelLine', 'runsOnLine']);
   // eslint-disable-next-line no-new-func
-  return new Function(prelude + '\nreturn { modelLine, runsOnLine };')();
+  return new Function(prelude + '\nreturn { modelLine, runsOnLine, menuRunsOn };')();
 }
 
 test('#4416: every runner shows its own model, never "Claude <another vendor\'s model>"', () => {
@@ -151,21 +151,33 @@ test('#4416: a STOPPED non-Claude agent\'s "Will start on" keeps its runner', ()
     'control: a stopped Claude agent is still prefixed');
 });
 
+test('#4416 iter 4: the Gemini/Grok model menu names the SAME model as the card, stopped or running', () => {
+  const { modelLine, menuRunsOn } = pageFns();
+  // A stopped Gemini agent last ran Pro; its job names none, so it will start on the pinned default.
+  const stopped = { runner: 'gemini', modelName: 'Gemini 3.8 Pro', plannedModelName: 'Gemini 3.8 Flash (default)', state: 'stopped' };
+  assert.equal(menuRunsOn(stopped), 'Gemini 3.8 Flash (default)', 'the menu named the model it last ran, the card the one it will start on');
+  assert.equal(menuRunsOn(stopped), modelLine(stopped));
+  const running = { runner: 'grok', modelName: 'Grok 4.6', plannedModelName: 'Grok 4.5 (default)', state: 'working' };
+  assert.equal(menuRunsOn(running), 'Grok 4.6', 'control: a running agent names what it runs');
+  assert.equal(menuRunsOn(running), modelLine(running));
+  assert.equal(menuRunsOn({ runner: 'antigravity', modelName: 'Gemini 3.8 Pro', state: 'working' }), '', 'antigravity picks its own');
+  assert.equal(menuRunsOn({ runner: 'gemini', state: 'working' }), '', 'nothing known: the menu says it picks its own, not "Runs on Gemini"');
+});
+
 test('#4416: the OpenAI picker keys on the RAW id, on either platform', () => {
   /* The picker's own pre-selection is exercised end to end by web.detail-openai-model-2140.test.js; this pins
      that both server sites fill plannedModelId from the reader that also covers a Windows job. */
   const server = read('server.js');
   assert.match(server, /plannedModelId: \(a\.isNamedOurs && a\.runner === 'codex'\) \? create\.plannedModelId\(a\.sessionName\) : null,/);
   assert.match(server, /plannedModelId: rowRunner === 'codex' \? create\.plannedModelId\(k\.name\) : null,/,
-    'the stopped list reads the launch file for every agent, whatever its runner');
+    'the stopped list reads the launch file for codex rows only (one read), as the roster does');
   assert.match(server, /runner: rowRunner,/, 'the stopped row\'s runner and its plannedModelId gate read two different derivations');
   assert.equal(require('./create').plannedModelId('../escape'), null, 'an unvalidated name reads nothing');
 });
 
 test('#4416: the Gemini/Grok model menu and the switch dialog say what the card says, not "picks its own model"', () => {
   const page = read('web/index.html');
-  assert.match(page, /const runsOn = \(a\.runner === 'gemini' \|\| a\.runner === 'grok'\) \? \(a\.modelName \|\| a\.plannedModelName\) : '';/,
-    'the menu no longer reads the model the card shows');
+  assert.match(page, /const runsOn = menuRunsOn\(a\);/, 'the menu no longer reads the model the card shows');
   assert.match(page, /esc\(runsOn \? 'Runs on ' \+ runsOn : word \+ ' picks its own model'\)/);
   assert.match(page, /do not cross: it starts on Kosmos\\u2019s default ' \+ label \+ ' model, '/,
     'switching to Gemini or Grok still says it picks its own model');
