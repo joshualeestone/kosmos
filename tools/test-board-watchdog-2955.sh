@@ -112,6 +112,12 @@ _n="$(grep -c 'status exit 5' "$H/logs/board-watchdog.log" 2>/dev/null)"; [ "${_
 rm -f "$H/.stub-unreachable"; run_wd "$H"
 [ ! -f "$H/logs/board-watchdog.unreachable" ] && ok "unreachable: the spell ends when status says something else" || bad "unreachable: its marker outlived the spell"
 rm -rf "$H"
+# 6v. #4636: a spell marker from BEFORE this boot is stale: cleared, so the first spell after a reboot is logged.
+H="$(new_home)"; : > "$H/.stub-unreachable"; : > "$H/logs/board-watchdog.unreachable"
+touch -t 197001020000 "$H/logs/board-watchdog.unreachable"
+run_wd "$H"
+_n="$(grep -c 'status exit 5' "$H/logs/board-watchdog.log" 2>/dev/null)"; [ "${_n:-0}" = 1 ] && ok "unreachable: a pre-reboot marker is cleared, and the spell is logged" || bad "unreachable: a pre-reboot marker suppressed the log (${_n:-0} lines)"
+rm -rf "$H"
 
 # 6e. #4466: BUSY (status exit 4) past GRACE but within BUSY_GRACE -> NO restart. Arm 6 above is the
 #     control: the same age of down streak, plain down, does restart.

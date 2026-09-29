@@ -141,7 +141,7 @@ BUSY_SINCE_RAW="$(state_get busy_since)"
 BOOT="$(boot_epoch)"
 # #4636: an unreachable spell's marker from before this boot is stale: the first spell after a reboot is logged.
 if [ -n "$BOOT" ] && [ -f "$STATE_DIR/board-watchdog.unreachable" ] \
-   && [ "$(num "$(stat -f %m "$STATE_DIR/board-watchdog.unreachable" 2>/dev/null)")" -lt "$BOOT" ]; then
+   && [ "$(num "$(/usr/bin/stat -f %m "$STATE_DIR/board-watchdog.unreachable" 2>/dev/null)")" -lt "$BOOT" ]; then
   rm -f "$STATE_DIR/board-watchdog.unreachable" 2>/dev/null || true
 fi
 if [ -n "$BOOT" ] && [ -n "$DOWN_SINCE_RAW" ] && [ "$(num "$DOWN_SINCE_RAW")" -lt "$BOOT" ]; then

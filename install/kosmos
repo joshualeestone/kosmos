@@ -350,22 +350,26 @@ _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
 # (lsof also shows it as *:PORT) really does refuse a 127.0.0.1 connect, so it is not evidence.
 # The board binds 127.0.0.1 by default (engine/bindhost.js); KOSMOS_BIND_HOST=0.0.0.0 is *:PORT, also IPv4.
 # A dual-stack or IPv6 bind (KOSMOS_BIND_HOST=::) is not seen here, and keeps the old "down" reading.
-# The re-probe makes one refused probe with a listener cost more than its budget (lsof, 0.5 s, a second probe).
+# The re-probe makes one refused probe with a listener cost more than its budget (one lsof, 0.5 s, a second
+# probe); a refused probe with no listener costs one lsof.
 # Before calling it unreachable, the probe runs ONCE more after half a second: a board that started
 # listening between curl's refusal and lsof (a boot in progress) then answers, instead of a start or
 # restart dying on a moment's race.
 _UNREACH_CMD=""
 _UNREACH_PID=""
 _HEALTH_REPROBE=""
+_HEALTH_LISTENER=""
 _health_refused() {   # <the probe's budget, to re-probe with>
   local _pc
-  _pc="$(_ipv4_listener)" || _pc=""
+  # The re-probe's own refusal reuses the listener the first one found: one lsof per refused probe.
+  if [ -n "$_HEALTH_REPROBE" ] && [ -n "$_HEALTH_LISTENER" ]; then _pc="$_HEALTH_LISTENER"
+  else _pc="$(_ipv4_listener)" || _pc=""; fi
   if [ -z "$_pc" ]; then HEALTH_STATE=down; return; fi
   if [ -z "$_HEALTH_REPROBE" ]; then
-    _HEALTH_REPROBE=1
+    _HEALTH_REPROBE=1; _HEALTH_LISTENER="$_pc"
     sleep 0.5
     _health_probe "${1:-2}"
-    _HEALTH_REPROBE=""
+    _HEALTH_REPROBE=""; _HEALTH_LISTENER=""
     return
   fi
   _UNREACH_PID="${_pc%% *}"; _UNREACH_CMD="${_pc#* }"
@@ -493,7 +497,8 @@ _unreachable_why() {
 _unreachable_is_ours() {
   local _rec
   _rec="$(cat "$PIDFILE" 2>/dev/null)" || return 1
-  [ -n "$_rec" ] && [ -n "$_UNREACH_PID" ] && [ "$_rec" = "$_UNREACH_PID" ]
+  [ -n "$_rec" ] && [ -n "$_UNREACH_PID" ] && [ "$_rec" = "$_UNREACH_PID" ] || return 1
+  case "$_UNREACH_CMD" in node*) return 0 ;; *) return 1 ;; esac   # a reused pid that is not node is not ours
 }
 _unreachable_lead() {   # the start of the sentence, up to "but"
   if _unreachable_is_ours; then printf '%s' "Kosmos is running at $URL, but"
@@ -988,12 +993,23 @@ _await_board_up() {
         return 0
       fi
     fi
-    # #4636: the process just launched (or, under launchd, which passes no pid, the one board-run recorded)
-    # is listening, but this shell cannot connect to it (a sandbox): it started, and waiting longer cannot
-    # change what this shell can reach.
-    if [ "$HEALTH_STATE" = unreachable ] && { { [ -n "$_pid" ] && [ "$_UNREACH_PID" = "$_pid" ]; } || { [ -z "$_pid" ] && _unreachable_is_ours; }; }; then
-      say "Kosmos started at $URL (process $_UNREACH_PID), but $(_unreachable_why), so this shell cannot use it. Run kosmos commands from a shell that can reach it."
-      return 0
+    # #4636: this shell cannot connect to the board it just brought up.
+    #  - Under launchd (no pid passed) the board runs outside this shell, in launchd's own context, so it is
+    #    a real board: it started, and waiting longer cannot change what this shell can reach.
+    #  - Launched from HERE (the nohup path passes its pid), the board inherits this shell's sandbox, which
+    #    cannot be removed afterwards: it could make no outside connection (no AI provider), nor could its
+    #    agents. That is not a board to leave running, and not a start to report as a success: it is
+    #    stopped again, its pidfile removed, and the start fails.
+    if [ "$HEALTH_STATE" = unreachable ]; then
+      if [ -z "$_pid" ] && _unreachable_is_ours; then
+        say "Kosmos started at $URL (process $_UNREACH_PID), but $(_unreachable_why), so this shell cannot use it. Run kosmos commands from a shell that can reach it."
+        return 0
+      fi
+      if [ -n "$_pid" ] && [ "$_UNREACH_PID" = "$_pid" ]; then
+        kill "$_pid" 2>/dev/null || true
+        rm -f "$PIDFILE" 2>/dev/null || true
+        die "Kosmos cannot be started from this shell: $(_unreachable_why), and a board started here would be blocked the same way, so it was stopped again. Start it from a normal Terminal (or ask the person who runs this computer)."
+      fi
     fi
     if [ -n "$_pid" ] && ! kill -0 "$_pid" 2>/dev/null; then return 1; fi
     sleep 0.5

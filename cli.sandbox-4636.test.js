@@ -130,7 +130,8 @@ test('a sandboxed shell: status exits 5 and says running but unreachable; start 
 
 test('a sandboxed shell: stop, restart, open and board-run change nothing and never say "not running"', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
   const h = {};
-  const stop = await withBoard('ok', (p, pid) => run(CLI, ['stop'], env(p, {}, h, pid), true));
+  // No board.pid: this arm is stop's no-pidfile branch (with one, stop goes by the pid, whatever ps allows).
+  const stop = await withBoard('ok', (p) => run(CLI, ['stop'], env(p, {}, h), true));
   assert.equal(stop.died, false, stop.out);
   assert.notEqual(stop.code, 0, stop.out);
   assert.match(stop.out, /this shell cannot connect to it/);
@@ -155,7 +156,8 @@ test('a sandboxed shell: the watchdog start (KOSMOS_RECLAIM_BUSY=1) FAILS loudly
   assert.match(r.out, /Nothing was started or stopped/);
 });
 
-test('a sandboxed shell, a listener that is NOT node: never called Kosmos, and start does not say it is running', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
+const HAVE_PYTHON = (() => { try { return require('node:child_process').spawnSync('/usr/bin/python3', ['-c', 'print(1)'], { timeout: 20000 }).status === 0; } catch { return false; } })();
+test('a sandboxed shell, a listener that is NOT node: never called Kosmos, and start does not say it is running', { skip: (!HAVE_SANDBOX && 'no sandbox-exec on this computer') || (!HAVE_PYTHON && 'no working /usr/bin/python3 for the non-node listener') }, async () => {
   const py = spawn('/usr/bin/python3', ['-c', 'import socket,sys\ns=socket.socket();s.bind(("127.0.0.1",0));s.listen(5)\nprint(s.getsockname()[1],flush=True)\nimport time\ntime.sleep(120)'], { stdio: ['ignore', 'pipe', 'ignore'] });
   try {
     const port = await new Promise((resolve, reject) => {
@@ -184,7 +186,7 @@ test('a sandboxed shell, a node listener that is NOT this install\'s recorded bo
   assert.doesNotMatch(r.out, /already running/);
 });
 
-test('a sandboxed shell, the board STOPPED: start launches it and says it started but this shell cannot reach it', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
+test('a sandboxed shell, the board STOPPED: the board it launches would be sandboxed too, so it is stopped again and the start fails', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
   // A throwaway install: its runtime is this node, its app a stub that listens on the PORT it is given, its tmux a no-op.
   const h = {};
   const e = env(await freePort(), {}, h);
@@ -198,12 +200,20 @@ test('a sandboxed shell, the board STOPPED: start launches it and says it starte
   try {
     const t0 = Date.now();
     const r = await run(CLI, ['start'], e, true);
-    assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /Kosmos started at .*\(process \d+\), but this shell cannot connect to it/);
+    assert.notEqual(r.code, 0, 'a start from a blocked shell reported success: ' + r.out);
+    assert.match(r.out, /Kosmos cannot be started from this shell: .*so it was stopped again\. Start it from a normal Terminal/);
     assert.doesNotMatch(r.out, /did not come up/);
     assert.ok(Date.now() - t0 < 12000, 'it waited out the whole start loop: ' + (Date.now() - t0) + ' ms');
+    assert.equal(fs.existsSync(path.join(h.home, 'board.pid')), false, 'the pidfile of the stopped board was left behind');
+    // From outside the sandbox, nothing answers on the port any more: the board it launched is gone.
+    const gone = await new Promise((resolve) => {
+      const sock = require('node:net').connect(Number(e.KOSMOS_PORT), '127.0.0.1');
+      sock.once('connect', () => { sock.destroy(); resolve(false); });
+      sock.once('error', (err) => resolve(err.code === 'ECONNREFUSED'));
+    });
+    assert.equal(gone, true, 'the board launched from the blocked shell is still listening');
   } finally {
-    // The launched stub is killed whatever happened above (its pid is the one start recorded).
+    // The launched stub is killed whatever happened above, if a pidfile is left to name it.
     let pid = null;
     try { pid = Number(fs.readFileSync(path.join(h.home, 'board.pid'), 'utf8')) || null; } catch { /* never written */ }
     if (pid) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
