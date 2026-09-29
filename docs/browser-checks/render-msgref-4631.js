@@ -12,6 +12,8 @@
  *       person's own row copies "my message to April at ..."
  *   R7  when the clipboard cannot be written, the fallback still copies, and if that fails too the toast shows the words
  *   R8  Escape and a click outside close the menu
+ *   R9  a name that opens the agent is left alone; R10 keyboard (menu key at the message, focus back, Tab closes);
+ *   R11 a touchscreen long-press keeps the system menu
  * Controls: the number is hidden until hover (the bar's own opacity), and a row with nothing to name offers no menu.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-msgref-4631.js [shots-dir]
@@ -57,6 +59,21 @@ async function paintRoom(page) {
 (async () => {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
   try {
+    // R11: on a touchscreen a long-press is how text is selected, so the page does not take contextmenu there.
+    {
+      const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, timezoneId: 'America/Chicago', locale: 'en-US' });
+      const page = await ctx.newPage();
+      await page.addInitScript(() => { window.setInterval = () => 0; window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }); });
+      await page.goto(PAGE);
+      await paintRoom(page);
+      const touchTaken = await page.evaluate(() => {
+        const bd = document.querySelector('#pj-room .msg[data-mid="m530"] .msg-bd');
+        const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 30 });
+        bd.dispatchEvent(ev); return { taken: ev.defaultPrevented, touch: matchMedia('(hover: none)').matches };
+      });
+      chk(touchTaken.touch && touchTaken.taken === false, '[touch] R11 a long-press on a touchscreen keeps the system menu', JSON.stringify(touchTaken));
+      await ctx.close();
+    }
     for (const platform of ['Win32', 'MacIntel']) {
       const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, timezoneId: 'America/Chicago', locale: 'en-US' });
       const page = await ctx.newPage();
@@ -130,6 +147,32 @@ async function paintRoom(page) {
         tag + (platform === 'Win32' ? 'R4 ctrl-click opens the menu' : 'R4 the page leaves a Mac ctrl-click to the system (which makes it the right-click of R3)'), JSON.stringify(r4));
       await page.keyboard.press('Escape');
 
+      // R9: a name or picture that opens the agent's page is left to that (a ctrl-click there already navigated).
+      const nameTaken = await post.evaluate((row) => {
+        const nm = row.querySelector('[data-open-agent]'); if (!nm) return 'no-name';
+        const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 30 });
+        nm.dispatchEvent(ev); return ev.defaultPrevented;
+      });
+      chk(nameTaken === false, tag + 'R9 a right-click or ctrl-click on the name that opens the agent is left alone', String(nameTaken));
+      await page.keyboard.press('Escape');
+
+      // R10: focus goes back where it was on Escape; Tab closes the menu; a keyboard's menu key (no pointer position)
+      // opens it at the message, not in the corner.
+      const r10 = await post.evaluate(async (row) => {
+        const bd = row.querySelector('.msg-bd'); row.setAttribute('tabindex', '-1'); row.focus();
+        bd.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 0, clientY: 0 }));
+        const m = document.getElementById('msg-menu'); const mr = m.getBoundingClientRect(), rr = row.getBoundingClientRect();
+        const atRow = mr.left >= rr.left && mr.top >= rr.top && mr.top <= rr.bottom;
+        document.getElementById('msg-menu-copy').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        const back = document.activeElement === row && m.hidden;
+        bd.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+        document.getElementById('msg-menu-copy').dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+        const tabbed = m.hidden;
+        row.removeAttribute('tabindex');
+        return { atRow, back, tabbed };
+      });
+      chk(r10.atRow && r10.back && r10.tabbed, tag + 'R10 keyboard: the menu key opens it at the message, Escape returns focus, Tab closes it', JSON.stringify(r10));
+
       // R8: Escape and a click outside close it.
       await page.mouse.click(box.x + 20, box.y + box.height / 2, { button: 'right' });
       await page.keyboard.press('Escape');
@@ -180,13 +223,21 @@ async function paintRoom(page) {
         const none = await page.evaluate(() => { const d = document.createElement('div'); d.className = 'msg'; d.setAttribute('data-mid', ''); document.getElementById('d-dmthread').appendChild(d); const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true }); d.dispatchEvent(ev); d.remove(); return ev.defaultPrevented; });
         chk(none === false, tag + 'CONTROL: a row with nothing to name offers no menu', String(none));
 
-        // R7: the clipboard refuses.
+        // R7: the clipboard refuses. Two arms, so a broken fallback cannot pass as a working one: the fallback copies
+        // (execCommand says yes), and when it cannot, the toast shows the words (execCommand says no).
         await page.evaluate(() => { window.__clipFails = true; window.__copied.length = 0; });
         await page.evaluate(() => msgRefCopy(document.querySelector('#d-dmthread .msg:not(.you)')));
-        const r7 = await page.evaluate(() => ({ copied: window.__copied.slice(), toast: document.getElementById('msg-toast').textContent }));
-        const fellBack = r7.copied.some((c) => c === "fallback:April's message to me at 2:33 PM on Sep 29");
-        chk(fellBack ? /^Copied "/.test(r7.toast) : /^Could not copy\. The reference is: April's message/.test(r7.toast),
-          tag + 'R7 with the clipboard refused, the fallback copies, or the toast shows the words', JSON.stringify(r7));
+        await page.waitForTimeout(120);
+        const r7a = await page.evaluate(() => ({ copied: window.__copied.slice(), toast: document.getElementById('msg-toast').textContent }));
+        chk(r7a.copied.includes("fallback:April's message to me at 2:33 PM on Sep 29") && /^Copied "/.test(r7a.toast),
+          tag + 'R7 with the clipboard refused, the fallback copies and says so', JSON.stringify(r7a));
+        await page.evaluate(() => { window.__execNo = document.execCommand; document.execCommand = () => false; window.__copied.length = 0; });
+        await page.evaluate(() => msgRefCopy(document.querySelector('#d-dmthread .msg:not(.you)')));
+        await page.waitForTimeout(120);
+        const r7b = await page.evaluate(() => ({ copied: window.__copied.slice(), toast: document.getElementById('msg-toast').textContent }));
+        await page.evaluate(() => { document.execCommand = window.__execNo; window.__clipFails = false; });
+        chk(r7b.copied.length === 0 && r7b.toast === "Could not copy. The reference is: April's message to me at 2:33 PM on Sep 29",
+          tag + 'R7 when nothing can copy, the toast shows the words to copy by hand', JSON.stringify(r7b));
       }
       chk(errs.length === 0, tag + 'no page errors', errs.join(' | '));
       await ctx.close();

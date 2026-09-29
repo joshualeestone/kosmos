@@ -2336,7 +2336,7 @@ function reactionsFor(of, rows, youReactor) {
    shapes comes back trimmed and otherwise unchanged, so the caller's own refusal still names what was wrong. */
 function messageIdOf(value) {
   const s = String(value == null ? '' : value).trim();
-  const hit = /^(?:message\s+)?#?\s*m?(\d{1,15})(?:\s+in\s+\S.*)?$/i.exec(s);
+  const hit = /^(?:message\s+)?#?\s*m?(\d{1,15})(?:\s+in\s+\S.*)?[.,;:!?]?$/i.exec(s);   // a sentence's own full stop too
   return hit ? 'm' + String(Number(hit[1])) : s;
 }
 
