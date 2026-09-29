@@ -124,3 +124,15 @@ The engine regression set (with setup-assistant): 743/743.
   "when Kosmos resumes"; comments no longer state as fact that every agy agent on a machine shares one account; the
   fallback line is one sentence; the page test lifts the page's own provider map.
 - (N, left) book entries are never pruned (bounded by sessions per board run).
+
+## Review iteration 6 (blind, sonnet): CONVERGED (no finding that needs a change)
+Three WARNINGs, each judged against the code, none a change:
+- DEFERRED (true as written): between the reset and the resume (30 s grace, then 55 s per agent) the card reads "its turn
+  stopped ... and has not picked up again", which is literally true until the carry-on line lands. The other idle-agent
+  senders that could type into a still-exhausted account in that window are PR B, disclosed.
+- DEFERRED (known tradeoff, recorded since review 1): the reset is computed on the hook host's clock; a remote agent
+  with a skewed clock is nudged early (a failed nudge and a new pause) or late (by the skew). Same machine today.
+- DEFERRED (disclosed): a turn started by someone else after the reset but before its first hook can get one extra
+  carry-on line (one per reset; the in-memory book can repeat it once after a restart within six hours).
+NITs left: a small shared quota module instead of requiring status.js; compact-only regex forms; the source-match pin.
+Next: the full validation once #4574 is on main (the queue override would otherwise red the queue tests), then proof.
