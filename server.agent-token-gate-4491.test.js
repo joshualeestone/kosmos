@@ -258,10 +258,12 @@ test('task message: a pane held by a stranger is not taken for our agent; an unr
   const realWho = tasksEngine.whoOf;
   const said = [];
   let unreadable = false;
+  const realResolve = messagesEngine.resolveSender;
+  messagesEngine.resolveSender = () => ({ ok: false, because: 'stubbed: no tmux in the suite' });   // never read this machine's tmux
   projectsEngine.readAll = () => { if (unreadable) { const e = new Error('unreadable'); e.code = 'UNREADABLE'; throw e; } return [{ id: 'p4491', name: 'p4491', agents: ['mara'] }]; };
   tasksEngine.say = (id, num, text) => { said.push(text); return { number: Number(num) }; };
   tasksEngine.whoOf = () => [];
-  t.after(() => { projectsEngine.readAll = realAll; tasksEngine.say = realSay; tasksEngine.whoOf = realWho; board.restore(); });
+  t.after(() => { projectsEngine.readAll = realAll; tasksEngine.say = realSay; tasksEngine.whoOf = realWho; messagesEngine.resolveSender = realResolve; board.restore(); });
   const targetOf = (name) => (board.agents.find((c) => c.sessionName === name) || {}).target;
   const strangerTarget = targetOf('poc-agent');
   assert.ok(strangerTarget, 'the fixture gave the stranger no pane target');
@@ -317,6 +319,49 @@ test('task built refuses a token-only agent that is not on the project (#4491 sl
   const member = await call('POST', '/api/project/p4491/task/1/built', { headers: { 'x-kosmos-agent-token': sendertoken.mint('mara').token }, body: {} });
   assert.equal(member.code, 200, 'control: a member could not mark: ' + member.code + ' ' + member.text.slice(0, 160));
   assert.deepEqual(marks, ['mara'], 'the mark was not recorded as the token\'s agent');
+});
+
+test('task built: a paneless token is matched by key, and an unreadable project list is a 503 (#4491 slice 3)', async (t) => {
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  const liveness = require('./engine/liveness');
+  const realAll = projectsEngine.readAll;
+  const realSet = tasksEngine.setBuilt;
+  const realAlive = liveness.alive;
+  let stored = ['Ghost'];
+  let unreadable = false;
+  const marks = [];
+  projectsEngine.readAll = () => { if (unreadable) { const e = new Error('unreadable'); e.code = 'UNREADABLE'; throw e; } return [{ id: 'p4491', name: 'p4491', agents: stored }]; };
+  tasksEngine.setBuilt = (id, num, as) => { marks.push(as.by); return { ok: true, changed: false, task: { number: Number(num) } }; };
+  liveness.alive = (key) => (key === 'ghost' ? true : realAlive(key));
+  t.after(() => { projectsEngine.readAll = realAll; tasksEngine.setBuilt = realSet; liveness.alive = realAlive; board.restore(); });
+  const ghost = sendertoken.mint('ghost').token;
+  const mark = () => call('POST', '/api/project/p4491/task/1/built', { headers: { 'x-kosmos-agent-token': ghost }, body: {} });
+  const r = await mark();
+  assert.equal(r.code, 200, 'a paneless member could not mark: ' + r.code + ' ' + r.text.slice(0, 160));
+  stored = ['Mara'];
+  assert.equal((await mark()).code, 403, 'control: a paneless non-member marked');
+  unreadable = true;
+  assert.equal((await mark()).code, 503, 'an unreadable project list was not a 503');
+  assert.deepEqual(marks, ['ghost']);
+});
+
+test('task message leaves a paneless sender off its own notification, by the same key rule (#4491 slice 3)', async (t) => {
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  const liveness = require('./engine/liveness');
+  const realAll = projectsEngine.readAll;
+  const realSay = tasksEngine.say;
+  const realWho = tasksEngine.whoOf;
+  const realAlive = liveness.alive;
+  projectsEngine.readAll = () => [{ id: 'p4491', name: 'p4491', agents: ['Ghost', 'mara'] }];
+  tasksEngine.say = (id, num) => ({ number: Number(num) });
+  tasksEngine.whoOf = () => ['Ghost', 'mara'];
+  liveness.alive = (key) => (key === 'ghost' ? true : realAlive(key));
+  t.after(() => { projectsEngine.readAll = realAll; tasksEngine.say = realSay; tasksEngine.whoOf = realWho; liveness.alive = realAlive; board.restore(); });
+  const r = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-agent-token': sendertoken.mint('ghost').token }, body: { text: 'from ghost' } });
+  assert.equal(r.code, 200, r.text.slice(0, 160));
+  const told = JSON.parse(r.text).delivered.map((d) => d.agent);
+  assert.ok(!told.includes('Ghost'), 'the paneless sender was notified about its own message: ' + JSON.stringify(told));
+  assert.ok(told.includes('mara'), 'control: the other assignee was not notified: ' + JSON.stringify(told));
 });
 
 test('a malformed agent token is refused at the gate without a store scan', async (t) => {

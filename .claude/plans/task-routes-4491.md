@@ -1,7 +1,7 @@
 # task-routes-4491: #4491 Option C slice 3, the agent's own token reaches task message and task built
 
-Card: joshualeestone/kosmos#4491 (claimed:angel). Stacked on slice 2 (#4521, branch agent-routes-4491);
-rebased onto main when #4521 merges.
+Card: joshualeestone/kosmos#4491 (claimed:angel). Built on slice 2 (#4521, squash 0bc05dc99, now on main); rebased
+onto main.
 
 ## Finished looks like
 1. `POST /api/project/<p>/task/<n>/message` and `POST /api/project/<p>/task/<n>/built` pass the board-token gate
@@ -38,6 +38,12 @@ rebased onto main when #4521 merges.
   This matches msg, post, react and task built (a bad credential is never swapped for a weaker one); the supervisor
   mints a fresh token at every launch.
 
+- A roster-target pane counts only when that card is tied to our agent (isNamedOurs), as resolveSender requires;
+  a stranger's pane is an unnamed process (not refused as a non-member, and no longer named as our agent).
+- 503, not 400, when the caller cannot be checked: task message answers 503 for an unreadable roster with a pane
+  (before, `roster.find` on null threw and came back as a 400) and for an unreadable project list; task built
+  answers 503 for an unreadable project list too.
+
 ## Weakest premise
 That no legitimate agent messages a task on a project it is not a member of. Task built has refused that since
 its own review; a coordinator-style agent that relays into other projects' tasks would now be refused on
@@ -54,4 +60,7 @@ project.
 - Exact vs key: a carded agent is compared exactly (a stored "Mara" refuses the roster's "mara"); a paneless token
   matches its key (stored "Ghost" admits "ghost"), with a control.
 - Valve order (valve suite): with the cap spent, a non-member hears 403 and a member still hears 429.
+- A stranger's pane is not taken for our agent; unreadable project lists are 503 on both routes.
+- Task built matches a paneless token by key (control: refused when not on the record).
+- A paneless sender is left off its own notification (control: the co-assignee is notified).
 - The 570 pin: the pattern list pinned exactly, like the set.

@@ -3779,7 +3779,8 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    supervisor.agent-token-argv-4497.test.js). */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react']);
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
-   `[^/]+` for the project and `\d+` for the task, so no other task verb (close, reopen, parts) matches. Each
+   `[^/]+` for the project and `\d+` for the task, so no other task verb (close, reopen, parts) matches. Judged before
+   the handler decodes the project, so an encoded `a%2Fb` passes here and then names no project (404). Each
    handler identifies the caller from the token and refuses an agent that is not on the project. */
 const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built)$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
@@ -16458,13 +16459,13 @@ const server = http.createServer(async (req, res) => {
      { note?, clear?, from_pane? }. Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
      (a token that does not resolve is refused, as the message route does) or else its pane. The pane name is
      advisory, as on the message route: a local process can claim any pane, so the builder it names is a label, not
-     a proof (an enforcing board still needs the board token to reach this at all). An identified agent may mark or
+     a proof (an enforcing board still needs the board token, or the agent's own token via AGENT_TOKEN_ROUTE_PATTERNS (#4491), to reach this at all). An identified agent may mark or
      clear only tasks in projects it is on (any task there: membership is per project, as for task messages), and
      only the screen changes the person's own mark, clearing or re-marking (review rounds 5 and 7). A
      process the board cannot name (no token, no known pane) is not held to membership: it is refused nothing the
      message route would refuse it, it is valved, and it is recorded as builtBy null (review round 6); its mark frees
      no agent (review round 11). The real
-     boundary is the board token, and the person's own mark rests on the screen posture (isViaScreen), advisory
+     boundary is the board token or the agent's own token, and the person's own mark rests on the screen posture (isViaScreen), advisory
      as on the bulk-close route: a local process that claims to be the screen is taken at its word (review round 13). A
      process is valved (builtMarkRefusal, the runaway breaker); the same mark again records nothing and is not counted. Marking a closed
      task is refused (409); clearing one is a no-op answered `changed: false` (review round 10), since closing
@@ -16499,7 +16500,12 @@ const server = http.createServer(async (req, res) => {
       const by = viaScreen ? null : ((card && card.sessionName) || null);
       if (!viaScreen) {
         /* Membership first, so a non-member hears why, not the breaker (review round 15). */
-        const proj = projects.readAll().find((x) => x.id === id) || null;   // the stored record: agents are names
+        let proj = null;   // the stored record: agents are names
+        try { proj = projects.readAll().find((x) => x.id === id) || null; }
+        catch {
+          sendJson(res, 503, { error: 'we could not read the projects, so the task was not marked' });
+          return;
+        }
         if (card && proj && !projectHasAgent(proj, card.sessionName, !!(tokenSender && (tokenSender.paneless || (tokenSender.card && tokenSender.card.paneless))))) {
           sendJson(res, 403, { error: 'that agent is not on this project, so it cannot mark its tasks' });
           return;
