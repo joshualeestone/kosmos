@@ -13,8 +13,9 @@
 # Harness mirrors test-supervisor-env.sh: a sandbox copy of the real supervisor
 # beside a stub tmux that records exactly what `new-session` was asked for. The
 # model flag lives in that recorded argv, so the assertions read it directly.
-# No engine sibling and no secrets/env, so the token-door + mint preamble is a
-# no-op here (that half is test-supervisor-env.sh's job, not this one).
+# The installed supervisor always has an engine-path pointer. The fixture uses
+# the real sandboxed engine so a Codex launch can resolve its private home; the
+# model vector remains the only assertion this file makes.
 AGENT_WORKFORCE_DATA="$(mktemp -d)"; export AGENT_WORKFORCE_DATA
 trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SBC:-}" "${SBE:-}" "${SBCL:-}"' EXIT
 
@@ -30,6 +31,7 @@ make_sandbox() {
   local dir="$1"
   mkdir -p "$dir/bin" "$dir/work"
   cp bin/agent-supervisor.sh "$dir/bin/agent-supervisor.sh"
+  printf '%s\n' "$PWD/engine" > "$dir/bin/engine-path"
   cat > "$dir/tmux" <<'STUB'
 #!/bin/sh
 case "$1" in
