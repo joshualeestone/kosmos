@@ -2620,6 +2620,7 @@ test('#4447: a link the agent planted in its own folder cannot turn the spill in
     // The link loses its name and the message is written fresh; the target's contents never change.
     fs.unlinkSync(inboxOf('mara'));
     fs.mkdirSync(inboxOf('mara'));
+    fs.writeFileSync(path.join(inboxOf('mara'), '.gitignore'), '*\n');   // Kosmos's own Inbox, as a first spill leaves it
     const nextId = () => 'm' + (messages.record().rows.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
     for (const kind of ['symbolic', 'hard']) {
       const at = path.join(inboxOf('mara'), nextId() + '.txt');
@@ -2658,6 +2659,8 @@ test('#4447: the Inbox ignores itself in git, so a connected agent\'s project re
     assert.equal(fs.readFileSync(path.join(inboxOf('mara'), '.gitignore'), 'utf8'), '*\n');
     // Measured, not assumed: git itself ignores the message file.
     const root = path.dirname(inboxOf('mara'));
+    /* This test runs git init and removes a .git below: it must never be a real agent's folder. */
+    assert.ok(root.startsWith(SANDBOX + path.sep), 'the worker folder is not in the sandbox: ' + root);
     const { spawnSync } = require('node:child_process');
     if (spawnSync('git', ['init', '-q', root]).status !== 0) return;   // no git here: the file assertion above stands alone
     const st = spawnSync('git', ['-C', root, 'status', '--porcelain', '--untracked-files=all'], { encoding: 'utf8' });
@@ -2667,6 +2670,37 @@ test('#4447: the Inbox ignores itself in git, so a connected agent\'s project re
     const st2 = spawnSync('git', ['-C', root, 'status', '--porcelain', '--untracked-files=all'], { encoding: 'utf8' });
     assert.match(st2.stdout, /beside\.txt/, 'the git control saw nothing, so it could not have seen the Inbox either');
     fs.rmSync(path.join(root, '.git'), { recursive: true, force: true }); fs.rmSync(path.join(root, 'beside.txt'), { force: true });
+  });
+});
+
+test('#4447: an Inbox that is the person\'s own folder (it exists without Kosmos\'s marker) is never written into', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    workerFolders(['leo', 'mara']);
+    // A connected agent's folder is the person's project, which may already have a folder called Inbox.
+    fs.mkdirSync(inboxOf('mara'));
+    fs.writeFileSync(path.join(inboxOf('mara'), 'notes.md'), 'the person\'s own file\n');
+    fs.writeFileSync(path.join(inboxOf('mara'), '.gitignore'), '*.log\n');
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    const out = messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents);
+    assert.equal(out.state, chat.DELIVERY.COULD_NOT, 'a long message was written into the person\'s own Inbox folder');
+    assert.deepEqual(fs.readdirSync(inboxOf('mara')).sort(), ['.gitignore', 'notes.md'], 'the person\'s folder was changed');
+    assert.equal(fs.readFileSync(path.join(inboxOf('mara'), '.gitignore'), 'utf8'), '*.log\n', 'the person\'s .gitignore was rewritten');
+    // The same with no .gitignore at all: still not ours.
+    fs.rmSync(path.join(inboxOf('mara'), '.gitignore'));
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents).state, chat.DELIVERY.COULD_NOT);
+    assert.deepEqual(fs.readdirSync(inboxOf('mara')), ['notes.md'], 'a marker or message was added to the person\'s folder');
+    // CONTROL: an Inbox Kosmos made (its marker in place) takes the next one.
+    fs.rmSync(inboxOf('mara'), { recursive: true, force: true });
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents).state, chat.DELIVERY.PLACED);
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: 'brief: ' + 'the lease detail '.repeat(80) }, board.agents).state, chat.DELIVERY.PLACED, 'a second message into Kosmos\'s own Inbox was refused');
+    assert.equal(messageFiles(inboxOf('mara')).length, 2);
   });
 });
 

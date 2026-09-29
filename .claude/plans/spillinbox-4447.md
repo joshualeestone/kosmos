@@ -55,3 +55,11 @@ That every real recipient has a worker folder. Kosmos-created agents always do. 
 - The #1732 Windows-coupling audit flagged my hand-rolled `fs.constants.O_NOFOLLOW` open as an unclassified Windows-hostile site.
 - The codebase already has ONE audited link-safe writer, `engine/securewrite.js` (`writeSecret`: a 0600 temp created `wx`, renamed over the name, with win32 handled and pinned). I should have used it from the start. The spill now goes through it; the audit passes (8/8).
 - The planted symbolic and hard link tests still pass (a rename only replaces the name). A mutant with a plain writeFileSync, which follows links, turns the planted-link test red.
+
+## Review round 2 (sonnet, blind; it reviewed the pre-securewrite version): 0 BLOCKERs, 2 WARNINGs
+- **WARNING** A pre-existing `Inbox` (a connected agent's folder is the person's project, which may already have one) was used silently, and its own `.gitignore` left in place. Sharper than stated: Kosmos must never write messages into the person's own folder at all.
+  - Fixed: the `.gitignore` is written only when the spill CREATES the Inbox, and its exact words (`*`) mark the folder as Kosmos's.
+  - An `Inbox` without that marker, whether it has a different `.gitignore` or none, is the person's. It is refused and left byte-for-byte unchanged.
+  - Tested, with a control showing Kosmos's own Inbox takes repeated messages. A mutant dropping the marker check is red.
+- **WARNING** The git test ran `git init` and removed `.git` with no sandbox-containment assertion. Fixed: it asserts the folder is inside SANDBOX first.
+- Focus 2 (addressable before deliver) and focus 3 (nothing reads the pointer from the log) were confirmed clean.

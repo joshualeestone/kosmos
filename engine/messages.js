@@ -130,6 +130,8 @@ function unread(projectId) {
    could list and read every room's and every DM's, and reaching outside its folder broke the
    "stay inside your own folder" rule on camera. Its own Inbox holds only what was sent to it. */
 const INBOX = 'Inbox';
+/* The Inbox's .gitignore: git ignores the whole folder, and its exact words mark the folder as Kosmos's. */
+const INBOX_MARK = '*\n';
 /**
  * Write a long message into one recipient's Inbox and return the file's path, or null when it
  * has no folder of its own or the file could not be written (the caller refuses that recipient:
@@ -146,6 +148,9 @@ const INBOX = 'Inbox';
  *
  * Inbox/.gitignore ignores the whole folder: for a CONNECTED agent the folder is the person's own
  * project, often a git repository, and colleagues' messages must not ride a `git add .` out of it.
+ * It is also how an Inbox is known to be KOSMOS's: it is written when the spill creates the folder,
+ * and an `Inbox` that already exists without it is the person's own folder of that name, which a
+ * spill never writes into (review round 2). That recipient is refused a long message instead.
  */
 function spillInto(recipient, id, text) {
   const dir = require('./dmfiles').ownDir(recipient, INBOX);   // lazy: dmfiles -> projects -> this module
@@ -154,9 +159,14 @@ function spillInto(recipient, id, text) {
     /* The agent's own folder must already exist: a spill never creates a worker folder. */
     const home = fs.lstatSync(path.dirname(dir));
     if (!home.isDirectory()) return null;
-    try { fs.mkdirSync(dir); } catch (e) { if (!e || e.code !== 'EEXIST') return null; }
+    let made = false;
+    try { fs.mkdirSync(dir); made = true; } catch (e) { if (!e || e.code !== 'EEXIST') return null; }
     if (!fs.lstatSync(dir).isDirectory()) return null;   // lstat: a link is not the agent's folder
-    try { fs.writeFileSync(path.join(dir, '.gitignore'), '*\n', { flag: 'wx' }); } catch { /* already there, or not writable: the spill still goes */ }
+    const marker = path.join(dir, '.gitignore');
+    if (made) fs.writeFileSync(marker, INBOX_MARK, { flag: 'wx' });   // 'wx' never follows or reuses anything already there
+    /* Ours only if the marker is a real file saying exactly that (a link or other words: not ours). */
+    const m = fs.lstatSync(marker);
+    if (!m.isFile() || fs.readFileSync(marker, 'utf8') !== INBOX_MARK) return null;
     const file = path.join(dir, id + '.txt');
     require('./securewrite').writeSecret(file, text + '\n', 0o600);   // throws on failure: caught below as "no file"
     return file;
