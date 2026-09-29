@@ -30,6 +30,21 @@ test('#4588: while paused the card reads rate_limited (Paused) with the reset in
   assert.equal(r.reported, true);
 });
 
+test('#4588: a question, work or a lost connection read off a screen outranks the quota report', () => {
+  for (const state of [status.STATE.NEEDS_YOU, status.STATE.WORKING, status.STATE.CONNECTION_LOST]) {
+    const scraped = { state, confidence: status.CONFIDENCE.SCRAPED, because: 'on screen', evidence: 'x' };
+    assert.notEqual(status.reconcileReport(quota(), scraped, NOW).state, status.STATE.RATE_LIMITED, state);
+  }
+  // CONTROL: over a screen that says nothing (agy's, always) it is the pause.
+  assert.equal(status.reconcileReport(quota(), UNKNOWN, NOW).state, status.STATE.RATE_LIMITED);
+});
+
+test('#4588: past the reset it says so for six hours, then plainly at rest, never Paused or the raw text', () => {
+  const later = status.reconcileReport(quota(), UNKNOWN, Date.parse(RESET) + 7 * 3600e3);
+  assert.equal(later.state, status.STATE.IDLE);
+  assert.equal(later.because, 'it is at rest and nothing is needed');
+});
+
 test('#4588: after the reset the same report reads as the ordinary idle again (CONTROL)', () => {
   const r = status.reconcileReport(quota({ because: "Paused: ... Google said: API error: RESOURCE_EXHAUSTED ... Resets in 24m54s." }), UNKNOWN, Date.parse(RESET) + 60 * 1000);
   assert.equal(r.state, status.STATE.IDLE);

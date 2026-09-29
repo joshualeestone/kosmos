@@ -11,10 +11,10 @@ the card (comments 5895338362 and 5895357615).
 - engine/status.js: quotaPauseUntil(reported) = an AUTOMATIC idle whose `until` is a time still ahead. reconcileReport
   reads it as the existing rate_limited state (the board's "Paused"), with the reset in its reason and `quotaUntil`;
   the card carries quotaUntil.
-- web/index.html stateReason: a rate_limited card with quotaUntil reads "Usage limit reached. Kosmos resumes it at
-  9:47 PM."; without it the wording is unchanged.
+- web/index.html stateReason: a rate_limited card with quotaUntil reads "Usage limit reached. The Google quota resets
+  at 9:47 PM." (review 1); without it the wording is unchanged.
 - engine/agyquota.js + server.js: a sweep types one carry-on line into each agy agent whose reset has passed (+30 s),
-  ONE agent per sweep and at least 60 s apart, oldest reset first, at most 3 tries per reset; live-execution gate,
+  ONE agent per sweep and at least 55 s apart (review 1), oldest reset first, at most 3 tries per reset; live-execution gate,
   brake AGENT_WORKFORCE_AGY_QUOTA_RESUME_OFF=1. The agent's next automatic working then clears the pause.
 
 ## Rejected

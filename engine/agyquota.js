@@ -29,7 +29,8 @@ const STAGGER_MS = 55 * 1000;
 const MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const MAX_TRIES = 3;
 const NUDGE_TEXT = 'The Google quota for this account has reset. Please carry on with what you were doing.';
-const LAST = '__lastNudgeAt';
+/* The stagger stamp, kept in the same book under a key no session name can equal (review 2). */
+const LAST = Symbol('lastNudgeAt');
 
 /* The reset an agent is paused until, from its latest report, in epoch ms; null when it is not paused on the
    quota. The same shape status.quotaPauseUntil reads, without its "still ahead" condition. */
@@ -87,8 +88,11 @@ function sweepOnce(o) {
     const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);
     const tries = (d.entry && d.entry.until === d.report.until && Number.isInteger(d.entry.tries) ? d.entry.tries : 0) + 1;
     book.set(d.session, { until: d.report.until, nudgedAt: mayHaveReached ? now : null, tries, delivery: state });
-    book.set(LAST, now);
-    const r = { session: d.session, name: d.card.name || d.session, act: 'nudge', delivered, delivery: state, because: d.because, waiting: due.length - 1 };
+    // Only a line that may have reached the pane spaces the next agent out: a refusal reached nobody (review 2).
+    if (mayHaveReached) book.set(LAST, now);
+    const gaveUp = !mayHaveReached && tries >= MAX_TRIES;
+    const r = { session: d.session, name: d.card.name || d.session, act: gaveUp ? 'gave-up' : 'nudge', delivered, delivery: state,
+      because: gaveUp ? d.because + '; nothing reached the pane in ' + tries + ' tries, so it is left paused for a person' : d.because, waiting: due.length - 1 };
     results.push(r);
     if (log) { try { log(r); } catch { /* never breaks a sweep */ } }
   } catch { /* never throws: a sweep is best-effort */ }

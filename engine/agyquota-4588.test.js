@@ -63,8 +63,12 @@ test('#4588: the oldest reset goes first', () => {
 test('#4588: a delivery that reaches nothing is tried again, and given up after MAX_TRIES', () => {
   const w = world({ 'agy-a': paused() });
   const refuse = (s, text) => { w.sent.push({ s, text }); return { state: D.COULD_NOT }; };
-  for (let i = 0; i < q.MAX_TRIES + 2; i++) sweep(w, AT + q.GRACE_MS + i * q.STAGGER_MS, refuse);
-  assert.equal(w.sent.length, q.MAX_TRIES);
+  const logged = [];
+  for (let i = 0; i < q.MAX_TRIES + 2; i++) {
+    q.sweepOnce({ roster: w.roster, book: w.book, now: AT + q.GRACE_MS + i * 1000, readReport: w.readReport, deliver: refuse, DELIVERY: D, log: (r) => logged.push(r) });
+  }
+  assert.equal(w.sent.length, q.MAX_TRIES, 'a refusal does not start the spacing, so the tries come a second apart, and stop at MAX_TRIES');
+  assert.equal(logged[logged.length - 1].act, 'gave-up', 'giving up is logged, not silent');
 });
 
 test('#4588: an agent that hits the quota again after resuming is a new pause, resumed again', () => {

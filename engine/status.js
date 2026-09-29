@@ -6508,13 +6508,20 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
      carry-on line into the agent after the reset, and its next automatic working clears this. */
   /* Kosmos's own sentences, never the report's text (Google's raw error, and a relative "Resets in" that goes stale,
      #215): the detail header quotes `because`. */
-  const quotaAt = quotaResetOf(reported);
+  /* Only over a screen that says nothing (agy's is never read, so always for agy): a question, work or a lost
+     connection read off a screen outranks this report (review 2). */
+  const quotaAt = (scraped.state === STATE.UNKNOWN || scraped.state === STATE.IDLE) ? quotaResetOf(reported) : null;
   if (quotaAt !== null) {
-    const hhmm = new Date(quotaAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    if (quotaPauseUntil(reported, nowMs) !== null) {
+    const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+    // With its zone: this sentence is formatted on the board's machine and can be read from another (review 2).
+    const hhmm = new Date(quotaAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+    if (quotaAt > now) {
       return { state: STATE.RATE_LIMITED, confidence: CONFIDENCE.STRUCTURED, because: "its Google account's shared Antigravity quota ran out; it resets at " + hhmm, evidence: null, reported: true, conflict: null, quotaUntil: new Date(quotaAt).toISOString() };
     }
-    return { state: STATE.IDLE, confidence: CONFIDENCE.STRUCTURED, because: "its Google account's shared Antigravity quota reset at " + hhmm, reported: true, conflict: null };
+    /* Past the reset: said as such for the resume sweep's six hours, then plainly at rest (the time carries no date).
+       Never the report's own text either way. */
+    const recent = now - quotaAt <= 6 * 60 * 60 * 1000;
+    return { state: STATE.IDLE, confidence: CONFIDENCE.STRUCTURED, because: recent ? "its Google account's shared Antigravity quota reset at " + hhmm : 'it is at rest and nothing is needed', reported: true, conflict: null };
   }
   // Rule 3b (#886): a DEAD TOKEN or a RATE LIMIT read off the screen stands
   // over ANY report. Once the token is rejected no hook fires, so the

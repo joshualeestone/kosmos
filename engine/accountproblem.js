@@ -77,10 +77,13 @@ function accountProblemOf(card) {
      hook (status.js quotaPauseUntil), so it is firm. Every agy agent on this computer is signed in to that one account,
      so they share it. Said without "add credits": this is a subscription's allowance. */
   if (card.state === 'rate_limited' && card.runner === 'antigravity' && typeof card.quotaUntil === 'string' && Number.isFinite(Date.parse(card.quotaUntil))) {
-    const hhmm = new Date(Date.parse(card.quotaUntil)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const hhmm = new Date(Date.parse(card.quotaUntil)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
     const text = `${who} has used up its Google account's Antigravity quota, which every Antigravity agent on this computer`
       + ` shares, so it has stopped. The quota resets at ${hhmm}.`;
-    return { kind: 'usage', provider, notify: true, text, summary: text };
+    /* notify: false (review 2). The manager notice asks it to tell the person "so they can fix it", and this clears by
+       itself at the reset; a manager on the same account is likely paused too, and would spend the fresh quota on it.
+       The card and the Direct Message line already say it. */
+    return { kind: 'usage', provider, notify: false, text, summary: text };
   }
   if (card.state === 'rate_limited') {
     /* Which reader saw it. A Codex pane's usage limit comes only from Codex's own sentence, anchored
