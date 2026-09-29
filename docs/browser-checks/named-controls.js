@@ -84,7 +84,7 @@ const SURFACES = [
   ['removal dialog', async (pg) => {
     await pg.locator('.acard .namego').first().click();
     await pg.waitForTimeout(1400);
-    await pg.click('#d-nav button[data-go="term"]');   // #3500: Remove folded under the Advanced pill (term reveals d-sec-term + d-sec-remove)
+    await pg.click('#d-nav button[data-go="model"]');   // #4550: Remove (with the Terminal) folds under AI Settings (model reveals model, memory, term, remove)
     await pg.click('#d-remove-start');
   }],
   /* First run is six panes behind one overlay, and each is a surface a person

@@ -66,7 +66,9 @@ test('only Talk is on screen before a click, and every section can be reached fr
   // section, and exactly memory+skills are the folded pair.
   // #3500: Remove now folds under the Advanced (term) pill too, alongside #2916's memory->model
   // and skills->instr. A folded section -> the pill that reveals it:
-  const FOLD = { memory: 'model', skills: 'instr', remove: 'term' };
+  // #4550 (Josh, 2026-09-29): three buttons. Instructions and Skills fold under Profile; Memory,
+  // Terminal and Remove under AI Settings (model).
+  const FOLD = { instr: 'profile', skills: 'profile', memory: 'model', term: 'model', remove: 'model' };
   /* #3757: the Files screen has no pill; it is reached from View All beside the sidebar's Files
      list, whose handler opens it. That door is checked here so "reachable" still means reachable. */
   const DOOR = { files: 'd-files-all' };
@@ -80,8 +82,13 @@ test('only Talk is on screen before a click, and every section can be reached fr
     assert.ok(gos.includes(pill), s.key + ' is not reachable from any pill (expected pill: ' + pill + ')');
   }
   assert.ok(gos.every((g) => secs.some((s) => s.key === g)), 'a pill points at no section');
-  assert.deepEqual(secs.map((s) => s.key).filter((k) => !gos.includes(k) && !DOOR[k]).sort(), ['memory', 'remove', 'skills'],
-    'the folded set changed; folds exactly memory + skills (#2916) and remove (#3500, under Advanced)');
+  assert.deepEqual(secs.map((s) => s.key).filter((k) => !gos.includes(k) && !DOOR[k]).sort(), ['instr', 'memory', 'remove', 'skills', 'term'],
+    'the folded set changed; #4550 folds exactly instr + skills (under Profile) and memory + term + remove (under AI Settings)');
+  // And the page's own map says the same, so a click and this test agree on where each section lives.
+  const groups = PAGE.match(/const DETAIL_SECTION_GROUPS = (\{[^\n]*\});/);
+  assert.ok(groups, 'DETAIL_SECTION_GROUPS moved');
+  assert.deepEqual(Function('return ' + groups[1])(), { profile: ['profile', 'instr', 'skills'], model: ['model', 'memory', 'term', 'remove'] },
+    'the page groups sections differently from Josh\'s two lists');
   for (const s of secs) {
     assert.match(PANEL, new RegExp('id="d-sec-' + s.key + '" data-sec="' + s.key + '" tabindex="-1"'), s.key + ' cannot take focus, so a click strands the keyboard on the nav');
   }
@@ -102,7 +109,8 @@ test('the poll never chooses the section', () => {
   // capture-pane every five seconds for nothing anybody can see.
   assert.match(tick, /!detailSection\('term'\)\.hidden/, 'the poll captures the window while the Terminal section is hidden');
   const go = script.slice(script.indexOf('function detailGo('), script.indexOf('\nfunction ', script.indexOf('function detailGo(') + 1));
-  assert.match(go, /section === 'term'[\s\S]{0,400}detailPaintWindow\(/, 'arriving at Terminal does not capture, so the section shows a stale window until the next tick');
+  // #4550: the Terminal section arrives with AI Settings, so the capture keys on the revealed group.
+  assert.match(go, /group\.includes\('term'\)[\s\S]{0,400}detailPaintWindow\(/, 'arriving at Terminal does not capture, so the section shows a stale window until the next tick');
   // And from the FRESH record, not the one captured at open: the poll never
   // rewrites CURRENT, so a tie that changed while the person was elsewhere
   // would paint the wrong sentence for a round of the tick.
