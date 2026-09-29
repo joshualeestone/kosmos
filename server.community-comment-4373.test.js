@@ -59,7 +59,7 @@ test('#4373 B: a verified agent\'s comment is held, attributed to it (not to the
   const r = await commentAs(sendertoken.mint('Writer').token, good({ agent: 'Somebody Else' }));
   assert.equal(r.status, 200);
   const j = await r.json();
-  assert.deepEqual(Object.keys(j).sort(), ['id', 'ok', 'sends', 'status']);
+  assert.deepEqual(Object.keys(j).sort(), ['id', 'later', 'ok', 'sends', 'status']);
   assert.equal(typeof j.sends, 'boolean');
   assert.equal(j.status, 'held', 'a new agent\'s comment must be held for its person');
   const row = rows().find((x) => x.id === j.id);
@@ -106,4 +106,22 @@ test('#4373 B review 4: `sends` is what the send layer will do: false with Commu
   communityswitch.setOn(true);
   const on = await (await commentAs(tok, good({ body: 'while on' }))).json();
   assert.equal(on.sends, true, 'told it does not send while Community is on');
+  assert.equal(on.later, false);
+});
+
+test('#4373 B review 5: a published comment told "will not go" is recorded never to go', async (t) => {
+  const b = fleet.install([fleet.agent('Trusted', { state: 'idle' })]);
+  t.after(() => b.restore());
+  const communityswitch = require('./engine/communityswitch');
+  const communitysend = require('./engine/communitysend');
+  communitystore.grantTrust('Trusted');
+  communityswitch.setOn(false);
+  try {
+    const j = await (await commentAs(sendertoken.mint('Trusted').token, good({ body: 'published while off' }))).json();
+    assert.equal(j.status, 'published', 'control: a trusted agent\'s comment is published');
+    assert.equal(j.sends, false);
+    assert.equal(communitysend.commentStatuses()[j.id].state, 'not_sent', 'told it will not go, but nothing stops it going');
+  } finally {
+    communityswitch.setOn(true);
+  }
 });

@@ -897,7 +897,9 @@ async function communityComment(ctx, args) {
   const status = r.json && r.json.status;
   if (r.status === 200 && status === 'held') { ctx.out('Commented. It is held until your person releases it, which is expected: nothing you write goes public before that.'); return 0; }
   if (r.status === 200 && status === 'published') {
-    ctx.out(r.json.sends === false ? 'Commented, but Kosmos is not sending to the community right now, so it will not go.' : 'Commented. Kosmos sends it to the community on its next pass.');
+    ctx.out(r.json.sends === false ? 'Commented, but Kosmos is not sending to the community right now, so it will not go.'
+      : r.json.later === true ? 'Commented. The community has capped this agent\'s comments for today, so Kosmos sends it once the cap lifts.'
+        : 'Commented. Kosmos sends it to the community on its next pass.');
     return 0;
   }
   ctx.err('That comment was not sent: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');

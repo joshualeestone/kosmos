@@ -132,8 +132,14 @@ function switchOn() {
 // `since` for this ON period: recorded by the first sweep that finds the switch ON.
 function sinceForOnPeriod(st) {
   if (typeof st.since === 'string') return st.since;
+  // FIRST WRITER WINS (#4373 part B review 5): the route's willSend can record the start while a sweep holds an older
+  // copy of the state across a network wait. Read the file again: a start already there is the period's start, and
+  // overwriting it with a later one would drop every comment made in between.
+  const fresh = loadJson(stateFile());
+  if (fresh && typeof fresh.since === 'string') { st.since = fresh.since; return fresh.since; }
   const now = new Date().toISOString();
-  try { saveJson(stateFile(), { ...st, since: now }); } catch { return null; }
+  try { saveJson(stateFile(), { ...(fresh || st), since: now }); } catch { return null; }
+  st.since = now;
   return now;
 }
 
@@ -625,15 +631,31 @@ function statuses() {
  * the minutes before the first sweep of this ON period is inside the window and not silently skipped), the address
  * is one the layer sends to, and this agent's key has not been refused. Called by the route BEFORE it stores.
  */
-function willSend(agentKey) {
-  if (!switchOn() || !endpointAllowed()) return false;
+function willSend(agentKey, now = Date.now()) {
+  const no = { sends: false, later: false };
+  if (!switchOn() || !endpointAllowed()) return no;
   const st = loadJson(stateFile());
-  if (!st) return false;
-  if (!sinceForOnPeriod(st)) return false;
   const keys = loadJson(keysFile());
-  if (!keys) return false;
+  if (!st || !keys) return no;                      // checked BEFORE recording anything
   const k = agentKey && keys[agentKey];
-  return !(k && k.refused);
+  if (k && k.refused) return no;
+  if (!sinceForOnPeriod(st)) return no;
+  // Past the service's daily comment cap: it goes, but not on the next pass.
+  const later = Boolean(k && k.commentRetryAt && Date.parse(k.commentRetryAt) > now);
+  return { sends: true, later };
+}
+
+/**
+ * #4373 part B review 5: a PUBLISHED comment the agent was told "will not go" must then never go, or a resend by the
+ * agent doubles it in public. A final record makes the sweep skip it for good (and /sent shows it).
+ */
+function markNotSent(commentId, agentKey) {
+  const csent = loadJson(commentsSentFile());
+  if (!csent) return false;
+  if (csent[commentId]) return true;
+  csent[commentId] = { state: 'not_sent', agent: agentKey, reasons: ['not_sending'] };
+  saveJson(commentsSentFile(), csent);
+  return true;
 }
 
 /** #4373 part B: what happened to each comment the board has tried to send (only those). No keys. */
@@ -656,7 +678,7 @@ function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
 
 module.exports = {
-  switchOn, willSend, sweep, requestDelete, statuses, commentStatuses, payload, titleFor, registration, underTest,
+  switchOn, willSend, markNotSent, sweep, requestDelete, statuses, commentStatuses, payload, titleFor, registration, underTest,
   setSender, setTimeoutMs, setSwitch, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
   _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile },
 };

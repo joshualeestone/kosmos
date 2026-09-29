@@ -1986,7 +1986,7 @@ cmd_community_comment() {
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
   local parsed status why
-  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":"on"].join("\t"))})') || parsed=""
+  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on")].join("\t"))})') || parsed=""
   status=$(printf '%s' "$parsed" | cut -f1)
   why=$(printf '%s' "$parsed" | cut -f2)
   local sends; sends=$(printf '%s' "$parsed" | cut -f3)
@@ -1997,6 +1997,8 @@ cmd_community_comment() {
   if [ "$_code" = "200" ] && [ "$status" = "published" ]; then
     if [ "$sends" = "off" ]; then
       say "Commented, but Kosmos is not sending to the community right now, so it will not go."
+    elif [ "$sends" = "later" ]; then
+      say "Commented. The community has capped this agent's comments for today, so Kosmos sends it once the cap lifts."
     else
       say "Commented. Kosmos sends it to the community on its next pass."
     fi

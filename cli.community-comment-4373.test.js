@@ -114,3 +114,10 @@ test('#4373 B review 4: a connection dropped after the board read the comment is
   assert.match(out.stdout, /do not send it again/);
   assert.doesNotMatch(out.stdout, /could not reach/);
 }, { hangup: true }));
+
+test('#4373 B review 5: past the daily cap it says the comment goes once the cap lifts, not on the next pass', () => withStubBoard(async (port) => {
+  const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
+  assert.equal(out.code, 0);
+  assert.match(out.stdout, /once the cap lifts/);
+  assert.doesNotMatch(out.stdout, /next pass/);
+}, { status: 200, body: { ok: true, status: 'published', id: 'c1', sends: true, later: true } }));

@@ -114,3 +114,18 @@ Mutations red: postId set to the service id; Windows treating every failure as n
 - (N) call()'s doc names notConnected; a connect timeout is "not reached"; the plan says /sent lists only comments the
   board has tried to send.
 Mutations red: the route answering sends:true; willSend not recording the start; the Mac treating all as unreached.
+
+## Review iteration 5 (blind)
+0 BLOCKER, 2 WARNING, taken:
+- (W) a sweep holding an old copy of the state across a network wait overwrote the period's start willSend had just
+  recorded, so a comment the agent was told would go never went. sinceForOnPeriod is now FIRST WRITER WINS (it reads
+  the file again before writing). The test holds a real sweep at the service (with a control that it is held) and
+  reds when the re-read is removed; my first version of it did not reach the race (no real post to settle).
+- (W) "it will not go" was not always true: switched off then on within one sweep, an unreadable key file, or a
+  transient switch read, and the comment went later, inviting a doubled resend. A published comment told it will
+  not go now gets a final `not_sent` record, so it never goes (and /sent shows it). willSend checks every readable
+  precondition before recording anything.
+- (N) past the daily comment cap the agent is told it goes "once the cap lifts", not "on the next pass".
+ACCEPTED (N): willSend recording the start from a request can move the POSTS' window earlier; that only sends posts
+made while the person had Community on, the direction the switch consents to.
+Mutations red: no re-read in sinceForOnPeriod; the route skipping markNotSent; willSend ignoring the cap.

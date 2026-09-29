@@ -358,7 +358,7 @@ test('review 3: an expired token is renewed and the comment POSTed again, and th
 
 test('review 4: a comment made in the minutes before the first sweep of an ON period is inside the window when willSend said so', async () => {
   SW = { on: true, ok: true };                          // Community on, but no sweep has recorded when yet
-  assert.equal(cs.willSend('ava'), true);               // records the period's start now
+  assert.equal(cs.willSend('ava').sends, true);         // records the period's start now
   const r = comment('ava', 'before the first sweep');
   await cs.sweep();
   assert.equal(sends().length, 1, 'a comment the agent was told would go never went');
@@ -367,14 +367,71 @@ test('review 4: a comment made in the minutes before the first sweep of an ON pe
 
 test('review 4: willSend is false with the switch off, an unreadable state, or a refused agent', () => {
   SW = { on: false, ok: true };
-  assert.equal(cs.willSend('ava'), false);
+  assert.equal(cs.willSend('ava').sends, false);
   SW = { on: true, ok: true };
   fs.mkdirSync(path.dirname(cs._paths.stateFile()), { recursive: true });
   fs.writeFileSync(cs._paths.stateFile(), '{not json');
-  assert.equal(cs.willSend('ava'), false);
+  assert.equal(cs.willSend('ava').sends, false);
   fs.rmSync(cs._paths.stateFile());
   fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
   fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ava: { refused: true } }));
-  assert.equal(cs.willSend('ava'), false);
-  assert.equal(cs.willSend('bo'), true);
+  assert.equal(cs.willSend('ava').sends, false);
+  assert.equal(cs.willSend('bo').sends, true);
+});
+
+test('review 5: FIRST WRITER WINS: a sweep holding an old copy of the state cannot move the period\'s start later', async () => {
+  await on();
+  comment('ava', 'first, to register the agent for real');
+  await cs.sweep();
+  fs.writeFileSync(cs._paths.stateFile(), '{}');      // a new ON period: no start recorded yet
+  // A slow first sweep: the service holds every request, so the sweep waits with its copy of the (empty) state.
+  let release;
+  const gate = new Promise((res) => { release = res; });
+  cs.setSender(async (url, init) => { await gate; return fetch(url, init); });
+  // An unconfirmed post (a real published one, so the settle pass asks the service about it) makes the sweep wait on
+  // the network BEFORE it reads its window.
+  const post = feedpublish.publishPost({ kind: 'community_post', agent: 'ava', at: new Date().toISOString(), topic: 't', body: 'an unconfirmed post' }, { agentId: 'ava' });
+  assert.equal(post.status, 'published');
+  const sentFile = cs._paths.sentFile();
+  const sentNow = JSON.parse(fs.readFileSync(sentFile, 'utf8'));
+  sentNow[post.id] = { state: 'pending', agent: 'ava', attempted: true };
+  fs.writeFileSync(sentFile, JSON.stringify(sentNow));
+  const before = be.st.seen.length;
+  const sweeping = cs.sweep();
+  await new Promise((res) => setTimeout(res, 50));
+  assert.equal(be.st.seen.length, before, 'control: the sweep is held at the service, not finished');
+  assert.equal(cs.willSend('ava').sends, true);        // records the start while the sweep waits
+  const recorded = JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since;
+  const r = comment('ava', 'made while the first sweep waited');
+  await new Promise((res) => setTimeout(res, 20));
+  release();
+  await sweeping;
+  assert.equal(JSON.parse(fs.readFileSync(cs._paths.stateFile(), 'utf8')).since, recorded, 'the sweep moved the start later');
+  cs.setSender((url, init) => fetch(url, init));
+  await cs.sweep();
+  assert.equal(cs.commentStatuses()[r.id] && cs.commentStatuses()[r.id].state, 'sent', 'a comment the agent was told would go never went');
+});
+
+test('review 5: a published comment the agent was told "will not go" never goes, even once Community is on again', async () => {
+  await on();
+  SW = { on: false, ok: true };
+  const r = comment('ava', 'made while off');
+  assert.equal(cs.willSend('ava').sends, false);
+  assert.equal(cs.markNotSent(r.id, 'ava'), true);
+  SW = { on: true, ok: true };                          // on again before any sweep saw it off: the old start stands
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(sends().length, 0, 'a comment the agent was told would not go, went');
+  assert.equal(cs.commentStatuses()[r.id].state, 'not_sent');
+});
+
+test('review 5: past the daily comment cap, willSend says it goes LATER, not on the next pass', async () => {
+  await on();
+  comment('ava', 'first, to register');
+  await cs.sweep();
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  keys.ava.commentRetryAt = new Date(Date.now() + 3600000).toISOString();
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify(keys));
+  assert.deepEqual(cs.willSend('ava'), { sends: true, later: true });
+  assert.deepEqual(cs.willSend('bo'), { sends: true, later: false });
 });
