@@ -959,6 +959,15 @@ function aggregateState(outcomes) {
 }
 // Only a send that went out (placed, or may have: unconfirmed) has a twin. A first copy that could not be sent
 // hands its refusal to the retry as it is, never marked duplicate: nothing went out to be a duplicate of.
+/* A retry follows its first copy with nothing new in that conversation; a real second answer usually comes after
+   the other side spoke. So a match is folded only while the conversation has been QUIET since it: no row from
+   anyone else, in the same pair or room, after the matched one. */
+function quietSince(log, matched, isOtherVoice) {
+  const i = log.lastIndexOf(matched);
+  if (i < 0) return true;
+  for (let j = i + 1; j < log.length; j++) if (log[j] && isOtherVoice(log[j])) return false;
+  return true;
+}
 function asDuplicate(result) {
   if (!result || typeof result !== 'object') return result;
   return result.state === chat.DELIVERY.PLACED || result.state === chat.DELIVERY.UNCONFIRMED ? { ...result, duplicate: true } : result;
@@ -1104,7 +1113,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
      BEFORE the pair valve: a retry must never be refused at the cap its own first copy reached. */
   const cleaned = chat.cleanMessage(text);
   const sameMsg = recentSameSend(log, at, (r) => r.kind === 'message' && r.from === from && r.to === toName && r.text === cleaned && (r.in_reply_to || null) === replyTo);
-  if (sameMsg) return { state: sameMsg.state, because: sameMsg.state === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: sameMsg.id, at: sameMsg.at, duplicate: true };
+  if (sameMsg && quietSince(log, sameMsg, (r) => r.kind === 'message' && r.from === toName && r.to === from)) return { state: sameMsg.state, because: sameMsg.state === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: sameMsg.id, at: sameMsg.at, duplicate: true };
   const msgKey = sendKey('message', from, toName + '\u0000' + (replyTo || ''), cleaned);
   // Only the async path waits on an in-flight twin: a synchronous caller (send) expects a receipt, not a promise.
   if (deliverToPane !== chat.deliver && IN_FLIGHT_SENDS.has(msgKey)) return IN_FLIGHT_SENDS.get(msgKey).then(asDuplicate);
@@ -1556,6 +1565,32 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      and this is a question to the agent, not a refusal of the room. No double quotes
      or backticks in the sentence: the bash CLI reads `because` with a sed that stops
      at the first quote. */
+  /* #4580: the fold runs BEFORE the which-room ask below: a retry of a post that was already delivered must not be
+     held back to ask which room it meant, which would read as "not posted". */
+  const rec = record();
+  const log = rec.rows;
+  /* #3745: the post this one answers, when it names a post IN THIS ROOM (the routes check first and
+     refuse otherwise; here a stray id simply records nothing rather than pointing at another room). */
+  const answered = (typeof replyTo === 'string' && /^m\d+$/.test(replyTo))
+    ? (log.find((r) => r && r.kind === 'post' && r.id === replyTo && r.project === projectId) || null)
+    : null;
+  /* #4580: the same post again (sender, room, text and the post it answers) is folded into the first, before the
+     room valve. The answered post is part of it: "yes" to two different questions is two answers. The flags
+     (--new, reply_expected) are NOT: a retry re-sends the same command, so a copy that differs only in a flag is
+     the same post again, and the first one's flags stand. */
+  const answeredId = answered ? answered.id : null;
+  const postKey = sendKey('post', from, projectId + '\u0000' + (answeredId || ''), stored);
+  if (operator !== true) {
+    const samePost = recentSameSend(log, at, (r) => r.kind === 'post' && r.from === from && r.project === projectId && r.text === stored && r.operator !== true && (r.replyTo || null) === answeredId);
+    if (samePost && quietSince(log, samePost, (r) => r.kind === 'post' && r.project === projectId && (r.from !== from || r.operator === true))) {
+      const foldedState = aggregateState(samePost.outcomes);
+      return { state: foldedState, because: foldedState === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: samePost.id, at: samePost.at, outcomes: samePost.outcomes || null, from, text: stored, duplicate: true };
+    }
+    // Only the async path waits on an in-flight twin: a synchronous caller (sendPost) expects a receipt.
+    const inFlight = asynchronousDelivery ? IN_FLIGHT_SENDS.get(postKey) : null;
+    if (inFlight) return inFlight.then(asDuplicate);
+  }
+
   if (askWhichRoom === true && operator !== true) {
     /* The rooms the agent can still post in: a question from a room it was removed
        from, or one that is gone, must not send it to a command that is refused. */
@@ -1586,29 +1621,6 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     }
   }
 
-  const rec = record();
-  const log = rec.rows;
-  /* #3745: the post this one answers, when it names a post IN THIS ROOM (the routes check first and
-     refuse otherwise; here a stray id simply records nothing rather than pointing at another room). */
-  const answered = (typeof replyTo === 'string' && /^m\d+$/.test(replyTo))
-    ? (log.find((r) => r && r.kind === 'post' && r.id === replyTo && r.project === projectId) || null)
-    : null;
-  /* #4580: the same post again (sender, room, text and the post it answers) is folded into the first, before the
-     room valve. The answered post is part of it: "yes" to two different questions is two answers. The flags
-     (--new, reply_expected) are NOT: a retry re-sends the same command, so a copy that differs only in a flag is
-     the same post again, and the first one's flags stand. */
-  const answeredId = answered ? answered.id : null;
-  const postKey = sendKey('post', from, projectId + '\u0000' + (answeredId || ''), stored);
-  if (operator !== true) {
-    const samePost = recentSameSend(log, at, (r) => r.kind === 'post' && r.from === from && r.project === projectId && r.text === stored && r.operator !== true && (r.replyTo || null) === answeredId);
-    if (samePost) {
-      const foldedState = aggregateState(samePost.outcomes);
-      return { state: foldedState, because: foldedState === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: samePost.id, at: samePost.at, outcomes: samePost.outcomes || null, from, text: stored, duplicate: true };
-    }
-    // Only the async path waits on an in-flight twin: a synchronous caller (sendPost) expects a receipt.
-    const inFlight = asynchronousDelivery ? IN_FLIGHT_SENDS.get(postKey) : null;
-    if (inFlight) return inFlight.then(asDuplicate);
-  }
 
   /* THE ROOM VALVE, before the fan-out: counted across the WHOLE thread
      regardless of which AGENT sent each post. ⚠️ A decision made now for

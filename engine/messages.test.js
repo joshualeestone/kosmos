@@ -2967,3 +2967,55 @@ test('#4580: a retry waiting on a first send that FAILED gets the failure, never
     assert.equal(b.duplicate, undefined, 'nothing went out, so nothing is a duplicate');
   });
 });
+
+test('#4580: the same words AFTER someone else spoke are a new answer, not a retry (post and message)', () => {
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const first = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'agreed' }, board.agents, MEMBERS);
+    armSender('leo-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'and the keys, same plan?' }, board.agents, MEMBERS);
+    armSender('mara-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const again = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'agreed' }, board.agents, MEMBERS);
+    assert.equal(again.duplicate, undefined, 'a real second answer was folded: ' + JSON.stringify(again));
+    assert.notEqual(again.id, first.id);
+  });
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const m1 = messages.send({ fromPane: '%7', to: 'mara', text: 'agreed' }, board.agents);
+    armSender('mara-discord');
+    arm([ok(), ok()]);
+    messages.send({ fromPane: '%7', to: 'leo', text: 'then the keys too?' }, board.agents);
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    const m2 = messages.send({ fromPane: '%7', to: 'mara', text: 'agreed' }, board.agents);
+    assert.equal(m2.duplicate, undefined, JSON.stringify(m2));
+    assert.notEqual(m2.id, m1.id);
+  });
+});
+
+test('#4580: a retry of a DELIVERED post is folded even if the person asked a question elsewhere in between (not "which room")', () => {
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const first = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'the draft is ready', askWhichRoom: true }, board.agents, MEMBERS);
+    assert.equal(first.state, chat.DELIVERY.PLACED, first.because || '');
+    // The person asks mara something in ANOTHER room, just after her post landed.
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'q9', from: 'you', project: 'other-room', to: ['mara'], text: '@mara where is it?',
+      operator: true, mentioned: ['mara'], outcomes: { mara: chat.DELIVERY.PLACED }, at: new Date().toISOString() }) + '\n');
+    messages.resetForTests();
+    armSender('mara-discord');
+    arm([ok(), ok()]);
+    const retry = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'the draft is ready', askWhichRoom: true }, board.agents, MEMBERS);
+    assert.equal(retry.duplicate, true, 'the retry of a delivered post was held back: ' + JSON.stringify(retry));
+    assert.equal(retry.id, first.id);
+    // CONTROL: a NEW post now is asked which room it meant (the ask still works).
+    armSender('mara-discord');
+    arm([ok(), ok()]);
+    const fresh = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'something new', askWhichRoom: true }, board.agents, MEMBERS);
+    assert.equal(fresh.code, 'which_room', JSON.stringify(fresh));
+  });
+});

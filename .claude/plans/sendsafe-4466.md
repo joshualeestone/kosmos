@@ -58,9 +58,25 @@ The agent re-RUNS the command, which would carry a new key. So the BOARD has to 
 - DEFERRED: a single `__test` export object (the `_` prefix and comment already mark the seams); the fold's log scan
   is O(n) (the same order as the valve scans it sits beside).
 
+## Review round 3 (opus): 2 WARNINGs fixed, 1 NIT written down, 2 NITs fixed, 2 deferred
+- W: the fold could not tell a retry from a real second answer ("agreed", someone asks something new, "agreed"
+  again). A retry follows its first copy with NOTHING new in that conversation, so the fold now needs the
+  conversation QUIET since the match: no row from anyone else in the same pair (messages) or room (posts, the
+  person included) after it. Arms for post and message, red on the previous fold.
+- W: the #3224 which-room ask ran BEFORE the post fold, so a retry of a delivered post could be held back to ask
+  which room it meant ("not posted" again). The fold now runs before the ask; a NEW post is still asked (control).
+  Arm, red.
+- WRITTEN DOWN: the outbox drain sends synchronously, so it folds against the LOG only, not against a live send
+  still in flight (a synchronous caller cannot wait on a promise). Rare: kept entries drain long after the window.
+- NITs fixed: Windows KOSMOS_RETRY_PAUSE_MS parses digits only; the pause's promise no longer shadows `r`.
+- DEFERRED: a recipient spelled with different casing is not folded (both CLIs resend the identical body, so the
+  retry path cannot differ); a shared bash helper for the two retry blocks (two short blocks, each with its own
+  retryable codes and budget, commented at each site).
+
 ## Weakest premise
-An agent that MEANS to send the identical text twice within two minutes gets one copy. I judge that the right trade:
-the realistic case is a short "ok" or "done", and the cost of the other error is a room full of copies.
+An agent that MEANS to send the identical text twice within two minutes, to the same place, answering the same
+message, with nobody else speaking in between, gets one copy. After round 3 that is narrow: the realistic case is a
+nudge repeated into a silent room, and the cost of the other error is a room full of copies.
 
 ## Status
 - [x] engine + Mac CLI + Windows CLI, red-checked; messages/chat/server 406/406, CLI 231/231, Windows CLI 112/112

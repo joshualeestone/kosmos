@@ -68,7 +68,7 @@ function engineDir(here) {
 const REQUEST_TIMEOUT_MS = 15000;
 const POST_TIMEOUT_MS = 120000;
 // #4580: the pause before the one retry of a send whose reply was cut. A test seam through KOSMOS_RETRY_PAUSE_MS.
-const RETRY_PAUSE_MS = Number(process.env.KOSMOS_RETRY_PAUSE_MS) >= 0 && process.env.KOSMOS_RETRY_PAUSE_MS !== undefined ? Number(process.env.KOSMOS_RETRY_PAUSE_MS) : 1000;
+const RETRY_PAUSE_MS = /^\d+$/.test(process.env.KOSMOS_RETRY_PAUSE_MS || '') ? Number(process.env.KOSMOS_RETRY_PAUSE_MS) : 1000;
 
 /* The board's answer when it is serving another Kosmos than the one this agent
    is in (server.js, 421 Misdirected Request). Node's fetch retries a 421 once on
@@ -324,7 +324,7 @@ async function verbMsg(ctx, args) {
   // to tell apart, and anything else that is not "refused" may have arrived (the Mac lists curl 18/28/52/56).
   if (!r.reached && !r.refused) {
     ctx.err('Kosmos did not answer; asking once more (the board keeps one copy of a repeat)...');
-    await new Promise((r) => setTimeout(r, RETRY_PAUSE_MS));   // not straight back into the same busy moment
+    await new Promise((done) => setTimeout(done, RETRY_PAUSE_MS));   // not straight back into the same busy moment
     r = await ctx.call('POST', '/api/msg', body);
   }
   if (!r.reached) {
@@ -432,7 +432,7 @@ async function verbPost(ctx, args) {
   // Not after a timeout: with a 120 s budget the post is still being delivered.
   if (!r.reached && !r.refused && !r.timedOut) {
     ctx.err('Kosmos did not answer; asking once more (the board keeps one copy of a repeat)...');
-    await new Promise((r) => setTimeout(r, RETRY_PAUSE_MS));   // not straight back into the same busy moment
+    await new Promise((done) => setTimeout(done, RETRY_PAUSE_MS));   // not straight back into the same busy moment
     r = await ctx.call('POST', '/api/post', body, { timeoutMs: POST_TIMEOUT_MS });
   }
   if (!r.reached) {
