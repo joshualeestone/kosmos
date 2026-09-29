@@ -1340,6 +1340,10 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 /* The tab layout reserves a scrollbar gutter on <html>, which a fixed layer cannot paint over, so
    while the screen is up the page does not scroll and reserves nothing. */
 html.restart-up { overflow: hidden; scrollbar-gutter: auto; }
+/* #4494: the other two full-window layers, the first-run wizard and the update overlay, left the same strip down
+   the right edge on a Mac that draws classic scrollbars. :has follows every way each is shown or hidden (the
+   wizard's [hidden], the overlay's removal on reload). The wizard scrolls inside its own layer (.fr-back). */
+html:has(> body > #firstrun:not([hidden])), html:has(> body > .upd-back) { overflow: hidden; scrollbar-gutter: auto; }
 /* The pack's header: a three-column sticky grid (left group | centred nav
    | right group) on the warm ground, gold underline on the selected tab.
    The pull-out tracks the app's own stage padding (--space-8), per the
