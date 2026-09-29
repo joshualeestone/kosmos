@@ -175,7 +175,7 @@ test('#2762: the number of avatar URLs on the page is PINNED', () => {
   // #4557: the team step sets a seeded member's portrait through PUT /api/agent/<name>/avatar; 22 -> 23.
   assert.equal(count, 23,
     'the page now has ' + count + ' avatar URLs, not 23. NOTE: this counts every occurrence, '
-    + 'including 6 fetch() calls and 4 /api/you/avatar lines, so an unrelated fetch moves it too; '
+    + 'including 7 fetch() calls and 4 /api/you/avatar lines, so an unrelated fetch moves it too; '
     + 'that is deliberate fail-closed noise rather than a hole. If you ADDED a RENDER: is it painted through '
     + 'setLive / setIfChanged / paintThreadInto? Then it needs `?v=` the avatar version, or it will '
     + 'keep showing the old picture after a profile-image update (#2698, #2762, #2770). If it is '

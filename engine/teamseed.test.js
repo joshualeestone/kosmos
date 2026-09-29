@@ -148,4 +148,6 @@ test('the injected catalogue is what catalogue() returns, and null restores the 
   const cat = fixture();
   teamseed.setCatalogue(cat);
   try { assert.equal(teamseed.catalogue(), cat); } finally { teamseed.setCatalogue(null); }
+  // The other half of the title (round 1): null really restores the lazy load, whether or not the seed is installed.
+  assert.notEqual(teamseed.catalogue(), cat, 'setCatalogue(null) left the injected catalogue in place');
 });

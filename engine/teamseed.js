@@ -82,7 +82,7 @@ function detail(key, cat) {
   const c = cat === undefined ? catalogue() : cat;
   if (!c) return { ok: false, because: NOT_INSTALLED, unavailable: true };
   const team = c.team(key);
-  if (!team) return { ok: false, because: 'there is no prebuilt team called ' + JSON.stringify(String(key)) };
+  if (!team) return { ok: false, because: 'there is no prebuilt team called ' + JSON.stringify(String(key)), notFound: true };
   const lead = leadSlot(team);
   const members = ordered(team).map((m) => ({
     slot: m.slot, title: m.title, role: m.role, name: m.name,
@@ -119,7 +119,7 @@ function specs(req, cat, deps) {
   if (!c) return { ok: false, because: NOT_INSTALLED, unavailable: true };
   const key = req && req.team;
   const team = c.team(key);
-  if (!team) return { ok: false, because: 'there is no prebuilt team called ' + JSON.stringify(String(key)) };
+  if (!team) return { ok: false, because: 'there is no prebuilt team called ' + JSON.stringify(String(key)), notFound: true };
   const lead = leadSlot(team);
   if (!lead) return { ok: false, because: 'this prebuilt team has no single lead, so it cannot be made' };
 

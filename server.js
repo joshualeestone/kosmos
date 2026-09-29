@@ -6461,6 +6461,41 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #4557 (umbrella #4554): the prebuilt teams, read only. The Team dropdown lists them, the confirm
+     screen shows one, and `specs` returns every member as the body POST /api/agents takes, lead first,
+     for the names the person chose. The page makes each member through that route, one request per
+     member, so each gets a single agent's full birth and can be retried alone. Nothing here creates. */
+  if (pathname === '/api/teams/seeded' && req.method === 'GET') {
+    const r = teamseed.list();
+    if (!r.ok) { sendJson(res, 503, { error: r.because }); return; }
+    sendJson(res, 200, { teams: r.teams });
+    return;
+  }
+  {
+    const m = /^\/api\/teams\/seeded\/([a-z0-9-]{1,64})(\/specs)?$/.exec(pathname);
+    if (m && ((!m[2] && req.method === 'GET') || (m[2] && req.method === 'POST'))) {
+      const key = m[1];
+      if (!m[2]) {
+        const r = teamseed.detail(key);
+        if (!r.ok) { sendJson(res, r.unavailable ? 503 : (r.notFound ? 404 : 400), { error: r.because }); return; }
+        sendJson(res, 200, { team: r.team, members: r.members });
+        return;
+      }
+      readBody(req).then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const r = teamseed.specs({ team: key, names: body.names, project: body.project, checkTaken: body.check === true });
+        if (!r.ok) {
+          const code = r.unavailable ? 503 : (r.notFound ? 404 : 400);   // flags, never the English (round 1)
+          sendJson(res, code, { error: r.because });
+          return;
+        }
+        sendJson(res, 200, { team: r.team, specs: r.specs });
+      }).catch(() => { if (!res.headersSent) sendJson(res, 400, { error: 'we could not read that request' }); });
+      return;
+    }
+  }
+
   /**
    * --- a PM agent (or the operator) builds a TEAM for a stated purpose (#1279)
    * -----------------------------------------------------------------------
@@ -6521,41 +6556,6 @@ const server = http.createServer(async (req, res) => {
    *     an agent may send, never the setup role, a made-up role only as `own` with its
    *     label and text, and none at all from the setup guide.
    */
-  /* #4557 (umbrella #4554): the prebuilt teams, read only. The Team dropdown lists them, the confirm
-     screen shows one, and `specs` returns every member as the body POST /api/agents takes, lead first,
-     for the names the person chose. The page makes each member through that route, one request per
-     member, so each gets a single agent's full birth and can be retried alone. Nothing here creates. */
-  if (pathname === '/api/teams/seeded' && req.method === 'GET') {
-    const r = teamseed.list();
-    if (!r.ok) { sendJson(res, 503, { error: r.because }); return; }
-    sendJson(res, 200, { teams: r.teams });
-    return;
-  }
-  {
-    const m = /^\/api\/teams\/seeded\/([a-z0-9-]{1,64})(\/specs)?$/.exec(pathname);
-    if (m && ((!m[2] && req.method === 'GET') || (m[2] && req.method === 'POST'))) {
-      const key = m[1];
-      if (!m[2]) {
-        const r = teamseed.detail(key);
-        if (!r.ok) { sendJson(res, r.unavailable ? 503 : 404, { error: r.because }); return; }
-        sendJson(res, 200, { team: r.team, members: r.members });
-        return;
-      }
-      readBody(req).then((buf) => {
-        let body;
-        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        const r = teamseed.specs({ team: key, names: body.names, project: body.project, checkTaken: body.check === true });
-        if (!r.ok) {
-          const code = r.unavailable ? 503 : (/no prebuilt team called/.test(r.because) ? 404 : 400);
-          sendJson(res, code, { error: r.because });
-          return;
-        }
-        sendJson(res, 200, { team: r.team, specs: r.specs });
-      }).catch(() => { if (!res.headersSent) sendJson(res, 400, { error: 'we could not read that request' }); });
-      return;
-    }
-  }
-
   if (pathname === '/api/team' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {

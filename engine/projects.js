@@ -609,18 +609,18 @@ function folderState(folder) {
  * `describe` read `name`, `state` and `because` off a producer that emits none
  * of them). Asking whether the key is there says which of the two this is.
  */
+function profileRole(card) {
+  const profile = card && card.profile;
+  if (!profile || typeof profile !== 'object') return null;
+  return Object.prototype.hasOwnProperty.call(profile, 'role') ? profile.role : null;
+}
+
 /* #4557: the profile's reportsTo, read like profileRole (the profile is a bag; an absent key means none). */
 function profileReportsTo(card) {
   const profile = card && card.profile;
   if (!profile || typeof profile !== 'object' || !Object.prototype.hasOwnProperty.call(profile, 'reportsTo')) return null;
   const to = profile.reportsTo;
   return (typeof to === 'string' && to.trim()) ? to.trim() : null;
-}
-
-function profileRole(card) {
-  const profile = card && card.profile;
-  if (!profile || typeof profile !== 'object') return null;
-  return Object.prototype.hasOwnProperty.call(profile, 'role') ? profile.role : null;
 }
 
 /**

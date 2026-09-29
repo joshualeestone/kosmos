@@ -14006,7 +14006,7 @@ window.kosmosMeasureScrollbarWidth();
     <ol class="tc-list" id="tc-list" aria-labelledby="tc-title"></ol>
     <label class="flabel" for="tc-project">Project</label>
     <select id="tc-project"></select>
-    <p class="rolehelp" id="tc-note"></p>
+    <p class="rolehelp" id="tc-note" role="status" aria-live="polite"></p>
     <div class="importrow">
       <button class="btn uprime" type="button" id="tc-go"></button>
       <button class="btn" type="button" id="tc-back">Back</button>
@@ -46269,7 +46269,8 @@ async function openTeamCreate(key) {
   }
   TC = {
     key, team: body.team,
-    members: body.members.map((m) => ({ slot: m.slot, title: m.title, name: m.name || '', state: 'ready', why: '', made: null, portrait: null })),
+    members: body.members.map((m) => ({ slot: m.slot, title: m.title, name: m.name || '', state: 'ready', why: '', made: null, portrait: null, seen: null })),
+    leadSlot: (body.team && body.team.lead) || (body.members[0] && body.members[0].slot) || null,
     started: false,
   };
   document.getElementById('tc-title').textContent = body.team.label || 'Your team';
@@ -46301,22 +46302,37 @@ function tcFillProjects() {
 function tcPaint() {
   if (!TC) return;
   const list = document.getElementById('tc-list');
+  /* Round 1 (a11y): the list is rebuilt on every change, so remember what had focus (a row's name box or
+     its Try again) and put focus back on the same row afterwards, or a keyboard user drops to the page. */
+  const had = document.activeElement;
+  const hadRow = had && list.contains(had) ? had.closest('li') : null;
+  const hadSlot = hadRow ? hadRow.dataset.slot : null;
+  const hadKind = had && had.classList ? (had.classList.contains('tc-retry') ? 'retry' : 'name') : null;
+  const hadCaret = (had && hadKind === 'name' && typeof had.selectionStart === 'number') ? had.selectionStart : null;
   list.replaceChildren(...TC.members.map((m, i) => {
     const li = document.createElement('li');
     li.dataset.slot = m.slot;
     const row = document.createElement('div'); row.className = 'tc-row';
     const seat = document.createElement('span'); seat.className = 'tc-seat';
     const b = document.createElement('b'); b.textContent = m.title;
-    seat.append(b, document.createTextNode(i === 0 ? ' (leads the team)' : ''));
+    seat.append(b, document.createTextNode(m.slot === TC.leadSlot ? ' (leads the team)' : ''));
     const input = document.createElement('input');
     input.className = 'tc-name'; input.type = 'text'; input.value = m.name; input.maxLength = 64;
     input.setAttribute('aria-label', 'Name for the ' + m.title);
     input.disabled = m.state === 'made' || m.state === 'creating';
     input.addEventListener('input', () => { m.name = input.value; });
     const st = document.createElement('span'); st.className = 'tc-state ' + m.state;
+    /* Round 1: "Made" said more than create's answer means (the job was accepted, not that the agent is
+       up). It is "Made, starting" until the board can see it, the same evidence the single create waits for. */
+    const made = m.seen === 'running' ? 'Running' : (m.seen === 'unseen' ? 'Made, not seen running yet' : 'Made, starting…');
     st.textContent = ({ ready: '', waiting: 'Waiting', held: 'Waiting for the lead', creating: 'Making…',
-      made: m.portrait === 'failed' ? 'Made (portrait not set)' : 'Made', failed: 'Not made' })[m.state] || '';
+      made: made + (m.portrait === 'failed' ? ' (portrait not set)' : ''), failed: 'Not made' })[m.state] || '';
     row.append(seat, input, st);
+    if (m.renamedFrom) {
+      const note = document.createElement('p'); note.className = 'tc-why';
+      note.textContent = 'The teammates made before this still know it as ' + m.renamedFrom + '. Tell them in chat if it matters.';
+      row.append(note);
+    }
     if (m.state === 'failed' && m.why) { const why = document.createElement('p'); why.className = 'tc-why'; why.textContent = m.why; row.append(why); }
     if (m.state === 'failed') {
       const again = document.createElement('button');
@@ -46328,17 +46344,42 @@ function tcPaint() {
     li.append(row);
     return li;
   }));
+  if (hadSlot) {
+    const row = list.querySelector('li[data-slot="' + CSS.escape(hadSlot) + '"]');
+    const back = row && ((hadKind === 'retry' && row.querySelector('.tc-retry')) || row.querySelector('.tc-name'));
+    if (back && !back.disabled) {
+      back.focus({ preventScroll: true });
+      if (hadCaret !== null && back.classList.contains('tc-name')) { try { back.setSelectionRange(hadCaret, hadCaret); } catch { /* not a text box */ } }
+    } else if (row) {
+      // Nothing on the row takes focus now (it is being made, or made): keep the person on the row itself.
+      row.tabIndex = -1;
+      row.focus({ preventScroll: true });
+    }
+  }
   const n = TC.members.length;
   const go = document.getElementById('tc-go');
-  const pending = TC.members.filter((m) => m.state !== 'made').length;
+  const madeN = TC.members.filter((m) => m.state === 'made').length;
+  const failedN = TC.members.filter((m) => m.state === 'failed').length;
+  const runningN = TC.members.filter((m) => m.seen === 'running').length;
   go.hidden = TC.started;
   go.textContent = 'Create ' + n + (n === 1 ? ' agent' : ' agents');
   go.disabled = false;
   document.getElementById('tc-project').disabled = TC.started;
-  document.getElementById('tc-note').textContent = TC.started
-    ? (pending ? '' : 'Your team is ready. ' + (n === 1 ? 'It is' : 'They are') + ' on your board.')
-    : 'This makes ' + n + ' agents at once. Each one is a real agent that works on your AI plan, like any agent you make.'
+  /* Round 1: leaving mid-run abandoned a half-made team with no record on screen, so Back waits for it. */
+  document.getElementById('tc-back').disabled = Boolean(TC.running);
+  /* Progress is spoken politely (tc-note is a live region): a screen-reader user heard nothing before.
+     "Ready" only once the board has seen every member running, not when every create was accepted. */
+  let note;
+  if (!TC.started) {
+    note = 'This makes ' + n + ' agents at once. Each one is a real agent that works on your AI plan, like any agent you make.'
       + (TC.team && TC.team.caution ? ' ' + TC.team.caution : '');
+  } else if (runningN === n) {
+    note = 'Your team is ready. ' + (n === 1 ? 'It is' : 'They are') + ' running on your board.';
+  } else {
+    note = madeN + ' of ' + n + ' made' + (runningN ? ', ' + runningN + ' running' : '') + (failedN ? ', ' + failedN + ' not made' : '') + '.';
+  }
+  const noteEl = document.getElementById('tc-note');
+  if (noteEl.textContent !== note) noteEl.textContent = note;
 }
 
 function tcNames() {
@@ -46357,7 +46398,7 @@ async function tcSpecs(project, check) {
   return body.specs;
 }
 
-document.getElementById('tc-back').addEventListener('click', () => { TC_GEN += 1; TC = null; cstep('role'); });
+document.getElementById('tc-back').addEventListener('click', () => { if (TC && TC.running) return; TC_GEN += 1; TC = null; cstep('role'); });
 
 document.getElementById('tc-go').addEventListener('click', async () => {
   if (!TC || TC.started) return;
@@ -46388,7 +46429,7 @@ document.getElementById('tc-go').addEventListener('click', async () => {
     }
     TC.project = project;
     TC.started = true;
-    for (const m of TC.members) m.state = 'waiting';
+    for (const m of TC.members) { m.state = 'waiting'; m.firstName = m.name.trim(); }
     tcPaint();
     await tcRun(gen);
   } catch (err) {
@@ -46398,20 +46439,39 @@ document.getElementById('tc-go').addEventListener('click', async () => {
   }
 });
 
-/* Make every member that is not made yet, in order. The lead (the first member) must exist before the
-   others: if it is not made, they are held with that reason, and Try again on the lead releases them. */
+/* Make every member that is waiting, in order. The lead (the first member) must exist before the others:
+   if it is not made, they are held with that reason, and Try again on the lead releases them.
+   🛑 ONE RUN AT A TIME (round 1 BLOCKER): Try again pressed while a run was still making later members
+   started a second loop over the same list, which POSTed a member the first loop had in flight. A retry
+   during a run now only marks its row waiting and asks the running loop to go round once more. */
 async function tcRun(gen) {
+  if (!TC) return;
+  if (TC.running) { TC.again = true; return; }
+  TC.running = true;
+  tcPaint();
+  try {
+    do {
+      TC.again = false;
+      await tcRunOnce(gen);
+    } while (TC && gen === TC_GEN && TC.again);
+  } finally {
+    if (TC && gen === TC_GEN) { TC.running = false; tcPaint(); }
+  }
+  if (TC && gen === TC_GEN) tcWatch(gen);
+}
+
+async function tcRunOnce(gen) {
   let specs;
   try { specs = await tcSpecs(TC.project); } catch (err) {
     if (gen !== TC_GEN) return;
-    for (const m of TC.members) if (m.state !== 'made') { m.state = 'failed'; m.why = String((err && err.message) || err); }
+    for (const m of TC.members) if (m.state === 'waiting' || m.state === 'held') { m.state = 'failed'; m.why = String((err && err.message) || err); }
     tcPaint(); return;
   }
   const bySlot = new Map(specs.map((s) => [s.slot, s]));
   const lead = TC.members[0];
   for (const m of TC.members) {
     if (gen !== TC_GEN) return;
-    if (m.state === 'made') continue;
+    if (m.state !== 'waiting' && m.state !== 'held') continue;   // made, failed (needs its own Try again)
     if (m !== lead && lead.state !== 'made') { m.state = 'held'; m.why = ''; continue; }
     const s = bySlot.get(m.slot);
     m.state = 'creating'; m.why = ''; tcPaint();
@@ -46422,14 +46482,48 @@ async function tcRun(gen) {
     } catch (err) { out = { because: 'Kosmos could not be reached (' + ((err && err.message) || 'network error') + ')' }; }
     if (gen !== TC_GEN) return;
     if (out && out.outcome === 'created') {
-      m.state = 'made'; m.made = { name: out.name, shownAs: out.shownAs || m.name.trim() };
-      if (s.avatar && s.avatar.image) m.portrait = await tcPortrait(out.name, s.avatar.image);
+      m.state = 'made'; m.seen = null;
+      m.made = { name: out.name, shownAs: out.shownAs || m.name.trim(), image: (s.avatar && s.avatar.image) || null, projects: out.projects || [] };
+      if (m.firstName && m.firstName !== m.made.shownAs && TC.members.some((o) => o !== m && o.state === 'made')) m.renamedFrom = m.firstName;
     } else {
       m.state = 'failed';
       m.why = (out && (out.because || out.error)) ? String(out.because || out.error) : 'Kosmos did not say why.';
     }
     tcPaint();
   }
+}
+
+/* Round 1: the portrait and the project tell can only land once the board can SEE the agent (the avatar
+   route checks the live roster; the create route records project membership but leaves its tell
+   not_tried on purpose). So, exactly as the single create does after it: poll /api/status for up to 30s,
+   and for each member that appears, set its portrait, re-run its project tell, and mark it running. */
+let TC_WATCH_MS = 30000;   // let, not const: a browser check shortens it to run the timeout arm fast
+async function tcWatch(gen) {
+  const until = Date.now() + TC_WATCH_MS;
+  while (TC && gen === TC_GEN && Date.now() < until) {
+    const waiting = TC.members.filter((m) => m.state === 'made' && m.seen !== 'running');
+    if (!waiting.length) return;
+    await new Promise((r) => setTimeout(r, 2000));
+    if (!TC || gen !== TC_GEN) return;
+    let agents = [];
+    try { const res = await fetch('/api/status', { cache: 'no-store' }); if (res.ok) agents = (await res.json()).agents || []; } catch { /* next round */ }
+    if (!TC || gen !== TC_GEN) return;
+    for (const m of waiting) {
+      const found = agents.find((a) => a.sessionName === m.made.name);
+      if (!boardCanSeeIt(found)) continue;
+      m.seen = 'running';
+      if (m.made.image) tcPortrait(m.made.name, m.made.image).then((r) => { m.portrait = r; if (r === 'set') tick(); tcPaint(); });
+      for (const pr of (m.made.projects || [])) {
+        if (!pr || !pr.added) continue;
+        fetch('/api/project/' + encodeURIComponent(pr.id) + '/agent/' + encodeURIComponent(m.made.name), {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+        }).catch(() => { /* the project screen's stored verdict is the record */ });
+      }
+    }
+    tcPaint();
+  }
+  if (!TC || gen !== TC_GEN) return;
+  for (const m of TC.members) if (m.state === 'made' && m.seen !== 'running') m.seen = 'unseen';
   tcPaint();
 }
 
@@ -46453,7 +46547,7 @@ async function tcRetry(slot) {
   m.state = 'waiting'; m.why = '';
   for (const o of TC.members) if (o.state === 'held') o.state = 'waiting';
   tcPaint();
-  await tcRun(gen);
+  await tcRun(gen);   // single-flight: during a run this only asks the running loop to go round again
 }
 
 function cstep(which) {
