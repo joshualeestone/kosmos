@@ -91,3 +91,19 @@ Measured on b4162a7e1: test-cut-guard.sh 0 failures; against origin/main's cut-g
 - (N, taken) the plan's Call section no longer says "cannot flap"; the note names the second ask's brief unmark; the
   stand-in waiters are marked only after ps shows them as sleep.
 - (N, left) start only seeds bstart; the refusal now walks every marker (twice a poll): negligible at 30 s.
+
+## Review iteration 6 (blind, sonnet)
+0 BLOCKER, 2 WARNING:
+- (W, taken, premise narrowed) "a clock seam that exits non-zero kills a set -e caller": the helper's && list did end on
+  a failing assignment, now `|| t=""`. BUT the wait only calls _kosmos_wait_now inside $( ), and bash outside POSIX mode
+  does not inherit set -e there, so the reviewer's failure path is not reachable today. Measured the hard way: my first
+  arm (the whole wait, under set -e) stayed GREEN with the guard removed, a test that could not fail. The arm now calls
+  the helper directly under set -e: rc 3 with the guard removed, green with it.
+- (W, taken as documentation) the second ask's brief unmark can read as a fall: the note now calls the restart a
+  heuristic. A waiter is in its second ask only when its own check had just passed (the box was clear), so a false
+  fall needs a harness to take the box in that moment; each false restart costs a queue-jumping harness. A two-sample
+  filter was rejected: new state to prevent a rare, bounded restart.
+- (N, taken) the bound comment said "the longer of" slept and wall time; it is whichever gets there first.
+- (N, left) the give-up line's "waiting Ns" is the whole wait (can exceed the bound, next to "no waiter ahead left for
+  Ns"); the wording arm runs with nobody ahead (it pins the retired signal, not the count); the refusal walks every
+  marker twice a poll.
