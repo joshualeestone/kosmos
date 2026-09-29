@@ -158,9 +158,10 @@ test('#4557 req 2: the structure is in the RECORD, and the board sweep writes it
   assert.equal(store.readProfile(m.social).reportsTo, m.lead);
   assert.ok(!store.readProfile(m.lead).reportsTo, 'the lead must report to the person');
 
+  // The profile is a free-form record (the lead's has no reportsTo, which the page reads as none).
   const board = fleet.install([
     fleet.agent(m.lead, { state: 'idle' }), fleet.agent(m.content, { state: 'idle' }), fleet.agent(m.social, { state: 'idle' }),
-  ]);
+  ], { freeForm: ['profile'] });
   try {
     // One sweep, the board's own.
     const first = reports.syncEveryone(board.agents);
@@ -179,9 +180,8 @@ test('#4557 req 2: the structure is in the RECORD, and the board sweep writes it
     reports.syncEveryone(board.agents);
     assert.deepEqual([m.lead, m.content, m.social].map(file), before, 'a second sweep rewrote a file');
     // (d) the org chart draws the same tree: the lead at the top, both reports under it.
-    // The page reads each card's profile; here each agent's STORED record stands in for it (the
-    // strict fixture refuses the page's direct read of an absent key, which production reads as none).
-    const tree = orgTreeOf([m.lead, m.content, m.social].map((who) => ({ sessionName: who, profile: { ...store.readProfile(who) } })));
+    // The page's own builder over the REAL produced cards, as the page gets them.
+    const tree = orgTreeOf(board.agents);
     const node = (who) => tree.find((n) => n.agent.sessionName === who);
     assert.equal(node(m.lead).depth, 0);
     assert.equal(node(m.lead).parent, null);
