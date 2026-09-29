@@ -56730,15 +56730,17 @@ function msgRefText(row) {
   const mid = row.getAttribute('data-mid') || '';
   const inRoom = !!(row.closest && row.closest('#pj-room'));
   const n = msgRefNumber(mid);
+  const agent = (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName)
+    ? (typeof tskAgentName === 'function' ? tskAgentName(CURRENT.sessionName) : CURRENT.sessionName) : '';
   if (n) {
+    /* Where it is, for the reader: the room's name, or the direct conversation it sits in. */
     const nameEl = inRoom ? document.getElementById('pj-one-name') : null;
     const room = nameEl ? nameEl.textContent.trim() : '';
-    return 'message ' + n + (room ? ' in ' + room : '');
+    const where = inRoom ? (room ? ' in ' + room : '') : (agent ? ' in my conversation with ' + agent : '');
+    return 'message ' + n + where;
   }
   const when = msgRefWhen(mid);
   if (!when) return '';
-  const agent = (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName)
-    ? (typeof tskAgentName === 'function' ? tskAgentName(CURRENT.sessionName) : CURRENT.sessionName) : '';
   if (row.classList.contains('you')) return 'my message' + (agent ? ' to ' + agent : '') + when;
   const nm = row.querySelector('.msg-nm');
   const who = nm ? nm.textContent.trim() : agent;
@@ -56752,8 +56754,8 @@ function msgToast(text) {
     document.body.appendChild(t);
     /* A live region that arrives already holding its words is often not announced, so the first one is filled
        a moment after it is in the page. */
-    t.hidden = false;
-    setTimeout(() => { t.textContent = text; }, 60);
+    t.hidden = false; t.style.opacity = '0';   // not an empty dark pill while it waits for its words
+    setTimeout(() => { t.textContent = text; t.style.opacity = ''; }, 60);
   } else {
     t.textContent = text;
   }
@@ -56902,7 +56904,11 @@ function pjReactions(m) {
 /* Repaint one post's reaction row in place from a fresh list (the react route's
    response), so a toggle updates its own row without a full room re-fetch. */
 function repaintReactions(box, list) {
-  if (box) box.innerHTML = rxnsInner(list, box.hasAttribute('data-post') || box.hasAttribute('data-at'), box.getAttribute('data-post') || '');   // a room row and a DM row (#4256) keep their Reply
+  /* #4631: the id the bar shows is the row's own (data-mid), as the first paint took it: a DM box is keyed by its
+     time (data-at), so reading data-post alone dropped a DM message's number on the first reaction. */
+  const row = box && box.closest ? box.closest('.msg') : null;
+  if (box) box.innerHTML = rxnsInner(list, box.hasAttribute('data-post') || box.hasAttribute('data-at'),
+    (row && row.getAttribute('data-mid')) || box.getAttribute('data-post') || '');   // a room row and a DM row (#4256) keep their Reply
 }
 /* #2700: fold a run of consecutive room refusals that share one reason into a
    single 'refused-group' row, so a valve-stopped busy room shows ONE band

@@ -217,6 +217,19 @@ async function paintRoom(page) {
         const texts = await page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg')].map((r) => msgRefText(r)));
         chk(texts[0] === "April's message to me at 2:33 PM on Sep 29", tag + "R6 an agent's DM row copies whose it was and when", JSON.stringify(texts[0]));
         chk(texts[1] === 'my message to April at 2:34 PM on Sep 29', tag + "R6 the person's own row copies \"my message to April\"", JSON.stringify(texts[1]));
+        // R6b: a DM row that does carry a number names the conversation, and keeps the number after a reaction repaint.
+        const r6b = await page.evaluate((a4) => {
+          const t = document.getElementById('d-dmthread');
+          t.insertAdjacentHTML('beforeend', dmRow({ id: 'm77', from: 'april', at: a4, text: 'Numbered.' }, 'April', false));
+          const row = t.lastElementChild; const box = row.querySelector('.rxns');
+          const before = (row.querySelector('.rxn-ref-n') || {}).textContent || '';
+          repaintReactions(box, [{ emoji: '\u{1F44D}', count: 1, who: ['you'], mine: true }]);
+          const after = (row.querySelector('.rxn-ref-n') || {}).textContent || '';
+          const text = msgRefText(row); row.remove();
+          return { before, after, text };
+        }, at(4));
+        chk(r6b.before === '77' && r6b.after === '77' && r6b.text === 'message 77 in my conversation with April',
+          tag + 'R6b a numbered DM row names the conversation and keeps its number after a reaction', JSON.stringify(r6b));
         const dmTaken = await page.evaluate(() => { const row = document.querySelector('#d-dmthread .msg.you .msg-bd'); const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }); row.dispatchEvent(ev); return ev.defaultPrevented; });
         chk(dmTaken === true, tag + "R6 right-click works on the person's own DM row too (it has no hover bar)", String(dmTaken));
         await page.keyboard.press('Escape');
