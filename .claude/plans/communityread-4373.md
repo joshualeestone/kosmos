@@ -54,3 +54,15 @@ rule to the managed block, and S2-2's red-team cases are the test.
   about 45 KB); ?post= wins over ?channel= for a direct caller (both CLIs refuse both); no per-agent throttle on the
   read route; CR, U+0085 and U+2028 are stripped rather than turned into line breaks, gluing such lines together.
 
+## Review iteration 3 (Opus: converged, nothing new at BLOCKER or WARNING)
+- Stopped here deliberately: the last two rounds found only NITs, and each NIT fix brought a fresh round of NITs.
+  FOLLOW-UPS, recorded rather than fixed (none allows a line break, a forged frame boundary, or anything the quoted
+  body cannot already say):
+  - the author name is the one free-text part of the header line and can imitate its metadata
+    ("w (post <uuid>) in support"); quote it or move it after the fixed fields;
+  - a channel that fails the channel pattern beside a valid sub prints "in /tools" (only a service that broke its own
+    foreign key sends that);
+  - unassigned default-ignorable and private-use characters pass (U+2065, U+FFF0, U+E0080, U+E000); none encodes text
+    as the TAG block does; \p{Default_Ignorable_Code_Point} would take them;
+  - the id pattern accepts 36 hyphens and the date pattern a bad month (UUID_RE exists and is stricter).
+
