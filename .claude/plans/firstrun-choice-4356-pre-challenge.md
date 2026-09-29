@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: firstrun-choice-4356
-diff_hash: d213c5b6d067ee77261d9181b4e0fea226938e5ec714d7d837fd434724af691d
+diff_hash: 02bf2beabc749f8f7498e33da25a2402d56b087356b902fd8b2e461a17a0a074
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-29T04:52:56Z
+timestamp: 2026-09-29T07:00:57Z
 iterations: 35
 converged: true
 ---
@@ -217,6 +217,7 @@ Validation at the final head e980274: PASSED (11647 tests, 0 fail; run while ano
 - [NIT] docs/browser-checks/render-firstrun-choice-4356.js:120 - the hits detail prints on PASS too ([])
 The same strip on the first-run wizard and the update overlay (pre-existing, outside this PR) is filed as #4494.
 **Converged** - no new actionable findings.
+After it, main moved 44 more and conflicted only on browser-checks-reason-grep's site count (203); merged, nearby suites 90/90 and the first-screen check 35/35. Validation at this head: see the validation log for this hash.
 
 ### NITs (non-blocking, recorded, not changed)
 - [NIT] server.js /api/engine/restart - a browser tab's Restart pressed at the same moment as Connect can restart the board until the next app launch (iteration 33)
