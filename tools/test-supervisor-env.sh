@@ -48,7 +48,18 @@ cat > "$SB/tmux" <<'STUB'
 #!/bin/sh
 case "$1" in
   has-session) exit 1 ;;
-  new-session) printf '%s\n' "$@" > "$STUB_DIR/new-session.args"; exit 0 ;;
+  new-session)
+    printf '%s\n' "$@" > "$STUB_DIR/new-session.args"
+    before=""
+    for arg in "$@"; do
+      if [ "$before" = --pane-entry ]; then
+        head -1 "$arg" > "$STUB_DIR/pane-token"
+        break
+      fi
+      before="$arg"
+    done
+    exit 0
+    ;;
   *) exit 0 ;;
 esac
 STUB
@@ -99,10 +110,10 @@ AGENT_WORKFORCE_DATA="$DATA2" STUB_DIR="$SB2" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
   bash "$SB2/bin/agent-supervisor.sh" ptrtest "$SB2/work" /usr/bin/true "$SB2/tmux" "$SB2/start.log" > "$SB2/out.log" 2>&1 || true
 ARGS2="$SB2/new-session.args"
 if [ -s "$ARGS2" ]; then ok "the pointer run reached new-session"; else bad "pointer run never reached new-session: $(tail -3 "$SB2/out.log")"; fi
-if grep -qE '^KOSMOS_AGENT_TOKEN=[0-9a-f]+$' "$ARGS2"; then
-  ok "#1139: engine-path beside the script mints, in the layout every real agent runs in"
+if grep -qE '^[0-9a-f]{64}$' "$SB2/pane-token" 2>/dev/null && ! grep -q '^KOSMOS_AGENT_TOKEN=' "$ARGS2"; then
+  ok "#1139: engine-path beside the script mints into the one-use file, not tmux argv, in the layout every real agent runs in"
 else
-  bad "#1139: no token minted with engine-path present -- an installed agent still cannot identify itself: $(grep -c . "$ARGS2") args, $(tail -3 "$SB2/out.log")"
+  bad "#1139: no private-file token with engine-path present, or it leaked into tmux argv: $(grep -c . "$ARGS2") args, $(tail -3 "$SB2/out.log")"
 fi
 if grep -q "$PWD/engine" "$SB2/out.log" "$SB2/start.log" 2>/dev/null; then bad "the engine path leaked into a log"; else ok "the pointer does not appear in the supervisor's output"; fi
 
@@ -144,10 +155,10 @@ DATA3="$(mktemp -d)"
 ) > "$SB3/out.log" 2>&1 || true
 ARGS3="$SB3/new-session.args"
 if [ -s "$ARGS3" ]; then ok "the launchd-PATH run reached new-session"; else bad "launchd-PATH run never reached new-session: $(tail -3 "$SB3/out.log")"; fi
-if grep -qx 'KOSMOS_AGENT_TOKEN=deadbeef' "$ARGS3"; then
-  ok "#1897: node derived from the engine pointer mints with NO node on PATH -- the layout every installed agent runs in"
+if grep -qx 'deadbeef' "$SB3/pane-token" 2>/dev/null && ! grep -q '^KOSMOS_AGENT_TOKEN=' "$ARGS3"; then
+  ok "#1897: node derived from the engine pointer mints into the one-use file with NO node on PATH, never tmux argv"
 else
-  bad "#1897: no token from the bundled node with node off PATH -- an installed agent still cannot identify itself: $(grep -c . "$ARGS3") args, $(tail -3 "$SB3/out.log")"
+  bad "#1897: no private-file token from the bundled node with node off PATH, or it leaked into tmux argv: $(grep -c . "$ARGS3") args, $(tail -3 "$SB3/out.log")"
 fi
 
 # ---------------------------------------------------------------- #1911
