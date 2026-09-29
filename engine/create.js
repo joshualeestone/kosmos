@@ -505,6 +505,11 @@ function cleanName(raw) {
  * otherwise print `undefined` at eleven sites the day it changed. **It is
  * unreachable, therefore untested, and I am not claiming otherwise.**
  */
+/* #4474: the role key a create request asks for, read ONE way: createAgent and team.vetAgentMember (which refuses
+   the setup role to an agent) both call this, so a role sent as ["setup"] cannot read as one thing to the vetting
+   and another to create. */
+function roleKeyOf(opts) { return String((opts && opts.role) || '').trim(); }
+
 function spokenName(clean) {
   try { return status.readIdentity(clean).displayName || clean; }
   catch { return clean; }
@@ -4045,7 +4050,7 @@ function createAgentInner(opts) {
    */
   const shown = cleanName(opts && opts.name);
   const name = slugFor(opts && opts.name);
-  const roleKey = String((opts && opts.role) || '').trim();
+  const roleKey = roleKeyOf(opts);
   const wantAccountDir = opts && opts.account;
   /* Trimmed and self-refused at the door, the same posture as `who` on a task:
      a value that cannot be right is refused rather than quietly dropped, and
@@ -5640,6 +5645,7 @@ module.exports = {
   MODELS,
   /* #4479: the name the person sees, for machine.js's login-job row (one derivation with the board's). */
   spokenName,
+  roleKeyOf,
   /* #4279: exported so the leftover-job rule is tested on its own. */
   leftoverJob,
   underRoot,

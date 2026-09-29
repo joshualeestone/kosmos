@@ -129,15 +129,19 @@ function resolveCap(deps, env) {
  *     the agent's name, status.readIdentity).
  * Returns { member } (a copy with only the allowed fields, possibly with its text completed) or { because }.
  */
-const AGENT_MEMBER_KEYS = ['name', 'role', 'label', 'instructions', 'provider', 'account', 'model', 'projects', 'kind'];
+/* The fields of a create request an agent may send. The rest of what create reads is launch mechanics (which
+   binary runs, which folder, which platform, the person's own pick) or set by the team itself (createdBy,
+   purpose); team.newrole-4474.test.js sorts every field create reads into one of those, so a new one is decided. */
+const AGENT_MEMBER_KEYS = ['name', 'role', 'label', 'instructions', 'provider', 'account', 'model', 'projects', 'kind',
+  'reportsTo', 'maxHelpers', 'dailyTokenLimit', 'dailyAllowancePct'];
 const IDENTITY_LINE = /^(\s*)You are \*\*([^*\n]+)\*\*(?=[,.:;\s-])/;
 const RULES_HEADING = 'How you work, whatever the job';
 function vetAgentMember(member, opts) {
   const fromGuide = !!(opts && opts.fromGuide === true);
-  /* The role exactly as create reads it (create.js: String(opts.role || '').trim()), never a second reading: a
-     role sent as ["setup"] is not the string 'setup' here, but create coerces it to 'setup' and would make the
-     guide. One derivation, so the two cannot disagree (the repo's two-derivations rule, #1228). */
-  const role = String(member.role || '').trim();
+  /* The role exactly as create reads it, through its own create.roleKeyOf: a role sent as ["setup"] is not the
+     string 'setup' until coerced, and create would make the guide from it. One function, so the two cannot
+     disagree (the repo's two-derivations rule, #1228). */
+  const role = create.roleKeyOf(member);
   if (role === 'setup') {
     return { because: 'the setup guide is Kosmos\'s own and only Kosmos makes it; pick another role, or write a new one with --new-role' };
   }
@@ -297,4 +301,4 @@ function createTeam(opts, deps) {
   return { outcome, created, refused, because, creator, purpose, cap };
 }
 
-module.exports = { createTeam, resolveCap, vetAgentMember, DEFAULT_TEAM_CAP, MAX_TEAM_CAP };
+module.exports = { createTeam, resolveCap, vetAgentMember, AGENT_MEMBER_KEYS, DEFAULT_TEAM_CAP, MAX_TEAM_CAP };

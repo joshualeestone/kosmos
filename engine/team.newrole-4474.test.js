@@ -146,3 +146,24 @@ test('#4474: an identity line ending in a period or a dash is recognised, and it
   assert.equal(got[0].instructions, 'You are **Ann**. You edit everything twice.');
   assert.equal(got[1].instructions, 'You are **Cy** - the editor, who edits twice.');
 });
+
+test('#4474: every field create reads is either one an agent may send or one it may not; a new one must be sorted', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8');
+  const read = new Set([...src.matchAll(/\bopts(?:\s*&&\s*opts)?\.([a-zA-Z]+)/g)].map((m) => m[1]));
+  const NOT_FROM_AN_AGENT = ['platform', 'configDir', 'accountDir', 'pickedByPerson', 'runner', 'createdBy', 'purpose',
+    'claudeBin', 'codexBin', 'tmuxBin', 'museBin', 'grokBin', 'geminiBin', 'antigravityBin'];
+  assert.ok(read.has('claudeBin') && read.has('reportsTo'), 'CONTROL: the scan of create.js found nothing');
+  const unsorted = [...read].filter((k) => !team.AGENT_MEMBER_KEYS.includes(k) && !NOT_FROM_AN_AGENT.includes(k));
+  assert.deepEqual(unsorted, [], 'create reads a field nobody decided whether an agent may send: ' + unsorted.join(', '));
+  for (const k of NOT_FROM_AN_AGENT) assert.ok(!team.AGENT_MEMBER_KEYS.includes(k), k + ' is both allowed and not');
+});
+
+test('#4474: the vetting and create read the role through one function', () => {
+  const create = require('./create');
+  for (const role of ['setup', ' setup ', ['setup'], null, undefined, 0, { toString: () => 'setup' }]) {
+    const vetRefused = !!team.vetAgentMember({ name: 'Z', role }).because;
+    assert.equal(vetRefused, create.roleKeyOf({ role }) === 'setup', 'the vetting and create disagree on ' + JSON.stringify(role));
+  }
+});

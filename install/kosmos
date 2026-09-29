@@ -2693,6 +2693,8 @@ cmd_agent() {
       fi
       if [ -n "$from" ]; then
         # A role the agent wrote: its text is a whole file, so the body is built by node (JSON escaping), not sed.
+        # Read as UTF-8 on purpose: a Mac shell writes UTF-8, and a UTF-16 file (made on Windows) is refused by the
+        # board as "not text" (team.vetAgentMember). Only the Windows CLI decodes UTF-16, where PowerShell writes it.
         data=$(KOSMOS_AC_NAME="$name" KOSMOS_AC_LABEL="$label" KOSMOS_AC_WHY="$why" "$_node" -e 'const fs=require("fs");const e=process.env;process.stdout.write(JSON.stringify({purpose:e.KOSMOS_AC_WHY,members:[{name:e.KOSMOS_AC_NAME,role:"own",label:e.KOSMOS_AC_LABEL,instructions:fs.readFileSync(process.argv[1],"utf8")}]}))' -- "$from") \
           || { say "We could not read $from to make that agent."; exit 1; }
       else
