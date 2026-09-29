@@ -867,7 +867,7 @@ agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, e
   # `$_claim.lock` (mkdir is atomic), reads the stamp AGAIN inside it (another agent may have replaced
   # it since this one read it), and swaps in a new stamp by rename, so the file never goes missing and
   # the noclobber create cannot race the swap. A lock left by a killed agent is cleared once it is over
-  # about two minutes old (find -mmin +1 counts whole minutes), and that attempt refuses (the next
+  # about five minutes old (find -mmin +1 counts whole minutes), and that attempt refuses (the next
   # one can take it). People never claim.
   local _claim="$KOSMOS_HOME/board.agent-claim" _c
   if ! ( set -C; printf '%s\n' "$_now" > "$_claim" ) 2>/dev/null; then
@@ -1493,7 +1493,7 @@ cmd_msg() {
     -H 'content-type: application/json' \
     --data-binary @- 2>/dev/null) || rc=$?
   # #4580: a timeout or a cut reply may come AFTER the board delivered. The board keeps one copy of the
-  # same send inside two minutes (engine/messages.js), so asking once more is safe, and turns "maybe"
+  # same send inside five minutes (engine/messages.js), so asking once more is safe, and turns "maybe"
   # into the board's real receipt.
   case "$rc" in
     18|28|52|56)
@@ -1908,7 +1908,7 @@ cmd_post() {
     exit 2
   fi
   # The post's budget: 120 s (a fan-out to many agents takes time). KOSMOS_POST_TIMEOUT_S is a test seam, whole
-  # seconds only, so a test can reach the timeout branch without waiting two minutes.
+  # seconds only, so a test can reach the timeout branch without waiting five minutes.
   local _post_budget=120
   case "${KOSMOS_POST_TIMEOUT_S:-}" in ''|*[!0-9]*) ;; *) _post_budget="$KOSMOS_POST_TIMEOUT_S" ;; esac
   # #2909: the body goes to curl on stdin (printf is a builtin, so no argv limit applies), not
@@ -1921,7 +1921,7 @@ cmd_post() {
     -H 'content-type: application/json' \
     --data-binary @- 2>/dev/null) || rc=$?
   # #4580: a cut reply may come AFTER the board kept the post; the board keeps one copy of the same post
-  # inside two minutes, so asking once more is safe. Not after a timeout (28): with a 120 s budget the post
+  # inside five minutes, so asking once more is safe. Not after a timeout (28): with a 120 s budget the post
   # is still being delivered, and the board already folds a repeat that arrives while it is.
   case "$rc" in
     18|52|56)

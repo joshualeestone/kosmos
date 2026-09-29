@@ -248,7 +248,7 @@ const POWERSHELL_PIPE_NOTE = '(in PowerShell, pass the text as an argument: text
 /* `feedback triage --cards -` asks for stdin explicitly, and docs/feedback-triage.md
    pipes `gh issue list` into it, which can sit silent for many seconds on a slow
    network before its first line. So that read waits for the input to END, through
-   up to two minutes of silence: long past a slow listing, and still a sentence
+   up to five minutes of silence: long past a slow listing, and still a sentence
    rather than a hang when the pipe never closes. The usage text states it (the
    parity test pins the number there). */
 const CARDS_STDIN_QUIET_LIMIT_MS = 120000;   /* also post --stdin's limit (#2909): both read piped commands that can be slow to start */
@@ -321,7 +321,7 @@ async function verbMsg(ctx, args) {
   if (Buffer.byteLength(JSON.stringify(body), 'utf8') > POST_BODY_MAX_BYTES) { ctx.err('Nothing was sent: that message is too large to send to the board at all. Send a summary, or split it.'); keepPiped(); return 2; }
   let r = await ctx.call('POST', '/api/msg', body);
   // #4580: a timeout or a cut reply may come AFTER the board delivered; the board keeps one copy of the same
-  // send inside two minutes, so asking once more is safe and turns "maybe" into its real receipt.
+  // send inside five minutes, so asking once more is safe and turns "maybe" into its real receipt.
   // Every failure but a refused connection is retried: the board is loopback, so there is no DNS or TLS failure
   // to tell apart, and anything else that is not "refused" may have arrived (the Mac lists curl 18/28/52/56).
   if (!r.reached && !r.refused) {

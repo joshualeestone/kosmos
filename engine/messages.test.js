@@ -3061,3 +3061,23 @@ test('#4580: the sender saying something else in between breaks the quiet ("yes"
 test('#4580: the fold window outlasts a room post\'s own 120 s budget (a row is stamped when its send started)', () => {
   assert.ok(messages.SEND_DEDUP_WINDOW_MS >= 2 * 120 * 1000, 'a slow post that finished near its budget would already be outside the window');
 });
+
+test('#4580: a reply that STARTED after the first copy breaks the quiet even when it sits before it in the log', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    arm([ok(), ok(), ok(), ok()]);
+    const first = messages.send({ fromPane: '%7', to: 'mara', text: 'yes' }, board.agents);
+    // Mara answered one second after leo's send started, but her row landed EARLIER in the file (a busy board
+    // appends when a send finishes).
+    const rows = fs.readFileSync(messages.LOG, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const later = new Date(Date.parse(rows[rows.length - 1].at) + 1000).toISOString();
+    rows.splice(rows.length - 1, 0, { kind: 'message', id: 'm77', from: 'mara', to: 'leo', text: 'and the keys?', in_reply_to: null, at: later, state: 'placed' });
+    fs.writeFileSync(messages.LOG, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    messages.resetForTests();
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    const again = messages.send({ fromPane: '%7', to: 'mara', text: 'yes' }, board.agents);
+    assert.equal(again.duplicate, undefined, 'a real second answer was folded: ' + JSON.stringify(again));
+    assert.notEqual(again.id, first.id);
+  });
+});
