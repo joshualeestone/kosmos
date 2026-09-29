@@ -30,14 +30,16 @@ const FUTURE_SLACK_MINUTES = 5;
 /**
  * How current an agent's running summary is: the newest summaries/YYYY-MM-DD-HH.md in its folder, by the
  * time it was last written. Never throws.
- * @returns {{ state: 'current'|'stale'|'future'|'none'|'unreadable', file: string|null, at: string|null, ageMinutes: number|null }}
+ * @returns {{ state: 'current'|'stale'|'future'|'none'|'nofolder'|'unreadable', file: string|null, at: string|null, ageMinutes: number|null }}
  *   current: written within the four-hour rhythm; stale: longer ago (an agent that has been idle is not
  *   expected to write, so stale is a fact to read, not a fault); none: no summaries yet; unreadable: we
  *   could not look (the reader must not take that as none).
  */
 function summaryFreshness(folder, nowMs) {
   const none = { state: 'none', file: null, at: null, ageMinutes: null };
-  if (typeof folder !== 'string' || !folder || !path.isAbsolute(folder)) return { ...none, state: 'unreadable' };
+  /* No usable folder at all (none recorded, or not absolute) is "we do not know where it is" (round 4), not "we
+     could not look". */
+  if (typeof folder !== 'string' || !folder || !path.isAbsolute(folder)) return { ...none, state: 'nofolder' };
   /* Blind review round 1: "we do not know where this agent's folder is" is not "it wrote no summaries", and the PM
      role raises a missing summary as a finding, so the two are said apart. The agent's own folder missing is
      `nofolder`; only a folder that exists with no summaries/ in it is `none`. */
@@ -56,6 +58,8 @@ function summaryFreshness(folder, nowMs) {
     return (e && e.code === 'ENOENT') ? none : { ...none, state: 'unreadable' };
   }
   let best = null;
+  let future = null;   // round 4: a future-dated file must not hide a real current one
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   /* Only summary-shaped names, newest name first, so the cap never drops the newest file of a big folder. */
   /* Round 3: the cap counts real files, not names (20 newest-named symlinks or folders used to hide older real
      summaries), with a hard bound on how many entries are checked at all. */
@@ -67,14 +71,15 @@ function summaryFreshness(folder, nowMs) {
     try { st = fs.lstatSync(path.join(dir, name)); } catch { continue; }
     if (!st.isFile()) continue;
     files += 1;
+    if (Math.round((now - st.mtimeMs) / 60000) < -FUTURE_SLACK_MINUTES) { if (!future) future = { name, ms: st.mtimeMs }; continue; }
     if (!best || st.mtimeMs > best.ms) best = { name, ms: st.mtimeMs };
   }
+  /* A write time well ahead of now (clock skew, a restored copy, a touch) is not evidence of a current summary. It is
+     reported as its own state only when there is no believable file (round 4: one future-dated file used to hide a real
+     current summary). */
+  if (!best && future) return { state: 'future', file: 'summaries/' + future.name, at: new Date(future.ms).toISOString(), ageMinutes: null };
   if (!best) return none;
-  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   const raw = Math.round((now - best.ms) / 60000);
-  /* A write time well ahead of now (clock skew, a restored copy, a touch) is not evidence of a current
-     summary, so it is said as its own state rather than read as "just now". */
-  if (raw < -FUTURE_SLACK_MINUTES) return { state: 'future', file: 'summaries/' + best.name, at: new Date(best.ms).toISOString(), ageMinutes: null };
   const ageMinutes = Math.max(0, raw);
   return {
     state: ageMinutes <= SUMMARY_RHYTHM_HOURS * 60 ? 'current' : 'stale',
@@ -174,7 +179,10 @@ function one(v) {
        zero-width space and BOM, word joiners, and the Unicode tag block (read by a model, invisible to a person),
        except inside an emoji flag sequence, where tags ARE the flag. The zero-width joiner and non-joiner stay:
        family emoji and Persian and Indic spellings need them, and they reorder or hide nothing. */
-    .replace(/(\u{1F3F4}[\u{E0020}-\u{E007E}]+\u{E007F})|[\u{E0000}-\u{E007F}]|[\u200b\u200e\u200f\u202a-\u202e\u2060-\u2069\u061c\u00ad\ufeff]/gu, (m, flag) => flag || '')
+    /* Round 4: a flag is the black-flag mark and 4 to 6 lowercase or digit tags then the terminator (gbeng, gbsct,
+       usca); an unbounded run was itself a hidden channel. Also gone: the variation-selector supplement, the
+       deprecated format controls, interlinear annotation marks, and the Hangul fillers (they print as blank). */
+    .replace(/(\u{1F3F4}[\u{E0030}-\u{E0039}\u{E0061}-\u{E007A}]{4,6}\u{E007F})|[\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]|[\u200b\u200e\u200f\u202a-\u202e\u2060-\u206f\u061c\u00ad\ufeff\ufff9-\ufffb\u115f\u1160\u3164\uffa0]/gu, (m, flag) => flag || '')
     .replace(/\s+/g, ' ').trim();
 }
 /* A folder path is printed exactly, not tidied (round 3: collapsing spaces or dropping joiners printed a different,
@@ -193,8 +201,10 @@ function ago(minutes) {
   return Math.floor(h / 24) + ' days ago';
 }
 function taskLine(t) {
-  if (!t || !t.total) return 'no tasks yet';
-  return t.open + ' open' + (t.built ? ' (' + t.built + ' built)' : '') + ', ' + (t.total - t.open) + ' done';
+  /* Numbers only (round 4): a board answer's counts can never print text of their own. */
+  const n = (x) => Math.max(0, Math.floor(Number(x) || 0));
+  if (!t || !n(t.total)) return 'no tasks yet';
+  return n(t.open) + ' open' + (n(t.built) ? ' (' + n(t.built) + ' built)' : '') + ', ' + (n(t.total) - n(t.open)) + ' done';
 }
 
 /** `kosmos project list`, as lines of text. */
@@ -208,9 +218,9 @@ function renderList(payload) {
   for (const r of rows) {
     const fam = r.families && r.families.length ? r.families.map(one).join(', ') : 'no family we can tell';
     out.push(one(r.id) + '  ' + one(r.name) + (r.archived ? '  [archived]' : '')
-      + '  | ' + r.members + (r.members === 1 ? ' member' : ' members') + ' (' + fam + ')'
+      + '  | ' + (Number(r.members) || 0) + (Number(r.members) === 1 ? ' member' : ' members') + ' (' + fam + ')'
       + '  | tasks: ' + taskLine(r.tasks)
-      + (r.needsYou ? '  | ' + r.needsYou + ' waiting on the person' : ''));
+      + (Number(r.needsYou) > 0 ? '  | ' + Number(r.needsYou) + ' waiting on the person' : ''));   // numbers only (round 4)
   }
   out.push('Details: kosmos project show <id>');
   if (payload && payload.agentsUnreadable) out.push('(We could not read the agents on this computer just now, so members are listed without their state.)');

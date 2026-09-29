@@ -51,3 +51,9 @@ flag) and keep ZWJ/ZWNJ; the folder prints exactly, with a visible "?" for any c
 hide text. A symlinked agent folder reads as not read (unreadable); the 20-summary cap counts real files, not names.
 Valid JSON of the wrong shape is pinned at the CLI level on both CLIs (exit 1).
 Kept: "an answer we could not read" also covers a missing projectview.js (a broken install); named, not fixed.
+Round 4 (Sonnet, separate reviewer, 13:43): the round-3 flag exception took an unbounded run of tag characters, so a
+fake "flag" still carried a hidden instruction. Now only a real subdivision flag (4 to 6 lowercase/digit tags) is kept
+(an unbounded run fails the test, measured). Also removed: the variation-selector supplement, U+206A-206F,
+U+FFF9-FFFB, the Hangul fillers. A future-dated file no longer hides a real current summary; no usable folder reads
+nofolder; the Mac's no-node path exits 1 on a body that is not JSON; counts print as numbers only.
+Kept, stated: a missing projectview.js (a broken install) reads as "an answer we could not read".
