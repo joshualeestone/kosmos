@@ -135,7 +135,7 @@ test('Grok: a *.md directly in rules/ counts; another extension or a subfolder d
   assert.deepStrictEqual(personalInstructions('ann', { create }), { tool: 'Grok' });
 });
 
-test('Antigravity, Muse and an unreadable job answer null; no job falls back to the profile', (t) => {
+test('Antigravity, Muse, no job and an unreadable job answer null', (t) => {
   const s = sandbox();
   t.after(() => s.done());
   write(path.join(s.root, '.claude', 'CLAUDE.md'), 'x\n');
@@ -143,11 +143,12 @@ test('Antigravity, Muse and an unreadable job answer null; no job falls back to 
   for (const runner of ['antigravity', 'muse']) {
     assert.strictEqual(personalInstructions('ann', { create: fakeCreate(s.root, { runner, configDir: null }) }), null, runner);
   }
+  assert.deepStrictEqual(personalInstructions('ann', { create: fakeCreate(s.root, { runner: 'codex', configDir: null }) }), { tool: 'Codex' },
+    'control: with a job, the same home answers');
+  assert.strictEqual(personalInstructions('ann', { create: fakeCreate(s.root, null, 'codex') }), null,
+    'no job: the account home is unknown, so say nothing rather than guess the default');
   const throwing = { ...fakeCreate(s.root, null, 'codex'), readJob: () => { throw new Error('plist unreadable'); } };
-  assert.deepStrictEqual(personalInstructions('ann', { create: throwing }), { tool: 'Codex' },
-    'no job read: the profile names the runner, as recordedRunner does elsewhere');
-  const broken = { ...fakeCreate(s.root, null), recordedRunner: () => { throw new Error('no profile'); } };
-  assert.strictEqual(personalInstructions('ann', { create: broken }), null, 'nothing readable: say nothing, never throw');
+  assert.strictEqual(personalInstructions('ann', { create: throwing }), null, 'an unreadable job: say nothing, never throw');
 });
 
 test('Claude: a *.md in the config dir\'s rules/ counts, in a subfolder too', (t) => {
@@ -234,4 +235,13 @@ test('Claude rules: a symlinked folder is followed; long front matter still read
   fs.rmSync(path.join(acct, 'rules', 'team'));
   write(path.join(acct, 'rules', 'long.md'), '---\npaths:\n' + '  - "src/' + 'x'.repeat(5000) + '"\n---\nbody\n');
   assert.strictEqual(personalInstructions('ann', { create }), null, 'front matter past the head is still read as path-scoped');
+});
+
+test('Claude rules: empty front matter is not path-scoped, even with paths: in the body', (t) => {
+  const s = sandbox();
+  t.after(() => s.done());
+  const acct = path.join(s.root, '.claude-account-b');
+  const create = fakeCreate(s.root, { runner: 'claude', configDir: acct });
+  write(path.join(acct, 'rules', 'a.md'), '---\n---\nWhen editing:\npaths: are relative\n---\nmore\n');
+  assert.deepStrictEqual(personalInstructions('ann', { create }), { tool: 'Claude Code' });
 });

@@ -94,24 +94,24 @@ function hasContent(file) {
    files, so it is not reported as always followed. */
 function pathScoped(file) {
   const h = headOf(file);
-  if (!h || !/^---\r?\n/.test(h.text)) return false;
-  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(h.text);
-  return /^paths\s*:/m.test(fm ? fm[1] : h.text);   // front matter longer than the head: what we have of it
+  if (!h) return false;
+  const lines = h.text.split(/\r?\n/);
+  if (lines[0] !== '---') return false;
+  const end = lines.indexOf('---', 1);   // -1: front matter longer than the head, so read what we have
+  return lines.slice(1, end === -1 ? undefined : end).some((l) => /^paths\s*:/.test(l));
 }
 
 /* `{ tool }` when the agent's CLI will load a personal instructions file, else null.
-   Never throws: a job that cannot be read answers null rather than failing the panel. */
+   Never throws. Without a readable launch job it answers null: the job is what says which
+   account's home the agent runs under, and guessing the default home could be wrong. */
 function personalInstructions(name, deps = {}) {
   const create = deps.create || require('./create');
   let job = null;
   try { job = create.readJob(name); } catch { job = null; }
-  let runner = job && job.runner;
-  if (!runner) {
-    try { runner = create.recordedRunner(name); } catch { runner = null; }
-  }
+  const runner = job && job.runner;
   if (!TOOL[runner]) return null;
   let src;
-  try { src = sourcesFor(runner, job ? job.configDir : null, create); } catch { src = { files: [], rules: [] }; }
+  try { src = sourcesFor(runner, job.configDir || null, create); } catch { src = { files: [], rules: [] }; }
   const has = deps.hasContent || hasContent;
   const found = src.files.some((f) => has(f)) || src.rules.some((r) => rulesHaveContent(r.dir, r.deep, r.scoped, has));
   return found ? { tool: TOOL[runner] } : null;
