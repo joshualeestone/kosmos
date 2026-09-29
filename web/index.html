@@ -56740,6 +56740,7 @@ function msgRefText(row) {
     const where = inRoom ? (room ? ' in ' + room : '') : (agent ? ' in my conversation with ' + agent : '');
     return 'message ' + n + where;
   }
+  if (inRoom) return '';   // a room row with no number (an outside guest's) is not a direct-conversation row
   const when = msgRefWhen(mid);
   if (!when) return '';
   if (row.classList.contains('you')) return 'my message' + (agent ? ' to ' + agent : '') + when;
@@ -56814,6 +56815,10 @@ function msgMenuOpen(row, x, y) {
     });
     m.addEventListener('keydown', (e) => { if (e.key === 'Escape' || e.key === 'Tab') { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); } msgMenuClose(e.key === 'Escape'); } });
     m.addEventListener('focusout', (e) => { if (!m.contains(e.relatedTarget)) msgMenuClose(false); });
+    /* WebKit (Safari, the Mac app) does not focus a clicked button: pressing it moves focus to nothing, the
+       focusout above closes the menu, and the click never lands. Keeping the press from taking focus away
+       lets the click through; Tab and Escape are unaffected. */
+    m.addEventListener('mousedown', (e) => e.preventDefault());
   }
   const host = row.closest('#pj-room') ? 'pj-room' : 'd-dmthread';
   m.msgRef = { row, host, mid: row.getAttribute('data-mid') || '' };
@@ -56834,10 +56839,26 @@ function msgMenuRowFor(e) {
   const row = t.closest('#pj-room .msg, #d-dmthread .msg');
   /* [data-open-agent]: a name or picture that opens the agent's page; a ctrl-click there already navigated. */
   if (!row || t.closest('a, button, input, textarea, select, img, video, [contenteditable], [data-open-agent]')) return null;
-  const sel = window.getSelection ? window.getSelection() : null;
-  if (sel && !sel.isCollapsed && String(sel).trim()) return null;
+  if (msgSelectedAtPress(e)) return null;
   return msgRefText(row) ? row : null;
 }
+/* Whether text was selected when the person pressed. WebKit (Safari, the Mac app) selects the word under the
+   pointer BEFORE it fires contextmenu, so the live selection at that moment says "text is selected" for every
+   right-click on words, and the menu never opened on a Mac. So the state is read at the press (a capture-phase
+   mousedown, before the word is selected) and used for the contextmenu that follows it. A contextmenu with no
+   press of its own (a keyboard's menu key) reads the live selection. */
+let MSG_PRESS = null;
+function msgHasSelection() {
+  const sel = window.getSelection ? window.getSelection() : null;
+  return !!(sel && !sel.isCollapsed && String(sel).trim());
+}
+function msgSelectedAtPress(e) {
+  if (e && e.type === 'contextmenu' && MSG_PRESS && Date.now() - MSG_PRESS.at < 1500) return MSG_PRESS.selected;
+  return msgHasSelection();
+}
+document.addEventListener('mousedown', (e) => {
+  MSG_PRESS = (e.button === 2 || (e.button === 0 && e.ctrlKey)) ? { at: Date.now(), selected: msgHasSelection() } : null;
+}, true);
 const MSG_MENU_MAC = /Mac|iPhone|iPad/.test(navigator.platform || '');
 document.addEventListener('contextmenu', (e) => {
   /* Not on a touchscreen: a long-press there is how text is selected, and the hover bar's button is how a thumb
@@ -56846,6 +56867,10 @@ document.addEventListener('contextmenu', (e) => {
   const row = msgMenuRowFor(e);
   if (!row) return;
   e.preventDefault();
+  /* The word WebKit selected for this right-click was not the person's selection: clear it, so it does not
+     stay highlighted behind the menu. */
+  if (MSG_PRESS && !MSG_PRESS.selected && window.getSelection) window.getSelection().removeAllRanges();
+  MSG_PRESS = null;
   msgMenuOpen(row, e.clientX, e.clientY);
 });
 /* A Mac already turns ctrl-click into the contextmenu above; elsewhere ctrl-click is a plain click. */

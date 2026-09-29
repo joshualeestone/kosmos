@@ -2333,7 +2333,8 @@ function reactionsFor(of, rows, youReactor) {
    Copy message reference) and pastes it to an agent, or types "530"; each input point runs its value
    through here, so all of them come out as 'm530'. The words after "in" are a courtesy for the reader and are
    not checked here: each caller still checks the id is in the room it expects. Anything that is not one of these
-   shapes comes back trimmed and otherwise unchanged, so the caller's own refusal still names what was wrong. */
+   shapes comes back trimmed and otherwise unchanged, so the caller's own refusal still names what was wrong.
+   "530 in <anything>" is m530 whatever the words say: the room is checked by the caller, not here. */
 function messageIdOf(value) {
   const s = String(value == null ? '' : value).trim();
   /* No '#': '#4631' is how a card is written, and a card number must not quietly name a message. */
