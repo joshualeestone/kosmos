@@ -347,12 +347,15 @@ const BLOCK = [
   'tab open "for later". You share the person\'s browser, and the tabs agents leave',
   'behind pile up into hundreds and slow their computer down.',
   '',
-  '**To read a web page, fetch it rather than opening it in their browser.** Open a',
-  'page in their own browser only when they need to see it or act on it',
-  'themselves, such as a sign-in or a payment, and tell them you did.',
+  '**To read a web page, fetch it rather than opening it in their browser.** If a',
+  'page only works in a real browser, use a browser of your own, not theirs, and',
+  'close what you open there too. When the person needs to see a page, give them',
+  'the address. Open it in their own browser only when they must act on it right',
+  'now, such as a sign-in or a payment, and tell them you did.',
   '',
   'If you opened a tab in a way that gives you nothing to close it with, such as a',
-  'plain `open` or `start` of a link, tell the person you left it open and why.',
+  'plain `open` or `start` of a link, or a sign-in page you opened for them, tell',
+  'the person you left it open and why.',
   '',
   '### When your work reaches outside your own folder',
   '',
@@ -723,11 +726,13 @@ function block() {
  *     posts after this reaches agents.
  *
  *  16. kosmos#4467. Josh, 2026-09-28 22:07: agents leave "literally hundreds" of
- *     browser tabs open in his browser (on one 25-agent Mac about a third of the
- *     memory in use was Chrome). Nothing in this block mentioned tabs. A NEW
+ *     browser tabs open in his browser (reported on the #4466 thread, not measured
+ *     here: on one 25-agent Mac about a third of the memory in use was Chrome).
+ *     Nothing in this block mentioned tabs. A NEW
  *     section: close every tab or window you open when done, fetch a page
- *     rather than opening it, open the person's browser only when they must see
- *     or act, and say so when a tab was opened with no handle to close it.
+ *     rather than opening it (or use a browser of your own when it must be
+ *     rendered), give the person the address, open their browser only when they
+ *     must act now, and say so when a tab was opened with no handle to close it.
  *     NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason:
  *     `missingFrom` matches by heading, so agents that already exist are
  *     re-offered it through the consented refresh, not only new ones.

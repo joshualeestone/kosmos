@@ -23,6 +23,10 @@ words. The behaviour (an agent actually closing a tab) is measured after the rel
   win32codexreply.e2e.test.js, which is skipped on Mac and excluded from Windows CI, so it would
   never run.
 - Copy names both `open` (Mac) and `start` (Windows) for the no-handle case.
+- A page that only works in a real browser: use a browser of the agent's own, not the person's,
+  and close it too. When the person needs to see a page, give them the address; open their browser
+  only when they must act now (a sign-in, a payment). This lines up with "Send readable messages",
+  which already says to paste a bare address.
 - Not built: the card's optional item 3 (a count of agent-opened tabs). Kosmos keeps no record of
   which tabs an agent opens, so it is not cheap.
 
@@ -33,4 +37,4 @@ stays. Measured only after release.
 
 ## Verified
 - defaults.test.js 22/22 (the new content test and the pinned fingerprint), doctrine.test.js 13/13,
-  create.test.js boot-file tests 4/4 and the "taught how to work" test.
+  create.test.js boot-file tests and the "taught how to work" test (5/5).
