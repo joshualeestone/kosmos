@@ -80,6 +80,8 @@ function hasContent(name) {
     case 'connections': return true;
     /* Per agent (its own Files path), never empty. */
     case 'dmfiles':     return true;
+    /* #4420: the pointer to the Files folder, per agent, never empty. */
+    case 'dmfiles-top': return true;
     /* A swarm lead's block always has a body; WHO leads is the entitlement. */
     case 'swarm':       return true;
     /* ⚠️ MEMBERSHIP, NOT UNIVERSAL. An agent outside every project is RIGHT to

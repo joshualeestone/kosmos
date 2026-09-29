@@ -2519,8 +2519,8 @@ function markGuide(rows, guideName) {
     a.isGuide = Boolean(guideName) && a.sessionName === guideName;
     if (!a.isGuide) continue;
     a.role = roles.GUIDE_TITLE;
-    /* Claude only: plannedModelName is read as a model id by the OpenAI picker, and the page already names
-       another runner ("OpenAI Codex") when no model is known. */
+    /* Claude only: every other runner's card already names its provider when no model is known ("OpenAI Codex",
+       "Gemini", "Grok"), and a Gemini or Grok job's pinned default is named by plannedFor. */
     if (!a.modelName && !a.plannedModelName && (!a.runner || a.runner === 'claude')) {
       a.plannedModelName = 'Claude (its default model)';
     }
@@ -3701,6 +3701,34 @@ const REMOTE_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply']);
    token; no-credential refused on an enforcing board), exactly as report/reply do
    one layer down -- see that handler. */
 const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
+/* #4491 (proof of concept): agent routes a loopback caller may reach with ONLY its own agent
+   token, in the `x-kosmos-agent-token` header, instead of the board token. So an agent need not
+   hold the person's credential for its everyday verbs, and a request carrying only an agent
+   token is that agent, never the person. Person-only routes (removing, restarting or
+   reconfiguring agents, settings, POST /api/agents) are not in this set and keep requiring the
+   board token. The header only, never `token` in the body: this gate runs before the body is
+   read, and the handlers resolve the header first (presentedAgentToken), so both see the same
+   caller. Not in REMOTE_AGENT_ROUTES, so a DIRECT network peer is still refused by
+   remoteWriteGuard. ⚠️ Kosmos+ tunnel traffic reaches this board over loopback, so that guard
+   does not see it: what stops an internet caller there is the tunnel itself, which forwards only
+   for an admitted device and then presents the person's board token anyway (read from
+   kosmos-relay crates/tunnel/src/proxy.rs, not this repo). POST /api/react joins later (#4491).
+   ⚠️ The gate checks the token STORE, not the roster: a removed agent is cut off by the revoke at
+   removal. If that best-effort revoke failed and the agent's process is still alive, its token
+   still passes here, exactly as it already does on the exempt report and reply routes.
+   ⚠️ And a token is only as private as its launch: the Mac supervisor passes it on tmux's command
+   line, which another macOS account can read with `ps`. That leak predates this, but it now
+   reaches these routes too; #4497 moves it off argv. */
+const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami']);
+function agentTokenOk(req) {
+  const t = req && req.headers && req.headers['x-kosmos-agent-token'];
+  /* The shape sendertoken.mint makes (32 random bytes as hex), checked before the store scan so a
+     malformed token costs no file reads. A well-formed token, valid or not, always pays the scan:
+     any local process can make this single-threaded board read every token file per request by
+     sending random hex, with no rate valve. That is the same accepted cost the exempt report and
+     reply routes already carry, not a new class. */
+  return typeof t === 'string' && /^[0-9a-f]{64}$/.test(t) && sendertoken.resolveName(t).ok === true;
+}
 /* #1307: a project webhook's call, POST /hooks/<id>/<secret>. It carries its own secret (checked
    against a hash by engine/webhooks.js in the handler), not the board token, so it is exempt from
    the board-token gate below. ONLY this exact shape. It is NOT in REMOTE_AGENT_ROUTES, so
@@ -3995,6 +4023,8 @@ const server = http.createServer(async (req, res) => {
     // board token, and re-enforces auth in the handler (agent token OR board
     // token; no-credential refused on an enforcing board). It stays OUT of
     // REMOTE_AGENT_ROUTES, so remoteWriteGuard still refuses a NETWORK peer.
+    // #4491: AGENT_TOKEN_ROUTES are exempt too, but only with a valid agent token in the header
+    // (the `exemptAgentToken` term below), unlike the two sets above.
     const exemptAgent = REMOTE_AGENT_ROUTES.has(`${req.method} ${pathname}`)
       || LOOPBACK_AGENT_ROUTES.has(`${req.method} ${pathname}`);
     // #3055: the names-only world list is exempt too (see PUBLIC_WORLD_ROUTES) -- it carries
@@ -4008,7 +4038,11 @@ const server = http.createServer(async (req, res) => {
     const exemptPublicCommunity = PUBLIC_COMMUNITY_ROUTES.has(`${req.method} ${pathname}`);
     // #1307: a webhook call (its own secret, checked in the handler; loopback only, see HOOK_CALL_RE).
     const exemptHook = req.method === 'POST' && HOOK_CALL_RE.test(pathname);
-    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !boardTokenOk(req)) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
+    // #4491: an agent route, reached with a valid agent token and no board token (see
+    // AGENT_TOKEN_ROUTES). A function, called last, so a caller that already holds the board
+    // token never pays for the token-store scan.
+    const exemptAgentToken = () => AGENT_TOKEN_ROUTES.has(`${req.method} ${pathname}`) && agentTokenOk(req);
+    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !boardTokenOk(req) && !exemptAgentToken()) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
       sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`' });
       return;
     }
@@ -4325,8 +4359,10 @@ const server = http.createServer(async (req, res) => {
         // would prefer the job for it while this never populated the field, so
         // "Will start on" would silently stop appearing.
         if (a.modelName && a.state !== STATE.STOPPED) return null;
-        const arg = create.plannedModelArg(a.sessionName);
-        return arg ? modelDisplayName(arg) : null;
+        /* #4416: ONE read of the job, on either platform (create.plannedModelOf). A Gemini or Grok job with no model
+           starts on the launcher's pinned model, marked as the default rather than a choice. */
+        const planned = create.plannedModelOf(a.sessionName);
+        return planned ? modelDisplayName(planned.id) + (planned.isDefault ? ' (default)' : '') : null;
       };
       /* One list read per poll rather than per agent: `accounts.list()` stats a
          handful of directories, and doing it thirteen times a tick to answer
@@ -4433,6 +4469,11 @@ const server = http.createServer(async (req, res) => {
         // and null travels as null: the screen must not be able to tell a
         // missing job from a default.
         plannedModelName: plannedFor(a),
+        /* #4416: the RAW model id the job starts it on, for the OpenAI picker's current choice. It used to read
+           plannedModelName, which was the raw id only because non-Claude ids were shown raw; now they are named in
+           plain language, and a running codex agent names its model from its rollout (so plannedModelName is null).
+           Codex only: that is the one picker keyed on it, and the read costs a launch-file read per poll. */
+        plannedModelId: (a.isNamedOurs && a.runner === 'codex') ? create.plannedModelId(a.sessionName) : null,
         /* Which Claude account this agent runs on, read from its startup file
            and resolved to something a person recognises. `null` means the
            default account, which is what an absent key has always meant.
@@ -4595,6 +4636,8 @@ const server = http.createServer(async (req, res) => {
                  leftover shape and keeps that sentence. */
               const unseen = !create.jobMissing(k.name) && k.folder
                 && runningNow.has(k.name);
+              /* #246/#2811's runner for this row, read once: the `runner` field below and #4416's plannedModelId both use it. */
+              const rowRunner = runnerOfCard({ sessionName: k.name, runner: null });
               return {
                 name: k.shownAs || k.name,
                 sessionName: k.name,
@@ -4729,6 +4772,7 @@ const server = http.createServer(async (req, res) => {
                   } catch { return null; }
                 })(),
                 plannedModelName: plannedFor({ sessionName: k.name, isNamedOurs: true }),
+                plannedModelId: rowRunner === 'codex' ? create.plannedModelId(k.name) : null,   // #4416: the raw id, for the OpenAI picker (codex only, as on the roster)
                 /* #149/#150: same field the roster rows carry, same meaning.
                    A stopped agent with no launch file is exactly the state
                    the sentence exists for: nothing will start it, and no
@@ -4777,7 +4821,7 @@ const server = http.createServer(async (req, res) => {
                    of the two: the plist is the launch truth, as this file says
                    everywhere else, and the profile is the fallback when there is
                    no job to read. */
-                runner: runnerOfCard({ sessionName: k.name, runner: null }),
+                runner: rowRunner,
                 account: accountOf(k.name),
                 commitments: commitments.read(k.name),
                 instructions: projects.toldOverride(instructions.staleness(k.name), k.name),
@@ -12198,8 +12242,9 @@ const server = http.createServer(async (req, res) => {
            the failure this card exists to remove, reappearing at the timeout
            rather than at the reader.
 
-           ⚠️ `/api/whoami` is also unauthenticated on a single-threaded server,
-           so that is up to 15s of blocking from any local process.
+           ⚠️ `/api/whoami` is reachable by any local process on a non-enforcing board,
+           and on an enforcing one by any holding the board token or an agent token
+           (#4491), on a single-threaded server, so that is up to 15s of blocking.
 
            📌 NOT FIXED HERE, DELIBERATELY. The timeouts live in `runningas`'s
            default readers and belong to every caller of that module, so
@@ -12223,7 +12268,8 @@ const server = http.createServer(async (req, res) => {
            `source` above (that says which reader answered for the account/model).
            resolveAgentSender identifies by the presented launch token when there
            is one, and otherwise falls back to the tmux pane. A pane id is
-           enumerable and this route is unauthenticated, so a pane-identified
+           enumerable and, on a non-enforcing board, this route needs no
+           credential (#4491: an enforcing one wants the board or an agent token), so a pane-identified
            agent is the weak case the card cares about; naming it makes a possible
            mismatch visible. Re-derived from the same inputs resolveAgentSender
            read rather than threaded back through it, because report/reply share

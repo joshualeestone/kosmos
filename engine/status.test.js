@@ -525,7 +525,11 @@ test('a dated model id resolves to the same display name', () => {
 test('an unrecognised model renders raw rather than guessed', () => {
   // New models ship often. An unfamiliar accurate name beats a confident
   // wrong one -- the same rule the status board follows.
-  assert.equal(modelDisplayName('claude-something-new-9'), 'claude-something-new-9');
+  // #4416 (Josh 2026-09-28: "instead of having it all lowercase ... a little more natural language"): an unknown id is
+  // READ when reading it cannot mis-say the version, and still shown raw when it could. Reading is not guessing: every
+  // word shown is in the id.
+  assert.equal(modelDisplayName('claude-something-new-9'), 'Claude Something New 9');
+  assert.equal(modelDisplayName('claude-something-new-9-1'), 'claude-something-new-9-1', 'a dashed version is still shown raw, never "9 1"');
   assert.equal(modelDisplayName(null), null);
 });
 
@@ -982,7 +986,10 @@ test('#3939: the pane sweep never reads a Claude transcript for a Muse pane (SOU
   /* The sweep needs a live pane to drive, which no fixture here provides, so the routing is pinned in source. */
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'status.js'), 'utf8');
   assert.match(src, /const isMusePane = pane\.runner === 'muse';/);
-  assert.match(src, /\(tied && !isAgyPane && !isMusePane\) \? readModel\(pane\.name, pane\.session\)/, 'a Muse pane reaches the Claude model reader');
+  // #4416: the model is chosen per runner; a Muse pane has its own arm (null) before the Claude reader, which only the
+  // last arm reaches.
+  assert.match(src, /: isMusePane \? \{ model: null \}/, 'a Muse pane reaches the Claude model reader');
+  assert.match(src, /: isCodexPane \? \{ model: sessModel\(codexSess\) \}\n\s+: readModel\(pane\.name, pane\.session\);/, 'the Claude reader is no longer the last arm');
   assert.match(src, /: isMusePane \? \{ tokens: null, percent: null, confidence: CONFIDENCE\.NONE, notYet: false, because: 'Kosmos does not read how full Muse/,
     'a Muse pane reaches the Claude context reader');
   assert.match(src, /!isAgyPane && !isMusePane\) \{/, 'a Muse pane reaches the Claude account observation');

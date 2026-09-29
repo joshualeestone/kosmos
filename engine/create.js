@@ -1067,6 +1067,27 @@ function plannedModelArg(name) {
   return args.length > 7 && args[7] ? args[7] : null;
 }
 
+/* #4416: the job's raw model id on EITHER platform. plannedModelArg reads the plist only, so on Windows (a
+   Scheduled Task, no plist) it is null for every agent; readJob reads both. Null means the job names none. */
+function plannedModelId(name) {
+  const p = plannedModelOf(name);
+  return p && !p.isDefault ? p.id : null;
+}
+
+/* #4416: what a stopped or not-yet-running agent will start on, from ONE read of its job (a plist on a Mac, a
+   Scheduled Task on Windows): { id, isDefault }. The job's own model when it records one; else, for Gemini and Grok,
+   the model the launcher pins when none is given (win32keyed.DEFAULT_MODEL, held equal to bin/agent-supervisor.sh by
+   engine/modelname-4416.test.js), marked isDefault; else null (Claude with no --model, Codex and Antigravity pick
+   their own). Tested against real launch files in engine/modelname-4416.test.js. */
+function plannedModelOf(name) {
+  let job = null;
+  try { job = readJob(name); } catch { job = null; }
+  if (!job) return null;
+  if (job.model) return { id: job.model, isDefault: false };
+  const pinned = require('./win32keyed').DEFAULT_MODEL;   // required here: win32keyed requires this file lazily too
+  return job.runner && Object.prototype.hasOwnProperty.call(pinned, job.runner) ? { id: pinned[job.runner], isDefault: true } : null;
+}
+
 /**
  * Everything a rewrite of an agent's launch file has to preserve.
  *
@@ -5042,9 +5063,10 @@ function createAgentInner(opts) {
           // dmfiles.bodyFor is the ONE derivation of "this agent's Files folder" (the sweep uses it too).
           // It resolves through instructions.fileFor (workerDir(safeKey(name))) while the file here is written
           // through workerDir(name): the same folder only because creation names already pass [a-z0-9_-].
-          const body = dmMod.bodyFor(name);
-          if (!body) throw new Error('no folder to name');
-          const spliced = require('./projects').spliceBlock(text, body, dmMod.START, dmMod.END);
+          // #4420: applyTo also adds the one-line pointer: before the working rules (the person's words stay first,
+          // #591), or appended when the file has none (dmfiles.spliceTop).
+          const spliced = dmMod.applyTo(text, name);
+          if (spliced === null) throw new Error('no folder to name');
           const { MAX_BYTES } = require('./instructions');
           if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; filesLanded = true; }
         } catch { /* reported below rather than swallowed */ }
@@ -5739,6 +5761,8 @@ module.exports = {
   writePlistFile,
   realLaunchAgentsDir,
   plannedModelArg,
+  plannedModelId, // #4416
+  plannedModelOf, // #4416
   forgetCodexFolder,
   trustCodexFolder,
   /* #3439: exported so the escaping/rendering can be unit-tested deterministically
