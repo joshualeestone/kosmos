@@ -417,6 +417,21 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         if (scrolledMid.gap > 200 && Math.abs(afterSlow.top - scrolledMid.top) <= 4) ok('#4639 ' + tag + 'someone who scrolls up while a slow send is in flight is not pulled back when it lands');
         else bad('#4639 ' + tag + 'someone who scrolls up while a slow send is in flight is not pulled back when it lands',
           JSON.stringify({ scrolledMid, afterSlow }));
+        /* With a search filtering the room, their post may not be in the list and the
+           list does not follow the tail, so a send does not move them. */
+        await p.fill('#pj-room-search', 'Message number');
+        await p.waitForFunction(() => PJ_ROOM_QUERY.trim() === 'Message number', null, { timeout: GROW_MS });
+        await p.waitForTimeout(300);
+        await scrollBack();
+        const filteredUp = await roomPos();
+        await p.fill('#pj-post', 'My filtered post 4639-e' + slug);
+        await p.click('#pj-post-go');
+        await p.waitForFunction(() => !PJ_POSTING, null, { timeout: GROW_MS });
+        const afterFiltered = await roomPos();
+        await p.fill('#pj-room-search', '');
+        await p.waitForFunction(() => PJ_ROOM_QUERY.trim() === '', null, { timeout: GROW_MS });
+        if (filteredUp.gap > 200 && Math.abs(afterFiltered.top - filteredUp.top) <= 4) ok('#4639 ' + tag + 'with a search filtering the room, their send does not move them');
+        else bad('#4639 ' + tag + 'with a search filtering the room, their send does not move them', JSON.stringify({ filteredUp, afterFiltered }));
       } catch (e) {
         bad('#4639 ' + tag + 'the room send-jump arms ran', String((e && e.message) || e));
       }
