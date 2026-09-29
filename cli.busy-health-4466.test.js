@@ -386,7 +386,7 @@ test('#4466 a proxy in the environment does not hide the board: loopback request
 test('#4466 start and status: a listener that IS the recorded board is running, never "another app" and never reclaimed', async () => {
   const port = await closedPort();
   // healthy() could not read it (a proxy in the way); board.pid names 4242 and 4242 holds the port.
-  const stubs = (listener) => `source "${CLI}"; healthy() { HEALTH_STATE=stranger; return 1; }; port_taken_by_stranger() { HEALTH_STATE=stranger; return 0; }; running_pid() { echo 4242; }; port_listener_owner() { echo "${listener} 501 1"; }; port_has_listener() { return 0; }; kill() { echo "KILLED $*"; }`;
+  const stubs = (listener) => `source "${CLI}"; healthy() { HEALTH_STATE=stranger; return 1; }; port_taken_by_stranger() { HEALTH_STATE=stranger; return 0; }; running_pid() { echo 4242; }; port_listener_owner() { echo "${listener} $(/usr/bin/id -u) 1"; }; port_has_listener() { return 0; }; kill() { echo "KILLED $*"; }`;
   const st = await bash(stubs(4242) + '; cmd_status', baseEnv(port));
   assert.equal(st.code, 4, st.stdout + st.stderr);
   assert.match(st.stdout, /running at .*\(process 4242\) but did not answer this command/);
@@ -394,6 +394,19 @@ test('#4466 start and status: a listener that IS the recorded board is running, 
   const start = await bash(stubs(4242) + '; cmd_start; echo "rc=$?"', baseEnv(port));
   assert.match(start.stdout, /already running at .*\(process 4242\)/, start.stdout + start.stderr);
   assert.doesNotMatch(start.stdout, /KILLED|Reclaiming|another app/);
+  assert.match(start.stdout, /rc=0/, 'start returns 0: ' + start.stdout);
+  // The watchdog's and the installer's KOSMOS_RECLAIM_BUSY start still reclaim it (the one way to free a board
+  // of ours that holds the port and never answers).
+  const reclaim = await bash(stubs(4242) + '; KOSMOS_RECLAIM_BUSY=1 cmd_start', baseEnv(port));
+  assert.match(reclaim.stdout, /Reclaiming it/, reclaim.stdout + reclaim.stderr);
+  assert.match(reclaim.stdout, /KILLED 4242/);
+  // An agent's start is not spent on it: the guard reads the recorded board as up and never claims.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
+  try {
+    const ag = await bash(stubs(4242) + '; ( agent_board_guard start ); echo "rc=$?"', baseEnv(port, { KOSMOS_HOME: home, KOSMOS_AGENT_SESSION: 'grok-agent' }));
+    assert.match(ag.stdout, /already running/, ag.stdout + ag.stderr);
+    assert.equal(fs.existsSync(path.join(home, 'board.agent-claim')), false, 'the agent start claim is not spent on a running board');
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
   // CONTROL: a listener that is NOT the recorded board still gets the stranger sentence from status.
   const other = await bash(stubs(9999) + '; cmd_status', baseEnv(port));
   assert.match(other.stdout, /another app is using port/, other.stdout + other.stderr);

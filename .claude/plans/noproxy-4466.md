@@ -25,6 +25,17 @@ proxy, that is a HEALTHY board it cannot reach: a plain `kosmos start` in such a
   never reclaims (kill is stubbed and must not be called); control: a different listener pid still gets the
   stranger sentence.
 
+## Review round 1 (opus): 1 WARNING + 5 NITs, all fixed
+- W: the KOSMOS_RECLAIM_BUSY bypass of the new start guard had no test (the watchdog's reclaim arm uses a
+  busy board, which never reaches this guard). Now: the same stubs plus the flag must reach "Reclaiming it"
+  and call the stubbed kill. Red with the condition dropped.
+- NIT: the stubbed listener uid was 501, so the kill arm was only live on a uid-501 box; now `id -u`.
+- NIT: start's `rc=0` is asserted.
+- NIT: `agent_board_guard` now reads a listener that IS the recorded board as up, so an agent's start neither
+  goes on nor spends the start claim. Red with that line removed.
+- NIT: the #3079 comment names the new precondition; the NO_PROXY comment says the export reaches the board
+  and its agents too (only loopback is added).
+
 ## Weakest premise
 Only curl honours NO_PROXY here; any future non-curl loopback client in this script (none today) would need
 the same. And board.pid must be current: a board started outside this command (no pidfile) still reads as a
@@ -32,4 +43,5 @@ stranger under a proxy, but change 1 removes the proxy from that path anyway.
 
 ## Status
 - [x] fix + both arms red-checked; cli 229/229; #3079 reclaim 12/12
+- [x] review round 1 fixed (reclaim bypass + agent-claim arms, red-checked)
 - [ ] rebase onto main after PR #4539 merges; challenge loop; full suite once; PR; merge before the 0.7.10 freeze
