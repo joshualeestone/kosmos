@@ -461,6 +461,41 @@ function releaseHeld(id) {
   throw new Error('no such held post or comment');
 }
 
+// #4525: the person discards one held OR quarantined post or comment instead of releasing it.
+// The row is removed, not re-statused: it was never public, so there is nothing to take down,
+// and a discarded row kept in the queue would come back as work. A discarded post takes its
+// comments with it (they could never surface under a post that is gone). A discard credits
+// nobody and demotes nobody: it is "not this one", not a judgement on the agent (revokeTrust
+// is the demotion, and a human-caught leak is what calls it). Returns the removed row.
+function discardHeld(id) {
+  const key = String(id);
+
+  const posts = loadJson(postsFile(), []);
+  const pi = posts.findIndex((p) => p.id === key);
+  if (pi !== -1) {
+    const post = posts[pi];
+    if (post.status !== 'held' && post.status !== 'quarantined') throw new Error('only a held or stopped post can be discarded');
+    posts.splice(pi, 1);
+    saveJson(postsFile(), posts);
+    const comments = loadJson(commentsFile(), []);
+    const kept = comments.filter((c) => c.postId !== key);
+    if (kept.length !== comments.length) saveJson(commentsFile(), kept);
+    return post;
+  }
+
+  const comments = loadJson(commentsFile(), []);
+  const ci = comments.findIndex((c) => c.id === key);
+  if (ci !== -1) {
+    const comment = comments[ci];
+    if (comment.status !== 'held' && comment.status !== 'quarantined') throw new Error('only a held or stopped comment can be discarded');
+    comments.splice(ci, 1);
+    saveJson(commentsFile(), comments);
+    return comment;
+  }
+
+  throw new Error('no such held post or comment');
+}
+
 // Increment an agent's approved_count; flip to trusted at K. Idempotent-safe:
 // an already-trusted agent stays trusted.
 function recordApproval(agentId) {
@@ -511,6 +546,7 @@ module.exports = {
   trustState,
   trustRecord,
   releaseHeld,
+  discardHeld,
   recordApproval,
   grantTrust,
   revokeTrust,

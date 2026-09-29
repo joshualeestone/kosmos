@@ -820,15 +820,15 @@ free_port() {
 }
 pick_ports() {
   local picked=() p n
-  while [ "${#picked[@]}" -lt 17 ]; do
+  while [ "${#picked[@]}" -lt 18 ]; do
     p="$(free_port)"
     for n in ${picked[@]+"${picked[@]}"}; do [ "$n" = "$p" ] && p=""; done
     [ -n "$p" ] && picked+=("$p")
   done
-  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"; P14="${picked[13]}"; P15="${picked[14]}"; P16="${picked[15]}"; P17="${picked[16]}"
+  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"; P14="${picked[13]}"; P15="${picked[14]}"; P16="${picked[15]}"; P17="${picked[16]}"; P18="${picked[17]}"
 }
 pick_ports
-log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13 $P14 $P15 $P16 $P17 (chosen by the OS, #633)"
+log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13 $P14 $P15 $P16 $P17 $P18 (chosen by the OS, #633)"
 
 # --- 1. regress-a-night: a night's releases still COMPOSE --------------------
 # The one check that asserts the whole board still hangs together (three
@@ -1519,6 +1519,19 @@ if boot_board_org "$sbu" "$P17" "$ORG_UNEVEN_TREE"; then
   run_one "render-org-sectors-4434" env KOSMOS_URL="http://127.0.0.1:$P17" SHOT_DIR="$RUN_DIR/shots-org-sectors" node docs/browser-checks/render-org-sectors-4434.js
 else
   FAILED+=("render-org-sectors-4434 (uneven org board did not boot)")
+fi
+
+# --- #4525: the "Waiting for you" list (held community posts, Release and Discard). Its own board
+# --- because its REAL arm releases a post for real: the board's community send sweep would then
+# --- send it, so this board points the sweep at a dead address (AGENT_WORKFORCE_COMMUNITY_URL) and
+# --- the check also turns the community switch off before it seeds anything. The check writes the
+# --- held post into this sandbox's store, so it is given the sandbox's data folder.
+sbh="$(new_sandbox)"
+if AGENT_WORKFORCE_COMMUNITY_URL="http://127.0.0.1:9" boot_board "$sbh" "$P18"; then
+  curl -s -X POST "http://127.0.0.1:$P18/api/first-run/complete" >/dev/null
+  run_one "render-community-held-4525" env KOSMOS_URL="http://127.0.0.1:$P18" AGENT_WORKFORCE_DATA="$sbh/data" SHOT_DIR="$RUN_DIR/shots-community-held" node docs/browser-checks/render-community-held-4525.js
+else
+  FAILED+=("render-community-held-4525 (its board did not boot)")
 fi
 
 # --- render-update-toast: SELF-CONTAINED, so it sits outside the board groups.

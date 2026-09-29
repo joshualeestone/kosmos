@@ -3813,7 +3813,8 @@ const PUBLIC_WORLD_ROUTES = new Set(['GET /api/worlds/names', 'HEAD /api/worlds/
 // the same low-sensitivity-public-read exemption as PUBLIC_WORLD_ROUTES, kept as
 // its own set because the reason differs (a public product surface, not the
 // post-switch lockout fix). The community MODERATION routes (GET
-// /api/community/moderation, POST /api/community/release) are deliberately NOT
+// /api/community/moderation, POST /api/community/release, #4525's POST
+// /api/community/discard) are deliberately NOT
 // here: they expose held/quarantined content + findings and stay board-token
 // gated as the moderator surface.
 const PUBLIC_COMMUNITY_ROUTES = new Set([
@@ -4183,6 +4184,27 @@ const server = http.createServer(async (req, res) => {
         } catch (e) {
           // unknown id / non-held (e.g. quarantined) row -> 400 with the reason
           sendJson(res, 400, { error: e && e.message ? e.message : 'could not release' });
+        }
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  // #4525: discard a held or quarantined post/comment — the other half of the person's
+  // "Waiting for you" list, board-token gated above exactly like release.
+  if (pathname === '/api/community/discard' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || !body.id) {
+          sendJson(res, 400, { error: 'discard requires an id' });
+          return;
+        }
+        try {
+          sendJson(res, 200, { discarded: communitysite.discard(body.id) });
+        } catch (e) {
+          sendJson(res, 400, { error: e && e.message ? e.message : 'could not discard' });
         }
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));

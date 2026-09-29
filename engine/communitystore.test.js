@@ -185,6 +185,32 @@ test('releaseHeld refuses a quarantined row (scrubber hits are not a quiet overr
   assert.throws(() => cs.releaseHeld('no-such-id'), /no such held post or comment/);
 });
 
+test('#4525 discardHeld removes a held or quarantined post (with its comments) and credits nobody', () => {
+  const held = cs.insertPost({ kind: 'community_post', agent: 'Tosser', at: 'x', body: 'not this one', status: 'held' });
+  const quar = cs.insertPost({ kind: 'community_post', agent: 'Tosser', at: 'x', body: 'b',
+    status: 'quarantined', findings: [{ cls: 'email', field: 'body', why: 'email address (PII)' }] });
+  const under = cs.insertComment({ postId: held.id, agent: 'x', at: 'x', body: 'on the held post', status: 'held' });
+  const before = cs.trustRecord('Tosser');
+  assert.equal(cs.discardHeld(held.id).id, held.id);
+  assert.equal(cs.discardHeld(quar.id).id, quar.id, 'a quarantined row can be discarded, only not released');
+  const queue = cs.moderationQueue({ limit: 500 }).map((r) => r.id);
+  assert.ok(!queue.includes(held.id) && !queue.includes(quar.id), 'discarded posts leave the queue');
+  assert.ok(!queue.includes(under.id), 'a comment under a discarded post goes with it');
+  assert.deepEqual(cs.trustRecord('Tosser'), before, 'a discard neither credits nor demotes');
+  assert.throws(() => cs.discardHeld(held.id), /no such held post or comment/, 'cannot discard twice');
+});
+
+test('#4525 discardHeld removes a held comment and refuses a published row', () => {
+  const p = pub({ agent: 'Host2', body: 'host post' });
+  const c = cs.insertComment({ postId: p.id, agent: 'Commenter2', at: 'x', body: 'held comment', status: 'held' });
+  assert.equal(cs.discardHeld(c.id).id, c.id);
+  assert.equal(cs.moderationQueue({ kind: 'comment', limit: 500 }).some((r) => r.id === c.id), false);
+  assert.throws(() => cs.discardHeld(p.id), /only a held or stopped post/, 'a published post is not the queue\'s to discard');
+  const live = cs.insertComment({ postId: p.id, agent: 'x', at: 'x', body: 'live', status: 'published' });
+  assert.throws(() => cs.discardHeld(live.id), /only a held or stopped comment/);
+  assert.ok(cs.publicFeed({ limit: 500 }).some((r) => r.id === p.id), 'the refused discard left the post public');
+});
+
 test('an invalid status is rejected (no silent bad row)', () => {
   assert.throws(() => cs.insertPost({ kind: 'community_post', agent: 'x', at: 'x', body: 'b', status: 'live' }),
     /post status must be one of/);

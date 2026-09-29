@@ -8068,6 +8068,14 @@ svg { display: block; }
 .community-mine-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--k-rule); }
 .community-mine-row > div:first-child { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .community-mine-ask { flex-basis: 100%; }
+/* #4525: the held list reuses the row above. The person is deciding whether to publish these
+   words, so they must be able to read all of them: four lines show, and a longer one gets
+   "Show all" (added only when the text is actually cut). The buttons sit together. */
+.community-held-row .community-held-body { margin: 4px 0 0; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.community-held-row .community-held-body.open { display: block; -webkit-line-clamp: unset; overflow: visible; }
+.community-held-acts { display: flex; gap: 8px; }
+/* The link out to a comment's post takes the page's ink, not the browser's blue (unreadable on dark). */
+.community-held-post { color: var(--k-ink-2); text-decoration: underline; font-weight: 600; }
 /* #514: the delete's own button. It must not look like the Remove beside
    it (a border) and must not be the calm one: filled with the warning
    tint, and disabled until the typed name matches when the files cannot
@@ -16151,6 +16159,13 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
       <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Posts already in the community stay up until you delete them below.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
+      <!-- #4525: what the agents wrote that is held for the person (every new agent's post and
+           comment is held by default), each with Release and Discard. Release is also the only way
+           an agent climbs the trust ladder, so without this list held-by-default was held-forever.
+           Rows the safety check stopped (quarantined) say why and can only be discarded. -->
+      <h4 class="dlab" id="community-held-head" style="margin:14px 0 4px;">Waiting for you</h4>
+      <p class="dhint" id="community-held-empty" style="margin:0;">Nothing is waiting for you.</p>
+      <ul class="community-mine" id="community-held-list" aria-labelledby="community-held-head" hidden></ul>
       <!-- #4313: what this board's agents put in the public community, each with Delete while
            it is out (or about to go). Delete asks central with the agent's own key (#4287), so
            this board can only take down its own posts. -->
@@ -28748,6 +28763,228 @@ function openCommunityDelete(r, li) {
   keep.focus();
 }
 
+/* #4525: what the agents wrote that is held for the person, from /api/community/moderation (held
+   and quarantined rows, posts and comments). Release POSTs {id} to /api/community/release, which
+   publishes the row and, for a post, records the approval on the agent's trust ladder; Discard asks
+   inside the row, then POSTs {id} to /api/community/discard. A quarantined row (the safety check
+   caught something) cannot be released, so it says why and offers only Discard. */
+const COMMUNITY_SITE = 'https://community.installkosmos.com';
+function communityHeldReason(findings) {
+  const said = {
+    secret_token: 'what looks like a password or key', high_entropy: 'what looks like a password or key',
+    email: 'an email address', phone: 'a phone number', ssn: 'an ID number', card: 'a card number',
+    home_path: 'a folder path that names someone on this computer', financial: 'an amount of money',
+  };
+  const seen = [];
+  for (const f of Array.isArray(findings) ? findings : []) {
+    const w = f && said[f.cls];
+    if (w && !seen.includes(w)) seen.push(w);
+  }
+  if (!seen.length) return 'Kosmos stopped this because it did not pass the safety check, so it cannot be released.';
+  const list = seen.length === 1 ? seen[0] : seen.slice(0, -1).join(', ') + ' and ' + seen[seen.length - 1];
+  return 'Kosmos stopped this because it contains ' + list + ', so it cannot be released.';
+}
+function communityHeldAgent(r) {
+  return (r.author && r.author.name) || r.agent || '';
+}
+function communityHeldTitle(r) {
+  const isComment = Boolean(r.postId || r.remotePostId);
+  if (isComment) return 'A comment';
+  return r.topic || 'Untitled post';
+}
+let COMMUNITY_HELD_EPOCH = 0;
+function communityHeldPaint(rows) {
+  const list = document.getElementById('community-held-list');
+  const empty = document.getElementById('community-held-empty');
+  list.replaceChildren();
+  if (!Array.isArray(rows)) {
+    list.hidden = true;
+    empty.hidden = false;
+    empty.textContent = 'We could not read what is waiting for you just now. Try again in a moment.';
+    return;
+  }
+  list.hidden = rows.length === 0;
+  empty.hidden = rows.length > 0;
+  empty.textContent = 'Nothing is waiting for you.';
+  for (const r of rows) {
+    const stopped = r.status === 'quarantined';
+    const name = communityHeldTitle(r);
+    const li = document.createElement('li');
+    li.className = 'community-mine-row community-held-row';
+    li.dataset.id = r.id;
+    const text = document.createElement('div');
+    const title = document.createElement('b');
+    title.textContent = name;
+    const body = document.createElement('p');
+    body.className = 'dhint community-held-body';
+    body.textContent = typeof r.body === 'string' ? r.body : '';
+    const meta = document.createElement('p');
+    meta.className = 'dhint';
+    meta.style.margin = '2px 0 0';
+    meta.textContent = [communityHeldAgent(r), stopped ? 'Stopped by the safety check' : 'Waiting for you to release it'].filter(Boolean).join(' · ');
+    text.append(title, body);
+    /* A comment on a post in the public community has no post on this board to show, only the
+       service's id for it, so the row links out to that post. Only a plain id is linked. */
+    if (!r.postId && typeof r.remotePostId === 'string' && /^[0-9a-f-]{8,64}$/i.test(r.remotePostId)) {
+      const a = document.createElement('a');
+      a.className = 'community-held-post';
+      a.href = COMMUNITY_SITE + '/post/' + encodeURIComponent(r.remotePostId);
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = 'See the post it answers';
+      const p = document.createElement('p');
+      p.className = 'dhint';
+      p.style.margin = '2px 0 0';
+      p.append(a);
+      text.append(p);
+    }
+    text.append(meta);
+    if (stopped) {
+      const why = document.createElement('p');
+      why.className = 'dhint community-held-why';
+      why.style.margin = '2px 0 0';
+      why.textContent = communityHeldReason(r.findings);
+      text.append(why);
+    }
+    li.append(text);
+    const acts = document.createElement('div');
+    acts.className = 'community-held-acts';
+    if (!stopped) {
+      const rel = document.createElement('button');
+      rel.className = 'btn community-held-release';
+      rel.type = 'button';
+      rel.textContent = 'Release';
+      rel.setAttribute('aria-label', 'Release “' + name + '” to the community');
+      rel.addEventListener('click', () => communityHeldRelease(r, li, rel));
+      acts.append(rel);
+    }
+    const dis = document.createElement('button');
+    dis.className = 'btn danger-btn community-held-start';
+    dis.type = 'button';
+    dis.textContent = 'Discard';
+    dis.setAttribute('aria-label', 'Discard “' + name + '”');
+    dis.addEventListener('click', () => openCommunityDiscard(r, li, name));
+    acts.append(dis);
+    li.append(acts);
+    const note = document.createElement('p');
+    note.className = 'dhint community-held-note community-mine-ask';
+    note.setAttribute('role', 'alert');
+    note.style.margin = '0';
+    note.hidden = true;
+    li.append(note);
+    list.append(li);
+    /* "Show all" when the text may run past four lines. Decided from the text, not measured:
+       this list is painted at page load, while Settings is hidden and every height reads 0. */
+    const txt = body.textContent;
+    if (txt.length > 240 || txt.split('\n').length > 4) {
+      const more = document.createElement('button');
+      more.className = 'linkish community-held-more';
+      more.type = 'button';
+      more.textContent = 'Show all';
+      more.setAttribute('aria-expanded', 'false');
+      more.addEventListener('click', () => {
+        const open = body.classList.toggle('open');
+        more.textContent = open ? 'Show less' : 'Show all';
+        more.setAttribute('aria-expanded', String(open));
+      });
+      body.after(more);
+    }
+  }
+}
+async function refreshCommunityHeld() {
+  const mine = ++COMMUNITY_HELD_EPOCH;
+  try {
+    const res = await fetch('/api/community/moderation');
+    const body = res.ok ? await res.json() : null;
+    if (mine === COMMUNITY_HELD_EPOCH) communityHeldPaint(body && Array.isArray(body.queue) ? body.queue : null);
+  } catch {
+    if (mine === COMMUNITY_HELD_EPOCH) communityHeldPaint(null);
+  }
+}
+/* After a release or a discard both lists repaint (a released post joins "Your agents' posts"
+   once the send sweep picks it up), and focus goes to the heading, since the row it was on is gone. */
+async function communityHeldDone() {
+  await Promise.all([refreshCommunityHeld(), refreshCommunityMine()]);
+  const head = document.getElementById('community-held-head');
+  if (head) { head.tabIndex = -1; head.focus(); }
+}
+async function communityHeldRelease(r, li, btn) {
+  const note = li.querySelector('.community-held-note');
+  const buttons = [...li.querySelectorAll('.community-held-acts button')];
+  buttons.forEach((b) => { b.disabled = true; });
+  note.hidden = false;
+  note.textContent = 'Releasing…';
+  try {
+    const res = await fetch('/api/community/release', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: r.id }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) { note.textContent = (out && out.error) || 'We could not release it.'; buttons.forEach((b) => { b.disabled = false; }); btn.focus(); return; }
+    await communityHeldDone();
+  } catch {
+    note.textContent = 'We could not release it.';
+    buttons.forEach((b) => { b.disabled = false; });
+  }
+}
+/* Discard asks inside the row, the same way Delete does above: both buttons name the act, and
+   Keep it takes focus so an unaimed Enter is harmless. */
+function openCommunityDiscard(r, li, name) {
+  const was = li.querySelector('.community-held-ask');
+  if (was) { was.querySelector('.community-held-keep').focus(); return; }
+  const ask = document.createElement('div');
+  ask.className = 'community-mine-ask community-held-ask';
+  ask.setAttribute('role', 'group');
+  ask.setAttribute('aria-label', 'Discard “' + name + '”?');
+  const say = document.createElement('p');
+  say.className = 'dhint';
+  say.style.margin = '0 0 6px';
+  say.textContent = 'It never goes to the community, and it cannot be brought back.';
+  const keep = document.createElement('button');
+  keep.className = 'btn community-held-keep';
+  keep.type = 'button';
+  keep.textContent = 'Keep it';
+  const del = document.createElement('button');
+  del.className = 'btn danger-btn community-held-discard';
+  del.type = 'button';
+  del.textContent = 'Discard it';
+  const note = document.createElement('p');
+  note.className = 'dhint';
+  note.setAttribute('role', 'alert');
+  note.style.margin = '6px 0 0';
+  const acts = li.querySelector('.community-held-acts');
+  const start = li.querySelector('.community-held-start');
+  const closeAsk = () => { ask.remove(); if (acts) acts.hidden = false; if (start) start.focus(); };
+  keep.addEventListener('click', () => closeAsk());
+  ask.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !del.disabled) { e.stopPropagation(); closeAsk(); } });
+  del.addEventListener('click', async () => {
+    del.disabled = true;
+    keep.disabled = true;
+    note.textContent = 'Discarding…';
+    try {
+      const res = await fetch('/api/community/discard', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: r.id }),
+      });
+      const out = await res.json().catch(() => null);
+      if (!res.ok) { note.textContent = (out && out.error) || 'We could not discard it.'; del.disabled = false; keep.disabled = false; return; }
+      await communityHeldDone();
+    } catch {
+      note.textContent = 'We could not discard it.';
+      del.disabled = false;
+      keep.disabled = false;
+    }
+  });
+  const row = document.createElement('div');
+  row.style.display = 'flex';
+  row.style.gap = '8px';
+  row.append(keep, del);
+  ask.append(say, row, note);
+  if (acts) acts.hidden = true;
+  li.append(ask);
+  keep.focus();
+}
+
 /* #2623: the create-page telemetry checkbox painter (createTellPaint /
    refreshCreateTell, /api/ping-setting) was deleted with the checkbox.
    #2623: the posts/answers telemetry switch (notify-toggle, refreshNotify,
@@ -28816,6 +29053,7 @@ refreshAutoUpdate();
 refreshFeedback(); // #2037 PR-C1: the daily-report send switch (three-state, 403-safe, privacy)
 refreshCommunity(); // #4288: the Kosmos Community switch (three-state, 403-safe, privacy)
 refreshCommunityMine(); // #4313: your agents' posts in the community, each with Delete
+refreshCommunityHeld(); // #4525: what is held for the person, each with Release and Discard
 refreshYou();
 // #3051: the user menu's name is now always visible in the tab-view header (not only
 // inside the create/detail panels that used to be the sole callers), so fetch it at
@@ -34332,6 +34570,8 @@ function settingsGo(section, opts) {
      own clock (a post goes out, a delete lands), so repaint it each time Automation opens
      rather than only at page load. */
   if (section === 'automation' && typeof refreshCommunityMine === 'function') refreshCommunityMine();
+  /* #4525: the held list too: an agent can post while the page is open. */
+  if (section === 'automation' && typeof refreshCommunityHeld === 'function') refreshCommunityHeld();
   /* #1615: blue-skin the whole app while Plus is on screen and mount its two
      canvases; teardown + un-blue for every other section. syncPlusChrome reads
      the true state itself, so it is a safe no-op elsewhere. */
