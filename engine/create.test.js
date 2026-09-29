@@ -2371,7 +2371,7 @@ test('an agent made from a role is taught how to work, not only what it is', () 
      no win32 branch, so on that job this line also shows the tab rule reaches a boot file created
      on Windows. */
   assert.ok(text.includes('Close every browser tab or window you open'), 'the close-your-tabs rule is missing');
-  assert.ok(text.includes('Never remove another agent unless the person asked you to and you created it'), 'the leave-other-agents rule is missing (#4475)');
+  assert.ok(text.includes('Never remove another agent unless the person asked you to and you created it'), 'the removing-another-agent rule is missing (#4475)');
 });
 
 test('nothing in an agent boot file breaks the rule that boot file states', () => {
