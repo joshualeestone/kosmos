@@ -182,3 +182,23 @@ test('#4559: with no Claude on this computer a picture is not offered, and the a
   assert.match(r.json.problems[0], /needs a Claude connection right now\. A CSV or Excel export works with any provider/);
   assert.equal(sent.length, 0);
 });
+
+test('#4559: a read the page stops (the request closes) aborts the model call, so the plan stops being used', { timeout: 10000 }, async () => {
+  orgchartfile.setModelAvailable(() => true);
+  let aborted = null;
+  orgchartfile.setModelRunner((line, signal) => new Promise((ok) => {
+    const t = setTimeout(() => ok({ ok: true, structured: { people: [] } }), 8000);
+    signal.addEventListener('abort', () => { clearTimeout(t); aborted = true; ok({ ok: false, because: 'the read was stopped' }); });
+  }));
+  const ac = new AbortController();
+  const pending = fetch(base + '/api/orgchart/read?consent=1', {
+    method: 'POST', signal: ac.signal,
+    headers: { 'content-type': 'application/octet-stream', 'x-orgchart-name': 'chart.png', ...SCREEN },
+    body: fs.readFileSync(path.join(FIX, 'chart.png')),
+  }).catch(() => null);
+  await new Promise((r) => setTimeout(r, 300));
+  ac.abort();
+  await pending;
+  for (let i = 0; i < 40 && aborted !== true; i++) await new Promise((r) => setTimeout(r, 50));
+  assert.equal(aborted, true, 'the model call ran on after the page stopped the read');
+});

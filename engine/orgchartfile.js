@@ -61,7 +61,8 @@ const squeeze = (s) => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-
 function parseDelimited(text) {
   const src = String(text == null ? '' : text).replace(/^﻿/, '');
   const firstLine = src.split(/\r?\n/, 1)[0] || '';
-  const count = (c) => firstLine.split(c).length - 1;
+  const bare = firstLine.replace(/"[^"]*"/g, '');   // a quoted header ("Name, Legal") does not vote
+  const count = (c) => bare.split(c).length - 1;
   const delim = ['\t', ',', ';'].sort((a, b) => count(b) - count(a))[0];
   const out = [];
   let row = [];
@@ -459,7 +460,7 @@ function claudeArgs() {
 
 /* The real call: Claude Code, headless, in an empty temporary folder, on the default account.
    Resolves { ok, structured } or { ok:false, because }. Replaceable for tests (setModelRunner). */
-function defaultModelRunner(line) {
+function defaultModelRunner(line, signal) {
   const { execFile } = require('node:child_process');
   const fs = require('node:fs');
   const os = require('node:os');
@@ -477,13 +478,15 @@ function defaultModelRunner(line) {
        board's launchd process (#3136). The board's own account if it runs on one, else the default account. */
     const acct = readAccount();
     if (acct) env.CLAUDE_CONFIG_DIR = acct.dir; else delete env.CLAUDE_CONFIG_DIR;
-    const child = execFile(bin, claudeArgs(), { cwd: dir, env, timeout: MODEL_TIMEOUT_MS, maxBuffer: 8 << 20, killSignal: 'SIGKILL' },
+    // `signal`: the person stopped the read or left the page, so the child is killed and stops using their plan.
+    const child = execFile(bin, claudeArgs(), { cwd: dir, env, timeout: MODEL_TIMEOUT_MS, maxBuffer: 8 << 20, killSignal: 'SIGKILL', signal },
       (err, stdout) => {
         let result = null;
         for (const l of String(stdout || '').split('\n')) {
           try { const o = JSON.parse(l); if (o && o.type === 'result') result = o; } catch { /* not a JSON line */ }
         }
         if (!result) {
+          if (signal && signal.aborted) { resolve({ ok: false, because: 'the read was stopped' }); return; }
           resolve({ ok: false, because: err && err.killed ? 'reading the file took too long' : 'Claude did not answer' });
           return;
         }
@@ -552,8 +555,12 @@ function fromModel(structured) {
   return out;
 }
 
-/** Send one picture or PDF to the model and return the preview shape. */
-async function readWithModel(name, bytes) {
+/* One read at a time: each is a real request on the person's plan, and a second press of Read it while one runs
+   must not start another. */
+let reading = false;
+
+/** Send one picture or PDF to the model and return the preview shape. `opts.signal` stops it. */
+async function readWithModel(name, bytes, opts = {}) {
   const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes || []);
   if (!forModel(name)) return { rows: [], problems: ['That kind of file is not read by the model.'] };
   if (buf.length > MAX_BYTES) return { rows: [], problems: ['That file is larger than ' + Math.round(MAX_BYTES / 1048576) + ' MB. Try a smaller picture or a one-page PDF.'] };
@@ -562,8 +569,11 @@ async function readWithModel(name, bytes) {
   if (MODEL_TYPES[extOf(name)].block === 'image' && buf.length > MAX_IMAGE_BYTES) {
     return { rows: [], problems: ['That picture is larger than 5 MB. Save it smaller (a screenshot is usually well under), or export the chart as a PDF.'] };
   }
+  if (reading) return { rows: [], problems: ['A chart is already being read. Wait for it to finish, then try again.'] };
+  reading = true;
   let got;
-  try { got = await modelRunner(requestLine(name, buf)); } catch { got = { ok: false, because: 'the read failed' }; }
+  try { got = await modelRunner(requestLine(name, buf), opts && opts.signal); } catch { got = { ok: false, because: 'the read failed' }; }
+  finally { reading = false; }
   if (!got || !got.ok) return { rows: [], problems: [(got && got.because) || 'the read failed'], unavailable: Boolean(got && got.unavailable) };
   return fromModel(got.structured);
 }

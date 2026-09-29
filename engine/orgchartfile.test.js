@@ -303,3 +303,37 @@ test('the read runs on a named Claude account, never the ambient default (which 
     assert.equal(o.readAccount().dir, '/tmp/kosmos-test-account-4559');
   } finally { if (was === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = was; }
 });
+
+test('only one read runs at a time; a second is refused in words while the first runs', { timeout: 5000 }, async () => {
+  let release;
+  o.setModelRunner(() => new Promise((ok) => { release = () => ok({ ok: true, structured: { people: [{ person: 'A', title: 'CEO', reportsTo: null, sure: true }] } }); }));
+  try {
+    const first = o.readWithModel('a.png', Buffer.from([1]));
+    const second = await o.readWithModel('b.png', Buffer.from([1]));
+    assert.match(second.problems[0], /already being read/);
+    release();
+    assert.equal((await first).rows.length, 1);
+    const third = await (async () => { const p = o.readWithModel('c.png', Buffer.from([1])); release(); return p; })();
+    assert.equal(third.rows.length, 1, 'after the first finishes, a new read runs');
+  } finally { o.setModelRunner(null); }
+});
+
+test('a stopped read hands the runner an aborted signal (the child is killed, the plan stops being used)', { timeout: 5000 }, async () => {
+  let seen = null;
+  o.setModelRunner((line, signal) => new Promise((ok) => { seen = signal; signal.addEventListener('abort', () => ok({ ok: false, because: 'the read was stopped' })); }));
+  try {
+    const ac = new AbortController();
+    const p = o.readWithModel('a.png', Buffer.from([1]), { signal: ac.signal });
+    ac.abort();
+    const r = await p;
+    assert.ok(seen && seen.aborted);
+    assert.match(r.problems[0], /stopped/);
+  } finally { o.setModelRunner(null); }
+});
+
+test('a quoted header with a comma does not decide the delimiter', () => {
+  // Four commas inside the quoted header, three real semicolons: counting the quoted commas would pick comma.
+  const r = csv('"Notes, internal, a, b, c";Name;Title;Manager\nx;Avery Quill;CEO;\ny;Bo Linden;VP;Avery Quill\n');
+  assert.equal(r.rows.length, 2, JSON.stringify(r));
+  assert.equal(r.rows[1].reportsTo, 0);
+});

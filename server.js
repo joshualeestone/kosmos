@@ -6488,7 +6488,12 @@ const server = http.createServer(async (req, res) => {
         const q = new URL(req.url, ROUTING_BASE).searchParams;
         if (q.get('consent') !== '1') { sendJson(res, 200, { needsConsent: true, provider: orgchartfile.providerLabel() }); return; }
         if (!isViaScreen(req, null)) { sendJson(res, 403, { error: 'only you can send a file to your AI provider, from the New Agent screen' }); return; }
-        const got = await orgchartfile.readWithModel(name, bytes);
+        /* A read the person stops (or a page they leave) closes this response early: that aborts the model call,
+           so claude stops using their plan instead of running on to its timeout. */
+        const stop = new AbortController();
+        res.on('close', () => { if (!res.writableEnded) stop.abort(); });
+        const got = await orgchartfile.readWithModel(name, bytes, { signal: stop.signal });
+        if (stop.signal.aborted) return;
         if (got.unavailable) {
           sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
           return;
