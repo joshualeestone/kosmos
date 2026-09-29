@@ -327,8 +327,8 @@ _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
 # A listener that took the connection but did not answer is BUSY only when it is OUR board: a
 # Kosmos server run by this user. A non-Kosmos process, or another account's board, is a stranger,
 # so start/status take their existing stranger and reclaim paths (#2988, #3079) instead of calling it
-# ours. When lsof cannot say, it stays busy: the cost of that mistake is a wait, the cost of the
-# other is a restart.
+# ours. When there is no lsof at all, it stays busy: the cost of that mistake is a wait, the cost of
+# the other is a restart. When lsof RAN and names no listener, it is another account's (see below).
 _health_no_answer() {
   local _own _lpid _luid _lkos
   HEALTH_STATE=busy
@@ -882,6 +882,26 @@ agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, e
   return 0
 }
 
+# After a start: wait for the board to come up (30 tries, half a second apart). [pid]: the process just
+# launched; the wait ends early if it has exited. #4466: a board that comes back BUSY is up, not failed:
+# it holds the port as ours and is working (a 25-agent board is busy the moment its agents reconnect), so
+# the start reports it running and slow, instead of "did not come up" (and the installer's "would not
+# start") on a board that is serving.
+_await_board_up() {
+  local _i _pid="${1:-}"
+  for _i in $(seq 1 30); do
+    if healthy --once; then say "Kosmos is running at $URL"; return 0; fi
+    if [ "$HEALTH_STATE" = busy ]; then
+      if [ -z "$_pid" ] || kill -0 "$_pid" 2>/dev/null; then
+        say "Kosmos is running at $URL (busy right now, so it is slow to answer)"
+        return 0
+      fi
+    fi
+    if [ -n "$_pid" ] && ! kill -0 "$_pid" 2>/dev/null; then return 1; fi
+    sleep 0.5
+  done
+  return 1
+}
 cmd_start() {
   # #2955: clear the deliberate-stop marker EARLY -- before the healthy check and
   # the bind below that can fail. Starting means "I want it running", which retires
@@ -999,11 +1019,7 @@ cmd_start() {
     local _sup_label _sup_uid
     _sup_label="$(_kosmos_board_label)"; _sup_uid="$(/usr/bin/id -u)"
     "$LAUNCHCTL" kickstart -k "gui/$_sup_uid/$_sup_label" >/dev/null 2>&1 || true
-    local _s
-    for _s in $(seq 1 30); do
-      healthy --once && { say "Kosmos is running at $URL"; return 0; }
-      sleep 0.5
-    done
+    _await_board_up && return 0
     die "Kosmos did not come up under launchd. What it said is in $BOARD_LOG"
   fi
   say "Bringing the board up."
@@ -1028,12 +1044,7 @@ cmd_start() {
   # it and does not answer costs up to a 2 s probe per try on top (#4466), so up
   # to 75 s before the verdict. The log is named on failure because it is the
   # only witness.
-  local i
-  for i in $(seq 1 30); do
-    healthy --once && { say "Kosmos is running at $URL"; return 0; }
-    kill -0 "$(cat "$PIDFILE")" 2>/dev/null || break
-    sleep 0.5
-  done
+  _await_board_up "$(cat "$PIDFILE" 2>/dev/null)" && return 0
   die "Kosmos did not come up. What it said is in $BOARD_LOG"
 }
 

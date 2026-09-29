@@ -384,6 +384,24 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 - Meta-guard note: #3628's exec-call scan read the words "the exec (else" in an assertion message as a call;
   reworded. Its regex cannot tell prose from a call inside a string.
 
+- 6g on dc2f3861b: GREEN.
+
+## Review round 30 (opus): 2 NEW WARNINGs + 3 NITs fixed, 1 duplicate; loop continues
+- FIXED (W): both `cmd_start` poll loops used `healthy --once`, which reads a BUSY board as not up, so a
+  start whose board came back already busy (a 25-agent board is, the moment its agents reconnect) died
+  "Kosmos did not come up" and the installer said "would not start" on a serving board. One helper,
+  `_await_board_up [pid]`, now serves both: busy counts as up (with the launched pid still alive, on the
+  nohup path). Arm with stubbed probes: busy + no pid, busy + live pid -> up; busy + dead pid -> not up;
+  control: down stays a failed start. Red with the busy branch removed.
+- FIXED (W): nothing tested the busy-grace COMPARISON: every "within grace" arm reached only the first
+  busy reading (no busy_since), so deleting the check passed everything. Arm 6i seeds busy_since 60 s
+  ago with a 300 s grace and a down streak past GRACE: no restart. Red with the comparison removed.
+- FIXED (NIT): setup.sh's reclaim comment covers a fresh install too (no board of this install serving).
+- FIXED (NIT): the watchdog says why both its starts pass --force (it is not an agent).
+- FIXED (NIT): `_health_no_answer`'s preamble says "no lsof at all" stays busy; lsof that RAN and names no
+  listener is another account's (it read as the opposite policy).
+- DUPLICATE: Windows treats a reset or cut reply as "is it running" (round 18: no agent restart verbs).
+
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
 - `busy` as status exit 0: hides a wedged board (#2955) from the watchdog forever.

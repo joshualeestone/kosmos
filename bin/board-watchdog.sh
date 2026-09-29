@@ -235,6 +235,8 @@ else
   log "board unanswering for $((NOW - DOWN_SINCE))s (failure $((FAILS + 1))); running kosmos start"
   # #4466: a board that has not answered for the whole busy grace (status exit 4) is wedged, so let
   # `kosmos start` reclaim a silent holder of our port instead of calling it "already running".
+  # --force on both: the watchdog is not an agent, so the #4466 agent guard must not refuse it (the guard
+  # reads the environment, and a watchdog launched from an agent's shell would otherwise inherit its markers).
   if [ "$STATUS_RC" -eq 4 ]; then
     KOSMOS_RECLAIM_BUSY=1 bash "$KOSMOS_BIN" start --force >> "$LOG" 2>&1 || true
   else

@@ -363,6 +363,22 @@ test('#4466 a failed reclaim of an untracked holder sends a person to the proces
   assert.doesNotMatch(agent.stdout, /kill/);
 });
 
+test('#4466 a start whose board comes back BUSY reports it running (slow), not "did not come up"', async () => {
+  const port = await closedPort();
+  const stub = (state, pid) => `source "${CLI}"; sleep() { :; }; healthy() { HEALTH_STATE=${state}; return 1; }; if _await_board_up ${pid}; then echo UP; else echo NOTUP; fi`;
+  const sup = await bash(stub('busy', ''), baseEnv(port));                       // launchd-supervised: no pid
+  assert.match(sup.stdout, /running at .*busy right now, so it is slow to answer/, sup.stdout + sup.stderr);
+  assert.match(sup.stdout, /^UP$/m);
+  const live = await bash(stub('busy', '$$'), baseEnv(port));                    // nohup: its pid is alive
+  assert.match(live.stdout, /^UP$/m, live.stdout + live.stderr);
+  const dead = await bash(stub('busy', '999999'), baseEnv(port));                // the launched process exited
+  assert.match(dead.stdout, /^NOTUP$/m, 'a busy port held by something other than the process just launched is not "up": ' + dead.stdout);
+  // CONTROL: a board that stays down is still a failed start.
+  const down = await bash(stub('down', ''), baseEnv(port));
+  assert.match(down.stdout, /^NOTUP$/m, down.stdout + down.stderr);
+  assert.doesNotMatch(down.stdout, /running at/);
+});
+
 test('#4466 board-run strips the agent markers from the board it execs, like the nohup launch', async () => {
   // Run for real on a closed port: a stub "node" records the environment the board would have been given.
   const port = await closedPort();

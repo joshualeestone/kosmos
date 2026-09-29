@@ -106,6 +106,13 @@ H="$(new_home)"; : > "$H/.stub-busy"; printf 'down_since=%s\nlast_kickstart=0\nf
 KOSMOS_WATCHDOG_BUSY_GRACE=300 run_wd "$H"
 [ "$(starts "$H")" = 0 ] && [ "$(kicks "$H")" = 0 ] && ok "busy 60 s: no restart (busy grace)" || bad "busy 60 s: restarted a busy board ($(starts "$H") starts, $(kicks "$H") kicks)"
 rm -rf "$H"
+# 6i. #4466: a board ALREADY seen busy (busy_since set), still inside BUSY_GRACE, with a down streak past
+#     GRACE: no restart. This is the grace comparison itself; the arms above reach only the first busy
+#     reading (no busy_since) or a streak past the grace, so without this one the comparison is untested.
+H="$(new_home)"; : > "$H/.stub-busy"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\nbusy_since=%s\n' "$(( $(now) - 90 ))" "$(( $(now) - 60 ))" > "$H/logs/board-watchdog.state"
+KOSMOS_WATCHDOG_BUSY_GRACE=300 run_wd "$H"
+[ "$(starts "$H")" = 0 ] && [ "$(kicks "$H")" = 0 ] && ok "busy 60 s of a 300 s grace, seen before: no restart" || bad "busy inside its grace was restarted ($(starts "$H") starts, $(kicks "$H") kicks)"
+rm -rf "$H"
 # 6c. #4466: BUSY past BUSY_GRACE -> the first attempt is `kosmos start` with KOSMOS_RECLAIM_BUSY=1,
 #     which reaches the #3079 reclaim, so the wedged board comes back on the first attempt.
 H="$(new_home)"; : > "$H/.stub-busy"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\nbusy_since=%s\n' "$(( $(now) - 80 ))" "$(( $(now) - 80 ))" > "$H/logs/board-watchdog.state"
