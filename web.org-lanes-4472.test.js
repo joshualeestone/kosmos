@@ -5,11 +5,14 @@
  *
  * #4434 made the chart cross-free by giving each branch its own sector, but a big team then grew one ring until its
  * reports were ORG_MIN_ARC apart: a lead with 30 reports went from 660px to 1410px, a deep 100-agent tree's median
- * from 1432px to 3232px. #4472 brings them down three ways, each measured, none allowed to cost a crossing:
+ * from 1432px to 3232px. #4472 brings them down five ways, each measured, none allowed to cost a crossing:
  *   1. a team with no managers in it takes two staggered rings, each outer face on the line from the manager
  *      through the midpoint between two inner faces;
  *   2. a manager's reports are ordered heaviest and lightest alternating, so two light ones are not side by side;
- *   3. each team sits at its own radius, pushed out only until it is clear of every face already placed.
+ *   3. the first and last report's slice runs on to the edges of the manager's slice;
+ *   4. each team sits at its own radius, pushed out only until it is clear of every face already placed;
+ *   5. and until each of its branches has room for its leaves further out (without that, single trees grew to
+ *      2.4x #4473's size).
  *
  * Sizes are the natural square (maxR + ORG_PAD) * 2 of orgPlace's first paint, as paintOrg draws it when nothing has
  * to fit. The ceilings sit a little above the measured values, so an unrelated change does not trip them, while a
@@ -102,14 +105,14 @@ test('a lead with 30 reports, and one with 50: the natural size stays near its p
 });
 
 test('deep 100-agent trees: the median natural size over 60 seeds, and the largest (#4472)', () => {
-  /* Measured over seeds 1..60: median 1432 before #4434, 3232 with it, 2730 now; largest 2024, 8113, 6008. */
+  /* Measured over seeds 1..60: median 1432 before #4434, 3232 with it, 2811 now; largest 2024, 8113, 4805. */
   const sizes = [];
   for (let seed = 1; seed <= 60; seed += 1) sizes.push(paint(randomTree(seed, 100, 0.05)).size);
   sizes.sort((a, b) => a - b);
   assert.equal(sizes.length, 60, 'CONTROL: not every tree was measured');
   const median = (sizes[29] + sizes[30]) / 2;
   assert.ok(median <= 2850, 'the median deep tree is ' + median + 'px, over 2850 (#4434 alone: 3232)');
-  assert.ok(sizes[59] <= 6500, 'the largest deep tree is ' + sizes[59] + 'px, over 6500 (#4434 alone: 8113)');
+  assert.ok(sizes[59] <= 5300, 'the largest deep tree is ' + sizes[59] + 'px, over 5300 (#4434 alone: 8113)');
 });
 
 test('a two-ring team: every line to the outer ring clears every other face by half ORG_MIN_ARC (#4472)', () => {
@@ -126,6 +129,45 @@ test('a two-ring team: every line to the outer ring clears every other face by h
         const d = segDist(q, hubLead, p);
         checked += 1;
         assert.ok(d >= page.ORG_MIN_ARC / 2 - 1e-6, 'lead ' + n + ': the line to ' + name + ' passes ' + d.toFixed(1) + 'px from ' + other);
+      }
+    }
+  }
+  assert.ok(checked > 1000, 'CONTROL: only ' + checked + ' line-to-face pairs on an outer ring were checked, so this tests nothing');
+});
+
+/* Several leads on the first ring, and a CEO over several managers: here a team's window is bounded by its slice,
+   not by the cap as for a lone lead. Review it1 found an even-sized team there could never take two rings (its last
+   outer face was aimed past the window), so one more report shrank a fleet by 40%. */
+const leads = (count, n) => [].concat(...Array.from({ length: count }, (_, j) =>
+  [['L' + j]].concat(Array.from({ length: n }, (_, i) => ['r' + j + '_' + i, 'L' + j]))));
+const ceo = (count, n) => [['ceo']].concat(...Array.from({ length: count }, (_, j) =>
+  [['M' + j, 'ceo']].concat(Array.from({ length: n }, (_, i) => ['r' + j + '_' + i, 'M' + j]))));
+const outer = (t) => [...t.pos.values()].filter((p) => p.lane).length;
+
+test('several leads, and a CEO over several managers: even and odd teams both take two rings and shrink (#4472)', () => {
+  /* Measured (main / #4473 / now): 4 leads x 30: 1240 / 2558 / 1777; x 31: 1240 / 2630 / 1691.
+     CEO over 4 x 20: 924 / 3506 / 2804; 4 x 21: 1040 / 3710 / 2645. */
+  const cases = [['4 leads x 30', leads(4, 30), 1850], ['4 leads x 31', leads(4, 31), 1800],
+    ['a CEO over 4 x 20', ceo(4, 20), 2950], ['a CEO over 4 x 21', ceo(4, 21), 2800]];
+  for (const [label, spec, ceiling] of cases) {
+    const t = paint(spec);
+    assert.ok(outer(t) >= 40, label + ': only ' + outer(t) + ' faces on an outer ring');
+    assert.ok(t.size <= ceiling, label + ' is ' + t.size + 'px, over ' + ceiling);
+  }
+});
+
+test('a two-ring team below the first ring: its outer lines clear every other face by half ORG_MIN_ARC (#4472)', () => {
+  let checked = 0;
+  for (const [count, n] of [[3, 20], [4, 20], [4, 21], [6, 12]]) {
+    const { pos } = paint(ceo(count, n));
+    for (const [name, p] of pos) {
+      if (!p.lane) continue;
+      const from = pos.get(p.parent);
+      for (const [other, q] of pos) {
+        if (other === name || other === p.parent) continue;
+        const d = segDist(q, from, p);
+        checked += 1;
+        assert.ok(d >= page.ORG_MIN_ARC / 2 - 1e-6, count + ' x ' + n + ': the line to ' + name + ' passes ' + d.toFixed(1) + 'px from ' + other);
       }
     }
   }
