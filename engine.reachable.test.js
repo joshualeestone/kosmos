@@ -33,6 +33,7 @@ const EXCUSED = {
   // and the #265 orphan guard protects it again.
   setChecker: 'test seam (#1930): injects the live claude-auth checker so authprobe tests do not spawn a real subprocess',
   resetForTest: 'test seam (#1930): clears the authprobe per-account cache between tests',
+  bundledConnector: 'test seam (kosmos#4597): engine/remote.js answers where an installed app keeps its Plus connector for a given app dir and platform, so the Windows name (bin\kosmos-tunnel.exe) is asserted against a Windows app laid out in a temp dir, from any host. Production calls it with no arguments, through BIN().',
   resetSubscriptionLiveForTest: 'test seam (#3997): clears engine/grokaccounts.js\'s Grok subscription check cache and in-flight map between tests, and bumps its generation so a run started before the reset writes nothing after it.',
   setPauser: 'test seam: observes the codex Enter gap without sleeping (#571)',
   setDryRun: 'test seam: keeps suites off real panes',
