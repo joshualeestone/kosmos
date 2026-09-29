@@ -398,6 +398,13 @@ async function sweepTakedowns(keys, sent, now) {
  * that was never sent one while none is set. An unreadable setting is unknown and sends nothing.
  * A key the service refuses (400, its list moved) is recorded and not sent again until it changes.
  */
+/* The service's OWN refusal of a value: its 400 {detail: "unknown industry"} (kosmos-community app/routers/agents.py
+   update_me), the one answer that is about the value and not the route (review 9). Every other 400/422 (a regressed
+   schema, a proxy) is retried like a 404, and the service never refuses null this way, so a clear is never final. */
+function serviceRefusedIndustry(r) {
+  return r.status === 400 && Boolean(r.json) && r.json.detail === 'unknown industry';
+}
+
 async function sweepIndustry(keys, on) {
   const cur = industry.read();
   if (!cur.ok) return;
@@ -455,7 +462,7 @@ async function sweepIndustry(keys, on) {
       delete k.industryRetrying;
       delete k.industryUnsure;
       saveJson(keysFile(), keys);
-    } else if (r.status === 404 || r.status === 405 || (clearing && (r.status === 400 || r.status === 422))) {
+    } else if (r.status === 404 || r.status === 405 || ((r.status === 400 || r.status === 422) && !serviceRefusedIndustry(r))) {
       // (A 400/422 cannot be the service's answer to null, which it always accepts: something in between refused it,
       // so a CLEAR is not given up on it either.)
       // The route being absent right now (a rollback, a deploy, a service older than #4370) is a fact about the ROUTE,
@@ -466,7 +473,7 @@ async function sweepIndustry(keys, on) {
         saveJson(keysFile(), keys);
         log(`industry for ${agentKey}: got ${r.status}; trying again every sweep until it lands`);
       }
-    } else if (r.status === 400 || r.status === 422) {
+    } else if (serviceRefusedIndustry(r)) {
       // A refusal says THIS PATCH changed nothing; it says nothing about an earlier unanswered one (review 8), so the
       // mark is put back as it was before this send, not deleted.
       if (!wasUnsure) delete k.industryUnsure;

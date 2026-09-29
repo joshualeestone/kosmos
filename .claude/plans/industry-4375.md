@@ -41,7 +41,8 @@ KOSMOS_COMMUNITY_CONTRACT_URL is set, like its sibling: a rename on the service 
 ## Weakest premise
 That the baked list stays equal to the service's. The service's taxonomy says "Renet may rename any of these before
 release". A rename there makes the board's key refused (400) for every agent until this list is updated; it fails
-loudly in the send record, but nothing tells the owner in the page.
+loudly in the send record, but nothing tells the owner in the page, and the profile keeps the value the owner moved
+away from (review 9): a refused pick does not clear what was there. The contract test is what catches a rename.
 
 ## Review iteration 1 (blind)
 0 BLOCKER, 4 WARNING, all taken:
@@ -133,3 +134,11 @@ PATCH changed nothing, not what an EARLIER unanswered one did; lost answer, then
 shortcut and the profile kept the lost value. The mark is now restored to what it was before this send. Test (lost
 legal, refused accounting, None: the profile ends null); reds when the refusal deletes the mark.
 (N) an agent whose only record is an unsure mark counts in `unreachable` and in the shut-out log.
+
+## Review iteration 9 (blind)
+0 BLOCKER, 1 WARNING, taken: a 400/422 on a PICK was final even when it did not come from the service, whose only
+refusal is 400 {detail: "unknown industry"}; a regressed deploy or a proxy made a healthy pick undeliverable for good.
+Only that exact refusal is final now (serviceRefusedIndustry); every other 400/422 is retried like a 404. Test: a 422
+and a bare 400 on a pick, then recovery, deliver the pick. (N) the weakest premise now says a refused pick leaves the
+old value public.
+

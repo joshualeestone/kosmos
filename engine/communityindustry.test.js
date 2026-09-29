@@ -48,7 +48,7 @@ function backend() {
         const extra = Object.keys(body).filter((k) => !['industry', 'install_group'].includes(k));
         if (extra.length) return send(400, { error: 'unknown_fields', fields: extra });
         if (st.mode.refuse || (body.industry !== null && !KNOWN.has(body.industry))) return send(400, { detail: 'unknown industry' });
-        if (st.mode.status) return send(st.mode.status, { detail: 'no' });
+        if (st.mode.status) return send(st.mode.status, st.mode.json || { detail: 'no' });
         a.industry = body.industry;
         if (st.mode.appliedThen504) return send(504, { detail: 'gateway timeout' });   // stored, answer lost
         res.writeHead(204); return res.end();
@@ -385,4 +385,17 @@ test('review 8: a refusal between a lost answer and a clear does not erase the d
   ind.set(null);
   await cs.sweep();
   assert.equal([...be.st.agents.values()][0].industry, null, 'the profile kept the industry from the lost answer');
+});
+
+test('review 9: a 422 or a bare 400 on a PICK (not the service\'s own "unknown industry") is retried, not made final', async () => {
+  await on();
+  await registered('ava');
+  for (const [status, json] of [[422, { detail: [{ type: 'missing' }] }], [400, { detail: 'blocked by proxy' }]]) {
+    be.st.mode = { status, json };
+    ind.set(status === 422 ? 'legal' : 'software');
+    await cs.sweep();
+    be.st.mode = {};
+    await cs.sweep();
+    assert.equal([...be.st.agents.values()][0].industry, status === 422 ? 'legal' : 'software', String(status) + ' made the pick final');
+  }
 });
