@@ -198,8 +198,19 @@ test('#1674: --help and -h on every verb and subcommand print that verb\'s usage
 // ── what Kosmos teaches ──────────────────────────────────────────────────────
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.claude', 'test-support']);
+/* #4478: other test files run BESIDE this one and make throwaway files in the tree (server.test.js's
+   `.probe-freshness-<pid>/x.js`, #4408), so a folder or file listed here can be gone by the time it is
+   read. Gone is skipped: a file that no longer exists teaches nobody a verb. Only ENOENT; anything
+   else (a permission error, a read of the wrong thing) still fails the test. */
+const gone = (e) => Boolean(e && e.code === 'ENOENT');
+function listIfThere(dir) {
+  try { return fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { if (gone(e)) return []; throw e; }
+}
+function readIfThere(f) {
+  try { return fs.readFileSync(f, 'utf8'); } catch (e) { if (gone(e)) return null; throw e; }
+}
 function sourceFiles(dir, acc) {
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+  for (const e of listIfThere(dir)) {
     if (SKIP_DIRS.has(e.name)) continue;
     const p = path.join(dir, e.name);
     if (e.isDirectory()) sourceFiles(p, acc);
@@ -241,10 +252,26 @@ function problemsWith(use) {
 
 test('every kosmos verb and subcommand named anywhere in the tree is one the Windows command has (or a person-only board verb)', () => {
   const uses = [];
-  for (const f of sourceFiles(REPO, [])) uses.push(...taught(fs.readFileSync(f, 'utf8'), path.relative(REPO, f)));
+  for (const f of sourceFiles(REPO, [])) {
+    const text = readIfThere(f);
+    if (text !== null) uses.push(...taught(text, path.relative(REPO, f)));
+  }
   assert.ok(uses.some((u) => u.verb === 'task' && u.word === 'message'), 'the scan did not see server.js\'s task notification; it is not reading what it claims to');
   assert.ok(uses.some((u) => u.verb === 'task' && u.word === 'add' && u.where.includes('projects.js')), 'the scan did not see the `${cliShown} task add` line');
   assert.deepEqual(uses.map(problemsWith).filter(Boolean), []);
+});
+
+test('#4478: a folder or file removed between the listing and the read is skipped; any other error is not', () => {
+  const tmp = fs.mkdtempSync(path.join(SANDBOX, 'race-4478-'));
+  fs.mkdirSync(path.join(tmp, 'sub'));
+  fs.writeFileSync(path.join(tmp, 'sub', 'x.js'), '// kosmos msg\n');
+  const listed = sourceFiles(tmp, []);
+  assert.deepEqual(listed.map((f) => path.relative(tmp, f)), [path.join('sub', 'x.js')], 'CONTROL: the file is listed while it exists');
+  fs.rmSync(path.join(tmp, 'sub'), { recursive: true, force: true });   // what server.test.js does beside this file
+  assert.equal(readIfThere(listed[0]), null, 'a file gone before its read must be skipped, not throw');
+  assert.deepEqual(sourceFiles(path.join(tmp, 'sub'), []), [], 'a folder gone before its walk must be skipped, not throw');
+  /* Not every error is "gone": reading a folder as a file is EISDIR, and that still fails. */
+  assert.throws(() => readIfThere(tmp), (e) => e.code === 'EISDIR');
 });
 
 test('the texts agents are actually given name only verbs the Windows command has: no person-only verb, no missing subcommand', () => {
