@@ -311,6 +311,15 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   the two helpers' refused-connection branches and Windows `connect` (above). All 222 cli + reporthook
   tests green.
 
+## After convergence: PR #4539 CI red (shell 2/2), fixed; one more iteration
+- `tools/test-board-watchdog-2955.sh` failed on the CI runner only: every #4466 arm seeded a 400-800 s
+  streak, and a runner that booted minutes ago reads that `down_since` as before boot, so the reboot reset
+  fired. The "restart" arms went red there, and worse, 6f and 6h passed there for the wrong reason (the
+  reset also restarts nothing). The file already said "down_since must be AFTER boot" at `recent_down`;
+  these arms ignored it. Now every seeded age is under 100 s, and the busy arms shrink
+  `KOSMOS_WATCHDOG_BUSY_GRACE` (30 s) instead of seeding older state. Red-checked at the new ages: all
+  #4466 arms red on main's watchdog, 6h red on the pre-round-22 one, the control green.
+
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
 - `busy` as status exit 0: hides a wedged board (#2955) from the watchdog forever.
