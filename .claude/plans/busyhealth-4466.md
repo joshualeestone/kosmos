@@ -196,6 +196,20 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
 - Deferred NITs: `kosmos open` can print "already running" twice when the board comes up between checks;
   `board.started-at` in a source checkout is untracked like `board.pid` and `board.stopped`; HEAD on Windows.
 
+## Review round 18 decisions
+- A piped `msg`/`post` whose reply was cut still keeps its copy (it may not have arrived), but says "may not
+  have been sent ... check before sending it again", not "was not sent": the busy sentence above it says it
+  may have happened, and "was not sent" invited a duplicate. Arm with `msg --stdin`. (Round 17's own change
+  exposed this.)
+- Agents CLAIM a start atomically (`board.agent-claim`, noclobber) after the start-time check: several agents
+  acting at once all read the same old start time and went ahead, each killing the last one's board. A claim
+  older than the cooldown is replaced atomically; people never claim. Arm: 8 simultaneous agent restarts,
+  exactly one goes ahead (all 8 on the old check), with a person control.
+- Deferred NITs: a person's restart says "Restarting it" and the board may answer during the start's wait
+  (then nothing is restarted, which is the good outcome); Windows says "Is it running" on a connection reset
+  (no agent restart verbs there); a person attached to an agent's tmux session inherits its marker (recorded
+  under weakest premises: the guard is a deterrent).
+
 ## Rejected
 - Just raising the curl timeout: still a false "down" past the new cap, and still the start advice.
 - `busy` as status exit 0: hides a wedged board (#2955) from the watchdog forever.
@@ -223,7 +237,7 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   and the real server's route.
 
 ## Tests
-- `cli.busy-health-4466.test.js` (25 arms, the first 11 below; later rounds added the rest): slow status and post wait, say busy, succeed; the old
+- `cli.busy-health-4466.test.js` (28 arms, the first 11 below; later rounds added the rest): slow status and post wait, say busy, succeed; the old
   `healthy()` verbatim as the CONTROL (says "not running" to the same slow board); stopped = "not
   running" at once; never answers = busy, exit 4, no start advice; stranger; older board fallback;
   agent refusal; 10 rapid agent restarts of a down board go ahead once, a person 10 times, `--force`

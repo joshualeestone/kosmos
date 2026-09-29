@@ -15,7 +15,7 @@
  *   - a stranger on the port, and an older board with no /api/health, still read as before;
  *   - agent start/stop/restart: refused while the board answers; on a down board, 10 rapid agent
  *     restarts go ahead at most once (the cooldown); a person, and --force, are unaffected.
- * SLOW ON PURPOSE (about 90 s): the waits ARE the behaviour under test (a 20 s busy budget, curl's 15 s,
+ * SLOW ON PURPOSE (about two minutes): the waits ARE the behaviour under test (a 20 s busy budget, curl's 15 s,
  * a 12 s hook budget). Shortening a stub delay or a budget here can make an arm pass without measuring it.
  */
 const test = require('node:test');
@@ -31,13 +31,14 @@ const SCRATCH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-scratch-
 test.after(() => fs.rmSync(SCRATCH_HOME, { recursive: true, force: true }));
 const PAGE = '<title>Kosmos</title>Agent Workforce';
 
-function runCli(args, env, timeout = 40000) {
+function runCli(args, env, timeout = 40000, input) {   // input: written to the CLI's stdin, for --stdin arms
   const t0 = Date.now();
   return new Promise((resolve, reject) => {
-    execFile(CLI, args, { env, timeout }, (err, stdout, stderr) => {
+    const child = execFile(CLI, args, { env, timeout }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout, over the output buffer, or never started. ' + (stderr || ''))); return; }
       resolve({ code: err ? err.code : 0, stdout: stdout || '', stderr: stderr || '', ms: Date.now() - t0 });
     });
+    if (input !== undefined) child.stdin.end(input);
   });
 }
 function bash(script, env, timeout = 40000) {
@@ -218,6 +219,14 @@ test('#4466 a listener our own lsof cannot see is ANOTHER account\'s: stranger, 
   assert.match(nolsof.stdout, /state=busy/, nolsof.stdout + nolsof.stderr);
 }));
 
+test('#4466 `kosmos msg --stdin` whose reply is CUT keeps the copy but does not say "was not sent" (it may have arrived)', () => withBoard('msgcut', async (port) => {
+  const out = await runCli(['msg', '--stdin', 'mara'], baseEnv(port, { TMUX_PANE: '%42' }), 40000, 'a piped message');
+  assert.equal(out.code, 1, out.stdout + out.stderr);
+  assert.match(out.stdout, /It may still have happened/);
+  assert.match(out.stdout, /The piped message may not have been sent; a copy is saved at \S+\. Check before sending it again\./);
+  assert.doesNotMatch(out.stdout, /was not sent/);
+}));
+
 test('#4466 slow board: `kosmos post` waits and the post SUCCEEDS', () => withBoard('slow', async (port) => {
   const out = await runCli(['post', 'proj', 'a message worth posting'], baseEnv(port, { TMUX_PANE: '%42', KOSMOS_BUSY_WAIT: '30' }));
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -295,6 +304,23 @@ test('#4466 part 6: an AGENT may not stop or restart a board that answers; start
     assert.equal(fs.existsSync(path.join(home, 'board.stopped')), false, 'a refused stop must not leave the stop marker');
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }));
+
+test('#4466 part 6: 8 agents restarting a DOWN board AT THE SAME MOMENT: exactly one goes ahead (the claim)', async () => {
+  // The start-time check alone lets all of them through: each reads the same (absent) start time before
+  // any writes one. Each restart would then kill the board the previous one started.
+  const port = await closedPort();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
+  try {
+    const out = await bash(`source "${CLI}"
+for i in 1 2 3 4 5 6 7 8; do ( ( agent_board_guard restart ) >/dev/null 2>&1 && echo went ) & done
+wait`, baseEnv(port, { KOSMOS_HOME: home, KOSMOS_AGENT_SESSION: 'grok-agent' }));
+    const went = (out.stdout.match(/^went$/gm) || []).length;
+    assert.equal(went, 1, `exactly one of 8 simultaneous agent restarts may go ahead (got ${went}): ` + out.stdout + out.stderr);
+    // CONTROL: a person is never held by an agent's claim.
+    const person = await bash(`source "${CLI}"; ( agent_board_guard restart ) && echo person-ok`, baseEnv(port, { KOSMOS_HOME: home }));
+    assert.match(person.stdout, /person-ok/);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
 
 test('#4466 part 6: 10 rapid agent restarts of a DOWN board go ahead at most ONCE; a person is unaffected', async () => {
   const port = await closedPort();
