@@ -28,7 +28,10 @@ a mouse attached) and goes red with the rule removed.
 - Dialogs and the loading cover have the same shape and are NOT covered: filed as #4506, because a dialog's
   wash is lighter still and every dialog open would shift the board (#1309's jump). Page has no <dialog>.
 - Rebased onto main after #4421 moved the emit-site counts (201->202, 122->123), and again after #4489 (#4356) moved
-  EXPECTED_SITES 202->204; this branch's +3/+2 now reads 207/125, measured by the equality test on the rebased tree.
+  EXPECTED_SITES 202->204, and again after #4423 (205/124); this branch's +3/+2 now reads 208/126, measured by the
+  equality test on the rebased tree. After this rebase the checks main added were run on this branch: render-rename-
+  followups-4423 and render-org-drag pass; render-org-sectors-4434 and render-org-reduced-motion need a board URL
+  (connection refused here), are not in the no-address list, and test the org chart, which this rule does not touch.
   #4489's own first-screen rule (#fr-choice) is on main beside this one; neither duplicates the other.
 - #4489's check (render-firstrun-choice-4356, gated) asserted C2: after Run agents the wizard opens and the page
   "scrolls and keeps its gutter again". This branch makes the wizard drop the gutter too, so C2 went red (found by
