@@ -71,24 +71,47 @@ test('#4326 the probe dies WITH the board: it stays in the board\'s process grou
   }
 });
 
+/* #4656: the arms below test WHAT the answer is, not how fast it comes, so their budget is one a saturated box
+   cannot reach (a 0.2s script hit a 5s budget once, at load 9.7 on 10 cores with the disk full). Only the flood
+   and spawn-failure arms keep short bounds, because there the time IS the claim. */
+const NOT_A_SPEED_TEST = 30000;
+
 test('#4326 control: a probe that finishes answers its real exit code and output, untouched', async () => {
   const ok = script('ok.sh', 'echo "Logged in to github.com account octo"; exit 0');
-  const r = await run(ok, [], { timeoutMs: 5000 });
+  const r = await run(ok, [], { timeoutMs: NOT_A_SPEED_TEST });
   assert.equal(r.code, 0);
   assert.match(r.text, /Logged in to github\.com account octo/);
   const no = script('no.sh', 'echo "not logged in" >&2; exit 1');
-  const r2 = await run(no, [], { timeoutMs: 5000 });
+  const r2 = await run(no, [], { timeoutMs: NOT_A_SPEED_TEST });
   assert.equal(r2.code, 1, 'a non-zero exit must pass through, as execFile\'s err.code did');
   assert.match(r2.text, /not logged in/, 'stderr must reach the answer, as before');
+});
+
+/* Which stream the probe's child delivered first, seen from the test's own listeners (runBounded hands back the child
+   before any data can arrive). */
+const runSeen = (bin, opts) => new Promise((resolve) => {
+  const seen = [];
+  const child = runBounded(bin, [], opts, (code, text) => resolve({ code, text, first: seen[0] }));
+  if (child) for (const name of ['stdout', 'stderr']) child[name].on('data', () => { if (!seen.includes(name)) seen.push(name); });
 });
 
 test('#4326 the answer is stdout THEN stderr, as execFile gave it, whatever order they arrive in', async () => {
   // The Vercel door's loginRe takes the first single-token line; interleaving by arrival would
   // let a one-word stderr line that came first become the "login".
-  const both = script('both.sh', 'echo warning >&2; sleep 0.2; echo octo; exit 0');
-  const r = await run(both, [], { timeoutMs: 5000 });
-  assert.equal(r.code, 0);
-  assert.equal(r.text, 'octo\nwarning\n', 'stdout must come before stderr in the answer');
+  // #4656: the order is checked both ways round, and the case that matters (stderr ARRIVING first) is repeated
+  // until it was seen to arrive first, so neither a slow box nor a lucky order can make this pass without testing it.
+  const errFirst = script('both.sh', 'echo warning >&2; sleep 0.2; echo octo; exit 0');
+  let r = null;
+  for (let tries = 0; tries < 5 && !(r && r.first === 'stderr'); tries += 1) {
+    r = await runSeen(errFirst, { timeoutMs: NOT_A_SPEED_TEST });
+    assert.equal(r.code, 0);
+    assert.equal(r.text, 'octo\nwarning\n', 'stdout must come before stderr in the answer (stderr arrived ' + (r.first === 'stderr' ? 'first' : 'second') + ')');
+  }
+  assert.equal(r.first, 'stderr', 'PREMISE: in 5 runs stderr never arrived first, so the reordering was never tested');
+  const outFirst = script('both-out-first.sh', 'echo octo; sleep 0.2; echo warning >&2; exit 0');
+  const r2 = await runSeen(outFirst, { timeoutMs: NOT_A_SPEED_TEST });
+  assert.equal(r2.code, 0);
+  assert.equal(r2.text, 'octo\nwarning\n', 'stdout must come before stderr in the answer when stdout arrives first too');
 });
 
 test('#4326 a probe that floods past 1 MB is stopped at once, as execFile\'s maxBuffer did', async () => {
