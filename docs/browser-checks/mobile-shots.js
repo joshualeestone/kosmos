@@ -237,6 +237,23 @@ const SCREENS = [
     await page.click('#new-agent', { timeout: 5000 });
     await page.waitForSelector('#panel-create', { state: 'visible', timeout: 5000 });
   } },
+  // #4556: New Agent's second screens, each reached by a real tap on its card from the first screen.
+  { name: 'create-single', owner: 'Angel', go: async (page) => {
+    await page.click('#new-agent', { timeout: 5000 });
+    await page.click('#cstep-kind [data-path="single"]', { timeout: 5000 });
+    await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
+  } },
+  { name: 'create-team', owner: 'Angel', go: async (page) => {
+    await page.click('#new-agent', { timeout: 5000 });
+    await page.click('#cstep-kind [data-path="team"]', { timeout: 5000 });
+    await page.waitForSelector('#cstep-team', { state: 'visible', timeout: 5000 });
+  } },
+  { name: 'create-swarm', owner: 'Angel', go: async (page) => {
+    // Shown only when the board can run swarms; a board that cannot fails this shot (the card is hidden).
+    await page.click('#new-agent', { timeout: 5000 });
+    await page.click('#cstep-kind [data-path="swarm"]', { timeout: 5000 });
+    await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
+  } },
   { name: 'first-run', owner: 'unowned', go: async (page) => {
     await at(page, '?first-run=1');
     await page.waitForSelector('#firstrun', { state: 'visible', timeout: 5000 });
