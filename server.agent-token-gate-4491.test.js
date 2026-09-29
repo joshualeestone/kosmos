@@ -1,0 +1,90 @@
+'use strict';
+
+/**
+ * #4491 (proof of concept): on an enforcing board, an agent reaches its everyday routes with ONLY
+ * its own agent token, and that token never opens a person-only route.
+ *
+ * Same harness as server.board-auth-1946.test.js: the board boots fully sandboxed, then
+ * enforcement is flipped on in memory, so no real store is touched.
+ */
+
+const test = require('node:test');
+const assert = require('node:assert');
+const os = require('node:os');
+const path = require('node:path');
+const fs = require('node:fs');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-agenttoken-4491-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
+process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
+process.env.AGENT_WORKFORCE_FAKE_PANES = path.join(SANDBOX, 'panes.txt');
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+
+const { start, server, boardAuthState } = require('./server');
+const sendertoken = require('./engine/sendertoken');
+
+const BOARD = 'BOARDTOKEN_test_4491_0123456789abcdef';
+const GATE_REFUSAL = /this board belongs to the account that started it/;
+let base;
+let agentToken;
+
+test.before(async () => {
+  await start(0);
+  base = `http://127.0.0.1:${server.address().port}`;
+  assert.equal(boardAuthState.on, false, 'a fully-sandboxed board must not enforce');
+  boardAuthState.on = true;
+  boardAuthState.token = BOARD;
+  const minted = sendertoken.mint('poc-agent');
+  assert.ok(minted.ok, 'could not mint an agent token for the test: ' + minted.because);
+  agentToken = minted.token;
+});
+
+async function call(method, p, { headers = {}, body } = {}) {
+  const res = await fetch(base + p, {
+    method, redirect: 'manual',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await res.text().catch(() => '');
+  return { code: res.status, text };
+}
+const refusedAtGate = (r) => r.code === 403 && GATE_REFUSAL.test(r.text);
+
+test('CONTROL: an agent route with no credential is refused at the gate', async () => {
+  assert.ok(refusedAtGate(await call('POST', '/api/whoami', { body: {} })), 'the gate did not refuse a bare request, so nothing below can be trusted');
+});
+
+test('an agent route passes the gate with only a valid agent token (no board token)', async () => {
+  for (const [method, p, body] of [['POST', '/api/whoami', {}], ['POST', '/api/msg', { to: 'nobody', text: 'hi' }], ['POST', '/api/post', { project: 'none', text: 'hi' }]]) {
+    const r = await call(method, p, { headers: { 'x-kosmos-agent-token': agentToken }, body });
+    assert.ok(!refusedAtGate(r), `${method} ${p} was refused at the gate with a valid agent token: ${r.code} ${r.text.slice(0, 120)}`);
+  }
+});
+
+test('a wrong agent token is refused at the gate', async () => {
+  assert.ok(refusedAtGate(await call('POST', '/api/whoami', { headers: { 'x-kosmos-agent-token': 'not-a-token' }, body: {} })));
+});
+
+test('an agent token in the BODY does not open the gate (header only, the gate runs before the body)', async () => {
+  assert.ok(refusedAtGate(await call('POST', '/api/whoami', { body: { token: agentToken } })));
+});
+
+test('an agent token never opens a person-only route', async () => {
+  for (const [method, p] of [['POST', '/api/agent/poc-agent/removal'], ['DELETE', '/api/agent/poc-agent/removal'], ['POST', '/api/agents'], ['GET', '/api/status']]) {
+    const r = await call(method, p, { headers: { 'x-kosmos-agent-token': agentToken }, body: method === 'GET' ? undefined : {} });
+    assert.ok(refusedAtGate(r), `${method} ${p} was reachable with only an agent token: ${r.code}`);
+  }
+});
+
+test('the board token still works on the agent routes (nothing that works today breaks)', async () => {
+  const r = await call('POST', '/api/whoami', { headers: { 'x-kosmos-board-token': BOARD }, body: {} });
+  assert.ok(!refusedAtGate(r), 'the board token no longer reaches whoami');
+});
+
+test.after(() => {
+  try { server.close(); } catch { /* ignore */ }
+  fs.rmSync(SANDBOX, { recursive: true, force: true });
+});
