@@ -73,6 +73,12 @@ const NEGATION_REACH = 4;   // 4, not 3: "rather than stuck or blocked" puts `bl
  *  export crashed", "wasn't able to save", "not clear why it fails". It negates nothing. */
 const NOT_NEGATING_NEXT = new Set(['sure', 'clear', 'certain', 'obvious', 'able', 'why', 'how', 'possible', 'only']);
 const CLAUSE_BREAK = /[,.;:!?\n]+|\s(?:and|but)\s/i;
+/** Review 3: a negation reaches ONE problem word, and carries past it only across "or"/"nor" ("no errors or crashes").
+ *  Past any other action word it stops: "did not fix the crash" negates the fix, not the crash. */
+const NEG_CARRIES = new Set(['or', 'nor']);
+/** Review 3: saying something could not be done IS the problem ("could not add a file", "no way to add a provider"),
+ *  though its verb reads as negated. Matched on the normalised clause (apostrophes already gone). */
+const FAILED_TO = /\b(?:could not|couldnt|can not|cannot|cant|unable to|no way to|not able to|wasnt able to|werent able to)\b/;
 
 /** kosmos#4415: the report form's own questions (engine/roles.js, the daily report block), which come back as items
  *  of their own. Matched exactly, not by shape: a short line ending in "?" is often a real report ("Why does export
@@ -217,9 +223,13 @@ function classify(item) {
     cw.forEach((w, i) => {
       if (!ACTION.has(w)) return;
       let negated = false;
-      for (let j = Math.max(0, i - NEGATION_REACH); j < i; j++) if (negates(j)) negated = true;
+      for (let j = i - 1; j >= Math.max(0, i - NEGATION_REACH); j--) {
+        if (negates(j)) { negated = true; break; }
+        if (ACTION.has(cw[j]) && !NEG_CARRIES.has(cw[j + 1])) break;   // another problem word in between took the negation
+      }
       if (!negated) actionHits.push(w);
     });
+    if (FAILED_TO.test(cw.join(' '))) actionHits.push('could not');
   }
   /* A short line ending in ":" that starts like a question is an agent's own heading ("What would make it better:"),
      written in its own words so no exact list can hold it; a lead-in that does not ("Export fails with this error:")
@@ -493,9 +503,11 @@ function digestFor(reports, cardsText) {
  */
 function freshSince(files, sinceSec, nowSec) {
   const since = Number(sinceSec);
-  /* A generated_at is the install's own clock. One running fast would be "new" in every digest until that time came,
-     so a stamp more than ten minutes ahead of this run is left out, like an undated one. */
-  const latest = (Number.isFinite(Number(nowSec)) ? Number(nowSec) : Date.now() / 1000) + 600;
+  /* The window is (since, now]: exactly the watermark the job writes (its run START), so consecutive windows meet and
+     never overlap and no report is posted twice (review 3: a +10 min allowance here overlapped the next window). A
+     stamp ahead of this run (a report arriving mid-run, or an install whose clock runs fast) is DEFERRED to the digest
+     whose window reaches it, never dropped and never posted twice. */
+  const latest = Number.isFinite(Number(nowSec)) ? Number(nowSec) : Date.now() / 1000;
   const { stripFrontmatter } = require('./feedback');
   const out = [];
   for (const f of Array.isArray(files) ? files : []) {

@@ -214,12 +214,15 @@ test('#4415: the daily digest strips the pulled frontmatter, so no install id re
   assert.ok(out.includes('weekly limit never records a reset'), 'control: the report itself is still read');
 });
 
-test('#4415: a report stamped more than ten minutes in the future is left out, as an undated one is', () => {
+test('#4415 review 3: a report stamped after the run started is DEFERRED to the next digest and posted exactly once', () => {
   const t = require('./feedback-triage');
-  const now = Date.parse('2026-09-28T14:00:00Z') / 1000;
+  const run1 = Date.parse('2026-09-28T14:00:00Z') / 1000, run2 = run1 + 86400, run3 = run2 + 86400;
   const f = (at) => ({ name: '2026-09-28__x.md', body: '---\ngenerated_at: ' + at + '\n---\n- a line\n' });
-  assert.equal(t.freshSince([f('2026-09-30T00:00:00Z')], now - 7200, now).length, 0, 'a clock running fast is new in every digest');
-  assert.equal(t.freshSince([f('2026-09-28T14:05:00Z')], now - 7200, now).length, 1, 'control: a few minutes of skew is kept');
+  // Each run's window is (last watermark, its own start], and it writes its start as the next watermark.
+  const seen = (r) => [[run1 - 86400, run1], [run1, run2], [run2, run3]].map(([a, b]) => t.freshSince([r], a, b).length);
+  assert.deepEqual(seen(f('2026-09-28T14:05:00Z')), [0, 1, 0], 'a report arriving mid-run was posted twice (or never)');
+  assert.deepEqual(seen(f('2026-09-29T20:00:00Z')), [0, 0, 1], 'a fast clock was new in more than one digest (or dropped)');
+  assert.deepEqual(seen(f('2026-09-28T13:00:00Z')), [1, 0, 0], 'control: an ordinary report is in exactly the first digest');
 });
 
 test('#4415: the #admin post quotes report text as inline code, so a markdown link in a report does not render', () => {
@@ -263,8 +266,18 @@ test('#4415: a clean clause does not clean a report, and an idiom about the repo
     assert.doesNotMatch(why(s), /reports that nothing was wrong/, s + ': one clean clause cleaned a report');
   }
   assert.match(why('Not sure why export crashed'), /\(crashed/, '"not sure" negated the crash');
-  assert.match(why("wasn't able to save the draft"), /no clear action word|\(save/, 'control: runs');
-  assert.match(why('wasnt able to save, the board hung'), /\(hung/, '"wasn\'t able" plus a clause break still counts the hang');
+  assert.match(why("wasn't able to save the draft"), /\(could not/, 'review 3: not being able to do something IS the problem');
+  assert.match(why('wasnt able to save, the board hung'), /[(,] ?hung/, '"wasn\'t able" plus a clause break still counts the hang');
   assert.equal(t.classify('The queue is completely idle and ready for work rather than stuck or blocked.').score, 0,
     'control: a neutral clause beside a clean one is still clean');
+});
+
+test('#4415 review 3: a negation takes ONE problem word (across "or" only), and saying it could not be done is the problem', () => {
+  const t = require('./feedback-triage');
+  const why = (s) => t.classify(s).reasons.join(' | ');
+  assert.match(why('The retry did not fix the crash.'), /crash/, '"did not fix" hid the crash');
+  assert.match(why('I could not add a file to the project.'), /could not/, '"could not add" read as a negated add');
+  assert.match(why('There is no way to add a second provider'), /could not/, '"no way to" lost its failure');
+  assert.equal(t.classify('No errors or crashes today.').score, 0, 'control: a negation still carries across "or"');
+  assert.equal(t.classify('Nothing appears broken.').score, 0, 'control: a plain negation still negates');
 });

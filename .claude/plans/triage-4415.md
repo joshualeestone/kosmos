@@ -28,6 +28,16 @@ negation). Slices 1 and 4 (the /admin Reports inbox) merged as chaoskosmos-site#
   install's clock), strips the pulled frontmatter itself (triage() no longer does it for every caller), and posts
   report text as inline code so a markdown link cannot render in #admin.
 
+- Review iteration 3 (Opus): (WARNING) the window was (since, now + 10 min] while the job writes its run START as the
+  next watermark, so the next window overlapped and a report stamped just after the start was posted twice. Now the
+  window is (since, run start], and a later stamp (mid-run, or a fast clock) is DEFERRED to the digest that reaches it:
+  exactly once, never dropped. The start is taken one second back so a same-second stamp is not lost between windows.
+  (WARNING) the watermark test passed for a post-time watermark too; the post stub now records when it ran and plants
+  a report during the post, which must be in exactly the next digest. (WARNING) a negation reached past its verb onto
+  the verb's object ("did not fix the crash"); it now takes one problem word and carries past it only across "or" /
+  "nor", and "could not / cannot / unable to / no way to" counts as the problem. NITs: the watermark is written
+  beside and renamed, and a failed write exits 2 instead of logging "posted"; one run at a time (a pid lock taken
+  over from a dead run); at-least-once delivery on a lost Discord answer is stated in the header.
 ## Rejected
 - Opening cards from the digest: a person decides (#2246).
 - A digest over all reports every day: the same wall each morning. Only what arrived since the last post.

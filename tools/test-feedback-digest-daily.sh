@@ -22,9 +22,15 @@ printf '#1 An unrelated open card\n' > "$T/cards.txt"
 printf '#!/bin/bash\ncat "%s/cards.txt"\n' "$T" > "$T/cards.sh"; chmod +x "$T/cards.sh"
 export FEEDBACK_DIGEST_CARDS_CMD="$T/cards.sh"
 # The post stub records what it was handed and answers with the code in $T/code.
+# It also notes when it was called and, when asked ($T/arrive exists), writes a report that ARRIVES during the post.
 cat > "$T/post.sh" <<EOF
 #!/bin/bash
-cp "\$1" "$T/posted.json"; cat "$T/code"
+cp "\$1" "$T/posted.json"; date +%s > "$T/post-at"
+if [ -f "$T/arrive" ]; then
+  at=\$(date +%s); printf -- '---\\ndate: x\\ninstall: x\\ngenerated_at: %s\\n---\\n- %s\\n' "\$(date -u -r "\$at" '+%Y-%m-%dT%H:%M:%SZ')" 'The settings page freezes and is broken when a provider is added.' > "$T/reports/2026-09-29-during.md"
+  rm -f "$T/arrive"
+fi
+cat "$T/code"
 EOF
 chmod +x "$T/post.sh"
 export FEEDBACK_DIGEST_POST_CMD="$T/post.sh"
@@ -55,7 +61,41 @@ printf '%s' "$content" | grep -q 'room scroll jumps' || fail "the new report's c
 printf '%s' "$content" | grep -q 'export button' && fail "an OLD report reached the post: $content"
 printf '%s' "$content" | grep -q 'https://example.test/admin (Reports). No card was opened.' || fail "no inbox link: $content"
 [ "$(jq -c '.allowed_mentions.parse' "$T/posted.json")" = '[]' ] || fail "the post can mention people"
-w=$(cat "$T/state/last-posted"); [ "$w" -ge "$now" ] || fail "the watermark did not move after a 200 ($w < $now)"
+w=$(cat "$T/state/last-posted"); [ "$w" -ge "$((now - 1))" ] || fail "the watermark did not move after a 200 ($w < $now)"
+# Review 3: the watermark is the run's START, not the time of the post: a report arriving while the run pulls or posts
+# must not be older than the next watermark, or it is skipped for good.
+[ "$w" -le "$(cat "$T/post-at")" ] || fail "the watermark was written after the post ($w), so a report arriving mid-run is skipped"
+
+# A report for the NEXT run: after the last watermark, before that run starts (a stamp after its start is deferred).
+before_next() { sleep 2; echo $(( $(date +%s) - 1 )); }
+
+# 2b. A report that arrives DURING a post is in exactly the next digest, and in no later one.
+touch "$T/arrive"
+report 2026-09-29-trigger.md "$(before_next)" 'The model menu is broken and shows the wrong provider every time.'
+run >/dev/null || fail "the trigger run failed"
+[ -f "$T/reports/2026-09-29-during.md" ] || fail "the test did not plant the mid-post report"
+jq -r .content "$T/posted.json" | grep -q 'settings page freezes' && fail "a report that arrived during the post was in that same post"
+sleep 2; run >/dev/null || fail "the run after a mid-post arrival failed"
+jq -r .content "$T/posted.json" | grep -q 'settings page freezes' || fail "a report that arrived during the post was skipped for good"
+rm -f "$T/posted.json"; sleep 2; out="$(run)" || fail "the third run failed"
+[ -f "$T/posted.json" ] && jq -r .content "$T/posted.json" | grep -q 'settings page freezes' && fail "a mid-post report was posted twice"
+
+# 2c. A watermark that cannot be written is a failure, not a silent success.
+report 2026-09-29-ro.md "$(before_next)" 'The export dialog is broken and never closes.'
+# The script chmods its own state folder, so a read-only folder would be undone; a DIRECTORY where the temp file must
+# go makes the write fail in a way it cannot fix.
+mkdir "$T/state/last-posted.tmp"; before_w=$(cat "$T/state/last-posted")
+if run >/dev/null 2>&1; then rmdir "$T/state/last-posted.tmp"; fail "an unwritable watermark exited zero after posting"; fi
+rmdir "$T/state/last-posted.tmp"
+[ "$(cat "$T/state/last-posted")" = "$before_w" ] || fail "a failed watermark write still changed the watermark"
+
+# 2d. A second run while one holds the lock does nothing.
+mkdir "$T/state/lock" && echo $$ > "$T/state/lock/pid"; rm -f "$T/posted.json"
+out="$(run)" || fail "a locked-out run exited non-zero"
+printf '%s' "$out" | grep -q 'another run' || fail "a second run did not step aside: $out"
+[ ! -f "$T/posted.json" ] || fail "two runs both posted"
+echo 999999 > "$T/state/lock/pid"   # a dead holder: the next run takes over
+run >/dev/null 2>&1; [ ! -d "$T/state/lock" ] || fail "a lock left by a dead run was not taken over and released"
 
 # 3. A failed post: exits non-zero and the watermark stays, so the next run retries the same reports.
 echo "$((now - 3600))" > "$T/state/last-posted"; rm -f "$T/posted.json"
@@ -79,4 +119,4 @@ printf '#!/bin/bash\nfor i in $(seq 1 2000); do echo "#$i card $i"; done\n' > "$
 if FEEDBACK_DIGEST_CARDS_CMD="$T/cards2000.sh" run >/dev/null 2>&1; then fail "a card list at its limit was trusted"; fi
 [ ! -f "$T/posted.json" ] || fail "posted with a truncated card list"
 
-echo "PASS: feedback-digest-daily (nothing new, posted, failed post, dry run, no cards, card list at its limit)"
+echo "PASS: feedback-digest-daily (nothing new, posted, mid-post arrival once, unwritable watermark, lock, failed post, dry run, no cards, card list at its limit)"

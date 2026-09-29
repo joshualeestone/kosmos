@@ -16,7 +16,9 @@
 # release carries it, a launchd job runs this daily.
 #
 # The bot token never reaches argv: curl reads the Authorization header from a mode-600 temp file (the #1655
-# pattern). Any failure is logged and exits non-zero; nothing half-posts, and last-posted moves only on a 200.
+# pattern). Any failure is logged and exits non-zero, and last-posted moves only on a 200. Delivery is AT LEAST
+# ONCE: if Discord takes the post but its answer is lost (a timeout), the watermark stays and the same digest can be
+# posted again next run. That is the chosen side: a repeat is noticed, a lost digest is not.
 #
 # SEAMS (tools/test-feedback-digest-daily.sh drives every arm with no network and no token):
 #   FEEDBACK_DIGEST_PULL_DIR  read reports from this folder instead of pulling from the store
@@ -34,11 +36,22 @@ DRY="${FEEDBACK_DIGEST_DRY_RUN:-}"
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') feedback-digest: $*"; }
 mkdir -p "$STATE" && chmod 700 "$STATE" || { log "FAILED: no state folder $STATE"; exit 2; }
 WORK="$(mktemp -d)" || { log "FAILED: no temp folder"; exit 2; }
-trap 'rm -rf "$WORK"' EXIT
+# One run at a time (review 3: a launchd run and a manual one both posted). The lock holds its owner's pid, and a
+# lock whose owner is gone (a killed run) is taken over rather than blocking every later day.
+LOCK="$STATE/lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+  holder=$(cat "$LOCK/pid" 2>/dev/null)
+  if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then log "another run ($holder) is posting; this one does nothing"; rm -rf "$WORK"; exit 0; fi
+  rm -rf "$LOCK" && mkdir "$LOCK" 2>/dev/null || { log "FAILED: could not take the lock $LOCK"; rm -rf "$WORK"; exit 2; }
+fi
+echo $$ > "$LOCK/pid"
+trap 'rm -rf "$WORK" "$LOCK"' EXIT
 
 # The watermark this run writes on success: its START, before the pull, so a report that arrives while the run is
 # pulling and posting is not older than the next watermark and skipped for good.
-RUN_START=$(date +%s)
+# One second back: stamps are whole seconds, and a report stamped in the very second the run starts but uploaded after
+# the pull would otherwise sit exactly on the watermark, outside both windows.
+RUN_START=$(( $(date +%s) - 1 ))
 since=0
 [ -f "$STATE/last-posted" ] && read -r since < "$STATE/last-posted"
 case "$since" in ''|*[!0-9]*) since=0 ;; esac
@@ -93,5 +106,12 @@ else
   code=$(curl -s -m 20 -o /dev/null -w '%{http_code}' -X POST -H @"$hdr" -H 'Content-Type: application/json' \
     --data-binary @"$WORK/payload" "https://discord.com/api/v10/channels/$CHANNEL/messages")
 fi
-if [ "$code" = 200 ]; then echo "$RUN_START" > "$STATE/last-posted"; log "posted to #admin"; exit 0; fi
+if [ "$code" = 200 ]; then
+  # Review 3: written beside and renamed into place, and checked. An unwritable state file used to log "posted" and
+  # exit 0 while every later run re-posted everything since the stale watermark.
+  if printf '%s\n' "$RUN_START" > "$STATE/last-posted.tmp" && mv -f "$STATE/last-posted.tmp" "$STATE/last-posted"; then
+    log "posted to #admin"; exit 0
+  fi
+  log "FAILED: posted, but could not record it in $STATE/last-posted; the next run will post these again"; exit 2
+fi
 log "FAILED: Discord answered '$code'; will try again next run"; exit 2
