@@ -147,3 +147,14 @@ test('Antigravity, Muse and an unreadable job answer null; no job falls back to 
   const broken = { ...fakeCreate(s.root, null), recordedRunner: () => { throw new Error('no profile'); } };
   assert.strictEqual(personalInstructions('ann', { create: broken }), null, 'nothing readable: say nothing, never throw');
 });
+
+test('Claude: a *.md in the config dir\'s rules/ counts, in a subfolder too', (t) => {
+  const s = sandbox();
+  t.after(() => s.done());
+  const acct = path.join(s.root, '.claude-account-b');
+  const create = fakeCreate(s.root, { runner: 'claude', configDir: acct });
+  write(path.join(acct, 'rules', 'notes.txt'), 'not markdown\n');
+  assert.strictEqual(personalInstructions('ann', { create }), null, 'no CLAUDE.md and no *.md rule: nothing to say');
+  write(path.join(acct, 'rules', 'team', 'style.md'), 'short answers\n');
+  assert.deepStrictEqual(personalInstructions('ann', { create }), { tool: 'Claude Code' });
+});

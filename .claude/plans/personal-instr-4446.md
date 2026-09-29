@@ -20,7 +20,8 @@ text; no sentence when there is none; the sentence never carries over to another
 - engine/personalinstr.js: `personalInstructions(name)` -> `{ tool }` or null. Runner from the job
   (readJob) else the profile (recordedRunner); config dir from the job. `filesFor` lists what each
   CLI loads, read from its own code or bundled docs on this Mac (2026-09-28): Claude
-  `<CLAUDE_CONFIG_DIR or home/.claude>/CLAUDE.md`; Codex `<CODEX_HOME>/AGENTS.override.md` or
+  `<CLAUDE_CONFIG_DIR or home/.claude>/CLAUDE.md` and every `*.md` under its `rules/` (the binary
+  names the folder; its docs say subfolders count); Codex `<CODEX_HOME>/AGENTS.override.md` or
   `AGENTS.md` (the binary); Gemini `<storage home>/GEMINI.md` (`getGlobalMemoryFilePath` in its
   bundle); Grok `<GROK_HOME>/AGENTS.md` and every `*.md` directly in `<GROK_HOME>/rules/` (its
   embedded docs). Any one regular non-empty file, symlinks followed. Antigravity and Muse: null.
@@ -28,13 +29,15 @@ text; no sentence when there is none; the sentence never carries over to another
 - server.js: the instructions GET adds `personal`.
 - web/index.html: `#d-instr-personal` under the lede; `paintPersonalInstr`; hidden at load start and
   in the agent-switch reset loop.
-- Tests: engine/personalinstr.test.js (7); browser check render-personal-instr-4446 (real server read,
+- Tests: engine/personalinstr.test.js; browser check render-personal-instr-4446 (real server read,
   CONTROL arm, a failing-read arm measured red by removing the reset). Indices: gated.txt, README,
   reason-grep count 199 -> 200 (measured).
 
 ## Weakest premises
 - A file renamed in the CLI's own settings (Gemini `contextFileName`, Codex
   `project_doc_fallback_filenames`) is not seen, so the panel says nothing in that case.
+- Gemini's `save_memory` tool appends to the same `GEMINI.md`, so a Gemini agent that saved a
+  memory makes the sentence show about text the agent wrote, not the person.
 - Grok by default also reads `~/.cursor/rules/*.md` (`compat.cursor.rules`), which #4426 did not
   turn off. Noted on the card for #4426's owner; this panel does not report it.
 - The copy ("They also follow your personal <tool> instructions, which are kept outside Kosmos and

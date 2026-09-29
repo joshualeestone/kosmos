@@ -3,17 +3,14 @@
 /* #4446: the PERSONAL instructions file an agent's own terminal agent loads at startup
    from OUTSIDE the agent's folder, so the Instructions panel can say so.
 
-   Kosmos does not add these. Each provider's CLI reads its user-level files itself (read from each
-   CLI's own code or its bundled docs, 2026-09-28): Claude Code `<config dir>/CLAUDE.md`
-   (CLAUDE_CONFIG_DIR, else ~/.claude); Codex `<CODEX_HOME>/AGENTS.override.md` or `AGENTS.md`;
-   Gemini CLI `<storage home>/GEMINI.md`; Grok `<GROK_HOME>/AGENTS.md` and every `*.md` directly
-   in `<GROK_HOME>/rules/`. A file renamed in the CLI's own settings is not seen.
+   Kosmos does not add these. Each provider's CLI reads its user-level files itself; `filesFor`
+   lists them per runner.
    The ruling on the card was to keep them and tell the person, so this only answers
    whether such a file is there. It never reads the file's text and never returns its path:
    the panel does not show paths (Josh 2026-08-17), and the answer is a tool name.
 
    Grok's import of the person's CLAUDE.md is a different thing, turned off at launch by
-   #4426; this reports Grok's OWN file only.
+   #4426; this reports Grok's OWN files only.
 
    Not covered, on purpose: Antigravity (no documented user-level file path to check) and
    Meta Muse (runs one turn at a time through engine/musefront.js, not a CLI home). Both
@@ -24,12 +21,19 @@ const path = require('path');
 
 const TOOL = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI', grok: 'Grok' };
 
+/* Every `*.md` in `dir` (and below it when `deep`), or none when it cannot be read. */
+function mdIn(dir, deep) {
+  let names = [];
+  try { names = fs.readdirSync(dir, { recursive: deep }).map(String).filter((n) => n.endsWith('.md')).sort(); } catch { names = []; }
+  return names.map((n) => path.join(dir, n));
+}
+
 /* The user-level files this runner's CLI may read for an agent launched with `configDir`
    (null = the default account). Empty for a runner with none. */
 function filesFor(runner, configDir, create) {
   if (runner === 'claude') {
-    const home = require('./accounts').homeDir();
-    return [path.join(configDir || path.join(home, '.claude'), 'CLAUDE.md')];
+    const dir = configDir || path.join(require('./accounts').homeDir(), '.claude');
+    return [path.join(dir, 'CLAUDE.md'), ...mdIn(path.join(dir, 'rules'), true)];
   }
   if (runner === 'codex') {
     const home = configDir || create.defaultAgentCodexHome();
@@ -38,10 +42,7 @@ function filesFor(runner, configDir, create) {
   if (runner === 'gemini') return [path.join(create.geminiStorageHome(configDir || null), 'GEMINI.md')];
   if (runner === 'grok') {
     const home = configDir || create.defaultAgentGrokHome();
-    const rules = path.join(home, 'rules');
-    let names = [];
-    try { names = fs.readdirSync(rules).filter((n) => n.endsWith('.md')).sort(); } catch { names = []; }
-    return [path.join(home, 'AGENTS.md'), ...names.map((n) => path.join(rules, n))];
+    return [path.join(home, 'AGENTS.md'), ...mdIn(path.join(home, 'rules'), false)];
   }
   return [];
 }
