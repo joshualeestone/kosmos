@@ -32967,6 +32967,12 @@ function holdFloorOnResize(el) {
     });
   }).observe(el);
 }
+/* #4639 (Josh, 2026-09-29, "like Discord"): the person's OWN message takes them to
+   the newest row, wherever they were reading. An agent's post never moves them;
+   that rule stays with setThread and paintRoom, untouched. */
+function jumpToOwnSend(el) {
+  if (el) pinToBottom(el);
+}
 function pinToBottom(el) {
   /* 🛑 NOTHING IS ARMED FOR A BOX NOBODY CAN SEE. On a hidden container the
      assignment below is a harmless no-op, but the image listeners are NOT: they
@@ -34127,6 +34133,8 @@ async function sendTalk(text, attachment) {
        TALK_PENDING). Painted from the last thread read, so nothing waits on a fetch. */
     TALK_PENDING[sentName] = { text, startedAt: Date.now(), recorded: false, failed: false, because: null };
     talkPaintPending(sentName, name);
+    /* #4639: after the drawn bubble, so it is the row they land on. */
+    jumpToOwnSend(document.getElementById('d-dmthread'));
     const res = await fetch('/api/agent/' + encodeURIComponent(sentName) + '/thread', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -56976,7 +56984,9 @@ async function pjPostSend(attachment) {
        delivery would say more on the audio channel than the engine did. */
     const allPlaced = Object.values(d.outcomes || {}).every((v) => v === 'placed');
     pjRoomAnnounce((allPlaced ? 'Posted. ' : 'Posted, not to everyone. ') + pjReceiptSentence(d.outcomes || {}, p));
-    if (PJ_CURRENT === sentProject) await loadRoom();
+    /* #4639: before the repaint that adds their post; paintRoom measures the floor
+       before it writes, so the new post is where they land. */
+    if (PJ_CURRENT === sentProject) { jumpToOwnSend(document.getElementById('pj-room')); await loadRoom(); }
   } catch {
     verdict('We could not reach Kosmos to post that.');
   } finally {
