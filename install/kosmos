@@ -99,6 +99,14 @@ else
 fi
 PORT="${KOSMOS_PORT:-$_kosmos_default_port}"
 URL="http://127.0.0.1:$PORT"
+# #4466: every request this CLI makes to the board is loopback, and it must never go through a proxy. In a
+# sandbox that is proxy-only (http_proxy/HTTPS_PROXY/ALL_PROXY set, measured on a real agent's), curl sent
+# 127.0.0.1 through the proxy, which answered with an empty page, so a running board read as "another app
+# is using port" and start refused. Loopback is added to the caller's own NO_PROXY and no_proxy (curl reads
+# either), never replacing it; outside requests still use the proxy.
+case ",${NO_PROXY:-}," in *,127.0.0.1,*) ;; *) NO_PROXY="127.0.0.1,localhost${NO_PROXY:+,$NO_PROXY}" ;; esac
+case ",${no_proxy:-}," in *,127.0.0.1,*) ;; *) no_proxy="127.0.0.1,localhost${no_proxy:+,$no_proxy}" ;; esac
+export NO_PROXY no_proxy
 PIDFILE="$KOSMOS_HOME/board.pid"
 # #2955: the deliberate-stop marker the board watchdog reads. `kosmos stop` writes
 # it (before it kills), `kosmos start` clears it (at the very top, before any bind
@@ -902,6 +910,15 @@ _await_board_up() {
   done
   return 1
 }
+# #4466: the port's listener IS the process this install recorded (board.pid), so the board is ours and
+# running even though it did not answer this command (a proxy in the way, or busy). Prints the pid.
+_listener_is_our_board() {
+  local _mine _lo
+  _mine="$(running_pid)" || return 1
+  _lo="$(port_listener_owner 2>/dev/null)" || return 1
+  [ "${_lo%% *}" = "$_mine" ] || return 1
+  printf '%s' "$_mine"
+}
 cmd_start() {
   # #2955: clear the deliberate-stop marker EARLY -- before the healthy check and
   # the bind below that can fail. Starting means "I want it running", which retires
@@ -932,6 +949,17 @@ cmd_start() {
     say "Kosmos is already running at $URL (busy right now, so it is slow to answer)"
     _busy_person_hint
     return 0
+  fi
+  # #4466: the board this install recorded holds the port and is alive: it is running, whatever this command
+  # could not read. Never reclaim (kill) it from a plain start; only the watchdog's and the installer's
+  # KOSMOS_RECLAIM_BUSY start may. (Under a proxy this start used to kill a healthy board it could not reach.)
+  if [ "${KOSMOS_RECLAIM_BUSY:-}" != 1 ]; then
+    local _ours
+    if _ours="$(_listener_is_our_board)"; then
+      say "Kosmos is already running at $URL (process $_ours), but it did not answer this command."
+      _busy_person_hint
+      return 0
+    fi
   fi
   # #3079: the port is held but NOT by our answering board. If it is OUR OWN stale
   # Kosmos build (a common single-user update, where the old process still holds the
@@ -1212,6 +1240,7 @@ cmd_stop() {
 }
 
 cmd_status() {
+  local _st_pid
   if healthy; then
     local pid
     pid="$(running_pid)" || pid=""
@@ -1224,6 +1253,12 @@ cmd_status() {
     # Exit 4, not 0 and not 1: 1 means "not running" (the start advice), and 0 would hide a board that is
     # WEDGED rather than busy (#2955: holds the port, never answers) from bin/board-watchdog.sh, which
     # reads this exit code and gives 4 a long grace instead of treating it as down.
+    exit 4
+  elif [ "$HEALTH_STATE" = stranger ] && _st_pid="$(_listener_is_our_board)"; then
+    # #4466: the listener is the board this install recorded, so it is running; it just did not answer this
+    # command (a proxy in the way, or busy). Exit 4 like busy, so the watchdog gives it the busy grace.
+    say "Kosmos is running at $URL (process $_st_pid) but did not answer this command."
+    _busy_person_hint
     exit 4
   elif [ "$HEALTH_STATE" = stranger ]; then
     # The same answer start would give, so two adjacent commands cannot

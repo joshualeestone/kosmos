@@ -363,6 +363,42 @@ test('#4466 a failed reclaim of an untracked holder sends a person to the proces
   assert.doesNotMatch(agent.stdout, /kill/);
 });
 
+test('#4466 a proxy in the environment does not hide the board: loopback requests skip it (a sandbox that is proxy-only)', () => withBoard('ok', async (port) => {
+  // A proxy that answers EVERYTHING with an empty 200, the way a sandbox's proxy answered GET / for a real agent.
+  const hits = [];
+  const proxy = require('node:http').createServer((req, res) => { hits.push(req.url); res.writeHead(200); res.end(''); });
+  await new Promise((r) => proxy.listen(0, '127.0.0.1', r));
+  const p = 'http://127.0.0.1:' + proxy.address().port;
+  try {
+    const env = baseEnv(port, { http_proxy: p, HTTP_PROXY: p, https_proxy: p, HTTPS_PROXY: p, all_proxy: p, ALL_PROXY: p });
+    delete env.no_proxy; delete env.NO_PROXY;
+    const out = await runCli(['status'], env);
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /Kosmos is running at/);
+    assert.doesNotMatch(out.stdout, /another app|not running/);
+    assert.deepEqual(hits, [], 'no loopback request may go through the proxy: ' + JSON.stringify(hits));
+    // A caller's own NO_PROXY is kept, not replaced (loopback is added to it).
+    const kept = await bash(`source "${CLI}"; printf '%s|%s' "$NO_PROXY" "$no_proxy"`, { ...env, NO_PROXY: 'corp.example', no_proxy: 'corp.example' });
+    assert.match(kept.stdout, /^127\.0\.0\.1,localhost,corp\.example\|127\.0\.0\.1,localhost,corp\.example$/, kept.stdout);
+  } finally { await new Promise((r) => proxy.close(r)); }
+}));
+
+test('#4466 start and status: a listener that IS the recorded board is running, never "another app" and never reclaimed', async () => {
+  const port = await closedPort();
+  // healthy() could not read it (a proxy in the way); board.pid names 4242 and 4242 holds the port.
+  const stubs = (listener) => `source "${CLI}"; healthy() { HEALTH_STATE=stranger; return 1; }; port_taken_by_stranger() { HEALTH_STATE=stranger; return 0; }; running_pid() { echo 4242; }; port_listener_owner() { echo "${listener} 501 1"; }; port_has_listener() { return 0; }; kill() { echo "KILLED $*"; }`;
+  const st = await bash(stubs(4242) + '; cmd_status', baseEnv(port));
+  assert.equal(st.code, 4, st.stdout + st.stderr);
+  assert.match(st.stdout, /running at .*\(process 4242\) but did not answer this command/);
+  assert.doesNotMatch(st.stdout, /another app|not running/);
+  const start = await bash(stubs(4242) + '; cmd_start; echo "rc=$?"', baseEnv(port));
+  assert.match(start.stdout, /already running at .*\(process 4242\)/, start.stdout + start.stderr);
+  assert.doesNotMatch(start.stdout, /KILLED|Reclaiming|another app/);
+  // CONTROL: a listener that is NOT the recorded board still gets the stranger sentence from status.
+  const other = await bash(stubs(9999) + '; cmd_status', baseEnv(port));
+  assert.match(other.stdout, /another app is using port/, other.stdout + other.stderr);
+});
+
 test('#4466 a start whose board comes back BUSY reports it running (slow), not "did not come up"', async () => {
   const port = await closedPort();
   const stub = (state, pid) => `source "${CLI}"; sleep() { :; }; healthy() { HEALTH_STATE=${state}; return 1; }; if _await_board_up ${pid}; then echo UP; else echo NOTUP; fi`;
