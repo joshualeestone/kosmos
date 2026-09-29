@@ -57171,12 +57171,13 @@ function pjMentionPaint() {
      (the composer box), inside its border. The textarea shows no scrollbar (.cinput hides it in both engines;
      render-composer-caret-4585 asserts that), so its full width is its text's width. */
   const inR = input.getBoundingClientRect();
-  const host = mirror.offsetParent;
-  const hostR = host ? host.getBoundingClientRect() : { left: 0, top: 0 };
-  mirror.style.left = (inR.left - hostR.left - (host ? host.clientLeft : 0)) + 'px';
-  mirror.style.top = (inR.top - hostR.top - (host ? host.clientTop : 0)) + 'px';
+  const host = mirror.offsetParent;   // the composer box (position: relative); null only when not laid out
+  if (!host) { input.classList.remove('mention-live'); inner.innerHTML = ''; return; }
+  const hostR = host.getBoundingClientRect();
+  mirror.style.left = (inR.left - hostR.left - host.clientLeft) + 'px';
+  mirror.style.top = (inR.top - hostR.top - host.clientTop) + 'px';
   mirror.style.width = inR.width + 'px';
-  mirror.style.height = input.offsetHeight + 'px';
+  mirror.style.height = inR.height + 'px';
   inner.style.transform = 'translateY(' + (-input.scrollTop) + 'px)';
 }
 
@@ -57195,7 +57196,16 @@ document.getElementById('pj-post').addEventListener('scroll', () => {
 window.addEventListener('resize', pjMentionPaint);
 /* #4585 review: the composer's width also changes with no window resize (the layout switch, a panel, a
    page scrollbar arriving): the textarea rewraps at once, so the mirror must too. */
-if (typeof ResizeObserver === 'function') new ResizeObserver(() => pjMentionPaint()).observe(document.getElementById('pj-post'));
+if (typeof ResizeObserver === 'function') {
+  new ResizeObserver(() => {
+    const input = document.getElementById('pj-post'), mirror = document.getElementById('pj-post-mirror');
+    if (!input || !mirror) return;
+    const r = input.getBoundingClientRect();
+    // pjGrowComposer already repainted for a keystroke's height change; only a size the mirror lacks repaints.
+    if (mirror.style.width === r.width + 'px' && mirror.style.height === r.height + 'px') return;
+    pjMentionPaint();
+  }).observe(document.getElementById('pj-post'));
+}
 
 /* ---- #2254: the emoji picker ------------------------------------------------
    Josh: "add a card so that the user could add emojis to their input." A curated
