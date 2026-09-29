@@ -536,11 +536,12 @@ _kosmos_suite_waiter_live() {
   # match alone would let a new suite that inherited a dead waiter's pid read as "only waiting" and be skipped, the
   # unsafe side. A start time cannot repeat on a recycled pid.
   stored="$(sed -n '2p' "$f" 2>/dev/null)"; live="$(ps -ww -o command= -p "$pid" 2>/dev/null)"
-  local began; began="$(sed -n '3p' "$f" 2>/dev/null)"
-  # #4574: the start time is written in UTC and the C locale, so two readers in different time zones or locales agree.
-  # A marker written the older way (the writer's local zone and locale) still matches when read in that same zone.
+  local began utc; began="$(sed -n '3p' "$f" 2>/dev/null)"; utc="$(sed -n '4p' "$f" 2>/dev/null)"
+  # #4574: line 4 holds the start time in UTC and the C locale, so readers in different zones or locales agree. Line 3
+  # keeps the writer's local form, which is all an older copy of this lib (another worktree, side by side) reads.
+  local want; want="$(_kosmos_pid_started "$pid")"
   if [ -z "$stored" ] || [ "$stored" != "$live" ] \
-     || { [ "$began" != "$(_kosmos_pid_started "$pid")" ] && [ "$began" != "$(_kosmos_pid_started_local "$pid")" ]; }; then
+     || { [ "$utc" != "$want" ] && [ "$began" != "$want" ] && [ "$began" != "$(_kosmos_pid_started_local "$pid")" ]; }; then
     rm -f "$f" 2>/dev/null; return 1
   fi
   return 0
@@ -578,7 +579,7 @@ _kosmos_drop_suite_waiters() {
 kosmos_mark_suite_waiting() {
   local ts="${1:-$(date +%s)}" dir
   dir="$(_kosmos_marker_dir)"; mkdir -p "$dir" 2>/dev/null || return 0
-  printf '%s %s\n%s\n%s\n' "$ts" "$$" "$(ps -ww -o command= -p "$$" 2>/dev/null)" "$(_kosmos_pid_started "$$")" > "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null \
+  printf '%s %s\n%s\n%s\n%s\n' "$ts" "$$" "$(ps -ww -o command= -p "$$" 2>/dev/null)" "$(_kosmos_pid_started_local "$$")" "$(_kosmos_pid_started "$$")" > "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null \
     && mv -f "$(_kosmos_suite_waiter_file "$$").tmp.$$" "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null
   return 0
 }
@@ -632,7 +633,7 @@ kosmos_wait_until_clear() {
   # #4574: in the suite queue the bound is 2700 s and counts from the last time a waiter ahead left (the queue note).
   local dflt=1200; [ "$queue" = 1 ] && dflt=2700
   local every="${KOSMOS_WAIT_EVERY_S:-30}" max="${KOSMOS_WAIT_MAX_S:-$dflt}" sleeper="${KOSMOS_WAIT_SLEEP:-sleep}"
-  local ceil="${KOSMOS_WAIT_QUEUE_CEIL_S:-}"
+  local ceil="${KOSMOS_WAIT_QUEUE_CEIL_S:-}" over=0
   local waited=0 said=0 err ts="" start next_note=300 ahead prev="" wblk=0 bstart
   start="$(_kosmos_wait_now)"; bstart="$start"
   # A marker under this run's pid left by a dead run (a recycled pid) would make this run read as already queued, with
@@ -675,7 +676,7 @@ kosmos_wait_until_clear() {
     fi
     # The bound is reached by the time slept or the wall clock, whichever gets there first, so slow checks cannot
     # stretch it (review 1).
-    local over=0
+    over=0
     if [ "$queue" = 1 ] && { [ "$waited" -ge "$ceil" ] || [ $(( $(_kosmos_wait_now) - start )) -ge "$ceil" ]; }; then over=1; fi
     if [ "${KOSMOS_NO_WAIT:-0}" = 1 ] || [ "$over" = 1 ] || [ "$wblk" -ge "$max" ] || [ $(( $(_kosmos_wait_now) - bstart )) -ge "$max" ]; then
       [ "$queue" = 1 ] && kosmos_unmark_suite_waiting
@@ -683,7 +684,7 @@ kosmos_wait_until_clear() {
       if [ "$waited" -gt 0 ] && [ "$over" = 1 ]; then
         echo "gave up after waiting ${waited}s: the queue's ceiling (KOSMOS_WAIT_QUEUE_CEIL_S=$ceil) ends any queued wait; run it again later." >&2
       elif [ "$waited" -gt 0 ] && [ "$queue" = 1 ]; then
-        echo "gave up after waiting ${waited}s (the bound, KOSMOS_WAIT_MAX_S=$max, counts from the last time a waiter ahead left the queue); run it again later." >&2
+        echo "gave up after waiting ${waited}s in all, ${wblk}s since a waiter ahead last left the queue (the bound, KOSMOS_WAIT_MAX_S=$max, counts from the last time a waiter ahead left the queue); run it again later." >&2
       elif [ "$waited" -gt 0 ]; then
         echo "gave up after waiting ${waited}s (the bound is KOSMOS_WAIT_MAX_S=$max); run it again later." >&2
       fi

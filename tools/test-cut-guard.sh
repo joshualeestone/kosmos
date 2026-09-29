@@ -681,7 +681,7 @@ out="$(QLEAVE=2 WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_QUEUE_CEIL_S=1000
   || fail "#4574 a moving queue gave up at the bound (rc=$rc, calls=$(cat "$W/calls"), $out)"
 q_clear; q_ahead
 out="$(QLEAVE=0 WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_QUEUE_CEIL_S=100000 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
-{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ] && has "$out" "counts from the last time a waiter ahead left the queue" && [ ! -e "$W/markers/suitewait.$$" ]; } \
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ] && has "$out" "since a waiter ahead last left the queue" && [ ! -e "$W/markers/suitewait.$$" ]; } \
   && pass "#4574 CONTROL: a queue where nobody ahead leaves still gives up at the bound, and says how the bound is counted" \
   || fail "#4574 a stuck queue was waited on past the bound (rc=$rc, calls=$(cat "$W/calls"), $out)"
 q_clear; q_ahead
@@ -747,7 +747,10 @@ q_clear
 # (the writer's own zone and locale) still reads as live.
 sleep 300 & zp=$!
 for j in 1 2 3 4 5 6 7 8 9 10; do case "$(ps -ww -o command= -p "$zp")" in sleep*) break ;; esac; sleep 0.1; done
-printf '100 %s\n%s\n%s\n' "$zp" "$(ps -ww -o command= -p "$zp")" "$(TZ=Asia/Tokyo LC_ALL=C _kosmos_pid_started "$zp")" > "$W/markers/suitewait.$zp"
+# The writer runs in Tokyo and the reader in Chicago. With the pin, both compute the same UTC form; without it (the
+# mutation) they print different local times and the live waiter reads as stale. Line 3 holds the Tokyo local form,
+# which a Chicago reader cannot match, so only line 4 can pass this.
+printf '100 %s\n%s\n%s\n%s\n' "$zp" "$(ps -ww -o command= -p "$zp")" "$(TZ=Asia/Tokyo _kosmos_pid_started_local "$zp")" "$(TZ=Asia/Tokyo LC_ALL=C _kosmos_pid_started "$zp")" > "$W/markers/suitewait.$zp"
 ( export TZ=America/Chicago; _kosmos_suite_waiter_live "$zp" ) && pass "#4574 a marker written in one time zone is live to a reader in another" \
   || fail "#4574 a reader in another time zone called a live waiter stale"
 printf '100 %s\n%s\n%s\n' "$zp" "$(ps -ww -o command= -p "$zp")" "$(_kosmos_pid_started_local "$zp")" > "$W/markers/suitewait.$zp"
@@ -757,6 +760,12 @@ printf '100 %s\n%s\nMon Jan  1 00:00:00 2001\n' "$zp" "$(ps -ww -o command= -p "
 { ! _kosmos_suite_waiter_live "$zp" && [ ! -e "$W/markers/suitewait.$zp" ]; } && pass "#4574 CONTROL: a start time that matches neither form is still stale" \
   || fail "#4574 a wrong start time was accepted"
 kill "$zp" 2>/dev/null; wait "$zp" 2>/dev/null
+# What this lib writes, an older copy reads: line 3 is the writer's local form, the one an older reader compares.
+kosmos_mark_suite_waiting 500
+{ [ "$(sed -n '3p' "$W/markers/suitewait.$$")" = "$(_kosmos_pid_started_local "$$")" ] && [ "$(sed -n '4p' "$W/markers/suitewait.$$")" = "$(_kosmos_pid_started "$$")" ]; } \
+  && pass "#4574 a marker keeps the local start time on line 3 (older readers) and the UTC one on line 4" \
+  || fail "#4574 the marker's start-time lines are not local then UTC ($(sed -n '3,4p' "$W/markers/suitewait.$$" | tr '\n' '|'))"
+kosmos_unmark_suite_waiting
 # A dead run's marker under THIS run's pid (a recycled pid) is cleared on entry, not taken as this run's place.
 rm -f "$W/calls"
 printf '1 %s\n%s\nMon Jan  1 00:00:00 2001\n' "$$" "$(ps -ww -o command= -p "$$")" > "$W/markers/suitewait.$$"
