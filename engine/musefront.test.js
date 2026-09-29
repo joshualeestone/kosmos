@@ -250,3 +250,79 @@ test('the bridge maps the two events the front sends to working and idle', () =>
   assert.deepEqual(bridge.reportFor('PreInvocation', {}), { state: 'working', text: '' });
   assert.deepEqual(bridge.reportFor('Stop', {}), { state: 'idle', text: '' });
 });
+
+/* #4569 (Josh, 11:57: Mark ignored "stop" twice, behind 14 room posts). */
+const OP = (t) => '[message from your operator at 11:52 AM · to answer, run: kosmos reply] ' + t;
+const BG = (n) => '[background from your colleague Sam · m' + n + ' · project fivefamilies · not addressed to you] thanks ' + n;
+const COL = (t) => '[message from your colleague Dario · m9 · project fivefamilies · to answer, run: kosmos post --in-reply-to m9 fivefamilies] ' + t;
+
+test('#4569: a message from the person runs before waiting room posts, behind only the person\'s earlier ones', async () => {
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('ok ' + i)));
+  h.f.feed('long job\r');
+  h.f.feed(COL('can you check X') + '\r');
+  h.f.feed(OP('first from Josh') + '\r');
+  h.f.feed(OP('second from Josh') + '\r');
+  assert.match(h.out(), /queued first: a message from your operator/);
+  h.pending[0](OK('done'));
+  await within(h.f.drained(), 'the queue did not drain');
+  assert.deepEqual(h.calls.map((c) => c.prompt), ['long job', OP('first from Josh'), OP('second from Josh'), COL('can you check X')],
+    'the person waited behind a colleague\'s message, or their own two swapped');
+  // CONTROL: two colleague messages keep arrival order.
+  const c = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  c.f.feed('long job\r'); c.f.feed(COL('a') + '\r'); c.f.feed(COL('b') + '\r');
+  c.pending[0](OK('done')); await c.f.drained();
+  assert.deepEqual(c.calls.map((x) => x.prompt), ['long job', COL('a'), COL('b')]);
+});
+
+test('#4569: "stop" from the person ends the running turn, drops what waits, and runs as the next turn saying what was dropped', async () => {
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('Stopped.')));
+  h.f.feed('long job\r');
+  for (let n = 1; n <= 14; n++) h.f.feed(BG(n) + '\r');
+  h.f.feed(OP('are you there') + '\r');
+  h.f.feed(OP('Stop.') + '\r');
+  await within(h.f.drained(), '"stop" did not end the running turn');
+  assert.equal(h.stops[0], 1, 'the running turn was not stopped');
+  assert.equal(h.calls.length, 2, 'a dropped message ran: ' + h.calls.map((c) => c.prompt.slice(0, 40)).join(' | '));
+  const note = h.calls[1].prompt;
+  assert.match(note, /^\[Kosmos: your operator asked you to stop, so the turn you were on was ended; 14 other waiting messages were dropped; these earlier messages from your operator were dropped unread: "are you there"\. Stop the work you were doing\.\]\n/);
+  assert.ok(note.endsWith(OP('Stop.')), 'the stop message itself did not reach the agent');
+  assert.match(h.out(), /stopped at your operator's request; 15 waiting messages were dropped/);
+  assert.equal(h.reports[h.reports.length - 1], 'idle');
+});
+
+test('#4569: only a short stop from the person stops; a longer instruction, a colleague\'s "stop", or a stop with nothing running is a normal message', async () => {
+  for (const [label, msg] of [['an instruction', OP('stop posting duplicates and fix the summary')], ['a colleague', COL('stop')]]) {
+    const h = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+    h.f.feed('long job\r'); h.f.feed(BG(1) + '\r'); h.f.feed(msg + '\r');
+    assert.equal(h.stops[0], 0, label + ' stopped the running turn');
+    h.pending[0](OK('done')); await h.f.drained();
+    assert.equal(h.calls.length, 3, label + ': a waiting message was dropped');
+  }
+  const idle = harness([OK('Nothing to stop.')]);
+  idle.f.feed(OP('you can pause') + '\r');
+  await idle.f.drained();
+  assert.deepEqual(idle.calls.map((c) => c.prompt), [OP('you can pause')], 'an idle stop got a note about dropping nothing');
+  // CONTROL: the same "you can pause" during a turn does stop it.
+  const c = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  c.f.feed('long job\r'); c.f.feed(OP('you can pause') + '\r');
+  await within(c.f.drained(), 'CONTROL: "you can pause" did not stop');
+  assert.equal(c.stops[0], 1);
+});
+
+test('#4569: background posts that pile up during a turn run as ONE turn; addressed messages keep their own', async () => {
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  h.f.feed('long job\r');
+  h.f.feed(BG(1) + '\r'); h.f.feed(COL('please review') + '\r'); h.f.feed(BG(2) + '\r'); h.f.feed(BG(3) + '\r');
+  h.pending[0](OK('done'));
+  await h.f.drained();
+  assert.equal(h.calls.length, 3, 'three background posts were three turns: ' + h.calls.length);
+  const digest = h.calls[1].prompt;
+  assert.match(digest, /^\[Kosmos: 3 room posts arrived while you were busy, all background, none addressed to you\. Read them together; answer only if one needs you\.\]\n/);
+  assert.ok(digest.includes(BG(1)) && digest.includes(BG(2)) && digest.includes(BG(3)), 'a background post was lost from the digest');
+  assert.equal(h.calls[2].prompt, COL('please review'));
+  // CONTROL: a single background post runs as itself, with no digest note.
+  const c = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  c.f.feed('long job\r'); c.f.feed(BG(1) + '\r');
+  c.pending[0](OK('done')); await c.f.drained();
+  assert.equal(c.calls[1].prompt, BG(1));
+});
