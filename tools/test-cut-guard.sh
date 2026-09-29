@@ -662,9 +662,13 @@ out="$(WPASS_AFTER=99 KOSMOS_WAIT_MAX_S=30 KOSMOS_WAIT_SLEEP=: kosmos_wait_until
 # Three live stand-in waiters with earlier queue times sit ahead of this run. A waiter leaves the queue by removing its
 # marker (what a waiter that starts does), and the stand-in sleeper removes one on chosen calls. A fake clock
 # (KOSMOS_WAIT_NOW) moves by QSTEP per sleep, so the wall-clock arm of the bound is exercised as well as the sleep count.
-q_ahead() { local i j; : > "$W/ahead"; for i in 1 2 3; do sleep 300 & echo "$!" >> "$W/ahead"
-  # Until the child has exec'd, ps shows the forking shell's command, and a marker recording that reads as stale.
-  for j in 1 2 3 4 5 6 7 8 9 10; do case "$(ps -ww -o command= -p "$!")" in sleep*) break ;; esac; sleep 0.1; done
+# q_ready <pid>: waits (up to 3 s) until <pid> has exec'd sleep. Until then ps shows the forking shell's command, and a
+# marker recording that reads as stale, which would silently shift every call count below: so a stand-in that never
+# gets there FAILS by name instead.
+q_ready() { local j; for j in $(seq 1 30); do case "$(ps -ww -o command= -p "$1")" in sleep*) return 0 ;; esac; sleep 0.1; done
+  fail "#4574 FIXTURE: stand-in waiter $1 never showed as sleep, so the arms after it cannot be trusted"; return 1; }
+q_ahead() { local i; : > "$W/ahead"; for i in $(seq 1 "${1:-3}"); do sleep 300 & echo "$!" >> "$W/ahead"
+  q_ready "$!"
   printf '%s %s\n%s\n%s\n' "$((10 + i))" "$!" "$(ps -ww -o command= -p "$!")" "$(_kosmos_pid_started "$!")" > "$W/markers/suitewait.$!"; done; }
 q_clear() { local p; for p in $(cat "$W/ahead" 2>/dev/null); do rm -f "$W/markers/suitewait.$p"; kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; done; rm -f "$W/ahead" "$W/calls" "$W/clock" "$W/sleeps"; }
 qnow() { cat "$W/clock" 2>/dev/null || echo 0; }
@@ -743,15 +747,24 @@ out="$(QLEAVE=2 WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_QUEUE_CEIL_S=120 
   && pass "#4574 the queue's ceiling ends a wait even while the queue keeps moving" \
   || fail "#4574 a moving queue outlived the ceiling (rc=$rc, calls=$(cat "$W/calls"), $out)"
 q_clear
+# The default ceiling is four bounds: six waiters ahead leaving every 60 s keep a 60 s bound restarting past 240 s, and
+# the default ceiling (240 s) ends it at call 9.
+q_clear; q_ahead 6
+out="$(unset KOSMOS_WAIT_QUEUE_CEIL_S; QLEAVE=2 WPASS_AFTER=30 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 9 ] && has "$out" "KOSMOS_WAIT_QUEUE_CEIL_S=240"; } \
+  && pass "#4574 the queue's default ceiling is four bounds" \
+  || fail "#4574 the default ceiling is not four bounds (rc=$rc, calls=$(cat "$W/calls"), $out)"
+q_clear
 # The start time a marker records does not depend on the reader's zone or locale, and a marker written the older way
 # (the writer's own zone and locale) still reads as live.
 sleep 300 & zp=$!
-for j in 1 2 3 4 5 6 7 8 9 10; do case "$(ps -ww -o command= -p "$zp")" in sleep*) break ;; esac; sleep 0.1; done
+q_ready "$zp"
 # The writer runs in Tokyo and the reader in Chicago. With the pin, both compute the same UTC form; without it (the
 # mutation) they print different local times and the live waiter reads as stale. Line 3 holds the Tokyo local form,
 # which a Chicago reader cannot match, so only line 4 can pass this.
-printf '100 %s\n%s\n%s\n%s\n' "$zp" "$(ps -ww -o command= -p "$zp")" "$(TZ=Asia/Tokyo _kosmos_pid_started_local "$zp")" "$(TZ=Asia/Tokyo LC_ALL=C _kosmos_pid_started "$zp")" > "$W/markers/suitewait.$zp"
-( export TZ=America/Chicago; _kosmos_suite_waiter_live "$zp" ) && pass "#4574 a marker written in one time zone is live to a reader in another" \
+# The writer also uses a French locale where the box has one (macOS does), so the locale half of the pin is guarded too.
+printf '100 %s\n%s\n%s\n%s\n' "$zp" "$(ps -ww -o command= -p "$zp")" "$(TZ=Asia/Tokyo LC_ALL=fr_FR.UTF-8 _kosmos_pid_started_local "$zp")" "$(TZ=Asia/Tokyo LC_ALL=fr_FR.UTF-8 _kosmos_pid_started "$zp")" > "$W/markers/suitewait.$zp"
+( export TZ=America/Chicago LC_ALL=C; _kosmos_suite_waiter_live "$zp" ) && pass "#4574 a marker written in one time zone is live to a reader in another" \
   || fail "#4574 a reader in another time zone called a live waiter stale"
 printf '100 %s\n%s\n%s\n' "$zp" "$(ps -ww -o command= -p "$zp")" "$(_kosmos_pid_started_local "$zp")" > "$W/markers/suitewait.$zp"
 _kosmos_suite_waiter_live "$zp" && pass "#4574 a marker written the older way (local start time) is still live" \
@@ -759,6 +772,12 @@ _kosmos_suite_waiter_live "$zp" && pass "#4574 a marker written the older way (l
 printf '100 %s\n%s\nMon Jan  1 00:00:00 2001\n' "$zp" "$(ps -ww -o command= -p "$zp")" > "$W/markers/suitewait.$zp"
 { ! _kosmos_suite_waiter_live "$zp" && [ ! -e "$W/markers/suitewait.$zp" ]; } && pass "#4574 CONTROL: a start time that matches neither form is still stale" \
   || fail "#4574 a wrong start time was accepted"
+# ps that cannot say when the process started (an empty start time) is stale too, even on an older 3-line marker.
+printf '100 %s\n%s\n\n' "$zp" "$(ps -ww -o command= -p "$zp")" > "$W/markers/suitewait.$zp"
+( _kosmos_pid_started() { :; }; _kosmos_pid_started_local() { :; }; ! _kosmos_suite_waiter_live "$zp" ) \
+  && pass "#4574 an empty start time from ps reads as stale, not as a match for an empty line" \
+  || fail "#4574 an empty start time was taken for a live waiter"
+rm -f "$W/markers/suitewait.$zp"
 kill "$zp" 2>/dev/null; wait "$zp" 2>/dev/null
 # What this lib writes, an older copy reads: line 3 is the writer's local form, the one an older reader compares.
 kosmos_mark_suite_waiting 500

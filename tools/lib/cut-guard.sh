@@ -540,7 +540,8 @@ _kosmos_suite_waiter_live() {
   # #4574: line 4 holds the start time in UTC and the C locale, so readers in different zones or locales agree. Line 3
   # keeps the writer's local form, which is all an older copy of this lib (another worktree, side by side) reads.
   local want; want="$(_kosmos_pid_started "$pid")"
-  if [ -z "$stored" ] || [ "$stored" != "$live" ] \
+  # An empty start time (ps could not say) matches nothing: stale, the safe side, before any comparison.
+  if [ -z "$stored" ] || [ "$stored" != "$live" ] || [ -z "$want" ] \
      || { [ "$utc" != "$want" ] && [ "$began" != "$want" ] && [ "$began" != "$(_kosmos_pid_started_local "$pid")" ]; }; then
     rm -f "$f" 2>/dev/null; return 1
   fi
@@ -607,7 +608,8 @@ _kosmos_suite_waiters_ahead() {
 }
 
 # kosmos_refuse_if_earlier_suite_waiter <what>: refuses while another suite has waited longer
-# (earlier epoch, then lower pid). A caller with no marker of its own is behind every waiter.
+# (earlier epoch, then lower pid). A caller with no marker of its own is behind every waiter. Since #4574 it walks every
+# marker (the shared helper) rather than stopping at the first: a few ps calls a marker, once or twice a 30 s poll.
 kosmos_refuse_if_earlier_suite_waiter() {
   local what="${1:-this run}" pid
   # A read loop, not `head -1`: closing the pipe early could print "Broken pipe" into this refusal's own message.
