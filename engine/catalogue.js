@@ -142,7 +142,7 @@ function memberInstructions(teamKey, slot, names) {
     lines.push(...wrapLines(`You lead the ${t.label} for the person you work for.`, '', ''));
     lines.push('', 'Your team, and what each of them is here for:', '');
     for (const x of t.members.filter((y) => y !== m)) {
-      lines.push(...wrapLines(`**${nameOf(x)}** (\`kosmos msg ${handleOf(x)}\`), ${x.title}: ${x.focus.join(' ')}`, '- ', '  '));
+      lines.push(...wrapLines(`**${nameOf(x)}** (\`kosmos msg ${handleOf(x)} "..."\`), ${x.title}: ${x.focus.join(' ')}`, '- ', '  '));
     }
     lines.push('');
     lines.push(...wrapLines(`Brief each of them with the command beside their name, check what comes back before it reaches the person you work for, and keep the team working toward this goal: ${t.project.goal}`, '', ''));

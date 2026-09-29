@@ -1505,13 +1505,16 @@ const OVERSIGHT_RHYTHM = [
     const catalogue = require('./catalogue');
     loaded = { order: catalogue.groupOrder(), extra: catalogue.rawRoles() };
   } catch (err) {
-    process.stderr.write(`kosmos: the ready-made role catalogue did not load (${err && err.message}); showing the original roles only\n`);
+    const why = err && err.message;
+    process.stderr.write(`kosmos: the ready-made role catalogue did not load (${why}); showing the original roles only\n`);
   }
   if (loaded) {
     const { order, extra } = loaded;
     const have = new Set(ROLES.map((r) => r.key));
     const skipped = extra.filter((r) => have.has(r.key)).map((r) => r.key);
-    if (skipped.length) process.stderr.write(`kosmos: catalogue roles already defined in roles.js were skipped: ${skipped.join(', ')}\n`);
+    if (skipped.length) {
+      process.stderr.write(`kosmos: catalogue roles already defined in roles.js were skipped: ${skipped.join(', ')}\n`);
+    }
     const menu = ROLES.filter((r) => r.menu !== false).concat(extra.filter((r) => !have.has(r.key)));
     const hidden = ROLES.filter((r) => r.menu === false);
     const rank = (r) => { const i = order.indexOf(r.group); return i === -1 ? order.length : i; };

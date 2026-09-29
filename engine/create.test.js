@@ -754,7 +754,8 @@ test('the roles where being wrong is expensive carry their limit in BOTH places'
   // agent-to-agent messaging (#51) exists that claim needs the same
   // caution the other overstating blurbs carry.
   // The rule this loop holds is unchanged: most roles carry none, so the
-  // ones that do still mean something. The assertion below holds that line.
+  // ones that do still mean something. The assertion below holds that line, and with the #4555
+  // catalogue it is AT its limit (51 of 104): a new cautioned role means rebalancing, not a bug.
   for (const key of ['writer', 'researcher', 'engineer', 'data', 'design']) {
     assert.ok(!roles.byKey(key).caution,
       `${key} carries a caution, and a warning on everything warns about nothing`);

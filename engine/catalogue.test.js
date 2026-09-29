@@ -39,7 +39,7 @@ test('every catalogue role reached ROLES, once, as the catalogue wrote it (none 
     assert.ok(hits[0].instructions.startsWith(r.instructions), `${r.key} in ROLES is not the catalogue's role (a collision kept the older one)`);
     assert.equal(hits[0].menu, undefined, `${r.key} is hidden from the picker`);
   }
-  // CONTROL: the collision check can fail. A catalogue key equal to an original key is caught.
+  // PREMISE (the collision itself is planted in the skip test further down): pm is an original key.
   assert.ok(roles.ROLES.some((x) => x.key === 'pm') && !raw.some((r) => r.key === 'pm'), 'the control premise changed');
 });
 
@@ -124,7 +124,7 @@ test('memberInstructions: the full file for every member, {{NAME}} filled, withi
       const lead = catalogue.leadOf(t);
       const flat = text.replace(/\s+/g, ' '); // lines wrap at 76, so a phrase can span a break
       if (m === lead) {
-        for (const x of t.members.filter((y) => y !== m)) assert.ok(flat.includes(`**${x.name}** (\`kosmos msg ${create.slugFor(x.name)}\`), ${x.title}`), `${t.key} lead does not name ${x.name} with the command that reaches them`);
+        for (const x of t.members.filter((y) => y !== m)) assert.ok(flat.includes(`**${x.name}** (\`kosmos msg ${create.slugFor(x.name)} "..."\`), ${x.title}`), `${t.key} lead does not name ${x.name} with the command that reaches them`);
       } else {
         assert.ok(flat.includes(`You report to **${lead.name}**`), `${t.key}/${m.slot} does not name its lead`);
       }
@@ -143,7 +143,7 @@ test('memberInstructions uses the names the person chose, for the member and for
   assert.match(flatSeo, /kosmos msg nova "\.\.\."/);
   const lead = catalogue.memberInstructions('marketing', 'lead', names);
   assert.ok(lead.startsWith('You are **Nova**, '));
-  assert.match(lead.replace(/\s+/g, ' '), /\*\*Scout\*\* \(`kosmos msg scout`\), SEO Specialist/);
+  assert.match(lead.replace(/\s+/g, ' '), /\*\*Scout\*\* \(`kosmos msg scout "\.\.\."`\), SEO Specialist/);
   // CONTROL: without the names, the seed's names are used, so the assertions above were about `names`.
   const seed = catalogue.team('marketing');
   assert.match(catalogue.memberInstructions('marketing', 'seo').replace(/\s+/g, ' '), new RegExp(`You report to \\*\\*${catalogue.leadOf(seed).name}\\*\\*`));
@@ -151,6 +151,8 @@ test('memberInstructions uses the names the person chose, for the member and for
 });
 
 const build = require('../tools/catalogue/build');
+// Child processes load roles.js as a board would: not as a node --test process.
+const CHILD_ENV = { ...process.env, NODE_TEST_CONTEXT: '' };
 
 test('the generated modules match their source (tools/catalogue/build.js), and the check can fail', () => {
   // In-process, so it runs wherever the tests run: no second toolchain to be missing.
@@ -297,12 +299,12 @@ test('a catalogue that fails to load costs the new roles, not the board: roles.j
     const roles = require(${JSON.stringify(path.join(__dirname, 'roles.js'))});
     process.stdout.write(String(roles.ROLES.length) + ' ' + (roles.byKey('pm') ? 'pm' : 'no-pm') + ' ' + (roles.byKey('cmo') ? 'cmo' : 'no-cmo'));
   `;
-  const r = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', env: { ...process.env, NODE_TEST_CONTEXT: '' } });
+  const r = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', env: CHILD_ENV });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout, '35 pm no-cmo', 'roles.js did not fall back to exactly the original roles');
   assert.match(r.stderr, /ready-made role catalogue did not load \(planted catalogue failure\)/);
   // CONTROL: without the planted failure the same child sees the catalogue.
-  const ok = spawnSync(process.execPath, ['-e', `const r = require(${JSON.stringify(path.join(__dirname, 'roles.js'))}); process.stdout.write(String(r.ROLES.length))`], { encoding: 'utf8' });
+  const ok = spawnSync(process.execPath, ['-e', `const r = require(${JSON.stringify(path.join(__dirname, 'roles.js'))}); process.stdout.write(String(r.ROLES.length))`], { encoding: 'utf8', env: CHILD_ENV });
   assert.equal(ok.stdout, '104');
 });
 
@@ -333,11 +335,11 @@ test('a catalogue key already defined in roles.js is skipped, the original kept 
     const pms = roles.ROLES.filter((r) => r.key === 'pm');
     process.stdout.write(pms.length + ' ' + pms[0].label);
   `;
-  const r = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8' });
+  const r = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', env: CHILD_ENV });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout, '1 Project Manager', 'the original pm was not kept exactly once');
   assert.match(r.stderr, /already defined in roles\.js were skipped: pm/);
   // CONTROL: without the planted key there is no skip line.
-  const ok = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(path.join(__dirname, 'roles.js'))})`], { encoding: 'utf8' });
+  const ok = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(path.join(__dirname, 'roles.js'))})`], { encoding: 'utf8', env: CHILD_ENV });
   assert.doesNotMatch(ok.stderr, /were skipped/);
 });

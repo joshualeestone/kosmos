@@ -273,7 +273,7 @@ module.exports = {
       "rank": 3,
       "label": "Customer Support Team",
       "blurb": "A Head of Customer Experience with support, help center, success and feedback",
-      "purpose": "For any business with customers who have questions. The team drafts replies, turns repeat questions into help articles, checks in with customers at risk, sorts orders and returns, and reports what customers are saying.",
+      "purpose": "For any business with customers who have questions. The team drafts replies, turns repeat questions into help articles, checks in with customers at risk, and reports what customers are saying.",
       "caution": "The lead briefs the rest of the team and checks their work on its own.",
       "project": {
         "name": "Customer Support",
@@ -1959,7 +1959,7 @@ module.exports = {
       "rank": 1,
       "label": "Home Team",
       "blurb": "A Household Manager with maintenance, meals, money and errands",
-      "purpose": "For running a home without it running you. The Household Manager keeps the list; the team plans maintenance, plans meals and shopping, keeps bills and budget in order, and handles errands and purchases.",
+      "purpose": "For running a home without it running you. The Household Manager keeps the list; the team plans maintenance, plans meals and shopping, keeps the budget, and researches purchases and keeps the errands list.",
       "caution": "The lead briefs the rest of the team and checks their work on its own.",
       "project": {
         "name": "Home",
