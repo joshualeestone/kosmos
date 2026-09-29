@@ -1584,6 +1584,9 @@ const CODEX_HOOK_TABLE_WARNING = /^\s*(?:⚠\s*)?\d+ hooks? needs? review before
 const CODEX_HOOK_MENU_FOOTER_END = /Pressentertoconfirmoresctogoback$/;
 const CODEX_HOOK_TABLE_FOOTER_END = /Pressttotrustall;entertoreviewhooks;esctoclose$/;
 /* A Codex screen that is blank when read: the program is still drawing at startup (round 1). */
+/* A Codex screen we could not read (round 2): not proof that no dialog is up, so nothing is typed. */
+const CODEX_UNSEEN_SENTENCE = 'we could not see its screen just now, so nothing was typed: Codex may be showing a question '
+  + 'there that typed text would answer. Send this again in a moment.';
 const CODEX_STARTING_SENTENCE = 'it is still starting (its screen is blank), so nothing was typed: Codex may be about to ask '
   + 'a question on that screen, and typed text would answer it. Send this again in a moment.';
 const CODEX_HOOK_ROWS = 30;
@@ -7632,7 +7635,8 @@ function snapshot() {
          everywhere the option is absent. The switch screen keys on this, and it is
          the supervisor's record, never an inference from the command. */
       // #3568: an agy pane read before its runner tag lands is still antigravity (as isAgyPane says).
-      runner: pane.runner === 'codex' ? 'codex' : pane.runner === 'gemini' ? 'gemini' : (pane.runner === 'grok' || isGrokCommand(pane.command)) ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : pane.runner === 'muse' ? 'muse' : 'claude',
+      // #4589 round 2: and a native codex pane is codex before its tag lands (the startup window the hook dialog lives in).
+      runner: (pane.runner === 'codex' || isCodexCommand(pane.command)) ? 'codex' : pane.runner === 'gemini' ? 'gemini' : (pane.runner === 'grok' || isGrokCommand(pane.command)) ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : pane.runner === 'muse' ? 'muse' : 'claude',
       task: taskLine(pane.title),
       state: status.state,
       stateConfidence: status.confidence,
@@ -8061,6 +8065,7 @@ module.exports = {
   isCodexHookEvidence,
   CODEX_HOOK_DIALOG_SENTENCE,
   CODEX_STARTING_SENTENCE,
+  CODEX_UNSEEN_SENTENCE,
   SELECTOR_GLYPHS,
   isCodexCommand,
   readableModelId, // #4416

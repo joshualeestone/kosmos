@@ -67,3 +67,13 @@ Earlier "rounds" on this branch were the loop reviewing its own work; this is th
 Residuals, stated precisely: the claim is that no MESSAGE is typed into the dialog. Stop now (Escape) and the stop
 helpers (C-x C-k) are key actions, not messages, and still act on a Codex pane in the dialog; Escape there means "go
 back / close". A future Codex that changes the footer words is not recognised.
+
+## Blind review round 2 (Sonnet, a separate reviewer, 2026-09-29 13:25) and what changed
+- One rule for messages AND keys: `codexScreenRefusal` (chat.js), used by deliverWithGap and keysAllowed. Stop now's
+  Escape and the stop helpers' C-x C-k no longer reach the dialog (the round-1 "messages only" residual is closed).
+- A fresh read that FAILS now refuses ("we could not see its screen"), instead of trusting a startup snapshot.
+- A native `codex` pane read before its runner tag lands is Codex (status.js card.runner, as Grok/Antigravity already).
+Kept, with the reason: a blank screen still refuses. Codex always draws its composer or a dialog, so a blank read is a
+transient redraw or startup; the sender is told to send again, and the next read decides (not a permanent trap).
+Residuals, stated: the dialog can draw in the gap between the read and the paste; a Codex launched through `node`
+reads as Claude until its tag lands; a future Codex that rewords the footers is not recognised.

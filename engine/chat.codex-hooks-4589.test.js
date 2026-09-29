@@ -214,3 +214,41 @@ test('#4589 round 1: the footer wrapped on a narrow pane is still the dialog, an
   /* CONTROL: the wrapped dialog quoted in the agent's output, with its prompt below, is still not the dialog. */
   assert.equal(status.codexHookReview(narrow(TABLE, 30).trimEnd() + '\n\n' + IDLE), null);
 });
+
+/* Blind review round 2 (2026-09-29). */
+test('#4589 round 2: a fresh read that FAILS is not proof there is no dialog: nothing is typed, even on an idle snapshot', () => {
+  withCodex(IDLE, (board) => {
+    const tmux = arm([refused()]);
+    const v = chat.deliver('sam', 'hello', board.agents);
+    assert.equal(v.state, chat.DELIVERY.COULD_NOT);
+    assert.equal(v.because, status.CODEX_UNSEEN_SENTENCE);
+    assert.deepEqual(tmux.typedInto(), []);
+  });
+});
+
+test('#4589 round 2: Stop now\'s keys obey the same rule (no Escape into the dialog); CONTROL at the prompt', () => {
+  withCodex(TABLE, (board) => {
+    const tmux = arm([ok(TABLE)]);
+    const r = chat.interrupt('sam', board.agents);
+    assert.equal(r.ok, false);
+    assert.equal(r.because, status.CODEX_HOOK_DIALOG_SENTENCE);
+    assert.deepEqual(tmux.typedInto(), [], 'Stop now pressed a key into the hook dialog');
+  });
+  withCodex(IDLE, (board) => {
+    const tmux = arm([ok(IDLE)]);
+    assert.equal(chat.interrupt('sam', board.agents).ok, true, 'CONTROL: at its prompt a Codex agent can still be stopped');
+    assert.ok(tmux.typedInto().some((a) => a[0] === 'send-keys' && a[a.length - 1] === 'Escape'));
+  });
+});
+
+test('#4589 round 2: a native codex pane before its runner tag lands is Codex, so the fresh read still guards it', () => {
+  /* Asked for as needs_you: the engine must see this untagged pane as Codex to classify the menu at all. */
+  const board = fleet.install([fleet.agent('sam', { state: 'needs_you', runner: '', command: 'codex', screen: MENU })]);
+  try {
+    const card = board.agents.find((a) => a.name === 'sam');
+    assert.equal(card.runner, 'codex', 'an untagged native codex pane read as ' + card.runner);
+    const tmux = arm([ok(MENU)]);
+    assert.equal(chat.deliver('sam', 'hello', board.agents).state, chat.DELIVERY.COULD_NOT);
+    assert.deepEqual(tmux.typedInto(), []);
+  } finally { board.restore(); }
+});
