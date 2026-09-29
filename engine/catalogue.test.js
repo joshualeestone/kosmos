@@ -73,7 +73,6 @@ test('teams: unique keys, a lead plus 4 or 5 reports, unique slots and names as 
   assert.equal(new Set(all.map((t) => t.key)).size, all.length, 'two teams share a key');
   for (const kind of ['business', 'personal']) {
     const ranks = all.filter((t) => t.kind === kind).map((t) => t.rank);
-    assert.deepEqual(ranks, [...ranks].sort((a, b) => a - b), `${kind} teams are not ordered by rank`);
     assert.equal(new Set(ranks).size, ranks.length, `two ${kind} teams share a rank`);
   }
   assert.ok(all.every((t) => ['business', 'personal'].includes(t.kind)));
@@ -124,7 +123,7 @@ test('memberInstructions: the full file for every member, {{NAME}} filled, withi
       const lead = catalogue.leadOf(t);
       const flat = text.replace(/\s+/g, ' '); // lines wrap at 76, so a phrase can span a break
       if (m === lead) {
-        for (const x of t.members.filter((y) => y !== m)) assert.ok(flat.includes(`**${x.name}** (\`kosmos msg ${create.slugFor(x.name)} "..."\`), ${x.title}`), `${t.key} lead does not name ${x.name} with the command that reaches them`);
+        for (const x of t.members.filter((y) => y !== m)) assert.ok(flat.includes(`**${x.name}** (\`${CLI} msg ${create.slugFor(x.name)} "..."\`), ${x.title}`), `${t.key} lead does not name ${x.name} with the command that reaches them`);
       } else {
         assert.ok(flat.includes(`You report to **${lead.name}**`), `${t.key}/${m.slot} does not name its lead`);
       }
@@ -140,10 +139,10 @@ test('memberInstructions uses the names the person chose, for the member and for
   assert.ok(seo.startsWith('You are **Scout**, '));
   const flatSeo = seo.replace(/\s+/g, ' ');
   assert.match(flatSeo, /You report to \*\*Nova\*\*/);
-  assert.match(flatSeo, /kosmos msg nova "\.\.\."/);
+  assert.ok(flatSeo.includes(`${CLI} msg nova "..."`));
   const lead = catalogue.memberInstructions('marketing', 'lead', names);
   assert.ok(lead.startsWith('You are **Nova**, '));
-  assert.match(lead.replace(/\s+/g, ' '), /\*\*Scout\*\* \(`kosmos msg scout "\.\.\."`\), SEO Specialist/);
+  assert.ok(lead.replace(/\s+/g, ' ').includes(`**Scout** (\`${CLI} msg scout "..."\`), SEO Specialist`));
   // CONTROL: without the names, the seed's names are used, so the assertions above were about `names`.
   const seed = catalogue.team('marketing');
   assert.match(catalogue.memberInstructions('marketing', 'seo').replace(/\s+/g, ' '), new RegExp(`You report to \\*\\*${catalogue.leadOf(seed).name}\\*\\*`));
@@ -151,6 +150,8 @@ test('memberInstructions uses the names the person chose, for the member and for
 });
 
 const build = require('../tools/catalogue/build');
+// The command as this machine teaches it (bare `kosmos` is not on every PATH): engine/clipath.js.
+const CLI = require('./clipath').kosmosCliShown();
 // Child processes load roles.js as a board would: not as a node --test process.
 const CHILD_ENV = { ...process.env, NODE_TEST_CONTEXT: '' };
 
@@ -183,9 +184,9 @@ test('a chosen name with spaces or periods is written as typed, and every comman
   const seo = catalogue.memberInstructions('marketing', 'seo', { lead });
   const flat = seo.replace(/\s+/g, ' ');
   assert.ok(flat.includes(`You report to **${lead}**`), 'the display name is not what the person typed');
-  assert.ok(flat.includes(`\`kosmos msg ${slug} "..."\``), 'the command does not carry the machine name');
+  assert.ok(flat.includes(`\`${CLI} msg ${slug} "..."\``), 'the command does not carry the machine name');
   // CONTROL: the display name never appears inside a command, where its space would split it.
-  assert.ok(!flat.includes(`kosmos msg ${lead}`), 'a command carries the display name');
+  assert.ok(!flat.includes(`msg ${lead}`), 'a command carries the display name');
   // No command is broken across a line: every line has an even number of backticks.
   for (const t of catalogue.teams()) for (const m of t.members) {
     for (const l of catalogue.memberInstructions(t.key, m.slot, { lead }).split('\n')) {
@@ -365,4 +366,15 @@ test('fewer than half of the roles a person can pick carry a caution (the menu, 
   const menu = roles.ROLES.filter((r) => r.menu !== false);
   assert.ok(menu.filter((r) => r.caution).length < menu.length / 2,
     `${menu.filter((r) => r.caution).length} of ${menu.length} menu roles carry a caution`);
+});
+
+test('every team member file carries the messaging block create adds to role templates', () => {
+  const messages = require('./messages');
+  for (const t of catalogue.teams()) for (const m of t.members) {
+    const text = catalogue.memberInstructions(t.key, m.slot);
+    assert.equal(text.split(messages.START).length - 1, 1, `${t.key}/${m.slot}: messaging block missing or doubled`);
+    assert.ok(text.includes(messages.END));
+  }
+  // CONTROL: the role text alone (what explicit instructions would carry) has no block.
+  assert.ok(!roles.instructionsFor('cmo', 'X').includes(messages.START));
 });

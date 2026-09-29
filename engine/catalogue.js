@@ -122,6 +122,9 @@ function memberProblem(teamKey, slot, names) {
  * @param {string} slot                         the member's slot, e.g. 'lead'
  * @param {Object<string,string>} [names]       slot -> the agent name chosen; a
  *                                              slot left out keeps the seed's name
+ * The caller writes the name it passes here, trimmed, as the agent's name, so the file and the
+ * agent agree (chosenName trims).
+ *
  * @returns {string|null} null exactly when memberProblem() returns a reason: an unknown
  *   team, slot or role, a name create refuses, or two seats with the same name.
  */
@@ -134,6 +137,9 @@ function memberInstructions(teamKey, slot, names) {
   // What a `kosmos msg` command must carry: the machine name (lowercase, spaces folded), so a
   // two-word name cannot split into a recipient and the start of the message.
   const handleOf = (x) => create.slugFor(nameOf(x));
+  // The command as this machine can run it (bare `kosmos` is not on a stock install's PATH), the
+  // same derivation the messaging block below teaches (engine/clipath.js).
+  const cli = require('./clipath').kosmosCliShown();
   const roles = require('./roles');
   const base = roles.instructionsFor(m.role, nameOf(m));
   const lead = leadOf(t);
@@ -142,12 +148,12 @@ function memberInstructions(teamKey, slot, names) {
     lines.push(...wrapLines(`You lead the ${t.label} for the person you work for.`, '', ''));
     lines.push('', 'Your team, and what each of them is here for:', '');
     for (const x of t.members.filter((y) => y !== m)) {
-      lines.push(...wrapLines(`**${nameOf(x)}** (\`kosmos msg ${handleOf(x)} "..."\`), ${x.title}: ${x.focus.join(' ')}`, '- ', '  '));
+      lines.push(...wrapLines(`**${nameOf(x)}** (\`${cli} msg ${handleOf(x)} "..."\`), ${x.title}: ${x.focus.join(' ')}`, '- ', '  '));
     }
     lines.push('');
     lines.push(...wrapLines(`Brief each of them with the command beside their name, check what comes back before it reaches the person you work for, and keep the team working toward this goal: ${t.project.goal}`, '', ''));
   } else {
-    lines.push(...wrapLines(`You are the ${m.title} on the ${t.label}. You report to **${nameOf(lead)}**, the ${lead.title}: take your work from ${nameOf(lead)}, and send finished work and questions back with \`kosmos msg ${handleOf(lead)} "..."\`.`, '', ''));
+    lines.push(...wrapLines(`You are the ${m.title} on the ${t.label}. You report to **${nameOf(lead)}**, the ${lead.title}: take your work from ${nameOf(lead)}, and send finished work and questions back with \`${cli} msg ${handleOf(lead)} "..."\`.`, '', ''));
     const peers = t.members.filter((y) => y !== m && y !== lead).map((y) => `${nameOf(y)} (${y.title})`);
     if (peers.length) lines.push('', ...wrapLines(`Your teammates: ${peers.join(', ')}.`, '', ''));
     lines.push('', ...wrapLines(`The team's goal: ${t.project.goal}`, '', ''));
@@ -156,7 +162,13 @@ function memberInstructions(teamKey, slot, names) {
     lines.push('', 'Your focus here:', '');
     for (const f of m.focus) lines.push(...wrapLines(f, '- ', '  '));
   }
-  return base.replace(/\n+$/, '\n') + lines.join('\n') + '\n';
+  const text = base.replace(/\n+$/, '\n') + lines.join('\n') + '\n';
+  /* create adds the messaging block (how to answer the person, kosmos reply / post / msg) only to
+     role templates, never to explicit instructions like these, so it is spliced in here with the
+     same markers: projects.healColleagues keeps it current afterwards, as for any agent. Without it
+     a team member would not know that a reply in its own window reaches nobody. */
+  const messages = require('./messages');
+  return require('./projects').spliceBlock(text, messages.blockBody(), messages.START, messages.END);
 }
 
 module.exports = { ROLES_FILE, TEAMS_FILE, groupOrder, rawRoles, teams, team, leadOf, memberInstructions, memberProblem };
