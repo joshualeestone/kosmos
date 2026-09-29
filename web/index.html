@@ -1782,6 +1782,9 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .swconfirm { border: 1.5px solid var(--danger); border-radius: 12px; padding: 10px 12px; background: color-mix(in srgb, var(--danger) 6%, var(--k-surface)); }
 .swconfirm-q { margin: 0 0 8px; font-weight: 600; color: var(--k-ink); }
 .swconfirm-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+/* #4433 (Mona Lisa, design): Keep it running gets an edge as firm as Stop's. As a plain .btn its 0.5px --border-strong
+   edge sat under 3:1 on the tinted confirm box. Same weight as Stop, in --label; fill and text unchanged. */
+#d-swarm-keep { border: 1.5px solid var(--label); }
 .swbar { height: 8px; border-radius: 999px; background: var(--k-side); overflow: hidden; margin: 2px 0 6px; }
 .swbar i { display: block; height: 100%; background: var(--ok); border-radius: 999px; }   /* the mock's green: gold means selected */
 .swnums { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; font-size: .8125rem; font-variant-numeric: tabular-nums; }
