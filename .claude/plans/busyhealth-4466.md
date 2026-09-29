@@ -52,9 +52,7 @@ the CLI's own advice; a new Grok agent started and stopped the board 140 times i
   spawns `kosmos restart --force` and drops the agent markers from the child's env; every board
   start/stop/restart in `install/setup.sh` passes `--force`; an unsupervised board started from an agent's
   pane is launched with the agent markers removed from its env.
-- **Watchdog on a busy board:** its first attempt, `kosmos start`, is a no-op on a busy board (already
-  running), so recovering a truly wedged board is the next escalation, `kickstart -k`, one throttle later.
-  Test arms 6c/6d assert exactly that.
+- **Watchdog on a busy board:** see round 3 (the reclaim flag); arms 6c/6d in test-board-watchdog-2955.sh.
 
 ## Review round 2 decisions (deferred, with the reason)
 - **A person's `kosmos start` no longer reclaims a same-user Kosmos board that holds the port and never

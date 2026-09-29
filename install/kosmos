@@ -266,7 +266,8 @@ die() { printf '  %s\n' "$*" >&2; exit 1; }
 # shell carries no account data, so it is exempt from the board token. The token
 # gates the /api/* surface, not the page, so this identity match ('Agent
 # Workforce'/'Kosmos') works unchanged on an enforcing board AND on an older board
-# that predates the token (no compatibility break, no /api/health dependency).
+# that predates the token (no compatibility break: the page is the fallback below whenever a board has
+# no /api/health).
 #
 # #4466: BUSY IS NOT DOWN. On a real 25-agent board the page took longer than the old 2 s cap, so
 # every verb said "Kosmos is not running. Start it with: kosmos start" to a board that was only
@@ -283,6 +284,7 @@ die() { printf '  %s\n' "$*" >&2; exit 1; }
 # Returns 0 only for up. ⚠️ Call it as a plain statement or in `if`, never inside $( ): HEALTH_STATE is
 # a global and would be lost in the subshell.
 HEALTH_STATE=down
+_HEALTH_OWNER=""
 _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
   local _out _rc _code _body
   # `&& _rc=0 || _rc=$?`, not `; _rc=$?`: under set -e a failing substitution in a plain assignment
@@ -291,7 +293,7 @@ _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
   case "$_rc" in
     0) ;;
     7) HEALTH_STATE=down; return ;;                 # refused: nothing is listening
-    28|52|56) _health_no_answer; return ;;          # timed out, or connected and cut off
+    18|28|52|56) _health_no_answer; return ;;       # timed out, or connected and cut off
     *) HEALTH_STATE=stranger; return ;;             # an answer that is not HTTP: not our board
   esac
   _code="${_out##*$'\n'}"; _body="${_out%$'\n'*}"
@@ -308,7 +310,7 @@ _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
     7) HEALTH_STATE=down ;;
     # 22 is an HTTP error for `/`: an older board of ours failing under load, or a stranger's web server.
     # The same ownership check as a timeout decides which.
-    22|28|52|56) _health_no_answer ;;
+    18|22|28|52|56) _health_no_answer ;;
     *) HEALTH_STATE=stranger ;;
   esac
 }
@@ -320,7 +322,11 @@ _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
 _health_no_answer() {
   local _own _lpid _luid _lkos
   HEALTH_STATE=busy
-  _own="$(port_listener_owner 2>/dev/null)" || return 0
+  # Asked once per healthy() call (lsof walks every process): the owner does not change between retries,
+  # and a board this busy is on a machine that cannot spare the sweeps.
+  if [ -z "$_HEALTH_OWNER" ]; then _HEALTH_OWNER="$(port_listener_owner 2>/dev/null)" || _HEALTH_OWNER=unknown; fi
+  [ "$_HEALTH_OWNER" != unknown ] || return 0
+  _own="$_HEALTH_OWNER"
   read -r _lpid _luid _lkos <<EOF
 $_own
 EOF
@@ -334,6 +340,7 @@ _busy_wait() {
   case "${KOSMOS_BUSY_WAIT:-}" in ''|*[!0-9]*) printf '20' ;; *) printf '%s' "$KOSMOS_BUSY_WAIT" ;; esac
 }
 healthy() {
+  _HEALTH_OWNER=""
   if [ "${1:-}" = --once ]; then
     _health_probe 2
     if [ "$HEALTH_STATE" = up ]; then return 0; fi
@@ -1079,7 +1086,9 @@ cmd_open() {
   # #4466: a busy board is running, so open it (slowly) rather than start one; a down board is started
   # through the same agent guard as `kosmos start`.
   if ! healthy && [ "$HEALTH_STATE" != busy ]; then
-    agent_board_guard start
+    # In a subshell: the guard EXITS 0 ("already running") if the board came up since, which here must
+    # not end `open` before the browser opens. Its refusal (exit 1) still ends it.
+    ( agent_board_guard start ) || exit 1
     cmd_start
   fi
   # #1946/#1979: hand the browser a way to get the httpOnly board cookie on an

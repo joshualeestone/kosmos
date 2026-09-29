@@ -24,7 +24,10 @@ H="$(cd "$(dirname "$0")/.." && pwd)"
 case "$1" in
   status) [ -f "$H/.stub-healthy" ] && exit 0; [ -f "$H/.stub-busy" ] && exit 4; exit 1 ;;   # 4: #4466 busy
   # #4466: like the real CLI, a start on a BUSY (our own, not answering) board is a no-op "already running".
-  start)  echo "start reclaim=${KOSMOS_WATCHDOG_RECLAIM:-}" >> "$H/.stub-start-calls"; [ -f "$H/.stub-busy" ] || : > "$H/.stub-healthy"; exit 0 ;;
+  # #4466: like the real CLI: a start on a BUSY board is a no-op "already running", unless the watchdog
+  # passes KOSMOS_WATCHDOG_RECLAIM=1, when the #3079 reclaim frees the port and the board comes back.
+  start)  echo "start reclaim=${KOSMOS_WATCHDOG_RECLAIM:-}" >> "$H/.stub-start-calls"
+          if [ ! -f "$H/.stub-busy" ] || [ "${KOSMOS_WATCHDOG_RECLAIM:-}" = 1 ]; then : > "$H/.stub-healthy"; fi; exit 0 ;;
   *) exit 0 ;;
 esac
 STUB
@@ -93,23 +96,20 @@ grep -qx 'start reclaim=' "$H/.stub-start-calls" && ok "CONTROL: a plain down bo
 grep -q '^fail_count=1$' "$H/logs/board-watchdog.state" && ok "restart increments fail_count" || bad "fail_count not incremented"
 rm -rf "$H"
 
-# 6b. #4466: BUSY (status exit 4) past GRACE but within BUSY_GRACE -> NO restart. Arm 6 above is the
+# 6e. #4466: BUSY (status exit 4) past GRACE but within BUSY_GRACE -> NO restart. Arm 6 above is the
 #     control: the same age of down streak, plain down, does restart.
 H="$(new_home)"; : > "$H/.stub-busy"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\n' "$(( $(now) - 60 ))" > "$H/logs/board-watchdog.state"
 KOSMOS_WATCHDOG_BUSY_GRACE=300 run_wd "$H"
 [ "$(starts "$H")" = 0 ] && [ "$(kicks "$H")" = 0 ] && ok "busy 60 s: no restart (busy grace)" || bad "busy 60 s: restarted a busy board ($(starts "$H") starts, $(kicks "$H") kicks)"
 rm -rf "$H"
-# 6c. #4466: BUSY past BUSY_GRACE -> the first attempt is a plain `kosmos start`, which on a busy board
-#     is a no-op (the stub mirrors the real CLI), so it only counts a failure...
+# 6c. #4466: BUSY past BUSY_GRACE -> the first attempt is `kosmos start` with KOSMOS_WATCHDOG_RECLAIM=1,
+#     which reaches the #3079 reclaim, so the wedged board comes back on the first attempt.
 H="$(new_home)"; : > "$H/.stub-busy"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\n' "$(( $(now) - 400 ))" > "$H/logs/board-watchdog.state"
 KOSMOS_WATCHDOG_BUSY_GRACE=300 run_wd "$H"
-[ "$(starts "$H")" = 1 ] && [ "$(kicks "$H")" = 0 ] && grep -q '^fail_count=1$' "$H/logs/board-watchdog.state" \
-  && ok "busy 400 s, first attempt: kosmos start (a no-op on a busy board), fail_count 1" \
-  || bad "busy 400 s, first attempt: $(starts "$H") starts, $(kicks "$H") kicks, $(grep fail_count "$H/logs/board-watchdog.state")"
-[ ! -f "$H/.stub-healthy" ] && ok "busy 400 s, first attempt: the board is still not recovered (the honest state)" || bad "busy: the stub start healed a busy board"
-grep -qx 'start reclaim=1' "$H/.stub-start-calls" && ok "busy 400 s: the start is told it may reclaim a silent holder (KOSMOS_WATCHDOG_RECLAIM=1)" || bad "busy start did not ask to reclaim: $(cat "$H/.stub-start-calls")"
+grep -qx 'start reclaim=1' "$H/.stub-start-calls" && ok "busy 400 s: the start is told it may reclaim a silent holder (KOSMOS_WATCHDOG_RECLAIM=1)" || bad "busy start did not ask to reclaim: $(cat "$H/.stub-start-calls" 2>/dev/null)"
+[ "$(starts "$H")" = 1 ] && [ "$(kicks "$H")" = 0 ] && [ -f "$H/.stub-healthy" ] && ok "busy 400 s: recovered on the first attempt, no kickstart" || bad "busy 400 s: $(starts "$H") starts, $(kicks "$H") kicks, healthy=$([ -f "$H/.stub-healthy" ] && echo yes || echo no)"
 rm -rf "$H"
-# 6d. ...and the RECOVERY of a wedged board is the next escalation: kickstart -k of the board job.
+# 6d. A reclaim that did not take (fail_count 1) escalates, as for any board: kickstart -k of the board job.
 H="$(new_home)"; : > "$H/.stub-busy"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=1\n' "$(( $(now) - 800 ))" > "$H/logs/board-watchdog.state"
 KOSMOS_WATCHDOG_BUSY_GRACE=300 run_wd "$H"
 [ "$(kicks "$H")" -ge 1 ] && [ -f "$H/.stub-healthy" ] && ok "busy 800 s after a failed start: kickstart -k recovers the wedged board" || bad "busy wedged board never escalated ($(kicks "$H") kicks)"
