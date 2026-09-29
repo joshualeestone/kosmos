@@ -347,15 +347,16 @@ const BLOCK = [
   'tab open "for later". You share the person\'s browser, and the tabs agents leave',
   'behind pile up into hundreds and slow their computer down.',
   '',
-  '**To read a web page, fetch it rather than opening it in their browser.** If a',
-  'page only works in a real browser, use a browser of your own, not theirs, and',
-  'close what you open there too. When the person needs to see a page, give them',
+  '**To read a web page, fetch it rather than opening it in their browser;** a',
+  'plain download is enough. If a page only works in a real browser, use a browser',
+  'of your own, not theirs: the private browser Kosmos gives you, if you have one.',
+  'Close what you open there too. When the person needs to see a page, give them',
   'the address. Open it in their own browser only when they must act on it right',
   'now, such as a sign-in or a payment, and tell them you did.',
   '',
-  'If you opened a tab in a way that gives you nothing to close it with, such as a',
-  'plain `open` or `start` of a link, or a sign-in page you opened for them, tell',
-  'the person you left it open and why.',
+  'Never open a link with a plain `open` or `start` just to read it: that leaves a',
+  'tab you have nothing to close with. If you did open one they must act on, such',
+  'as a sign-in page, tell them you left it open.',
   '',
   '### When your work reaches outside your own folder',
   '',
@@ -729,17 +730,16 @@ function block() {
  *     browser tabs open in his browser (reported on the #4466 thread, not measured
  *     here: on one 25-agent Mac about a third of the memory in use was Chrome).
  *     Nothing in this block mentioned tabs. A NEW
- *     section: close every tab or window you open when done, fetch a page
- *     rather than opening it (or use a browser of your own when it must be
- *     rendered), give the person the address, open their browser only when they
- *     must act now, and say so when a tab was opened with no handle to close it.
+ *     section: close every tab or window you open when done; fetch a page
+ *     rather than opening it, or use the agent's own private browser
+ *     (engine/agentbrowser.js, when it has one) for a page that must be rendered;
+ *     give the person the address; open their browser only when they must act
+ *     now; never `open` a link just to read it.
  *     NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason:
  *     `missingFrom` matches by heading, so agents that already exist are
  *     re-offered it through the consented refresh, not only new ones.
- *     WEAKEST PREMISE, NAMED: a rule changes what an agent does only as far as
- *     it can act on it. An agent that drove a browser tool that keeps no tab
- *     handle cannot close what it opened; the last paragraph makes that case
- *     say so instead of going silent.
+ *     WEAKEST PREMISE, NAMED: that a written rule changes what agents do with the
+ *     browser. Measured only once the release reaches agents.
  */
 const DOCTRINE_VERSION = 16;
 

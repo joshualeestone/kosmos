@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: '0008b3d2ee8393cd' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'b85e50fe3ae8f5ad' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -467,10 +467,11 @@ test('#4467: the block tells every agent to close the browser tabs it opens', ()
   assert.match(b, /Close every browser tab or window you open as soon as you are done with it/, 'the rule itself is gone');
   assert.match(b, /never leave a\s+tab open "for later"/, 'the "not for later" half is gone');
   assert.match(b, /To read a web page, fetch it rather than opening it in their browser/, 'fetch-instead-of-open is gone');
-  assert.match(b, /use a browser of your own, not theirs/, 'a page that must be rendered has no path that stays out of their browser');
+  assert.match(b, /use a browser\s+of your own, not theirs/, 'a page that must be rendered has no path that stays out of their browser');
   assert.match(b, /give them\s+the address/, 'showing a page no longer prefers handing over the address');
   assert.match(b, /Open it in their own browser only when they must act on it right\s+now/, 'the one reason to open their browser is gone');
-  assert.match(b, /tell\s+the person you left it open and why/, 'the no-handle case no longer says to tell the person');
+  assert.match(b, /the private browser Kosmos gives you, if you have one/, 'the rendered-page case no longer points at the agent\'s own browser');
+  assert.match(b, /Never open a link with a plain `open` or `start` just to read it/, 'the open-to-read ban is gone');
   const heads = defaults.sections().map((s) => s.heading);
   assert.ok(heads.includes('### Close the browser tabs you open'), 'sections() does not offer it, so existing agents would never get it');
 });
