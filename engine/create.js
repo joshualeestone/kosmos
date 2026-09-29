@@ -101,8 +101,9 @@ const launchidentity = require('./launchidentity'); // #1704: the per-Kosmos lau
  */
 /* #2140 (Josh, 0.6.35 feedback item 10): the Claude picker is ordered
    MOST-POWERFUL-FIRST, in Josh's exact order. #3459 (2026-09-23) added Opus 5.5
-   ahead of Opus 5, so the order is now: Fable 5.1, Fable 5, Opus 5.5, Opus 5,
-   Opus 4.8, Sonnet, Haiku. The array order IS the display order (the picker
+   ahead of Opus 5, and #4439 (2026-09-28) added Sonnet 5.5 ahead of Sonnet 5, so
+   the order is now: Fable 5.1, Fable 5, Opus 5.5, Opus 5, Opus 4.8, Sonnet 5.5,
+   Sonnet 5, Haiku. The array order IS the display order (the picker
    renders MODELS in sequence), so this list is the single source of that order;
    create.test.js and model-sort-order-2284.test.js assert it exactly. The DEFAULT
    is unchanged (Sonnet 5,
@@ -131,6 +132,14 @@ const MODELS = [
   // less -- that is Part 2 of #1356 and is not settled here.
   { key: 'opus48', provider: 'anthropic', label: 'Claude Opus 4.8', arg: 'claude-opus-4-8',
     why: 'The previous Opus generation, with a very large context for long, involved work.' },
+  // #4439 (Josh, 2026-09-28): add Sonnet 5.5, the newest Sonnet. Id claude-sonnet-5-5
+  // verified from the installed Claude Code 2.1.284's own model catalog (no date suffix;
+  // SONNET_ID there), posted on the card with the source. Placed ahead of Sonnet 5 as the
+  // newest of its tier, as Opus 5.5 leads the Opus tier. The DEFAULT stays Sonnet 5: the
+  // card asked to add it, not to change which model is pre-selected. Named in status.js
+  // MODEL_NAMES and priced in web/index.html USAGE_MODEL_PRICES too.
+  { key: 'sonnet55', provider: 'anthropic', label: 'Claude Sonnet 5.5', arg: 'claude-sonnet-5-5',
+    why: 'The newest Sonnet, with more recent knowledge (to June 2026). Quick, and good at most work.' },
   { key: 'sonnet', provider: 'anthropic', label: 'Claude Sonnet 5', arg: 'claude-sonnet-5', default: true,
     why: 'The everyday choice. Quick, and good at most work.' },
   { key: 'haiku', provider: 'anthropic', label: 'Claude Haiku 4.5', arg: 'claude-haiku-4-5-20251001',

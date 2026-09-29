@@ -18251,7 +18251,7 @@ function memWhy(ctx) {
  * as an unhelpful sentence; this one shows up as a confident number.
  *
  * `limitFor` returns `assumed: true` for every model nobody has watched hit its
- * ceiling — today Opus 5, Sonnet 5 and Fable 5, all assumed at 1M — and the
+ * ceiling (today every Opus, Sonnet and Fable model except the measured Opus 4.8, all assumed at 1M), and the
  * engine even writes the wording ("measured, against a limit we have assumed
  * rather than watched") and sets `ceilingAssumed`. `grep assumed web/index.html`
  * matched one unrelated comment. The rule the assumption was allowed under is
@@ -33925,6 +33925,10 @@ const USAGE_MODEL_PRICES = {
   'claude-opus-5-5': { in: 4, out: 20, cw: 5.00, cr: 0.20 },
   'claude-opus-5': { in: 5, out: 25, cw: 6.25, cr: 0.50 },
   'claude-opus-4-8': { in: 5, out: 25, cw: 6.25, cr: 0.50 },
+  // sonnet-5-5 (#4439): the same tier as sonnet-5, tier_2_10 in Claude Code 2.1.284's model
+  // catalog (input 2, output 10, 5-minute write 2.5, cache read 0.2). That catalog gives
+  // opus-5-5 exactly the published rates above, which is why it is trusted here.
+  'claude-sonnet-5-5': { in: 2, out: 10, cw: 2.50, cr: 0.20 },
   'claude-sonnet-5': { in: 2, out: 10, cw: 2.50, cr: 0.20 },
   'claude-sonnet-4-6': { in: 3, out: 15, cw: 3.75, cr: 0.30 },
   'claude-haiku-4-5': { in: 1, out: 5, cw: 1.25, cr: 0.10 },
