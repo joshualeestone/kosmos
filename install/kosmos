@@ -1020,8 +1020,9 @@ _await_board_up() {
       # shell is sandboxed (ps denied: the measured sandbox denies it). Without that evidence the cause may be a
       # local network fault (the TIME_WAIT-leak shape, also curl 7, lasting until a reboot), which a normal
       # Terminal's board has too: it is left running and the start says this shell cannot reach it.
-      # Two readings are safe against a board still booting: a socket that is bound but not yet accepting drops
-      # the connect (a timeout, busy), measured on macOS, so only a refusal with a listener counts here.
+      # Two readings are safe against a board still booting: before listen() its socket is not a LISTEN socket
+      # (lsof does not list it, so it reads down), and once it listens the kernel accepts connects at once. Only
+      # a refusal WHILE lsof shows the listener counts here.
       if [ -n "$_pid" ] && [ "$_UNREACH_PID" != "$_pid" ]; then _unreach_seen=0; fi
       if [ -n "$_pid" ] && [ "$_UNREACH_PID" = "$_pid" ] && [ "$_unreach_seen" -ge 2 ] && ! _shell_is_sandboxed; then
         say "Kosmos started at $URL (process $_pid), but $(_unreachable_why), so this shell cannot use it."
@@ -1037,13 +1038,14 @@ _await_board_up() {
         # the process is gone. (board.started-at, written before the launch, stays: it only times the agent
         # restart cooldown, and a failed start counts as a start there, as #4466 intends.)
         if kill -0 "$_pid" 2>/dev/null; then
-          die "Kosmos cannot be started from this shell: $(_unreachable_why). The board it launched (process $_pid) would be blocked the same way and could not be stopped again; stop it from a normal Terminal with 'kosmos stop', then start it there."
+          die "Kosmos cannot be started from this shell: it started (process $_pid), but $(_unreachable_why). A board started here would be blocked the same way, and this one could not be stopped again; stop it from a normal Terminal with 'kosmos stop', then start it there."
         fi
-        rm -f "$PIDFILE" 2>/dev/null || true
+        # Only if it still names this launch (a supervised board-run could have written its own since).
+        if [ "$(cat "$PIDFILE" 2>/dev/null)" = "$_pid" ]; then rm -f "$PIDFILE" 2>/dev/null || true; fi
         # Nothing was left started, so a deliberate stop a person made stands (cmd_start's _had_stop_marker,
         # visible here because bash locals are dynamically scoped; empty for any other caller).
         if [ -n "${_had_stop_marker:-}" ]; then : > "$STOP_MARKER" 2>/dev/null || true; fi
-        die "Kosmos cannot be started from this shell: $(_unreachable_why). A board started from a sandboxed shell is blocked the same way, so it was stopped again. Start it from a normal Terminal (or ask the person who runs this computer)."
+        die "Kosmos cannot be started from this shell: it started, but $(_unreachable_why). A board started from a sandboxed shell is blocked the same way, so it was stopped again. Start it from a normal Terminal (or ask the person who runs this computer)."
       fi
     fi
     if [ "$HEALTH_STATE" != unreachable ]; then _unreach_seen=0; fi

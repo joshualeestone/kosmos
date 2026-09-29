@@ -49,8 +49,10 @@ fs.writeFileSync(UNFIXED, SRC.replace(GUARD, 'HEALTH_STATE=down; return'), { mod
 const DEAD_PROXY = 'http://127.0.0.1:9';   // nothing listens on the discard port; #4622 routes loopback around it
 const SANDBOX = '(version 1)(allow default)(deny network-outbound)';
 // Not only present: it must run here (it cannot nest inside another sandbox, where every sandboxed arm should skip).
+// And lsof must work inside it: every sandboxed arm rests on it (measured on macOS; a stricter sandbox is a skip).
 const HAVE_SANDBOX = fs.existsSync('/usr/bin/sandbox-exec')
-  && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/usr/bin/true']).status === 0;
+  && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/usr/bin/true']).status === 0
+  && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/usr/sbin/lsof', '-v']).status === 0;
 // The CLI stops a board it launched from a blocked shell only on this evidence of a sandbox (ps denied).
 const PS_DENIED_IN_SANDBOX = HAVE_SANDBOX && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/bin/ps', '-p', String(process.pid)]).status !== 0;
 
@@ -116,7 +118,7 @@ test('a sandboxed shell: status exits 5 and says running but unreachable; start 
   const s = await withBoard('ok', (p, pid) => run(CLI, ['status'], env(p, {}, null, pid), true));
   assert.equal(s.code, 5, s.out);
   assert.match(s.out, /Kosmos is running at .*this shell cannot connect to it/);
-  const plain = await withBoard('ok', (p) => run(CLI, ['status'], env(p)));   // the same board, not sandboxed
+  const plain = await withBoard('ok', (p) => run(CLI, ['status'], env(p)));   // a stub board, read from an ordinary shell
   assert.equal(plain.code, 0, plain.out);
   assert.doesNotMatch(s.out, START_ADVICE);
   for (const extra of [{}, { KOSMOS_AGENT_SESSION: 'test-agent' }]) {
@@ -134,7 +136,7 @@ test('a sandboxed shell: status exits 5 and says running but unreachable; start 
 
 test('a sandboxed shell: stop, restart, open and board-run change nothing and never say "not running"', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
   const h = {};
-  // No board.pid: this arm is stop's no-pidfile branch (with one, stop goes by the pid, whatever ps allows).
+  // No board.pid: this arm is stop's no-pidfile branch (with one, see the board.pid arm below).
   const stop = await withBoard('ok', (p) => run(CLI, ['stop'], env(p, {}, h), true));
   assert.equal(stop.died, false, stop.out);
   assert.notEqual(stop.code, 0, stop.out);
