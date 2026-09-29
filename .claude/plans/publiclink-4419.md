@@ -29,6 +29,10 @@
 - Page: when both links show, each has a label ("On this computer", "From the internet"), its own
   Copy with its own accessible name, and the copied line says which link was copied.
 
+## Settings hint
+The fixed hint above the list no longer says the link works only on this computer (#1307 had it): with two
+links it contradicted the internet one. The one-time reveal owns reachability, one true sentence per cause.
+
 ## Rejected
 - A connector version table: drifts, and a version names a range, not a build.
 - Probing the public URL: a call per make, and cannot tell a refusal from an outage.

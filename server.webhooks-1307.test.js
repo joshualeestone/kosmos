@@ -205,7 +205,7 @@ test('#4419: the internet link is given only when Kosmos Plus is up and the runn
       ['no admitsHooks at all', await make({ state: 'up', address: 'hers.kosmosplus.com', because: null }), /does not take webhooks from the internet yet/],
       ['an address with a path', await make({ ...UP, address: 'hers.kosmosplus.com/evil?' }), /could not read this computer's internet address/],
       ['an IP literal', await make({ ...UP, address: '1.2.3.4' }), /could not read this computer's internet address/],
-      ['a valid host that is not this computer\'s name', await make({ ...UP, address: 'someone-else.example.com' }), /could not read this computer's internet address/],
+      ['a valid host that is not this computer\'s name', await make({ ...UP, address: 'someone-else.example.com' }), /name changed since it connected/],
     ];
     for (const [label, r, why] of cases) {
       assert.equal(r.publicUrl, null, label + ': no internet link');

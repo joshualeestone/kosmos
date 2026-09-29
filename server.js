@@ -1104,6 +1104,9 @@ function hookPublicLink(id, secret) {
   // a status file happens to hold (a stale or damaged file must never send the secret to someone else's host).
   let enrolledName = '';
   try { enrolledName = String(remote.address() || '').toLowerCase(); } catch { enrolledName = ''; }
+  if (HOOK_HOST_RE.test(String(st.address || '')) && enrolledName && String(st.address).toLowerCase() !== enrolledName) {
+    return why('This computer\'s Kosmos Plus name changed since it connected, so there is no internet link this time. Turn Kosmos Plus off and on to reconnect.');
+  }
   if (!HOOK_HOST_RE.test(String(st.address || '')) || String(st.address).toLowerCase() !== enrolledName) return why('Kosmos could not read this computer\'s internet address, so there is no internet link this time.');
   return { publicUrl: 'https://' + String(st.address).toLowerCase() + '/hooks/' + id + '/' + secret, publicWhy: null };
 }
