@@ -17,7 +17,9 @@
  *    reported it is waiting) and rate_limited;
  *  - it did not go idle on this very tick (an episode the Prompter opened on a working-to-idle edge
  *    is nudged one interval later, so an agent that just finished a turn is not nudged at once);
- *  - its card reads idle, is ours, and is not a switched-off swarm (the Assigner's idleCard). Only idle: unknown,
+ *  - the Prompter read it as idle (toAsk's `to`), and its card reads idle, is ours, and is not a
+ *    switched-off swarm (the Assigner's idleCard). A low-confidence idle is `unknown` to the Prompter
+ *    and is not typed into. Only idle: unknown,
  *    auth_failed, connection_lost and stopped cannot act on typed text, and they keep reaching the
  *    person through the check-in;
  *  - it holds an open part of a task in a live project where it is not switched off (openParts, the
@@ -36,6 +38,9 @@
  * interval after its nudge and goes idle again is never seen working; its episode stays open and it
  * is not nudged again. One nudge per stall is the card's rule, and a timer that re-armed it would
  * also re-nudge an agent that answered in plain words that it is waiting.
+ * Known limit: the book and the hour's log live in memory, as the Prompter's own record does, so a
+ * board restart (every release) forgets them and a still-stalled agent is nudged once more, about two
+ * intervals after the restart.
  *
  * #4544 (Josh): the person's check-in lists only these real stalls (withOpenWork), and prompterTick
  * is the whole of what the Prompter's tick does after heartbeat.step, so its gates are tested here.
@@ -104,7 +109,8 @@ function plan(card, parts, entry, now, intervalMs, ask) {
   if (entry && entry.nudgedAt != null) return { act: 'none', because: 'already nudged in this stall' };
   if (entry && Number.isInteger(entry.tries) && entry.tries >= MAX_TRIES) return { act: 'none', because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };
   if (!nudgeableCard(card)) return { act: 'none', because: 'not an idle card of ours' };
-  if (ask && ask.from === 'working') return { act: 'none', because: 'went idle this interval; asked at the next one' };
+  if (!ask || ask.to !== 'idle') return { act: 'none', because: 'the Prompter did not read it as idle' };
+  if (ask.from === 'working') return { act: 'none', because: 'went idle this interval; asked at the next one' };
   if (!Array.isArray(parts) || !parts.length) return { act: 'none', because: 'no open task in a live project (the Assigner\'s lane)' };
   const fresh = parts.some((x) => { const at = Date.parse(x.givenAt); return Number.isFinite(at) && now - at < intervalMs; });
   if (fresh) return { act: 'none', because: 'was given work within the last interval' };

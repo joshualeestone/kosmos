@@ -3294,9 +3294,9 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .hb-nudge { padding: 8px 0; border-top: 1px solid var(--k-rule); line-height: 1.5; }
 .hb-nudge:first-of-type { border-top: 0; }
 .hb-nudge b { font-size: .9375rem; }
-/* #4544: the name links to the agent; it reads as the name, underlined on hover and focus. */
-.hb-nudge-go { color: inherit; text-decoration: none; }
-.hb-nudge-go:hover, .hb-nudge-go:focus-visible { text-decoration: underline; }
+/* #4544: the name links to the agent, underlined so it reads as a link on a touch screen too. */
+.hb-nudge-go { color: inherit; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.hb-nudge-go:hover, .hb-nudge-go:focus-visible { text-decoration-thickness: 2px; }
 .toggle { width: 42px; height: 24px; border-radius: 100px; flex: 0 0 42px;
           background: var(--k-track); position: relative; cursor: pointer; border: 0; padding: 0;
           transition: background .15s ease; }

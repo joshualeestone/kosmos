@@ -329,3 +329,28 @@ test('the words are one safe line: control characters and quotes out, cut on a c
   assert.doesNotMatch(text, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/, 'a surrogate pair was split');
   assert.match(text, /^Kosmos here, from the Prompter: /);
 });
+
+test('the Prompter must read the agent as idle too: a card that says idle but a low-confidence reading (toAsk to unknown) is not nudged', () => {
+  const w = world([{ name: 'lowconf' }]);
+  try {
+    taskOn(w, w.key.lowconf, 'a task');
+    const k = w.key.lowconf;
+    const next = new Map([[k, { open: true }]]);
+    assert.equal(pass(w, { hb: { toAsk: [{ session: k, from: 'idle', to: 'unknown' }], next } }).calls.length, 0, 'typed into a pane the Prompter could not read');
+    assert.equal(pass(w, { hb: { toAsk: [{ session: k, from: 'idle', to: 'idle' }], next } }).calls.length, 1, 'control: read as idle, it is nudged');
+  } finally { w.restore(); }
+});
+
+test('server.js: the Prompter tick hands everything after heartbeat.step to prompterTick, and types nowhere else', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const i = src.indexOf('const heartbeatTick = () => {');
+  const j = src.indexOf('const t = setTimeout(heartbeatTick', i);
+  assert.ok(i > 0 && j > i, 'the Prompter tick was not found in server.js');
+  // Comments out first: a comment that names a call is not a call.
+  const body = src.slice(i, j).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  assert.equal((body.match(/agentnudge\.prompterTick\(/g) || []).length, 1, 'the tick must call prompterTick once');
+  assert.equal((body.match(/heartbeat\.step\(/g) || []).length, 1, 'fixture: the slice is the Prompter tick');
+  // The one delivery is the one prompterTick is given; a second would type outside its gates.
+  assert.equal((body.match(/\bdeliver\(/g) || []).length, 1, 'a delivery outside prompterTick');
+  assert.equal((body.match(/prompternudge\.write\(/g) || []).length, 1, 'the person\'s list must be written only through prompterTick\'s write');
+});

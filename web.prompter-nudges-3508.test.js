@@ -174,3 +174,9 @@ test('#4544: a plain click on a name opens that agent in place; control: the lin
   // A click outside any name does nothing.
   assert.equal(open({ button: 0, target: { closest: () => null }, preventDefault: () => { throw new Error('prevented'); } }), false);
 });
+
+test('#4544: the click handler is attached to the check-in panel (delegated, so it survives each repaint)', () => {
+  assert.match(PAGE, /\{ const hbBox = document\.getElementById\('hb-nudges'\); if \(hbBox\) hbBox\.addEventListener\('click', prompterNudgeOpen\); \}/);
+  // The panel is static markup that comes before the script that attaches it.
+  assert.ok(PAGE.indexOf('id="hb-nudges"') > 0 && PAGE.indexOf('id="hb-nudges"') < PAGE.indexOf("hbBox.addEventListener('click', prompterNudgeOpen)"));
+});

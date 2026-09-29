@@ -20,7 +20,7 @@ the agent (#2623 removed that half, #3508 rebuilt only the person's).
 - Weakest premise: idle is the only state worth typing into.
 
 ## Verified
-- engine/agentnudge.test.js: 11 pass, real cards (test-support/fleet), real projects/tasks, toAsk from the real
+- engine/agentnudge.test.js (first commit): 11 pass, real cards (test-support/fleet), real projects/tasks, toAsk from the real
   heartbeat.step.
 - Mutations, each on the module in place with a byte-compared restore: once-per-stall, open-parts check, built rule,
   freshness, cap, idle card, episode release, MAX_TRIES, the hour window: every one fails a test. A first gate on
@@ -62,3 +62,14 @@ the agent (#2623 removed that half, #3508 rebuilt only the person's).
   prompterTick (roster array, projects read) were dead behind sweepOnce's own roster check and openParts, and were
   removed.
 - Pre-existing, not this branch: tools/test-browser-check-surface-gate.sh fails 3 cases on this machine on main too.
+
+### Iteration 2 (sonnet)
+- WARNING fixed: the nudge now also requires the Prompter's own reading to be idle (toAsk to === 'idle'); a card that
+  says idle at low confidence is `unknown` to the Prompter and is not typed into. Test with a control.
+- WARNING kept as a named limit (header and here): the book and the hour log are in memory, like the Prompter's record,
+  so a board restart (every release) nudges a still-stalled agent once more about two intervals later.
+- WARNING fixed: the link is underlined at rest (it was invisible until hover, and a touch screen has no hover).
+- NIT fixed: the Verified count above is marked as the first commit's (the file now has 19 tests).
+- NIT taken: a source test that the Prompter tick calls prompterTick once and has no other deliver or list write
+  (a wiring guard; the behaviour is prompterTick's own tests).
+- NIT taken: a source test that the click handler is attached to #hb-nudges, after the markup.
