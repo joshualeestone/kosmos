@@ -618,6 +618,11 @@ test('a tree already at its placement is painted there and not animated: first l
     assert.ok(moved.jump <= 41, 'randomTree(' + seed + ', ' + n + '): a frame moved a face ' + moved.jump.toFixed(0) + 'px (the repair jumped instead of gliding)');
     page.orgLiveStart(map, placed, cx, cy, size);   // a repaint, same layout
     assert.equal(run().frames, 0, 'randomTree(' + seed + ', ' + n + '): a repaint after the repair ran the physics again (the snap repeats)');
+    /* The hub counts too: the whole chart 30px off its home (every node still at its placement relative to
+       the hub, as a released hub drag leaves it) is not at rest, and must move back (review it5: M16). */
+    for (const [k, q] of [...page.pos()]) page.pos().set(k, { x: q.x + 30, y: q.y });
+    page.orgLiveStart(map, placed, cx, cy, size);
+    assert.ok(run().frames > 0, 'randomTree(' + seed + ', ' + n + '): a chart shifted off its hub\'s home was left there');
   }
 });
 
