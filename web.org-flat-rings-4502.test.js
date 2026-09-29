@@ -162,12 +162,21 @@ test('#4502: placing a big flat fleet again (every poll does) reuses its lane tu
   assert.ok(turns instanceof Map && turns.size > 0, 'the lane turns of a 100-agent fleet were not remembered');
   const known = turns.size;
   const again = placeOf(cards);
-  assert.equal(turns.size, known, 'a repeat placement searched again');
+  assert.equal(turns.size, known, 'a repeat placement added turns');
   for (const [k, s] of first) assert.equal(again.get(k).ang, s.ang, 'a repeat placement moved ' + k);
+  /* That the remembered turn is READ, not searched again and stored over: seed a turn no search would pick for
+     the third lane (a full lane of 12: key "2/12/12") and the placement must use it. */
+  const seeded = 0.1234;
+  turns.set('2/12/12', seeded);
+  const spots = [...placeOf(cards).values()];
+  const radii = [...new Set(spots.map((sp) => sp.r))].sort((x, y) => x - y);
+  const lane2 = spots.filter((sp) => sp.r === radii[2]).map((sp) => sp.ang);
+  const step = (2 * Math.PI) / lane2.length;
+  lane2.forEach((a, m) => assert.ok(Math.abs(a - (-Math.PI / 2 + seeded + step * m)) < 1e-12, 'the remembered turn was not used (searched again)'));
+  turns.clear();
 });
 
 test('#4502: an outer lane (third and beyond) is turned to more clearance than an unturned lane would have', () => {
-  const R0 = pageConst('ORG_R0');
   const angDist = (a, b) => { let d = (a - b) % (2 * Math.PI); if (d < 0) d += 2 * Math.PI; return d > Math.PI ? 2 * Math.PI - d : d; };
   for (const n of [30, 36, 50]) {
     const spots = [...flatFleet(n).values()];
@@ -179,6 +188,5 @@ test('#4502: an outer lane (third and beyond) is turned to more clearance than a
     const step = (2 * Math.PI) / lane.length;
     const unturned = lane.map((_, m) => -Math.PI / 2 + step * m);   // what a turn of 0 would give
     assert.ok(worst(lane) > worst(unturned), n + ' agents: the third lane is no clearer than unturned (' + worst(lane).toFixed(3) + ' vs ' + worst(unturned).toFixed(3) + ')');
-    assert.ok(R0 > 0);
   }
 });

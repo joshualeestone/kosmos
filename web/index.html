@@ -29141,6 +29141,7 @@ const ORG_SIM = {
   home: 0.08,      // a tree node's pull back to its placed position, relative to the hub (#4434)
   clear: 0.6,      // #4502: in a flat fleet, the sideways push that swings a hub line off a face it runs through
   faceR: 22,       // a 44px node's radius (#4502: the same fact as ORG_FACE_R, pinned equal by a test)
+  clearMargin: 4,  // #4502: how much nearer than a face's radius a line may come before the clearance push starts
   rest: 0,         // set from ORG_STEP at use
 };
 /* #1738: how many synchronous relaxation steps a reduced-motion render takes to
@@ -29192,7 +29193,7 @@ function orgStep(nodes, hub, alpha, box) {
        (so dragging the hub still carries the chart). This keeps the physics close to the placement, so a
        settle, a released drag and a re-parent end near it; what guarantees they END free of crossings and
        overlaps is orgPlanarRepair at every rest (review it6: with this pull off, the crossing tests stay
-       green and only the drift test reds). A flat fleet has no `home` and moves exactly as before. */
+       green and only the drift test reds). A flat fleet has no `home`; its own line clearance is below (#4502). */
     if (n.home) {
       n.vx += cap((hub.x + n.home.dx - n.x) * ORG_SIM.home) * alpha;
       n.vy += cap((hub.y + n.home.dy - n.y) * ORG_SIM.home) * alpha;
@@ -29204,7 +29205,7 @@ function orgStep(nodes, hub, alpha, box) {
      line runs within a face (plus a little) of a nearer face is pushed sideways, away from that face, which
      swings its line off it. Flat only: a tree's own placement and repair keep its lines (#4434). */
   if (!nodes.some((n) => n.home)) {   // flat: no placed home, the same test as inTree and orgPlanarRepair
-    const reach = ORG_SIM.faceR + 4;   // a face, plus a little
+    const reach = ORG_SIM.faceR + ORG_SIM.clearMargin;
     for (const n of nodes) {
       if (n.fixed) continue;
       const nx = n.x - hub.x; const ny = n.y - hub.y;
@@ -29401,9 +29402,9 @@ function orgPlace(nodes) {
   const placed = new Map();
   let maxR = ORG_R0;
   /* kosmos#4434 (Josh, 2026-09-28: "the agents in the bottom left are crossing over lines"). A FLAT fleet
-     (nobody reports to anybody) keeps the ring layout below unchanged, as on main: its lines all run straight
-     out from the hub, so none crosses another, though on a partly filled outer ring a line can lie along an
-     inner one and pass through its face (review it19; follow-up #4502). */
+     (nobody reports to anybody) keeps its ring layout: its lines all run straight out from the hub and cannot
+     cross, and it is the first screen most people see. #4502 places those rings so an outer agent's line does
+     not run through an inner face (below). */
   if (!nodes.some((n) => n.parent)) {
     /* Ring by ring: one ring here, since nobody has a manager. */
     const ring = nodes;
@@ -29417,11 +29418,12 @@ function orgPlace(nodes) {
        further out are spread evenly and turned to the offset that keeps their lines furthest from every inner
        face: past two lanes it cannot be avoided with lines from one hub (each of the first lane's gaps has
        room for one line), and the turn keeps the near passes to the fewest it can. */
+    const LANE_STEP = 58;    // how much further out each spill lane sits; the placement and the search read this one
     const laneAngles = [];   // per lane, the angles placed so far, for the lanes outside it
     const lanes = Math.ceil(ring.length / fit);
     for (let lane = 0; lane < lanes; lane += 1) {
       const members = ring.slice(lane * fit, (lane + 1) * fit);
-      const r = base + lane * 58;
+      const r = base + lane * LANE_STEP;
       const step = (Math.PI * 2) / members.length;
       let turn = 0;
       /* The turn depends only on the lane and how many sit in it (the ring size is fixed by ORG_R0), and paintOrg
@@ -29434,7 +29436,7 @@ function orgPlace(nodes) {
            half-cone asin(face / q). The turn with the most clearance, searched in small steps across one step. */
         const inner = [];
         for (let k = 0; k < lane; k += 1) {
-          const half = Math.asin(Math.min(1, ORG_FACE_R / (base + k * 58)));
+          const half = Math.asin(Math.min(1, ORG_FACE_R / (base + k * LANE_STEP)));
           for (const b of laneAngles[k]) inner.push({ b, half });
         }
         const clearance = (t) => {
@@ -30003,7 +30005,8 @@ function orgLiveStart(map, placed, cx, cy, size) {
      not run the physics, which on a large or squeezed tree drifts it into a crossing and the repair then
      snaps it back (review it4: 150 to 300 agents at full size, up to ~150px; it3 harness: a squeezed 60-100
      agent chart replayed that on every repaint). A drag, a re-parent or a new agent starts it off its
-     placement, and those still move. A flat fleet has no placement and moves exactly as before. */
+     placement, and those still move. A flat fleet has no placement to glide home to (it settles under orgStep,
+     with its #4502 line clearance). */
   const placedAt = (n) => n.home && Math.abs(n.x - hub.x - n.home.dx) < 0.5 && Math.abs(n.y - hub.y - n.home.dy) < 0.5;
   if (nodes.size && Math.abs(hub.x - cx) < 0.5 && Math.abs(hub.y - cy) < 0.5 && [...nodes.values()].every(placedAt)) {
     ORG_LIVE.alpha = 0.02;
