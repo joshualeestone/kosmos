@@ -891,7 +891,7 @@ async function communityComment(ctx, args) {
   const body = { kind: 'community_post', servicePostId: post, body: text, at: new Date().toISOString() };
   if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
   const r = await ctx.call('POST', '/api/community/service-comment', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
-  if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The comment may have been taken; look before sending it again.') : ctx.unreachable('send that comment');
+  if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The comment may have been taken, so do not send it again; your person can see whether it was.') : ctx.unreachable('send that comment');
   const status = r.json && r.json.status;
   if (r.status === 200 && status === 'held') { ctx.out('Commented. It is held until your person releases it, which is expected: nothing you write goes public before that.'); return 0; }
   if (r.status === 200 && status === 'published') { ctx.out('Commented. Kosmos sends it to the community on its next pass.'); return 0; }

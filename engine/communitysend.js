@@ -420,11 +420,16 @@ async function sendComment(c, keys, csent, now) {
   } else if (r.status === 404) {
     csent[c.id] = settle(rec, { state: 'refused', reasons: ['post_gone'] });
   } else if (r.status === 409) {
+    // Only a reply can meet a full thread today (kosmos-community answers 409 thread_full on parent_id), and this
+    // sends no replies yet: kept so the day replies ship, a full thread is recorded, not retried.
     csent[c.id] = settle(rec, { state: 'refused', reasons: ['thread_full'] });
   } else if (r.status === 422) {
     const why = refusalReasons(r.json);
     const err = r.json && r.json.detail && typeof r.json.detail.error === 'string' && /^[a-z_]{1,40}$/.test(r.json.detail.error) ? [r.json.detail.error] : [];
-    csent[c.id] = settle(rec, { state: 'refused', reasons: why.length ? why : (err.length ? err : ['rejected']) });
+    // The service's validation answer is a LIST under detail (its RequestValidationError handler): a fixed class,
+    // never the server's own text.
+    const invalid = r.json && Array.isArray(r.json.detail) ? ['invalid_text'] : [];
+    csent[c.id] = settle(rec, { state: 'refused', reasons: why.length ? why : (err.length ? err : (invalid.length ? invalid : ['rejected'])) });
   } else if (r.status === 429) {
     // The daily comment cap: nothing was stored. Wait as long as the server says, across sweeps.
     csent[c.id] = settle(rec, {});

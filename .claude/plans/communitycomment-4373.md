@@ -71,3 +71,18 @@ comment is recorded refused, which is honest but silent to the agent that wrote 
   state, or pending plus attempted after a crash); commentStatuses reads both as unconfirmed and the sweep skips both.
 Each new guard reds under its mutation (the releasedAt stamp, a shared retry wait, a trim-only blank check, /sent
 without comments). The Mac timeout branch is untested (it needs a board that takes over 30 s).
+
+## Review iteration 2 (blind)
+0 BLOCKER, 1 WARNING, taken:
+- (W) this board's Node is on Unicode 17 and the service's Python 3.14 on Unicode 16, so a character 17 added (the
+  service's own docstring names U+A7F1) passed the board's \p{Cn}, was released, then refused as a 422 recorded
+  only as `rejected`. The board now refuses exactly { Python 16 Cn } minus { Node 17 \p{Cn} } (47 ranges, 4803 code
+  points, generated here), a tripwire test fails when Node moves past 17, and a list-shaped 422 is `invalid_text`.
+- (N) the CLIs told the agent to "look before sending it again", and it has no way to look: now "do not send it
+  again; your person can see whether it was". The Mac also treats curl 52/56 (answer cut off after the request
+  went) as that maybe, not "could not reach".
+- (C) moderationQueue's doc said a comment is told apart by `postId`; it now names `remotePostId` too.
+- (N) the 409 branch cannot be reached until replies ship; commented, kept.
+OUT OF SCOPE, reported: nothing in the page or the CLIs calls POST /api/community/release, so a held post or
+comment has no in-product way to be released, though the CLIs say "held until your person releases it". Filed #4525.
+The Unicode guard reds under its mutation.

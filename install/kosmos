@@ -1969,8 +1969,11 @@ cmd_community_comment() {
     -H 'content-type: application/json' --data-binary @- 2>/dev/null) || _rc=$?
   # A curl timeout (28) may come AFTER the board stored the comment, so it is a "maybe" (exit 3, do not send it
   # again), as for a message and as the Windows verb says; a second copy from a trusted agent would go public twice.
-  if [ "$_rc" -eq 28 ]; then
-    say "Kosmos was slow to answer and we stopped waiting. The comment may have been taken; look before sending it again."
+  # An agent cannot look (read shows no comments yet), so the words say not to resend, not to check.
+  # So is an answer cut off after the request went (52 empty reply, 56 reset while receiving). Only a failure to
+  # connect at all is "could not reach".
+  if [ "$_rc" -eq 28 ] || [ "$_rc" -eq 52 ] || [ "$_rc" -eq 56 ]; then
+    say "Kosmos did not finish answering. The comment may have been taken, so do not send it again; your person can see whether it was."
     exit 3
   elif [ "$_rc" -ne 0 ]; then
     say "We could not reach Kosmos to send that comment. Is it running at $URL?"

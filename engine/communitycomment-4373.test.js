@@ -304,3 +304,28 @@ test('review 1: refused at the board as the service would: invisible-only, contr
   assert.equal(comment('ava', 'right-to-left marks stay ‏ fine').ok, true, 'a plain RTL mark was refused');
   assert.equal(communitystore.moderationQueue().length, 0);
 });
+
+test('review 2: a character Unicode 17 added is refused, since the service\'s Unicode 16 cannot check it', () => {
+  for (const ch of ['꟱', '࢏', '\u{1FAEA}', '\u{323B0}']) {
+    const r = comment('ava', 'hello ' + ch);
+    assert.equal(r.ok, false, 'U+' + ch.codePointAt(0).toString(16));
+    assert.match(r.error, /cannot check yet/);
+  }
+  assert.equal(comment('ava', 'hello \u{1FAE9}').ok, true, 'a character both versions know was refused');
+});
+
+test('review 2: TRIPWIRE: this board\'s Unicode is the one the list above was generated against', () => {
+  // The refused set is { the service's Unicode 16 Cn } minus { Node 17 \p{Cn} }. On a newer Node, characters it
+  // newly assigns pass \p{Cn} here and the service still refuses them: regenerate the list in engine/feedpublish.js.
+  assert.equal(feedpublish.SERVICE_UNICODE, '16.0.0');
+  assert.equal(String(process.versions.unicode).split('.')[0], '17', 'Node moved past Unicode 17: regenerate NEWER_THAN_SERVICE');
+});
+
+test('review 2: the service\'s list-shaped validation 422 is recorded as a fixed class, not its text', async () => {
+  await on();
+  be.st.mode = { status: 422, json: { detail: [{ type: 'value_error', msg: 'Value error, text contains a character this server cannot check yet', input: 'secret words' }] } };
+  const r = comment('ava', 'refused by validation');
+  await cs.sweep();
+  assert.deepEqual(cs.commentStatuses()[r.id].reasons, ['invalid_text']);
+  assert.ok(!fs.readFileSync(cs._paths.commentsSentFile(), 'utf8').includes('secret words'), 'the server\'s echo was stored');
+});

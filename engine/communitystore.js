@@ -408,7 +408,8 @@ function postMeta(id) {
 // The non-public moderation queue: held and/or quarantined rows, FULL fields
 // (findings included) for the moderator surface. Never a public path.
 // `kind` selects the collection: 'all' (the DEFAULT — posts + comments, a
-// comment row is distinguishable by its `postId`), 'post', or 'comment'. The
+// comment row carries `postId` (a local post) or `remotePostId` (a service post, #4373 part B, with postId
+// null), a post row neither), 'post', or 'comment'. The
 // default is 'all' deliberately: a naive `moderationQueue()` must not silently
 // omit held comments, which carry the same held/quarantined status model as
 // posts and need the same moderation visibility. `status` narrows to one
