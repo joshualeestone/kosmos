@@ -50,9 +50,9 @@ function api() {
   assert.ok(modelStart >= 0 && modelEnd > modelStart && roleStart >= 0 && roleEnd > roleStart,
     'the displayed model or role derivation is missing');
   const displayed = SCRIPT.slice(modelStart, modelEnd) + SCRIPT.slice(roleStart, roleEnd);
-  const body = displayed + lift(['agentSortMode', 'agentFirstProject', 'sortAgents']);
+  const body = displayed + lift(['agentNeedsAttention', 'agentSortMode', 'agentFirstProject', 'sortAgents']);
   const seam = "const ROLE_TITLES = null; function cardStOf(a) { const attention = a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')); return { pres: a && a.state === 'stopped' ? 'off' : 'on', st: attention ? 'attn' : 'idle' }; }";
-  return new Function(`${constants[0]}\n${seam}\n${body}\nreturn { AGENT_SORTS, AGENT_SORT_DEFAULT, modelLine, roleLine, agentSortMode, agentFirstProject, sortAgents };`)();
+  return new Function(`${constants[0]}\n${seam}\n${body}\nreturn { AGENT_SORTS, AGENT_SORT_DEFAULT, modelLine, roleLine, agentNeedsAttention, agentSortMode, agentFirstProject, sortAgents };`)();
 }
 
 const board = fleet.install(['a', 'ada', 'b', 'bea', 'cam', 'dee', 'missing', 'zed', 'zulu'].map((name) => (
@@ -102,7 +102,7 @@ test('#4428: model order uses exactly the model text displayed on each card', ()
 });
 
 test('#4428: role and needs order use exactly the values and attention shown on cards', () => {
-  const { sortAgents, agentFirstProject, roleLine } = api();
+  const { sortAgents, agentFirstProject, roleLine, agentNeedsAttention } = api();
   const rows = [
     a('Dee', { state: 'idle', role: null }),
     a('Cam', { state: 'working', role: 'Engineer' }),
@@ -110,6 +110,7 @@ test('#4428: role and needs order use exactly the values and attention shown on 
     a('Ada', { state: 'connection_lost', reconnect: { phase: 'gave_up' }, role: 'writes docs', profile: { role: 'Analyst' } }),
   ];
   assert.equal(roleLine(rows[3], null), 'Analyst');
+  assert.equal(agentNeedsAttention(rows[3]), true, 'a gave-up connection carries the Issue marker');
   assert.equal(agentFirstProject(rows[1], projects), 'Alpha');
   assert.equal(agentFirstProject(rows[2], projects), 'Alpha', 'first project means the alphabetically first project, not store order');
   assert.equal(agentFirstProject(rows[0], projects), null);
@@ -117,6 +118,19 @@ test('#4428: role and needs order use exactly the values and attention shown on 
   assert.deepEqual(sortAgents(rows, 'needs', projects).map((x) => x.name), ['Ada', 'Bea', 'Cam', 'Dee']);
   assert.deepEqual(sortAgents(rows, 'project', projects).map((x) => x.name), ['Bea', 'Cam', 'Ada', 'Dee']);
   assert.deepEqual(sortAgents(rows, 'role', projects).map((x) => x.name), ['Ada', 'Bea', 'Cam', 'Dee']);
+});
+
+test('#4428: Needs you first matches every Issue tile case, not the visual card state', () => {
+  const { sortAgents, agentNeedsAttention } = api();
+  const rows = [
+    a('Zulu', { state: 'idle' }),
+    a('Cam', { state: 'blocked' }),
+    a('Bea', { state: 'needs_trust', running: false, needsTrust: true }),
+    a('Ada', { state: 'needs_you', stateReportedBy: 'agent' }),
+    a('Zed', { state: 'connection_lost', reconnect: { phase: 'gave_up' } }),
+  ];
+  assert.deepEqual(rows.map(agentNeedsAttention), [false, false, true, true, true]);
+  assert.deepEqual(sortAgents(rows, 'needs', projects).map((x) => x.name), ['Ada', 'Bea', 'Zed', 'Cam', 'Zulu']);
 });
 
 test('#4428: sorting is pure and invalid input remains harmless', () => {
@@ -137,9 +151,7 @@ test('#4428: the persisted control repaints both flat views and hides for the or
   assert.match(SCRIPT, /BOARD_LAYOUT === 'org'/);
   assert.match(SCRIPT, /mode === 'model'[\s\S]*modelLine\(aa\)/);
   assert.match(SCRIPT, /mode === 'role'[\s\S]*roleLine\(a\.agent \|\| \{\}, ROLE_TITLES\)/);
-  assert.match(SCRIPT, /const needsRank = \(a\) => \{\s*if \(cardStOf\(a\)\.st === 'attn'\) return 0;/);
-  assert.match(SCRIPT, /const cardNeedsAttention = typeof cardStOf === 'function'[\s\S]*cardStOf\(a\)\.st === 'attn'/);
-  assert.match(SCRIPT, /const rowNeedsAttention = typeof cardStOf === 'function'[\s\S]*cardStOf\(a\)\.st === 'attn'/);
-  assert.ok((SCRIPT.match(/(?:cardNeedsAttention|rowNeedsAttention|m\.st === 'attn'|cardStOf\(a\)\.st === 'attn') \? ' data-attn'/g) || []).length >= 6,
-    'grid and list cards no longer share cardStOf attention with the sort');
+  assert.match(SCRIPT, /const needsRank = \(a\) => \{\s*if \(agentNeedsAttention\(a\)\) return 0;/);
+  assert.ok((SCRIPT.match(/agentNeedsAttention\(a\) \? ' data-attn'/g) || []).length >= 6,
+    'grid and list cards no longer share the Issue predicate used by the sort');
 });

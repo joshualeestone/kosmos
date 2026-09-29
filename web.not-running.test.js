@@ -126,7 +126,7 @@ function render(which, a) {
      reads the CURRENT global -- lift it like face, and pass CURRENT (null: no
      agent is open in this isolated render) as an arg so the eval has both. */
   const fn = new Function('a', 'esc', 'GLYPH', 'PRESSAY', 'roleLine', 'discTint', 'discInk', 'initials', 'ROLE_TITLES', 'CURRENT',
-    `${page.lift(SCRIPT, 'face')}\n${page.lift(SCRIPT, 'dmBadge')}\n${page.lift(SCRIPT, which)}\nreturn ${which}(a);`);
+    `${page.lift(SCRIPT, 'agentNeedsAttention')}\n${page.lift(SCRIPT, 'face')}\n${page.lift(SCRIPT, 'dmBadge')}\n${page.lift(SCRIPT, which)}\nreturn ${which}(a);`);
   return fn(a, (x) => String(x == null ? '' : x), { stopped: '<span class="stop"></span>' },
     { off: 'Not running' }, (x) => x.role || '', () => '#eee', () => '#111', (n) => n[0], null, null);
 }
