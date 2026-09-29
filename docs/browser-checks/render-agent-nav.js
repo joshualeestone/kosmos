@@ -233,6 +233,26 @@ function chk(ok, label, extra) {
       const litRem = await page.evaluate(() => [...document.querySelectorAll('#d-nav button.on')].map((x) => x.dataset.go));
       chk(GROUP.model.every((j) => r[j].h > 0) && JSON.stringify(litRem) === '["model"]',
         `[${theme}] openDetail(name, 'remove') opens AI Settings' group with AI Settings lit`, JSON.stringify({ lit: litRem, h: Object.fromEntries(SECTIONS.map((j) => [j, r[j].h])) }));
+      /* #4550 review: the Skills list loads whenever Profile opens, so a slow answer for one agent must
+         never paint another's page (its Remove buttons would aim at the first agent). April's answer
+         is held until Casey's Profile has opened and painted, then released. */
+      {
+        let release; const gate = new Promise((res) => { release = res; });
+        const aprilSkills = '**/api/agent/april/skills';
+        await page.route(aprilSkills, async (route) => { await gate; await route.fulfill({ status: 200, contentType: 'application/json',
+          body: JSON.stringify({ ok: true, skills: [{ name: 'APRIL-ONLY-SKILL', key: 'april-only-skill' }] }) }); });
+        await page.evaluate(() => openDetail('april', 'profile'));
+        await page.waitForTimeout(150);
+        await page.evaluate(() => openDetail('casey', 'profile'));
+        await page.waitForTimeout(700);
+        release();
+        await page.waitForTimeout(500);
+        const late = await page.evaluate(() => ({ who: CURRENT && CURRENT.sessionName, list: document.getElementById('d-skills-list').textContent }));
+        chk(late.who === 'casey' && !late.list.includes('APRIL-ONLY-SKILL'), `[${theme}] a slow Skills answer for April paints nothing on Casey's page`, JSON.stringify(late));
+        await page.unroute(aprilSkills);
+        await page.evaluate(() => openDetail('april'));
+        await page.waitForTimeout(300);
+      }
       await page.evaluate(() => openDetail('april', 'no-such-section'));
       await page.waitForTimeout(100);
       r = await rects();

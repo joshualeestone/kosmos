@@ -157,7 +157,12 @@ test('the picker and the explainer both name the way in, and only for the never-
   /* And the model-message slot is cleared at the switch moment, so one
      agent's refusal cannot stand on another's panel. Structural pin on the
      clear living in openDetail, before the paints. */
-  const od = PAGE.slice(PAGE.indexOf('function openDetail('), PAGE.indexOf('function openDetail(') + 4000);
+  /* Bounded by the function, not a character count: a fixed 4000-character window lost the clear when
+     an unrelated line was added above it (#4550). */
+  const odAt = PAGE.indexOf('function openDetail(');
+  const odEnd = PAGE.indexOf('\nfunction ', odAt + 1);
+  assert.ok(odAt > 0 && odEnd > odAt, 'openDetail moved');
+  const od = PAGE.slice(odAt, odEnd);
   assert.ok(/getElementById\('d-model-msg'\)[\s\S]{0,120}?\.textContent = ''/.test(od),
     'openDetail no longer clears the model message, so a refusal lingers across an agent switch');
 });
