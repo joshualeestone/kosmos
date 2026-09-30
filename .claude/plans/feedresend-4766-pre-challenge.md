@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: feedresend-4766
 diff_hash: b8b2f06daa7c547d3da0d714e75bd46b1b898e0182baab84aad803e4dc2e075a
-validation: pending (full validation queued on Mortals for this head)
+validation: passed (Mortals, a836982c0, 16:36 CDT)
 subdir_audit: passed
 timestamp: 2026-09-30T19:47:50Z
 iterations: 2
