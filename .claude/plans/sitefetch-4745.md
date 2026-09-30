@@ -15,7 +15,18 @@ Now, in one marked helper block (`# >>> site-fetch helpers (#4745)` to `# <<<`):
    (`<dir>/.fetch-<pid>-<name>`, same directory so `mv` is an atomic rename), checks the temp's
    sha against the sidecar, and only then renames the artifact and then the sidecar into place. A
    failed, partial or mismatched fetch removes both temps and leaves the old PAIR byte-identical.
-2. A local file that already matches the sidecar is not fetched.
+   On success there is a window of microseconds between the two renames where the pair is new
+   artifact + old sidecar; nothing in this script trusts the local sidecar afterwards
+   (`verify_sha` re-fetches the served one).
+2. A local file that already matches the served sidecar is not downloaded, but only when a
+   one-byte ranged GET (`-r 0-0`) proves the host SERVES an artifact there of the same size:
+   final status 206, `Content-Range: bytes 0-0/<N>` with N the local size, exactly one byte back,
+   equal to the local first byte. A 206 alone proves nothing, so all four are required. A server
+   ignoring Range (200 + body) is bounded by `--max-filesize 65536 --max-time 30` and counts as
+   "cannot prove". Any failed proof falls through to the full fetch, which refuses on a 404.
+   The guarantee is size + first byte + sidecar sha, NOT every served byte; the post-deploy
+   `served_matches` re-hashes the served bytes. (Review WARNING on 6137e7241: the first version
+   skipped on the sidecar alone, so a host serving the sidecar but 404ing the artifact passed.)
 3. Per attempt: `--connect-timeout 15`, `--speed-limit 1024 --speed-time 60` (a stall under
    1 KB/s for 60 s aborts the attempt), `--max-time 1200` (20 min; the largest artifact is about
    55 MB, so only a link below about 46 KB/s, 0.37 Mbit/s, is cut). 3 attempts, 2 s apart.
@@ -39,16 +50,28 @@ promote alias (derived by `cp` from `$ART`) and every post-deploy served check a
 - Writing the new sidecar first to the real name: a refusal would then leave a new sidecar beside
   an old artifact.
 
+- Not retrying a 404: `curl -f` exits 22 for every HTTP error, a 503 included, and a 503 is worth
+  retrying. A real 404 costs two extra requests and 4 s before the same refusal.
+- `cmp -n 1` for the first byte: BSD cmp on macOS returned 1 for it on EQUAL bytes (measured), so
+  the proof would never pass. Arm j caught it; the code compares two one-byte files.
+
 ## Weakest premise
 
 The test extracts the helper block by its markers and runs it alone; it does not run the whole
 deploy with a stalling curl. The five existing end-to-end deploy-site tests still pass (same
 counts as before the change), which covers the callers, and arm g pins that every artifact caller
 uses `fetch_verified`. The speed-limit values are reasoned, not measured on a real slow link.
+The ranged probe is tested against a stub that models 206/Content-Range; that the real host
+(Vercel) answers `-r 0-0` with a 206 and that header is not measured here (no contact with it from
+a test). If it does not, the probe fails closed: every run downloads, as before this card.
 
 ## Measured
 
-- `tools/test-deploy-site-fetch-4745.sh`: 25 passed, 0 failed. Wired into `test:shell`.
+- `tools/test-deploy-site-fetch-4745.sh`: 42 passed, 0 failed. Wired into `test:shell`.
+  Arms h-o added after review: artifact 404 with a correct local copy (h), different served size
+  (i), CONTROL proven skip with no download (j), 404 with no local file (k), sidecar outcome on
+  the skip path (l), a 206 with the wrong Content-Range (m), a server ignoring Range (n), same size
+  but a different first byte (o).
 - Existing: promote 18/18, winderive 18/18, served-win-3600 47/47, exit0-2791 7/7,
   branch-guard-3073 9/9, identical to the pre-change baseline. shell-shard-4317 12/12, zsh-tied-names 0 failures.
 - Mutations (each restored and confirmed with cmp):
@@ -59,3 +82,8 @@ uses `fetch_verified`. The speed-limit values are reasoned, not measured on a re
   - M4 no sha check before mv: b reds (original replaced by unverified bytes).
   - M5 no time limit: f reds.
   - M6 no temp cleanup on refusal: "a temp file was left behind" reds.
+  - M7 the first version's skip (sidecar only): 9 FAIL, h, i, j, m, n, o among them.
+  - M8 trust the 206 status OR the range: i and m red.
+  - M9 no first-byte check: o reds.
+  - M10 probe never passes: d, l, j red.
+  - M11 probe dir not removed: d, h, n red.

@@ -170,10 +170,12 @@ FETCH_ATTEMPTS=3
 FETCH_RETRY_DELAY=2
 _FETCH_TMP_A=""   # artifact temp in flight
 _FETCH_TMP_S=""   # sidecar temp in flight
+_FETCH_TMP_P=""   # ranged-probe temp dir in flight (the skip path)
 _fetch_cleanup() {
   [ -z "$_FETCH_TMP_A" ] || rm -f "$_FETCH_TMP_A"
   [ -z "$_FETCH_TMP_S" ] || rm -f "$_FETCH_TMP_S"
-  _FETCH_TMP_A=""; _FETCH_TMP_S=""
+  [ -z "$_FETCH_TMP_P" ] || rm -rf "$_FETCH_TMP_P"
+  _FETCH_TMP_A=""; _FETCH_TMP_S=""; _FETCH_TMP_P=""
 }
 # Every exit path removes a temp in flight: the refusals below remove it explicitly, and these
 # traps cover an interrupt or an unexpected set -e abort mid-fetch.
@@ -217,19 +219,55 @@ fetch() {  # <url> <dest>  -- an UNVERIFIED file (no sidecar): atomic, refuse on
   mv -f "$_FETCH_TMP_A" "$2" || _fetch_refuse "$1"
   _FETCH_TMP_A=""
 }
+_served_matches_local() {  # <url> <local-file>  -- 0 only when the host PROVABLY serves an artifact
+  # of the local file's exact size whose first byte is the local file's first byte (#4745 review).
+  # Used by the skip path, which must not trust the served .sha256 alone: a served sidecar says
+  # nothing about whether the artifact beside it is served, and a promote relies on the artifact
+  # existing on the live host. One ranged GET of ONE byte, never the body. All of these must hold,
+  # because a 206 on its own proves almost nothing:
+  #   the final status is 206; Content-Range is exactly "bytes 0-0/<N>" with N = the local size;
+  #   exactly one byte came back and it equals the local file's first byte.
+  # A server that ignores Range answers 200 with the whole file: --max-filesize 65536 and
+  # --max-time 30 stop that download early, the status is not 206, and the answer is "cannot
+  # prove", never "proved". Any failure returns 1 and the caller fetches normally.
+  _sm_dir=$(mktemp -d "${TMPDIR:-/tmp}/deploy-site-probe.XXXXXXXX") || return 1
+  _FETCH_TMP_P=$_sm_dir
+  _sm_code=$(curl -sS -L -r 0-0 --connect-timeout 15 --max-time 30 --max-filesize 65536 \
+      -H 'Cache-Control: no-cache' -D "$_sm_dir/h" -o "$_sm_dir/b" -w '%{http_code}' "$1" 2>/dev/null) || _sm_code=""
+  _sm_size=$(wc -c < "$2" | tr -d ' ')
+  # -L dumps every hop's headers; the LAST Content-Range is the final response's.
+  _sm_range=$(tr -d '\r' < "$_sm_dir/h" 2>/dev/null | sed -n 's/^[Cc][Oo][Nn][Tt][Ee][Nn][Tt]-[Rr][Aa][Nn][Gg][Ee]:[[:space:]]*//p' | tail -n 1)
+  _sm_ok=1
+  # (Not `cmp -n 1`: BSD cmp on macOS returns 1 for it even on equal bytes, measured, which would
+  # make this proof silently never pass. Compare two one-byte files instead.)
+  if [ "$_sm_code" = 206 ] && [ "$_sm_range" = "bytes 0-0/$_sm_size" ] \
+     && [ -f "$_sm_dir/b" ] && [ "$(wc -c < "$_sm_dir/b" | tr -d ' ')" = 1 ] \
+     && head -c 1 "$2" > "$_sm_dir/l" && cmp -s "$_sm_dir/b" "$_sm_dir/l"; then
+    _sm_ok=0
+  fi
+  rm -rf "$_sm_dir"; _FETCH_TMP_P=""
+  return "$_sm_ok"
+}
 fetch_verified() {  # <url> <dest>  -- an artifact AND its <url>.sha256 sidecar (-> <dest>.sha256)
   # The sidecar is fetched FIRST, to a temp, because it is what names the bytes we want. It moves
   # into place only after the artifact is verified, so a refused run leaves the old PAIR intact
-  # rather than a new sidecar beside an old artifact.
+  # rather than a new sidecar beside an old artifact. (A success renames the artifact, then the
+  # sidecar: for the microseconds between the two renames the pair is new artifact + old sidecar.
+  # Nothing in this script reads the local sidecar afterwards to trust bytes: verify_sha re-fetches
+  # the SERVED one.)
   _FETCH_TMP_S=$(_fetch_tmp_for "$2.sha256")
   rm -f "$_FETCH_TMP_S"
   _fetch_into "$1.sha256" "$_FETCH_TMP_S" || _fetch_refuse "$1.sha256"
   _fv_want=$(awk '{print $1; exit}' "$_FETCH_TMP_S")
   [ -n "$_fv_want" ] || { _fetch_cleanup; echo "deploy-site: $1.sha256 names no sha -- refusing (nothing was replaced in the site dist/) (#4745)"; exit 1; }
-  # Already correct locally: do not fetch the artifact at all (#4745). A 55 MB re-download is the
-  # step that stalls, and it buys nothing when the bytes are already the ones the sidecar names.
-  if [ -f "$2" ] && [ "$(_sha256_of "$2")" = "$_fv_want" ]; then
-    echo "deploy-site: $2 already matches $1.sha256 -- not fetched (#4745)"
+  # Already correct locally: do not download the artifact (#4745). A 55 MB re-download is the
+  # step that stalls. What the skip path GUARANTEES, stated exactly: the local bytes hash to the
+  # served .sha256, AND the host serves an artifact at that URL of the same size with the same first
+  # byte (_served_matches_local). It does NOT prove every served byte equals the local ones; that
+  # is the served .sha256's claim, and the post-deploy served_matches re-hashes the served bytes.
+  # If that proof fails for any reason, fall through to the full fetch, which refuses on a 404.
+  if [ -f "$2" ] && [ "$(_sha256_of "$2")" = "$_fv_want" ] && _served_matches_local "$1" "$2"; then
+    echo "deploy-site: $2 already matches $1.sha256 and the served copy has its size -- not downloaded (#4745)"
   else
     _FETCH_TMP_A=$(_fetch_tmp_for "$2")
     rm -f "$_FETCH_TMP_A"
@@ -369,7 +407,9 @@ if [ "$PROMOTE" = 1 ]; then
   # and the artifact comes from the COMMITTED pointer -- the version we are promoting TO -- not from
   # live, which is still the PRIOR prod version until this deploy publishes. The versioned artifact
   # is already SERVED from the staging cut; that is exactly what makes a promote a pointer-only move,
-  # and it is why the fetch + sha-verify below still holds (the bytes exist on the live host). The
+  # and it is why the fetch + sha-verify below still holds (the bytes exist on the live host: either
+  # downloaded and verified, or, when the local copy already matches, proven served at the same size
+  # by a one-byte ranged GET, #4745). The
   # LOCAL pointer move + alias refresh are promote-channel.sh's job (#2036); this is the deploy that
   # publishes them.
   [ -n "$CJ" ] || { echo "deploy-site: --promote but the checkout has no committed dist/latest.json at $H -- refusing"; exit 1; }
@@ -396,7 +436,9 @@ else
 fi
 fetch_verified "$HOST/dist/$ART" "$SITE/dist/$ART"   # the artifact and its .sha256 (#4745)
 verify_sha "$SITE/dist/$ART" "$HOST/dist/$ART.sha256"
-# For a promote, pin the committed pointer's advertised sha to the bytes we just fetched + verified:
+# For a promote, pin the committed pointer's advertised sha to the bytes we just fetched + verified
+# (or kept, when the local copy already matched the served .sha256 and a ranged GET proved the host
+# serves an artifact of that size, #4745):
 # proves the committed latest.json describes REAL, SERVED bytes (guards a hand-edited or stale
 # pointer that names a version whose bytes are not actually served). NOT keyed to latest-staging.json
 # on purpose -- a rollback promotes a PRIOR pointer, not the current staging one, and must still work.
