@@ -2,17 +2,17 @@
 pre_challenge: true
 method: challenge-loop
 branch: agyquota-4588
-diff_hash: f011fff42505e196bd2ff2a7c2f1f7f2f7658d53a616607d9fec4f191cdfb1f0
-validation: passed
+diff_hash: f43b35bdd3e2d6bcafae6c6e6ac55b58b54833d3c9a2b2cc706ec09c80e452e7
+validation: pending
 subdir_audit: passed
-timestamp: 2026-09-30T11:24:31Z
-iterations: 8
+timestamp: 2026-09-30T18:45:05Z
+iterations: 10
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 8
+**Iterations:** 10
 **Converged:** Yes
 **Total findings (iterations 7-8, this session):** 5 WARNINGs, 0 BLOCKERs, 0 CONVENTIONs, 9 NITs
 **Fixed:** 2 | **Deferred:** 3 (1 by design, 2 duplicates of standing deferrals) | **Asked (awaiting user):** 0
@@ -51,6 +51,27 @@ origin/main was merged, so the loop resumed at iteration 7 on the changed tree.
 - [NIT] web/index.html:18273 - the day suffix can flip between renders at the 20 h line
 - [NIT] server.js:18152 - the wiring pin is a source match
 **Converged** - no new actionable findings.
+
+#### Iteration 9 (after merging main, 68d7c5027)
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 1 NIT
+- [NIT] main's #4624 roomhold.flushOnIdle runs on the quota idle too --> left for PR B (the automatic senders during the pause)
+**Converged.**
+
+#### Iteration 10 (after merging main again, 58245ebd4: main's #4618 in bin/agy-report-bridge.js)
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 3 NITs
+**Self-generated:** 0
+Resolution reviewed: buildBody(state, text, env, waiting, final, until); the quota Stop's return carries `final`, so a
+Muse answer and a quota reset from one Stop both reach the board. Seam test in engine/agyhooks.test.js with four
+measured mutations (swap reds 2, drop until reds 2, drop final at the send reds 1, quota return without final reds 1).
+Focused set 552/552 over 30 files; both browser-check gates rc 0.
+- [NIT] bin/agy-report-bridge.js:175 - the header comment does not say a quota stop can carry `final` (the return's comment does) --> left
+- [NIT] engine/agyhooks.test.js - the seam test's 60 s upper bound rests on the bridge starting within a minute (same as the review-7 test) --> left
+- [NIT] no test combines `waiting` with a quota `final` --> not reachable (waiting is working-only, quota is idle-only)
+**Converged** - no new actionable findings.
+Browser check render-dm-owes-4340.js (the #4612 surface): queued through queued-heavy.sh at 13:04 CDT behind a machine
+reservation; result not yet recorded at this commit. Full validation: pending (Renet runs it).
 
 ### Final Ledger (iterations 7-8)
 
