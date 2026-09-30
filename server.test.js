@@ -3408,9 +3408,8 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
   const known = drive(knownFleet, { total: 4, needsYou: 1, notRunning: 0 });
   assert.equal(known['st-working'].textContent, '2', 'a fully-known fleet must not wear the floor mark');
   assert.equal(known['st-idle'].textContent, '1', 'a fully-known fleet must not wear the floor mark');
-  /* #2157: the Working tile (chip + its .act animation) hides at a KNOWN zero and
-     only there. Nonzero keeps it shown; a floored count keeps it shown too, because
-     hiding would claim "none working" on a read that cannot stand behind it. */
+  /* #2157, #4736: the Working tile (chip + its .act animation) hides whenever it reads zero, "0+"
+     included (Josh 2026-09-30). Nonzero keeps it shown. */
   assert.equal(live['st-working-tile'].hidden, false, 'a nonzero working count keeps the tile shown (the floored-ZERO path is the zeroFloor fixture below)');
   assert.equal(known['st-working-tile'].hidden, false, 'a nonzero working count keeps the tile shown');
   const zeroKnown = drive(
@@ -3421,10 +3420,10 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
   const zeroFloor = drive(
     [{ state: 'idle' }, { state: 'unknown' }],
     { total: 2, needsYou: 0, notRunning: 0 });
-  assert.equal(zeroFloor['st-working-tile'].hidden, false,
-    'zero working WITH an unknown is a floor, so the tile stays shown -- hiding would claim none working');
+  assert.equal(zeroFloor['st-working-tile'].hidden, true,
+    '#4736: zero working WITH an unknown ("0+") hides the tile too (Josh: "if there are 0 working, lets not show the tile")');
   assert.equal(zeroFloor['st-working'].textContent, '0+',
-    'and the floored zero renders as 0+, not hidden');
+    'the number underneath is still the floored 0+ (only the tile is hidden)');
   assert.equal(live['st-attn'].textContent, '1', 'the needs-you tile lost its count');
   assert.equal(live['st-attn-tile'].hidden, false, 'a nonzero needs-you must show the alert tile');
   /* #653 (Josh, 2026-08-24): the Not-running tile is gone. The painter must
