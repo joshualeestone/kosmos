@@ -285,6 +285,12 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     await page.keyboard.press('ArrowLeft');   // from Grid, the first: the backward step wraps to the last
     const kl = await page.evaluate(() => ({ org: document.getElementById('orgview').hidden === false, focus: document.activeElement && document.activeElement.dataset.conslay }));
     ok(t + ' #4594: ArrowLeft from the first segment wraps to Org chart', kl.org && kl.focus === 'org', JSON.stringify(kl));
+    await page.keyboard.press('ArrowDown');   // Down moves forward like Right: Org chart wraps to Grid
+    const kd = await page.evaluate(() => ({ grid: document.getElementById('grid').hidden === false, focus: document.activeElement && document.activeElement.dataset.conslay }));
+    ok(t + ' #4594: ArrowDown moves forward (wraps to Grid)', kd.grid && kd.focus === 'grid', JSON.stringify(kd));
+    await page.keyboard.press('ArrowUp');     // Up moves back like Left: Grid wraps to Org chart
+    const ku = await page.evaluate(() => ({ org: document.getElementById('orgview').hidden === false, focus: document.activeElement && document.activeElement.dataset.conslay }));
+    ok(t + ' #4594: ArrowUp moves back (wraps to Org chart)', ku.org && ku.focus === 'org', JSON.stringify(ku));
 
     // ---- #4377, slice 2: the full projects page. fetch never settles here, so the fixture's rows are
     // the ones painted (over file:// the read fails and would paint "cannot read" instead). ----
