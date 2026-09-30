@@ -363,13 +363,19 @@ function resolve(token, roster) {
        not this agent. Keying every row before that check threw "invalid agent name" for the whole roster, so one such
        session sorted ahead of the agents broke every agent's token, with a message that blamed the agent. */
     const keyOf = (name) => { try { return store.safeKey(name); } catch { return null; } };
-    const card = Array.isArray(roster)
-      ? roster.find((a) => a && a.isNamedOurs === true && a.sessionName && keyOf(a.sessionName) === key)
-      : null;
+    const cards = Array.isArray(roster)
+      ? roster.filter((a) => a && a.isNamedOurs === true && a.sessionName && keyOf(a.sessionName) === key)
+      : [];
     /* A token matching a file but no tied roster row is the revoked or stale
        case, and it must read the same as a token we never issued. Saying "that
-       agent is gone" would confirm the token was once real. */
-    if (!card) return { ok: false, because: NO_MATCH };
+       agent is gone" would confirm the token was once real.
+       #4763: safeKey is lossy ("Mara" and "mara", "ma.ra" and "mara" share a key, and so one token file), so two
+       running agents of ours can both match. Taking the first let one agent's token speak as the other. With
+       more than one, NO agent is resolved: the answer is the same as a token we never issued, never a guess.
+       Creation already refuses a key clash with a RUNNING session; this covers the clash it cannot see (one of
+       the two was stopped when the other was made, or a session was made outside Kosmos). */
+    if (cards.length !== 1) return { ok: false, because: NO_MATCH };
+    const card = cards[0];
     return { ok: true, card, instance: hit.instance || null };
   }
   return { ok: false, because: NO_MATCH };

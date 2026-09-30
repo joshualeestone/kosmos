@@ -72,6 +72,31 @@ test('#4738: a stranger session whose name cannot be keyed, ahead of the agent i
   } finally { board.restore(); }
 });
 
+test('#4763: two running agents whose names share a key (Mara / mara): neither token resolves to the other', () => {
+  const store = require('./store');
+  assert.equal(store.safeKey('Mara'), store.safeKey('mara'), 'CONTROL: the two names really share a key');
+  const board = fleet.install([fleet.agent('Mara', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const a = sendertoken.mint('Mara');
+    const b = sendertoken.mint('mara');
+    assert.equal(a.ok && b.ok, true);
+    const ours = board.roster.filter((r) => r.isNamedOurs === true).map((r) => r.sessionName).sort();
+    assert.deepEqual(ours, ['Mara', 'mara'], 'CONTROL: both are ours on the roster');
+    for (const t of [a.token, b.token]) {
+      const who = sendertoken.resolve(t, board.roster);
+      assert.equal(who.ok, false, 'a token resolved while two agents share its key: ' + JSON.stringify(who && who.card && who.card.sessionName));
+    }
+  } finally { board.restore(); }
+  // Control: with only one of them running, its token resolves to it.
+  const one = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const t = sendertoken.mint('mara').token;
+    const who = sendertoken.resolve(t, one.roster);
+    assert.equal(who.ok, true, JSON.stringify(who));
+    assert.equal(who.card.sessionName, 'mara');
+  } finally { one.restore(); }
+});
+
 test('the body still cannot name the sender: an unissued token is refused, not believed', () => {
   const board = fleet.install([fleet.agent('renet-windows', { state: 'idle' })]);
   try {
