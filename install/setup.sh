@@ -2822,9 +2822,9 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
       # #4651: read the probe again now, after the wait, rather than trusting the one taken before it.
       _pauserc=0
       curl -fsS -m 2 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null || _pauserc=$?
-      # curl exits 0, 22, 28, 52 and 56 keep the pid advice below; any other curl exit gets both remedies.
+      # curl exits 0, 1, 22, 28, 52 and 56 keep the pid advice below; any other curl exit gets both remedies.
       case "$_pauserc" in
-        0|22|28|52|56) ;;
+        0|1|22|28|52|56) ;;
         *) die "Something is still holding port $PORT (pid $_pids), and this shell's check of it failed, so the update stopped before replacing any files. If you ran the install line in an agent's shell or another sandboxed tool, paste it into a normal Terminal window instead. If this already is a normal Terminal, quit the app with pid $_pids, then paste the install line again." ;;
       esac
       die "A process is still holding port $PORT after the pause (pid $_pids). Quit it (or run 'kill $_pids'), then paste the install line again."
