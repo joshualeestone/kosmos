@@ -54,6 +54,7 @@ if (args[0] === 'setup' && args[1] === 'start') {
   process.exit(0);
 }
 if (args[0] === 'setup' && args[1] === 'complete') {
+  if (mode.includes('setup-409-computer')) { process.stderr.write('Kosmos+ said no (409): The name ' + flag('--name') + ' is already in use by a computer on this account, at ' + flag('--name') + '.kosmos.invalid. If that is this computer, it is already set up and there is nothing more to do here. If it is a different computer, press Turn off there first, or pick another name.\\n'); process.exit(1); }
   if (mode.includes('setup-409')) { process.stderr.write('Kosmos+ said no (409): The name ' + flag('--name') + ' is already in use by a Mac on this account, at ' + flag('--name') + '.kosmos.invalid. If that is this Mac, it is already set up and there is nothing more to do here. If it is a different Mac, press Turn off there first, or pick another name.\\n'); process.exit(1); }
   if (mode.includes('slow-setup')) { const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 2500); while (Date.now() < until) { /* wait */ } }
   if (flag('--code') === '000000') {
@@ -174,6 +175,7 @@ if (args[0] === 'signin') {
     const name = flag('--name');
     if (name === 'taken') { process.stderr.write('the coordinator said no (409): a Mac on this account already has that name\\n'); process.exit(1); }
     // The coordinator's own sentences, as the tunnel prints them (setup.rs: "Kosmos+ said no (<code>): <words>").
+    if (mode.includes('register-409-computer')) { process.stderr.write('Kosmos+ said no (409): The name ' + name + ' is already in use by a computer on this account, at ' + name + '.kosmos.invalid. If that is this computer, it is already signed in. If it is a different computer, turn it off there first, or pick another name.\\n'); process.exit(1); }
     if (mode.includes('register-409')) { process.stderr.write('Kosmos+ said no (409): The name ' + name + ' is already in use by a Mac on this account, at ' + name + '.kosmos.invalid. If that is this Mac, it is already signed in. If it is a different Mac, turn it off there first, or pick another name.\\n'); process.exit(1); }
     // A rename whose certificate step fails: the new key, id and address are
     // written (write_registration), then the fetch fails.
@@ -1885,6 +1887,11 @@ test('#3827: after Kosmos+ refused to retire a half identity, its "already in us
     assert.match(stranded.because, /earlier sign-in on this computer/, 'a stranded attempt read as another Mac: ' + stranded.because);
     assert.doesNotMatch(stranded.because, /already signed in|said no/, 'the coordinator\'s sentence (false here) was kept: ' + stranded.because);
     assert.doesNotMatch(stranded.because, /\.\./, 'doubled punctuation: ' + stranded.because);
+    // #4645: the same answer in the wording the coordinator can move to reads the same.
+    const strandedNew = await halfThen('retire-refused,register-409-computer');
+    assert.equal(strandedNew.ok, false, 'fixture (computer wording): the coordinator still holds the name');
+    assert.match(strandedNew.because, /earlier sign-in on this computer/, '"a computer on this account" read as another computer: ' + strandedNew.because);
+    assert.doesNotMatch(strandedNew.because, /already signed in|said no/, 'the coordinator\'s sentence (false here) was kept: ' + strandedNew.because);
     // A definite refusal is final, not "try again": with the name free, it registers.
     // Each arm below ends set up at "hers"; start the next from a forgotten Mac.
     const fresh = async () => {
@@ -2123,6 +2130,19 @@ test('#3827: the Settings setup gets the same stranded-name answer', async () =>
     assert.equal(r.ok, false, 'fixture: the name is still held');
     assert.match(r.because, /The name hers may be held by an earlier sign-in on this computer/, r.because);
     assert.doesNotMatch(r.because, /nothing more to do/, 'the setup sentence (false here) was kept');
+    // #4645: the same in the wording the coordinator can move to, from the same stranded start.
+    process.env.FAKE_TUNNEL_MODE = '';
+    await remote.forget();
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    process.env.FAKE_TUNNEL_MODE = 'partial-register';
+    assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture (computer wording): the register was killed by its bound');
+    process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '20000';
+    await remote.setupStart('her@example.com');
+    process.env.FAKE_TUNNEL_MODE = 'retire-refused,setup-409-computer';
+    const rNew = await remote.setupComplete('123456', 'hers');
+    assert.match(rNew.because, /The name hers may be held by an earlier sign-in on this computer/, rNew.because);
   } finally {
     process.stderr.write = orig;
     delete process.env.FAKE_TUNNEL_MODE;
@@ -2761,4 +2781,163 @@ test('#3827: the hosted assistant is refused while this computer is being forgot
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
   }
+});
+
+/* #4610 (Josh, 2026-09-29 12:50, a brand-new Kosmos+ account in the Mac app): "This computer (Kosmos app)" asked him
+   to approve it, and the new account was shown an older request. */
+test('#4610 this Mac\'s own in-app sign-in is never listed as a request; another device still is (CONTROL)', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const reg = await remote.signinRegister('selfmac');
+  assert.equal(reg.ok, true, reg.because);
+  const self = remote.read().device_id;
+  assert.ok(self, 'the sign-in minted no device id, so the arm below measures nothing');
+  const dir = nodePath.join(DATA_ROOT, 'remote');
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
+    { device_id: self, name: 'Josh Mac (Kosmos app)', first_seen: 1756000000, code: 'W6-M4' },
+    { device_id: 'dev-safari', name: 'Mac · Safari', first_seen: 1756000100, code: 'VR-D6' },
+  ] }));
+  const got = remote.pendingDevices();
+  assert.deepEqual(got.devices.map((d) => d.device_id), ['dev-safari'], 'this Mac asked to approve itself');
+  remote.setOn(false);
+});
+
+test('#4610 a new identity drops the old account\'s pending snapshot; the same identity keeps it (CONTROL)', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  const pend = () => nodePath.join(DATA_ROOT, 'remote', 'pending.json');
+  const plant = () => fs.writeFileSync(pend(), JSON.stringify({ devices: [{ device_id: 'dev-old', name: 'Old account phone', first_seen: 1756000000, code: 'K7-3M' }] }));
+  const signIn = async (name, code) => { await remote.signinStart('her@example.com'); await remote.signinVerify('her@example.com', code); return remote.signinRegister(name); };
+  assert.equal((await signIn('olduser', '111111')).ok, true);
+  plant();
+  assert.equal(remote.pendingDevices().devices.length, 1, 'CONTROL: the planted snapshot reads before any change');
+  /* The same name is the same identity (the fake keeps mac-<name>): nothing is dropped. */
+  assert.equal((await signIn('olduser', '111111')).ok, true);
+  assert.ok(fs.existsSync(pend()), 'a re-register of the SAME identity threw away a live snapshot');
+  /* A different name is a new identity at the coordinator: the old snapshot goes. */
+  const before = fs.readFileSync(nodePath.join(DATA_ROOT, 'remote', 'mac_id'), 'utf8');
+  assert.equal((await signIn('newuser', '111111')).ok, true);
+  assert.notEqual(fs.readFileSync(nodePath.join(DATA_ROOT, 'remote', 'mac_id'), 'utf8'), before, 'the fake did not change identity, so the arm measures nothing');
+  assert.ok(!fs.existsSync(pend()) || !JSON.parse(fs.readFileSync(pend(), 'utf8')).devices.some((d) => d.device_id === 'dev-old'),
+    'the new account was still shown the old account\'s request');
+  remote.setOn(false);
+});
+
+test('#4610 Josh\'s ruling: a sign-in grants THIS Mac\'s own device at once, by the id this board minted; no other device is granted', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  const allows = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').map((a) => a[a.indexOf('--device-id') + 1]);
+  const already = allows().length;
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const reg = await remote.signinRegister('grantmac');
+  assert.equal(reg.ok, true, reg.because);
+  const self = remote.read().device_id;
+  assert.ok(self, 'no device id was minted, so there is nothing to grant');
+  await until(() => allows().length > already, 'the automatic Allow for this Mac\'s own sign-in');
+  assert.deepEqual(allows().slice(already), [self], 'the grant went to something other than this Mac\'s own minted id');
+  /* The stranger case is proven through the supervisor tick, the one path that grants from a snapshot (round 2:
+     an arm here that only READ the snapshot could not fail). */
+  remote.setOn(false);
+});
+
+test('#4610 reading pending never spawns, even while this Mac\'s own sign-in is still listed (the retry lives in ensure)', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('readmac')).ok, true);
+  const self = remote.read().device_id;
+  /* Round 3: wait for the sign-in's own grant to be recorded, not a fixed time (a loaded runner flaked). */
+  await until(() => recorded().some((a) => a[0] === 'devices' && a[1] === 'allow' && a.includes(self)), 'the sign-in\'s own grant to run');
+  await new Promise((r) => setImmediate(r));
+  /* Clear the once-a-minute throttle that grant just set, or a spawn from the read path would be blocked by the
+     throttle and this test could not tell the two apart (measured: it passed with the read-path call put back). */
+  remote.resetForTests();
+  remote.setOn(true);
+  const before = recorded().filter((a) => a[0] === 'devices').length;
+  fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify({ devices: [{ device_id: self, name: 'x', first_seen: 1756000000, code: 'W6-M4' }] }));
+  for (let i = 0; i < 5; i += 1) remote.pendingDevices();
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(recorded().filter((a) => a[0] === 'devices').length, before, 'reading pending spawned the tunnel program');
+  remote.setOn(false);
+});
+
+test('#4610 a Mac whose own sign-in was never granted (signed in before this change) is granted by the supervisor tick', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.setOn(true);
+  remote.ensure(4600);
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('tickmac')).ok, true);
+  await until(() => remote.status().state === 'up', 'the tunnel to come up');
+  const self = remote.read().device_id;
+  const allows = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').map((a) => a[a.indexOf('--device-id') + 1]);
+  await until(() => allows().includes(self), 'the sign-in\'s own grant');
+  /* Round 2: no second register (its own grant raced the tick's). A reset alone stands for a Mac that signed in
+     before this change and was never granted; only the tick can grant it now. */
+  remote.resetForTests();
+  remote.setOn(true);
+  remote.ensure(4600);
+  await until(() => remote.status().state === 'up', 'the tunnel to come back up');
+  const before = allows().length;
+  fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify({ devices: [{ device_id: self, name: 'x', first_seen: 1756000000, code: 'W6-M4' }] }));
+  remote.ensure(4600);
+  await until(() => allows().length > before, 'the tick to grant this Mac\'s own sign-in');
+  assert.deepEqual(allows().slice(before), [self]);
+  remote.setOn(false);
+});
+
+test('#4610 round 1: through the supervisor tick, ONLY this Mac\'s own id is granted, never a stranger in the same snapshot', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.setOn(true);
+  remote.ensure(4600);
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('strangermac')).ok, true);
+  await until(() => remote.status().state === 'up', 'the tunnel to come up');
+  const self = remote.read().device_id;
+  /* Round 3: wait for the sign-in's own grant to be recorded, not a fixed time (a loaded runner flaked). */
+  await until(() => recorded().some((a) => a[0] === 'devices' && a[1] === 'allow' && a.includes(self)), 'the sign-in\'s own grant to run');
+  await new Promise((r) => setImmediate(r));
+  remote.resetForTests();                          // clear the throttle and the granted mark, as a later tick would find it
+  remote.setOn(true);
+  remote.ensure(4600);
+  await until(() => remote.status().state === 'up', 'the tunnel to come back up');
+  const allows = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').map((a) => a[a.indexOf('--device-id') + 1]);
+  const before = allows().length;
+  fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify({ devices: [
+    { device_id: 'dev-stranger', name: 'This computer (Kosmos app)', first_seen: 1756000000, code: 'AA-11' },
+    { device_id: self, name: 'x', first_seen: 1756000100, code: 'W6-M4' },
+  ] }));
+  remote.ensure(4600);
+  await until(() => allows().length > before, 'the tick to grant this Mac\'s own sign-in');
+  await new Promise((r) => setTimeout(r, 300));
+  assert.deepEqual(allows().slice(before), [self], 'the tick granted something other than this Mac\'s own minted id');
+  assert.deepEqual(remote.pendingDevices().devices.map((d) => d.device_id), ['dev-stranger'], 'the stranger was hidden');
+  remote.setOn(false);
+});
+
+test('#4610 round 2: a grant still out when the identity changes cannot mark the next identity granted', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.setOn(true);
+  remote.ensure(4600);
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  process.env.FAKE_TUNNEL_MODE = 'hung-devices';
+  process.env.FAKE_DEVICE_HANG_MS = '1500';
+  try {
+    assert.equal((await remote.signinRegister('epochmac')).ok, true);
+    const self = remote.read().device_id;
+    const allows = () => recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').map((a) => a[a.indexOf('--device-id') + 1]);
+    await until(() => allows().includes(self), 'the slow grant to start');
+    remote.resetForTests();          // an identity change while that grant is still out (device_id survives, by design)
+    remote.setOn(true);
+    delete process.env.FAKE_TUNNEL_MODE;
+    await until(() => recorded().some((a) => a[0] === 'devices-done'), 'the old grant to land after the change');
+    remote.ensure(4600);
+    await until(() => remote.status().state === 'up', 'the tunnel to come up');
+    const before = allows().length;
+    fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify({ devices: [{ device_id: self, name: 'x', first_seen: 1756000000, code: 'W6-M4' }] }));
+    remote.ensure(4600);
+    await until(() => allows().length > before, 'the tick to grant it again: the old answer must not count for the new identity');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_DEVICE_HANG_MS; remote.setOn(false); }
 });

@@ -10,8 +10,11 @@
  *
  * The link record lives in federation.json beside projects.json, keyed by the
  * local project id, so the projects schema is untouched:
- *   owner:  { role: 'owner',  ref }          ref = the project_ref invites were minted with
+ *   owner:  { role: 'owner',  ref, selfShared? }   ref = the project_ref invites were minted with;
+ *           selfShared = an own code was made, so the owner sits in its own room with no guest (#4649)
  *   member: { role: 'member', edge_id, owner_handle, project_name, project_desc }
+ *   self:   { role: 'self',   ref, project_name, project_created }   another computer of the same
+ *           account, joined by own code; its seat is `fed-room --own-project <ref>` (#4649)
  * The owner's ref is what lets the owner's board find the project's room later
  * (the coordinator derives the room from owner account + ref).
  */
@@ -145,25 +148,105 @@ function reasonFor(sentence) {
 
 const { externalName, INVISIBLE, byCodePoint } = require('./externalname');
 const DESC_MAX = 1000;
-// A project name is a ref (refOk's 200), and an owner handle is a Kosmos+ name
+// A project name is bounded by nameOk (200), and an owner handle is a Kosmos+ name
 // (3 to 32 characters at the coordinator), kept with room to spare.
 const NAME_MAX = 200;
 const HANDLE_MAX = 64;
 
+/* The coordinator caps a project_ref at 128 BYTES (invite and own-room-ticket alike,
+   kosmos#4649), so the same bound here: a ref this board would accept but the
+   coordinator refuse would make a project nobody can join. */
 function refOk(v) {
-  return typeof v === 'string' && v.length > 0 && v.length <= 200;
+  return typeof v === 'string' && v.length > 0 && Buffer.byteLength(v, 'utf8') <= 128;
+}
+/* A project NAME keeps the bound it had before refs were capped in bytes: a legal
+   project name of 43 CJK characters is over 128 bytes and must still be invitable. */
+function nameOk(v) {
+  return typeof v === 'string' && v.length > 0 && v.length <= NAME_MAX;
+}
+
+/* kosmos#4649: a code that lets ANOTHER computer of the same account join this project's
+   shared room. It carries only the project's ref and name, and needs no secret: a seat in
+   an own room is only ever minted for the caller's OWN account, so this code pasted on
+   someone else's computer opens that account's own (empty) room, never this one. */
+const OWN_PREFIX = 'kosmos-own:';
+const OWN_CODE_MAX = 1024;
+/* An own code's ref reaches the connector's command line (`--own-project <ref>`), and a pasted
+   code is written by whoever made it, so it must look like a ref this board mints (a UUID):
+   letters, digits, _ and -, never starting with -. */
+const OWN_REF_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+/* The key an own-account join is held under between verify and join (never an edge id,
+   which the coordinator mints as 32 hex characters). */
+const OWN_KEY_PREFIX = 'own:';
+/* Why no own code can be made for this project, or null when one can: 'guest' for a
+   project joined from someone else, 'sealed' for an owner project that has handed out a
+   sealing invite (its room is sealed, and a computer joined by own code has no seal
+   state, so it could neither read nor post there; #4658). */
+function ownCodeRefusal(projectId) {
+  const link = linkFor(projectId);
+  if (!link) return null;
+  if (link.role !== 'owner' && link.role !== 'self') return 'guest';
+  if (link.role === 'owner' && refOk(link.ref) && fedseal.isSealedRef(link.ref)) return 'sealed';
+  return null;
+}
+function ownCode(projectId, projectName) {
+  if (ownCodeRefusal(projectId)) return null;
+  const link = linkFor(projectId);
+  let ref = link && (link.role === 'owner' || link.role === 'self') && OWN_REF_RE.test(String(link.ref)) ? link.ref : null;
+  if (!ref) {
+    if (link) return null;   // a member of someone else's project: not ours to add computers to
+    ref = require('crypto').randomUUID();
+    recordLink(projectId, { role: 'owner', ref, selfShared: true });
+  } else if (link.role === 'owner' && link.selfShared !== true) {
+    // Shared with the person's other computers from now on: the owner seats its own room
+    // even before a guest joins (fedseats.ensure).
+    recordLink(projectId, Object.assign({}, link, { selfShared: true }));
+  }
+  // parseOwnCode refuses a code over OWN_CODE_MAX; the name is cut, by whole characters, to fit.
+  let chars = Array.from(String(projectName || '').slice(0, NAME_MAX));
+  const make = () => OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref, name: chars.join('') }), 'utf8').toString('base64url');
+  let code = make();
+  while (code.length > OWN_CODE_MAX && chars.length > 1) { chars = chars.slice(0, Math.floor(chars.length / 2)); code = make(); }
+  return code;
+}
+/** Whether `ref` is a room this account's other computers sit in (an owner shared by own code,
+    or a project joined by one). Throws on an unreadable links record. */
+function selfSharedRef(ref) {
+  return Object.values(links()).some((l) => l && ((l.role === 'owner' && l.selfShared === true) || l.role === 'self') && l.ref === ref);
+}
+/** Whether a project on this computer already sits in the own room `ref` (as owner or self). Throws on an unreadable links record. */
+function ownRefHere(ref) {
+  return Object.values(links()).some((l) => l && (l.role === 'self' || l.role === 'owner') && l.ref === ref);
+}
+/** The {ref, name} an own-account code carries, or null for anything else. */
+function parseOwnCode(text) {
+  const t = typeof text === 'string' ? text.trim() : '';
+  if (!t.startsWith(OWN_PREFIX) || t.length > OWN_CODE_MAX) return null;
+  let o;
+  try { o = JSON.parse(Buffer.from(t.slice(OWN_PREFIX.length), 'base64url').toString('utf8')); } catch { return null; }
+  if (!o || o.v !== 1 || typeof o.ref !== 'string' || !OWN_REF_RE.test(o.ref) || typeof o.name !== 'string') return null;
+  const name = o.name.trim().slice(0, NAME_MAX);
+  return name ? { ref: o.ref, name } : null;
 }
 
 /** Mint an invite for a project the person is creating or owns. */
 async function invite(remote, body) {
   const kind = body && body.invited_kind;
-  if (!refOk(body && body.project_ref) || !refOk(body && body.project_name) || (kind !== 'person' && kind !== 'agent')) {
+  if (!refOk(body && body.project_ref) || !nameOk(body && body.project_name) || (kind !== 'person' && kind !== 'agent')) {
     return { status: 400, body: { error: 'we could not read that request' } };
   }
   // The same bound a project's own description has here (projects.js), so nothing
   // longer than this Mac would keep leaves it.
   if (typeof body.project_desc === 'string' && body.project_desc.length > DESC_MAX) {
     return { status: 400, body: { error: 'that description is longer than ' + DESC_MAX + ' characters' } };
+  }
+  /* A sealing invite seals the room, and this account's other computers joined by own code
+     hold no seal state, so they could no longer read or post there (#4658). An unreadable
+     links record does not block an invite; the paths that read links report it. */
+  let selfShared = false;
+  try { selfShared = selfSharedRef(body.project_ref); } catch { selfShared = false; }
+  if (selfShared) {
+    return { status: 409, body: { reason: 'self-shared', error: 'This project is shared with your other computers, so it cannot be shared with other people yet.' } };
   }
   const req = { project_ref: body.project_ref, project_name: body.project_name, invited_kind: kind };
   if (typeof body.project_desc === 'string' && body.project_desc.trim()) req.project_desc = body.project_desc;
@@ -181,6 +264,12 @@ async function invite(remote, body) {
   if (typeof r.data.invite_id !== 'string' || !r.data.invite_id) {
     return { status: 502, body: { error: 'The connection service is older than this Kosmos, so a sealed invite cannot be made yet. Try again later.' } };
   }
+  // Checked again after the coordinator answered: an own code made meanwhile must not be sealed out.
+  let sharedNow = false;
+  try { sharedNow = selfSharedRef(body.project_ref); } catch { sharedNow = false; }
+  if (sharedNow) {
+    return { status: 409, body: { reason: 'self-shared', error: 'This project is shared with your other computers, so it cannot be shared with other people yet.' } };
+  }
   const s = fedseal.randomSecret();
   try { fedseal.stashInvite(body.project_ref, { s, code: r.data.code, invite: r.data.invite_id }); } catch (err) {
     return { status: 500, body: { error: 'We could not keep this invite\'s key on this computer, so no code was made. Try again. (' + String((err && err.message) || 'unknown') + ')' } };
@@ -191,6 +280,28 @@ async function invite(remote, body) {
 /** Redeem a code into a connection and show the owner's read-only snapshot. */
 async function verify(remote, body) {
   const pasted = body && typeof body.code === 'string' ? body.code.trim() : '';
+  /* kosmos#4649: a code from ANOTHER computer of this account ("add your other computer")
+     is not an invite: nothing is redeemed with the coordinator. It becomes a `self` link
+     at join, whose seat is this account's own room. Checked before the invite length
+     bound, since it carries the project's name. */
+  const own = parseOwnCode(pasted);
+  if (own) {
+    // The coordinator seats an own room only for a Kosmos Plus account.
+    let plus = false;
+    try { plus = remote.kosmosPlus() === true; } catch { plus = false; }
+    if (!plus) {
+      return { status: 403, body: { reason: 'not-plus', error: 'Joining your other computer\'s project needs Kosmos Plus on this computer.' } };
+    }
+    let here;
+    try { here = ownRefHere(own.ref); } catch { return { status: 500, body: { error: 'Kosmos could not read which projects are shared on this computer. Try again in a moment.' } }; }
+    if (here) return { status: 409, body: { reason: 'already_joined', error: 'This project is already on this computer.' } };
+    const key = OWN_KEY_PREFIX + own.ref;
+    const snap = { edge_id: key, own: true, project_name: externalName(own.name, NAME_MAX), project_desc: null, owner_handle: 'your other computer' };
+    verified.delete(key);
+    verified.set(key, Object.assign({ at: Date.now(), ref: own.ref }, snap));
+    while (verified.size > SNAPSHOT_MAX) verified.delete(verified.keys().next().value);
+    return { status: 200, body: snap };
+  }
   if (!pasted || pasted.length > 200) return { status: 400, body: { error: 'Paste the code you were given first.' } };
   // #3728: only the coordinator's half goes to the coordinator; `s` stays on this board.
   const { code, s: sealS } = fedseal.splitInviteCode(pasted);
@@ -243,6 +354,7 @@ function forgetSnapshot(edgeId) {
 }
 
 module.exports = {
+  ownCode, ownCodeRefusal, ownRefHere, parseOwnCode, OWN_PREFIX,
   FILE, MAC_INVITE, MAC_VERIFY,
   invite, verify, joinSnapshot, forgetSnapshot, linkFor, recordLink, forgetLink, readLinks, reasonFor, refOk,
   SNAPSHOT_TTL_MS, SNAPSHOT_MAX, NAME_MAX, DESC_MAX, HANDLE_MAX,

@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-state2 plus-signin-email plus-signin-code plus-si-code-in plus-si-code-go plus-si-second-in plus-si-second-go plus-si-phone plus-si-phone-go plus-si-enrol-code plus-si-enrol-confirm-go plus-si-name plus-si-register-go plus-email plus-send-code plus-code plus-name plus-confirm
+// Browser-check-surface: plus-state2 plus-signin-email plus-signin-code plus-si-code-in plus-si-code-go plus-si-second-in plus-si-second-go plus-si-phone plus-si-phone-go plus-si-enrol-code plus-si-enrol-confirm-go plus-si-name plus-si-register-go
 'use strict';
 /**
  * Josh, 2026-09-29 (live test on Windows): he typed his email into "Sign in to activate
@@ -8,8 +8,8 @@
  *
  * This walks the wizard with the KEYBOARD ONLY (no click on any step button) through every
  * box that takes typing: email, the email code, the second-factor code, the phone number,
- * the enrol confirm code and the address box; and the connected flow's enrol pair (email,
- * code, name). For each box it asserts that Enter sent exactly the request that step's
+ * the enrol confirm code and the address box. (The connected flow's own enrol pair, which
+ * could never show, was removed in kosmos#4698.) For each box it asserts that Enter sent exactly the request that step's
  * button sends, with what was typed. Codes are put in the six boxes QUIETLY (no input
  * event), so the sixth digit's auto-submit (#3942) cannot be what moved the step: only
  * Enter can. It also asserts Enter with Shift does not submit, and a disabled (busy)
@@ -46,8 +46,6 @@ function chk(ok, label, extra) {
 }
 
 const UNENROLLED = { configured: true, on: false, ok: true, enrolled: false, email: '', status: {} };
-// The connected flow's enrol pair shows when the switch is on and nothing is enrolled yet.
-const WAITING = { configured: true, on: true, ok: true, enrolled: false, email: '', status: {} };
 
 const visible = (page, sel) => page.evaluate((s) => {
   const e = document.querySelector(s);
@@ -193,44 +191,6 @@ async function openPlus(page, remote) {
       await page.close();
     }
 
-    // ---- The connected flow's enrol pair (switch on, not yet enrolled). ----
-    {
-      const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: 'dark' });
-      page.__url = BASE;
-      const errs = [];
-      page.on('pageerror', (e) => errs.push(e.message));
-      const posts = [];
-      await openPlus(page, WAITING);
-      await page.route('**/api/remote/setup-**', (route, rq) => {
-        const req = rq || route.request();
-        let body = null; try { body = JSON.parse(req.postData() || 'null'); } catch { body = null; }
-        posts.push({ step: new URL(req.url()).pathname.replace('/api/remote/', ''), body });
-        route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
-      });
-      /* The pane decides which flow it shows from /api/remote; if this build does not put the enrol pair on
-         screen for WAITING, show it directly: this check is about Enter, not about when the pair shows. */
-      if (!(await visible(page, '#plus-email'))) {
-        await page.evaluate(() => {
-          for (const id of ['plus-state1', 'plus-state2']) { const e = document.getElementById(id); if (e) e.hidden = true; }
-          for (const id of ['plus-flow', 'plus-enrol']) { const e = document.getElementById(id); if (e) e.hidden = false; }
-        });
-      }
-      await page.fill('#plus-email', 'josh@example.com');
-      await focusOn(page, 'plus-email');
-      await page.keyboard.press('Enter');
-      await page.waitForSelector('#plus-code-row', { state: 'visible', timeout: 5000 }).catch(() => {});
-      const ss = posts.find((p) => p.step === 'setup-start');
-      chk(!!ss && ss.body && ss.body.email === 'josh@example.com', 'Enter in the enrol pair\'s email box sends the code request', JSON.stringify(posts));
-      await quietly(page, 'plus-code', '444444');
-      await page.fill('#plus-name', 'enter-pair');
-      await focusOn(page, 'plus-code');
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(500);
-      const sc = posts.find((p) => p.step === 'setup-complete');
-      chk(!!sc && sc.body && sc.body.code === '444444' && sc.body.name === 'enter-pair', 'Enter in the enrol pair\'s code box confirms with the code and name', JSON.stringify(posts));
-      chk(errs.length === 0, 'no page errors (enrol pair)', errs.join(' | '));
-      await page.close();
-    }
   } finally {
     await browser.close();
     server.close();
