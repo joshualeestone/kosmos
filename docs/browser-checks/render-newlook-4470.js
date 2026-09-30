@@ -174,7 +174,7 @@ async function listLook(page) {
     const idle = rows.find((r) => !['working', 'attn', 'unk', 'off'].some((c) => r.classList.contains(c)));
     if (!idle) return { found: false, why: 'no plain row', rows: rows.length };
     const cs = getComputedStyle(idle);
-    const nm = idle.querySelector('.lname');
+    const nm = idle.querySelector('.lname .namego');
     return { found: true, border: cs.borderTopColor, radius: cs.borderTopLeftRadius, ground: cs.backgroundImage !== 'none' || cs.backgroundColor !== 'rgba(0, 0, 0, 0)', nameAlign: nm ? getComputedStyle(nm).textAlign : 'absent' };
   });
   const rest = await read();
