@@ -43,8 +43,8 @@ function pausedUntil(report) {
 const MAX_POOL_MS = 8 * 24 * 3600 * 1000;
 /* Each antigravity agent's last-seen reset, by session. A card stops carrying quotaUntil once its reset passes, and can
    stop showing its pause before then (its screen changed), while the pool is still empty; so the board remembers.
-   A card that shows a new reset corrects only its own entry; an entry is dropped MAX_AGE_MS after the last agent's
-   release (counted on the roster of the caller that prunes). `seen` is when each pause was first seen. Nothing
+   A card that shows a new reset corrects only its own entry; an entry is dropped 2 * MAX_AGE_MS after its reset.
+   `seen` is when each pause was first seen. Nothing
    releases it early: a card reading working is no proof the pool refilled (a resumed agent, an in-flight turn), so a
    hold lasts to its recorded reset, bounded by MAX_POOL_MS.
    In memory only: a board restart forgets it, and the release after that one reset is then lost. */
@@ -75,12 +75,16 @@ function notePool(roster, now, memo = POOL_MEMO) {
     const at = Date.parse(c.quotaUntil);
     if (Number.isFinite(at) && at > now && at <= cap) {
       const k = String(c.sessionName);
+      const prev = memo.bySession.get(k);
+      // When this pause was first seen: a correction of a reset still ahead keeps it; a new pause after the old reset,
+      // or the first one, starts it now.
+      if (prev === undefined || prev <= now || !memo.seen.has(k)) memo.seen.set(k, now);
       memo.bySession.set(k, at);
-      if (!memo.seen.has(k)) memo.seen.set(k, now); // when this pause was first seen (a correction keeps it)
     }
   }
-  // Kept past the release: the resume below measures its age window from the pool's reset (see plan()).
-  const keep = MAX_AGE_MS + GRACE_MS + SLOT_MS * (agyNames(cards).length + 1);
+  // Kept past every release (MAX_AGE_MS covers any sane number of agents at one SLOT_MS each) and through the resume's
+  // six hours (see heldBackBy); a constant, so the horizon does not depend on which caller's roster prunes.
+  const keep = 2 * MAX_AGE_MS;
   let reset = null;
   for (const [k, at] of memo.bySession) {
     if (now >= at + keep) { memo.bySession.delete(k); memo.seen.delete(k); continue; }

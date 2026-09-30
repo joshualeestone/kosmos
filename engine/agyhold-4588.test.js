@@ -609,8 +609,10 @@ test('#4588 B release: after the reset agent i (by name) comes back at reset + G
   agyquota.notePool(after, RS + agyquota.GRACE_MS + agyquota.SLOT_MS * 4, memo);
   assert.equal(memo.bySession.size, 1, 'the entry was dropped before the resume\'s six-hour window');
   assert.equal(agyquota.heldForQuota('rs-c', after, RS + agyquota.GRACE_MS + agyquota.SLOT_MS * 4, memo), null, 'a kept entry held an agent past its step');
-  agyquota.notePool(after, RS + agyquota.MAX_AGE_MS + agyquota.GRACE_MS + agyquota.SLOT_MS * 4, memo);
-  assert.equal(memo.bySession.size, 0, 'an entry is dropped once the window after its release has passed');
+  agyquota.notePool(after, RS + 2 * agyquota.MAX_AGE_MS - 1, memo);
+  assert.equal(memo.bySession.size, 1, 'the entry was dropped before its constant horizon');
+  agyquota.notePool(after, RS + 2 * agyquota.MAX_AGE_MS, memo);
+  assert.equal(memo.bySession.size, 0, 'an entry is dropped 2 * MAX_AGE_MS after its reset');
 });
 
 test('#4588 B an agent whose report says a reset 30 days away holds nobody (the 8-day rule); CONTROL: a sane reset does', () => {
@@ -725,4 +727,19 @@ test('#4588 B a pool pause that BEGAN after an agent\'s six hours had closed doe
   agyquota.notePool([cardY(true)], X + 3600e3, early);            // CONTROL: the same pause first seen 1 h after X's reset
   assert.equal(agyquota.heldBackBy(X, early), Yreset);
   assert.equal(agyquota.plan(report, undefined, Yreset + agyquota.GRACE_MS + 60e3, agyquota.heldBackBy(X, early)).act, 'nudge', 'CONTROL: held back inside its window, X is resumed');
+});
+
+/* ---- review iteration 10: a repeat pause gets its own first-seen time ---- */
+
+test('#4588 B the SAME agent pausing again after its old reset records a fresh first-seen time; CONTROL: a correction of a reset still ahead keeps it', () => {
+  const t = Date.parse('2026-09-28T10:00:00.000Z');
+  const card = (until) => [{ sessionName: 'rp-a', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(until).toISOString() }];
+  const memo = agyquota.newPoolMemo();
+  agyquota.notePool(card(t + 3600e3), t, memo);                       // pause 1, reset at t+1h
+  agyquota.notePool(card(t + 30 * 60e3), t + 10 * 60e3, memo);        // CONTROL: corrected while still ahead
+  assert.equal(memo.seen.get('rp-a'), t, 'a correction moved the first-seen time');
+  agyquota.notePool(card(t + 5 * 3600e3), t + 3 * 3600e3, memo);      // pause 2, after pause 1's reset has passed
+  assert.equal(memo.seen.get('rp-a'), t + 3 * 3600e3, 'a new pause kept the old pause\'s first-seen time');
+  // So pause 2 does not count as holding back an agent whose window had closed before it began.
+  assert.equal(agyquota.heldBackBy(t - 7 * 3600e3, memo), null, 'a pause that began after X\'s window closed extended it');
 });
