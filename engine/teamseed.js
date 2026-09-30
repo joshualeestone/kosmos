@@ -7,7 +7,7 @@
  * person chose into one create spec per member, in the order they must be made. The page then makes
  * each one through the existing POST /api/agents, one request per member, so every member gets the
  * same birth a single agent gets (account check, project attach, created count) and a failed one
- * can be retried alone. Nothing here writes anything.
+ * can be retried alone. Nothing here writes an agent; `refresh()` downloads and stores the catalogue.
  *
  * The catalogue is read through `catalogue()`, which is injectable (setCatalogue) for tests and
  * loads `./catalogue` lazily otherwise. Since #4632 the catalogue is DOWNLOADED, not shipped: a board
@@ -87,10 +87,12 @@ function notHeld(c) {
   if (typeof c.status !== 'function') return null;
   const s = c.status();
   if (s && s.loaded) return null;
-  // The catalogue's own reason rides along: "check it is online" alone would be wrong for a refused copy.
-  const why = s && typeof s.error === 'string' && s.error ? ' (' + s.error + ')' : '';
-  return (s && s.refused === true ? REFUSED : NOT_DOWNLOADED) + why;
+  // The catalogue's own reason (an address, a status code, a serial) goes to the log, never the screen.
+  const why = s && typeof s.error === 'string' ? s.error : '';
+  if (why && why !== loggedWhy) { loggedWhy = why; console.error('[teamseed] no prebuilt teams: ' + why); }
+  return s && s.refused === true ? REFUSED : NOT_DOWNLOADED;
 }
+let loggedWhy = '';
 
 /**
  * Download the catalogue for the routes the Team screen opens with. A board that HOLDS one asks
@@ -111,7 +113,7 @@ async function refresh(cat) {
   }
 }
 
-/** For the Team dropdown: every seeded team, ordered by rank. */
+/** For the Team dropdown: every seeded team, business then personal, each by rank. */
 function list(cat) {
   const c = cat === undefined ? catalogue() : cat;
   const gone = notHeld(c);
@@ -163,7 +165,7 @@ function ordered(team) {
  *   anything, so a taken suggested name is caught before the first agent; it is off when the page
  *   re-reads the specs to retry, because by then some of the names are taken by this team itself.
  * @param {{taken?:function(string):boolean}} [deps] tests replace the taken check.
- * @returns {{ok:true, team:string, specs:Array<{slot,title,spec,avatar}>}|{ok:false, because:string}}
+ * @returns {{ok:true, team:string, specs:Array<{slot,title,session,spec,avatar}>}|{ok:false, because:string}}
  */
 function specs(req, cat, deps) {
   const c = cat === undefined ? catalogue() : cat;

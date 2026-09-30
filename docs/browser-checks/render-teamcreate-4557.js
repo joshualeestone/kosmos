@@ -109,6 +109,12 @@ function chk(ok, label, extra) {
           const hidden = new Set();   // machine names the board must NOT see running (the unseen arm)
           const drop = {};        // name -> its create LANDS, then the connection drops (iteration 12's arm)
           const made = [];
+          const specsFail = { n: 0 };   // how many of the RUN's spec reads fail (the names pre-check never does)
+          await page.route('**/api/teams/seeded/*/specs', async (r) => {
+            const b = JSON.parse(r.request().postData() || '{}');
+            if (!b.check && specsFail.n > 0) { specsFail.n -= 1; return r.fulfill({ status: 503, json: { error: 'Kosmos could not prepare the team' } }); }
+            return r.continue();
+          });
           await page.route('**/api/agents', async (r) => {
             if (r.request().method() !== 'POST') return r.continue();
             const b = JSON.parse(r.request().postData() || '{}');
@@ -135,7 +141,7 @@ function chk(ok, label, extra) {
           });
           await page.goto(URL, { waitUntil: 'networkidle' });
           await clearFirstRun(page);
-          return { page, errs, posted, script, slow, hidden, warnSteps, drop };
+          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail };
         };
         const rows = (page) => page.evaluate(() => [...document.querySelectorAll('#tc-list li')].map((li) => ({
           slot: li.dataset.slot,
@@ -377,6 +383,57 @@ function chk(ok, label, extra) {
           chk(msg === 'there is already an agent called Ada on this computer; give the Content Writer another name. If you were making this team a moment ago, those agents are already on your board' && posted.length === 0 && projects.readAll().length === before,
             `${E} a name already taken on this computer is refused before any project or agent is made`, msg + ' | posted ' + posted.length);
           chk(errs.length === 0, `${E} no page errors (taken arm)`, errs.join(' | '));
+          await page.close();
+        }
+
+        /* --- review 22: a failed row LATER in the list, renamed and retried while an earlier retry is
+           still being made, is made under the name on screen (the running pass read its spec before the
+           rename). -------------------------------------------------------------------------------------- */
+        {
+          const { page, errs, posted, script, slow } = await newPage(1280);
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          script.Leo = 'Leo could not be made';
+          script.Ana = 'Ana could not be made';
+          await page.click('#tc-go');
+          const stateIs = (slot, re) => page.waitForFunction(([sl, src]) => new RegExp(src).test((document.querySelector('#tc-list li[data-slot="' + sl + '"] .tc-state') || {}).textContent || ''), [slot, re.source], { timeout: 8000 }).catch(() => null);
+          await stateIs('content', /Not made/); await stateIs('social', /Not made/);
+          const before = await rows(page);
+          chk(before[1].state === 'Not made' && before[2].state === 'Not made', `${E} precondition: Leo and Ana both failed`, JSON.stringify(before.map((r) => r.state)));
+          slow.Leo = 2500;   // Leo's retry is still in flight when Ana is renamed and retried
+          await page.click('#tc-list li[data-slot="content"] .tc-retry');
+          await stateIs('content', /Making/);
+          await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Ana Two');
+          await page.click('#tc-list li[data-slot="social"] .tc-retry');
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((x) => x.textContent === 'Running'));
+          const names = posted.map((b) => b.name);
+          const after = await rows(page);
+          chk(names.join() === 'Maya,Leo,Ana,Leo,Ana Two' && after[2].name === 'Ana Two' && after.every((r) => r.state === 'Running'),
+            `${E} a later row renamed and retried during a run is made under its new name, once`, JSON.stringify({ names, rows: after.map((r) => [r.name, r.state]) }));
+          chk(errs.length === 0, `${E} no page errors (rename-during-run arm)`, errs.join(' | '));
+          await page.close();
+        }
+
+        /* --- review 22: the run's one read of the specs fails. Every row says Not made, and ONE Try again
+           takes them all (they failed as one), lead first. ---------------------------------------------- */
+        {
+          const { page, errs, posted, specsFail } = await newPage(1280);
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          specsFail.n = 1;
+          await page.click('#tc-go');
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].length === 3 && [...document.querySelectorAll('#tc-list .tc-state')].every((x) => x.textContent === 'Not made'));
+          const failed = await rows(page);
+          chk(failed.every((r) => r.state === 'Not made' && r.retry && /could not prepare/.test(r.why)) && posted.length === 0,
+            `${E} a failed read of the specs fails every row with the reason, and nothing was made`, JSON.stringify(failed.map((r) => [r.state, r.why])));
+          await page.click('#tc-list li[data-slot="lead"] .tc-retry');
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((x) => x.textContent === 'Running'));
+          const done = await rows(page);
+          chk(posted.map((b) => b.name).join() === 'Maya,Leo,Ana' && done.every((r) => r.state === 'Running'),
+            `${E} one Try again after a failed read makes the whole team`, JSON.stringify({ posted: posted.map((b) => b.name), rows: done.map((r) => r.state) }));
+          chk(errs.length === 0, `${E} no page errors (failed-read arm)`, errs.join(' | '));
           await page.close();
         }
 

@@ -197,3 +197,24 @@ DECIDED, NOT FIXED:
   the remaining seats or makes those agents singly. The sentence above is the whole mitigation. A record
   of a team in the making (so a reload resumes) is a feature of its own. Weakest premise: that a reload
   mid-run is rare, in a run that takes well under a minute.
+
+## Review 22 (opus)
+FIXED:
+- A failed row LATER in the list, renamed and retried while an earlier retry was still being made, was
+  posted under its old name: the running pass had read its spec before the rename. The pass now leaves a
+  row whose spec name is not the name on screen, and goes round again. Browser arm added (both engines).
+- One failed read of the specs during a run failed every row, and each then needed its own Try again.
+  Rows that fail as one are now taken together by one Try again. Browser arm added.
+- The Team step's "not downloaded" and "could not use them" sentences carried the catalogue's raw reason
+  in brackets: an address and a status code, or a serial. It is logged; the screen gets the plain sentence.
+- Stale prose: teamseed.js's header and list() doc, the specs() return shape (it omitted `session`), a
+  comment in catalogue.js that placed the team section outside any managed block. CLAUDE.md gains a
+  Where to Find Things row for making a team.
+DUPLICATE (decided earlier, unchanged):
+- The project is made before the lead's account is known to work, so a failed lead leaves an empty
+  project (deferred under review 18). Correction to review 19's sentence: only the lead's row says why;
+  the reports say they are waiting for the lead.
+- The org chart decides who every project's room opens on, not only a seeded team's (review 19).
+NOT TAKEN:
+- Commit subjects say `teamcreate-4557`, the branch is `teamcreate-ui-4557`. The PR squash-merges under
+  its title; rewriting pushed history to fix a prefix would cost every recorded run its sha.

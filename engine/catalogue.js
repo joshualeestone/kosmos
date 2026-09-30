@@ -375,9 +375,8 @@ function memberTeamSection(teamKey, slot, names) {
   // What a `kosmos msg` command must carry: the machine name (lowercase, spaces folded), so a
   // two-word name cannot split into a recipient and the start of the message.
   const handleOf = (x) => create.slugFor(nameOf(x));
-  // No command path here: this section sits outside any managed block, so a path written into it
-  // would go stale when the install layout changes. It names each teammate's machine name; the
-  // messaging block below (kept current by projects.healColleagues) teaches the command itself.
+  // No command path here: a path written into this section would go stale when the install layout
+  // changes. It names each teammate's machine name only.
   const lead = leadOf(t);
   const lines = ['', '## On this team', ''];
   if (m.reportsTo === null) {

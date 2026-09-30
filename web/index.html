@@ -46815,7 +46815,8 @@ async function tcRunOnce(gen) {
   let specs;
   try { specs = await tcSpecs(TC.project); } catch (err) {
     if (gen !== TC_GEN) return;
-    for (const m of TC.members) if (m.state === 'waiting' || m.state === 'held') { m.state = 'failed'; m.why = String((err && err.message) || err); }
+    // `together`: these rows failed as one (the read, not the member), so one Try again takes them all.
+    for (const m of TC.members) if (m.state === 'waiting' || m.state === 'held') { m.state = 'failed'; m.together = true; m.why = String((err && err.message) || err); }
     tcPaint(); return;
   }
   const bySlot = new Map(specs.map((s) => [s.slot, s]));
@@ -46826,6 +46827,9 @@ async function tcRunOnce(gen) {
     if (m !== lead && lead.state !== 'made') { m.state = 'held'; m.why = ''; continue; }
     const s = bySlot.get(m.slot);
     if (!s || !s.spec) { m.state = 'failed'; m.why = 'Kosmos did not prepare this member. Try again.'; tcPaint(); continue; }
+    /* Review 22: a row renamed and retried while this pass was making an earlier one has a spec read
+       before the rename. It stays waiting and the run goes round again, reading the specs afresh. */
+    if (s.spec.name !== m.name.trim()) { TC.again = true; continue; }
     m.state = 'creating'; m.why = ''; tcPaint();
     let out = null;
     try {
@@ -46927,8 +46931,12 @@ async function tcRetry(slot) {
   const m = TC.members.find((x) => x.slot === slot);
   if (!m || m.state !== 'failed') return;
   const gen = TC_GEN;
-  m.state = 'waiting'; m.why = '';
-  for (const o of TC.members) if (o.state === 'held') o.state = 'waiting';
+  const together = m.together === true;
+  m.state = 'waiting'; m.why = ''; m.together = false;
+  for (const o of TC.members) {
+    if (o.state === 'held') o.state = 'waiting';
+    else if (together && o.state === 'failed' && o.together) { o.state = 'waiting'; o.why = ''; o.together = false; }
+  }
   tcPaint();
   await tcRun(gen);   // single-flight: during a run this only asks the running loop to go round again
 }

@@ -81,16 +81,19 @@ test('#4632 not downloaded: a catalogue that holds nothing says so at every entr
   assert.equal(teamseed.detail('marketing', held).ok, true);
 });
 
-test('#4632 not downloaded: the sentence carries the catalogue\'s own reason, and a REFUSED copy is not blamed on being offline', () => {
+test('#4632 not downloaded: the catalogue\'s own reason stays off the screen, and a REFUSED copy is not blamed on being offline', () => {
   const offline = { ...fixture(), status: () => ({ loaded: false, error: 'fetch failed' }) };
   // Read from the catalogue's `refused` flag, not from its words: the same words without the flag are
   // not a refusal, and the flag with other words is.
   const refused = { ...fixture(), status: () => ({ loaded: false, refused: true, error: 'its signature does not verify' }) };
   const onlyWords = { ...fixture(), status: () => ({ loaded: false, error: 'the downloaded catalogue was refused: x' }) };
-  assert.ok(teamseed.list(onlyWords).because.startsWith(teamseed.NOT_DOWNLOADED));
-  assert.equal(teamseed.list(offline).because, teamseed.NOT_DOWNLOADED + ' (fetch failed)');
+  assert.equal(teamseed.list(onlyWords).because, teamseed.NOT_DOWNLOADED);
+  // Review 22: the raw reason can be an address and a status code, or a serial. It is logged, not shown.
+  const http = { ...fixture(), status: () => ({ loaded: false, error: 'https://example.invalid/catalogue.json answered 503' }) };
+  assert.equal(teamseed.list(offline).because, teamseed.NOT_DOWNLOADED);
+  assert.equal(teamseed.list(http).because, teamseed.NOT_DOWNLOADED);
   const r = teamseed.list(refused);
-  assert.ok(r.because.startsWith(teamseed.REFUSED) && /signature/.test(r.because), r.because);
+  assert.equal(r.because, teamseed.REFUSED);
   assert.doesNotMatch(r.because, /online/, 'being online would not help');
   assert.equal(r.unavailable, true);
 });
