@@ -25,9 +25,11 @@
  *    project); another team waits only while one is in flight, and replaces an idle unfinished one (round
  *    5: never a false "still making"); a step create reports as not done is said
  *    on its row;
- *  - #4719: a person whose only account is OpenAI (the account list read by the team step itself, not
- *    left over from the create form) gets the team on OpenAI and that account, with no account menu for
- *    one account, and every member is made on it in one press; the choice is fixed once it starts;
+ *  - #4719: a person whose only account is OpenAI (the list emptied first, so it is read fresh when the
+ *    step opens, by the create form's read or the step's own) gets the team on OpenAI and that account,
+ *    with no account menu for one account, and every member is made on it in one press; the choice is
+ *    fixed once it starts; an account list slower than the step's 5 s wait still sets the default when
+ *    it lands; the menus lock at the click and open again if the click is refused;
  *  - 390 wide with no sideways scroll, chromium and webkit, no page errors.
  *
  * POST /api/agents is INTERCEPTED with a scripted outcome per name, so nothing here makes a real agent or
@@ -156,7 +158,7 @@ function chk(ok, label, extra) {
           const { page, errs, posted } = await newPage(1280);
           const OA = { provider: 'openai', dir: '/acct/openai-only', email: 'me@example.com', isDefault: true, state: 'connected' };
           await page.route('**/api/accounts*', (r) => r.fulfill({ status: 200, json: { accounts: [OA] } }));
-          // As if the create form had never been opened: the team step reads the accounts itself.
+          // The list is emptied, so it has to be read again when the step opens (by the form or the step).
           await page.evaluate(() => { CREATE_ACCOUNTS = []; CREATE_ACCOUNTS_KNOWN = false; });
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
@@ -179,12 +181,12 @@ function chk(ok, label, extra) {
         {
           const { page, errs } = await newPage(1280);
           const OA = { provider: 'openai', dir: '/acct/openai-late', email: 'me@example.com', isDefault: true, state: 'connected' };
-          await page.route('**/api/accounts*', async (r) => { await new Promise((res) => setTimeout(res, 6500)); return r.fulfill({ status: 200, json: { accounts: [OA] } }); });
+          await page.route('**/api/accounts*', async (r) => { await new Promise((res) => setTimeout(res, 8000)); return r.fulfill({ status: 200, json: { accounts: [OA] } }); });
           await page.evaluate(() => { CREATE_ACCOUNTS = []; CREATE_ACCOUNTS_KNOWN = false; });
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           const early = await page.evaluate(() => document.getElementById('tc-provider').value);
-          await page.waitForFunction(() => document.getElementById('tc-provider').value === 'openai', null, { timeout: 8000 }).catch(() => null);
+          await page.waitForFunction(() => document.getElementById('tc-provider').value === 'openai', null, { timeout: 10000 }).catch(() => null);
           const late = await page.evaluate(() => ({ p: document.getElementById('tc-provider').value, a: document.getElementById('tc-account').value }));
           chk(early === 'anthropic' && late.p === 'openai' && late.a === '/acct/openai-late',
             `${E} #4719 a slow account list moves the untouched team menu to OpenAI when it lands`, JSON.stringify({ early, late }));

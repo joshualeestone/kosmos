@@ -58,3 +58,15 @@ teamcreate-ui-4557 (PR #4709, not yet on main); rebased onto main once #4709 mer
 - A Muse answer that disables Meta settles the team menu too (tcProviderSettle), so a Meta pick that is
   no longer allowed goes back to the default before anything is sent.
 - The Swarm-undo comment says it is defensive (openCreate resets the Kind first).
+
+## Review iteration 4 (changes)
+- MAJOR (mine, from iteration 3): tcProviderSettle ran on every Muse answer; on an unopened team step
+  the empty menu read as "unusable", refilled (which asks Muse again), and the answer settled again: a
+  permanent /api/muse loop on every board with Muse on. Settle now acts only on an open, filled team
+  step of an unstarted team, with a re-entry guard. web.teamprov-settle-4719.test.js pins it (the old
+  guard fails its "no open team step" test).
+- A late account list replaces only the plain default the step started on, never a choice copied
+  from the create form.
+- openTeamCreate starts the create form's own /api/accounts read too, so the step's read is mostly a
+  duplicate (bounded, accepted); the browser check's claims no longer say which read supplied the list.
+- The slow arm's margins widened (8 s answer, 10 s wait).
