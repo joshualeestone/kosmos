@@ -133,8 +133,8 @@ const KNOWN_NATIVE_SLIDERS = ['d-swarm-max', 'd-swarm-cap', 'create-swarm-max', 
    dark bare ground; the #16223e fill only about 1.2:1 there, against a 1.03 bar), so a pass
    there says little about the real card, and a future failure there is likely this same
    artifact before it is a defect. A NEW #plus-state2 field fails here until
-   it is added. The enrol flow's white fields (#plus-flow) are measured off their ground too;
-   they pass only because white is lighter than both bare grounds, so that pass means little.
+   it is added. (The connected flow's white enrol fields in #plus-flow, measured here too, were
+   removed in #4698: they could never show.)
    ⚠️ WHAT COVERS THE WIZARD INSTEAD IS NARROWER: render-plus-signin-3478 navigates to the tab
    for real (chromium only) and pins the fields' fill and text colour and that the secondary
    button has a solid stroke; it does NOT measure the fields' border or the button's stroke

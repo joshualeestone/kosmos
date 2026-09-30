@@ -342,3 +342,137 @@ test('#3728: a join with a code from an older owner (no second half) says in the
   const rows = require('./engine/messages').record().rows.filter((m) => m.project === j.json.id);
   assert.ok(rows.some((m) => /not sealed end to end/.test(m.text || '')), 'the room did not say it is unsealed: ' + JSON.stringify(rows.map((m) => m.text)));
 });
+
+/* kosmos#4649: a project from ANOTHER computer of this account ("add your other computer").
+   Nothing is redeemed with the coordinator; the join makes a `self` link seated in the
+   account's own room, unsealed, and says so in the room. */
+test('#4649 an own-account code joins as a self link, with nothing signed and nothing sealed', async (t) => {
+  const realPlus = remote.kosmosPlus;
+  t.after(() => { remote.kosmosPlus = realPlus; });
+  remote.kosmosPlus = () => true;
+  const code = federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: 'ref-own-1', name: 'Weekend Plans' })).toString('base64url');
+  const before = signedCalls.length;
+  const v = await post('/api/federation/verify', { code }, SCREEN);
+  assert.equal(v.status, 200, JSON.stringify(v.json));
+  assert.equal(signedCalls.length, before, 'an own code must not be sent to the coordinator');
+  assert.equal(v.json.own, true);
+  assert.equal(v.json.project_name, 'Weekend Plans');
+  assert.equal(v.json.owner_handle, 'your other computer');
+
+  const j = await post('/api/federation/join', { edge_id: v.json.edge_id, agents: [] }, SCREEN);
+  assert.equal(j.status, 200, JSON.stringify(j.json));
+  const link = federation.linkFor(j.json.id);
+  assert.equal(link.role, 'self');
+  assert.equal(link.ref, 'ref-own-1');
+  assert.equal(link.edge_id, undefined, 'a self link has no edge');
+  assert.equal(require('./engine/fedseal').roomState(j.json.id), null, 'an own room starts with no seal record');
+  const room = await (await fetch(base + '/api/project/' + encodeURIComponent(j.json.id) + '/room?as=text')).text();
+  assert.match(room, /shared with your other computers\. Messages in this room are not sealed end to end/);
+  assert.doesNotMatch(room, /older Kosmos/, 'the unsealed-owner note is not for an own room');
+
+  // The same project cannot be joined twice on one computer.
+  const again = await post('/api/federation/verify', { code }, SCREEN);
+  assert.equal(again.status, 409, JSON.stringify(again.json));
+  assert.equal(again.json.reason, 'already_joined');
+
+  // This joined computer can hand a code on to a third one; the room was told at join, so no second note.
+  const fwd = await post('/api/federation/own-code', { project: j.json.id }, SCREEN);
+  assert.equal(fwd.status, 200, JSON.stringify(fwd.json));
+  assert.equal(federation.parseOwnCode(fwd.json.code).ref, 'ref-own-1');
+  await post('/api/federation/own-code', { project: j.json.id }, SCREEN);
+  const room2 = await (await fetch(base + '/api/project/' + encodeURIComponent(j.json.id) + '/room?as=text')).text();
+  assert.doesNotMatch(room2, /now shared with your other computers/, room2);
+  // A Plus check that throws reads as not-plus, never as raw internals.
+  remote.kosmosPlus = () => { throw new Error('EIO: raw internals'); };
+  const code2 = federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: 'ref-own-9', name: 'Nine' })).toString('base64url');
+  const thrown = await post('/api/federation/verify', { code: code2 }, SCREEN);
+  assert.equal(thrown.status, 403, JSON.stringify(thrown.json));
+  assert.equal(thrown.json.reason, 'not-plus');
+});
+
+test('#4649 an own code: no Plus, no join; and a Join for a room already here is refused, not doubled', async (t) => {
+  const realPlus = remote.kosmosPlus;
+  t.after(() => { remote.kosmosPlus = realPlus; });
+  const code = federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: 'ref-own-3', name: 'Twice' })).toString('base64url');
+  remote.kosmosPlus = () => false;
+  const np = await post('/api/federation/verify', { code }, SCREEN);
+  assert.equal(np.status, 403, JSON.stringify(np.json));
+  assert.equal(np.json.reason, 'not-plus');
+  remote.kosmosPlus = () => true;
+  const v = await post('/api/federation/verify', { code }, SCREEN);
+  assert.equal(v.status, 200, JSON.stringify(v.json));
+  // The room arrives here by another path (a Join already finished) while this snapshot is live.
+  federation.recordLink('proj-already-3', { role: 'self', ref: 'ref-own-3' });
+  const before = Object.keys(federation.readLinks()).length;
+  const j = await post('/api/federation/join', { edge_id: v.json.edge_id, agents: [] }, SCREEN);
+  assert.equal(j.status, 409, JSON.stringify(j.json));
+  assert.equal(j.json.reason, 'already_joined');
+  assert.equal(Object.keys(federation.readLinks()).length, before, 'no second project in the same room');
+});
+
+test('#4649 an own code is still screen-only, like every join', async () => {
+  const code = federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: 'ref-own-2', name: 'X' })).toString('base64url');
+  const v = await post('/api/federation/verify', { code });
+  assert.equal(v.status, 403, JSON.stringify(v.json));
+});
+
+test('#4649 own-code: the screen gets a code for its own project that another computer can join with', async (t) => {
+  const realPlus = remote.kosmosPlus;
+  t.after(() => { remote.kosmosPlus = realPlus; });
+  remote.kosmosPlus = () => false;
+  const c = await post('/api/projects', { name: 'Four Computers' }, SCREEN);
+  assert.equal(c.status, 200, JSON.stringify(c.json));
+  const id = (c.json.project && c.json.project.id) || c.json.id;
+  // Without Kosmos Plus the coordinator would never seat the room: no code, and no link made.
+  const np = await post('/api/federation/own-code', { project: id }, SCREEN);
+  assert.equal(np.status, 403, JSON.stringify(np.json));
+  assert.equal(np.json.reason, 'not-plus');
+  assert.equal(federation.linkFor(id), null, 'no owner link is made for a code that was not given');
+  remote.kosmosPlus = () => true;
+  const r = await post('/api/federation/own-code', { project: id }, SCREEN);
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  const parsed = federation.parseOwnCode(r.json.code);
+  assert.equal(parsed.name, 'Four Computers');
+  const link = federation.linkFor(id);
+  assert.equal(link.role, 'owner');
+  assert.equal(link.ref, parsed.ref, 'the code names this project\'s room');
+  assert.equal(link.selfShared, true);
+  // The owner's side is told its room now reaches the relay, once, not on every press.
+  assert.equal((await post('/api/federation/own-code', { project: id }, SCREEN)).status, 200);
+  const ownerRoom = await (await fetch(base + '/api/project/' + encodeURIComponent(id) + '/room?as=text')).text();
+  assert.equal((ownerRoom.match(/now shared with your other computers\. Messages in this room are not sealed end to end/g) || []).length, 1, ownerRoom);
+  // A failure reading this computer's records is ours: a 500 with a sentence, not a 400 with the raw error.
+  const realRefusal = federation.ownCodeRefusal;
+  federation.ownCodeRefusal = () => { throw new Error('EACCES: raw internals'); };
+  try {
+    const broken = await post('/api/federation/own-code', { project: id }, SCREEN);
+    assert.equal(broken.status, 500, JSON.stringify(broken.json));
+    assert.doesNotMatch(broken.json.error, /EACCES/);
+  } finally { federation.ownCodeRefusal = realRefusal; }
+  // A link left by an earlier project with the same id (another creation stamp) is not reused:
+  // the code names a fresh room for THIS project.
+  const st = await post('/api/projects', { name: 'Stale Id' }, SCREEN);
+  const stId = (st.json.project && st.json.project.id) || st.json.id;
+  federation.recordLink(stId, { role: 'owner', ref: 'ref-left-by-an-earlier-project', project_created: '1999-01-01T00:00:00.000Z' });
+  const fresh = await post('/api/federation/own-code', { project: stId }, SCREEN);
+  assert.equal(fresh.status, 200, JSON.stringify(fresh.json));
+  assert.notEqual(federation.parseOwnCode(fresh.json.code).ref, 'ref-left-by-an-earlier-project');
+  // Not from a process, not for a project that is not here, not for someone else's project.
+  assert.equal((await post('/api/federation/own-code', { project: id })).status, 403);
+  assert.equal((await post('/api/federation/own-code', { project: 'no-such-project' }, SCREEN)).status, 404);
+  const v = await post('/api/federation/verify', { code: 'CODE-ABC' }, SCREEN);
+  const j = await post('/api/federation/join', { edge_id: v.json.edge_id, agents: [] }, SCREEN);
+  const g = await post('/api/federation/own-code', { project: j.json.id }, SCREEN);
+  assert.equal(g.status, 409, 'a guest cannot share someone else\'s project');
+  assert.equal(g.json.reason, 'guest');
+  // An owner project whose room is sealed for invited people: its other computers could neither
+  // read nor post there, so no code is made (#4658).
+  const s = await post('/api/projects', { name: 'Sealed Room' }, SCREEN);
+  const sid = (s.json.project && s.json.project.id) || s.json.id;
+  federation.recordLink(sid, { role: 'owner', ref: 'ref-sealed-4649' });
+  require('./engine/fedseal').stashInvite('ref-sealed-4649', { s: 'B'.repeat(43), code: 'CODE9', invite: 'inv-9' });
+  const sealed = await post('/api/federation/own-code', { project: sid }, SCREEN);
+  assert.equal(sealed.status, 409, JSON.stringify(sealed.json));
+  assert.equal(sealed.json.reason, 'sealed');
+  assert.match(sealed.json.error, /sealed for the people you invited/);
+});
