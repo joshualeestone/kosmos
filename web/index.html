@@ -18488,6 +18488,12 @@ function taskLine(a, opts) {
  * With the title no longer shown in any state, that whole concern is subsumed by
  * #209: there is no title on screen to strip.
  */
+/* #4588: engine/quotawords.js's rule, copied (the page cannot require engine code); web.agyquota-4588.test.js
+   compares the two over past and future resets. The day too beyond 20 hours either way (Google's weekly window). */
+function quotaResetWords(atMs, nowMs) {
+  const far = Math.abs(atMs - nowMs) > 20 * 3600 * 1000;
+  return new Date(atMs).toLocaleString([], { ...(far ? { weekday: 'short' } : {}), hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+}
 /* #4569 fix 4 (the write-up on Josh's Muse agent: "Working, 14 messages waiting"): a busy Muse agent's queue, in
    Kosmos's own words, not quoted: the line is built from two checked numbers (engine/selfreport.js waitingOf) and
    fixed words, never from agent text. The person's messages always run first, so "yours is next" says where
@@ -18581,6 +18587,13 @@ function stateReason(a, opts) {
     return lost;
   }
   if (!a || a.state !== 'rate_limited') return '';
+  /* #4588: an Antigravity agent paused on its account's shared Google quota carries the reset, so the card says
+     when the quota comes back. The reset, not a promise: the resume (engine/agyquota.js) can be switched off and
+     comes a little after the reset. */
+  const resetAt = typeof a.quotaUntil === 'string' ? Date.parse(a.quotaUntil) : NaN;
+  if (Number.isFinite(resetAt)) {
+    return 'Usage limit reached. The Google quota resets at ' + quotaResetWords(resetAt, Date.now()) + '.';
+  }
   /* 📌 THE HEDGE STAYS, THE VOCABULARY CHANGED (#215, Josh 2026-08-21 18:38:
      "the screen of a terminal is not something a white-collar person thinks
      about"). "Its screen mentions" named our instrument, a regex over a pane.
@@ -67672,7 +67685,10 @@ const ASB_FALLBACK_PROVIDER = { codex: 'OpenAI', gemini: 'Gemini', grok: 'Grok',
 /* The one line, the card's words, then what fixes it, in #3723's words where it has them. */
 function asbFallbackWords(f) {
   const p = ASB_FALLBACK_PROVIDER[f && f.runner] || 'Claude';
-  const fix = f.problem === 'rate_limited' ? ` Add credits with ${p}, or wait until the limit resets.`
+  /* #4588: an Antigravity guide is rate_limited only on its Google account's shared quota (its screen is never read),
+     a subscription allowance that refills by itself: no "add credits" (review 4). */
+  const fix = f.problem === 'rate_limited' && f.runner === 'antigravity' ? ' The Google quota refills by itself.'
+    : f.problem === 'rate_limited' ? ` Add credits with ${p}, or wait until the limit resets.`
     : f.problem === 'auth_failed' ? ` Its ${p} sign-in has stopped working: open the guide's page and choose Sign in again.`
     : ` ${p} cannot be reached just now; it picks up again by itself once it can.`;
   return `Your ${p} account isn't answering right now, so I'm helping on Kosmos's backup.` + fix;
