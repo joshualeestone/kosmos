@@ -1713,9 +1713,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   }, 0);
   /* #4786: WORK MOVING IS A LANDING TOO. A pipeline of agents handing tasks along fills the budget as fast as a
      loop does, and was held until the person stepped in (daily feedback, 2026-09-30). So the budget also counts
-     only from the newest time this project's tasks moved (engine/taskchat.js lastProgressAt: created, given,
-     built, closed, parts added or closed; not talk, not going backwards). A room that only talks still trips.
-     Read only when the room would otherwise be over its cap. */
+     only from the newest time this project's work moved forward for the FIRST time (engine/taskchat.js
+     lastProgressAt: a task made, a part added, a first close or built mark, a part given to someone new; not talk,
+     not going backwards, not anything a loop could repeat). A room that only talks still trips. The task files are
+     read only when the room would otherwise be over its cap; the pre-count below is one more pass over the log
+     this function already holds in memory. */
   const baseCountFrom = Math.max(windowFrom, lastOperatorAt);
   const countFrom = (() => {
     const over = log.reduce((n, m) => (m && m.kind === 'post' && !m.operator && m.project === projectId
