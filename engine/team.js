@@ -121,12 +121,14 @@ const RULES_HEADING = defaults.RULES_PHRASE;   // the one phrase appendTo keys o
 /**
  * #4474 (Josh, on #1279: "if the type of agent they need created isn't there, they can create it from scratch"):
  * what an AGENT may ask create for, member by member. The operator path is not vetted here (it is the person).
- * ⚠️ WHAT KIND OF BOUNDARY THIS IS: a real one for the sandboxed setup guide, which cannot read the board token;
- * a cooperative guard for any other agent, which can read the board token and reach the unvetted operator path
- * (as the per-creator cap in server.js says of itself). It keeps a cooperating agent inside the lines.
+ * ⚠️ WHAT KIND OF BOUNDARY THIS IS: a real one only for a Claude setup guide on macOS, whose sandbox keeps the
+ * commands it runs from reading the board token (#4728, measured; the table is above guideDenyRules in
+ * setup-assistant.js). A guide on another computer or another provider can read the board token, and so can
+ * every other agent: for them this is a cooperative guard, since the board token reaches the unvetted operator
+ * path (as the per-creator cap in server.js says of itself). It keeps a cooperating agent inside the lines.
  *   - Only the fields an agent's request has any use for (AGENT_MEMBER_KEYS): never a runner binary, a config
  *     folder or a launch flag, which would let an agent choose what the new agent's launch job runs (and let the
- *     sandboxed setup guide step outside its sandbox, #3769). Other fields are dropped.
+ *     setup guide, where it is sandboxed, step outside its sandbox, #3769). Other fields are dropped.
  *   - Never the setup guide: that role is Kosmos's own, made once by Kosmos, with its folder locked down (#3769).
  *   - The setup guide makes agents only from the roles on the list (fromGuide): a role it wrote would hand an
  *     unsandboxed agent instructions the guide itself may not act on. The person writes their own in New agent.

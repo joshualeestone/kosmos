@@ -204,7 +204,13 @@ function markGuideFolder(agentName) {
  *   roles.GUIDE_SECRET_LINES) and the third (engine/secretmask.js on everything it says) exist.
  * - Claude only: a Codex, Gemini or Grok guide has no such file, and relies on the other two layers.
  * - Kosmos's own data folder is denied whole: the guide's instructions and page file live in its
- *   worker folder, and the `kosmos` command it runs reads the board token as its own process.
+ *   worker folder. Whether the `kosmos` command it runs can still read the board token there depends
+ *   on the sandbox guardGuideFolder adds (#4728, measured on Claude Code 2.1.285 with these guards):
+ *     a Claude guide on macOS          no: the sandbox refuses the command's own read of the file
+ *     a Claude guide anywhere else     yes: these rules alone do not reach a command's own read
+ *     a Codex, Gemini or Grok guide    yes: it has no such file
+ *   So "the guide does not hold the board token" is a boundary only in the first row. Code that must
+ *   hold for every guide cannot count on it (#4491 is the work that ends the difference).
  */
 /* The same home accounts.js and create.js use (a named world or a test sets it). */
 function kosmosHome() { return process.env.AGENT_WORKFORCE_HOME || require('os').homedir(); }
