@@ -2,7 +2,7 @@
 
 Josh 2026-09-30, ruling "A": a new computer is a purchase. The contract with the server half (Ice Cream Kitty) is
 kosmos#4754 comment 5916329460; her 12:50 differences (no buy_url on the 402, price null, a cancelled checkout's
-hold ends by itself after 31 minutes) change nothing this branch relies on.
+hold ends by itself, now after 33 minutes, her review 3) change nothing this branch relies on.
 
 ## What changes
 - engine/remote.js: `fetchMetaFlag(field)` (federation_live keeps its wrapper) and `signinAddresses()`: with a held
@@ -44,3 +44,10 @@ hold ends by itself after 31 minutes) change nothing this branch relies on.
 - Refusal recognition rests on the coordinator's own sentences (and the `address_not_bought` code, if the tunnel
   prints it). A wording change on the server would turn a refused pick into Try again on the same address: safe,
   not stuck (Sign out still works), but worth a code in the tunnel's output. Asked on kosmos#4754.
+- Free first address (her review 3, 14:57 HEADS-UP item 5): an app-made account (no account_address) whose list has no
+  this_name and no in_use row that is neither bought nor grandfathered is on its FREE first address, so the name step
+  shows as before. Derived from the list's shape, because the list carries no explicit field; asked her for one
+  (first_free) and will prefer it if it lands. A 402 not-bought refusal goes to the list and pins "not free" for the
+  sign-in. Weakest premise: that the grandfathered/bought_at fields keep exactly this meaning on the server.
+- Item 3 (a web-claimed name is the first computer's only choice) already held: account_address hides the name field
+  and registers to it by itself (plusSiAsBefore, PLUS_SI_OWNED). Covered by the first-computer scenario.
