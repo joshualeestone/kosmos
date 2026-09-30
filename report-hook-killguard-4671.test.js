@@ -66,6 +66,9 @@ const BLOCKED_BASH = [
   `python3 -c "import subprocess; subprocess.call(['/bin/KILL', '-9', 'N1'])"`,
   'LAUNCHCTL bootout gui/501', 'LAUNCHCTL bootout gui/$(id -u)', 'LAUNCHCTL bootout gui/"$(id -u)"',
   'LAUNCHCTL bootout gui/$UID', 'LAUNCHCTL reboot userspace',
+  // round 3: a signal NAME before the user flag, and a flag after the user operand
+  'PKILL -TERM -u 501', 'PKILL -HUP -U "$USER"', 'KILLALL -TERM -u $USER', 'KILLALL -SIGTERM -m .', 'PKILL -TERM -f .',
+  'KILLALL -u me -v', 'PKILL -u 501 -x',
 ];
 const ALLOWED_BASH = [
   'KILL -9 12345', 'KILL -1 12345', 'KILL -TERM -- -4242', 'KILL 0',
@@ -78,6 +81,10 @@ const ALLOWED_BASH = [
   'LAUNCHCTL bootout gui/501/com.example.job', 'LAUNCHCTL bootout gui/$(id -u)/com.example.job',
   'LAUNCHCTL bootout gui/501 /Library/LaunchAgents/com.x.plist',
   'LAUNCHCTL bootout gui/$(id -u) ~/Library/LaunchAgents/com.kosmos.agent.x.plist',
+  // round 3: a pgrep whose output nothing kills; signal 0; unrelated commands on one line
+  'ps -p $(PGREP -u $USER)', 'echo $(PGREP -u $USER)', 'for p in $(PGREP -u "$USER"); do ps -o comm= -p $p; done',
+  'KILL -0 N1', 'KILL -s 0 N1', 'echo N1 > f; ls | xargs rm; KILL 1234',
+  'node -e "chaos.KILL(N1)"', 'node -e "tween().KILL(N1)"',
 ];
 
 for (const noJq of [false, true]) {
@@ -123,6 +130,14 @@ test('#4671 CONTROL: only what runs or is written is read (with jq), and documen
   assert.equal(run('Write', { file_path: '/tmp/NOTES.md', content: 'Never run `KILL -9 N1` or `PKILL -u me`.' }).code, 0, 'a document is not run');
   assert.equal(run('Edit', { file_path: '/tmp/log.txt', old_string: 'a', new_string: 'KILLALL -u agent' }).code, 0);
   assert.equal(run('Read', { file_path: '/tmp/KILL -9 N1.txt' }).code, 0, 'a path argument is not a command');
+});
+
+test('#4671 round 3: a document path skips only written content, never a runnable field; CRLF is an end', () => {
+  assert.equal(run('mcp__x', { file_path: 'a.md', command: 'KILL -9 N1' }).code, 2, 'with jq');
+  assert.equal(run('mcp__x', { file_path: 'a.md', command: 'KILL -9 N1' }, { noJq: true }).code, 2, 'without jq');
+  assert.equal(run('Bash', { command: 'PKILL -u $USER\r\n' }).code, 2);
+  assert.equal(run('Bash', { command: 'PKILL -u $USER\r\n' }, { noJq: true }).code, 2);
+  assert.equal(run('Write', { file_path: '/tmp/x.js', content: "const a = { action: 'KILL', delta: 'N1' };\n" }).code, 0, 'an object is not an argv');
 });
 
 test('#4671 CONTROL: malformed tool_input fails open, never blocks everything or crashes', () => {

@@ -30,5 +30,5 @@ test. Windows agents (the node hook) and Codex/Gemini/Grok agents are not guarde
 ## Tests
 report-hook-killguard-4671.test.js drives the real hook, every Bash case with and without jq; the cases are
 written with uppercase placeholders so the test file never holds a literal shape (an agent editing it is
-not refused). 159/159; with the guard disabled 100 fail and the 59 controls pass. Hook suites 334/334.
-Reviews: round 1 (1 blocker, 6 warnings) and round 2 (3 blockers, 5 warnings) all addressed.
+not refused). 190/190; with the guard disabled 115 fail and 75 pass (the controls, plus the arms that assert no block). Hook suites 334/334.
+Reviews: round 1 (1 blocker, 6 warnings), round 2 (3 blockers, 5 warnings), round 3 (1 blocker, 2 warnings, 7 nits; N7 killall -s dry-run left refused) all addressed.

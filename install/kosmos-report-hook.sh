@@ -183,14 +183,14 @@ json_field() { # $1 jq path, $2 sed key fallback
 #     with a match-everything pattern; a kill fed by `pgrep -u <user>` alone;
 #   - launchctl bootout of a whole gui/user/login domain, or launchctl reboot.
 # Allowed: a named pid, SIGHUP to one pid, a group kill, kill 0, pkill/killall by
-# name or pattern (also with -u), signal 0 from code, bootout of one service.
+# name or pattern (also with -u), signal 0 (it sends nothing), bootout of one service.
 # 🛑 IT DOES NOT STOP THE 2026-09-29 SCRIPT ITSELF: that one took the minus one
 # from a list at run time. No text match can see a computed pid;
 # report-hook-killguard-4671.test.js pins that as a known gap.
 # Reads: with jq, only what runs or is written (tool_input command, script, code,
-# args, content, new_string, new_source, edits[].new_string), for ANY tool; a
-# Write/Edit to a .md, .markdown or .txt file is not checked (a document is not
-# run). Without jq, the raw input (wider; a mention or a deleted line can be
+# args, content, new_string, new_source, edits[].new_string), for ANY tool; the
+# written content of a .md, .markdown or .txt file is not checked (a document is
+# not run), but a runnable field always is. Without jq, the raw input (wider; a mention or a deleted line can be
 # refused). The operator can turn it off for an agent by starting it with
 # KOSMOS_KILL_GUARD=off; an agent cannot change its own hook's environment.
 # Not guarded at all: Windows agents (the node hook, engine/kosmos-report-hook.js)
@@ -199,31 +199,38 @@ _kg_text() { # what the guard reads
   if [ -n "$JQ" ]; then
     printf '%s' "$INPUT" | "$JQ" -r '
       (.tool_input | objects) as $t
-      | if (($t.file_path // $t.notebook_path // "") | strings | test("\\.(md|markdown|txt)$"; "i")) then ""
-        else [ $t.command, $t.script, $t.code, $t.content, $t.new_string, $t.new_source,
-               ($t.args | arrays | map(strings) | join(" ")),
-               ($t.edits | arrays | .[] | objects | .new_string) ]
-             | map(strings) | join("\n") end' 2>/dev/null
+      | (($t.file_path // $t.notebook_path // "") | strings | test("\\.(md|markdown|txt)$"; "i")) as $doc
+      | [ $t.command, $t.script, $t.code, ($t.args | arrays | map(strings) | join(" ")) ]
+        + (if $doc then [] else [ $t.content, $t.new_string, $t.new_source,
+                                   ($t.edits | arrays | .[] | objects | .new_string) ] end)
+      | map(strings) | join("\n")' 2>/dev/null
   else
     printf '%s' "$INPUT"
   fi
 }
 _kill_all_reason() { # $1 the text; prints the reason and succeeds when it would stop everything
-  local B='(^|[^A-Za-z0-9_.-]|\\[nt])' SP='([[:space:]]|\\t)+' Q="(\\\\?[\"'])?"
+  local B='(^|[^A-Za-z0-9_.-]|\\[nrt])' SP='([[:space:]]|\\t)+' Q="(\\\\?[\"'])?"
   # E: nothing after the operand but the end of the command. A double quote counts only where a raw JSON
   # string ends (followed by , or }), so `pkill -u "$USER" node` is not read as ending at "$USER".
-  local T="([[:space:]]|\$|\\\\[nt]|[;&|)<>\`\"'\\\\])" E="([[:space:]]|\\\\t)*(\$|\\\\n|[;&|)]|\"[,}])"
-  local NEG1="${Q}-1${Q}" FL="(-[a-z0-9]+${SP})*" NZ='([^0[:space:]]|0[^[:space:])])'
+  local T="([[:space:]]|\$|\\\\[nrt]|[;&|)<>\`\"'\\\\])" E="([[:space:]]|\\\\[rt])*(\$|\\\\[rn]|[;&|)]|\"[,}])"
+  # FL: any flags before the one that matters (a signal like -TERM or -9 included); the user flag itself is
+  # lowercase letters then u/U, so a signal NAME such as -HUP or -USR1 is never read as a user flag.
+  local NEG1="${Q}-1${Q}" FL="(-[A-Za-z0-9]+${SP})*" NZ='([^0[:space:]]|0[^[:space:])])'
   # OP: one user or pattern operand, quoted or not, or a $( ... ). Note `(${SP})?`, never `${SP}?`:
   # that expands to `(...)+?`, which POSIX ERE leaves undefined and BSD grep reads as "at least one".
-  local OP="${Q}(\\\$\\([^)]*\\)|[^[:space:]\\\\;&|)\"'(-][^[:space:]\\\\;&|)\"'(]*)${Q}"
-  local shkill="${B}kill${SP}((-s${SP}[A-Za-z0-9]+|-n${SP}[0-9]+|--|-[A-Za-z0-9]+)${SP})+(${Q}[0-9]+${Q}${SP})*${NEG1}${T}"
-  local xkill="${B}(echo|printf)${SP}(--${SP})?${NEG1}${T}.*xargs.*${B}kill|xargs[^|;]*${B}kill[^|;]*<<<(${SP})?${NEG1}"
-  local code="([Pp]rocess|os|syscall|unix|libc|posix|\\))(\\.|::)[Kk]ill(pg)?[[:space:]]*\\([[:space:]]*-[[:space:]]*1[[:space:]]*(\\)|,[[:space:]]*${NZ})|${B}kill[[:space:]]*\\([[:space:]]*-1[[:space:]]*,[[:space:]]*${NZ}|Process\\.kill[[:space:]]*\\([^,()]+,[[:space:]]*-1[[:space:]]*\\)|${B}kill${SP}[A-Za-z0-9\"']+[[:space:]]*(,|=>)[[:space:]]*-1([^0-9]|\$)"
-  local argv="\\\\?[\"']([^\"',]*/)?kill\\\\?[\"'][[:space:]]*,[^]]*\\\\?[\"']-1\\\\?[\"']"
-  local user="${B}(pkill|killall)${SP}${FL}-[a-z]*[uU](${SP})?${OP}${E}"
-  local every="${B}(pkill|killall)${SP}${FL}(-m${SP})?(\\\\?[\"'](\\.(\\*)?|\\^)?\\\\?[\"']|\\.(\\*)?|\\^)${E}"
-  local pgk="\\\$\\((${SP})?pgrep${SP}${FL}-[a-z]*[uU](${SP})?${OP}[[:space:]]*\\)|${B}pgrep${SP}${FL}-[a-z]*[uU](${SP})?${OP}[[:space:]]*\\|[[:space:]]*xargs[^|;]*${B}kill"
+  local OP="${Q}(\\\$\\([^)]*\\)|[^[:space:]\\\;&|)\"'(-][^[:space:]\\\;&|)\"'(]*)${Q}"
+  local EF="((${SP})-[A-Za-z0-9]+)*${E}"   # trailing flags only (killall -u me -v still kills everything)
+  # A signal option other than 0: signal 0 sends nothing, so `kill -0 -1` is left alone.
+  local SIG="(-s${SP}[A-Za-z1-9][A-Za-z0-9]*|-n${SP}[1-9][0-9]*|--|-([A-Za-mo-rt-z1-9][A-Za-z0-9]*|[sn][A-Za-z0-9]+))"
+  local shkill="${B}kill${SP}(${SIG}${SP})+(${Q}[0-9]+${Q}${SP})*${NEG1}${T}"
+  local xkill="${B}(echo|printf)${SP}(--${SP})?${NEG1}${T}[^;&]*xargs[^;&]*${B}kill|xargs[^|;]*${B}kill[^|;]*<<<(${SP})?${NEG1}"
+  local code="(${B}([Pp]rocess|os|syscall|unix|libc|posix)|require\\([^)]*\\))(\\.|::)[Kk]ill(pg)?[[:space:]]*\\([[:space:]]*-[[:space:]]*1[[:space:]]*(\\)|,[[:space:]]*${NZ})|${B}kill[[:space:]]*\\([[:space:]]*-1[[:space:]]*,[[:space:]]*${NZ}|${B}Process\\.kill[[:space:]]*\\([^,()]+,[[:space:]]*-1[[:space:]]*\\)|${B}kill${SP}[A-Za-z0-9\"']+[[:space:]]*(,|=>)[[:space:]]*-1([^0-9]|\$)"
+  local KW="\\\\?[\"']([^\"',]*/)?kill\\\\?[\"']" M1="\\\\?[\"']-1\\\\?[\"']"
+  local argv="\\[[[:space:]]*${KW}[[:space:]]*,[^]]*${M1}|${KW}[[:space:]]*,[[:space:]]*\\[[^]]*${M1}"   # an argv, not any object
+  local user="${B}(pkill|killall)${SP}${FL}-[a-z]*[uU](${SP})?${OP}${EF}"
+  local every="${B}(pkill|killall)${SP}${FL}(-m${SP})?(\\\\?[\"'](\\.(\\*)?|\\^)?\\\\?[\"']|\\.(\\*)?|\\^)${EF}"
+  # A pgrep counts only when its output feeds a kill: inside a kill's $( ), or piped to xargs kill.
+  local pgk="${B}kill${SP}[^;&|]*\\\$\\((${SP})?pgrep${SP}${FL}-[a-z]*[uU](${SP})?${OP}[[:space:]]*\\)|${B}pgrep${SP}${FL}-[a-z]*[uU](${SP})?${OP}[[:space:]]*\\|[[:space:]]*xargs[^|;]*${B}kill"
   local uid="(\\\$\\(id -u[^)]*\\)|\\\$\\{?UID\\}?|[0-9]+)"
   local lctl="${B}launchctl${SP}(reboot|bootout${SP}(gui|user|login)/${Q}${uid}${Q}${E})"
   local _t="$1"
