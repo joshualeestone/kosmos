@@ -41,7 +41,9 @@ const INHERIT_RE = /\.\.\.process\.env\b|Object\.assign\(\s*\{\s*\}\s*,\s*proces
 const DATA_KEY = /AGENT_WORKFORCE_(DATA|HOME)\s*[:=](?!\s*(?:['"`]{2}|undefined\b|null\b|process\.env\b))/;
 /** A throwaway KOSMOS_HOME whose store module names the data root: a sandbox for install/kosmos only (the report
  *  bridges resolve their engine beside themselves and ignore it; review round 3). */
-const HOME_KEY = /KOSMOS_HOME\s*[:=](?!\s*(?:['"`]{2}|undefined\b|null\b|process\.env\b))/;
+// Not the repo itself either (review round 5): with no app/engine/store under it, install/kosmos loads the
+// checkout's own engine/store.js, which finds the real data root.
+const HOME_KEY = /KOSMOS_HOME\s*[:=](?!\s*(?:['"`]{2}|undefined\b|null\b|process\.env\b|__dirname\b|REPO\b|ROOT\b))/;
 
 /** The text of the object literal (or call) an inherit match sits in: from the nearest unclosed `{` (or, for
  *  Object.assign, the call's `(`) to its matching close. Keys spread in from elsewhere (`...env`) are not in it,
@@ -73,7 +75,10 @@ function leakIn(text) {
     const line = text.slice(0, m.index).split('\n').length;
     if (/^env:/.test(m[0])) { bad.push(line); continue; }
     const env = m[0].startsWith('Object.assign') ? enclosing(text, m.index + m[0].indexOf('('), '(', ')') : enclosing(text, m.index, '{', '}');
-    if (!(DATA_KEY.test(env) || (runsCli && HOME_KEY.test(env)))) bad.push(line);
+    // The sandbox key must come AFTER the spread in the same object (review round 5): before it, the parent's own
+    // value wins, and an agent's pane sets AGENT_WORKFORCE_DATA to the real root on a non-default install.
+    const after = env.slice(Math.max(0, env.indexOf(m[0])));
+    if (!(DATA_KEY.test(after) || (runsCli && HOME_KEY.test(after)))) bad.push(line);
   }
   if (bad.length) return `inherits the parent environment with no data root of its own at line ${bad.join(', ')}`;
   // Nothing inherited: the file must build the environment itself (a child given no env gets the parent's).
@@ -114,6 +119,9 @@ test('#4796 control: the check can see a file without a data root, in each shape
     assert.notEqual(leakIn(cli + inh.replace('KOSMOS_PORT', `AGENT_WORKFORCE_DATA: ${v}, KOSMOS_PORT`)), null, `a data root of ${v} is no data root`);
   }
   assert.notEqual(leakIn('process.env.AGENT_WORKFORCE_DATA = undefined;\n' + cli), null, 'a process-wide root of undefined is none');
+  // Review round 5.
+  assert.notEqual(leakIn(cli + 'const env = { AGENT_WORKFORCE_DATA: DATA, ...process.env, KOSMOS_PORT: p };\n'), null, 'a data root before the spread is overwritten by the parent\'s');
+  assert.notEqual(leakIn(cli + inh.replace('KOSMOS_PORT', 'KOSMOS_HOME: __dirname, KOSMOS_PORT')), null, 'KOSMOS_HOME pointing at the repo loads the real store');
 });
 
 test('#4796 control: with the #4796 fix taken back out, the guard names each file the leak was measured in', () => {
