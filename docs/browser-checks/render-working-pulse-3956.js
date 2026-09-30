@@ -130,6 +130,14 @@ async function placeSiblings(page) {
         chk(props.every((a) => a.props.length === 1 && a.props[0] === 'opacity'), `${engineName}: the pulse and the breath animate only opacity`, JSON.stringify(props));
         chk(props.every((a) => a.pseudo === '::before'), `${engineName}: the pulse and the breath run on a ::before layer, not on the box`, JSON.stringify(props.map((a) => a.pseudo)));
         chk(w.onBox === 'none', `${engineName}: the working card itself runs no animation`, w.onBox);
+        /* #4765 review 1: the pill's breath layer must cover the pill's WHOLE border (its peak colour is computed for a
+           1.5px ring over a 1.5px ring), and at rest the pill shows the breath's low point in both themes. */
+        const pill = await page.$eval('.acard.working .astate.st-working', (el) => {
+          const cs = getComputedStyle(el), b = getComputedStyle(el, '::before');
+          return { bw: cs.borderTopWidth, layerBw: b.borderTopWidth, layerTop: b.top, border: cs.borderTopColor, bg: cs.backgroundColor };
+        });
+        chk(pill.layerBw === pill.bw && parseFloat(pill.layerTop) === -parseFloat(pill.bw), `${engineName}: the breath layer covers the pill's whole border`, JSON.stringify(pill));
+        chk(pill.border === 'rgba(47, 125, 90, 0.38)' && pill.bg === 'rgba(47, 125, 90, 0.07)', `${engineName}: at rest the pill shows the breath's low point`, JSON.stringify(pill));
 
         /* Sampled across one full cycle: the ground must swing, gently. */
         const raw = [];
@@ -199,6 +207,8 @@ async function placeSiblings(page) {
         await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
         const dark = [];
         for (let k = 0; k < 9; k++) { dark.push(lean(await ground(page, '.acard.working'))); await page.waitForTimeout(450); }
+        const darkPill = await page.$eval('.acard.working .astate.st-working', (el) => getComputedStyle(el).borderTopColor);
+        chk(darkPill === 'rgba(47, 125, 90, 0.38)', `${engineName}: in the dark theme too, the pill's border breathes from the old low point (not the static mint)`, darkPill);
         await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
         chk(Math.max(...dark) - Math.min(...dark) > 2, `${engineName}: in the dark theme the working ground still swings toward green`, `green lean ${Math.min(...dark).toFixed(1)}..${Math.max(...dark).toFixed(1)}`);
 
@@ -211,6 +221,8 @@ async function placeSiblings(page) {
         await rpage.waitForSelector('.acard.working', { timeout: 20000 });
         const r = await anim(rpage, '.acard.working');
         chk(r.name === 'none', `${engineName}: reduced motion: the working card does not pulse`, r.name);
+        const rpill = await rpage.$eval('.acard.working .astate.st-working', (el) => ({ border: getComputedStyle(el).borderTopColor, bg: getComputedStyle(el).backgroundColor, layer: getComputedStyle(el, '::before').content }));
+        chk(rpill.border === 'rgba(47, 125, 90, 0.55)' && rpill.bg === 'rgba(47, 125, 90, 0.14)' && rpill.layer === 'none', `${engineName}: reduced motion: the pill is its old static self, with no breath layer`, JSON.stringify(rpill));
         const surface = await rpage.evaluate(() => {
           const d = document.createElement('div');
           d.dataset.pulse3956 = 'surface';

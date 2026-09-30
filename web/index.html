@@ -2496,20 +2496,28 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    the browser restyle and repaint the pill on every frame (it cannot hand a colour to the GPU); animating the
    opacity of a layer lets the GPU do it. Measured headed on a 24-agent board: the Agents view at rest went from
    61% of the page's one main thread busy to 5% with this and the pulse below, which is what made typing and
-   clicks wait. The pill keeps the breath's low point as its own colours; the overlay adds the difference up to
-   the old high point and fades in and out. `isolation` keeps the overlay under the pill's text. */
-.acard.working .astate.st-working { position: relative; isolation: isolate;
-  background: rgba(47,125,90,.07); border-color: rgba(47,125,90,.38); }
-.acard.working .astate.st-working::before { content: ''; position: absolute; inset: -1px; z-index: -1;
-  border-radius: inherit; pointer-events: none; background: rgba(47,125,90,.14); border: 1px solid rgba(47,125,90,.62);
-  opacity: 0; animation: breathe 2.4s ease-in-out infinite; }
+   clicks wait. `isolation` keeps the overlay under the pill's text.
+   ⚠️ ONLY WHILE MOTION IS ALLOWED, all of it (review 1). The old breath REPLACED the pill's background and border
+   while it ran, in every theme (a running animation outranks every rule, the dark theme's mint border included).
+   So, while motion is allowed, the pill takes the breath's LOW point as its own colours, with `:root` in front to
+   outrank the dark-theme pill rules (0,5,0 over 0,4,0), and the overlay carries the difference up to the old
+   HIGH point: at its peak .14 over .07 is the old .20 inside, and a 1.5px .39 ring over the pill's own 1.5px .38
+   ring is the old .62 (the pill's border is 1.5px, so the overlay sits 1.5px out and covers all of it). With
+   reduced motion none of this applies, and the pill is exactly what it was: its static midpoint, and each theme's
+   own border. */
+.acard.working .astate.st-working { position: relative; isolation: isolate; }
+@media (prefers-reduced-motion: no-preference) {
+  :root .acard.working .astate.st-working { background: rgba(47,125,90,.07); border-color: rgba(47,125,90,.38); }
+  .acard.working .astate.st-working::before { content: ''; position: absolute; inset: -1.5px; z-index: -1;
+    border-radius: inherit; pointer-events: none; background: rgba(47,125,90,.14); border: 1.5px solid rgba(47,125,90,.39);
+    opacity: 0; animation: breathe 2.4s ease-in-out infinite; }
+}
 @keyframes breathe {
   0%, 100% { opacity: 0; }
   50%      { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
   .acard.working .astate.st-working { background: rgba(47,125,90,.14); }
-  .acard.working .astate.st-working::before { animation: none; }
 }
 /* #3956 (Josh, 2026-09-26): "the green was glowing to a slightly darker green and back ... not
    fast, very gradual ... a 10% or 15% increase". Every working-green ground (grid card, list row
@@ -2524,18 +2532,22 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    the name working-pulse so pinWorkingPulse keeps every box in phase; they now run on the box's ::before, which
    pinWorkingPulse reaches with getAnimations({ subtree: true }). Checked on the live page before choosing this:
    giving the boxes `position: relative; isolation: isolate` moved none of 1,015 element rectangles, and nothing
-   inside a box is positioned against, or stacked over, anything outside it. */
+   inside a box is positioned against, or stacked over, anything outside it.
+   The layer sits out by the box's own border width (the old background was painted under the border too): 1px on
+   the card and the row, 0.5px on the member box, none where a layout takes the border away. It exists only while
+   motion is allowed, so reduced motion has no layer at all. */
 .acard.working, .lrow.working, #pj-one-agents .pj-member.pjm-working { position: relative; isolation: isolate; }
-.acard.working::before, .lrow.working::before, #pj-one-agents .pj-member.pjm-working::before {
-  content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
-  background: #2f7d5a; opacity: 0; animation: working-pulse 3.6s ease-in-out infinite;
+@media (prefers-reduced-motion: no-preference) {
+  .acard.working::before, .lrow.working::before, #pj-one-agents .pj-member.pjm-working::before {
+    content: ''; position: absolute; inset: -1px; z-index: -1; border-radius: inherit; pointer-events: none;
+    background: #2f7d5a; opacity: 0; animation: working-pulse 3.6s ease-in-out infinite;
+  }
+  #pj-one-agents .pj-member.pjm-working::before { inset: -0.5px; }
+  html[data-layout="consolidated"] body.consolidated .pj-member.pjm-working::before { inset: 0; }
 }
 @keyframes working-pulse {
   0%, 100% { opacity: 0; }
   50%      { opacity: .10; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .acard.working::before, .lrow.working::before, #pj-one-agents .pj-member.pjm-working::before { animation: none; }
 }
 /* #2146: coexistence signal. A needs_you/blocked agent that is ALSO actively
    working (the engine's additive `activeWhileWaiting`, #2169) carries the board's
@@ -9852,8 +9864,10 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    border (#2804), which is the only thing on the row saying we cannot see that agent. */
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member:not(.unseen) { border-color: transparent; }
 /* The #3956 working pulse is an ANIMATION of the row's ground, and an animation outranks every
-   rule, so the plain row needs it off explicitly; the green dot and "Working" carry that state. */
-:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member.pjm-working { animation: none; }
+   rule, so the plain row needs it off explicitly; the green dot and "Working" carry that state.
+   #4765: the pulse now runs on the row's ::before layer, so that is what is switched off here (the box
+   itself runs none any more). */
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member.pjm-working::before { content: none; animation: none; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents { grid-column: 1 / -1; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-b { flex: 1 1 auto; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member[data-agent]:hover { background: var(--k-bg); }
