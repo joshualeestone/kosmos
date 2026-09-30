@@ -102,3 +102,10 @@ None.
 - The visible label and the aria-label are one question, asserted in the source and in the rendered page.
 - The hint promises only what server.js does, checked against the create handler by three reviewers.
 - The guard fails on main's page (0/3) and passes here (3/3).
+
+### Validation and merge (2026-09-30 15:25 CDT)
+
+- **Full suite on Mortals at bee8d0f2a (the proof head): clean**, EXIT=0 at 15:14 (hash 2f0f3c97).
+- **render-project-done-4583 on bee8d0f2a: all page checks passed**, including the four new form arms. Control: the same check file on origin/main's page, in a throwaway worktree, fails on those arms (rc=1).
+- **Merged origin/main 001612050** in db73049a7: a clean merge, no conflict. Main's commits since 844b2372a overlap this PR in web/index.html and docs/browser-checks/README.md, so this is path C.
+- **Focused tests on the merge (tree 4202e97ad):** web.* 2206/0, web.done-copy-4583 and browser-checks-reason-grep 8/0, no-brand-refs and no-name-refs 0 fail, surface gate 0.
