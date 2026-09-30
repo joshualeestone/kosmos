@@ -3813,16 +3813,34 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
 /* #4581: the two project reads (list here, show in the patterns below) let an agent holding only its own token,
    the sandboxed setup guide included, read every project's folder, members, roles, states and brief. Decided:
    membership is not a boundary (GET /api/projects), and none of it is a credential. */
+/* #4491 slice 4: three more READS an agent already makes with the board token every day (`kosmos roles`,
+   `kosmos task list`, `kosmos room`), now reachable with its own token, so the CLIs can stop reading the person's
+   credential (a later slice). They write nothing and answer every caller alike, so there is no caller to identify.
+   GET only: the key is `METHOD pathname`, so HEAD and every write on the same path stay behind the board token, and
+   the query (`?project=`, `?as=text`, `?catalogue=1`) is not part of it. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
-  'GET /api/projects/overview']);   // #4581: `kosmos project list`, read with the agent's own token
+  'GET /api/projects/overview',   // #4581: `kosmos project list`, read with the agent's own token
+  'GET /api/roles', 'GET /api/tasks']);
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
    `[^/]+` for the project and `\d+` for the task, so no other task verb (close, reopen, parts) matches. Judged before
    the handler decodes the project, so an encoded `a%2Fb` passes here and then names no project (404). Each
    handler identifies the caller from the token and refuses an agent that is not on the project. */
 /* #4581: the second pattern is `kosmos project show <id>`, a READ: it writes nothing and answers the same for every
    caller, so, unlike the task verbs, it has no caller to identify (as GET /api/projects/overview in the set above). */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built)$/, /^GET \/api\/project\/[^/]+\/overview$/];
+/* #4491 slice 4: the third pattern is `kosmos room <id>`, a READ of one project's room (anchored like the others, so
+   /room/reopen and every other room verb do not match). */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built)$/, /^GET \/api\/project\/[^/]+\/overview$/,
+  /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
+/* #4491 slice 4: the agent routes the SETUP GUIDE does not get with its token alone. The guide is the one agent kept
+   from the board token on purpose (it talks to a newcomer and must never hand out what it can read, #3769), so it
+   cannot run `kosmos room` or `kosmos task list` today. Opening those two to every valid agent token would have
+   quietly handed it every project's conversation and task list; this keeps its reach exactly where it was. The
+   roles list and the #4581 project reads stay open to it (#4581 decided those; roles are the product's own text).
+   With the board token the gate never asks this, so the person and every other agent are untouched. */
+const GUIDE_CLOSED_ROUTES = new Set(['GET /api/tasks']);
+const GUIDE_CLOSED_ROUTE_PATTERNS = [/^GET \/api\/project\/[^/]+\/room$/];
+const guideClosedRoute = (key) => GUIDE_CLOSED_ROUTES.has(key) || GUIDE_CLOSED_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a roster row (`paneless`, on the result or its card): its
    name is store.safeKey's, not the stored spelling, so that one compares keys. Shared by task message and task
@@ -3887,6 +3905,21 @@ function agentTokenOk(req) {
      sending random hex, with no rate valve. That is the same accepted cost the exempt report and
      reply routes already carry, not a new class. */
   return typeof t === 'string' && /^[0-9a-f]{64}$/.test(t) && sendertoken.resolveName(t).ok === true;
+}
+/* #4491 slice 4: does this request's (already valid) agent token belong to the setup guide? The token store names
+   its agent by key (store.safeKey of the session name), so the guide is matched by that key as well as by name.
+   Anything it cannot work out reads as the guide (true): this only ever decides a guide-closed READ, where a wrong
+   refusal costs one agent one retry with the board token, and a wrong pass is the leak the set exists to stop. */
+function agentTokenIsGuide(req) {
+  const t = req && req.headers && req.headers['x-kosmos-agent-token'];
+  let who;
+  try { who = sendertoken.resolveName(t); } catch { return true; }
+  if (!who || who.ok !== true || typeof who.key !== 'string' || !who.key) return true;
+  if (isSetupGuide(who.key)) return true;
+  let guide;
+  try { guide = setupAssistant.guideName(); } catch { return true; }
+  if (!guide) return false;
+  try { return store.safeKey(guide) === who.key && setupAssistant.isGuideFolder(guide); } catch { return true; }
 }
 /* #1307: a project webhook's call, POST /hooks/<id>/<secret>. It carries its own secret (checked
    against a hash by engine/webhooks.js in the handler), not the board token, so it is exempt from
@@ -4216,7 +4249,10 @@ const server = http.createServer(async (req, res) => {
     // #4491: an agent route, reached with a valid agent token and no board token (see
     // AGENT_TOKEN_ROUTES and AGENT_TOKEN_ROUTE_PATTERNS). A function, called last, so a caller that already holds the board
     // token never pays for the token-store scan.
-    const exemptAgentToken = () => agentTokenRoute(`${req.method} ${pathname}`) && agentTokenOk(req);
+    const exemptAgentToken = () => {
+      const key = `${req.method} ${pathname}`;
+      return agentTokenRoute(key) && agentTokenOk(req) && !(guideClosedRoute(key) && agentTokenIsGuide(req));   // slice 4: see GUIDE_CLOSED_ROUTES
+    };
     if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !boardTokenOk(req) && !exemptAgentToken()) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
       sendJson(res, 403, { error: boardTokenRefusal(req, '') });
       return;
