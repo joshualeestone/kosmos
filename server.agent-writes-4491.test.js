@@ -248,6 +248,15 @@ test('task close: when the projects cannot be read, a token is refused (503) and
   assert.deepEqual(w.acts, [['close', 'p4491', '1']]);
 });
 
+test('a project with no members (what `kosmos project create` makes) takes tasks from any identified agent, as before', async (t) => {
+  /* The agent instructions say: make a project, then hand it work. The CLI makes it with nobody on it. */
+  const w = world(t, { members: [] });
+  const add = await call('POST', '/api/project/p4491/tasks', { headers: asAgent(w.otto), body: { sentence: 'first task on my new project' } });
+  assert.equal(add.code, 200, 'the maker of a memberless project could not hand it work: ' + add.code + ' ' + add.text.slice(0, 160));
+  assert.equal((await call('POST', '/api/project/p4491/task/1/close', { headers: asAgent(w.otto) })).code, 200);
+  assert.deepEqual([w.made.map((m) => m.by), w.acts], [['otto'], [['close', 'p4491', '1']]]);
+});
+
 test('task close: a member closes with only its own token; a non-member is refused and nothing is closed', async (t) => {
   const w = world(t);
   const member = await call('POST', '/api/project/p4491/task/3/close', { headers: asAgent(w.mara) });

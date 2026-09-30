@@ -636,9 +636,10 @@ async function taskClose(ctx, args) {
 }
 
 /* #768, as install/kosmos cmd_task message: records the words on the task and
-   notifies the agents assigned to it. Unlike list/add/close this PRESENTS the
-   agent token: the route names the sender from it and leaves the sender off the
-   notified list, which a Windows agent (no pane) could not otherwise get. */
+   notifies the agents assigned to it. It PRESENTS the agent token (as list, add
+   and close do since #4491): the route names the sender from it and leaves the
+   sender off the notified list, which a Windows agent (no pane) could not
+   otherwise get. */
 async function taskMessage(ctx, args) {
   const [project, num] = args;
   const text = args.slice(2).join(' ');

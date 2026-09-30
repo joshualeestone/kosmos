@@ -3953,15 +3953,20 @@ function processCaller(req, body, roster, viaScreen, notDone) {
 }
 /* Slice 5: an identified agent writes only in a project it is on, as task message and task built already require.
    [status, sentence] to refuse with, or null. An unreadable projects list refuses (503): a member that cannot be
-   checked is not let through. A project nobody stored is left to the handler's own 404. */
+   checked is not let through. A project nobody stored is left to the handler's own 404.
+   A project with NO members is not narrowed. That is what `kosmos project create` makes (it lists nobody, not
+   even its maker), and every agent's working rules say "once it exists you ... hand it work the same way as any
+   other project" (engine/defaults.js, "Making a project"): refusing the maker its own new project would break
+   the one workflow the product prescribes. Nobody is on such a project to be spoken for, and a task there can
+   have no assignee (an assignee must be a member). */
 function notOnProjectRefusal(who, id, verb, notDone) {
   if (!who || !who.card) return null;
   let stored;
   try { stored = projects.readAll().filter((x) => x && x.id === id); }
   catch { return [503, 'we could not read the projects, so ' + notDone]; }
   if (!stored.length) return null;
-  return stored.every((x) => projectHasAgent(x, who.card.sessionName, who.byKey)) ? null
-    : [403, 'that agent is not on this project, so it cannot ' + verb];
+  const onIt = (x) => !Array.isArray(x.agents) || x.agents.length === 0 || projectHasAgent(x, who.card.sessionName, who.byKey);
+  return stored.every(onIt) ? null : [403, 'that agent is not on this project, so it cannot ' + verb];
 }
 function agentTokenOk(req) {
   const t = req && req.headers && req.headers['x-kosmos-agent-token'];
