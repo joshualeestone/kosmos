@@ -83,7 +83,8 @@ test('#3796 the in-app name is cleaned as typed: capitals lowercased, spaces to 
   assert.equal(clean("Josh's MacBook Pro"), 'joshs-macbook-pro');
   assert.equal(clean(' my_mac'), 'my-mac', 'a leading space became a leading hyphen');
   assert.equal(clean('x'.repeat(40)).length, 32);
-  for (const id of ['plus-si-name', 'plus-name']) assert.ok(SCRIPT.includes("'" + id + "'") && /for \(const id of \['plus-si-name', 'plus-name'\]\)/.test(SCRIPT), id + ' is not cleaned as typed');
+  // kosmos#4698: the connected flow's enrol pair (plus-name) is gone; the wizard's field is the one cleaned.
+  assert.match(SCRIPT, /getElementById\('plus-si-name'\) : null;\n  if \(el && el\.addEventListener\) el\.addEventListener\('input', \(\) => \{\n    const c = plusNameClean\(el\.value\)/, 'plus-si-name is not cleaned as typed');
   assert.doesNotMatch(HTML, /lowercase letters, digits/, 'a hint still says names must be lowercase');
 });
 
@@ -97,7 +98,8 @@ test('#3842 the suggestion generator: 8 characters, never a look-alike, and not 
   for (let i = 0; i < 500; i++) { const n = gen(); assert.match(n, /^[abcdefghjkmnpqrstuvwxyz23456789]{8}$/, n); seen.add(n); }
   assert.equal(seen.size, 500, 'the generator repeats');
   assert.match(SCRIPT, /plusNamePrefill\('plus-si-name', 'plus-si-name-suggested'\);/, 'the wizard chooser is not prefilled');
-  assert.match(SCRIPT, /if \(typeof plusNamePrefill === 'function'\) plusNamePrefill\('plus-name', 'plus-name-suggested'\);/, 'the enrol flow is not prefilled with its note (or unguarded: the code-box harness runs a slice without it)');
-  assert.match(HTML, /id="plus-name"[^>]*aria-describedby="plus-name-suggested"/);
+  // kosmos#4698: the enrol pair and its name field are gone, so nothing prefills plus-name.
+  assert.doesNotMatch(SCRIPT, /plusNamePrefill\('plus-name'/, 'something still prefills the removed enrol name field');
+  assert.doesNotMatch(HTML, /id="plus-name"/, 'the removed enrol name field is back in the page');
   assert.match(HTML, /id="plus-si-name"[^>]*aria-describedby="plus-si-name-suggested"/);
 });
