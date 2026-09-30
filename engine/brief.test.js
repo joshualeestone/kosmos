@@ -69,3 +69,44 @@ test('readGoal: a real file is read; missing, a symlink, a directory and an over
   assert.equal(brief.readGoal(''), null);
   assert.equal(brief.readGoal(path.relative(process.cwd(), dir)), null, 'a relative folder was read against the working directory');
 });
+
+test('#4583 a done left blank (the "Not set yet" placeholder) is no done; one written is read as written', () => {
+  assert.equal(brief.doneFrom(projects.briefStubContent({ name: 'Lease' })), null, 'the Not set yet placeholder read as a done');
+  assert.equal(brief.doneFrom(projects.briefStubContent({ name: 'Lease', done: 'The lease is signed.' })), 'The lease is signed.');
+  // CONTROL: the bold words with a person's own words after them are an answer, not the seeded prompt.
+  assert.equal(brief.doneFrom('## Done looks like\n\n**Not set yet.** We will decide on Friday.\n'), '**Not set yet.** We will decide on Friday.');
+  // The bold words left on their own are not.
+  assert.equal(brief.doneFrom('## Done looks like\n\n**Not set yet.**\n'), null);
+});
+
+test('#4583 review: one rule for done set, so the badge, the room note and kosmos project show agree', () => {
+  const S = (done) => '# P\n\n## Goal\n\nG.\n\n## Done looks like\n\n' + done + '\n';
+  const cases = [
+    // [what the Done section holds, what show prints, whether done is set]
+    [projects.BRIEF_DONE_PLACEHOLDER, null, false],
+    [projects.BRIEF_DONE_PLACEHOLDER + '\n\nThe lease is signed.', 'The lease is signed.', true],   // the placeholder left above an answer
+    ['The lease is signed.\n\n' + projects.BRIEF_DONE_PLACEHOLDER, 'The lease is signed.', true],   // and below one
+    ['**Not set yet.**\t_How will everyone know this is finished? Replace this line._', null, false],   // hand-mangled whitespace
+    ['_Say what finished means. Replace this line._', null, false],   // a reworded prompt
+    ['', null, false],   // an empty Done section
+  ];
+  for (const [section, shown, set] of cases) {
+    assert.equal(brief.doneFrom(S(section)), shown, JSON.stringify(section));
+    assert.equal(brief.doneSetFrom(S(section)), set, JSON.stringify(section));
+  }
+  // A person's own brief with no Done section says nothing is missing (as before); no brief text says nothing at all.
+  assert.equal(brief.doneSetFrom('# Mine\n\n## Goal\n\nG.\n'), true);
+  assert.equal(brief.doneSetFrom(null), null);
+});
+
+test('#4583 review round 2: a retitled Done heading still holding the placeholder is unset; CRLF reads the same', () => {
+  const retitled = '# P\n\n## What done looks like\n\n' + projects.BRIEF_DONE_PLACEHOLDER + '\n';
+  assert.equal(brief.doneSetFrom(retitled), false, 'a placeholder under a retitled heading read as set');
+  // CONTROL: the same retitled heading with the person's own words is set.
+  assert.equal(brief.doneSetFrom('# P\n\n## What done looks like\n\nThe lease is signed.\n'), true);
+  const crlf = '# P\r\n\r\n## Done looks like\r\n\r\n' + projects.BRIEF_DONE_PLACEHOLDER + '\r\n\r\nThe lease is signed.\r\n';
+  assert.equal(brief.doneFrom(crlf), 'The lease is signed.');
+  assert.equal(brief.doneSetFrom(crlf), true);
+  assert.equal(brief.doneSetFrom('# P\r\n\r\n## Done looks like\r\n\r\n' + projects.BRIEF_DONE_PLACEHOLDER + '\r\n'), false);
+});
+

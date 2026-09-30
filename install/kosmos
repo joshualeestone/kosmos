@@ -1553,9 +1553,10 @@ cmd_reply() {
   # refuses on an enforcing board (a bare pane is the cross-account spoof path).
   # Inert (omitted) when empty -- a non-enforcing board writes no token file.
   local _bt; _bt="$(board_token || true)"
-  # #3769: the agent's own token too, as `whoami` and `report` present it (hex only). The setup guide
-  # runs sandboxed with Kosmos's data folder denied, so it cannot read the board token; its agent
-  # token is what keeps its reply on an enforcing board. Omitted when empty, as before.
+  # #3769: the agent's own token too, as `whoami` and `report` present it (hex only). A Claude setup
+  # guide on a Mac runs sandboxed with Kosmos's data folder denied (guardGuideFolder in
+  # engine/setup-assistant.js), and board_token above reads only that folder; its agent token is
+  # what keeps its reply on an enforcing board. Omitted when empty, as before.
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in
     ''|*[!0-9a-f]*) ;;
@@ -2557,7 +2558,11 @@ cmd_room() {
   # `_body=$(...)` (a failing substitution aborts the process at that line), the
   # same care cmd_post takes.
   local _body _rc=0 _code
-  _body=$(kosmos_curl "$_bt" "" -sS -m 15 -w $'\n%{http_code}' "$URL/api/project/$esc_project/room?as=text" 2>/dev/null) || _rc=$?
+  # #4491 slice 4: the agent's own token too (plain hex only, as msg and post take it), so this read still works
+  # once the CLI stops holding the person's board token.
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
+  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/project/$esc_project/room?as=text" 2>/dev/null) || _rc=$?
   if [ "$_rc" -ne 0 ]; then
     say_unreached "read that room" "$_rc"
     exit 1
@@ -2895,7 +2900,9 @@ cmd_task() {
   case "$sub" in
     list)
       local rc=0 body
-      body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/tasks?project=$esc_project" 2>/dev/null) || rc=$?
+      local _ltok=""   # #4491 slice 4: the agent's own token too, plain hex only, as the room read sends it
+      case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _ltok="$KOSMOS_AGENT_TOKEN" ;; esac
+      body=$(kosmos_curl "$_bt" "$_ltok" -sS -m 15 "$URL/api/tasks?project=$esc_project" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say_unreached "list tasks" "$rc"; exit 1; }
       case "$body" in '{"error":'*)
         local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
@@ -3201,11 +3208,13 @@ cmd_agent() {
   local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
   local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert when empty
   local body rc=0
+  local _rtok=""   # #4491 slice 4: the two role reads carry the agent's own token too, plain hex only
+  case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _rtok="$KOSMOS_AGENT_TOKEN" ;; esac
   case "$sub" in
     roles)
       # ?catalogue=1: listing the roles asks for the downloaded ready-made ones too, as the picker does (#4632).
       # -m 25: the board may be downloading (up to 8 s, 16 s when it retries past the caches).
-      body=$(kosmos_curl "$_bt" "" -sS -m 25 "$URL/api/roles?catalogue=1" 2>/dev/null) || rc=$?
+      body=$(kosmos_curl "$_bt" "$_rtok" -sS -m 25 "$URL/api/roles?catalogue=1" 2>/dev/null) || rc=$?
       if [ "$rc" -ne 0 ]; then say_unreached "list the roles" "$rc"; exit 1; fi
       if [ -z "$body" ]; then say "Kosmos gave an empty answer when asked for the roles. Try again in a minute."; exit 1; fi
       printf '%s' "$body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}for(const r of (j.roles||[]))if(r&&r.key)console.log(r.key+"  "+(r.label||""))})' \
@@ -3214,7 +3223,7 @@ cmd_agent() {
     role-draft)
       # The "Describe it yourself" text (the `own` role): what a new role starts from. {{NAME}} stays; Kosmos
       # fills it with the agent's name when it is made.
-      body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/roles" 2>/dev/null) || rc=$?
+      body=$(kosmos_curl "$_bt" "$_rtok" -sS -m 15 "$URL/api/roles" 2>/dev/null) || rc=$?
       if [ "$rc" -ne 0 ]; then say_unreached "get the role text" "$rc"; exit 1; fi
       if [ -z "$body" ]; then say "Kosmos gave an empty answer when asked for the role text. Try again in a minute."; exit 1; fi
       # --to writes the file itself, as UTF-8 with the text's own line endings (#4474): a shell's redirection can
