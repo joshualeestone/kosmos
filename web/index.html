@@ -41369,17 +41369,20 @@ function placeAgentsPanel(consolidated) {
         const b = e.target.closest('[data-conslay]');
         if (b) pick(b);
       });
-      /* #4594: a radio group's keys. Left/Right (and Up/Down) move AND choose, wrapping, and focus follows. */
+      /* #4594: a radio group's keys. Left/Right (and Up/Down) move AND choose, wrapping; Home and End go to
+         the first and last; focus follows. */
       wrap.addEventListener('keydown', (e) => {
         const b = e.target.closest('[data-conslay]');
-        if (!b || e.altKey || e.metaKey || e.ctrlKey || !['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) return;
+        if (!b || e.altKey || e.metaKey || e.ctrlKey || !['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
         const all = [...wrap.querySelectorAll('[data-conslay]')];
         const i = all.indexOf(b);
-        const to = all[(i + ((e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : all.length - 1)) % all.length];
+        const to = e.key === 'Home' ? all[0] : e.key === 'End' ? all[all.length - 1]
+          : all[(i + ((e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : all.length - 1)) % all.length];
         e.preventDefault();
         pick(to);
         to.focus();
       });
+      consLaySync();   // right from the build, whatever BOARD_LAYOUT already is
     }
     if (wrap.parentElement !== projects) projects.appendChild(wrap);
     if (!CONS_AGENTS_HOME) {

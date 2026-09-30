@@ -217,6 +217,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         BOARD_LAYOUT = 'list';
         tab('agents').click();
         res.l_neither = $('grid').hidden === false && sw('grid').getAttribute('aria-checked') === 'false' && sw('org').getAttribute('aria-checked') === 'false';
+        // #4594: with neither checked the one tab stop falls to the first segment, so the switch stays reachable.
+        res.l_tabstop = sw('grid').tabIndex === 0 && sw('org').tabIndex === -1;
         BOARD_LAYOUT = 'grid';
         tab('agents').click();
         // (d) Another overlay taking the column re-hides the grid, not only its wrapper.
@@ -238,6 +240,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' the column\'s Org chart switch shows the chart and saves the choice', r0 && r1.s_org === true, R1);
     ok(t + ' the column\'s Grid switch brings the grid back', r0 && r1.s_grid === true, R1);
     ok(t + ' a saved list layout shows the grid and checks neither segment', r0 && r1.l_neither === true, R1);
+    ok(t + ' #4594: with neither checked, the one tab stop is on the first segment', r0 && r1.l_tabstop === true, R1);
     ok(t + ' another overlay taking the column re-hides the grid itself', r0 && r1.t_rehidden === true, R1);
 
     // ---- #4594 (Josh, 2026-09-29 12:01): the Agents view switch is ONE segmented control, not two pills. ----
@@ -266,8 +269,16 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     await page.focus('#panel-cons-agents [data-conslay="grid"]');
     await page.keyboard.press('ArrowRight');
     const k1 = await page.evaluate(() => ({ org: document.getElementById('orgview').hidden === false, focus: document.activeElement && document.activeElement.dataset.conslay,
-      checked: [...document.querySelectorAll('#panel-cons-agents [data-conslay]')].map((b) => b.getAttribute('aria-checked')).join(',') }));
+      checked: [...document.querySelectorAll('#panel-cons-agents [data-conslay]')].map((b) => b.getAttribute('aria-checked')).join(','),
+      tabs: [...document.querySelectorAll('#panel-cons-agents [data-conslay]')].map((b) => b.tabIndex).join(',') }));
     ok(t + ' #4594: ArrowRight moves to Org chart, chooses it and takes focus', k1.org && k1.focus === 'org' && k1.checked === 'false,true', JSON.stringify(k1));
+    ok(t + ' #4594: the tab stop moves with the choice', k1.tabs === '-1,0', JSON.stringify(k1));
+    await page.keyboard.press('Home');
+    const kh = await page.evaluate(() => ({ grid: document.getElementById('grid').hidden === false, focus: document.activeElement && document.activeElement.dataset.conslay }));
+    ok(t + ' #4594: Home goes to the first segment (Grid) and chooses it', kh.grid && kh.focus === 'grid', JSON.stringify(kh));
+    await page.keyboard.press('End');
+    const ke = await page.evaluate(() => ({ org: document.getElementById('orgview').hidden === false, focus: document.activeElement && document.activeElement.dataset.conslay }));
+    ok(t + ' #4594: End goes to the last segment (Org chart) and chooses it', ke.org && ke.focus === 'org', JSON.stringify(ke));
     await page.keyboard.press('ArrowRight');
     const k2 = await page.evaluate(() => ({ grid: document.getElementById('grid').hidden === false, focus: document.activeElement && document.activeElement.dataset.conslay }));
     ok(t + ' #4594: ArrowRight from the last segment wraps to Grid', k2.grid && k2.focus === 'grid', JSON.stringify(k2));
