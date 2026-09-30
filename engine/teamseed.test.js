@@ -181,3 +181,10 @@ test('specs against the REAL seeded catalogue: every prebuilt team makes one spe
     for (const s of r.specs) assert.ok(typeof s.spec.teamInstructions === 'string' && s.spec.teamInstructions.length > 0, t.key + '/' + s.slot);
   }
 });
+
+test('specs with checkTaken names EVERY taken seat in one answer (making the same team twice takes them all)', () => {
+  const r = teamseed.specs({ team: 'marketing', names: { lead: 'Maya', content: 'Leo', social: 'Ana' }, checkTaken: true },
+    fixture(), { taken: () => true });
+  assert.equal(r.ok, false);
+  for (const who of ['Maya', 'Leo', 'Ana']) assert.match(r.because, new RegExp(who), r.because);
+});

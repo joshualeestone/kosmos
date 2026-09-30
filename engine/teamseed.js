@@ -126,6 +126,7 @@ function specs(req, cat, deps) {
   const given = (req && req.names && typeof req.names === 'object') ? req.names : {};
   const names = {};
   const seen = new Map();
+  const takenSeats = [];
   for (const m of membersOf(team)) {
     const raw = typeof given[m.slot] === 'string' ? given[m.slot].trim() : '';
     if (!raw) return { ok: false, because: 'give the ' + m.title + ' a name' };
@@ -134,10 +135,15 @@ function specs(req, cat, deps) {
     const slug = create.slugFor(raw);
     if (seen.has(slug)) return { ok: false, because: 'the ' + seen.get(slug) + ' and the ' + m.title + ' have the same name; give each one its own' };
     seen.set(slug, m.title);
-    if (req.checkTaken === true && taken(slug)) {
-      return { ok: false, because: 'there is already an agent called ' + raw + ' on this computer; give the ' + m.title + ' another name' };
-    }
+    if (req.checkTaken === true && taken(slug)) takenSeats.push({ raw, title: m.title });
     names[m.slot] = raw;
+  }
+  // Every taken name in one answer: making the same team again takes all of its suggested names.
+  if (takenSeats.length === 1) {
+    return { ok: false, because: 'there is already an agent called ' + takenSeats[0].raw + ' on this computer; give the ' + takenSeats[0].title + ' another name' };
+  }
+  if (takenSeats.length > 1) {
+    return { ok: false, because: 'these names are already taken on this computer: ' + takenSeats.map((t) => t.raw + ' (the ' + t.title + ')').join(', ') + '; give each one another name' };
   }
 
   /* April (#4555): the catalogue's own reason, per member, for anything it would refuse (a role this
