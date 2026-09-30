@@ -70,3 +70,14 @@ Focused set: 66 of 66 (both route tests, both CLIs, help, parity, verbs, the nud
   so nothing is lost; the retry costs one call.
 - NIT, not taken: row size. The default is 10 and --limit is the agent's explicit ask.
 Focused: server.inbox-4784.test.js 7 of 7.
+
+## Review 4 (sonnet, blind, on 684a0f374), 17:32 CDT: no BLOCKER, 1 WARNING, 2 NITs
+- WARNING, taken: rows split only on LF/CRLF, so a lone CR, VT, FF, NEL, U+2028 or U+2029 in typed text could draw
+  an unindented "you:" row. Every one of those now starts an indented piece, and the other C0/C1 controls (ESC,
+  BEL, CSI; tab kept) are dropped. Test: one message per separator (LF and CRLF are the controls, and the count
+  arm fails if any separator produced no indented piece); perturbation: the old LF-only split reds it.
+- NIT, not taken: attachment names in the guide's thread are not secret-masked. The thread route shows the same
+  names to the board, and the mask's contract (#3769) is message text; a key as a file name is a separate card
+  if wanted.
+- NIT, noted: refusals on stdout (as whoami), already a recorded choice.
+Focused: server.inbox-4784.test.js 8 of 8.

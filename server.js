@@ -12962,7 +12962,11 @@ const server = http.createServer(async (req, res) => {
         if (r.reached === 'maybe') notes.push('[this may not have reached you]');
         const head = (r.at ? r.at.replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '')
           + (r.from === 'person' ? 'the person' : 'you') + (notes.length ? ' ' + notes.join(' ') : '') + ': ';
-        const body = r.text.split(/\r?\n/);
+        /* Review 4: every character a terminal or an agent's context can read as a line break starts a new,
+           indented piece (a lone CR, VT, FF, NEL, U+2028, U+2029, not only LF), and the other control characters
+           (ESC and the rest of C0 and C1, tab kept) are dropped, so no typed text can draw a row of its own. */
+        const body = r.text.split(/\r\n|[\n\r\v\f\u0085\u2028\u2029]/)
+          .map((l) => l.replace(/[\u0000-\u0008\u000e-\u001f\u007f-\u009f]/g, ''));
         return [head + body[0], ...body.slice(1).map((l) => '    ' + l)].join('\n');
       });
       res.end(lines.join('\n') + '\n');
