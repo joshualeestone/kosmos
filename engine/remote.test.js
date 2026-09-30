@@ -2958,7 +2958,7 @@ test('#4756: with bought addresses switched off, signinAddresses answers live:fa
   try {
     await signedIn();
     fs.writeFileSync(ADDR_ANSWER, JSON.stringify(BOUGHT));
-    for (const meta of [{ bought_addresses: false }, { build: 'x' }, null]) {
+    for (const meta of [{ bought_addresses: false }, { build: 'x' }]) {
       const before = addressesArgv().length;
       await withMetaServer(meta, async (seen) => {
         const r = await remote.signinAddresses();
@@ -2968,6 +2968,25 @@ test('#4756: with bought addresses switched off, signinAddresses answers live:fa
         assert.equal(seen.some((x) => x.auth), false, 'the switch read carried a credential');
       });
     }
+  } finally { remote.resetForTests(); }
+});
+
+test('#4756 review: a switch read that fails is not the switch off: the read fails, and the list is not asked', async () => {
+  delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES;
+  try {
+    await signedIn();
+    fs.writeFileSync(ADDR_ANSWER, JSON.stringify(BOUGHT));
+    const before = addressesArgv().length;
+    await withMetaServer(null, async (seen) => {   // /v1/meta answers 404
+      const r = await remote.signinAddresses();
+      assert.equal(r.ok, false, JSON.stringify(r));
+      assert.match(r.because, /could not be reached to check for bought addresses/);
+      assert.equal(seen.some((x) => x.url === '/v1/meta'), true, 'never asked /v1/meta; the failure above proves nothing');
+    });
+    const r2 = await remote.signinAddresses({ fetch: async () => { throw new Error('offline'); } });
+    assert.equal(r2.ok, false, 'a switch read that threw read as off');
+    assert.equal(addressesArgv().length, before, 'read the list with the switch unknown');
+    assert.equal(await remote.fetchMetaFlag('bought_addresses', { fetch: async () => { throw new Error('offline'); } }), null, 'a caller that passes no unread still gets null');
   } finally { remote.resetForTests(); }
 });
 

@@ -418,12 +418,13 @@ async function fetchMetaFlag(field, opts) {
   try {
     const url = String(COORDINATOR()).replace(/\/+$/, '') + '/v1/meta';
     const res = await get(url, { signal: AbortSignal.timeout(opts.timeoutMs || FED_LIVE_TIMEOUT_MS), redirect: 'error' });
-    if (!res || !res.ok) return null;
-    if (!/^application\/json\b/i.test(String((res.headers && res.headers.get && res.headers.get('content-type')) || ''))) return null;
+    // opts.unread (kosmos#4756): what a read that failed answers, when the caller must tell it from a field left out.
+    if (!res || !res.ok) return 'unread' in opts ? opts.unread : null;
+    if (!/^application\/json\b/i.test(String((res.headers && res.headers.get && res.headers.get('content-type')) || ''))) return 'unread' in opts ? opts.unread : null;
     const body = await res.json();
     return (body && typeof body[field] === 'boolean') ? body[field] : null;
   } catch {
-    return null;
+    return 'unread' in opts ? opts.unread : null;
   }
 }
 async function fetchFederationLive(opts) { return fetchMetaFlag('federation_live', opts); }
@@ -1982,8 +1983,12 @@ async function signinAddressesOnce(opts) {
   const token = signinSession.token;   // taken now: a Sign out during the switch read below must not throw here
   // AGENT_WORKFORCE_BOUGHT_ADDRESSES=1 is for testing against a coordinator whose switch is off; it only changes what the
   // step offers (the coordinator still refuses an address not bought).
-  const live = process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES === '1' || (await fetchMetaFlag('bought_addresses', { fetch: get, timeoutMs: opts.timeoutMs || ADDR_META_MS })) === true;
-  if (!live) return { ok: true, because: null, data: { live: false } };
+  const flag = process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES === '1' ? true
+    : await fetchMetaFlag('bought_addresses', { fetch: get, timeoutMs: opts.timeoutMs || ADDR_META_MS, unread: 'unread' });
+  // A switch that could not be read is not a switch that is off: the page then takes the step as before, as for a
+  // list it could not read, and keeps the way back to the list a refusal needs.
+  if (flag === 'unread') return { ok: false, because: 'Kosmos+ could not be reached to check for bought addresses' };
+  if (flag !== true) return { ok: true, because: null, data: { live: false } };
   if (!signinSession || signinSession.token !== token) return { ok: false, because: 'the sign-in ended; start again from the email' };
   const ran = await setupRun(['signin', 'addresses', '--coordinator', COORDINATOR()], token, opts.timeoutMs || ADDR_READ_MS);
   // A sign-out, or another sign-in, while the binary ran: this answer is not theirs.
