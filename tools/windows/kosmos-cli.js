@@ -85,6 +85,7 @@ const USAGE = {
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
   report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
+  inbox: 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)',
   room: 'Usage: kosmos room <project-id>   (read a room; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   task: [
     'Usage: kosmos task <list|add|close|message|built>',
@@ -565,6 +566,24 @@ async function verbWhoami(ctx) {
   /* The board's sentence, verbatim: a locally-invented answer is what this verb
      exists to stop (install/kosmos cmd_whoami). */
   ctx.out((r.json && typeof r.json.because === 'string') ? r.json.because : String(r.text || ''));
+  return r.status >= 400 ? 1 : 0;
+}
+
+/* #4784, as install/kosmos cmd_inbox: your own recent direct messages with the person, read back from the board. */
+async function verbInbox(ctx, args) {
+  let limit = '';
+  while (args.length) {
+    const a = args.shift();
+    if (a === '--limit') { limit = args.shift() || ''; continue; }
+    const m = /^--limit=(.*)$/.exec(a);
+    if (m) { limit = m[1]; continue; }
+    ctx.err(USAGE.inbox);
+    return 2;
+  }
+  if (limit && !/^\d+$/.test(limit)) { ctx.err('--limit takes a whole number.'); return 2; }
+  const r = await ctx.call('GET', '/api/inbox?as=text&limit=' + limit + '&from_pane=');
+  if (!r.reached) return ctx.unreachable('read your messages');
+  ctx.out(String(r.text || '').replace(/\n$/, ''));
   return r.status >= 400 ? 1 : 0;
 }
 
@@ -1076,6 +1095,7 @@ const VERB_HANDLERS = {
   react: verbReact,
   report: verbReport,
   whoami: verbWhoami,
+  inbox: verbInbox,
   room: verbRoom,
   task: subcommandRequired('task'),
   project: subcommandRequired('project'),

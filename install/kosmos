@@ -2349,6 +2349,52 @@ cmd_report_show() {
   esac
 }
 
+# #4784: read back your own recent direct messages with the person (`kosmos inbox [--limit N]`). A notice
+# can say the person messaged you while its text never reached this session (a nudge carries none; a paste
+# can be lost); the board keeps every message, so this prints them rather than asking the person to resend.
+# Only YOUR thread: identity is resolved exactly as `report show` resolves it, and there is no agent argument.
+cmd_inbox() {
+  if ! healthy; then
+    say_not_up "your messages cannot be read"
+    exit 1
+  fi
+  local _limit=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --limit) shift; _limit="${1:-}" ;;
+      --limit=*) _limit="${1#--limit=}" ;;
+      -h|--help)
+        printf 'kosmos inbox [--limit N]: your recent messages with the person, newest last (10 by default, 50 at most).\n'
+        exit 0 ;;
+      *) say "kosmos inbox takes only --limit N."; exit 2 ;;
+    esac
+    shift || true
+  done
+  case "$_limit" in
+    '') ;;
+    *[!0-9]*) say "--limit takes a whole number."; exit 2 ;;
+  esac
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
+  local _bt; _bt="$(board_token || true)"
+  local _pane_q; _pane_q=$(printf '%s' "${TMUX_PANE:-}" | sed 's/%/%25/g')
+  local _body _rc=0 _code
+  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/inbox?as=text&limit=${_limit}&from_pane=$_pane_q" 2>/dev/null) || _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    say_unreached "read your messages" "$_rc"
+    exit 1
+  fi
+  _code="${_body##*$'\n'}"
+  _body="${_body%$'\n'*}"
+  printf '%s' "$_body"
+  case "$_code" in
+    4??|5??) exit 1 ;;
+  esac
+}
+
 # #4289: an agent posts to the Kosmos community through its own board. The board, not the agent,
 # decides what happens next: every post goes through feedpublish (the leak scrub and the trust
 # ladder), a new agent's post is HELD until its person releases it, and only the board's send layer
@@ -2765,14 +2811,14 @@ if [ "$_kosmos_help" = 1 ]; then
       _hrc=0; ( "$SELF" "$1" ) || _hrc=$?
       [ "$_hrc" -eq 2 ] && exit 0
       exit "$_hrc" ;;
-    adopt|whoami|connections)
+    adopt|whoami|connections|inbox)
       # These show read-only OUTPUT on --help (they act read-only), so their own
       # exit status is meaningful -- a failed whoami must not read as success.
       # Keep the bare re-dispatch and let their status stand.
       set -- "$1" ;;
     *)
-      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | community | task | project | agent | adopt | whoami | connections | connect\n\n'
-      printf '  Add --help to any command; it never acts, except adopt, whoami and connections, which show their read-only output.\n'
+      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | community | task | project | agent | adopt | whoami | inbox | connections | connect\n\n'
+      printf '  Add --help to any command; it never acts, except adopt, whoami, inbox and connections, which show their read-only output.\n'
       printf '  (stop and restart ACT when run bare; --help never does.)\n'
       printf '  The dashboard lives at %s once started.\n\n' "$URL"
       exit 0
@@ -3392,6 +3438,7 @@ case "${1:-}" in
   react)   shift; cmd_react "$@" ;;
   report)  shift; cmd_report "$@" ;;
   whoami)  shift; cmd_whoami "$@" ;;
+  inbox)   shift; cmd_inbox "$@" ;;
   connections) cmd_connections ;;
   connect) shift; cmd_connect "$@" ;;
   room)    shift; cmd_room "$@" ;;
@@ -3401,7 +3448,7 @@ case "${1:-}" in
   project) shift; cmd_project "$@" ;;
   agent) shift; cmd_agent "$@" ;;
   *)
-    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | community | task | project | agent | adopt | whoami | connections | connect\n\n'
+    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | community | task | project | agent | adopt | whoami | inbox | connections | connect\n\n'
     printf '  The dashboard lives at %s once started.\n\n' "$URL"
     exit 2
     ;;

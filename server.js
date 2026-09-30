@@ -3791,7 +3791,7 @@ const REMOTE_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply']);
    The /api/team handler re-enforces auth itself (a valid agent token OR the board
    token; no-credential refused on an enforcing board), exactly as report/reply do
    one layer down -- see that handler. */
-const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
+const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET /api/inbox']);
 /* #4491 (proof of concept): agent routes a loopback caller may reach with ONLY its own agent
    token, in the `x-kosmos-agent-token` header, instead of the board token. So an agent need not
    hold the person's credential for its everyday verbs, and a request carrying only an agent
@@ -12879,6 +12879,59 @@ const server = http.createServer(async (req, res) => {
         });
       })
       .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read that request' }));
+    return;
+  }
+  if (pathname === '/api/inbox' && req.method === 'GET') {
+    /* #4784: `kosmos inbox`, an agent's own recent direct messages with the person. An agent can be told a
+       message arrived (the first-reply nudge, #3226, carries no text; a paste can be lost in the pane or a
+       restart) with no way to read it but asking the person to send it again. The board keeps every DM
+       (chat DIRECT, stored even when delivery failed), so this reads it back. ONLY the caller's own thread:
+       the caller is resolved exactly as GET /api/report resolves it (token first, then pane; a bare pane is
+       refused on an enforcing board), and there is no agent parameter, so no agent can read another's. */
+    let asText = false;
+    let fromPane = null;
+    let limit = 10;
+    try {
+      const q = new URL(req.url, ROUTING_BASE).searchParams;
+      asText = q.get('as') === 'text';
+      fromPane = q.get('from_pane');
+      const n = Number.parseInt(q.get('limit') || '', 10);
+      if (Number.isFinite(n) && n > 0) limit = Math.min(n, 50);
+    } catch { asText = false; fromPane = null; }
+    const fail = (status, msg) => {
+      if (asText) { res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(msg + '\n'); }
+      else sendJson(res, status, { ok: false, because: msg });
+    };
+    try {
+      const roster = safeRoster();
+      if (roster === null) { fail(503, 'we could not check which agents are running, so we could not tell who is asking'); return; }
+      const denyPaneFallback = boardAuthState.on
+        && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
+      const sender = resolveAgentSender(req, { from_pane: fromPane }, roster, {
+        denyPaneFallback,
+        denyBecause: 'this board only shows an agent its messages with its own agent token; run `kosmos inbox` as that agent',
+      });
+      if (!sender.ok) { fail(403, sender.because); return; }
+      let thread;
+      try { thread = chat.readThread(chat.DIRECT, sender.card.sessionName); }
+      catch { fail(503, 'we cannot read your conversation with the person on this computer right now'); return; }
+      const rows = (thread && Array.isArray(thread.messages) ? thread.messages : [])
+        .filter((m) => m && typeof m.text === 'string' && m.kind !== 'question' && m.kind !== 'kosmos')
+        .slice(-limit)
+        .map((m) => ({
+          at: typeof m.at === 'string' ? m.at : null,
+          from: typeof m.from === 'string' && m.from ? 'you' : 'person',
+          text: m.text,
+        }));
+      if (!asText) { sendJson(res, 200, { ok: true, messages: rows }); return; }
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      if (!rows.length) { res.end('No messages between you and the person yet.\n'); return; }
+      const lines = rows.map((r) => (r.at ? r.at.replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '')
+        + (r.from === 'person' ? 'the person: ' : 'you: ') + r.text);
+      res.end(lines.join('\n') + '\n');
+    } catch (err) {
+      fail(500, 'Kosmos could not read your messages just now');
+    }
     return;
   }
   if (pathname === '/api/report' && req.method === 'GET') {
