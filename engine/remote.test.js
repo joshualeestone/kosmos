@@ -1319,8 +1319,8 @@ test('#4640 denied is final too, and a first computer keeps no token at all', as
   assert.equal(again.ok, true, again.because);
   assert.equal(again.data.alreadySetUp, true, 'CONTROL: this arm must take the already-set-up shortcut');
   assert.equal(remote.allowWatchHeldForTests(), false, 'the shortcut kept a first computer\'s token');
-  // The already-set-up shortcut keeps nothing even for a second computer whose page asked: the two meet only when the
-  // state dir is another account's (the account-switch edge), so the held session is not this computer's.
+  // The already-set-up shortcut never KEEPS a watch: a new sign-in (here after a Sign out) that reaches it holds a
+  // session the account-switch edge may have issued for another account.
   await remote.signinStart('her@example.com');
   assert.equal((await remote.signinVerify('her@example.com', '282828')).ok, true);
   assert.equal((await remote.signinRegister('switched', { awaitAllow: true })).ok, true);
@@ -1358,9 +1358,19 @@ test('#4640 Sign out, a new sign-in and Forget each drop the kept token', async 
 test('#4640 an old tunnel without the verb stops the wait; a coordinator that is down does not', async () => {
   await signedInSecond();
   process.env.FAKE_TUNNEL_MODE = 'status-down';
-  const down = await remote.signinAllowStatus();
+  const lines = [];
+  const write = process.stderr.write;
+  process.stderr.write = (chunk, ...rest) => { if (String(chunk).includes('#4640')) lines.push(String(chunk)); return write.call(process.stderr, chunk, ...rest); };
+  let down;
+  try {
+    down = await remote.signinAllowStatus();
+    await remote.signinAllowStatus();
+  } finally { process.stderr.write = write; }
   assert.equal(down.ok, false);
   assert.equal(down.data.stop, false, 'one failed check ended the wait');
+  assert.equal(lines.length, 1, 'a failure to ask is logged once per watch: ' + JSON.stringify(lines));
+  assert.match(lines[0], /unreachable/, 'the log line says why');
+  assert.ok(!lines[0].includes('kst1.'), 'the token reached the log');
   process.env.FAKE_TUNNEL_MODE = 'old-tunnel';
   const old = await remote.signinAllowStatus();
   assert.equal(old.data.stop, true, 'a tunnel that cannot answer is asked forever');
@@ -1394,6 +1404,16 @@ test('#4640 review: the window drops the token on its own clock, and a refused s
   fs.rmSync(RECORD, { force: true });
   assert.equal((await remote.signinAllowStatus()).data.stop, true);
   assert.ok(!recorded().some((c) => c[0] === 'signin' && c[1] === 'status'), 'the refused token was sent again');
+});
+test('#4640 review: a Try again that takes the shortcut keeps THIS sign-in\'s own watch', async () => {
+  fs.rmSync(ALLOW, { force: true });
+  await signedInSecond();
+  assert.equal(remote.allowWatchHeldForTests(), true, 'CONTROL: the register kept the watch');
+  // The page lost the answer and presses Try again at the same name: the shortcut answers it.
+  const again = await remote.signinRegister('herlaptop' + secondN, { awaitAllow: true });
+  assert.equal(again.data.alreadySetUp, true, 'CONTROL: this must take the already-set-up shortcut');
+  assert.equal(remote.allowWatchHeldForTests(), true, 'the Try again threw away the watch this same sign-in kept');
+  assert.deepEqual((await remote.signinAllowStatus()).data, { device_status: 'pending' });
 });
 test('#4640 review: Done drops only the token (not a Sign out), and the final answer outlives it', async () => {
   fs.rmSync(ALLOW, { force: true });

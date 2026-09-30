@@ -1695,6 +1695,8 @@ async function signinAllowStatus() {
     // exists, its page must ask again rather than be told to stop by an old answer.
     if (allowWatch !== w) return { ok: false, because: 'nothing to wait for', data: { stop: !allowWatch } };
     if (!r.ok) {
+      // Once per watch, never the token: the page asks every few seconds, and the page is told only "ask again".
+      if (!w.logged) { w.logged = true; process.stderr.write('remote: could not ask Kosmos+ whether this computer was allowed (#4640): ' + String(r.because || 'no answer') + '\n'); }
       const why = String(r.stderr || '') + '\n' + String(r.because || '');
       if (OLD_TUNNEL.test(why) || SESSION_REFUSED.test(why)) { dropAllowWatch(); return { ok: false, because: r.because, data: { stop: true } }; }
       return { ok: false, because: r.because, data: { stop: false } };
@@ -2083,11 +2085,10 @@ async function signinRegister(name, opts) {
       /* #3827: signing in IS asking to be reachable; ensure() only starts the tunnel when switched on. */
       turnOnAfterSignin();
       ensure(localPort);
-      // #4640: this shortcut keeps no watch. The page asks to wait only when this computer's name is NOT among the
-      // account's addresses, and this shortcut runs only when the state dir is already at that name, so the two meet
-      // only in the account-switch edge above: the held session is another account's, and its answer is not this
-      // computer's. (A retry after a no goes through Remove this computer, which wipes the state dir: no shortcut.)
-      endAllowWait();
+      // #4640: this shortcut neither keeps nor drops a watch. Every sign-in starts by dropping any watch
+      // (signinStart), so one that is live here was kept by THIS sign-in's own register, and this is its Try again
+      // after the page lost the answer: the watch is still the right one. Keeping a new one here would hold a
+      // session the account-switch edge above may have issued for another account.
       signinSession = null;
       // standing is '' on this path, not omitted: the engine cannot know it
       // without the coordinator round-trip this short-circuit skips, and a

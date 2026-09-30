@@ -66,8 +66,11 @@ match could never fire).
   is not among the account's addresses, and the shortcut runs only when the state dir is already at that name, so
   they meet only in the account-switch edge (the held session is another account's). A retry after a no goes through
   Remove this computer, which wipes the state dir, so it never takes the shortcut.
-  Deferred (benign): a second register call while one is in flight shares the first one's result, so the watch
-  follows the FIRST caller's awaitAllow. The page sends one register at a time.
+  Iteration 11 corrected that: the shortcut neither keeps NOR drops a watch. Every sign-in starts by dropping any
+  watch (signinStart), so a live one at the shortcut was kept by this sign-in's own register: this is its Try again
+  after the page lost the answer, and the watch is the right one. A failure to ask is logged once per watch (no
+  token). "Allowed" says "by one of your other computers" when there are several. (busy() refuses a second register
+  while one is in flight, so two opt-ins cannot race.)
 - Inherited, not mine: browser-checks-reason-grep.test.js reds on the base (209 emit sites, expected 208) because
   #4638 added one; Pete owns the bump, and this branch rebases after it.
 - Iteration 6: the denied line starts "press Done" (Remove this computer is on the Kosmos Plus pane Done leads to,

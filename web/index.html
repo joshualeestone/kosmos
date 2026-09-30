@@ -43737,7 +43737,10 @@ function plusSiWatchAllow() {
 /* Allowed: say so where the code was, then move on the way Done does, unless the person already has. */
 function plusSiAllowed() {
   const sec = PLUS_SI_SECOND;
-  document.getElementById('plus-si-match-lead').textContent = 'Allowed. ' + (sec.computer || 'This computer') + ' is in.';
+  // With several other computers, one allowing it is what is known (the same hedge as the denied line).
+  document.getElementById('plus-si-match-lead').textContent = sec.several
+    ? 'Allowed by one of your other computers.'
+    : 'Allowed. ' + (sec.computer || 'This computer') + ' is in.';
   document.getElementById('plus-si-match-code').hidden = true;
   setTimeout(() => {
     if (PLUS_SI_SECOND !== sec || !PLUS_SI_LANDED) return;
