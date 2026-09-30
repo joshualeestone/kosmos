@@ -1776,6 +1776,9 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 /* #3946: the identity mark (or chosen picture), mirrored as the name is typed. */
 .ctype-dot.has-mark { background-size: cover; background-position: center; background-repeat: no-repeat; }
 @media (max-width: 40rem) { .ctype { grid-template-columns: 1fr; } }
+/* #4556: on the Swarm path only the Swarm card shows (the swarm's preview, not a choice), full width. */
+.ctype-opt[hidden] { display: none; }
+.ctype:has(> .ctype-opt[hidden]) { grid-template-columns: 1fr; }
 /* Sliders: the mock's value beside the track, gold. */
 .swrow, .swticks { max-width: 26rem; }
 .swrow { display: flex; align-items: center; gap: 12px; }
@@ -3922,11 +3925,18 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons
 .cons-proj-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); margin: 0 0 var(--space-5) 0; }
 .cons-proj-title { margin: 0; font: 700 1.25rem var(--font-ui); color: var(--k-ink); }
 .cons-agents-head { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin: 0 0 var(--space-5) 0; }
-.cons-agents-lay { display: inline-flex; gap: 6px; }
-.cons-agents-lay button { border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); font: 600 .75rem var(--font-ui);
-  padding: 3px 10px; border-radius: 999px; cursor: pointer; }
-.cons-agents-lay button[aria-pressed="true"] { color: var(--k-ink); border-color: var(--gold-edge); }
-.cons-agents-lay button:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+/* #4594 (Josh, 2026-09-29 12:01): ONE segmented control, not two pills. The app's segmented language
+   (.laypick/.pj-mode: 0.5px separator, radius-control, elevated ground, gold selected segment with
+   #14161a ink); segments sized to their words, like .pj-mode, rather than .laypick's 38px icon squares. */
+.cons-agents-lay { display: inline-flex; border: 0.5px solid var(--separator); border-radius: var(--radius-control);
+  overflow: hidden; background: var(--bg-elevated); }
+.cons-agents-lay button { border: 0; background: none; color: var(--label-2); font: 600 13px var(--font-ui);
+  height: 30px; padding: 0 12px; cursor: pointer; white-space: nowrap; }
+.cons-agents-lay button + button { border-left: 0.5px solid var(--separator); }
+.cons-agents-lay button:hover:not([aria-checked="true"]) { color: var(--label); }
+.cons-agents-lay button[aria-checked="true"] { background: var(--gold-bright); color: #14161a; }
+.cons-agents-lay button:focus-visible { outline: 2px solid var(--label); outline-offset: -3px; }
+.cons-agents-lay button[aria-checked="true"]:focus-visible { outline-color: #14161a; }
 @media (max-width: 760px) {
   .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
   .tsk-main { padding: 22px 14px 120px; }
@@ -4210,6 +4220,13 @@ body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row {
      status stay pinned to the right edge, and the content indents inside. */
   padding: 7px 12px 7px calc(30px + var(--pj-depth, 0) * 22px);
   margin: 0; }
+/* #4730 (Josh, 2026-09-30): alternating rows get "a really really light" background, spreadsheet
+   style, so the eye can follow a row across. A 3.5% wash of the ink over the page ground: darker than
+   the ground in light, lighter in dark, and unlike the card surface it never matches the hover (the
+   rule below, which wins by coming later), so the row under the pointer still stands out. The class is set by
+   the fold walk (applyConsFold), which skips folded rows. */
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.pj-stripe {
+  background: color-mix(in srgb, var(--k-ink) 3.5%, transparent); }
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row:hover {
   background: var(--k-surface); box-shadow: none; border: 0; }
 /* Needs-you: the card border is gone, so attn gets the attn border colour as a full inset
@@ -6903,7 +6920,15 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    false with nobody editing it.) Removing the stranded separator (the previous round) fixed the
    symptom above the fold and not this. */
 .dm.mine .dm-w { text-align: right; }
+/* #4556 design shots: the role menu at 16px on a phone, so iOS does not zoom when it is tapped (the Swarm screen
+   opens on it). */
+@media (max-width: 40rem) { #rolesel { font-size: 16px; } }   /* the New Agent phone layout's breakpoint */
 .dmnone { font-size: .875rem; color: var(--k-ink-2); margin: 0; }
+/* #4612: what a Muse agent answered in its own window when it never replied here. Kept in the person's own reading
+   size, line breaks as written, and bounded so a long answer scrolls instead of pushing the composer away. */
+.dmunsent-text { margin: 6px 0 0; padding: 8px 12px; border-left: 3px solid var(--k-rule); color: var(--k-ink);
+  font-size: .9375rem; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow-y: auto; }
+.dmunsent-text:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }   /* #4612 review: it scrolls, so the keyboard can reach it */
 /* ⚠️ THE SAME DOTS THE CARD USES, not a second animation: `.act` is the
    board's working glyph, and a different one here would be two renderings of
    one fact. It borrows the sibling hint's size and colour so the line reads as
@@ -7816,7 +7841,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 
 /* #3042 (Josh, 2026-09-14): while the agent is being made (the 'made' step), the
    "All agents" back button is removed so a person cannot accidentally leave
-   mid-creation. cstep() toggles the [hidden] attribute on the three steps, so a
+   mid-creation. cstep() shows one step at a time through the [hidden] attribute, so a
    visible #cstep-made means we are on the progress screen; :has() keys the removal
    off exactly that state, leaving the button on the role/name steps where leaving
    before submit is safe. The top tab bar stays as the way out, the same pattern as
@@ -8811,6 +8836,34 @@ html:has(> body > #fr-choice:not([hidden])) { overflow: hidden; scrollbar-gutter
 .frc-btn:hover:not(:disabled) { border-color: var(--frc-gold); }
 .frc-btn:focus-visible { outline: 2px solid var(--frc-gold); outline-offset: 2px; }
 .frc-btn:disabled { opacity: 0.6; cursor: default; }
+/* #4556: New Agent's first screen, three large choices with line art in the first-run choice screen's shape
+   (#4356: 280px cards, 90px art, gold dots are agents), on the page's own tokens so light and dark follow the
+   theme. At phone width the cards stack and the art shrinks. */
+#panel-create:has(#cstep-kind:not([hidden])) { max-width: 60rem; }
+.nak-buttons { display: flex; flex-wrap: wrap; gap: 18px; justify-content: center; width: 100%; margin-top: 8px; }
+.nak-btn { flex: 1 1 240px; max-width: 300px; min-height: 210px; box-sizing: border-box; padding: 26px 18px 18px;
+           border-radius: 16px; border: 1px solid var(--separator); background: var(--bg-elevated); color: var(--k-ink);
+           display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; text-align: center;
+           font: inherit; }
+.nak-art { display: block; flex: none; width: 100%; max-width: 278px; height: 90px; margin-bottom: 16px;
+           fill: none; stroke: var(--label-2); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.nak-art .nak-gold { fill: var(--gold); stroke: none; }
+.nak-name { font: 600 17px/22px var(--font-ui); }
+.nak-desc { font-size: 14px; line-height: 1.4; color: var(--label-2); }
+.nak-btn:hover:not(:disabled) { border-color: var(--gold); }
+.nak-btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.nak-btn[hidden] { display: none; }
+.nak-team-opt { padding: 16px 0; border-top: 1px solid var(--separator); }
+.nak-team-opt:first-of-type { border-top: 0; }
+.nak-team-opt.nak-team-only { border-top: 0; padding-top: 0; }   /* #4556: the org chart alone, no divider above it */
+.nak-team-opt select { width: 100%; max-width: 100%; }
+@media (max-width: 40rem) {
+  .nak-btn { flex-basis: 100%; max-width: none; min-height: 0; flex-direction: row; text-align: left;
+             padding: 14px 16px; gap: 14px; flex-wrap: wrap; }
+  .nak-art { width: 124px; height: 40px; margin: 0; align-self: center; }   /* Mona's review: the art about 40px tall */
+  .nak-name { flex: 1 1 0; min-width: 0; }   /* beside the art, wrapping to two lines (Mona's review), never below it */
+  .nak-desc { flex-basis: 100%; }
+}
 .fr-back { position: fixed; inset: 0; z-index: 60;
            overflow-y: auto; display: flex; justify-content: center;
            padding: var(--space-8) var(--space-5); }
@@ -10206,7 +10259,6 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #s-sec-plus .plus-asks .askreq { max-width: none; }
 #askcard .asknote { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 #plus-state2 h3 { font-size: 1.3rem; margin: 0 0 .25rem; }
-#plus-state2 .plus-si-code { font: 700 2rem/1.2 var(--font-mono, ui-monospace, monospace); letter-spacing: .12em; margin: 8px 0 4px; }   /* #4638: the code to match, large */
 #plus-state2 .plus-si-lead { color: var(--k-ink-2); margin: .5rem 0 0; }
 #plus-state2 .flabel { color: var(--k-ink-2); font-weight: 500; margin-top: 1rem; }
 #plus-state2 .plus-si-lead b { color: #E6EBF7; font-weight: 600; overflow-wrap: anywhere; }
@@ -10372,21 +10424,38 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      Profile's to explain; here the state stays, smaller. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .detail-meta .dmeta-note { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .detail-state { font-size: .8125rem; margin: 0; }
+  /* #4661: one row the page's width, every button whole. It was a sideways-scrolling row, and with nothing to
+     show it scrolled, "AI Settings" was cut mid-word at 393 and 375 wide, so the row read as broken. Equal
+     shares, icon above a small label, no scrolling. A label breaks only between words, so on a narrow phone
+     or with larger text the row grows by a second label line rather than cutting a word. */
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed {
-    flex: none;
-    flex-direction: row; flex-wrap: nowrap; gap: 6px; overflow-x: auto; scrollbar-width: none;
-    margin: 0 -2px; padding: 4px 32px 4px 2px; scroll-snap-type: x proximity; overscroll-behavior-x: contain;
-    /* The same "there is more" cue as the phone Settings row (#s-nav). */
-    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
-    mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed::-webkit-scrollbar { display: none; }
+    flex: none; display: flex; flex-direction: row; flex-wrap: wrap; column-gap: 4px; row-gap: 6px; margin: 0; padding: 4px 0; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack { display: contents; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button,
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button.dnav-dm {
-    flex: none; width: auto; min-height: 44px; flex-direction: row; gap: 6px; scroll-snap-align: center;
-    padding: 0 14px; border-radius: 22px; font-size: .875rem; }
+    /* Equal shares of the row, never narrower than the button's longest word: when four cannot fit (a swarm's,
+       at large text on the narrowest phones) the row wraps to a second line rather than cut or spill a word. */
+    flex: 1 1 0; width: auto; min-width: min-content; min-height: 44px; flex-direction: column; gap: 2px;
+    /* 2px sides and a 4px column gap leave "Direct Message" (92px) about 95px at 375 wide with three buttons, even
+       when the row is 15px narrower (as on CI, likely a classic scrollbar). With 4px sides and a 6px gap that column
+       was 90 there and it wrapped. */
+    /* 12px corners, as the base boxed button (#3500): the label runs close to the sides, and a tighter curve keeps
+       its ends clear of the corners. */
+    padding: 4px 2px; border-radius: 12px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-lab,
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack .dnav-lab { font-size: .875rem; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack .dnav-lab {
+    font-size: .75rem; line-height: 1.2; white-space: normal; overflow-wrap: normal; word-break: normal; text-wrap: balance; }
+  /* A swarm's fourth button carries its status word under its label: with the icon too, every button in the row
+     grew to three lines. With four buttons the icons go, and the words (and the status) stay. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed:has(#d-nav-swarm:not([hidden])) .dnav-ico { display: none; }
+  /* Its status is the word; the colour dot beside it only repeats it, and cost the word 13px of a narrow column. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-swarm .swpill i { display: none; }
+  /* "Paused (limit)" is two words: it may wrap between them, rather than widen its button until the row wraps. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-swarm .swpill { white-space: normal; text-align: center; }
+  /* With the icons gone the label starts at the top, where the needs-you dot sits: on a button showing the dot, the
+     dot moves into the corner and the label starts below it. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed:has(#d-nav-swarm:not([hidden])) button[data-dot] { padding-top: 13px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed:has(#d-nav-swarm:not([hidden])) button .dot { top: 3px; right: 3px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-ico svg { width: 18px; height: 18px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button .dot { top: 6px; right: 6px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-swarm .swpill { padding: 0; border: 0; background: none; }   /* the word stays: colour alone fails WCAG 1.4.1 */
@@ -11201,6 +11270,20 @@ window.kosmosMeasureScrollbarWidth();
              #2456/#2575 reported-question false state. -->
         <button class="btn" id="d-qask-trust-restart" type="button" hidden>Trust &amp; Restart</button>
         <p class="fmsg" id="d-qask-trust-restart-msg" role="status" aria-live="polite"></p>
+        <!-- #4607: Codex's "Hooks need review", answered here by the person (never by a typed message, #4589). The
+             render unhides it only when the thread route sends body.codexHooks. Two choices; leaving it is not
+             pressing either. Self-contained, like the Trust & Restart above. -->
+        <div id="d-qask-codex" hidden>
+          <p class="fhint" id="d-qask-codex-what" style="margin:4px 0 8px;"></p>
+          <p class="fhint" id="d-qask-codex-source" hidden style="margin:0 0 8px;">Where Codex says it comes from: <code id="d-qask-codex-source-text" style="overflow-wrap:anywhere;min-width:0;"></code></p>
+          <p class="fhint" id="d-qask-codex-command" hidden style="margin:0 0 8px;">What it runs: <code id="d-qask-codex-command-text" style="overflow-wrap:anywhere;min-width:0;"></code></p>
+          <div class="frow" style="gap:8px;flex-wrap:wrap;">
+            <button class="btn" id="d-qask-codex-skip" type="button">Continue without them</button>
+            <button class="btn btn-quiet" id="d-qask-codex-trust" type="button">Trust all of them</button>
+            <button class="btn" id="d-qask-codex-close" type="button" hidden>Close the list</button>
+          </div>
+          <p class="fmsg" id="d-qask-codex-msg" role="status" aria-live="polite"></p>
+        </div>
       </div>
     </div>
     <!-- #2622: the search moved up beside the caption (.d-talk-caprow above). It still
@@ -13923,9 +14006,22 @@ window.kosmosMeasureScrollbarWidth();
      screenshotted and shared. -->
 <section class="panel" id="panel-create" hidden>
   <button class="back" id="create-back">&#8592; All agents</button>
+  <!-- #4556: back from a path's second screen to the three-way choice. Shown only on those screens. -->
+  <button class="back" id="create-path-back" type="button" hidden>&#8592; Choose another kind</button>
 
-  <div id="cstep-role">
-    <h2>What should this agent do?</h2>
+  <!-- #4556 (Josh, #4554, 2026-09-29 09:06): the first screen is three large side-by-side choices with line art.
+       Gold dots are agents, as in the first-run choice screen's art (#4356). Each opens its own second screen. -->
+  <div id="cstep-kind">
+    <h2 id="nak-title">What would you like to create?</h2>
+    <div class="nak-buttons" role="group" aria-labelledby="nak-title">
+      <button type="button" class="nak-btn" data-path="single"><svg class="nak-art" viewBox="0 0 278 90" width="278" height="90" aria-hidden="true" focusable="false"><circle cx="139" cy="45" r="30"/><circle class="nak-gold" cx="139" cy="45" r="13"/></svg><span class="nak-name">Create a Single Agent</span><span class="nak-desc">One agent for one job</span></button>
+      <button type="button" class="nak-btn" data-path="team"><svg class="nak-art" viewBox="0 0 278 90" width="278" height="90" aria-hidden="true" focusable="false"><path d="M139 26V45M76 45H202M76 45V62M118 45V62M160 45V62M202 45V62"/><circle class="nak-gold" cx="139" cy="17" r="11"/><circle class="nak-gold" cx="76" cy="72" r="9"/><circle class="nak-gold" cx="118" cy="72" r="9"/><circle class="nak-gold" cx="160" cy="72" r="9"/><circle class="nak-gold" cx="202" cy="72" r="9"/></svg><span class="nak-name">Create a Team of Agents</span><span class="nak-desc">A lead and the people who report to it</span></button>
+      <button type="button" class="nak-btn" data-path="swarm" id="nak-swarm" hidden><svg class="nak-art" viewBox="0 0 278 90" width="278" height="90" aria-hidden="true" focusable="false"><circle cx="139" cy="45" r="38"/><circle class="nak-gold" cx="139" cy="45" r="11"/><circle class="nak-gold" cx="113" cy="30" r="8"/><circle class="nak-gold" cx="166" cy="30" r="8"/><circle class="nak-gold" cx="110" cy="60" r="8"/><circle class="nak-gold" cx="168" cy="60" r="8"/><circle class="nak-gold" cx="139" cy="17" r="6"/><circle class="nak-gold" cx="139" cy="73" r="6"/></svg><span class="nak-name">Create a Swarm of Autonomous Agents</span><span class="nak-desc">Many agents that answer as one</span></button>
+    </div>
+  </div>
+
+  <div id="cstep-role" hidden>
+    <h2 id="cstep-role-title" tabindex="-1">What should this agent do?</h2>
     <!-- #737: the pack's line under the heading (Josh, 2026-08-24 21:12,
          "match up the design to the pack design"). -->
     <p class="dhint" style="margin:-6px 0 14px;">You can change any of this later.</p>
@@ -14078,27 +14174,41 @@ window.kosmosMeasureScrollbarWidth();
              the scan finds any; the paste/choose controls above work regardless. -->
         <div class="import-found" id="import-found" hidden></div>
       </div>
-      <!-- ⚠️ FIFTH OPTION: upload an org chart (#1280). It is the ONLY entry in
-           this list that creates MANY agents at once, so it needs what a bulk
-           operation needs and the other four do not: a preview with a count
-           before it commits, and a way back. Objective is THROUGHPUT (Josh's
-           ruling) -- paste 15-20 names and titles, get that many agents in
-           seconds -- not a clever chart parser. Gated on OWN_ROLE like pick-own
-           and pick-import, because each row is created down the SAME 'own'
-           (define-your-own) path, its title as the role label. Names are OFF by
-           default (an agent under a real person's name has consequences in logs,
-           commits and messages); the person's name is a label the operator opts
-           into, never the agent's machine name unless they ask. -->
-      <label class="pick2 own" hidden id="pick-orgchart">
-        <input type="radio" name="rmode" value="orgchart">
-        <span class="pickmark" aria-hidden="true">&#10003;</span>
-        <span class="p2n">Upload an org chart</span>
-        <span class="p2d">Create a whole team at once from a list</span>
-        <span class="p2full">Paste your people and their titles, one per line. We will show you the full list before creating anything, and you can raise or cancel it first.</span>
-      </label>
-      <!-- The panel only exists once its radio is chosen (mirrors #rolepick and
-           #importpick), so the screen stays the options tall until someone asks
-           to build a team. -->
+      </fieldset>
+    </div>
+    <div class="fmsg" id="roles-msg" role="status" aria-live="polite"></div>
+    <!-- ⚠️ THE PACK'S FOOTER: right-aligned, one primary, and the SAME size on
+         both steps. Its own comment says why the two must match: "two primary
+         buttons in one flow at two different sizes reads as two different
+         weights." -->
+    <div class="sfoot">
+      <button class="btn uprime big" id="role-next" type="button" disabled>Continue</button>
+    </div>
+  </div>
+
+  <!-- #4556: the Team path's second screen. A ready-made team from the seeded catalogue (#4555, created by
+       #4557's openTeamCreate), or the org chart (#1280), moved here from the Single screen. -->
+  <div id="cstep-team" hidden>
+    <h2 id="cstep-team-title" tabindex="-1">Create a Team of Agents</h2>
+    <p class="dhint" style="margin:-6px 0 14px;">A lead and the agents who report to it, made in one go.</p>
+    <div class="nak-team-opt">
+      <!-- Mona's review: no dropdown or disabled Create while no teams exist; the note below says so once. -->
+      <div id="team-seeded-pick">
+        <label class="flabel" for="team-seeded">Pick a ready-made team</label>
+        <select id="team-seeded" disabled><option value="">Loading the teams...</option></select>
+        <p class="rolehelp" id="team-seeded-desc"></p>
+        <div class="importrow">
+          <button class="btn uprime" type="button" id="team-seeded-go" disabled>Create this team</button>
+        </div>
+      </div>
+      <p class="rolelimit" id="team-seeded-msg" role="status" aria-live="polite" hidden></p>
+    </div>
+    <p class="rolelimit" id="team-orgchart-msg" role="status" aria-live="polite" hidden></p>
+    <div class="nak-team-opt" id="team-orgchart-opt" hidden>
+      <p class="flabel" id="team-orgchart-label">Or upload an org chart</p>
+      <div class="importrow">
+        <button class="btn" type="button" id="team-orgchart-open" aria-expanded="false" aria-controls="orgchartpick">Upload an org chart</button>
+      </div>
       <div class="rolepick" id="orgchartpick" hidden>
         <label class="flabel" for="orgchart-text">Your people</label>
         <textarea id="orgchart-text" rows="6" placeholder="One person per line, for example:&#10;Marketing Lead&#10;Sarah Chen, Head of Sales&#10;Engineer"></textarea>
@@ -14160,23 +14270,14 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <p class="rolelimit" id="orgchart-msg" role="status" aria-live="polite" hidden></p>
       </div>
-      </fieldset>
-    </div>
-    <div class="fmsg" id="roles-msg" role="status" aria-live="polite"></div>
-    <!-- ⚠️ THE PACK'S FOOTER: right-aligned, one primary, and the SAME size on
-         both steps. Its own comment says why the two must match: "two primary
-         buttons in one flow at two different sizes reads as two different
-         weights." -->
-    <div class="sfoot">
-      <button class="btn uprime big" id="role-next" type="button" disabled>Continue</button>
     </div>
   </div>
 
   <div id="cstep-name" hidden>
     <h2 id="create-meet">Set up your agent</h2>
     <p id="create-blurb"></p>
-    <!-- #3564: Agent / Swarm, shown only when the board's engine can make a swarm (SWARMS_ON). Native radios in
-         a fieldset, as the other choices here; the card is the label. -->
+    <!-- #3564 / #4556: the kind now comes from New Agent's first screen. On the Swarm path the Swarm card shows alone
+         as the swarm's preview; on the Single path neither shows. The radios stay as the state createKind() reads. -->
     <fieldset class="ctype" id="create-kind" hidden>
       <legend class="vh">What kind of agent</legend>
       <label class="ctype-opt"><input type="radio" name="create-kind" value="agent" aria-label="Agent" checked><span class="ctype-dot" id="create-kind-agent-face" aria-hidden="true"></span><span><b>Agent</b><span class="d">One agent, works on one thing at a time.</span></span></label>
@@ -17150,12 +17251,6 @@ window.kosmosMeasureScrollbarWidth();
            it (the approval lives in Settings > Kosmos+). -->
       <div id="plus-si-done" hidden>
         <p class="plus-si-lead" id="plus-si-done-line">To use Kosmos on another device, sign in at login.kosmosplus.com.</p>
-        <!-- #4638 (Josh, 15:17): a second computer on the account. The other computer is asked to let this one in,
-             with a code; this shows the same code so the person allows the right one. Filled by plusSiSecondDone. -->
-        <div id="plus-si-match" hidden>
-          <p class="plus-si-lead" id="plus-si-match-lead"></p>
-          <p class="plus-si-code" id="plus-si-match-code" aria-label="The code"></p>
-        </div>
         <div class="frow"><button class="btn uprime" type="button" id="plus-si-done-go">Done</button></div>
       </div>
 
@@ -17361,12 +17456,9 @@ window.kosmosMeasureScrollbarWidth();
          written by nothing here yet; a future pack rule or drive lands on
          them for free -->
     <div class="stat"><b id="st-agents" data-count="agents">0</b><span class="slab">Agents</span></div>
-    <!-- #2157: the Working tile (chip + its .act animation) hides at a KNOWN zero,
-         the same grammar the alert tile uses, so a board with nothing working does
-         not carry an animated "0 Working". It stays VISIBLE when the count is a
-         floor (unknowns present) -- hiding there would claim "none working" on a
-         read that cannot stand behind it, the same reason the failed-poll path
-         shows "?" rather than hiding (render + the reasoning at st-working = '?'). -->
+    <!-- #2157, #4736: the Working tile (chip + its .act animation) hides whenever it would read zero,
+         "0+" included (Josh 2026-09-30: "if there are 0 working, lets not show the tile"), the same
+         grammar the alert tile uses. A failed poll shows "?" and keeps the tile (that is not a zero). -->
     <div class="stat" id="st-working-tile"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><b id="st-working" data-count="working">0</b><span class="slab">Working</span></div>
     <div class="stat"><span class="rest" aria-hidden="true"></span><b id="st-idle" data-count="idle">0</b><span class="slab">Idle</span></div>
     <!-- 🔑 THE FOURTH TILE, and it is the row's existing grammar with one more
@@ -21290,6 +21382,7 @@ async function tick() {
        ordinary agent, present only when the engine is in). An empty board shows neither, so New agent offers
        Swarm once the flag lands (asked of the engine on #3564). */
     SWARMS_ON = data.swarms === true || (Array.isArray(data.agents) && data.agents.some((x) => x && Object.prototype.hasOwnProperty.call(x, 'swarm')));
+    { const ns = document.getElementById('nak-swarm'); if (ns) ns.hidden = !SWARMS_ON; }   // #4556: the Swarm choice, once the board says it can
     swarmCreatePaint();
     /**
      * 🛑 THE ROOM'S WORKING LINE PAINTS HERE, ON THE CLOCK ITS DATA ARRIVES ON.
@@ -21674,11 +21767,10 @@ async function tick() {
     document.getElementById('st-agents').textContent = tileCount(c.total, floor);
     const workingCount = data.agents.filter((a) => !(a && a.isGuide === true)).filter((a) => a.state === 'working').length;
     document.getElementById('st-working').textContent = tileCount(workingCount, stateFloor);
-    /* #2157: hide the Working tile (chip + its .act animation) at a KNOWN zero,
-       the alert tile's grammar. stateFloor true means unknowns cloud the count
-       (it renders "0+"), so hiding there would claim "none working" on a read
-       that cannot stand behind it -- keep it shown, as the failed-poll "?" is. */
-    document.getElementById('st-working-tile').hidden = workingCount === 0 && !stateFloor;
+    /* #2157, then #4736 (Josh, 2026-09-30 10:05: "if there are 0 working, lets not show the tile"): the
+       Working tile hides whenever its number is zero, "0+" included. It was kept for "0+" (unknowns cloud
+       the count); he ruled for the simpler row. A failed poll's "?" is not a zero and still shows. */
+    document.getElementById('st-working-tile').hidden = workingCount === 0;
     document.getElementById('st-idle').textContent =
       tileCount(data.agents.filter((a) => !(a && a.isGuide === true)).filter((a) => a.state === 'idle').length, stateFloor);
     /* ⚠️ FROM THE COUNT, not from filtering the roster on `running`. The two
@@ -21986,9 +22078,8 @@ async function tick() {
        card above already says the whole board is blind. */
     document.getElementById('st-agents').textContent = '?';
     document.getElementById('st-working').textContent = '?';
-    /* #2157: a failed poll shows "?" and must un-hide the Working tile -- a prior
-       known-zero tick may have hidden it, and staying hidden would claim "none
-       working" on the one poll that knows nothing. Same reason it shows "?". */
+    /* #2157, #4736: a failed poll shows "?" and un-hides the Working tile. A prior zero tick
+       ("0" or "0+") may have hidden it, and "?" is not a zero, so the tile shows it. */
     document.getElementById('st-working-tile').hidden = false;
     document.getElementById('st-idle').textContent = '?';
     /* ⚠️ SHOWN AS UNKNOWN RATHER THAN HIDDEN, unlike the alert tile beside it,
@@ -31781,9 +31872,9 @@ function boardApplyVisibility(onAgents) {
     document.getElementById('alist').hidden = !onAgents || lay !== 'list';
     const orgC = document.getElementById('orgview');
     orgC.hidden = BOARD_LAYOUT !== 'org';
-    /* A saved 'list' (chosen in the tab view) shows the grid here but presses neither button, so a
+    /* A saved 'list' (chosen in the tab view) shows the grid here but checks neither segment, so a
        click on Grid is a real choice rather than a silent overwrite of the list (review round 2). */
-    for (const b of document.querySelectorAll('#panel-cons-agents [data-conslay]')) b.setAttribute('aria-pressed', String(b.dataset.conslay === BOARD_LAYOUT));
+    consLaySync();
     if (!orgC.hidden) paintOrg();
     return;
   }
@@ -34122,7 +34213,9 @@ async function paintTalk(sessionName, agentName) {
      below keying on `answerNote` alone is equivalent -- kept explicit so a future
      route change that decoupled them cannot silently show the box on a non-asking
      paint. */
-  const nowHidden = !(body.asking && body.answerNote);
+  /* #4607: the box also shows for Codex's hook review (body.codexHooks), a permission decision answered with a
+     button, like the folder-trust recovery. */
+  const nowHidden = !(body.asking && (body.answerNote || body.codexHooks));
   /**
    * ⚠️ THE RESCUE COMES BEFORE EVERY HIDE IN THIS SECTION, and its first
    * version did not.
@@ -34187,6 +34280,10 @@ async function paintTalk(sessionName, agentName) {
   /* #2129: default the recovery button hidden every paint, so it only shows
      where the branch below explicitly turns it on. */
   if (qTrust) qTrust.hidden = true;
+  const qCodex = document.getElementById('d-qask-codex');
+  if (qCodex) qCodex.hidden = true;
+  /* A line left from an earlier answer goes with the question it answered (review round 1). */
+  if (!(body.asking && body.codexHooks)) { const m = document.getElementById('d-qask-codex-msg'); if (m) m.textContent = ''; window.__codexHooksShown = null; }
   if (body.answerNote) {
     /* #2129 folder-trust recovery: the ONLY state that still shows this box. The
        trust-dialog question is itself an ordinary thread bubble now (engine
@@ -34195,6 +34292,61 @@ async function paintTalk(sessionName, agentName) {
        wording Josh removed in #3419) plus the one-click Trust & Restart (#2129). */
     qlab.textContent = name + ' is stuck on a folder-trust prompt. ' + body.answerNote;
     if (qTrust) qTrust.hidden = false;
+  } else if (body.asking && body.codexHooks && qCodex) {
+    /* #4607: only what the screen says. The count from the menu, the events from the table, the source from one
+       hook's page; a missing fact is left out, never guessed. */
+    const h = body.codexHooks;
+    /* #4607 (review round 4): what the person is shown is sent back with their answer, so a changed dialog is
+       refused rather than answered. */
+    /* A summary that changed since the last paint holds the buttons for a moment (review round 16), so a click does
+       not land on words the person had no time to read. */
+    const prevShown = window.__codexHooksShown;
+    const changed = !prevShown || prevShown.forAgent !== sessionName || JSON.stringify(prevShown.hooks) !== JSON.stringify(h);
+    window.__codexHooksShown = { forAgent: sessionName, hooks: h };
+    if (changed) {
+      /* A hold NUMBER, bumped only by a changed paint (review round 17: comparing the summary object left the buttons
+         disabled for good when an identical paint landed inside the hold). An answer in flight owns the buttons. */
+      const seq = (window.__codexHoldSeq = (window.__codexHoldSeq || 0) + 1);
+      window.__codexHoldUntil = Date.now() + 1200;
+      const hold = ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close'].map((id) => document.getElementById(id));
+      /* A focused button would drop keyboard focus to the page when disabled (round 18): hand it to the box first. */
+      if (hold.includes(document.activeElement)) { const box = document.getElementById('d-talk-box'); if (box) box.focus(); }
+      hold.forEach((b) => { b.disabled = true; });
+      setTimeout(() => { if (window.__codexHoldSeq === seq && !window.__codexAnswering) hold.forEach((b) => { b.disabled = false; }); }, 1200);
+    }
+    const listOpen = h.screen === 'trusted';
+    const srcRow = document.getElementById('d-qask-codex-source');
+    document.getElementById('d-qask-codex-source-text').textContent = h.source && !listOpen ? String(h.source).slice(0, 160) : '';
+    srcRow.hidden = !(h.source && !listOpen);
+    const cmdRow = document.getElementById('d-qask-codex-command');
+    document.getElementById('d-qask-codex-command-text').textContent = h.command && !listOpen ? String(h.command).slice(0, 160) : '';
+    cmdRow.hidden = !(h.command && !listOpen);
+    const n = typeof h.count === 'number' && h.count > 0 ? h.count : null;
+    const events = Array.isArray(h.events) ? h.events.map((e) => e && e.event).filter(Boolean) : [];
+    /* The trusted-but-open list (a dropped Escape after trusting): only Close. Otherwise the two choices, and the
+       summary says Trust covers every hook Codex lists (from one hook's page the screen names only that one). */
+    document.getElementById('d-qask-codex-trust').hidden = listOpen;
+    /* From one hook's page Trust only goes back to the full list (it names one hook; Codex trusts them all), so the
+       button says what it does there (review round 8). */
+    document.getElementById('d-qask-codex-trust').textContent = h.screen === 'hook' ? 'Show the full list' : 'Trust all of them';
+    document.getElementById('d-qask-codex-skip').hidden = listOpen;
+    document.getElementById('d-qask-codex-close').hidden = !listOpen;
+    if (listOpen) {
+      qlab.textContent = name + '\u2019s Codex hooks are trusted, and their list is still open.';
+      document.getElementById('d-qask-codex-what').textContent = 'Close the list and Codex carries on.';
+    } else {
+      qlab.textContent = name + ' needs you to decide about Codex hooks.';
+      document.getElementById('d-qask-codex-what').textContent =
+        'Codex found ' + (n ? n + (n === 1 ? ' hook' : ' hooks') : 'hooks') + ' it has not been told to trust'
+        + (events.length ? ' (' + events.join(', ') + ')' : '')
+        + '.'
+        /* Review round 3: say what the screen does NOT tell, rather than let a count read as enough to trust on. */
+        + (!events.length && !h.source ? ' Its screen does not name them or say what they run.'
+          : (!h.command ? ' Its screen does not say what they run.' : ''))
+        + (/^Project config\b/i.test(String(h.source || '')) ? ' Codex says this one is in a project\u2019s own settings, which the agent can write to, so the agent could have written it.' : '')
+        + ' Trusting covers every hook Codex lists, for every Codex agent on this account, and trusted hooks can act freely on this computer. If you are not sure, continue without them.';
+    }
+    qCodex.hidden = false;
   } else {
     /* Every other state -- a regular needs_you question, a stranded "Issue", or
        nothing asking -- shows nothing here (nowHidden hides the box); the
@@ -35404,6 +35556,9 @@ function openDetail(sessionName, section, fromProject) {
      same as the two above (an in-flight POST for the leaving agent left it
      disabled; the leaving agent's own finally re-enable is a harmless no-op). */
   { const b = document.getElementById('d-qask-trust-restart'); if (b) b.disabled = false; }
+  /* #4607: the Codex hook buttons, the same way. */
+  for (const id of ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close']) { const b = document.getElementById(id); if (b) b.disabled = false; }
+  { const m = document.getElementById('d-qask-codex-msg'); if (m) m.textContent = ''; }
   /* #2808: re-enable the chat-box dismiss for the agent we are opening, same as
      the trust-restart button above. */
 
@@ -41016,6 +41171,49 @@ document.getElementById('d-qask-trust-restart').addEventListener('click', async 
   }
 });
 
+/* #4607: the person answers Codex's "Hooks need review" with a button. POST /api/agent/<name>/codex-hooks, owner-only
+   on the server, which reads the screen again before every key. Self-contained, with the same capture-and-recheck as
+   the Trust & Restart twin above, so a receipt cannot land under a different agent. The next poll hides the box once
+   the dialog is gone. */
+async function answerCodexHooksFromBox(choice) {
+  if (!CURRENT) return;
+  const forAgent = CURRENT.sessionName;
+  const buttons = ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close'].map((id) => document.getElementById(id));
+  const msg = document.getElementById('d-qask-codex-msg');
+  buttons.forEach((b) => { b.disabled = true; });
+  window.__codexAnswering = true;
+  if (choice === 'trust' && document.getElementById('d-qask-codex-trust').textContent === 'Show the full list') choice = 'list';
+  const opening = choice === 'list';
+  msg.textContent = opening ? 'Opening the full list\u2026' : (choice === 'trust' ? 'Trusting the hooks\u2026' : (choice === 'close' ? 'Closing the list\u2026' : 'Continuing without the hooks\u2026'));
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/codex-hooks',
+      { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ choice, seen: (window.__codexHooksShown && window.__codexHooksShown.forAgent === forAgent) ? window.__codexHooksShown.hooks : null }) });
+    const r = await res.json().catch(() => ({}));
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      /* Done means what was seen: its screen stopped asking about hooks (review round 1: not a claim about what
+         Codex does next). */
+      msg.textContent = (res.ok && r.ok)
+        ? (choice === 'trust' ? 'Done. Its screen is no longer asking about hooks.'
+          : (choice === 'close' ? 'Done. The list is closed.' : 'Done. Its screen is no longer asking about hooks, and they were not trusted.'))
+        : (r.because || r.error || 'We could not answer it. Look at its window.');
+      /* The box hides on the next poll once the question is gone, so a success is also said where it stays a moment. */
+      if (res.ok && r.ok && typeof msgToast === 'function') msgToast(msg.textContent);
+    }
+  } catch {
+    if (CURRENT && CURRENT.sessionName === forAgent) msg.textContent = 'We could not reach Kosmos to answer it.';
+  } finally {
+    window.__codexAnswering = false;
+    /* Not inside a hold a poll started meanwhile (review round 17): wait it out. */
+    const left = (window.__codexHoldUntil || 0) - Date.now();
+    if (left > 0) setTimeout(() => { if (!window.__codexAnswering) buttons.forEach((b) => { b.disabled = false; }); }, left);
+    else buttons.forEach((b) => { b.disabled = false; });
+  }
+}
+document.getElementById('d-qask-codex-trust').addEventListener('click', () => answerCodexHooksFromBox('trust'));
+document.getElementById('d-qask-codex-skip').addEventListener('click', () => answerCodexHooksFromBox('skip'));
+document.getElementById('d-qask-codex-close').addEventListener('click', () => answerCodexHooksFromBox('close'));
+
 /* Open Terminal (Josh 0.6.44): POST /api/agent/<name>/launch-terminal (Pete's route)
    attaches a Terminal.app window to the agent's live tmux session so the person can watch
    it or answer a prompt. READ-ONLY about the agent -- it only adds a tmux viewer, it does
@@ -41736,6 +41934,16 @@ function placeTasksPanel(consolidated) {
    listeners are on the elements themselves (#grid, #orgmap), so an agent click in the column calls
    openDetail exactly as the rail does. */
 let CONS_AGENTS_HOME = null;
+/* #4594: the consolidated agents switch shows BOARD_LAYOUT. A saved 'list' (chosen in the tab view) checks
+   neither segment (review round 2); the tab stop then falls to the first. */
+function consLaySync() {
+  const all = [...document.querySelectorAll('#panel-cons-agents [data-conslay]')];
+  const on = all.find((b) => b.dataset.conslay === BOARD_LAYOUT) || null;
+  for (const b of all) {
+    b.setAttribute('aria-checked', String(b === on));
+    b.tabIndex = (b === (on || all[0])) ? 0 : -1;
+  }
+}
 function placeAgentsPanel(consolidated) {
   const projects = document.getElementById('panel-projects');
   if (!projects) return;
@@ -41750,15 +41958,31 @@ function placeAgentsPanel(consolidated) {
          this a person on the grid could never reach the org chart Josh named. It saves to the same
          key as that toggle, so the choice is one choice. List is not offered: the list is the rail. */
       wrap.innerHTML = '<div class="cons-agents-head">' + agentSortControlHtml('agent-sort-cons')
-        + '<div class="cons-agents-lay" role="group" aria-label="How to show agents here">'
-        + '<button type="button" data-conslay="grid" aria-pressed="false">Grid</button>'
-        + '<button type="button" data-conslay="org" aria-pressed="false">Org chart</button></div></div>';
-      wrap.addEventListener('click', (e) => {
-        const b = e.target.closest('[data-conslay]');
-        if (!b) return;
+        + '<div class="cons-agents-lay" role="radiogroup" aria-label="How to show agents here">'
+        + '<button type="button" role="radio" data-conslay="grid" aria-checked="false" tabindex="0">Grid</button>'
+        + '<button type="button" role="radio" data-conslay="org" aria-checked="false" tabindex="-1">Org chart</button></div></div>';
+      const pick = (b) => {
         layoutApply('agents', b.dataset.conslay);
         try { localStorage.setItem('kosmos.layout.agents', b.dataset.conslay); } catch { /* display preference only */ }
+      };
+      wrap.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-conslay]');
+        if (b) pick(b);
       });
+      /* #4594: a radio group's keys. Left/Right (and Up/Down) move AND choose, wrapping; Home and End go to
+         the first and last; focus follows. */
+      wrap.addEventListener('keydown', (e) => {
+        const b = e.target.closest('[data-conslay]');
+        if (!b || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || !['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+        const all = [...wrap.querySelectorAll('[data-conslay]')];
+        const i = all.indexOf(b);
+        const to = e.key === 'Home' ? all[0] : e.key === 'End' ? all[all.length - 1]
+          : all[(i + ((e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : all.length - 1)) % all.length];
+        e.preventDefault();
+        if (to.getAttribute('aria-checked') !== 'true') pick(to);   // the chosen one again: focus only, no repaint
+        to.focus();
+      });
+      consLaySync();   // right from the build, whatever BOARD_LAYOUT already is
     }
     if (wrap.parentElement !== projects) projects.appendChild(wrap);
     if (!CONS_AGENTS_HOME) {
@@ -41980,7 +42204,7 @@ function placeProjectsView(cons, wasCons) {
   }
 }
 /* Open the create panel inside the consolidated display column, staying in the consolidated view.
-   openCreate has already reset the form and set cstep('role'); this only swaps the display column
+   openCreate has already reset the form and set its first step (cstep('kind'), or 'role' for the import link); this only swaps the display column
    to the create panel (hiding the project views), keeps the projects list beside it, and does NOT
    showTab (which would drop body.consolidated and kick to the tab view -- the #3053 bug). Guarded
    on body.consolidated for the same reason openConsolidatedSettings is. */
@@ -42522,8 +42746,6 @@ let PLUS_SI_LANDED = false;
 let PLUS_SI_REGISTERING = false;
 /* The owned address to retry after an automatic register failed (review: never a dead end). */
 let PLUS_SI_RETRY = '';
-/* #4638: a second computer on the account: {base, tries, code, other, computer}, or null. */
-let PLUS_SI_SECOND = null;
 /* The computer-name format for the sign-in wizard's register step (signin-register requires a
    name). It mirrors the engine's own NAME_RULE; the engine validates too, so this is a fast
    local echo, not the source of truth. (The connected flow's enrol pair also used it until
@@ -43093,10 +43315,6 @@ function plusSiStage(stage, data) {
     return;
   }
   if (stage === 'session') {
-    /* #4638 (Josh, 15:13, a second computer on his account): no address chooser. The engine names the other
-       computer's address when this account already has one; this computer is named after itself and registered
-       now, and the done step shows the code the other computer is asking to match. */
-    if (!data.account_address && data.other_address && plusSiSecondStart(data)) return;
     plusSiRegisterMode(data.account_address);
     plusSiShow('plus-si-register');
     /* #3796 addendum 9: an account that already has an address skips this step: register to it now. */
@@ -43143,11 +43361,6 @@ function plusSiClear() {
   if (typeof PLUS_SI_LANDED !== 'undefined') PLUS_SI_LANDED = false;
   if (typeof PLUS_SI_REGISTERING !== 'undefined') PLUS_SI_REGISTERING = false;
   if (typeof PLUS_SI_RETRY !== 'undefined') PLUS_SI_RETRY = '';
-  /* #4638: a later sign-in starts as a first computer until its own answer says otherwise, with the plain landing. */
-  if (typeof PLUS_SI_SECOND !== 'undefined') PLUS_SI_SECOND = null;
-  const match = typeof document.getElementById === 'function' ? document.getElementById('plus-si-match') : null; if (match) match.hidden = true;
-  const doneLine = typeof document.getElementById === 'function' ? document.getElementById('plus-si-done-line') : null;
-  if (doneLine) doneLine.textContent = 'To use Kosmos on another device, sign in at login.kosmosplus.com.';
 }
 function plusSiEnter(e) {
   if (e) e.preventDefault();
@@ -43646,51 +43859,6 @@ document.getElementById('plus-si-enrol-confirm-go').addEventListener('click', as
    is up, and #1014's "on its way" wording before then). A separate done panel would
    be drawn and then immediately replaced by that same paint, so it could flash for
    well under a round trip or not be seen at all. */
-/* #4638: the name a second computer gets: its own computer name made valid (letters, digits, hyphens, 3 to 32), or
-   the usual private suggestion when nothing usable is left. A clash tries base-2, base-3 ... (plusSiDoRegister). */
-function plusSiSecondName(computer) {
-  const n = plusNameClean(computer).replace(/-+$/, '');
-  return PLUS_NAME_RULE.test(n) ? n : plusNameSuggest();
-}
-function plusSiSecondNext(base, tries) {
-  const tail = '-' + (tries + 1);
-  return base.slice(0, 32 - tail.length).replace(/-+$/, '') + tail;
-}
-function plusSiDomainOf(address) {
-  const m = /^[a-z0-9-]{3,32}\.([a-z0-9.-]{3,253})$/.exec(String(address || ''));
-  return m ? m[1] : '';
-}
-function plusSiSecondStart(data) {
-  const domain = plusSiDomainOf(data.other_address);
-  if (!domain) return false;
-  const base = plusSiSecondName(data.computer);
-  const labels = Array.isArray(data.other_labels) ? data.other_labels.map(String) : [];
-  /* Review round 1: this computer's own name is already one of the account's addresses. That is most likely THIS
-     computer, reinstalled or restored, with its old record still live: registering it again as name-2 would leave
-     an Allow card that nobody can answer. Take today's path instead (the chooser), where the coordinator's own
-     refusal for that name explains what to do. */
-  if (labels.includes(base)) return false;
-  PLUS_SI_SECOND = { base, tries: 0, code: String(data.match_code || ''), other: String(data.other_address), several: labels.length > 1, computer: String(data.computer || ''), domain };
-  plusSiRegisterMode(base + '.' + domain);
-  plusSiShow('plus-si-register');
-  plusSiDoRegister(base, base + '.' + domain);
-  return true;
-}
-/* #4638: the landing for a second computer: where it is now reachable, and the code the other computer shows. */
-function plusSiSecondDone(address) {
-  const sec = PLUS_SI_SECOND;
-  const who = sec.computer || 'This computer';
-  document.getElementById('plus-si-done-line').textContent = who + ' is connected to Kosmos+ as ' + (address || (sec.base + '.' + sec.domain)) + '.';
-  const whose = sec.several ? 'one of your other computers is' : 'your other computer (' + sec.other.replace(/\..*$/, '') + ') is';
-  const box = document.getElementById('plus-si-match');
-  document.getElementById('plus-si-match-lead').textContent = sec.code
-    ? 'Last step: ' + whose + ' asking whether to let this one in. Allow it there if it shows this code:'
-    : 'Last step: ' + whose + ' asking whether to let this one in. Allow it there.';
-  document.getElementById('plus-si-match-code').textContent = sec.code;
-  document.getElementById('plus-si-match-code').hidden = !sec.code;
-  box.hidden = false;
-}
-
 /* #3796 addendum 9: register THIS computer to `name`. Called by the button for a chosen name, and
    automatically for an account that already owns one (`owned` is then its full address, when known). */
 async function plusSiDoRegister(name, owned) {
@@ -43737,18 +43905,6 @@ async function plusSiDoRegister(name, owned) {
      ("your account already owns the name X"). Register to that one instead, once. */
   const owns = !r.ok && !owned ? /already owns the name ([a-z0-9-]{3,32})\b/.exec(String(r.because || '')) : null;
   if (owns) { plusSiRegisterMode('', owns[1]); plusSiDoRegister(owns[1], owns[1]); return; }
-  /* #4638: a second computer's own name is taken by someone else, or kept by Kosmos itself: try the next one, a few
-     times. NOT "already in use by a Mac on this account" (review round 1): that refusal is about THIS account's own
-     computers and says what to do, so the person reads it (below) rather than getting a name-2 they did not ask for. */
-  if (!r.ok && owned && PLUS_SI_SECOND && PLUS_SI_SECOND.tries < 9 && /that name is taken|that name is kept by Kosmos itself/i.test(String(r.because || ''))) {
-    PLUS_SI_SECOND.tries += 1;
-    // name-2 ... name-9, then once the private suggestion (#3842), so a run of clashes never ends on a Try again
-    // that can only resend the same taken name.
-    const next = PLUS_SI_SECOND.tries >= 9 ? plusNameSuggest() : plusSiSecondNext(PLUS_SI_SECOND.base, PLUS_SI_SECOND.tries);
-    plusSiRegisterMode(next + '.' + PLUS_SI_SECOND.domain);
-    plusSiDoRegister(next, next + '.' + PLUS_SI_SECOND.domain);
-    return;
-  }
   if (!r.ok && owned && !/start again from the email/i.test(String(r.because || ''))) {
     /* Review: an automatic register that failed (a second computer on a web-named account is refused
        today, #3796's carded multi-Mac gap) must not leave the person with no control: say so, keep
@@ -43766,7 +43922,6 @@ async function plusSiDoRegister(name, owned) {
   if (owned) {
     /* The landing, not the connected flow: PLUS_SI_LANDED keeps paintPlus from taking the pane. */
     PLUS_SI_LANDED = true;
-    if (PLUS_SI_SECOND) plusSiSecondDone(r.data && r.data.address);
     plusSiShow('plus-si-done');
     document.getElementById('plus-si-done-go').focus();
     return;
@@ -46711,68 +46866,237 @@ let CREATING = false;      // a create is in flight; guards the double-click
 let IMPORT_GEN = 0;
 
 function cstep(which) {
-  ['role', 'name', 'made'].forEach((s) => {
+  ['kind', 'role', 'team', 'name', 'made'].forEach((s) => {
     document.getElementById('cstep-' + s).hidden = (s !== which);
   });
+  /* #4556: Back to the three-way choice, only from a path's second screen. */
+  document.getElementById('create-path-back').hidden = !(which === 'role' || which === 'team');
+  /* Mona's review: one back link on a second screen, "Choose another kind"; All agents is one step further back. */
+  document.getElementById('create-back').hidden = (which === 'role' || which === 'team');
 }
+
+/* #4556: which of New Agent's three paths the person chose on the first screen: 'single', 'team' or 'swarm'.
+   Single and Swarm share the role screen (each shows only its own options); Team has its own screen. The kind
+   of agent (agent or swarm) now comes from the path, so the step-2 Agent/Swarm selector is never shown. */
+let CREATE_PATH = null;
+function chooseCreatePath(path) {
+  CREATE_PATH = path;
+  const kind = document.querySelector('input[name="create-kind"][value="' + (path === 'swarm' ? 'swarm' : 'agent') + '"]');
+  if (kind) kind.checked = true;
+  swarmCreatePaint();
+  if (path === 'team') {
+    cstep('team'); loadSeededTeams(); document.getElementById('cstep-team-title').focus();
+    // The org chart needs the roles' own entry: load them if there are none (a failed load is retried here),
+    // otherwise repaint the Team options from what is there.
+    // ROLES_GEN moves either way, so Team is the newest caller too and an open's late answer does not paint under it.
+    if (!(ROLES && ROLES.length)) loadRoles('pm'); else { ROLES_GEN += 1; paintPathOptions(); }
+    return;
+  }
+  document.getElementById('cstep-role-title').textContent = path === 'swarm' ? 'What should this swarm do?' : 'What should this agent do?';
+  cstep('role');
+  document.getElementById('cstep-role-title').focus();   // the chosen card is now hidden; keep the keyboard on the new screen
+  /* A swarm has no Project Manager, no import and no org chart (Josh, #4554), so it opens on the role menu. */
+  loadRoles(path === 'swarm' ? 'list' : 'pm');
+}
+
+/* #4556: the Team screen. The ready-made teams come from the seeded catalogue (GET /api/teams/seeded, #4555),
+   and creating one is #4557's openTeamCreate(key). Until each exists, the screen says so rather than offering a
+   control that does nothing. The org chart (#1280) opens its existing panel, moved here from the Single screen. */
+let SEEDED_TEAMS = null;
+let SEEDED_GEN = 0;
+function resetTeamStep() {
+  ORGCHART_GEN += 1;   // a team create still in flight must not paint over a screen the person has left
+  orgchartEndFileFlow();   // #4559's leave rule; the result and its Undo stay until the panel is reopened
+  SEEDED_GEN += 1;
+  document.getElementById('orgchartpick').hidden = true;
+  document.getElementById('team-orgchart-open').setAttribute('aria-expanded', 'false');
+  const m = document.getElementById('team-seeded-msg'); m.textContent = ''; m.hidden = true;
+}
+function teamSaySeeded(text) {
+  const m = document.getElementById('team-seeded-msg');
+  m.textContent = text; m.hidden = !text;
+}
+function paintSeededTeam() {
+  const sel = document.getElementById('team-seeded');
+  const t = (SEEDED_TEAMS || []).find((x) => x.key === sel.value) || null;
+  const n = t ? (Array.isArray(t.members) ? t.members.length : (Number.isFinite(Number(t.count)) ? Number(t.count) : null)) : null;   // #4555's shape carries members
+  /* Review round 5: #4555's blurbs end without a full stop; the role screen adds one the same way. */
+  const blurb = t && t.blurb ? (/[.!?]$/.test(t.blurb.trim()) ? t.blurb.trim() : t.blurb.trim() + '.') : '';
+  document.getElementById('team-seeded-desc').textContent =
+    t ? blurb + (n ? (blurb ? ' ' : '') + n + (n === 1 ? ' agent.' : ' agents.') : '') : '';
+  document.getElementById('team-seeded-go').disabled = !t;
+}
+async function loadSeededTeams() {
+  const gen = ++SEEDED_GEN;
+  const sel = document.getElementById('team-seeded');
+  sel.disabled = true;
+  document.getElementById('team-seeded-go').disabled = true;
+  teamSaySeeded('');
+  /* Round 3: nothing of the dropdown until the answer is in, so a slow first load does not flash a control the
+     no-teams layout then removes. */
+  if (!SEEDED_TEAMS) {
+    // Round 4: the loading layout is the no-teams one, so the answer arriving moves nothing.
+    document.getElementById('team-seeded-pick').hidden = true;
+    document.getElementById('team-orgchart-label').hidden = true;
+    document.getElementById('team-orgchart-opt').classList.add('nak-team-only');
+    document.getElementById('team-orgchart-open').classList.add('uprime');
+  }
+  if (!SEEDED_TEAMS) {
+    try {
+      const res = await fetch('/api/teams/seeded', { cache: 'no-store' });
+      if (!res.ok) throw new Error('status ' + res.status);
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : (data && Array.isArray(data.teams) ? data.teams : []);
+      const teams = list.filter((t) => t && typeof t.key === 'string' && typeof t.label === 'string')
+        .sort((a, b) => (Number(a.rank) || 0) - (Number(b.rank) || 0));
+      SEEDED_TEAMS = teams.length ? teams : null;   // round 3: an empty list is asked again next visit, like a 404
+    } catch { SEEDED_TEAMS = null; }
+  }
+  if (gen !== SEEDED_GEN) return;
+  /* Review round 5: a catalogue with no way to create a team yet (#4557's openTeamCreate) is still "coming soon":
+     a Create that cannot create is the do-nothing control Mona ruled out. */
+  const none = !SEEDED_TEAMS || !SEEDED_TEAMS.length || typeof window.openTeamCreate !== 'function';
+  /* Mona's review: with no teams, no control that can do nothing. The note says it once, and Upload an org chart is
+     the screen's main (gold) action; the dropdown and Create come back once #4555 seeds teams. */
+  document.getElementById('team-seeded-pick').hidden = none;
+  document.getElementById('team-orgchart-open').classList.toggle('uprime', none);
+  /* Mona's second look: with no teams the gold button says it all, so no label repeating it and no divider above. */
+  document.getElementById('team-orgchart-label').hidden = none;
+  document.getElementById('team-orgchart-opt').classList.toggle('nak-team-only', none);
+  if (none) {
+    sel.innerHTML = '';
+    document.getElementById('team-seeded-desc').textContent = '';
+    teamSaySeeded('Ready-made teams are coming soon.');
+    return;
+  }
+  const chosen = sel.value;   // a revisit keeps the team they had picked, while it is still offered
+  sel.innerHTML = '<option value="">Choose a team</option>'
+    + SEEDED_TEAMS.map((t) => '<option value="' + esc(t.key) + '">' + esc(t.label) + '</option>').join('');
+  if (chosen && SEEDED_TEAMS.some((t) => t.key === chosen)) sel.value = chosen;
+  sel.disabled = false;
+  paintSeededTeam();
+}
+document.getElementById('team-seeded').addEventListener('change', paintSeededTeam);
+document.getElementById('team-seeded-go').addEventListener('click', () => {
+  const key = document.getElementById('team-seeded').value;
+  if (!key) return;
+  if (typeof window.openTeamCreate === 'function') { window.openTeamCreate(key); return; }
+  teamSaySeeded('Creating a ready-made team is coming soon. You can upload an org chart now.');
+});
+document.getElementById('team-orgchart-open').addEventListener('click', () => {
+  const panel = document.getElementById('orgchartpick');
+  const opening = panel.hidden;
+  ORGCHART_GEN += 1;
+  if (opening) resetOrgchartPreview();
+  else orgchartEndFileFlow();   // #4559's leave rule; the result and its Undo stay until the panel is reopened
+  panel.hidden = !opening;
+  document.getElementById('team-orgchart-open').setAttribute('aria-expanded', opening ? 'true' : 'false');
+  if (opening) document.getElementById('orgchart-text').focus();
+});
+document.querySelectorAll('#cstep-kind .nak-btn').forEach((b) => {
+  b.addEventListener('click', () => chooseCreatePath(b.dataset.path));
+});
+document.getElementById('create-path-back').addEventListener('click', () => {
+  resetTeamStep();
+  /* Review round 5: an import still being read must not move the person on to "Set up your agent" after they went
+     back to the choice (the panel stays open now, unlike All agents). The import's own generation check bails. */
+  IMPORT_GEN += 1;
+  const imp = document.getElementById('import-load'); if (imp) imp.disabled = false;
+  const from = CREATE_PATH;
+  CREATE_PATH = null;
+  cstep('kind');
+  const card = document.querySelector('#cstep-kind .nak-btn[data-path="' + from + '"]');
+  if (card) card.focus();   // back to the card the person came from
+});
 
 function roleByKey(key) {
   if (key === 'own') return OWN_ROLE;
   return (ROLES || []).find((r) => r.key === key) || null;
 }
 
-async function loadRoles(initialMode) {
-  // #1652: the create form opens on 'pm' by default; the ONLY caller that passes
-  // a mode is the first-run "look in my Documents/Downloads" link, which passes
-  // 'import' so the panel opens straight on import (and populateFoundImports runs
-  // the on-demand scan). Threaded through here rather than a separate pickMode
+let ROLES_FAILED = false;   // #4556 review: the last roles load failed (the Team screen says so)
+let ROLES_GEN = 0;   // #4556: only the latest call applies its default (openCreate and a path choice can both be in flight)
+/* #4556 review: ONE /api/roles request at a time, shared by every caller. openCreate and a path choice (Team,
+   then Back and Single) used to send one each, and whichever answered last wrote the shared lists; a stale one
+   could leave the screen half-built. Now the request writes ROLES / OWN_ROLE / CREATE_MODELS once, and only the
+   newest caller paints (loadRoles below). */
+let ROLES_FETCH = null;
+let ROLES_BUILT = false;   // buildPicker ran for the current ROLES
+function fetchRoles() {
+  if (!ROLES_FETCH) {
+    ROLES_FETCH = (async () => {
+      // ?catalogue=1: opening the picker is what downloads the ready-made roles (#4632).
+      const res = await fetch('/api/roles?catalogue=1', { cache: 'no-store' });
+      if (!res.ok) throw new Error('status ' + res.status);
+      const data = await res.json();
+      const roles = (data && data.roles) || [];
+      if (!roles.length) throw new Error('none came back');
+      ROLES = roles;
+      ROLES_COMPLETE = !!(data && data.catalogue && data.catalogue.loaded);
+      // Same payload, so the board and this form can never hold different titles.
+      learnRoleTitles(ROLES);
+      CREATE_MODELS = (data && data.models) || [];
+      OWN_ROLE = (data && data.own) || null;
+      ROLES_BUILT = false;
+      ROLES_FAILED = false;
+    })().finally(() => { ROLES_FETCH = null; });
+  }
+  return ROLES_FETCH;
+}
+async function loadRoles(initialMode, opening) {
+  const gen = ++ROLES_GEN;
+  // #1652 / #4556: the mode the role screen opens on. The callers: openCreate ('pm', or 'import' for the first-run
+  // "look in my Documents/Downloads" link, so the panel opens straight on import and populateFoundImports runs the
+  // on-demand scan), chooseCreatePath ('pm' for Single and Team, 'list' for Swarm), and the ?tab=create boot (no
+  // mode, so 'pm'). Any other value is 'pm'. Threaded through here rather than a separate pickMode
   // after openCreate, because loadRoles' async pickMode default would otherwise
   // override that later call and land the panel back on 'pm'.
-  const mode = initialMode === 'import' ? 'import' : 'pm';
+  const mode = initialMode === 'import' || initialMode === 'list' ? initialMode : 'pm';
   const msg = document.getElementById('roles-msg');
-  // ⚠️ Fetched once, but the DEFAULT is re-applied every time the panel opens.
-  // Returning early on the second visit left the picker rendered from last
-  // time with its old choice still marked, while `openCreate` had just
-  // cleared it -- a screen showing a selection the page did not have.
+  const paint = () => {
+    msg.textContent = '';
+    if (!ROLES_BUILT) { buildPicker(); ROLES_BUILT = true; }
+    // ⚠️ Fetched once, but the DEFAULT is re-applied every time the panel opens.
+    // Returning early on the second visit left the picker rendered from last
+    // time with its old choice still marked, while `openCreate` had just
+    // cleared it -- a screen showing a selection the page did not have.
+    updateRecPill(); paintPathOptions(); pickMode(mode);
+  };
   /* #4632: a menu without the downloaded catalogue (offline, or the download not done yet) is asked
-     for again on the next open; the board decides whether to try the network again. */
-  if (ROLES && ROLES.length && ROLES_COMPLETE) { updateRecPill(); pickMode(mode); return; }
+     for again on the next OPEN (openCreate and the ?tab=create boot pass `opening`); the board decides whether to
+     try the network again. A path choice paints the menu already held: it does not ask again, and being the newest
+     caller it is not painted over by the open's answer when that lands. */
+  if (ROLES && ROLES.length && (ROLES_COMPLETE || !opening)) { paint(); return; }
   msg.textContent = 'Loading…';
   try {
-    // ?catalogue=1: opening the picker is what downloads the ready-made roles (#4632).
-    const res = await fetch('/api/roles?catalogue=1', { cache: 'no-store' });
-    if (!res.ok) throw new Error('status ' + res.status);
-    const data = await res.json();
-    ROLES = (data && data.roles) || [];
-    ROLES_COMPLETE = !!(data && data.catalogue && data.catalogue.loaded);
-    // Same payload, so the board and this form can never hold different titles.
-    learnRoleTitles(ROLES);
-    CREATE_MODELS = (data && data.models) || [];
-    OWN_ROLE = (data && data.own) || null;
-    /* #591: the working rules, shown under the instructions box. Absent
-       from an older engine, the fold hides rather than showing an empty box. */
-    if (!ROLES.length) throw new Error('none came back');
-    msg.textContent = '';
-    buildPicker();
-    pickMode(mode);
+    await fetchRoles();
   } catch (err) {
+    if (gen !== ROLES_GEN) return;   // #4556: a newer call owns the screen
+    /* An open's refetch for an incomplete catalogue that fails (offline is when it is incomplete) keeps the menu
+       already held: it is still the copy agents are created from. */
+    if (opening && ROLES && ROLES.length) { paint(); return; }
     // ⚠️ Do NOT fall back to a hardcoded list. The blurb a person reads while
     // choosing has to be the copy the agent is actually created from, and a
     // local copy of the menu is exactly how those two drift apart.
     ROLES = null;
-    // And the pane-2 caches: a reopened panel whose fetch failed must not
-    // proceed on the previous load's own-entry or models (the drift the
+    // And the pane-2 caches: with no menu held (the branch above), a panel whose fetch failed must not
+    // proceed on an earlier load's own-entry or models (the drift the
     // no-hardcoded-list rule exists for, arriving through a stale cache).
     OWN_ROLE = null;
     CREATE_MODELS = [];
-    ['pick-pm', 'pick-list', 'pick-own', 'pick-import', 'pick-orgchart', 'rolepick', 'importpick', 'orgchartpick'].forEach((id) => {
+    ROLES_FAILED = true;
+    paintTeamOrgchartNote();
+    ['pick-pm', 'pick-list', 'pick-own', 'pick-import', 'rolepick', 'importpick', 'team-orgchart-opt'].forEach((id) => {
       document.getElementById(id).hidden = true;
     });
     // Not `esc()`: this goes into textContent, which does its own escaping, so
     // escaping first renders an `&` in the error as a literal `&amp;`.
     msg.textContent = 'We could not read the list of roles, so there is nothing safe to choose from. (' + err.message + ')';
     document.getElementById('role-next').disabled = true;
+    return;
   }
+  if (gen !== ROLES_GEN) return;   // #4556: a newer call owns the screen and paints it
+  paint();
 }
 
 /**
@@ -46799,32 +47123,63 @@ function buildPicker() {
      rather than a description. That moved to the last step in 0.2.92 and is
      still shown before the agent exists. */
   updateRecPill();
-  const rest = ROLES.filter((r) => r.key !== pm.key);
+  paintRoleMenu();
+  document.getElementById('pick-list').hidden = false;
+  // Only offered when the payload actually served the entry: a radio whose
+  // Continue silently does nothing (roleByKey('own') -> null -> return) is
+  // worse than the option being absent from an older server.
+  document.getElementById('pick-own').hidden = !OWN_ROLE;
+  paintPathOptions();
+}
+
+/* #4556 (Mona's design review): the roles that direct other agents or projects. A swarm has no one directing it
+   (Josh, #4554: no project-manager option), so on the Swarm path these are left out and the menu opens on the first
+   role that remains. Operations Manager stays: it keeps recurring work moving, it does not direct agents. */
+const SWARM_LEFT_OUT = ['pm', 'director'];
+/* The "Pick another role" menu for the path chosen, in the catalogue's own order of first appearance. Written only
+   when its contents change, so a pick in it survives a repaint that changes nothing. */
+function paintRoleMenu() {
+  const swarmPath = CREATE_PATH === 'swarm';
+  const rest = (ROLES || []).filter((r) => r.key !== 'pm' && !(swarmPath && SWARM_LEFT_OUT.includes(r.key)));
   document.getElementById('pick-list-desc').textContent =
     rest.length + ' ready-made jobs, from bookkeeping to security review';
-  // Optgroups in the catalogue's own order of first appearance.
   const groups = [];
   for (const r of rest) {
     let g = groups.find((x) => x.name === r.group);
     if (!g) { g = { name: r.group, roles: [] }; groups.push(g); }
     g.roles.push(r);
   }
-  document.getElementById('rolesel').innerHTML = groups.map((g) =>
+  const html = groups.map((g) =>
     `<optgroup label="${esc(g.name || 'Roles')}">` +
     g.roles.map((r) => `<option value="${esc(r.key)}">${esc(r.label)}</option>`).join('') +
     '</optgroup>').join('');
-  document.getElementById('pick-pm').hidden = false;
-  document.getElementById('pick-list').hidden = false;
-  // Only offered when the payload actually served the entry: a radio whose
-  // Continue silently does nothing (roleByKey('own') -> null -> return) is
-  // worse than the option being absent from an older server.
-  document.getElementById('pick-own').hidden = !OWN_ROLE;
-  // Import uses the `own` role's key, so it is offered on exactly the same
-  // condition the `own` option is.
-  document.getElementById('pick-import').hidden = !OWN_ROLE;
-  // #1280: the org-chart import creates every row down the `own` path, so it is
-  // offered on the same condition as `own` and `import`.
-  document.getElementById('pick-orgchart').hidden = !OWN_ROLE;
+  const sel = document.getElementById('rolesel');
+  const sig = rest.map((r) => r.key + ':' + r.label).join(',');   // round 3/4: keys and names, not the whole menu
+  if (sel.dataset.menu !== sig) { sel.innerHTML = html; sel.dataset.menu = sig; }
+}
+/* #4556: which role-screen options this path offers. Run on every open (buildPicker runs only on the first
+   fetch), so a Swarm visit after a Single one does not keep the Single options. A swarm has no Project Manager
+   and no import (Josh, #4554). */
+function paintPathOptions() {
+  const swarmPath = CREATE_PATH === 'swarm';
+  if (ROLES && ROLES.length) paintRoleMenu();
+  document.getElementById('pick-pm').hidden = swarmPath;
+  // Import uses the `own` role's key, so it is offered on the same condition the `own` option is.
+  document.getElementById('pick-import').hidden = !OWN_ROLE || swarmPath;
+  /* #4556 design shots: with no Project Manager above it (the Swarm path), "another" has nothing to follow. */
+  const listName = document.querySelector('#pick-list .p2n');
+  if (listName) listName.textContent = swarmPath ? 'Pick a role' : 'Pick another role';
+  /* The org chart creates every row down the `own` path, so it is offered on the same condition as `own`. */
+  document.getElementById('team-orgchart-opt').hidden = !OWN_ROLE;
+  paintTeamOrgchartNote();
+}
+/* #4556 review: when the roles could not be read the org chart cannot be offered, and the Team screen says so
+   rather than showing only "Ready-made teams are coming soon." */
+function paintTeamOrgchartNote() {
+  const m = document.getElementById('team-orgchart-msg');
+  const say = ROLES_FAILED && !OWN_ROLE
+    ? 'We could not load what uploading an org chart needs just now. Go back and choose Team again to try again.' : '';
+  m.textContent = say; m.hidden = !say;
 }
 
 /**
@@ -46882,32 +47237,20 @@ function pickMode(mode) {
   const input = document.querySelector(`input[name="rmode"][value="${mode}"]`);
   if (input) input.checked = true;
   document.getElementById('rolepick').hidden = mode !== 'list';
-  /* Import and org-chart each show their own panel and advance with their own
-     button, so the shared Continue is hidden for them and shown for every other
-     mode. */
+  /* Import shows its own panel and advances with its own button, so the shared
+     Continue is hidden for it and shown for every other mode. */
   const importing = mode === 'import';
-  const orgcharting = mode === 'orgchart';
   document.getElementById('importpick').hidden = !importing;
-  document.getElementById('orgchartpick').hidden = !orgcharting;
-  document.getElementById('role-next').hidden = importing || orgcharting;
+  document.getElementById('role-next').hidden = importing;
   /* Supersede any import still in flight so its resolution cannot yank the screen
      after the person moved on, and give the panel a fresh enabled button whenever
      it is shown. */
   IMPORT_GEN += 1;
-  // #1280: any mode change supersedes an in-flight team create (mirrors IMPORT_GEN).
-  ORGCHART_GEN += 1;
   if (importing) {
     document.getElementById('import-load').disabled = false;
     // #1652 PR2: fill (or refresh) the found-on-this-computer list each time the panel
     // opens. Best-effort and async; the paste/choose controls do not wait on it.
     populateFoundImports();
-  }
-  if (orgcharting) {
-    // #1280: a fresh panel each time it opens. The pasted text is kept (like
-    // import-text) so a person who tabbed away does not lose it, but the preview
-    // is hidden and the status cleared -- the text may have changed since the
-    // last parse, so a stale count must not stand as if it still described it.
-    resetOrgchartPreview();
   }
   if (mode === 'pm') {
     PICKED = (roleByKey('pm') || ROLES[0]).key;
@@ -46915,15 +47258,14 @@ function pickMode(mode) {
     // Not in the fetched menu on purpose; the key is the contract with the
     // engine, which holds the example text and the label gate.
     PICKED = 'own';
-  } else if (importing || orgcharting) {
-    // No single role: import sets 'own' on a successful read; org-chart creates
-    // many agents down its own button. The shared Continue stays hidden; each
-    // panel's own button is the advance.
+  } else if (importing) {
+    // No single role: import sets 'own' on a successful read. The shared Continue
+    // stays hidden; the import panel's own button is the advance.
     PICKED = null;
   } else {
     PICKED = document.getElementById('rolesel').value;
   }
-  document.getElementById('role-next').disabled = importing || orgcharting;
+  document.getElementById('role-next').disabled = importing;
   paintPickLimit();
 }
 
@@ -46966,7 +47308,7 @@ document.getElementById('rolesel').addEventListener('change', () => {
 // person reviewed rather than a re-parse of text they may have edited after.
 let ORGCHART_PARSED = null;
 /* Supersedes an in-flight team create the way IMPORT_GEN does for import: bumped
-   on any mode change (pickMode) so a late /api/team response cannot yank the
+   when the Team screen is left or reopened (resetTeamStep, #4556) so a late /api/team response cannot yank the
    screen after the operator switched away or reopened the form. */
 let ORGCHART_GEN = 0;
 /* #1280: the agents the last Create made ({ name, shownAs }), which is exactly what
@@ -46994,6 +47336,18 @@ let ORGCHART_MANY_OK = false;   // the person said yes to starting more than ORG
    never a silent accept. Named rather than inlined so the two do not drift unseen. */
 const ORGCHART_NAME_MAX = 32;
 
+function orgchartEndFileFlow() {
+  /* #4559: leaving or reopening the panel also ends the file flow: no consent box armed for a file the person has
+     moved past, and a picture being read is stopped (the board then stops the model call, which would otherwise
+     run on the person's plan with nobody to see its answer). */
+  if (ORGCHART_READ_CTL) ORGCHART_READ_CTL.abort();
+  const consent = document.getElementById('orgchart-consent');
+  if (consent) consent.hidden = true;
+  ORGCHART_FILE_PENDING = null;
+  ORGCHART_FILE_PEOPLE = null;
+  const note = document.getElementById('orgchart-file-note');
+  if (note && note.dataset.idle) note.textContent = note.dataset.idle;
+}
 function resetOrgchartPreview() {
   ORGCHART_PARSED = null;
   ORGCHART_MANY_OK = false;
@@ -47014,16 +47368,7 @@ function resetOrgchartPreview() {
   const undo = document.getElementById('orgchart-undo');
   if (undo) { undo.hidden = true; undo.disabled = false; }
   orgchartUndoAsking(false);
-  /* #4559: leaving or reopening the panel also ends the file flow: no consent box armed for a file the person has
-     moved past, and a picture being read is stopped (the board then stops the model call, which would otherwise
-     run on the person's plan with nobody to see its answer). */
-  if (ORGCHART_READ_CTL) ORGCHART_READ_CTL.abort();
-  const consent = document.getElementById('orgchart-consent');
-  if (consent) consent.hidden = true;
-  ORGCHART_FILE_PENDING = null;
-  ORGCHART_FILE_PEOPLE = null;
-  const note = document.getElementById('orgchart-file-note');
-  if (note && note.dataset.idle) note.textContent = note.dataset.idle;
+  orgchartEndFileFlow();
 }
 
 /* A title (or a person's name, when opted in) into a machine name the engine
@@ -47430,8 +47775,8 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      its result and Undo with it. The read's model call stops too, and a late answer is no longer current. */
   if (ORGCHART_READ_CTL) ORGCHART_READ_CTL.abort();
   ORGCHART_FILE_SEQ += 1;
-  // Capture the generation: if the operator changes mode or reopens the form while
-  // this create is in flight, pickMode bumps ORGCHART_GEN and every DOM write below
+  // Capture the generation: if the operator leaves the Team screen or reopens the form while
+  // this create is in flight, resetTeamStep bumps ORGCHART_GEN and every DOM write below
   // is skipped, so a late response cannot yank a screen the person has left.
   const gen = ORGCHART_GEN;
   const btn = document.getElementById('orgchart-create');
@@ -48238,8 +48583,14 @@ function swarmCreateTokensPerPoint() {
 function swarmCreatePaint() {
   const box = document.getElementById('create-kind');
   if (!box) return;
-  box.hidden = !SWARMS_ON;
+  /* #4556: the kind comes from New Agent's first screen now (Single or Swarm), so this is no longer a choice.
+     On the Swarm path the Swarm card stays, alone, as the swarm's preview (its circles follow the helpers slider
+     and carry the name's mark, #3946); on the Single path neither card shows. The radio stays as the state
+     createKind() reads. */
   const swarm = createKind() === 'swarm';
+  box.hidden = !swarm;
+  const agentOpt = box.querySelector('input[value="agent"]');
+  if (agentOpt && agentOpt.closest('label')) agentOpt.closest('label').hidden = true;
   document.getElementById('create-swarm').hidden = !swarm;
   const max = Number(document.getElementById('create-swarm-max').value) || 3;
   document.getElementById('create-swarm-max-v').textContent = String(max);
@@ -48297,6 +48648,10 @@ document.body.addEventListener('input', (e) => {
 
 function openCreate(initialMode) {
   PICKED = null;
+  /* #4556: every visit starts on the three-way choice; the first-run import link goes straight to Single. */
+  CREATE_PATH = initialMode === 'import' ? 'single' : null;
+  document.getElementById('nak-swarm').hidden = !SWARMS_ON;
+  resetTeamStep();
   /* #3564: each visit starts as a plain Agent. */
   { const ag = document.querySelector('input[name="create-kind"][value="agent"]'); if (ag) ag.checked = true; }
   swarmCreatePaint();
@@ -48350,7 +48705,8 @@ function openCreate(initialMode) {
   swarmCreatePaint();
   document.getElementById('create-go').disabled = false;
   document.getElementById('role-next').disabled = true;
-  cstep('role');
+  if (CREATE_PATH) { document.getElementById('cstep-role-title').textContent = 'What should this agent do?'; cstep('role'); }
+  else cstep('kind');
   /* #3053: in the consolidated view, open the create panel IN the display column rather than
      showTab('create'), which is not an agents/projects tab and so drops body.consolidated and
      kicks the person to the tab view. Mirrors #rail-me-go -> openConsolidatedSettings for the
@@ -48360,10 +48716,11 @@ function openCreate(initialMode) {
   } else {
     showTab('create');
   }
-  // #1652: passes the mode through to loadRoles' async pickMode, so the first-run
-  // import link (openCreate('import')) lands on the import panel rather than being
-  // reset to 'pm'. Every other caller passes nothing and gets 'pm' as before.
-  loadRoles(initialMode === 'import' ? 'import' : 'pm');
+  // #1652: the first-run import link (openCreate('import')) lands on the import panel, passed through
+  // loadRoles' async pickMode so it is not reset to 'pm'. #4556: every other caller starts on the three-way
+  // choice; the roles still load now, so Single and Swarm open at once, and the chosen path re-applies its own
+  // default (chooseCreatePath).
+  loadRoles(initialMode === 'import' ? 'import' : 'pm', true);
   /* #3877: the created-agent checkbox (#create-tell, restored by #3038, checked by default)
      is deliberately NOT reset on open: it carries the person's choice for the session, and
      the one-click found-agent add reads the same box. (This used to say the box was
@@ -51460,6 +51817,7 @@ function applyConsFold() {
      and cannot diverge from it: a row is hidden exactly when it sits deeper than the
      nearest folded ancestor still in effect. (#2929 iter3, was pjDescendantIds) */
   let cutoff = Infinity;   // rows with --pj-depth > cutoff are inside a collapsed branch
+  let shown = 0;           // #4730: visible rows so far, for the list view's alternating shade
   for (const row of list.querySelectorAll('.pj-row[data-project]')) {
     const depth = Number(row.style.getPropertyValue('--pj-depth')) || 0;
     /* #2929 slice 2: only TOP-LEVEL rows are draggable, and only in the consolidated
@@ -51481,6 +51839,10 @@ function applyConsFold() {
     // the token's presence already matches force -- so it needs no compare-guard. The
     // aria-expanded and caret-text writes below are NOT idempotent, so they do. (#2929 iter4)
     row.classList.toggle('pj-fold-hidden', shouldHide);
+    /* #4730: every second VISIBLE row is shaded, counted here because this walk is what knows
+       which rows a fold hid (CSS :nth-child would count the hidden ones and break the pattern).
+       Only the tab list view draws the shade (the CSS is scoped to it). */
+    row.classList.toggle('pj-stripe', !shouldHide && (shown++ % 2 === 1));
     if (!shouldHide) {
       // A VISIBLE folded parent collapses everything deeper than it until a row
       // returns to its depth or shallower; anything else clears the collapse.
@@ -51631,34 +51993,24 @@ function pjTilesUnknown() {
   document.getElementById('st-pjdm-tile').hidden = true;
 }
 
-/* The pack's state pill (view C): Issue > Working > Can't tell >
-   Nothing running. "Nothing running" is a CLAIM -- it is only made when
-   every member was actually seen; a blind roster or unseen members get
-   the board's own unsure treatment instead of a reassurance. */
+/* The pack's state pill (view C): Issue > Working > Restarting, and since #4730 nothing else. A pill
+   means something is running; with nothing running, an unseen member or a blind roster the card shows
+   none (Josh 2026-09-30), and it never shows Working or Issue it could not read. */
 function pjPillOf(p, unreadable) {
   const s = p.summary || {};
   if (!unreadable && s.needsYou) return { cls: 'attn', glyph: '<span class="haz" aria-hidden="true">!</span>', label: 'Issue' };
   if (!unreadable && s.working) return { cls: '', glyph: '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>', label: 'Working' };
-  /* #2019: the projects-list rollup is the 7th agent-state surface. A project
-     whose only active agent is mid-restart must NOT fall through to "Nothing
-     running" (the gone-lie this card refuses). This reads a summary.restarting
-     count the engine half (Renet) folds into p.summary; it is INERT until that
-     field arrives, exactly like the rest of this presentation PR, and ranks below
-     working (something genuinely working wins) but above the not-running
-     fallback. The K matches the card's mark. */
+  /* #2019: a project whose only active agent is mid-restart keeps a Restarting badge (it is running);
+     it ranks below Working. It reads summary.restarting; the K matches the card's mark. */
   if (!unreadable && s.restarting) return { cls: '', glyph: GLYPH.restarting, label: 'Restarting' };
-  /* 🔑 NO STATUS AT ALL FOR A PROJECT WITH NO AGENTS (kosmos#1303 E). Josh: "On
-     the Projects tab I don't want to show 'no agents' as a status for a
-     project." An empty label is the signal; the row builder omits the pill
-     rather than rendering an empty one, so there is no stray element and no
-     `:empty` rule to remember.
-     ⚠️ THE FACT IS NOT LOST, it is just not dressed as a STATUS: the row already
-     omits the agent count when `s.total` is zero, so an empty project reads as a
-     title with nothing under it, which is what "no agents yet" was saying in more
-     words and in the slot reserved for what a project is DOING. */
-  if (!s.total) return { cls: '', glyph: '', label: '' };
-  if (unreadable || s.unseen) return { cls: '', glyph: '', label: 'Can\u2019t tell' };
-  return { cls: '', glyph: '<span class="rest" aria-hidden="true"></span>', label: 'Nothing running' };
+  /* #4730 (Josh, 2026-09-30 09:06): "if there's nothing running or we can't tell, let's just not
+     display a badge here. Let's only display a badge if something is actually running." So
+     "Can't tell" and "Nothing running" are gone from the Projects views, like "No agents yet"
+     before them (#1303 E): an empty label and no pill. Issue (an agent needs you), Working and
+     Restarting stay, each a running agent. With the whole roster unreadable no card shows a badge
+     either, and the Projects views say nothing about it (his rule, applied literally): the Agents
+     page reports a failed read, and the project's own page still says who is unseen. */
+  return { cls: '', glyph: '', label: '' };
 }
 
 /* The bubble's text, in one place: nothing for none, 99+ past the cap. The
@@ -51764,12 +52116,10 @@ function projectCard(p, unreadable, depth, childCount) {
   const count = s.total ? '<span class="pjcount">' + Number(s.total) + (s.total === 1 ? ' agent' : ' agents') + '</span>' : '';
   const facesRow = (faces || count)
     ? '<span class="pjfaces"><span aria-hidden="true">' + faces + '</span>' + count + '</span>' : '';
-  /* ⚠️ The card NEVER says everything is fine when part of it was
-     unreadable -- the pill claims only what the counts support, and the
-     blind spot is SAID in words below, same rule as before the restyle. */
-  const bits = [];
-  if (!unreadable && s.unseen) bits.push(s.unseen + ' we cannot see');
-  if (unreadable && s.total) bits.push('we cannot see how they are doing right now');
+  /* #4730 (Josh, 2026-09-30 09:06): no "N we cannot see" line on the Projects views ("Let's just
+     not list if we can't see an agent. We don't need that information here."). The card still never
+     says everything is FINE: with no pill it makes no claim about state at all, and the project's
+     own page keeps the unseen member marked (#2804). */
   /* #747 and #748 (Josh, 2026-08-24 21:22 and 21:24): the tile reads title,
      then the short description, then the agents with their count, with the
      status at the top right; the folder chip under the title is gone (on
@@ -51817,7 +52167,6 @@ function projectCard(p, unreadable, depth, childCount) {
     + (p.doneSet === false ? '<span class="pj-doneunset">Done not set</span>' : '')
     + facesRow
     + parentChip
-    + (bits.length ? '<span class="pj-who">' + esc(bits.join(', ')) + '</span>' : '')
     + (folder.bad ? '<span class="pj-warn">' + esc(folder.text) + '</span>' : '')
     + '</button>';
 }
@@ -57072,6 +57421,13 @@ function dmOwesLine(owes) {
      ⚠️ THE GRACE: `owes` is true the instant a message lands, so without it every thread accuses the agent for the
      first two minutes of every exchange. `pjOldEnoughToJudge` is the room's own test and refuses an unparseable
      timestamp rather than treating it as long ago. */
+  /* #4612: the agent finished a turn after this message and answered only in its own window (a Muse agent that never
+     ran kosmos reply). Said at once, with no grace: the turn is over, so there is nothing left to wait for. */
+  if (owes.unsent && typeof owes.unsent.text === 'string' && owes.unsent.text) {
+    return '<div class="dmunsent"><p class="dmnone">It finished without replying here. What it said in its own window:</p>'
+      + '<blockquote class="dmunsent-text" tabindex="0" aria-label="What it said in its own window">'   // scrolls, so keyboard-reachable
+      + esc(owes.unsent.text) + '</blockquote></div>';
+  }
   if (!pjOldEnoughToJudge(owes.lastHeardAt)) return '';
   return '<p class="dmnone">Nothing back yet.</p>';
 }
@@ -68344,7 +68700,7 @@ if (BOOT_TAB === 'settings' && PARAMS.get('sec')) settingsOpen(PARAMS.get('sec')
 // menu. Without this it renders an empty role list and a dead Continue —
 // exactly the failure the instruction editor had when it shipped enabled and
 // empty on its own deep link.
-if (BOOT_TAB === 'create') loadRoles();
+if (BOOT_TAB === 'create') loadRoles(undefined, true);
 /* 🔑 THE BOARD NEEDS THE CATALOGUE TOO, and until now only the create form
    ever fetched it. An agent card reads its role out of the agent's own
    instruction file as prose, so "project manager" is what is on disk and what

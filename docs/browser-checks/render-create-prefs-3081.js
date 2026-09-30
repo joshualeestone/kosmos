@@ -54,6 +54,7 @@ function chk(ok, label, extra) {
 
 async function openCreate(page) {
   await page.evaluate(() => { showTab('create'); openCreate(); });
+  await page.click('#cstep-kind [data-path="single"]');   // #4556: New Agent opens on the three-way choice; Single leads to the role screen
   await page.waitForSelector('#pick-pm:not([hidden])', { timeout: 8000 });
   await page.evaluate(() => { document.getElementById('pick-pm').click(); document.getElementById('role-next').click(); });
   await page.waitForFunction(() => !document.getElementById('cstep-name').hidden, null, { timeout: 8000 });

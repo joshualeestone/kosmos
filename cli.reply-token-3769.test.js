@@ -2,9 +2,10 @@
 
 /**
  * #3769: `kosmos reply` presents the agent's own token (KOSMOS_AGENT_TOKEN, hex only) as
- * `x-kosmos-agent-token`, as `whoami` and `report` already do. The setup guide runs sandboxed with
- * Kosmos's data folder denied, so it cannot read the board token; without its agent token an
- * enforcing board refuses its reply and the guide goes mute.
+ * `x-kosmos-agent-token`, as `whoami` and `report` already do. A Claude setup guide on a Mac runs
+ * sandboxed with Kosmos's data folder denied (guardGuideFolder in engine/setup-assistant.js), and
+ * the command reads the board token only from that folder; without its agent token an enforcing
+ * board refuses its reply and the guide goes mute.
  *
  * The data root is a temp folder, so the CLI never reads this machine's real board token.
  */

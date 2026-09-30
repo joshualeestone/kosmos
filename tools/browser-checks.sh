@@ -947,9 +947,10 @@ run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 # must be taken, and nav-menu, a phone-only screen, must be skipped there
 # rather than error. allow-card fails unless its Allow button is what sits at its own centre
 # (kosmos#4524) and its code boxes sit inside their card (kosmos#4568), and a shot fails if
-# the one-time Community notice covers it. The full sweep (16 shots per screen) is a by-hand tool.
+# the one-time Community notice covers it. cons-agents (kosmos#4594) is the desktop-only mirror of nav-menu:
+# shot at desktop through its /api/style read stub, skipped at se. The full sweep (16 shots per screen) is a by-hand tool.
 run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/mobile-shots" \
-  --screens home,nav-menu,agents-list,settings-accounts,allow-card --sizes se,desktop --themes light --strict
+  --screens home,nav-menu,agents-list,settings-accounts,allow-card,cons-agents --sizes se,desktop --themes light --strict
 # The leak guard's two arms, each of which MUST stop the run with exit 3 AND
 # with its own arm's message: a signed-in account planted in the sandboxed home
 # must be stopped by the accounts preflight ("the throwaway board lists"), and

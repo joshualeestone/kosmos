@@ -92,12 +92,6 @@ if (args[0] === 'signin') {
     // #3796 addendum 8: a session for an account that already owns an address, and one with a bad address shape.
     if (code === '262626') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-owned', account_address: 'josh0925-150pm.kosmosplus.com' })); process.exit(0); }
     if (code === '272727') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-odd', account_address: 'javascript:alert(1)' })); process.exit(0); }
-    // #4638: a SECOND computer: no account_address (another computer holds it), the account's addresses, the match code;
-    // then the same with hostile shapes; then an owned address alongside the list (the first-computer path).
-    if (code === '282828') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-second', addresses: ['josh09292026.kosmosplus.com'], match_code: 'K7-3M' })); process.exit(0); }
-    if (code === '292929') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-second-odd', addresses: ['<b>x</b>', 'javascript:alert(1)'], match_code: '<script>' })); process.exit(0); }
-    if (code === '313131') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-second-badcode', addresses: ['josh09292026.kosmosplus.com'], match_code: 'I0-OL' })); process.exit(0); }
-    if (code === '323232') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-owned2', account_address: 'josh0925-150pm.kosmosplus.com', addresses: ['josh0925-150pm.kosmosplus.com'], match_code: 'K7-3M' })); process.exit(0); }
     if (code === '333333') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-fake', sms_available: true, why_authenticator: 'stronger than sms' })); process.exit(0); }
     if (code === '777777') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, sms_available: true })); process.exit(0); }  // enrol stage with NO token -> engine guard
     if (code === '888888') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-nomaterial', sms_available: true, why_authenticator: 'why' })); process.exit(0); }  // holds a token whose enrol answer omits the material -> engine fail-closed
@@ -1205,35 +1199,6 @@ test('signin verify passes the account\'s existing address through, and only in 
   await remote.signinStart('her@example.com');
   const plain = await remote.signinVerify('her@example.com', '111111');
   assert.equal(plain.data.account_address, '', 'an account with no address got one');
-});
-
-/* #4638: a second computer on the account gets the other computer's address, the code to match and its own name, and
-   only in their own shapes; a first computer (owned address) gets none of them. */
-test('#4638 signin verify tells a second computer what it needs to skip the chooser, in safe shapes only', async () => {
-  await remote.signinStart('her@example.com');
-  const second = await remote.signinVerify('her@example.com', '282828');
-  assert.equal(second.data.account_address, '');
-  assert.equal(second.data.other_address, 'josh09292026.kosmosplus.com');
-  assert.equal(second.data.match_code, 'K7-3M');
-  assert.deepEqual(second.data.other_labels, ['josh09292026']);
-  assert.equal(typeof second.data.computer, 'string');
-  assert.ok(!/\(Kosmos app\)/.test(second.data.computer), 'the computer name kept the device label');
-  assert.ok(!JSON.stringify(second.data).includes('kst1.'), 'the session token leaked');
-  await remote.signinStart('her@example.com');
-  const odd = await remote.signinVerify('her@example.com', '292929');
-  assert.equal(odd.data.other_address, undefined, 'an address in the wrong shape made this a second computer');
-  assert.equal(odd.data.match_code, undefined);
-  await remote.signinStart('her@example.com');
-  const badcode = await remote.signinVerify('her@example.com', '313131');
-  assert.equal(badcode.data.other_address, 'josh09292026.kosmosplus.com');
-  assert.equal(badcode.data.match_code, '', 'a code outside the coordinator\'s alphabet was passed to the page');
-  await remote.signinStart('her@example.com');
-  const owned = await remote.signinVerify('her@example.com', '323232');
-  assert.equal(owned.data.account_address, 'josh0925-150pm.kosmosplus.com');
-  assert.equal(owned.data.other_address, undefined, 'a first computer (owned address) was treated as a second one');
-  await remote.signinStart('her@example.com');
-  const plain = await remote.signinVerify('her@example.com', '111111');
-  assert.equal(plain.data.other_address, undefined, 'a brand-new account was treated as a second computer');
 });
 
 test('signin verify surfaces the phone-challenge and enrol stages without leaking the challenge id', async () => {

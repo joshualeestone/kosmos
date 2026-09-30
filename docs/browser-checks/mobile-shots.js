@@ -45,7 +45,15 @@
  * ADDING YOUR SCREENS: append to SCREENS below. Each entry is
  *   { name, owner, go: async (page, data) => { ...navigate to the screen... } }
  * plus `noServiceWorker: true` if `go` stubs a request with page.route, and
- * `phoneOnly: true` if the screen exists only at a phone width (the desktop size skips it).
+ * `phoneOnly: true` if the screen exists only at a phone width (the desktop size skips it), and
+ * `desktopOnly: true` if it exists only at a desktop width (the phone sizes skip it; the consolidated
+ * view, for one, starts at 960px).
+ * One board serves every screen of a run, so a `go` that writes to the board's server store (a PUT, a
+ * saved setting) must undo it in `after` (settings-recommender does, #4545), or it changes every screen
+ * shot after it; the consolidated screens stub the READ instead (kosmos#4594).
+ * `after: async (page, data) => {}` runs after the shot, whatever happened, to put back what `go` changed.
+ * `verify: async (page, data) => {}` runs right after the shot to check it is the screen meant: a throw
+ * DELETES the shot and makes the row an ERROR (consAgentsStill), so a wrong picture never reaches a review.
  * `go` starts on a freshly loaded board at the size and theme (data has
  * `projectId`, and `chatAgent` / `askAgent`: use those, never a literal agent id,
  * so the screen works under --data store too); leave the page showing the screen. Keep names short and unique
@@ -106,6 +114,53 @@ async function openTab(page, tab) {
 const at = async (page, qs) => {
   await page.goto(page.url().split('?')[0] + qs, { waitUntil: 'load' });
   await page.waitForTimeout(900);
+};
+
+/* #4594: the consolidated view without writing it. The page reads its layout from GET /api/style (paintStyles, also
+   on later polls), so a page-only applyLayout was undone mid-shot; saving it with PUT /api/style would change the
+   one board every later screen of this run is shot on. So the READ is stubbed in this screen's own context (gone
+   with it) to say consolidated, and the page reloads. Screens that call this set noServiceWorker. */
+async function openConsAgents(page) {
+  await page.route('**/api/style', async (r) => {
+    if (r.request().method() !== 'GET') return r.continue();
+    let resp;
+    try { resp = await r.fetch(); } catch { return r.continue(); }   // never leave the request hanging
+    const j = await resp.json().catch(() => null);
+    if (!j) return r.fulfill({ response: resp });
+    return r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } });
+  });
+  await page.reload({ waitUntil: 'load' });   // 'load', per this file's rule; the next line is the real readiness signal
+  await page.waitForFunction(() => document.documentElement.getAttribute('data-layout') === 'consolidated', null, { timeout: 8000 });
+  /* The board's own boot can activate a project AFTER this opens Agents, which closes the Agents view
+     (iteration 7: shots of a project passed). So open it, then require it to STAY open for a while,
+     opening it again if the board took it back. */
+  const shown = () => page.evaluate(() => {
+    const p = document.getElementById('panel-cons-agents'); const sw = document.querySelector('#panel-cons-agents .cons-agents-lay');
+    return !!(p && !p.hidden && p.getClientRects().length && sw && sw.getClientRects().length);
+  });
+  if (await page.isVisible('#firstrun')) await page.keyboard.press('Escape');   // the reload can bring it back
+  // Stable = open on 4 samples in a row, 250 ms apart: a signal, not a fixed sleep.
+  const stable = async () => { for (let i = 0; i < 4; i++) { if (!(await shown())) return false; await page.waitForTimeout(250); } return true; };
+  let last = null;
+  for (let tries = 0; tries < 6; tries++) {
+    try {
+      await page.click('#tabs .tab[data-tab="agents"]', { timeout: 5000 });
+      await page.waitForSelector('#panel-cons-agents .cons-agents-lay', { state: 'visible', timeout: 5000 });
+    } catch (e) { last = e; continue; }   // taken back before it showed (or never there): try again
+    if (await stable()) return;
+  }
+  throw new Error('cons-agents: the Agents view did not stay open' + (last ? ' (last: ' + String(last.message || last).split('\n')[0] + ')' : ''));
+}
+/* A SCREENS `verify` hook, run right after the shot: the Agents view and its switch must still be on screen with
+   the expected segment chosen, or the shot is deleted and the row is an ERROR, never a picture of something else. */
+const consAgentsStill = (want) => async (page) => {
+  const got = await page.evaluate(() => {
+    const p = document.getElementById('panel-cons-agents'); const sw = document.querySelector('#panel-cons-agents .cons-agents-lay');
+    const r = sw ? sw.getBoundingClientRect() : null;
+    const on = sw ? sw.querySelector('[aria-checked="true"]') : null;
+    return { panel: !!(p && !p.hidden && p.getClientRects().length), inView: !!(r && r.width && r.bottom > 0 && r.top < innerHeight), on: on ? on.dataset.conslay : null };
+  });
+  if (!got.panel || !got.inView || got.on !== want) throw new Error('the shot is not the Agents view with ' + want + ' chosen: ' + JSON.stringify(got));
 };
 
 const SCREENS = [
@@ -261,10 +316,60 @@ const SCREENS = [
     await page.click('button.vt[data-layout="org"]');
     await page.waitForSelector('button.vt[data-layout="org"][aria-pressed="true"]', { timeout: 5000 });
   } },
+  /* #4594: the consolidated view's Agents column and its Grid / Org chart segmented control. The
+     consolidated view exists only at >= 960px, so these are desktop-only. */
+  { name: 'cons-agents', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page) => {
+    await openConsAgents(page);
+    await page.waitForSelector('#panel-cons-agents .cons-agents-lay [data-conslay="grid"][aria-checked="true"]', { timeout: 5000 });
+  }, verify: consAgentsStill('grid') },
+  { name: 'cons-agents-org', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page) => {
+    await openConsAgents(page);
+    await page.click('#panel-cons-agents [data-conslay="org"]', { timeout: 5000 });
+    await page.waitForSelector('#panel-cons-agents [data-conslay="org"][aria-checked="true"]', { timeout: 5000 });
+  }, verify: consAgentsStill('org') },
+  // The design review's ask (kosmos#4594): the keyboard focus ring on a segment. A real key press, so :focus-visible shows (a scripted
+  // .focus() alone may not): focus Grid, ArrowRight moves to Org chart, chooses it and keeps focus there.
+  { name: 'cons-agents-focus', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page) => {
+    await openConsAgents(page);
+    await page.focus('#panel-cons-agents [data-conslay="grid"]');
+    await page.keyboard.press('ArrowRight');
+    await page.waitForFunction(() => document.activeElement && document.activeElement.dataset.conslay === 'org'
+      && document.activeElement.matches(':focus-visible'), null, { timeout: 5000 });
+  }, verify: async (page) => {
+    await consAgentsStill('org')(page);
+    const focused = await page.evaluate(() => !!document.activeElement && document.activeElement.dataset.conslay === 'org'
+      && document.activeElement.matches(':focus-visible'));
+    if (!focused) throw new Error('the focus shot lost its focus ring (Org chart is not focused-visible)');
+  } },
   { name: 'create-agent', owner: 'unowned', go: async (page) => {
     // A real tap (visible, not covered), the way a phone user reaches it; a hidden button fails the shot.
+    // Mona's review: the one-time community notice covers the screen at desktop; dismiss it first (as settings-recommender does).
+    await page.waitForSelector('#cn-ok', { state: 'visible', timeout: 2500 }).then(() => page.click('#cn-ok')).catch(() => {});
     await page.click('#new-agent', { timeout: 5000 });
     await page.waitForSelector('#panel-create', { state: 'visible', timeout: 5000 });
+  } },
+  // #4556: New Agent's second screens, each reached by a real tap on its card from the first screen.
+  { name: 'create-single', owner: 'Angel', go: async (page) => {
+    // Mona's review: the one-time community notice covers the screen at desktop; dismiss it first (as settings-recommender does).
+    await page.waitForSelector('#cn-ok', { state: 'visible', timeout: 2500 }).then(() => page.click('#cn-ok')).catch(() => {});
+    await page.click('#new-agent', { timeout: 5000 });
+    await page.click('#cstep-kind [data-path="single"]', { timeout: 5000 });
+    await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
+  } },
+  { name: 'create-team', owner: 'Angel', go: async (page) => {
+    // Mona's review: the one-time community notice covers the screen at desktop; dismiss it first (as settings-recommender does).
+    await page.waitForSelector('#cn-ok', { state: 'visible', timeout: 2500 }).then(() => page.click('#cn-ok')).catch(() => {});
+    await page.click('#new-agent', { timeout: 5000 });
+    await page.click('#cstep-kind [data-path="team"]', { timeout: 5000 });
+    await page.waitForSelector('#cstep-team', { state: 'visible', timeout: 5000 });
+  } },
+  { name: 'create-swarm', owner: 'Angel', go: async (page) => {
+    // Shown only when the board can run swarms; a board that cannot fails this shot (the card is hidden).
+    // Mona's review: the one-time community notice covers the screen at desktop; dismiss it first (as settings-recommender does).
+    await page.waitForSelector('#cn-ok', { state: 'visible', timeout: 2500 }).then(() => page.click('#cn-ok')).catch(() => {});
+    await page.click('#new-agent', { timeout: 5000 });
+    await page.click('#cstep-kind [data-path="swarm"]', { timeout: 5000 });
+    await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
   } },
   { name: 'first-run', owner: 'unowned', go: async (page) => {
     await at(page, '?first-run=1');
@@ -776,10 +881,10 @@ async function run() {
   if (COVER_CONTROL === 'spill' && args.sizes.every((sz) => SIZES[sz].desktop)) {
     throw new Error('MSHOTS_COVER_CONTROL=spill needs a phone size');
   }
-  /* Nothing to shoot is not a pass: every requested screen is phone-only at the sizes asked for. Decided before
-     any browser or board starts (tools.mobile-shots-desktop.test.js). */
-  const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !(SIZES[sz].desktop && sc.phoneOnly)).length, 0);
-  if (!planned) throw new Error('no shot would be taken: every requested screen is phone-only at these sizes');
+  /* Nothing to shoot is not a pass: every requested screen is skipped at the sizes asked for (phone-only at desktop,
+     desktop-only at a phone). Decided before any browser or board starts (tools.mobile-shots-desktop.test.js). */
+  const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !(SIZES[sz].desktop ? sc.phoneOnly : sc.desktopOnly)).length, 0);
+  if (!planned) throw new Error('no shot would be taken: every requested screen is skipped at these sizes (phone-only at desktop, desktop-only at a phone)');
   // Test hook (tools.mobile-shots-desktop.test.js): report the plan and stop, before any browser or board.
   if (process.env.MSHOTS_PLAN_ONLY === '1') { console.log(`planned ${planned} screen(s) per theme and engine`); return 0; }
   const { chromium, webkit } = require('playwright');
@@ -790,7 +895,7 @@ async function run() {
 
   const board = await startBoard();
   const rows = [];
-  const skipped = [];   // phone-only screens at the desktop size: listed in both reports, never silently absent
+  const skipped = [];   // phone-only screens at desktop, desktop-only ones at a phone size: listed in both reports, never silently absent
   let overflowCount = 0, errors = 0;
   let coverControlWaited = false;   // MSHOTS_COVER_CONTROL: the notice is waited for on the first shot only
   try {
@@ -803,10 +908,11 @@ async function run() {
           const s = SIZES[sz];
           for (const theme of args.themes) {
             for (const sc of screens) {
-              if (s.desktop && sc.phoneOnly) {
+              if (s.desktop ? sc.phoneOnly : sc.desktopOnly) {
+                const why = s.desktop ? 'phone-only screen' : 'desktop-only screen';
                 // The same shape as a shot row, so report.json stays one kind of entry.
-                skipped.push({ file: null, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note: '', taps: [], fields: [], audited: false, skipped: 'phone-only screen' });
-                console.log(`skip  ${sc.name}--${sz}--${theme}--${en}: a phone-only screen`);
+                skipped.push({ file: null, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note: '', taps: [], fields: [], audited: false, skipped: why });
+                console.log(`skip  ${sc.name}--${sz}--${theme}--${en}: a ${why}`);
                 continue;
               }
               /* A fresh context per screen: the board remembers choices (layout,
@@ -886,6 +992,16 @@ async function run() {
                 errors++;
                 note = 'ERROR ' + String(e.message || e).split('\n')[0];
               }
+              // kosmos#4594: a screen's verify says the shot is the screen meant; if not, the shot goes and the row errors.
+              let shotGone = false;
+              if (sc.verify && !/ERROR/.test(note)) {
+                try { await sc.verify(page, ctxData); } catch (e) {
+                  try { fs.rmSync(path.join(out, file), { force: true }); } catch { /* best effort */ }
+                  shotGone = true;
+                  errors++;
+                  note += (note ? '; ' : '') + 'ERROR verify (shot deleted): ' + String(e.message || e).split('\n')[0];
+                }
+              }
               /* A screen that changed the board's state puts it back here, whatever happened above,
                  so no later screen photographs it (#4545). A failure to is a flag on this row (counted
                  once: a row whose go() already errored is one errored screen, not two). */
@@ -905,7 +1021,7 @@ async function run() {
                 err.leak = true;
                 throw err;
               }
-              rows.push({ file, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields, audited, skipped: null });
+              rows.push({ file: shotGone ? null : file, deleted: shotGone, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields, audited, skipped: null });
               console.log((note ? 'FLAG  ' : 'ok    ') + file + (note ? '  ' + note : '')
                 + (!audited ? '  phone audits: n/a'
                   : `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}`));
@@ -934,10 +1050,10 @@ async function run() {
 
   const md = ['# Mobile screenshots', '',
     `Throwaway board with the ${args.data} data set. WebKit is an engine approximation of iOS Safari, not Safari; Chromium at a phone size is not an Android phone. Phone audits read n/a where they did not run (the desktop size, or a screen that errored).`, '',
-    `Shots: ${rows.length}. Flagged: ${rows.filter((r) => r.note).length} (overflow ${overflowCount}, errors ${errors}).`, '',
-    `Skipped (phone-only screens at the desktop size): ${skipped.length ? skipped.map((k) => `${k.screen}--${k.size}--${k.theme}--${k.engine}`).join(', ') : 'none'}.`, '',
+    `Shots: ${rows.filter((r) => r.file).length}${rows.some((r) => !r.file) ? ` (plus ${rows.filter((r) => !r.file).length} deleted by its verify)` : ''}. Flagged: ${rows.filter((r) => r.note).length} (overflow ${overflowCount}, errors ${errors}).`, '',
+    `Skipped (phone-only at the desktop size, desktop-only at a phone size): ${skipped.length ? skipped.map((k) => `${k.screen}--${k.size}--${k.theme}--${k.engine}`).join(', ') : 'none'}.`, '',
     `| screen | owner | size | theme | engine | file | flag | taps<${MIN_TAP_PX} | fields<${MIN_FIELD_FONT_PX}px |`, '|---|---|---|---|---|---|---|---|---|',
-    ...rows.map((r) => `| ${r.screen} | ${r.owner} | ${SIZES[r.size].label} ${SIZES[r.size].width}x${SIZES[r.size].height} | ${r.theme} | ${r.engine} | ${r.file} | ${r.note.replace(/\|/g, '/')} | ${r.audited ? r.taps.length : 'n/a'} | ${r.audited ? r.fields.length : 'n/a'} |`)];
+    ...rows.map((r) => `| ${r.screen} | ${r.owner} | ${SIZES[r.size].label} ${SIZES[r.size].width}x${SIZES[r.size].height} | ${r.theme} | ${r.engine} | ${r.file || '(deleted)'} | ${r.note.replace(/\|/g, '/')} | ${r.audited ? r.taps.length : 'n/a'} | ${r.audited ? r.fields.length : 'n/a'} |`)];
   fs.writeFileSync(path.join(out, 'report.md'), md.join('\n') + '\n');
   // Every small target and field by name, for whoever fixes the screen.
   fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify([...rows, ...skipped], null, 1) + '\n');

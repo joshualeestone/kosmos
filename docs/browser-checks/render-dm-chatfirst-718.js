@@ -95,6 +95,67 @@ async function open(browser, w, h, theme, agentName = 'April') {
   return { page, errs };
 }
 
+/* #4661: the phone chat's section row, by GEOMETRY. It was a sideways scroller whose third button was cut
+   mid-word, which a flex-direction reading could not see. Runs in the page. `cut` lists every place a label or a
+   status word breaks between two letters (a line change with no space either side), measured per character, so a
+   label that wraps between words passes and one broken inside a word does not. */
+function navGeo() {
+  const bs = [...document.querySelectorAll('#d-nav button')].filter((b) => !b.hidden && b.getBoundingClientRect().height > 0);
+  const rs = bs.map((b) => b.getBoundingClientRect()); const vw = document.documentElement.clientWidth;
+  const nav = document.getElementById('d-nav');
+  const cut = []; const lines = []; const labels = [];
+  for (const b of bs) {
+    for (const el of b.querySelectorAll('.dnav-lab, .swpill')) {
+      const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let tn; let prev = null; let space = false; const tops = [];
+      while ((tn = w.nextNode())) {
+        for (let i = 0; i < tn.textContent.length; i++) {
+          const ch = tn.textContent[i]; const r = document.createRange(); r.setStart(tn, i); r.setEnd(tn, i + 1);
+          const rect = r.getBoundingClientRect();
+          // A space an engine draws with no height still marks a legal break, as does a hyphen before it.
+          if (!rect.height) { if (!ch.trim()) space = true; continue; }
+          if (!ch.trim()) { space = true; prev = { top: rect.top, ch }; continue; }
+          if (!tops.some((t) => Math.abs(t - rect.top) < 2)) tops.push(rect.top);
+          if (prev && rect.top > prev.top + 2 && !space && prev.ch !== '-') cut.push(el.textContent.trim().slice(0, 30) + ' @' + i);
+          prev = { top: rect.top, ch }; space = false;
+        }
+      }
+      if (el.classList.contains('dnav-lab') || el.classList.contains('swpill')) {
+        lines.push(tops.length);
+        // Which words, in how many lines, in how wide a column: a failed height names its cause.
+        // spare: the BUTTON's text column (its content box) less the words' one-line width. Not the label's own box: a
+        // label is centred in a column-flex button (align-items: center on #d-nav.dnav-boxed button, #3500), so it shrinks to its
+        // words and would always read ~0 spare.
+        const rg = document.createRange(); rg.selectNodeContents(el);
+        const rects = [...rg.getClientRects()].map((r) => r.width);
+        const bcs = getComputedStyle(b);
+        const col = b.getBoundingClientRect().width - parseFloat(bcs.borderLeftWidth) - parseFloat(bcs.borderRightWidth) - parseFloat(bcs.paddingLeft) - parseFloat(bcs.paddingRight);
+        labels.push({ text: el.textContent.trim().slice(0, 24), pill: el.classList.contains('swpill'), rowW: Math.round(nav.getBoundingClientRect().width), lines: tops.length, w: Math.round(el.getBoundingClientRect().width), btnW: Math.round(b.getBoundingClientRect().width),
+          spare: tops.length === 1 && rects.length ? Math.round((col - Math.max(...rects)) * 10) / 10 : null });
+      }
+    }
+  }
+  /* Every label and status word inside its own button, and no label ellipsised: a word wider than its column is
+     clipped or spills rather than breaking, which the per-character measure above cannot see. A label (overflow:
+     hidden, a block) cannot leave its button, so for labels the clip test (scrollWidth) is what catches it; the
+     status word (.swpill, inline-flex, not clipped) is caught by the rect test. */
+  const spill = [];
+  for (const b of bs) {
+    const br = b.getBoundingClientRect();
+    for (const el of b.querySelectorAll('.dnav-lab, .swpill')) {
+      const r = el.getBoundingClientRect(); if (!r.width) continue;
+      if (r.left < br.left - 0.5 || r.right > br.right + 0.5) spill.push(el.textContent.trim().slice(0, 20) + ' out of its button by ' + Math.round(Math.max(br.left - r.left, r.right - br.right)) + 'px');
+      if (el.classList.contains('dnav-lab') && el.scrollWidth > el.clientWidth + 1) spill.push(el.textContent.trim().slice(0, 20) + ' clipped');
+    }
+  }
+  return { n: bs.length, oneRow: rs.length > 0 && rs.every((r) => Math.abs(r.top - rs[0].top) < 1),
+    whole: rs.every((r) => r.left >= -0.5 && r.right <= vw + 0.5), cut, spill, maxLines: Math.max(0, ...lines), labels,
+    scrolls: nav.scrollWidth > nav.clientWidth + 1, h: Math.round(Math.max(...rs.map((r) => r.height))),
+    // The row's own height, top of its highest button to bottom of its lowest: `h` is one button, and undercounts a
+    // row that has wrapped.
+    rowH: Math.round(Math.max(...rs.map((r) => r.bottom)) - Math.min(...rs.map((r) => r.top))),
+    threadH: document.getElementById('d-dmthread').clientHeight };
+}
+
 /* Runs in the page: rects of what a person needs, and whether the page itself scrolls. */
 function measure() {
   const R = (s) => { const e = document.querySelector(s); if (!e) return null; const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, w: r.width, h: r.height, shown: r.width > 0 && r.height > 0 }; };
@@ -150,7 +211,19 @@ function measure() {
         const ring = await page.evaluate(() => { const r = document.getElementById('d-ring').getBoundingClientRect(); const h = document.querySelector('.dhead').getBoundingClientRect(); const svg = document.querySelector('#d-ring svg'); return { drawn: !!svg, w: r.width, left: r.left, right: r.right, top: r.top, bottom: r.bottom, hl: h.left, hr: h.right, ht: h.top, hb: h.bottom }; });
         chk(ring.drawn && ring.w <= 60 && ring.left >= ring.hl - 0.5 && ring.right <= ring.hr + 0.5 && ring.top >= ring.ht - 0.5 && ring.bottom <= ring.hb + 0.5, `${t} the memory ring is sized to the compact avatar and sits inside the header`, JSON.stringify(ring));
         chk(Math.abs(m.boxLeft) <= 0.5, `${t} the conversation box runs edge to edge (its negative margin matches the page gutter)`, `left=${m.boxLeft} bodyPad=${m.bodyPadLeft}`);
-        chk(m.tabsRow === 'row', `${t} the section tabs are one row`, m.tabsRow);
+        const g = await page.evaluate(navGeo);
+        chk(g.oneRow && g.n >= 3, `${t} the section tabs are one row`, `oneRow=${g.oneRow} n=${g.n}`);
+        chk(g.whole && !g.scrolls, `${t} #4661: every section tab is whole on screen, and the row does not scroll`, `whole=${g.whole} scrolls=${g.scrolls}`);
+        chk(g.cut.length === 0 && g.spill.length === 0, `${t} #4661: no label is broken inside a word, clipped, or outside its button`, JSON.stringify({ cut: g.cut, spill: g.spill }));
+        chk(g.h >= 44 && g.h <= 52, `${t} #4661: at 375 and wider, with default text, the row keeps its one-line 44px height`, `h=${g.h} ${JSON.stringify(g.labels)}`);
+        // 2px spare. "Direct Message" measures 92px on CI and on this Mac alike; what differed was the ROW: 312px at 375
+        // on CI against 327 here (15px: the width of a classic scrollbar, which a phone does not draw; inferred from the
+        // width, not measured). The old 90px column wrapped on CI only; 2px sides and a 4px gap leave 3.7px there (run on
+        // c90bd94a5), and on this Mac even the old page passes (3.3), so the discriminating run is CI's. rowW in the
+        // detail says whether the words or the row changed. A swarm's status word (a shrink-wrapped pill) is skipped.
+        const words = g.labels.filter((l) => !l.pill);
+        chk(words.length >= 3 && words.every((l) => typeof l.spare === 'number'), `${t} #4661: every label is measured, on one line`, JSON.stringify(g.labels));
+        chk(words.every((l) => typeof l.spare !== 'number' || l.spare >= 2), `${t} #4661: every one-line label has at least 2px to spare in its column (a slightly narrower row does not wrap it)`, JSON.stringify(g.labels));
         chk(!(m.label && m.label.w > 2 && m.label.h > 2) && m.labelDisplay !== 'none' && m.labelText.length > 0, `${t} the caption that repeats the agent's name is not shown but kept for screen readers`, JSON.stringify({ label: m.label, display: m.labelDisplay, text: m.labelText }));
         chk(m.visibleVar === m.vh + 'px', `${t} the page's visualViewport listener writes the visible height`, `var=${m.visibleVar} vh=${m.vh}`);
         chk(m.boxMinH === '0px', `${t} the phone rules win over the 56rem talk-fill block (talk box min-height 0)`, m.boxMinH);
@@ -408,10 +481,34 @@ function measure() {
         chk(vvErrs.length === 0, `${t} no page errors`, vvErrs.join(' | '));
         await page.close();
       }
+      // #4661: narrower phones and larger text. A label may wrap to a second line between words, never inside one,
+      // and nothing scrolls. The row is then two lines tall at most, and the conversation keeps room.
+      for (const [w, h, scale] of [[320, 568, 1], [360, 740, 1], [375, 667, 1.3]]) {
+        const { page, errs } = await open(browser, w, h, 'light');
+        if (scale !== 1) {
+          await page.evaluate((k) => { document.documentElement.style.fontSize = (16 * k) + 'px'; }, scale);
+          await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+        }
+        const t = `[${eng} ${w}x${h}${scale !== 1 ? ' text ' + Math.round(scale * 100) + '%' : ''}]`;
+        const g = await page.evaluate(navGeo);
+        chk(g.oneRow && g.whole && !g.scrolls && g.cut.length === 0 && g.spill.length === 0, `${t} #4661: every section tab is whole, unscrolled, and no label is broken inside a word, clipped, or outside its button`, JSON.stringify(g));
+        chk(g.maxLines <= 2, `${t} #4661: no label or status word runs past two lines (counted, not inferred from pixels)`, `maxLines=${g.maxLines} h=${g.h}`);
+        chk(g.threadH >= 60, `${t} #4661: the conversation keeps room to read`, `threadH=${g.threadH}`);
+        const dotHits3 = await page.evaluate(() => { const hits = [];
+          for (const b of document.querySelectorAll('#d-nav button')) b.setAttribute('data-dot', '1');
+          for (const b of document.querySelectorAll('#d-nav button')) { if (b.hidden) continue; const d = b.querySelector('.dot'); if (!d) continue; const dr = d.getBoundingClientRect(); if (!dr.width) continue;
+            for (const el of b.querySelectorAll('.dnav-lab')) for (const tr of el.getClientRects()) if (dr.left < tr.right && dr.right > tr.left && dr.top < tr.bottom && dr.bottom > tr.top) hits.push(el.textContent.trim()); }
+          for (const b of document.querySelectorAll('#d-nav button')) b.removeAttribute('data-dot');
+          return hits; });
+        chk(dotHits3.length === 0, `${t} #4661: the needs-you dot is clear of every label in the three-button row`, JSON.stringify(dotHits3));
+        chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+        await page.close();
+      }
       // A swarm agent (#3564) on the phone chat: the cluster fits the 40px slot, and Stop now is on
-      // screen without scrolling the header.
-      {
-        const page = await browser.newPage({ viewport: { width: 375, height: 667 } });
+      // screen without scrolling the header. #4661: at 320 wide too, the narrowest phone, where the four-button row
+      // is tightest.
+      for (const [sww, swh] of [[375, 667], [320, 568]]) {
+        const page = await browser.newPage({ viewport: { width: sww, height: swh } });
         const serrs = []; page.on('pageerror', (e) => serrs.push(e.message));
         await page.addInitScript(() => {
           const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -423,7 +520,7 @@ function measure() {
         await page.evaluate(() => paintTalk('april', 'April'));
         await page.waitForSelector('#d-dmthread .msg');
         await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-        const t = `[${eng} 375x667 swarm]`;
+        const t = `[${eng} ${sww}x${swh} swarm]`;
         const sw = await page.evaluate(() => {
           const R = (e) => e && e.getBoundingClientRect();
           const c = R(document.querySelector('#d-swarm .swc')); const slot = R(document.querySelector('.dhead .detail-av'));
@@ -439,6 +536,48 @@ function measure() {
         chk(sw.panelShown && sw.cw && sw.cw <= sw.slotW + 0.5, `${t} the swarm cluster fits the compact avatar slot`, JSON.stringify(sw));
         chk(!sw.inHeader && sw.boxShown && sw.inStrip && sw.boxTop >= 0 && sw.boxBottom <= sw.vh, `${t} no swarm control in the header; Swarm Settings is a pill in the section strip, on screen (#4433)`, JSON.stringify(sw));
         chk(sw.threadH >= 60, `${t} the thread keeps room to read`, `threadH=${sw.threadH}`);
+        const sg = await page.evaluate(navGeo);
+        chk(sg.n === 4 && sg.oneRow && sg.whole && !sg.scrolls && sg.cut.length === 0 && sg.spill.length === 0, `${t} #4661: the four buttons (a swarm's too) are one row, whole, unscrolled, no word cut`, JSON.stringify(sg));
+        chk(sg.maxLines <= 2, `${t} #4661: in the swarm row no label or status word runs past two lines`, `maxLines=${sg.maxLines} h=${sg.h}`);
+        // Every status word the row can carry (swarmPillPaint: Active, Stopped, Paused, Paused (limit), the widest). At default text the four
+        // stay one row, no word cut, clipped or out of its button, and the needs-you dot touches no text.
+        await page.evaluate('window.navGeo = ' + navGeo.toString());   // the same measure, callable inside the page
+        for (const [st, lim] of [['active', false], ['stopped', false], ['paused', false], ['paused', true]]) {
+          const sgw = await page.evaluate(([s0, l0]) => { swarmPillPaint(s0, l0);
+            for (const b of document.querySelectorAll('#d-nav button')) b.setAttribute('data-dot', '1');
+            return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => {
+              const g0 = window.navGeo();
+              const dotHits = [];
+              for (const b of document.querySelectorAll('#d-nav button')) {
+                const d = b.querySelector('.dot'); if (!d || b.hidden) continue; const dr = d.getBoundingClientRect(); if (!dr.width) continue;
+                for (const el of b.querySelectorAll('.dnav-lab, .swpill')) for (const tr of el.getClientRects()) {
+                  if (dr.left < tr.right && dr.right > tr.left && dr.top < tr.bottom && dr.bottom > tr.top) dotHits.push(el.textContent.trim().slice(0, 16)); }
+              }
+              for (const b of document.querySelectorAll('#d-nav button')) b.removeAttribute('data-dot');
+              r(Object.assign(g0, { word: document.getElementById('d-nav-swarm-word').textContent, dotHits }));
+            })));
+          }, [st, lim]);
+          chk(sgw.oneRow && sgw.whole && !sgw.scrolls && sgw.cut.length === 0 && sgw.spill.length === 0 && sgw.maxLines <= 2 && sgw.dotHits.length === 0,
+            `${t} #4661: status "${sgw.word}": one row, whole, no word cut, clipped or out of its button, at most two lines, the needs-you dot clear of the words`, JSON.stringify(sgw));
+          // Measured ceilings (the plan records them): 70px for the one-line status words, 84 for "Paused (limit)",
+          // which stacks two two-line words; and the conversation keeps its 60px floor at default text.
+          chk(sgw.rowH <= (lim ? 84 : 70) && sgw.threadH >= 60, `${t} #4661: status "${sgw.word}": the row is at most ${lim ? 84 : 70}px and the conversation keeps 60px`, `rowH=${sgw.rowH} threadH=${sgw.threadH}`);
+        }
+        await page.evaluate(() => swarmPillPaint('active', false));
+        // The same row with larger text (browser text size or page zoom): where the words were once broken mid-word
+        // ("Messa / ge"). Checked per character, so a between-words wrap passes and a split word does not.
+        for (const pct of [130, 150]) {
+          await page.evaluate((px) => { document.documentElement.style.fontSize = px + 'px'; }, 16 * pct / 100);
+          await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+          const sg2 = await page.evaluate(navGeo);
+          // Here four buttons may need two lines (a word wider than a quarter of the screen): wrapped is fine,
+          // cut, clipped or spilling is not.
+          chk(sg2.whole && !sg2.scrolls && sg2.cut.length === 0 && sg2.spill.length === 0, `${t} #4661: at ${pct}% text every swarm-row button is whole, no word broken, clipped or outside its button (the row may wrap)`, JSON.stringify(sg2));
+          // The accepted cost, with a floor so it cannot quietly get worse: at 150% on a 320x568 phone the four whole
+          // words take two rows and the conversation keeps about one line (measured in the plan).
+          chk(sg2.threadH >= 24, `${t} #4661: at ${pct}% text the conversation keeps at least a line`, `threadH=${sg2.threadH} rowH=${sg2.rowH}`);
+        }
+        await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
         const swn = await page.evaluate(() => {
           const show = (id, text) => { const e = document.getElementById(id); e.hidden = false; if (text) e.textContent = text; };
           show('d-said-lab', 'Its last words'); show('d-said', 'You have hit your usage limit. It resets at 5pm. Upgrade your plan to keep going, or wait for the reset and try again then.');
@@ -498,6 +637,13 @@ function measure() {
           return { hoverNone: matchMedia('(hover: none)').matches, search: px(document.getElementById('d-talk-search')), say: px(document.getElementById('d-say')),
             row: hh(document.getElementById('d-talk-search-wrap')), field: hh(document.getElementById('d-talk-search')) };
         });
+        // #4661: a short sideways phone narrower than 56rem gets the same compact section row: one row, whole,
+        // unscrolled, no word cut, clipped or out of its button.
+        if (touch && w < 896 && h <= 480) {
+          const lg = await page.evaluate(navGeo);
+          chk(lg.oneRow && lg.whole && !lg.scrolls && lg.cut.length === 0 && lg.spill.length === 0 && lg.h <= 52,
+            `${t} #4661: sideways, the section row is one 44px row, whole, no word cut or clipped`, JSON.stringify(lg));
+        }
         if (touch) {
           chk(f.hoverNone && f.search === '16px' && f.say === '16px', `${t} the search box and the text box are 16px on a touchscreen past the phone width (iOS does not zoom)`, JSON.stringify(f));
           // A short sideways phone narrower than 56rem gets the chat-first layout, where the search row steps

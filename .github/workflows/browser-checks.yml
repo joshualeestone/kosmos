@@ -282,6 +282,7 @@ jobs:
             render-firstrun-connect-fires
             render-url-state
             render-trust-restart-0644
+            render-codex-hooks-4607
             render-restore-dircheck-2615
             render-account-name-2095
             render-observed-consumers-1959

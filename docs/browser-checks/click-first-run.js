@@ -403,12 +403,13 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     await newAgent.click();
     await page.waitForTimeout(600);
     ok(await page.isVisible('#panel-create'), 'and it opens the create panel');
-    // Not just open -- usable. The picker's radios are only un-hidden by the fetch.
+    // #4556: New Agent opens on the three-way choice (Single / Team / Swarm).
+    ok(await page.isVisible('#cstep-kind'), 'on step one of creating (the three-way choice), not somewhere mid-flow');
+    // Not just open -- usable: Single leads to the role screen, whose radios are only un-hidden by the fetch.
+    await page.click('#cstep-kind [data-path="single"]');
     await page.waitForSelector('#roles-list .pick2', { state: 'visible', timeout: 5000 }).catch(() => {});
-    // Five since #1280 added "upload an org chart" as a fifth .pick2 (after the
-    // #1652 file-import option). The count tracks the create-flow option set.
-    ok((await page.locator('#roles-list .pick2:visible').count()) === 5, 'with its roles actually loaded');
-    ok(await page.isVisible('#cstep-role'), 'on step one of creating, not somewhere mid-flow');
+    // Four: the org chart (#1280) moved to the Team screen (#4556). The count tracks the Single option set.
+    ok((await page.locator('#roles-list .pick2:visible').count()) === 4, 'with its roles actually loaded');
     await ctx.close();
   }
 
