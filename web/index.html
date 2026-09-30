@@ -496,7 +496,17 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .askreq { display: grid; grid-template-columns: 40px 1fr auto; gap: 4px 14px; align-items: center;
             padding: 16px 18px; margin-top: 8px; border: 1px solid #3a68d8; border-radius: 14px; max-width: 640px;
             background: linear-gradient(160deg,#1f3360,#132449); color: #c3cde3; }
-  .askreq .askbrand { grid-column: 1 / span 3; }
+  /* Named areas: the brand across the top, the icon beside who and when, then the line, the code and the buttons
+     at full width (a 40px first column otherwise squeezed the headline to a word per line). */
+  .askreq { grid-template-columns: 40px 1fr; grid-template-areas: "brand brand" "dev who" "say say" "code code" "acts acts"; }
+  .askreq .askbrand { grid-area: brand; }
+  .askreq .askdev { grid-area: dev; grid-row: auto; }
+  .askreq .askwho { grid-area: who; }
+  .askreq .asksay { grid-area: say; }
+  #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig { grid-area: code; }
+  .askreq .acts { grid-area: acts; }
+  /* Kosmos+ blue in the panel too (the 09-16 ruling: gold is regular Kosmos only). */
+  .askreq .btn.uprime, .askreq .btn.uprime:hover { background: #2f57c4; border-color: #2f57c4; color: #fff; }
   .askreq .askwho b { color: #fff; font-size: 1.05rem; }
   .askreq .askwho span { color: #9fb0d4; }
   .askreq .askdev { background: rgba(126,160,240,.14); }

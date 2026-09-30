@@ -92,7 +92,9 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
           say: (r.querySelector('.asksay') || {}).textContent || '', code: code ? code.textContent : '', label: code ? code.getAttribute('aria-label') : '',
           size: code ? parseFloat(getComputedStyle(code).fontSize) : 0, boxes: r.querySelectorAll('.devcode-cell').length,
           aboveActs: !!(code && code.nextElementSibling && code.nextElementSibling.classList.contains('acts')), acts,
-          inside: !code || code.getBoundingClientRect().right <= r.getBoundingClientRect().right + 0.5 };
+          inside: !code || code.getBoundingClientRect().right <= r.getBoundingClientRect().right + 0.5,
+          /* The headline gets the sheet's width, not the icon's 40px column (a grid slip read one word per line). */
+          headShare: (r.querySelector('.askwho') || r).getBoundingClientRect().width / r.getBoundingClientRect().width };
       }));
       const pc = sheets.find((x) => /windowsbox/.test(x.head)) || {};
       const ph = sheets.find((x) => /iPhone/.test(x.head)) || {};
@@ -100,8 +102,8 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         `${tag} a computer joining reads as one of your own computers`, JSON.stringify(pc));
       chk(ph.head === 'iPhone wants to connect to your Kosmos' && /Allow only if this code is showing on the device in your hand\./.test(ph.say) && !/signed it in/.test(ph.say),
         `${tag} CONTROL: a phone keeps its own name and the device-in-your-hand line`, JSON.stringify(ph));
-      chk(sheets.length === 2 && sheets.every((x) => /kosmos\+/i.test(x.brand) && x.boxes === 0 && x.size >= 28 && x.aboveActs && x.inside && JSON.stringify(x.acts) === JSON.stringify(['Allow', 'Not me'])),
-        `${tag} each sheet: the Kosmos+ brand, the code once and large (no boxes), directly above Allow and Not me`, JSON.stringify(sheets));
+      chk(sheets.length === 2 && sheets.every((x) => /kosmos\+/i.test(x.brand) && x.boxes === 0 && x.size >= 28 && x.aboveActs && x.inside && x.headShare >= 0.5 && JSON.stringify(x.acts) === JSON.stringify(['Allow', 'Not me'])),
+        `${tag} each sheet: the Kosmos+ brand, a headline across the sheet, the code once and large (no boxes), directly above Allow and Not me`, JSON.stringify(sheets));
       chk(pc.code === 'X3-P2' && pc.label === 'X 3, P 2', `${tag} the code is read out a character at a time`, JSON.stringify([pc.code, pc.label]));
       chk(await page.evaluate(() => document.getElementById('plus-asks-title').textContent) === 'Waiting for you', `${tag} the section says Waiting for you, not the old wording`);
 
