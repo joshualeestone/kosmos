@@ -251,6 +251,11 @@ function parseOwnCode(text) {
   return name ? { ref: o.ref, name, from: o.from === undefined ? null : o.from } : null;
 }
 
+/* Why ownAccountNames could not answer when the Kosmos+ this computer is signed in to has an address
+   computers cannot sit under (a localhost, an IP, a two-label host: a developer's or a test service).
+   Asking again cannot change that, so uncheckedRefusal gives it its own sentence. */
+const NO_COMPUTER_DOMAIN = 'the Kosmos+ address is not one computers can live under';
+
 /** The Kosmos+ names of the computers on THIS computer's account, asked of the coordinator through
     the tunnel (signed with this computer's key, so it can only be this account's list). Never throws. */
 async function ownAccountNames(remote) {
@@ -266,7 +271,7 @@ async function ownAccountNames(remote) {
   const computers = require('./account-computers');
   let domain = null;
   try { domain = computers.computerDomain(remote.COORDINATOR()); } catch { domain = null; }
-  if (!domain) return { ok: false, because: 'the Kosmos+ address is not one computers can live under' };
+  if (!domain) return { ok: false, because: NO_COMPUTER_DOMAIN };
   const names = rows.filter((c) => c && computers.validAddress(c.address, domain)).map((c) => ownFromOf(c.address)).filter(Boolean);
   // This computer's own row is always in a real answer, so a list with no readable name is a list that
   // could not be read, not an account with no computers: "could not check", never "another account".
@@ -292,6 +297,10 @@ function uncheckedRefusal(because) {
   // "Mac" or "computer": the connector's prefix is per platform (fedseats' MAC_LEVEL_REFUSAL, #4645).
   if (/^Kosmos\+ refused this (?:Mac|computer): .*\(HTTP 403 on [^)]*, code own_lineage\)$/.test(b)) {
     return { status: 409, body: { reason: 'unchecked', error: 'This computer has not been allowed on your Kosmos+ account yet, so Kosmos cannot check this code. Kosmos on one of your other computers shows that this computer is asking: press Allow there, then paste the code again.' } };
+  }
+  // No computer of this Kosmos+ has an address to be named by, so no own code can ever be checked here.
+  if (b === NO_COMPUTER_DOMAIN) {
+    return { status: 409, body: { reason: 'unchecked', error: 'This computer is signed in to a Kosmos+ service that gives computers no address, so Kosmos cannot check that this code is from one of your computers. The project cannot be added here.' } };
   }
   // A connector older than the route can never sign it: trying again cannot help, updating can.
   if (/does not sign/.test(b)) {
@@ -375,9 +384,11 @@ async function verify(remote, body) {
     }
     const key = OWN_KEY_PREFIX + own.ref;
     const mine = await ownAccountNames(remote);
-    // A refusal also forgets an earlier accepted check of the same room: nothing is left to join with.
-    if (!mine.ok) { verified.delete(key); return uncheckedRefusal(mine.because); }
+    /* A check that could not be made says nothing about the code, so it leaves an earlier accepted
+       check of the same room alone (another tab's join may be waiting on it; it expires by itself). */
+    if (!mine.ok) return uncheckedRefusal(mine.because);
     if (!mine.names.includes(own.from)) {
+      // The account said no: an earlier accepted check of the same room is forgotten, nothing is left to join with.
       verified.delete(key);
       return { status: 409, body: { reason: 'other-account', error: 'This code is from a computer that is not on this Kosmos+ account, so the project cannot be added here. Check that both computers are signed in to the same Kosmos+ account, then make a new code on the computer that has the project.' } };
     }

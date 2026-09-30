@@ -217,13 +217,36 @@ test('#4699: a could-not-check refusal never shows a path or a route, and names 
   // A computer that is waiting to be allowed is not told to try again: retrying cannot allow it.
   const held = await federation.verify(plusRemote({ ok: false, because: WAITING }), { code: ownCodeFrom('study', 'ref-words') });
   assert.doesNotMatch(held.body.error, /Try again/);
-  // A refusal forgets an earlier accepted check of the same room, so nothing is left to join with.
+});
+
+test('#4699: only the account saying no forgets an earlier accepted check; a check that could not be made leaves it', async () => {
   const ok = await federation.verify(plusRemote(LIST('study')), { code: ownCodeFrom('study', 'ref-forget') });
   assert.equal(ok.status, 200, JSON.stringify(ok.body));
   assert.ok(federation.joinSnapshot('own:ref-forget'), 'control: the accepted check is held');
+  // A passing failure (the tunnel did not answer) is no verdict on the code: a join another tab started still works.
+  const passing = await federation.verify(plusRemote({ ok: false, because: 'the tunnel is not running' }), { code: ownCodeFrom('study', 'ref-forget') });
+  assert.equal(passing.body.reason, 'unchecked', JSON.stringify(passing.body));
+  assert.ok(federation.joinSnapshot('own:ref-forget'), 'a check that could not be made threw away an accepted one');
+  // The account's own answer, that the maker is not one of its computers, does forget it.
   const later = await federation.verify(plusRemote(LIST('den')), { code: ownCodeFrom('study', 'ref-forget') });
   assert.equal(later.body.reason, 'other-account');
   assert.equal(federation.joinSnapshot('own:ref-forget'), null, 'a refused check left the earlier one in place');
+});
+
+test('#4699: a Kosmos+ whose address computers cannot sit under says so, and never says to try again', async () => {
+  // A developer's or a test service: localhost, an IP, a two-label host. No computer there has an address.
+  for (const coordinator of ['http://localhost:8787', 'http://127.0.0.1:8787', 'https://kosmos.test', 'not a url']) {
+    const remote = Object.assign(plusRemote(LIST('study')), { COORDINATOR: () => coordinator });
+    const out = await federation.verify(remote, { code: ownCodeFrom('study', 'ref-nodomain') });
+    assert.equal(out.status, 409, coordinator + ' ' + JSON.stringify(out.body));
+    assert.equal(out.body.reason, 'unchecked');
+    assert.match(out.body.error, /gives computers no address.*cannot be added here/, out.body.error);
+    assert.doesNotMatch(out.body.error, /Try again|\//, out.body.error);
+    assert.equal(federation.joinSnapshot('own:ref-nodomain'), null, 'an unchecked code left something to join with');
+  }
+  // Control: the same code and list under a three-label service is accepted.
+  const fine = await federation.verify(plusRemote(LIST('study')), { code: ownCodeFrom('study', 'ref-nodomain') });
+  assert.equal(fine.status, 200, JSON.stringify(fine.body));
 });
 
 test('#4699: a code in the first format (no maker) is refused with the way forward', async () => {

@@ -42,6 +42,13 @@ retired after it made a code invalidates that code, and the refusal cannot tell 
 account (it says both). A code is made to be pasted within minutes, so this should be rare.
 
 ## Not covered
+- `from` is a CLAIM, not proof. Anyone can write a code naming any computer; nothing signs it. The check
+  stops a mistake (a code pasted on a computer of another account), not a person trying to get in. It
+  does not need to: the seat a join opens is minted per account by the coordinator.
+- A Kosmos+ service whose address computers cannot sit under (a localhost, an IP, a two-label host: a
+  developer's or a test service) can never check an own code, because no computer there has an address
+  to be named by. Verify says so in its own sentence and does not say to try again. Joining by own code
+  is not possible on such a service at all; nothing here changes that.
 - The coordinator's answer is not signed. An impersonated answer could list any name, which only defeats
   this mistake-prevention check; it grants no seat in anyone's room (the seat is minted per account).
 - A computer still waiting to be allowed on its account (kosmos#4681) is refused the computer list, so it
@@ -186,3 +193,23 @@ Run because a merge of main came after review 3. It found three real things the 
   project" for an owner room seated on a guest's edge after that edge ends (they predate this branch and
   are true of the guest); the "press Allow there" sentence depends on the waiting-computer card from
   kosmos-relay#4681 and the app's #4702, which are not merged either.
+
+## Review 8 (sonnet): 2 WARNINGs, NITs
+- W FIXED: when the computers' domain cannot be derived from the Kosmos+ address, verify can never work,
+  and the person was told "Try again in a moment". It has its own sentence now (status 409, reason
+  `unchecked`, no retry advice). WRITING THE TEST FOUND A SECOND CASE the review had only named: an IP
+  address (`127.0.0.1`) has four dot-separated parts, so `computerDomain` answered `0.0.1` and the code
+  fell through to "named no computer ... Try again". `computerDomain` (account-computers.js) now answers
+  null for an all-numeric host; the "Your computers" menu uses the same function and gets the same
+  answer (it had nothing to show under `0.0.1` either). Tests: four such addresses, with the control
+  that the same code and list under a three-label service is accepted.
+- W FIXED, and review 7's NIT narrowed: a refused check deleted the earlier accepted check of the same
+  room on EVERY refusal, so a passing failure (the tunnel not answering) destroyed a join another tab had
+  ready. Only `other-account`, the account's own no, deletes it now. Test: accepted, then a could-not-check
+  (still held), then other-account (gone).
+- NIT taken: `from` is a claim, not proof (Not covered, first item).
+- NIT taken: the browser check's `stranger.owner !== 'Your other computer'` could not fail (the refusal ran
+  on a fresh screen, where the owner line was empty). The accepted code now runs FIRST, and the refusal
+  asserts that the project the screen was offering is no longer offered. NOT RUN YET.
+- 151 pass across the five related test files (federation-owncode, account-computers, fedseats, and the
+  two server federation files).
