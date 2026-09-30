@@ -7,8 +7,9 @@ project reads (#4692), all on main.
 1. `GET /api/roles`, `GET /api/tasks` and `GET /api/project/<p>/room` pass the board-token gate for a loopback
    caller presenting only a valid agent token in the header. These are the reads behind `kosmos agent roles`,
    `kosmos agent role-draft`, `kosmos task list` and `kosmos room`.
-2. No agent known today gains a read it did not already have, the setup guide included (see Decisions). An agent
-   that holds a valid token and cannot read the board token WOULD gain these three: that is what the list grants.
+2. A caller that came through on its agent token ALONE (no board token) reads the room and the task list only of
+   a project that agent is on, never the global task list, never the Tasks view's costly arm. The roles list is
+   open to any valid token. A caller that also presents the board token is not narrowed.
 3. Both CLIs (Mac `install/kosmos`, Windows `tools/windows/kosmos-cli.js`) send the agent's own token on those
    reads, plain hex only, and still send the board token.
 4. Nothing an agent or the person can do today stops working.
@@ -24,11 +25,25 @@ slice 5: each handler has to name the caller first.
 - **Exact keys, GET only.** The gate key is `METHOD pathname`. HEAD, every write on the same paths, and every
   neighbour (`/room/reopen`, `/project/<p>/tasks`, `/projects`) stay behind the board token. The query is not part
   of the key, so the JSON arm of the room read (no `?as=text`) opens too: it is the same rows.
-- **No membership check on a read.** #4581 already decided that membership is not a boundary for reads
-  (`GET /api/projects`), and every ordinary agent can read every room and task list today with the board token its
-  CLI holds. Rejected: refusing a non-member agent on the room read. It would change what works today (a PM agent
-  reading a room it is not on) the moment the CLI presents the token, for no gain against an agent that can still
-  send the board token.
+- **Membership, for a token-only caller (reversed in review round 3).** The first two versions had no membership
+  check, on the argument that every agent already reads every room with the board token its CLI holds. Round 3
+  found the caller that argument leaves out, in this file's own words: a token minted for an agent on another
+  machine (`POST /api/agent-token`) is refused as a direct network peer, but behind the person's own reverse
+  proxy (`AGENT_WORKFORCE_ALLOWED_HOSTS`) it is a loopback peer. It holds no board token. Before this slice its
+  room read was a 403; with the first two versions it read every room, including projects it is not on. So the
+  room and task handlers ask `agentTokenOnlyCaller(req)`: enforcing board, no valid board token, so the agent
+  token is what passed the gate. Then: the project must list that agent (by the token store's key, the same
+  `projectHasAgent(..., byKey)` the task verbs use for a paneless caller); the task list needs `?project=`; the
+  Tasks view's arm (`?view=tasks`, `?withArchived=`) is not served; an unreadable projects list is a 503 for that
+  caller while the board-token caller keeps the room's old fail-open read.
+- **Why not the two alternatives.** (a) Only documenting the proxied agent as a gainer: it would read other
+  projects' conversations, and `kosmos post` and `react` already refuse a non-member, so reading would have been
+  the odd one out. (b) Refusing the reads when the request's Host is an allowed-hosts name: the Host header is
+  the caller's to set, and a catch-all proxy forwards any.
+- **What this does to today's agents: nothing.** Every CLI still sends the board token, so no local agent is a
+  token-only caller. The day the CLIs drop it (a later slice), every agent becomes one, and `kosmos room <a
+  project I am not on>` stops working for it. That is on purpose and written here so that slice decides it with
+  open eyes (for example a PM agent that reads rooms it is not on would need a stated permission).
 - **The setup guide is NOT an exception (reversed in review round 1, on a measurement).** The first version closed
   the room and the tasks to the guide's token, on the belief that the guide cannot read the board token. That
   belief is written in install/kosmos (the #3769 reply comment) and engine/team.js, and contradicted by
@@ -52,11 +67,17 @@ slice 5: each handler has to name the caller first.
 - `GET /api/tasks` with no `?project=` answers the global set. An ordinary agent could already read it.
 
 ## Tests
-- `server.agent-reads-4491.test.js` (new, 5): the gate refuses each read bare and with an unissued token; the
-  three reads answer a token-only agent; 20 neighbours and other verbs stay closed (HEAD on all three included);
-  the setup guide, with a REAL marked folder (no stub), reads them like any agent; a revoked token stops reading.
-  Measured red: the room pattern unanchored (the neighbours test), and the guide test against the first version's
-  guide rule (which also shows the real marker chain is what the board reads).
+- `server.agent-reads-4491.test.js` (new, 7): the gate refuses each read bare and with an unissued token; the
+  three reads answer a token-only agent on its own project (text and JSON arms of the room, both 200); a
+  non-member is refused the room (both arms, the text arm as a bare sentence) and the tasks; the global task list
+  and the Tasks view arm are not served on a token alone; the same agent WITH the board token reads all of it, and
+  the board token alone still reads the global list and the Tasks view arm (controls); a token no project lists
+  reads nothing but roles; an unreadable projects list is a 503 for the token-only caller and still a 200 for the
+  board token; 20 neighbours and other verbs stay closed; the setup-guide tripwire (a real marked folder); a
+  revoked token stops reading.
+  Measured red, one mutation each: the helper never reporting a token-only caller; the room open to non-members;
+  the tasks open to non-members; the global list served; the Tasks view arm served; the unreadable list failing
+  open; board-token holders narrowed too (the controls catch it); the room pattern unanchored; a guide rule present.
 - `cli.agent-token-verbs-4491.test.js` (extended, 8 new): each Mac read presents a valid token and still the board
   token, and forwards nothing for a junk or absent token. Measured red against main's CLI (4 tests).
 - `tools.windows-kosmos-cli-reads-4491.test.js` (new, 9): the same on Windows, with a control verb this slice did
@@ -64,15 +85,23 @@ slice 5: each handler has to name the caller first.
   Measured red against main's CLI (4 tests).
 
 ## Weakest premise
-That a read an agent can already make with the board token is safe to give to its own token. It is true today
-because every agent's CLI holds the board token. It stops being a free pass at the slice where the CLIs drop it:
-from then on this list IS what an agent can read, and each entry needs to be looked at again as a grant.
+That "on the project" is the right line for a token-only read. It is the line `kosmos post`, `react` and the task
+verbs already draw, which is why I took it, but nobody has ruled on whether an agent should be able to read rooms
+of projects it is not on. Today nothing depends on the answer (every CLI sends the board token). It starts to
+matter at the slice where the CLIs drop it.
 
 ## What would change this
-- Josh saying an agent should only read the rooms of projects it is on: then the room read identifies the caller
-  and checks membership (as task message does), for every agent.
+- Josh saying any agent may read any room: delete the two `agentTokenOnlyCaller` blocks (the pin in
+  server.agent-token-sender-570.test.js counts them, so it is a deliberate edit).
 - Josh wanting the setup guide kept from rooms and tasks: that needs the board token kept from its `kosmos`
-  command first (it is not today), then a guide rule at this gate. The first version of this branch has one.
+  command first (it is not today, card #4728), then a guide rule. The first version of this branch has one.
+
+## Known limits added in round 3
+- The room's JSON arm marks reactions as `mine` for the viewer it assumes is the person (`reactionsFor(..., 'you')`).
+  An agent reading that arm on its token sees the person's reactions marked `mine`. Both CLIs read the text arm,
+  which has no such field.
+- The false "the guide cannot read the board token" comments in engine/team.js and install/kosmos are NOT fixed
+  here: card #4728 carries them, with the measurement.
 
 ## Review round 1 (opus): 0 BLOCKER, 2 WARNING, 2 CONVENTION, 4 NIT
 - W the guide premise is contradicted inside the repo: MEASURED (above); the guide rule removed, comments corrected.
@@ -92,4 +121,15 @@ from then on this list IS what an agent can read, and each entry needs to be loo
   Kosmos+ tunnel presents the person's board token on the traffic it forwards (that code is in kosmos-relay).
 - NIT the guide test cannot fail on today's gate: retitled TRIPWIRE, with a comment saying what it is for.
 - NIT a dated measurement stated as fact in shipped source: the comment now points at this plan for it.
+
+## Review round 3 (opus): 0 BLOCKER, 1 WARNING, 1 CONVENTION, 5 NIT
+- W "no such agent is known today" left out the reverse-proxy arm this file documents: TAKEN AS A DESIGN CHANGE,
+  not a comment fix. The room and task reads are narrowed to the caller's own projects for a token-only caller
+  (Decisions, above). Seven mutations measured red.
+- C the comment at POST /api/agent-token ("the name does nothing until it is live") was made false: reworded to
+  say what a minted token can read at once.
+- NITs: the Tasks view parameters are now refused to a token-only caller rather than merely named; the room's
+  JSON arm is asserted 200 with rows; the `mine` marking is a stated limit; #4728 is named for the stale
+  comments; the pin's failure message and the CLI test's messages say the right verb; `kosmos agent roles` is
+  asserted to send `catalogue=1`.
 
