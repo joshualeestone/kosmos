@@ -262,6 +262,9 @@ function fedSetStanding(standing) {
    caught within a TTL (UI off), but the fed-route 403 stays the hard security gate --
    this only keeps the UI honest. */
 const STANDING_TTL_MS = 60 * 1000;   // ICK's ~60s; deliberately not per-poll (5s) to spare the coordinator
+/* #4731: with remote access OFF an enrolled computer is still heard from, but only this often: well inside the
+   coordinator's one-day "quiet" line (#4681), and far from the minute-scale cadence of a computer that is on. */
+const OFF_STANDING_TTL_MS = 12 * 60 * 60 * 1000;
 let standingRefreshInFlight = false;
 const FED_LIVE_TTL_MS = 60 * 1000;   // mirrors STANDING_TTL_MS; a launch flag changes rarely, but a lapse/rollback should still reach a board within ~one TTL
 let fedLiveRefreshInFlight = false;
@@ -316,10 +319,12 @@ async function refreshStandingIfStale(opts) {
   }
   const s = read();
   if (s.ok !== true) return;
+  // #4731: off, the cadence is OFF_STANDING_TTL_MS whatever the caller asked (a 0 TTL included).
+  const due = s.on === true ? ttl : Math.max(ttl, OFF_STANDING_TTL_MS);
   // Math.abs (kosmos#4277): a wall clock stepped backwards (a wrong Mac clock being
   // corrected) leaves standing_at in the future; without it every refresh read as fresh, the early
   // tick's TTL 0 included, until the clock caught up. The same guard as reportNotEnrolledIfDue.
-  if (Math.abs(now - (s.standing_at || 0)) < ttl) return;   // still fresh
+  if (Math.abs(now - (s.standing_at || 0)) < due) return;   // still fresh
   standingRefreshInFlight = true;
   // The answer is about the identity on disk when it was asked: a Forget, or a
   // Forget and a new sign-in, while it was out means it is about one that is gone,
@@ -2051,7 +2056,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { COORDINATOR, fedSeatArgs, fetchFederationLive, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { OFF_STANDING_TTL_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,
