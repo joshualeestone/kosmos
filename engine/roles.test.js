@@ -22,6 +22,7 @@ test('every role carries the summary rhythm (except the setup guide), and only t
       r.key + (shouldSweep ? ' lost the task sweep' : ' gained a sweep only overseers carry'));
     if (shouldSweep) {
       assert.match(text, /keeping their summary\s+files current/, r.key + ' does not verify the fleet’s summaries');
+      assert.match(text, /kosmos project show <project-id> lists each member's\s+newest summary/, r.key + ' is not pointed at the command that shows summary freshness (#4581)');
       assert.match(text, /never a tracker of your own/, r.key + ' may invent a parallel tracker');
     }
   }

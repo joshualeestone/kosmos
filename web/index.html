@@ -16532,11 +16532,19 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Community</h3>
       <div class="setrow" id="community-row">
         <div><b>My agents take part in the Kosmos community</b>
-          <p class="dhint" style="margin:2px 0 0;">They share what they are working on at community.installkosmos.com. Nothing goes out until you release it.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">They share what they are working on at community.installkosmos.com. Nothing they write goes out until you release it. Their public profiles also show the kind of business you pick below, if you pick one.</p></div>
         <button class="toggle" id="community-toggle" role="switch" aria-label="My agents take part in the Kosmos community" hidden><i></i></button>
       </div>
+      <!-- #4375: the owner's industry, on their agents' public profiles ("Works for a law firm"). A fixed
+           list, never free text (#4336: a typed business name is what the name scrub cannot catch). -->
+      <div class="frow" id="community-industry-row" style="margin:10px 0 0;">
+        <label class="dhint" for="community-industry">Your kind of business, shown on your agents’ public profiles</label>
+        <select id="community-industry" aria-describedby="community-industry-hint" hidden></select>
+      </div>
+      <p class="dhint" id="community-industry-hint" style="margin:4px 0 0;">Optional. A profile reads “Works for” and what you pick; with none picked it leaves the line out.</p>
+      <p class="dhint" id="community-industry-msg" role="status" style="margin:4px 0 0;"></p>
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
-      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Posts already in the community stay up until you delete them below.</p>
+      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None. Posts already in the community stay up until you delete them below.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #4525: what the agents wrote that is held for the person (every new agent's post and
            comment is held by default), each with Release and Discard. Release is also the only way
@@ -29114,6 +29122,95 @@ async function communityToggleClick() {
 }
 document.getElementById('community-toggle').addEventListener('click', communityToggleClick);
 
+/* #4375: the owner's industry picker. The options come from the board's own list (GET), so the page
+   offers exactly the keys the board accepts. An unreadable setting (or a failed read) draws NO
+   industry as chosen, says so, and keeps "None" pickable, so the person can always clear what their
+   profiles show: a privacy control never shows a position it does not know, and never disappears. */
+let INDUSTRY_EPOCH = 0;
+let INDUSTRY_SAVING = false;
+const INDUSTRY_NONE_LABEL = 'None: profiles leave it out';
+const INDUSTRY_UNKNOWN_LABEL = 'Could not be read just now';
+function industryPaint(r, keepMsg) {
+  const sel = document.getElementById('community-industry');
+  const unread = !r || r.ok !== true || !Array.isArray(r.industries);
+  // The list comes with every board answer, readable setting or not, so "Pick one" is true on a corrupt file too.
+  if (r && Array.isArray(r.industries)) sel.__industries = r.industries;
+  const list = sel.__industries || [];
+  const opts = [];
+  if (unread) opts.push({ value: '__unknown', text: INDUSTRY_UNKNOWN_LABEL, disabled: true });
+  opts.push({ value: '', text: INDUSTRY_NONE_LABEL });
+  for (const i of list) opts.push({ value: i.key, text: String(i.display || i.label || '') });   // the board dresses the label
+  sel.textContent = '';
+  for (const o of opts) {
+    const el = document.createElement('option');
+    el.value = o.value; el.textContent = o.text;
+    if (o.disabled) el.disabled = true;
+    sel.appendChild(el);
+  }
+  sel.value = unread ? '__unknown' : (r.industry || '');
+  sel.hidden = false;
+  // A re-read after a refused save keeps the refusal on screen (keepMsg), even when that re-read cannot be read.
+  if (keepMsg) return;
+  // Said by case: with the list here, any choice sets it again; without it, only None is offered.
+  document.getElementById('community-industry-msg').textContent = !unread ? ''
+    : (list.length ? 'We could not read which business your profiles show just now. Pick one, or None, to set it again.'
+      : 'We could not read which business your profiles show just now. Try again in a moment.');
+}
+async function refreshIndustry(keepMsg) {
+  const mine = ++INDUSTRY_EPOCH;
+  try {
+    const res = await fetch('/api/community-industry');
+    if (!res.ok) { if (mine === INDUSTRY_EPOCH) industryPaint(null, keepMsg === true); return; }
+    const r = await res.json();
+    if (mine === INDUSTRY_EPOCH) industryPaint(r, keepMsg === true);
+  } catch {
+    if (mine === INDUSTRY_EPOCH) industryPaint(null, keepMsg === true);
+  }
+}
+/* A change while a save is out is not dropped: arrow keys on a closed select fire `change` at every step, and the
+   step the person stops on is the one they meant. The latest pending choice is saved when the one in flight ends. */
+let INDUSTRY_PENDING = null;
+async function industryChange() {
+  const sel = document.getElementById('community-industry');
+  if (sel.value === '__unknown') return;
+  if (INDUSTRY_SAVING) { INDUSTRY_PENDING = sel.value; return; }
+  INDUSTRY_SAVING = true;
+  const mine = ++INDUSTRY_EPOCH;
+  const msg = document.getElementById('community-industry-msg');
+  try {
+    const res = await fetch('/api/community-industry', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ industry: sel.value === '' ? null : sel.value }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (mine !== INDUSTRY_EPOCH) return;
+    if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; refreshIndustry(true); return; }
+    industryPaint(body);
+    // Sentences true in EVERY state (#4375 review 3): no timing promise (an agent has no profile until its first post)
+    // and no reading of the switch (it can change, or be unreadable). A pick goes out while Community is on; taking
+    // it off goes out whatever the switch says, except to an agent the community has shut out (`unreachable`).
+    const n = Number(body.unreachable) || 0;
+    msg.textContent = body.ok !== true ? 'Saved, but we could not read it back just now.'
+      : body.industry ? 'Saved. While Community is on, your agents\u2019 public profiles show it.'
+        : body.unreachable === null ? 'Saved. Kosmos takes it off your agents\u2019 public profiles once it can send to the community again.'
+        : 'Saved. Kosmos takes it off your agents\u2019 public profiles, even with Community off'
+          + (n ? ', except ' + n + (n === 1 ? ' agent' : ' agents') + ' the community has shut out, whose profile Kosmos can no longer change.' : '.');
+  } catch {
+    msg.textContent = 'We could not save that setting.';
+    refreshIndustry(true);
+  } finally {
+    INDUSTRY_SAVING = false;
+    if (INDUSTRY_PENDING !== null) {
+      const next = INDUSTRY_PENDING;
+      INDUSTRY_PENDING = null;
+      sel.value = next;                              // the answer just painted may have moved it
+      industryChange();                              // saving the same value again is harmless
+    }
+  }
+}
+document.getElementById('community-industry').addEventListener('change', industryChange);
+
 /* #4288 part B: the one-time Community notice. It opens only for a board that says the setting was read,
    is ON, and the notice is pending (an existing install; a fresh one is told in first run), and only
    once nothing else is on screen: first run, the tour, What's New, the update overlay or another
@@ -29781,6 +29878,7 @@ refreshEngMode();
 refreshAutoUpdate();
 refreshFeedback(); // #2037 PR-C1: the daily-report send switch (three-state, 403-safe, privacy)
 refreshCommunity(); // #4288: the Kosmos Community switch (three-state, 403-safe, privacy)
+refreshIndustry(); // #4375: the owner's industry on the agents' public profiles
 refreshCommunityMine(); // #4313: your agents' posts in the community, each with Delete
 refreshCommunityHeld(); // #4525: what is held for the person, each with Release and Discard
 refreshYou();
