@@ -46726,7 +46726,8 @@ function tcPaint() {
 /* What to say for a caught error: a fetch that never reached the board throws the browser's own words
    ("Failed to fetch", "Load failed"), which are not ours to show. */
 function tcSay(err, fallback) {
-  if (err instanceof TypeError) return 'Kosmos could not be reached. Try again in a moment.';
+  // Only the fetch failures (Chrome, Safari, Firefox wordings): any other TypeError is a page bug and stays visible.
+  if (err instanceof TypeError && /failed to fetch|load failed|networkerror/i.test(String(err.message))) return 'Kosmos could not be reached. Try again in a moment.';
   return (err && err.message) ? String(err.message) : fallback;
 }
 
@@ -46863,7 +46864,8 @@ async function tcRunOnce(gen) {
     } catch (err) {
       /* Round 4: the create may have landed before the connection dropped, so say so: Try again then
          answers "already an agent called ..." and the agent is on the board. */
-      out = { because: 'Kosmos could not be reached (' + ((err && err.message) || 'network error') + '). It may have been made anyway: look for it on your board before trying again.' };
+      console.warn('[team] a create did not answer:', (err && err.message) || err);
+      out = { because: 'Kosmos could not be reached. It may have been made anyway: look for it on your board before trying again.' };
       m.maybeMade = s.session;   // the agent that may exist is THIS name's: a renamed row adopts nothing
     }
     if (gen !== TC_GEN) return;

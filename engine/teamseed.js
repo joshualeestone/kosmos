@@ -29,6 +29,12 @@ function takenDefault(slug) {
   return fs.existsSync(create.workerDir(slug)) || fs.existsSync(create.plistPath(slug));
 }
 
+/* Whether that machine name belongs to an agent the person removed (remove keeps its folder). Loaded
+   when asked: remove.js itself loads create.js. */
+function removedDefault(slug) {
+  return require('./remove').isRemoved(slug);
+}
+
 /** The catalogue, or null when it is not installed on this build. */
 function catalogue() {
   if (injected === false) return null;
@@ -164,12 +170,14 @@ function ordered(team) {
  *   checkTaken also refuses a name already taken on this computer. The page asks for it before making
  *   anything, so a taken suggested name is caught before the first agent; it is off when the page
  *   re-reads the specs to retry, because by then some of the names are taken by this team itself.
- * @param {{taken?:function(string):boolean}} [deps] tests replace the taken check.
+ * @param {{taken?:function(string):boolean, removed?:function(string):boolean}} [deps] tests replace the checks.
  * @returns {{ok:true, team:string, specs:Array<{slot,title,session,spec,avatar}>}|{ok:false, because:string}}
  */
 function specs(req, cat, deps) {
   const c = cat === undefined ? catalogue() : cat;
   const taken = (deps && typeof deps.taken === 'function') ? deps.taken : takenDefault;
+  // A caller that hands in its own checks (a test) gets no read of this computer's removed list.
+  const removed = deps ? (typeof deps.removed === 'function' ? deps.removed : () => false) : removedDefault;
   const gone = notHeld(c);
   if (gone) return { ok: false, because: gone, unavailable: true };
   const key = req && req.team;
@@ -197,6 +205,11 @@ function specs(req, cat, deps) {
     const slug = create.slugFor(raw);
     if (seen.has(slug)) return { ok: false, because: 'the ' + seen.get(slug) + ' and the ' + m.title + ' have the same name; give each one its own' };
     seen.set(slug, m.title);
+    /* A REMOVED agent keeps its folder, so its name is taken too, but it is not "on your board": say
+       what create itself says for that name (the removed list, and how to free the name). */
+    if (req && req.checkTaken === true && removed(slug)) {
+      return { ok: false, because: raw + ' is on your removed list. Put that one back from "Show removed agents" at the bottom of the Agents tab, delete what was left of it there to free the name, or give the ' + m.title + ' another name' };
+    }
     if (req && req.checkTaken === true && taken(slug)) takenSeats.push({ raw, title: m.title });
     names[m.slot] = raw;
   }

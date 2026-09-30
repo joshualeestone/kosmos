@@ -204,6 +204,24 @@ test('specs with checkTaken refuses a name already taken on this computer, namin
   assert.equal(retry.ok, true, 'a retry re-reads specs without the check, since this team took some of the names itself');
 });
 
+test('review 24: a name that belongs to a REMOVED agent is said as that, never as an agent on the board', () => {
+  const names = { lead: 'Maya', content: 'Leo', social: 'Ana' };
+  // A removed agent keeps its folder, so both checks say yes for it.
+  const deps = { taken: (slug) => slug === 'maya', removed: (slug) => slug === 'maya' };
+  const cat = fixture();
+  const r = teamseed.specs({ team: 'marketing', names, checkTaken: true }, cat, deps);
+  assert.equal(r.ok, false);
+  assert.match(r.because, /^Maya is on your removed list\./);
+  assert.match(r.because, /give the Chief Marketing Officer another name$/);
+  assert.doesNotMatch(r.because, /already on your board|already an agent/);
+  assert.equal(cat.calls.length, 0, 'nothing is built');
+  // Control: the same name, taken by a live agent, gets the other sentence.
+  const live = teamseed.specs({ team: 'marketing', names, checkTaken: true }, fixture(), { taken: (slug) => slug === 'maya', removed: () => false });
+  assert.match(live.because, /^there is already an agent called Maya/);
+  // And without the check (a retry), a removed name is not this function's to refuse.
+  assert.equal(teamseed.specs({ team: 'marketing', names }, fixture(), deps).ok, true);
+});
+
 test('specs refuses an unknown team and a team with no single lead', () => {
   assert.match(teamseed.specs({ team: 'nope', names: {} }, fixture()).because, /no prebuilt team called "nope"/);
   assert.match(teamseed.specs({ team: 'nolead', names: { a: 'Ann' } }, fixture()).because, /no single lead/);

@@ -230,3 +230,16 @@ FIXED:
 - "This makes 1 agents"; and a fetch that never reached the board showed the browser's own words.
 DUPLICATE (decided earlier): a board with no catalogue asks the network on every open of the step; the
 browser check's fixture has no `status` and no `memberTeamSection` (the server tests pin both).
+
+## Review 24 (fable)
+FIXED:
+- A REMOVED agent keeps its folder, so the names pre-check caught its name and said "there is already an
+  agent called Maya ... already on your board" while the Agents tab showed no Maya. It is the likeliest
+  repeat path (remove a team, make it again). The pre-check now asks the removed list first and says what
+  create says for that name: the removed list, and how to free the name. Test with a live-agent control.
+- The dropped-connection row still showed the browser's words in brackets; they go to the console.
+- `tcSay` took every TypeError for an unreachable board, which would have hidden a page bug as a network
+  problem. It now matches only the three browsers' fetch-failure wordings.
+NITs NOT TAKEN: a blank name left in another failed row fails the retried row with that seat's
+complaint (one Try again recovers); a member adopted after a dropped connection gets no project tell;
+the unknown-team sentence shows the team's key; `body.team` is read outside the load's try.
