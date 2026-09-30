@@ -114,3 +114,10 @@ None.
 ### Validation
 Full suite on Mortals (detached, normal queue): clean at 793ab7a2 (first convergence, 12334/0), clean at 324ba510
 (c90bd94a5), and clean at 9b0afbdd (Mortals, 14:00:54Z) at the final head.
+
+### Changes after convergence (2026-09-30 14:20 CDT): path C, merged at the PR
+
+- Validated head: 0eaa229dc, full suite clean on Mortals (hash 9b0afbdd). The head merged, 1e078af31, adds a merge of main 6ea3ebf56, checked then by path C (d462cc705: web.* 2195/0, reason-grep 5/0, gate 0).
+- Main then took #4638 and its revert, #4742, #4618, #4750, #4607, #4755 and #4731. Their files overlap this PR's in web/index.html: path C again.
+- **Merge-tree of 1e078af31 with origin/main 6ba80bb0b: clean**, tree 255839f29. It is exactly the tree of the throwaway 45cb0087e that was tested.
+- **Focused tests on that tree:** web.* 2202/0, browser-checks-reason-grep 5/0, surface gate 0, and **render-dm-chatfirst-718: 409 PASS, 0 FAIL**.
