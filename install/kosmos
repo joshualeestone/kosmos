@@ -6,7 +6,8 @@
 #
 #   kosmos start     start the board if it is not already running
 #   kosmos stop      stop it
-#   kosmos status    say whether it is running, in a sentence
+#   kosmos status    say whether it is running, in a sentence (exit 0 running,
+#                    1 not, 4 running but too busy to answer: #4466, the watchdog reads it)
 #   kosmos open      start if needed, then open the dashboard in the browser
 #   kosmos version   print the app version
 #
@@ -253,6 +254,10 @@ esac
 say() { printf '%s%s\n' "${KOSMOS_SAY_INDENT:-  }" "$*"; }
 die() { printf '  %s\n' "$*" >&2; exit 1; }
 
+# Whether this Mac has the lsof the port checks use (one answer for all three). A function so a test
+# can take it away.
+_lsof_present() { [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; }
+
 # ⚠️ IDENTITY, NOT JUST A 200. Any process squatting on the port answers a
 # bare liveness probe, and then start/status/the app icon would all point a
 # person at a stranger's page and call it Kosmos. The board serves its own
@@ -266,18 +271,170 @@ die() { printf '  %s\n' "$*" >&2; exit 1; }
 # shell carries no account data, so it is exempt from the board token. The token
 # gates the /api/* surface, not the page, so this identity match ('Agent
 # Workforce'/'Kosmos') works unchanged on an enforcing board AND on an older board
-# that predates the token (no compatibility break, no /api/health dependency).
-healthy() {
-  local _body
-  _body="$(/usr/bin/curl -fsS -m 2 "$URL/" 2>/dev/null)" || return 1
-  case "$_body" in
-    *"Agent Workforce"*|*Kosmos*) return 0 ;;
-    *) return 1 ;;
+# that predates the token (no compatibility break: the page is the fallback below whenever a board has
+# no /api/health).
+#
+# #4466: BUSY IS NOT DOWN. On a real 25-agent board the page took longer than the old 2 s cap, so
+# every verb said "Kosmos is not running. Start it with: kosmos start" to a board that was only
+# busy, and agents restarted it into minute-long blackouts. So:
+#   - the probe asks /api/health first (a few bytes, public on an enforcing board, `"app":"kosmos"`
+#     is the identity). An older board has no such route (404, or 403 from its token gate), so any
+#     other answer falls back to the page and its identity match above, unchanged;
+#   - it sets HEALTH_STATE: up | down (nothing listening: connection refused) | stranger (an
+#     answer that is not ours) | busy (connected, but no answer in time, or the reply was cut);
+#   - on busy it tries again with a longer wait each time (2, 4, 8, 8... s) until KOSMOS_BUSY_WAIT
+#     (default 20 s) has passed, saying once on stderr that it is waiting. Only then does it give up,
+#     still as busy, so the caller says "busy" (say_not_up), never "not running" and never "start it".
+#   - `healthy --once` is a single short probe, for the start/stop loops that poll on their own.
+# Returns 0 only for up. ⚠️ Call it as a plain statement or in `if`, never inside $( ): HEALTH_STATE is
+# a global and would be lost in the subshell.
+HEALTH_STATE=down
+_HEALTH_OWNER=""
+_health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
+  local _out _rc _code _body _took _left_s
+  # `&& _rc=0 || _rc=$?`, not `; _rc=$?`: under set -e a failing substitution in a plain assignment
+  # would end the script whenever a caller is outside an if/&&/|| (errexit is only off inside those).
+  _out="$(/usr/bin/curl -sS -m "$1" -w '\n%{time_total}\n%{http_code}' "$URL/api/health" 2>/dev/null)" && _rc=0 || _rc=$?
+  case "$_rc" in
+    0) ;;
+    7) HEALTH_STATE=down; return ;;                 # refused: nothing is listening
+    18|28|52|56) _health_no_answer; return ;;       # timed out, or connected and cut off
+    *) HEALTH_STATE=stranger; return ;;             # an answer that is not HTTP: not our board
   esac
+  _code="${_out##*$'\n'}"; _body="${_out%$'\n'*}"
+  _took="${_body##*$'\n'}"; _body="${_body%$'\n'*}"
+  case "$_code:$_body" in
+    200:*'"app":"kosmos"'*) HEALTH_STATE=up; return ;;
+  esac
+  # Not our health answer: an older board (no route), or a stranger. The page decides, as before.
+  # The page gets what is LEFT of this probe's budget, not a second one, so one probe never takes twice
+  # its time (the start loops count on it). At least half a second, so a slow first answer still
+  # leaves the page a real chance rather than a timeout that reads as busy.
+  _left_s="$(/usr/bin/awk -v m="$1" -v t="${_took:-0}" 'BEGIN { r = m - t; if (r < 0.5) r = 0.5; printf "%.2f", r }')"
+  _body="$(/usr/bin/curl -fsS -m "$_left_s" "$URL/" 2>/dev/null)" && _rc=0 || _rc=$?
+  case "$_rc" in
+    0) case "$_body" in
+         *"Agent Workforce"*|*Kosmos*) HEALTH_STATE=up ;;
+         *) HEALTH_STATE=stranger ;;
+       esac ;;
+    7) HEALTH_STATE=down ;;
+    # 22 is an HTTP error for `/`: an older board of ours failing under load, or a stranger's web server.
+    # The same ownership check as a timeout decides which.
+    18|22|28|52|56) _health_no_answer ;;
+    *) HEALTH_STATE=stranger ;;
+  esac
+}
+# A listener that took the connection but did not answer is BUSY only when it is OUR board: a
+# Kosmos server run by this user. A non-Kosmos process, or another account's board, is a stranger,
+# so start/status take their existing stranger and reclaim paths (#2988, #3079) instead of calling it
+# ours. When there is no lsof at all, it stays busy: the cost of that mistake is a wait, the cost of
+# the other is a restart. When lsof RAN and names no listener, it is another account's (see below).
+_health_no_answer() {
+  local _own _lpid _luid _lkos
+  HEALTH_STATE=busy
+  # Asked once per healthy() call (lsof walks every process): the owner does not change between retries,
+  # and a board this busy is on a machine that cannot spare the sweeps.
+  if [ -z "$_HEALTH_OWNER" ]; then _HEALTH_OWNER="$(port_listener_owner 2>/dev/null)" || _HEALTH_OWNER=unknown; fi
+  [ -n "$_HEALTH_OWNER" ] || _HEALTH_OWNER=unknown   # printed nothing: no owner named, the same as a failed lookup
+  # Something took the connection, so something listens. A user's own lsof sees every one of that
+  # user's processes, so when lsof RAN and still names no listener, the listener is another account's
+  # (on this Mac, non-root lsof sees 13 of 23 listening ports; the rest are root's and other users'):
+  # a stranger, not our busy board. Only a Mac with no lsof at all keeps "cannot tell", which is busy.
+  # (A board that exits between the connect and the lsof also lands here, for one probe. That cannot
+  # cause a kill: a start then asks lsof again before any reclaim, and finds the port free.)
+  if [ "$_HEALTH_OWNER" = unknown ] && _lsof_present; then HEALTH_STATE=stranger; return 0; fi
+  [ "$_HEALTH_OWNER" != unknown ] || return 0
+  _own="$_HEALTH_OWNER"
+  read -r _lpid _luid _lkos <<EOF
+$_own
+EOF
+  # (is_kosmos is #3079's test: "kosmos" in a server.js command line, so a board run from a source
+  # checkout such as ~/work/agent-workforce/server.js reads as a stranger here. Development only.)
+  if [ "${_lkos:-}" != 1 ] || [ "${_luid:-}" != "$_kosmos_uid" ]; then HEALTH_STATE=stranger; fi
+}
+# How long a verb waits on a busy board before it gives up (still saying busy, never "not running").
+# 20 s: long enough to ride out the multi-second answers a 25-agent board gave the tester, short enough
+# that an agent's command does not look hung. KOSMOS_BUSY_WAIT overrides it.
+BUSY_WAIT_DEFAULT_S=20
+# The longest single probe in that wait (probes run 2, 4, 8, 8... s): one slow answer is waited for, and
+# the retries still come often enough to catch the board the moment it is free.
+BUSY_PROBE_MAX_S=8
+# An --auto report (a hook's) waits only this long: SessionStart runs one in the foreground under
+# Claude Code's 15 s hook timeout, so it must end inside it with room to print.
+AUTO_REPORT_BUSY_WAIT_S=6
+# ...and the whole --auto report, health check and POST together, stays inside this, leaving that 15 s
+# hook room to print its "reporting is OFF" sentence.
+AUTO_REPORT_TOTAL_S=12
+# An agent may not start (or restart) the board again within this long of its last start: the 140
+# restarts an hour came from agents that each saw "not running". Five minutes covers a slow boot of a
+# busy board. KOSMOS_AGENT_RESTART_COOLDOWN overrides it.
+AGENT_RESTART_COOLDOWN_S=300
+# KOSMOS_BUSY_WAIT in whole seconds. Anything else is the default: "2.5" would be an arithmetic
+# error under set -e, and the messages must name the wait that was actually used.
+_busy_wait() {
+  case "${KOSMOS_BUSY_WAIT:-}" in ''|*[!0-9]*) printf '%s' "$BUSY_WAIT_DEFAULT_S" ;; *) printf '%s' "$KOSMOS_BUSY_WAIT" ;; esac
+}
+healthy() {
+  _HEALTH_OWNER=""
+  if [ "${1:-}" = --once ]; then
+    _health_probe 2
+    if [ "$HEALTH_STATE" = up ]; then return 0; fi
+    return 1
+  fi
+  local _limit _start="$SECONDS" _t=2 _left _said=""
+  _limit="$(_busy_wait)"
+  local _ps _w
+  while :; do
+    _ps="$SECONDS"
+    _health_probe "$_t"
+    if [ "$HEALTH_STATE" = up ]; then return 0; fi
+    if [ "$HEALTH_STATE" != busy ]; then return 1; fi
+    _left=$(( _limit - (SECONDS - _start) ))
+    if [ "$_left" -le 0 ]; then return 1; fi
+    if [ -z "$_said" ]; then printf '%sKosmos is busy, retrying...\n' "${KOSMOS_SAY_INDENT:-  }" >&2; _said=1; fi
+    # A busy reading can come back FAST (a reset or empty reply, an older board's 5xx page): wait out the
+    # rest of this probe's budget before the next one, so a board already too loaded to answer is not hit
+    # in a tight loop for the whole busy window.
+    _w=$(( _t - (SECONDS - _ps) ))
+    if [ "$_w" -gt "$_left" ]; then _w="$_left"; fi
+    if [ "$_w" -gt 0 ]; then
+      sleep "$_w"
+      _left=$(( _limit - (SECONDS - _start) ))
+      if [ "$_left" -le 0 ]; then return 1; fi
+    fi
+    _t=$(( _t * 2 ))
+    if [ "$_t" -gt "$BUSY_PROBE_MAX_S" ]; then _t="$BUSY_PROBE_MAX_S"; fi
+    if [ "$_t" -gt "$_left" ]; then _t="$_left"; fi
+  done
+}
+# A request that failed AFTER the health check passed (#4466). A timeout or a cut reply is a busy board,
+# not a stopped one, so it must not ask "is it running?" (the question agents answered with a restart).
+# After a WRITE the board may already have acted, so it says to check rather than to try again.
+say_unreached() {   # <what could not happen, e.g. "record that"> <curl exit> [write]
+  case "${2:-}" in
+    18|28|52|56)
+      if [ "${3:-}" = write ]; then
+        say "Kosmos is running but did not answer in time, so we could not $1. It may still have happened: check before doing it again. It does not need a restart."
+      else
+        say "Kosmos is running but did not answer in time, so we could not $1. Wait a minute and try again; it does not need a restart."
+      fi ;;
+    *) say "We could not reach Kosmos to $1. Is it running at $URL?" ;;
+  esac
+}
+# The one message for a verb that needs the board and did not get it (#4466). A busy board is
+# running: telling an agent to start (or restart) it is what turned a slow answer into a blackout.
+say_not_up() {   # <what could not happen, e.g. "nothing can be posted">
+  if [ "$HEALTH_STATE" = busy ]; then
+    say "Kosmos is running but too busy to answer (no reply in $(_busy_wait) s), so $1. Wait a minute and try again; it does not need a restart."
+  else
+    say "Kosmos is not running, so $1. Start it with: kosmos start"
+  fi
 }
 # The port answers but not with our page: somebody else lives there.
 port_taken_by_stranger() {
-  /usr/bin/curl -s -o /dev/null -m 2 "$URL/" 2>/dev/null && ! healthy
+  _HEALTH_OWNER=""   # a fresh question: the listener may have changed since the last healthy()
+  _health_probe 2
+  [ "$HEALTH_STATE" = stranger ]
 }
 # #2988: is a listener holding our port in a way that would COLLIDE with the
 # board's bind? This catches a SILENT holder -- one that binds the port but answers
@@ -316,7 +473,7 @@ port_taken_by_stranger() {
 # a specific non-loopback address. The trailing space also rules out a longer port
 # (` :18729 ` cannot match inside `:187290`).
 port_has_listener() {
-  { [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; } || return 1
+  _lsof_present || return 1
   case "$(/usr/sbin/lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null)" in
     *" 127.0.0.1:$PORT "*|*" *:$PORT "*) return 0 ;;
     *) return 1 ;;
@@ -336,7 +493,7 @@ port_has_listener() {
 # Pipe-free capture + case-match for the pipefail/SIGPIPE reason port_has_listener
 # documents; awk extracts the FIRST colliding listener's pid (space-bounded NAME).
 port_listener_owner() {
-  { [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; } || return 1
+  _lsof_present || return 1
   local _lsof _pid _uid _cmd _iskos
   # -Fpn: field output, a `p<pid>` record then `n<name>` records per file. Parse the pid
   # whose name is a colliding address (exact 127.0.0.1:PORT or *:PORT). Immune to a
@@ -611,6 +768,140 @@ $_print
 EOF
 }
 
+# #4466 part 6: AN AGENT CANNOT RESTART-LOOP THE BOARD. An external tester's new Grok agent started and stopped their
+# board 140 times in an hour, following this file's own "Start it with: kosmos start" advice on a board
+# that was only busy. So when an AGENT runs start, stop or restart:
+#   - the board answers (up or busy): stop and restart are REFUSED, start says it is already running;
+#   - the board does not answer: a start or restart is recovery and goes ahead, but only once per
+#     KOSMOS_AGENT_RESTART_COOLDOWN seconds (default 300) since the board was last started by anyone.
+# A person in their own Terminal is not an agent and is unaffected. `--force` skips the guard (for the
+# person typing into an agent's pane); the refusal text never mentions it, so an agent is not taught it.
+# An agent is known by: KOSMOS_AGENT_SESSION (the supervisor exports it into every pane), the
+# per-launch KOSMOS_AGENT_TOKEN, or its pane's session carrying the supervisor's @kosmos_agent claim
+# (so an agent launched before this update, with neither variable, is usually still caught: the claim
+# is read through the tmux this CLI resolved, and a tmux of another version cannot read that server).
+BOARD_STARTED_AT="$KOSMOS_HOME/board.started-at"
+# Written BEFORE the launch on purpose: a start that then fails (no runtime, a held port) still holds
+# agents off for the cooldown. It is a deterrent against restart loops, and a failing start is one.
+_mark_board_started() { date +%s > "$BOARD_STARTED_AT" 2>/dev/null || true; }
+_invoked_by_agent() {
+  if [ -n "${KOSMOS_AGENT_SESSION:-}" ] || [ -n "${KOSMOS_AGENT_TOKEN:-}" ]; then return 0; fi
+  if [ -n "${TMUX_PANE:-}" ]; then   # guarded: an empty -t is the CURRENT pane, not "no pane"
+    local _claim
+    _claim="$("$AGENT_WORKFORCE_TMUX_BIN" display-message -p -t "$TMUX_PANE" '#{@kosmos_agent}' 2>/dev/null)" || _claim=""
+    if [ -n "$_claim" ]; then return 0; fi
+  fi
+  return 1
+}
+# #4466: the next step for a person, or for an agent, whose stop/restart the guard would refuse anyway.
+# [pid]: a holder nothing tracks whose reclaim kill just failed. 'kosmos stop' leaves such a board alone and
+# 'kosmos restart' repeats the same kill, so a person is sent to the process itself (or a reboot).
+_stop_advice() {
+  if _invoked_by_agent; then printf '%s' "Tell the person who runs this computer; do not restart Kosmos yourself."
+  elif [ -n "${1:-}" ]; then printf '%s' "Quit process $1 (for example: kill -9 $1), or reboot, then start again."
+  else printf '%s' "Stop it with 'kosmos stop' (or reboot), then start again."; fi
+}
+# #4466: for a PERSON only, the way out if "busy" turns out to be stuck (busy and wedged look the same from
+# outside). An agent is never told to restart: that advice is what turned a slow board into a blackout.
+_busy_person_hint() {
+  _invoked_by_agent && return 0
+  say "If it stays like this for several minutes it may be stuck rather than busy: 'kosmos restart' frees it."
+}
+# A DETERRENT, not access control: it stops an agent that follows the CLI's own advice into a restart
+# loop. An agent that passes --force or clears its markers gets through, and so does one launched before
+# #4466 with none of the markers. Never rely on it as a security boundary.
+agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, exits to refuse
+  local _verb="$1" _a _last _now _ago _cool
+  shift
+  for _a in "$@"; do if [ "$_a" = --force ]; then return 0; fi; done
+  if ! _invoked_by_agent; then return 0; fi
+  healthy --once || true
+  case "$HEALTH_STATE" in
+    up|busy)
+      if [ "$_verb" = start ]; then say "Kosmos is already running at $URL"; exit 0; fi
+      say "Kosmos is running at $URL, so an agent may not $_verb it. If it is slow to answer, it is busy, not broken: wait a minute and try again. Only the person who runs this computer restarts Kosmos."
+      exit 1 ;;
+  esac
+  # Nothing answers: there is nothing for an agent to stop, and cmd_stop would write the deliberate-stop
+  # marker, which switches off the watchdog until a person starts Kosmos again.
+  if [ "$_verb" = stop ]; then
+    say "Kosmos is not running here, so there is nothing for an agent to stop. If something looks wrong, tell the person who runs this computer."
+    exit 0
+  fi
+  # A person stopped it on purpose (the deliberate-stop marker): an agent's start would clear the marker and
+  # switch the watchdog back on, overriding that person. Only a person, or an internal caller with --force,
+  # starts it again.
+  if [ -f "$STOP_MARKER" ]; then
+    say "Kosmos was stopped on purpose by the person who runs this computer, so an agent may not start it. Tell them if you need it running."
+    exit 1
+  fi
+  _now="$(date +%s)"
+  _cool="${KOSMOS_AGENT_RESTART_COOLDOWN:-$AGENT_RESTART_COOLDOWN_S}"
+  case "$_cool" in ''|*[!0-9]*) _cool="$AGENT_RESTART_COOLDOWN_S" ;; esac   # whole seconds; anything else would turn the cooldown off
+  _last="$(cat "$BOARD_STARTED_AT" 2>/dev/null || true)"
+  case "$_last" in
+    ''|*[!0-9]*) ;;
+    *) _ago=$(( _now - _last ))
+       if [ "$_ago" -ge 0 ] && [ "$_ago" -lt "$_cool" ]; then
+         say "Kosmos was started ${_ago} s ago, so an agent may not start it again yet. If it still is not answering in a few minutes, tell the person who runs this computer."
+         exit 1
+       fi ;;
+  esac
+  # The check above is not enough when several agents act at once: each reads the same old start time
+  # before any of them writes a new one, all go ahead, and each restart kills the board the last one
+  # started. So an agent also CLAIMS the start, atomically (noclobber: exactly one create succeeds). A
+  # claim older than the cooldown is stale. The claim file outlives every start, so after the first one
+  # every later outage takes the stale path, and replacing it is serialised too: one agent holds
+  # `$_claim.lock` (mkdir is atomic), reads the stamp AGAIN inside it (another agent may have replaced
+  # it since this one read it), and swaps in a new stamp by rename, so the file never goes missing and
+  # the noclobber create cannot race the swap. A lock left by a killed agent is cleared once it is over
+  # about two minutes old (find -mmin +1 counts whole minutes), and that attempt refuses (the next
+  # one can take it). People never claim.
+  local _claim="$KOSMOS_HOME/board.agent-claim" _c
+  if ! ( set -C; printf '%s\n' "$_now" > "$_claim" ) 2>/dev/null; then
+    _c="$(cat "$_claim" 2>/dev/null || true)"
+    case "$_c" in ''|*[!0-9]*) _c=0 ;; esac
+    if [ $(( _now - _c )) -ge "$_cool" ]; then
+      if mkdir "$_claim.lock" 2>/dev/null; then
+        _c="$(cat "$_claim" 2>/dev/null || true)"
+        case "$_c" in ''|*[!0-9]*) _c=0 ;; esac
+        if [ $(( _now - _c )) -ge "$_cool" ] && printf '%s\n' "$_now" > "$_claim.new.$$" 2>/dev/null \
+           && mv -f "$_claim.new.$$" "$_claim" 2>/dev/null; then
+          rmdir "$_claim.lock" 2>/dev/null || true
+          return 0
+        fi
+        rm -f "$_claim.new.$$" 2>/dev/null || true
+        rmdir "$_claim.lock" 2>/dev/null || true
+      elif [ -n "$(find "$_claim.lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+        rmdir "$_claim.lock" 2>/dev/null || true
+      fi
+    fi
+    say "Another agent is starting Kosmos right now, so this one may not. If it still is not answering in a few minutes, tell the person who runs this computer."
+    exit 1
+  fi
+  return 0
+}
+
+# After a start: wait for the board to come up (30 tries, half a second apart). [pid]: the process just
+# launched; the wait ends early if it has exited. #4466: a board that comes back BUSY is up, not failed:
+# it holds the port as ours and is working (a 25-agent board is busy the moment its agents reconnect), so
+# the start reports it running and slow, instead of "did not come up" (and the installer's "would not
+# start") on a board that is serving.
+_await_board_up() {
+  local _i _pid="${1:-}"
+  for _i in $(seq 1 30); do
+    if healthy --once; then say "Kosmos is running at $URL"; return 0; fi
+    if [ "$HEALTH_STATE" = busy ]; then
+      if [ -z "$_pid" ] || kill -0 "$_pid" 2>/dev/null; then
+        say "Kosmos is running at $URL (busy right now, so it is slow to answer)"
+        return 0
+      fi
+    fi
+    if [ -n "$_pid" ] && ! kill -0 "$_pid" 2>/dev/null; then return 1; fi
+    sleep 0.5
+  done
+  return 1
+}
 cmd_start() {
   # #2955: clear the deliberate-stop marker EARLY -- before the healthy check and
   # the bind below that can fail. Starting means "I want it running", which retires
@@ -629,6 +920,17 @@ cmd_start() {
   rm -f "$STOP_MARKER" 2>/dev/null || true
   if healthy; then
     say "Kosmos is already running at $URL"
+    return 0
+  fi
+  # #4466: busy means OUR board holds the port and is working. Starting another would collide with it,
+  # and restarting it is the blackout this card is about.
+  # KOSMOS_RECLAIM_BUSY=1 comes from two callers that know a silent Kosmos on the port is stale, not
+  # busy: bin/board-watchdog.sh after its 5-minute busy grace, and install/setup.sh right after it stopped
+  # the old board itself. The #3079 reclaim below is the only thing that frees a port held by a detached
+  # process neither the pidfile nor launchd tracks.
+  if [ "$HEALTH_STATE" = busy ] && [ "${KOSMOS_RECLAIM_BUSY:-}" != 1 ]; then
+    say "Kosmos is already running at $URL (busy right now, so it is slow to answer)"
+    _busy_person_hint
     return 0
   fi
   # #3079: the port is held but NOT by our answering board. If it is OUR OWN stale
@@ -670,7 +972,7 @@ cmd_start() {
       # current build regardless, and the token bind is race-safe (a bind-loser rejects).
       rm -f "$STOP_MARKER" 2>/dev/null || true
       if port_has_listener; then
-        die "Could not free port $PORT: your stale Kosmos (process $_lpid) did not exit. Run 'kosmos stop', or reboot, then start again."
+        die "Could not free port $PORT: your stale Kosmos (process $_lpid) did not exit. $(_stop_advice "$_lpid")"
       fi
       # The reclaimed process's pidfile (if it was this install's) now points at a dead
       # pid; clear it so the running_pid guard below does not die on a stale entry.
@@ -692,7 +994,7 @@ cmd_start() {
   # reboot), and the new one dies on the taken port anyway.
   local _oldpid
   if _oldpid="$(running_pid)"; then
-    die "A Kosmos board from this install is already running (process $_oldpid) but is not answering on port $PORT. Stop it first with 'kosmos stop', then start again."
+    die "A Kosmos board from this install is already running (process $_oldpid) but is not answering on port $PORT. $(_stop_advice)"
   fi
   [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
@@ -713,17 +1015,15 @@ cmd_start() {
   # login job, or the update transition window before the new plist is loaded).
   if _kosmos_board_supervised; then
     say "Bringing the board up (launchd supervised)."
+    _mark_board_started
     local _sup_label _sup_uid
     _sup_label="$(_kosmos_board_label)"; _sup_uid="$(/usr/bin/id -u)"
     "$LAUNCHCTL" kickstart -k "gui/$_sup_uid/$_sup_label" >/dev/null 2>&1 || true
-    local _s
-    for _s in $(seq 1 30); do
-      healthy && { say "Kosmos is running at $URL"; return 0; }
-      sleep 0.5
-    done
+    _await_board_up && return 0
     die "Kosmos did not come up under launchd. What it said is in $BOARD_LOG"
   fi
   say "Bringing the board up."
+  _mark_board_started
   # Detached from this terminal, with everything it prints kept in a log so a
   # problem produces a transcript rather than a vanished window.
   # ⚠️ stdin FROM /dev/null AND FD 3 CLOSED. An earlier installer saved its
@@ -732,18 +1032,29 @@ cmd_start() {
   # held the descriptor (measured). The installer no longer opens fd 3, but
   # any CALLER might: the server needs no terminal and no caller's plumbing,
   # so it gets neither, whoever launched it.
-  PORT="$PORT" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
+  # #4466: env -u, so a board started from an agent's pane does not carry that agent's markers into
+  # every `kosmos` it runs later (its own Restart button would then read as an agent). And not the
+  # reclaim flag either: it is meant for this one start (setup.sh, the watchdog), and a board that
+  # carried it would hand every later `kosmos start` it runs leave to kill a busy board.
+  # #4669: set -m, so the board gets its OWN process group. When a launchd job ends, launchd kills every
+  # process left in the job's process group, and nohup does not leave it. So a board started by a job that
+  # runs `kosmos start` died the instant that job exited: on Mortals the watchdog's recovery board lived
+  # 745 ms (measured). A throwaway RunAtLoad job of the same shape (nohup a child, exit) lost its child too,
+  # so an old-style login job running `kosmos start` would as well (that shape measured, not that job).
+  # $! is still the board's pid (env and nohup exec). Side effect, harmless: under set -m bash no longer
+  # starts the child with SIGINT/SIGQUIT ignored; the board handles SIGINT itself, and in its own group a
+  # Ctrl-C in the terminal cannot reach it anyway.
+  set -m
+  env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY PORT="$PORT" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
+  set +m
   printf '%s' "$!" > "$PIDFILE"
   # ⚠️ WAIT FOR THE BOARD TO ANSWER, NOT FOR THE PROCESS TO EXIST. A pid that
   # crashes half a second in still had a pid. Thirty half-second tries is
-  # fifteen seconds, which covers a slow first boot with headroom; the log is
-  # named on failure because it is the only witness.
-  local i
-  for i in $(seq 1 30); do
-    healthy && { say "Kosmos is running at $URL"; return 0; }
-    kill -0 "$(cat "$PIDFILE")" 2>/dev/null || break
-    sleep 0.5
-  done
+  # fifteen seconds against a board that refuses the connection; one that takes
+  # it and does not answer costs up to a 2 s probe per try on top (#4466), so up
+  # to 75 s before the verdict. The log is named on failure because it is the
+  # only witness.
+  _await_board_up "$(cat "$PIDFILE" 2>/dev/null)" && return 0
   die "Kosmos did not come up. What it said is in $BOARD_LOG"
 }
 
@@ -786,7 +1097,10 @@ cmd_board_run() {
   # away (a reboot), and a log line each time would be spam. setup.sh reconciles the
   # fresh-install case to a single supervised board (via `kosmos restart` after
   # bootstrap), so this is the defensive backstop, not the normal path.
-  if healthy; then exit 0; fi
+  # --once: one short probe tells busy from down as well as the full wait would, and a KeepAlive relaunch
+  # over a busy board should not spend 20 s of retries on it (#4466).
+  if healthy --once; then exit 0; fi
+  if [ "$HEALTH_STATE" = busy ]; then exit 0; fi   # #4466: our board, busy: never start a second
   # #2956: likewise do not crash-loop against a STRANGER on the port. If a
   # non-Kosmos process holds it, healthy() is false (its body is not ours), so we
   # would fall through and exec node -> EADDRINUSE -> the server exits 1 -> launchd
@@ -821,7 +1135,10 @@ cmd_board_run() {
   # supervisor sees it live and sees it die. stdout/stderr go where the job's
   # plist sends them (the board log); run by hand they go to the terminal.
   printf '%s' "$$" > "$PIDFILE"
-  PORT="$PORT" exec "$NODE" "$APP"
+  _mark_board_started
+  # #4466: the same scrub as cmd_start's nohup launch, so a board-run typed in an agent's pane does not hand
+  # the board an agent's markers (every later kosmos call from it would read as an agent). exec env keeps the pid.
+  exec env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY PORT="$PORT" "$NODE" "$APP"
 }
 
 cmd_stop() {
@@ -847,7 +1164,8 @@ cmd_stop() {
     # "not running" while the recorded process is alive on its original
     # port. Killing it silently made two adjacent commands contradict each
     # other, with the destructive one lying. Say which board this is.
-    if ! healthy; then
+    # Only a board that does not answer AND is not our own busy one gets the "different port" wording.
+    if ! healthy --once && [ "$HEALTH_STATE" != busy ]; then
       say "Stopping a Kosmos board that is not answering on port $PORT (it was likely started with a different port)."
     else
       say "Stopping Kosmos."
@@ -877,10 +1195,21 @@ cmd_stop() {
     fi
     rm -f "$PIDFILE"
     say "Stopped."
-  elif healthy; then
+  elif healthy --once; then
     # Answering on the port but not our recorded process: somebody started it
     # by hand, or the pidfile is gone. Say what is true instead of guessing.
     die "Something is answering at $URL but it was not started by this command, so it was left alone."
+  elif [ "$HEALTH_STATE" = busy ]; then
+    # #4466: busy is running. Falling through would print "not running" and write the stop marker.
+    # A RESTART is the way out for a board of ours that nothing tracks (no pidfile) and that never answers:
+    # the start after it reclaims the port (#3079). Only a person gets here: agent_board_guard refuses an
+    # agent's restart of a board that is up or busy, and setup.sh's update pause is a `stop`, not a restart.
+    if [ "${_KOSMOS_RESTARTING:-}" = 1 ]; then
+      say "Kosmos is running at $URL but not answering, and this command did not start it. Restarting it, because you asked."
+      _KOSMOS_RESTART_RECLAIM=1
+      return 0
+    fi
+    die "Kosmos is running at $URL but is busy, and it was not started by this command, so it was left alone. If it stays like this, 'kosmos restart' frees it."
   else
     # #2955: already down, but the user explicitly asked to stop it, so record
     # that intent too -- otherwise the watchdog would "recover" a board the user
@@ -897,9 +1226,19 @@ cmd_status() {
     local pid
     pid="$(running_pid)" || pid=""
     if [ -n "$pid" ]; then say "Kosmos is running at $URL"; else say "Kosmos is running at $URL (started outside this command)"; fi
-  elif port_taken_by_stranger; then
+  elif [ "$HEALTH_STATE" = busy ]; then
+    # #4466: running, only slow, so no start/restart advice: that advice is what made agents switch a
+    # busy board off and on.
+    say "Kosmos is running at $URL but is busy: it did not answer within $(_busy_wait) s. Wait a minute; it does not need a restart."
+    _busy_person_hint
+    # Exit 4, not 0 and not 1: 1 means "not running" (the start advice), and 0 would hide a board that is
+    # WEDGED rather than busy (#2955: holds the port, never answers) from bin/board-watchdog.sh, which
+    # reads this exit code and gives 4 a long grace instead of treating it as down.
+    exit 4
+  elif [ "$HEALTH_STATE" = stranger ]; then
     # The same answer start would give, so two adjacent commands cannot
-    # hand out advice the next one refuses.
+    # hand out advice the next one refuses. #4466: healthy() above already classified the listener; a
+    # second probe could read busy the next moment and fall through to the start advice below.
     say "Kosmos is not running, and another app is using port $PORT, so 'kosmos start' will refuse. Quit that app first."
     exit 1
   else
@@ -909,7 +1248,14 @@ cmd_status() {
 }
 
 cmd_open() {
-  healthy || cmd_start
+  # #4466: a busy board is running, so open it (slowly) rather than start one; a down board is started
+  # through the same agent guard as `kosmos start`.
+  if ! healthy && [ "$HEALTH_STATE" != busy ]; then
+    # In a subshell: the guard EXITS 0 ("already running") if the board came up since, which here must
+    # not end `open` before the browser opens. Its refusal (exit 1) still ends it.
+    ( agent_board_guard start ) || exit 1
+    cmd_start
+  fi
   # #1946/#1979: hand the browser a way to get the httpOnly board cookie on an
   # enforcing board. #1979 CLOSES the #1970 residual: instead of putting the
   # DURABLE board token on the `open` argv (macOS `ps` shows argv cross-account,
@@ -1040,7 +1386,7 @@ cmd_msg() {
   # With --stdin the pipe is read BEFORE this check on purpose (as in cmd_post): a live pipe cannot
   # be replayed, so with Kosmos down the message is read and kept in a file.
   if ! healthy; then
-    say "Kosmos is not running, so nothing can be delivered. Start it with: kosmos start"
+    say_not_up "nothing can be delivered"
     _keep_piped
     exit 1
   fi
@@ -1110,8 +1456,8 @@ cmd_msg() {
     say "Kosmos was slow to answer and we stopped waiting. The message may have been delivered; check with them before sending it again."
     exit 3
   elif [ "$rc" -ne 0 ]; then
-    say "We could not reach Kosmos to send that. Is it running at $URL?"
-    _keep_piped
+    say_unreached "send that" "$rc" write   # #4466: a cut reply (52/56) is busy too, not "is it running?"
+    case "$rc" in 18|52|56) _keep_piped maybe ;; *) _keep_piped ;; esac
     exit 1
   fi
   # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
@@ -1167,7 +1513,7 @@ cmd_reply() {
     exit 2
   fi
   if ! healthy; then
-    say "Kosmos is not running, so this could not be kept. Start it with: kosmos start"
+    say_not_up "this could not be kept"
     exit 1
   fi
   local esc_text esc_pane
@@ -1190,7 +1536,7 @@ cmd_reply() {
   body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/reply" \
     -H 'content-type: application/json' \
     --data "$_data" 2>/dev/null) || {
-    say "We could not reach Kosmos to keep that. Is it running at $URL?"
+    say_unreached "keep that" "$?" write
     exit 1
   }
   # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
@@ -1240,14 +1586,19 @@ require_valid_project_id() {
 # #2909: a piped message may have no other copy (gh ... | kosmos post --stdin), so every
 # cmd_post / cmd_msg failure after the read keeps it in a private file and names the path. Reads
 # the caller's from_stdin and text (bash dynamic scope); a no-op without --stdin.
-_keep_piped() {
+_keep_piped() {   # [maybe]: #4466, the board took the connection and cut it, so the message MAY have arrived
   [ "${from_stdin:-0}" = 1 ] || return 0
-  local _f
+  local _f _was="was not sent"
+  if [ "${1:-}" = maybe ]; then _was="may not have been sent"; fi
   if _f="$(mktemp "${TMPDIR:-/tmp}/kosmos-unsent.XXXXXX")" && chmod 600 "$_f" && printf '%s' "$text" > "$_f"; then
-    say "The piped message was not sent; it is saved at $_f"
+    if [ "${1:-}" = maybe ]; then
+      say "The piped message $_was; a copy is saved at $_f. Check before sending it again."
+    else
+      say "The piped message $_was; it is saved at $_f"
+    fi
   else
     [ -n "${_f:-}" ] && rm -f "$_f"
-    say "The piped message was not sent, and we could not save a copy of it."
+    say "The piped message $_was, and we could not save a copy of it."
   fi
 }
 
@@ -1397,7 +1748,7 @@ cmd_post() {
   # With --stdin the pipe is read BEFORE this check on purpose: a live pipe (gh ... | kosmos post
   # --stdin) cannot be replayed, so with Kosmos down the message is read and kept in a file.
   if ! healthy; then
-    say "Kosmos is not running, so nothing can be posted. Start it with: kosmos start"
+    say_not_up "nothing can be posted"
     _keep_piped
     exit 1
   fi
@@ -1466,8 +1817,8 @@ cmd_post() {
     say "Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it."
     exit 3
   elif [ "$rc" -ne 0 ]; then
-    say "We could not reach Kosmos to post that. Is it running at $URL?"
-    _keep_piped
+    say_unreached "post that" "$rc" write   # #4466: a cut reply (52/56) is busy too, not "is it running?"
+    case "$rc" in 18|52|56) _keep_piped maybe ;; *) _keep_piped ;; esac
     exit 1
   fi
   # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
@@ -1530,14 +1881,15 @@ cmd_post() {
 # poll that one. A stored token is reported as connected; the tab checks it when the person opens it.
 cmd_connections() {
   if ! healthy; then
-    say "Kosmos is not running, so it cannot say what is connected. Start it with: kosmos start"
+    say_not_up "it cannot say what is connected"
     exit 1
   fi
   local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
   local _bt; _bt="$(board_token || true)"
   local body rc=0
   body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/connections/held" 2>/dev/null) || rc=$?
-  if [ "$rc" -ne 0 ] || [ -z "$body" ]; then say "We could not reach Kosmos to read what is connected. Is it running at $URL?"; exit 1; fi
+  if [ "$rc" -ne 0 ]; then say_unreached "read what is connected" "$rc"; exit 1; fi
+  if [ -z "$body" ]; then say "Kosmos gave an empty answer about what is connected. Try again in a minute."; exit 1; fi
   printf '%s' "$body" | "$_node" -e '
     let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
       let j; try { j = JSON.parse(s); } catch { process.exit(1); }
@@ -1568,7 +1920,7 @@ cmd_connect() {
     exit 2
   fi
   if ! healthy; then
-    say "Kosmos is not running, so nothing was connected. Start it with: kosmos start"
+    say_not_up "nothing was connected"
     exit 1
   fi
   local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime, so nothing was connected."; exit 1; }
@@ -1655,7 +2007,7 @@ cmd_connect() {
 # the defect this verb exists to remove.
 cmd_whoami() {
   if ! healthy; then
-    say "Kosmos is not running, so it cannot tell you which account you are on. Start it with: kosmos start"
+    say_not_up "it cannot tell you which account you are on"
     exit 1
   fi
   local body esc_pane _tok
@@ -1753,8 +2105,15 @@ cmd_report() {
         exit 2
       fi ;;
   esac
+  # #4466: an --auto report is the hook's, and a hook cannot wait 20 s. SessionStart runs this in the
+  # FOREGROUND under Claude Code's 15 s hook timeout, and a kill there prints nothing, so the "reporting
+  # is OFF" sentence never shows; every other hook event starts one in the background, and a busy
+  # board's CPU is the last thing to spend on 20 s of retries per event. So a 6 s busy budget (probes of
+  # 2 and 4 s) unless the caller set one. A person's or an agent's own report keeps the full wait.
+  if [ "$auto" = 1 ] && [ -z "${KOSMOS_BUSY_WAIT:-}" ]; then KOSMOS_BUSY_WAIT="$AUTO_REPORT_BUSY_WAIT_S"; fi
+  local _rep_t0="$SECONDS" _post_m=15
   if ! healthy; then
-    say "Kosmos is not running, so this could not be recorded. Start it with: kosmos start"
+    say_not_up "this could not be recorded"
     exit 1
   fi
   # Same hand-rolled JSON escaping as cmd_msg, same bash-3.2 reason.
@@ -1790,10 +2149,16 @@ cmd_report() {
   # #1970: both tokens go off argv through kosmos_curl (they land in one mode-600
   # @file), so the anti-spoof board token is not itself exposed on argv.
   local _bt; _bt="$(board_token || true)"
-  body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/report" \
+  # An --auto report's POST gets what is left of AUTO_REPORT_TOTAL_S (at least 2 s), so a board that
+  # answered its health check slowly cannot then hold the hook past its 15 s timeout.
+  if [ "$auto" = 1 ]; then
+    _post_m=$(( AUTO_REPORT_TOTAL_S - (SECONDS - _rep_t0) ))
+    if [ "$_post_m" -lt 2 ]; then _post_m=2; fi
+  fi
+  body=$(kosmos_curl "$_bt" "$_tok" -sS -m "$_post_m" -X POST "$URL/api/report" \
     -H 'content-type: application/json' \
     --data "{\"state\":\"$esc_state\",\"text\":\"$esc_text\",\"on\":\"$esc_on\",\"owner\":\"$esc_owner\",\"until\":\"$esc_until\",\"project\":\"$esc_project\",\"auto\":$([ "$auto" = 1 ] && printf 'true' || printf 'false'),\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
-    say "We could not reach Kosmos to record that. Is it running at $URL?"
+    say_unreached "record that" "$?" write
     exit 1
   }
   # #1704 PR2: the board is serving another Kosmos. A report is not kept: the
@@ -1827,7 +2192,7 @@ cmd_report() {
 # human line for ?as=text (bash 3.2 has no JSON parser).
 cmd_report_show() {
   if ! healthy; then
-    say "Kosmos is not running, so your report cannot be read. Start it with: kosmos start"
+    say_not_up "your report cannot be read"
     exit 1
   fi
   local _tok=""
@@ -1842,7 +2207,7 @@ cmd_report_show() {
   local _body _rc=0 _code
   _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/report?as=text&from_pane=$_pane_q" 2>/dev/null) || _rc=$?
   if [ "$_rc" -ne 0 ]; then
-    say "We could not reach Kosmos to read your report. Is it running at $URL?"
+    say_unreached "read your report" "$_rc"
     exit 1
   fi
   _code="${_body##*$'\n'}"
@@ -1883,7 +2248,7 @@ cmd_community() {
     exit 2
   fi
   if ! healthy; then
-    say "Kosmos is not running, so nothing was posted. Start it with: kosmos start"
+    say_not_up "nothing was posted"
     exit 1
   fi
   local _node; _node="$(kosmos_engine_node)" || { say "Kosmos cannot find its own runtime, so nothing was posted."; exit 1; }
@@ -1905,7 +2270,7 @@ cmd_community() {
   _body=$(printf '%s' "$payload" | kosmos_curl "$_bt" "$_tok" -sS -m 30 -w $'\n%{http_code}' -X POST "$URL/api/community/post" \
     -H 'content-type: application/json' --data-binary @- 2>/dev/null) || _rc=$?
   if [ "$_rc" -ne 0 ]; then
-    say "We could not reach Kosmos to post that. Is it running at $URL?"
+    say_unreached "post that" "$_rc" write
     exit 1
   fi
   _code="${_body##*$'\n'}"
@@ -1946,7 +2311,7 @@ cmd_community_read() {
     exit 2
   fi
   if ! healthy; then
-    say "Kosmos is not running, so nothing was read. Start it with: kosmos start"
+    say_not_up "nothing was read"
     exit 1
   fi
   local _node; _node="$(kosmos_engine_node)" || { say "Kosmos cannot find its own runtime, so nothing was read."; exit 1; }
@@ -1966,7 +2331,7 @@ cmd_community_read() {
   local _body _rc=0 _code
   _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 30 -w $'\n%{http_code}' "$URL/api/community/read${_q:+?$_q}" 2>/dev/null) || _rc=$?
   if [ "$_rc" -ne 0 ]; then
-    say "We could not reach Kosmos to read the community. Is it running at $URL?"
+    say_unreached "read the community" "$_rc"
     exit 1
   fi
   _code="${_body##*$'\n'}"
@@ -1988,8 +2353,10 @@ cmd_restart() {
   # of stop exits the process outright -- and that is correct here too:
   # a port owned by something we refuse to kill is a port start cannot
   # bind, so continuing would only move the failure one line down.
+  _KOSMOS_RESTARTING=1
   cmd_stop || true
-  cmd_start
+  # #4466: a busy board of ours that the stop could not reach (nothing tracked it) is reclaimed by this start.
+  if [ "${_KOSMOS_RESTART_RECLAIM:-}" = 1 ]; then KOSMOS_RECLAIM_BUSY=1 cmd_start; else cmd_start; fi
 }
 
 # #2255: an agent reacts to a room post with an emoji (Discord-style). The
@@ -2006,7 +2373,7 @@ cmd_react() {
     exit 2
   fi
   if ! healthy; then
-    say "Kosmos is not running, so the reaction could not be kept. Start it with: kosmos start"
+    say_not_up "the reaction could not be kept"
     exit 1
   fi
   # Same hand-rolled JSON escaping as cmd_post, same bash-3.2 reason.
@@ -2039,7 +2406,7 @@ cmd_react() {
     say "Kosmos was slow to answer and we stopped waiting. Your reaction may have landed; check the room before reacting again, because reacting again takes it back off."
     exit 3
   elif [ "$rc" -ne 0 ]; then
-    say "We could not reach Kosmos to keep that reaction. Is it running at $URL?"
+    say_unreached "keep that reaction" "$rc" write   # #4466: a cut reply (52/56) is busy too, not "is it running?"
     exit 1
   fi
   # #1704 PR2: the board is serving another Kosmos. A reaction is not kept: it
@@ -2094,7 +2461,7 @@ cmd_room() {
       exit 2
     fi
     if ! healthy; then
-      say "Kosmos is not running, so the room cannot be reopened. Start it with: kosmos start"
+      say_not_up "the room cannot be reopened"
       exit 1
     fi
     local esc_rproj _rbody _rrc=0 _rcode _rbt
@@ -2106,7 +2473,7 @@ cmd_room() {
     # failure and the `|| _rrc=$?` would not fire).
     _rbody=$(kosmos_curl "$_rbt" "" -sS -m 15 -w $'\n%{http_code}' -X POST "$URL/api/project/$esc_rproj/room/reopen" 2>/dev/null) || _rrc=$?
     if [ "$_rrc" -ne 0 ]; then
-      say "We could not reach Kosmos to reopen that room. Is it running at $URL?"
+      say_unreached "reopen that room" "$_rrc" write
       exit 1
     fi
     _rcode="${_rbody##*$'\n'}"
@@ -2126,7 +2493,7 @@ cmd_room() {
     exit 2
   fi
   if ! healthy; then
-    say "Kosmos is not running, so the room cannot be read. Start it with: kosmos start"
+    say_not_up "the room cannot be read"
     exit 1
   fi
   local esc_project
@@ -2145,7 +2512,7 @@ cmd_room() {
   local _body _rc=0 _code
   _body=$(kosmos_curl "$_bt" "" -sS -m 15 -w $'\n%{http_code}' "$URL/api/project/$esc_project/room?as=text" 2>/dev/null) || _rc=$?
   if [ "$_rc" -ne 0 ]; then
-    say "We could not reach Kosmos to read that room. Is it running at $URL?"
+    say_unreached "read that room" "$_rc"
     exit 1
   fi
   # -w appended "\n<http_code>" as the final line: split it off the body tail.
@@ -2468,7 +2835,7 @@ cmd_task() {
       exit 2 ;;
   esac
   if ! healthy; then
-    say "Kosmos is not running, so its tasks are unreachable. Start it with: kosmos start"
+    say_not_up "its tasks are unreachable"
     exit 1
   fi
   local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert when empty
@@ -2482,7 +2849,7 @@ cmd_task() {
     list)
       local rc=0 body
       body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/tasks?project=$esc_project" 2>/dev/null) || rc=$?
-      [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to list tasks. Is it running at $URL?"; exit 1; }
+      [ "$rc" -eq 0 ] || { say_unreached "list tasks" "$rc"; exit 1; }
       case "$body" in '{"error":'*)
         local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
         say "Kosmos refused that: ${because:-it did not say why}."; exit 1 ;;
@@ -2528,7 +2895,7 @@ cmd_task() {
       body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/project/$esc_project/tasks" \
         -H 'content-type: application/json' \
         --data "{\"sentence\":\"$esc_sentence\",\"detail\":\"$esc_detail\",\"from_pane\":\"$esc_pane\"${parent:+,\"parent\":\"$parent\"}}" 2>/dev/null) || rc=$?
-      [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to add that task. Is it running at $URL?"; exit 1; }
+      [ "$rc" -eq 0 ] || { say_unreached "add that task" "$rc" write; exit 1; }
       # Success is the board's own {"task":...} shape (server.js), not merely the absence of
       # {"error":...}: an unexpected 200 (a proxy page, a future response shape) must NOT read as done.
       case "$body" in
@@ -2543,7 +2910,7 @@ cmd_task() {
       local project num; project="${1:-}"; num="${2:-}"   # both validated (num is all-digits) before the health check above
       local rc=0 body
       body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/close" 2>/dev/null) || rc=$?
-      [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to close that task. Is it running at $URL?"; exit 1; }
+      [ "$rc" -eq 0 ] || { say_unreached "close that task" "$rc" write; exit 1; }
       # Success is the board's own {"task":...} shape (server.js), not merely the absence of an error.
       case "$body" in
         '{"task":'*) say "Closed task $num on ${project:-the project}." ;;
@@ -2576,7 +2943,7 @@ cmd_task() {
       body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/built" \
         -H 'content-type: application/json' \
         --data "{\"note\":\"$esc_note\",\"clear\":$clear,\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
-      [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to mark that task. Is it running at $URL?"; exit 1; }
+      [ "$rc" -eq 0 ] || { say_unreached "mark that task" "$rc" write; exit 1; }
       case "$body" in
         '{"task":'*)
           if [ "$clear" = true ]; then
@@ -2608,10 +2975,13 @@ cmd_task() {
       body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/message" \
         -H 'content-type: application/json' \
         --data "{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
-      [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to send that message. Is it running at $URL?"; exit 1; }
+      [ "$rc" -eq 0 ] || { say_unreached "send that message" "$rc" write; exit 1; }
       # Success is the board's own {"ok":true,...} shape, not merely the absence of an error.
       case "$body" in
-        '{"ok":'*) say "Message recorded on task $num of ${project:-the project}; any agents assigned to it were notified." ;;
+        '{"ok":'*)
+          # #4540: the board's own sentence about who was told (it carries no double quote); none from an older board.
+          local told; told=$(printf '%s' "$body" | sed -n 's/.*"summary":"\([^"]*\)".*/\1/p')
+          say "Message recorded on task $num of ${project:-the project}.${told:+ $told}" ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos refused that message: ${because:-it did not say why}."; exit 1 ;;
@@ -2646,7 +3016,7 @@ cmd_project() {
       exit 2 ;;
   esac
   if ! healthy; then
-    say "Kosmos is not running, so a project cannot be created. Start it with: kosmos start"
+    say_not_up "a project cannot be created"
     exit 1
   fi
   local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert when empty
@@ -2673,7 +3043,7 @@ cmd_project() {
         -H 'content-type: application/json' \
         --data "$_data" 2>/dev/null) || rc=$?
       if [ "$rc" -ne 0 ]; then
-        say "We could not reach Kosmos to create that project. Is it running at $URL?"
+        say_unreached "create that project" "$rc" write
         exit 1
       fi
       # {"error":...} covers the 400 (bad field) and the 429 rate valve alike --
@@ -2733,7 +3103,7 @@ cmd_agent() {
       exit 2 ;;
   esac
   if ! healthy; then
-    say "Kosmos is not running, so an agent cannot be made. Start it with: kosmos start"
+    say_not_up "an agent cannot be made"
     exit 1
   fi
   # The answer is read as JSON by the engine's own node (an agent's PATH may have none, #1911).
@@ -2743,7 +3113,8 @@ cmd_agent() {
   case "$sub" in
     roles)
       body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/roles" 2>/dev/null) || rc=$?
-      if [ "$rc" -ne 0 ] || [ -z "$body" ]; then say "We could not reach Kosmos to list the roles. Is it running at $URL?"; exit 1; fi
+      if [ "$rc" -ne 0 ]; then say_unreached "list the roles" "$rc"; exit 1; fi
+      if [ -z "$body" ]; then say "Kosmos gave an empty answer when asked for the roles. Try again in a minute."; exit 1; fi
       printf '%s' "$body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}for(const r of (j.roles||[]))if(r&&r.key)console.log(r.key+"  "+(r.label||""))})' \
         || { say "Kosmos gave an answer we could not read when listing the roles."; exit 1; }
       ;;
@@ -2751,7 +3122,8 @@ cmd_agent() {
       # The "Describe it yourself" text (the `own` role): what a new role starts from. {{NAME}} stays; Kosmos
       # fills it with the agent's name when it is made.
       body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/roles" 2>/dev/null) || rc=$?
-      if [ "$rc" -ne 0 ] || [ -z "$body" ]; then say "We could not reach Kosmos to get the role text. Is it running at $URL?"; exit 1; fi
+      if [ "$rc" -ne 0 ]; then say_unreached "get the role text" "$rc"; exit 1; fi
+      if [ -z "$body" ]; then say "Kosmos gave an empty answer when asked for the role text. Try again in a minute."; exit 1; fi
       # --to writes the file itself, as UTF-8 with the text's own line endings (#4474): a shell's redirection can
       # re-encode it (PowerShell does), and the board checks the shared rules in it word for word.
       local _to=""
@@ -2796,7 +3168,7 @@ cmd_agent() {
         exit 3
       fi
       if [ "$rc" -ne 0 ]; then
-        say "We could not reach Kosmos to make that agent. Is it running at $URL?"
+        say_unreached "make that agent" "$rc" write
         exit 1
       fi
       # Top-level fields only, never grepped: made (created[0]), or the reason (error, refused[0], because).
@@ -2822,9 +3194,9 @@ if [ "${BASH_SOURCE[0]:-$0}" != "$0" ]; then
   return 0 2>/dev/null || true
 fi
 case "${1:-}" in
-  start)   cmd_start ;;
-  stop)    cmd_stop ;;
-  restart) cmd_restart ;;
+  start)   agent_board_guard "$@"; cmd_start ;;     # #4466: agent_board_guard gets the verb as $1
+  stop)    agent_board_guard "$@"; cmd_stop ;;
+  restart) agent_board_guard "$@"; cmd_restart ;;
   board-run) cmd_board_run ;;   # #2956: internal supervised foreground entry (launchd/Task Scheduler), not for people
   status)  cmd_status ;;
   open)    cmd_open ;;

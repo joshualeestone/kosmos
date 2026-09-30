@@ -678,6 +678,45 @@ test('the roles where being wrong is expensive carry their limit in BOTH places'
     // survives every wording of it: the PM does not attempt work outside
     // its skill -- it briefs the agent who has it.
     pm: /brief the agent who\s+has\s+it rather than attempting it badly/i,
+    // #4555: the seeded catalogue's cautioned roles (engine/catalogue-roles.js, generated
+    // from tools/catalogue/roles-source.js). Each states its boundary once in its own
+    // instructions; the patterns allow the line wrap between words.
+    cos: /draft,\s+never\s+send\s+or\s+accept/i,
+    officemgr: /draft,\s+never\s+send/i,
+    newsletter: /draft,\s+never\s+send/i,
+    emailmkt: /draft,\s+never\s+send/i,
+    ppc: /you\s+never\s+launch,\s+change\s+or\s+pay\s+for\s+ads/i,
+    pr: /draft,\s+never\s+send/i,
+    sociallead: /draft,\s+never\s+post/i,
+    community: /draft,\s+never\s+post/i,
+    salesdir: /sends\s+every\s+offer,\s+always/i,
+    sdr: /draft,\s+never\s+send/i,
+    cxlead: /draft,\s+never\s+send/i,
+    csm: /draft,\s+never\s+send/i,
+    orders: /never\s+issue\s+refunds/i,
+    reviews: /draft,\s+never\s+post/i,
+    booking: /never\s+book,\s+cancel\s+or\s+charge\s+anyone/i,
+    cfo: /you\s+do\s+not\s+give\s+financial\s+advice/i,
+    controller: /you\s+do\s+not\s+give\s+financial\s+or\s+tax\s+advice/i,
+    payables: /never\s+pay\s+a\s+bill/i,
+    payroll: /you\s+never\s+run\s+payroll/i,
+    taxprep: /this\s+is\s+not\s+tax\s+advice/i,
+    investor: /never\s+send\s+anything\s+to\s+investors/i,
+    hrlead: /every\s+hiring\s+and\s+people\s+decision\s+is\s+theirs/i,
+    policy: /you\s+are\s+not\s+a\s+lawyer/i,
+    donors: /draft,\s+never\s+send/i,
+    events: /never\s+book\s+or\s+pay\s+for\s+anything/i,
+    wellness: /this\s+is\s+not\s+medical\s+advice/i,
+    fitness: /this\s+is\s+not\s+medical\s+advice/i,
+    nutrition: /this\s+is\s+not\s+medical\s+advice/i,
+    healthadmin: /this\s+is\s+not\s+medical\s+advice/i,
+    pcfo: /you\s+do\s+not\s+give\s+financial\s+advice/i,
+    subscriptions: /never\s+cancel\s+or\s+switch\s+anything/i,
+    investing: /you\s+do\s+not\s+give\s+financial\s+advice/i,
+    brand: /draft,\s+never\s+post/i,
+    shopper: /never\s+buy\s+anything\s+yourself/i,
+    partnerships: /draft,\s+never\s+send/i,
+    grants: /never\s+submit\s+an\s+application/i,
   };
   for (const role of roles.ROLES.filter((r) => r.caution)) {
     const mustSay = BOUNDARY[role.key];
@@ -712,7 +751,9 @@ test('the roles where being wrong is expensive carry their limit in BOTH places'
   // agent-to-agent messaging (#51) exists that claim needs the same
   // caution the other overstating blurbs carry.
   // The rule this loop holds is unchanged: most roles carry none, so the
-  // ones that do still mean something. 9 of 26 have one.
+  // ones that do still mean something. The assertion below holds that line. With the #4555
+  // catalogue 48 of 104 carry one (48 of the 102 on the menu), so there is a little headroom;
+  // a new cautioned role may still mean rebalancing, not a bug.
   for (const key of ['writer', 'researcher', 'engineer', 'data', 'design']) {
     assert.ok(!roles.byKey(key).caution,
       `${key} carries a caution, and a warning on everything warns about nothing`);
@@ -1626,7 +1667,9 @@ test('the startup script, actually run, hands the pane its account and its board
       'KOSMOS_WORLD=',
       `AGENT_WORKFORCE_DATA=${process.env.AGENT_WORKFORCE_DATA || ''}`,
       `AGENT_WORKFORCE_PROJECTS=${process.env.AGENT_WORKFORCE_PROJECTS || ''}`,
-      `AGENT_WORKFORCE_WORKERS=${process.env.AGENT_WORKFORCE_WORKERS || ''}`];
+      `AGENT_WORKFORCE_WORKERS=${process.env.AGENT_WORKFORCE_WORKERS || ''}`,
+      // #4466: always, so the CLI can tell an agent from a person (the session is the claim above).
+      'KOSMOS_AGENT_SESSION=probe'];
     if ((b.runner || 'claude') !== 'codex') expected.push('CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1');
     assert.deepEqual(rest, expected.sort(),
       `${label}: the pane was not handed exactly the account and the board: ` + JSON.stringify(set.newSession));
@@ -1683,6 +1726,9 @@ test('the startup script, actually run, hands the pane its account and its board
            keeps the exclusion honest. */
         && !/^KOSMOS_WORLD=/.test(v)
         && !/^AGENT_WORKFORCE_(DATA|PROJECTS|WORKERS)=/.test(v)
+        /* #4466: the session name rides ALWAYS (it is SET by the supervisor, like the token), so the
+           CLI can tell an agent from a person. Excluded by its exact value, not a prefix. */
+        && v !== 'KOSMOS_AGENT_SESSION=probe'
         /* #3383c: HOME rides ALWAYS (see the set-case comment) -- it is $HOME, always
            non-empty here, and re-injected so a default-account agent reads the trust we
            wrote rather than parking on the folder-trust prompt. An always-on rider like
@@ -2568,7 +2614,8 @@ test('own and setup are the only hidden entries; every other role is in the menu
   // already gives it).
   // 35 since the #3034 setup-assistant role -- the SECOND hidden entry
   // (menu:false), auto-created once on first-run and never offered in the picker.
-  assert.equal(roles.ROLES.length, 35, 'the catalogue grew or shrank; say so here on purpose');
+  // #4555: 35 (33 on the menu plus own and setup) + the 69 seeded catalogue roles.
+  assert.equal(roles.ROLES.length, 104, 'the catalogue grew or shrank; say so here on purpose');
   const menu = roles.ROLES.filter((r) => r.menu !== false);
   // TWO facts, kept as separate axes: exactly which roles are hidden, and that
   // none of them reaches the picker. The hidden SET is pinned by key so a new

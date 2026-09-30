@@ -170,7 +170,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'screen-tip-light.png') });
     await page.click('#tipcard .tip-go');
     await page.waitForTimeout(300);
-    // Her page: the ring first (1 of 6), beside it with an arrow, then one tip on each of her five buttons.
+    // Her page: the ring first (1 of 4), beside it with an arrow, then one tip on each of her three buttons (#4550).
     await page.click('#grid [data-agent]');
     chk(await waitTitle(page, RING, 4000), 'T3 on her page the ring shows first (#3755)', JSON.stringify(await cardState(page)));
     const ring = await page.evaluate(() => {
@@ -184,7 +184,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
         body: c.querySelector('.tip-bd').innerText.replace(/\s+/g, ' ').trim(),
         strokes: [...c.querySelectorAll('.tip-bands .gf')].map((x) => getComputedStyle(x).stroke) };
     });
-    chk(ring.dim && ring.step === '1 of 6' && ring.strokes.length === 3 && new Set(ring.strokes).size === 3, 'T3 step 1 of 6, the page dimmed, and three distinct gauge colours', JSON.stringify(ring));
+    chk(ring.dim && ring.step === '1 of 4' && ring.strokes.length === 3 && new Set(ring.strokes).size === 3, 'T3 step 1 of 4, the page dimmed, and three distinct gauge colours', JSON.stringify(ring));
     chk(['left', 'right'].includes(ring.cls) && ring.arrowOnRing && ring.gap >= 0 && ring.gap <= 40, 'T3 it points at the ring on her page, from beside it, its arrow on the ring', JSON.stringify(ring));
     chk(ring.body === 'The ring shows how full your agent\'s memory is. Plenty of room Getting full Nearly full This is normal and the agent will automatically write themselves a handoff, You can also manage their memory under AI settings.',
       'T3 in Josh\'s words (#3737)', JSON.stringify(ring.body));
@@ -201,14 +201,12 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk(!(await api('GET')).seen.includes('agentpage'), 'T16 they were not recorded as seen when their screen went away');
     await page.click('#grid [data-agent]');
     chk(await waitTitle(page, RING, 4000), 'T16 coming back to her page shows them again, from the ring');
-    // T34 (#3755): Next walks her five buttons in Josh's words, each ringed, each card pointing at its button and
+    // T34 (#3755, #4550): Next walks her three buttons in Josh's words, each ringed, each card pointing at its button and
     // off it; Got it on the last records the page's tips.
     const want34 = [
       ['talk', 'Direct Message', 'Talk to your agent directly, ask questions, and give it work to do.'],
       ['profile', 'Profile', 'Give your agent a name, photo, and description.'],
-      ['instr', 'Instructions', 'Tell your agent what to do and how you want it to work.'],
       ['model', 'AI Settings', 'Choose the AI model your agent uses and manage its memory.'],
-      ['term', 'Advanced', 'Fine-tune your agent\'s technical settings.'],
     ];
     const got34 = [];
     for (let i = 0; i < want34.length; i++) {
@@ -223,8 +221,8 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
           overButton: a.left < br.right && a.right > br.left && a.top < br.bottom && a.bottom > br.top };
       }, want34[i][0]));
     }
-    const bad34 = got34.filter((g, i) => g.step !== (i + 2) + ' of 6' || g.title !== want34[i][1] || g.body !== want34[i][2] || !g.ringed || g.cls === 'flat' || g.overButton);
-    chk(got34.length === 5 && bad34.length === 0, 'T34 her page walks her five buttons in Josh\'s words, each ringed and pointed at, none covered', JSON.stringify(bad34.length ? bad34 : got34.map((g) => g.title)));
+    const bad34 = got34.filter((g, i) => g.step !== (i + 2) + ' of 4' || g.title !== want34[i][1] || g.body !== want34[i][2] || !g.ringed || g.cls === 'flat' || g.overButton);
+    chk(got34.length === 3 && bad34.length === 0, 'T34 her page walks her three buttons in Josh\'s words, each ringed and pointed at, none covered', JSON.stringify(bad34.length ? bad34 : got34.map((g) => g.title)));
     chk(await page.evaluate(() => document.querySelector('#tipcard .tip-go').textContent) === 'Got it', 'T34 the last step closes with Got it');
     await page.click('#tipcard .tip-go');
     await page.waitForTimeout(300);
@@ -233,7 +231,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.click('#tabs [data-tab="agents"]');
     await page.waitForTimeout(300);
     // T3c: an agent whose memory is unknown has no ring on her page, so the ring step is left out and her page's
-    // tips start at Direct Message, 1 of 5 (CONTROL: the same page with a reading starts at the ring, T3 above).
+    // tips start at Direct Message, 1 of 3 (CONTROL: the same page with a reading starts at the ring, T3 above).
     const seen3c = (await api('GET')).seen;
     resetStore({ seen: seen3c.filter((id) => id !== 'agentpage' && id !== 'ring'), off: false });
     await page.evaluate(() => localStorage.removeItem('aw-check-ctx'));
@@ -241,7 +239,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.click('#grid [data-agent]');
     chk(await waitTitle(page, 'Direct Message', 4000), 'T3c unknown memory: her page\'s tips start at Direct Message');
     const t3c = await page.evaluate(() => ({ ring: !!document.querySelector('#panel-detail #d-ring svg'), step: document.querySelector('#tipcard .tip-eb').textContent }));
-    chk(!t3c.ring && t3c.step === '1 of 5', 'T3c no ring on her page, and no ring step: 1 of 5', JSON.stringify(t3c));
+    chk(!t3c.ring && t3c.step === '1 of 3', 'T3c no ring on her page, and no ring step: 1 of 3', JSON.stringify(t3c));
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
     const seen3c2 = (await api('GET')).seen;

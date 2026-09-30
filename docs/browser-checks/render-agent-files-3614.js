@@ -130,6 +130,15 @@ function chk(ok, label, extra) {
       chk(a.visible, `${tag} the Files block is on screen`, JSON.stringify(a));
       chk(!a.finder && a.all, `${tag} #3757/#3994: no Open in Finder in the sidebar, and View All although every file is listed`, JSON.stringify(a));
       chk(a.below && a.overlap, `${tag} the Files block sits directly under the four-pack, in its column`, JSON.stringify({ below: a.below, overlap: a.overlap }));
+      /* #4570 (Josh, 2026-09-29 10:46): View All here is the project page's small link, not a second
+         heading. Compared with the project page's own Files View All in this page (same DOM, same theme),
+         so it follows that link rather than a pinned pixel size. */
+      const va = await page.evaluate(() => {
+        const cs = (id) => { const c = getComputedStyle(document.getElementById(id)); return { size: c.fontSize, weight: c.fontWeight }; };
+        return { agent: cs('d-files-all'), project: cs('pj-docs-all'), label: getComputedStyle(document.querySelector('.dfiles-head .dlab')).fontSize };
+      });
+      chk(va.agent.size === va.project.size && va.agent.weight === va.project.weight && parseFloat(va.agent.size) < 13,
+        `${tag} #4570: View All is the project page's small link (same size and weight)`, JSON.stringify(va));
       chk(JSON.stringify(a.rows.map((r) => r.name)) === JSON.stringify(['report.pdf', 'older-notes.md']), `${tag} April's files are listed newest first`, JSON.stringify(a.rows));
       chk(a.rows.length > 0 && /·/.test(a.rows[0].meta) && /\d+(\.\d+)?\s?(B|KB|MB)$/.test(a.rows[0].meta), `${tag} a row shows a date and a size`, JSON.stringify(a.rows[0]));
       /* #3994 (Josh 2026-09-26): the Files block sits in the same white container as the project page's
@@ -151,6 +160,7 @@ function chk(ok, label, extra) {
       if (theme === 'light' && width === 1400) {
         await shot(page, '3757-2-a-few-files');
         // #3757: the nav's labels are the title line's size; the boxes are shorter; icons unchanged.
+        // #4550: three visible buttons now (Direct Message, then Profile and AI Settings).
         const nav = await page.evaluate(() => {
           const px = (el) => parseFloat(getComputedStyle(el).fontSize);
           const meta = document.getElementById('d-meta');
@@ -165,10 +175,10 @@ function chk(ok, label, extra) {
           return { metaPx: px(meta), labs, dmH: Math.round(dm.getBoundingClientRect().height), packH: Math.round(packBtn.getBoundingClientRect().height),
             packW: Math.round(packBtn.getBoundingClientRect().width), icons, cols, wrapped };
         });
-        chk(nav.labs.length === 5 && nav.labs.every((x) => x === nav.metaPx), `${tag} #3757: every nav label is the agent title's size`, JSON.stringify(nav));
+        chk(nav.labs.length === 3 && nav.labs.every((x) => x === nav.metaPx), `${tag} #3757: every nav label is the agent title's size`, JSON.stringify(nav));
         // Before #3757, measured on main: Direct Message 84px, the others 73px; labels 17px and 14px.
         chk(nav.dmH <= 66 && nav.packH <= 58, `${tag} #3757: the nav boxes are shorter (Direct Message at most 66px, the others at most 58px)`, JSON.stringify(nav));
-        chk(JSON.stringify(nav.icons) === JSON.stringify([24, 20, 20, 20, 20]) && nav.cols === 2 && !nav.wrapped, `${tag} #3757: icons unchanged (24 and 20), the grid stays two across, no label is cut`, JSON.stringify(nav));
+        chk(JSON.stringify(nav.icons) === JSON.stringify([24, 20, 20]) && nav.cols === 2 && !nav.wrapped, `${tag} #3757: icons unchanged (24 and 20), the grid stays two across, no label is cut`, JSON.stringify(nav));
         const before = opened.length;
         await page.click('#d-files-list .pj-doc[data-doc="report.pdf"]');
         await page.waitForTimeout(500);

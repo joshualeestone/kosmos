@@ -49,6 +49,9 @@ test('#3939: turnArgs passes the workspace (real path) on every turn, the sessio
   assert.equal(a[a.indexOf('--workspace') + 1], t.workspace);
   assert.equal(a[a.indexOf('--session-id') + 1], SID);
   assert.equal(a[a.indexOf('--approval-mode') + 1], 'on-request', 'the default approval mode is not on-request');
+  // #4569: Muse's default sandbox blocks 127.0.0.1, so without this the agent's kosmos reply never reaches the board.
+  assert.ok(a.includes('--disable-sandbox'), 'Muse is launched with its sandbox on: kosmos reply cannot reach the board (#4569)');
+  assert.ok(a.indexOf('--disable-sandbox') < a.indexOf('--'), 'the sandbox flag is after --, so Muse would read it as the prompt');
   assert.ok(a.includes('--user-input-auto-resolve') && a.includes('--trust-workspace') && a.includes('--no-foreign-personal-context'));
   assert.deepEqual(a.slice(-2), ['--', '-x looks like a flag'], 'the prompt is not last, after --');
 });

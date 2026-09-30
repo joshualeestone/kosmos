@@ -355,7 +355,7 @@ test('#3939 slice 3: /api/muse is off without the flag; with it, the sign-in sta
   } finally { signin.resetForTests(); delete process.env.AGENT_WORKFORCE_MUSE; delete process.env.AGENT_WORKFORCE_MUSE_BIN; if (xdg !== undefined) process.env.XDG_CONFIG_HOME = xdg; }
 });
 
-test('#3939 3c-2: /api/accounts lists Meta Muse only when it is on, installed and signed in, and drops it after a refusal', { skip: process.platform !== 'darwin' && 'the Muse flag is Mac only' }, async () => {
+test('#3939 3c-2 / #4569: /api/accounts lists Meta Muse only when it is on and installed: green once seen working, red Not connected after a refusal', { skip: process.platform !== 'darwin' && 'the Muse flag is Mac only' }, async () => {
   const musestatus = require('./engine/musestatus');
   const dir = path.join(SANDBOX, 'museacct'); fs.mkdirSync(dir, { recursive: true });
   const bin = path.join(dir, 'muse');
@@ -376,11 +376,21 @@ test('#3939 3c-2: /api/accounts lists Meta Muse only when it is on, installed an
     assert.equal(r[0].provider, 'meta');
     assert.equal(r[0].providerName, 'Meta');
     assert.equal(r[0].dir, null, 'the row must not point at a folder');
-    assert.equal(r[0].connection.badge, 'signed_in_unverified', 'Kosmos\'s record was shown as a live green Signed in');
+    /* #4569 (Josh, 10:47: "After I signed in I didn't get a green Signed In"): Kosmos's own sign-in is Meta
+       accepting it, so it is green, with how long ago; slice 3c-2 had kept it muted. */
+    assert.equal(r[0].connection.badge, 'working', 'Kosmos\'s own sign-in did not read green');
+    assert.equal(r[0].connection.observedFrom, 'sign');
+    assert.ok(r[0].connection.observedAgeMs >= 59000 && r[0].connection.observedAgeMs < 120000, 'the age is not the sign-in\'s: ' + r[0].connection.observedAgeMs);
     musestatus.markSignedOut(t + 1000);
-    assert.deepEqual(await rows(), [], 'a refused turn after the sign-in left the row listed');
+    const out = await rows();
+    assert.equal(out.length, 1, 'a refused sign-in vanished instead of reading Not connected (#4569)');
+    assert.equal(out[0].connection.badge, 'rejected');
+    assert.equal(out[0].connection.state, 'none');
     musestatus.markKosmosSignedIn(t + 2000);
-    assert.equal((await rows()).length, 1, 'CONTROL: a sign-in after the refusal lists it again');
+    assert.equal((await rows())[0].connection.badge, 'working', 'CONTROL: a sign-in after the refusal is green again');
+    clean();
+    assert.deepEqual(await rows(), [], 'never signed in, and no refusal, still lists nothing');
+    musestatus.markKosmosSignedIn(t + 3000);
     fs.rmSync(bin, { force: true });
     assert.deepEqual(await rows(), [], 'a row was listed for a Muse Code that is not installed');
     assert.equal((await req('/api/accounts')).status, 200, 'the rest of the list still answered');

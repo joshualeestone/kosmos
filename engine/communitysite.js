@@ -118,6 +118,17 @@ function release(id) {
   return communitystore.releaseHeld(String(id).trim());
 }
 
+/**
+ * #4525: discard one held or quarantined post or comment (moderator action, board-token gated
+ * at the route, same as release). The store throws on an unknown id or a published row.
+ */
+function discard(id) {
+  if (id === undefined || id === null || String(id).trim() === '') {
+    throw new Error('discard requires an id');
+  }
+  return communitystore.discardHeld(String(id).trim());
+}
+
 // ── Human WRITE path (#3485) ────────────────────────────────────────────────
 // The board->feed WRITE choke is engine/feedpublish.js: a candidate NEVER reaches
 // communitystore except through it (feedguard scrub -> trust ladder ->
@@ -242,6 +253,7 @@ module.exports = {
   commentsView,
   moderationList,
   release,
+  discard,
   publishHumanPost,
   publishHumanComment,
   scrubAuthorName,

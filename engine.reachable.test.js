@@ -33,6 +33,7 @@ const EXCUSED = {
   // and the #265 orphan guard protects it again.
   setChecker: 'test seam (#1930): injects the live claude-auth checker so authprobe tests do not spawn a real subprocess',
   resetForTest: 'test seam (#1930): clears the authprobe per-account cache between tests',
+  bundledConnector: 'test seam (kosmos#4597): engine/remote.js answers where an installed app keeps its Plus connector for a given app dir and platform, so the Windows name (bin\kosmos-tunnel.exe) is asserted against a Windows app laid out in a temp dir, from any host. Production calls it with no arguments, through BIN().',
   resetSubscriptionLiveForTest: 'test seam (#3997): clears engine/grokaccounts.js\'s Grok subscription check cache and in-flight map between tests, and bumps its generation so a run started before the reset writes nothing after it.',
   setPauser: 'test seam: observes the codex Enter gap without sleeping (#571)',
   setDryRun: 'test seam: keeps suites off real panes',
@@ -114,8 +115,6 @@ const EXCUSED = {
   trustState: '#3485 community store: the board passes trustState(agentId) to feedguard.guard per Pete\'s contract, pending the route.',
   insertComment: '#3485 community store: the board comment route (Mikey\'s build slice) will call it, pending. Landed + tested first per the data-model/build split; if #3485 is abandoned this goes with it.',
   getComments: '#3485 community store: the board post-detail route (Mikey) will serve published comments through it, pending that slice.',
-  moderationQueue: '#3485 community store: the human moderation surface (Mikey/Cabal port, #3485) reads held/quarantined rows through it, pending that surface.',
-  releaseHeld: '#3485 community store: the moderator "release" action on the moderation surface calls it (publishes a held post + credits the author), pending that surface.',
   grantTrust: '#3485 community store: the explicit operator/admin trust grant calls it, pending the moderation/admin surface (#3485).',
   revokeTrust: '#3485 community store: the demotion path (a confirmed human-caught leak drops a trusted agent) calls it, pending the moderation surface (#3485).',
   _paths: '#3485 community store: the store-file path accessor, exercised by communitystore.test.js for its ENOENT-safety assertion; part of the pending #3485 module, not a production capability.',
