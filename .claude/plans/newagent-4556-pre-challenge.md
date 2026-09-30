@@ -2,83 +2,72 @@
 pre_challenge: true
 method: challenge-loop
 branch: newagent-4556
-diff_hash: 55d48fa606911feb9050303fe304b1798fa14f8ede6a51e04801c418a51085e6
+diff_hash: 1e01361bf6fcadeead2fbd25c74939020545ddce55dd46f6d5d378014953455c
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-30T00:28:31Z
-iterations: 10
+timestamp: 2026-09-30T14:47:27Z
+iterations: 12
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 10 (the first loop converged in 6 on 2026-09-29 at 19:17Z; after CI's render-full-width red and
-the check fix, 4 more blind passes ran on the whole diff, and the 4th found no new BLOCKER, WARNING or CONVENTION)
+**Iterations:** 12 (10 by Angel before the handover, recorded in `.claude/plans/newagent-4556.md` and
+`~/.cache/claude-handoffs/angel-ledger-4625.md`; 2 by Renet Tilley after it, 2026-09-30)
 **Converged:** Yes
-**Validation:** full local suite on the current diff, 11936 pass / 0 fail (validation-log clean, hash 55d48fa6)
-**Post-loop findings:** 1 BLOCKER, 4 WARNINGs, all fixed; NITs recorded below
+**Findings after the handover (iterations 11-12):** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 9 NITs
+**Fixed:** 1 (a NIT: a comment that counted steps wrongly) | **Deferred:** 3 WARNINGs (two on a premise now pinned by a new test, one a duplicate) | **Asked:** 0
+Iteration 10 converged before the handover. Main was then merged and three follow-ups to main's #4632 landed; the
+loop resumed on that tree after Angel went out (weekly limit, 07:38 CDT).
 
-### Per-Iteration Breakdown (post-loop passes; the first 6 are in this file's history)
+### Per-Iteration Breakdown
 
-#### Iteration 7
+#### Iterations 1-10
+**Reviewer model:** see the plan and Angel's ledger
+**Result:** findings fixed or deferred per round; iteration 10 converged.
+
+#### Iteration 11
 **Reviewer model:** opus
-**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 6 NITs
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 4 NITs
 **Self-generated:** 0 of the above
-- [WARNING] web/index.html loadRoles / Team screen — with /api/roles failing, Team said only "Ready-made teams are
-  coming soon." and never retried; an overlapping failed load could hide a loaded org chart --> FIXED (53146872c):
-  Team starts the roles load when there is none, `#team-orgchart-msg` says why; K10 (red with each fix removed)
-- also fixed: render-full-width measured the whole New Agent panel at 34rem; it is 60rem on the kind step on
-  purpose; now both are measured (ffa575cb3, red with the 60rem rule removed)
+- [WARNING] web/index.html:46744 - a late roles answer under a path already painted swaps ROLES/OWN_ROLE under a menu built from an older payload --> DEFERRED: the only payload a refetch replaces is an incomplete one (built-ins only), and engine/roles.js remerge keeps every built-in and skips a catalogue role with a built-in's key, so each shown key is in the later payload with identical copy. Premise pinned by a new test in engine/catalogue.download-4632.test.js (1056d0fb7), red when the catalogue may override a built-in
+- [WARNING] web/index.html:46567 - Team moving ROLES_GEN has no check --> DEFERRED: its named cost (Team options stale on a changed OWN_ROLE) cannot occur; `own` is the built-in roles.byKey('own') in every payload, so painting or not painting under Team gives the same data
+- [NIT] .claude/plans/newagent-4556.md:80 - "they appear on Back or the next open" means the next Single or Swarm choice after Back
+- [NIT] web/index.html:46818 - paintRoleMenu excludes the literal 'pm' (a payload without pm is never produced)
+- [NIT] web/index.html:46866 - the Team note says "choose Team again" while a retry is in flight
+- [NIT] web/index.html:46683 - Back from Swarm when SWARMS_ON flips has no card to focus
 
-#### Iteration 8
+#### Iteration 12
 **Reviewer model:** sonnet
-**New findings:** 0 BLOCKERs, 3 WARNINGs (1 deferred), 0 CONVENTIONs, 2 NITs
+**New findings:** 0 BLOCKERs, 0 WARNINGs after deduplication (1 raised), 0 CONVENTIONs, 5 NITs
 **Self-generated:** 0 of the above
-- [WARNING] comments away from the code they describe --> FIXED (4d3e5a401)
-- [WARNING] a superseded roles load that succeeds cleared Loading and rebuilt the picker --> FIXED (4d3e5a401)
-- [WARNING] a Team revisit reset the chosen ready-made team --> FIXED (4d3e5a401), K11
-- [WARNING] Single/Swarm show no "go back" hint when roles fail --> DEFERRED: unchanged from before this card
+**Duplicates of prior findings:** 1
+- [WARNING] web/index.html loadRoles - role-next reads roleByKey from the newer payload --> DEFERRED: duplicate of iteration 11's first deferral (now pinned by test)
+- [NIT] web/index.html:7760 - the cstep() comment said it toggles "the three steps" (there are five) --> FIXED (9355a25f2's parent): it no longer counts them
+- [NIT] web/index.html - paintRoleMenu vs buildPicker on a payload with no pm (unreachable)
+- [NIT] web/index.html - the Team note while a retry is in flight
+- [NIT] web/index.html - swarmCreatePaint no longer hides the Swarm card if SWARMS_ON flips off mid-visit (createKind() still sends 'agent')
+- [NIT] web/index.html - Back-focus edge when SWARMS_ON flips
+**Converged** - no new actionable findings.
 
-#### Iteration 9
-**Reviewer model:** opus
-**New findings:** 1 BLOCKER, 2 WARNINGs, 0 CONVENTIONs, 4 NITs
-**Self-generated:** 1 (the stale-load check added in iteration 8 was placed after the shared lists were written)
-- [BLOCKER] web/index.html loadRoles — a stale roles load wrote ROLES/OWN_ROLE before its gen check and a later
-  path took the fast path without building the picker (Single: empty Project Manager, Loading forever) --> FIXED
-  (1b26c8e4a): one shared `/api/roles` request (`fetchRoles`), only the newest caller paints, `ROLES_BUILT`;
-  K12 reproduces the race (red on the previous code in all 8 arms, green now)
-- [WARNING] Team did not repaint its options when roles were already there --> FIXED (1b26c8e4a)
-- [WARNING] plan wording overstated the stale-load guarantee --> FIXED (c05b175e2)
-- [NIT] openCreate keyed the import mode on CREATE_PATH --> FIXED (keys on its own argument)
-
-#### Iteration 10
-**Reviewer model:** sonnet
-**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 4 NITs
-**Converged** — no new actionable findings (interleavings of path choices, Back, reopen, slow / failed / retried
-roles loads, the ?tab=create boot and the first-run import link were traced and found sound).
-
-### Final Ledger (post-loop)
+### Final Ledger (after the handover)
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
 |---|------|----------|-----------|--------|-------------|--------|------------|
-| 1 | 7 | WARNING | web/index.html loadRoles | BRANCH | roles failure unexplained on Team | FIXED | 53146872c |
-| 2 | 8 | WARNING | web/index.html paintPathOptions | BRANCH | comments misplaced | FIXED | 4d3e5a401 |
-| 3 | 8 | WARNING | web/index.html loadRoles | BRANCH | stale success repainted | FIXED | 4d3e5a401 |
-| 4 | 8 | WARNING | web/index.html loadSeededTeams | BRANCH | revisit reset team choice | FIXED | 4d3e5a401 |
-| 5 | 8 | WARNING | web/index.html loadRoles failure | BRANCH | no go-back hint on Single/Swarm | DEFERRED | predates this card |
-| 6 | 9 | BLOCKER | web/index.html loadRoles | SELF | stale load wrote shared lists | FIXED | 1b26c8e4a |
-| 7 | 9 | WARNING | web/index.html chooseCreatePath | BRANCH | Team not repainted | FIXED | 1b26c8e4a |
-| 8 | 9 | WARNING | .claude/plans/newagent-4556.md | BRANCH | overstated guarantee | FIXED | c05b175e2 |
+| 1 | 11 | WARNING | web/index.html:46744 | BRANCH | late answer swaps payload under a painted menu | DEFERRED | premise pinned by test (1056d0fb7) |
+| 2 | 11 | WARNING | web/index.html:46567 | BRANCH | Team bump unchecked | DEFERRED | `own` identical in every payload |
+| 3 | 12 | WARNING | web/index.html loadRoles | BRANCH | role-next reads the newer payload | DEFERRED | duplicate of #1 |
+| 4 | 12 | NIT | web/index.html:7760 | BRANCH | cstep() comment counted steps | FIXED | comment-only commit |
+
+### Evidence on this head (9355a25f2)
+- Full validation passed (detached, 09:45:41 CDT, validation_rc=0, audit_rc=0).
+- Angel's five browser checks passed on this head (09:06:58, rc=0; render-newagent-paths-4556: 134 passed).
+- K13 control on a perturbed copy went red as expected (8 problems), so K13 can fail.
 
 ### Outstanding questions
 None.
 
-### NITs (non-blocking)
-- review-round citations in code comments; a duplicate roles fetch (now shared); the Swarm path with a catalogue of
-  only directing roles; the seeded-teams cache for a session; pickMode('pm') touching hidden role state on Team.
-
-### Strengths
-- Generation guards (ROLES_GEN, SEEDED_GEN, IMPORT_GEN, ORGCHART_GEN) applied the same way throughout.
-- render-newagent-paths-4556 drives the real UI in light and dark at desktop and phone width, 126 checks, with
-  controls, and K12 reproduces the race it fixes.
-- The surface gate's three mapped checks were run on this branch and pass (trailers in cfa5fd72a).
+### Strengths (after the handover)
+- One shared /api/roles request writes the role lists; only the newest caller paints (ROLES_GEN).
+- Focus moves to each second screen's heading and back to the chosen card on Back; Back supersedes late import, team and catalogue answers.
+- The path drives the existing create-kind state, so the request body and server contract are unchanged.
