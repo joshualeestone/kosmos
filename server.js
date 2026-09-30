@@ -863,6 +863,7 @@ function safeAvatarFor(name) {
   try { return store.avatarPath(name); } catch { return null; }
 }
 const roles = require('./engine/roles');
+const catalogue = require('./engine/catalogue'); // #4632: the downloaded roles and teams
 const commitments = require('./engine/commitments');
 const you = require('./engine/you');
 const policyEngine = require('./engine/policy');
@@ -922,6 +923,7 @@ const recordGuideOutcome = guidestate.makeRecorder({
   setTimer: createdbeacon.underTest() ? () => null : setTimeout,
 });
 const heartbeat = require('./engine/heartbeat');
+const roomhold = require('./engine/roomhold'); // #4624: a colleague's un-addressed room post is held while the member works
 const agentnudge = require('./engine/agentnudge'); // #4544: the Prompter's nudge to the AGENT (an idle agent that still has open work)
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
@@ -1141,7 +1143,7 @@ const webhooks = require('./engine/webhooks');
 const HOOK_BODY_MAX = 16 * 1024;
 const HOOK_RATE = { perMinute: 30, perProjectHour: 120, openMax: 200, bodyMs: 10000, seen: new Map(), byProject: new Map() };
 /* #4419: the internet link for a webhook, shown beside the local one in the same answer (the secret
-   exists only there). Only when Kosmos Plus is up AND the running connector says it admits hooks;
+   exists only there). Only when Kosmos+ is up AND the running connector says it admits hooks;
    otherwise publicWhy says, in words for the page, why there is none. The address must be a dotted
    host name whose last label is letters, so an IP literal or anything with a path never lands in a link. */
 const HOOK_HOST_RE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
@@ -1153,21 +1155,21 @@ function hookPublicLink(id, secret) {
   try { const set = remote.read(); on = set.on === true; settingsOk = set.ok !== false; } catch { on = false; settingsOk = false; }
   try { signedIn = remote.enrolled() === true; } catch { signedIn = false; }
   const why = (w) => ({ publicUrl: null, publicWhy: HOOK_LOCAL_ONLY + w });
-  if (!settingsOk) return why('Kosmos could not read the Kosmos Plus settings just now, so there is no internet link this time.');
-  if (!on) return why('Kosmos Plus can also give a link that works from the internet.');
-  if (!signedIn) return why('Finish signing in to Kosmos Plus in Settings to also get a link that works from the internet.');
+  if (!settingsOk) return why('Kosmos could not read the Kosmos+ settings just now, so there is no internet link this time.');
+  if (!on) return why('Kosmos+ can also give a link that works from the internet.');
+  if (!signedIn) return why('Finish signing in to Kosmos+ in Settings to also get a link that works from the internet.');
   if (!st || st.state !== 'up') {
     return why(st && (st.state === 'connecting' || st.state === 'restarting')
-      ? 'Kosmos Plus is still connecting; make a new webhook once it is connected to also get a link that works from the internet.'
-      : 'Kosmos Plus is not connected right now, so there is no internet link this time.');
+      ? 'Kosmos+ is still connecting; make a new webhook once it is connected to also get a link that works from the internet.'
+      : 'Kosmos+ is not connected right now, so there is no internet link this time.');
   }
-  if (st.admitsHooks !== true) return why('This computer\'s Kosmos Plus connection does not take webhooks from the internet.');
+  if (st.admitsHooks !== true) return why('This computer\'s Kosmos+ connection does not take webhooks from the internet.');
   // The link carries the secret, so its host must be THIS computer's enrolled Kosmos Plus name, not just any host name
   // a status file happens to hold (a stale or damaged file must never send the secret to someone else's host).
   let enrolledName = '';
   try { enrolledName = String(remote.address() || '').toLowerCase(); } catch { enrolledName = ''; }
   if (HOOK_HOST_RE.test(String(st.address || '')) && enrolledName && String(st.address).toLowerCase() !== enrolledName) {
-    return why('This computer\'s Kosmos Plus name changed since it connected, so there is no internet link this time.');
+    return why('This computer\'s Kosmos+ name changed since it connected, so there is no internet link this time.');
   }
   if (!HOOK_HOST_RE.test(String(st.address || '')) || String(st.address).toLowerCase() !== enrolledName) return why('Kosmos could not read this computer\'s internet address, so there is no internet link this time.');
   return { publicUrl: 'https://' + String(st.address).toLowerCase() + '/hooks/' + id + '/' + secret, publicWhy: null };
@@ -6258,7 +6260,14 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pathname === '/api/roles' && (req.method === 'GET' || req.method === 'HEAD')) {
-    sendJson(res, 200, {
+    /* #4632: the ready-made roles beyond the built-in ones are downloaded, not shipped. The role
+       picker asks with ?catalogue=1 when it opens, and only then does the board fetch the
+       catalogue (engine/catalogue.js: at most once in ten minutes, kept only when its signature
+       verifies). Every other caller (the page's role titles at load, the model menu) answers from
+       what is already held, and never waits on the network. */
+    let wantCatalogue = false;
+    try { wantCatalogue = req.method === 'GET' && new URL(req.url, ROUTING_BASE).searchParams.get('catalogue') === '1'; } catch { wantCatalogue = false; }
+    const answer = () => sendJson(res, 200, {
       // The models an agent can be created on, from the engine's own list,
       // so the menu and the flag the job runs with cannot drift.
       /* ⚠️ `provider` TRAVELS WITH EACH ROW (#1026). The create screen reads
@@ -6298,7 +6307,17 @@ const server = http.createServer(async (req, res) => {
         // is exactly too late for the two roles that have one.
         caution: r.caution || null,
       })),
+      // What the board holds of the downloaded catalogue: whether any, which serial, and why the
+      // last download was not used. The picker reads `loaded` (to ask again on its next open).
+      catalogue: catalogue.status(),
     });
+    // refresh() never rejects; the second handler is for a bug in it, which must not hang the picker.
+    // answer() itself runs inside a promise handler there, so a throw in it is caught and answered
+    // rather than left as an unhandled rejection.
+    const answerSafely = () => {
+      try { answer(); } catch { if (!res.headersSent) sendJson(res, 500, { error: 'we could not list the roles' }); }
+    };
+    if (wantCatalogue) catalogue.refresh().then(answerSafely, answerSafely); else answer();
     return;
   }
 
@@ -6336,6 +6355,15 @@ const server = http.createServer(async (req, res) => {
           // No error code: the catch below answers in our own words whatever
           // this is, and a code nothing reads is a hint that something does.
           throw new Error('we could not read that request');
+        }
+
+        /* #4632: a ready-made role comes from the downloaded catalogue. When the key asked for is not
+           one this board holds (nobody has opened the picker yet, so nothing was downloaded), ask the
+           catalogue first, as the picker would. (This is the create form's route; agents and the CLIs
+           make agents through /api/team, which does the same.) At most once in ten minutes, never
+           throws; an unknown key is still refused below. */
+        if (create.roleKeyOf(body) && !roles.byKey(create.roleKeyOf(body))) {
+          await catalogue.refresh();
         }
 
         /**
@@ -6772,6 +6800,14 @@ const server = http.createServer(async (req, res) => {
               }
             }
           }
+        }
+
+        /* #4632: agents and both CLIs make agents here (`kosmos agent create`). A ready-made role
+           comes from the downloaded catalogue, so when a member names a role this board does not
+           hold, ask the catalogue first, as the picker would. After the caller is known; at most
+           once in ten minutes; never throws; an unknown key is still refused by createTeam. */
+        if (Array.isArray(members) && members.some((m) => m && typeof m === 'object' && create.roleKeyOf(m) && !roles.byKey(create.roleKeyOf(m)))) {
+          await catalogue.refresh();
         }
 
         /* #1279 GLOBAL per-creator active-agent cap: enforced INSIDE the
@@ -8213,8 +8249,10 @@ const server = http.createServer(async (req, res) => {
      card only when Plus is on and enrolled, which the engine already
      encodes as an empty list. */
   if (pathname === '/api/remote/pending' && (req.method === 'GET' || req.method === 'HEAD')) {
-    // #3829 follow-up: the card names this Mac's own sign-in the same way the list does.
-    try { sendJson(res, 200, Object.assign({}, remote.pendingDevices(), { self_device_id: typeof remote.read().device_id === 'string' ? remote.read().device_id : '' })); }
+    /* #4610 (Josh's ruling 13:00, blind review round 1): this Mac's own sign-in is never shown, so its id is no longer
+       sent to the page (the engine leaves it out of pending, and grants it). Not sending it also keeps the one value
+       that picks the automatic grant off every read route. */
+    try { sendJson(res, 200, remote.pendingDevices()); }
     catch { sendJson(res, 500, { error: 'we could not read what is waiting' }); }
     return;
   }
@@ -8233,10 +8271,11 @@ const server = http.createServer(async (req, res) => {
       .then((list) => {
         if (!list.ok) { sendJson(res, 500, { error: list.because }); return; }
         const pending = remote.pendingDevices();
-        /* #3829 follow-up (ICK's finding): this Mac's own in-app sign-in is a row too, and it sends no name.
-           Its id (an opaque label kept in remote.json, not a credential) lets the page call it "This Mac". */
+        /* #4610: nor in the ALLOWED list. Josh: "never display to the user"; shown there it also carried a Remove
+           the automatic grant would quietly undo. Matched by the id this board minted for its own sign-in. */
         const self = typeof remote.read().device_id === 'string' ? remote.read().device_id : '';
-        sendJson(res, 200, { pending: pending.devices, allowed: list.data.devices, email: pending.email, on: remote.read().on === true, self_device_id: self });
+        const allowed = (Array.isArray(list.data.devices) ? list.data.devices : []).filter((d) => !self || !d || d.device_id !== self);
+        sendJson(res, 200, { pending: pending.devices, allowed, email: pending.email, on: remote.read().on === true });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the devices' }));
     return;
@@ -12920,6 +12959,7 @@ const server = http.createServer(async (req, res) => {
           state: body.state,
           project: typeof body.project === 'string' ? body.project : undefined,
           because: body.text,
+          waiting: body.waiting,   // #4569 fix 4: selfreport keeps it only on a sane working report
           on: body.on,
           owner: body.owner,
           until: body.until,
@@ -12966,6 +13006,20 @@ const server = http.createServer(async (req, res) => {
            ages out. One bounded file per agent, no leak. */
         if (body.state === 'working') {
           try { activity.record(who, 'working', 1, kept.recorded === true ? kept.at : undefined); } catch { /* the report stands; the marker is best-effort */ }
+        }
+        /* #4624: the turn ended, so room posts held for this agent while it worked are told to it now, one
+           line per room (engine/roomhold.js). On the report the agent SENT, recorded or not: an automatic
+           idle refused over a standing needs_you still means the turn is over. After the answer, so the
+           hook never waits on a pane. */
+        if (body.state === 'idle') {
+          setImmediate(() => {
+            roomhold.flushOnIdle(who, {
+              deliver: chat.deliverAsync, roster, DELIVERY: chat.DELIVERY, env: process.env,
+              shownOf: (id) => { const p = projects.get(id, roster); return p ? p.name : null; },
+            }).then((done) => {
+              for (const d of done) process.stdout.write(`room-hold: ${who} told of ${d.n} held post(s) in ${d.projectId} delivery=${d.state}\n`);
+            }).catch(() => { /* best-effort: the posts are in the room, and the next typed arrival carries the line */ });
+          });
         }
         /* 🛑 THE BEAT, AND WITHOUT IT NOTHING ELSE ON THIS ROUTE REACHES A
            PANELESS AGENT (#1502). `liveness.seen` had ZERO production callers

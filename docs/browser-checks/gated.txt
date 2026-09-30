@@ -70,6 +70,7 @@ render-dm-phone-718
 render-dm-reactions-3650
 render-dm-reply-4256
 render-dm-send-shows-now
+render-dm-sendjump-4639
 render-dm-sideways-3969
 render-dm-tapreact-718
 render-docs-subfolders-2245
@@ -143,6 +144,7 @@ render-pjcreate-nav-3134
 render-pjmode-style-3495
 render-pjmsg-prewrap-2294
 render-pjsettings
+render-plus-asks-signin-4610
 render-plus-bar-3837
 render-plus-blue-1615
 render-plus-gate-1615
