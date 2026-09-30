@@ -27,6 +27,9 @@ the arm passes every run, and each of those two cases has a mutant that goes red
 - A repaint that started DURING the settle (a second paint, its read slowed 400ms, a 500ms slow-machine wait before
   the fill): without the held paint before showing the pair, 5 of 6 red; with it, 0 of 6.
 - The check itself: 4 of 4 alone after the round 1 fix (8 of 8 under load before it), 15 checks each.
+- Round 2: the arm now asserts the hold engaged (at least 2 held reads before Enter) and that the pair is on screen
+  after it is shown. A route that stops consulting the hold, and a missing hold, each fail with "the hold engaged: 0"
+  named first, not only a later timeout. 3 of 3 green with 17 checks.
 - Not reproduced on main without the deliberate repaint (6 alone, 12 under load): the natural race is rare here.
 
 ## Weakest premise

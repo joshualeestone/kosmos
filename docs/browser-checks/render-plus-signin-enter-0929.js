@@ -66,7 +66,7 @@ async function openPlus(page, remote) {
       /* page.__holdRemote: once set, a status read never answers, so no later paintPlus (the 5s tick included)
          can repaint over a state the check set by hand (#4694). The hold ends only when the page closes, so never
          await paintPlus() after setting it: it would never finish. */
-      if (page.__holdRemote) return;
+      if (page.__holdRemote) { page.__held = (page.__held || 0) + 1; return; }
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(remote) });
     }
     else route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
@@ -212,8 +212,8 @@ async function openPlus(page, remote) {
          still in flight, or the 5s status tick) hid the pair again: Enter went nowhere, setup-start was never sent,
          and the next fill timed out (CI run 36672061656). So: let one paint run, hold every later status read, then
          start one more paint BEFORE showing the pair. That last one waits on a held read forever, and it takes a
-         newer PLUS_EPOCH, so every paint still in flight (one that began during the first, and whose read was
-         answered before the hold) returns without touching the page (review round 1 reproduced exactly that). */
+         newer PLUS_EPOCH (paintPlus bumps it before its read), so every paint still in flight, including one that
+         began during the first and whose read was answered before the hold, returns without touching the page. */
       await openPlus(page, WAITING);
       await page.evaluate(() => paintPlus());
       page.__holdRemote = true;
@@ -232,11 +232,18 @@ async function openPlus(page, remote) {
           for (const id of ['plus-flow', 'plus-enrol']) { const e = document.getElementById(id); if (e) e.hidden = false; }
         });
       }
+      // Shown, and still shown: a failure here names the cause instead of a later fill timing out.
+      chk(await visible(page, '#plus-email'), 'the enrol pair is on screen for the Enter arm', '');
       await page.fill('#plus-email', 'josh@example.com');
       /* A repaint that STARTS here, between the fill and Enter, where CI's status tick landed. Its read is held, so it
          must not move anything; without the hold, Enter below sends nothing. Not awaited: it never finishes. (A paint
          that started earlier is covered by the epoch bump above, not by this line.) */
       await page.evaluate(() => { paintPlus(); });
+      /* Both repaints (the one before showing the pair and this one) reached the held read. If the route ever stops
+         matching the pane's status read, the hold does nothing and this says so, instead of the arm going back to
+         racing the 5s tick. */
+      for (let i = 0; i < 40 && (page.__held || 0) < 2; i++) await new Promise((r) => setTimeout(r, 50));   // the reads reach the route asynchronously
+      chk((page.__held || 0) >= 2, 'the pane\'s repaints were held (the hold engaged)', String(page.__held || 0));
       await focusOn(page, 'plus-email');
       await page.keyboard.press('Enter');
       await page.waitForSelector('#plus-code-row', { state: 'visible', timeout: 5000 }).catch(() => {});
