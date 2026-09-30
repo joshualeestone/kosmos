@@ -2230,8 +2230,8 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 /* #4662: iOS zooms into a field under 16px and does not zoom back (the same reason as the project page's one
    field rule, #718), and the sort dropdowns were 13px: tapping one left the board zoomed and panning sideways.
    Every .sortctl select, so the one-screen layout's own sorts (#agent-sort-cons, #pj-full-sort) are covered as
-   well as #agent-sort. A touchscreen only; the line height is held so the control keeps its box. */
-@media (hover: none) { .sortctl select { font-size: 16px; line-height: 1.2; } }
+   well as #agent-sort. A touchscreen only. The box is a fixed 32px, so the text grows within it. */
+@media (hover: none) { .sortctl select { font-size: 16px; } }
 .stats { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
 .stat { display: flex; align-items: center; gap: 9px;
         border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface);
