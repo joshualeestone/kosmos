@@ -471,6 +471,8 @@ test('#4660: the Claude reader carries whether its account runs on an API key (t
     rows = [{ dir: '/tmp/x-default', isDefault: true, email: 'a@b.c', apiKey: false }];
     assert.deepEqual(o.currentReader(), { kind: 'claude', dir: '/tmp/x-default', apiKey: false }, 'CONTROL: a subscription row');
     assert.equal(o.consentFor(o.currentReader()).uses, 'using your plan');
+    process.env.ANTHROPIC_API_KEY = '  ';
+    assert.equal(o.currentReader().apiKey, false, 'a blank variable is not a key');
     process.env.ANTHROPIC_API_KEY = 'sk-ant-TEST-4660';
     assert.equal(o.currentReader().apiKey, true, 'ANTHROPIC_API_KEY in the board env is what the read bills');
     assert.equal(o.consentFor(o.currentReader()).uses, 'billed to your Anthropic API key');

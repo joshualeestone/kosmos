@@ -196,7 +196,8 @@ const KEEPS = {
    Said as each plan's own case, because the training setting is a Free/Pro/Max setting; the setting is described as
    the pages do ("allow us to use your chats ... to improve Claude", "Model Improvement in your Privacy Settings"), not
    by a toggle label they never print. A Claude account known to run on an API key (#2420, `apiKey` on its row) gets
-   CLAUDE_API_KEEPS, its own case ("Commercial users (Team, Enterprise, and API): Standard: 30-day"). "De-identified" is said as
+   CLAUDE_API_KEEPS, its own case ("Commercial users (Team, Enterprise, and API): Standard: 30-day").
+   "De-identified" is said as
    "with details that identify you removed", not as anonymous or unlinked: the source promises no more than that.
    Left out, on purpose: the classifier SCORES kept up to 7 years for flagged content (scores, not what was sent), and
    Enterprise zero data retention (Kosmos cannot see it; saying 30 days there overstates, the safe direction). */

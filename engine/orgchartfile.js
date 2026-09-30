@@ -605,7 +605,7 @@ function currentReader() {
     // folder), or ANTHROPIC_API_KEY is in the board's environment, which the Claude read passes on to `claude`
     // (defaultModelRunner) and so bills. Not seen: an apiKeyHelper set up by hand on the default ~/.claude. That
     // person gets "using your plan" and the both-cases line, which still names an API account's 30 days.
-    const apiKey = Boolean(acct && acct.apiKey === true) || Boolean(process.env.ANTHROPIC_API_KEY);
+    const apiKey = Boolean(acct && acct.apiKey === true) || Boolean(String(process.env.ANTHROPIC_API_KEY || '').trim());
     return { kind: 'claude', dir: acct ? acct.dir : null, apiKey };
   }
   let got = { reader: null, offWhy: null };
