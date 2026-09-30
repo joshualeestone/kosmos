@@ -217,3 +217,9 @@ agent makes; that case is the exception above.)
   member list (the instructions say "with your name on it"); a clause about which round added which test is gone.
   No code changed after this round's review.
 
+## After convergence: one test-only change
+The test for a throwing token resolver made it throw through the defect filed as #4738 (a tmux session named "!!"
+sorting ahead of the agent's row). When #4738 is fixed that would stop throwing and the test's control would go
+red for a reason that is not this change. It now makes the resolver throw directly, and asserts both requests
+went through it. No product code changed. Still red with the catch removed (the file hangs, as measured in round 3).
+

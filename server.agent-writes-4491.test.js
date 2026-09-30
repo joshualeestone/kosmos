@@ -224,17 +224,22 @@ test('a roster pane that is not tied to our agent names nobody: no name recorded
 });
 
 test('a token the resolver cannot check (it throws) is a 503 on both writes, and the board keeps answering', async (t) => {
-  /* #4738: a tmux session whose name has no letter or digit AND sorts ahead of the agent's row ("!!" does; a name
-     in Japanese sorts after and does not) makes sendertoken.resolve throw. The close handler names its caller
-     outside any try, so a throw there leaves the request unanswered (measured: with the catch removed this test
-     hangs until the runner gives up) and may end the board's process; it must be answered instead. */
-  const w = world(t, { extra: [fleet.stranger('!!', { state: 'idle' })] });
-  assert.throws(() => sendertoken.resolve(w.mara, w.agents), /invalid agent name/, 'control: the resolver no longer throws on this roster (if #4738 is fixed, make it throw another way, or drop this test\'s premise)');
+  /* The close handler names its caller outside any try, so a throw from the token resolver there leaves the request
+     unanswered (measured: with the catch removed this test hangs until the runner gives up) and may end the board's
+     process; it must be answered instead. The resolver is made to throw here directly, so this does not depend on
+     the one way it throws today (#4738: a tmux session with a punctuation-only name sorting ahead of the agent's
+     row), which is a defect of its own and will be fixed. */
+  const w = world(t);
+  const realResolve = sendertoken.resolve;
+  let thrown = 0;
+  sendertoken.resolve = () => { thrown += 1; throw new Error('invalid agent name'); };
+  t.after(() => { sendertoken.resolve = realResolve; });
   const close = await call('POST', '/api/project/p4491/task/1/close', { headers: asAgent(w.mara) });
   assert.equal(close.code, 503, 'a throwing resolver was not answered with a 503 on close: ' + close.code + ' ' + close.text.slice(0, 120));
   assert.match(JSON.parse(close.text).error, /^we could not check that agent just now, so the task was not closed$/, 'the roster WAS read here, so the sentence must not say it was not');
   const add = await call('POST', '/api/project/p4491/tasks', { headers: asAgent(w.mara), body: { sentence: 'unchecked' } });
   assert.equal(add.code, 503, 'a throwing resolver was not a 503 on add: ' + add.code + ' ' + add.text.slice(0, 120));
+  assert.equal(thrown, 2, 'control: the resolver was not what these two requests went through, so the 503s prove nothing about a throw');
   assert.deepEqual([w.made, w.acts], [[], []]);
   /* The board is still there, and a caller with no token is untouched. */
   assert.equal((await call('POST', '/api/project/p4491/task/2/close', { headers: withBoard() })).code, 200, 'the board stopped answering after the throw');
