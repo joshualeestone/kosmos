@@ -1496,7 +1496,8 @@ function secondComputerFields(data, ownedAddress) {
   const labels = addresses.slice(0, 20).map((a) => a.split('.')[0]);
   /* #4681 (Kitty's retirehold): a computer of this account that is still WAITING to be allowed is no longer in
      `addresses`; the coordinator names it in `waiting_labels` (names only, never an address a page could open). The page
-     reads both, so a waiting computer signing in again is recognised as itself, not registered again as name-2. */
+     uses it for one thing: not to register this computer again as name-2 beside a waiting one of the same name. A name
+     is not identity (#4681 review 16), so nothing here says the waiting computer IS this one. */
   const waiting = (Array.isArray(data.waiting_labels) ? data.waiting_labels : [])
     .filter((l) => typeof l === 'string' && /^[a-z0-9-]{3,32}$/.test(l)).slice(0, 20);
   const code = typeof data.match_code === 'string' && MATCH_CODE.test(data.match_code) ? data.match_code : '';

@@ -43673,8 +43673,9 @@ function plusSiSecondStart(data) {
      refusal for that name explains what to do. */
   if (labels.includes(base)) return false;
   /* #4681: the same when this computer's name is one of the account's computers still WAITING to be allowed (listed
-     apart, names only): it is this computer signing in again, and registering it anew would clash (409) and leave the
-     waiting one behind with an Allow card nobody can answer. */
+     apart, names only). A name is not identity (#4681 review 16: anyone can register a computer under a name), so this
+     does not say the waiting one is this computer; it only refuses to register this one again as name-2 beside it.
+     The chooser, and the match code on the Allow card, are what the person decides by. */
   const waiting = Array.isArray(data.waiting_labels) ? data.waiting_labels.map(String) : [];
   if (waiting.includes(base)) return false;
   PLUS_SI_SECOND = { base, tries: 0, code: String(data.match_code || ''), other: String(data.other_address), several: labels.length > 1, computer: String(data.computer || ''), domain };
