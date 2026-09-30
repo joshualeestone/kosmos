@@ -743,6 +743,33 @@ const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopba
    bare `require('./server')` in a unit test must not touch the real store. The
    dispatch closure below reads this holder; start() populates it. */
 const boardAuthState = { on: false, token: null };
+/* #4602 (#4580 item 13, the Meta agent's finding): the board-token refusal says what is actually wrong. A request
+   that presented NO credential at all (no board token by cookie, header or query; no agent token) was told "this
+   board belongs to the account that started it", the same words as a token that was sent and is another account's,
+   and was read as "this is another machine's board". It now says the token is missing and how one is sent. The
+   account clause stays in both, word for word: it is still true, and it is the phrase the gate's tests (and anyone
+   else reading this refusal) recognise. `tail` is a caller's extra way in, e.g. an agent token on POST /api/team.
+   Scope: a caller that is not a browser (the audience that asked); a browser keeps the old sentence, see below.
+   The wording is chosen from what the CALLER sent (its own headers, cookie, query), never from server state, and
+   both sentences refuse, so a client-controlled header here changes words only, never access. */
+function boardTokenRefusal(req, tail) {
+  const account = 'this board belongs to the account that started it; open it with `kosmos open`' + (tail || '');
+  const sent = Boolean(boardauth.presentedToken(req, ROUTING_BASE))
+    || Boolean(req && req.headers && req.headers['x-kosmos-agent-token']);
+  /* A BROWSER keeps today's sentence exactly: the page shows this error to a PERSON (the org-chart import, Settings),
+     for whom "open it with `kosmos open`" is the right advice and "use a kosmos command" is not. Current browsers
+     send Sec-Fetch-Site (a header a page cannot remove); curl sends none. An older browser that sends no Sec-Fetch-*
+     gets the other sentence, which is still accurate. Sec-Fetch-Mode is NOT the test: Node's own fetch (the Windows
+     CLI's) sends `sec-fetch-mode: cors` by itself (measured), and no Site. */
+  const browser = Boolean(req && req.headers && req.headers['sec-fetch-site']);
+  if (sent || browser) return account;
+  /* Said as "in the request's headers": an agent token in a JSON body is honoured by some handlers but read after
+     this gate, so the gate cannot claim none came. Kept short and without its own "refused", because both CLIs
+     print it inside "Kosmos refused that request: ...". The advice holds for Kosmos's own commands too: they
+     send the token only when they can read this board's token file, so that condition is said. */
+  return 'no board token or agent token came in this request\u2019s headers, and ' + account
+    + '. A `kosmos` command sends the token for you when it can read this board\u2019s token file';
+}
 /* #3055: the board-token check for the BROWSER dispatch gate. The board token
    proves SAME-ACCOUNT ownership (#1946), and every world's `board.token` is a
    mode-600 file in a mode-700 dir readable only by this account -- so ANY of this
@@ -824,6 +851,7 @@ const setupAssistant = require('./engine/setup-assistant'); // #3034: the once-e
    seam so tests never open a window. */
 const terminal = require('./engine/terminal');
 const team = require('./engine/team'); // #1279: the authoring seam calls createTeam (engine core merged in #2247)
+const orgchartfile = require('./engine/orgchartfile'); // #4559: an org chart FILE into the New Agent preview
 const agentfile = require('./engine/agentfile');
 const register = require('./engine/register');
 /* ⚠️ For the not-running rows only. `engine/status.js` reads the same store for
@@ -920,6 +948,7 @@ const dmfiles = require('./engine/dmfiles');          // #3614: where an agent s
 const doctrine = require('./engine/doctrine');
 const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
+const accountComputers = require('./engine/account-computers'); // kosmos#4648
 const phonenotify = require('./engine/phonenotify');
 const styles = require('./engine/styles');
 const tips = require('./engine/tips');
@@ -3045,7 +3074,7 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
      is treated as absent: never block a legit reply over a stale id. The person's
      room route refuses one instead (#3745, see its plan); a retention change must
      revisit both. A proactive post (no in_reply_to) is unchanged. */
-  const citedId = String(inReplyTo == null ? '' : inReplyTo).trim();
+  const citedId = messages.messageIdOf(inReplyTo);   // #4631: '530' and 'message 530' name m530 too
   let answeredProject = null;   // outside the block: the which-room ask below keys on it (round 3)
   if (citedId) {
     try {
@@ -4180,7 +4209,7 @@ const server = http.createServer(async (req, res) => {
     // token never pays for the token-store scan.
     const exemptAgentToken = () => agentTokenRoute(`${req.method} ${pathname}`) && agentTokenOk(req);
     if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !boardTokenOk(req) && !exemptAgentToken()) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
-      sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`' });
+      sendJson(res, 403, { error: boardTokenRefusal(req, '') });
       return;
     }
   }
@@ -6495,6 +6524,68 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #4559: an org chart FILE for the New Agent org chart preview. The raw file is the body and its name
+     rides `x-orgchart-name` (the attachment upload's shape). A CSV or XLSX is read here on the Mac. A
+     picture or PDF is read by the person's own Claude with every tool off (engine/orgchartfile.js), and
+     only when the request says `?consent=1`: the first answer for one is `{ needsConsent, provider }`,
+     so the page can say who reads it before anything leaves the Mac (Liu Kang's condition 1). Nothing
+     is stored. Board-token gated like every /api route, and the consent send also wants the screen
+     (isViaScreen). That is a cooperative guard, not a wall: an agent that reads the board token can also send a
+     browser's headers (engine/team.js says the same of the operator path); #4491 is the real fix. The CSV/XLSX
+     parse is synchronous; its worst cases are bounded by engine/orgchartfile.test.js, not here. */
+  if (pathname === '/api/orgchart/read' && req.method === 'POST') {
+    readBody(req, orgchartfile.MAX_BYTES + 1)
+      .then(async (bytes) => {
+        let name = '';
+        try { name = decodeURIComponent(String(req.headers['x-orgchart-name'] || '')); } catch { name = String(req.headers['x-orgchart-name'] || ''); }
+        name = name.slice(0, 200);
+        if (!name) { sendJson(res, 400, { error: 'name the file (x-orgchart-name)' }); return; }
+        if (!orgchartfile.forModel(name)) {
+          const got = orgchartfile.readLocal(name, bytes);
+          if (got.unsupported) {
+            sendJson(res, 400, { error: 'That kind of file is not one we can read. Upload a picture (PNG or JPG), a PDF, a CSV or an Excel file (.xlsx).' });
+            return;
+          }
+          sendJson(res, 200, { source: 'file', rows: got.rows, problems: got.problems });
+          return;
+        }
+        if (!orgchartfile.modelAvailable()) {
+          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
+          return;
+        }
+        const q = new URL(req.url, ROUTING_BASE).searchParams;
+        if (q.get('consent') !== '1') { sendJson(res, 200, { needsConsent: true, provider: orgchartfile.providerLabel() }); return; }
+        if (!isViaScreen(req, null)) { sendJson(res, 403, { error: 'only you can send a file to your AI provider, from the New Agent screen' }); return; }
+        // The consented send carries the file; an empty one would spend a request on nothing.
+        if (!bytes.length) { sendJson(res, 400, { error: 'That file is empty. Choose it again.' }); return; }
+        /* A read the person stops (or a page they leave) closes this response early: that aborts the model call,
+           so claude stops using their plan instead of running on to its timeout. */
+        const stop = new AbortController();
+        res.on('close', () => { if (!res.writableEnded) stop.abort(); });
+        if (res.destroyed) return;   // gone while the upload arrived: 'close' already fired, so nothing is read
+        const got = await orgchartfile.readWithModel(name, bytes, { signal: stop.signal });
+        if (stop.signal.aborted) return;
+        if (got.unavailable) {
+          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
+          return;
+        }
+        sendJson(res, 200, { source: 'model', provider: orgchartfile.providerLabel(), rows: got.rows, problems: got.problems });
+      })
+      .catch((err) => {
+        /* readBody rejects an oversized body (it then drops the connection, so this answer often never arrives) and
+           a person who left mid-upload (nothing to answer); anything else is our failure, logged, not the file's. */
+        if (res.headersSent || res.destroyed || req.aborted) return;
+        const big = /too large/.test(String((err && err.message) || ''));
+        if (!big) console.error('[orgchart] read failed: ' + String((err && err.message) || err).slice(0, 200));
+        try {
+          sendJson(res, big ? 413 : 500, { error: big
+            ? 'That file is larger than ' + Math.round(orgchartfile.MAX_BYTES / 1048576) + ' MB. Export just the people, or type the list.'
+            : 'We could not read that file. Try again, or export it as CSV.' });
+        } catch { /* socket gone */ }
+      });
+    return;
+  }
+
   /**
    * --- a PM agent (or the operator) builds a TEAM for a stated purpose (#1279)
    * -----------------------------------------------------------------------
@@ -6608,7 +6699,7 @@ const server = http.createServer(async (req, res) => {
           // is required (computed only here -- it is never read on the agent path).
           const hasBoardToken = boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
           if (boardAuthState.on && !hasBoardToken) {
-            sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`, or present an agent token' });
+            sendJson(res, 403, { error: boardTokenRefusal(req, ', or present an agent token') });
             return;
           }
           effectiveCreator = body.creator;
@@ -8045,6 +8136,16 @@ const server = http.createServer(async (req, res) => {
     // #3829 follow-up: the card names this Mac's own sign-in the same way the list does.
     try { sendJson(res, 200, Object.assign({}, remote.pendingDevices(), { self_device_id: typeof remote.read().device_id === 'string' ? remote.read().device_id : '' })); }
     catch { sendJson(res, 500, { error: 'we could not read what is waiting' }); }
+    return;
+  }
+  /* kosmos#4648 (weekend goal #4647): the computers on this board's Kosmos+ account, for the
+     top-left menu's "Your computers". Signed through the tunnel and each online state measured
+     (engine/account-computers.js). Always 200: { ok: false, because } when there is no list
+     (not signed in, an old connector or coordinator), and the page hides the section. */
+  if (pathname === '/api/remote/computers' && (req.method === 'GET' || req.method === 'HEAD')) {
+    accountComputers.fetchComputers()
+      .then((r) => sendJson(res, 200, r))
+      .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read your computers' }));
     return;
   }
   if (pathname === '/api/remote/devices' && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -15575,6 +15676,12 @@ const server = http.createServer(async (req, res) => {
                 ...(Array.isArray(m.attachments) ? { attachments: m.attachments } : {}),
                 // #3745: the post this one answers (the page finds it in these rows, or says it is gone).
                 ...(typeof m.replyTo === 'string' ? { replyTo: m.replyTo } : {}),
+                /* #4642: who this post really addressed, as recorded when it was sent (#185), so the page
+                   paints blue from what happened and not from today's rule and roster. Always an array on
+                   a post row, [] for none: the engine leaves the field off when nobody was addressed. A
+                   row written before #185 recorded it (08-24) also reads [], and its @names show plain,
+                   the safe direction (measured: 0 such rows among 221 posts on a real board, 09-29). */
+                mentioned: Array.isArray(m.mentioned) ? m.mentioned : [],
                 ...(reactions.length ? { reactions } : {}) };
             })()
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
@@ -15734,6 +15841,7 @@ const server = http.createServer(async (req, res) => {
         let replyTo = null;
         // '' is refused (400), unlike the agent route's in_reply_to '': the page never sends it, so one here is a bad client.
         if (body.reply_to !== undefined && body.reply_to !== null) {
+          if (typeof body.reply_to === 'string') body.reply_to = messages.messageIdOf(body.reply_to);   // #4631
           if (typeof body.reply_to !== 'string' || !/^m\d+$/.test(body.reply_to)) { sendJson(res, 400, { error: 'that is not a message we can reply to' }); return; }
           let inRoom = null;
           try { inRoom = messages.projectOfPost(body.reply_to); } catch {
@@ -15809,7 +15917,7 @@ const server = http.createServer(async (req, res) => {
         if (!out.ok) { sendJson(res, 400, out); return; }
         /* The fresh reactions for this post, from the operator's viewpoint. */
         let reactions = [];
-        try { reactions = messages.reactionsFor(postId, messages.record().rows, 'you'); } catch { reactions = []; }
+        try { reactions = messages.reactionsFor(out.of, messages.record().rows, 'you'); } catch { reactions = []; }   // #4631: the canonical id (the route takes '530' too)
         sendJson(res, 200, { ok: true, op: out.op, emoji: out.emoji, of: out.of, reactions });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,

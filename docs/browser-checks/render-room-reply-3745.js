@@ -117,13 +117,13 @@ function chk(ok, label, extra) {
     // #4358 (Josh): the four emoji together, then Reply LAST with a small arrow, and a bright gold outline on hover.
     const bar = await p.evaluate(() => {
       const q = document.querySelector('#pj-room .rxns .rxn-quick');
-      const kids = q ? [...q.children].map((k) => k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?') : [];
+      const kids = q ? [...q.children].map((k) => k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-ref') ? 'ref' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?') : [];
       const r = q && q.querySelector('.rxn-reply');
       const ico = r && r.firstElementChild;
       return { kids: kids.join(','), arrowFirst: !!ico && ico.tagName.toLowerCase() === 'svg' && ico.classList.contains('rxn-reply-ico'),
         word: r ? r.textContent.trim() : null };
     });
-    chk(bar.kids === 'pick,pick,pick,more,reply', 'the hover bar reads the three quick emoji, the smiley, then Reply last', bar.kids);
+    chk(bar.kids === 'ref,pick,pick,pick,more,reply', 'the hover bar reads Copy reference (#4631), the three quick emoji, the smiley, then Reply last', bar.kids);
     chk(bar.arrowFirst && bar.word === 'Reply', 'Reply carries a small arrow icon before the word', JSON.stringify(bar));
     const rests = {};
     for (const scheme of ['light', 'dark']) {
@@ -210,15 +210,19 @@ function chk(ok, label, extra) {
       // The engine's own rule: a trailing full stop after the name still names the agent (engine/messages.js).
       box.value = 'thanks @roomer.'; pjReplyStart('agent-4359');
       const stop = box.value;
+      // #4642: any case of the name names the agent too (engine/messages.js mentionedMembers).
+      box.value = 'thanks @ROOMER'; pjReplyStart('agent-4359');
+      const upper = box.value;
       PJ_ROOM_POSTS.delete('agent-4359');
       delete PJ_REPLY[PJ_CURRENT]; pjReplyPaint(PJ_CURRENT); box.value = '';
-      return { first, said, again, againCaret, insideCaret, own, ownCaret, kept, stranger, afterX, typedRec, typedKept, moved, midSentence, stop };
+      return { first, said, again, againCaret, insideCaret, own, ownCaret, kept, stranger, afterX, typedRec, typedKept, moved, midSentence, stop, upper };
     });
     chk(ment.first.value === '@roomer ' && ment.first.caret === 8 && !ment.first.hint, 'Reply to an agent puts "@roomer " at the start with the cursor after it', JSON.stringify(ment.first));
     chk(/@roomer is in the box; delete it to reply to the whole room\.$/.test(ment.said), 'a screen reader is told the mention is in the box and how to reply to the room', JSON.stringify(ment.said));
     chk(ment.again === '@roomer looks good' && ment.againCaret === 18, 'a second Reply to the same agent adds no second mention and leaves the cursor in the words', JSON.stringify({ again: ment.again, caret: ment.againCaret }));
     chk(ment.insideCaret === 8, 'a cursor sitting inside the mention goes to just after it', String(ment.insideCaret));
     chk(ment.stop === 'thanks @roomer.', 'a name ending a sentence ("@roomer.") counts as named, the engine\'s rule, so it is not added again', JSON.stringify(ment.stop));
+    chk(ment.upper === 'thanks @ROOMER', '#4642: "@ROOMER" names roomer (any case), so Reply does not add "@roomer" again', JSON.stringify(ment.upper));
     chk(ment.moved === 'hi @roomer ' && ment.midSentence === 'please @roomer check', 'a mention already in the words (moved, or mid-sentence) is not added again', JSON.stringify({ moved: ment.moved, mid: ment.midSentence }));
     chk(ment.typedRec === null && ment.typedKept === '@roomer hi', 'a mention the person typed is theirs: Reply never takes it back out', JSON.stringify({ rec: ment.typedRec, kept: ment.typedKept }));
     chk(ment.own === 'looks good' && ment.ownCaret === 10, 'switching the reply to your own post takes the mention back out, keeps what you wrote, and keeps the cursor at its end', JSON.stringify({ own: ment.own, caret: ment.ownCaret }));
@@ -532,7 +536,7 @@ function chk(ok, label, extra) {
     await p.mouse.move(shortBox.x, shortBox.y);
     await p.waitForTimeout(300);
     const shortBar = await measureShort();
-    chk(shortBar.inside && shortBar.hits.length === 5 && shortBar.hits.every(Boolean), 'on a one-word agent post the bar (with Reply) stays inside the thread and every button takes its click', JSON.stringify(shortBar));
+    chk(shortBar.inside && shortBar.hits.length === 6 && shortBar.hits.every(Boolean), 'on a one-word agent post the bar (with Reply and Copy reference, #4631) stays inside the thread and every button takes its click', JSON.stringify(shortBar));
     // The hovered row itself changes in the repaint (its words are edited here; in life a reaction lands), so
     // the page draws a NEW element without the measured class. Read in the same moment as the repaint:
     // Chromium re-sends a hover to a still mouse shortly after, which would mend it by accident.

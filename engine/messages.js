@@ -1029,7 +1029,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   // happened (the envelope states "answers mN" as fact).
   let replyTo = null;
   if (inReplyTo != null && inReplyTo !== '') {
-    const wanted = String(inReplyTo).trim();
+    const wanted = messageIdOf(inReplyTo);   // #4631: '530' and 'message 530' name m530 too
     if (!/^m[0-9]+$/.test(wanted)) {
       return refuse(toName, 'in_reply_to must be a message id like m12');
     }
@@ -1308,6 +1308,39 @@ function _roomMembers(members) {
   return { members: members.filter((m) => !gone.has(clean(m))), ok: true };
 }
 
+/* #4642: the members a room post addresses (see the rule at its one caller in sendPostWithDelivery),
+   and the @-words that named more than one member and so addressed none (`ambiguous`, logged on the post
+   so a dropped request can be found). Display names come from the roster card's `name`, the same
+   safeRoster() card that /api/projects hands the page (engine/projects.js), so the page's blue and this
+   agree on who a display name is. Exported so web.mention-parity-4642.test.js can hold the page's
+   pjMentionResolve to it. */
+function mentionedMembers(cleaned, recipients, roster) {
+  const mentionKey = (s) => String(s == null ? '' : s).normalize('NFKD').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const byKey = new Map();   // normalised name -> the members it could mean
+  const alias = (name, member) => {
+    const key = mentionKey(name);
+    if (key.length < 2) return;
+    if (!byKey.has(key)) byKey.set(key, new Set());
+    byKey.get(key).add(member);
+  };
+  for (const member of recipients) alias(member, member);
+  for (const card of Array.isArray(roster) ? roster : []) {
+    if (card && recipients.includes(card.sessionName) && typeof card.name === 'string') alias(card.name, card.sessionName);
+  }
+  const mentioned = new Set();
+  const ambiguous = new Set();
+  for (const m of cleaned.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
+    const token = m[2];
+    if (recipients.includes(token)) { mentioned.add(token); continue; }
+    const stripped = token.replace(/[._-]+$/, '');
+    if (stripped && stripped !== token && recipients.includes(stripped)) { mentioned.add(stripped); continue; }
+    const hit = byKey.get(mentionKey(token));
+    if (hit && hit.size === 1) mentioned.add([...hit][0]);
+    else if (hit) ambiguous.add(token);
+  }
+  return { mentioned, ambiguous };
+}
+
 function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
@@ -1574,25 +1607,35 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     && m.project === projectId && Date.parse(m.at) >= countFrom)
     .reduce((n, m) => n + (Array.isArray(m.to) ? m.to.length : 0), 0);
   const cleaned = chat.cleanMessage(text);
-  /* Addressed is an @mention naming a member. Names match exactly, and
-     the TOKENIZER carries two boundary rules the charset alone gets
-     wrong: a left boundary, because "admin@mara" is an email-shaped
-     string, and promoting it to a request manufactures an ask nobody
-     made (the dangerous direction); and a trailing-punctuation retry,
-     because "have a look @mara." captures "mara." and would silently
-     demote an addressed mention to background. Demotion still arrives
-     marked, promotion is the one to be strict about -- so the left
-     boundary is absolute and the retry only STRIPS, never fuzzes.
-     Everyone else in the room receives the same words marked as
-     background -- the one thing that must not happen is background
-     arriving unmarked. */
-  const mentioned = new Set();
-  for (const m of cleaned.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
-    const token = m[2];
-    if (recipients.includes(token)) { mentioned.add(token); continue; }
-    const stripped = token.replace(/[._-]+$/, '');
-    if (stripped && recipients.includes(stripped)) mentioned.add(stripped);
-  }
+  /* Addressed is an @mention naming a member. The TOKENIZER carries two
+     boundary rules the charset alone gets wrong: a left boundary, because
+     "admin@mara" is an email-shaped string, and promoting it to a request
+     manufactures an ask nobody made (the dangerous direction); and a
+     trailing-punctuation retry, because "have a look @mara." captures
+     "mara." and would silently demote an addressed mention to background.
+     Everyone else in the room receives the same words marked as background
+     -- the one thing that must not happen is background arriving unmarked.
+
+     #4642: a whole @-token names a member in three tiers, first hit wins:
+       1. the token is the member's session name exactly;
+       2. the token less a trailing run of . _ - is, exactly (the retry above);
+       3. its normalised form (lower case, accents and every non-alphanumeric
+          dropped: `Sub-Zero` -> `subzero`) equals the normalised session name
+          or display name of exactly ONE member.
+     Measured before this: in a week, 10 posts named a colleague as `@Kano` or
+     `@Sub-Zero` and reached it marked background. Promotion is still the
+     direction to be strict about, so tier 3 is whole-token equality only (no
+     prefix: `@kanobot` does not name `kano`; the old exact-case rule is gone on
+     purpose, so a member whose session name is a word like `all` is named by
+     `@All`), needs the @ (a plain word never
+     addresses), ignores keys under two characters, and when two members share
+     a normalised name (sessions `sub-zero` and `subzero`, or two agents shown
+     as "Sub-Zero") it names NEITHER: an ambiguous mention demotes to
+     background, which still arrives, marked. A display name with a space
+     ("Johnny Cage") is reachable as `@JohnnyCage`, never as `@Johnny`. The
+     page (web/index.html pjMentionResolve) paints blue by this same rule, and
+     web.mention-parity-4642.test.js runs one set of fixtures through both. */
+  const { mentioned, ambiguous } = mentionedMembers(cleaned, recipients, roster);
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
   /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
@@ -1826,6 +1869,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
        render time would be a second tokenizer that can drift from this
        one. */
     ...(mentioned.size ? { mentioned: [...mentioned] } : {}),
+    /* #4642: an @-word that named two members addressed neither; kept so the dropped request is findable. */
+    ...(ambiguous.size ? { ambiguousMentions: [...ambiguous] } : {}),
     ...(operator === true ? { operator: true } : {}),
     /* #2908: persist the reply-intent when it was explicitly false, so the room record carries
        "this was an acknowledgement, no reply was requested". Omitted for the default/true case so
@@ -1949,8 +1994,8 @@ function blockBody() {
     '**Do not quote the bracket line when you answer.** Every delivered',
     'message opens with a bracketed line naming its sender. A message you',
     'send that contains such a line is refused, because it could',
-    'impersonate another sender. Say it in your own words, or name',
-    'the id ("re m12") instead of pasting the line.',
+    'impersonate another sender. Say it in your own words instead of',
+    'pasting the line: whose message it was and what it said.',
     '',
     'Mention @<their-name> to address someone directly; everyone else on',
     'the project receives it marked as background.',
@@ -2283,6 +2328,20 @@ function reactionsFor(of, rows, youReactor) {
   return out;
 }
 
+/* #4631: a message id as a PERSON may write it. Ids are stored as 'm' + a number, one sequence for the whole
+   Kosmos, so the number alone names the message. A person copies "message 530 in Kosmos Growth" (the page's
+   Copy message reference) and pastes it to an agent, or types "530"; each input point runs its value
+   through here, so all of them come out as 'm530'. The words after "in" are a courtesy for the reader and are
+   not checked here: each caller still checks the id is in the room it expects. Anything that is not one of these
+   shapes comes back trimmed and otherwise unchanged, so the caller's own refusal still names what was wrong.
+   "530 in <anything>" is m530 whatever the words say: the room is checked by the caller, not here. */
+function messageIdOf(value) {
+  const s = String(value == null ? '' : value).trim();
+  /* No '#': '#4631' is how a card is written, and a card number must not quietly name a message. */
+  const hit = /^(?:message\s+)?m?(\d{1,15})(?:\s+in\s+\S.*)?[.,;:!?]?$/i.exec(s);   // a sentence's own full stop too
+  return hit ? 'm' + String(Number(hit[1])) : s;
+}
+
 /* Toggle one reactor's reaction on a post. Discord's click semantics: if the
    reactor already has this emoji on this post it is REMOVED, otherwise ADDED.
    The post must exist in the named project (a reaction to nothing is refused,
@@ -2293,7 +2352,7 @@ function reactionsFor(of, rows, youReactor) {
    {ok:false, because}. */
 function react({ project, of, emoji, from, operator, members }) {
   const projectId = String(project == null ? '' : project).trim();
-  const postId = String(of == null ? '' : of).trim();
+  const postId = messageIdOf(of);   // #4631: '530' and 'message 530' name m530 too
   const e = normalizeReactionEmoji(emoji);
   if (!projectId) return { ok: false, because: 'we could not tell which project this post is in' };
   if (!postId) return { ok: false, because: 'we could not tell which post to react to' };
@@ -2470,6 +2529,7 @@ module.exports = {
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   projectOfPost, owedElsewhere,
   react, reactionsFor, normalizeReactionEmoji,
+  messageIdOf, // #4631
   operatorDirect, dmAnsweredParts, operatorNowLabel, validTimeZone, roomClock,
   START, END, blockBody,
   LOG,
@@ -2477,5 +2537,5 @@ module.exports = {
   suspectedMisrouteCount, confirmedNewPostCount,
   resolveSender, paneSession, paneClaim, send, sendAsync, logRefusedSend, sendPost, sendPostAsync, reopenRoom, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
-  setRunner, resetForTests,
+  setRunner, resetForTests, mentionedMembers,
 };
