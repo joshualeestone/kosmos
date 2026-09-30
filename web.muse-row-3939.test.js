@@ -52,12 +52,17 @@ test('#3939 3c-2: the page\'s create filters still decide Claude through acctPro
   }
 });
 
-test('#3939 3c-2: the server builds the row only when Muse is on, installed and signed in, and names it Meta', () => {
+test('#3939 3c-2 / #4569: the server builds the row only when Muse is on and installed (signed in, or refused), and names it Meta', () => {
   const src = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
   const at = src.indexOf('let museSub = [];');
   assert.notEqual(at, -1, 'the Meta Muse row is gone from /api/accounts');
   const block = src.slice(at, src.indexOf('sendJson(res, 200, { accounts:', at));
-  assert.match(block, /muse\.enabled\(\) && muse\.installed\(\)\.installed && muse\.signedIn\(\)\.signedIn/);
+  assert.match(block, /muse\.enabled\(\) && muse\.installed\(\)\.installed/);
+  // #4569: signed in is green when seen working, amber otherwise; a refusal is a red row, not no row.
+  assert.match(block, /if \(muse\.signedIn\(\)\.signedIn\)/);
+  assert.match(block, /else if \(muse\.refused\(\)\)/);
+  assert.match(block, /badge: 'working'/);
+  assert.match(block, /badge: 'rejected'/);
   assert.match(block, /provider: 'meta', providerName: 'Meta'/);
   assert.match(block, /authMode: 'muse'/);
   assert.match(block, /badge: 'signed_in_unverified'/);

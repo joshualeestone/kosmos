@@ -151,6 +151,7 @@ function chk(ok, label, extra) {
       if (theme === 'light' && width === 1400) {
         await shot(page, '3757-2-a-few-files');
         // #3757: the nav's labels are the title line's size; the boxes are shorter; icons unchanged.
+        // #4550: three visible buttons now (Direct Message, then Profile and AI Settings).
         const nav = await page.evaluate(() => {
           const px = (el) => parseFloat(getComputedStyle(el).fontSize);
           const meta = document.getElementById('d-meta');
@@ -165,10 +166,10 @@ function chk(ok, label, extra) {
           return { metaPx: px(meta), labs, dmH: Math.round(dm.getBoundingClientRect().height), packH: Math.round(packBtn.getBoundingClientRect().height),
             packW: Math.round(packBtn.getBoundingClientRect().width), icons, cols, wrapped };
         });
-        chk(nav.labs.length === 5 && nav.labs.every((x) => x === nav.metaPx), `${tag} #3757: every nav label is the agent title's size`, JSON.stringify(nav));
+        chk(nav.labs.length === 3 && nav.labs.every((x) => x === nav.metaPx), `${tag} #3757: every nav label is the agent title's size`, JSON.stringify(nav));
         // Before #3757, measured on main: Direct Message 84px, the others 73px; labels 17px and 14px.
         chk(nav.dmH <= 66 && nav.packH <= 58, `${tag} #3757: the nav boxes are shorter (Direct Message at most 66px, the others at most 58px)`, JSON.stringify(nav));
-        chk(JSON.stringify(nav.icons) === JSON.stringify([24, 20, 20, 20, 20]) && nav.cols === 2 && !nav.wrapped, `${tag} #3757: icons unchanged (24 and 20), the grid stays two across, no label is cut`, JSON.stringify(nav));
+        chk(JSON.stringify(nav.icons) === JSON.stringify([24, 20, 20]) && nav.cols === 2 && !nav.wrapped, `${tag} #3757: icons unchanged (24 and 20), the grid stays two across, no label is cut`, JSON.stringify(nav));
         const before = opened.length;
         await page.click('#d-files-list .pj-doc[data-doc="report.pdf"]');
         await page.waitForTimeout(500);

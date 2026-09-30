@@ -34,6 +34,8 @@ const PICKERS = [
   { input: 'd-attach-file', button: 'd-attach' },
   // The .agent.md picker on the fourth create option (#1652).
   { input: 'import-file', button: 'import-file-btn' },
+  // The org chart file on New Agent > Upload an org chart (#4559).
+  { input: 'orgchart-file', button: 'orgchart-file-btn' },
 ];
 
 test('every file input is hidden and driven by a real button', () => {
