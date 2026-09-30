@@ -595,6 +595,12 @@ function setOn(on) {
   if (!wrote.ok) return wrote;
   if (!on) offEpoch += 1;   // only an off that was saved counts
   ensure(localPort);
+  /* kosmos#4743: tell the coordinator about the flip now, not at the next cadence (up to
+     OFF_STANDING_TTL_MS when off), or the account page reads the old state for hours ("Answering
+     now" for a computer just switched off). Off: the stamp is set back past the off cadence so the
+     refresh is due. Best-effort and never awaited, like the poll's own refresh. */
+  if (!on) write({ standing_at: Date.now() - OFF_STANDING_TTL_MS });
+  try { Promise.resolve(module.exports.refreshStandingIfStale({ ttlMs: 0 })).catch(() => {}); } catch { /* best-effort */ }
   return { ok: true };
 }
 

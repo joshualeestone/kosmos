@@ -91,7 +91,9 @@ async function fetchStanding() {
        the report cannot be built; `{"remote":{"on":false}}` when remote access is off (kosmos#4743). */
     let report = null;
     if (on) { try { report = require('./remote-report').build(); } catch { report = null; } }
-    const body = report ? { remote: report } : (on ? {} : { remote: { on: false } });
+    /* kosmos#4743: on, with no report built, still says on, so a computer the coordinator has
+       marked off is cleared at once. */
+    const body = report ? { remote: report } : { remote: { on } };
     const r = await remote.macRequest('POST', ROUTE, body);
     if (!r || !r.ok) { logFailure(r && r.because); return null; }
     // The report went out: its heal baseline counts now, not before (a failed send keeps it).

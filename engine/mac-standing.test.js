@@ -318,6 +318,24 @@ test('#4731, #4743: with the switch OFF an enrolled computer is still heard from
   assert.notDeepEqual(JSON.parse(on.calls[0].stdin).remote, { on: false }, 'the switch ON must not send the off body');
 });
 
+test('#4743: flipping the switch tells the coordinator at once, off and on, not at the next cadence', async () => {
+  enroll(true);
+  // Fresh on this cadence: without the flip hook nothing would be due for a long while.
+  const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(cur, { standing_at: Date.now() })) + '\n');
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    assert.equal(remote.setOn(false).ok, true);
+    await waitForFakeCalls(fake, 1, 5000);
+    const off = fake.calls().find((c) => fake.flag(c, '--path') === '/v1/mac/standing');
+    assert.ok(off, 'switching off sent no standing question');
+    assert.deepEqual(JSON.parse(off.stdin), { remote: { on: false } });
+  } finally {
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+  }
+});
+
 test('fetchStanding: the kosmos_plus bool shape maps too', async () => {
   enroll();
   assert.equal((await run('ok:{"kosmos_plus":true}', () => macStanding.fetchStanding())).value, 'good');
