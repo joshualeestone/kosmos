@@ -6100,7 +6100,7 @@ const server = http.createServer(async (req, res) => {
         if (!isViaScreen(req, body)) { sendJson(res, 403, { ok: false, because: 'only you can answer this, from the board' }); return; }
         const choice = body.choice;
         if (choice !== 'trust' && choice !== 'skip' && choice !== 'close') { sendJson(res, 400, { ok: false, because: 'choose to trust the hooks or to continue without them' }); return; }
-        const r = await chat.answerCodexHooks(name, choice, safeRoster());
+        const r = await chat.answerCodexHooks(name, choice, safeRoster(), body.seen);
         sendJson(res, 200, { ok: r.ok === true, choice, because: r.ok ? null : r.because });
       })
       .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));

@@ -6,7 +6,9 @@ Card: kosmos#4607 (follow-up to #4589, merged as PR #4689). Josh does not use a 
 With untrusted hooks present, the person answers the dialog from the agent page (Continue without them, or Trust all
 of them), no terminal, and the dialog leaves its screen. The same answer attempted with an agent token, or through
 any message path (chat, `kosmos msg`, a room post, a task line), is refused (tested both ways). A stale button (the
-dialog gone or changed) presses nothing. NOT claimed: that no local agent can ever reach the route (see Residual).
+dialog gone or changed) presses nothing: the page sends the summary it painted (screen, count, events, source), and
+a fresh read that summarises differently is refused (review round 4). NOT claimed: that no local agent can ever reach
+the route (see Residual), or that Codex is back at its prompt: "done" means its screen stopped asking about hooks.
 
 ## Keys (measured 2026-09-30 on a live pane, Codex 0.149.1, an isolated CODEX_HOME, a scratch project with one
 ## `true` Stop hook and one `true` SubagentStop hook; every key sent only after its screen's footer was on screen)

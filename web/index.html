@@ -11130,6 +11130,7 @@ window.kosmosMeasureScrollbarWidth();
              pressing either. Self-contained, like the Trust & Restart above. -->
         <div id="d-qask-codex" hidden>
           <p class="fhint" id="d-qask-codex-what" style="margin:4px 0 8px;"></p>
+          <p class="fhint" id="d-qask-codex-source" hidden style="margin:0 0 8px;">Where Codex says it comes from: <code id="d-qask-codex-source-text"></code></p>
           <div class="frow" style="gap:8px;flex-wrap:wrap;">
             <button class="btn" id="d-qask-codex-skip" type="button">Continue without them</button>
             <button class="btn btn-quiet" id="d-qask-codex-trust" type="button">Trust all of them</button>
@@ -34064,7 +34065,13 @@ async function paintTalk(sessionName, agentName) {
     /* #4607: only what the screen says. The count from the menu, the events from the table, the source from one
        hook's page; a missing fact is left out, never guessed. */
     const h = body.codexHooks;
+    /* #4607 (review round 4): what the person is shown is sent back with their answer, so a changed dialog is
+       refused rather than answered. */
+    window.__codexHooksShown = { forAgent: sessionName, hooks: h };
     const listOpen = h.screen === 'trusted';
+    const srcRow = document.getElementById('d-qask-codex-source');
+    document.getElementById('d-qask-codex-source-text').textContent = h.source && !listOpen ? String(h.source).slice(0, 160) : '';
+    srcRow.hidden = !(h.source && !listOpen);
     const n = typeof h.count === 'number' && h.count > 0 ? h.count : null;
     const events = Array.isArray(h.events) ? h.events.map((e) => e && e.event).filter(Boolean) : [];
     /* The trusted-but-open list (a dropped Escape after trusting): only Close. Otherwise the two choices, and the
@@ -34080,11 +34087,10 @@ async function paintTalk(sessionName, agentName) {
       document.getElementById('d-qask-codex-what').textContent =
         'Codex found ' + (n ? n + (n === 1 ? ' hook' : ' hooks') : 'hooks') + ' it has not been told to trust'
         + (events.length ? ' (' + events.join(', ') + ')' : '')
-        + (h.source ? ', from \u201c' + String(h.source).slice(0, 160) + '\u201d' : '')
         + '.'
         /* Review round 3: say what the screen does NOT tell, rather than let a count read as enough to trust on. */
         + (events.length || h.source ? '' : ' Its screen does not name them or say what they run.')
-        + (/^Project config\b/i.test(String(h.source || '')) ? ' This one is in the agent\u2019s own project folder, so the agent could have written it.' : '')
+        + (/project/i.test(String(h.source || '')) ? ' This one is in a project folder, which the agent can write to, so the agent could have written it.' : '')
         + ' Trusting covers every hook Codex lists, and trusted hooks run outside the sandbox. If you are not sure, continue without them.';
     }
     qCodex.hidden = false;
@@ -40923,13 +40929,14 @@ async function answerCodexHooksFromBox(choice) {
   msg.textContent = choice === 'trust' ? 'Trusting the hooks\u2026' : (choice === 'close' ? 'Closing the list\u2026' : 'Continuing without the hooks\u2026');
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/codex-hooks',
-      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ choice }) });
+      { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ choice, seen: (window.__codexHooksShown && window.__codexHooksShown.forAgent === forAgent) ? window.__codexHooksShown.hooks : null }) });
     const r = await res.json().catch(() => ({}));
     if (CURRENT && CURRENT.sessionName === forAgent) {
       /* Done means what was seen: its screen stopped asking about hooks (review round 1: not a claim about what
          Codex does next). */
       msg.textContent = (res.ok && r.ok)
-        ? (choice === 'trust' ? 'Done. Its screen is no longer asking about hooks, so they should now be trusted.'
+        ? (choice === 'trust' ? 'Done. Its screen is no longer asking about hooks.'
           : (choice === 'close' ? 'Done. The list is closed.' : 'Done. It is carrying on without the hooks.'))
         : (r.because || r.error || 'We could not answer it. Look at its window.');
     }

@@ -45,7 +45,10 @@ const IDLE = `╭─────────────────────
 function ok(out) { return { ran: true, spawnFailed: false, status: 0, out: out || '', err: '' }; }
 const okProbe = () => ok('2.1.212\t\t0\n');
 /* Scripted tmux: display-message is the pane probe; every capture takes the next SCREEN; every send-keys succeeds. */
+/* The dialog the person was shown: the first screen a test scripts (what the thread route would have sent). */
+let SHOWN = null;
 function arm(screens) {
+  SHOWN = screens.length ? status.codexHookSummary(screens[0]) : null;
   const calls = [];
   const fn = (args) => {
     calls.push(args);
@@ -100,7 +103,7 @@ const CASES = [
 for (const c of CASES) {
   test(`#4607 answer: ${c.name} presses exactly ${JSON.stringify(c.keys)}`, () => withCodex(c.screens[0], async (board) => {
     const t = arm(c.screens.slice());
-    const r = await chat.answerCodexHooks('sam', c.choice, board.agents);
+    const r = await chat.answerCodexHooks('sam', c.choice, board.agents, SHOWN);
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.deepEqual(t.keys(), c.keys);
     assert.deepEqual(r.keys, c.keys);
@@ -109,7 +112,7 @@ for (const c of CASES) {
 
 test('#4607 answer: nothing is pressed when the dialog is not on screen now', () => withCodex(MENU, async (board) => {
   const t = arm([IDLE]);
-  const r = await chat.answerCodexHooks('sam', 'trust', board.agents);
+  const r = await chat.answerCodexHooks('sam', 'trust', board.agents, SHOWN);
   assert.equal(r.ok, false);
   assert.match(r.because, /not on its screen now/);
   assert.deepEqual(t.keys(), []);
@@ -117,7 +120,7 @@ test('#4607 answer: nothing is pressed when the dialog is not on screen now', ()
 
 test('#4607 answer: a screen that changes between the look and the key gets no key', () => withCodex(MENU, async (board) => {
   const t = arm([MENU, TABLE]);
-  const r = await chat.answerCodexHooks('sam', 'trust', board.agents);
+  const r = await chat.answerCodexHooks('sam', 'trust', board.agents, SHOWN);
   assert.equal(r.ok, false);
   assert.match(r.because, /changed before we could answer/);
   assert.deepEqual(t.keys(), []);
@@ -125,7 +128,7 @@ test('#4607 answer: a screen that changes between the look and the key gets no k
 
 test('#4607 answer: a screen that does not move after a key stops, with one key pressed', () => withCodex(MENU, async (board) => {
   const t = arm([MENU, MENU, MENU]);
-  const r = await chat.answerCodexHooks('sam', 'skip', board.agents);
+  const r = await chat.answerCodexHooks('sam', 'skip', board.agents, SHOWN);
   assert.equal(r.ok, false);
   assert.match(r.because, /did not change/);
   assert.deepEqual(t.keys(), ['3']);
@@ -136,7 +139,7 @@ test('#4607 answer: an unreadable screen presses nothing', () => withCodex(MENU,
   chat.setRunner((args) => { calls.push(args); return args[0] === 'display-message' ? okProbe() : { ran: true, spawnFailed: false, status: 1, out: '', err: 'no' }; });
   chat.setDryRun(false);
   chat.setPauser(() => {});
-  const r = await chat.answerCodexHooks('sam', 'trust', board.agents);
+  const r = await chat.answerCodexHooks('sam', 'trust', board.agents, SHOWN);
   assert.equal(r.ok, false);
   assert.match(r.because, /could not see its screen/);
   assert.equal(calls.filter((a) => a[0] === 'send-keys').length, 0);
@@ -144,7 +147,7 @@ test('#4607 answer: an unreadable screen presses nothing', () => withCodex(MENU,
 
 test('#4607 answer: an already-trusted open list is not answered for the person', () => withCodex(MENU, async (board) => {
   const t = arm([TRUSTED]);
-  const r = await chat.answerCodexHooks('sam', 'skip', board.agents);
+  const r = await chat.answerCodexHooks('sam', 'skip', board.agents, SHOWN);
   assert.equal(r.ok, false);
   assert.match(r.because, /already trusted/);
   assert.deepEqual(t.keys(), []);
@@ -154,7 +157,7 @@ test('#4607 answer: a bad choice, a non-Codex agent and a Windows agent are refu
   await withCodex(MENU, async (board) => {
     const t = arm([MENU, MENU, IDLE]);
     for (const bad of ['', 'all', '2', undefined]) {
-      const r = await chat.answerCodexHooks('sam', bad, board.agents);
+      const r = await chat.answerCodexHooks('sam', bad, board.agents, SHOWN);
       assert.equal(r.ok, false);
     }
     assert.deepEqual(t.keys(), []);
@@ -162,7 +165,7 @@ test('#4607 answer: a bad choice, a non-Codex agent and a Windows agent are refu
   const board = fleet.install([fleet.agent('ann', { state: 'idle', runner: 'claude' })]);
   try {
     const t = arm([MENU, MENU, IDLE]);
-    const r = await chat.answerCodexHooks('ann', 'trust', board.agents);
+    const r = await chat.answerCodexHooks('ann', 'trust', board.agents, SHOWN);
     assert.equal(r.ok, false);
     assert.match(r.because, /not a Codex agent/);
     assert.deepEqual(t.keys(), []);
@@ -171,7 +174,7 @@ test('#4607 answer: a bad choice, a non-Codex agent and a Windows agent are refu
     const card = board2.agents.find((c) => c.name === 'sam' || c.sessionName === 'sam');
     if (card) card.reachedByChannel = true;
     const t = arm([MENU, MENU, IDLE]);
-    const r = await chat.answerCodexHooks('sam', 'trust', board2.agents);
+    const r = await chat.answerCodexHooks('sam', 'trust', board2.agents, SHOWN);
     assert.equal(r.ok, false);
     assert.deepEqual(t.keys(), []);
   });
@@ -195,13 +198,13 @@ test('#4607 round 1: the menu key is the digit beside the chosen words, not its 
   assert.deepEqual(status.codexHookMenuKeys(SWAPPED), { trust: '3', skip: '2' });
   await withCodex(MENU, async (board) => {
     const t = arm([SWAPPED, SWAPPED, IDLE]);
-    const r = await chat.answerCodexHooks('sam', 'skip', board.agents);
+    const r = await chat.answerCodexHooks('sam', 'skip', board.agents, SHOWN);
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.deepEqual(t.keys(), ['2'], 'skip must press the digit beside "Continue without trusting"');
   });
   await withCodex(MENU, async (board) => {
     const t = arm([SWAPPED, SWAPPED, IDLE]);
-    await chat.answerCodexHooks('sam', 'trust', board.agents);
+    await chat.answerCodexHooks('sam', 'trust', board.agents, SHOWN);
     assert.deepEqual(t.keys(), ['3']);
   });
 });
@@ -209,7 +212,7 @@ test('#4607 round 1: the menu key is the digit beside the chosen words, not its 
 test('#4607 round 1: a menu without the chosen option presses nothing', () => withCodex(MENU, async (board) => {
   assert.ok(status.codexHookReview(NO_SKIP), 'fixture: still the dialog by title and footer');
   const t = arm([NO_SKIP, NO_SKIP, IDLE]);
-  const r = await chat.answerCodexHooks('sam', 'skip', board.agents);
+  const r = await chat.answerCodexHooks('sam', 'skip', board.agents, SHOWN);
   assert.equal(r.ok, false);
   assert.match(r.because, /does not show that choice/);
   assert.deepEqual(t.keys(), []);
@@ -219,16 +222,16 @@ test('#4607 round 1: a second answer while one is in flight is refused, and pres
   const t = arm([MENU, MENU, IDLE]);
   let release;
   chat.setPauser(() => new Promise((r) => { release = r; }));
-  const first = chat.answerCodexHooks('sam', 'skip', board.agents);
+  const first = chat.answerCodexHooks('sam', 'skip', board.agents, SHOWN);
   await new Promise((r) => setImmediate(r));
-  const second = await chat.answerCodexHooks('sam', 'trust', board.agents);
+  const second = await chat.answerCodexHooks('sam', 'trust', board.agents, SHOWN);
   assert.equal(second.ok, false);
   assert.match(second.because, /already being sent/);
   release();
   const r1 = await first;
   assert.equal(r1.ok, true, JSON.stringify(r1));
   assert.deepEqual(t.keys(), ['3'], 'only the first answer pressed anything');
-  const third = await (async () => { arm([IDLE]); return chat.answerCodexHooks('sam', 'skip', board.agents); })();
+  const third = await (async () => { arm([IDLE]); return chat.answerCodexHooks('sam', 'skip', board.agents, SHOWN); })();
   assert.doesNotMatch(third.because || '', /already being sent/, 'the lock is released after the first answer');
 }));
 
@@ -236,19 +239,19 @@ test('#4607 round 1: the trusted-but-open list takes only Close', async () => {
   assert.deepEqual(status.codexHookSummary(TRUSTED), { screen: 'trusted', count: null, events: [], source: null });
   await withCodex(TRUSTED, async (board) => {
     const t = arm([TRUSTED, TRUSTED, IDLE]);
-    const r = await chat.answerCodexHooks('sam', 'close', board.agents);
+    const r = await chat.answerCodexHooks('sam', 'close', board.agents, SHOWN);
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.deepEqual(t.keys(), ['Escape']);
   });
   await withCodex(TRUSTED, async (board) => {
     const t = arm([TRUSTED]);
-    const r = await chat.answerCodexHooks('sam', 'skip', board.agents);
+    const r = await chat.answerCodexHooks('sam', 'skip', board.agents, SHOWN);
     assert.equal(r.ok, false);
     assert.deepEqual(t.keys(), []);
   });
   await withCodex(MENU, async (board) => {
     const t = arm([MENU]);
-    const r = await chat.answerCodexHooks('sam', 'close', board.agents);
+    const r = await chat.answerCodexHooks('sam', 'close', board.agents, SHOWN);
     assert.equal(r.ok, false);
     assert.match(r.because, /no open hook list/);
     assert.deepEqual(t.keys(), []);
@@ -271,9 +274,9 @@ test('#4607 round 2: the lock is the pane, so another spelling of the name canno
   const t = arm([MENU, MENU, IDLE]);
   let release;
   chat.setPauser(() => new Promise((r) => { release = r; }));
-  const first = chat.answerCodexHooks('sam', 'skip', board.agents);
+  const first = chat.answerCodexHooks('sam', 'skip', board.agents, SHOWN);
   await new Promise((r) => setImmediate(r));
-  const second = await chat.answerCodexHooks('SAM', 'trust', board.agents);
+  const second = await chat.answerCodexHooks('SAM', 'trust', board.agents, SHOWN);
   assert.equal(second.ok, false, JSON.stringify(second));
   assert.match(second.because, /already being sent/);
   release();
@@ -294,7 +297,7 @@ test('#4607 round 2: the summary reads the dialog, not scrollback above it', () 
 
 test('#4607 round 2: a blank screen after a key is not taken as the question gone', () => withCodex(MENU, async (board) => {
   const t = arm([MENU, MENU, '   \n  \n']);
-  const r = await chat.answerCodexHooks('sam', 'skip', board.agents);
+  const r = await chat.answerCodexHooks('sam', 'skip', board.agents, SHOWN);
   assert.equal(r.ok, false);
   assert.match(r.because, /blank when we checked/);
   assert.deepEqual(t.keys(), ['3']);
@@ -322,4 +325,23 @@ test('#4607 round 3: the open list has its own refusal sentence, pointing at the
   assert.match(status.CODEX_HOOK_LIST_SENTENCE, /agent page/);
   assert.match(status.CODEX_HOOK_DIALOG_SENTENCE, /agent page/);
   assert.doesNotMatch(status.CODEX_HOOK_DIALOG_SENTENCE + status.CODEX_HOOK_LIST_SENTENCE, /terminal/);
+}));
+
+/* Review round 4. */
+test('#4607 round 4: an answer about a dialog that has since changed presses nothing', () => withCodex(TABLE, async (board) => {
+  const t = arm([TABLE, TABLE, TRUSTED, TRUSTED, IDLE]);
+  const shownMenu = status.codexHookSummary(MENU);   // the person read the menu; the table is up now
+  const r = await chat.answerCodexHooks('sam', 'trust', board.agents, shownMenu);
+  assert.equal(r.ok, false);
+  assert.match(r.because, /changed since you read it/);
+  assert.deepEqual(t.keys(), []);
+}));
+
+test('#4607 round 4: an answer that says nothing about what was shown presses nothing', () => withCodex(MENU, async (board) => {
+  const t = arm([MENU, MENU, IDLE]);
+  for (const seen of [null, undefined, {}, 'menu']) {
+    const r = await chat.answerCodexHooks('sam', 'skip', board.agents, seen);
+    assert.equal(r.ok, false);
+  }
+  assert.deepEqual(t.keys(), []);
 }));

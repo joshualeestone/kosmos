@@ -1210,7 +1210,16 @@ const CODEX_HOOK_BUSY = new Set();
  * settles and is read again. Anything else stops with what it saw: nothing is pressed into a screen we did not expect.
  * Resolves { ok: true, choice, keys } | { ok: false, because, keys }. Never rejects.
  */
-async function answerCodexHooks(sessionName, choice, roster) {
+/* #4607 (review round 4): what the person was shown, as the thread route sent it (status.codexHookSummary). The
+   answer must be about THAT dialog: a different one on screen now (another hook set, or another screen) is refused. */
+function sameCodexHooks(a, b) {
+  const norm = (h) => (h && typeof h === 'object')
+    ? JSON.stringify({ screen: h.screen || null, count: typeof h.count === 'number' ? h.count : null,
+      events: Array.isArray(h.events) ? h.events.map((e) => `${e && e.event}:${e && e.count}`) : [], source: h.source || null })
+    : null;
+  return norm(a) !== null && norm(a) === norm(b);
+}
+async function answerCodexHooks(sessionName, choice, roster, seen) {
   const keys = [];
   const no = (because) => ({ ok: false, because, keys });
   if (choice !== 'trust' && choice !== 'skip' && choice !== 'close') return no('choose to trust the hooks or to continue without them');
@@ -1221,9 +1230,9 @@ async function answerCodexHooks(sessionName, choice, roster) {
   const lockKey = paneTarget(allowed.card) || String(allowed.card.sessionName || sessionName);
   if (CODEX_HOOK_BUSY.has(lockKey)) return no('an answer to its hook question is already being sent; wait a moment');
   CODEX_HOOK_BUSY.add(lockKey);
-  try { return await answerCodexHooksOnce(sessionName, choice, roster, keys, no, allowed.card); } finally { CODEX_HOOK_BUSY.delete(lockKey); }
+  try { return await answerCodexHooksOnce(sessionName, choice, roster, keys, no, allowed.card, seen); } finally { CODEX_HOOK_BUSY.delete(lockKey); }
 }
-async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card) {
+async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card, seen) {
   if (card.runner !== 'codex') return no('that is not a Codex agent');
   if (card.reachedByChannel === true) return no('Kosmos cannot answer this on Windows yet; choose in the agent\u2019s own window');
   const t = paneTarget(card);
@@ -1249,6 +1258,9 @@ async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card)
   /* The trusted-but-open list takes only Close (the card offers only that there); anything else is refused, because
      "continue without" would claim a choice that was already made the other way. */
   if (now.screen === 'trusted' && choice !== 'close') return no('its hooks are already trusted and their list is still open; close the list');
+  /* The dialog the person answered must be the one on screen now (review round 4: a stale summary must not trust
+     hooks the person never saw). */
+  if (!sameCodexHooks(seen, status.codexHookSummary(now.text))) return no('its hook question changed since you read it, so nothing was pressed; read it again and choose');
   if (now.screen !== 'trusted' && choice === 'close') return no('there is no open hook list to close on its screen now, so nothing was pressed');
   /* At most four keys (hook -> table -> trusted table -> prompt); a screen that does not move stops the loop. */
   for (let step = 0; step < 4; step += 1) {
@@ -1264,7 +1276,7 @@ async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card)
     }
     else if (now.screen === 'table') key = choice === 'trust' ? 't' : 'Escape';
     else if (now.screen === 'hook') key = 'Escape';
-    else if (now.screen === 'trusted') key = (choice === 'trust' || choice === 'close') ? 'Escape' : null;
+    else if (now.screen === 'trusted') key = choice === 'close' ? 'Escape' : (choice === 'trust' ? 'Escape' : null);   // trust reaches here only after "t" on the table
     if (!key) return no('its screen changed to something we did not expect, so nothing more was pressed; look at its window');
     if (!press(key)) return no('we could not press the key; look at its window');
     await wait(CODEX_HOOK_SETTLE_MS);

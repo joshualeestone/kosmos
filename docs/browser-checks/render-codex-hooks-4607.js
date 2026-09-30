@@ -68,6 +68,7 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
         codex: codex ? !codex.hidden : null,
         label: (document.getElementById('d-qask-lab') || {}).textContent || '',
         what: (document.getElementById('d-qask-codex-what') || {}).textContent || '',
+        source: (() => { const r = document.getElementById('d-qask-codex-source'); return r && !r.hidden ? document.getElementById('d-qask-codex-source-text').textContent : null; })(),
         shown: ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close'].filter((id) => { const b = document.getElementById(id); return b && !b.hidden; }),
       };
     }, thread);
@@ -76,7 +77,7 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
     const a = await paint({ ...base, codexHooks: TABLE });
     chk(a.exists && a.box && a.codex, `${t} the needs-you box shows the Codex hook choice`, JSON.stringify(a));
     chk(/Sam needs you to decide about Codex hooks\./.test(a.label), `${t} the label names the agent`, a.label);
-    chk(/Codex found 2 hooks it has not been told to trust \(SubagentStop, Stop\)\./.test(a.what) && !/, from /.test(a.what),
+    chk(/Codex found 2 hooks it has not been told to trust \(SubagentStop, Stop\)\./.test(a.what) && a.source === null,
       `${t} the summary says the count and events the table showed, and no source it did not show`, a.what);
     chk(/Trusting covers every hook Codex lists/.test(a.what), `${t} the summary says Trust covers every hook listed`, a.what);
     const m = await paint({ ...base, codexHooks: { screen: 'menu', count: 2, events: [], source: null } });
@@ -88,8 +89,8 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
       `${t} the trusted-but-open list offers only Close`, JSON.stringify(open));
     const h = await paint({ ...base, codexHooks: HOOK });
     chk(/agent could have written it/.test(h.what), `${t} a project-folder hook is flagged as writable by the agent`, h.what);
-    chk(/Codex found hooks it has not been told to trust \(Stop\), from Project config/.test(h.what),
-      `${t} from one hook's page: no count it did not show, the event and the source`, h.what);
+    chk(/Codex found hooks it has not been told to trust \(Stop\)\./.test(h.what) && h.source === HOOK.source,
+      `${t} from one hook's page: no count it did not show, the event, and the source as a literal of its own`, JSON.stringify(h));
     const none = await paint({ ...base, codexHooks: null });
     chk(none.box === false && none.codex === false, `${t} an ordinary question without codexHooks keeps the box hidden`, JSON.stringify(none));
 
@@ -113,9 +114,10 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
     }, { id, answer });
 
     const tr = await press('d-qask-codex-trust', { status: 200, body: { ok: true, choice: 'trust', because: null } });
-    chk(tr.sent && tr.sent.url === '/api/agent/sam%20doe/codex-hooks' && tr.sent.method === 'POST' && JSON.parse(tr.sent.body || '{}').choice === 'trust',
+    chk(tr.sent && tr.sent.url === '/api/agent/sam%20doe/codex-hooks' && tr.sent.method === 'POST' && JSON.parse(tr.sent.body || '{}').choice === 'trust'
+      && JSON.parse(tr.sent.body || '{}').seen && JSON.parse(tr.sent.body).seen.screen === 'hook',
       `${t} Trust POSTs { choice: 'trust' } to the encoded codex-hooks route`, JSON.stringify(tr.sent));
-    chk(/Its screen is no longer asking about hooks, so they should now be trusted\./.test(tr.msg) && tr.enabled, `${t} Trust shows the done line, buttons enabled again`, tr.msg);
+    chk(/Done\. Its screen is no longer asking about hooks\./.test(tr.msg) && !/should now be trusted/.test(tr.msg) && tr.enabled, `${t} Trust shows the done line, buttons enabled again`, tr.msg);
     const sk = await press('d-qask-codex-skip', { status: 200, body: { ok: false, choice: 'skip', because: 'the hook question is not on its screen now, so nothing was pressed' } });
     chk(sk.sent && JSON.parse(sk.sent.body || '{}').choice === 'skip', `${t} Continue POSTs { choice: 'skip' }`, JSON.stringify(sk.sent));
     chk(sk.msg === 'the hook question is not on its screen now, so nothing was pressed' && sk.enabled,
