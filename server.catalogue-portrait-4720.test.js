@@ -93,6 +93,8 @@ test('a member whose portrait the catalogue names is served as that image, from 
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('content-type'), 'image/webp');
   assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(res.headers.get('cache-control'), 'no-store');
+  assert.equal(res.headers.get('content-length'), String(LEAD.length));
   assert.ok(Buffer.from(await res.arrayBuffer()).equals(LEAD), 'the board did not serve the portrait');
   assert.deepEqual(asked, ['/catalogue/avatars/marketing-lead.webp'], 'the board asked the catalogue address for something else');
 });
@@ -133,4 +135,20 @@ test('nothing in the request chooses the address: a path or an address as the sl
     assert.equal(res.status, 404, slot);
   }
   assert.equal(asked.length, before);
+});
+
+test('a request that came from another website is refused before the board fetches anything', async () => {
+  // node:http, because fetch will not send these headers as written.
+  const ask = (headers) => new Promise((done, fail) => {
+    http.get(`${base}/api/catalogue/portrait?team=marketing&slot=content`, { headers }, (res) => {
+      res.resume();
+      res.on('end', () => done(res.statusCode));
+    }).on('error', fail);
+  });
+  const before = asked.length;
+  assert.equal(await ask({ 'sec-fetch-site': 'cross-site' }), 403);
+  assert.equal(await ask({ referer: 'https://example.com/page' }), 403);
+  assert.equal(asked.length, before, 'the board fetched for a request from another website');
+  // The control: the same request from the board's own page is answered by the route (a 404 here, as above).
+  assert.equal(await ask({ 'sec-fetch-site': 'same-origin', referer: `${base}/` }), 404);
 });

@@ -71,11 +71,17 @@ let data;            // undefined: not read yet; null: none usable; else the par
 let lastTry = 0;
 let lastError = null;
 let inflight = null;
-const portraitFailed = new Map();     // sha256 -> { at, because }: the last failed download
-const portraitInflight = new Map();   // sha256 -> the download under way
+// Keyed by the hash AND the file name: two members may share one image under two names, and one
+// name failing must not answer for the other.
+const portraitFailed = new Map();     // "<sha256> <image>" -> { at, because }: the last failed download
+const portraitInflight = new Map();   // "<sha256> <image>" -> the download under way
+/* A portrait that verified but could not be saved (a full or read-only disk; on Windows, a file
+   held open) is held here instead, so it is downloaded once and not on every ask. Bounded by the
+   catalogue: one entry per portrait it names, each at most PORTRAIT_MAX_BYTES, dropped when pruned. */
+const portraitUnsaved = new Map();    // sha256 -> bytes
 
 /** Tests sign with their own key pair. In-process only: nothing outside this process can reach it. */
-function useKeyForTest(pem) { key = pem || PUBLIC_KEY; data = undefined; lastTry = 0; lastError = null; portraitFailed.clear(); }
+function useKeyForTest(pem) { key = pem || PUBLIC_KEY; data = undefined; lastTry = 0; lastError = null; portraitFailed.clear(); portraitUnsaved.clear(); }
 
 const KEY_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const isText = (v) => typeof v === 'string' && v.length > 0;
@@ -332,6 +338,7 @@ function isPortrait(bytes, sha) {
 function prunePortraits(keep) {
   const named = new Set([keep]);
   for (const t of readTeams().teams) for (const m of t.members) if (m.avatar && typeof m.avatar.imageSha256 === 'string') named.add(m.avatar.imageSha256);
+  for (const sha of portraitUnsaved.keys()) if (!named.has(sha)) portraitUnsaved.delete(sha);
   const dir = path.dirname(portraitFile(keep));
   let files = [];
   try { files = fs.readdirSync(dir); } catch { return; }
@@ -373,14 +380,16 @@ async function portrait(teamKey, slot, opts = {}) {
   try {
     const kept = fs.readFileSync(file);
     if (isPortrait(kept, sha)) return yes(kept);
-    fs.rmSync(file, { force: true });   // damaged on disk: download it again
+    // Damaged on disk: it is downloaded again, and the good copy replaces it.
   } catch { /* not kept yet */ }
+  if (portraitUnsaved.has(sha)) return yes(portraitUnsaved.get(sha));
   // As for refresh(): no test run downloads from installkosmos.com unless it names the address or
   // hands in its own fetcher (#4253).
   if (process.env.NODE_TEST_CONTEXT && !opts.fetcher && !process.env.KOSMOS_CATALOGUE_BASE) return no('a test run does not download portraits');
-  const failed = portraitFailed.get(sha);
+  const id = `${sha} ${a.image}`;
+  const failed = portraitFailed.get(id);
   if (failed && !opts.force && Date.now() - failed.at < PORTRAIT_GAP_MS) return no(failed.because);
-  if (portraitInflight.has(sha)) return portraitInflight.get(sha);
+  if (portraitInflight.has(id)) return portraitInflight.get(id);
   const run = (async () => {
     try {
       const doFetch = opts.fetcher || fetch;
@@ -389,27 +398,30 @@ async function portrait(teamKey, slot, opts = {}) {
          under this same file name. Ask once more past the caches before refusing, as refresh() does. */
       if (!isPortrait(bytes, sha)) bytes = await fetchBytes(doFetch, `${base()}${a.image}?fresh=${Date.now()}`, undefined, PORTRAIT_MAX_BYTES);
       if (!isPortrait(bytes, sha)) throw new Error(`the downloaded portrait ${a.image} was refused: it is not the image the catalogue names`);
-      // A portrait that verified is used even when saving it fails; the next ask downloads it again.
+      // A portrait that verified is used even when saving it fails: it is held in memory instead,
+      // so this process does not download it again.
       const tmp = `${file}.${process.pid}.tmp`;
       try {
         fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.writeFileSync(tmp, bytes);
         fs.renameSync(tmp, file);
-        prunePortraits(sha);
+        portraitUnsaved.delete(sha);
       } catch {
         try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ }
+        portraitUnsaved.set(sha, bytes);
       }
-      portraitFailed.delete(sha);
+      prunePortraits(sha);
+      portraitFailed.delete(id);
       return yes(bytes);
     } catch (err) {
       const because = (err && err.message) || String(err);
-      portraitFailed.set(sha, { at: Date.now(), because });
+      portraitFailed.set(id, { at: Date.now(), because });
       return no(because);
     } finally {
-      portraitInflight.delete(sha);
+      portraitInflight.delete(id);
     }
   })();
-  portraitInflight.set(sha, run);
+  portraitInflight.set(id, run);
   return run;
 }
 

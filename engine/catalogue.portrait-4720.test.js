@@ -42,13 +42,17 @@ function webp(seed, extra = 0) {
   return Buffer.concat([head, payload]);
 }
 
-/** Store the fixture with marketing/lead's avatar fields set as given (JSON values), signed. */
-function setup(image, imageSha256) {
+/** Store the fixture with marketing/lead's avatar fields set as given (JSON values), signed.
+ *  `others` names more members' portraits: { '<avatar id>': [image, imageSha256] }. */
+function setup(image, imageSha256, others = {}) {
   fs.rmSync(path.dirname(catalogue.cacheFile()), { recursive: true, force: true });
-  const from = '"id": "marketing-lead",\n            "image": null,\n            "imageSha256": null,';
-  assert.equal(TEXT.split(from).length, 2, 'the fixture no longer has the marketing lead avatar in the expected shape');
-  const to = `"id": "marketing-lead",\n            "image": ${JSON.stringify(image)},\n            "imageSha256": ${JSON.stringify(imageSha256)},`;
-  storeSigned(TEXT.replace(from, to), catalogue.MIN_SERIAL);
+  let text = TEXT;
+  for (const [id, [img, sha]] of Object.entries({ 'marketing-lead': [image, imageSha256], ...others })) {
+    const from = `"id": "${id}",\n            "image": null,\n            "imageSha256": null,`;
+    assert.equal(text.split(from).length, 2, `the fixture no longer has ${id}'s avatar in the expected shape`);
+    text = text.replace(from, `"id": "${id}",\n            "image": ${JSON.stringify(img)},\n            "imageSha256": ${JSON.stringify(sha)},`);
+  }
+  storeSigned(text, catalogue.MIN_SERIAL);
   // The precondition every test below rests on: the catalogue with these fields is the one held.
   const held = catalogue.team('marketing');
   assert.ok(held, 'the altered catalogue was not accepted');
@@ -199,9 +203,12 @@ test('a kept portrait damaged on disk is downloaded again, not served', async ()
 });
 
 test('keeping a new portrait removes kept ones the catalogue no longer names, and only those', async () => {
-  setup(PATH, sha256(IMG));
+  const writer = webp('the content writer');
+  setup(PATH, sha256(IMG), { 'marketing-content': ['avatars/marketing-content.webp', sha256(writer)] });
   const dir = path.dirname(catalogue.portraitFile(sha256(IMG)));
   fs.mkdirSync(dir, { recursive: true });
+  // Another member's portrait, already kept: the catalogue still names it, so it stays.
+  fs.writeFileSync(catalogue.portraitFile(sha256(writer)), writer);
   const stale = path.join(dir, `${'a'.repeat(64)}.webp`);
   const underWay = path.join(dir, `${'b'.repeat(64)}.webp.123.tmp`);
   fs.writeFileSync(stale, 'an old portrait');
@@ -209,6 +216,7 @@ test('keeping a new portrait removes kept ones the catalogue no longer names, an
   assert.equal((await catalogue.portrait('marketing', 'lead', { fetcher: server(IMG).fetcher })).ok, true);
   assert.equal(fs.existsSync(stale), false, 'a portrait no member names was left behind');
   assert.equal(fs.existsSync(underWay), true, 'a download under way was removed');
+  assert.equal(fs.existsSync(catalogue.portraitFile(sha256(writer))), true, 'a portrait another member still names was removed');
   assert.equal(fs.existsSync(catalogue.portraitFile(sha256(IMG))), true);
 });
 
@@ -250,4 +258,76 @@ test('the address is the one the catalogue itself is read from', async () => {
     assert.equal((await catalogue.portrait('marketing', 'lead', { fetcher })).ok, true);
     assert.deepEqual(calls, ['http://127.0.0.1:9/somewhere/avatars/marketing-lead.webp']);
   } finally { delete process.env.KOSMOS_CATALOGUE_BASE; }
+});
+
+test('a portrait that verified but cannot be saved is still used, and is downloaded once, not on every ask', async () => {
+  setup(PATH, sha256(IMG));
+  // A file where the portraits folder should be: every save fails.
+  const dir = path.dirname(catalogue.portraitFile(sha256(IMG)));
+  fs.writeFileSync(dir, 'in the way');
+  const { fetcher, calls } = server(IMG);
+  for (let i = 0; i < 4; i += 1) {
+    const r = await catalogue.portrait('marketing', 'lead', { fetcher });
+    assert.equal(r.ok, true, `ask ${i + 1}: ${r.because}`);
+    assert.ok(r.bytes.equals(IMG));
+  }
+  assert.equal(fs.statSync(dir).isFile(), true, 'the precondition: nothing could be saved');
+  assert.equal(calls.length, 1, 'a portrait that could not be saved was downloaded again');
+});
+
+test('each part of the WebP test is needed: a wrong size field, a wrong first chunk and a wrong form are each refused', async () => {
+  const wrongSize = Buffer.from(IMG); wrongSize.writeUInt32LE(IMG.length, 4);             // claims 8 bytes more than it has
+  const hidden = Buffer.concat([IMG, Buffer.from('<script>something after the image</script>')]);   // size field stops short
+  const wrongChunk = Buffer.from(IMG); wrongChunk.write('EXIF', 12, 'latin1');
+  const wrongForm = Buffer.from(IMG); wrongForm.write('WAVE', 8, 'latin1');
+  const notRiff = Buffer.from(IMG); notRiff.write('RIFX', 0, 'latin1');
+  for (const [what, bytes] of Object.entries({ wrongSize, hidden, wrongChunk, wrongForm, notRiff, short: IMG.subarray(0, 12) })) {
+    setup(PATH, sha256(bytes));
+    const r = await catalogue.portrait('marketing', 'lead', { fetcher: server(bytes).fetcher });
+    assert.equal(r.ok, false, `${what} was taken as a portrait`);
+  }
+});
+
+test('an answer that declares itself larger than the cap is refused before it is read', async () => {
+  setup(PATH, sha256(IMG));
+  let read = false;
+  const fetcher = async () => {
+    const res = new Response(IMG, { status: 200, headers: { 'content-length': String(catalogue.PORTRAIT_MAX_BYTES + 1) } });
+    Object.defineProperty(res, 'body', { get() { read = true; return null; } });
+    return res;
+  };
+  const r = await catalogue.portrait('marketing', 'lead', { fetcher });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /larger than/);
+  assert.equal(read, false, 'the body was read although the answer declared itself too large');
+});
+
+test('after the minute has passed a failed portrait is asked for again', async (t) => {
+  setup(PATH, sha256(IMG));
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const down = server(new Error('network down'));
+  assert.equal((await catalogue.portrait('marketing', 'lead', { fetcher: down.fetcher })).ok, false);
+  const up = server(IMG);
+  t.mock.timers.tick(59 * 1000);
+  assert.equal((await catalogue.portrait('marketing', 'lead', { fetcher: up.fetcher })).ok, false, 'asked again inside the minute');
+  assert.equal(up.calls.length, 0);
+  t.mock.timers.tick(2 * 1000);
+  assert.equal((await catalogue.portrait('marketing', 'lead', { fetcher: up.fetcher })).ok, true, 'never asked again after the minute');
+  assert.equal(up.calls.length, 1);
+});
+
+test('two members sharing one image under two names: one name failing does not answer for the other', async () => {
+  setup(PATH, sha256(IMG), { 'marketing-content': ['avatars/marketing-content.webp', sha256(IMG)] });
+  const calls = [];
+  const fetcher = async (url) => {
+    calls.push(url);
+    return url.includes('marketing-content.webp') ? new Response(IMG, { status: 200 }) : new Response('nope', { status: 404 });
+  };
+  const lead = await catalogue.portrait('marketing', 'lead', { fetcher });
+  assert.equal(lead.ok, false);
+  const content = await catalogue.portrait('marketing', 'content', { fetcher });
+  assert.equal(content.ok, true, `the content writer was answered with the lead's failure: ${content.because}`);
+  assert.ok(calls.some((u) => u.endsWith('/avatars/marketing-content.webp')), 'the content writer address was never asked');
+  // And once one name has delivered the image, the other member has it too: it is the same image.
+  assert.equal((await catalogue.portrait('marketing', 'lead', { fetcher })).ok, true);
 });
