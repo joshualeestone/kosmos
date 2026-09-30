@@ -213,3 +213,17 @@ Run because a merge of main came after review 3. It found three real things the 
   asserts that the project the screen was offering is no longer offered. NOT RUN YET.
 - 151 pass across the five related test files (federation-owncode, account-computers, fedseats, and the
   two server federation files).
+
+## Review 9 (fable): no BLOCKER, 1 WARNING, 1 CONVENTION, 2 NITs
+- W, TRUE AND STILL OPEN: the browser check has never run, and it is the only evidence for the join
+  screen's refusal. It has been waiting for a queue turn since 10:59 CDT. Nothing merges before it runs.
+- CONVENTION FIXED: account-computers.js was required twice in federation.js; once now, at the top.
+- NIT taken: the waiting-computer matcher pinned `HTTP 403` while its comment said the CODE names the
+  refusal. It matches any status now; test line with 409.
+- NIT not taken, and the claim narrowed: the check's "no project is offered after a refusal" holds for
+  every kind of failed verify, because the page hides the offer before it asks. So it does not tell a
+  refusal from a network error (the words beside it do that). What it does catch is the page no longer
+  withdrawing an earlier offer, which is why the accepted code runs first.
+- The reviewer read the relay side too (the coordinator's handler, the tunnel's refusal line on both
+  unmerged branches) and found the matcher agrees with that source.
+

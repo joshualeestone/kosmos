@@ -27,7 +27,8 @@ const FILE = 'federation.json';
 const MAC_INVITE = '/v1/mac/federation/invite';
 const MAC_VERIFY = '/v1/mac/federation/verify';
 // kosmos#4648's route, shared with the switcher's reader so a rename cannot split them (#4699).
-const MAC_ACCOUNT_COMPUTERS = require('./account-computers').ROUTE;
+const computers = require('./account-computers');
+const MAC_ACCOUNT_COMPUTERS = computers.ROUTE;
 
 function file() {
   return path.join(store.ROOT, FILE);
@@ -268,7 +269,6 @@ async function ownAccountNames(remote) {
      computers' domain), the rule the "Your computers" menu uses: a row that menu would drop must not
      make a code pass here. The name compared is the first label of that address, the same derivation
      the maker used for `from` (a row's `name` is a separate field and need not be spelled alike). */
-  const computers = require('./account-computers');
   let domain = null;
   try { domain = computers.computerDomain(remote.COORDINATOR()); } catch { domain = null; }
   if (!domain) return { ok: false, because: NO_COMPUTER_DOMAIN };
@@ -295,7 +295,7 @@ function uncheckedRefusal(because) {
      the account (kosmos#4681). Any other refusal ("unknown mac", a clock skew) is not something the
      person can act on, so it gets the general sentence and the detail stays in the log. */
   // "Mac" or "computer": the connector's prefix is per platform (fedseats' MAC_LEVEL_REFUSAL, #4645).
-  if (/^Kosmos\+ refused this (?:Mac|computer): .*\(HTTP 403 on [^)]*, code own_lineage\)$/.test(b)) {
+  if (/^Kosmos\+ refused this (?:Mac|computer): .*\(HTTP \d+ on [^)]*, code own_lineage\)$/.test(b)) {
     return { status: 409, body: { reason: 'unchecked', error: 'This computer has not been allowed on your Kosmos+ account yet, so Kosmos cannot check this code. Kosmos on one of your other computers shows that this computer is asking: press Allow there, then paste the code again.' } };
   }
   // No computer of this Kosmos+ has an address to be named by, so no own code can ever be checked here.

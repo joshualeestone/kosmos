@@ -206,6 +206,8 @@ test('#4699: a could-not-check refusal never shows a path or a route, and names 
     // A connector older than the route can never sign it: updating helps, trying again does not.
     [{ ok: false, because: 'Error: mac-request does not sign POST "/v1/mac/account-computers"' }, 'unchecked', /too old to check this code\. Update Kosmos on this computer/],
     [{ ok: false, because: WAITING.replace(/^Error: /, '') }, 'unchecked', /has not been allowed on your Kosmos\+ account yet/],
+    // It is the CODE that names this refusal: a coordinator that answers it with another status is still recognised.
+    [{ ok: false, because: WAITING.replace('HTTP 403', 'HTTP 409') }, 'unchecked', /has not been allowed on your Kosmos\+ account yet/],
     [{ ok: false, because: UNKNOWN }, 'unchecked', /Try again in a moment/],
   ];
   for (const [answer, reason, words] of cases) {
