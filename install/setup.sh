@@ -2814,7 +2814,8 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     # Not recorded in #2055's update-abort streak: the board shows that streak as "Kosmos was busy, quit and
     # reopen it", which is not the remedy for either stop below.
     if [ -z "$_pids" ] && [ -n "$_lsofbad" ]; then
-      die "This shell is not allowed to check whether Kosmos is still running on port $PORT (a sandbox or a security rule is in the way), so the update stopped before replacing any files. Paste the install line into a normal Terminal window instead."
+      _lsofsaid="$(printf '%s\n' "$_lsofout" | sed -n '/./{p;q;}')"
+      die "This shell could not check whether Kosmos is still running on port $PORT (the port check failed${_lsofsaid:+: $_lsofsaid}), so the update stopped before replacing any files. If you ran the install line in an agent's shell or another sandboxed tool, paste it into a normal Terminal window instead. If this already is a normal Terminal, run 'kosmos stop' and paste the install line again; if this message comes back, the port check itself is failing on this computer, so please send us this message."
     fi
     if [ -n "$_pids" ]; then
       _pids="$(printf '%s' "$_pids" | tr '\n' ' ' | sed 's/ *$//')"

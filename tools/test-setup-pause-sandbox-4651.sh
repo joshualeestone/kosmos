@@ -7,12 +7,13 @@
 # stub `kosmos` whose stop does nothing (as a sandboxed stop does), and a node stub listener as the board.
 # "Passed the pause" is the line the harness prints if the block lets the update go on to replace files.
 #
-# Two seatbelt profiles, both measured on a Mac (2026-09-30):
-#   A (deny network-outbound): curl exits 7, lsof still sees the listener, ps is denied.
-#   B (A + deny process-info*): curl exits 7 and lsof FAILS ("Operation not permitted"). Before #4651 the
-#     block read that failure as "nothing listening" and passed the pause under a live board.
-# Controls outside any sandbox: a free port passes, and a listener that accepts but never answers still
-# gets the existing "kill <pid>" advice (curl times out there; it does not fail to connect).
+# Three seatbelt profiles, measured on a Mac (2026-09-30):
+#   A (deny network-outbound): curl cannot connect, lsof still sees the listener, ps is denied.
+#   B (A + deny process-info*): lsof FAILS ("Operation not permitted"). Before #4651 the block read that
+#     failure as "nothing listening" and passed the pause under a live board.
+#   C (B + no writes to the temp folders).
+# Outside any sandbox: a free port passes, a listener that accepts but never answers keeps the existing
+# "kill <pid>" advice, and a listener on ::1 only gets words that name its pid.
 set -u
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 SETUP="$HERE/install/setup.sh"
@@ -21,6 +22,10 @@ if [ ! -x /usr/bin/sandbox-exec ]; then
   # A Mac without sandbox-exec is a broken runner, not a reason to go green without testing anything.
   if [ "$(uname -s)" = Darwin ]; then echo "FAIL: /usr/bin/sandbox-exec is missing on this Mac" >&2; exit 1; fi
   echo "SKIP: no sandbox-exec (not a Mac)"; exit 0
+fi
+# A shell that is itself sandboxed cannot start a nested sandbox: say so plainly rather than fail every arm.
+if ! /usr/bin/sandbox-exec -p '(version 1)(allow default)' /usr/bin/true 2>/dev/null; then
+  echo "FAIL: sandbox-exec cannot start a sandbox here (is this shell already sandboxed?)" >&2; exit 1
 fi
 NODE="$(command -v node || true)"
 [ -n "$NODE" ] || { echo "FAIL: node is needed for the stub listener" >&2; exit 1; }
@@ -92,6 +97,11 @@ chk "control: outside a sandbox, a silent listener still gets the existing pid a
 P="$(free_port)"; start_listener "$P" v6; OUT="$(run_pause "" "$P")"; V6PID="$LISTENER"; stop_listener
 chk "outside a sandbox, a ::1-only listener stops the update and names its pid to quit" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"quit the app with pid $V6PID"* ]]'
 
+# A with nothing listening: lsof works and finds nothing, so the board really stopped. Must PASS: failing closed
+# on an unreadable port must not turn into refusing every update from a sandboxed shell.
+P="$(free_port)"; OUT="$(run_pause "$PROFILE_A" "$P")"
+chk "sandbox A, free port: passes the pause (the board really stopped)" '[[ "$OUT" == *"PASSED THE PAUSE"* ]]'
+
 # A: lsof sees the live board, curl cannot connect. Must stop, and must not say to kill it.
 P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_A" "$P")"; stop_listener
 chk "sandbox A, live board: the update stops before changing anything" '[[ "$OUT" == *"DIE:"* && "$OUT" != *"PASSED THE PAUSE"* ]]'
@@ -100,7 +110,7 @@ chk "sandbox A, live board: says to use a normal Terminal, never to kill the pid
 # B: lsof is denied too. Before #4651 this PASSED the pause under a live board.
 P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_B" "$P")"; stop_listener
 chk "sandbox B, live board: the update stops before changing anything (it passed before #4651)" '[[ "$OUT" == *"DIE:"* && "$OUT" != *"PASSED THE PAUSE"* ]]'
-chk "sandbox B, live board: says to use a normal Terminal" '[[ "$OUT" == *"normal Terminal"* ]]'
+chk "sandbox B, live board: says to use a normal Terminal, and shows what the port check said" '[[ "$OUT" == *"normal Terminal"* && "$OUT" == *"Operation not permitted"* ]]'
 
 # C: no file can be written, and lsof is denied. Must still stop.
 P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_C" "$P")"; stop_listener
