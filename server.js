@@ -1288,6 +1288,12 @@ const os = require('node:os');
  * would have reported. Worth fixing by storing the original name at mint time
  * if it ever matters; it does not yet.
  */
+/* #4784 (reviews 4 and 5): for `kosmos inbox`'s text rows. INBOX_BREAK is every character a terminal or an agent's
+   context can read as a line break (a message's pieces after the first are indented; a file name's become spaces).
+   INBOX_DROP is C0 and C1 controls (tab kept) plus the bidirectional marks and overrides that can reorder a row. */
+const INBOX_BREAK = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/;
+const INBOX_DROP = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
 function resolveAgentSender(req, body, roster, opts) {
   const presented = presentedAgentToken(req, body);
   if (!presented) {
@@ -12932,9 +12938,11 @@ const server = http.createServer(async (req, res) => {
       const rows = masked.map((m) => {
         const person = !(typeof m.from === 'string' && m.from);
         const files = (Array.isArray(m.attachments) ? m.attachments : (m.attachment ? [m.attachment] : []))
-          // Review 2: a name is the person's, printed into a terminal: brackets (the markers' own delimiters)
-          // and C1 controls out.
-          .map((a) => (a && typeof a.name === 'string' ? a.name.replace(/[\[\]\u0080-\u009f]/g, '') || 'a file' : 'a file'));
+          // Review 2: a name is the person's, printed into a terminal: brackets (the markers' own delimiters) out.
+          // Review 5: and every line break (as a space) and dropped control, by the same rule as the text.
+          .map((a) => (a && typeof a.name === 'string'
+            ? a.name.split(INBOX_BREAK).join(' ').replace(INBOX_DROP, '').replace(/[\[\]]/g, '') || 'a file'
+            : 'a file'));
         return {
           at: typeof m.at === 'string' ? m.at : null,
           from: person ? 'person' : 'you',
@@ -12963,10 +12971,9 @@ const server = http.createServer(async (req, res) => {
         const head = (r.at ? r.at.replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '')
           + (r.from === 'person' ? 'the person' : 'you') + (notes.length ? ' ' + notes.join(' ') : '') + ': ';
         /* Review 4: every character a terminal or an agent's context can read as a line break starts a new,
-           indented piece (a lone CR, VT, FF, NEL, U+2028, U+2029, not only LF), and the other control characters
-           (ESC and the rest of C0 and C1, tab kept) are dropped, so no typed text can draw a row of its own. */
-        const body = r.text.split(/\r\n|[\n\r\v\f\u0085\u2028\u2029]/)
-          .map((l) => l.replace(/[\u0000-\u0008\u000e-\u001f\u007f-\u009f]/g, ''));
+           indented piece (INBOX_BREAK), and the controls in INBOX_DROP are dropped, so no typed text can draw a row
+           of its own. Attachment names go through the same two sets above. */
+        const body = r.text.split(INBOX_BREAK).map((l) => l.replace(INBOX_DROP, ''));
         return [head + body[0], ...body.slice(1).map((l) => '    ' + l)].join('\n');
       });
       res.end(lines.join('\n') + '\n');

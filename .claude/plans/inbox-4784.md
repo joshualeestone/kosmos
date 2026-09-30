@@ -81,3 +81,13 @@ Focused: server.inbox-4784.test.js 7 of 7.
   if wanted.
 - NIT, noted: refusals on stdout (as whoami), already a recorded choice.
 Focused: server.inbox-4784.test.js 8 of 8.
+
+## Review 5 (opus, blind, on 46ddb131d), 17:35 CDT: no BLOCKER, 1 WARNING, 2 NITs
+- WARNING, taken: attachment names skipped review 4's rule (attachments.safeName drops only C0 and DEL), so a
+  file named with U+2028 could draw a row. One pair of sets now (INBOX_BREAK, INBOX_DROP, top of server.js): a
+  message's breaks start indented pieces, a name's become spaces; both drop the same controls. Test arm: a name
+  with U+2028 and CRLF stays on its row; perturbation (names unsanitized) reds it.
+- NIT, taken: bidirectional marks and overrides (U+200E/F, U+202A-E, U+2066-9) are dropped too. Zero-width
+  joiners are kept (emoji sequences use them; they cannot move a row).
+- NIT, not taken here: a wrongWorld 421 prints as JSON, as cmd_report_show does today (inherited, not new).
+Focused: server.inbox-4784 8/8, cli.inbox-4784 6/6.
