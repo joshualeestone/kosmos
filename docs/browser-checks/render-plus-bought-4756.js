@@ -41,7 +41,8 @@ function chk(ok, label, extra) {
 }
 
 const UNENROLLED = { configured: true, on: false, ok: true, enrolled: false, email: '', status: {} };
-const BUY = 'https://login.kosmosplus.test/signin#add-computer';
+// A query, not a #fragment: browser-checks-selectors.test.js reads a #name in a check as a page id.
+const BUY = 'https://login.kosmosplus.test/signin?to=add-computer';
 const row = (name, state, extra) => Object.assign({ name, address: name + '.kosmosplus.com', state }, extra || {});
 const reg = (name) => ({ ok: true, stage: 'registered', address: name + '.kosmosplus.com', name, standing: 'good' });
 
@@ -208,7 +209,7 @@ const visible = (page, sel) => page.evaluate((s) => {
           if ((sc.offline === b.name || sc.refuseSecond === b.name) && regs.length === 1) return json(400, { error: 'this computer could not reach the sign-in service' });
           if (sc.retire409 === b.name && regs.length === 1) return json(400, { error: 'an earlier sign-in on this computer could not be removed (the coordinator said no (409): busy); try again in a moment' });
           if (sc.notboughtFirst === b.name && regs.length === 1) return json(400, { error: 'Kosmos+ said no (402): This computer needs an address you have bought.' });
-          if (sc.notbought === b.name) return json(400, { error: 'Kosmos+ said no (402): This computer needs an address you have bought. Buy one at https://login.kosmosplus.com/signin#add-computer, then sign in again.' });
+          if (sc.notbought === b.name) return json(400, { error: 'Kosmos+ said no (402): This computer needs an address you have bought. Buy one at https://login.kosmosplus.com/signin, then sign in again.' });
           if (sc.stale === b.name && regs.length === 1) return json(400, { error: 'The name spare may be held by an earlier sign-in on this computer. Remove it on your account page, or pick another name.' });
           if (sc.certfail === b.name && regs.length === 1) return json(400, { error: 'the certificate for spare.kosmosplus.com could not be issued; try again in a minute' });
           return json(200, reg(b.name));
