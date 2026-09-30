@@ -10202,7 +10202,7 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .field + .frow { margin-top: var(--space-5); }
 #s-sec-plus .tk-inp.bad, #s-sec-plus .tk-inp.bad:focus { border-color: var(--danger); } /* the shared error border still wins */
 /* #3829, restyled by #4080 (Josh's design): the head is the logo, the switch and the status pill; the chip now holds
-   "Sign in at login.kosmosplus.com." with Open; View account is in the bottom row. No solid left bar anywhere (#3692). */
+   "Access this computer from other devices at login.kosmosplus.com" with Copy (#4744); View account is in the bottom row. No solid left bar anywhere (#3692). */
 #s-sec-plus .plus-headrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 #s-sec-plus .plus-headrow .setname { margin: 0; }
 #s-sec-plus .plus-sp { flex: 1 1 auto; }
@@ -10211,14 +10211,29 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-pill[data-state="up"] { background: rgba(63,191,127,.14); color: #7fe0ae; }
 #s-sec-plus .plus-pill[data-state="connecting"] { background: rgba(126,160,240,.14); color: #9cc0ff; }
 #s-sec-plus .plus-pill[data-state="down"] { background: rgba(232,112,94,.14); color: #f0a397; }
-#s-sec-plus .plus-chip { display: flex; align-items: center; gap: 8px; margin-top: 12px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 10px; padding: 6px 6px 6px 14px; }
-#s-sec-plus .plus-chip code { flex: 1 1 auto; min-width: 0; font: 600 .95rem ui-monospace, Menlo, monospace; color: #E6EBF7; overflow-wrap: anywhere; }
-#s-sec-plus .plus-chip .btn { flex: 0 0 auto; background: transparent; color: #E6EBF7; border: 1px solid rgba(255,255,255,.25); border-radius: 8px; text-decoration: none; padding: 6px 12px; font-size: .9rem; }
+#s-sec-plus .plus-chip { display: flex; align-items: center; gap: 8px; margin: 12px -12px 0; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 10px; padding: 6px 6px 6px 12px; container-type: inline-size; }
+#s-sec-plus .plus-chip .btn { flex: 0 0 auto; background: transparent; color: #E6EBF7; border: 1px solid rgba(255,255,255,.25); border-radius: 8px; padding: 6px 12px; font-size: .9rem; }
 #s-sec-plus .devrow .btn { border: 1px solid rgba(255,255,255,.25); }   /* #3829: Remove visible on navy */
 /* #4080 (Josh's design): logo, switch, badge on top; the sign-in box; the bottom row. */
 #s-sec-plus .plus-logo { display: block; height: 22px; width: auto; }
 #s-sec-plus .plus-headrow .toggle { flex: 0 0 42px; }
-#s-sec-plus .plus-chip-say { flex: 1 1 auto; min-width: 0; font: 500 .95rem var(--font-ui); color: #E6EBF7; }
+/* #4744: one line (Josh, "lets make sure this all fits on one line"). The Settings column caps this panel at 544px on
+   a desktop window, where the sentence at .9rem needs ~452px of the ~404 left beside Copy (measured). So the box
+   reaches into the panel's side padding, Copy is compact, and the sentence's size follows the box's width (container
+   units): .9rem where there is room, down to .75rem, on one line. Narrower than that (a phone) it wraps, never cuts. */
+/* A fixed width that fits both "Copy" and "Copied", so pressing it never takes room from the sentence. */
+#s-sec-plus .plus-chip #plus-copy { padding: 6px 0; width: 72px; text-align: center; }
+#s-sec-plus .plus-chip-say { flex: 1 1 auto; min-width: 0; font: 500 .9rem var(--font-ui); color: #E6EBF7; overflow-wrap: anywhere; }
+/* 80px = Copy (72) and the gap (8); /34 leaves ~8% (about 32px at 1400) for a wider system font (Segoe UI on Windows). The one-line rule
+   starts only where the .75rem floor itself fits (31.4 x 12px + 8% + 80 ~ 490); below that the sentence wraps. */
+@container (min-width: 490px) {
+  #s-sec-plus .plus-chip-say { white-space: nowrap; font-size: clamp(.75rem, calc((100cqw - 80px) / 34), .9rem); }
+}
+/* The safety valve: if a font runs wider than that margin allows, plusChipFit sees the sentence overflow (on a resize
+   of the box, or when the panel repaints) and lets it wrap rather than run under Copy. Container queries and cqw need
+   Safari 16 / Chromium 105: the Mac app's floor is macOS 13.5 (Safari 16.5) and WebView2 updates itself. */
+#s-sec-plus .plus-chip-say.plus-chip-wrap { white-space: normal; }
+#s-sec-plus .plus-chip-say b { font-weight: 700; color: #fff; }
 #s-sec-plus .plus-foot { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.1); }
 #s-sec-plus .plus-remove-link, #s-sec-plus .plus-lost-link { background: none; border: 0; padding: 4px 0; font: 600 .95rem var(--font-ui); cursor: pointer; }
 #s-sec-plus .plus-remove-link { color: #f0877a; }
@@ -17268,7 +17283,7 @@ window.kosmosMeasureScrollbarWidth();
 
     <div id="plus-flow" hidden>
       <!-- #3829 (Josh, 16:54: "terribly worded and designed"; Mona Lisa's sketch on the card): status first,
-           View my account top right, the address in ONE chip with Copy and Open and one plain line under it,
+           View my account top right, the address in ONE chip (since #4744: Josh's sentence with Copy, no Open) and one plain line under it,
            and Pause (Turn off until #4079) a quiet control rather than the headline. Off, Turn on is the one primary action. -->
       <!-- #4080 (Josh's design, 22:22): the Kosmos+ logo at left, then the switch (the Settings/Automation
            toggle: on when this computer is reachable, off pauses it, PUT /api/remote on:false), then the
@@ -17281,12 +17296,14 @@ window.kosmosMeasureScrollbarWidth();
         <button class="toggle" type="button" id="plus-switch" role="switch" aria-label="Let your devices reach this computer through Kosmos+" hidden><i></i></button>
         <span class="plus-pill" id="plus-pill" data-state="off">Off</span>
       </div>
-      <!-- #4080 (Josh, 22:09: "lets put this ... in that box that the current URL is in"): the box holds the way
-           in from another device, with Open to it, in the words of his 22:22 mock ("sign in at login.kosmosplus.com.",
-           capital S, one line; the mock is newer than the 22:09 sentence). The machine's own address is not on the pane. -->
+      <!-- #4744 (Josh, 2026-09-30 11:23, Mac and Windows): the box says where OTHER devices reach this computer, in
+           his words ("Access this computer from other devices at <bold>login.kosmosplus.com</bold>"), with Copy so the
+           address can be sent to another device, all on one line. It replaced #4080's "Sign in at login.kosmosplus.com."
+           with Open. -->
       <div class="plus-chip" id="plus-chip" hidden>
-        <span class="plus-chip-say" id="plus-chip-say">Sign in at login.kosmosplus.com.</span>
-        <a class="btn" id="plus-open" href="#" target="_blank" rel="noreferrer noopener">Open</a>
+        <span class="plus-chip-say" id="plus-chip-say">Access this computer from other devices at <b>login.kosmosplus.com</b></span>
+        <button class="btn" type="button" id="plus-copy" aria-label="Copy the address">Copy</button>
+        <span class="vh" id="plus-copy-status" aria-live="polite"></span>
       </div>
       <div class="setrow">
         <div>
@@ -42832,8 +42849,92 @@ function plusSiRegisterMode(address, nameOnly) {
 const KOSMOS_SITE = 'https://installkosmos.com';
 /* #3829 / #3479: the web account (billing, history, cancel) lives where people sign in to Kosmos+. */
 const PLUS_ACCOUNT_URL = 'https://login.kosmosplus.com/';
+/* #4744: Copy puts the address other devices use on the clipboard, as a full https URL so it pastes as a link.
+   The app's copy -> "Copied" pattern: the button says it for 2s and the live region says it for a screen reader.
+   If the clipboard is refused, the address is selected on screen so the person can copy it themselves. */
+let PLUS_COPY_TIMER = null;
+/* #4744 (review 8): one press at a time, and a press cancels the last one's pending words, so a slow clipboard
+   answer cannot interleave with the next press or write a stale note after a success. */
+let PLUS_COPY_BUSY = false;
+let PLUS_COPY_SAY_TIMER = null;
+function plusCopyViaExec() {
+  // execCommand first because it runs synchronously inside the press (no await before it); the clipboard API is the
+  // second try. Both copy the same full URL.
+  const t = document.createElement('textarea'); t.value = PLUS_ACCOUNT_URL; t.setAttribute('readonly', '');
+  t.style.position = 'fixed'; t.style.top = '0'; t.style.left = '0'; t.style.opacity = '0';
+  let ok = false;
+  try { document.body.appendChild(t); t.select(); ok = !!(document.execCommand && document.execCommand('copy')); }
+  catch { ok = false; }
+  finally { t.remove(); const b = document.getElementById('plus-copy'); if (b) b.focus(); }
+  return ok;
+}
+async function plusCopyAddress() {
+  const btn = document.getElementById('plus-copy');
+  const status = document.getElementById('plus-copy-status');
+  const note = document.getElementById('plus-status');
+  if (!btn || PLUS_COPY_BUSY) return;
+  if (PLUS_COPY_SAY_TIMER) { clearTimeout(PLUS_COPY_SAY_TIMER); PLUS_COPY_SAY_TIMER = null; }
+  let ok = plusCopyViaExec();
+  if (!ok) {
+    PLUS_COPY_BUSY = true;
+    // A clipboard answer that never comes (a web view's permission prompt nobody answers) counts as a refusal after
+    // 3 seconds, so the button is never left locked. If the write then succeeds after all, the failure line goes and
+    // the copy is said, so the screen is not left saying something untrue.
+    let limit = null;
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        const write = navigator.clipboard.writeText(PLUS_ACCOUNT_URL);
+        const late = new Promise((_, no) => { limit = setTimeout(() => no(new Error('no answer')), 3000); });
+        try { await Promise.race([write, late]); ok = true; }
+        catch (e) {
+          ok = false;
+          if (e && e.message === 'no answer') write.then(() => {
+            if (note && note.dataset.copyFail) { note.textContent = ''; delete note.dataset.copyFail; }
+            if (status) status.textContent = 'Address copied.';
+          }, () => {});
+        }
+      }
+    } catch { ok = false; }
+    finally { if (limit) clearTimeout(limit); PLUS_COPY_BUSY = false; }
+  }
+  if (PLUS_COPY_TIMER) { clearTimeout(PLUS_COPY_TIMER); PLUS_COPY_TIMER = null; }
+  if (status) status.textContent = '';
+  if (ok) {
+    btn.textContent = 'Copied';
+    if (note && note.dataset.copyFail) { note.textContent = ''; delete note.dataset.copyFail; }
+    // Cleared first and set a moment later, so a second press is spoken again.
+    if (status) PLUS_COPY_SAY_TIMER = setTimeout(() => { PLUS_COPY_SAY_TIMER = null; if (btn.textContent === 'Copied') status.textContent = 'Address copied.'; }, 30);
+    PLUS_COPY_TIMER = setTimeout(() => { PLUS_COPY_TIMER = null; btn.textContent = 'Copy'; if (status) status.textContent = ''; }, 2000);
+    return;
+  }
+  // Could not copy: the address is selected, and the line under the box (a live region) says so until the next press.
+  const b = document.querySelector('#plus-chip-say b');
+  let selected = false;
+  try { const r = document.createRange(); r.selectNodeContents(b); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); selected = true; } catch { selected = false; }
+  btn.textContent = 'Copy';
+  const say = selected ? 'Kosmos could not copy it. The address is selected: copy it from there.' : 'Kosmos could not copy it. The address is login.kosmosplus.com.';
+  // Cleared first and set a moment later, so a second failure is spoken again.
+  if (note) { note.textContent = ''; note.dataset.copyFail = '1'; PLUS_COPY_SAY_TIMER = setTimeout(() => { PLUS_COPY_SAY_TIMER = null; if (note.dataset.copyFail) note.textContent = say; }, 30); }
+}
+/* #4744: the one-line sentence may wrap only if it would overflow (a font wider than the sizing allows): measured
+   with the wrap removed, on every resize of the box and on every paint of the panel. A font change that leaves the
+   box's width alone is caught at the next paint, not at once. */
+function plusChipFit() {
+  const say = document.getElementById('plus-chip-say');
+  if (!say || !say.classList) return;
+  say.classList.remove('plus-chip-wrap');
+  if (say.scrollWidth > say.clientWidth + 1) say.classList.add('plus-chip-wrap');
+}
+{ const chip = document.getElementById('plus-chip');
+  // The class change is deferred a frame so it does not resize the observed box inside its own callback.
+  if (chip && typeof ResizeObserver === 'function') new ResizeObserver(() => requestAnimationFrame(plusChipFit)).observe(chip); }
+{ const b = document.getElementById('plus-copy'); if (b) b.addEventListener('click', plusCopyAddress); }
 
 async function paintPlus() {
+  /* #4744: a Copy failure's note belongs to the box. Whatever this paint does next (including an early return),
+     if the panel or the box is not showing now, the note's flag goes, so a later reconnect never shows it. */
+  { const st0 = document.getElementById('plus-status'), fl0 = document.getElementById('plus-flow'), ch0 = document.getElementById('plus-chip');
+    if (st0 && st0.dataset && st0.dataset.copyFail && (!fl0 || fl0.hidden || !ch0 || ch0.hidden)) { delete st0.dataset.copyFail; st0.textContent = ''; } }
   /* #1615: three states, per design/plus-flow.html section 5. `state1` is the pane a
      person with no Plus sees; `state2` is the sign-in for somebody who has paid but has
      not connected this Mac; `flow` is the connected state and is unchanged.
@@ -42938,19 +43039,19 @@ async function paintPlus() {
   }
   const acct = document.getElementById('plus-account'); if (acct && typeof PLUS_ACCOUNT_URL !== 'undefined') acct.href = PLUS_ACCOUNT_URL;
   const chip = document.getElementById('plus-chip');
-  /* #4080: the box holds the way in from another device (login.kosmosplus.com) with Open to it; the machine's
-     own address is no longer shown on the pane. */
-  if (chip) {
-    chip.hidden = !up;
-    if (up && typeof PLUS_ACCOUNT_URL !== 'undefined') document.getElementById('plus-open').href = PLUS_ACCOUNT_URL;
-  }
+  if (chip) { chip.hidden = !up; if (up) plusChipFit(); }
   /* Connected: one plain line under the chip. Otherwise the engine's own sentence says why not. */
   /* Josh's 17:30 ruling (the #3796 landing's line): one way in on another device, the website. */
   /* #4080: connected, the sentence lives in the box above, so the line under it is empty. */
-  st.textContent = up
-    ? ''
-    : (stat.state === 'up' ? 'Connected. Your address is on its way.'
-      : (because ? because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.') : ''));
+  /* #4744: a Copy failure's note stays while the box is up; once the box goes, so does the note and its flag. */
+  if (!up && st.dataset && st.dataset.copyFail) delete st.dataset.copyFail;
+  // A standing copy-failure note is left untouched (not rewritten), so a screen reader does not re-read it every poll.
+  if (!(up && st.dataset && st.dataset.copyFail)) {
+    st.textContent = up
+      ? ''
+      : (stat.state === 'up' ? 'Connected. Your address is on its way.'
+        : (because ? because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.') : ''));
+  }
   /* #1014: only a real address earns an instruction. While the tunnel is
      still coming up there is nothing to tell somebody to open, and telling
      them to open "is on its way." would be worse than saying nothing. */
