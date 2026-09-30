@@ -123,7 +123,7 @@ test('#1012: it can only hide further, never reveal on an unenrolled Mac', async
 
 test('#1014, superseded by #4080: with no phone yet, the address instruction is not shown (the address is off the pane)', async () => {
   /* #4080 (Josh, 22:07: hide the address; 22:22 design): the pane no longer shows the machine's address, and the
-     box at the top already says where to go ("Sign in at login.kosmosplus.com." with Open). An instruction naming
+     box at the top already says where to go ("Access this computer from other devices at login.kosmosplus.com" with Copy, #4744). An instruction naming
      the address would put it back. #1014's point, say what to DO, is now carried by that box. */
   const w = world(connected([]));
   await paint(w);

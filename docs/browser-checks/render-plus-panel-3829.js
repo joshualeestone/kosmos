@@ -86,7 +86,13 @@ const STATES = {
           logo: (() => { const c = document.getElementById('plus-logo'); if (!c || !c.width) return { drawn: false };
             const px = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < px.length; i += 4) if (px[i] > 0) n += 1;
             return { drawn: n > 200, label: c.getAttribute('aria-label'), h: Math.round(c.getBoundingClientRect().height) }; })(),
-          open: document.getElementById('plus-open').getAttribute('href'), account: document.getElementById('plus-account').getAttribute('href'),
+          copyLabel: (document.getElementById('plus-copy') || {}).textContent || '', noOpen: !document.getElementById('plus-open'),
+          /* #4744: one line = the sentence's text sits on one line box, and Copy shares its row. */
+          sayLines: (() => { const e = document.getElementById('plus-chip-say'); if (!e) return 0; const r = document.createRange(); r.selectNodeContents(e);
+            return new Set([...r.getClientRects()].filter((x) => x.width > 0).map((x) => Math.round(x.top))).size; })(),
+          copySameRow: (() => { const a = document.getElementById('plus-chip-say'), c = document.getElementById('plus-copy'); if (!a || !c) return false;
+            const ra = a.getBoundingClientRect(), rc = c.getBoundingClientRect(); return rc.left >= ra.right - 1 && Math.abs((ra.top + ra.height / 2) - (rc.top + rc.height / 2)) < 12; })(),
+          bold: (document.querySelector('#plus-chip-say b') || {}).textContent || '', account: document.getElementById('plus-account').getAttribute('href'),
           status: document.getElementById('plus-status').textContent.trim(),
           cardShown: vis('plus-asks'), cardText: (document.getElementById('plus-asks').innerText || '').replace(/\s+/g, ' '),
           reqs: document.querySelectorAll('#plus-ask-rows .askreq').length, stale: document.querySelectorAll('#plus-ask-rows .askreq.stale').length, topCardShown: vis('askcard'), inPanel: vis('plus-asks'), panelW: document.getElementById('plus-asks').getBoundingClientRect().width, flowW: document.getElementById('plus-flow').getBoundingClientRect().width, asksAbove: document.getElementById('plus-asks').getBoundingClientRect().bottom <= document.getElementById('plus-flow').getBoundingClientRect().top + 1,
@@ -135,8 +141,43 @@ const STATES = {
         chk(v.pill === 'Connected' && v.pillState === 'up', `${t} a green Connected pill`, v.pill);
         /* #4080 (Josh's design, 22:22): the box holds the way in from another device with Open to login.kosmosplus.com;
            the machine's address is not on the pane; the switch is on; the Kosmos+ logo replaces the old label. */
-        chk(v.chip && v.chipSay.trim() === 'Sign in at login.kosmosplus.com.' && v.open === 'https://login.kosmosplus.com/', `${t} #4080: the box says where to sign in, with Open to login.kosmosplus.com`, JSON.stringify({ chip: v.chip, say: v.chipSay, open: v.open }));
-        chk(!v.sectionText.includes(ADDR) && v.status === '' && !v.copy, `${t} #4080: the machine's address is not on the pane, and no line repeats the box`, JSON.stringify({ status: v.status }));
+        /* #4744 (Josh, 2026-09-30): the box says where OTHER devices reach this computer, the address bold, with Copy (no
+           Open), all on one line. This page is 1400 wide; the desktop app's narrowest window (640) is measured separately. */
+        chk(v.chip && v.chipSay.trim() === 'Access this computer from other devices at login.kosmosplus.com' && v.bold === 'login.kosmosplus.com'
+          && v.copyLabel.trim() === 'Copy' && v.noOpen, `${t} #4744: the box says where other devices reach this computer, the address bold, with Copy and no Open`,
+          JSON.stringify({ chip: v.chip, say: v.chipSay, bold: v.bold, copy: v.copyLabel, noOpen: v.noOpen }));
+        chk(v.sayLines === 1 && v.copySameRow, `${t} #4744: the sentence is one line and Copy sits on the same row`, JSON.stringify({ lines: v.sayLines, sameRow: v.copySameRow }));
+        { // #4744: at the desktop app's narrowest window (640 wide, the Windows launcher's floor) it is still one line.
+          const vp = page.viewportSize();
+          await page.setViewportSize({ width: 640, height: vp.height }); await page.waitForTimeout(250);
+          const n = await page.evaluate(() => {
+            const a = document.getElementById('plus-chip-say'), c = document.getElementById('plus-copy');
+            const r = document.createRange(); r.selectNodeContents(a);
+            const lines = new Set([...r.getClientRects()].filter((x) => x.width > 0).map((x) => Math.round(x.top))).size;
+            const ra = a.getBoundingClientRect(), rc = c.getBoundingClientRect();
+            return { lines, sameRow: rc.left >= ra.right - 1 && Math.abs((ra.top + ra.height / 2) - (rc.top + rc.height / 2)) < 12, shown: ra.height > 0, vw: innerWidth };
+          });
+          await page.setViewportSize(vp); await page.waitForTimeout(250);
+          chk(n.shown && n.lines === 1 && n.sameRow, `${t} #4744: at 640 wide the sentence is still one line with Copy beside it`, JSON.stringify(n));
+        }
+        { // #4744: Copy puts the full https address on the clipboard (so it pastes as a link) and says Copied.
+          try { await page.context().grantPermissions(['clipboard-read', 'clipboard-write']); } catch { /* engine without clipboard permissions */ }
+          await page.click('#plus-copy');
+          await page.waitForTimeout(150);
+          const cp = await page.evaluate(async () => {
+            let clip = null; try { clip = await navigator.clipboard.readText(); } catch { clip = null; }
+            return { clip, label: document.getElementById('plus-copy').textContent, said: document.getElementById('plus-copy-status').textContent };
+          });
+          // Chromium grants clipboard-read, so there the copied text MUST be read back; an engine that cannot read it
+          // is held to the label and the spoken line only.
+          const chromium = page.context().browser().browserType().name() === 'chromium';
+          chk(cp.label === 'Copied' && /copied/i.test(cp.said) && (chromium ? cp.clip === 'https://login.kosmosplus.com/' : (cp.clip === null || cp.clip === 'https://login.kosmosplus.com/')),
+            `${t} #4744: Copy copies https://login.kosmosplus.com/ and says Copied (button and screen reader)`, JSON.stringify(cp));
+          await page.waitForTimeout(2200);
+          const back = await page.evaluate(() => document.getElementById('plus-copy').textContent);
+          chk(back === 'Copy', `${t} #4744: the button reads Copy again after 2 seconds`, back);
+        }
+        chk(!v.sectionText.includes(ADDR) && v.status === '', `${t} #4080: the machine's address is not on the pane, and no line repeats the box`, JSON.stringify({ status: v.status }));
         chk(v.swIsToggle && v.swShown && v.swOn === 'true', `${t} #4080: the switch shows, on`, JSON.stringify({ on: v.swOn, shown: v.swShown, toggle: v.swIsToggle }));
         chk(v.logo.drawn && v.logo.label === 'Kosmos+' && v.logo.h >= 18 && v.logo.h <= 26, `${t} #4080: the Kosmos+ logo is drawn, labelled, about 22px tall`, JSON.stringify(v.logo));
         chk(!/Use Kosmos from anywhere/.test(v.sectionText) && !/Each one asked here first/.test(v.sectionText) && !/I lost my phone/.test(v.sectionText) && !/\bPause\b|Turn off/.test(v.sectionText),

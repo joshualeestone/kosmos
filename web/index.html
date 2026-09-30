@@ -10122,7 +10122,7 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .field + .frow { margin-top: var(--space-5); }
 #s-sec-plus .tk-inp.bad, #s-sec-plus .tk-inp.bad:focus { border-color: var(--danger); } /* the shared error border still wins */
 /* #3829, restyled by #4080 (Josh's design): the head is the logo, the switch and the status pill; the chip now holds
-   "Sign in at login.kosmosplus.com." with Open; View account is in the bottom row. No solid left bar anywhere (#3692). */
+   "Access this computer from other devices at login.kosmosplus.com" with Copy (#4744); View account is in the bottom row. No solid left bar anywhere (#3692). */
 #s-sec-plus .plus-headrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 #s-sec-plus .plus-headrow .setname { margin: 0; }
 #s-sec-plus .plus-sp { flex: 1 1 auto; }
@@ -10138,7 +10138,10 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 /* #4080 (Josh's design): logo, switch, badge on top; the sign-in box; the bottom row. */
 #s-sec-plus .plus-logo { display: block; height: 22px; width: auto; }
 #s-sec-plus .plus-headrow .toggle { flex: 0 0 42px; }
-#s-sec-plus .plus-chip-say { flex: 1 1 auto; min-width: 0; font: 500 .95rem var(--font-ui); color: #E6EBF7; }
+/* #4744: one line (Josh). Down to the desktop app's narrowest window (640 wide, the Windows launcher's floor) the
+   sentence and Copy sit on one line at this size; narrower than that, a phone, it may wrap rather than cut. */
+#s-sec-plus .plus-chip-say { flex: 1 1 auto; min-width: 0; font: 500 .9rem var(--font-ui); color: #E6EBF7; }
+#s-sec-plus .plus-chip-say b { font-weight: 700; color: #fff; }
 #s-sec-plus .plus-foot { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.1); }
 #s-sec-plus .plus-remove-link, #s-sec-plus .plus-lost-link { background: none; border: 0; padding: 4px 0; font: 600 .95rem var(--font-ui); cursor: pointer; }
 #s-sec-plus .plus-remove-link { color: #f0877a; }
@@ -17138,12 +17141,14 @@ window.kosmosMeasureScrollbarWidth();
         <button class="toggle" type="button" id="plus-switch" role="switch" aria-label="Let your devices reach this computer through Kosmos+" hidden><i></i></button>
         <span class="plus-pill" id="plus-pill" data-state="off">Off</span>
       </div>
-      <!-- #4080 (Josh, 22:09: "lets put this ... in that box that the current URL is in"): the box holds the way
-           in from another device, with Open to it, in the words of his 22:22 mock ("sign in at login.kosmosplus.com.",
-           capital S, one line; the mock is newer than the 22:09 sentence). The machine's own address is not on the pane. -->
+      <!-- #4744 (Josh, 2026-09-30 11:23, Mac and Windows): the box says where OTHER devices reach this computer, in
+           his words ("Access this computer from other devices at <bold>login.kosmosplus.com</bold>"), with Copy so the
+           address can be sent to another device, all on one line. It replaced #4080's "Sign in at login.kosmosplus.com."
+           with Open, which read wrong on a computer that was already signed in. -->
       <div class="plus-chip" id="plus-chip" hidden>
-        <span class="plus-chip-say" id="plus-chip-say">Sign in at login.kosmosplus.com.</span>
-        <a class="btn" id="plus-open" href="#" target="_blank" rel="noreferrer noopener">Open</a>
+        <span class="plus-chip-say" id="plus-chip-say">Access this computer from other devices at <b>login.kosmosplus.com</b></span>
+        <button class="btn" type="button" id="plus-copy">Copy</button>
+        <span class="vh" id="plus-copy-status" aria-live="polite"></span>
       </div>
       <div class="setrow">
         <div>
@@ -42521,6 +42526,26 @@ function plusSiRegisterMode(address, nameOnly) {
 const KOSMOS_SITE = 'https://installkosmos.com';
 /* #3829 / #3479: the web account (billing, history, cancel) lives where people sign in to Kosmos+. */
 const PLUS_ACCOUNT_URL = 'https://login.kosmosplus.com/';
+/* #4744: Copy puts the address other devices use on the clipboard, as a full https URL so it pastes as a link.
+   The app's copy -> "Copied" pattern: the button says it for 2s and the live region says it for a screen reader.
+   If the clipboard is refused, the address is selected on screen so the person can copy it themselves. */
+let PLUS_COPY_TIMER = null;
+async function plusCopyAddress() {
+  const btn = document.getElementById('plus-copy');
+  const status = document.getElementById('plus-copy-status');
+  if (!btn) return;
+  let ok = false;
+  try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(PLUS_ACCOUNT_URL); ok = true; } } catch { ok = false; }
+  if (!ok) {
+    const b = document.querySelector('#plus-chip-say b');
+    try { const r = document.createRange(); r.selectNodeContents(b); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); } catch { /* nothing selectable */ }
+  }
+  btn.textContent = ok ? 'Copied' : 'Now copy it';
+  if (status) status.textContent = ok ? 'Address copied.' : 'Kosmos could not copy it. The address is selected: copy it from there.';
+  if (PLUS_COPY_TIMER) clearTimeout(PLUS_COPY_TIMER);
+  PLUS_COPY_TIMER = setTimeout(() => { PLUS_COPY_TIMER = null; btn.textContent = 'Copy'; if (status) status.textContent = ''; }, 2000);
+}
+{ const b = document.getElementById('plus-copy'); if (b) b.addEventListener('click', plusCopyAddress); }
 
 async function paintPlus() {
   /* #1615: three states, per design/plus-flow.html section 5. `state1` is the pane a
@@ -42627,12 +42652,8 @@ async function paintPlus() {
   }
   const acct = document.getElementById('plus-account'); if (acct && typeof PLUS_ACCOUNT_URL !== 'undefined') acct.href = PLUS_ACCOUNT_URL;
   const chip = document.getElementById('plus-chip');
-  /* #4080: the box holds the way in from another device (login.kosmosplus.com) with Open to it; the machine's
-     own address is no longer shown on the pane. */
-  if (chip) {
-    chip.hidden = !up;
-    if (up && typeof PLUS_ACCOUNT_URL !== 'undefined') document.getElementById('plus-open').href = PLUS_ACCOUNT_URL;
-  }
+  /* #4744: the box says where other devices reach this computer, with Copy (plusCopyAddress). */
+  if (chip) chip.hidden = !up;
   /* Connected: one plain line under the chip. Otherwise the engine's own sentence says why not. */
   /* Josh's 17:30 ruling (the #3796 landing's line): one way in on another device, the website. */
   /* #4080: connected, the sentence lives in the box above, so the line under it is empty. */
