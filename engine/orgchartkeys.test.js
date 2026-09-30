@@ -433,3 +433,10 @@ test('#4560: the log line says which request field a 400 names, from an allowlis
   assert.equal(keys.diagnosis({ error: { type: 'sk-' + KEY, param: KEY + ' x' } }), '', 'a key-shaped type or param is never logged');
   assert.ok(!lines[0].includes(KEY));
 });
+
+test('#4560: a bare 403 or 404 (no provider code) is not blamed on the key: it can be a moved endpoint or a blocked region', () => {
+  const p = keys.PROVIDERS.openai;
+  assert.equal(keys.refusal(p, 404, {}), 'OpenAI could not read the chart (404). Try again, or use a CSV or Excel export.');
+  assert.equal(keys.refusal(p, 403, null), 'OpenAI could not read the chart (403). Try again, or use a CSV or Excel export.');
+  assert.match(keys.refusal(p, 404, { error: { code: 'model_not_found' } }), /cannot use gpt-6-astra/, 'CONTROL: the provider saying so still names the model');
+});

@@ -443,7 +443,7 @@ const MODEL_TYPES = {
 const forModel = (name) => Object.prototype.hasOwnProperty.call(MODEL_TYPES, extOf(name));
 const PROVIDER = 'Anthropic (Claude)';
 /* What a person is told when nothing on this computer can read a picture or PDF (Liu Kang's condition 2). */
-const NO_MODEL = 'Reading a picture or PDF needs Claude, or an OpenAI or Grok key, connected in Settings, AI Models. A CSV or Excel export works with any provider, and so does typing the list.';
+const NO_MODEL = 'Reading a picture or PDF needs Claude or an OpenAI key (a Grok key reads a PNG or JPG picture), connected in Settings, AI Models. A CSV or Excel export works with any provider, and so does typing the list.';
 const MAX_WHY = 200;
 const MODEL_TIMEOUT_MS = 120000;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -621,13 +621,14 @@ function readerId(r) {
   // Claude with its account folder hashed, like a key account's: another default account is another reader.
   if (r.kind === 'claude') return r.dir ? 'claude:' + hash(r.dir) : 'claude';
   // The key's last four characters too (already on the account row), so a key replaced in the same account folder
-  // while the consent box is open is another reader, not the one the person agreed to.
+  // while the consent box is open is another reader, not the one the person agreed to. The id IDENTIFIES the reader;
+  // it is not a secret (its inputs are guessable and the key's last four are shown on the account row anyway).
   return r.provider + ':' + hash(String(r.dir || '') + '\u0000' + String(r.keyTail || ''));
 }
 /* What the consent box says about who reads it: the provider, how it is paid for, and what it keeps (#4560). */
 function consentFor(r) {
   const keys = require('./orgchartkeys');
-  return { provider: providerLabel(r), reader: readerId(r), uses: r && r.kind === 'key' ? 'billed to that key' : 'using your plan', keeps: r && r.kind === 'key' ? keys.keeps(r) : null };
+  return { provider: providerLabel(r), reader: readerId(r), uses: r && r.kind === 'key' ? 'billed to your ' + keys.PROVIDERS[r.provider].name + ' key' : 'using your plan', keeps: r && r.kind === 'key' ? keys.keeps(r) : null };
 }
 let availability = readerHere;
 /* `reader`, when the caller has already worked it out, so one request asks once (a second look can disagree). */
@@ -693,7 +694,7 @@ async function readWithModel(name, bytes, opts = {}) {
   /* The provider takes a picture of up to 5 MB; refuse a larger one here, in words, rather than send it and get
      back a failure that says less. */
   if (MODEL_TYPES[extOf(name)].block === 'image' && buf.length > MAX_IMAGE_BYTES) {
-    return { rows: [], problems: ['That picture is larger than 5 MB. Save it smaller (a screenshot is usually well under), or export the chart as a PDF.'] };
+    return { rows: [], problems: ['That picture is larger than 5 MB. Save it smaller (a screenshot is usually well under), or use a CSV or Excel export.'] };
   }
   if (reading) return { rows: [], problems: ['A chart is already being read. Wait for it to finish, then try again.'] };
   reading = true;

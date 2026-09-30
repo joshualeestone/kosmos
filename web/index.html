@@ -46845,7 +46845,7 @@ function orgchartTakeFile(file) {
   if (/\.(png|jpe?g|webp|gif)$/i.test(file.name) && file.size > ORGCHART_MAX_IMAGE_BYTES) {
     const msg = document.getElementById('orgchart-msg');   // before the consent box: a yes could only end in this refusal
     msg.hidden = false;
-    msg.textContent = 'That picture is larger than ' + Math.round(ORGCHART_MAX_IMAGE_BYTES / 1048576) + ' MB. Save it smaller (a screenshot is usually well under), or export the chart as a PDF.';
+    msg.textContent = 'That picture is larger than ' + Math.round(ORGCHART_MAX_IMAGE_BYTES / 1048576) + ' MB. Save it smaller (a screenshot is usually well under), or use a CSV or Excel export.';
     return;
   }
   if (file.size > ORGCHART_MAX_BYTES) {

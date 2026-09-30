@@ -16,7 +16,8 @@
  * checks whatever `store` says (KEEPS below, which the consent box shows).
  *
  * The provider URLs can be overridden by AGENT_WORKFORCE_ORGCHART_*_URL, for the tests' stub server, and ONLY to this
- * computer (127.0.0.1 or [::1]): no override can send a real key and the file to another host. A redirect is refused, never followed: a key or the file must not reach a host it was not sent to.
+ * computer (127.0.0.1 or [::1]): no override can send a real key and the file to another host. A redirect is
+ * refused, never followed: a key or the file must not reach a host it was not sent to.
  *
  * 🔑 THE KEY. Read from its account folder only when a read is sent (readApiKey), sent only in a header, and never
  * put in a URL, argv, a log line, an error or anything returned. Errors are built from the status code and the
@@ -171,7 +172,7 @@ let enabled = { ...ENABLED_DEFAULT };
 /** Tests only: which providers are on; null restores the ruling. */
 function setEnabled(map) { enabled = map && typeof map === 'object' ? { ...map } : { ...ENABLED_DEFAULT }; }
 const OFF_WHY = {
-  google: 'Kosmos does not send an org chart to Gemini: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one. Claude, or an OpenAI or Grok key, can read a picture or PDF; a CSV or Excel export works with any provider, and so does typing the list.',
+  google: 'Kosmos does not send an org chart to Gemini: Google\'s terms say not to send personal information on a free Gemini key, and Kosmos cannot tell a free key from a paid one. Claude or an OpenAI key can read a picture or PDF (a Grok key reads a PNG or JPG picture); a CSV or Excel export works with any provider, and so does typing the list.',
 };
 
 /* What each provider keeps even though every request says store:false, from its own docs (Liu Kang m3686; the
@@ -199,7 +200,8 @@ function accountsFrom(mods) {
     let rows = [];
     try { rows = mods[provider].list() || []; } catch { rows = []; }
     rows = rows.filter((r) => r && r.authMode === 'apikey').sort((a, b) => Number(b.isDefault === true) - Number(a.isDefault === true));
-    for (const r of rows) out.push({ provider, dir: r.dir, account: r.name || r.label || null, keyTail: r.keyTail || null });
+    // With no name, the key's last four say which key is billed (two unnamed OpenAI keys would read alike).
+    for (const r of rows) out.push({ provider, dir: r.dir, account: r.name || r.label || (r.keyTail ? 'key ending ' + r.keyTail : null), keyTail: r.keyTail || null });
   }
   return out;
 }
@@ -255,7 +257,9 @@ function refusal(p, status, body) {
   if (status === 401 || /invalid_api_key|unauthenticated|api_key_invalid/.test(code)) {
     return p.name + ' did not accept this key. Check it in Settings, AI Models, or use a CSV or Excel export.';
   }
-  if (status === 403 || status === 404 || /model_not_found|permission|not_found/.test(code)) {
+  // Only a provider CODE says the model or permission is the problem: a bare 403 or 404 can also be a moved endpoint or
+  // a blocked region, which is not the key's fault, so it gets the plain sentence (and the log line's diagnosis).
+  if (/model_not_found|permission|not_found/.test(code)) {
     return 'This ' + p.name + ' key cannot use ' + p.model + ', the model that reads pictures and PDFs. '
       + 'Check the key\'s access with ' + p.name + ', or use a CSV or Excel export.';
   }

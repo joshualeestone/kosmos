@@ -15,7 +15,7 @@
  *             - Read it sends the file again with consent=1; an unsure line shows "Check this: <why>" and
  *               Create stays disabled until Looks right (or a new manager is chosen);
  *             - making a reporting loop by hand names it and disables Create again.
- *   NO READER the "needs Claude, or an OpenAI or Grok key" answer is shown and nothing else happens.
+ *   NO READER the "needs Claude or an OpenAI key (a Grok key reads a PNG or JPG picture)" answer is shown and nothing else happens.
  *   ORPHAN    a manager the team create refuses: the person under them is put under you (PUT profile
  *             reportsTo '') and the result says so.
  * Light and dark screenshots of the picture preview with its Check this line (SHOT_DIR).
@@ -344,7 +344,7 @@ async function run() {
       await p4.setInputFiles('#orgchart-file', path.join(FIX, 'chart.pdf'));
       await p4.waitForTimeout(500);
       const u = await readPreview(p4);
-      check('NO READER: says Claude or an OpenAI or Grok key is needed and offers CSV, Excel or typing; no consent box, no preview', /needs Claude, or an OpenAI or Grok key/.test(u.msg) && !u.consent && !u.shown, JSON.stringify(u));
+      check('NO READER: says Claude or an OpenAI key is needed (a Grok key for a picture) and offers CSV, Excel or typing; no consent box, no preview', /needs Claude or an OpenAI key \(a Grok key reads a PNG or JPG picture\)/.test(u.msg) && !u.consent && !u.shown, JSON.stringify(u));
     } else check('NO READER: the panel offers a file', false);
     await p4.close();
 
@@ -366,7 +366,7 @@ async function run() {
         if (changed) return r.fulfill({ status: 409, json: { error: 'Who reads this file changed since you were asked. Choose the file again to see who reads it now.' } });
         return r.fulfill({ status: 200, json: { source: 'model', provider: 'xAI Grok (work)', rows: PICTURE_ROWS, problems: [] } });
       }
-      return r.fulfill({ status: 200, json: { needsConsent: true, provider: 'xAI Grok (work)', reader: 'xai:0123456789ab', uses: 'billed to that key', keeps: grokKeeps } });
+      return r.fulfill({ status: 200, json: { needsConsent: true, provider: 'xAI Grok (work)', reader: 'xai:0123456789ab', uses: 'billed to your xAI Grok key', keeps: grokKeeps } });
     });
     await openPanel(pk);
     if (await pk.$('#orgchart-file-btn')) {
@@ -378,8 +378,8 @@ async function run() {
       await pk.setInputFiles('#orgchart-file', path.join(FIX, 'chart.pdf'));
       await pk.waitForTimeout(500);
       const k2 = await readPreview(pk);
-      check('KEY PROVIDER: the consent names the key provider and account, says it is billed to that key, and says what the provider keeps',
-        /xAI Grok \(work\), billed to that key\./.test(k1.consent) && k1.consent.includes(grokKeeps), JSON.stringify(k1.consent));
+      check('KEY PROVIDER: the consent names the key provider and account, says which key it is billed to, and says what the provider keeps',
+        /xAI Grok \(work\), billed to your xAI Grok key\./.test(k1.consent) && k1.consent.includes(grokKeeps), JSON.stringify(k1.consent));
       check('KEY PROVIDER: Read it sends back the reader the consent named (the board refuses any other)', sentReader === 'xai:0123456789ab', JSON.stringify(sentReader));
       check('KEY PROVIDER: a kind it cannot read (Grok and a PDF) is said with no consent box', k2.msg.includes(grokPdf) && !k2.consent, JSON.stringify([k2.msg, k2.consent]));
       changed = true;

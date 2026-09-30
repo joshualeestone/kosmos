@@ -190,7 +190,7 @@ test('#4559: with no Claude on this computer a picture is not offered, and the a
   const r = await send('chart.png', fs.readFileSync(path.join(FIX, 'chart.png')), { headers: SCREEN, query: '?consent=1' });
   assert.equal(r.json.unavailable, true);
   assert.equal(r.json.problems[0], orgchartfile.NO_MODEL);
-  assert.match(r.json.problems[0], /OpenAI or Grok key.*A CSV or Excel export works with any provider/);
+  assert.match(r.json.problems[0], /Claude or an OpenAI key \(a Grok key reads a PNG or JPG picture\).*A CSV or Excel export works with any provider/);
   assert.equal(sent.length, 0);
 });
 
@@ -266,7 +266,7 @@ test('#4560: with no Claude but a key-connected provider, the consent names that
     const png = await send('chart.png', Buffer.alloc(0), { headers: SCREEN });
     assert.equal(png.json.needsConsent, true);
     assert.equal(png.json.provider, 'xAI Grok (work)');
-    assert.equal(png.json.uses, 'billed to that key');
+    assert.equal(png.json.uses, 'billed to your xAI Grok key');
     assert.match(png.json.keeps, /xAI keeps what you send for 30 days in case of abuse, even though Kosmos asks it not to store it/);
     assert.match(png.json.reader, /^xai:[0-9a-f]{12}$/, 'an opaque id: no account path reaches the page');
     // The consent named Grok; an OpenAI key added while the box was open must not receive the file.
@@ -347,4 +347,51 @@ test('#4560: a key replaced in the same account folder while the consent box is 
     assert.equal(ok.status, 200, JSON.stringify(ok.json));
     assert.equal(sent.length, 1);
   } finally { keys.setAccounts(null); orgchartfile.setModelRunner(null); orgchartfile.setReaderForTest(() => ({ kind: 'claude' })); }
+});
+
+test('#4560 END TO END: the route, the reader it pinned, and the provider call, with only the HTTP answer faked', async () => {
+  const http = require('node:http');
+  const keys = require('./engine/orgchartkeys');
+  const seen = [];
+  const stub = http.createServer((req, res) => { let raw = ''; req.on('data', (c) => { raw += c; }); req.on('end', () => {
+    seen.push({ url: req.url, auth: req.headers.authorization, body: JSON.parse(raw) });
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify({ people: [
+      { person: 'Avery Quill', title: 'Chief Executive', reportsTo: null, sure: true, why: null },
+      { person: 'Bo Linden', title: 'Head of Sales', reportsTo: 'Avery Quill', sure: true, why: null },
+    ] }) }] }] }));
+  }); });
+  await new Promise((ok) => stub.listen(0, '127.0.0.1', ok));
+  const saved = { x: process.env.AGENT_WORKFORCE_ORGCHART_XAI_URL, o: process.env.AGENT_WORKFORCE_ORGCHART_OPENAI_URL };
+  process.env.AGENT_WORKFORCE_ORGCHART_XAI_URL = 'http://127.0.0.1:' + stub.address().port + '/xai/v1/responses';
+  // OpenAI points at the same stub, so a read that re-chose its reader would land here, never on a real API.
+  process.env.AGENT_WORKFORCE_ORGCHART_OPENAI_URL = 'http://127.0.0.1:' + stub.address().port + '/openai/v1/responses';
+  orgchartfile.setModelAvailable(null);
+  orgchartfile.setReaderForTest(null);
+  orgchartfile.setModelRunner(null);   // the real dispatcher and the real key reader
+  // The account list changes AFTER the route has checked the reader on the consented send (its 3rd look): an OpenAI key
+  // appears first. The read must use the reader the route pinned (Grok), not look again.
+  let looks = 0;
+  keys.setAccounts(() => { looks += 1; return looks <= 2 ? [{ provider: 'xai', dir: '/x', account: 'work', keyTail: 'k123' }] : [{ provider: 'openai', dir: '/o', account: 'new', keyTail: 'o999' }, { provider: 'xai', dir: '/x', account: 'work', keyTail: 'k123' }]; });
+  keys.setKeyFor((r) => (r.provider === 'xai' ? 'xai-TEST-KEY-4560' : 'sk-OTHER'));
+  try {
+    const ask = await send('chart.png', Buffer.alloc(0), { headers: SCREEN });
+    assert.equal(ask.json.provider, 'xAI Grok (work)');
+    const r = await send('chart.png', fs.readFileSync(path.join(FIX, 'chart.png')), { headers: SCREEN, query: '?consent=1&reader=' + ask.json.reader });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.deepEqual(r.json.rows.map((x) => [x.person, x.reportsTo]), [['Avery Quill', null], ['Bo Linden', 0]]);
+    assert.equal(r.json.provider, 'xAI Grok (work)');
+    assert.equal(seen.length, 1, 'exactly one provider call');
+    assert.match(seen[0].url, /^\/xai\//, 'the read went to the pinned reader, not one chosen again after the check');
+    assert.equal(seen[0].auth, 'Bearer xai-TEST-KEY-4560');
+    assert.equal(seen[0].body.model, 'grok-4.7');
+    assert.equal(seen[0].body.store, false);
+    assert.ok(!JSON.stringify(r.json).includes('xai-TEST-KEY-4560'), 'the key reached the page');
+  } finally {
+    keys.setAccounts(null); keys.setKeyFor(null);
+    process.env.AGENT_WORKFORCE_ORGCHART_XAI_URL = saved.x;
+    process.env.AGENT_WORKFORCE_ORGCHART_OPENAI_URL = saved.o;
+    stub.close();
+    orgchartfile.setReaderForTest(() => ({ kind: 'claude' }));
+  }
 });
