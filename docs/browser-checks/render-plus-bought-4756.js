@@ -72,6 +72,12 @@ const SCENARIOS = {
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] },
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'in_use', { first_free: true }), row('spare', 'free')] },
   ], auto: null },
+  // Review: Finish pressed again while the re-read after a 402 is out. That register is running, so the re-read's
+  // answer must not draw the list over it.
+  'app-free-finish-during-reread': { account: '', notboughtFirst: 'mymac', readDelays: [0, 2500], lists: [
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] },
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'in_use', { first_free: true }), row('spare', 'free')] },
+  ], auto: null },
   // A typed name taken by someone else keeps the name step, as before: a typed name is not a pick from the list.
   'app-free-typed-taken': { account: '', refuse: 'mymac', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] }], auto: null },
   // Check again that finds the switch now off takes the step as before, not a list that can never work.
@@ -188,7 +194,8 @@ const visible = (page, sel) => page.evaluate((s) => {
         if (p === '/api/remote/signin-addresses') {
           const ans = sc.lists[Math.min(asked, sc.lists.length - 1)]; asked += 1;
           const answer = () => (!ans ? json(400, { error: 'Kosmos+ could not be reached to list your addresses' }) : ans.error ? json(400, ans) : json(200, ans));
-          if (sc.delay) { setTimeout(answer, sc.delay); return; }
+          const late = Array.isArray(sc.readDelays) ? sc.readDelays[Math.min(asked - 1, sc.readDelays.length - 1)] : 0;
+          if (sc.delay || late) { setTimeout(answer, sc.delay || late); return; }
           return answer();
         }
         if (p === '/api/remote/signin-register') {
@@ -198,6 +205,7 @@ const visible = (page, sel) => page.evaluate((s) => {
           if (sc.refuseSecond === b.name && regs.length === 2) return json(400, { error: 'Kosmos+ said no (409): that name is taken.' });
           if ((sc.offline === b.name || sc.refuseSecond === b.name) && regs.length === 1) return json(400, { error: 'this computer could not reach the sign-in service' });
           if (sc.retire409 === b.name && regs.length === 1) return json(400, { error: 'an earlier sign-in on this computer could not be removed (the coordinator said no (409): busy); try again in a moment' });
+          if (sc.notboughtFirst === b.name && regs.length === 1) return json(400, { error: 'Kosmos+ said no (402): This computer needs an address you have bought.' });
           if (sc.notbought === b.name) return json(400, { error: 'Kosmos+ said no (402): This computer needs an address you have bought. Buy one at https://login.kosmosplus.com/signin#add-computer, then sign in again.' });
           if (sc.stale === b.name && regs.length === 1) return json(400, { error: 'The name spare may be held by an earlier sign-in on this computer. Remove it on your account page, or pick another name.' });
           if (sc.certfail === b.name && regs.length === 1) return json(400, { error: 'the certificate for spare.kosmosplus.com could not be issued; try again in a minute' });
@@ -366,6 +374,16 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(!(await visible(page, '#plus-si-name-field')), `[${key}] the name step, where no name can work now, is gone`);
         chk(await visible(page, '#plus-si-bought-list button[data-bought="spare"]'), `[${key}] the bought address is offered`);
         chk(/address you have bought/.test(await page.textContent('#plus-signin-msg')), `[${key}] the reason is said`, await page.textContent('#plus-signin-msg'));
+      } else if (key === 'app-free-finish-during-reread') {
+        await typeName(page, key);
+        await page.waitForFunction(() => /address you have bought/.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+        const again = await page.evaluate(() => { const b = document.getElementById('plus-si-register-go'); const f = document.getElementById('plus-si-name-field');
+          if (!b || b.hidden || b.disabled || !f || f.hidden) return false; b.click(); return true; });
+        await page.waitForTimeout(3500);   // past the re-read's 2.5 s
+        chk(again, `[${key}] Finish was there to press during the re-read`);
+        chk(asked === 2, `[${key}] the re-read ran`, String(asked));
+        chk(regs.length === 2, `[${key}] the second Finish registered`, JSON.stringify({ again, regs }));
+        chk(!(await visible(page, '#plus-si-bought-list button[data-bought="spare"]')), `[${key}] the re-read's list is not drawn over the register it outlived`);
       } else if (key === 'app-free-typed-taken') {
         await typeName(page, key);
         await page.waitForFunction(() => /that name is taken/.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});

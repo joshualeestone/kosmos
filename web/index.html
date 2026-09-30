@@ -43947,6 +43947,7 @@ async function plusSiDoRegister(name, owned) {
   const foot = document.getElementById('plus-si-cancel');
   plusSiMsg('');
   btn.disabled = true;
+  PLUS_SI_BOUGHT_SEQ += 1;   // kosmos#4756: a bought-address read still out is not drawn over this register
   /* #4608: while the register runs, the heading says what is happening and, for the automatic register, the
      ring loader turns (a chosen name has no loader line, so it says so in the live status line instead). They
      are put back once THIS register answers, and not by a stale answer from an abandoned sign-in (a newer one
