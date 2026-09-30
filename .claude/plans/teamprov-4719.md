@@ -70,3 +70,11 @@ teamcreate-ui-4557 (PR #4709, not yet on main); rebased onto main once #4709 mer
 - openTeamCreate starts the create form's own /api/accounts read too, so the step's read is mostly a
   duplicate (bounded, accepted); the browser check's claims no longer say which read supplied the list.
 - The slow arm's margins widened (8 s answer, 10 s wait).
+
+## Review iteration 5 (changes)
+- A late account list now always refills the untouched menus (the accounts and which providers are
+  usable); only the provider value is limited to replacing the plain default. Before, a choice copied
+  from the form (OpenAI, say) kept an empty account menu and greyed Gemini/Grok after the list landed.
+- Not changed (NITs, recorded): the create form's read and the step's read both write the shared
+  account globals (last wins; matters only if one fails after the other succeeds); a non-string
+  account is dropped rather than refused (POST /api/agents validates it anyway).

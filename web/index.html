@@ -47483,9 +47483,10 @@ async function tcFillProvider(gen) {
     if (!inTime) {
       read.then(() => {
         if (stale() || TC_PROVIDER_TOUCHED || !TC || TC.started || TC.busy) return;
-        // Only the default the step started on is replaced; a choice copied from the form stays.
-        if (sel.value !== TC_PROVIDER_START) return;
-        sel.value = tcProviderDefault();
+        // The menus are refilled from the list that just landed (the accounts, and which providers are
+        // usable); the provider itself changes only from the plain default the step started on, never
+        // from a choice copied from the form.
+        if (sel.value === TC_PROVIDER_START) sel.value = tcProviderDefault();
         fillCreateAccounts(TC_PICKER);
         tcProviderSettle();
       });
