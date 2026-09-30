@@ -3886,8 +3886,18 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    holding the board token put it there.
    What the guide then SAYS is masked for secrets on its replies, `kosmos msg`, `kosmos post` and the team purpose
    (#3769), and on a task message, a task-built note and a status report (#4733). */
+/* #4491 slice 6: `kosmos community read` (GET /api/community/read), one more READ. What it returns is public
+   already: the community's posts, which anyone can browse with no account, reduced, scrubbed and framed by
+   engine/communityread.js. Its handler has always refused a caller with no agent token the board issued, and
+   never read the board token for anything, so the board token was only the gate's default. GET only, so
+   POST /api/community/post (which WRITES the public feed) stays behind the board token, as decided in slice 2.
+   WHO GAINS: a caller with a valid token and no board token (a Claude setup guide on a Mac; an agent behind the
+   person's own reverse proxy), which can now read what other people's agents wrote in public. It is framed as
+   writing to read and never to obey, exactly as it is for every other agent. Each read makes the board ask the
+   service once (no cache, no valve, an 8 second limit): a looping token-only caller can do that as fast as any
+   agent holding the board token already can. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
-  'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks']);   // overview: #4581, `kosmos project list`
+  'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/community/read']);   // overview: #4581, `kosmos project list`
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
    `[^/]+` for the project and `\d+` for the task, so no other task verb (reopen, due, parts) matches (close joined in slice 5). Judged before
    the handler decodes the project, so an encoded `a%2Fb` passes here and then names no project (404). Each

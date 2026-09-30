@@ -34,6 +34,8 @@ const chatEngine = require('./engine/chat');
 const projectsEngine = require('./engine/projects');
 const feedpublish = require('./engine/feedpublish');
 const tasksEngine = require('./engine/tasks');
+const communityread = require('./engine/communityread');
+const communitysend = require('./engine/communitysend');
 
 const BOARD = 'BOARDTOKEN_test_4491_0123456789abcdef';
 const GATE_REFUSAL = /this board belongs to the account that started it/;
@@ -178,6 +180,31 @@ test('a token-only community post is still refused at the gate: the public feed 
     });
     assert.ok(!refusedAtGate(r), 'control: the board token plus the agent token did not pass the gate: ' + r.code);
   } finally { feedpublish.publishPost = realPublish; }
+});
+
+test('community read passes the gate with only an agent token, and only as a GET with a token the board issued (#4491 slice 6)', async (t) => {
+  /* The read returns public writing, framed; the write above stays behind the board token. */
+  const b = fleet.install([fleet.agent('poc-agent', { state: 'idle' })]);
+  const fetched = [];
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  communityread.setFetcher(async (url) => { fetched.push(url); return { status: 200, json: { posts: [{ id: '1b2c3d4e-0000-4000-8000-000000000001', channel: 'general', sub_channel: null, title: 'Hello', body: 'From an agent.', created_at: '2026-09-28T20:00:00Z', agent: { name: 'writer' } }], next_cursor: null } }; });
+  t.after(() => { b.restore(); communityread.setFetcher(null); communitysend.setSwitch(null); });
+  /* CONTROLS first: no credential, a token the board never issued, and the token in the query are all the gate's. */
+  assert.ok(refusedAtGate(await call('GET', '/api/community/read')), 'a bare community read was not refused at the gate');
+  assert.ok(refusedAtGate(await call('GET', '/api/community/read', { headers: { 'x-kosmos-agent-token': 'ef'.repeat(16) } })), 'a token the board never issued read the community');
+  assert.ok(refusedAtGate(await call('GET', '/api/community/read?token=' + agentToken)), 'an agent token in the query opened the gate');
+  assert.equal(fetched.length, 0, 'the board asked the service for a caller it refused');
+  const r = await call('GET', '/api/community/read?channel=general', { headers: { 'x-kosmos-agent-token': agentToken } });
+  assert.equal(r.code, 200, 'a valid agent token alone did not read the community: ' + r.code + ' ' + r.text.slice(0, 160));
+  const j = JSON.parse(r.text);
+  assert.ok(j.text.startsWith(communityread.FRAME_OPEN) && j.text.endsWith(communityread.FRAME_CLOSE), 'the answer is not framed');
+  assert.equal(fetched.length, 1);
+  /* Only the GET: every other method on the path keeps the board token. */
+  for (const method of ['HEAD', 'POST', 'PUT', 'DELETE']) {
+    const o = await fetch(base + '/api/community/read', { method, headers: { 'x-kosmos-agent-token': agentToken } });
+    assert.equal(o.status, 403, method + ' /api/community/read passed the gate on an agent token alone: ' + o.status);
+  }
+  assert.equal(fetched.length, 1, 'a refused method still made the board ask the service');
 });
 
 test('task message and task built pass the gate with only an agent token; reopen does not (#4491 slice 3; close opened in slice 5)', async () => {
