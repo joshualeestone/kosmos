@@ -204,6 +204,17 @@ const seen = (page, id) => page.evaluate((i) => { const e = document.getElementB
       await pg.close();
     }
 
+    {
+      // Kosmos+ itself failing (the engine answers ok:false, stop:false): the page backs off (4, 8, 16, 30 s)
+      // rather than asking every 4 s for the whole window. Over 30 s that is 3 asks, not 7.
+      const { pg, asked } = await landed([{ ok: false, stop: false }]);
+      await pg.waitForTimeout(30000);
+      const n = asked.n;
+      const st = await state(pg);
+      ok('#4640 a failing Kosmos+ is asked less and less often, and the code and Done stay', n >= 2 && n <= 4 && st.code && st.done, JSON.stringify({ asks_in_30s: n, ...st }));
+      await pg.close();
+    }
+
     // ---- CONTROL: a first computer ----
     const first = await browser.newPage({ viewport: { width: 1400, height: 950 } });
     await openWizard(first, URL);

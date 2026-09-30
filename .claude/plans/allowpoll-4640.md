@@ -53,6 +53,10 @@ match could never fire).
   only), not signin-cancel (a full Sign out, which could cancel a sign-in elsewhere and dropped the final answer).
   The page counts an HTTP error answer (the board's 403, a 5xx) toward the 15-unanswered cap. The old-tunnel
   match is anchored on clap's own "error:" line.
+- Iteration 8: while the engine answers that Kosmos+ could not be asked (ok:false, stop:false), the page backs off
+  4, 8, 16, then 30 s at most, instead of asking every 4 s for the whole window; the unanswered path keeps its cadence
+  and cap. "Allowed" shows for 3 s before moving on (time to read it, and for aria-live to announce it). The 401
+  match is anchored on the tunnel's own "Error: Kosmos+ said no (401)" line.
 - Inherited, not mine: browser-checks-reason-grep.test.js reds on the base (209 emit sites, expected 208) because
   #4638 added one; Pete owns the bump, and this branch rebases after it.
 - Iteration 6: the denied line starts "press Done" (Remove this computer is on the Kosmos Plus pane Done leads to,

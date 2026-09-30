@@ -43700,6 +43700,8 @@ function plusSiSecondDone(address) {
    then this stops asking and the Done button, which was always there, is the way on. A failed check just asks again. */
 const PLUS_SI_WATCH_MS = 4000;
 const PLUS_SI_WATCH_UNANSWERED = 15;
+const PLUS_SI_WATCH_MAX_MS = 30000;
+const PLUS_SI_ALLOWED_SHOW_MS = 3000;   // long enough for the "Allowed" line to be read (and announced) before moving on
 function plusSiWatchStop() {
   if (PLUS_SI_WATCH) clearTimeout(PLUS_SI_WATCH);
   PLUS_SI_WATCH = 0;
@@ -43709,6 +43711,7 @@ function plusSiWatchAllow() {
   const sec = PLUS_SI_SECOND;
   const still = () => PLUS_SI_SECOND === sec && PLUS_SI_LANDED;
   let unanswered = 0;   // this board itself not answering: the engine's own window cannot end the asking then
+  let wait = PLUS_SI_WATCH_MS;   // grows while the engine answers that Kosmos+ could not be asked (backs off a failing coordinator)
   const tick = async () => {
     PLUS_SI_WATCH = 0;
     if (!still()) return;
@@ -43726,7 +43729,8 @@ function plusSiWatchAllow() {
     if (got && got.ok === false && got.stop) return;
     unanswered = got ? 0 : unanswered + 1;
     if (unanswered >= PLUS_SI_WATCH_UNANSWERED) return;   // 15 unanswered asks in a row: Done is the way on
-    PLUS_SI_WATCH = setTimeout(tick, PLUS_SI_WATCH_MS);
+    wait = got && got.ok === false ? Math.min(PLUS_SI_WATCH_MAX_MS, wait * 2) : PLUS_SI_WATCH_MS;
+    PLUS_SI_WATCH = setTimeout(tick, wait);
   };
   PLUS_SI_WATCH = setTimeout(tick, PLUS_SI_WATCH_MS);
 }
@@ -43738,7 +43742,7 @@ function plusSiAllowed() {
   setTimeout(() => {
     if (PLUS_SI_SECOND !== sec || !PLUS_SI_LANDED) return;
     document.getElementById('plus-si-done-go').click();
-  }, 1500);
+  }, PLUS_SI_ALLOWED_SHOW_MS);
 }
 /* Denied: this computer is registered but not let in. Remove this computer retires its address, so the next sign-in
    is a second computer again (the account lists live addresses only, kosmos-relay db.rs macs_for_account) and a fresh

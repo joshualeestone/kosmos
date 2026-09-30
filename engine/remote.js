@@ -1651,7 +1651,7 @@ const ALLOW_STATUSES = new Set(['pending', 'acked', 'denied']);
 const OLD_TUNNEL = /^error: .*(unrecognized subcommand|unexpected argument|invalid subcommand)/m;   // clap's own line only
 /* The coordinator refused the session itself ("Kosmos+ said no (401): ..."): as final as denied. 401 only: the
    session reader answers 401 for a bad or expired session; nothing on this route is known to answer 403. */
-const SESSION_REFUSED = /said no \(401\)/;
+const SESSION_REFUSED = /^Error: Kosmos\+ said no \(401\)/m;   // the tunnel's own refusal line only
 function keepAllowWatch(token) {
   endAllowWait();
   const w = { token, until: Date.now() + allowWatchMs(), timer: null };
