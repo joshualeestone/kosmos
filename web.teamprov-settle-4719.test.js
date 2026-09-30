@@ -71,9 +71,9 @@ test('#4719 CONTROL: an open team step with an unusable choice goes back to the 
 /* The ONE rule for when the team's provider and account are fixed (review round 7: the lock, the
    remembered choice and the settle each had its own condition, and they disagreed between run paths). */
 test('#4719 the choice is fixed during a click or a run, and once any member exists or may exist', () => {
-  const start = SCRIPT.indexOf('function tcChoiceFixed');
-  const end = SCRIPT.indexOf('\n}\n', start) + 3;
-  assert.ok(start > 0 && end > start, 'tcChoiceFixed moved');
+  const start = SCRIPT.indexOf('function tcMemberExists');
+  const end = SCRIPT.indexOf('\n}\n', SCRIPT.indexOf('function tcChoiceFixed')) + 3;
+  assert.ok(start > 0 && end > start, 'tcMemberExists / tcChoiceFixed moved');
   const ctx = {};
   vm.runInNewContext('let TC = null;\n' + SCRIPT.slice(start, end) + '\nthis.fixed = (t) => { TC = t; return tcChoiceFixed(); };', ctx);
   const rows = (...ms) => ms.map((m) => ({ state: 'waiting', made: null, maybeMade: null, ...m }));
@@ -84,4 +84,26 @@ test('#4719 the choice is fixed during a click or a run, and once any member exi
   assert.equal(ctx.fixed({ running: true, members: rows({}) }), true, 'during a Try again run');
   assert.equal(ctx.fixed({ members: rows({ made: { name: 'a' } }) }), true, 'a member exists');
   assert.equal(ctx.fixed({ members: rows({ maybeMade: 'a' }) }), true, 'a member may exist (its answer was lost)');
+});
+
+/* Review round 8: a settle or a late account list can change a menu without anyone "choosing", so the
+   remembered choice must never be trusted before a member exists. */
+test('#4719 the remembered choice is used only once a member exists; before that the menus are read', () => {
+  const start = SCRIPT.indexOf('function tcMemberExists');
+  const end = SCRIPT.indexOf('\n}\n', SCRIPT.indexOf('function tcModel')) + 3;
+  assert.ok(start > 0 && end > start, 'tcModel moved');
+  const menus = { 'tc-provider': { value: 'anthropic' }, 'tc-account': { value: '/acct/claude' } };
+  const ctx = { document: { getElementById: (id) => menus[id] || null } };
+  vm.runInNewContext('let TC = null;\n' + SCRIPT.slice(start, end) + '\nthis.model = (t) => { TC = t; return tcModel(); };', ctx);
+  const stale = { provider: 'meta' };
+  const waiting = { state: 'waiting', made: null, maybeMade: null };
+  // Started, the lead refused, the settle moved the menu to Claude: a Try again run (running) reads the menus.
+  assert.deepEqual({ ...ctx.model({ started: true, running: true, model: stale, members: [{ ...waiting, state: 'failed' }, waiting] }) },
+    { provider: 'anthropic', account: '/acct/claude' }, 'a stale remembered choice was used with nothing made');
+  // CONTROL: once a member exists, the remembered choice is the team's, whatever the menus say.
+  assert.deepEqual({ ...ctx.model({ started: true, model: stale, members: [{ ...waiting, made: { name: 'a' } }, waiting] }) }, stale);
+  // And what is read is remembered for the members made from here on.
+  const t = { members: [waiting] };
+  ctx.model(t);
+  assert.deepEqual({ ...t.model }, { provider: 'anthropic', account: '/acct/claude' });
 });

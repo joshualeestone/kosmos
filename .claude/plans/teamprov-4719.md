@@ -97,3 +97,12 @@ teamcreate-ui-4557 (PR #4709, not yet on main); rebased onto main once #4709 mer
   the choice is open drops the remembered one; the click handler repaints when it ends.
 - Tests: the rule's own unit test (7 cases); the lead-refused browser arm now changes the menu after
   the refusal and asserts the retry and every later member are made on the new choice.
+
+## Review iteration 8 (changes)
+- The remembered choice (TC.model) is used only once a member exists (tcMemberExists). Before that the
+  menus are read, and they are locked for a click or a run, so a run reads one answer. This removes the
+  need to keep TC.model fresh: a settle or a late account list that changed a menu had left a stale one
+  that a Try again run then used. The change listeners and the click no longer clear it.
+- A comment in tcProviderSettle says why no loop follows its refill (the default is never disabled).
+- Test: tcModel with a stale remembered choice and nothing made reads the menus (fails with the
+  iteration-7 condition restored); with a member made it returns the remembered one.

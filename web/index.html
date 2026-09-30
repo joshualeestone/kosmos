@@ -47631,6 +47631,9 @@ function tcProviderSettle() {
   const cur = sel.options[sel.selectedIndex];
   if (!cur || cur.disabled) {
     TC_SETTLING = true;   // fillCreateAccounts asks Muse again; its answer must not re-enter here
+    /* No loop follows the Muse or subscription answer this refill asks for: the default it lands on
+       (Claude, or OpenAI when that is the one usable provider) is never a disabled option, so the next
+       settle finds a usable choice and does nothing. A default that could be disabled would need more. */
     try { sel.value = tcProviderDefault(); fillCreateAccounts(TC_PICKER); } finally { TC_SETTLING = false; }
   }
 }
@@ -47691,9 +47694,8 @@ async function tcFillProvider(gen) {
   TC_PROVIDER_START = copied === 'anthropic' ? sel.value : '\u0000';
   for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = tcChoiceFixed(); }
 }
-/* A change while the choice is open drops the remembered one, so the next run reads the menus again. */
-document.getElementById('tc-provider').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; if (TC && !tcChoiceFixed()) TC.model = null; fillCreateAccounts(TC_PICKER); });
-document.getElementById('tc-account').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; if (TC && !tcChoiceFixed()) TC.model = null; });
+document.getElementById('tc-provider').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; fillCreateAccounts(TC_PICKER); });
+document.getElementById('tc-account').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; });
 
 /* A team is FINISHED when every member is made and seen running. Until then it is live and is resumed. */
 function tcFinished() {
@@ -47883,18 +47885,24 @@ function tcNames() {
    was lost). Its teammates must run on the same account, and a run must not change under itself. While
    it is not fixed (before the first press, after a press refused before anything was made, after a run
    whose lead was refused) the menus are open and the next run reads them. */
-function tcChoiceFixed() {
-  return Boolean(TC && (TC.busy || TC.running
-    || (Array.isArray(TC.members) && TC.members.some((m) => m && (m.made || m.maybeMade || m.state === 'made')))));
+function tcMemberExists() {
+  return Boolean(TC && Array.isArray(TC.members) && TC.members.some((m) => m && (m.made || m.maybeMade || m.state === 'made')));
 }
+function tcChoiceFixed() {
+  return Boolean(TC && (TC.busy || TC.running || tcMemberExists()));
+}
+/* The remembered choice (TC.model) is used only once a member exists: it is what that member was made on.
+   Before that the menus are the truth, and they are locked for the length of a click or a run, so
+   reading them again inside one run gives the same answer. Nothing else has to keep TC.model fresh
+   (review round 8: a settle or a late account list that changed a menu left a stale one behind). */
 function tcModel() {
-  if (TC && TC.model && tcChoiceFixed()) return TC.model;
+  if (TC && TC.model && tcMemberExists()) return TC.model;
   const p = document.getElementById('tc-provider');
   const a = document.getElementById('tc-account');
   const provider = p ? String(p.value || '') : '';
   const account = a ? String(a.value || '') : '';
   const m = { ...(provider ? { provider } : {}), ...(account ? { account } : {}) };
-  if (TC) TC.model = m;   // kept for the run that follows; dropped if a menu changes while still open
+  if (TC) TC.model = m;   // what the members made from here on are made on
   return m;
 }
 async function tcSpecs(project, check) {
@@ -47936,7 +47944,6 @@ document.getElementById('tc-go').addEventListener('click', async () => {
   const msg = document.getElementById('tc-msg');
   go.disabled = true; msg.hidden = true; msg.textContent = '';
   TC.busy = true;   // live from the click: Back or a reopen now keeps it (the project may be being made)
-  TC.model = null; tcModel();   // #4719: the choice as the menus show it at the click, kept for this run
   for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = true; }
   tcPaint();        // the name boxes lock here (review 27)
   try {
