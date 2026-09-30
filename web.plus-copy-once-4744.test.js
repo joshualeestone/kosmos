@@ -7,7 +7,7 @@
  *
  *   node --test web.plus-copy-once-4744.test.js
  *   PLUS_PAGE=<web/index.html at 747aa169d> node --test web.plus-copy-once-4744.test.js   (the handler before the
- *   guard: both tests fail there, measured 0/2)
+ *   guard: every test here fails there)
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -58,7 +58,7 @@ test('#4744: a second press while the clipboard answer is pending starts no seco
   assert.equal(w.el('plus-copy').textContent, 'Copy', 'the button did not settle back to Copy');
 });
 
-test('#4744: a press that succeeds while an earlier one waits cannot be followed by that one\'s failure note', async () => {
+test('#4744: a second press is refused while the first waits, and the first press\'s failure is said once', async () => {
   let refuse;
   const w = world({ execOk: false, clipboard: { writeText: () => new Promise((_, no) => { refuse = no; }) } });
   const first = w.ctx.plusCopyAddress();                   // copy by command fails; waits on the clipboard
@@ -86,4 +86,19 @@ test('#4744: a clipboard answer that never comes does not leave Copy locked', as
   w.ctx.document.execCommand = () => true;
   await w.ctx.plusCopyAddress();                           // a later press works
   assert.equal(w.el('plus-copy').textContent, 'Copied', 'Copy stayed locked after a clipboard that never answered');
+});
+
+test('#4744: a clipboard that answers yes after the 3 s limit takes back the failure line', async () => {
+  let yes;
+  const w = world({ execOk: false, clipboard: { writeText: () => new Promise((r) => { yes = r; }) } });
+  const first = w.ctx.plusCopyAddress();
+  await new Promise((r) => setImmediate(r));
+  w.flush();                                               // the limit fires first
+  const settled = await Promise.race([first.then(() => true), new Promise((r) => setTimeout(() => r(false), 500))]);
+  assert.ok(settled, 'the press never finished');
+  w.flush();
+  assert.match(w.el('plus-status').textContent, /could not copy/, 'no failure was said at the limit');
+  yes(); await new Promise((r) => setImmediate(r));        // the clipboard says yes after all
+  assert.equal(w.el('plus-status').textContent, '', 'the address was copied, but the failure line stayed');
+  assert.equal(w.el('plus-copy-status').textContent, 'Address copied.');
 });

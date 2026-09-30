@@ -42567,9 +42567,24 @@ async function plusCopyAddress() {
   if (!ok) {
     PLUS_COPY_BUSY = true;
     // A clipboard answer that never comes (a web view's permission prompt nobody answers) counts as a refusal after
-    // 3 seconds, so the button is never left locked.
-    try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await Promise.race([navigator.clipboard.writeText(PLUS_ACCOUNT_URL), new Promise((_, no) => setTimeout(() => no(new Error('no answer')), 3000))]); ok = true; } } catch { ok = false; }
-    finally { PLUS_COPY_BUSY = false; }
+    // 3 seconds, so the button is never left locked. If the write then succeeds after all, the failure line goes and
+    // the copy is said, so the screen is not left saying something untrue.
+    let limit = null;
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        const write = navigator.clipboard.writeText(PLUS_ACCOUNT_URL);
+        const late = new Promise((_, no) => { limit = setTimeout(() => no(new Error('no answer')), 3000); });
+        try { await Promise.race([write, late]); ok = true; }
+        catch (e) {
+          ok = false;
+          if (e && e.message === 'no answer') write.then(() => {
+            if (note && note.dataset.copyFail) { note.textContent = ''; delete note.dataset.copyFail; }
+            if (status) status.textContent = 'Address copied.';
+          }, () => {});
+        }
+      }
+    } catch { ok = false; }
+    finally { if (limit) clearTimeout(limit); PLUS_COPY_BUSY = false; }
   }
   if (PLUS_COPY_TIMER) { clearTimeout(PLUS_COPY_TIMER); PLUS_COPY_TIMER = null; }
   if (status) status.textContent = '';
@@ -42591,7 +42606,8 @@ async function plusCopyAddress() {
   if (note) { note.textContent = ''; note.dataset.copyFail = '1'; PLUS_COPY_SAY_TIMER = setTimeout(() => { PLUS_COPY_SAY_TIMER = null; if (note.dataset.copyFail) note.textContent = say; }, 30); }
 }
 /* #4744: the one-line sentence may wrap only if it would overflow (a font wider than the sizing allows): measured
-   with the wrap removed, on every resize of the box and when the box is shown. */
+   with the wrap removed, on every resize of the box and on every paint of the panel. A font change that leaves the
+   box's width alone is caught at the next paint, not at once. */
 function plusChipFit() {
   const say = document.getElementById('plus-chip-say');
   if (!say || !say.classList) return;
