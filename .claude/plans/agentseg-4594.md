@@ -18,6 +18,15 @@ convention as those: its own block with the shared values, not a shared selector
   `consLaySync()` keeps state, tab stop and BOARD_LAYOUT together.
 - Only in the consolidated view (>= 960px), so there is no phone form of this switch.
 
+## Screenshots and the gate (docs/browser-checks/mobile-shots.js)
+- Three desktop-only screens for the design review: `cons-agents` (Grid chosen), `cons-agents-org` (Org chart
+  chosen) and `cons-agents-focus` (keyboard focus on a segment). They reach the consolidated view by stubbing the
+  GET of `/api/style` in their own context, never by saving it: one board serves every screen of a run.
+- A `desktopOnly` flag, the mirror of `phoneOnly` (the consolidated view starts at 960px), with its refusal and
+  control in tools.mobile-shots-desktop.test.js; the README row documents both flags.
+- tools/browser-checks.sh's gated mobile-shots slice includes `cons-agents` (shot at desktop, skipped at se), so
+  the stub path and the desktop-only skip run on every gate run.
+
 ## Checks
 render-consolidated-nav-4345.js: the radiogroup, one connected track (bordered, clipped, segments touching),
 the gold selected segment, one tab stop, ArrowRight chooses Org chart and wraps back; both themes. Putting the
