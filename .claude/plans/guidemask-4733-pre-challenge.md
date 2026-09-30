@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: guidemask-4733
 diff_hash: 46ece14622d33819e34c7cc70656af5d94320af05035786814210c446c624842
-validation: PENDING. Full suite passed on e68692a95 (before the rebase; hash e3c1d998). Full suite of 3ddc94593 running on Mortals (queued 15:38 CDT); c4cca2214 differs from it by 443953c72 and c4cca2214 (server.js, engine/selfreport.js, the test), whose focused files passed: 63 files, 1733 of 1733 (path D3). Merge waits on that run or full green CI.
+validation: PASSED (CI-starved rule, path D3 plus C). Full suite on Mortals of 3ddc94593 ran to the end: FAILS: 0, Done in 6300.67s (its validation-log entry was not recorded: I stopped the local wrapper at 15:41 before the run could record; the suite itself was not stopped). 443953c72 and c4cca2214 on top: focused 63 files 1733 of 1733. Main moved into server.js since the base: merge-tree clean, and on the merged tree (fc006ce1e + this branch) the 64 focused files pass, 1750 of 1750.
 subdir_audit: not run (the diff changes no subdirectory CLAUDE.md)
 timestamp: 2026-09-30T20:47:13Z
 iterations: 11
