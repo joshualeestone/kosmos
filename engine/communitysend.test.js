@@ -933,3 +933,22 @@ test('#4800: a register the service answered (a 409 retried with a suffix) leave
   const k = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8')).qi;
   assert.ok(k.apiKey && !k.registering, 'the registered agent kept a write-ahead mark');
 });
+
+test('#4800: a register the service refused outright (a 400) leaves no mark, so the next try does not look it up', async () => {
+  await on();
+  store.writeProfile('rho', { displayName: 'Rho' });
+  const r = agentPost('rho', { topic: 't', body: 'b' });
+  let refused = false;
+  cs.setSender(async (url, init) => {
+    if (!refused && url.endsWith('/agents/register')) {
+      refused = true;
+      return new Response('{"detail":"bad request"}', { status: 400, headers: { 'content-type': 'application/json' } });
+    }
+    return fetch(url, init);
+  });
+  await cs.sweep();
+  assert.equal(refused, true);
+  await cs.sweep();
+  assert.equal(lookups().length, 0, 'an answered refusal was treated as a lost answer');
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+});
