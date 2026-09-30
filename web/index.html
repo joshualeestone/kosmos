@@ -43415,6 +43415,36 @@ document.getElementById('plus-si-done-go').addEventListener('click', () => {
   PLUS_SIGNIN_ACTIVE = false;
   paintPlus();
 });
+/* Josh, 2026-09-29 (his live test on Windows: typed his email, pressed Enter, nothing happened): Enter in
+   any box of this sign-in presses that step's own button, exactly as a click would. None of these boxes is
+   in a <form>, so the browser does nothing on Enter by itself. A click, not a call to the handler, so the
+   button's own rules still apply: a busy (disabled) or hidden button does nothing, and a code field's
+   click guard (a code already refused is not sent again) sees the press like any other. The enrol pair in
+   the connected flow (plus-email, plus-code, plus-name) gets the same. */
+const PLUS_ENTER_GO = {
+  'plus-signin-email': 'plus-signin-code',
+  'plus-si-code-in': 'plus-si-code-go',
+  'plus-si-second-in': 'plus-si-second-go',
+  'plus-si-phone': 'plus-si-phone-go',
+  'plus-si-enrol-code': 'plus-si-enrol-confirm-go',
+  'plus-si-name': 'plus-si-register-go',
+  'plus-email': 'plus-send-code',
+  'plus-code': 'plus-confirm',
+  'plus-name': 'plus-confirm',
+};
+for (const [inputId, goId] of Object.entries(PLUS_ENTER_GO)) {
+  const inp = document.getElementById(inputId);
+  if (!inp) continue;
+  inp.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;   // an input method's Enter commits its word
+    if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    if (e.repeat) return;   // a held Enter presses once
+    const go = document.getElementById(goId);
+    if (!go || go.disabled || go.hidden || go.getClientRects().length === 0) return;
+    go.click();
+  });
+}
 
 
 function paintModelWhy(selId, whyId) {
