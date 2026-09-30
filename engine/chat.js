@@ -1120,6 +1120,10 @@ function keysAllowed(sessionName, roster) {
   if (allowed.card.reachedByChannel === true) {
     return { ok: false, because: 'Kosmos cannot send keys to an agent on Windows yet, so it was not stopped; stop it from its own window' };
   }
+  /* #4589 round 2: Stop now's keys obey the same Codex rule as a message (Escape and C-x C-k are keys too, and
+     C-x C-k on Codex's hook dialog is unmeasured). */
+  const codex = codexScreenRefusal(allowed.card, sessionName, roster);
+  if (codex) return { ok: false, because: codex };
   return { ok: true, card: allowed.card };
 }
 
@@ -1188,6 +1192,31 @@ function answerGeminiQuotaStop(sessionName, roster) {
 const PAUSED_SWARM_COMMANDS = /^\/(compact|clear|cost|context|status)([ \t][^\r\n]*)?$/i;
 
 /**
+ * #4589: may anything be typed into this Codex agent's pane right now? Returns the sentence saying why not, or null.
+ * Shared by deliverWithGap (every message) and keysAllowed (Stop now's keys), so a message and a key obey one rule.
+ * Codex stops at startup on its "Hooks need review" dialog, where a typed "2" or "t" trusts every hook (outside the
+ * sandbox). So, for a Codex agent with a tmux pane, a FRESH read decides:
+ *   - either dialog screen on it -> refused (the person answers in the terminal; #4607 is the board action);
+ *   - a read that succeeds with a BLANK screen -> refused as still starting (round 1: the dialog is about to draw,
+ *     and text pasted then lands on it as raw keys);
+ *   - a read that FAILS -> refused as unseen (round 2: the snapshot is from before startup, so it cannot vouch that
+ *     no dialog is up).
+ * A channel-reached (Windows) agent has no tmux pane and is not read. Residuals, stated: the dialog can still draw
+ * in the gap between this read and the paste (one read, then a paste of a few chunks); a Codex launched through
+ * `node` reads as Claude until its runner tag lands (status.js takes the command only for a native `codex`).
+ */
+function codexScreenRefusal(card, sessionName, roster) {
+  /* When nothing will really be typed (dry-run with no injected runner, exactly tmux()'s own rule), the dry-run answer
+     is the true one (round 3: demo boards read "we could not see its screen" for every Codex agent). An injected
+     runner outranks dry-run in tmux(), so the rule still applies there (round 4). */
+  if ((DRY_RUN && !runner) || !card || card.runner !== 'codex' || card.reachedByChannel === true) return null;
+  const view = viewport(sessionName, roster);
+  if (!view || typeof view.text !== 'string') return status.CODEX_UNSEEN_SENTENCE;
+  if (!view.text.trim()) return status.CODEX_STARTING_SENTENCE;
+  return status.codexHookReview(view.text) !== null ? status.CODEX_HOOK_DIALOG_SENTENCE : null;
+}
+
+/**
  * Put one message into one agent's session.
  *
  * ⚠️ NEVER THROWS, and never claims more than a keystroke. The return is a
@@ -1240,6 +1269,18 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       because: require('./swarm').pausedSentence(allowed.card.name || sessionName, allowed.card.swarm.pausedBecause),
       at, paneState: null, paneNote: null,
     };
+  }
+  /* #4589 (after the paused-swarm check, round 3: that check is free and its sentence is the true one): NEVER TYPE INTO CODEX'S "HOOKS NEED REVIEW" DIALOG. Codex stops at startup on it when a hook
+     it has not been told to trust is enabled, and a message typed there vanishes: Enter opens the review
+     table and the text is gone (reproduced 2026-09-29, Codex 0.149.1). Every sender comes through here.
+     A FRESH read for a Codex agent, because the dialog draws at startup, exactly when the first message
+     arrives, and the roster snapshot predates it. A read that fails, or shows a blank screen, refuses too
+     (codexScreenRefusal). Nothing is typed while the dialog is up, not even an option number: this function cannot tell the person from
+     another agent, a task line or a room post, and trusting hooks lets them run outside the sandbox, so
+     the choice is made in the agent's terminal. A channel-reached (Windows) agent has no tmux pane. */
+  {
+    const codex = codexScreenRefusal(allowed.card, sessionName, roster);
+    if (codex) return { state: DELIVERY.COULD_NOT, because: codex, at, paneState: null, paneNote: null };
   }
 
   /**
