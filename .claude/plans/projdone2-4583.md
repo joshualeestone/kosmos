@@ -50,3 +50,20 @@ One WARNING, fixed: the done-box route matched /done looks like/ anywhere, so a 
 ## Blind review round 6 (Sonnet, separate reviewer): nothing above NIT. Converged.
 NITs (already accepted above): per-read file reads are uncached; a person's own brief with no Done section reads as set.
 Next: full validation, then PR.
+
+## After merging main: a conjunction with #4581, and a second review loop (rounds 1-10, alternating Opus and Sonnet)
+CI's node red at 46994c11b was real: #4581's `kosmos project show` read this card's "Not set yet" placeholder as the done.
+Fixing it opened the question of how four things read BRIEF.md's Done section: the "Done not set" badge, the room notes,
+fillDone and show. The second loop made them one rule:
+- brief.doneSetFrom decides "done set" for all four; main's level-2 `## Done...` heading is kept (widening it, tried in
+  round 3, let a "# Done Deal" title or a "### Done so far" note capture the section; reverted in round 4).
+- fillDone never merges into or duplicates a done the person wrote; replaces a placeholder only inside the Done section;
+  fills an empty section in place; leaves any Done heading of the person's own shape alone.
+- A done typed like Markdown ("# of signups", "---", a leading backslash) is escaped when written, unescaped when read.
+- The create route quotes any typed done that did not land in the Done section, with its true reason (their own Done
+  section, or Kosmos could not write the file), and then does not also ask for done.
+- Only a done a person typed fills an existing brief; the welcome home's own done goes into a new stub only.
+Twenty controls, each red on revert. Round 10 (Sonnet) converged, nothing above NIT.
+NITs accepted: listed in each round's commit message (two ## Done sections, setext headings, heading in code blocks,
+64 vs 256 KB caps, a stray placeholder elsewhere, no note without agents, show's 500-character cut, and others).
+Next: full validation, proof, merge on green CI.
