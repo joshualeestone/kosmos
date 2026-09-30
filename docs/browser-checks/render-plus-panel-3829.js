@@ -138,7 +138,7 @@ const STATES = {
         chk(v.chip && v.chipSay.trim() === 'Sign in at login.kosmosplus.com.' && v.open === 'https://login.kosmosplus.com/', `${t} #4080: the box says where to sign in, with Open to login.kosmosplus.com`, JSON.stringify({ chip: v.chip, say: v.chipSay, open: v.open }));
         chk(!v.sectionText.includes(ADDR) && v.status === '' && !v.copy, `${t} #4080: the machine's address is not on the pane, and no line repeats the box`, JSON.stringify({ status: v.status }));
         chk(v.swIsToggle && v.swShown && v.swOn === 'true', `${t} #4080: the switch shows, on`, JSON.stringify({ on: v.swOn, shown: v.swShown, toggle: v.swIsToggle }));
-        chk(v.logo.drawn && v.logo.label === 'Kosmos Plus' && v.logo.h >= 18 && v.logo.h <= 26, `${t} #4080: the Kosmos+ logo is drawn, labelled, about 22px tall`, JSON.stringify(v.logo));
+        chk(v.logo.drawn && v.logo.label === 'Kosmos+' && v.logo.h >= 18 && v.logo.h <= 26, `${t} #4080: the Kosmos+ logo is drawn, labelled, about 22px tall`, JSON.stringify(v.logo));
         chk(!/Use Kosmos from anywhere/.test(v.sectionText) && !/Each one asked here first/.test(v.sectionText) && !/I lost my phone/.test(v.sectionText) && !/\bPause\b|Turn off/.test(v.sectionText),
           `${t} #4080: gone from the pane: Use Kosmos from anywhere, the devices line, the lost-phone essay, Pause/Turn off`, v.sectionText.slice(0, 300));
         chk(v.account === 'https://login.kosmosplus.com/', `${t} View account opens the web account`, v.account);
@@ -269,7 +269,9 @@ const STATES = {
         chk(/Unknown device/.test(v.cardText) && !/\bdevice\b[^s]*\bis asking/.test(v.cardText), `${t} an unnamed request reads "Unknown device"`, v.cardText);
       }
       chk(!v.listNames.some((n) => n === 'device') && v.listNames.includes('Unknown device'), `${t} an unnamed devices-list row reads "Unknown device", never just "device"`, JSON.stringify(v.listNames));
-      chk(v.listNames.includes('This computer (Kosmos app)'), `${t} this Mac's own sign-in row reads "This computer (Kosmos app)" (ICK's finding)`, JSON.stringify(v.listNames));
+      /* #4610 (Josh's ruling 2026-09-29 13:00) reverses ICK's #3829 relabel: this computer's own sign-in is granted by the
+         board and never sent to the page, so no row is ever called "This computer (Kosmos app)" here. */
+      chk(!v.listNames.includes('This computer (Kosmos app)'), `${t} #4610: no row is relabelled as this computer (the board grants it and never sends it)`, JSON.stringify(v.listNames));
       if (SHOTS) { await page.setViewportSize({ width: 1400, height: 1300 }); await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(200); await page.screenshot({ path: path.join(SHOTS, `3829-${key}.png`) }); }
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();
@@ -307,7 +309,7 @@ const STATES = {
       await page.waitForTimeout(5600);   // one 5-second repaint of the pane
       chk(await vis('#plus-forget-ask') && await vis('#plus-forget-yes') && !(await vis('#plus-forget-go')), `${t} the confirm opens and is still open after the 5-second repaint`);
       const sure = await page.textContent('#plus-forget-sure');
-      chk(/leaves your Kosmos Plus account/.test(sure) && /address is freed/.test(sure) && /connect it again later by signing in/.test(sure), `${t} the confirm says what happens and how to come back`, sure);
+      chk(/leaves your Kosmos\+ account/.test(sure) && /address is freed/.test(sure) && /connect it again later by signing in/.test(sure), `${t} the confirm says what happens and how to come back`, sure);
       const focusOn = await page.evaluate(() => document.activeElement && document.activeElement.id);
       chk(focusOn === 'plus-forget-no', `${t} opening the confirm puts focus on Cancel, not on Remove`, String(focusOn));
       await page.click('#plus-forget-no');
@@ -319,8 +321,8 @@ const STATES = {
         forgot: (document.getElementById('plus-forgot-msg') || {}).textContent || '', forgotShown: !document.getElementById('plus-forgot-msg').hidden,
         inPane: (document.getElementById('plus-forget-msg') || {}).textContent || '' }));
       chk(forgets === 1, `${t} Disconnect sends one request`, 'forgets=' + forgets);
-      if (mode === 'told') chk(after.state1 && !after.flow && after.forgotShown && /^This computer is removed from Kosmos Plus\./.test(after.forgot), `${t} the pane goes back to not connected and says it is done`, JSON.stringify(after));
-      if (mode === 'untold') chk(after.state1 && !after.flow && after.forgotShown && /could not be updated/.test(after.forgot) && /may still show on your account page/.test(after.forgot) && !/is removed from Kosmos Plus\./.test(after.forgot), `${t} it says the account could not be told and the address may still show, never "done"`, JSON.stringify(after));
+      if (mode === 'told') chk(after.state1 && !after.flow && after.forgotShown && /^This computer is removed from Kosmos\+\./.test(after.forgot), `${t} the pane goes back to not connected and says it is done`, JSON.stringify(after));
+      if (mode === 'untold') chk(after.state1 && !after.flow && after.forgotShown && /could not be updated/.test(after.forgot) && /may still show on your account page/.test(after.forgot) && !/is removed from Kosmos\+\./.test(after.forgot), `${t} it says the account could not be told and the address may still show, never "done"`, JSON.stringify(after));
       if (mode === 'fails') chk(!after.state1 && after.flow && /^Removing it did not finish: the tunnel program did not start\. Try again in a moment\.$/.test(after.inPane), `${t} a failed disconnect keeps the connected pane and says it did not finish, in one clean sentence`, JSON.stringify(after));
 
       if (SHOTS && mode !== 'fails') { await page.screenshot({ path: path.join(SHOTS, `4079-after-${mode}.png`) }); }

@@ -139,7 +139,7 @@ function onEvent(projectId, line) {
       // Said once until the seat connects again, not on every slow retry.
       if (!s.macNoted) {
         s.macNoted = true;
-        say(projectId, 'This computer is not connected to Kosmos+ right now (' + s.ended + '). Sign in to Kosmos+ again in Settings, Kosmos Plus, and this shared project comes back.');
+        say(projectId, 'This computer is not connected to Kosmos+ right now (' + s.ended + '). Sign in to Kosmos+ again in Settings, Kosmos+, and this shared project comes back.');
       }
       return;
     }
