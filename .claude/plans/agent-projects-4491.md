@@ -67,6 +67,13 @@ and had to carry an exception for these memberless projects. This slice makes th
   recorded as the maker and put on the project. The board cannot tell the two apart (the same is true of every
   pane-named verb). The person removes it on the project's page if that is not what they wanted.
 
+- The Recommender (a setting, OFF by default) treats the maker as it treats any member: if the maker reports
+  itself stuck on its own project, the Recommender writes its "is stuck" note in that room and types its playbook
+  into the maker's pane ("No one else is on this project, decide yourself"). Before, the project listed nobody
+  and was skipped. Left as it is: that is the Recommender doing its job for an agent that said it is stuck.
+- "No line is typed into the maker's pane" holds at create. If the maker's instruction sync could NOT be done at
+  create (its verdict says so), the board's 30-second retell sweep tries again later, and when it succeeds it
+  types the usual one-time "listed" line, as it does for any member whose sync first failed.
 - The maker's card can read "Kosmos changed its instructions, and told it on its screen" after it makes a
   project. Nothing was typed by Kosmos; what was on its screen is the CLI's own "Created project ..." line. It
   does know, so the restart prompt that sentence suppresses would be wrong too. Stated, not changed.
@@ -148,4 +155,12 @@ nobody has ruled on a lead agent that sets up projects for others and does not w
   create (both CLIs print the board's sentence and exit 1 through the same arms the task verbs' tests cover).
 - Moved to its own card, #4740, in this round: the reviews showed this is a change to what an agent-made project
   is (membership brings the room, the Assigner, the member list), which does not belong inside #4491.
+
+## Review round 4 (sonnet): 0 BLOCKER, 2 WARNING, 0 CONVENTION, 2 NIT
+- W the Recommender (off by default) now acts for a maker stuck on its own project: stated above, left as it is.
+- W the retell sweep can type one line into the maker's pane later, if its sync failed at create: stated above.
+- NITs not taken: the Assigner's goal precompute still reads the brief of a maker-alone project each tick (a read;
+  nothing is sent); `made.by` is stored untrimmed while members are trimmed (a session name has no edge spaces).
+- The reviewer found no other Assigner path that drives a maker alone on its project, and one narrow wrong skip:
+  if the person removes everyone else from a project the maker made, the clock leaves the maker alone there.
 
