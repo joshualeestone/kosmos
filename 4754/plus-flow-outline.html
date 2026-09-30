@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kosmos+ flow outline</title>
+<style>
+/* The storyboard's look (storyboard.html): the Kosmos+ website in its premium blue, the Kosmos app in its own
+   light look, the approval sheet in #4637's approved Kosmos+ blue. Part A's words are Pete's, from the branches
+   being built (relay addcomputer-4756, app PR #4767). Parts B and C are proposed wording. */
+:root { --ink: #14161a; --ink-2: #4a4f57; --bg: #faf9f7; --surface: #ffffff; --rule: #e3e1dc; --gold: #d6a62e;
+  --navy: #0e1a33; --navy-2: #16264a; --navy-rule: #2a3d66; --royal: #4171e3; --sky: #c9d6f2; --sky-2: #8fa3cc; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+.page { width: 1800px; padding: 38px 48px 34px; }
+.head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
+.head h1 { margin: 0; font-size: 34px; letter-spacing: -.01em; line-height: 1.1; }
+.head p { margin: 6px 0 0; color: var(--ink-2); font-size: 16px; max-width: 1050px; }
+.legend { display: flex; gap: 14px; align-items: center; font-size: 14px; color: var(--ink-2); flex: none; }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; letter-spacing: .06em; border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+.pill.coming { border: 1.5px dashed var(--gold); color: var(--ink); }
+.pill.coming::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--gold); }
+.pill.proposed { border: 1.5px solid var(--ink-2); color: var(--ink-2); }
+
+.part { background: var(--surface); border: 1px solid var(--rule); border-radius: 16px; padding: 16px 20px 18px; margin-bottom: 18px; }
+.ph { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.ph .let { width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid var(--gold); display: grid; place-items: center; font-weight: 700; flex: none; }
+.ph h2 { margin: 0; font-size: 20px; }
+.ph .why { color: var(--ink-2); font-size: 14px; flex: 1; }
+.row { display: grid; gap: 14px; align-items: start; }
+.row.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.row.three { grid-template-columns: 1.05fr 1.05fr 1fr; }
+.sc .where { font-size: 12.5px; color: var(--ink-2); margin: 0 0 6px; display: flex; gap: 6px; align-items: center; }
+.sc .where b { color: var(--ink); }
+.arrow { color: var(--gold); font-weight: 700; }
+.cap { margin: 8px 0 0; font-size: 13px; color: var(--ink-2); }
+.rule { margin-top: 12px; padding: 10px 14px; border-radius: 10px; background: #f3f1ec; font-size: 13.5px; color: var(--ink-2); }
+.rule b { color: var(--ink); }
+
+.web { background: radial-gradient(120% 90% at 50% 0%, var(--navy-2), var(--navy)); border-radius: 12px; padding: 12px; color: #fff; }
+.web .card { background: rgba(255,255,255,.04); border: 1px solid var(--navy-rule); border-radius: 12px; padding: 12px 12px 12px; }
+.web h3 { margin: 0 0 6px; font-size: 15px; }
+.web p { margin: 0 0 8px; font-size: 12px; color: var(--sky); }
+.web .fld { font-size: 11.5px; color: var(--sky-2); margin: 6px 0 3px; }
+.web .in { background: rgba(0,0,0,.25); border: 1px solid var(--navy-rule); border-radius: 8px; min-height: 30px; display: flex; align-items: center; padding: 0 10px; font-size: 12px; color: #e8eefc; }
+.web .go { margin-top: 8px; background: var(--royal); color: #fff; border-radius: 8px; height: 32px; display: grid; place-items: center; font-weight: 650; font-size: 12.5px; }
+.web .lnk { margin-top: 6px; text-align: center; font-size: 12px; color: var(--sky); }
+.web .addr { display: flex; justify-content: space-between; gap: 8px; padding: 7px 0; border-top: 1px solid var(--navy-rule); font-size: 12px; }
+.web .addr:first-of-type { border-top: 0; }
+.web .addr span { color: var(--sky-2); text-align: right; }
+.web .code { font: 700 20px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .14em; text-align: center; margin: 4px 0 6px; }
+
+.app { background: #fff; border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; }
+.app .bar { height: 24px; background: #f3f1ec; border-bottom: 1px solid var(--rule); display: flex; align-items: center; gap: 6px; padding: 0 10px; font-size: 11px; color: var(--ink-2); }
+.app .bar i { width: 8px; height: 8px; border-radius: 50%; background: #d9d6cf; }
+.app .body { padding: 11px 12px; }
+.app h3 { margin: 0 0 4px; font-size: 14px; }
+.app p { margin: 0 0 6px; font-size: 12px; color: var(--ink-2); }
+.app .pick { border: 1px solid var(--rule); border-radius: 9px; padding: 7px 10px; font-size: 12px; display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.app .pick .r { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--ink-2); flex: none; }
+.app .pick.on .r { border-color: var(--royal); box-shadow: inset 0 0 0 3px #fff; background: var(--royal); }
+.app .pick span { margin-left: auto; color: var(--ink-2); font-size: 11px; }
+.app .btn { display: inline-flex; align-items: center; border-radius: 8px; padding: 4px 12px; font-weight: 650; font-size: 12px; border: 1px solid var(--rule); background: #fff; margin-top: 8px; margin-right: 6px; }
+.app .btn.blue { background: var(--royal); border-color: var(--royal); color: #fff; }
+/* #4637's approved sheet: Kosmos+ blue, a small sheet under the nav, the device named as you would say it, the
+   code once in large type, one Allow and a quiet "Not me". */
+.sheet { border: 1px solid #c9d6f2; background: #f4f7fd; border-radius: 12px; padding: 12px 12px 10px; }
+.sheet .k { font-size: 11px; font-weight: 700; letter-spacing: .06em; color: var(--royal); }
+.sheet h3 { margin: 4px 0 2px; font-size: 14.5px; }
+.sheet .code { font: 700 22px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .14em; margin: 6px 0 4px; }
+.sheet p { margin: 0; font-size: 12px; color: var(--ink-2); }
+.sheet .acts { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.sheet .allow { background: var(--royal); color: #fff; border-radius: 8px; padding: 5px 16px; font-weight: 650; font-size: 12.5px; }
+.sheet .notme { font-size: 12px; color: var(--ink-2); text-decoration: underline; }
+.done { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.done .ok { width: 18px; height: 18px; border-radius: 50%; background: #1e7a45; color: #fff; display: grid; place-items: center; font-size: 11px; font-weight: 700; flex: none; }
+.foot { margin-top: 6px; display: flex; justify-content: space-between; font-size: 13px; color: var(--ink-2); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="head">
+    <div>
+      <h1>Kosmos+: adding a computer, and approving once</h1>
+      <p>A proposed outline, drafted so the work can move; Josh can override any of it. Rules from the north star (2026-09-30) and Josh's 13:00 rulings: $19.99 a month for each extra computer, no discount; approve a device once.</p>
+    </div>
+    <div class="legend"><span class="pill coming">BEING BUILT</span><span class="pill proposed">PROPOSED</span></div>
+  </div>
+
+  <!-- A -->
+  <section class="part">
+    <div class="ph"><span class="let">A</span><h2>Add a computer</h2><span class="why">A new computer is a purchase on the website. The app never makes an address.</span><span class="pill coming">BEING BUILT</span></div>
+    <div class="row four">
+      <div class="sc"><p class="where"><b>1</b> Website, signed in</p>
+        <div class="web"><div class="card">
+          <h3>Your computers</h3>
+          <div class="addr">laptop.kosmosplus.com<span>Connected</span></div>
+          <div class="go">Add a computer</div></div></div>
+        <p class="cap">On login.kosmosplus.com, beside the computers already on the account.</p></div>
+      <div class="sc"><p class="where"><b>2</b> Name it and pay</p>
+        <div class="web"><div class="card">
+          <h3>Add a computer</h3>
+          <div class="fld">Address for the new computer</div>
+          <div class="in">windowsbox<span style="margin-left:auto;color:var(--sky-2)">.kosmosplus.com</span></div>
+          <p style="margin:8px 0 0">Each added computer is $19.99 a month. Charged at checkout; Kosmos never sees your card.</p>
+          <div class="go">Continue to payment</div><div class="lnk">Not now</div></div></div>
+        <p class="cap">Then Stripe. No promo code on an added computer (your "no discount").</p></div>
+      <div class="sc"><p class="where"><b>3</b> Back on the website</p>
+        <div class="web"><div class="card">
+          <h3>Your new address is ready</h3>
+          <div class="addr">laptop.kosmosplus.com<span>Connected</span></div>
+          <div class="addr">windowsbox.kosmosplus.com<span>Bought. No computer on it yet.</span></div>
+          <p style="margin:8px 0 0">On the new computer, open Kosmos, go to Settings, then Kosmos Plus, sign in with this email and pick it.</p></div></div></div>
+      <div class="sc"><p class="where"><b>4</b> On the new computer: Kosmos, Settings, Kosmos Plus</p>
+        <div class="app"><div class="bar"><i></i><i></i><i></i><span style="margin-left:6px">new computer</span></div><div class="body">
+          <h3>Pick the address this computer will use.</h3>
+          <span class="btn blue" style="margin-top:6px">windowsbox.kosmosplus.com</span>
+          <p style="margin-top:6px">Each bought address with no computer on it is a button; pressing it connects this computer as that address.</p>
+          <p style="margin-top:10px">None bought? "Each computer on Kosmos+ has its own address, and this account has none waiting for this computer." <b>Buy an address</b> · <b>Check again</b></p>
+        </div></div></div>
+    </div>
+    <p class="rule"><b>Built by Kitty (the server, #4754) and Pete (the website and the app, #4756, PR #4767), behind a switch.</b> Everyone already on keeps working (your ruling "A"). The words in A are theirs.</p>
+  </section>
+
+  <!-- B -->
+  <section class="part">
+    <div class="ph"><span class="let">B</span><h2>The new computer joins your others</h2><span class="why">Signing it in to your account is the request; your other computer says yes once. This fixes #4773.</span><span class="pill proposed">PROPOSED</span></div>
+    <div class="row three">
+      <div class="sc"><p class="where"><b>5</b> The new computer, right after step 4</p>
+        <div class="app"><div class="bar"><i></i><i></i><i></i><span style="margin-left:6px">new computer · Kosmos Plus</span></div><div class="body">
+          <h3>Waiting for your other computer</h3>
+          <p>Your laptop will ask you to let this computer join. Check it shows this code:</p>
+          <div style="font:700 22px/1.2 ui-monospace,Menlo,monospace;letter-spacing:.14em;margin:6px 0">X3-P2</div>
+          <p>Not near your laptop? Any of your connected computers can answer.</p>
+        </div></div>
+        <p class="cap">Today the new computer shows no code, so the card's one instruction cannot be followed (#4773).</p></div>
+      <div class="sc"><p class="where"><b>6</b> Your laptop: a Kosmos+ sheet under the nav (#4637's approved look)</p>
+        <div class="app"><div class="bar"><i></i><i></i><i></i><span style="margin-left:6px">laptop · Kosmos</span></div><div class="body">
+          <div class="sheet"><div class="k">KOSMOS+</div>
+            <h3>Your computer "windowsbox" wants to join</h3>
+            <div class="code">X3-P2</div>
+            <p>Allow it if you just signed it in, and it shows this code.</p>
+            <div class="acts"><span class="allow">Allow</span><span class="notme">Not me</span></div></div>
+        </div></div>
+        <p class="cap">Its own computer, so it says "join", not "use this Kosmos". Not me turns it away.</p></div>
+      <div class="sc"><p class="where"><b>7</b> Both computers, after Allow</p>
+        <div class="app"><div class="bar"><i></i><i></i><i></i><span style="margin-left:6px">both</span></div><div class="body">
+          <div class="done"><span class="ok">✓</span><b>windowsbox is connected</b></div>
+          <p style="margin-top:6px">Your computers now trust each other. A phone or browser you allow on one of them works on both.</p>
+          <p>The top-left menu lists both, and opens either.</p>
+        </div></div>
+        <p class="cap">No separate "Connect them?" step on the website: this one yes connects them.</p></div>
+    </div>
+    <p class="rule"><b>Our server never lets anyone in by itself.</b> The laptop's yes is pressed on the laptop; the server only carries the request. Someone with your email and card still cannot add a computer that a computer of yours has not allowed.</p>
+  </section>
+
+  <!-- C -->
+  <section class="part">
+    <div class="ph"><span class="let">C</span><h2>Approve a phone or browser once</h2><span class="why">One yes, on any one of your computers, lets that device reach all of them, including computers you add later.</span><span class="pill proposed">PROPOSED</span></div>
+    <div class="row three">
+      <div class="sc"><p class="where"><b>8</b> The phone, first sign-in</p>
+        <div class="web"><div class="card" style="text-align:center">
+          <h3>Allow this phone on one of your computers</h3>
+          <div class="code">K7-4M</div>
+          <p>Any one of your computers will ask. Check it shows this code.</p></div></div></div>
+      <div class="sc"><p class="where"><b>9</b> Whichever computer you are at</p>
+        <div class="app"><div class="bar"><i></i><i></i><i></i><span style="margin-left:6px">any of your computers</span></div><div class="body">
+          <div class="sheet"><div class="k">KOSMOS+</div>
+            <h3>Josh's iPhone wants to connect</h3>
+            <div class="code">K7-4M</div>
+            <p>Allow it to reach all your computers.</p>
+            <div class="acts"><span class="allow">Allow</span><span class="notme">Not me</span></div></div>
+        </div></div>
+        <p class="cap">The first answer counts; the card goes from your other computers.</p></div>
+      <div class="sc"><p class="where"><b>10</b> After Allow</p>
+        <div class="app"><div class="bar"><i></i><i></i><i></i><span style="margin-left:6px">Settings · Kosmos Plus · Devices</span></div><div class="body">
+          <div class="done"><span class="ok">✓</span><b>Josh's iPhone is connected</b></div>
+          <p style="margin-top:6px">It reaches laptop and windowsbox. It is not asked again.</p>
+          <div class="pick" style="margin-top:8px">Josh's iPhone<span>Remove</span></div>
+          <p style="margin-top:6px">Remove, on any computer, removes it from all of them.</p>
+        </div></div></div>
+    </div>
+    <p class="rule"><b>Your computers vouch for each other directly</b>: the one you allowed it on tells the others, and each checks that the message comes from a computer it trusts (step 7). The server passes the message along and cannot write it.</p>
+  </section>
+
+  <div class="foot"><span>Part A: the words of the branches being built (relay addcomputer-4756, app #4767). Parts B and C: proposed. Names and codes are examples.</span><span>Mona Lisa, for kosmos#4754 · proposed, Josh can override</span></div>
+</div>
+</body>
+</html>
