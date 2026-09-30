@@ -2,17 +2,17 @@
 pre_challenge: true
 method: challenge-loop
 branch: tasks-pill-4595
-diff_hash: e20611420eee40be8ff94141aa1cf84fa975631ebf4aa0f4597e835e3edf2b16
-validation: passed (Agent1s full suite at 5671038b5, detached run "PASSED attempt 1"; 681c32146 adds only origin/main, auto-merged, and is covered by the PR's CI)
+diff_hash: 0be0b1bb2d462fbb1657a7bb1dd226a07f6cd8538d473ed73b85a6bd5b617c9c
+validation: passed for the code at 5671038b5 (Agent1s full suite, detached run "PASSED attempt 1"). 3ff9d93c0 merges origin/main twice more (one README row conflict, resolved by keeping both rows); on it only the three changed unit files were run here (34 tests, 0 fail). The full suite and the browser checks on this head are the PR's CI, and the PR merges only when every check is green.
 subdir_audit: passed
-timestamp: 2026-09-30T09:07:47Z
-iterations: 2
+timestamp: 2026-09-30T11:47:58Z
+iterations: 3
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 2
+**Iterations:** 3
 **Converged:** Yes (iteration 2 returned no new BLOCKER, WARNING or CONVENTION)
 **Total findings (actionable):** 4 (iteration 1), all fixed
 **Fixed:** 4 | **Deferred:** 0 | **Asked (awaiting user):** 0
@@ -35,6 +35,16 @@ commit b5ea2765f. The reviewer model per iteration was not recorded there: **Rev
 **Reviewer model:** unknown
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs
 **Converged** — no new actionable findings.
+
+#### Iteration 3 (after merging origin/main, 2026-09-30)
+**Reviewer model:** fable
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs
+**Self-generated:** 0
+Why it ran: main moved and docs/browser-checks/README.md conflicted (this branch's render-tasks-view row
+against main's new render-owncode row). Resolved by keeping both rows; no code was hand-merged.
+- [NIT] the branch was one commit behind main when reviewed --> merged (clean) before the push
+- [NIT] the plan filename carries no timestamp (repo-wide practice)
+**Converged**: no new actionable findings.
 
 ### After convergence (not review iterations)
 - Merges of origin/main (a7b207134, 5c7802d48, 125edf021, 5671038b5, 681c32146). One conflict
