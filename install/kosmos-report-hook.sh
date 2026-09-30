@@ -86,7 +86,11 @@
 # belongs to other machinery (on PermissionRequest it is the DECISION
 # channel), and because the SessionStart sentence has already said it.
 #
-# FAIL-SAFE: a reporting bug must never break an agent. Every path exits 0.
+# FAIL-SAFE: a reporting bug must never break an agent. Every path exits 0,
+# with ONE deliberate exception (#4671): the kill-all guard below exits 2 on a
+# PreToolUse that would signal every process the person owns, which blocks
+# that one tool call. It matches only those shapes, and a failure inside it
+# falls through to the normal, non-blocking path.
 #
 # THROTTLE: PreToolUse on a busy agent fires constantly. A per-pane marker
 # keeps the working heartbeat to one line per 60s; state CHANGES always
@@ -164,6 +168,45 @@ json_field() { # $1 jq path, $2 sed key fallback
   if [ -n "$JQ" ]; then printf '%s' "$INPUT" | "$JQ" -r "$1 // empty" 2>/dev/null
   else printf '%s' "$INPUT" | sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1; fi
 }
+
+# --- #4671: never let an agent signal every process the person owns ----------
+# On 2026-09-29 a review subagent on a Kosmos Mac ran process.kill(-1, 'SIGKILL')
+# in a throwaway test script. Pid -1 means every process this user may signal,
+# so it ended the person's whole login session: every agent, the board, the
+# Kosmos app, their open apps. It was an accident (it was checking whether
+# killing a missing pid throws). This blocks the tool call that would do it.
+#
+# What it blocks, read from the raw hook input so it works without jq:
+#   Bash, Write, Edit, MultiEdit, NotebookEdit:
+#     a shell `kill` whose target is -1 (kill -9 -1, kill -KILL -1, kill -- -1,
+#     kill -s KILL -1), `killall`, `pkill ... -u`, and code that signals pid -1
+#     (process.kill(-1, os.kill(-1, kill(-1, and friends).
+# What it leaves alone: `kill -1 <pid>` (SIGHUP to one process), kill of a
+# named pid, process.kill of 0 or a negative group id (bounded to one group).
+# Weakest premise: it is a text match. A pid computed at run time (a variable
+# that holds -1, a parent pid of 1 negated) passes; it stops the accident that
+# happened, not a determined process. Writing ABOUT these commands in a file is
+# blocked too; the message says to reword. Windows agents use the node hook
+# (engine/kosmos-report-hook.js), which does not carry this guard.
+_kill_all_reason() { # $1 tool name; prints the refusal and succeeds when the input would kill everything
+  local _t="( |\\\\[nt]|[[:space:]]|$|[;&|)\"'\\\\])" _b='(^|[^A-Za-z0-9_.-]|\\[nt])' _hit=''
+  local _code='([Kk]ill(pg)?|kill_all)[[:space:]]*\([[:space:]]*-1[[:space:]]*[,)]'
+  local _sh="${_b}kill[[:space:]]+((-s[[:space:]]+[A-Za-z0-9]+|-n[[:space:]]+[0-9]+|--|-[A-Za-z0-9]+)[[:space:]]+)+([0-9]+[[:space:]]+)*-1${_t}"
+  local _killall="${_b}killall${_t}" _pkill="${_b}pkill[[:space:]]+(-[A-Za-z0-9]+[[:space:]]+)*-[A-Za-z]*u${_t}"
+  case "$1" in Bash|Write|Edit|MultiEdit|NotebookEdit) ;; *) return 1 ;; esac
+  if printf '%s' "$INPUT" | grep -Eq -- "$_code"; then _hit='code that signals process id -1'
+  elif printf '%s' "$INPUT" | grep -Eq -- "$_sh"; then _hit='a kill whose target is -1'
+  elif printf '%s' "$INPUT" | grep -Eq -- "$_killall"; then _hit='killall'
+  elif printf '%s' "$INPUT" | grep -Eq -- "$_pkill"; then _hit='pkill -u'
+  else return 1; fi
+  printf 'Kosmos blocked this %s call: it contains %s, which signals EVERY process you own. On this computer that ends the whole login session of the person you work for: every agent, the Kosmos board, and their open apps (kosmos#4671). Stop only exact process ids you started yourself and checked. If you are only writing ABOUT such a command, reword it.\n' "$1" "$_hit"
+}
+if [ "$EVENT" = PreToolUse ]; then
+  if _GUARD_WHY="$(_kill_all_reason "$(json_field '.tool_name' 'tool_name')" 2>/dev/null)" && [ -n "$_GUARD_WHY" ]; then
+    printf '%s\n' "$_GUARD_WHY" >&2
+    exit 2
+  fi
+fi
 
 # --- #1099: what does a compaction actually send as `source`? ------------------
 # 🛑 ONE FIELD, AND THE NARROWNESS IS THE WHOLE DESIGN. #1058's guard reports
