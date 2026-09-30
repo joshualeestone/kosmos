@@ -43783,6 +43783,7 @@ function plusSiBoughtPick(b) {
     if (!PLUS_SI_SESSION) return;
     const ep = PLUS_SI_EPOCH;
     plusSiMsg('');
+    PLUS_SI_REFUSED = [];   // the person asked to look again: an address refused earlier may be free now (its computer retired)
     plusSiSession(PLUS_SI_SESSION, true).catch(() => { if (ep === PLUS_SI_EPOCH) plusSiReReadFailed(); });
   });
 }

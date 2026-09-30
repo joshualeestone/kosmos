@@ -107,6 +107,13 @@ const SCENARIOS = {
   // The first read fails, the account has no address, and a typed name is refused as not bought: that proves the
   // switch is on, so the list (or the way to buy one) replaces a name step where no name can work.
   'unread-typed-notbought': { account: '', notbought: 'mine', lists: [null, { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('spare', 'free')] }], auto: null },
+  // A refused pick is not offered by the re-read that follows it, but a person's own Check again may offer it again
+  // once it is free (its computer retired).
+  'refused-then-freed': { refuse: 'spare', lists: [
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] },
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] },
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] },
+  ], auto: null },
   // A pick refused (another computer took it first) returns to the list with the reason, not Try again on the same address.
   'pick-refused': { refuse: 'spare', lists: [
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] },
@@ -291,6 +298,13 @@ const visible = (page, sel) => page.evaluate((s) => {
         await page.waitForSelector('#plus-si-bought-list button[data-bought="spare"]', { state: 'visible', timeout: 8000 }).catch(() => {});
         chk(await visible(page, '#plus-si-bought-list button[data-bought="spare"]'), `[${key}] a typed name refused as not bought goes to the list`);
         chk(!(await visible(page, '#plus-si-name-field')), `[${key}] and the name step, where no name can work, is gone`);
+      } else if (key === 'refused-then-freed') {
+        await page.click('#plus-si-bought-list button[data-bought="spare"]');
+        await page.waitForSelector('#plus-si-bought-none', { state: 'visible', timeout: 8000 }).catch(() => {});
+        chk(await visible(page, '#plus-si-bought-none'), `[${key}] the re-read after the refusal does not offer it`);
+        await page.click('#plus-si-bought-recheck');
+        await page.waitForSelector('#plus-si-bought-list button[data-bought="spare"]', { state: 'visible', timeout: 8000 }).catch(() => {});
+        chk(await visible(page, '#plus-si-bought-list button[data-bought="spare"]'), `[${key}] the person's own Check again offers it again`);
       } else if (key === 'own-pending') {
         chk(await visible(page, '#plus-si-bought-none'), `[${key}] the none panel shows`);
         chk(/waiting for its payment/.test(await page.textContent('#plus-si-bought-none-lead')), `[${key}] with the waiting-for-payment line`);
