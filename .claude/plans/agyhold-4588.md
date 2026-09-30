@@ -30,6 +30,10 @@ Card: #4588. Stacked on PR A (branch agyquota-4588, not yet merged). Design and 
 - Holding only the card that hit the error: its colleagues on the same account are the ones still spending.
 
 ## Weakest premise
+The pool is one per machine, not per model. The card's evidence is Google's plans page as quoted by the user's team
+("every agent signed in to the same Google account draws on the same 5-hour allowance and the same weekly allowance"),
+and all six of their agents ran one model. A per-model quota is unmeasured; if it exists, one model's pause holds the
+other models' agents until its reset (delay only, bounded by MAX_POOL_MS).
 Nothing releases a hold early: a card reading working is no proof the pool refilled, so a hold lasts to its recorded
 reset (bounded by MAX_POOL_MS, 8 days). If Google refills early, the timers wait longer than they had to: delay only.
 One machine is one Google account (`~/.gemini/antigravity-cli`, measured in PR A). A second account on one machine is
@@ -197,3 +201,17 @@ held needlessly until the reset: the safe direction, it costs only delay.
 - (N) LEFT: account-notify's not-delivered log while a manager is held; deliverAutomatic reads Date.now().
 - Measured: engine/agyhold-4588.test.js 30/30; the targeted set 295/295. Mutation: first-seen kept on a new pause
   reds the repeat-pause test.
+
+## Review iteration 11 (blind, opus)
+- (W) DEFERRED with evidence: the pool is per machine, and Antigravity's quota could be per model (unmeasured). The
+  card's evidence (Google's plans page as quoted by the user's team; six agents on one model) says one account is one
+  pool. Named under Weakest premise: if it is per model, the error only delays.
+- (W) DEFERRED to the card: an agent whose own reset passed reads "the quota reset at R_A" while the pool holds it to
+  a colleague's later reset. The card said the same before this branch (and its resume then typed into the empty
+  pool), so this is not a regression; the fix belongs in status.js and is the "show the shared pool" part of #4588's
+  own title. Recorded on the card (comment 5903897664), to be taken after this PR.
+- (C) FIXED: plan()'s doc comment sat above heldBackBy; each comment is on its own function. sweepOnce's docstring
+  reflowed.
+- (N) LEFT: quota-held results in first-reply and the agent nudge are not logged (they are in results); deliverAutomatic
+  reads Date.now().
+- Measured: engine/agyhold-4588.test.js + engine/agyquota-4588.test.js 38/38 (comment and plan changes only).

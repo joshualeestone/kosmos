@@ -110,7 +110,6 @@ function heldForQuota(session, roster, now, memo = POOL_MEMO) {
    connection, which the board's screen reading ranks above the quota report (review 3). */
 const NUDGE_OVER = Object.freeze(['idle', 'unknown', 'rate_limited']);
 
-/* One agent: { act: 'none' | 'wait' | 'nudge', because }. entry is its book entry for this pause, or undefined. */
 /* The pool reset that held back an agent whose own reset was `own`: the latest remembered one after it whose pause was
    first seen while the agent's own six hours were still open. A pause that began after that window had closed did not
    hold this agent back, so it does not reopen a stop PR A leaves alone. Null when none. */
@@ -123,6 +122,8 @@ function heldBackBy(own, memo = POOL_MEMO) {
   }
   return until;
 }
+
+/* One agent: { act: 'none' | 'wait' | 'nudge', because }. entry is its book entry for this pause, or undefined. */
 function plan(report, entry, now, heldBackUntil) {
   const at = pausedUntil(report);
   if (at === null) return { act: 'none', because: 'not paused on the quota' };
@@ -145,8 +146,8 @@ function plan(report, entry, now, heldBackUntil) {
 
 /*
  * One sweep. o = { roster, book (Map), now, memo (the pool memory; POOL_MEMO by default), readReport (session) =>
- * selfreport.read shape, deliver (session, text,
- * roster) => result, DELIVERY, log }. Nudges at most one agent. Returns { results }. Never throws.
+ * selfreport.read shape, deliver (session, text, roster) => result, DELIVERY, log }. Nudges at most one agent. Returns
+ * { results }. Never throws.
  */
 function sweepOnce(o) {
   const results = [];
