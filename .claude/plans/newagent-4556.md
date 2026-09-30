@@ -73,3 +73,8 @@ and at phone width.
   and Team repaints its options from what is there. K12 reproduces the race (slow success plus a failing second
   request, Team, Back, Team, Back, Single): red in all 8 arms on the previous code, green now. K11: a revisit keeps
   the chosen ready-made team.
+
+## After main's #4632 (the ready-made roles download when the picker opens)
+- The one shared roles request carries `?catalogue=1`. Only opening New Agent (and the `?tab=create` boot) asks again for an incomplete catalogue; a path choice paints the menu already held.
+- An open's refetch that fails keeps the menu already held (offline is when the catalogue is incomplete).
+- Accepted: if the open's answer lands after the person has chosen a path, the newly downloaded roles are not shown on that visit (the picker is not repainted under a choice in progress); they appear on Back or the next open.

@@ -31,7 +31,7 @@
  *       note, and Single ends fully built. Its failing second answer is served only if a second request is made,
  *       so this arm guards against a return to two requests (red on the code before fetchRoles).
  *   K13 an incomplete catalogue (#4632) is asked for again on the next open (with ?catalogue=1), not on a path
- *       choice; a complete one is not;
+ *       choice; a complete one is not; an open whose refetch fails keeps the menu already held;
  *   K10 the roles cannot be read: the Team screen says the org chart cannot be offered (not only "coming soon"),
  *       and choosing Team again tries again and offers it once they load.
  *
@@ -359,6 +359,14 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
         await page.waitForTimeout(400);
         const onPath = ROLES_HITS - hitsPath;
         const singleBuilt = await page.evaluate(() => !document.getElementById('pick-pm').hidden && document.getElementById('roles-msg').textContent === '');
+        // The next open's refetch FAILS (offline): the menu already held stays usable, with no error.
+        ROLES_FAIL = true;
+        await page.evaluate(() => { openCreate(); });
+        await page.waitForTimeout(400);
+        await page.click('#cstep-kind [data-path="single"]');
+        await page.waitForTimeout(300);
+        const keptOnFail = await page.evaluate(() => ({ pm: !document.getElementById('pick-pm').hidden, msg: document.getElementById('roles-msg').textContent, next: !document.getElementById('role-next').disabled, held: !!(ROLES && ROLES.length) }));
+        ROLES_FAIL = false;
         CATALOGUE_LOADED = true;
         await page.evaluate(() => { openCreate(); });   // this load brings the catalogue
         await page.waitForTimeout(400);
@@ -369,7 +377,9 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
         ok(t + ' K13 an incomplete catalogue is asked for again on the next open (with ?catalogue=1), not on a path choice; a complete one is not asked for again',
           againIncomplete === 1 && /[?&]catalogue=1(&|$)/.test(asked) && onPath === 0 && singleBuilt && againComplete === 0,
           JSON.stringify({ againIncomplete, asked, onPath, singleBuilt, againComplete }));
-      } finally { CATALOGUE_LOADED = true; }
+        ok(t + ' K13 an open whose refetch fails keeps the menu already held (no error, Continue still works)',
+          keptOnFail.held && keptOnFail.pm && keptOnFail.msg === '' && keptOnFail.next, JSON.stringify(keptOnFail));
+      } finally { CATALOGUE_LOADED = true; ROLES_FAIL = false; }
 
       // K10: the roles cannot be read. The Team screen says why there is no org chart, and choosing Team again retries.
       ROLES_FAIL = true;
