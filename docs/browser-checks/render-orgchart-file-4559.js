@@ -216,8 +216,10 @@ async function run() {
         const consent = new URL(r.request().url()).searchParams.get('consent') === '1';
         if (!consent) return r.fulfill({ status: 200, json: { needsConsent: true, provider: 'Anthropic (Claude)' } });
         await new Promise((ok) => setTimeout(ok, 3000));   // a read that takes a while
-        try { await r.fulfill({ status: 200, json: { source: 'model', provider: 'Anthropic (Claude)', rows: PICTURE_ROWS, problems: [] } }); } catch { leftAborted = true; }
+        await r.fulfill({ status: 200, json: { source: 'model', provider: 'Anthropic (Claude)', rows: PICTURE_ROWS, problems: [] } }).catch(() => {});
       });
+      // An aborted fetch is reported by Playwright as a failed request (a fulfill after the abort does not throw).
+      pl2.on('requestfailed', (q) => { if (/\/api\/orgchart\/read/.test(q.url()) && /consent=1/.test(q.url())) leftAborted = true; });
       await openPanel(pl2);
       if (await pl2.$('#orgchart-file-btn')) {
         await pl2.setInputFiles('#orgchart-file', path.join(FIX, 'chart.png'));
