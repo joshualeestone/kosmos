@@ -16,7 +16,8 @@
 # requires), at-least-once delivery, the token handling and the dry run are the same.
 # The variable set to an empty value, a missing or unreadable file, or an empty one REFUSES (exit 2): falling back to
 # the automatic text would tell #admin nothing was triaged on a day it was. A held lock in this mode exits 3 (not
-# posted), since the run that holds it will not post Echo's text.
+# posted), since the run that holds it will not post Echo's text, and a failed post (Discord's error, a timeout, no bot
+# token) exits 4. Both mean: run it again. The watermark never moves backwards in this mode.
 #
 # WHY ONLY SINCE THE LAST POST: over all time the store held 39 reports and about 105 candidates (measured
 # 2026-09-28); a digest of all of them every day would be the same wall each morning. A day's worth is a handful.
@@ -45,6 +46,14 @@ ADMIN_URL="${FEEDBACK_DIGEST_ADMIN_URL:-https://installkosmos.com/admin}"
 DRY="${FEEDBACK_DIGEST_DRY_RUN:-}"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') feedback-digest: $*"; }
+# Review 2 (warning 1): a watermark is checked as TEXT before any numeric compare. `[ -gt ]` on a number past 63 bits
+# errors and reads as false, so 99999999999999999999 passed the future check and was written, silencing the automatic
+# digest for good; 0 passed too. An epoch in seconds is 9 or 10 digits with no leading zero (1973 to 2286). The
+# pattern is UNQUOTED on purpose: quoted, its brackets would be literal and nothing would match.
+epoch_shaped() {
+  case "$1" in [1-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) return 0 ;; esac
+  return 1
+}
 # ${VAR+x}: SET, even to empty, counts. An empty value is a wiring mistake, and it refuses like a missing file.
 MSG_FILE=""
 if [ -n "${FEEDBACK_DIGEST_MESSAGE_FILE+x}" ]; then
@@ -56,11 +65,12 @@ if [ -n "${FEEDBACK_DIGEST_MESSAGE_FILE+x}" ]; then
   # Review (warning 1): the watermark in this mode is the moment ECHO STARTED ITS PULL, not this run's start. A report
   # that arrived while Echo was triaging is in neither Echo's pull nor, with the run start as watermark, tomorrow's
   # window. Required, a whole number of seconds, and not in the future.
+  # Review 2 (warning 1): its shape is checked (epoch_shaped) before the future check compares it as a number.
   WM="${FEEDBACK_DIGEST_WATERMARK:-}"
-  case "$WM" in ''|*[!0-9]*)
-    log "REFUSED: a message file needs FEEDBACK_DIGEST_WATERMARK=<epoch seconds when the pull started>, got '${WM}'; nothing posted, the watermark stays"
-    exit 2 ;;
-  esac
+  if ! epoch_shaped "$WM"; then
+    log "REFUSED: a message file needs FEEDBACK_DIGEST_WATERMARK=<epoch seconds when the pull started, 9 or 10 digits>, got '${WM}'; nothing posted, the watermark stays"
+    exit 2
+  fi
   if [ "$WM" -gt "$(date +%s)" ]; then
     log "REFUSED: FEEDBACK_DIGEST_WATERMARK $WM is in the future; nothing posted, the watermark stays"; exit 2
   fi
@@ -103,8 +113,15 @@ trap 'rm -rf "$WORK"; [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LO
 # the pull would otherwise sit exactly on the watermark, outside both windows.
 RUN_START=$(( $(date +%s) - 1 ))
 since=0
-[ -f "$STATE/last-posted" ] && read -r since < "$STATE/last-posted"
-case "$since" in ''|*[!0-9]*) since=0 ;; esac
+if [ -f "$STATE/last-posted" ]; then
+  since=""; read -r since < "$STATE/last-posted"
+  # Review 2 (warning 1): the stored value gets the same shape check, so a huge number never reaches a numeric compare
+  # below. A bad one (a hand edit, an old run's write) is treated as a first run, and said.
+  if ! epoch_shaped "$since"; then
+    log "the stored watermark '$since' in $STATE/last-posted is not epoch seconds; using the last day, as on a first run"
+    since=0
+  fi
+fi
 # Review 4: a watermark in the FUTURE (a clock stepped back, a hand edit) would make every window empty and say "no new
 # reports" for good. It is treated as unreadable: the last day, as on a first run.
 [ "$since" -gt "$RUN_START" ] && { log "the watermark $since is in the future; using the last day"; since=0; }
@@ -158,6 +175,9 @@ fs.writeFileSync(dst, head + NOTE);
 process.stderr.write('cut from ' + text.length + ' to ' + (head.length + NOTE.length) + ' characters\n');
 JS
 mkdir -p "$WORK/pulled"
+# Review 2 (nit): a node that cannot run is said as such, not as "could not read the message file" (which sends the
+# reader to a file that is fine).
+[ -x "$NODE" ] || { log "FAILED: the node runtime $NODE is missing or not executable; nothing posted, the watermark stays"; exit 2; }
 if [ -n "$MSG_FILE" ]; then
   "$NODE" "$WORK/bound.js" "$MSG_FILE" "$WORK/message" 2> "$WORK/bound.err" \
     || { log "FAILED: could not read the message file $MSG_FILE"; exit 2; }
@@ -173,6 +193,13 @@ fi
 if [ -z "$summary" ]; then log "no new reports since $(date -r "$since" '+%Y-%m-%d %H:%M'); nothing posted"; exit 0; fi
 if [ -n "$DRY" ]; then log "DRY RUN, would post:"; cat "$WORK/message"; echo; exit 0; fi
 
+# Review 2 (warning 3): a failed POST is not a refusal. In message-file mode there is no next run to retry it, so it exits
+# 4 and says to run it again (exit 2 is a refusal: fix the file or the watermark; 3 is a held lock). The automatic path
+# keeps its exit 2 and its words: tomorrow's run does retry the same reports.
+post_failed() {   # <what failed> <the automatic path's tail>
+  if [ -n "$MSG_FILE" ]; then log "FAILED: $1; the digest was NOT posted; run it again"; exit 4; fi
+  log "FAILED: $1$2"; exit 2
+}
 jq -Rs '{content: ., allowed_mentions: {parse: []}}' < "$WORK/message" > "$WORK/payload" \
   || { log "FAILED: could not build the message"; exit 2; }
 if [ -n "${FEEDBACK_DIGEST_POST_CMD:-}" ]; then
@@ -181,7 +208,7 @@ else
   # ⚠️ The bot token is read from the Discord plugin's own .env (the main bot's), not through secrets-map.sh: it is that
   # plugin's file and there is no mapped target for it. A second reader of it, stated here so it is not a surprise.
   tok=$(sed -n 's/^DISCORD_BOT_TOKEN=//p' "$BOT_ENV" 2>/dev/null | head -1 | tr -d '"'"'"'\r')
-  [ -n "$tok" ] || { log "FAILED: no bot token at $BOT_ENV"; exit 2; }
+  [ -n "$tok" ] || post_failed "no bot token at $BOT_ENV" ""
   hdr="$WORK/hdr"; ( umask 077; printf 'Authorization: Bot %s\n' "$tok" > "$hdr" ); tok=""
   code=$(curl -s -m 20 -o /dev/null -w '%{http_code}' -X POST -H @"$hdr" -H 'Content-Type: application/json' \
     --data-binary @"$WORK/payload" "https://discord.com/api/v10/channels/$CHANNEL/messages")
@@ -189,10 +216,22 @@ fi
 if [ "$code" = 200 ]; then
   # Review 3: written beside and renamed into place, and checked. An unwritable state file used to log "posted" and
   # exit 0 while every later run re-posted everything since the stale watermark.
-  NEW_WM="$RUN_START"; [ -n "$MSG_FILE" ] && NEW_WM="$WM"   # message-file mode: when Echo's pull started
+  NEW_WM="$RUN_START"
+  if [ -n "$MSG_FILE" ]; then
+    NEW_WM="$WM"   # message-file mode: when Echo's pull started
+    # Review 2 (warning 2): never BACKWARDS. A WM older than the current last-posted would make the next automatic digest
+    # re-post reports already triaged. The raw file is read here, under the lock ($since was rewritten above for a
+    # first run or a future value). A stored value that is malformed or in the future is not kept: the automatic path
+    # distrusts it too, and WM replaces it.
+    cur=""; [ -f "$STATE/last-posted" ] && read -r cur < "$STATE/last-posted"
+    if epoch_shaped "$cur" && [ "$cur" -gt "$WM" ] && [ "$cur" -le "$(date +%s)" ]; then
+      log "the watermark $WM is older than the last post's $cur; keeping $cur"
+      NEW_WM="$cur"
+    fi
+  fi
   if printf '%s\n' "$NEW_WM" > "$STATE/last-posted.tmp" && mv -f "$STATE/last-posted.tmp" "$STATE/last-posted"; then
     log "posted to #admin"; exit 0
   fi
   log "FAILED: posted, but could not record it in $STATE/last-posted; the next run will post these again"; exit 2
 fi
-log "FAILED: Discord answered '$code'; will try again next run"; exit 2
+post_failed "Discord answered '$code'" "; will try again next run"

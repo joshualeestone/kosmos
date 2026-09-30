@@ -139,6 +139,15 @@ rm -f "$T/posted.json"; out="$(run 2>&1)" || fail "a run with a future watermark
 printf '%s' "$out" | grep -q 'in the future' || fail "a future watermark was trusted: $out"
 jq -r .content "$T/posted.json" 2>/dev/null | grep -q 'future-watermark check' || fail "a future watermark hid a new report"
 
+# Review 2 (warning 1): a stored watermark past 63 bits used to reach `[ -gt ]`, which errors and reads as false, so it
+# was kept and every window was empty for good. It is refused by shape and treated as a first run.
+# The older reports are cleared first: the digest lists five candidates at most, and the last day holds more than that.
+rm -f "$T/reports/"*.md; echo 99999999999999999999 > "$T/state/last-posted"
+report 2026-09-29-huge.md "$(before_next)" 'The huge-watermark check report is broken on purpose.'
+rm -f "$T/posted.json"; out="$(run 2>&1)" || fail "a run with a 20-digit stored watermark failed: $out"
+printf '%s' "$out" | grep -q 'is not epoch seconds' || fail "a 20-digit stored watermark was trusted: $out"
+jq -r .content "$T/posted.json" 2>/dev/null | grep -q 'huge-watermark check' || fail "a 20-digit stored watermark hid a new report"
+
 # 3. A failed post: exits non-zero and the watermark stays, so the next run retries the same reports.
 echo "$((now - 3600))" > "$T/state/last-posted"; rm -f "$T/posted.json"
 echo 500 > "$T/code"
@@ -175,11 +184,37 @@ cmp -s "$T/posted.txt" "$T/echo.txt" || fail "the message file was not posted ve
 grep -q '@everyone' "$T/posted.txt" || fail "the @everyone line was not posted verbatim"   # ...and cannot ping:
 [ "$(jq -c '.allowed_mentions' "$T/posted.json")" = '{"parse":[]}' ] || fail "a message-file post with @everyone can ping"
 w=$(cat "$T/state/last-posted"); [ "$w" = "$FEEDBACK_DIGEST_WATERMARK" ] || fail "the watermark after a message-file 200 is $w, not Echo's pull start $FEEDBACK_DIGEST_WATERMARK"
-# ...and on a failed post the watermark stays.
+# Review 2 (warning 2): a watermark OLDER than last-posted never moves it backwards (the next automatic digest would
+# re-post reports already triaged).
+echo "$((now - 60))" > "$T/state/last-posted"; rm -f "$T/posted.json"
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)" || fail "a message-file run with an older watermark failed: $out"
+[ -f "$T/posted.json" ] || fail "a message-file run with an older watermark did not post"
+w=$(cat "$T/state/last-posted"); [ "$w" = "$((now - 60))" ] || fail "W2: a message-file 200 moved the watermark backwards, from $((now - 60)) to $w"
+# ...and on a failed post the watermark stays. Review 2 (warning 3): a failed post exits 4 (run it again), not 2 (a
+# refusal), and does not claim a next run that message-file mode does not have.
 echo "$((now - 3600))" > "$T/state/last-posted"; echo 500 > "$T/code"
-if FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run >/dev/null 2>&1; then fail "a 500 with a message file exited zero"; fi
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
+[ "$rc" = 4 ] || fail "W3: a 500 with a message file exited $rc, not 4: $out"
+printf '%s' "$out" | grep -q 'the digest was NOT posted; run it again' || fail "W3: a failed message-file post did not say to run it again: $out"
+printf '%s' "$out" | grep -q 'will try again next run' && fail "W3: a failed message-file post promised a next run: $out"
 [ "$(cat "$T/state/last-posted")" = "$((now - 3600))" ] || fail "the watermark moved on a failed message-file post"
+# The same for no bot token (the real post path, stopped before any network by an empty token file).
+: > "$T/empty.env"
+out="$(env -u FEEDBACK_DIGEST_POST_CMD FEEDBACK_DIGEST_BOT_ENV="$T/empty.env" FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" bash "$REPO/tools/feedback-digest-daily.sh" 2>&1)"; rc=$?
+[ "$rc" = 4 ] || fail "W3: a message-file run with no bot token exited $rc, not 4: $out"
+printf '%s' "$out" | grep -q 'no bot token.*the digest was NOT posted; run it again' || fail "W3: no bot token was not reported as unposted: $out"
+[ "$(cat "$T/state/last-posted")" = "$((now - 3600))" ] || fail "the watermark moved with no bot token"
+# The automatic path keeps exit 2 for a failed post.
+out="$(env -u FEEDBACK_DIGEST_POST_CMD FEEDBACK_DIGEST_BOT_ENV="$T/empty.env" bash "$REPO/tools/feedback-digest-daily.sh" 2>&1)"; rc=$?
+[ "$rc" = 2 ] || fail "the automatic path with no bot token exited $rc, not 2: $out"
 echo 200 > "$T/code"
+
+# Review 2 (nit): a node that cannot run is named as such, not as an unreadable message file.
+rm -f "$T/posted.json"
+out="$(KOSMOS_NODE="$T/no-such-node" FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)" && fail "a missing node exited zero: $out"
+printf '%s' "$out" | grep -q 'node runtime .* is missing or not executable' || fail "a missing node was not named: $out"
+printf '%s' "$out" | grep -q 'could not read the message file' && fail "a missing node blamed the message file: $out"
+[ ! -f "$T/posted.json" ] || fail "a run with a missing node posted"
 
 # 8. The variable set with no usable file REFUSES: non-zero, a clear line, nothing posted, the watermark still.
 : > "$T/empty.txt"; printf ' \n\t\n' > "$T/blank.txt"
@@ -192,11 +227,12 @@ for f in "$T/empty.txt" "$T/blank.txt" "$T/no-such-file.txt" ""; do
 done
 
 # 8b. The watermark: required in message-file mode, a number, not in the future.
-for wm in UNSET "" "yesterday" "12x" "$(( $(date +%s) + 86400 ))"; do
+# Review 2 (warning 1): 20 digits (past 63 bits, where `[ -gt ]` errors and read as false), 0, and a leading zero.
+for wm in UNSET "" "yesterday" "12x" "$(( $(date +%s) + 86400 ))" 99999999999999999999 0 0123456789; do
   rm -f "$T/posted.json"
   if [ "$wm" = UNSET ]; then out="$(env -u FEEDBACK_DIGEST_WATERMARK FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" bash "$REPO/tools/feedback-digest-daily.sh" 2>&1)"; rc=$?
   else out="$(FEEDBACK_DIGEST_WATERMARK="$wm" FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?; fi
-  [ "$rc" = 2 ] || fail "a message file with watermark '$wm' exited $rc, not 2: $out"
+  [ "$rc" = 2 ] || fail "W1: a message file with watermark '$wm' exited $rc, not 2: $out"
   printf '%s' "$out" | grep -q 'REFUSED: .*FEEDBACK_DIGEST_WATERMARK' || fail "no clear refusal for watermark '$wm': $out"
   [ ! -f "$T/posted.json" ] || fail "a message file with watermark '$wm' posted"
   [ "$(cat "$T/state/last-posted")" = "$((now - 3600))" ] || fail "the watermark moved on a refused run (watermark '$wm')"
@@ -216,6 +252,8 @@ out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
 printf '%s' "$out" | grep -q 'the digest was NOT posted' || fail "a locked-out message-file run did not say it was not posted: $out"
 [ ! -f "$T/posted.json" ] || fail "a locked-out message-file run posted"
 out="$(run 2>&1)"; rc=$?; [ "$rc" = 0 ] || fail "the automatic path beside a held lock changed its exit ($rc): $out"
+[ ! -f "$T/posted.json" ] || fail "the automatic path beside a held lock posted"
+[ "$(cat "$T/state/last-posted")" = "$((now - 3600))" ] || fail "the automatic path beside a held lock moved the watermark"
 rm -rf "$T/state/lock"
 
 # 9. A message longer than one Discord message is cut at a line break, and says so.
@@ -236,4 +274,4 @@ out="$(FEEDBACK_DIGEST_DRY_RUN=1 FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run)
 printf '%s' "$out" | grep -q '#9001 Room scroll jumps' || fail "the dry run did not print the message file: $out"
 [ ! -f "$T/posted.json" ] || fail "a message-file dry run posted"
 
-echo "PASS: feedback-digest-daily (message file verbatim with @everyone unpinged, refusals, watermark required and used, lock refusal, cut at a line break, message-file dry run, nothing new, posted, mid-post arrival once, unwritable watermark, lock races, future watermark, failed post, dry run, no cards, card list at its limit)"
+echo "PASS: feedback-digest-daily (message file verbatim with @everyone unpinged, refusals, watermark required and used, lock refusal, watermark never backwards, failed post exits 4, missing node named, 20-digit/zero/leading-zero watermark refused, cut at a line break, message-file dry run, nothing new, posted, mid-post arrival once, unwritable watermark, lock races, future watermark, failed post, dry run, no cards, card list at its limit)"

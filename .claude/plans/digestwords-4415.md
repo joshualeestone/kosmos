@@ -27,6 +27,14 @@ automatic text read as a task for him and as a final word, and Echo's actual res
 - Review (warning 2): in message-file mode a held lock exits 3 with "the digest was NOT posted ... run it again". The
   automatic path keeps exit 0 (the run holding the lock posts the same summary). No launchd job runs this script today
   (checked by the reviewer), so there is no second daily post to retire; Echo's run is the only caller.
+- Review 2 (warning 1): the watermark is checked as TEXT (9 or 10 digits, no leading zero) before any numeric compare;
+  a 20-digit value used to error inside `[ -gt ]`, read as false, and be written, silencing the digest for good, and 0
+  passed too. The stored last-posted gets the same shape check (a bad value is a first run, with a log line).
+- Review 2 (warning 2): in message-file mode a 200 writes max(WM, the current last-posted), read raw under the lock,
+  so the watermark never moves backwards (a stored value that is malformed or in the future is not kept).
+- Review 2 (warning 3): in message-file mode a failed post exits 4 with "the digest was NOT posted; run it again"; the
+  automatic path keeps exit 2 and "will try again next run" (true there). A node that cannot run is logged as that,
+  not as an unreadable message file.
 
 ## Weakest premise
 That Echo passes an honest pull-start epoch. The script can check the number is well formed and not in the future,
@@ -43,7 +51,9 @@ Where they live: https://installkosmos.com/admin (Reports). This counts reports 
 ## Echo's message (the file Echo writes, then runs the job with FEEDBACK_DIGEST_MESSAGE_FILE=<that file>)
 Before `kosmos feedback pull`, Echo records `PULL_START=$(date +%s)`; after triage it runs
 `FEEDBACK_DIGEST_MESSAGE_FILE=<file> FEEDBACK_DIGEST_WATERMARK=$PULL_START bash tools/feedback-digest-daily.sh`.
-Exit 2 is a refusal (fix the file or the watermark), exit 3 means another run held the lock: run it again.
+Exit codes in this mode: 0 posted; 2 a refusal, nothing posted (fix the file or the watermark); 3 another run held
+the lock, not posted (run it again); 4 the post failed, not posted (Discord's error, a timeout, no bot token: run it
+again).
 Renet puts this into Echo's instructions; this branch does not edit Echo's folder. Plain text, no em dashes, under
 2000 characters, a section with "0" rather than left out:
 ```
@@ -67,4 +77,7 @@ Community check: <one line: what the community channels said about these, or "no
 - Review arms: 7 carries a literal @everyone, posted verbatim with allowed_mentions {"parse":[]}, and the watermark
   written equals FEEDBACK_DIGEST_WATERMARK; 8b refuses an unset, empty, non-numeric and future watermark; 8c a report
   stamped between Echo's pull start and the run is in the next automatic post; 8d a held lock exits 3 "NOT posted" in
-  message-file mode and still 0 on the automatic path; 9 puts an emoji at every line end past the limit.
+  message-file mode and still 0 on the automatic path, with nothing posted and last-posted unchanged; 9 puts an emoji at every line end past the limit.
+- Review 2 arms: 8b also refuses a 20-digit, a 0 and a leading-zero watermark; a 20-digit stored last-posted is a first
+  run; 7 an older WM leaves last-posted where it was, a 500 and a missing bot token exit 4 (the automatic path still 2);
+  a missing node is named. Each warning's arm was shown red with only that fix reverted.
