@@ -1292,7 +1292,7 @@ const os = require('node:os');
    context can read as a line break (a message's pieces after the first are indented; a file name's become spaces).
    INBOX_DROP is C0 and C1 controls (tab kept) plus the bidirectional marks and overrides that can reorder a row. */
 const INBOX_BREAK = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/;
-const INBOX_DROP = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+const INBOX_DROP = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
 
 function resolveAgentSender(req, body, roster, opts) {
   const presented = presentedAgentToken(req, body);
@@ -12965,7 +12965,7 @@ const server = http.createServer(async (req, res) => {
       const lines = rows.map((r) => {
         const notes = [];
         if (r.chose) notes.push('[chose this from a menu]');
-        if (r.attachments.length) notes.push('[attached: ' + r.attachments.join(', ') + ']');
+        if (r.attachments.length) notes.push('[attached: ' + r.attachments.join('; ') + ']');   // review 6: "; ", since a name can hold a comma
         if (r.reached === 'no') notes.push('[this did not reach you]');
         if (r.reached === 'maybe') notes.push('[this may not have reached you]');
         const head = (r.at ? r.at.replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '')

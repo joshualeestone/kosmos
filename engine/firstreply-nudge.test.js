@@ -99,6 +99,7 @@ test('#3226 nudge text names the reply verb the CLI ships and has no em dash', (
   assert.ok(!nudge.NUDGE_TEXT.includes(String.fromCharCode(0x2014)), 'no em dash in the nudge');
   const cli = fs.readFileSync(path.join(__dirname, '..', 'install', 'kosmos'), 'utf8');
   assert.match(cli, /^\s*reply\)\s+shift; cmd_reply "\$@"/m, 'install/kosmos dispatches the reply verb');
+  assert.match(cli, /^\s*inbox\)\s+shift; cmd_inbox "\$@"/m, 'install/kosmos dispatches the inbox verb the nudge names');
 });
 
 function sweepWith(opts) {

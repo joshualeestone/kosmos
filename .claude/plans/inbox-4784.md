@@ -58,7 +58,7 @@ Not taken: a test of the guide mask (it is the thread route's own helper; a guid
 Focused set: 66 of 66 (both route tests, both CLIs, help, parity, verbs, the nudge).
 
 ## Review 3 (fable, blind, on 57fd86712), 17:29 CDT: no BLOCKER, 1 WARNING, 4 NITs
-- WARNING, taken: the Mac production path (board token + TMUX_PANE; Mac agents carry no agent token) had no
+- WARNING, taken: the FALLBACK Mac path (board token + TMUX_PANE; see review 6: Mac launches DO mint a token) had no
   route test, and review 2's "token wins over a pane" arm could not fail (fake-tmux names one session for every
   pane, so no pane ever named nova). Replaced with mapped panes (messages.setRunner: %1 leo, %2 nova): board token
   + leo's pane reads leo; board token + nova's pane reads nova (the documented reach, pinned; also the CONTROL
@@ -91,3 +91,14 @@ Focused: server.inbox-4784.test.js 8 of 8.
   joiners are kept (emoji sequences use them; they cannot move a row).
 - NIT, not taken here: a wrongWorld 421 prints as JSON, as cmd_report_show does today (inherited, not new).
 Focused: server.inbox-4784 8/8, cli.inbox-4784 6/6.
+
+## Review 6 (fable, blind, on 55fdf0cbc), 17:43 CDT: no BLOCKER, 1 WARNING (record only), 3 NITs, all taken
+- WARNING, taken: review 3's test comment and this plan said Mac agents carry no agent token. False:
+  bin/agent-supervisor.sh mints one per launch and exports KOSMOS_AGENT_TOKEN, so the usual Mac path is token-first
+  (as on Windows); board token + pane is the fallback (a launch that minted none, or the person's terminal).
+  Corrected in the test comment, its title and review 3's line above. No product change: the code was right.
+- NIT: the nudge test also asserts install/kosmos dispatches the inbox verb it names.
+- NIT: U+061C (Arabic letter mark, a Bidi_Control) joins INBOX_DROP; the test's control set and input carry it
+  (perturbation: dropping it from INBOX_DROP reds the arm).
+- NIT: attachment names are joined with "; " (a name can hold a comma).
+Focused: 36 of 36 (the four #4784 files).
