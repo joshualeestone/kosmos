@@ -95,6 +95,7 @@ if (args[0] === 'signin') {
     // #4638: a SECOND computer: no account_address (another computer holds it), the account's addresses, the match code;
     // then the same with hostile shapes; then an owned address alongside the list (the first-computer path).
     if (code === '282828') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-second', addresses: ['josh09292026.kosmosplus.com'], match_code: 'K7-3M' })); process.exit(0); }
+    if (code === '232323') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-waiting', addresses: ['josh09292026.kosmosplus.com'], waiting_labels: ['pizzarama', 'Bad Name', 'x.kosmosplus.com', 7], match_code: 'K7-3M' })); process.exit(0); }
     if (code === '292929') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-second-odd', addresses: ['<b>x</b>', 'javascript:alert(1)'], match_code: '<script>' })); process.exit(0); }
     if (code === '313131') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-second-badcode', addresses: ['josh09292026.kosmosplus.com'], match_code: 'I0-OL' })); process.exit(0); }
     if (code === '323232') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-owned2', account_address: 'josh0925-150pm.kosmosplus.com', addresses: ['josh0925-150pm.kosmosplus.com'], match_code: 'K7-3M' })); process.exit(0); }
@@ -1258,6 +1259,18 @@ test('#4638 signin verify tells a second computer what it needs to skip the choo
 const ALLOW = RECORD + '.allow';
 const STATUS_TOKEN = RECORD + '.status-token';
 let secondN = 0;
+/* #4681: a computer of the account that is still waiting is listed apart, names only; the page gets only names in the
+   label shape (never an address), and an answer without the field gives an empty list. */
+test('#4681 signin verify passes waiting_labels on as names only, and an answer without it gives none', async () => {
+  await remote.signinStart('her@example.com');
+  const w = await remote.signinVerify('her@example.com', '232323');
+  assert.deepEqual(w.data.waiting_labels, ['pizzarama'], 'a non-label (a space, an address, a number) reached the page');
+  assert.deepEqual(w.data.other_labels, ['josh09292026'], 'the waiting computer leaked into the other computers');
+  await remote.signinStart('her@example.com');
+  const plain = await remote.signinVerify('her@example.com', '282828');
+  assert.deepEqual(plain.data.waiting_labels, [], 'CONTROL: a coordinator without the field gives an empty list');
+});
+
 async function signedInSecond(code = '282828') {
   await remote.signinStart('her@example.com');
   const v = await remote.signinVerify('her@example.com', code);

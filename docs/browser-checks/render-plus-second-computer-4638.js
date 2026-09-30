@@ -114,6 +114,11 @@ const seen = (page, id) => page.evaluate((i) => { const e = document.getElementB
     const SECOND = { stage: 'session', account_address: '', other_address: 'josh09292026.kosmosplus.com', other_labels: ['josh09292026'], match_code: 'K7-3M', computer: 'PizzaRama' };
     const reinstall = await flow({ ...SECOND, other_labels: ['josh09292026', 'pizzarama'] }, () => 'not expected');
     ok('a computer whose own name is already on the account gets today\'s chooser, and nothing registers by itself', reinstall.st.chooser && reinstall.tried.length === 0, JSON.stringify(reinstall));
+    // #4681: this computer's name among the account's computers still WAITING (listed apart) is this computer signing in again.
+    const waiting = await flow({ ...SECOND, waiting_labels: ['pizzarama'] }, () => 'not expected');
+    ok('a computer whose own name is waiting on the account gets today\'s chooser, and nothing registers by itself (#4681)', waiting.st.chooser && waiting.tried.length === 0, JSON.stringify(waiting));
+    const waitingOther = await flow({ ...SECOND, waiting_labels: ['studio'] }, () => '');
+    ok('CONTROL: another computer waiting does not stop this one registering by itself (#4681)', waitingOther.tried[0] === 'pizzarama' && waitingOther.st.done, JSON.stringify(waitingOther));
     const inUse = await flow(SECOND, () => 'the coordinator said no (409): The name pizzarama is already in use by a Mac on this account, at pizzarama.kosmosplus.com. If that is this Mac, it is already set up and there is nothing more to do here.');
     ok('"already in use by a Mac on this account" is shown to the person, never retried as name-2', JSON.stringify(inUse.tried) === '["pizzarama"]' && /already in use by a Mac on this account/.test(inUse.st.msg), JSON.stringify(inUse));
     const reserved = await flow({ ...SECOND, computer: 'Admin' }, (n) => (n === 'admin' ? 'the coordinator said no (400): that name is kept by Kosmos itself: please pick another' : ''));

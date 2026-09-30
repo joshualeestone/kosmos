@@ -1494,6 +1494,11 @@ function secondComputerFields(data, ownedAddress) {
      from a new one, and say "one of your other computers" when there are several (the first is not always the
      one whose Allow card is showing). */
   const labels = addresses.slice(0, 20).map((a) => a.split('.')[0]);
+  /* #4681 (Kitty's retirehold): a computer of this account that is still WAITING to be allowed is no longer in
+     `addresses`; the coordinator names it in `waiting_labels` (names only, never an address a page could open). The page
+     reads both, so a waiting computer signing in again is recognised as itself, not registered again as name-2. */
+  const waiting = (Array.isArray(data.waiting_labels) ? data.waiting_labels : [])
+    .filter((l) => typeof l === 'string' && /^[a-z0-9-]{3,32}$/.test(l)).slice(0, 20);
   const code = typeof data.match_code === 'string' && MATCH_CODE.test(data.match_code) ? data.match_code : '';
   let computer = '';
   try {
@@ -1501,7 +1506,7 @@ function secondComputerFields(data, ownedAddress) {
     computer = label.endsWith(DEVICE_SUFFIX) ? label.slice(0, -DEVICE_SUFFIX.length) : '';
     if (computer === 'This computer') computer = '';
   } catch { computer = ''; }
-  return { other_address: other, other_labels: labels, match_code: code, computer };
+  return { other_address: other, other_labels: labels, waiting_labels: waiting, match_code: code, computer };
 }
 
 /** Take the tunnel's `stage` answer, stash any bearer material HERE, and return

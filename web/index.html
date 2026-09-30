@@ -43672,6 +43672,11 @@ function plusSiSecondStart(data) {
      an Allow card that nobody can answer. Take today's path instead (the chooser), where the coordinator's own
      refusal for that name explains what to do. */
   if (labels.includes(base)) return false;
+  /* #4681: the same when this computer's name is one of the account's computers still WAITING to be allowed (listed
+     apart, names only): it is this computer signing in again, and registering it anew would clash (409) and leave the
+     waiting one behind with an Allow card nobody can answer. */
+  const waiting = Array.isArray(data.waiting_labels) ? data.waiting_labels.map(String) : [];
+  if (waiting.includes(base)) return false;
   PLUS_SI_SECOND = { base, tries: 0, code: String(data.match_code || ''), other: String(data.other_address), several: labels.length > 1, computer: String(data.computer || ''), domain };
   plusSiRegisterMode(base + '.' + domain);
   plusSiShow('plus-si-register');
