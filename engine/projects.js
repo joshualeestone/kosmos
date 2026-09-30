@@ -2013,15 +2013,27 @@ function doneWrittenIn(folder, done) {
   try {
     if (!folder || !path.isAbsolute(folder) || typeof done !== 'string' || !done) return false;
     const { text } = readBriefSafely(folder);
-    return typeof text === 'string' && text.split(/\r?\n/).some((l) => l.trim() === doneMarkdown(done));
+    if (typeof text !== 'string') return false;
+    // Round 8: inside the Done section only (when there is one), so a Goal line with the same words cannot vouch for
+    // a done that was never written.
+    const lines = text.split(/\r?\n/);
+    const range = require('./brief').doneSectionRange(text);
+    const scope = range ? lines.slice(range.from, range.to) : lines;
+    return scope.some((l) => l.trim() === doneMarkdown(done));
   } catch { return false; }
 }
 /* #4583 review round 5: the note when a done typed at creation could not go into BRIEF.md because the person's brief
    already has a Done section of its own shape. Their words are quoted as data, never as an instruction. */
-function doneNotWrittenNote(done) {
-  return 'The person typed what done looks like when creating this project: "' + String(done).replace(/"/g, "'") + '". '
-    + 'BRIEF.md already has a Done section of its own, so Kosmos did not change it. ONE of you (the Project Manager, if '
-    + 'there is one) ask the person, here, which one stands, and write that into BRIEF.md. One question, not several.';
+function doneNotWrittenNote(done, own = true) {
+  const typed = 'The person typed what done looks like when creating this project: "' + String(done).replace(/"/g, "'") + '". ';
+  // Round 8: the reason is the true one. Their own Done section is theirs to choose over; anything else (no brief, one
+  // Kosmos will not read, or could not write) just needs the typed words put where everyone reads them.
+  return own
+    ? typed + 'BRIEF.md already has a Done section of its own, so Kosmos did not change it. ONE of you (the Project '
+      + 'Manager, if there is one) ask the person, here, which one stands, and write that into BRIEF.md. One question, '
+      + 'not several.'
+    : typed + 'Kosmos could not write it into BRIEF.md in the project folder. ONE of you (the Project Manager, if there '
+      + 'is one) write it into the "Done looks like" section there. Nobody needs to ask the person for it again.';
 }
 
 function briefStubContent({ name, description, done } = {}) {

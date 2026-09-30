@@ -15453,19 +15453,21 @@ const server = http.createServer(async (req, res) => {
         // AFTER `told`, best-effort (roomNote swallows its own errors): furniture, exactly like
         // WELCOME_ROOM_NOTE, and a note we could not post is never a reason to fail the create.
         try {
+          /* #4583 review rounds 5-8: a done typed on the form that is not what BRIEF.md's Done section now holds, for ANY
+             reason (the person's own Done section, or a brief Kosmos could not read or write), is quoted to the team
+             with its true reason, and the team is then never also told to ask the person for done. */
+          const typedDone = projects.cleanDone(body.done);
+          const doneLost = !!typedDone && !projects.doneWrittenIn(made.folder, typedDone);
           if (made.agents.length > 0 && projects.briefIsPending(made.folder)) {
             // #4583: ask for done too only when it is not set; a done typed on the form is never asked for again.
-            const note = projects.doneIsPending(made.folder) ? projects.BRIEF_AND_DONE_PENDING_NOTE : projects.BRIEF_PENDING_NOTE;
+            const note = (projects.doneIsPending(made.folder) && !doneLost) ? projects.BRIEF_AND_DONE_PENDING_NOTE : projects.BRIEF_PENDING_NOTE;
             messages.roomNote(made.id, note, { audience: messages.NOTE_AUDIENCE_AGENTS });   // agents read it; the person's room does not
-          } else if (made.agents.length > 0 && projects.doneIsPending(made.folder)) {
+          } else if (made.agents.length > 0 && projects.doneIsPending(made.folder) && !doneLost) {
             // #4583: a goal but no "done looks like": the same one-asks note, for done.
             messages.roomNote(made.id, projects.DONE_PENDING_NOTE, { audience: messages.NOTE_AUDIENCE_AGENTS });
           }
-          /* #4583 review round 5: a done typed on the form that BRIEF.md could not take (the person's brief has a Done
-             section of its own) is quoted to the team with one question, never dropped without a word. */
-          const typedDone = projects.cleanDone(body.done);
-          if (made.agents.length > 0 && typedDone && !projects.doneWrittenIn(made.folder, typedDone) && projects.doneHeadingIsOwn(made.folder)) {
-            messages.roomNote(made.id, projects.doneNotWrittenNote(typedDone), { audience: messages.NOTE_AUDIENCE_AGENTS });
+          if (made.agents.length > 0 && doneLost) {
+            messages.roomNote(made.id, projects.doneNotWrittenNote(typedDone, projects.doneHeadingIsOwn(made.folder)), { audience: messages.NOTE_AUDIENCE_AGENTS });
           }
         } catch { /* the note is furniture; the project exists regardless */ }
         // The owner's seat waits for a first edge (someone has joined); try now.

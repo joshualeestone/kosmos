@@ -3850,6 +3850,47 @@ test('#4583 round 6 CONTROL: no BRIEF.md the stub could write means no "already 
   const made = json(await post('/api/projects', { name: 'No brief', folder: dir, agents: ['agent-a'], done: 'Ship v1' })).project;
   const texts = messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id).map((n) => n.text);
   assert.ok(!texts.includes(projects.doneNotWrittenNote('Ship v1')), 'the note gave a false reason: ' + JSON.stringify(texts));
+  // Round 8: the typed done is still quoted, with the true reason, once.
+  assert.equal(texts.filter((t) => t === projects.doneNotWrittenNote('Ship v1', false)).length, 1, JSON.stringify(texts));
+});
+
+test('#4583 round 8: goal missing and the typed done unwritable: the brief note asks for the goal only', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const dir = folder('readonly-nogoal');
+  const file = path.join(dir, projects.BRIEF_STUB_FILENAME);
+  fs.writeFileSync(file, projects.briefStubContent({ name: 'Ro' }));
+  fs.chmodSync(file, 0o444);
+  try {
+    const made = json(await post('/api/projects', { name: 'No goal ro', folder: dir, agents: ['agent-a'], done: 'Signed' })).project;
+    const texts = messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id).map((n) => n.text);
+    assert.deepEqual(texts, [projects.BRIEF_PENDING_NOTE, projects.doneNotWrittenNote('Signed', false)]);
+  } finally { fs.chmodSync(file, 0o644); }
+});
+
+test('#4583 round 8: a Goal line with the same words does not vouch for a done that was never written', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const dir = folder('goal-collision');
+  const mine = '# Mine\n\n## Goal\n\nShip\n\n## Done when\n\nbig thing\n';
+  fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), mine);
+  const made = json(await post('/api/projects', { name: 'Collide', folder: dir, agents: ['agent-a'], done: 'Ship' })).project;
+  const texts = messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id).map((n) => n.text);
+  assert.deepEqual(texts, [projects.doneNotWrittenNote('Ship')]);
+});
+
+test('#4583 round 8: a brief Kosmos cannot write to gets the typed done quoted, and nobody is told to ask for it', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const dir = folder('readonly-brief');
+  const file = path.join(dir, projects.BRIEF_STUB_FILENAME);
+  fs.writeFileSync(file, projects.briefStubContent({ name: 'Ro', description: 'Renew the lease.' }));
+  fs.chmodSync(file, 0o444);
+  try {
+    const made = json(await post('/api/projects', { name: 'Read only', folder: dir, agents: ['agent-a'], done: 'Signed' })).project;
+    const texts = messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id).map((n) => n.text);
+    assert.deepEqual(texts, [projects.doneNotWrittenNote('Signed', false)], 'expected only the quoted done, no ask');
+  } finally { fs.chmodSync(file, 0o644); }
 });
 
 test('#4583: a done over 1000 characters is refused with the done box named, and nothing is created', async () => {
