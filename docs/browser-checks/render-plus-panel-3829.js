@@ -92,7 +92,7 @@ const STATES = {
           fit: (() => { const e = document.getElementById('plus-chip-say'), c = document.getElementById('plus-copy'); if (!e || !c) return null;
             const r = document.createRange(); r.selectNodeContents(e); const rs = [...r.getClientRects()].filter((x) => x.width > 0);
             if (!rs.length) return null; const left = Math.min(...rs.map((x) => x.left)), right = Math.max(...rs.map((x) => x.right));
-            return { lines: new Set(rs.map((x) => Math.round(x.top))).size, spare: Math.round(e.getBoundingClientRect().right - right), clear: Math.round(c.getBoundingClientRect().left - right),
+            return { lines: (rs.some((x) => Math.abs(x.top - rs[0].top) > 4) ? 2 : 1), spare: Math.round(e.getBoundingClientRect().right - right), clear: Math.round(c.getBoundingClientRect().left - right),
               sameRow: Math.abs((rs[0].top + rs[0].height / 2) - (c.getBoundingClientRect().top + c.getBoundingClientRect().height / 2)) < 12, font: getComputedStyle(e).fontSize, width: Math.round(right - left) }; })(),
           bold: (document.querySelector('#plus-chip-say b') || {}).textContent || '', account: document.getElementById('plus-account').getAttribute('href'),
           status: document.getElementById('plus-status').textContent.trim(),
@@ -148,7 +148,7 @@ const STATES = {
         chk(v.chip && v.chipSay.trim() === 'Access this computer from other devices at login.kosmosplus.com' && v.bold === 'login.kosmosplus.com'
           && v.copyLabel.trim() === 'Copy' && v.noOpen, `${t} #4744: the box says where other devices reach this computer, the address bold, with Copy and no Open`,
           JSON.stringify({ chip: v.chip, say: v.chipSay, bold: v.bold, copy: v.copyLabel, noOpen: v.noOpen }));
-        chk(v.fit && v.fit.lines === 1 && v.fit.sameRow && v.fit.spare >= 10 && v.fit.clear >= 8, `${t} #4744: the sentence is one line, ends 10px+ inside its box and before Copy, on Copy's row`, JSON.stringify(v.fit));
+        chk(v.fit && v.fit.lines === 1 && v.fit.sameRow && v.fit.spare >= 10 && v.fit.clear >= 8 && parseFloat(v.fit.font) >= 12, `${t} #4744: the sentence is one line at 12px or more, ends 10px+ inside its box and before Copy, on Copy's row`, JSON.stringify(v.fit));
         if (key === 'connected') { // #4744: at 640 and 600 wide (the Windows launcher's 640 window, less its frame and scrollbar) it is still one line.
           const vp = page.viewportSize();
           for (const wide of [640, 600]) {
@@ -157,10 +157,10 @@ const STATES = {
               const e = document.getElementById('plus-chip-say'), c = document.getElementById('plus-copy');
               const r = document.createRange(); r.selectNodeContents(e); const rs = [...r.getClientRects()].filter((x) => x.width > 0);
               const right = Math.max(...rs.map((x) => x.right));
-              return { shown: e.getBoundingClientRect().height > 0, lines: new Set(rs.map((x) => Math.round(x.top))).size, font: getComputedStyle(e).fontSize,
+              return { shown: e.getBoundingClientRect().height > 0, lines: (rs.some((x) => Math.abs(x.top - rs[0].top) > 4) ? 2 : 1), font: getComputedStyle(e).fontSize,
                 spare: Math.round(e.getBoundingClientRect().right - right), clear: Math.round(c.getBoundingClientRect().left - right) };
             });
-            chk(n.shown && n.lines === 1 && n.spare >= 10 && n.clear >= 8, `${t} #4744: at ${wide} wide the sentence is one line, 10px+ inside its box and before Copy`, JSON.stringify(n));
+            chk(n.shown && n.lines === 1 && n.spare >= 10 && n.clear >= 8 && parseFloat(n.font) >= 12, `${t} #4744: at ${wide} wide the sentence is one line at 12px or more, 10px+ inside its box and before Copy`, JSON.stringify(n));
           }
           await page.setViewportSize(vp); await page.waitForTimeout(250);
         }
@@ -176,7 +176,7 @@ const STATES = {
             const r = document.createRange(); r.selectNodeContents(e); const rs = [...r.getClientRects()].filter((x) => x.width > 0);
             const right = Math.max(...rs.map((x) => x.right));
             return { clip, label: c.textContent, said: document.getElementById('plus-copy-status').textContent,
-              lines: new Set(rs.map((x) => Math.round(x.top))).size, clear: Math.round(c.getBoundingClientRect().left - right) };
+              lines: (rs.some((x) => Math.abs(x.top - rs[0].top) > 4) ? 2 : 1), clear: Math.round(c.getBoundingClientRect().left - right) };
           });
           chk(cp.lines === 1 && cp.clear >= 8, `${t} #4744: pressing Copy ("Copied") does not push the sentence off its line`, JSON.stringify({ lines: cp.lines, clear: cp.clear }));
           chk(cp.label === 'Copied' && /copied/i.test(cp.said) && cp.clip === 'https://login.kosmosplus.com/',
@@ -184,6 +184,25 @@ const STATES = {
           await page.waitForTimeout(2200);
           const back = await page.evaluate(() => document.getElementById('plus-copy').textContent);
           chk(back === 'Copy', `${t} #4744: the button reads Copy again after 2 seconds`, back);
+          // The failure path: both copy routes refuse. The address is selected, the line under the box says so (and
+          // survives a repaint), and the button keeps its label and its width.
+          const fail = await page.evaluate(async () => {
+            const keep = { exec: document.execCommand, write: navigator.clipboard.writeText };
+            document.execCommand = () => false;
+            navigator.clipboard.writeText = () => Promise.reject(new Error('refused'));
+            const c = document.getElementById('plus-copy'); const w0 = c.getBoundingClientRect().width;
+            c.click(); await new Promise((r) => setTimeout(r, 120));
+            const note1 = document.getElementById('plus-status').textContent;
+            await paintPlus(); await new Promise((r) => setTimeout(r, 120));
+            const out = { sel: String(window.getSelection()), note1, note2: document.getElementById('plus-status').textContent,
+              label: c.textContent, widthSame: Math.abs(c.getBoundingClientRect().width - w0) < 1 };
+            document.execCommand = keep.exec; navigator.clipboard.writeText = keep.write;
+            c.click(); await new Promise((r) => setTimeout(r, 120));
+            out.afterSuccess = document.getElementById('plus-status').textContent;
+            return out;
+          });
+          chk(fail.sel === 'login.kosmosplus.com' && /could not copy it/.test(fail.note1) && /could not copy it/.test(fail.note2) && fail.label === 'Copy' && fail.widthSame && fail.afterSuccess === '',
+            `${t} #4744: when copying is refused the address is selected and the note stays through a repaint; a later Copy clears it`, JSON.stringify(fail));
         }
         chk(!v.sectionText.includes(ADDR) && v.status === '', `${t} #4080: the machine's address is not on the pane, and no line repeats the box`, JSON.stringify({ status: v.status }));
         chk(v.swIsToggle && v.swShown && v.swOn === 'true', `${t} #4080: the switch shows, on`, JSON.stringify({ on: v.swOn, shown: v.swShown, toggle: v.swIsToggle }));

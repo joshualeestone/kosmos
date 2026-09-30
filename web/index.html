@@ -10132,8 +10132,7 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-pill[data-state="connecting"] { background: rgba(126,160,240,.14); color: #9cc0ff; }
 #s-sec-plus .plus-pill[data-state="down"] { background: rgba(232,112,94,.14); color: #f0a397; }
 #s-sec-plus .plus-chip { display: flex; align-items: center; gap: 8px; margin-top: 12px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 10px; padding: 6px 6px 6px 14px; }
-#s-sec-plus .plus-chip code { flex: 1 1 auto; min-width: 0; font: 600 .95rem ui-monospace, Menlo, monospace; color: #E6EBF7; overflow-wrap: anywhere; }
-#s-sec-plus .plus-chip .btn { flex: 0 0 auto; background: transparent; color: #E6EBF7; border: 1px solid rgba(255,255,255,.25); border-radius: 8px; text-decoration: none; padding: 6px 12px; font-size: .9rem; }
+#s-sec-plus .plus-chip .btn { flex: 0 0 auto; background: transparent; color: #E6EBF7; border: 1px solid rgba(255,255,255,.25); border-radius: 8px; padding: 6px 12px; font-size: .9rem; }
 #s-sec-plus .devrow .btn { border: 1px solid rgba(255,255,255,.25); }   /* #3829: Remove visible on navy */
 /* #4080 (Josh's design): logo, switch, badge on top; the sign-in box; the bottom row. */
 #s-sec-plus .plus-logo { display: block; height: 22px; width: auto; }
@@ -42541,7 +42540,7 @@ const PLUS_ACCOUNT_URL = 'https://login.kosmosplus.com/';
    If the clipboard is refused, the address is selected on screen so the person can copy it themselves. */
 let PLUS_COPY_TIMER = null;
 function plusCopyFallback() {
-  // Synchronous, so it runs inside the press itself (a browser can drop the press's permission across an await).
+  // Tried first because the file's other copy buttons rely on it in the app's web views; the clipboard API is the second try.
   const t = document.createElement('textarea'); t.value = PLUS_ACCOUNT_URL; t.setAttribute('readonly', '');
   t.style.position = 'fixed'; t.style.opacity = '0';
   let ok = false;
@@ -42560,11 +42559,12 @@ async function plusCopyAddress() {
     try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(PLUS_ACCOUNT_URL); ok = true; } } catch { ok = false; }
   }
   if (PLUS_COPY_TIMER) { clearTimeout(PLUS_COPY_TIMER); PLUS_COPY_TIMER = null; }
+  if (status) status.textContent = '';
   if (ok) {
     btn.textContent = 'Copied';
     if (note && note.dataset.copyFail) { note.textContent = ''; delete note.dataset.copyFail; }
     // Cleared first and set a moment later, so a second press is spoken again.
-    if (status) { status.textContent = ''; setTimeout(() => { if (btn.textContent === 'Copied') status.textContent = 'Address copied.'; }, 30); }
+    if (status) setTimeout(() => { if (btn.textContent === 'Copied') status.textContent = 'Address copied.'; }, 30);
     PLUS_COPY_TIMER = setTimeout(() => { PLUS_COPY_TIMER = null; btn.textContent = 'Copy'; if (status) status.textContent = ''; }, 2000);
     return;
   }
@@ -42572,7 +42572,8 @@ async function plusCopyAddress() {
   const b = document.querySelector('#plus-chip-say b');
   try { const r = document.createRange(); r.selectNodeContents(b); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); } catch { /* nothing selectable */ }
   btn.textContent = 'Copy';
-  if (note) { note.textContent = 'Kosmos could not copy it. The address is selected: copy it from there.'; note.dataset.copyFail = '1'; }
+  // Cleared first and set a moment later, so a second failure is spoken again.
+  if (note) { note.textContent = ''; note.dataset.copyFail = '1'; setTimeout(() => { if (note.dataset.copyFail) note.textContent = 'Kosmos could not copy it. The address is selected: copy it from there.'; }, 30); }
 }
 { const b = document.getElementById('plus-copy'); if (b) b.addEventListener('click', plusCopyAddress); }
 
@@ -42681,11 +42682,12 @@ async function paintPlus() {
   }
   const acct = document.getElementById('plus-account'); if (acct && typeof PLUS_ACCOUNT_URL !== 'undefined') acct.href = PLUS_ACCOUNT_URL;
   const chip = document.getElementById('plus-chip');
-  /* #4744: the box says where other devices reach this computer, with Copy (plusCopyAddress). */
   if (chip) chip.hidden = !up;
   /* Connected: one plain line under the chip. Otherwise the engine's own sentence says why not. */
   /* Josh's 17:30 ruling (the #3796 landing's line): one way in on another device, the website. */
   /* #4080: connected, the sentence lives in the box above, so the line under it is empty. */
+  /* #4744: a Copy failure's note stays while the box is up; once the box goes, so does the note and its flag. */
+  if (!up && st.dataset && st.dataset.copyFail) delete st.dataset.copyFail;
   st.textContent = up
     ? (st.dataset && st.dataset.copyFail ? st.textContent : '')
     : (stat.state === 'up' ? 'Connected. Your address is on its way.'

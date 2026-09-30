@@ -153,3 +153,22 @@ test('#1014: connected with no address yet is not an instruction to open "is on 
   await paint(w);
   assert.equal(w.el('plus-next').hidden, true, 'it would have told them to open a sentence');
 });
+
+/* #4744: a Copy failure's note under the box stays through the 5s repaint while connected, and goes (with its
+   flag) once the box does, so a later reconnect never shows a stale sentence under the box. */
+test('#4744: the copy-failure note survives a connected repaint and is cleared by a disconnect, not stuck after reconnect', async () => {
+  const r = connected([]);
+  const w = world(r);
+  const st = w.el('plus-status');
+  st.dataset = { copyFail: '1' };
+  st.textContent = 'Kosmos could not copy it. The address is selected: copy it from there.';
+  await paint(w);
+  assert.match(st.textContent, /could not copy it/, 'a connected repaint wiped the copy-failure note');
+  r.status = { state: 'down', because: 'the connection dropped' };
+  await paint(w);
+  assert.equal(st.dataset.copyFail, undefined, 'the failure flag outlived the box');
+  assert.doesNotMatch(st.textContent, /could not copy it/, 'the note stayed while the box was gone');
+  r.status = { state: 'up', address: 'josh.plus.installkosmos.com' };
+  await paint(w);
+  assert.equal(st.textContent, '', 'after a reconnect the line under the box is not empty (#4080)');
+});

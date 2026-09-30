@@ -18,8 +18,12 @@ Checked in a browser; served in a build.
   needs ~452px of ~404 beside Copy. So the box reaches into the panel's side padding, Copy is compact, and the
   sentence's size follows the box's width (container units, .75rem to .9rem): 12.8px at 1024 and 1400, .9rem at 800,
   one line from 600 up with ~7% to spare; a phone wraps rather than cuts a word.
-- If the clipboard refuses, execCommand copies the same URL (as the file's other copy buttons do); if that fails too,
-  the address is selected and the button says "Now copy it" until the next press (no Mac-only keystroke named).
+- Copy tries execCommand first (as the file's other copy buttons do), then the clipboard API, both with the full URL. If
+  both refuse, the address is selected and the line under the box says so until the next press or until the box goes
+  (the button keeps a fixed width, so the sentence never moves). No Mac-only keystroke is named.
 
 ## Weakest premise
-That 640 is the narrowest window that matters: it is the Windows launcher's minimum; no Mac minimum is set in this repo.
+The Windows fit is reasoned, not measured: the ~8% margin (/34) is for Segoe UI running wider than the Mac's font, but
+every measurement here is Chromium on this Mac. A Windows run of render-plus-panel-3829 (or Josh's own screen) is the
+real test. Also: 640 is the Windows launcher's outer minimum; the check measures 640 and 600 (inside the frame and a
+classic scrollbar). No Mac minimum window is set in this repo.
