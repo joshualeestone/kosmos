@@ -45,7 +45,9 @@
  * ADDING YOUR SCREENS: append to SCREENS below. Each entry is
  *   { name, owner, go: async (page, data) => { ...navigate to the screen... } }
  * plus `noServiceWorker: true` if `go` stubs a request with page.route, and
- * `phoneOnly: true` if the screen exists only at a phone width (the desktop size skips it).
+ * `phoneOnly: true` if the screen exists only at a phone width (the desktop size skips it), and
+ * `desktopOnly: true` if it exists only at a desktop width (the phone sizes skip it; the consolidated
+ * view, for one, starts at 960px).
  * `go` starts on a freshly loaded board at the size and theme (data has
  * `projectId`, and `chatAgent` / `askAgent`: use those, never a literal agent id,
  * so the screen works under --data store too); leave the page showing the screen. Keep names short and unique
@@ -260,6 +262,21 @@ const SCREENS = [
   { name: 'org-chart', owner: 'unowned', go: async (page) => {
     await page.click('button.vt[data-layout="org"]');
     await page.waitForSelector('button.vt[data-layout="org"][aria-pressed="true"]', { timeout: 5000 });
+  } },
+  /* #4594: the consolidated view's Agents column and its Grid / Org chart segmented control. The
+     consolidated view exists only at >= 960px, so these are desktop-only. */
+  { name: 'cons-agents', owner: 'Ice Cream Kitty', desktopOnly: true, go: async (page) => {
+    await page.click('.layopt[data-layout-switch="consolidated"]', { timeout: 5000 });
+    await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 5000 });
+    await page.click('#tabs .tab[data-tab="agents"]', { timeout: 5000 });
+    await page.waitForSelector('#panel-cons-agents .cons-agents-lay [data-conslay="grid"][aria-checked="true"]', { timeout: 5000 });
+  } },
+  { name: 'cons-agents-org', owner: 'Ice Cream Kitty', desktopOnly: true, go: async (page) => {
+    await page.click('.layopt[data-layout-switch="consolidated"]', { timeout: 5000 });
+    await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 5000 });
+    await page.click('#tabs .tab[data-tab="agents"]', { timeout: 5000 });
+    await page.click('#panel-cons-agents [data-conslay="org"]', { timeout: 5000 });
+    await page.waitForSelector('#panel-cons-agents [data-conslay="org"][aria-checked="true"]', { timeout: 5000 });
   } },
   { name: 'create-agent', owner: 'unowned', go: async (page) => {
     // A real tap (visible, not covered), the way a phone user reaches it; a hidden button fails the shot.
@@ -775,7 +792,7 @@ async function run() {
   }
   /* Nothing to shoot is not a pass: every requested screen is phone-only at the sizes asked for. Decided before
      any browser or board starts (tools.mobile-shots-desktop.test.js). */
-  const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !(SIZES[sz].desktop && sc.phoneOnly)).length, 0);
+  const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !(SIZES[sz].desktop ? sc.phoneOnly : sc.desktopOnly)).length, 0);
   if (!planned) throw new Error('no shot would be taken: every requested screen is phone-only at these sizes');
   // Test hook (tools.mobile-shots-desktop.test.js): report the plan and stop, before any browser or board.
   if (process.env.MSHOTS_PLAN_ONLY === '1') { console.log(`planned ${planned} screen(s) per theme and engine`); return 0; }
@@ -800,10 +817,11 @@ async function run() {
           const s = SIZES[sz];
           for (const theme of args.themes) {
             for (const sc of screens) {
-              if (s.desktop && sc.phoneOnly) {
+              if (s.desktop ? sc.phoneOnly : sc.desktopOnly) {
+                const why = s.desktop ? 'phone-only screen' : 'desktop-only screen';
                 // The same shape as a shot row, so report.json stays one kind of entry.
-                skipped.push({ file: null, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note: '', taps: [], fields: [], audited: false, skipped: 'phone-only screen' });
-                console.log(`skip  ${sc.name}--${sz}--${theme}--${en}: a phone-only screen`);
+                skipped.push({ file: null, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note: '', taps: [], fields: [], audited: false, skipped: why });
+                console.log(`skip  ${sc.name}--${sz}--${theme}--${en}: a ${why}`);
                 continue;
               }
               /* A fresh context per screen: the board remembers choices (layout,
