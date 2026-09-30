@@ -400,8 +400,13 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
         await page.waitForTimeout(200);
         let chosen = null;
         if (choose) {
-          await page.click('input[name="rmode"][value="list"]');
-          chosen = await page.evaluate(() => { const s = document.getElementById('rolesel'); s.selectedIndex = s.options.length - 1; s.dispatchEvent(new Event('change', { bubbles: true })); return s.value; });
+          // The way a person does it: click the "Pick another role" row (the radio inside is a 1px, pointer-events:none
+          // input, so a click aimed at it can never land; render-role-order.js clicks the row the same way), then
+          // choose the last role in the menu that opens, which fires the menu's real change event.
+          await page.click('#pick-list');
+          const last = await page.evaluate(() => { const s = document.getElementById('rolesel'); return s.options[s.options.length - 1].value; });
+          await page.selectOption('#rolesel', last);
+          chosen = await page.evaluate(() => document.getElementById('rolesel').value);
         }
         const before = await page.evaluate(() => PICKED);
         await page.waitForTimeout(1800);                   // the late answer lands
