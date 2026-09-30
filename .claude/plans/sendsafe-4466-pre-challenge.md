@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: sendsafe-4466
-diff_hash: 1e0a6db3692e62e31e7bacddac16c8d7e9100bdbea2503cca78dbeec08681ec8
-validation: passed (full tools/run-tests.sh through validation_log_run_or_skip, run on MORTALS via ~/.cache/claude-handoffs/detached-mortals-validate.sh at 290ce5a08, a head rebased onto main WITH #4609, 2026-09-30 02:51-06:09 CDT: EXIT=0, node 12483 tests, 0 failed, 0 cancelled, shell part green; recorded entry hash 1e0a6db3 equals this worktree's. Main moved 6 commits during the run (CLAUDE.md, install/kosmos, server.js, tools/windows/kosmos-cli.js); the branch merges without conflict, and the decisive check of it on current main is this PR's CI, which runs the full suite on the merge commit: merged only on full green CI)
+diff_hash: 34ae875bda6114a4052daa73567c3f348ccbf9fbaf08265185a15e8a5a9570a0
+validation: passed on Mortals at 290ce5a08 (12483/0) BEFORE main was merged in at bd4ec75b7; not re-run locally after the merge: the PR's full CI on the merge commit is the decider (agreed 06:10 CDT 2026-09-30). Focused after the merge: 12 files, 273 tests, 0 failed
 subdir_audit: passed
-timestamp: 2026-09-30T11:10:32Z
-iterations: 13
+timestamp: 2026-09-30T14:11:12Z
+iterations: 14
 converged: true
 ---
 
@@ -107,3 +107,22 @@ two unexcused test seams; fixture-discipline: four tests hand-built a sender car
 - Iteration 11 (sonnet): zero findings (tries === 1 is deterministic: 30/30 runs; red with the fold off). CONVERGED.
 Rebased onto origin/main after #4574; validated in full on Mortals (the Agent1s queue was ~3 h and its waiter died
 at 17:37 with every session's background jobs).
+
+### After the first full green CI (iteration 14, the merge of main)
+PR #4622's CI went FULL GREEN on 3242450af at 08:43 CDT 2026-09-30 (node, both shell shards, windows), about
+2.5 h after the push. By then main had moved 30 commits and the PR was CONFLICTING: engine/messages.js, where
+#4624 (room hold) taught a post's summary state that a HELD post counts as placed, on the lines this branch had
+moved into aggregateState. A rebase of the 20 commits conflicted commit after commit, so main was MERGED into
+the branch instead (ef4e5c2af, then bd4ec75b7 for one more commit that landed meanwhile; the PR squashes).
+- The resolution: aggregateState counts roomhold.HELD as placed, so a fresh post and the folded twin of a
+  repeated post agree. New arm in engine/messages.roomhold-4624.test.js: the same post sent again while held is
+  folded, reads as placed, is typed once to the idle member and held once for the working one. Red when the
+  fold path ignores held.
+- Iteration 14 (opus, blind, the resolution only): 0 BLOCKER, 0 WARNING, 0 NIT. It checked that nothing of
+  main's side was dropped, every reader of a post's outcomes and state on both sides (the CLIs, federation, the
+  outbox drain), that a later flush does not change the stored row, and ran three mutations on a copy (fold
+  ignores held; fold disabled; aggregateState without held), each red on the named assertion.
+- Disclosed: cli.busy-health-4466.test.js went red ONCE in a 12-file focused loop on a loaded machine (two
+  cargo suites were running); I did not capture that run's output. The same file then passed 5 runs of 5
+  (46/46 each). I do not know what failed that once. The PR's CI runs it again.
+- The Mortals full-suite pass recorded above predates this merge. The PR's CI on the merge commit decides.
