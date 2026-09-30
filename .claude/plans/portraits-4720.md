@@ -149,6 +149,21 @@ showed why.
   removed; the first gap names the whole residual; the late answer is a recorded gap with a
   requirement on the follow-up.
 
+## Review 5 (blind, sonnet): 0 blockers, 1 warning, 2 nits
+
+- W: my review 4 change un-pinned what review 1 had pinned. Asking the two names at once pins
+  the in-flight map's key, but both asks are past the failure check before either fails, so the
+  FAILURE map's key was no longer tested (the reviewer keyed it by hash alone and the file
+  stayed green). Review 4's line above, "pinned as well as the failure map's", was therefore
+  false when written. There are now two tests: at once (in-flight key) and one after the other
+  (failure key); each key, keyed by hash alone, turns its own test red.
+- N, left: the in-flight entry is set after the download's closure has started. Nothing before
+  its first await can throw today (`base()` and string joins). N, not taken: the reviewer read
+  `setup()` as leaving the in-memory hold between tests; it clears it (`useKeyForTest`).
+- The product code has not changed since review 2 except one line that could never run. Rounds
+  3, 4 and 5 each found a test that did not pin what the round before had claimed, each caused
+  by my own previous fix.
+
 ## Weakest premise
 
 That a person making a team is online at that moment. They are in practice (the Team screen just
@@ -156,7 +171,7 @@ downloaded the catalogue), and when they are not the agent is made without a pic
 
 ## Tests
 
-- `engine/catalogue.portrait-4720.test.js` (27; see review 2 for what removing a guard does and does not turn red): the happy path and its address, kept and not
+- `engine/catalogue.portrait-4720.test.js` (28; see review 2 for what removing a guard does and does not turn red): the happy path and its address, kept and not
   asked again, wrong image refused after one ask past the caches, stale cache recovered, the
   minute's gap and `force`, not a WebP, over the cap with an at-the-cap control, nine bad paths
   and six bad hashes never fetched, a damaged kept file, pruning leaves a download under way

@@ -419,3 +419,14 @@ test('a save that fails at the last step leaves no half-written file behind, and
   assert.equal((await catalogue.portrait('marketing', 'lead', { fetcher })).ok, true);
   assert.equal(calls.length, 1, 'held in memory, so not downloaded again');
 });
+
+test('two members sharing one image, asked one after the other: the first name\'s failure is not the second\'s answer', async () => {
+  setup(PATH, sha256(IMG), { 'marketing-content': ['avatars/marketing-content.webp', sha256(IMG)] });
+  // The lead's name fails and the failure is remembered; only then is the content writer asked.
+  const lead = await catalogue.portrait('marketing', 'lead', { fetcher: server(404).fetcher });
+  assert.equal(lead.ok, false);
+  const up = server(IMG);
+  const content = await catalogue.portrait('marketing', 'content', { fetcher: up.fetcher });
+  assert.equal(content.ok, true, `the content writer was answered with the lead's remembered failure: ${content.because}`);
+  assert.deepEqual(up.calls, ['https://installkosmos.com/catalogue/avatars/marketing-content.webp']);
+});
