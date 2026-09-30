@@ -29,6 +29,8 @@ Card: #4588. Stacked on PR A (branch agyquota-4588, not yet merged). Design and 
 - Holding only the card that hit the error: its colleagues on the same account are the ones still spending.
 
 ## Weakest premise
+Nothing releases a hold early: a card reading working is no proof the pool refilled, so a hold lasts to its recorded
+reset (bounded by MAX_POOL_MS, 8 days). If Google refills early, the timers wait longer than they had to: delay only.
 One machine is one Google account (`~/.gemini/antigravity-cli`, measured in PR A). A second account on one machine is
 held needlessly until the reset: the safe direction, it costs only delay.
 
@@ -131,3 +133,14 @@ held needlessly until the reset: the safe direction, it costs only delay.
   with the quota as its reason rather than unreachability (COULD_NOT either way).
 - Measured: engine/agyhold-4588.test.js 25/25; the targeted set 290/290. Mutations: a working agy card not clearing the
   memory, held peers still asked, and everyone released at once each red exactly their own test.
+
+## Review iteration 6 (blind, sonnet)
+- (W) FIXED by removal: review 5's "an antigravity card seen working clears the memory" released every held timer at
+  once after the reset (the first resumed agent reads working), and during the pause a working card is no proof the
+  pool refilled. Dropped; now named as the weakest premise.
+- (W) FIXED: a pane on this machine that is not ours (isNamedOurs false) counted toward the pool and the release
+  order. Only our antigravity panes count now.
+- (N) FIXED: the recommender's held is a plain boolean; the peer filter makes a new array for this convening only
+  (checked: step()'s own peers list is not mutated). poolHeldUntil is marked as the stateless reading.
+- Measured: engine/agyhold-4588.test.js 26/26; the targeted set 291/291. Mutations: working clearing the
+  memory again, and strangers counted, each red exactly their own test.
