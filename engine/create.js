@@ -5717,6 +5717,9 @@ module.exports = {
   setAccount,
   setProvider,
   readJob,
+  /* #4353: agyrefresh's production wiring calls this. It was never exported, so the board-start refresh
+     threw on every start (caught, one stderr line) and healed nothing, in every build from 0.7.07. */
+  agyBridgePath,
   /* win32-agent-job-read: the job read with its reason, and the Trust & Restart
      trust step, which the route calls so its job read follows the platform. */
   readJobVerdict,

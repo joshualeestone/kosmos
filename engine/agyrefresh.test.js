@@ -243,3 +243,16 @@ test('#4353 a dead ask_question tool handler is broken too (it would deny ask_qu
     assert.equal(agyrefresh.hasKosmosHook(wd, agyhooks.HOOK_NAME), false, 'a dead PreToolUse read as hooked');
   } finally { fs.rmSync(wd, { recursive: true, force: true }); }
 });
+
+test('#4353 the production wiring only calls things create.js really exports', () => {
+  /* The tests above hand in every dependency, so none of them runs refreshAtBoardStart's own wiring, and
+     that wiring called create.agyBridgePath(), which create.js did not export: the refresh threw at every
+     board start in 0.7.07 to 0.7.11 and healed nothing. refreshAtBoardStart itself is not called here: it
+     reads this computer's real launch jobs. So read what it calls, and ask create.js for each. */
+  const src = fs.readFileSync(path.join(__dirname, 'agyrefresh.js'), 'utf8');
+  const called = [...new Set([...src.matchAll(/\bcreate\.([A-Za-z_][A-Za-z0-9_]*)\(/g)].map((m) => m[1]))];
+  // Control: the scan really found the calls (an empty list would pass every assertion below).
+  assert.ok(called.includes('agyBridgePath') && called.includes('readJob') && called.length >= 5, 'the scan found ' + JSON.stringify(called));
+  for (const name of called) assert.equal(typeof create[name], 'function', 'agyrefresh.js calls create.' + name + '(), which create.js does not export');
+  assert.match(create.agyBridgePath(), /agy-report-bridge\.js$/);
+});
