@@ -53,7 +53,7 @@ remote.macRequest = async (method, route, body) => {
   return { ok: false, because: 'unexpected route ' + route };
 };
 remote.address = () => 'attic.kosmos.test';
-const ownCodeOf = (ref, name, from) => federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 2, ref, name, from: from || 'study' })).toString('base64url');
+const ownCodeOf = (ref, name, from) => federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref, name, from: from || 'study' })).toString('base64url');
 
 let base;
 test.before(async () => {
@@ -350,7 +350,7 @@ test('#3728: a join with a code from an older owner (no second half) says in the
 /* kosmos#4649: a project from ANOTHER computer of this account ("add your other computer").
    Nothing is redeemed with the coordinator; the join makes a `self` link seated in the
    account's own room, unsealed, and says so in the room. */
-test('#4649 an own-account code joins as a self link, with nothing signed and nothing sealed', async (t) => {
+test('#4649 an own-account code joins as a self link, with one signed read of the account\'s computers and nothing sealed', async (t) => {
   const realPlus = remote.kosmosPlus;
   t.after(() => { remote.kosmosPlus = realPlus; });
   remote.kosmosPlus = () => true;

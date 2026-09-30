@@ -168,7 +168,8 @@ function nameOk(v) {
 }
 
 /* kosmos#4649: a code that lets ANOTHER computer of the same account join this project's
-   shared room. It carries only the project's ref and name, and needs no secret: a seat in
+   shared room. It carries the project's ref and name and the name of the computer that made it
+   (kosmos#4699), and needs no secret: a seat in
    an own room is only ever minted for the caller's OWN account, so this code pasted on
    someone else's computer opens that account's own (empty) room, never this one. */
 const OWN_PREFIX = 'kosmos-own:';
@@ -220,7 +221,7 @@ function ownCode(projectId, projectName, from) {
   }
   // parseOwnCode refuses a code over OWN_CODE_MAX; the name is cut, by whole characters, to fit.
   let chars = Array.from(String(projectName || '').slice(0, NAME_MAX));
-  const make = () => OWN_PREFIX + Buffer.from(JSON.stringify({ v: 2, ref, from, name: chars.join('') }), 'utf8').toString('base64url');
+  const make = () => OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref, from, name: chars.join('') }), 'utf8').toString('base64url');
   let code = make();
   while (code.length > OWN_CODE_MAX && chars.length > 1) { chars = chars.slice(0, Math.floor(chars.length / 2)); code = make(); }
   return code;
@@ -235,16 +236,19 @@ function ownRefHere(ref) {
   return Object.values(links()).some((l) => l && (l.role === 'self' || l.role === 'owner') && l.ref === ref);
 }
 /** The {ref, name, from} an own-account code carries, or null for anything else. `from` is null for a
-    code in the first format (v 1, before #4699), which named no computer; verify refuses those. */
+    code made before #4699, which named no computer; verify refuses those. The format number did not
+    change when `from` was added: a Kosmos that predates it reads a newer code as it always read codes
+    (it ignores `from`), where a new number would have made it answer "that code was not recognised". */
 function parseOwnCode(text) {
   const t = typeof text === 'string' ? text.trim() : '';
   if (!t.startsWith(OWN_PREFIX) || t.length > OWN_CODE_MAX) return null;
   let o;
   try { o = JSON.parse(Buffer.from(t.slice(OWN_PREFIX.length), 'base64url').toString('utf8')); } catch { return null; }
-  if (!o || (o.v !== 1 && o.v !== 2) || typeof o.ref !== 'string' || !OWN_REF_RE.test(o.ref) || typeof o.name !== 'string') return null;
-  if (o.v === 2 && (typeof o.from !== 'string' || !OWN_FROM_RE.test(o.from))) return null;
+  if (!o || o.v !== 1 || typeof o.ref !== 'string' || !OWN_REF_RE.test(o.ref) || typeof o.name !== 'string') return null;
+  // A maker that is there but is not a name is a broken code; one that is absent is an older code.
+  if (o.from !== undefined && (typeof o.from !== 'string' || !OWN_FROM_RE.test(o.from))) return null;
   const name = o.name.trim().slice(0, NAME_MAX);
-  return name ? { ref: o.ref, name, from: o.v === 2 ? o.from : null } : null;
+  return name ? { ref: o.ref, name, from: o.from === undefined ? null : o.from } : null;
 }
 
 /** The Kosmos+ names of the computers on THIS computer's account, asked of the coordinator through
@@ -265,12 +269,16 @@ async function ownAccountNames(remote) {
    never shown: a spawn failure carries a path on this computer, and the tunnel's refusal line carries a
    route and a status code. Only the coordinator's own sentence is kept, and only when it has no path. */
 function uncheckedRefusal(because) {
-  const b = typeof because === 'string' ? because : '';
+  // The tunnel prints its failure as `Error: ...`, and macRequest hands that line on as it came: strip
+  // it, or the anchored match below never sees a real refusal (only a hand-written one in a test).
+  const b = (typeof because === 'string' ? because : '').trim().replace(/^Error:\s*/, '');
   if (/not connected to Kosmos\+/.test(b)) {
-    return { status: 409, body: { reason: 'no-remote', error: 'Turn on Kosmos+ remote access on this computer, then paste the code again.' } };
+    // "Not connected" is not signed in to Kosmos+ here (the same state fedseats' note names).
+    return { status: 409, body: { reason: 'no-remote', error: 'Sign in to Kosmos+ again in Settings on this computer, then paste the code again.' } };
   }
   const m = /^Kosmos\+ refused this Mac: (.+?)(?: \(HTTP \d+ on [^)]*\))?$/.exec(b);
-  const said = m && m[1].trim();
+  // The coordinator's sentence is outside text: one line, printable, bounded.
+  const said = m && m[1].replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
   if (said && !/[\/\\]/.test(said)) {
     return { status: 502, body: { reason: 'unchecked', error: 'Kosmos could not check that this code is from one of your computers: Kosmos+ said ' + said.replace(/[.;]\s*$/, '') + '.' } };
   }

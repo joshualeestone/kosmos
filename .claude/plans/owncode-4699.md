@@ -91,3 +91,35 @@ STATED, NOT FIXED:
 - NIT 5 FIXED: the route constant is `account-computers.js`'s ROUTE. The looser label rule stays on
   purpose: it compares labels only, and the answer is unsigned either way (Not covered).
 - NIT 6 FIXED: the browser check's header names the refusal-in-words assertion.
+
+## Review 3: found nothing to act on (07:5x CDT, before the merge of main). Not written down at the time;
+the model was not recorded.
+
+## Review 4 (opus), on the head merged with main: 3 WARNINGs, 2 CONVENTIONs
+Run because a merge of main came after review 3. It found three real things the first three had not.
+- W FIXED: `uncheckedRefusal` matched `^Kosmos+ refused this Mac:`, and the tunnel prints `Error: ` first
+  (its fake in remote.test.js writes it that way; `retireReason` strips it for the same reason). So the
+  branch that shows the coordinator's own sentence never ran on a real refusal: a computer not yet allowed
+  on its account was told "Try again in a moment", which can never succeed. My test had handed it a
+  hand-written line without the prefix. The prefix is stripped now, and the test uses the real shape.
+- W FIXED: `farSide` called an owner project shared by own code "your other computers" even when a guest
+  from another account sits in the same room (the owner's seat is on the guest's edge then). Those notes
+  said "the external project" before this branch, which was true for that case. It now says "the other
+  computers in this project" when the seat is on a guest's edge.
+- W FIXED, and a decision of mine reversed: the code's format number went back to 1. I had bumped it to 2
+  when `from` was added, and recorded under review 1 that an older Kosmos would then refuse a newer code
+  "in generic words". There was no reason to pay that: an older Kosmos ignores `from` and joins as it
+  always did, and this Kosmos refuses a code WITHOUT `from` with the old-code sentence either way.
+  REJECTED: keeping 2 because no released build has the older parser yet (a staging build does).
+- CONVENTION FIXED: the three refusal sentences live twice (the page shows its own copy). A test now reads
+  the page and asserts each equals the engine's; it caught nothing today and would catch the next edit.
+- NITs taken: "Turn on Kosmos+ remote access" was the wrong remedy for "not connected" (that state is not
+  signed in; the existing note says "Sign in to Kosmos+ again in Settings"); the coordinator's sentence is
+  now one printable line of at most 200 characters before it is shown.
+- NITs not taken: `from` is an unsigned claim (stated under Weakest premise); the list includes this
+  computer's own row; a refusal leaves an earlier snapshot for the same ref until it expires.
+- Controls, on a scratch copy: without the `Error:` strip, without the guest-edge case, and with the
+  page's sentence changed, the three tests that cover them go red, each by name. In the worktree: 140 pass
+  across the four federation test files.
+- The full suite that passed at 3d5cba6b5 (12,528 tests) is about the head BEFORE this review and before
+  a second merge of main. It does not cover this head. A new full run is owed.

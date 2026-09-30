@@ -36,13 +36,18 @@ test('anything that is not a well-formed own code is refused', () => {
   const enc = (o) => federation.OWN_PREFIX + Buffer.from(JSON.stringify(o)).toString('base64url');
   for (const bad of [
     '', 'abc.def', 'kosmos-own:', 'kosmos-own:%%%', enc({ v: 3, ref: 'r', name: 'n', from: 'study' }),
-    enc({ v: 2, ref: 'r', name: 'n' }), enc({ v: 2, ref: 'r', name: 'n', from: 'Not A Name' }), enc({ v: 2, ref: 'r', name: 'n', from: '-x' }),
+    enc({ v: 2, ref: 'r', name: 'n', from: 'study' }), enc({ v: 1, ref: 'r', name: 'n', from: 'Not A Name' }), enc({ v: 1, ref: 'r', name: 'n', from: '-x' }),
+    enc({ v: 1, ref: 'r', name: 'n', from: 7 }), enc({ v: 1, ref: 'r', name: 'n', from: null }),
     enc({ v: 1, ref: '', name: 'n' }), enc({ v: 1, ref: 'x'.repeat(129), name: 'n' }),
     enc({ v: 1, ref: 'r', name: '   ' }), enc({ v: 1, ref: 'r' }), null, 42,
   ]) assert.equal(federation.parseOwnCode(bad), null, JSON.stringify(bad));
-  // The first format named no computer: it still parses (so verify can say why it is refused), with from null.
+  // A code made before #4699 named no computer: it still parses (so verify can say why it is refused), with from null.
   assert.deepEqual(federation.parseOwnCode(enc({ v: 1, ref: 'r1', name: 'N' })), { ref: 'r1', name: 'N', from: null });
-  assert.deepEqual(federation.parseOwnCode(enc({ v: 2, ref: 'r1', name: 'N', from: 'study' })), { ref: 'r1', name: 'N', from: 'study' });
+  assert.deepEqual(federation.parseOwnCode(enc({ v: 1, ref: 'r1', name: 'N', from: 'study' })), { ref: 'r1', name: 'N', from: 'study' });
+  // The format number is still 1, so a Kosmos from before #4699 reads a new code as it read every code.
+  federation.recordLink('proj-fmt', { role: 'owner', ref: 'ref-fmt' });
+  const made = federation.ownCode('proj-fmt', 'Format', 'study');
+  assert.equal(JSON.parse(Buffer.from(made.slice(federation.OWN_PREFIX.length), 'base64url').toString('utf8')).v, 1);
 });
 
 test('the seat arguments: --own-project for an own room, --edge otherwise, never both', () => {
@@ -128,7 +133,7 @@ test('an own-code verify with no way to ask about Kosmos Plus is refused (fails 
 
 /* kosmos#4699: an own code names the computer that made it, and verify accepts it only when that
    computer is on THIS computer's account. */
-const ownCodeFrom = (from, ref) => federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 2, ref: ref || 'ref-4699', name: 'Shared', from })).toString('base64url');
+const ownCodeFrom = (from, ref) => federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: ref || 'ref-4699', name: 'Shared', from })).toString('base64url');
 const plusRemote = (answer) => {
   const calls = [];
   return { calls, kosmosPlus: () => true, macRequest: async (method, route, body) => { calls.push([method, route, body]); return typeof answer === 'function' ? answer() : answer; } };
@@ -183,7 +188,10 @@ test('#4699: when the account\'s computers cannot be read, the code is not accep
 
 test('#4699: a could-not-check refusal never shows a path or a route, and names what the person can do', async () => {
   const cases = [
-    [{ ok: false, because: 'this computer is not connected to Kosmos+' }, 'no-remote', /Turn on Kosmos\+ remote access/],
+    [{ ok: false, because: 'this computer is not connected to Kosmos+' }, 'no-remote', /Sign in to Kosmos\+ again in Settings/],
+    // Review 4: the line as the tunnel really prints it, `Error: ` first. Without the strip this answered
+    // "Try again in a moment", which for a computer not allowed yet can never succeed.
+    [{ ok: false, because: 'Error: Kosmos+ refused this Mac: this computer is not allowed yet; allow it from your other computer first (HTTP 403 on /v1/mac/account-computers)' }, 'unchecked', /Kosmos\+ said this computer is not allowed yet; allow it from your other computer first\.$/],
     [() => { throw new Error('spawn /Users/someone/Kosmos/bin/kosmos-tunnel ENOENT'); }, 'unchecked', /Try again in a moment/],
     [{ ok: false, because: 'Kosmos+ refused this Mac: this computer is not allowed yet; allow it from your other computer first (HTTP 403 on /v1/mac/account-computers)' }, 'unchecked', /Kosmos\+ said this computer is not allowed yet; allow it from your other computer first\.$/],
   ];
@@ -194,8 +202,10 @@ test('#4699: a could-not-check refusal never shows a path or a route, and names 
     assert.doesNotMatch(out.body.error, /\/|HTTP \d|ENOENT/, 'a path, route or status reached the person: ' + out.body.error);
   }
   // The coordinator's sentence carries no retry advice: retrying cannot allow a computer.
-  const held = await federation.verify(plusRemote(cases[2][0]), { code: ownCodeFrom('study', 'ref-words') });
-  assert.doesNotMatch(held.body.error, /Try again/);
+  for (const i of [1, 3]) {
+    const held = await federation.verify(plusRemote(cases[i][0]), { code: ownCodeFrom('study', 'ref-words') });
+    assert.doesNotMatch(held.body.error, /Try again/, cases[i][0].because);
+  }
 });
 
 test('#4699: a code in the first format (no maker) is refused with the way forward', async () => {
@@ -205,4 +215,19 @@ test('#4699: a code in the first format (no maker) is refused with the way forwa
   assert.equal(out.status, 409, JSON.stringify(out.body));
   assert.equal(out.body.reason, 'old-code');
   assert.equal(r.calls.length, 0, 'nothing was asked of the coordinator for a code that cannot be checked');
+});
+
+test('#4699: the join screen and the engine say the same sentence for each own-code refusal', async () => {
+  // The page shows its OWN copy of these three sentences, so the engine's copy could drift unseen.
+  const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  const old = federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: 'ref-same-old', name: 'Old' })).toString('base64url');
+  const said = {
+    'old-code': (await federation.verify(plusRemote(LIST('study')), { code: old })).body,
+    'other-account': (await federation.verify(plusRemote(LIST('study')), { code: ownCodeFrom('someone-else', 'ref-same-other') })).body,
+    'no-remote': (await federation.verify(plusRemote({ ok: false, because: 'this computer is not connected to Kosmos+' }), { code: ownCodeFrom('study', 'ref-same-remote') })).body,
+  };
+  for (const [reason, body] of Object.entries(said)) {
+    assert.equal(body.reason, reason, JSON.stringify(body));
+    assert.ok(page.includes("'" + reason + "': '" + body.error + "'"), 'the page\'s sentence for ' + reason + ' is not the engine\'s: ' + body.error);
+  }
 });

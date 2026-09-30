@@ -245,13 +245,18 @@ function onEvent(projectId, line) {
   }
 }
 
-/* kosmos#4699: what the far side of a room is called in a note. A room shared only with the person's
-   own computers (a `self` link, or an owner project shared by own code) is not an "external project". */
+/* kosmos#4699: what the far side of a room is called in a note. A project joined by own code (a `self`
+   link) has only the person's own computers on the far side. An owner project shared by own code has
+   them too, and it may ALSO have a guest from another account in the same room: the owner's seat is on
+   the guest's edge then (`s.edge`), and "your other computers" alone would be untrue. */
 function farSide(projectId, startsSentence) {
   const l = safeLink(projectId);
-  const own = l && (l.role === 'self' || (l.role === 'owner' && l.selfShared === true));
-  if (startsSentence === true) return own ? 'Your other computers' : 'The external project';
-  return own ? 'your other computers' : 'the external project';
+  const ownShared = l && l.role === 'owner' && l.selfShared === true;
+  const s = seats.get(projectId);
+  let words = 'the external project';
+  if (l && l.role === 'self') words = 'your other computers';
+  else if (ownShared) words = (s && s.edge) ? 'the other computers in this project' : 'your other computers';
+  return startsSentence === true ? words.charAt(0).toUpperCase() + words.slice(1) : words;
 }
 
 function say(projectId, text) {

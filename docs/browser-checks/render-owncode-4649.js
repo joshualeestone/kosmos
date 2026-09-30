@@ -107,7 +107,7 @@ function chk(ok, label, extra) {
           chk(other.code === '' && !other.row, `${E} another project's settings do not show the first one's code`, JSON.stringify(other));
           // The joining side: an own code for a room NOT on this board (this board's own code would
           // be refused as already here), verified through the real /api/federation/verify.
-          const ownCodeFrom = (from) => federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 2, ref: 'bc-' + from + '-' + engineName + width, name: 'From the ' + from, from }), 'utf8').toString('base64url');
+          const ownCodeFrom = (from) => federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: 'bc-' + from + '-' + engineName + width, name: 'From the ' + from, from }), 'utf8').toString('base64url');
           // kosmos#4699: a code made on a computer that is NOT on this account is refused, in words.
           const stranger = await page.evaluate(async (c) => {
             document.getElementById('pj-join-code').value = c;
