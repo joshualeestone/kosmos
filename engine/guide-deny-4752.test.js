@@ -55,8 +55,9 @@ test('#4752 no rule takes in the worlds\' base whole, or a world\'s whole folder
     return re.test(own);
   };
   assert.deepEqual(rules.filter(covers), [], 'a rule would cut the guide off from its own instructions');
-  assert.ok(covers('Read(//b/**)') && covers('Read(//b/worlds/*/workers/**)') && !covers('Read(//b/worlds/*/Kosmos/**)'),
-    'CONTROL: the cover check can say yes, through a `*`, and no');
+  assert.ok(covers('Read(//b/**)'), 'CONTROL: the cover check cannot say yes');
+  assert.ok(covers('Read(//b/worlds/*/workers/**)'), 'CONTROL: the cover check cannot say yes through a `*`');
+  assert.ok(!covers('Read(//b/worlds/*/Kosmos/**)'), 'CONTROL: the cover check cannot say no');
 });
 
 test('#4752 in the default world the base IS the data folder: no second rule for it, and the older folder only when it is another folder', () => {
@@ -97,4 +98,17 @@ test('#4752 a process that has entered a named world (as a guide\'s board does) 
   assert.ok(out.rules.includes(`Read(${abs(path.join(out.base, 'board.token'))})`), 'the default world\'s token is not denied');
   assert.ok(out.rules.includes(`Read(${abs(path.join(out.base, 'worlds'))}/*/${store.APP}/**)`), 'the other worlds\' stores are not denied');
   assert.ok(!out.rules.includes(`Read(${abs(out.base)}/**)`), 'the base is denied whole, which cuts the guide off from its own folder');
+});
+
+test('#4752 when the extra folders cannot be worked out, the rules that were there before still come back', () => {
+  const worlds = require('./worlds');
+  const was = Object.getOwnPropertyDescriptor(worlds, 'WORLDS_SUBDIR');
+  Object.defineProperty(worlds, 'WORLDS_SUBDIR', { configurable: true, get() { throw new Error('cannot be read'); } });
+  try {
+    const rules = setupAssistant.guideDenyRules({ dataRoot: '/b/worlds/w1/Kosmos', worldsBase: '/b', legacyRoots: ['/old/AgentWorkforce'] });
+    assert.ok(rules.includes('Read(//b/worlds/w1/Kosmos/**)') && rules.includes('Read(~/.ssh/**)'), 'the earlier rules were lost: ' + rules.length);
+    assert.deepEqual(rules.filter((r) => r.includes('/old/') || r.includes('board.token')), [], 'half of the extra rules were kept');
+  } finally { Object.defineProperty(worlds, 'WORLDS_SUBDIR', was); }
+  assert.ok(setupAssistant.guideDenyRules({ dataRoot: '/b/worlds/w1/Kosmos', worldsBase: '/b', legacyRoots: [] }).includes('Read(//b/board.token)'),
+    'CONTROL: with the folder readable again the extra rules are back');
 });

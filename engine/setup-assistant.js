@@ -216,6 +216,8 @@ function markGuideFolder(agentName) {
  */
 /* The same home accounts.js and create.js use (a named world or a test sets it). */
 function kosmosHome() { return process.env.AGENT_WORKFORCE_HOME || require('os').homedir(); }
+/* `worldsBase` and `legacyRoots` are for tests: left out, both are worked out from this process (as `dataRoot`'s
+   default is), and production passes none of the three. */
 function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase, legacyRoots } = {}) {
   const abs = (p) => '//' + String(p).replace(/^\/+/, '');
   const rules = [
@@ -249,15 +251,19 @@ function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase
      included, live under it (<base>/worlds/<id>/workers), and a rule on the base would cut the guide off from
      its own instructions. */
   const same = (a, b) => !!a && !!b && path.resolve(a) === path.resolve(b);
-  for (const old of (legacyRoots !== undefined ? legacyRoots : guideLegacyRoots())) {
-    if (old && !same(old, dataRoot)) rules.push(`Read(${abs(old)}/**)`);
-  }
-  const base = worldsBase !== undefined ? worldsBase : guideWorldsBase();
-  if (base && !same(base, dataRoot)) {
-    rules.push(`Read(${abs(path.join(base, path.basename(require('./boardauth').tokenPath())))})`);   // the default world's token
-    const worldsDir = path.dirname(require('./worlds').worldBaseDir(base, { id: 'x' }));
-    for (const leaf of [store.APP, store.LEGACY_APP]) rules.push(`Read(${abs(worldsDir)}/*/${leaf}/**)`);   // every named world's store
-  }
+  try {
+    const more = [];
+    for (const old of (legacyRoots !== undefined ? legacyRoots : guideLegacyRoots())) {
+      if (old && !same(old, dataRoot)) more.push(`Read(${abs(old)}/**)`);
+    }
+    const base = worldsBase !== undefined ? worldsBase : guideWorldsBase();
+    if (base && !same(base, dataRoot)) {
+      more.push(`Read(${abs(path.join(base, require('./boardauth').TOKEN_FILE))})`);   // the default world's token
+      const worldsDir = path.join(base, require('./worlds').WORLDS_SUBDIR);
+      for (const leaf of [store.APP, store.LEGACY_APP]) more.push(`Read(${abs(worldsDir)}/*/${leaf}/**)`);   // every named world's store
+    }
+    rules.push(...more);
+  } catch { /* the rules above still stand: a guide is never left with none because these could not be worked out */ }
   return rules;
 }
 /* #4752: the worlds' base (the default world's data folder), as it was before any world was applied to this

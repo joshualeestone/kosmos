@@ -568,6 +568,7 @@ function worldProfileNames(base, world) {
 
 module.exports = {
   DEFAULT_ID,
+  WORLDS_SUBDIR,
   baseRoot,
   registryPath,
   defaultWorld,
