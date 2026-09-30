@@ -16013,3 +16013,31 @@ test('#4632: only the picker\'s ?catalogue=1, and a create for a role not held, 
     await new Promise((ok) => srv.close(ok));
   }
 });
+
+test('#4771: a task is put on hold and taken off through its route; a project is paused and resumed through its edit', async () => {
+  const projects = require('./engine/projects');
+  const tasks = require('./engine/tasks');
+  const p = projects.create({ name: 'Hold Route 4771' });
+  const t = tasks.create(p.id, { sentence: 'wait for the person', made: { via: 'screen' } });
+  const url = '/api/project/' + encodeURIComponent(p.id) + '/task/' + t.number + '/hold';
+  const on = await postJson(url, { onHold: true });
+  assert.equal(on.status, 200, on.body);
+  assert.equal(JSON.parse(on.body).task.onHold, true);
+  assert.equal(tasks.isOnHold(tasks.byNumber(projects.readAll().find((x) => x.id === p.id), t.number)), true, 'the route did not store the hold');
+  const bad = await postJson(url, { onHold: 'yes' });
+  assert.equal(bad.status, 400, bad.body);
+  const none = await postJson('/api/project/' + encodeURIComponent(p.id) + '/task/9999/hold', { onHold: true });
+  assert.equal(none.status, 404, none.body);
+  const off = await postJson(url, { onHold: false });
+  assert.equal(off.status, 200, off.body);
+  assert.equal('onHold' in JSON.parse(off.body).task, false, 'off hold left the field on the task');
+  const put = (body) => req('/api/project/' + encodeURIComponent(p.id), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const paused = await put({ paused: true });
+  assert.equal(paused.status, 200, paused.body);
+  assert.equal(projects.isPaused(projects.readAll().find((x) => x.id === p.id)), true, 'the edit did not pause the project');
+  const wrong = await put({ paused: 'true' });
+  assert.equal(wrong.status, 400, 'a non-boolean paused was accepted: ' + wrong.body);
+  const resumed = await put({ paused: false });
+  assert.equal(resumed.status, 200, resumed.body);
+  assert.equal(projects.isPaused(projects.readAll().find((x) => x.id === p.id)), false, 'the edit did not resume the project');
+});

@@ -15732,6 +15732,9 @@ const server = http.createServer(async (req, res) => {
            {"archived": "false"} into an archive), so a mixed body either
            applies whole or not at all. */
         if (body.archived !== undefined) fields.archived = body.archived;
+        /* #4771: paused, carried like archived (a boolean, validated by the engine): the Prompter and the Assigner skip
+           a paused project's tasks. Like archiving, it changes nothing about the members, so it re-tells nobody. */
+        if (body.paused !== undefined) fields.paused = body.paused;
         /* #1994: parent is a carried field like the rest -- the engine's edit
            validates it (self-parent, a missing parent, and cycles are refused)
            before its single write, so a body mixing parent with name or
@@ -16859,6 +16862,28 @@ const server = http.createServer(async (req, res) => {
         : (/no project by that name|no task by that number/.test(msg) ? 404 : 400);
       sendJson(res, code, { error: msg || 'we could not change that task' });
     }
+    return;
+  }
+
+  /* #4771: put a task on hold, or take it off. Body { onHold: true | false }. The Prompter never nudges an agent about a
+     task on hold and the Assigner never hands it out; tasks.setOnHold validates and records it in the task's activity. */
+  const taskHold = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/hold$/);
+  if (taskHold && req.method === 'POST') {
+    const id = decodeSegment(taskHold[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      try {
+        const t = tasks.setOnHold(id, taskHold[2], body.onHold);
+        sendJson(res, 200, { task: t });
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
+          { error: msg || 'we could not change that task' });
+      }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 
