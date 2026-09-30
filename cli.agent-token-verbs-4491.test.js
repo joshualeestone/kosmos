@@ -106,7 +106,7 @@ async function send(port, seen, home, args, token) {
   const before = seen.length;
   await runCli(args, env);
   for (let i = 0; i < 100 && seen.length === before; i += 1) await new Promise((r) => setTimeout(r, 50));
-  assert.equal(seen.length, before + 1, `kosmos ${args[0]} did not reach the board at all, so its headers cannot be judged`);
+  assert.equal(seen.length, before + 1, `kosmos ${verbName(args)} did not reach the board at all, so its headers cannot be judged`);
   return seen[seen.length - 1];
 }
 
@@ -117,8 +117,13 @@ for (const [route, args] of VERBS) {
       await withStub(async (port, seen) => {
         const got = await send(port, seen, home, args, TOKEN);
         assert.equal(got.route, route);
-        assert.equal(got.agent, TOKEN, `kosmos ${args[0]} did not present the agent token`);
-        assert.equal(got.board, BOARD, `kosmos ${args[0]} stopped sending the board token (dropping it is a later slice)`);
+        assert.equal(got.agent, TOKEN, `kosmos ${verbName(args)} did not present the agent token`);
+        assert.equal(got.board, BOARD, `kosmos ${verbName(args)} stopped sending the board token (dropping it is a later slice)`);
+        /* `kosmos agent roles` asks for the downloaded roles too (#4632); role-draft and the others send their own query. */
+        if (args.join(' ') === 'agent roles') assert.equal(got.query, 'catalogue=1', 'kosmos agent roles no longer asks for the catalogue');
+        if (args.join(' ') === 'agent role-draft') assert.equal(got.query, '', 'kosmos agent role-draft started asking for the catalogue');
+        if (args[0] === 'room') assert.equal(got.query, 'as=text');
+        if (args.join(' ').startsWith('task list')) assert.equal(got.query, 'project=p4491');
       });
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
@@ -129,7 +134,7 @@ for (const [route, args] of VERBS) {
       await withStub(async (port, seen) => {
         for (const token of ['not-hex; rm -rf', 'ABCDEF', '', null]) {
           const got = await send(port, seen, home, args, token);
-          assert.equal(got.agent, undefined, `kosmos ${args[0]} forwarded ${JSON.stringify(token)} as an agent token`);
+          assert.equal(got.agent, undefined, `kosmos ${verbName(args)} forwarded ${JSON.stringify(token)} as an agent token`);
           assert.equal(got.board, BOARD);
         }
       });

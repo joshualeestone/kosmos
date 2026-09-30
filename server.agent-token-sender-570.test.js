@@ -159,15 +159,18 @@ test('msg, post and react: never exempt for a network peer or with NO credential
   const routes = (agentOnly.match(/'[^']+'/g) || []).map((q) => q.slice(1, -1)).sort();
   /* #4581 added the one READ, GET /api/projects/overview (`kosmos project list`): it writes nothing and answers
      every caller the same, so it has no caller to identify; every WRITE here still must. */
-  /* #4491 slice 4 added two more READS (`kosmos agent roles`, `kosmos task list`): no caller to identify either. */
+  /* #4491 slice 4 added two more READS (`kosmos agent roles`, `kosmos task list`). The task list is narrowed in its
+     handler for a caller on its agent token alone (agentTokenOnlyCaller), as the room read in the patterns is. */
   assert.deepEqual(routes, ['GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/whoami'],
     'AGENT_TOKEN_ROUTES changed: every write added here must be checked to identify its caller from the header token');
   /* #4491 slice 3: the parameterized routes, pinned exactly like the set. */
   const patterns = (src.match(/const AGENT_TOKEN_ROUTE_PATTERNS = \[[^\n]*\];/) || [''])[0];
   assert.equal(patterns, 'const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \\/api\\/project\\/[^/]+\\/task\\/\\d+\\/(?:message|built)$/, /^GET \\/api\\/project\\/[^/]+\\/overview$/, /^GET \\/api\\/project\\/[^/]+\\/room$/];',
-    'AGENT_TOKEN_ROUTE_PATTERNS changed: every route a pattern admits must identify its caller from the header token');
+    'AGENT_TOKEN_ROUTE_PATTERNS changed: every WRITE a pattern admits must identify its caller from the header token, and every read of people\'s work must be narrowed to the caller\'s own projects (agentTokenOnlyCaller)');
   assert.match(src, /const agentTokenRoute = \(key\) => AGENT_TOKEN_ROUTES\.has\(key\) \|\| AGENT_TOKEN_ROUTE_PATTERNS\.some\(/, 'the route check no longer reads the set and the patterns');
   assert.match(src, /agentTokenRoute\([^)]*\) && agentTokenOk\(req\)/, 'the agent-token exemption no longer requires a valid token');
+  /* Slice 4: both narrowed reads ask who came through on a token alone. Two call sites, so dropping one is an edit here. */
+  assert.equal((src.match(/const tokenOnly = agentTokenOnlyCaller\(req\);/g) || []).length, 2, 'the room and task reads no longer both narrow a token-only caller');
   /* #4491 slice 3: a network peer stays refused on the pattern routes too: remoteWriteGuard reads only the exact
      REMOTE_AGENT_ROUTES set, never the agent-token set or its patterns, and that set names no task route. */
   const guard = (src.match(/function remoteWriteGuard\([^)]*\) \{[\s\S]*?\n\}/) || [''])[0];

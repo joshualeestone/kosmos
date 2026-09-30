@@ -3821,14 +3821,18 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    every write on the same path stay behind the board token, and the query (`?project=`, `?as=text`,
    `?catalogue=1`) is not part of it.
    WHO GAINS: an agent whose `kosmos` command can read the board token already makes these reads, and gains
-   nothing. An agent that holds a valid token and truly cannot read the board token gains exactly these three
-   reads (and can cause the two fetches): that is what this list grants, and each entry is a grant from the day the
-   CLIs stop sending the board token. No such agent is known today. The setup guide is NOT one and is not an
-   exception here: on Claude its Read deny rules stop its file tools, not the `kosmos` command's own read of the
-   board token (engine/setup-assistant.js says so; the measurement is in .claude/plans/agent-reads-4491.md), and
-   a Codex, Gemini or Grok guide has no deny file at all. A token minted for an agent on another machine
-   (POST /api/agent-token) reaches this board directly only as a network peer, which remoteWriteGuard refuses
-   before this gate (none of these is in REMOTE_AGENT_ROUTES). */
+   nothing. The caller that DOES gain is one holding a valid token and no board token. A real one exists: a token
+   minted for an agent on another machine (POST /api/agent-token) is refused as a direct network peer
+   (remoteWriteGuard; none of these is in REMOTE_AGENT_ROUTES), but behind the person's own reverse proxy
+   (AGENT_WORKFORCE_ALLOWED_HOSTS) it arrives as a loopback peer and passes this gate. So the two reads that carry
+   people's work are narrowed IN THEIR HANDLERS for a caller that came through on its agent token alone
+   (agentTokenOnlyCaller): the room and the task list answer only for a project that agent is on, the task list
+   needs `?project=`, and its costly Tasks-view arm (`?view=tasks`, `?withArchived=`) is the page's and is not
+   served. The roles list is the product's own text and is open to any valid token. A caller that also presents
+   the board token (every agent's CLI today, and the person) is untouched. The setup guide is NOT a special case:
+   on Claude its Read deny rules stop its file tools, not the `kosmos` command's own read of the board token
+   (engine/setup-assistant.js says so; the measurement is in .claude/plans/agent-reads-4491.md), and a Codex,
+   Gemini or Grok guide has no deny file at all. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
   'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks']);   // overview: #4581, `kosmos project list`
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
@@ -3905,6 +3909,17 @@ function agentTokenOk(req) {
      sending random hex, with no rate valve. That is the same accepted cost the exempt report and
      reply routes already carry, not a new class. */
   return typeof t === 'string' && /^[0-9a-f]{64}$/.test(t) && sendertoken.resolveName(t).ok === true;
+}
+/* #4491 slice 4: did this request get past the board-token gate on its agent token ALONE? Returns null when it did
+   not (the board is not enforcing, or the caller also holds the person's credential: the page, the person's
+   terminal, every agent's CLI today), else the token's agent as the token store names it (its key, which is
+   store.safeKey of the session name), or '' when the token names nobody. For the READ handlers only: they have no
+   body, and the gate has already checked the token, so this is the same header read twice. */
+function agentTokenOnlyCaller(req) {
+  if (!boardAuthState.on || boardTokenOk(req)) return null;
+  let who = null;
+  try { who = sendertoken.resolveName(req && req.headers && req.headers['x-kosmos-agent-token']); } catch { who = null; }
+  return who && who.ok === true && typeof who.key === 'string' ? who.key : '';
 }
 /* #1307: a project webhook's call, POST /hooks/<id>/<secret>. It carries its own secret (checked
    against a hash by engine/webhooks.js in the handler), not the board token, so it is exempt from
@@ -13128,9 +13143,12 @@ const server = http.createServer(async (req, res) => {
      is not in REMOTE_AGENT_ROUTES, so `remoteWriteGuard` refuses a network peer,
      and `crossSiteWrite` refuses another origin's page -- so this is reachable
      only from the Mac itself, which is where an operator adds a Windows agent.
-     Minting a token for a name is not itself dangerous: the name does nothing
+     Minting a token for a name is not itself dangerous: the name SENDS nothing
      until it is live and reporting, where `resolveAgentSender` still enforces
-     the liveness + roster tie. The operator hands the returned token to the
+     the liveness + roster tie. It can READ at once, over loopback, what
+     AGENT_TOKEN_ROUTES opens to a token alone (#4581, #4491 slice 4): the
+     project overviews and the roles, and the room and tasks of a project that
+     lists that name. The operator hands the returned token to the
      remote agent as KOSMOS_AGENT_TOKEN. */
   if (pathname === '/api/agent-token' && req.method === 'POST') {
     readBody(req)
@@ -15207,6 +15225,20 @@ const server = http.createServer(async (req, res) => {
       forTasksView = q.get('view') === 'tasks';
       withArchived = q.get('withArchived') || null;
     } catch { projectScope = null; }
+    /* #4491 slice 4: a caller that came through on its agent token alone reads ONE project's tasks, a project it
+       is on, in the list form `kosmos task list` prints. Never the global set, and never the Tasks view's arm (a
+       board snapshot and a transcript read per task; the page's). See AGENT_TOKEN_ROUTES. */
+    const tokenOnly = agentTokenOnlyCaller(req);
+    if (tokenOnly !== null) {
+      if (!projectScope) { sendJson(res, 403, { error: 'say which project: an agent reads the tasks of a project it is on' }); return; }
+      const stored = (everyProject || []).find((x) => x && x.id === projectScope) || null;
+      if (!stored) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+      if (!tokenOnly || !projectHasAgent(stored, tokenOnly, true)) {
+        sendJson(res, 403, { error: 'that agent is not on this project, so it cannot read its tasks' });
+        return;
+      }
+      forTasksView = false;
+    }
     const all = tasks.allTasks(everyProject);
     const scoped = projectScope ? all.filter((t) => t.projectId === projectScope) : all;
     /* The fields below cost a board snapshot plus a transcript read per task, so only the
@@ -15792,7 +15824,31 @@ const server = http.createServer(async (req, res) => {
        "no such project," so on a throw we fall through to the best-effort room
        read below (which already handles an unreadable store), never to a 404. */
     let projectKnown = true;
-    try { projectKnown = projects.readAll().some((p) => p && p.id === id); } catch { projectKnown = true; }
+    /* #4491 slice 4: a caller that came through on its agent token alone reads the room of a project it is on, and
+       no other. It needs the stored record (members are names), so for that caller an unreadable registry is a
+       503, never the fail-open read below. See AGENT_TOKEN_ROUTES. */
+    const tokenOnly = agentTokenOnlyCaller(req);
+    let roomRefusal = null;
+    try {
+      const everyProject = projects.readAll();
+      const stored = everyProject.find((p) => p && p.id === id) || null;
+      projectKnown = !!stored;
+      if (tokenOnly !== null && stored && (!tokenOnly || !projectHasAgent(stored, tokenOnly, true))) {
+        roomRefusal = [403, 'that agent is not on this project, so it cannot read its room'];
+      }
+    } catch {
+      projectKnown = true;
+      if (tokenOnly !== null) roomRefusal = [503, 'we could not read the projects, so the room was not read'];
+    }
+    if (roomRefusal) {
+      if (asText) {
+        res.writeHead(roomRefusal[0], { 'content-type': 'text/plain; charset=utf-8' });
+        res.end(roomRefusal[1] + '\n');
+      } else {
+        sendJson(res, roomRefusal[0], { error: roomRefusal[1] });
+      }
+      return;
+    }
     if (!projectKnown) {
       if (asText) {
         /* The CLI (bash 3.2, no JSON parser) prints this body verbatim; the 404

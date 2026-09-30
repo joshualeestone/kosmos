@@ -2,8 +2,10 @@
 
 /**
  * #4491 slice 4: three READS an agent already makes every day with the board token (`kosmos agent roles`,
- * `kosmos task list`, `kosmos room`) are reachable with ONLY its own agent token. The setup guide is no
- * exception (the plan, .claude/plans/agent-reads-4491.md, says why and what was measured).
+ * `kosmos task list`, `kosmos room`) are reachable with ONLY its own agent token. On that token alone the room
+ * and the tasks answer only for a project the agent is on; a caller that also presents the board token (every
+ * CLI today, and the person) is not narrowed. The setup guide is no exception (the plan,
+ * .claude/plans/agent-reads-4491.md, says why and what was measured).
  *
  * Same harness as server.agent-token-gate-4491.test.js: the board boots fully sandboxed, then
  * enforcement is flipped on in memory, so no real store is touched.
@@ -67,13 +69,17 @@ async function call(method, p, { headers = {}, body } = {}) {
 const refusedAtGate = (r) => r.code === 403 && GATE_REFUSAL.test(r.text);
 const asAgent = (t) => ({ headers: { 'x-kosmos-agent-token': t } });
 
-/* One project the room read can find, without touching a real registry. */
-function withProject(t) {
+/* Two projects, without touching a real registry: p4491 (reader-agent is on it) and other4491 (it is not). */
+function withProject(t, members = ['reader-agent']) {
   const realAll = projectsEngine.readAll;
-  projectsEngine.readAll = () => [{ id: 'p4491', name: 'p4491', agents: ['reader-agent'], tasks: [{ number: 1, sentence: 'read me', state: 'open' }] }];
+  projectsEngine.readAll = () => [
+    { id: 'p4491', name: 'p4491', agents: members, tasks: [{ number: 1, sentence: 'read me', state: 'open' }] },
+    { id: 'other4491', name: 'other4491', agents: ['someone-else'], tasks: [{ number: 1, sentence: 'not yours', state: 'open' }] },
+  ];
   t.after(() => { projectsEngine.readAll = realAll; });
 }
 const READS = ['/api/roles', '/api/roles?catalogue=0', '/api/tasks?project=p4491', '/api/project/p4491/room?as=text', '/api/project/p4491/room'];
+const both = (t) => ({ headers: { 'x-kosmos-agent-token': t, 'x-kosmos-board-token': BOARD } });
 
 test('CONTROL: each read is refused at the gate with no credential, and with a well-formed token nobody issued', async () => {
   for (const p of READS) {
@@ -82,7 +88,7 @@ test('CONTROL: each read is refused at the gate with no credential, and with a w
   }
 });
 
-test('the three reads answer an agent that holds only its own token', async (t) => {
+test('the three reads answer an agent that holds only its own token, for a project it is on', async (t) => {
   withProject(t);
   const roles = await call('GET', '/api/roles', asAgent(agentToken));
   assert.equal(roles.code, 200, roles.text.slice(0, 160));
@@ -90,12 +96,67 @@ test('the three reads answer an agent that holds only its own token', async (t) 
   const tasks = await call('GET', '/api/tasks?project=p4491', asAgent(agentToken));
   assert.equal(tasks.code, 200, tasks.text.slice(0, 160));
   assert.match(tasks.text, /read me/, 'the tasks read did not carry the project\'s task');
+  assert.doesNotMatch(tasks.text, /not yours/, 'the tasks read carried another project\'s task');
   const room = await call('GET', '/api/project/p4491/room?as=text', asAgent(agentToken));
   assert.equal(room.code, 200, 'the room read was not answered: ' + room.code + ' ' + room.text.slice(0, 160));
+  /* The JSON arm (no ?as=text), the one that warms link previews: answered too, as rows. */
+  const json = await call('GET', '/api/project/p4491/room', asAgent(agentToken));
+  assert.equal(json.code, 200, 'the room\'s JSON arm was not answered: ' + json.code + ' ' + json.text.slice(0, 160));
+  assert.ok(Array.isArray(JSON.parse(json.text).rows), 'the room\'s JSON arm carried no rows array: ' + json.text.slice(0, 160));
   /* An unknown project is the handler's own 404 sentence, so the gate let it through and the handler judged it. */
   const none = await call('GET', '/api/project/nope4491/room?as=text', asAgent(agentToken));
   assert.equal(none.code, 404);
   assert.match(none.text, /there is no project by that name/);
+  assert.equal((await call('GET', '/api/tasks?project=nope4491', asAgent(agentToken))).code, 404);
+});
+
+test('on its token alone an agent reads only the room and tasks of a project it is on', async (t) => {
+  withProject(t);
+  const roomText = await call('GET', '/api/project/other4491/room?as=text', asAgent(agentToken));
+  assert.equal(roomText.code, 403, 'a non-member read the room: ' + roomText.text.slice(0, 120));
+  assert.equal(roomText.text, 'that agent is not on this project, so it cannot read its room\n', 'the text arm prints its sentence bare, for the bash CLI');
+  const roomJson = await call('GET', '/api/project/other4491/room', asAgent(agentToken));
+  assert.equal(roomJson.code, 403);
+  assert.match(JSON.parse(roomJson.text).error, /not on this project/);
+  const tasks = await call('GET', '/api/tasks?project=other4491', asAgent(agentToken));
+  assert.equal(tasks.code, 403, 'a non-member read the tasks: ' + tasks.text.slice(0, 120));
+  assert.doesNotMatch(tasks.text, /not yours/);
+  /* Never the global set. */
+  const all = await call('GET', '/api/tasks', asAgent(agentToken));
+  assert.equal(all.code, 403, 'the global task list was read on an agent token alone: ' + all.text.slice(0, 120));
+  assert.match(all.text, /say which project/);
+  assert.doesNotMatch(all.text, /read me|not yours/);
+  /* Never the Tasks view's arm: asked for it, a member gets the plain list (no roster fields). */
+  const view = await call('GET', '/api/tasks?project=p4491&view=tasks&withArchived=other4491', asAgent(agentToken));
+  assert.equal(view.code, 200);
+  const viewed = JSON.parse(view.text);
+  assert.equal(Object.prototype.hasOwnProperty.call(viewed, 'rosterUnreadable'), false, 'the Tasks view arm was served to an agent token');
+  assert.ok(viewed.tasks.length === 1 && !('claim' in viewed.tasks[0]) && !('lastActivityAt' in viewed.tasks[0]), 'the Tasks view\'s fields were served: ' + view.text.slice(0, 200));
+  /* CONTROL: the same agent, presenting the board token too (as every CLI does today), is not narrowed at all. */
+  assert.equal((await call('GET', '/api/project/other4491/room?as=text', both(agentToken))).code, 200, 'an agent with the board token lost a room it reads today');
+  const theirs = await call('GET', '/api/tasks?project=other4491', both(agentToken));
+  assert.equal(theirs.code, 200);
+  assert.match(theirs.text, /not yours/, 'an agent with the board token lost a task list it reads today');
+  const global = await call('GET', '/api/tasks', { headers: { 'x-kosmos-board-token': BOARD } });
+  assert.match(global.text, /read me[\s\S]*not yours|not yours[\s\S]*read me/, 'the board token no longer reads the global task list');
+  const pageView = JSON.parse((await call('GET', '/api/tasks?project=p4491&view=tasks', { headers: { 'x-kosmos-board-token': BOARD } })).text);
+  assert.ok(Object.prototype.hasOwnProperty.call(pageView, 'rosterUnreadable'), 'control: the Tasks view arm is still served to the board token, so the absence above is the narrowing');
+});
+
+test('a token for a name no project lists reads no room and no tasks; a projects list that cannot be read is a 503 for it', async (t) => {
+  withProject(t);
+  const stray = sendertoken.mint('stray-4491');
+  assert.ok(stray.ok);
+  t.after(() => sendertoken.revoke('stray-4491'));
+  assert.equal((await call('GET', '/api/project/p4491/room?as=text', asAgent(stray.token))).code, 403);
+  assert.equal((await call('GET', '/api/tasks?project=p4491', asAgent(stray.token))).code, 403);
+  assert.equal((await call('GET', '/api/roles', asAgent(stray.token))).code, 200, 'the roles list is open to any valid token');
+  /* Unreadable registry: the member cannot be checked, so the token-only read is refused (503), while the board
+     token keeps the room's old fail-open read. */
+  projectsEngine.readAll = () => { throw new Error('unreadable'); };
+  const blind = await call('GET', '/api/project/p4491/room?as=text', asAgent(agentToken));
+  assert.equal(blind.code, 503, 'an unreadable projects list let a token-only read through: ' + blind.code);
+  assert.equal((await call('GET', '/api/project/p4491/room?as=text', { headers: { 'x-kosmos-board-token': BOARD } })).code, 200, 'the board token lost the room\'s fail-open read');
 });
 
 test('only GET on exactly those paths: every other verb and neighbour stays behind the board token', async () => {
@@ -113,8 +174,8 @@ test('only GET on exactly those paths: every other verb and neighbour stays behi
   }
 });
 
-test('TRIPWIRE: the gate has no setup-guide rule, so a marked guide reads them like any agent (adding one is a decision)', async (t) => {
-  withProject(t);
+test('TRIPWIRE: there is no setup-guide rule, so a marked guide reads them like any agent on the project (adding one is a decision)', async (t) => {
+  withProject(t, ['reader-agent', GUIDE]);
   /* This cannot fail on today's gate, which never looks at the marker: it is here to go red the day someone adds a
      guide rule, so that closing a read the guide makes today is decided and not a side effect. Measured red
      against this branch's first version, which had such a rule. */
@@ -127,15 +188,15 @@ test('TRIPWIRE: the gate has no setup-guide rule, so a marked guide reads them l
   assert.equal(setupAssistant.isGuideFolder('reader-agent'), false, 'control: every agent reads as the guide');
   for (const p of READS) {
     const r = await call('GET', p, asAgent(guideToken));
-    assert.ok(!refusedAtGate(r), `the setup guide's token was refused on ${p}: closing a read to it is a decision (it reads these today), not a side effect`);
+    assert.equal(r.code, 200, `the setup guide's token was refused on ${p}: closing a read to it is a decision (it reads these today), not a side effect`);
   }
 });
 
 test('a revoked token no longer reads', async (t) => {
-  withProject(t);
+  withProject(t, ['reader-agent', 'gone-reader']);
   const gone = sendertoken.mint('gone-reader');
   assert.ok(gone.ok);
-  assert.ok(!refusedAtGate(await call('GET', '/api/tasks?project=p4491', asAgent(gone.token))), 'control: the fresh token reads');
+  assert.equal((await call('GET', '/api/tasks?project=p4491', asAgent(gone.token))).code, 200, 'control: the fresh token reads');
   sendertoken.revoke('gone-reader');
   assert.ok(refusedAtGate(await call('GET', '/api/tasks?project=p4491', asAgent(gone.token))), 'a revoked token still reads the tasks');
 });
