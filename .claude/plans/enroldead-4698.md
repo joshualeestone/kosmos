@@ -51,3 +51,7 @@ for a real cooldown. Test pins it; removing the fix fails it.
 ## Review iteration 3 (changes)
 - The #1011 comment above PLUS_MSG_KIND and the browser-check README row both still described the
   removed rule and arm; both now say what is true (comment and doc only).
+
+## Review iteration 4: converged (NITs only, recorded, not changed)
+- One long reflowed line in the browser check's header comment (cosmetic).
+- The plus-si-name cleaning assertion depends on source layout; it fails loudly, never falsely passes.
