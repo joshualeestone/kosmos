@@ -4,8 +4,9 @@
  * this fixture the way a download would: signed (with a key pair made for this process and handed
  * to engine/catalogue.js through useKeyForTest) into the sandboxed data root.
  *
- * catalogue-fixture.json is a build of joshualeestone/kosmos-catalogue (`node build.js`, its
- * dist/catalogue.json); refresh it from there when a test needs newer roles or teams.
+ * catalogue-fixture.json is the catalogue joshualeestone/kosmos-catalogue published (its
+ * catalogue.json on Pages); refresh it from there when a test needs newer roles or teams. It is
+ * re-signed here with a test key, so its own signature is not used.
  *
  *   const fixture = require('../test-support/catalogue-fixture');
  *   fixture.install(SANDBOX);   // after AGENT_WORKFORCE_DATA points into SANDBOX
@@ -41,7 +42,7 @@ function storeSigned(text, serial) {
 function install(sandbox) {
   const store = require('../engine/store');
   require('./data-root-sandbox').assertSandboxedDataRoot(sandbox, [store.ROOT]);
-  const key = storeSigned(fs.readFileSync(FIXTURE, 'utf8'), 1);
+  const key = storeSigned(fs.readFileSync(FIXTURE, 'utf8'), require('../engine/catalogue').MIN_SERIAL);
   require('../engine/roles').remerge();
   return key;
 }

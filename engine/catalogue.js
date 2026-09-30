@@ -24,7 +24,7 @@ const path = require('node:path');
 /* The Ed25519 public key of joshualeestone/kosmos-catalogue (its signing-key.pub.pem). Changing
    the key there needs a Kosmos release carrying the new one here. */
 const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAoy3YOmcplAgwXyGfYvnrLDgxYwAAeJCkp6wNhywGHqI=
+MCowBQYDK2VwAyEAgvJCzB8DWrcrRCw/rOTLUIj+ii/Sy0TJI7uKogLNpN0=
 -----END PUBLIC KEY-----
 `;
 const DEFAULT_BASE = 'https://installkosmos.com/catalogue/';
@@ -34,7 +34,7 @@ const FORMAT = 2;
    holding no catalogue yet has nothing newer to compare a download with, so without this floor an
    old signed file served to it would be taken. Raise it at a release that should stop accepting
    older catalogues. */
-const MIN_SERIAL = 1;
+const MIN_SERIAL = 1790732878;   // the first catalogue published (kosmos-catalogue b2b4b36, 2026-09-30)
 const MAX_BYTES = 8 * 1024 * 1024;
 const TIMEOUT_MS = 8000;
 // A picker opened twice in a minute downloads once. A failed try waits as long as a good one.

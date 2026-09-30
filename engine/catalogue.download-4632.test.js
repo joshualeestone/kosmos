@@ -34,7 +34,9 @@ function fresh() {
   catalogue.useKeyForTest(pem);
   fs.rmSync(path.dirname(catalogue.cacheFile()), { recursive: true, force: true });
   roles.remerge();
-  const signed = (serial, text = TEXT) => {
+  // Serials in these tests count up from the floor this version accepts; signed(0) is the floor itself.
+  const signed = (n, text = TEXT) => {
+    const serial = n === null ? 0 : catalogue.MIN_SERIAL + n;
     const body = text.replace(/"serial": \d+/, `"serial": ${serial}`);
     return { body, sig: crypto.sign(null, Buffer.from(body), privateKey).toString('base64') };
   };
@@ -67,7 +69,7 @@ test('a download that verifies is stored and merged: the picker gains its roles,
   const { fetcher, calls } = server(signed(10));
   const st = await catalogue.refresh({ fetcher });
   assert.equal(st.loaded, true, st.error);
-  assert.equal(st.serial, 10);
+  assert.equal(st.serial, catalogue.MIN_SERIAL + 10);
   assert.deepEqual(calls.map((u) => u.replace(/^.*\//, '')).sort(), ['catalogue.json', 'catalogue.json.sig']);
   assert.ok(calls.every((u) => u.startsWith('https://installkosmos.com/catalogue/')), calls.join(' '));
   assert.equal(roles.ROLES.length, BUILT_IN + st.roles);
@@ -86,7 +88,8 @@ test('a changed byte, another key, or a catalogue this version cannot read is re
     tampered: { body: good.body.replace('Chief of Staff', 'Chief 0f Staff'), sig: good.sig },
     otherKey: { body: good.body, sig: crypto.sign(null, Buffer.from(good.body), crypto.generateKeyPairSync('ed25519').privateKey).toString('base64') },
     newFormat: signed(10, TEXT.replace('"version": 2', '"version": 3')),
-    noSerial: signed(0),
+    noSerial: signed(null),
+    belowFloor: { ...signed(-1) },
   };
   for (const [name, payload] of Object.entries(cases)) {
     const st = await catalogue.refresh({ fetcher: server(payload).fetcher, force: true });
@@ -103,10 +106,10 @@ test('an older catalogue never replaces the one held; a newer one does', async (
   const { signed } = fresh();
   await catalogue.refresh({ fetcher: server(signed(20)).fetcher, force: true });
   const older = await catalogue.refresh({ fetcher: server(signed(19)).fetcher, force: true });
-  assert.equal(older.serial, 20);
+  assert.equal(older.serial, catalogue.MIN_SERIAL + 20);
   assert.match(older.error, /older than the one held/);
   const newer = await catalogue.refresh({ fetcher: server(signed(21)).fetcher, force: true });
-  assert.equal(newer.serial, 21);
+  assert.equal(newer.serial, catalogue.MIN_SERIAL + 21);
   assert.equal(newer.error, null);
 });
 
@@ -115,12 +118,12 @@ test('offline, a missing file or an oversized one keeps what is held and says wh
   await catalogue.refresh({ fetcher: server(signed(30)).fetcher, force: true });
   for (const opts of [{ fail: true }, { status: 404 }]) {
     const st = await catalogue.refresh({ fetcher: server(signed(31), opts).fetcher, force: true });
-    assert.equal(st.serial, 30);
+    assert.equal(st.serial, catalogue.MIN_SERIAL + 30);
     assert.ok(st.error, JSON.stringify(opts));
   }
   const huge = { body: 'x'.repeat(8 * 1024 * 1024 + 1), sig: 'AA==' };
   const st = await catalogue.refresh({ fetcher: server(huge).fetcher, force: true });
-  assert.equal(st.serial, 30);
+  assert.equal(st.serial, catalogue.MIN_SERIAL + 30);
   assert.match(st.error, /larger than/);
   assert.ok(roles.byKey('cmo'), 'the held catalogue was dropped');
 });
@@ -137,12 +140,12 @@ test('a file and signature from different publishes (caches out of step) are ask
     return new Response(now.body);
   };
   const st = await catalogue.refresh({ fetcher, force: true });
-  assert.equal(st.serial, 60, st.error);
+  assert.equal(st.serial, catalogue.MIN_SERIAL + 60, st.error);
   assert.equal(calls.length, 4);
   assert.equal(calls.filter((u) => u.includes('?fresh=')).length, 2);
   // CONTROL: a signature that is still wrong after the second ask is refused.
   const bad = await catalogue.refresh({ fetcher: server({ body: signed(61).body, sig: stale.sig }).fetcher, force: true });
-  assert.equal(bad.serial, 60);
+  assert.equal(bad.serial, catalogue.MIN_SERIAL + 60);
   assert.match(bad.error, /signature does not verify/);
 });
 
@@ -150,8 +153,8 @@ test('two opens at once download once', async () => {
   const { signed } = fresh();
   const { fetcher, calls } = server(signed(40));
   const [a, b] = await Promise.all([catalogue.refresh({ fetcher, force: true }), catalogue.refresh({ fetcher, force: true })]);
-  assert.equal(a.serial, 40);
-  assert.equal(b.serial, 40);
+  assert.equal(a.serial, catalogue.MIN_SERIAL + 40);
+  assert.equal(b.serial, catalogue.MIN_SERIAL + 40);
   assert.equal(calls.length, 2);
 });
 
@@ -160,7 +163,7 @@ test('a stored copy changed on disk is not used after a restart, and one left al
   await catalogue.refresh({ fetcher: server(signed(50)).fetcher, force: true });
   // What a restart does: forget the parsed copy and read the store again, with the same key.
   catalogue.useKeyForTest(pem);
-  assert.equal(catalogue.status().serial, 50, 'CONTROL: the untouched store is used after a restart');
+  assert.equal(catalogue.status().serial, catalogue.MIN_SERIAL + 50, 'CONTROL: the untouched store is used after a restart');
   const file = catalogue.cacheFile();
   const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
   stored.text = stored.text.replace('Chief of Staff', 'Chief 0f Staff');
