@@ -1321,7 +1321,7 @@ function pendingDevices() {
       code: typeof d.code === 'string' ? d.code : '',
       /* kosmos#4773/#4637: the waiting computer's name when the request is another of the person's own computers
          joining (the coordinator's `joining_computer`), else null for a phone or a browser. A computer name only. */
-      joining_computer: typeof d.joining_computer === 'string' && /^[a-z0-9-]{3,32}$/.test(d.joining_computer) ? d.joining_computer : null,
+      joining_computer: typeof d.joining_computer === 'string' && NAME_RULE.test(d.joining_computer) ? d.joining_computer : null,
       /* When this Mac last said no to this id, or 0: the re-ask sentence. */
       denied_at: Number(settings.denied[String(d.device_id)]) || 0,
     }));

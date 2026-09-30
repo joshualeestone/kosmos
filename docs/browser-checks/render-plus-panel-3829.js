@@ -101,7 +101,7 @@ const STATES = {
           /* #4637: the code is one large line (Mona Lisa's outline), not boxes; what #3952 protects is kept: read out a character at a time, tall, inside its card, directly above Allow, and readable against the navy. */
           codes: [...document.querySelectorAll('#plus-ask-rows .askcodebig')].map((e) => ({ t: e.textContent, label: e.getAttribute('aria-label'), cells: e.querySelectorAll('.devcode-cell').length, nextIsActs: !!(e.nextElementSibling && e.nextElementSibling.classList.contains('acts')),   /* Mona 09-26: nothing between the code and Allow */ h: e.getBoundingClientRect().height, inside: e.getBoundingClientRect().right <= e.closest('.askreq').getBoundingClientRect().right,
             /* #3952 round 2: the code must read against what is actually behind it (a white fill on the navy skin gave
-               light on light). Ink of the first box against the first opaque background at or behind it. */
+               light on light). The code's ink against the first opaque background at or behind it. */
             contrast: (() => {
               const c = e;
               const rgb = (v) => (v.match(/[\d.]+/g) || []).map(Number);

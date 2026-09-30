@@ -59,7 +59,8 @@ test('#3829 an unnamed request is "Unknown device", never the bare noun', () => 
 });
 
 test('the change-your-password sentence appears on the Deny branch and the re-ask line, never on the plain ask', () => {
-  const at = JS.indexOf("const say = ");
+  const at = JS.indexOf("const say = d.joining_computer");
+  assert.ok(at > -1, 'the plain sentence moved; re-anchor');
   const plain = JS.slice(at, JS.indexOf(';', at));   // #4637: the plain ask spans two lines now (the computer variant)
   assert.ok(at > -1, 'the plain sentence moved; re-anchor');
   assert.doesNotMatch(plain, /password/, 'the plain ask carries the intruder sentence, which the wrong person reads every time');
@@ -80,7 +81,7 @@ test('Remove confirms inline with the sentence the tunnel makes true; Allow / No
   assert.match(JS, /Remove this ' \+ askEsc\(name\) \+ '\? It stops right away\. It can ask again by signing in\./);
   assert.equal((JS.match(/data-ask="later"/g) || []).length, 0, 'a Not now dismiss is back');
   assert.doesNotMatch(JS, />Deny</, 'a Deny button is back beside Not me: two ways to say no');
-  assert.equal((JS.match(/>Not me</g) || []).length, 1, 'the turn-away button is not the one Not me');
+  assert.equal((JS.match(/>Not me</g) || []).length, 1, 'expected exactly one Not me button');
   assert.doesNotMatch(JS, /devrow pending/, 'pending requests are painted in the devices list too');
   // Stronger than the class name: the devices list paints no Allow or Deny at all.
   const pd = JS.slice(JS.indexOf('async function paintDevices'), JS.indexOf("document.getElementById('plus-devlist').addEventListener"));

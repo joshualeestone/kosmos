@@ -11,7 +11,9 @@
  *  - each sheet carries the Kosmos+ brand, the code once as one large line read out a character at a time, then
  *    Allow and a quiet Not me (no Deny, no letter boxes);
  *  - Allow on the computer turns its sheet into "windowsbox is connected." with where to remove it;
- *  - on another page the notice says the same words ("Your computer "windowsbox" wants to join.") with Review;
+ *  - on another page the notice says the sheet's words ("Your computer "windowsbox" wants to join." for one, "2 devices want
+ *    to connect to your Kosmos." for two) with Review;
+ *  - an Allow that fails leaves the request waiting (the heading stays, its sheet first); with nothing waiting the heading goes;
  *  - 1400 and 390 wide, no sideways scroll, no page errors.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -65,11 +67,24 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       ];
       await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? REMOTE : { ok: true })));
       await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: pending, email: 'you@example.com' })));
-      await page.route('**/api/remote/devices/allow', (route, req) => { const id = JSON.parse(req.postData() || '{}').device_id; pending = pending.filter((d) => d.device_id !== id); return route.fulfill(json({ ok: true })); });
+      let phoneFailsOnce = true;   // the phone's first Allow fails: its sheet must still read as waiting
+      await page.route('**/api/remote/devices/allow', (route, req) => {
+        const id = JSON.parse(req.postData() || '{}').device_id;
+        if (id === 'd-ph' && phoneFailsOnce) { phoneFailsOnce = false; return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'the tunnel did not answer' }) }); }
+        pending = pending.filter((d) => d.device_id !== id); return route.fulfill(json({ ok: true }));
+      });
       await page.route('**/api/remote/devices', (route) => route.fulfill(json({ on: true, allowed: [], pending })));
       await page.goto(BASE, { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
 
+      /* On another page, one request: the notice says the sheet's own words. */
+      const both = pending;
+      pending = both.filter((d) => d.device_id === 'd-pc');
+      await page.evaluate(() => { if (typeof pollAsk === 'function') return pollAsk(); });
+      await page.waitForTimeout(300);
+      const one = await page.evaluate(() => (document.getElementById('askcard').innerText || '').replace(/\s+/g, ' ').trim());
+      chk(/Your computer "windowsbox" wants to join\./.test(one), `${tag} one computer waiting: the notice says "Your computer "windowsbox" wants to join."`, one);
+      pending = both;
       /* On another page: the compact notice, in the same words. */
       await page.evaluate(() => { if (typeof pollAsk === 'function') return pollAsk(); });
       await page.waitForTimeout(500);
@@ -129,6 +144,12 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       /* Review W1: under the heading, what waits comes first; the answered line follows it. */
       const order = await page.evaluate(() => [...document.getElementById('plus-ask-rows').children].map((e) => e.classList.contains('askreq') ? 'waiting' : 'answered'));
       chk(JSON.stringify(order) === JSON.stringify(['waiting', 'answered']), `${tag} the waiting sheet sits under the heading, the answered line after it`, JSON.stringify(order));
+      /* Review round 1: an Allow that fails leaves the request waiting: the heading stays and its sheet stays first. */
+      await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-ph"]');
+      await page.waitForFunction(() => /did not answer/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      const err = await page.evaluate(() => ({ title: !document.getElementById('plus-asks-title').hidden,
+        order: [...document.getElementById('plus-ask-rows').children].map((e) => e.classList.contains('askreq') ? 'waiting' : 'answered') }));
+      chk(err.title && JSON.stringify(err.order) === JSON.stringify(['waiting', 'answered']), `${tag} a failed Allow still waits: the heading stays, its sheet first`, JSON.stringify(err));
       /* Review W1: with nothing left waiting, "Waiting for you" goes; the success lines stand alone. */
       await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-ph"]');
       await page.waitForFunction(() => /iPhone is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});

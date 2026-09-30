@@ -476,7 +476,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   /* #4637 (Josh 09-29: "radically redesign... doesn't fit the branding"; Mona Lisa's flow outline, #4754): the notice
      and the sheet are drawn in the Kosmos+ navy, on every page, in both themes. */
   /* #4637 (Mona Lisa's review W2): no side margin of its own, so its edges line up with the banner under it (#conn). */
-  .askcard { margin: 10px 0 0; padding: 12px 16px; border: 1px solid #3a68d8;
+  .askcard { margin: 10px 0 var(--space-5); padding: 12px 16px; border: 1px solid #3a68d8;   /* the gap stacked boxes keep (.conn) */
              border-radius: 10px;
              background: linear-gradient(160deg,#1b2c50,#0f1d38); font-size: .875rem; color: #c3cde3; }
   .askcard h3 { font: 600 1rem var(--font-ui); color: #fff; margin: 0 0 4px; }
@@ -498,10 +498,10 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
             padding: 16px 18px; margin-top: 8px; border: 1px solid #3a68d8; border-radius: 14px; max-width: 640px;
             background: linear-gradient(160deg,#1f3360,#132449); color: #c3cde3; }
   /* Named areas: the brand across the top, the icon beside who and when, then the line, the code and the buttons
-     at full width (a 40px first column otherwise squeezed the headline to a word per line). */
-  .askreq { grid-template-columns: 40px 1fr; grid-template-areas: "brand brand" "dev who" "say say" "code code" "acts acts"; }
+     under the headline's column (the look Mona Lisa approved). The areas alone place every item. */
+  .askreq { grid-template-columns: 40px 1fr; grid-template-areas: "brand brand" "dev who" ". say" ". code" ". acts"; }
   .askreq .askbrand { grid-area: brand; }
-  .askreq .askdev { grid-area: dev; grid-row: auto; }
+  .askreq .askdev { grid-area: dev; }
   .askreq .askwho { grid-area: who; }
   .askreq .asksay { grid-area: say; }
   #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig { grid-area: code; }
@@ -513,11 +513,13 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .askreq .askdev { background: rgba(126,160,240,.14); }
   .askreq .askdev svg { stroke: #dfe6f5; }
   /* The ids keep a Settings text rule (an id-level p style) from shrinking the code, in either place it renders. */
-  #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig { grid-column: 2 / span 2; margin: 6px 0 2px;
+  #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig { margin: 6px 0 2px;
                 font: 700 1.9rem/1.2 var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .14em; color: #fff; }
   .askreq .asksay { color: #c3cde3; }
   .askreq .btn.quiet, .askreq .btn.quiet:hover { background: none; border: 0; color: #b8c4de; text-decoration: underline; text-underline-offset: 3px; }
   .askrow.done .askok { font: 600 1rem var(--font-ui); color: #fff; }
+  /* An answered line after a sheet keeps the gap sheets keep between each other (review NIT). */
+  .askreq + .askrow.done { margin-top: 1rem; }
   /* Faded is the border and the icon, not the words: the text and the code stay readable (review). */
   .askreq.stale { border-color: var(--k-rule); }
   .askreq.stale .askdev { opacity: .45; }
@@ -531,8 +533,8 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   /* No fill of its own: this card is drawn in the Kosmos+ skin (navy, light ink), so the code sits on the card's own
      ground in the card's own ink, which already reads there (review round 2: a white fill gave light-on-light). */
   .askcode .devcode-cell { border-color: var(--k-rule); background: transparent; }
-  .askreq .asksay { grid-column: 2 / span 2; font-size: .85rem; }
-  .askreq .acts { grid-column: 2 / span 2; display: flex; gap: 8px; margin-top: 6px; }
+  .askreq .asksay { font-size: .85rem; }
+  .askreq .acts { display: flex; gap: 8px; margin-top: 6px; }
   .askcard .btn.uprime, .askcard .btn.uprime:hover { background: #2f57c4; border-color: #2f57c4; color: #fff; }
   /* A secondary button on the card never disappears into its ground (the #3796 rule): a visible stroke. */
   .askcard .btn:not(.uprime) { border: 1px solid rgba(127,140,170,.55); }
@@ -42603,8 +42605,10 @@ function paintAsk() {
      card stays the compact "N devices are asking" notice on every other view. */
   const inPanel = onPlus && !!panel;
   if (panel) panel.hidden = !(inPanel && anything);
-  /* #4637 (Mona Lisa's review W1): "Waiting for you" only while something waits; a success line stands alone. */
-  { const t = document.getElementById('plus-asks-title'); if (t) t.hidden = !live.length; }
+  /* #4637 (Mona Lisa's review W1): "Waiting for you" only while something waits; a success line stands alone. A request
+     whose Allow or Not me failed still waits (its sheet shows again, with the reason). */
+  const answered = (id) => !!ASK.done[id] && (ASK.done[id].state === 'allowed' || ASK.done[id].state === 'denied');
+  { const t = document.getElementById('plus-asks-title'); if (t) t.hidden = !ASK.devices.some((d) => !answered(d.device_id)); }
   const hide = !anything || inPanel || (!onPlus && !live.length);
   card.hidden = hide;
   /* The Plus tab's needs-you dot marks a request waiting, in the nav's own grammar. */
@@ -42665,7 +42669,7 @@ function paintAsk() {
   };
   /* #4637 (Mona Lisa's review W1): what still waits comes first, under "Waiting for you"; answered ones follow it. */
   const after = [];
-  for (const d of rows) { seen.add(d.device_id); (ASK.done[d.device_id] ? after : out).push(render(d, ASK.done[d.device_id])); }
+  for (const d of rows) { seen.add(d.device_id); (answered(d.device_id) ? after : out).push(render(d, ASK.done[d.device_id])); }
   for (const id of doneIds) { if (!seen.has(id)) after.push(render(ASK.done[id].device, ASK.done[id])); }
   out.push(...after);
   askWrite(document.getElementById(inPanel ? 'plus-ask-rows' : 'ask-rows'), out.join(''));
