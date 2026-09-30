@@ -334,6 +334,24 @@ const AGENTS_LOOK = `(() => {
         `${tag} On, Agents page: the idle card has no border, the working card keeps its stroke`, JSON.stringify(agOn));
       chk(agOn.tile === 'rgba(0, 0, 0, 0)', `${tag} On, Agents page: the Agents tile has no box`, JSON.stringify(agOn));
       chk(agOn.radius === '24px', `${tag} On, Agents page: the idle card has the project page's 24px corners`, agOn.radius);
+      /* An inert tile shows no box under the pointer either. */
+      await page.hover('#st-agents');
+      const tileHover = await page.evaluate(() => getComputedStyle(document.getElementById('st-agents').closest('.stat')).borderTopColor);
+      await page.mouse.move(0, 0);
+      chk(tileHover === 'rgba(0, 0, 0, 0)', `${tag} On, Agents page: the Agents tile shows no box under the pointer`, tileHover);
+      /* Every stroke that means something survives the plain-card rule: Issue, Question and could-not-read (dashed).
+         The fixture has none of these, so each is drawn by hand into the grid for the read and removed after. */
+      const strokes = await page.evaluate(() => {
+        const g = document.getElementById('grid'); if (!g) return { found: false };
+        const out = { found: true };
+        for (const c of ['attn', 'question', 'unk']) {
+          const d = document.createElement('div'); d.className = 'acard ' + c; d.textContent = 'x'; g.append(d);
+          const cs = getComputedStyle(d); out[c] = { color: cs.borderTopColor, style: cs.borderTopStyle }; d.remove();
+        }
+        return out;
+      });
+      chk(strokes.found && ['attn', 'question', 'unk'].every((c) => strokes[c].color !== 'rgba(0, 0, 0, 0)') && strokes.unk.style === 'dashed',
+        `${tag} On, Agents page: Issue, Question and could-not-read cards keep their strokes (dashed for could-not-read)`, JSON.stringify(strokes));
       /* The Messages filter is a control: at rest it keeps the soft grey ground (its "you can press this", which a
          touch screen needs), and hovering it does not change its width (nothing in the row jumps). Shown by hand for
          the read, since the fixture has no unread messages, then hidden again. */
