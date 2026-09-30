@@ -146,14 +146,149 @@ command -v vercel >/dev/null 2>&1 || { echo "deploy-site: vercel CLI not found";
 # --- 1) fetch and verify the CURRENT live artifacts into the site dist/ -------
 # The export carries whatever is in dist/. We make the critical current artifacts present
 # and correct so the deploy cannot drop them; a stale or empty checkout is then safe.
-fetch() {  # <url> <dest>  -- refuse on any failure, because a missing artifact drops from live
-  # -fsSL follows redirects (#2014 review): HOST defaults to installkosmos.com (no redirect), but
-  # if KOSMOS_SITE_URL is ever pointed at chaoskosmos.com it 308-redirects /dist, and without -L
-  # this would fetch a 15-byte "Redirecting..." stub and refuse (or verify) against the wrong bytes.
-  # -H no-cache: a stale CDN copy would drive a false refuse or verify a stale artifact; the rest of
-  # the pipeline (verify-served.sh, pkg-inputs) sends it too, so match them.
-  curl -fsSL -H 'Cache-Control: no-cache' "$1" -o "$2" || { echo "deploy-site: could not fetch $1 -- refusing (a missing artifact would drop from the live site)"; exit 1; }
+# >>> site-fetch helpers (#4745) -- tools/test-deploy-site-fetch-4745.sh extracts and tests this block.
+# 🛑 #4745: NEVER FETCH ONTO THE REAL NAME. This used to be `curl ... "$1" -o "$2"`, straight onto
+# the artifact path. A stalled download (curl exit 18, "Transferred a partial file") refused
+# correctly but left a TRUNCATED copy of the current build under its real name in the site dist/
+# (52,555,779 bytes became 26,229,410, 2026-09-30), where a promote's sha check, a copy to another
+# box or a person reads a half file that looks like the build. Now every fetch lands in a temp
+# name BESIDE the target (same directory, so the mv is an atomic rename on one filesystem), is
+# verified there, and only then renamed over the real name. A failed, partial or mismatched fetch
+# removes the temp and leaves the original byte-identical.
+# The temp is a DOTFILE (.fetch-<pid>-<name>): site_deploy_export carries dist/*.tar.gz by a glob,
+# which does not match a dotfile, so even a temp orphaned by a kill -9 can never ship.
+# TIME LIMITS. The old fetch had none and one stall sat for five minutes. Per attempt:
+#   --connect-timeout 15            a dead host fails in seconds, not minutes;
+#   --speed-limit 1024 --speed-time 60   a STALL (under 1 KB/s for 60 s) aborts that attempt;
+#   --max-time 1200                 a hard ceiling. The largest artifact is ~55 MB; 20 minutes
+#                                   allows ~46 KB/s (~0.37 Mbit/s) sustained, so only a link
+#                                   slower than that is cut, and the stall detector, not this,
+#                                   is what catches the card's shape.
+# RETRIES: 3 attempts, 2 s apart, done here rather than with `curl --retry`, because curl's own
+# retry does not cover exit 18 (a partial transfer), which is exactly the failure the card saw.
+FETCH_ATTEMPTS=3
+FETCH_RETRY_DELAY=2
+_FETCH_TMP_A=""   # artifact temp in flight
+_FETCH_TMP_S=""   # sidecar temp in flight
+_FETCH_TMP_P=""   # ranged-probe temp dir in flight (the skip path)
+_fetch_cleanup() {
+  [ -z "$_FETCH_TMP_A" ] || rm -f "$_FETCH_TMP_A"
+  [ -z "$_FETCH_TMP_S" ] || rm -f "$_FETCH_TMP_S"
+  [ -z "$_FETCH_TMP_P" ] || rm -rf "$_FETCH_TMP_P"
+  _FETCH_TMP_A=""; _FETCH_TMP_S=""; _FETCH_TMP_P=""
 }
+# Every exit path removes a temp in flight: the refusals below remove it explicitly, and these
+# traps cover an interrupt or an unexpected set -e abort mid-fetch.
+trap '_fetch_cleanup' EXIT
+trap '_fetch_cleanup; exit 130' INT
+trap '_fetch_cleanup; exit 143' TERM HUP
+_fetch_tmp_for() {  # <dest> -> the temp path beside it
+  printf '%s/.fetch-%s-%s' "$(dirname "$1")" "$$" "$(basename "$1")"
+}
+_sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
+_fetch_into() {  # <url> <tmp>  -- 0 when <tmp> holds the whole response, 1 (tmp removed) otherwise
+  _fi_n=0
+  while [ "$_fi_n" -lt "$FETCH_ATTEMPTS" ]; do
+    _fi_n=$((_fi_n + 1))
+    # -fsSL follows redirects (#2014 review): HOST defaults to installkosmos.com (no redirect), but
+    # if KOSMOS_SITE_URL is ever pointed at chaoskosmos.com it 308-redirects /dist, and without -L
+    # this would fetch a 15-byte "Redirecting..." stub and refuse (or verify) against the wrong bytes.
+    # -H no-cache: a stale CDN copy would drive a false refuse or verify a stale artifact; the rest of
+    # the pipeline (verify-served.sh, pkg-inputs) sends it too, so match them.
+    if curl -fsSL --connect-timeout 15 --speed-limit 1024 --speed-time 60 --max-time 1200 \
+         -H 'Cache-Control: no-cache' "$1" -o "$2"; then
+      return 0
+    else
+      _fi_rc=$?
+    fi
+    echo "deploy-site: fetching $1 failed (curl exit $_fi_rc, attempt $_fi_n of $FETCH_ATTEMPTS) (#4745)" >&2
+    if [ "$_fi_n" -lt "$FETCH_ATTEMPTS" ]; then sleep "$FETCH_RETRY_DELAY"; fi
+  done
+  rm -f "$2"
+  return 1
+}
+_fetch_refuse() {  # <url>  -- the original refusal message, after removing any temp in flight
+  _fetch_cleanup
+  echo "deploy-site: could not fetch $1 -- refusing (a missing artifact would drop from the live site)"
+  exit 1
+}
+fetch() {  # <url> <dest>  -- an UNVERIFIED file (no sidecar): atomic, refuse on any failure
+  _FETCH_TMP_A=$(_fetch_tmp_for "$2")
+  rm -f "$_FETCH_TMP_A"
+  _fetch_into "$1" "$_FETCH_TMP_A" || _fetch_refuse "$1"
+  mv -f "$_FETCH_TMP_A" "$2" || _fetch_refuse "$1"
+  _FETCH_TMP_A=""
+}
+_final_content_range() {  # <curl -D header file>  -- the FINAL response's Content-Range value, or empty
+  # -L dumps every hop's header block. Reset at each status line (HTTP/...), so only the LAST block
+  # counts: taking the last Content-Range across all blocks would read an earlier hop's value when
+  # the final response has none (206 then 200). CR stripped, header name matched case-insensitively.
+  tr -d '\r' < "$1" 2>/dev/null | awk '
+    /^HTTP\// { v = "" ; next }
+    tolower(substr($0, 1, 14)) == "content-range:" { v = substr($0, 15); sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v) }
+    END { print v }'
+}
+_served_matches_local() {  # <url> <local-file>  -- 0 only when the host PROVABLY serves an artifact
+  # of the local file's exact size whose first byte is the local file's first byte (#4745 review).
+  # Used by the skip path, which must not trust the served .sha256 alone: a served sidecar says
+  # nothing about whether the artifact beside it is served, and a promote relies on the artifact
+  # existing on the live host. One ranged GET of ONE byte, never the body. All of these must hold,
+  # because a 206 on its own proves almost nothing:
+  #   the final status is 206; Content-Range is exactly "bytes 0-0/<N>" with N = the local size;
+  #   exactly one byte came back and it equals the local file's first byte.
+  # A server that ignores Range answers 200 with the whole file: --max-filesize 65536 and
+  # --max-time 30 stop that download early, the status is not 206, and the answer is "cannot
+  # prove", never "proved". Any failure returns 1 and the caller fetches normally.
+  _sm_dir=$(mktemp -d "${TMPDIR:-/tmp}/deploy-site-probe.XXXXXXXX") || return 1
+  _FETCH_TMP_P=$_sm_dir
+  _sm_code=$(curl -sS -L -r 0-0 --connect-timeout 15 --max-time 30 --max-filesize 65536 \
+      -H 'Cache-Control: no-cache' -D "$_sm_dir/h" -o "$_sm_dir/b" -w '%{http_code}' "$1" 2>/dev/null) || _sm_code=""
+  _sm_size=$(wc -c < "$2" | tr -d ' ')
+  _sm_range=$(_final_content_range "$_sm_dir/h")
+  _sm_ok=1
+  # (Not `cmp -n 1`: BSD cmp on macOS returns 1 for it even on equal bytes, measured, which would
+  # make this proof silently never pass. Compare two one-byte files instead.)
+  if [ "$_sm_code" = 206 ] && [ "$_sm_range" = "bytes 0-0/$_sm_size" ] \
+     && [ -f "$_sm_dir/b" ] && [ "$(wc -c < "$_sm_dir/b" | tr -d ' ')" = 1 ] \
+     && head -c 1 "$2" > "$_sm_dir/l" && cmp -s "$_sm_dir/b" "$_sm_dir/l"; then
+    _sm_ok=0
+  fi
+  rm -rf "$_sm_dir"; _FETCH_TMP_P=""
+  return "$_sm_ok"
+}
+fetch_verified() {  # <url> <dest>  -- an artifact AND its <url>.sha256 sidecar (-> <dest>.sha256)
+  # The sidecar is fetched FIRST, to a temp, because it is what names the bytes we want. It moves
+  # into place only after the artifact is verified, so a refused run leaves the old PAIR intact
+  # rather than a new sidecar beside an old artifact. (A success renames the artifact, then the
+  # sidecar: for the microseconds between the two renames the pair is new artifact + old sidecar.
+  # Nothing in this script reads the local sidecar afterwards to trust bytes: verify_sha re-fetches
+  # the SERVED one.)
+  _FETCH_TMP_S=$(_fetch_tmp_for "$2.sha256")
+  rm -f "$_FETCH_TMP_S"
+  _fetch_into "$1.sha256" "$_FETCH_TMP_S" || _fetch_refuse "$1.sha256"
+  _fv_want=$(awk '{print $1; exit}' "$_FETCH_TMP_S")
+  [ -n "$_fv_want" ] || { _fetch_cleanup; echo "deploy-site: $1.sha256 names no sha -- refusing (nothing was replaced in the site dist/) (#4745)"; exit 1; }
+  # Already correct locally: do not download the artifact (#4745). A 55 MB re-download is the
+  # step that stalls. What the skip path GUARANTEES, stated exactly: the local bytes hash to the
+  # served .sha256, AND the host serves an artifact at that URL of the same size with the same first
+  # byte (_served_matches_local). It does NOT prove every served byte equals the local ones; that
+  # is the served .sha256's claim, and the post-deploy served_matches re-hashes the served bytes.
+  # If that proof fails for any reason, fall through to the full fetch, which refuses on a 404.
+  if [ -f "$2" ] && [ "$(_sha256_of "$2")" = "$_fv_want" ] && _served_matches_local "$1" "$2"; then
+    echo "deploy-site: $2 already matches $1.sha256 and the served copy has its size -- not downloaded (#4745)"
+  else
+    _FETCH_TMP_A=$(_fetch_tmp_for "$2")
+    rm -f "$_FETCH_TMP_A"
+    _fetch_into "$1" "$_FETCH_TMP_A" || _fetch_refuse "$1"
+    _fv_got=$(_sha256_of "$_FETCH_TMP_A")
+    [ "$_fv_got" = "$_fv_want" ] || { _fetch_cleanup; echo "deploy-site: sha mismatch for $2 (want '$_fv_want' got '$_fv_got') -- refusing; the fetched bytes were discarded and $2 was left as it was (#4745)"; exit 1; }
+    mv -f "$_FETCH_TMP_A" "$2" || _fetch_refuse "$1"
+    _FETCH_TMP_A=""
+  fi
+  mv -f "$_FETCH_TMP_S" "$2.sha256" || _fetch_refuse "$1.sha256"
+  _FETCH_TMP_S=""
+}
+# <<< site-fetch helpers (#4745)
 verify_sha() {  # <file> <sha256-url>
   want=$(curl -fsSL -H 'Cache-Control: no-cache' "$2" 2>/dev/null | awk '{print $1}')
   got=$(shasum -a 256 "$1" | awk '{print $1}')
@@ -280,7 +415,9 @@ if [ "$PROMOTE" = 1 ]; then
   # and the artifact comes from the COMMITTED pointer -- the version we are promoting TO -- not from
   # live, which is still the PRIOR prod version until this deploy publishes. The versioned artifact
   # is already SERVED from the staging cut; that is exactly what makes a promote a pointer-only move,
-  # and it is why the fetch + sha-verify below still holds (the bytes exist on the live host). The
+  # and it is why the fetch + sha-verify below still holds (the bytes exist on the live host: either
+  # downloaded and verified, or, when the local copy already matches, proven served at the same size
+  # by a one-byte ranged GET, #4745). The
   # LOCAL pointer move + alias refresh are promote-channel.sh's job (#2036); this is the deploy that
   # publishes them.
   [ -n "$CJ" ] || { echo "deploy-site: --promote but the checkout has no committed dist/latest.json at $H -- refusing"; exit 1; }
@@ -305,10 +442,11 @@ else
   # trailing-newline difference cannot cause a false refusal.) A promote takes the branch above.
   [ "$CJ" = "$LJ" ] || { echo "deploy-site: the checkout's COMMITTED latest.json differs from LIVE -- refusing. The checkout is stale or ahead of the current release; a site-copy deploy must not move the installer pointer. Sync $SITE to the current release, then retry."; exit 1; }
 fi
-fetch "$HOST/dist/$ART"          "$SITE/dist/$ART"
-fetch "$HOST/dist/$ART.sha256"   "$SITE/dist/$ART.sha256"
+fetch_verified "$HOST/dist/$ART" "$SITE/dist/$ART"   # the artifact and its .sha256 (#4745)
 verify_sha "$SITE/dist/$ART" "$HOST/dist/$ART.sha256"
-# For a promote, pin the committed pointer's advertised sha to the bytes we just fetched + verified:
+# For a promote, pin the committed pointer's advertised sha to the bytes we just fetched + verified
+# (or kept, when the local copy already matched the served .sha256 and a ranged GET proved the host
+# serves an artifact of that size, #4745):
 # proves the committed latest.json describes REAL, SERVED bytes (guards a hand-edited or stale
 # pointer that names a version whose bytes are not actually served). NOT keyed to latest-staging.json
 # on purpose -- a rollback promotes a PRIOR pointer, not the current staging one, and must still work.
@@ -318,9 +456,8 @@ if [ "$PROMOTE" = 1 ]; then
 fi
 
 # the macOS pkg triple (fixed names)
-for f in Kosmos.pkg Kosmos.pkg.sha256 Kosmos.pkg.inputs; do
-  fetch "$HOST/dist/$f" "$SITE/dist/$f"
-done
+fetch_verified "$HOST/dist/Kosmos.pkg" "$SITE/dist/Kosmos.pkg"   # Kosmos.pkg + Kosmos.pkg.sha256 (#4745)
+fetch "$HOST/dist/Kosmos.pkg.inputs" "$SITE/dist/Kosmos.pkg.inputs"
 verify_sha "$SITE/dist/Kosmos.pkg" "$HOST/dist/Kosmos.pkg.sha256"
 
 # The Windows zip (and its .sha256) are TRACKED, so git archive ships the COMMITTED copies and the
@@ -337,8 +474,7 @@ verify_sha "$SITE/dist/Kosmos.pkg" "$HOST/dist/Kosmos.pkg.sha256"
 # (arm64 only: tmux-x64 is not served -- measured 404 -- because the installer target is macOS.)
 # tmux is version-INDEPENDENT (the installer fetches it on every install, of any version), so it is
 # fetched live + verified in BOTH modes.
-fetch "$HOST/dist/tmux-arm64.tar.gz"        "$SITE/dist/tmux-arm64.tar.gz"
-fetch "$HOST/dist/tmux-arm64.tar.gz.sha256" "$SITE/dist/tmux-arm64.tar.gz.sha256"
+fetch_verified "$HOST/dist/tmux-arm64.tar.gz" "$SITE/dist/tmux-arm64.tar.gz"   # + .sha256 (#4745)
 verify_sha "$SITE/dist/tmux-arm64.tar.gz"   "$HOST/dist/tmux-arm64.tar.gz.sha256"
 
 # The unversioned alias kosmos-arm64.tar.gz is the prod download fallback (old installers, and a
@@ -358,8 +494,7 @@ if [ "$PROMOTE" = 1 ]; then
     || { echo "deploy-site: --promote: could not write a verified kosmos-arm64.tar.gz.sha256 -- refusing"; exit 1; }
 else
   # site-copy: the live alias IS the current prod version -- fetch + verify it, as before.
-  fetch "$HOST/dist/kosmos-arm64.tar.gz"        "$SITE/dist/kosmos-arm64.tar.gz"
-  fetch "$HOST/dist/kosmos-arm64.tar.gz.sha256" "$SITE/dist/kosmos-arm64.tar.gz.sha256"
+  fetch_verified "$HOST/dist/kosmos-arm64.tar.gz" "$SITE/dist/kosmos-arm64.tar.gz"   # + .sha256 (#4745)
   verify_sha "$SITE/dist/kosmos-arm64.tar.gz"   "$HOST/dist/kosmos-arm64.tar.gz.sha256"
 fi
 # Historical version tarballs (kosmos-0.6.08-arm64.tar.gz ..) are gitignored rollback URLs and are
