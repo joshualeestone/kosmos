@@ -2518,13 +2518,6 @@ function cleanArchivedAt(value) {
   return Number.isNaN(new Date(value).getTime()) ? null : value;
 }
 
-/**
- * #3564: swarms switched OFF in a project. An Off swarm stays a member, but work in
- * that project does not reach it: room posts skip it unless it is @-named, and a
- * message or task line to it there is refused with a sentence. Stored on the project
- * as `swarmOff: [sessionName]`.
- */
-/* The one reading of the stored fact, for a caller that already holds the project record. */
 /* #4771: a paused project: the Prompter nudges nobody about its tasks and the Assigner hands none of them out. */
 function isPaused(record) {
   return Boolean(record && record.paused === true);
@@ -2532,6 +2525,14 @@ function isPaused(record) {
 function setPaused(id, want) {
   return edit(id, { paused: want });
 }
+
+/**
+ * #3564: swarms switched OFF in a project. An Off swarm stays a member, but work in
+ * that project does not reach it: room posts skip it unless it is @-named, and a
+ * message or task line to it there is refused with a sentence. Stored on the project
+ * as `swarmOff: [sessionName]`.
+ */
+/* The one reading of the stored fact, for a caller that already holds the project record. */
 function isSwarmOff(record, name) {
   return Boolean(record && Array.isArray(record.swarmOff) && record.swarmOff.includes(String(name)));
 }

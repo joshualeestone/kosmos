@@ -15316,7 +15316,7 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <p class="fmsg" id="tk-due-msg" aria-live="polite" style="margin:2px 0 0;"></p>
         <!-- #4771: on hold. Kosmos never nudges an agent about a held task or hands it out; it stays on its owner's list. -->
-        <div class="tmeta"><span>On hold</span>
+        <div class="tmeta" id="tk-hold-row"><span>On hold</span>
           <button class="btn" id="tk-hold" type="button">Put on hold</button>
         </div>
         <p class="fmsg" id="tk-hold-msg" aria-live="polite" style="margin:2px 0 0;"></p>
@@ -53323,6 +53323,8 @@ function paintTaskPage() {
   /* #4771: the hold control speaks its current state; a paused project holds every task in it. */
   const hold = document.getElementById('tk-hold');
   if (hold) hold.textContent = t.onHold === true ? 'Take off hold' : 'Put on hold';
+  // A finished task has nothing to hold: no control, no hint.
+  for (const hid of ['tk-hold-row', 'tk-hold-hint']) { const el = document.getElementById(hid); if (el) el.hidden = TK_ACT === 'reopen'; }
   const holdHint = document.getElementById('tk-hold-hint');
   if (holdHint) holdHint.textContent = p.paused === true
     ? 'This project is paused, so Kosmos does not nudge anyone about its tasks or hand them out.'

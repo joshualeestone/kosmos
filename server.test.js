@@ -16046,4 +16046,25 @@ test('#4771: a task is put on hold and taken off through its route; a project is
   const resumed = await put({ paused: false });
   assert.equal(resumed.status, 200, resumed.body);
   assert.equal(projects.isPaused(projects.readAll().find((x) => x.id === p.id)), false, 'the edit did not resume the project');
+
+  /* The agents' instructions mark held work (projects.blockBody), so a hold re-tells the task's assignees and a pause
+     re-tells the project's members, as close and rename already do. syncAgent is recorded, not run. */
+  projects.mutate(p.id, (rec) => ({ ...rec, agents: ['ada', 'max'],
+    tasks: (rec.tasks || []).map((x) => (x.number === t.number ? { ...x, who: 'ada' } : x)) }));
+  const realSync = projects.syncAgent;
+  const synced = [];
+  projects.syncAgent = (name) => { synced.push(name); return { state: projects.TOLD.TOLD }; };
+  try {
+    const h = await postJson(url, { onHold: true });
+    assert.equal(h.status, 200, h.body);
+    assert.deepEqual(synced, ['ada'], 'a hold did not re-tell the task\'s assignee');
+    synced.length = 0;
+    await put({ description: 'no pause here' });
+    assert.deepEqual(synced, [], 'control: a save that changes neither the name nor the pause re-told the members');
+    await put({ paused: true });
+    assert.deepEqual(synced.sort(), ['ada', 'max'], 'a pause did not re-tell the project\'s members');
+    synced.length = 0;
+    await put({ paused: false });
+    assert.deepEqual(synced.sort(), ['ada', 'max'], 'a resume did not re-tell the project\'s members');
+  } finally { projects.syncAgent = realSync; }
 });

@@ -52,6 +52,8 @@ function chk(ok, label, extra) {
   projects.addAgent(launch.id, 'ada', null);
   tasks.create(launch.id, { sentence: 'Write the blurb', who: 'ada' });   // 1: put on hold here
   tasks.create(launch.id, { sentence: 'Order proofs', who: 'ada' });      // 2: the control, never on hold
+  tasks.create(launch.id, { sentence: 'Old checklist' });                 // 3: closed, so nothing to hold
+  tasks.close(launch.id, 3);
   const winter = projects.create({ name: 'Winter catalog' });
   tasks.create(winter.id, { sentence: 'Draft the plan' });                // 1: held by pausing its project
   require('../../engine/store').writeSettings({ tasksTabShown: true });
@@ -132,6 +134,12 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => document.getElementById('tk-hold').textContent === 'Put on hold', null, { timeout: 5000 }).catch(() => {});
       chk(await text(page, '#tk-hold') === 'Put on hold', `${tag} Take off hold takes the task off hold`, await text(page, '#tk-hold'));
       chk(await heldCount(page, '0') === '0', `${tag} with both undone, nothing is on hold`, await text(page, '#tsk-tiles [data-tile="held"] .num'));
+
+      /* A finished task offers no hold; the open task above is the control that it is offered at all. */
+      await page.evaluate(async (pid) => { if (await tskGoToProject(pid)) openTaskPage(3); }, launch.id);
+      await page.waitForTimeout(300);
+      const closedHold = await page.evaluate(() => ({ row: document.getElementById('tk-hold-row').hidden, hint: document.getElementById('tk-hold-hint').hidden, title: document.getElementById('tk-title').textContent }));
+      chk(closedHold.row && closedHold.hint && /Old checklist/.test(closedHold.title), `${tag} a closed task offers no On hold control`, JSON.stringify(closedHold));
 
       const wide = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
       chk(wide <= 0, `${tag} no sideways scroll`, String(wide));

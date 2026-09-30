@@ -15733,7 +15733,7 @@ const server = http.createServer(async (req, res) => {
            applies whole or not at all. */
         if (body.archived !== undefined) fields.archived = body.archived;
         /* #4771: paused, carried like archived (a boolean, validated by the engine): the Prompter and the Assigner skip
-           a paused project's tasks. Like archiving, it changes nothing about the members, so it re-tells nobody. */
+           a paused project's tasks, and the members' instructions mark them, so a pause re-tells the members (below). */
         if (body.paused !== undefined) fields.paused = body.paused;
         /* #1994: parent is a carried field like the rest -- the engine's edit
            validates it (self-parent, a missing parent, and cycles are refused)
@@ -15753,12 +15753,10 @@ const server = http.createServer(async (req, res) => {
         const roster = safeRoster();
         // Same reason as create and delete: the rename HAPPENED. A failure
         // re-telling the members is a different fact from a failed rename.
-        // (Only when the name moved: the managed block carries the name and
-        // the folder, and neither the description, the archived flag, nor
-        // anything else this route can change, so a name-less save has
-        // nothing to re-tell.)
+        // Only when the name or the pause moved: the managed block carries the name, the folder and (#4771) which
+        // tasks are on hold, which a pause changes.
         try {
-          if (body.name !== undefined) {
+          if (body.name !== undefined || body.paused !== undefined) {
             for (const a of (reRead ? reRead.agents : [])) projects.syncAgent(a, roster);
           }
         } catch { /* reported by the row's own told verdict on the next read */ }
@@ -16877,6 +16875,8 @@ const server = http.createServer(async (req, res) => {
       if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
       try {
         const t = tasks.setOnHold(id, taskHold[2], body.onHold, { viaScreen: isViaScreen(req, body) });
+        // The assignees' instructions mark a held task (projects.blockBody), so the block follows the record, as close does.
+        try { tellEveryoneOn(t); } catch { /* the hold happened; a failed re-tell is reported by the row's told verdict */ }
         sendJson(res, 200, { task: t });
       } catch (err) {
         const msg = String((err && err.message) || '');
