@@ -53711,7 +53711,7 @@ function paintTaskPage() {
      Prompter interval paint checks it). Empty input means no due date. */
   const due = document.getElementById('tk-due');
   if (due && document.activeElement !== due) due.value = t.dueDate || '';
-  /* #4771: the hold control speaks its current state; a paused project holds every task in it. */
+  /* #4771: the hold control speaks its current state. */
   const hold = document.getElementById('tk-hold');
   if (hold) hold.textContent = t.onHold === true ? 'Take off hold' : 'Put on hold';
   // A finished task has nothing to hold: no control, no hint.

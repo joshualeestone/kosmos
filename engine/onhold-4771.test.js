@@ -292,3 +292,17 @@ test('#4771 review: the project view says whose pause it is', () => {
     assert.deepEqual([view().paused, view().pausedByPerson], [true, true]);
   } finally { w.restore(); }
 });
+
+test('#4771 review: a task needing the person\'s decision reads decision even held or in a paused project (control: without it, held)', () => {
+  const w = world('holddecide' + seq, true);
+  try {
+    const row = () => tasks.allTasks().find((t) => t.projectId === w.pid && t.number === w.n);
+    tasks.setOnHold(w.pid, w.n, true);
+    assert.equal(tasks.taskState(Object.assign({}, row(), { waitingOnPerson: true })), 'decision', 'a held task needing the person hid under On hold');
+    assert.equal(tasks.taskState(row()), 'held', 'control: the same held task without a decision is not held');
+    tasks.setOnHold(w.pid, w.n, false);
+    projects.edit(w.pid, { paused: true });
+    assert.equal(tasks.taskState(Object.assign({}, row(), { waitingOnPerson: true })), 'decision', 'a paused project\'s task needing the person hid under On hold');
+    assert.equal(tasks.taskState(row()), 'held', 'control: the same paused task without a decision is not held');
+  } finally { w.restore(); }
+});

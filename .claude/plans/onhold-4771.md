@@ -44,9 +44,10 @@ agents onto tasks the person had put on hold and into a project the person had p
   process can send. The real boundary is the agent-token work of #4491.
 - The On hold tile sits after Josh's five open groups and before Completed; his order is otherwise unchanged.
 - Its colour is --k-ink-2, Unassigned's neutral: both mean nothing is moving, and the label and icon tell them apart.
-- A paused project holds every task in it on the Tasks view (they count under On hold), and resuming brings them
-  back; the tasks' own onHold flags are untouched by a pause.
-
+- On the Tasks view a paused project's tasks, and a held task, count under On hold, except one that needs the
+  person's decision: taskState checks decision before held, so Needs Your Decision stays where the person looks
+  (tested). Both automations still skip every task in a paused project. Resuming brings the tasks back; their own
+  onHold flags are untouched by a pause.
 - An agent whose only work is held sits idle: the Assigner treats it as free and gives it work from other projects,
   and the parked project's goal is not asked (its held tasks keep it from reading as empty). Idle is the person's
   choice there; asking the goal would reopen what they set aside.

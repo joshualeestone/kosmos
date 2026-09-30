@@ -2442,6 +2442,9 @@ function cleanParent(value, childId) {
  * but a boolean, because `!!` would turn {"archived": "false"} into an
  * archive, the opposite of what the caller wrote), so a request either
  * applies whole or not at all.
+ * `viaScreen` (#4771) is carried, not stored: only `true` counts, and it says a
+ * `paused` change came from the person on the screen (their pause is lifted only
+ * from there).
  */
 function edit(id, fields = {}) {
   const want = {};
