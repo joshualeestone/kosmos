@@ -32,6 +32,8 @@
  *       so this arm guards against a return to two requests (red on the code before fetchRoles).
  *   K13 an incomplete catalogue (#4632) is asked for again on the next open (with ?catalogue=1), not on a path
  *       choice; a complete one is not; an open whose refetch fails keeps the menu already held;
+ *   K14 (#4724) a role chosen on the first-run import link while its roles answer is out survives that answer;
+ *       CONTROL: with no choice made, the late answer still paints the import default;
  *   K10 the roles cannot be read: the Team screen says the org chart cannot be offered (not only "coming soon"),
  *       and choosing Team again tries again and offers it once they load.
  *
@@ -385,6 +387,36 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
         ok(t + ' K13 an open whose refetch fails keeps the menu already held (no error, Continue still works)',
           keptOnFail.failAsked === 1 && keptOnFail.msgBefore === '' && keptOnFail.held && keptOnFail.pm && keptOnFail.msg === '' && keptOnFail.next, JSON.stringify(keptOnFail));
       } finally { CATALOGUE_LOADED = true; ROLES_FAIL = false; }
+
+      // K14 (#4724): on the first-run import link the open itself is on the role screen, so its late roles answer used to
+      // repaint under a choice made there (pickMode('import') cleared PICKED and Create sent no role). A choice the
+      // person makes now claims the screen. CONTROL: with no choice, the same late answer still paints the default.
+      const k14 = async (choose) => {
+        CATALOGUE_LOADED = false;
+        await page.evaluate(() => { ROLES = null; OWN_ROLE = null; openCreate(); });
+        await page.waitForTimeout(400);                   // an incomplete menu is held
+        ROLES_DELAY_ONCE = 1500;                           // the import link's refetch is slow
+        await page.evaluate(() => openCreate('import'));
+        await page.waitForTimeout(200);
+        let chosen = null;
+        if (choose) {
+          await page.click('input[name="rmode"][value="list"]');
+          chosen = await page.evaluate(() => { const s = document.getElementById('rolesel'); s.selectedIndex = s.options.length - 1; s.dispatchEvent(new Event('change', { bubbles: true })); return s.value; });
+        }
+        const before = await page.evaluate(() => PICKED);
+        await page.waitForTimeout(1800);                   // the late answer lands
+        CATALOGUE_LOADED = true;
+        return { chosen, before, after: await page.evaluate(() => PICKED),
+          mode: await page.evaluate(() => (document.querySelector('input[name="rmode"]:checked') || {}).value || null) };
+      };
+      try {
+        const kept = await k14(true);
+        const ctl = await k14(false);
+        ok(t + ' K14 a role chosen on the import link while its roles answer is out survives the answer (#4724)',
+          !!kept.chosen && kept.before === kept.chosen && kept.after === kept.chosen && kept.mode === 'list', JSON.stringify(kept));
+        ok(t + ' K14 CONTROL: with no choice made, the late answer still paints the import default',
+          ctl.chosen === null && ctl.mode === 'import' && ctl.after === null, JSON.stringify(ctl));
+      } finally { CATALOGUE_LOADED = true; ROLES_DELAY_ONCE = 0; }
 
       // K10: the roles cannot be read. The Team screen says why there is no org chart, and choosing Team again retries.
       ROLES_FAIL = true;

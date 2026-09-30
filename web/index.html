@@ -47240,8 +47240,11 @@ function pickMode(mode) {
 /* ⚠️ `change`, NOT `click`. The browser fires it for a click on the label, for
    the space bar, AND for the arrow keys -- which is where the hand-written
    keyboard handler this replaces used to live. */
+/* #4724: a choice the PERSON makes on the role screen makes them the newest roles caller (ROLES_GEN), so an open's
+   late roles answer paints nothing over it: that paint re-applies the opening default and clears PICKED. */
+function personChoseRole() { ROLES_GEN += 1; }
 document.getElementById('roles-list').addEventListener('change', (e) => {
-  if (e.target.name === 'rmode') pickMode(e.target.value);
+  if (e.target.name === 'rmode') { personChoseRole(); pickMode(e.target.value); }
 });
 function paintPickLimit() {
   const line = document.getElementById('pick-limit');
@@ -47251,6 +47254,7 @@ function paintPickLimit() {
   line.hidden = !say;
 }
 document.getElementById('rolesel').addEventListener('change', () => {
+  personChoseRole();
   PICKED = document.getElementById('rolesel').value;
   paintPickLimit();
 });
@@ -48979,6 +48983,7 @@ async function finishImport(data, gen, btn) {
     // The file is the person describing the agent themselves, so it IS the `own`
     // path -- same role, same create call. Lay the imported fields on top and mark
     // them dirty so a later refill keeps the person's words, not the role template.
+    personChoseRole();
     PICKED = 'own';
     FILLED_ROLE = 'own';
     document.getElementById('create-meet').textContent = 'Set up your ' + ((role && role.label) || 'agent');
