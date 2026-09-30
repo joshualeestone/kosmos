@@ -43139,7 +43139,7 @@ function plusSiClear() {
   if (typeof PLUS_SI_REGISTERING !== 'undefined') PLUS_SI_REGISTERING = false;
   if (typeof PLUS_SI_RETRY !== 'undefined') PLUS_SI_RETRY = '';
   /* kosmos#4756: the bought-address list belongs to the sign-in that read it. */
-  if (typeof PLUS_SI_SESSION !== 'undefined') { PLUS_SI_SESSION = null; PLUS_SI_BOUGHT_LAST = null; PLUS_SI_PICKED = false; PLUS_SI_RETRY_FROM_LIST = false; }
+  if (typeof PLUS_SI_SESSION !== 'undefined') { PLUS_SI_SESSION = null; PLUS_SI_BOUGHT_LAST = null; PLUS_SI_PICKED = false; PLUS_SI_RETRY_FROM_LIST = false; PLUS_SI_REFUSED = []; PLUS_SI_UNREAD = false; }
   const bought = document.getElementById('plus-si-bought'); if (bought) bought.hidden = true;
 }
 function plusSiEnter(e) {
@@ -43635,6 +43635,8 @@ document.getElementById('plus-si-enrol-confirm-go').addEventListener('click', as
 let PLUS_SI_SESSION = null;
 let PLUS_SI_PICKED = false;   // the register now running came from the bought-address list
 let PLUS_SI_RETRY_FROM_LIST = false;
+let PLUS_SI_REFUSED = [];    // addresses refused in this sign-in: never offered again, whatever a re-read says
+let PLUS_SI_UNREAD = false;  // the first read failed (not a switch that is off), so the old step ran without a list
 let PLUS_SI_BOUGHT_SEQ = 0;
 let PLUS_SI_BOUGHT_LAST = null;   // the last list shown, re-shown when a re-read fails
 async function plusSiBoughtRead() {
@@ -43692,9 +43694,16 @@ async function plusSiSession(data, again, keep) {
   if (spin) spin.hidden = true;
   if (lead) lead.textContent = 'Connecting this computer as';
   const b = got.list || null;
+  if (!again) PLUS_SI_UNREAD = !b && !got.off;
   if (again && !b && !got.off) {
     if (/start again from the email/i.test(String(got.because || ''))) { plusSiFail(got.because); return; }
     if (PLUS_SI_BOUGHT_LAST) plusSiBoughtPick(PLUS_SI_BOUGHT_LAST);
+    else {
+      /* Never had a list (the first read failed too): the none panel, saying so, with Check again and the website. */
+      plusSiBoughtPick({ addresses: [], buy_url: '' });
+      document.getElementById('plus-si-bought-none-lead').textContent = 'Kosmos+ could not list the addresses on this account just now.';
+      document.getElementById('plus-si-bought-none-hint').textContent = 'Check again in a moment, or buy one on the Kosmos+ website.';
+    }
     const why = got.because || 'That did not work. Check again in a moment.';
     plusSiMsg(keep ? String(keep).replace(/[.!?]+$/, '') + '. ' + why : why);   // a refused pick's reason is not overwritten
     return;
@@ -43702,15 +43711,13 @@ async function plusSiSession(data, again, keep) {
   if (bought) bought.hidden = true;   // plusSiBoughtPick shows it again; every other way on is without it
   const own = /^([a-z0-9-]{3,32})\./.exec(String(data.account_address || ''));
   const ownRow = b && own ? b.addresses.filter((r) => r.name === own[1])[0] : null;
-  /* As before: no list (switch off, or not readable on the first read), the account's first computer (its address
-     has no computer on it), or this computer signing in to it again. An account with no address at all, with the
-     switch on, cannot name one here: it gets the list, or the way to buy one. */
   /* This computer already holds one of the account's addresses (set up before, signing in again): it keeps it. */
   const mine = b && b.this_name ? b.addresses.filter((r) => r.name === b.this_name)[0] : null;
   // A register that goes ahead does not keep a refusal's words beside it (again: after a refused pick).
   if (mine && !(own && mine.name === own[1])) { if (again) plusSiMsg(''); plusSiRegisterMode(mine.address); plusSiShow('plus-si-register'); plusSiDoRegister(mine.name, mine.name); return; }
-  /* The account's own address as before only when it is free (or absent from the list, failing open) or already
-     this computer's; a PENDING one is not bought yet, so it gets the list and its waiting-for-payment line. */
+  /* As before: no list (switch off, or not readable on the first read), or the account's own address when it is free
+     (or absent from the list, failing open) or already this computer's. A PENDING one is not bought yet, and an
+     account with no address cannot name one here: both get the list, or the way to buy one. */
   const asBefore = !b || (own && (!ownRow || ownRow.state === 'free' || b.this_name === own[1]));
   if (asBefore) { if (again) plusSiMsg(''); plusSiAsBefore(data); return; }
   plusSiBoughtPick(b);
@@ -43722,7 +43729,7 @@ function plusSiBoughtPick(b) {
   const go = document.getElementById('plus-si-register-go'); if (go) go.hidden = true;
   const list = document.getElementById('plus-si-bought-list');
   list.textContent = '';
-  const free = b.addresses.filter((r) => r.state === 'free');
+  const free = b.addresses.filter((r) => r.state === 'free' && PLUS_SI_REFUSED.indexOf(r.name) === -1);
   for (const row of free) {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -43826,9 +43833,13 @@ async function plusSiDoRegister(name, owned) {
   /* Only a refusal that says the address is taken or not this account's: anything else (a timeout, no answer, a
      certificate failure) may be passing, and the address is still this person's, so it keeps Try again on the
      same address (below). */
-  const refused = !r.ok && !r.timeout && /that name is taken|already in use by a (Mac|computer) on this account|needs an address you have bought/i.test(String(r.because || ''));
-  if (refused && PLUS_SI_PICKED && PLUS_SI_SESSION && !/start again from the email/i.test(String(r.because || ''))) {
+  const refused = !r.ok && !r.timeout && /that name is taken|already in use by a (Mac|computer) on this account|may be held by an earlier sign-in|needs an address you have bought/i.test(String(r.because || ''));
+  /* Also after the old step ran because the list could not be read: an automatic register to an address another
+     computer holds would otherwise offer Try again on it forever. */
+  if (refused && (PLUS_SI_PICKED || PLUS_SI_UNREAD) && PLUS_SI_SESSION && !/start again from the email/i.test(String(r.because || ''))) {
     PLUS_SI_PICKED = false;
+    PLUS_SI_UNREAD = false;
+    PLUS_SI_REFUSED.push(name);
     const lead = document.getElementById('plus-si-owned-lead'); if (lead) lead.textContent = 'Checking your Kosmos+ addresses';
     document.getElementById('plus-si-owned-addr').textContent = '';
     const tail = document.getElementById('plus-si-owned-tail'); if (tail) tail.textContent = '...';

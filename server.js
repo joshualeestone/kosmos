@@ -8230,6 +8230,9 @@ const server = http.createServer(async (req, res) => {
   /* kosmos#4756: the account's bought addresses for the session step (engine/remote.js signinAddresses). The
      session token stays in the engine; the page gets the rows, the buy link and this computer's own name. */
   if (pathname === '/api/remote/signin-addresses' && req.method === 'GET') {
+    // A GET, so crossSiteWrite does not see it: refused here, or any page could make the engine spend the session.
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
     remote.signinAddresses()
       .then((got) => {
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }

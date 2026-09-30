@@ -88,6 +88,9 @@ const SCENARIOS = {
   ], auto: null },
   // A retire that failed with a 409 is not "that address is taken": Try again on the same address.
   'pick-retire-409': { retire409: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
+  // The first read fails, so the old step registers to the account's address; another computer holds it, and the
+  // refusal goes to the list (read again) rather than Try again on an address that can never work.
+  'unread-then-refused': { refuse: 'first', lists: [null, { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
   // A pick refused (another computer took it first) returns to the list with the reason, not Try again on the same address.
   'pick-refused': { refuse: 'spare', lists: [
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] },
@@ -229,6 +232,13 @@ const visible = (page, sel) => page.evaluate((s) => {
         await page.waitForFunction(() => { const d = document.getElementById('plus-si-done'); return d && !d.hidden; }, null, { timeout: 8000 }).catch(() => {});
         chk(regs.length === 1 && regs[0] === 'first', `[${key}] takes the step as before (registers to the account's address)`, JSON.stringify(regs));
         chk(!(await visible(page, '#plus-si-bought')), `[${key}] with the list gone`);
+      } else if (key === 'unread-then-refused') {
+        await page.waitForSelector('#plus-si-bought-list button[data-bought="spare"]', { state: 'visible', timeout: 8000 }).catch(() => {});
+        chk(regs.length === 1 && regs[0] === 'first', `[${key}] the old step tried the account's address once`, JSON.stringify(regs));
+        chk(asked === 2, `[${key}] then read the list again`, String(asked));
+        const btns = await page.$$eval('#plus-si-bought-list button', (b) => b.map((x) => x.getAttribute('data-bought')));
+        chk(JSON.stringify(btns) === JSON.stringify(['spare']), `[${key}] and offers the free address`, JSON.stringify(btns));
+        chk(!(await visible(page, '#plus-si-register-go')), `[${key}] not Try again on the held address`);
       } else if (key === 'own-pending') {
         chk(await visible(page, '#plus-si-bought-none'), `[${key}] the none panel shows`);
         chk(/waiting for its payment/.test(await page.textContent('#plus-si-bought-none-lead')), `[${key}] with the waiting-for-payment line`);

@@ -1945,8 +1945,8 @@ function turnOnAfterSignin() {
    says bought addresses are live (/v1/meta bought_addresses, or AGENT_WORKFORCE_BOUGHT_ADDRESSES=1 to test),
    a computer signs in to an address the account has BOUGHT and never makes one, so the wizard needs the
    account's addresses at the session step, before register. Read with the session this sign-in holds
-   (the coordinator's GET /v1/account/addresses, contract on kosmos#4754), over plain HTTPS rather than the
-   tunnel binary: it only decides what the step OFFERS, and register_mac refuses an address not bought
+   (the coordinator's GET /v1/account/addresses, contract on kosmos#4754), as a direct request to COORDINATOR()
+   rather than through the tunnel binary: it only decides what the step OFFERS, and register_mac refuses an address not bought
    whatever this says. It carries the session token, so the token goes only to COORDINATOR(), redirects
    are refused, and only a JSON answer is read.
    Answers { live:false } with the switch off (the wizard is exactly as before), else the rows in their
