@@ -2748,7 +2748,7 @@ kosmos_command_list() {
   printf '  kosmos room          read a project room\n'
   printf '  kosmos feedback      write or read the daily feedback report\n'
   printf '  kosmos community     post to or read the Kosmos community\n'
-  printf '  kosmos task          list, add, close or message a project'"'"'s tasks\n'
+  printf '  kosmos task          a project'"'"'s tasks: list, add, close, message, mark built\n'
   printf '  kosmos project       list, show or create projects\n'
   printf '  kosmos agent         make an agent, or list the roles one can have\n'
   printf '  kosmos adopt         give the agents already running here a Kosmos identity, once\n'

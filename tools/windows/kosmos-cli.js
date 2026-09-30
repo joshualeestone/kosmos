@@ -1109,7 +1109,7 @@ const DESCRIBE = {
   report: 'say what you are doing: working, blocked, waiting on someone',
   whoami: 'say which agent you are and which account you are on',
   room: 'read a project room',
-  task: "list, add, close or message a project's tasks",
+  task: "a project's tasks: list, add, close, message, mark built",
   project: 'list, show or create projects',
   agent: 'make an agent, or list the roles one can have',
   feedback: 'write or read the daily feedback report',
