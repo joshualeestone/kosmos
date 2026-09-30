@@ -46,22 +46,25 @@ test('#4569 fix 4: status carries the count on a fresh working report only', () 
   assert.ok(!reconcileReport(stale, scraped, now).waiting, 'a stale report kept its count');
 });
 
-test('#4612: an idle report keeps a turn\'s answer (cleaned, capped) and reads it back; anything else is not kept', () => {
+test('#4612: an idle or working report keeps a turn\'s answer (cleaned, capped) and reads it back; anything else is not kept', () => {
   const at = new Date().toISOString();
   selfreport.record('mark2', { state: 'idle', auto: true, final: { text: 'Done.\u0007 Next step: deploy.', startedAt: at } });
   assert.deepEqual(selfreport.read('mark2').final, { text: 'Done. Next step: deploy.', startedAt: at });
   selfreport.record('mark2', { state: 'idle', auto: true, final: { text: 'x'.repeat(5000), startedAt: at } });
   assert.equal(selfreport.read('mark2').final.text.length, 4000);
+  // #4612 review: a working report carries it too (a turn queued behind the DM).
+  selfreport.record('mark3', { state: 'working', auto: true, final: { text: 'Queued answer.', startedAt: at } });
+  assert.deepEqual(selfreport.read('mark3').final, { text: 'Queued answer.', startedAt: at });
   // Each bad answer on a fresh agent: none is kept.
   let k = 0;
   for (const [label, entry] of [
-    ['a working report', { state: 'working', auto: true, final: { text: 'x', startedAt: at } }],
+    ['a needs_you report', { state: 'needs_you', because: 'which file?', final: { text: 'x', startedAt: at } }],
     ['blank text', { state: 'idle', auto: true, final: { text: '   ', startedAt: at } }],
     ['a bad time', { state: 'idle', auto: true, final: { text: 'x', startedAt: 'soon' } }],
     ['no answer', { state: 'idle', auto: true }],
   ]) {
     const who = 'markbad' + (k++);
-    selfreport.record(who, entry);
+    assert.equal(selfreport.record(who, entry).recorded, true, 'CONTROL: ' + label + ' was not recorded, so this proves nothing');
     assert.equal(selfreport.read(who).final, null, label + ' was kept');
   }
 });

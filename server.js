@@ -12918,7 +12918,7 @@ const server = http.createServer(async (req, res) => {
           project: typeof body.project === 'string' ? body.project : undefined,
           because: body.text,
           waiting: body.waiting,   // #4569 fix 4: selfreport keeps it only on a sane working report
-          final: body.final,       // #4612: a Muse turn's answer; selfreport keeps it only on a sane idle report
+          final: body.final,       // #4612: a Muse turn's answer; selfreport keeps it only on a sane idle or working report
           on: body.on,
           owner: body.owner,
           until: body.until,

@@ -141,10 +141,10 @@ function waitingOf(state, w) {
   return { n, yours };
 }
 
-/* #4612: { text, startedAt } on an idle report, text 1..4000 characters (control characters but newline and tab
-   removed), startedAt a time that parses; else undefined (not written). */
+/* #4612: { text, startedAt } on an idle or working report, text 1..4000 characters (control characters but newline
+   and tab removed), startedAt a time that parses; else undefined (not written). */
 function finalOf(state, f) {
-  if (state !== 'idle' || !f || typeof f !== 'object' || typeof f.text !== 'string' || typeof f.startedAt !== 'string') return undefined;
+  if ((state !== 'idle' && state !== 'working') || !f || typeof f !== 'object' || typeof f.text !== 'string' || typeof f.startedAt !== 'string') return undefined;
   if (!Number.isFinite(Date.parse(f.startedAt))) return undefined;
   const text = Array.from(f.text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '').trim()).slice(0, 4000).join('');   // characters, not UTF-16 units
   return text ? { text, startedAt: f.startedAt } : undefined;
@@ -392,8 +392,8 @@ function read(sessionName) {
      one. */
   let project = null;
   /* #4612 review round 3: the latest turn answer THIS RUN, carried across the reports after it (a room turn that ran
-     next must not make the DM forget what the agent answered), within the TAIL_BYTES this read looks at. A new run
-     forgets it, like the project. */
+     next must not make the DM forget what the agent answered), within the TAIL_BYTES this read looks at. A started
+     or stopped report forgets it, like the project. */
   let final = null;
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;

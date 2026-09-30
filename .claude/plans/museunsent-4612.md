@@ -7,7 +7,8 @@ fields this reuses.
 The person DMs a Muse agent; the agent's turn finishes with an answer but the agent never runs `kosmos reply`.
 Instead of "Nothing back yet" (after two minutes), the DM shows at once: "It finished without replying here. What it
 said in its own window:" and the answer, in a bounded, line-preserving block. It stays while the agent runs other
-(room) turns; it goes once the agent replies here, a newer DM arrives, or the agent starts a new run.
+(room) turns; it goes once the agent replies here or a newer DM arrives. It reaches the board as soon as the DM's
+turn ends: on the working reports of the turns queued behind it, or on the idle report when nothing is queued.
 
 ## Decisions
 - Carried like #4611's count: musefront sends the turn's answer and start time with its idle report
@@ -28,15 +29,17 @@ said in its own window:" and the answer, in a bounded, line-preserving block. It
 
 - Review round 3: selfreport.read carries the run's latest answer across the reports after it, and the route no
   longer requires the latest report to be idle (a room turn running next made the DM say "Nothing back yet", falsely).
-  A new run (started / stopped) forgets it. The answer is cut by characters, not UTF-16 units.
+  A started or stopped report forgets it; the Muse front sends neither, so a restarted Muse agent keeps it, and the
+  route still shows it only under a DM its turn began after. The answer is cut by characters, not UTF-16 units.
 
 - Known limits (review round 4): an automatic idle report is not recorded while the agent has a standing blocked or
   needs_you (#900), so that turn's answer is not carried and the DM keeps "Nothing back yet"; and the answer lasts
   only within the last TAIL_BYTES (64 KB) of the report log. Both fall back to today's line, never a wrong answer.
 
 ## Weakest premise
-That the DM envelope marks the turn that answered the person. A DM whose turn failed or had no words clears it, so
-an older answer is never shown for a newer message (the route also requires the turn to begin after the message).
+That the DM envelope marks the turn that answered the person. The board keeps an older answer when a newer DM's turn
+fails or has no words; what keeps it off the newer DM is the route alone (the answer's turn must begin after the
+message), asserted by server.dm-owes-4340.test.js with the newer DM's own empty turn.
 
 ## Tests
 engine/musefront.test.js (answer on idle, control failed turn; reporter payload; bridge Stop only, agy unchanged),
@@ -46,3 +49,7 @@ web.dm-unsent-4612.test.js (line and escaped text at once; control: the old line
 server.report-readback-2709.test.js (the route's pass-through; a working report's answer is not kept), and the
 review-round tests in engine/musefront.test.js (a DM's answer across a room turn; stop note; failed or wordless DM
 turns; every operatorDirect form) and engine/selfreport.waiting-4569.test.js (carried across reports; new run).
+
+## Review (fresh loop after the rebase onto museqcard, 2026-09-30)
+- The answer no longer waits for the queue to drain: it rides on the working reports of the turns queued behind the DM (bridge, selfreport and the throttle key accept it there). An idle report between turns was tried first and rejected: it breaks #4569's rule that idle comes only once nothing is waiting, and it blanks the queue line.
+- The route's check is the only guard against an older answer under a newer DM; a server test now covers the newer DM's own empty turn.

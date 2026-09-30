@@ -182,7 +182,7 @@ test('#4569 fix 4: a working report\'s queue count ({ n, yours }) goes through t
   });
 });
 
-test('#4612: an idle report\'s turn answer ({ text, startedAt }) goes through the route and reads back; a working one\'s is not kept', async () => {
+test('#4612: an idle or working report\'s turn answer ({ text, startedAt }) goes through the route and reads back; a needs_you one\'s is not kept', async () => {
   boardAuthState.on = false;
   await withLeo(async () => {
     const tok = sendertoken.mint(WHO).token;
@@ -192,9 +192,14 @@ test('#4612: an idle report\'s turn answer ({ text, startedAt }) goes through th
       assert.equal(wrote.json.recorded, true, wrote.text);
       const back = await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } });
       assert.deepEqual(back.json.report.final, { text: 'All done.', startedAt: at }, 'the route dropped the answer: ' + back.text);
-      // A working report's own answer is never kept; the run's idle answer stands (#4612 review round 3).
-      await post('/api/report', { headers: { 'x-kosmos-agent-token': tok }, body: { state: 'working', auto: true, final: { text: 'x', startedAt: at } } });
-      assert.deepEqual((await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } })).json.report.final, { text: 'All done.', startedAt: at });
+      // #4612 review: a working report's answer goes through too (a turn queued behind the DM carries it).
+      const at2 = new Date(Date.now() + 1000).toISOString();
+      await post('/api/report', { headers: { 'x-kosmos-agent-token': tok }, body: { state: 'working', auto: true, final: { text: 'Queued answer.', startedAt: at2 } } });
+      assert.deepEqual((await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } })).json.report.final, { text: 'Queued answer.', startedAt: at2 });
+      // A needs_you report's answer is not kept; the carried answer stands.
+      const ny = await post('/api/report', { headers: { 'x-kosmos-agent-token': tok }, body: { state: 'needs_you', text: 'which file?', final: { text: 'x', startedAt: at } } });
+      assert.equal(ny.json.recorded, true, 'CONTROL: the needs_you report was not recorded, so this proves nothing: ' + ny.text);
+      assert.deepEqual((await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } })).json.report.final, { text: 'Queued answer.', startedAt: at2 });
     } finally { sendertoken.revoke(WHO); }
   });
 });

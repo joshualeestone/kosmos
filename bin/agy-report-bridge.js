@@ -176,14 +176,16 @@ function reportFor(eventName, payload) {
   /* #4569 fix 4: the Muse front (engine/musefront.js) runs this bridge too, and puts its queue in `kosmosWaiting`
      ({ n, yours }) on a working report. agy's own payloads never carry it. The board checks it (selfreport). */
   const w = payload && typeof payload === 'object' ? payload.kosmosWaiting : null;
-  if (state === 'working' && w && typeof w === 'object' && Number.isSafeInteger(w.n) && Number.isSafeInteger(w.yours)) {
-    return { state, text, waiting: { n: w.n, yours: w.yours } };
-  }
-  /* #4612: the Muse front's turn answer ({ text, startedAt }) on its Stop; agy's payloads never carry it. */
+  /* #4612: the Muse front's answer to the person's DM ({ text, startedAt }): on the Stop that ends the DM's turn, or
+     on the working reports of the turns queued behind it, so it does not wait for the queue to drain. agy's own
+     payloads never carry it. */
   const f = payload && typeof payload === 'object' ? payload.kosmosFinal : null;
-  if (state === 'idle' && f && typeof f === 'object' && typeof f.text === 'string' && f.text.trim() && typeof f.startedAt === 'string') {
-    return { state, text, final: { text: Array.from(f.text).slice(0, 4000).join(''), startedAt: f.startedAt } };   // characters
+  const final = (state === 'idle' || state === 'working') && f && typeof f === 'object' && typeof f.text === 'string' && f.text.trim() && typeof f.startedAt === 'string'
+    ? { text: Array.from(f.text).slice(0, 4000).join(''), startedAt: f.startedAt } : undefined;   // characters
+  if (state === 'working' && w && typeof w === 'object' && Number.isSafeInteger(w.n) && Number.isSafeInteger(w.yours)) {
+    return final ? { state, text, waiting: { n: w.n, yours: w.yours }, final } : { state, text, waiting: { n: w.n, yours: w.yours } };
   }
+  if (final) return { state, text, final };
   if (state === 'idle' && payload && typeof payload === 'object') {
     /* A Stop with an error is still the end of the turn; say so on the card rather than hide it. */
     if (typeof payload.error === 'string' && payload.error.trim()) text = 'The turn ended with an error: ' + payload.error.trim();
@@ -248,7 +250,8 @@ async function main() {
   if (eventName === 'PreToolUse') answer(answerFor(eventName, payload));
   const mapped = reportFor(eventName, payload);
   if (!mapped) return;
-  const waitKey = mapped.waiting ? mapped.waiting.n + '/' + mapped.waiting.yours : '';
+  // #4612: a working report that newly carries an answer is not a repeat, so the answer is part of the key.
+  const waitKey = (mapped.waiting ? mapped.waiting.n + '/' + mapped.waiting.yours : '') + (mapped.final ? ' answer ' + mapped.final.startedAt : '');
   if (!shouldSend(mapped.state, Date.now(), process.env, waitKey)) return;
 
   const port = Number(process.env.KOSMOS_PORT) || 16180;

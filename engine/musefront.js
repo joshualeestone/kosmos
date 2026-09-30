@@ -177,7 +177,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
       noteTimer = null;
       if (!running) return;
       const w = waiting();
-      if (keyOf(w) !== keyOf(noteSent)) { noteSent = w; report('working', w); }
+      if (keyOf(w) !== keyOf(noteSent)) { noteSent = w; report('working', w, dmAnswer); }
     }, noteEveryMs);
     if (noteTimer.unref) noteTimer.unref();
   }
@@ -209,8 +209,9 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         const prompt = next();
         stopNoteRunning = STOP_NOTES.delete(prompt);
         noteSent = waiting();
-        report('working', noteSent);
-        const beat = setInterval(() => report('working', noteSent), workingEveryMs);
+        // #4612: an answer to the person's DM still pending rides on this turn's working reports.
+        report('working', noteSent, dmAnswer);
+        const beat = setInterval(() => report('working', noteSent, dmAnswer), workingEveryMs);
         if (beat.unref) beat.unref();
         let r;
         const isNote = stopNoteRunning;
@@ -231,10 +232,9 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         if (text) write(text + '\n');
         if (!r || !r.ok) write('(' + printable((r && r.because) || 'Muse Code did not finish the turn') + ')\n');
         // Idle only once nothing is waiting: a queued message starts its turn at once.
-        /* #4612: the answer to the person's latest DM rides with the next idle report, so the DM can show it when
-           the agent answered in its own window but never ran kosmos reply. Kept across the turns that run after it
-           (a room post the DM went ahead of). A later DM turn replaces it: with its answer, or with nothing when that
-           turn failed or had no words. */
+        /* #4612: the answer to the person's latest DM rides with the next reports (the working reports of turns queued
+           behind it, then the idle one), so the DM can show it when the agent answered in its own window but never ran
+           kosmos reply. A later DM turn replaces this copy. */
         if (answersTheDm(prompt)) dmAnswer = r && r.ok && text ? { text: Array.from(text).slice(0, FINAL_MAX).join(''), startedAt } : null;
         if (!queue.length) { noteSent = null; report('idle', null, dmAnswer); dmAnswer = null; }
         write(PROMPT);

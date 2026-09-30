@@ -608,7 +608,10 @@ test('#4612: the reporter sends the answer as kosmosFinal; the bridge puts it on
   const r = bridge.reportFor('Stop', { kosmosFinal: { text: 'done', startedAt: '2026-09-29T17:00:00.000Z' } });
   assert.deepEqual(r, { state: 'idle', text: '', final: { text: 'done', startedAt: '2026-09-29T17:00:00.000Z' } });
   assert.deepEqual(bridge.buildBody('idle', '', { TMUX_PANE: '%1' }, null, r.final).final, r.final);
-  assert.equal(bridge.reportFor('PreInvocation', { kosmosFinal: { text: 'x', startedAt: '2026-09-29T17:00:00.000Z' } }).final, undefined, 'a working report carried an answer');
+  // #4612 review: a working report now carries a pending answer too (the turns queued behind the DM), and its
+  // throttle key changes with it, so the answer is not held back as a repeated working report.
+  assert.deepEqual(bridge.reportFor('PreInvocation', { kosmosFinal: { text: 'x', startedAt: '2026-09-29T17:00:00.000Z' } }).final, { text: 'x', startedAt: '2026-09-29T17:00:00.000Z' });
+  assert.equal(bridge.reportFor('PreInvocation', {}).final, undefined, 'CONTROL: agy\'s own working report carries no answer');
   assert.deepEqual(bridge.reportFor('Stop', {}), { state: 'idle', text: '' }, 'CONTROL: agy\'s own Stop is unchanged');
 });
 
@@ -625,6 +628,9 @@ test('#4612 review round 1: the answer carried is the DM turn\'s, even when a ro
   await h.f.drained();
   const idle = sent.filter(([s]) => s === 'idle');
   assert.equal(idle.length, 1);
+  // #4612 review: the answer does not wait for the queue to drain: the room turn's working report carries it.
+  const early = sent.findIndex(([s, f]) => s === 'working' && f && f.text === 'Answer to Josh.');
+  assert.ok(early >= 0 && early < sent.findIndex(([s]) => s === 'idle'), 'the answer waited for the queue to drain: ' + JSON.stringify(sent));
   assert.equal(idle[0][1] && idle[0][1].text, 'Answer to Josh.', 'the room turn\'s answer was carried: ' + JSON.stringify(idle));
   assert.ok(Date.parse(idle[0][1].startedAt) > fedAt, 'startedAt is when the DM was fed, not when its turn began');
   // CONTROL: only room turns ran, so no answer is carried.
