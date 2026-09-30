@@ -743,6 +743,33 @@ const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopba
    bare `require('./server')` in a unit test must not touch the real store. The
    dispatch closure below reads this holder; start() populates it. */
 const boardAuthState = { on: false, token: null };
+/* #4602 (#4580 item 13, the Meta agent's finding): the board-token refusal says what is actually wrong. A request
+   that presented NO credential at all (no board token by cookie, header or query; no agent token) was told "this
+   board belongs to the account that started it", the same words as a token that was sent and is another account's,
+   and was read as "this is another machine's board". It now says the token is missing and how one is sent. The
+   account clause stays in both, word for word: it is still true, and it is the phrase the gate's tests (and anyone
+   else reading this refusal) recognise. `tail` is a caller's extra way in, e.g. an agent token on POST /api/team.
+   Scope: a caller that is not a browser (the audience that asked); a browser keeps the old sentence, see below.
+   The wording is chosen from what the CALLER sent (its own headers, cookie, query), never from server state, and
+   both sentences refuse, so a client-controlled header here changes words only, never access. */
+function boardTokenRefusal(req, tail) {
+  const account = 'this board belongs to the account that started it; open it with `kosmos open`' + (tail || '');
+  const sent = Boolean(boardauth.presentedToken(req, ROUTING_BASE))
+    || Boolean(req && req.headers && req.headers['x-kosmos-agent-token']);
+  /* A BROWSER keeps today's sentence exactly: the page shows this error to a PERSON (the org-chart import, Settings),
+     for whom "open it with `kosmos open`" is the right advice and "use a kosmos command" is not. Current browsers
+     send Sec-Fetch-Site (a header a page cannot remove); curl sends none. An older browser that sends no Sec-Fetch-*
+     gets the other sentence, which is still accurate. Sec-Fetch-Mode is NOT the test: Node's own fetch (the Windows
+     CLI's) sends `sec-fetch-mode: cors` by itself (measured), and no Site. */
+  const browser = Boolean(req && req.headers && req.headers['sec-fetch-site']);
+  if (sent || browser) return account;
+  /* Said as "in the request's headers": an agent token in a JSON body is honoured by some handlers but read after
+     this gate, so the gate cannot claim none came. Kept short and without its own "refused", because both CLIs
+     print it inside "Kosmos refused that request: ...". The advice holds for Kosmos's own commands too: they
+     send the token only when they can read this board's token file, so that condition is said. */
+  return 'no board token or agent token came in this request\u2019s headers, and ' + account
+    + '. A `kosmos` command sends the token for you when it can read this board\u2019s token file';
+}
 /* #3055: the board-token check for the BROWSER dispatch gate. The board token
    proves SAME-ACCOUNT ownership (#1946), and every world's `board.token` is a
    mode-600 file in a mode-700 dir readable only by this account -- so ANY of this
@@ -3046,7 +3073,7 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
      is treated as absent: never block a legit reply over a stale id. The person's
      room route refuses one instead (#3745, see its plan); a retention change must
      revisit both. A proactive post (no in_reply_to) is unchanged. */
-  const citedId = String(inReplyTo == null ? '' : inReplyTo).trim();
+  const citedId = messages.messageIdOf(inReplyTo);   // #4631: '530' and 'message 530' name m530 too
   let answeredProject = null;   // outside the block: the which-room ask below keys on it (round 3)
   if (citedId) {
     try {
@@ -4181,7 +4208,7 @@ const server = http.createServer(async (req, res) => {
     // token never pays for the token-store scan.
     const exemptAgentToken = () => agentTokenRoute(`${req.method} ${pathname}`) && agentTokenOk(req);
     if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !boardTokenOk(req) && !exemptAgentToken()) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
-      sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`' });
+      sendJson(res, 403, { error: boardTokenRefusal(req, '') });
       return;
     }
   }
@@ -6671,7 +6698,7 @@ const server = http.createServer(async (req, res) => {
           // is required (computed only here -- it is never read on the agent path).
           const hasBoardToken = boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
           if (boardAuthState.on && !hasBoardToken) {
-            sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`, or present an agent token' });
+            sendJson(res, 403, { error: boardTokenRefusal(req, ', or present an agent token') });
             return;
           }
           effectiveCreator = body.creator;
@@ -15803,6 +15830,7 @@ const server = http.createServer(async (req, res) => {
         let replyTo = null;
         // '' is refused (400), unlike the agent route's in_reply_to '': the page never sends it, so one here is a bad client.
         if (body.reply_to !== undefined && body.reply_to !== null) {
+          if (typeof body.reply_to === 'string') body.reply_to = messages.messageIdOf(body.reply_to);   // #4631
           if (typeof body.reply_to !== 'string' || !/^m\d+$/.test(body.reply_to)) { sendJson(res, 400, { error: 'that is not a message we can reply to' }); return; }
           let inRoom = null;
           try { inRoom = messages.projectOfPost(body.reply_to); } catch {
@@ -15878,7 +15906,7 @@ const server = http.createServer(async (req, res) => {
         if (!out.ok) { sendJson(res, 400, out); return; }
         /* The fresh reactions for this post, from the operator's viewpoint. */
         let reactions = [];
-        try { reactions = messages.reactionsFor(postId, messages.record().rows, 'you'); } catch { reactions = []; }
+        try { reactions = messages.reactionsFor(out.of, messages.record().rows, 'you'); } catch { reactions = []; }   // #4631: the canonical id (the route takes '530' too)
         sendJson(res, 200, { ok: true, op: out.op, emoji: out.emoji, of: out.of, reactions });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
