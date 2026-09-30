@@ -46716,6 +46716,10 @@ function tcPaint() {
   const hadSlot = hadRow ? hadRow.dataset.slot : null;
   const hadKind = had && had.classList ? (had.classList.contains('tc-retry') ? 'retry' : 'name') : null;
   const hadCaret = (had && hadKind === 'name' && typeof had.selectionStart === 'number') ? had.selectionStart : null;
+  /* Round 28: the whole selection, not only its start. A person who selected a failed row's name to replace
+     it and typed as a repaint landed had their text put in front of the old name ("AdaLeo"), which was
+     then made: the rebuilt box kept only a caret. */
+  const hadEnd = (hadCaret !== null && typeof had.selectionEnd === 'number') ? had.selectionEnd : hadCaret;
   /* Round 3: the watcher repaints every 2s. Rebuilding unchanged rows moved focus to a new element each
      time (a screen reader re-announced it; an IME composition was lost), so only a change rebuilds. */
   const sig = JSON.stringify([TC.started, Boolean(TC.busy), TC.members.map((m) => [m.state, m.why, m.seen, m.portrait, m.renamedFrom || '', (m.warn || []).join('|')])]);
@@ -46773,7 +46777,7 @@ function tcPaint() {
     const back = row && ((hadKind === 'retry' && row.querySelector('.tc-retry')) || row.querySelector('.tc-name'));
     if (back && !back.disabled) {
       back.focus({ preventScroll: true });
-      if (hadCaret !== null && back.classList.contains('tc-name')) { try { back.setSelectionRange(hadCaret, hadCaret); } catch { /* not a text box */ } }
+      if (hadCaret !== null && back.classList.contains('tc-name')) { try { back.setSelectionRange(hadCaret, hadEnd); } catch { /* not a text box */ } }
     } else if (row) {
       // Nothing on the row takes focus now (it is being made, or made): keep the person on the row itself.
       row.tabIndex = -1;

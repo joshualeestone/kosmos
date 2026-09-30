@@ -573,6 +573,33 @@ function chk(ok, label, extra) {
           await page.close();
         }
 
+        /* --- round 28: a repaint between selecting a failed row's name and typing its replacement must keep
+           the selection, or the typing lands in front of the old name ("AdaLeo" was made). Forced here, so the
+           arm does not depend on a repaint happening to land in that gap. ------------------------------- */
+        {
+          const { page, errs, script } = await newPage(1280);
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          script.Leo = 'Leo could not be made';
+          await page.click('#tc-go');
+          await settle(page, () => /Not made/.test((document.querySelector('#tc-list li[data-slot="content"] .tc-state') || {}).textContent || ''));
+          const sel = '#tc-list li[data-slot="content"] .tc-name';
+          await page.evaluate((q) => {
+            const i = document.querySelector(q); i.focus(); i.select();
+            TC.paintedSig = null; tcPaint();   // the repaint lands after the select, before the typing
+          }, sel);
+          await page.keyboard.type('Zed');
+          const after = await page.evaluate((q) => {
+            const i = document.querySelector(q);
+            return { value: i.value, rebuilt: i !== null, focused: document.activeElement === i };
+          }, sel);
+          chk(after.value === 'Zed' && after.focused,
+            `${E} a repaint between selecting a name and typing keeps the selection (the typing replaces it)`, JSON.stringify(after));
+          chk(errs.length === 0, `${E} no page errors (selection arm)`, errs.join(' | '));
+          await page.close();
+        }
+
         /* --- review 25: the "Let Kosmos know" box on the sheet is honoured by every member's create. ---- */
         {
           const { page, errs, posted } = await newPage(1280);

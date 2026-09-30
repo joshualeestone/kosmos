@@ -343,3 +343,13 @@ compared the step with itself; this one compared it with its sibling.
   picture lands, not after each create.
 - NOT CHECKED by this round: the browser check file, the engine and the server. Round 27 read those.
 
+
+## Round 28 (the browser check's own find), 14:47 CDT
+The queued browser check on 9c1c08d0a (both engines): 150 PASS, 1 FAIL, chromium only: "a row renamed to an
+existing agent does not adopt it when its retry drops", posted "AdaLeo". A real bug, not the arm: tcPaint
+rebuilds the list and put back only the caret (selectionStart), so a repaint landing between a select-all
+and the typing put the new text in front of the old name, and that name was made. A person selecting a
+failed row's name to replace it while the watcher repaints (every 2 s) hits the same thing.
+Fixed: the whole selection (start and end) is put back. A new arm forces the repaint between the select
+and the typing, so it no longer depends on timing to show; its control is the same check with the fix
+reverted. The control tree (13:xx, 18 FAILs on purpose) proved the check's older arms can fail.
