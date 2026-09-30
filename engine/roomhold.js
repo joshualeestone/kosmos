@@ -238,8 +238,9 @@ async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver,
       if (require('./chat').addressable(name, roster).ok !== true) continue;
       /* #4797: while the shared Google quota still holds this member, a try is refused and its ids put back: the held
          file rewritten twice and a COULD_NOT log line, every minute of the pause, with nothing told. Skip it until the
-         hold lifts; its ids wait untouched. The same gate flushOnIdle's delivery applies, so nothing reachable after
-         the reset is skipped. */
+         hold lifts; its ids wait untouched. The same gate flushOnIdle's delivery applies (same function, card and memo;
+         the same env in production, where the server passes process.env), so nothing reachable after the reset is
+         skipped. */
       const agyquota = require('./agyquota');
       if (agyquota.heldForQuota(name, roster, now, agyquota.POOL_MEMO, env || process.env) != null) continue;
       for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env })) out.push({ name, ...d });
@@ -255,7 +256,7 @@ async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver,
 function toldLine(name, d, after = '') {
   const DELIVERY = require('./chat').DELIVERY;
   return !d.state || d.state === DELIVERY.COULD_NOT
-    ? `room-hold: ${name} could not yet be told of ${d.n} held post(s) in ${d.projectId} (delivery=${d.state})\n`
+    ? `room-hold: ${name} could not yet be told of ${d.n} held post(s) in ${d.projectId} (delivery=${d.state || 'none'})\n`
     : `room-hold: ${name} told of ${d.n} held post(s) in ${d.projectId}${after ? ' ' + after : ''}, delivery=${d.state}\n`;
 }
 

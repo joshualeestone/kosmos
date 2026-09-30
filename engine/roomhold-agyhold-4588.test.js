@@ -443,7 +443,7 @@ test('#4797: the log line says "told of" only when something was told', () => {
   assert.match(refused, /could not yet be told of 2 held post\(s\)/);
   assert.ok(refused.endsWith('\n') && placed.endsWith('\n'));
   // No state: flushOnIdle put the ids back, so it was not told either.
-  assert.match(roomhold.toldLine('mara', { n: 1, projectId: PROJECT, state: undefined }), /could not yet be told of 1 held post/);
+  assert.match(roomhold.toldLine('mara', { n: 1, projectId: PROJECT, state: undefined }), /could not yet be told of 1 held post.*\(delivery=none\)/);
   // UNCONFIRMED: flushOnIdle cleared the ids (the line reached the pane), so it is told, and says so.
   assert.match(roomhold.toldLine('mara', { n: 1, projectId: PROJECT, state: chat.DELIVERY.UNCONFIRMED }), /told of 1 held post\(s\) in [^ ]+, delivery=/);
 });
@@ -451,5 +451,9 @@ test('#4797: the log line says "told of" only when something was told', () => {
 test('#4797: both server log lines for a flush go through toldLine (no inline "told of" left)', () => {
   const src = fs.readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
   assert.equal((src.match(/roomhold\.toldLine\(/g) || []).length, 2, 'CONTROL: the two call sites were not found');
-  assert.equal(/room-hold: \$\{[^}]+\} told of/.test(src), false, 'an inline "told of" log line is back in server.js');
+  const inline = /room-hold: (\$\{[^}]+\}|' \+ \w+ \+ ')\s*told of/;
+  // CONTROL: the check matches the old inline line, in both template and concatenated form.
+  assert.ok(inline.test('write(`room-hold: ${who} told of ${d.n} held post(s)`)'), 'the check cannot see a template line');
+  assert.ok(inline.test("write('room-hold: ' + who + ' told of ' + n)"), 'the check cannot see a concatenated line');
+  assert.equal(inline.test(src), false, 'an inline "told of" log line is back in server.js');
 });
