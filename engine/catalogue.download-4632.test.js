@@ -306,3 +306,22 @@ test('a catalogue role cannot set fields beyond its own, and a malformed team is
     assert.match(st.error || '', /incomplete/, spoil.toString());
   }
 });
+
+test('duplicate keys and a team without one lead and 4 or 5 reports are refused', async () => {
+  const { signed } = fresh();
+  const spoils = [
+    [(d) => { d.roles[1].key = d.roles[0].key; }, /two roles share a key/],
+    [(d) => { d.teams[1].key = d.teams[0].key; }, /two teams share a key/],
+    [(d) => { d.teams[0].members[1].reportsTo = null; }, /not a lead and 4 or 5 reports/],
+    [(d) => { d.teams[0].members = d.teams[0].members.slice(0, 4); }, /not a lead and 4 or 5 reports/],
+  ];
+  let n = 130;
+  for (const [spoil, why] of spoils) {
+    const d = JSON.parse(TEXT);
+    spoil(d);
+    const st = await catalogue.refresh({ fetcher: server(signed(n += 1, JSON.stringify(d, null, 2))).fetcher, force: true });
+    assert.match(st.error || '', why, spoil.toString());
+  }
+  // CONTROL: the untouched catalogue passes the same checks.
+  assert.equal((await catalogue.refresh({ fetcher: server(signed(n + 1)).fetcher, force: true })).loaded, true);
+});

@@ -21,6 +21,9 @@
  * one designated author is the right shape.
  */
 const test = require('node:test');
+// #4632: the ready-made roles are downloaded; sandbox the data root and store the signed fixture
+// first, so every-role sweeps below see the catalogue's roles too, and never the operator's own copy.
+require('./test-support/catalogue-fixture').sandboxWithCatalogue('roles-feedback');
 const assert = require('node:assert/strict');
 const roles = require('./engine/roles');
 

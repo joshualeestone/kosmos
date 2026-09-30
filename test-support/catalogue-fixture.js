@@ -49,4 +49,24 @@ function install(sandbox) {
   return key;
 }
 
-module.exports = { FIXTURE, install, storeSigned };
+/**
+ * For a test file that reads every role: sandbox the data roots (before any engine module loads,
+ * since store resolves its root at require time) and store the fixture, so the file sees the same
+ * 104 roles a board holding the catalogue sees, and never the operator's own stored copy.
+ * Call it at the top of the file, before requiring anything from engine/.
+ * @returns {string} the sandbox folder (removed when the process exits)
+ */
+function sandboxWithCatalogue(label) {
+  const os = require('node:os');
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), `${label || 'roles'}-catalogue-`));
+  process.env.AGENT_WORKFORCE_WORKERS = path.join(sandbox, 'workers');
+  process.env.AGENT_WORKFORCE_LAUNCH = path.join(sandbox, 'LaunchAgents');
+  process.env.AGENT_WORKFORCE_HOME = path.join(sandbox, 'home');
+  process.env.AGENT_WORKFORCE_DATA = path.join(sandbox, 'support');
+  process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(sandbox, 'claude.json');
+  process.on('exit', () => { try { fs.rmSync(sandbox, { recursive: true, force: true }); } catch { /* best effort */ } });
+  install(sandbox);
+  return sandbox;
+}
+
+module.exports = { FIXTURE, install, storeSigned, sandboxWithCatalogue };

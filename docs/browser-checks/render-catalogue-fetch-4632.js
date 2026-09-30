@@ -13,9 +13,9 @@
  * signature from a local port and points every board at it (KOSMOS_CATALOGUE_BASE), so this needs
  * no network and the board verifies the real signature with its real key.
  *
- * On the harness's shared board earlier checks have already opened the picker, so check 1 (the
- * picker's own request carries ?catalogue=1) is the one that carries the claim; checks 3 to 5 show
- * the downloaded roles reach the board and the page, whichever open fetched them.
+ * On the harness's shared board earlier checks have already opened the picker, so "opening the
+ * picker asks the board with ?catalogue=1" is the check that carries the claim; the checks after it
+ * show the downloaded roles reach the board and the page, whichever open fetched them.
  *
  * Headless is fine here: everything below is requests, JSON and visible text.
  *
@@ -42,6 +42,10 @@ function check(name, pass, detail) {
   const rolesRequests = [];
   page.on('request', (r) => { if (/\/api\/roles(\?|$)/.test(r.url())) rolesRequests.push(r.url()); });
 
+  // The board's own front page first: its load-time /api/roles read (role titles) must be plain.
+  await page.goto(BASE + '/', { waitUntil: 'load' });
+  await page.waitForTimeout(600);
+  const atLoad = rolesRequests.slice();
   await page.goto(BASE + '/?tab=create', { waitUntil: 'load' });
   await page.waitForSelector('#pick-pm:not([hidden])', { timeout: 15000 });
   // The picker's list, which the menu fills from /api/roles?catalogue=1.
@@ -53,8 +57,8 @@ function check(name, pass, detail) {
   check('opening the picker asks the board with ?catalogue=1', asked.length >= 1, `${asked.length} of ${rolesRequests.length} /api/roles requests`);
   // The page also reads /api/roles at load for role titles; that read must not be the one that
   // downloads, or every page load would.
-  check('the page\'s first /api/roles read, at load, carries no ?catalogue=1', rolesRequests.length > 0 && !/catalogue=1/.test(rolesRequests[0]),
-    rolesRequests.map((u) => u.replace(BASE, '')).join(' '));
+  check('the front page\'s load-time /api/roles read carries no ?catalogue=1', atLoad.length > 0 && atLoad.every((u) => !/catalogue=1/.test(u)),
+    atLoad.map((u) => u.replace(BASE, '')).join(' '));
 
   const status = await page.evaluate(async (base) => (await (await fetch(base + '/api/roles')).json()).catalogue || null, BASE);
   check('the board now holds the catalogue, verified', status && status.loaded === true && Number.isInteger(status.serial),

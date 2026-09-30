@@ -6306,7 +6306,8 @@ const server = http.createServer(async (req, res) => {
         /* #4632: a ready-made role comes from the downloaded catalogue. When the key asked for is not
            one this board holds (nobody has opened the picker yet, so nothing was downloaded), ask the
            catalogue first, as the picker would. (This is the create form's route; agents and the CLIs
-           make agents through /api/team, which does the same.) At most once in ten minutes, never throws; an unknown key is still refused below. */
+           make agents through /api/team, which does the same.) At most once in ten minutes, never
+           throws; an unknown key is still refused below. */
         if (create.roleKeyOf(body) && !roles.byKey(create.roleKeyOf(body))) {
           await catalogue.refresh();
         }

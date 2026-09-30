@@ -81,6 +81,10 @@ function shapeProblem(c) {
       return `role ${JSON.stringify(r && r.key)} is incomplete`;
     }
   }
+  const roleKeys = c.roles.map((r) => r.key);
+  if (new Set(roleKeys).size !== roleKeys.length) return 'two roles share a key';
+  const teamKeys = c.teams.map((t) => t && t.key);
+  if (new Set(teamKeys).size !== teamKeys.length) return 'two teams share a key';
   for (const t of c.teams) {
     if (!t || !KEY_RE.test(String(t.key)) || !isText(t.label) || !t.project || !isText(t.project.goal) || !Array.isArray(t.members)
       || !['business', 'personal'].includes(t.kind) || !Number.isInteger(t.rank)) {
@@ -92,6 +96,8 @@ function shapeProblem(c) {
         return `a member of team ${t.key} is incomplete`;
       }
     }
+    const leads = t.members.filter((m) => m.reportsTo === null).length;
+    if (leads !== 1 || t.members.length - leads < 4 || t.members.length - leads > 5) return `team ${t.key} is not a lead and 4 or 5 reports`;
   }
   return null;
 }
