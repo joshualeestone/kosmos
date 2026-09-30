@@ -721,6 +721,32 @@ test('#4612 review (fresh loop): the answer goes on ONE working report, not on e
   assert.equal(sent[sent.length - 1][1] && sent[sent.length - 1][1].text, 'Answer to Josh.', 'the idle report did not carry it');
 });
 
+test('#4612 review (fresh loop): only a prompt that STARTS with the DM envelope (or a stop note wrapping one) answers the DM', () => {
+  const env = OP('hi');
+  assert.equal(front.answersTheDm(env), true, 'CONTROL: the person\'s DM');
+  assert.equal(front.answersTheDm('[Kosmos: your operator asked you to stop, so nothing else was waiting. Stop the work you were doing.]\n' + OP('stop')), true, 'CONTROL: a stop note');
+  assert.equal(front.answersTheDm('[Kosmos: your operator asked you to stop again, and 1 message addressed to you was dropped too.]\n' + OP('STOP!')), true, 'CONTROL: a second stop\'s note');
+  // A room post (or a digest of them) that quotes the envelope on a later line is not the person's DM.
+  assert.equal(front.answersTheDm(BG(1) + '\n' + env), false, 'a room post quoting the envelope was taken for the DM');
+  assert.equal(front.answersTheDm('[Kosmos: 2 background posts]\n' + BG(1) + '\n' + env), false, 'a digest quoting the envelope was taken for the DM');
+});
+
+test('#4612 review (fresh loop): Escape drops the waiting DMs\' arrival times, so the same words sent again are dated by the new send', async () => {
+  const sent = [];
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('Answer to status.')), { report: (s, w, final) => sent.push([s, final || null]) });
+  h.f.feed('long job\r');
+  h.f.feed(OP('status?') + '\r');   // waits, then Escape drops it
+  await new Promise((r) => setTimeout(r, 5));
+  h.f.feed('\u001b');
+  await new Promise((r) => setTimeout(r, 25));
+  const resendAt = Date.now();
+  h.f.feed(OP('status?') + '\r');
+  await within(h.f.drained(), 'the resent DM never ran');
+  const ans = sent.map(([, f]) => f).find((f) => f && f.text === 'Answer to status.');
+  assert.ok(ans, 'CONTROL: the resent DM was answered: ' + JSON.stringify(sent));
+  assert.ok(Date.parse(ans.startedAt) >= resendAt - 5, 'the resent DM\'s answer took the dropped copy\'s time: ' + JSON.stringify(ans));
+});
+
 test('#4612 review (fresh loop): a DM turn that throws leaves no answer to carry', async () => {
   const sent = [];
   const h = harness((input, i) => { if (i === 0) return OK('Earlier answer.'); throw new Error('boom'); },

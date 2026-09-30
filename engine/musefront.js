@@ -127,9 +127,12 @@ const BUSY_RETRIES = 4;
 const FINAL_MAX = 4000;
 /* #4612 review round 1: a turn that answers the person's DIRECT message (engine/messages.js operatorDirect's envelope,
    "... to answer, run: kosmos reply]"), alone or inside a stop note. A room post from the person, a colleague's or a
-   background post is not: its answer belongs to the room, never under the person's DM. */
-const DM_ENVELOPE = /(^|\n)\[message from your operator[^\]\n]*to answer, run: kosmos reply\]/;
-function answersTheDm(prompt) { return DM_ENVELOPE.test(prompt); }
+   background post is not: its answer belongs to the room, never under the person's DM.
+   The envelope must START the prompt, or start the line after a stop note's own first line (a stop note is that line
+   and then the person's stop DM): a room post that quotes the envelope further down is not the person's DM. */
+const DM_ENVELOPE = /^\[message from your operator[^\]\n]*to answer, run: kosmos reply\]/;
+const STOP_NOTE_HEAD = /^\[Kosmos: your operator asked you to stop[^\n]*\]\n/;
+function answersTheDm(prompt) { return DM_ENVELOPE.test(String(prompt).replace(STOP_NOTE_HEAD, '')); }
 /* #4569 fix 4: the window for telling the board a new waiting count (each report starts a node process). */
 const NOTE_EVERY_MS = 1500;
 const BUSY_RETRY_MS = 500;
@@ -294,6 +297,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     const dropped = queue.length;
     queue.length = 0;
     STOP_NOTES.clear();        // housekeeping: a stop note Escape drops is no longer waiting (nothing reads a stale one)
+    dmReceivedAt.clear();      // #4612 review: the DMs Escape drops take their arrival times with them
     stopNoteRunning = false;   // a note Escape ends is not "already stopping" for the next stop (review round 5)
     line = '';
     if (dropped) write('\n(' + dropped + (dropped === 1 ? ' waiting message was' : ' waiting messages were') + ' dropped)\n');
@@ -450,4 +454,4 @@ function main(argv = process.argv) {
 
 if (require.main === module) main();
 
-module.exports = { createFront, loadSession, sessionFile, makeReporter, printable, UUID_RE, PROMPT, HELLO, WORKING_EVERY_MS };
+module.exports = { createFront, loadSession, sessionFile, makeReporter, printable, answersTheDm, UUID_RE, PROMPT, HELLO, WORKING_EVERY_MS };
