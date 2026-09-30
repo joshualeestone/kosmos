@@ -223,3 +223,23 @@ premise); POOL_MEMO shared by modules whose step reads it (iteration 8 NIT). NIT
 quota-held results are not logged; a comment wrap.
 NEXT: the full validation (the closing gate) and the proof, after PR A (agyquota-4588) is validated and merged,
 since this branch is stacked on it.
+
+## Rebased onto main after PR A merged (fd4dd0383), 2026-09-30
+- Old head 3a86d5420 (it had PR A merged in twice: 5766f4b89 and 3a86d5420). New base origin/main fd4dd0383, the
+  squash of PR A (#4718). Measured: `git diff 97296405f fd4dd0383` is empty, so the squash holds exactly PR A's last
+  head, #4618's resolution in bin/agy-report-bridge.js included.
+- How: `git -c core.commentChar=";" rebase --onto origin/main 97296405f agyhold-4588` (97296405f = PR A's final head,
+  origin/agyquota-4588). Rebase rather than cherry-pick because the upstream cut is one ref and the rebase drops
+  every commit reachable from it in one step. Dropped: the two merges of PR A (5766f4b89, 3a86d5420) and, with them,
+  every PR A and main commit they carried. Neither merge held a resolution of its own (`git show --cc` empty for
+  both). Kept: this branch's 25 non-merge commits, 1f6eb7e46 through 1584bea20. range-diff: 24 identical, 1 changed.
+- One conflict, in 1f6eb7e46, engine/chat.js module.exports: main's #4607 added `answerCodexHooks`, this branch
+  added `deliverAutomatic`. Both kept. No value a test measures was involved.
+- Check: `git diff origin/main HEAD` is exactly this branch's 15 files, +1584 / -30, the same stat as the old head
+  against PR A's head.
+- Focused tests on the rebased head, one node --test run with the runner's two guards, 53 files: 1131/1131, rc 0
+  (agyhooks, every 4588 file, musefront, engine/status.test.js and the status 4569 file, the selfreport files,
+  goldencard-2519, report-readback-2709, report-refusal-4606, the four browser-check guards, fixture-discipline, and
+  the agentnudge / assigner / recommender / firstreply / messages / chat files this branch touches). Both
+  browser-check gates rc 0. No web/ change, so no browser check is selected.
+- Review: the 12 blind iterations above ran on the pre-rebase tree; the rebase changed one export line.
