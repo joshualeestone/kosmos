@@ -281,3 +281,11 @@ test('each spec carries the session name its agent will have (the page adopts a 
   const r = teamseed.specs({ team: 'marketing', names: { lead: 'Maya Okafor', content: 'Leo', social: 'Ana' } }, fixture());
   assert.deepEqual(r.specs.map((s) => s.session), ['maya-okafor', 'leo', 'ana']);
 });
+
+test('the removed-list words here are the words create.js says for the same name', () => {
+  // create.js keeps its sentence as a literal at the refusal (another test reads it there), so teamseed
+  // carries a copy. This is what keeps the two from drifting.
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'create.js'), 'utf8');
+  assert.ok(src.includes('${shown}' + teamseed.REMOVED_WORDS + 'pick a different name.'),
+    'create.js no longer says "<name>' + teamseed.REMOVED_WORDS + 'pick a different name."');
+});

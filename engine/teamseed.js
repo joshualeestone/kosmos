@@ -46,6 +46,10 @@ function catalogue() {
   }
 }
 
+/* What create.js says for a name on the removed list, up to its last clause. The sentence itself stays a
+   literal at create's refusal (a source test reads it there, web.inline-errors-2606), so this is a second
+   copy; teamseed.test.js reads create.js and fails when the two differ. */
+const REMOVED_WORDS = ' is on your removed list. Put that one back from "Show removed agents" at the bottom of the Agents tab, delete what was left of it there to free the name, or ';
 const NOT_INSTALLED = 'the prebuilt teams are not installed in this version of Kosmos yet';
 /* #4632: the board holds no catalogue (it is downloaded when the Team screen or the role picker opens,
    and this computer was offline or the download was refused). */
@@ -207,7 +211,7 @@ function specs(req, cat, deps) {
     /* A REMOVED agent keeps its folder, so its name is taken too, but it is not "on your board": say
        what create itself says for that name (the removed list, and how to free the name). */
     if (req && req.checkTaken === true && removed(slug)) {
-      return { ok: false, because: create.removedNameWords(raw) + 'give the ' + m.title + ' another name' };
+      return { ok: false, because: raw + REMOVED_WORDS + 'give the ' + m.title + ' another name' };
     }
     if (req && req.checkTaken === true && taken(slug)) takenSeats.push({ raw, title: m.title });
     names[m.slot] = raw;
@@ -259,5 +263,5 @@ function specs(req, cat, deps) {
 
 module.exports = {
   list: guarded(list), detail: guarded(detail), specs: guarded(specs),
-  refresh, setCatalogue, catalogue, NOT_INSTALLED, NOT_DOWNLOADED, REFUSED, CHANGED, BROKEN,
+  refresh, setCatalogue, catalogue, REMOVED_WORDS, NOT_INSTALLED, NOT_DOWNLOADED, REFUSED, CHANGED, BROKEN,
 };

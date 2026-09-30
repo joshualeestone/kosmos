@@ -271,3 +271,17 @@ every open of the step) is the decision recorded under review 23 and earlier. NI
 is witnessed by a 404 (listed under review 25); a CSS comment says "the three steps"; the brief's size cap
 is measured before trimming.
 Owed before the proof file: the queued browser check with its control tree, and one full suite on this head.
+
+## First run of the new code (10:39 to 10:44 CDT, head 0d578ec96, one heavy-queue turn on Agent1s)
+- Browser check, both engines: 131 pass, 0 fail.
+- CONTROL (the same check on the branch with web/index.html from before reviews 22 to 25): exit 1, 115 pass,
+  16 fail, which are exactly the eight arms added in those reviews, in both engines, each for its own
+  reason (the old name posted; one row made after a failed read; no retry on a taken folder; a mismatched
+  spec made anyway; an existing agent adopted; no notifyCreated).
+- Web and team tests: 2760 pass, 1 FAIL, and it is mine: `web.inline-errors-2606.test.js` reads create.js
+  for the removed-list sentence followed by its refusal's `field: 'name'`. Review 25's "one derivation" moved
+  that sentence into a helper at the bottom of the file, so the test found it there. FIXED: the sentence is
+  a literal at create's refusal again; teamseed carries its own copy of the words, and a test reads
+  create.js and fails when the two differ. `create.nameHeld` stays.
+- Review 26's convergence was on 0d578ec96. This fix is a code change after it, so one more blind round
+  and the full suite are owed on the new head.
