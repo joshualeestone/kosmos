@@ -37,11 +37,14 @@ reaction bar already meets. Back is the one people use most.
 That an ::after tap area never covers a neighbour in states this check does not draw (a long project name pushing
 the cog, a member list longer than the sample). The neighbour arm checks every control within 40px in the sample,
 which now draws one task and one file (round 4: with empty lists it had nothing under a header to measure).
+Its neighbours are buttons, links and role=button; no field sits within 40px of these six today.
+Not checked by an arm: the one-screen touch header's extra 14px takes 14px off the task list's visible height. The
+list scrolls (overflow-y: auto), so nothing is cut off, only one more scroll sooner.
 
 ## Checks
 - render-room-msgbox-2806, one in-page helper (tapProbe4663) that measures each control's REAL tap extent: every point
   of a grid around it (the control scrolled to mid-screen) that reaches it, and the box those points span, which must
-  be at least 35x35. Shape-agnostic, so it measures a centred area and an inward one alike. Runs on: phone 375 (tab
+  be at least 36x36. Shape-agnostic, so it measures a centred area and an inward one alike. Runs on: phone 375 (tab
   layout), touch tablet 1180 (tab layout, all six), and the ONE-SCREEN layout set for real (data-layout=consolidated,
   body.consolidated) at 1024 and 1180 (four: Back and + Add member are not shown there). The probe draws one task
   and one file first and asserts both rows are drawn (subjects [1,1]), and puts the lists back after. Also: no button or link within 40px has more than 1% of
@@ -50,6 +53,8 @@ which now draws one task and one file (round 4: with empty lists it had nothing 
 - The neighbour arm red on round 3's page (044f6aa73) with the seeded rows, WebKit: pj-doc 3% (phone), 5% (tablet
   tabs), tkcard 6% and pj-doc 6% (one-screen 1024 and 1180). Green on this head, Chromium and WebKit.
 - The phone arm now runs after the focus-turn arm puts back its forced display (round 4: it measured an altered page).
+- The restore snapshot covers the two lists' HTML and the page's task-list cache (TK_LIST_HTML, the repaint guard),
+  which the probe puts back (round 5); red with the cache restore removed.
 - Red on origin/main's page (every reach arm); red in the one-screen arms with the inward rules removed (+ New task
   36x30, View All 44x31); the neighbour arm red without View All's step (16%, and 2% at a 6px step); the restore arm
   red with the undo removed.

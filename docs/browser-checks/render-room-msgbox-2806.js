@@ -120,7 +120,11 @@ function tapProbe4663(skip) {
   const ids = ['pj-back', 'pj-settings-link', 'pj-add-member', 'pj-newtask', 'pj-docs-all', 'pj-alltasks'].filter((id) => !(skip || []).includes(id));
   // What the probe may change, read before and after: each control and its ancestors' hidden, inert and inline display.
   const snap = () => ids.map((id) => { const out = []; for (let el = document.getElementById(id); el && el !== document.body; el = el.parentElement)
-    out.push([el.hidden, el.hasAttribute('inert'), el.style.display].join('/')); const b = document.getElementById(id); return out.join('>') + '|' + (b ? b.textContent : ''); }).join(';');
+    out.push([el.hidden, el.hasAttribute('inert'), el.style.display].join('/')); const b = document.getElementById(id); return out.join('>') + '|' + (b ? b.textContent : ''); }).join(';')
+    // The two lists the probe draws into, and the page's cache of the task list (paintProjectTasks skips a repaint
+    // that matches it), so a probe that left either behind reads as not restored.
+    + '|' + ['pj-tasklist', 'pj-docs'].map((i) => { const e = document.getElementById(i); return e ? e.innerHTML : ''; }).join('|')
+    + '|' + (typeof TK_LIST_HTML === 'undefined' ? '' : String(TK_LIST_HTML));
   // Scroll positions too: scrollIntoView below moves the window and every scrolling ancestor.
   const scrolled = [document.scrollingElement, ...document.querySelectorAll('*')].filter((e) => e && (e.scrollTop || e.scrollLeft)).map((e) => [e, e.scrollTop, e.scrollLeft]);
   const sx = scrollX, sy = scrollY;
@@ -132,9 +136,11 @@ function tapProbe4663(skip) {
   const tasklist = document.getElementById('pj-tasklist'), docs = document.getElementById('pj-docs');
   const seeded = [[tasklist, tasklist && tasklist.innerHTML], [docs, docs && docs.innerHTML]];
   const door = document.getElementById('pj-alltasks'); const doorWas = door && [door.hidden, door.textContent];
+  const cacheWas = typeof TK_LIST_HTML === 'undefined' ? undefined : TK_LIST_HTML;
   if (typeof paintProjectTasks === 'function') paintProjectTasks({ id: 'p4663', tasks: [{ number: 1, title: 'Write the launch note', progress: { assigned: 1, closed: 0 }, parts: [] }] });
   if (docs) docs.innerHTML = '<button type="button" class="pj-doc" data-doc="notes.md"><span class="pj-doc-n">notes.md</span></button>';
-  undo.push(() => { for (const [el, html] of seeded) if (el) el.innerHTML = html; if (door) { door.hidden = doorWas[0]; door.textContent = doorWas[1]; } });
+  undo.push(() => { for (const [el, html] of seeded) if (el) el.innerHTML = html; if (door) { door.hidden = doorWas[0]; door.textContent = doorWas[1]; }
+    if (cacheWas !== undefined) TK_LIST_HTML = cacheWas; });
   const set = (el, prop, val) => { const was = prop === 'hidden' ? el.hidden : prop === 'inert' ? el.hasAttribute('inert') : el.style[prop];
     undo.push(() => { if (prop === 'hidden') el.hidden = was; else if (prop === 'inert') { if (was) el.setAttribute('inert', ''); else el.removeAttribute('inert'); } else el.style[prop] = was; });
     if (prop === 'hidden') el.hidden = val; else if (prop === 'inert') el.removeAttribute('inert'); else el.style[prop] = val; };
@@ -167,7 +173,7 @@ function tapProbe4663(skip) {
       }
     }
     const w = x1 - x0 + 1, h = y1 - y0 + 1;
-    out.push({ id, drawn: Math.round(r.width) + 'x' + Math.round(r.height), tap: Math.round(w) + 'x' + Math.round(h), reach: w >= 35 && h >= 35 });
+    out.push({ id, drawn: Math.round(r.width) + 'x' + Math.round(r.height), tap: Math.round(w) + 'x' + Math.round(h), reach: w >= 36 && h >= 36 });
   }
   const theirs = [];
   // The rows under the headers must be drawn, or the neighbour arm has no subject (counted, not assumed).
