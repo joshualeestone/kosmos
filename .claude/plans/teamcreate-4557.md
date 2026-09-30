@@ -24,7 +24,7 @@ Members carry slot, role, title, suggested name, reportsTo (a slot), focus, and 
 the portraits exist}. April tests: unique names and slots, exactly one lead, and every result within create's
 MIN_CHARS and MAX_BYTES.
 
-## Slice 1 (this branch): engine + server, no UI
+## Slice 1 (on this branch): engine + server, no UI
 **Changed at 09:25, before any code:** the first version of this plan added a `POST /api/team/seeded` that
 CREATED members. That is withdrawn. `POST /api/agents` (server.js ~6141), the single-agent route New Agent
 already uses, takes `name, role, label, instructions, reportsTo, projects`. It runs the whole birth:
@@ -59,7 +59,7 @@ creates through the existing route.
 - Avatars: when `avatar.image` names a shipped file, the page PUTs it to the existing
   `/api/agent/<name>/avatar` after that agent is made. A failed avatar never costs the agent.
 
-## Slice 2 (next branch): the create step in web/index.html
+## Slice 2 (also on this branch): the create step in web/index.html
 - `openTeamCreate(key)`, called by Angel's Team dropdown (#4556).
 - Names are editable and prefilled with the suggestions. The project defaults to a new one named from the seed,
   or the person can pick an existing one or choose none.

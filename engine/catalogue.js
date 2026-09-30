@@ -113,25 +113,6 @@ function memberProblem(teamKey, slot, names) {
 }
 
 /**
- * The full instruction file for one member of one team, ready to write: the
- * member's role text (with {{NAME}} filled in, because create writes explicit
- * instructions verbatim, create.js) plus an `## On this team` section naming the
- * lead and the teammates by the names the person actually chose.
- *
- * @param {string} teamKey
- * @param {string} slot                         the member's slot, e.g. 'lead'
- * @param {Object<string,string>} [names]       slot -> the agent name chosen; a
- *                                              slot left out keeps the seed's name
- * The caller writes the name it passes here, trimmed, as the agent's name, so the file and the
- * agent agree (chosenName trims).
- *
- * The text is EXPLICIT instructions for a built-in role key, which team.vetAgentMember (#4474) refuses
- * when an agent or the setup guide makes the request; a seeded team is made through the operator path.
- *
- * @returns {string|null} null exactly when memberProblem() returns a reason: an unknown
- *   team, slot or role, a name create refuses, or two seats with the same name.
- */
-/**
  * #4557: only the member's `## On this team` section (no role text, no messaging block), for a
  * create that layers it INTO the role's own instructions (create's `teamInstructions`), where the
  * role text and the live messaging block come from create itself. null exactly when memberProblem
@@ -172,6 +153,25 @@ function memberTeamSection(teamKey, slot, names) {
   return lines.join('\n').replace(/^\n/, '') + '\n';
 }
 
+/**
+ * The full instruction file for one member of one team, ready to write: the
+ * member's role text (with {{NAME}} filled in, because create writes explicit
+ * instructions verbatim, create.js) plus an `## On this team` section naming the
+ * lead and the teammates by the names the person actually chose.
+ *
+ * @param {string} teamKey
+ * @param {string} slot                         the member's slot, e.g. 'lead'
+ * @param {Object<string,string>} [names]       slot -> the agent name chosen; a
+ *                                              slot left out keeps the seed's name
+ * The caller writes the name it passes here, trimmed, as the agent's name, so the file and the
+ * agent agree (chosenName trims).
+ *
+ * The text is EXPLICIT instructions for a built-in role key, which team.vetAgentMember (#4474) refuses
+ * when an agent or the setup guide makes the request; a seeded team is made through the operator path.
+ *
+ * @returns {string|null} null exactly when memberProblem() returns a reason: an unknown
+ *   team, slot or role, a name create refuses, or two seats with the same name.
+ */
 function memberInstructions(teamKey, slot, names) {
   const section = memberTeamSection(teamKey, slot, names);
   if (section === null) return null;
