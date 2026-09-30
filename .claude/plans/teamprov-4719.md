@@ -41,3 +41,12 @@ teamcreate-ui-4557 (PR #4709, not yet on main); rebased onto main once #4709 mer
 - Not changed (NITs, recorded): the team menus do not refresh if the account list changes after the
   step opened (a removed account is refused per member, visibly); the #3081 saved last-used provider
   is not applied on the team step (it starts from the form's current value, changeable).
+
+## Review iteration 2 (changes)
+- The copied provider options carried the create form's Swarm gating (OpenAI greyed "Swarms run on
+  Claude for now" after a Swarm visit); the copy undoes it from the gate's saved state and starts from
+  the form's choice before the gate moved it.
+- The team step's own /api/accounts read is bounded to 5 s (it holds the button until it answers).
+- The refusal arm now sees the menu lock at the click before asserting it is open again.
+- Not changed (NIT, recorded): tc-provider is a plain select, so a greyed option's reason shows as the
+  option's own text only, not the create form's enhanced combobox pill.

@@ -47440,14 +47440,28 @@ async function tcFillProvider(gen) {
      Claude, which is the failure #4719 exists for. */
   if (!CREATE_ACCOUNTS_KNOWN) {
     try {
-      const r = await fetch('/api/accounts', { cache: 'no-store' });
+      /* Bounded: /api/accounts checks each account live, and the team step waits for this before it
+         shows its button. A slow answer reads as "could not check", as the form's menus say it. */
+      const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+      const timer = ctl ? setTimeout(() => ctl.abort(), 5000) : null;
+      const r = await fetch('/api/accounts', { cache: 'no-store', ...(ctl ? { signal: ctl.signal } : {}) })
+        .finally(() => { if (timer) clearTimeout(timer); });
       if (r.ok) { CREATE_ACCOUNTS = ((await r.json()) || {}).accounts || []; CREATE_ACCOUNTS_KNOWN = true; CREATE_ACCOUNTS_FAILED = false; }
       else CREATE_ACCOUNTS_FAILED = true;
     } catch { CREATE_ACCOUNTS_FAILED = true; /* the menus say they could not check, as the form's do */ }
     if (stale()) return;
   }
   sel.innerHTML = from.innerHTML;
-  sel.value = from.value;
+  /* The copy carries the create form's Swarm gating (Swarms run on Claude for now), which is about that
+     form's Kind, not a team; nothing on this step would undo it, so it is undone here from the state the
+     gate saved, and the form's own choice from before the gate moved it is the starting point. */
+  for (const opt of sel.options) {
+    if (opt.dataset.swarmGated !== '1') continue;
+    opt.disabled = opt.dataset.swarmWasOff === '1';
+    if (opt.dataset.swarmWasText) opt.dataset.off = opt.dataset.swarmWasText; else delete opt.dataset.off;
+    delete opt.dataset.swarmGated; delete opt.dataset.swarmWasOff; delete opt.dataset.swarmWasText;
+  }
+  sel.value = from.dataset.swarmWasValue || from.value;
   /* The form's own default: OpenAI when it is the one usable provider (createPickGone's rule). */
   const hasClaude = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'anthropic');
   const hasOpenai = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'openai');
