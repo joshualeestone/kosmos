@@ -31,6 +31,8 @@ test('#718 loadProjects: the signed-out flag follows each read and never latches
     WANT_TASK: null, PARAMS: new URLSearchParams(''), PJ_AGENTS_UNREADABLE: false,
     PJ_READ_FAILED: false, BOARD_NEEDS_SIGNIN: false, BOARD_SIGNED_OUT: false, TK_OPEN: null,
     BOARD_DEVICE_OFFLINE: false,
+    // #4583: loadProjects numbers each read (PJ_READ_SEQ) and records the one painted (PJ_READ_SHOWN).
+    PJ_READ_SEQ: 0, PJ_READ_SHOWN: 0,
   });
   // eslint-disable-next-line no-new-func
   const loadProjects = new Function('fetch', 'document', 'setIfChanged', 'deviceSignedOutHtml', 'boardSigninHtml',
