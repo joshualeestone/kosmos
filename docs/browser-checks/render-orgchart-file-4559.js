@@ -1,4 +1,4 @@
-// Browser-check-surface: orgchartpick orgchart-read-stop orgchart-edit orgchart-file-btn orgchart-file orgchart-file-note orgchart-consent orgchart-consent-say orgchart-consent-go orgchart-consent-no orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-msg orgchart-usenames
+// Browser-check-surface: team-orgchart-open cstep-team orgchartpick orgchart-read-stop orgchart-edit orgchart-file-btn orgchart-file orgchart-file-note orgchart-consent orgchart-consent-say orgchart-consent-go orgchart-consent-no orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-msg orgchart-usenames
 'use strict';
 
 /*
@@ -38,9 +38,12 @@ function check(name, pass, detail) {
 }
 
 async function openPanel(pg) {
+  /* #4556: New Agent opens on the three-way choice, and the org chart lives on the Team screen, behind its own
+     "Upload an org chart" button. */
   await pg.goto(BASE + '/?tab=create', { waitUntil: 'networkidle' });
-  await pg.waitForSelector('#pick-orgchart', { state: 'visible', timeout: 10000 });
-  await pg.click('#pick-orgchart');
+  await pg.click('#cstep-kind [data-path="team"]');
+  await pg.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 10000 });
+  await pg.click('#team-orgchart-open');
   await pg.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
 }
 
@@ -327,8 +330,10 @@ async function run() {
     if (await pl.$('#orgchart-file-btn')) {
       await pl.setInputFiles('#orgchart-file', path.join(FIX, 'chart.png'));
       await pl.waitForSelector('#orgchart-consent:not([hidden])', { timeout: 8000 });
-      await pl.click('#pick-pm');
-      await pl.click('#pick-orgchart');
+      // #4556: the panel is closed and reopened with the Team screen's own "Upload an org chart" button.
+      await pl.click('#team-orgchart-open');
+      await pl.waitForSelector('#orgchartpick', { state: 'hidden', timeout: 8000 });
+      await pl.click('#team-orgchart-open');
       await pl.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
       const lv = await readPreview(pl);
       check('LEAVE: leaving the panel disarms a picture waiting for Read it', !lv.consent, JSON.stringify(lv.consent));
@@ -429,7 +434,7 @@ async function run() {
       await plc.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
       await plc.click('#orgchart-create');
       await plc.waitForTimeout(300);
-      await plc.click('#pick-pm');   // leave the panel mid-create
+      await plc.click('#create-path-back');   // leave the panel mid-create (#4556: Back to the three-way choice)
       await plc.waitForTimeout(2500);   // past the create's answer
       const sortedL = putsL.slice().sort();
       check('LEAVE DURING CREATE: the reporting-line fix-up still lands after the person left the panel',
