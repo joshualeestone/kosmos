@@ -35,6 +35,9 @@ const FOUR = {
     { name: 'desk-mini', address: 'desk-mini.kosmosplus.example', this: false, online: true },
     { name: 'render-box', address: 'render-box.kosmosplus.example', this: false, online: true, updating: true },
     { name: 'garage-pc', address: 'garage-pc.kosmosplus.example', this: false, online: false },
+    /* #4726: still waiting to be allowed from another of the owner's computers. It reads online on purpose:
+       held must win, so it is never a link. */
+    { name: 'planted-mini', address: 'planted-mini.kosmosplus.example', this: false, online: true, held: true },
   ],
 };
 
@@ -88,6 +91,8 @@ const FOUR = {
           tag: r.tagName.toLowerCase(), current: r.getAttribute('aria-current'),
           href: r.getAttribute('href'), target: r.getAttribute('target'), rel: r.getAttribute('rel'),
           name: (r.querySelector('.worldsw-rowname') || {}).textContent, state: st ? st.textContent : null,
+          title: r.getAttribute('title'),
+          nameWidth: r.querySelector('.worldsw-rowname') ? r.querySelector('.worldsw-rowname').getBoundingClientRect().width : 0,
           overflow: r.scrollWidth - r.clientWidth,
           stateInside: !!sr && sr.width > 0 && sr.left >= menu.left && sr.right <= menu.right + 0.5,
         };
@@ -105,10 +110,10 @@ const FOUR = {
     ok(`${t} the section shows`, a.hidden === false && a.display !== 'none', JSON.stringify({ hidden: a.hidden, display: a.display }));
     ok(`${t} its heading says Your computers`, a.head === 'Your computers', a.head);
     ok(`${t} it sits under the Kosmoses (below New Kosmos)`, a.belowNew === true);
-    ok(`${t} four rows`, a.rows.length === 4, String(a.rows.length));
+    ok(`${t} five rows`, a.rows.length === 5, String(a.rows.length));
     const [me, ...others] = a.rows;
     ok(`${t} this computer is first, marked, and not a link`, me && me.tag === 'div' && me.current === 'true' && me.href === null && me.state === 'This computer', JSON.stringify(me));
-    const want = { 'desk-mini': ['Online', true], 'render-box': ['Updating', false], 'garage-pc': ['Not connected', false] };
+    const want = { 'desk-mini': ['Online', true], 'render-box': ['Updating', false], 'garage-pc': ['Not connected', false], 'planted-mini': ['Waiting to be allowed', false] };
     for (const r of others) {
       const [state, link] = want[r.name] || [];
       ok(`${t} ${r.name} says its state in words`, r.state === state, r.state);
@@ -119,6 +124,10 @@ const FOUR = {
         ok(`${t} ${r.name} (${state}) is NOT a link: it would open a browser error page`, r.tag === 'div' && r.href === null, JSON.stringify(r));
       }
     }
+    /* #4726: the held row keeps its name readable beside its state (the state is short; the sentence is the title). */
+    const held = a.rows.find((r) => r.name === 'planted-mini');
+    ok(`${t} the held computer says the whole sentence as its title`, !!held && held.title === 'Waiting to be allowed from another of your computers', JSON.stringify(held));
+    ok(`${t} the held computer's name keeps a readable width beside its state`, !!held && held.nameWidth >= 60, held ? String(held.nameWidth) : 'no row');
     for (const r of a.rows) {
       ok(`${t} ${r.name}: the row is not clipped`, r.overflow <= 1, String(r.overflow));
       ok(`${t} ${r.name}: the state word is fully inside the menu`, r.stateInside === true);
