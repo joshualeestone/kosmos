@@ -36,10 +36,12 @@ function stubBoardCliTests(dir) {
 const INHERIT_RE = /\.\.\.process\.env\b|Object\.assign\(\s*\{\s*\}\s*,\s*process\.env\b|env:\s*process\.env\b/g;
 /** A data root of its own, named with a value (an empty one means "unset" to engine/store.js). */
 // AGENT_WORKFORCE_HOME is the next place engine/store.js looks when AGENT_WORKFORCE_DATA is unset or empty.
-const DATA_KEY = /AGENT_WORKFORCE_(DATA|HOME)\s*[:=](?!\s*['"`]{2})/;   // the space goes inside the lookahead, or backtracking lets '' through
+// The space goes inside the lookahead, or backtracking lets '' through. undefined, null and the parent's own value
+// passed through are no value either (review round 4: Node drops an undefined key from a child's environment).
+const DATA_KEY = /AGENT_WORKFORCE_(DATA|HOME)\s*[:=](?!\s*(?:['"`]{2}|undefined\b|null\b|process\.env\b))/;
 /** A throwaway KOSMOS_HOME whose store module names the data root: a sandbox for install/kosmos only (the report
  *  bridges resolve their engine beside themselves and ignore it; review round 3). */
-const HOME_KEY = /KOSMOS_HOME\s*[:=](?!\s*['"`]{2})/;
+const HOME_KEY = /KOSMOS_HOME\s*[:=](?!\s*(?:['"`]{2}|undefined\b|null\b|process\.env\b))/;
 
 /** The text of the object literal (or call) an inherit match sits in: from the nearest unclosed `{` (or, for
  *  Object.assign, the call's `(`) to its matching close. Keys spread in from elsewhere (`...env`) are not in it,
@@ -64,7 +66,7 @@ function enclosing(text, at, open, close) {
  *  one environment's root cover another's gap); a file that inherits nothing must build the environment itself. */
 function leakIn(text) {
   // A data root set on this process itself, at the top of the file, sandboxes every child it starts.
-  if (/^process\.env\.AGENT_WORKFORCE_DATA\s*=(?!\s*['"`]{2})/m.test(text)) return null;
+  if (/^process\.env\.AGENT_WORKFORCE_DATA\s*=(?!\s*(?:['"`]{2}|undefined\b|null\b|process\.env\b))/m.test(text)) return null;
   const runsCli = /install['"], *['"]kosmos['"]|install\/kosmos/.test(text);
   const bad = [];
   for (const m of text.matchAll(INHERIT_RE)) {
@@ -107,6 +109,11 @@ test('#4796 control: the check can see a file without a data root, in each shape
   assert.notEqual(leakIn(cli + inh + 'const other = { KOSMOS_HOME: h, AGENT_WORKFORCE_DATA: d };\n'), null, 'two keys in another object do not cover this one');
   const bridge = "http.createServer(() => {});\nconst BRIDGE_FILE = 'bin/codex-report-bridge.js';\n";
   assert.notEqual(leakIn(bridge + inh.replace('KOSMOS_PORT', 'KOSMOS_HOME: home, KOSMOS_PORT')), null, 'a report bridge ignores KOSMOS_HOME');
+  // Review round 4: a key named with no real value.
+  for (const v of ['undefined', 'null', 'process.env.AGENT_WORKFORCE_DATA']) {
+    assert.notEqual(leakIn(cli + inh.replace('KOSMOS_PORT', `AGENT_WORKFORCE_DATA: ${v}, KOSMOS_PORT`)), null, `a data root of ${v} is no data root`);
+  }
+  assert.notEqual(leakIn('process.env.AGENT_WORKFORCE_DATA = undefined;\n' + cli), null, 'a process-wide root of undefined is none');
 });
 
 test('#4796 control: with the #4796 fix taken back out, the guard names each file the leak was measured in', () => {
