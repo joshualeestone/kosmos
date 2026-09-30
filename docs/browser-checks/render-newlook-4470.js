@@ -171,7 +171,8 @@ const AGENTS_LOOK = `(() => {
   const plus = document.querySelector('#new-agent .plus'), on = document.querySelector('#boardbar .vt.on');
   const agentsTile = document.getElementById('st-agents') && document.getElementById('st-agents').closest('.stat');
   const p = plus ? getComputedStyle(plus) : null;
-  return { idle: bc(card('idle')), working: bc(card('working')), tile: bc(agentsTile),
+  const idleCard = card('idle');
+  return { idle: bc(idleCard), radius: idleCard ? getComputedStyle(idleCard).borderTopLeftRadius : 'absent', working: bc(card('working')), tile: bc(agentsTile),
     plus: p ? { w: plus.getBoundingClientRect().width, round: p.borderRadius, bg: p.backgroundColor } : null,
     seg: on ? getComputedStyle(on).backgroundColor : 'absent', page: getComputedStyle(document.body).backgroundColor };
 })()`;
@@ -322,15 +323,36 @@ const AGENTS_LOOK = `(() => {
       /* The rule under the header goes on every page of the tab layout, not only the project. */
       const agRule = await page.evaluate(() => getComputedStyle(document.querySelector('body > .apphead')).borderBottomColor);
       chk(agRule === 'rgba(0, 0, 0, 0)', `${tag} On, Agents page: no rule under the header`, agRule);
-      /* The Agents page designed in the new look: the plain idle card loses its border, the working card keeps
-         its green stroke (state owns the stroke), the plain tiles lose their box, New agent is a 40px round grey
-         button, and the current view segment is the page's ground, not gold. */
+      /* The Agents page designed in the new look: the plain idle card loses its border and takes the 24px corners,
+         the working card keeps its green stroke (state owns the stroke), the inert tiles lose their box even on
+         hover, New agent is a 40px round grey button, and board notices are the grey box, with a could-not-read
+         notice keeping its solid border. The current view stays gold (compared with the look off, below). */
       await page.evaluate(() => { const g = document.querySelector('#boardbar .vt[data-layout="grid"]'); if (g && !g.classList.contains('on')) g.click(); });
       await page.waitForTimeout(400);
       const agOn = await page.evaluate(AGENTS_LOOK);
       chk(agOn.idle === 'rgba(0, 0, 0, 0)' && agOn.working !== 'rgba(0, 0, 0, 0)' && agOn.working !== 'absent',
         `${tag} On, Agents page: the idle card has no border, the working card keeps its stroke`, JSON.stringify(agOn));
       chk(agOn.tile === 'rgba(0, 0, 0, 0)', `${tag} On, Agents page: the Agents tile has no box`, JSON.stringify(agOn));
+      chk(agOn.radius === '24px', `${tag} On, Agents page: the idle card has the project page's 24px corners`, agOn.radius);
+      /* An inert tile stays boxless under the pointer (a box would say "click me"). */
+      await page.hover('#st-agents');
+      const tileHover = await page.evaluate(() => getComputedStyle(document.getElementById('st-agents').closest('.stat')).borderTopColor);
+      chk(tileHover === 'rgba(0, 0, 0, 0)', `${tag} On, Agents page: hovering the Agents tile shows no box`, tileHover);
+      await page.mouse.move(0, 0);
+      /* Board notices, drawn by hand into the grid for the read and removed after: an empty-slot note has no border,
+         a could-not-read note (.boardfail) keeps a solid, visible one. */
+      const notes = await page.evaluate(() => {
+        const g = document.getElementById('grid'); if (!g) return { found: false };
+        const a = document.createElement('div'); a.className = 'pj-empty'; a.textContent = 'x';
+        const b = document.createElement('div'); b.className = 'pj-empty boardfail'; b.textContent = 'x';
+        g.append(a, b);
+        const ca = getComputedStyle(a), cb = getComputedStyle(b);
+        const out = { found: true, empty: ca.borderTopColor, fail: cb.borderTopColor, failStyle: cb.borderTopStyle, ground: ca.backgroundColor, radius: ca.borderTopLeftRadius };
+        a.remove(); b.remove();
+        return out;
+      });
+      chk(notes.found && notes.empty === 'rgba(0, 0, 0, 0)' && notes.fail !== 'rgba(0, 0, 0, 0)' && notes.failStyle === 'solid' && notes.ground === GREY_OF[theme] && notes.radius === '28px',
+        `${tag} On, Agents page: a board note is the grey box; a could-not-read note keeps its solid border`, JSON.stringify(notes));
       chk(agOn.plus && Math.round(agOn.plus.w) === 40 && agOn.plus.round === '50%' && agOn.plus.bg === GREY_OF[theme],
         `${tag} On, Agents page: New agent is a 40px round grey button`, JSON.stringify(agOn.plus));
       /* A pressed filter tile (the Messages filter) must still look pressed: the no-box rule skips a pressed tile.
