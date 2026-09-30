@@ -16,7 +16,7 @@ Card: #4588. Stacked on PR A (branch agyquota-4588, not yet merged). Design and 
 - The assigner does not pick a held agent (its idle clock is kept); `givePart` in assigner mode refuses a held agent
   before assigning, as a backstop.
 
-- The schedule (SUPERSEDED by review 4, see below; kept for the record): each agy agent's last-seen reset is remembered by session (a card that shows a new
+- The schedule (SUPERSEDED by reviews 4 and 5; the current rule is under review 5 below): each agy agent's last-seen reset is remembered by session (a card that shows a new
   reset corrects only itself; an entry is dropped once served; resets over 8 days ahead are not believed). The pool is
   paused until the latest of them. After it (R), the resume owns the first slots, R + GRACE_MS + k * STAGGER_MS, and
   waits the grace after R even for an agent whose own reset came earlier; the held senders come back one agent per
@@ -114,3 +114,20 @@ held needlessly until the reset: the safe direction, it costs only delay.
   tests only; givePart's held 409 is read by the assigner as a plain refused give, which refunds its charge.
 - Measured: engine/agyhold-4588.test.js 25/25 and the full targeted set 290/290. Mutations: pending ignored (2
   tests red), the done time moving every sweep (1), the recommender not checking peers (1).
+
+## Review iteration 5 (blind, opus): the release is decoupled again (supersedes review 4's resume-driven schedule)
+- (W) FIXED by removal: review 4 made the senders wait on the resume's reported progress, which added a way to be stuck:
+  a pending report that never cleared (one agent with an implausible reset, or the resume switched off after it
+  reported pending) held every agy agent until the memory's prune, measured by the reviewer at 6 h. Now, after the
+  pool's reset R, agent i (by session name) is released at R + GRACE_MS + (i + 1) * SLOT_MS and waits on nothing.
+  DECIDED: a timer line and a resume may then reach different agents in the same minute; the pool has refilled, and
+  each stream still goes one agent at a time. That was the only gain of the coupling, and it cost a stuck state.
+- (W) FIXED: the recommender held a stuck agent on ANOTHER runner for a whole Google pause if one peer was agy. It now
+  holds an item only when the stuck agent itself is held; a held peer is left out of that convening's asks.
+- (W) FIXED: nothing released the memory on evidence the pool serves. An antigravity card seen working now clears it
+  (a turn that is refused records a new pause). Entries also drop once their release has passed.
+- (N) FIXED: docstrings for sweepOnce's memo and assigner step()'s read of the pool memory.
+- (N) LEFT: poolHeldUntil is the stateless reading, used by tests; a STOPPED agy card's automatic retell line is held
+  with the quota as its reason rather than unreachability (COULD_NOT either way).
+- Measured: engine/agyhold-4588.test.js 25/25; the targeted set 290/290. Mutations: a working agy card not clearing the
+  memory, held peers still asked, and everyone released at once each red exactly their own test.
