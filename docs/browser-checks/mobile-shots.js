@@ -124,7 +124,7 @@ async function openConsAgents(page) {
     if (!j) return r.fulfill({ response: resp });
     return r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } });
   });
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'load' });   // 'load', per this file's rule; the next line is the real readiness signal
   await page.waitForFunction(() => document.documentElement.getAttribute('data-layout') === 'consolidated', null, { timeout: 8000 });
   await page.click('#tabs .tab[data-tab="agents"]', { timeout: 5000 });
   await page.waitForSelector('#panel-cons-agents .cons-agents-lay', { state: 'visible', timeout: 5000 });

@@ -41373,7 +41373,7 @@ function placeAgentsPanel(consolidated) {
          the first and last; focus follows. */
       wrap.addEventListener('keydown', (e) => {
         const b = e.target.closest('[data-conslay]');
-        if (!b || e.altKey || e.metaKey || e.ctrlKey || !['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+        if (!b || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || !['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
         const all = [...wrap.querySelectorAll('[data-conslay]')];
         const i = all.indexOf(b);
         const to = e.key === 'Home' ? all[0] : e.key === 'End' ? all[all.length - 1]

@@ -282,6 +282,9 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     await page.keyboard.press('ArrowRight');
     const k2 = await page.evaluate(() => ({ grid: document.getElementById('grid').hidden === false, focus: document.activeElement && document.activeElement.dataset.conslay }));
     ok(t + ' #4594: ArrowRight from the last segment wraps to Grid', k2.grid && k2.focus === 'grid', JSON.stringify(k2));
+    await page.keyboard.press('ArrowLeft');   // from Grid, the first: the backward step wraps to the last
+    const kl = await page.evaluate(() => ({ org: document.getElementById('orgview').hidden === false, focus: document.activeElement && document.activeElement.dataset.conslay }));
+    ok(t + ' #4594: ArrowLeft from the first segment wraps to Org chart', kl.org && kl.focus === 'org', JSON.stringify(kl));
 
     // ---- #4377, slice 2: the full projects page. fetch never settles here, so the fixture's rows are
     // the ones painted (over file:// the read fails and would paint "cannot read" instead). ----
