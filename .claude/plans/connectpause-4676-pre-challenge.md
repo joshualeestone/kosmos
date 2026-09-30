@@ -20,15 +20,19 @@ converged: true
 Account-g has no pre-challenge gate hook, so I ran the loop myself (blind fresh agents, opus then sonnet),
 with the PM's kill rule verbatim in each brief.
 
-### Round 1 (opus) at 1eda116de: 0B 4W 3N, all fixed at 39e22e3f6 (after rebase)
-- W: new wording reached an UNREADABLE choice -> _kosmos_off_for_foreign (flag AND run|both); test red without.
-- W: our own board up at the end on a run computer read as "could not be read" -> treated as running, marker lifted; test red without.
-- W: "stays off while another Kosmos is using port" implied self-recovery -> "until you run 'kosmos start'".
-- W: start step, summary and marker untested -> extracted-block arms with a recording bin/kosmos.
-- N: ours-match anchored on the space before the path; N: icon line on plist failure; N: next-start residual named (#4679).
+#### Iteration 1 (opus) at 1eda116de: 0 BLOCKER, 4 WARNING, 3 NIT, all fixed at 39e22e3f6 (after rebase)
+- [WARNING] install/setup.sh: the new "another Kosmos is using port N" wording reached an UNREADABLE choice too (the carve-out fires for any keep-off mode), telling it to run 'kosmos start'. Fixed: _kosmos_off_for_foreign (flag AND run|both) gates every new branch; test red without.
+- [WARNING] install/setup.sh: our own board up by the last reading on a run computer fell into the "could not be read, a board is still running" summary. Fixed: treated as running, board.stopped lifted; test red without.
+- [WARNING] install/setup.sh: "stays off while another Kosmos is using port N" implied self-recovery (board.stopped stays). Fixed: "until you run 'kosmos start' (another Kosmos was using port N)".
+- [WARNING] install.connect-pause-4676.test.js: the start step, summary and marker were never run by a test. Fixed: extracted-block arms with a recording bin/kosmos, plus connect/unreadable/no-other-board controls.
+- [NIT] ours-match anchored on the space before the path. Fixed.
+- [NIT] plist-write-failure line said the icon starts it. Fixed.
+- [NIT] the next start's #3079 reclaim residual named in the comment; filed as #4679 (Scorpion).
 
-### Round 2 (sonnet) at c34c004bc: 0B 0W 0C 3N -> converged; NITs applied at dd32a85ff
-- N: "was using port N when this update started" (tested); N: icon line pinned (red when reverted); N: flag comment names its one exception.
+#### Iteration 2 (sonnet) at c34c004bc: 0 BLOCKER, 0 WARNING, 0 CONVENTION, 3 NIT -> converged; NITs applied at dd32a85ff
+- [NIT] "was using port N when this update started" (the flag records the pause, not now). Fixed; tested.
+- [NIT] the plist-failure icon line was not pinned by a test. Fixed (red when reverted).
+- [NIT] the flag comment overclaimed "every later start or restart point"; names its one exception now.
 
 ### Mutants (each red, file restored and cmp-checked)
 skip the whole wait (1), no ours-filter (2), no decide gate (1), any-mode off_for_foreign (2), no ours-up branch (1), icon line reverted (1).
