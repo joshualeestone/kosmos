@@ -38,7 +38,7 @@ esac
 
 PROFILE_A='(version 1)(allow default)(deny network-outbound)'
 PROFILE_B='(version 1)(allow default)(deny network-outbound)(deny process-info*)'
-# C: B with writes to the temp folders denied too, so the check cannot lean on a temp file to see lsof fail.
+# C: B with writes to the temp folders denied too.
 PROFILE_C='(version 1)(allow default)(deny network-outbound)(deny process-info*)(deny file-write* (subpath "/private/var/folders") (subpath "/private/tmp"))'
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/pause4651.XXXXXX")"
