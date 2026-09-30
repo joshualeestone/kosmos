@@ -107,6 +107,7 @@ function chk(ok, label, extra) {
           const slow = {};        // name -> ms to hold its create answer (to have one in flight)
           const warnSteps = {};   // name -> a non-fatal step label create reports as not done
           const hidden = new Set();   // machine names the board must NOT see running (the unseen arm)
+          const drop = {};        // name -> its create LANDS, then the connection drops (iteration 12's arm)
           const made = [];
           await page.route('**/api/agents', async (r) => {
             if (r.request().method() !== 'POST') return r.continue();
@@ -115,6 +116,9 @@ function chk(ok, label, extra) {
             if (slow[b.name]) await new Promise((res) => setTimeout(res, slow[b.name]));
             const s = script[b.name];
             if (s) { delete script[b.name]; return r.fulfill({ status: 400, json: { outcome: 'refused', because: s } }); }
+            if (drop[b.name]) { delete drop[b.name]; made.push(slug(b.name)); return r.abort('failed'); }
+            // Like the real create: a name that is now an agent is refused on the name field.
+            if (made.includes(slug(b.name))) return r.fulfill({ status: 400, json: { outcome: 'refused', field: 'name', because: 'there is already an agent called ' + b.name + '.' } });
             made.push(slug(b.name));
             const steps = warnSteps[b.name] ? [{ label: warnSteps[b.name], ok: false }] : [];
             return r.fulfill({ status: 200, json: { outcome: 'created', name: slug(b.name), shownAs: b.name, steps, projects: (b.projects || []).map((id) => ({ id, added: true })) } });
@@ -131,7 +135,7 @@ function chk(ok, label, extra) {
           });
           await page.goto(URL, { waitUntil: 'networkidle' });
           await clearFirstRun(page);
-          return { page, errs, posted, script, slow, hidden, warnSteps };
+          return { page, errs, posted, script, slow, hidden, warnSteps, drop };
         };
         const rows = (page) => page.evaluate(() => [...document.querySelectorAll('#tc-list li')].map((li) => ({
           slot: li.dataset.slot,
@@ -220,6 +224,27 @@ function chk(ok, label, extra) {
           const r2 = await rows(page);
           chk(posted.map((b) => b.name).join() === 'Maya,Maya,Leo,Ana' && r2.every((r) => r.state === 'Running'), `${E} Try again on the lead makes it, then the others`, JSON.stringify(posted.map((b) => b.name)));
           chk(errs.length === 0, `${E} no page errors (lead arm)`, errs.join(' | '));
+          await page.close();
+        }
+
+        /* --- iteration 12: the lead's create LANDS, then the connection drops. Try again is refused on the
+           name; the page finds that agent on the board, takes it as made, and makes the held reports. ---- */
+        {
+          const { page, errs, posted, drop } = await newPage(1280);
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          drop.Maya = true;
+          await page.click('#tc-go');
+          await settle(page, () => /Not made/.test((document.querySelector('#tc-list li[data-slot="lead"] .tc-state') || {}).textContent || ''));
+          const d1 = await rows(page);
+          chk(d1[0].state === 'Not made' && /may have been made anyway/.test(d1[0].why || ''), `${E} a dropped connection says the lead may have been made`, JSON.stringify(d1[0]));
+          await page.click('#tc-list li[data-slot="lead"] .tc-retry');
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((x) => x.textContent === 'Running'));
+          const d2 = await rows(page);
+          chk(posted.map((b) => b.name).join() === 'Maya,Maya,Leo,Ana' && d2.every((r) => r.state === 'Running'),
+            `${E} Try again finds the lead that landed, takes it, and makes the reports (no second lead)`, JSON.stringify({ posted: posted.map((b) => b.name), states: d2.map((r) => r.state) }));
+          chk(errs.length === 0, `${E} no page errors (dropped-connection arm)`, errs.join(' | '));
           await page.close();
         }
 

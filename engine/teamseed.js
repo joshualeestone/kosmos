@@ -50,7 +50,8 @@ function guarded(fn) {
     try {
       return fn(...args);
     } catch (err) {
-      console.error('[teamseed] the catalogue failed:', err && err.message);
+      // Not always the catalogue: a create helper or the disk can throw here too, so log where.
+      console.error('[teamseed] ' + (fn.name || 'a call') + ' failed:', (err && err.stack) ? String(err.stack).split('\n').slice(0, 3).join(' | ') : err);
       return { ok: false, because: BROKEN, unavailable: true };
     }
   };
@@ -84,6 +85,8 @@ function detail(key, cat) {
   const team = c.team(key);
   if (!team) return { ok: false, because: 'there is no prebuilt team called ' + JSON.stringify(String(key)), notFound: true };
   const lead = leadSlot(team);
+  // Refused here too, so the confirm screen never shows a team Create would then refuse.
+  if (!lead) return { ok: false, because: 'this prebuilt team has no single lead, so it cannot be made' };
   const members = ordered(team).map((m) => ({
     slot: m.slot, title: m.title, role: m.role, name: m.name,
     reportsTo: m.reportsTo, portrait: Boolean(m.avatar && m.avatar.image),
@@ -160,6 +163,7 @@ function specs(req, cat, deps) {
   const out = ordered(team).map((m) => ({
     slot: m.slot,
     title: m.title,
+    session: create.slugFor(names[m.slot]),   // the name the member's agent will have on this computer
     spec: {
       name: names[m.slot],
       // #4557 (Josh): the SAME create path as a single agent. The catalogue's role when Kosmos has it,

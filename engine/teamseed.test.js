@@ -188,3 +188,14 @@ test('specs with checkTaken names EVERY taken seat in one answer (making the sam
   assert.equal(r.ok, false);
   for (const who of ['Maya', 'Leo', 'Ana']) assert.match(r.because, new RegExp(who), r.because);
 });
+
+test('detail refuses a team with no single lead, as specs does, so the confirm screen never shows one', () => {
+  const r = teamseed.detail('nolead', fixture());
+  assert.equal(r.ok, false);
+  assert.match(r.because, /no single lead/);
+});
+
+test('each spec carries the session name its agent will have (the page adopts a member whose create landed before the connection dropped)', () => {
+  const r = teamseed.specs({ team: 'marketing', names: { lead: 'Maya Okafor', content: 'Leo', social: 'Ana' } }, fixture());
+  assert.deepEqual(r.specs.map((s) => s.session), ['maya-okafor', 'leo', 'ana']);
+});
