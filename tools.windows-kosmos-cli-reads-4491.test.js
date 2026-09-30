@@ -8,7 +8,10 @@ const cli = require('./tools/windows/kosmos-cli');
 
 const AGENT = 'ab'.repeat(32);
 const BOARD = 'cd'.repeat(32);
-const hookStub = { resolveUrl: () => 'http://127.0.0.1:1', readBoardToken: () => BOARD, agentToken: (env) => (/^[0-9a-f]+$/.test(env.KOSMOS_AGENT_TOKEN || '') ? env.KOSMOS_AGENT_TOKEN : null) };
+/* The REAL token check (engine/kosmos-report-hook.js agentToken), so the junk-token test below judges the rule the
+   CLI ships with, not a copy of it written here. */
+const realHook = require('./engine/kosmos-report-hook');
+const hookStub = { resolveUrl: () => 'http://127.0.0.1:1', readBoardToken: () => BOARD, agentToken: realHook.agentToken };
 async function run(argv, answer, env = { KOSMOS_AGENT_TOKEN: AGENT }) {
   const calls = []; const out = []; const err = [];
   const code = await cli.main(argv, {
