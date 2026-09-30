@@ -319,3 +319,17 @@ test('#4415 review 5: "cannot be / could not be / cannot stop" are failures; onl
     assert.equal(named(s), '', s + ': praise counted as a problem');
   }
 });
+
+test('kosmos#4415: a candidate counts distinct reports and distinct installs, not items', () => {
+  const line = 'The room composer fails to send a long pasted message and drops the text.';
+  const r = triage.triage([
+    { date: '2026-09-30', install: 'fake-one', body: '- ' + line + '\n\n' + line + ' again' },
+    { date: '2026-09-29', install: 'fake-one', body: '- ' + line },
+    { date: '2026-09-30', install: 'fake-two', body: '- ' + line },
+    { date: '2026-09-30', body: '- ' + line },   // no install: counts as its own
+  ], {});
+  assert.equal(r.candidates.length, 1);
+  assert.equal(r.candidates[0].count, 5, 'control: five items clustered');
+  assert.equal(r.candidates[0].reports, 4);
+  assert.equal(r.candidates[0].installs, 3);
+});

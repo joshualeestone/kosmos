@@ -379,12 +379,14 @@ function matchOpenCard(text, cardTitles, threshold) {
 /**
  * The whole triage pass over a set of reports.
  *
- * reports: [{ date, body }] (body already frontmatter-stripped by the caller).
+ * reports: [{ date, body, install? }] (body already frontmatter-stripped by the caller).
  * opts: { openCards?: [title...], signalThreshold?, dupThreshold?, cardThreshold? }
  *
  * Returns a DRAFT digest object:
  *   candidates: worth review -- deduped clusters that clear the bar and do not
- *     match an open card. Each { text, dates:[...], count, score, reasons }.
+ *     match an open card. Each { text, dates:[...], count, reports, installs, score, reasons }
+ *     (count = items in the cluster, reports = distinct reports that raised it,
+ *     installs = distinct installs, when each report carries an optional `install`).
  *   duplicatesOfOpenCards: cleared-the-bar items that resemble an open card,
  *     each { text, dates, matchesCard:{title,score} } -- flagged, not re-filed.
  *   noise: items below the bar, each { text, date, reasons }.
@@ -398,11 +400,11 @@ function triage(reports, opts) {
 
   // Flatten every report into dated entries.
   const entries = [];
-  for (const r of reports || []) {
+  (reports || []).forEach((r, report) => {
     for (const text of parseItems(r && r.body)) {
-      entries.push({ text, date: (r && r.date) || null });
+      entries.push({ text, date: (r && r.date) || null, report, install: (r && r.install) || null });
     }
-  }
+  });
 
   // Classify first; noise never reaches clustering (so a cluster is a real,
   // actionable recurring issue, not two fragments that happen to share words).
@@ -428,6 +430,10 @@ function triage(reports, opts) {
       text: rep.text,
       dates,
       count: members.length,
+      /* kosmos#4415: how many distinct REPORTS raised it (count is items; one report can say it twice). */
+      reports: new Set(members.map((m) => m.report)).size,
+      /* ...and how many INSTALLS: a report with no install (or the shared "unknown") counts as its own. */
+      installs: new Set(members.map((m) => (m.install && m.install !== 'unknown' ? 'i:' + m.install : 'r:' + m.report))).size,
       score: Math.max(...members.map((m) => m.score)),
       reasons,
     };

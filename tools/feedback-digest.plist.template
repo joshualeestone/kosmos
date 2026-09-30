@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  kosmos#4415 slice 2b: a TEMPLATE, not installed by anything. It would run tools/feedback-digest.js once a day at
+  08:00 local time (this Mac runs on America/Chicago, so 08:00 CDT in summer and 08:00 CST in winter).
+
+  To use it, replace the three placeholders and save it as ~/Library/LaunchAgents/com.kosmos.feedback-digest.plist:
+    __NODE__   an EXPLICIT interpreter path, never a bare "node" (launchd has no shell PATH, and macOS privacy grants
+               are per executable). Measured 2026-09-30: /opt/homebrew/bin/node is v26.8.1, which package.json's
+               engines (>=26) accepts; the Kosmos runtime node (~/.local/share/kosmos/runtime/bin/node) is v24.
+    __REPO__   a kosmos checkout on main that is kept current (the runner reads ../engine from beside itself)
+    __HOME__   the operator's home folder
+
+  What it does NOT do: post anywhere. The run leaves the digest in
+  __HOME__/.cache/kosmos-feedback-digest-4415/digest.txt (mode 600) and the watermark it would advance to in
+  .../pending. Whoever posts it to #admin runs the runner again with its mark-posted flag after the post lands; until
+  then the next run covers the same reports again (a repeat is noticed, a lost digest is not).
+  See .claude/plans/triagedaily-4415.md, "How the digest reaches #admin".
+
+  Only ONE daily feedback job may be installed: this one or tools/feedback-digest-daily.sh, never both.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.kosmos.feedback-digest</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE__</string>
+    <string>__REPO__/tools/feedback-digest.js</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>8</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- secrets-map.sh (the store token) and gh (the open card list) are found on this PATH. -->
+    <key>PATH</key>
+    <string>__HOME__/.claude/scripts:__HOME__/.local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>HOME</key>
+    <string>__HOME__</string>
+  </dict>
+  <!-- stdout is the digest itself, which quotes users' words: it already sits in digest.txt (mode 600), so it is not
+       copied into a world-readable log. stderr carries only reasons (a status, a missing token), never a report. -->
+  <key>StandardOutPath</key>
+  <string>/dev/null</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/.cache/kosmos-feedback-digest-4415/launchd.err.log</string>
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
