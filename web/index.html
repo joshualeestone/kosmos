@@ -4183,6 +4183,12 @@ body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row {
      status stay pinned to the right edge, and the content indents inside. */
   padding: 7px 12px 7px calc(30px + var(--pj-depth, 0) * 22px);
   margin: 0; }
+/* #4730 (Josh, 2026-09-30): alternating rows get "a really really light" background, spreadsheet
+   style, so the eye can follow a row across. Half the card surface, so the row under the pointer
+   (full surface, the rule below, which wins by coming later) still stands out. The class is set by
+   the fold walk (applyConsFold), which skips folded rows. */
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.pj-stripe {
+  background: color-mix(in srgb, var(--k-surface) 50%, transparent); }
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row:hover {
   background: var(--k-surface); box-shadow: none; border: 0; }
 /* Needs-you: the card border is gone, so attn gets the attn border colour as a full inset
@@ -51273,6 +51279,7 @@ function applyConsFold() {
      and cannot diverge from it: a row is hidden exactly when it sits deeper than the
      nearest folded ancestor still in effect. (#2929 iter3, was pjDescendantIds) */
   let cutoff = Infinity;   // rows with --pj-depth > cutoff are inside a collapsed branch
+  let shown = 0;           // #4730: visible rows so far, for the list view's alternating shade
   for (const row of list.querySelectorAll('.pj-row[data-project]')) {
     const depth = Number(row.style.getPropertyValue('--pj-depth')) || 0;
     /* #2929 slice 2: only TOP-LEVEL rows are draggable, and only in the consolidated
@@ -51294,6 +51301,10 @@ function applyConsFold() {
     // the token's presence already matches force -- so it needs no compare-guard. The
     // aria-expanded and caret-text writes below are NOT idempotent, so they do. (#2929 iter4)
     row.classList.toggle('pj-fold-hidden', shouldHide);
+    /* #4730: every second VISIBLE row is shaded, counted here because this walk is what knows
+       which rows a fold hid (CSS :nth-child would count the hidden ones and break the pattern).
+       Only the tab list view draws the shade (the CSS is scoped to it). */
+    row.classList.toggle('pj-stripe', !shouldHide && (shown++ % 2 === 1));
     if (!shouldHide) {
       // A VISIBLE folded parent collapses everything deeper than it until a row
       // returns to its depth or shallower; anything else clears the collapse.
@@ -51469,9 +51480,12 @@ function pjPillOf(p, unreadable) {
      omits the agent count when `s.total` is zero, so an empty project reads as a
      title with nothing under it, which is what "no agents yet" was saying in more
      words and in the slot reserved for what a project is DOING. */
-  if (!s.total) return { cls: '', glyph: '', label: '' };
-  if (unreadable || s.unseen) return { cls: '', glyph: '', label: 'Can\u2019t tell' };
-  return { cls: '', glyph: '<span class="rest" aria-hidden="true"></span>', label: 'Nothing running' };
+  /* #4730 (Josh, 2026-09-30 09:06): "if there's nothing running or we can't tell, let's just not
+     display a badge here. Let's only display a badge if something is actually running." So
+     "Can't tell" and "Nothing running" are gone from the Projects views, like "No agents yet"
+     before them (#1303 E): an empty label and no pill. Issue (an agent needs you), Working and
+     Restarting stay, each a running agent. The project's own page still says who is unseen. */
+  return { cls: '', glyph: '', label: '' };
 }
 
 /* The bubble's text, in one place: nothing for none, 99+ past the cap. The
@@ -51577,12 +51591,10 @@ function projectCard(p, unreadable, depth, childCount) {
   const count = s.total ? '<span class="pjcount">' + Number(s.total) + (s.total === 1 ? ' agent' : ' agents') + '</span>' : '';
   const facesRow = (faces || count)
     ? '<span class="pjfaces"><span aria-hidden="true">' + faces + '</span>' + count + '</span>' : '';
-  /* ⚠️ The card NEVER says everything is fine when part of it was
-     unreadable -- the pill claims only what the counts support, and the
-     blind spot is SAID in words below, same rule as before the restyle. */
-  const bits = [];
-  if (!unreadable && s.unseen) bits.push(s.unseen + ' we cannot see');
-  if (unreadable && s.total) bits.push('we cannot see how they are doing right now');
+  /* #4730 (Josh, 2026-09-30 09:06): no "N we cannot see" line on the Projects views ("Let's just
+     not list if we can't see an agent. We don't need that information here."). The card still never
+     says everything is FINE: with no pill it makes no claim about state at all, and the project's
+     own page keeps the unseen member marked (#2804). */
   /* #747 and #748 (Josh, 2026-08-24 21:22 and 21:24): the tile reads title,
      then the short description, then the agents with their count, with the
      status at the top right; the folder chip under the title is gone (on
@@ -51627,7 +51639,6 @@ function projectCard(p, unreadable, depth, childCount) {
     + (p.description ? '<span class="pc-t">' + esc(p.description) + '</span>' : '')
     + facesRow
     + parentChip
-    + (bits.length ? '<span class="pj-who">' + esc(bits.join(', ')) + '</span>' : '')
     + (folder.bad ? '<span class="pj-warn">' + esc(folder.text) + '</span>' : '')
     + '</button>';
 }
