@@ -266,14 +266,18 @@ const SCREENS = [
   /* #4594: the consolidated view's Agents column and its Grid / Org chart segmented control. The
      consolidated view exists only at >= 960px, so these are desktop-only. */
   { name: 'cons-agents', owner: 'Ice Cream Kitty', desktopOnly: true, go: async (page) => {
-    await page.click('.layopt[data-layout-switch="consolidated"]', { timeout: 5000 });
-    await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 5000 });
+    // The board's own saved choice, as render-tasks-view-3559.js reaches it (the picker sits in a menu).
+    await page.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'consolidated' }) }).then((r) => r.text()));
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 8000 });
     await page.click('#tabs .tab[data-tab="agents"]', { timeout: 5000 });
     await page.waitForSelector('#panel-cons-agents .cons-agents-lay [data-conslay="grid"][aria-checked="true"]', { timeout: 5000 });
   } },
   { name: 'cons-agents-org', owner: 'Ice Cream Kitty', desktopOnly: true, go: async (page) => {
-    await page.click('.layopt[data-layout-switch="consolidated"]', { timeout: 5000 });
-    await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 5000 });
+    // The board's own saved choice, as render-tasks-view-3559.js reaches it (the picker sits in a menu).
+    await page.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'consolidated' }) }).then((r) => r.text()));
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 8000 });
     await page.click('#tabs .tab[data-tab="agents"]', { timeout: 5000 });
     await page.click('#panel-cons-agents [data-conslay="org"]', { timeout: 5000 });
     await page.waitForSelector('#panel-cons-agents [data-conslay="org"][aria-checked="true"]', { timeout: 5000 });
