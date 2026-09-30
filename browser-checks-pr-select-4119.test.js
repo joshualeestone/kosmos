@@ -110,7 +110,7 @@ test('the driver runs each check under its own file name, so selecting by file s
   // runnable() reads literal labels only. A label built at run time is invisible to it, so a new
   // one must be seen here: add it to runnable() (or gated.txt), then to this list.
   const built = [...driver.matchAll(/run_one\s+"([^"]*\$[^"]*)"/g)].map((m) => m[1]).sort();
-  assert.deepEqual(built, ['$n', 'mobile-shots-leak-${_arm%%:*}']);
+  assert.deepEqual(built, ['$n', 'mobile-shots-cover-${_arm%%:*}', 'mobile-shots-leak-${_arm%%:*}']);
 });
 
 test('editing a shared lib-*.js helper selects every check that requires it', () => {
@@ -240,4 +240,155 @@ test('only changed lines inside hunks count, including one that itself begins wi
   assert.equal(sel.hits('new', text), true);
   assert.equal(sel.hits('dashed', text), true);
   assert.equal(sel.hits('index', text), false);
+});
+
+/* ---- `function`: a change inside the body of a page function a check declares (#4119, Liu Kang's go-ahead) ---- */
+
+test('#3828 replay: render-assistant-hosted-3660 is selected by `function asbAvatar`, which no other rule reaches', () => {
+  const c = '0f95dcf36'; // #3828, squash-merged: it changed only lines INSIDE asbAvatar(), and the 0.6.95 cut found it
+  needCommit(c);
+  const got = rows(run(`${c}^`, c));
+  assert.equal(got.get('render-assistant-hosted-3660'), 'function asbAvatar', 'selected by the function rule, and by it alone');
+  assert.match(got.get('render-assistant-bubble-3034') || '', /\bfunction asbAvatar\b/);
+  // CONTROL: without its declaration the check is not selected at all, so this is the rule doing it.
+  const diff = execFileSync('git', ['diff', `${c}^...${c}`, '--', 'web/index.html'], { cwd: __dirname, encoding: 'utf8', maxBuffer: 64 << 20 });
+  const page = execFileSync('git', ['show', `${c}:web/index.html`], { cwd: __dirname, encoding: 'utf8', maxBuffer: 64 << 20 });
+  const src = fs.readFileSync(path.join(CHECKS, 'render-assistant-hosted-3660.js'), 'utf8');
+  const orig = fs.readFileSync;
+  fs.readFileSync = (p, ...a) => (String(p).endsWith('render-assistant-hosted-3660.js')
+    ? src.replace(/^\/\/ Browser-check-functions:.*\n/m, '') : orig(p, ...a));
+  try { assert.equal(sel.select(diff, [], page).has('render-assistant-hosted-3660'), false, 'something else now selects it; update this arm'); }
+  finally { fs.readFileSync = orig; }
+});
+
+test('touchedLines numbers the head side: each added line, and the head line a removed line sat before', () => {
+  const diff = [
+    'diff --git a/web/index.html b/web/index.html', '--- a/web/index.html', '+++ b/web/index.html',
+    '@@ -10,4 +10,4 @@', ' ctx10', '-gone', '+new11', ' ctx12', '--- a removed line starting with dashes', ' ctx13',
+    '@@ -40,2 +40,3 @@', ' ctx40', '+added41', ' ctx42',
+  ].join('\n');
+  assert.deepEqual(sel.touchedLines(diff), [11, 11, 13, 41]);
+});
+
+test('functionRange runs from the declaration to its own closing brace, and is null for a function the page lacks', () => {
+  const page = ['x', 'function outer(a) {', '  if (a) {', '  }', '  function inner() {', '  }', '}', 'function next() {', '}'].join('\n');
+  assert.deepEqual(sel.functionRange(page, 'outer'), [2, 7]);
+  assert.deepEqual(sel.functionRange(page, 'inner'), [5, 6]);
+  assert.equal(sel.functionRange(page, 'missing'), null);
+});
+
+test('declaredFunctions is read from a check\'s first lines only', () => {
+  assert.deepEqual(sel.declaredFunctions('// Browser-check-surface: a\n// Browser-check-functions: asbAvatar fooBar\n'), ['asbAvatar', 'fooBar']);
+  assert.deepEqual(sel.declaredFunctions('1\n2\n3\n4\n5\n// Browser-check-functions: late\n'), []);
+});
+
+test('through select(): a line inside the declared body selects, a line outside does not, and a vanished function selects', () => {
+  const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  const [start, end] = sel.functionRange(page, 'asbAvatar');
+  const hunk = (at) => ['diff --git a/web/index.html b/web/index.html', '--- a/web/index.html', '+++ b/web/index.html',
+    `@@ -${at},1 +${at},1 @@`, '-  const probeOld = 1;', '+  const probeNew = 2;'].join('\n');
+  assert.match((sel.select(hunk(start + 2), [], page).get('render-assistant-hosted-3660') || []).join(';'), /function asbAvatar/);
+  assert.doesNotMatch((sel.select(hunk(end + 5), [], page).get('render-assistant-hosted-3660') || []).join(';'), /function asbAvatar/, 'CONTROL: a line after the body');
+  assert.doesNotMatch((sel.select(hunk(start - 1), [], page).get('render-assistant-hosted-3660') || []).join(';'), /function asbAvatar/, 'CONTROL: the line before the declaration');
+  const renamed = page.replace('function asbAvatar(', 'function asbAvatarRenamed(');
+  assert.match((sel.select(hunk(end + 5), [], renamed).get('render-assistant-hosted-3660') || []).join(';'), /function asbAvatar \(not on the page\)/);
+});
+
+test('every function a check declares is defined on the page today, so no declaration selects on every diff', () => {
+  const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  const declared = [];
+  for (const f of fs.readdirSync(CHECKS).filter((x) => x.endsWith('.js'))) {
+    for (const fn of sel.declaredFunctions(fs.readFileSync(path.join(CHECKS, f), 'utf8'))) {
+      declared.push(`${f}:${fn}`);
+      const r = sel.functionRange(page, fn);
+      assert.ok(Array.isArray(r), `${f} declares ${fn}, which web/index.html ${r === 'unclosed' ? 'declares with no closing brace at its own indentation' : r === 'duplicate' ? 'declares more than once' : 'no longer defines'}`);
+      // The range is the body, checked independently of how the finder finds its end: its braces balance once
+      // strings and // comments are removed. A range that ends early or runs on leaves them unbalanced.
+      let open = 0; let close = 0;
+      for (const l of page.split('\n').slice(r[0] - 1, r[1])) {
+        const code = l.replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, '""').replace(/\/\/.*$/, '');
+        open += (code.match(/\{/g) || []).length; close += (code.match(/\}/g) || []).length;
+      }
+      assert.ok(open > 0 && open === close, `${f}'s ${fn} range [${r}] is not one balanced body (${open} { against ${close} })`);
+      // A one-line range is checked by the same stripping, so also: the next line is not indented deeper (a body).
+      if (r[0] === r[1]) {
+        const lines = page.split('\n');
+        const ind = (l) => /^(\s*)/.exec(l || '')[1].length;
+        const after = lines.slice(r[0]).find((l) => l.trim() !== '');   // the next non-blank line
+        assert.ok(ind(after) <= ind(lines[r[0] - 1]), `${f}'s ${fn} reads as one line but the line after it is indented deeper`);
+      }
+    }
+  }
+  assert.ok(declared.length >= 2, `CONTROL: the walker found ${declared.length} declarations; it must see the two this card added`);
+});
+
+test('functionRange: a closing line may carry ; or a comment, a one-line function is one line, and a missing end says so', () => {
+  const page = ['x', 'function a() { return 1; }', 'function b(x) {', '  y();', '}; // end of b', 'function c() {', '  z();', 'function d() {', '}'].join('\n');
+  assert.deepEqual(sel.functionRange(page, 'a'), [2, 2]);
+  assert.deepEqual(sel.functionRange(page, 'b'), [3, 5]);
+  // c has no closer before d's: it is 'unclosed', never stretched over d (d's own `}` is at the same indentation).
+  assert.equal(sel.functionRange(page, 'c'), 'unclosed');
+  assert.equal(sel.functionRange(page, 'nope'), null);
+  // Declared twice: JavaScript runs the last, so neither body can be trusted as the check's; it selects always.
+  assert.equal(sel.functionRange(['function a() {', '}', 'function a() {', '  b();', '}'].join('\n'), 'a'), 'duplicate');
+  // A brace in a string or a trailing comment does not make a one-line function; indentation and a
+  // destructured parameter's braces are handled.
+  const more = ['function f() { const s = "}"', '  g();', '}', 'function h() { return 1; } // {',
+    '  function k({a} = {}) {', '    q();', '  }'].join('\n');
+  assert.deepEqual(sel.functionRange(more, 'f'), [1, 3]);
+  assert.deepEqual(sel.functionRange(more, 'h'), [4, 4]);
+  assert.deepEqual(sel.functionRange(more, 'k'), [5, 7]);
+  // Balanced braces on a declaration line whose body starts on the next line are NOT a one-line function.
+  const nextLine = ['function f(a = {})', '{', '  g();', '}'].join('\n');
+  assert.deepEqual(sel.functionRange(nextLine, 'f'), [1, 4]);
+  // A regex literal holding a quote on the declaration line is not a one-line function either.
+  const rx = ['function f(s) { if (/\'/.test(s)) { g(\'x\'); }', '  more();', '}'].join('\n');
+  assert.deepEqual(sel.functionRange(rx, 'f'), [1, 3]);
+});
+
+test('through select(): an unclosed declared function selects its check with its own reason, not "not on the page"', () => {
+  const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  const [start, end] = sel.functionRange(page, 'asbAvatar');
+  const lines = page.split('\n');
+  const broken = [...lines.slice(0, end - 1), '  // (closing brace removed)', ...lines.slice(end)].join('\n');
+  const diff = ['diff --git a/web/index.html b/web/index.html', '--- a/web/index.html', '+++ b/web/index.html',
+    `@@ -${start + 2},1 +${start + 2},1 @@`, '-  const probeOld = 1;', '+  const probeNew = 2;'].join('\n');
+  const got = (sel.select(diff, [], broken).get('render-assistant-hosted-3660') || []).join(';');
+  assert.match(got, /function asbAvatar \(its end was not found\)/);
+  assert.doesNotMatch(got, /not on the page/);
+  // Wherever the change lands: a hunk on the page's first lines still selects it for the same reason.
+  const far = ['diff --git a/web/index.html b/web/index.html', '--- a/web/index.html', '+++ b/web/index.html',
+    '@@ -2,1 +2,1 @@', '-<html lang="en">', '+<html lang="en" >'].join('\n');
+  assert.match((sel.select(far, [], broken).get('render-assistant-hosted-3660') || []).join(';'), /function asbAvatar \(its end was not found\)/);
+});
+
+test('touchedLines counts only web/index.html hunks, and places a -U0 pure deletion after its head line', () => {
+  const diff = ['diff --git a/x.js b/x.js', '--- a/x.js', '+++ b/x.js', '@@ -1,1 +1,1 @@', '-a', '+b',
+    'diff --git a/web/index.html b/web/index.html', '--- a/web/index.html', '+++ b/web/index.html',
+    '@@ -10,2 +9,0 @@', '-gone1', '-gone2', '@@ -20 +20 @@', '-old', '+new'].join('\n');
+  assert.deepEqual(sel.touchedLines(diff), [10, 10, 20, 20]);
+  // A header without a/ b/ prefixes (diff.noprefix) is still the page's.
+  const noprefix = ['diff --git web/index.html web/index.html', '--- web/index.html', '+++ web/index.html', '@@ -5 +5 @@', '-a', '+b'].join('\n');
+  assert.deepEqual(sel.touchedLines(noprefix), [5, 5]);
+});
+
+test('pageAt: the page at a head that has it, an empty page at one that does not, and a thrown error for a bad ref', () => {
+  assert.ok(sel.pageAt('HEAD').includes('<html'), 'the page at HEAD was not read');
+  const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';   // git's empty tree: no web/index.html in it
+  assert.equal(sel.pageAt(EMPTY_TREE), '', 'a head without the page must read as an empty page');
+  assert.throws(() => sel.pageAt('no-such-ref-4119'), 'a bad ref must fail loudly, not read as an empty page');
+});
+
+test('main() diffs with the flags that keep user git config out of the headers and line numbers', () => {
+  const src = fs.readFileSync(TOOL, 'utf8');
+  const call = src.slice(src.indexOf("diff = git(["), src.indexOf("'--', 'web/index.html']);") + 30);
+  for (const flag of ['diff.suppressBlankEmpty=false', '--no-ext-diff', '--no-textconv', '--no-color', '--src-prefix=a/', '--dst-prefix=b/']) {
+    assert.ok(call.includes(flag), `main()'s git diff lost ${flag}`);
+  }
+});
+
+test('through select(): a head without the page (pageAt gave "") selects every declaring check as "not on the page"', () => {
+  const diff = ['diff --git a/web/index.html b/web/index.html', '--- a/web/index.html', '+++ b/web/index.html',
+    '@@ -2,1 +2,1 @@', '-<html lang="en">', '+<html lang="en" >'].join('\n');
+  assert.match((sel.select(diff, [], '').get('render-assistant-hosted-3660') || []).join(';'), /function asbAvatar \(not on the page\)/);
 });

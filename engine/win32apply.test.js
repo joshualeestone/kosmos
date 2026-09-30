@@ -27,6 +27,9 @@ process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.APPDATA = path.join(SANDBOX, 'appdata');
+/* #4381: where the first-run choice lives (%LOCALAPPDATA%\Kosmos\mode), so every case reads the sandbox's
+   and never this computer's own. No file there is today's behaviour. */
+process.env.LOCALAPPDATA = path.join(SANDBOX, 'localappdata');
 
 const win32anchor = require('./win32anchor');
 const win32apply = require('./win32apply');
@@ -3449,4 +3452,122 @@ test('S5 rollback FIX1: a duplicate previous-<to> is not clobbered; the stray st
   win32apply.recoverAtBoot(c.journal, sim.deps());
   assert.equal(fs.readFileSync(path.join(keptDir, 'sentinel'), 'utf8'), 'the pre-existing kept copy', 'the existing kept copy was clobbered');
   assert.equal(fs.existsSync(c.staged), false, 'the duplicate staged copy was not dropped');
+});
+
+/* ─── #4381: a computer that connects to agents on another computer never has its board started ─── */
+
+/* The first-run choice (Kosmos.exe writes %LOCALAPPDATA%\Kosmos\mode). These cases write the sandbox's
+   file and let the helper read it through its own default (no mayStartBoard seam), so the real reader is
+   what decides. The controls matter: without them "started nothing" passes on a helper that never starts. */
+const MODE_FILE = win32apply.computerModePath(process.env);
+function setMode(bytes) {
+  fs.rmSync(MODE_FILE, { force: true });
+  if (bytes === null) return;
+  fs.mkdirSync(path.dirname(MODE_FILE), { recursive: true });
+  fs.writeFileSync(MODE_FILE, bytes);
+}
+const NO_START_MODES = [['connect', 'connect\n'], ['garbled', 'garbled'], ['a CRLF ending', 'run\r\n'], ['a byte order mark', Buffer.from([0xef, 0xbb, 0xbf, 0x72, 0x75, 0x6e])], ['empty', '']];
+const runsOf = (sim) => sim.calls.filter((call) => call.startsWith('/Run')).length;
+const START_MODES = [['absent', null], ['run', 'run\n'], ['both', 'both\n']];
+
+test('#4381: the helper reads the mode where Kosmos.exe writes it, by the same rule', T, () => {
+  assert.equal(win32apply.computerModePath({ LOCALAPPDATA: 'C:\\Users\\a\\AppData\\Local' }), 'C:\\Users\\a\\AppData\\Local\\Kosmos\\mode');
+  assert.equal(win32apply.computerModePath({}, 'C:\\Users\\b'), 'C:\\Users\\b\\AppData\\Local\\Kosmos\\mode', 'no LOCALAPPDATA: the account\'s own AppData\\Local');
+  assert.equal(MODE_FILE, path.win32.join(process.env.LOCALAPPDATA, 'Kosmos', 'mode'), 'the control: these cases write the sandbox\'s file');
+  for (const [label, bytes] of [...START_MODES, ['trailing newlines', 'run\n\n']]) {
+    assert.equal(win32apply.boardMayStartForModeBytes(bytes === null ? null : Buffer.from(bytes)), true, label);
+  }
+  for (const [label, bytes] of [...NO_START_MODES, ['not UTF-8', Buffer.from([0xff, 0xfe])], ['a space', ' run'], ['upper case', 'RUN'], ['unset', 'unset']]) {
+    assert.equal(win32apply.boardMayStartForModeBytes(Buffer.from(bytes)), false, label);
+  }
+});
+
+test('#4381: H7 on a connect computer (or one whose choice does not read) starts no board, and the update stands; run, both and no file start it as before', T, async () => {
+  try {
+    for (const [label, bytes] of NO_START_MODES) {
+      setMode(bytes);
+      const c = freshInstall();
+      const newTree = hashTree(c.staged);
+      stage(c);
+      const sim = playBoard(c);
+      const r = await win32apply.applyJournal(c.journal, sim.deps());
+      assert.deepEqual(r, { ok: true, outcome: 'updated', version: NEW }, `${label}: ${c.log.join('\n')}`);
+      assert.deepEqual(sim.calls, ['/End /TN Kosmos\\board'], `${label}: the old board is stopped and nothing is ever /Run`);
+      assert.equal(sim.running, false, `${label}: no board runs after the update`);
+      assert.deepEqual(hashTree(c.root, [c.work, path.join(c.root, 'Projects')]), newTree, `${label}: ROOT holds the new build`);
+      const j = readJson(c.journal);
+      assert.equal(j.outcome, 'updated', label);
+      assert.ok(j.steps.some((s) => s.step === 'H7' && s.state === 'not-started' && s.because === 'connect'), `${label}: the journal says why H7 started nothing`);
+      assert.ok(c.log.some((l) => /H7: this computer connects to Kosmos on another computer/.test(l)), label);
+    }
+    for (const [label, bytes] of START_MODES) {
+      setMode(bytes);
+      const c = freshInstall();
+      stage(c);
+      const sim = playBoard(c);
+      const r = await win32apply.applyJournal(c.journal, sim.deps());
+      assert.deepEqual(r, { ok: true, outcome: 'updated', version: NEW }, `${label}: ${c.log.join('\n')}`);
+      assert.deepEqual(sim.calls, ['/End /TN Kosmos\\board', '/Run /TN Kosmos\\board'], `${label} (control): the new board is started and confirmed`);
+      assert.equal(sim.identity, NEW_ID, label);
+    }
+  } finally { setMode(null); }
+});
+
+test('#4381: H8 on a connect computer puts the old build back and starts nothing; the controls start the old board', T, async () => {
+  const failAtApp = { hooks: { before: (step, d) => { if (step === 'H4' && d && d.entry === 'app') throw new Error('injected before app moved in'); } } };
+  try {
+    for (const [label, bytes] of [...NO_START_MODES, ...START_MODES]) {
+      const starts = START_MODES.some(([l]) => l === label);
+      setMode(bytes);
+      const c = freshInstall();
+      const before = installState(c);
+      stage(c);
+      const sim = playBoard(c);
+      const r = await win32apply.applyJournal(c.journal, sim.deps(failAtApp));
+      assert.equal(r.ok, false, label);
+      assertRolledBack(c, before, starts ? sim : null, r, label);
+      if (starts) {
+        assert.equal(runsOf(sim), 1, `${label} (control): the old board is started again: ${sim.calls}`);
+      } else {
+        assert.equal(runsOf(sim), 0, `${label}: the rollback starts nothing: ${sim.calls}`);
+        assert.ok(sim.calls.every((call) => call === '/End /TN Kosmos\\board'), `${label}: only ends: ${sim.calls}`);
+        assert.equal(sim.running, false, label);
+        assert.ok(readJson(c.journal).steps.some((s) => s.step === 'H8' && s.state === 'not-started'), label);
+      }
+    }
+  } finally { setMode(null); }
+});
+
+test('#4381: a run that ends held after ending the board issues no /Run on a connect computer, and says so; the controls /Run it once', T, async () => {
+  try {
+    /* connect and a garbled file (the card's two), and the three controls: each case waits out a held write. */
+    for (const [label, bytes] of [NO_START_MODES[0], NO_START_MODES[1], ...START_MODES]) {
+      const starts = START_MODES.some(([l]) => l === label);
+      setMode(bytes);
+      const c = freshInstall();
+      stage(c);
+      const box = { armed: false };
+      const sim = playBoard(c);
+      let r;
+      let hold;
+      try {
+        hold = holdRenamesOnto(c.journal, { on: () => box.armed });
+        r = await win32apply.applyJournal(c.journal, sim.deps({
+          log: (line) => { c.log.push(line); if (line.startsWith('the update failed during ')) box.armed = true; },
+          hooks: { before: (step, d) => { if (step === 'H4' && d && d.entry === 'app') throw new Error('failed before H4 moved app in'); } },
+        }));
+      } finally {
+        unholdRenames();
+      }
+      assert.ok(hold.hits > 0, `${label}: the control: the rollback's journal write was held`);
+      assert.equal(r.outcome, 'held', `${label}: ${JSON.stringify(r)}\n${c.log.join('\n')}`);
+      if (starts) {
+        assert.equal(runsOf(sim), 1, `${label} (control): one /Run after the release: ${sim.calls}`);
+        assert.ok(c.log.includes('started the board again, so its logon shim finishes the update'), label);
+      } else {
+        assert.equal(runsOf(sim), 0, `${label}: no /Run: ${sim.calls}`);
+        assert.ok(c.log.some((l) => /^the board was left stopped: this computer connects to Kosmos on another computer/.test(l)), `${label}: ${c.log.join('\n')}`);
+      }
+    }
+  } finally { setMode(null); }
 });

@@ -1356,9 +1356,8 @@ async function checkLive(dir, opts) {
        render stay off the handshake; only the warmer and the connectable pre-flight reach it.
        (#3997: the /api/accounts route itself also STARTS a cold home's check without awaiting it, and
        its Check now route awaits a fresh one on a press.) */
-    const live = opts.cached
-      ? codexsigninlive.livenessCached(dir).verdict
-      : await codexsigninlive.liveness(dir);
+    const cachedLive = opts.cached ? codexsigninlive.livenessCached(dir) : null;
+    const live = cachedLive ? cachedLive.verdict : await codexsigninlive.liveness(dir);
     if (live === 'live') {
       return { state: STATE.CONNECTED, plan: null, checkedLive: true, reauthRequired: false, because: 'the OpenAI sign-in reached ChatGPT, so it is working' };
     }
@@ -1371,6 +1370,14 @@ async function checkLive(dir, opts) {
        could not reach ChatGPT (network/uncheckable) and the offline window did not fire. A badge
        this codebase cannot actually verify must never claim it did -- a false red (telling a
        working sub it is broken) is the inverted #874 harm. Fail-open to grey on all doubt. */
+    /* #4538: no answer in the cache yet is not "could not reach": the list starts that check as it reads (server.js),
+       and it usually answers within a second or two. "Could not reach" is kept for a check that ran and got none.
+       ⚠️ "checking" is true only because the /api/accounts route starts a cold home's check before it calls this with
+       { cached:true } (its only such caller today). A new cached caller must start that check too, or say otherwise. */
+    if (cachedLive && cachedLive.cause === codexsigninlive.NOT_CHECKED) {
+      return { state: STATE.UNKNOWN, plan: null, checkedLive: true, reauthRequired: false,
+        because: 'checking this sign-in with ChatGPT now' };
+    }
     return {
       state: STATE.UNKNOWN, plan: null, checkedLive: true, reauthRequired: false,
       because: 'we could not reach ChatGPT to check this sign-in, so we cannot say whether it works',

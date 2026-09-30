@@ -1,4 +1,5 @@
 // Browser-check-surface: asblayer asb asb-nudge asp asp-in asp-say asp-msg asp-note asb-row setup-guide hosted
+// Browser-check-functions: asbAvatar
 'use strict';
 
 /**

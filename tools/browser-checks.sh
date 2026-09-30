@@ -820,15 +820,15 @@ free_port() {
 }
 pick_ports() {
   local picked=() p n
-  while [ "${#picked[@]}" -lt 17 ]; do
+  while [ "${#picked[@]}" -lt 19 ]; do
     p="$(free_port)"
     for n in ${picked[@]+"${picked[@]}"}; do [ "$n" = "$p" ] && p=""; done
     [ -n "$p" ] && picked+=("$p")
   done
-  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"; P14="${picked[13]}"; P15="${picked[14]}"; P16="${picked[15]}"; P17="${picked[16]}"
+  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"; P14="${picked[13]}"; P15="${picked[14]}"; P16="${picked[15]}"; P17="${picked[16]}"; P18="${picked[17]}"; P19="${picked[18]}"
 }
 pick_ports
-log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13 $P14 $P15 $P16 $P17 (chosen by the OS, #633)"
+log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13 $P14 $P15 $P16 $P17 $P18 $P19 (chosen by the OS, #633)"
 
 # --- 1. regress-a-night: a night's releases still COMPOSE --------------------
 # The one check that asserts the whole board still hangs together (three
@@ -918,12 +918,16 @@ run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 
 # --- #718: the phone screenshot harness -----------------------------------
 # It boots its OWN throwaway board (temp HOME and data roots, fake tmux), so no
-# board above is needed. The slice is the frame and the accounts page at the
-# smallest phone, both engines; nav-menu and agents-list fail if their control
+# board above is needed. The slice is the frame, the accounts page and the
+# allow card at the smallest phone and at the desktop size, both engines; nav-menu and agents-list fail if their control
 # is gone, and --strict makes horizontal overflow on these screens red. The
-# full sweep (16 shots per screen) is a by-hand tool, not a gate.
+# desktop size (claude-setup#100, /design-shots) rides the same arm: its shots
+# must be taken, and nav-menu, a phone-only screen, must be skipped there
+# rather than error. allow-card fails unless its Allow button is what sits at its own centre
+# (kosmos#4524) and its code boxes sit inside their card (kosmos#4568), and a shot fails if
+# the one-time Community notice covers it. The full sweep (16 shots per screen) is a by-hand tool.
 run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/mobile-shots" \
-  --screens home,nav-menu,agents-list,settings-accounts --sizes se --themes light --strict
+  --screens home,nav-menu,agents-list,settings-accounts,allow-card --sizes se,desktop --themes light --strict
 # The leak guard's two arms, each of which MUST stop the run with exit 3 AND
 # with its own arm's message: a signed-in account planted in the sandboxed home
 # must be stopped by the accounts preflight ("the throwaway board lists"), and
@@ -938,6 +942,25 @@ for _arm in account:'the throwaway board lists' page:'this screen shows real dat
     esac
     echo "FAIL  leak control $1: exit $rc, expected 3 with \"$2\": its guard did not fire"; exit 1' \
     _ "${_arm%%:*}" "${_arm#*:}" "$RUN_DIR/mobile-shots-leak-${_arm%%:*}"
+done
+# kosmos#4524, #4568: the controls for three checks, control:screen:message (split on the first two colons
+# only, so a message may contain colons). Each run MUST fail its shot
+# with exit 2 AND its own message; a clean exit means that check did not fire.
+#   cmnotice: the Community notice is left owed, so it opens over home (the per-shot COVERED check).
+#   overlay:  a layer is planted over allow-card's Allow button (the allow-card hit-test).
+#   spill:    allow-card's request carries a seven-box code, which runs past its card (the code fit check, #4568).
+#             At se only on purpose: the smallest phone, where it is measured to spill (24px).
+# The run labels keep the mobile-shots-cover- prefix for all three: browser-checks-pr-select-4119.test.js
+# pins that built label.
+for _arm in cmnotice:home:'COVERED: #cmnotice' overlay:allow-card:'the Allow button is not seen: covered by div#cover-control' spill:allow-card:'the code does not fit its card'; do
+  _rest="${_arm#*:}"
+  run_one "mobile-shots-cover-${_arm%%:*}" bash -c 'out=$(MSHOTS_COVER_CONTROL="$1" node docs/browser-checks/mobile-shots.js --out "$4" \
+      --screens "$2" --sizes se --themes light --engines chromium 2>&1); rc=$?; printf "%s\n" "$out"
+    case "$rc:$out" in
+      2:*"$3"*) echo "control $1: its shot failed with exit 2, as it must"; exit 0 ;;
+    esac
+    echo "FAIL  control $1: exit $rc, expected 2 with \"$3\": its check did not fire"; exit 1' \
+    _ "${_arm%%:*}" "${_rest%%:*}" "${_rest#*:}" "$RUN_DIR/mobile-shots-cover-${_arm%%:*}"
 done
 
 # --- 3. render-thread: the send-capable thread, on the fixture server --------
@@ -1209,6 +1232,9 @@ if boot_board "$sb7" "$P8"; then
   # create-flow checks above; it navigates to /?tab=create and mocks its own
   # /api/team route, so it creates nothing real on this shared board.
   run_one "render-orgchart-import-1280" node docs/browser-checks/render-orgchart-import-1280.js "$B8"
+  # #4559: the org chart FILE (CSV and XLSX read for real; the picture read and the team create answered at the
+  # browser, so nothing reaches a provider and nothing is created).
+  run_one "render-orgchart-file-4559" env SHOT_DIR="$RUN_DIR/shots-orgchart-file" node docs/browser-checks/render-orgchart-file-4559.js "$B8"
   # #1531: the adopt prompt. Same first-run board as render-found-undo; it mocks its
   # own /api/found-agents (adoptable folder), /api/connect-agent and decline routes,
   # so it registers and declines without touching the machine. Proven green + reds on
@@ -1522,6 +1548,30 @@ if boot_board_org "$sbu" "$P17" "$ORG_UNEVEN_TREE"; then
   run_one "render-org-sectors-4434" env KOSMOS_URL="http://127.0.0.1:$P17" SHOT_DIR="$RUN_DIR/shots-org-sectors" node docs/browser-checks/render-org-sectors-4434.js
 else
   FAILED+=("render-org-sectors-4434 (uneven org board did not boot)")
+fi
+
+# --- #4525: the "Waiting for you" list (held community posts, Release and Discard). Its own board
+# --- because its REAL arm writes a held post into this sandbox's store and releases it for real, so
+# --- the check is given the sandbox's data folder. The send sweep of every board in this run already
+# --- points at a dead address (AGENT_WORKFORCE_COMMUNITY_URL, exported at the top), and the check
+# --- also turns the community switch off before it seeds anything.
+sbh="$(new_sandbox)"
+if boot_board "$sbh" "$P18"; then
+  curl -s -X POST "http://127.0.0.1:$P18/api/first-run/complete" >/dev/null
+  run_one "render-community-held-4525" env KOSMOS_URL="http://127.0.0.1:$P18" AGENT_WORKFORCE_DATA="$sbh/data" SHOT_DIR="$RUN_DIR/shots-community-held" node docs/browser-checks/render-community-held-4525.js
+else
+  FAILED+=("render-community-held-4525 (its board did not boot)")
+fi
+
+# --- kosmos#4472: a CEO over three managers of fourteen reports each: every team takes two staggered rings.
+# --- render-org-lanes-4472 checks the two rings are drawn, and that no wire crosses another or runs through a
+# --- face, at a desktop and a phone width. Its own board: neither org board above has a team big enough.
+ORG_LANES_TREE="$(node -e 'const t = [["ceo", ""]]; for (let j = 0; j < 3; j += 1) { t.push(["m" + j, "ceo"]); for (let i = 0; i < 14; i += 1) t.push(["m" + j + "r" + i, "m" + j]); } process.stdout.write(JSON.stringify(t))')"
+sbl="$(new_sandbox)"
+if boot_board_org "$sbl" "$P19" "$ORG_LANES_TREE"; then
+  run_one "render-org-lanes-4472" env KOSMOS_URL="http://127.0.0.1:$P19" SHOT_DIR="$RUN_DIR/shots-org-lanes" node docs/browser-checks/render-org-lanes-4472.js
+else
+  FAILED+=("render-org-lanes-4472 (lanes org board did not boot)")
 fi
 
 # --- render-update-toast: SELF-CONTAINED, so it sits outside the board groups.

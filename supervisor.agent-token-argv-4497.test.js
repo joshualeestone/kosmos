@@ -22,6 +22,20 @@ const CF_SECRET = 'cloudflare_argv_secret_4507';
 const GEMINI_SECRET = 'gemini_argv_secret_4507';
 const GROK_SECRET = 'grok_argv_secret_4507';
 const PROVIDERS = ['claude', 'codex', 'gemini', 'grok', 'antigravity', 'muse'];
+const refusedDoors = (root) => ({
+  PATH: '/not-a-provider-path-4514', BASH_ENV: '/not-a-bash-env-4514', ENV: '/not-an-env-4514',
+  SHELLOPTS: 'xtrace', DYLD_INSERT_LIBRARIES: '/not-a-dylib-4514', LD_PRELOAD: '/not-an-so-4514',
+  NODE_OPTIONS: `--require=${path.join(root, 'node-options-attack.js')}`, NODE_PATH: '/not-a-node-path-4514',
+  NODE_EXTRA_CA_CERTS: '/not-a-ca-file-4514', PYTHONPATH: '/not-a-python-path-4514',
+  PYTHONSTARTUP: '/not-a-python-startup-4514', PERL5LIB: '/not-a-perl-path-4514', RUBYOPT: '-rnot-a-gem-4514',
+  GIT_CONFIG_COUNT: '994514', GIT_CONFIG_KEY_0: 'core.fsmonitor', GIT_CONFIG_VALUE_0: '/not-a-hook-4514',
+  GIT_SSH_COMMAND: '/not-an-ssh-4514', GIT_ASKPASS: '/not-an-askpass-4514', GIT_EXEC_PATH: '/not-a-git-path-4514',
+  SSH_ASKPASS: '/not-an-ssh-askpass-4514', EDITOR: '/not-an-editor-4514', VISUAL: '/not-a-visual-4514',
+  ZDOTDIR: '/not-a-zdotdir-4514', NPM_CONFIG_PREFIX: '/not-an-npm-prefix-4514', HTTPS_PROXY: 'http://127.0.0.1:9',
+  ALL_PROXY: 'http://127.0.0.1:9', ANTHROPIC_BASE_URL: 'https://wrong-anthropic.invalid',
+  OPENAI_BASE_URL: 'https://wrong-openai.invalid', KOSMOS_AGENT_TOKEN: 'wrong-sender-token-4514',
+  HOME: '/wrong-home-4514', CLAUDE_CONFIG_DIR: '/wrong-claude-home-4514', KOSMOS_PORT: '94514',
+});
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-token-argv-4497-'));
@@ -30,6 +44,12 @@ function fixture() {
   fs.writeFileSync(path.join(root, 'secrets', 'github.token'), GH_SECRET, { mode: 0o600 });
   fs.writeFileSync(path.join(root, 'secrets', 'cloudflare.token'), CF_SECRET, { mode: 0o600 });
   fs.writeFileSync(path.join(root, 'secrets', 'env', 'DISCORD_BOT_TOKEN'), DOOR_SECRET, { mode: 0o600 });
+  const refused = refusedDoors(root);
+  fs.writeFileSync(path.join(root, 'node-options-attack.js'), `require('node:fs').writeFileSync(${JSON.stringify(path.join(root, 'node-options-ran'))}, 'ran');\n`);
+  fs.writeFileSync(path.join(root, 'engine', 'tokendoors.js'), "module.exports.SPECS = [{ envVar: 'DISCORD_BOT_TOKEN' }];\n");
+  for (const [name, value] of Object.entries(refused)) {
+    fs.writeFileSync(path.join(root, 'secrets', 'env', name), value, { mode: 0o600 });
+  }
   fs.writeFileSync(path.join(root, 'gemini-home', '.kosmos-gemini-apikey'), GEMINI_SECRET, { mode: 0o600 });
   fs.writeFileSync(path.join(root, 'grok-home', '.kosmos-grok-apikey'), GROK_SECRET, { mode: 0o600 });
   fs.writeFileSync(path.join(root, 'engine', 'sendertoken.js'), `module.exports.mint = () => ({ ok: true, token: '${TOKEN}' });\n`);
@@ -80,7 +100,7 @@ function fixture() {
     '  *) exit 0 ;;',
     'esac',
   ].join('\n') + '\n', { mode: 0o755 });
-  return { root, runner, tmux };
+  return { root, runner, tmux, refused };
 }
 
 for (const provider of PROVIDERS) {
@@ -238,6 +258,91 @@ test('an inherited secret with a newline cannot inject another environment varia
     assert.match(result.stderr, /GH_TOKEN was not handed to the agent \(value has a line break\)/, 'the refusal says which variable was omitted without logging its value');
     const argv = fs.readFileSync(argvRecord);
     assert.ok(!argv.includes(Buffer.from('held-value')) && !argv.includes(Buffer.from('INJECTED_SECRET')), 'neither line reaches tmux argv');
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('a NODE_OPTIONS door cannot require code in the provider', () => {
+  const f = fixture();
+  const marker = path.join(f.root, 'node-options-ran');
+  for (const name of Object.keys(f.refused)) {
+    if (name !== 'NODE_OPTIONS') fs.unlinkSync(path.join(f.root, 'secrets', 'env', name));
+  }
+  fs.writeFileSync(f.runner, [
+    `#!${process.execPath}`,
+    "if (process.argv[2] === '--version') { console.log('agy 1.2.10'); process.exit(0); }",
+  ].join('\n') + '\n', { mode: 0o755 });
+  try {
+    const result = spawnSync('/bin/bash', [
+      path.join(f.root, 'bin', 'agent-supervisor.sh'), 'agent-node-options', path.join(f.root, 'work'),
+      f.runner, f.tmux, '', '', 'claude',
+    ], {
+      encoding: 'utf8',
+      timeout: 20000,
+      env: {
+        PATH: process.env.PATH,
+        HOME: f.root,
+        ARGV_RECORD: path.join(f.root, 'argv.bin'),
+        MODE_RECORD: path.join(f.root, 'mode.txt'),
+        AGENT_WORKFORCE_HOME: f.root,
+        AGENT_WORKFORCE_DATA: path.join(f.root, 'data'),
+      },
+    });
+    assert.equal(result.status, 0, result.stderr || 'NODE_OPTIONS control launch failed');
+    assert.ok(!fs.existsSync(marker), 'NODE_OPTIONS=--require cannot run its file in the provider');
+    assert.match(result.stderr, /NODE_OPTIONS was not handed to the agent/, 'the refusal names NODE_OPTIONS');
+    assert.ok(!result.stdout.includes(f.refused.NODE_OPTIONS) && !result.stderr.includes(f.refused.NODE_OPTIONS), 'the log never contains the NODE_OPTIONS value');
+  } finally {
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('only engine-listed token doors reach the provider and Kosmos launch values stay intact', () => {
+  const f = fixture();
+  const evidence = path.join(f.root, 'evidence.txt');
+  const environment = path.join(f.root, 'provider.env');
+  fs.writeFileSync(f.runner, [
+    `#!${process.execPath}`,
+    "if (process.argv[2] === '--version') { console.log('agy 1.2.10'); process.exit(0); }",
+    "require('node:fs').writeFileSync(process.env.ENV_RECORD, Object.entries(process.env).map(([k, v]) => `${k}=${v}`).join('\\n') + '\\n');",
+    "require('node:fs').writeFileSync(process.env.EVIDENCE, process.env.DISCORD_BOT_TOKEN || '<missing>');",
+  ].join('\n') + '\n', { mode: 0o755 });
+  try {
+    const result = spawnSync('/bin/bash', [
+      path.join(f.root, 'bin', 'agent-supervisor.sh'), 'agent-name-boundary', path.join(f.root, 'work'),
+      f.runner, f.tmux, '', '', 'claude',
+    ], {
+      encoding: 'utf8',
+      timeout: 20000,
+      env: {
+        PATH: process.env.PATH,
+        HOME: f.root,
+        CLAUDE_CONFIG_DIR: path.join(f.root, 'right-claude-home'),
+        KOSMOS_PORT: '4514',
+        EVIDENCE: evidence,
+        ENV_RECORD: environment,
+        ARGV_RECORD: path.join(f.root, 'argv.bin'),
+        MODE_RECORD: path.join(f.root, 'mode.txt'),
+        AGENT_WORKFORCE_HOME: f.root,
+        AGENT_WORKFORCE_DATA: path.join(f.root, 'data'),
+      },
+    });
+    assert.equal(result.status, 0, result.stderr || 'name-boundary launch failed');
+    assert.equal(fs.readFileSync(evidence, 'utf8'), DOOR_SECRET, 'an ordinary service token still reaches the provider');
+    const providerEnv = fs.readFileSync(environment, 'utf8');
+    const argv = fs.readFileSync(path.join(f.root, 'argv.bin'));
+    for (const [name, value] of Object.entries(f.refused)) {
+      assert.ok(!providerEnv.includes(`${name}=${value}`), `${name} stays out of the provider environment`);
+      assert.ok(!argv.includes(Buffer.from(value)), `${name} value stays out of tmux argv`);
+      assert.match(result.stderr, new RegExp(`${name} was not handed to the agent`), `the log names refused ${name}`);
+      assert.ok(!result.stdout.includes(value) && !result.stderr.includes(value), `${name} log never contains its value`);
+    }
+    assert.ok(!fs.existsSync(path.join(f.root, 'node-options-ran')), 'NODE_OPTIONS cannot execute code in the provider');
+    assert.match(providerEnv, new RegExp(`^KOSMOS_AGENT_TOKEN=${TOKEN}$`, 'm'), 'the minted Kosmos sender token stays intact');
+    assert.match(providerEnv, new RegExp(`^HOME=${f.root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'), 'Kosmos HOME stays intact');
+    assert.match(providerEnv, new RegExp(`^CLAUDE_CONFIG_DIR=${path.join(f.root, 'right-claude-home').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'), 'Kosmos provider config home stays intact');
+    assert.match(providerEnv, /^KOSMOS_PORT=4514$/m, 'Kosmos board port stays intact');
   } finally {
     fs.rmSync(f.root, { recursive: true, force: true });
   }

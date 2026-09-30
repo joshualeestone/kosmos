@@ -8,13 +8,16 @@
  * passed it and broke a check outside it, found only at the cut: #3985 broke render-talk, #4095
  * broke render-fields. This names the checks a `web/index.html` diff reaches, so the PR job runs
  * them too. It diffs `<base>...<head>` (the merge base, as the #2518 gate does), web/index.html
- * only, and reads the changed (+/-) lines. `head` picks the diff only: the checks, the page index
- * and gated.txt are read from the working tree, so a replay asks what TODAY's checks select.
+ * only, and reads the changed (+/-) lines. The checks, gated.txt, tools/browser-checks.sh (for the
+ * runnable labels) and tools/bc-surface-map.sh are used as they are in the working tree, so a replay
+ * asks what TODAY's checks select. The page itself (its ids, function names and function bodies) is
+ * read at `head`, so the diff's line numbers refer to the page they were written against; a head with
+ * no page (the PR deleted or moved it) reads as an empty page.
  *
- * NOT READ: test-support/, tools/browser-checks.sh, and web/ files other than index.html. The job
+ * NOT DIFFED: test-support/, tools/browser-checks.sh, and web/ files other than index.html. The job
  * fires on them, but a change there runs the fixed allowlist only, as it did before #4119.
  *
- * FIVE WAYS A CHECK IS SELECTED, each printed as its reason:
+ * SIX WAYS A CHECK IS SELECTED, each printed as its reason:
  *   `changed`  the PR edits the check's own file, a `lib-*.js` helper the check requires, or
  *              another file under docs/browser-checks/ (a fixture) whose name the check's source uses.
  *   `surface`  its `// Browser-check-surface:` tokens (#2518), through
@@ -31,6 +34,15 @@
  *   `name`     a page function or constant the check calls or reads (camelCase or UPPER_SNAKE,
  *              defined in the page) appears in a changed line. Some checks drive the page's own
  *              functions and touch no element (render-connect-skip reads frClaudeInstallNeeded).
+ *   `function` the check declares `// Browser-check-functions: name ...` (first lines only) and a
+ *              changed line falls INSIDE one of those page functions' bodies, or the function is gone
+ *              from the page, or its end cannot be found, or it is declared twice; in those cases it
+ *              selects on every page diff. #3828 changed only the body of asbAvatar(); its lines
+ *              never name it, and render-assistant-hosted-3660 never calls it (it sees the bubble's
+ *              image), so no rule
+ *              above could connect them and the 0.6.95 cut found it. Opt-in on purpose: matching
+ *              every function body a check calls would select on most page diffs (openDetail's body
+ *              changed in 23 commits in two weeks), and one escape asked only for this (Liu Kang, #4119).
  *   `page`     the check declares `// Browser-check-scope: page`: it sweeps the whole page (every
  *              field, every piece of text) rather than named elements, so it runs on ANY page
  *              change. render-fields is the case: #4095 broke it through `#tsk-by`, which
@@ -76,6 +88,72 @@ const IN_SELECTOR = /(?:^|[\s,>+~(\[])[#.]([A-Za-z][\w-]*)/g;
 // make that check run on every page change.
 const PAGE_SCOPE = /^\s*\/\/\s*browser-check-scope:\s*page(\s|$)/im;
 const isPageScoped = (src) => PAGE_SCOPE.test(src.split('\n').slice(0, 5).join('\n'));
+// The page functions a check depends on without naming them (#4119, `function` above), from its first lines only.
+const FUNCTIONS = /^\s*\/\/\s*browser-check-functions:\s*(.*)$/im;
+function declaredFunctions(src) {
+  const m = FUNCTIONS.exec(src.split('\n').slice(0, 5).join('\n'));
+  return m ? m[1].trim().split(/\s+/).filter((n) => /^[A-Za-z_$][\w$]*$/.test(n)) : [];
+}
+
+/* A page function's body as 1-based [first, last] lines: the declaration, to the first later line that is
+   the declaration's own indentation followed by `}` (then optionally `;` and a `//` comment). A function
+   whose braces open and close on its declaration line is that one line. null when the page does not
+   declare it; 'unclosed' when no such closing line comes before the next declaration at that indentation;
+   'duplicate' when more than one line declares it, nested declarations included, and so is a line in a string
+   or block comment that starts like a declaration (the last top-level one is live, and a check cannot say
+   which body it depends on; the fix is a unique name). It reads indentation, not syntax: a `}` at the
+   declaration's indentation inside a multi-line string or template literal ends the body early (the plan's
+   weakest part; browser-checks-pr-select-4119.test.js checks each declared body's braces balance). */
+function functionRange(page, name) {
+  const lines = page.split('\n');
+  const decl = new RegExp(`^(\\s*)(?:async\\s+)?function\\s+${name.replace(/\$/g, '\\$')}\\s*\\(`);
+  if (lines.filter((l) => decl.test(l)).length > 1) return 'duplicate';
+  for (let i = 0; i < lines.length; i += 1) {
+    const m = decl.exec(lines[i]);
+    if (!m) continue;
+    // Braces inside a string or after `//` do not open or close the body, so they are removed before counting.
+    // A line is one function only if its braces balance, it ends with `}` (or `};`), and stripping left no quote unpaired:
+    // `function f(a = {})` with its body on the next line balances but is not one, and a regex literal holding
+    // a quote leaves one unpaired, so both fall through to the multi-line scan.
+    const code = lines[i].replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, '""').replace(/\/\/.*$/, '');
+    const opens = (code.match(/\{/g) || []).length;
+    if (opens > 0 && opens === (code.match(/\}/g) || []).length && /\}\s*;?\s*$/.test(code)
+      && !/['"`]/.test(code.replace(/""/g, ''))) return [i + 1, i + 1];
+    const close = new RegExp(`^${m[1]}\\}\\s*;?\\s*(//.*)?$`);
+    // Another declaration at this indentation first means this one's closer was missed: stop there, rather
+    // than run on to that function's own `}` and claim its body too.
+    const next = new RegExp(`^${m[1]}(?:async\\s+)?function\\s+[A-Za-z_$][\\w$]*\\s*\\(`);
+    for (let j = i + 1; j < lines.length; j += 1) {
+      if (close.test(lines[j])) return [i + 1, j + 1];
+      if (next.test(lines[j])) return 'unclosed';
+    }
+    return 'unclosed';
+  }
+  return null;
+}
+
+/* The head-side line numbers a diff changes in web/index.html: each added line, and for a removed line the
+   head line it was removed before. Only hunks count, and (unlike changedLines) only the page's: a hunk under
+   another file's `+++` header is skipped. A hunk whose new side is empty (`+N,0`, as -U0 writes a pure
+   deletion) sits AFTER head line N. */
+function touchedLines(diff) {
+  const out = [];
+  let next = null;
+  let inPage = true;   // a diff with no file headers (a hand-built one) is taken as the page's
+  let afterMinus = false;
+  let inHunk = false;   // file headers are read only between hunks, never from a hunk's own +/- lines
+  for (const l of diff.split('\n')) {
+    if (l.startsWith('diff --git ')) { next = null; inPage = true; afterMinus = false; inHunk = false; continue; }
+    if (!inHunk && afterMinus && l.startsWith('+++ ')) { inPage = /^(b\/)?web\/index\.html$/.test(l.slice(4)); afterMinus = false; continue; }
+    afterMinus = !inHunk && l.startsWith('--- ');
+    if (afterMinus) continue;
+    const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(l);
+    if (h) { inHunk = true; next = inPage ? Number(h[1]) + (h[2] === '0' ? 1 : 0) : null; continue; }
+    if (next === null) continue;
+    if (l[0] === '+') { out.push(next); next += 1; } else if (l[0] === '-') out.push(next); else if (l[0] === ' ') next += 1;
+  }
+  return out;
+}
 
 /* Checks that are red on the runner for a reason that is not the PR's, per the nightly card
    (#3973). Selecting one would turn every page PR that touches it red for someone else's defect,
@@ -215,7 +293,7 @@ function namersOf(name) {
     .map((f) => f.slice(0, -3));
 }
 
-function select(diff, changedChecks = []) {
+function select(diff, changedChecks = [], page = null) {
   const text = changedLines(diff);
   const can = runnable();
   const why = new Map();
@@ -231,7 +309,7 @@ function select(diff, changedChecks = []) {
     else if (can.has(n)) add(n, 'changed');
     else for (const r of new Set([...requirersOf(n), ...namersOf(n)])) add(r, `changed ${n}`);
   }
-  if (text) selectByPage(diff, text, add);
+  if (text) selectByPage(diff, text, add, page === null ? fs.readFileSync(PAGE_FILE, 'utf8') : page);
   const skipped = new Map();
   for (const [n, reason] of Object.entries(KNOWN_RED)) {
     if (why.has(n) && !why.get(n).includes('changed')) { skipped.set(n, `${why.get(n).join('; ')} -- LEFT OUT, known red: ${reason}`); why.delete(n); }
@@ -240,22 +318,37 @@ function select(diff, changedChecks = []) {
   return why;
 }
 
-function selectByPage(diff, text, add) {
+function selectByPage(diff, text, add, page) {
   const covering = execFileSync('bash', [path.join(REPO, 'tools', 'bc-surface-map.sh'), 'covering', CHECKS], {
     cwd: REPO, input: diff, encoding: 'utf8',
   });
   for (const l of covering.split('\n')) if (l.trim()) add(l.trim().replace(/\.js$/, ''), 'surface');
 
-  const index = pageIndex(fs.readFileSync(PAGE_FILE, 'utf8'), text);
+  const index = pageIndex(page, text);
+  const touched = touchedLines(diff);
   for (const f of fs.readdirSync(CHECKS).filter((x) => x.endsWith('.js')).sort()) {
     const name = f.slice(0, -3);
     const src = fs.readFileSync(path.join(CHECKS, f), 'utf8');
     if (isPageScoped(src)) add(name, 'page');
+    for (const fn of declaredFunctions(src)) {
+      const r = functionRange(page, fn);
+      if (!r) add(name, `function ${fn} (not on the page)`);
+      else if (r === 'unclosed') add(name, `function ${fn} (its end was not found)`);
+      else if (r === 'duplicate') add(name, `function ${fn} (declared more than once on the page)`);
+      else if (touched.some((n) => n >= r[0] && n <= r[1])) add(name, `function ${fn}`);
+    }
     const sel = [...selectorsOf(src, index)].filter((t) => hits(t, text) && usedAsSelector(t, text)).sort();
     if (sel.length) add(name, `selector ${sel.join(' ')}`);
     const nm = [...namesOf(src, index)].filter((t) => hits(t, text)).sort();
     if (nm.length) add(name, `name ${nm.join(' ')}`);
   }
+}
+
+/* The page as of `head`, or '' when head has no web/index.html (the PR deleted or moved it): every declaring
+   check then selects. ls-tree answers an empty listing (exit 0) for a path head does not have, and throws for
+   anything else (a bad ref, a broken repository), so only a genuinely absent page reads as empty. */
+function pageAt(head) {
+  return git(['ls-tree', head, '--', 'web/index.html']).trim() === '' ? '' : git(['show', `${head}:web/index.html`]);
 }
 
 function main(argv) {
@@ -268,14 +361,19 @@ function main(argv) {
   let changedChecks;
   let why;
   try {
-    diff = git(['diff', `${base}...${head}`, '--', 'web/index.html']);
+    // Prefixes pinned: a diff.noprefix or diff.dstPrefix setting would change the `+++` header touchedLines reads.
+    diff = git(['-c', 'diff.suppressBlankEmpty=false', 'diff', '--no-ext-diff', '--no-textconv', '--no-color',
+      '--src-prefix=a/', '--dst-prefix=b/', `${base}...${head}`, '--', 'web/index.html']);
     // A check the PR edits runs too: a changed assertion is only proven by running it. A top-level
     // .js is a check or lib by name; any other file is passed by its path under the directory.
     changedChecks = git(['diff', '--name-only', `${base}...${head}`, '--', 'docs/browser-checks/'])
       .split('\n').filter(Boolean).map((f) => f.replace(/^docs\/browser-checks\//, ''))
       .map((f) => (/^[\w-]+\.js$/.test(f) ? f.slice(0, -3) : f));
     // The diff keeps its header, so bc-surface-map.sh file-scopes it as the gate does.
-    why = select(diff, changedChecks);
+    // The head's own page: a `function` range is read against the lines this diff numbers.
+    // A head without the page (the PR deleted or moved it) is an empty page, so every declaring check selects.
+    // Only that case: any other git failure still exits 2 below, which fails the job loudly.
+    why = select(diff, changedChecks, pageAt(head));
   } catch (e) {
     process.stderr.write(`bc-pr-select: could not select for ${base}...${head}: ${e.message}\n`);
     return 2;
@@ -286,5 +384,5 @@ function main(argv) {
   return 0;
 }
 
-module.exports = { KNOWN_RED, isPageScoped, requirersOf, referrersOf, namersOf, usedAsSelector, selectorsOf, namesOf, pageIndex, stripComments, hits, changedLines, runnable, select, PAGE_SCOPE };
+module.exports = { KNOWN_RED, isPageScoped, declaredFunctions, functionRange, touchedLines, pageAt, requirersOf, referrersOf, namersOf, usedAsSelector, selectorsOf, namesOf, pageIndex, stripComments, hits, changedLines, runnable, select, PAGE_SCOPE };
 if (require.main === module) process.exitCode = main(process.argv.slice(2));

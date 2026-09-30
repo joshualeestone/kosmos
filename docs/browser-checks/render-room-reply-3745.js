@@ -210,15 +210,19 @@ function chk(ok, label, extra) {
       // The engine's own rule: a trailing full stop after the name still names the agent (engine/messages.js).
       box.value = 'thanks @roomer.'; pjReplyStart('agent-4359');
       const stop = box.value;
+      // #4642: any case of the name names the agent too (engine/messages.js mentionedMembers).
+      box.value = 'thanks @ROOMER'; pjReplyStart('agent-4359');
+      const upper = box.value;
       PJ_ROOM_POSTS.delete('agent-4359');
       delete PJ_REPLY[PJ_CURRENT]; pjReplyPaint(PJ_CURRENT); box.value = '';
-      return { first, said, again, againCaret, insideCaret, own, ownCaret, kept, stranger, afterX, typedRec, typedKept, moved, midSentence, stop };
+      return { first, said, again, againCaret, insideCaret, own, ownCaret, kept, stranger, afterX, typedRec, typedKept, moved, midSentence, stop, upper };
     });
     chk(ment.first.value === '@roomer ' && ment.first.caret === 8 && !ment.first.hint, 'Reply to an agent puts "@roomer " at the start with the cursor after it', JSON.stringify(ment.first));
     chk(/@roomer is in the box; delete it to reply to the whole room\.$/.test(ment.said), 'a screen reader is told the mention is in the box and how to reply to the room', JSON.stringify(ment.said));
     chk(ment.again === '@roomer looks good' && ment.againCaret === 18, 'a second Reply to the same agent adds no second mention and leaves the cursor in the words', JSON.stringify({ again: ment.again, caret: ment.againCaret }));
     chk(ment.insideCaret === 8, 'a cursor sitting inside the mention goes to just after it', String(ment.insideCaret));
     chk(ment.stop === 'thanks @roomer.', 'a name ending a sentence ("@roomer.") counts as named, the engine\'s rule, so it is not added again', JSON.stringify(ment.stop));
+    chk(ment.upper === 'thanks @ROOMER', '#4642: "@ROOMER" names roomer (any case), so Reply does not add "@roomer" again', JSON.stringify(ment.upper));
     chk(ment.moved === 'hi @roomer ' && ment.midSentence === 'please @roomer check', 'a mention already in the words (moved, or mid-sentence) is not added again', JSON.stringify({ moved: ment.moved, mid: ment.midSentence }));
     chk(ment.typedRec === null && ment.typedKept === '@roomer hi', 'a mention the person typed is theirs: Reply never takes it back out', JSON.stringify({ rec: ment.typedRec, kept: ment.typedKept }));
     chk(ment.own === 'looks good' && ment.ownCaret === 10, 'switching the reply to your own post takes the mention back out, keeps what you wrote, and keeps the cursor at its end', JSON.stringify({ own: ment.own, caret: ment.ownCaret }));

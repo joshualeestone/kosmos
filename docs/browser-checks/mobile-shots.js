@@ -4,12 +4,13 @@
  * Both native apps are shells around the board's web UI, so "does it fit on a
  * phone" is a question about web/index.html at phone sizes. This boots a
  * THROWAWAY board with seeded sample data, drives it to named screens, and
- * shoots every screen at four phone sizes, in light and dark, in Chromium and
- * WebKit. It flags horizontal overflow on the way.
+ * shoots every screen at four phone sizes by default, in light and dark, in
+ * Chromium and WebKit. --sizes replaces that list and also accepts `desktop`
+ * (1280x800). It flags horizontal overflow on the way.
  *
  *   NODE_PATH=$HOME/work/pw-runtime/node_modules \
  *     node docs/browser-checks/mobile-shots.js [--out DIR] [--screens a,b]
- *       [--sizes se,iphone15,promax,android] [--themes light,dark]
+ *       [--sizes se,iphone15,promax,android,desktop] [--themes light,dark]
  *       [--engines chromium,webkit] [--strict] [--list] [--keep]
  *       [--data sample|store] [--scale css|device]
  *
@@ -43,8 +44,9 @@
  *
  * ADDING YOUR SCREENS: append to SCREENS below. Each entry is
  *   { name, owner, go: async (page, data) => { ...navigate to the screen... } }
- * plus `noServiceWorker: true` if `go` stubs a request with page.route.
- * `go` starts on a freshly loaded board at the phone size and theme (data has
+ * plus `noServiceWorker: true` if `go` stubs a request with page.route, and
+ * `phoneOnly: true` if the screen exists only at a phone width (the desktop size skips it).
+ * `go` starts on a freshly loaded board at the size and theme (data has
  * `projectId`, and `chatAgent` / `askAgent`: use those, never a literal agent id,
  * so the screen works under --data store too); leave the page showing the screen. Keep names short and unique
  * (they are file names). Sample data: 5 agents (working, idle, needs you,
@@ -60,7 +62,7 @@ const path = require('node:path');
 
 const REPO = path.resolve(__dirname, '..', '..');
 
-/* The four phone sizes from the #718 plan, plus the App Store size. `dpr` is the
+/* The four phone sizes from the #718 plan, the App Store size, and a desktop size. `dpr` is the
    device's pixel ratio; by default shots are saved at CSS pixels so files stay
    small and every size compares one to one (--scale device for store images). */
 const SIZES = {
@@ -70,6 +72,10 @@ const SIZES = {
   android: { width: 412, height: 915, dpr: 2.625, label: 'mid Android' },
   // The 6.9-inch iPhone screenshot App Store Connect requires: 1320x2868 at --scale device.
   appstore: { width: 440, height: 956, dpr: 3, label: 'App Store 6.9-inch' },
+  // claude-setup#100 (/design-shots): a computer screen, so one sanctioned run shoots a change at
+  // desktop and phone. No touch and no mobile viewport, and the tap and field-font audits (phone
+  // rules) are skipped for it. Not in the default sweep.
+  desktop: { width: 1280, height: 800, dpr: 1, label: 'desktop', desktop: true },
 };
 const DEFAULT_SIZES = ['se', 'iphone15', 'promax', 'android'];
 const THEMES = ['light', 'dark'];
@@ -107,7 +113,8 @@ const SCREENS = [
   { name: 'home', owner: 'Raiden', go: async () => {} },
   /* Both assert they got there: a renamed control must fail the shot, not
      quietly photograph the home screen again. */
-  { name: 'nav-menu', owner: 'Raiden', go: async (page) => {
+  // phoneOnly: the menu button (#burger) exists only at phone widths, so the desktop size skips it.
+  { name: 'nav-menu', owner: 'Raiden', phoneOnly: true, go: async (page) => {
     await page.click('#burger');
     await page.waitForSelector('#burger[aria-expanded="true"]', { timeout: 5000 });
   } },
@@ -152,13 +159,73 @@ const SCREENS = [
      paints it. The email is example.com so the leak guard still judges it.
      ⚠️ noServiceWorker: the board's sw.js claims the page, and in WebKit a
      page.route never sees a controlled page's fetches (measured: the stub was
-     never hit and the card stayed hidden), so this screen's context blocks it. */
+     never hit and the card stayed hidden), so this screen's context blocks it.
+     #4524: since #3829's addendum the full card, with Allow, renders only on Settings > Kosmos Plus; every other view
+     shows one compact line linking there. So this screen opens that view. Plus is off on the throwaway board (no
+     connected panel), so the full card is the top card there; with a connected panel it sits above the panel
+     (#plus-asks). The wait accepts either, and fails unless an Allow button is rendered visible and is itself what sits
+     at its own centre point (below). */
   { name: 'allow-card', owner: 'Kano', noServiceWorker: true, go: async (page) => {
+    /* #4568: a device's match code is always two symbols, a dash, two symbols (kosmos-relay's match_code, e.g. K7-3M).
+       This stub said '482 913', a sign-in code's shape, and its seven boxes ran past the card (every phone size in the
+       #4561 shots; 24px at se, measured by the check below).
+       MSHOTS_COVER_CONTROL=spill puts that code back, so the fit check below can be seen to fail. */
+    const code = COVER_CONTROL === 'spill' ? '482 913' : 'K7-3M';
     const pending = { email: 'owner@example.com', snapshot: true, devices: [
-      { device_id: 'd-sample-0001', name: 'iPhone', code: '482 913', first_seen: Math.floor(Date.now() / 1000) - 40, denied_at: 0 }] };
+      { device_id: 'd-sample-0001', name: 'iPhone', code, first_seen: Math.floor(Date.now() / 1000) - 40, denied_at: 0 }] };
     await page.route('**/api/remote/pending', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pending) }));
-    await page.reload({ waitUntil: 'load' });
-    await page.waitForSelector('#askcard:not([hidden]) [data-ask="allow"]', { state: 'visible', timeout: 8000 });
+    await at(page, '?tab=settings&sec=plus');
+    const allow = '#askcard:not([hidden]) [data-ask="allow"], #plus-asks:not([hidden]) [data-ask="allow"]';
+    await page.waitForSelector(allow, { state: 'visible', timeout: 8000 });
+    // MSHOTS_COVER_CONTROL=overlay: a planted full-page layer, so the check below can be seen to fail.
+    if (COVER_CONTROL === 'overlay') {
+      await page.evaluate(() => { const d = document.createElement('div'); d.id = 'cover-control';
+        d.style.cssText = 'position:fixed;inset:0;z-index:2147483647'; document.body.appendChild(d); });
+    }
+    /* Visible is not seen (#4524: the Community notice covered the whole card and this wait passed). The
+       point at the first laid-out Allow button's centre must be that button (or inside it), so anything drawn
+       over it, or the button being outside the viewport, fails the shot. Polled for up to 3 s, so a repaint
+       between two reads is not a red. */
+    const whatIsAt = (sel) => {
+      const b = [...document.querySelectorAll(sel)].find((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
+      if (!b) return 'gone (no Allow button is laid out)';
+      const r = b.getBoundingClientRect();
+      const x = r.left + r.width / 2, y = r.top + r.height / 2;
+      if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return 'outside the viewport (its centre is at ' + Math.round(x) + ',' + Math.round(y) + ')';
+      const top = document.elementFromPoint(x, y);
+      if (top && b.contains(top)) return '';
+      const named = top && (top.id ? top : top.closest('[id]'));   // the nearest element with an id names the layer
+      return 'covered by ' + (named ? named.tagName.toLowerCase() + '#' + named.id : top ? top.tagName.toLowerCase() : 'nothing readable');
+    };
+    let hit = await page.evaluate(whatIsAt, allow);
+    for (const until = Date.now() + 3000; hit && Date.now() < until; hit = await page.evaluate(whatIsAt, allow)) {
+      await page.waitForTimeout(200);
+    }
+    if (hit) throw new Error('the Allow button is not seen: ' + hit);
+    /* #4568: every laid-out request card's (.askreq) code boxes must sit inside that card's padding. The page-level
+       overflow audit cannot see this: the row runs past the card, not past the page. */
+    const fits = (sel) => {
+      const laidOut = (e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+      const cards = [...new Set([...document.querySelectorAll(sel)].filter(laidOut).map((b) => b.closest('.askreq')))];
+      if (!cards.length || cards.includes(null)) return 'no .askreq card around a laid-out Allow button';
+      for (const card of cards) {
+        const cs = getComputedStyle(card), r = card.getBoundingClientRect();
+        const left = r.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft);
+        const right = r.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight);
+        const cells = [...card.querySelectorAll('.devcode-cell')];
+        if (!cells.length) return 'no code boxes in a request card';   // the stub's request always has a code
+        const over = cells.map((c) => { const b = c.getBoundingClientRect(); return Math.max(b.right - right, left - b.left); });
+        const out = over.filter((d) => d > 0.5);
+        if (out.length) return out.length + ' of ' + cells.length + ' code boxes leave the card, the farthest by ' + Math.round(Math.max(...out)) + 'px';
+      }
+      return '';
+    };
+    // Polled for up to 3 s, like the hit-test.
+    let spill = await page.evaluate(fits, allow);
+    for (const until = Date.now() + 3000; spill && Date.now() < until; spill = await page.evaluate(fits, allow)) {
+      await page.waitForTimeout(200);
+    }
+    if (spill) throw new Error('the code does not fit its card: ' + spill);
   } },
   // Sonya: settings.
   { name: 'settings', owner: 'Sonya', go: async (page) => {
@@ -168,6 +235,25 @@ const SCREENS = [
   { name: 'settings-accounts', owner: 'Sonya', go: async (page) => {
     await at(page, '?tab=settings&sec=accounts');
     await page.waitForSelector('#s-sec-accounts', { state: 'visible', timeout: 5000 });
+  } },
+  /* #4545: Settings > Automation with the Recommender ON, so its guards list shows, scrolled to
+     that box. Turning it on is stored on this run's throwaway board (so asking twice is fine).
+     This board runs server.js's real start, which arms live execution, so the Recommender's
+     sweep would act on the seeded agents while it is on: `after` turns it off once the shot is
+     taken, before any other screen. */
+  { name: 'settings-recommender', owner: 'Mona Lisa', go: async (page) => {
+    const put = await page.request.put(page.url().split('?')[0].replace(/\/$/, '') + '/api/recommender-setting',
+      { data: { on: true }, headers: { 'sec-fetch-site': 'same-origin' } });
+    if (put.status() !== 200) throw new Error('settings-recommender: could not turn the Recommender on (' + put.status() + ')');
+    await at(page, '?tab=settings&sec=automation');
+    await page.waitForSelector('#rec-guards-row', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => document.getElementById('rec-guards-row').closest('.dbox').scrollIntoView({ block: 'center' }));
+    await page.mouse.move(1, 1);
+    await page.waitForTimeout(300);
+  }, after: async (page) => {
+    const put = await page.request.put(page.url().split('?')[0].replace(/\/$/, '') + '/api/recommender-setting',
+      { data: { on: false }, headers: { 'sec-fetch-site': 'same-origin' } });
+    if (put.status() !== 200) throw new Error('settings-recommender: could not turn the Recommender back off (' + put.status() + ')');
   } },
   /* The #718 phone-ready sweep's remaining screens (Raiden, 2026-09-25). Each
      asserts it arrived, for the same reason as the frame shots above. */
@@ -207,8 +293,18 @@ const SCREENS = [
   } },
   { name: 'agent-instructions', owner: 'unowned', go: async (page, data) => {
     await at(page, '?tab=detail&agent=' + data.chatAgent);
-    await page.locator('#d-nav button[data-go="instr"]').first().click({ timeout: 5000 });
+    await page.locator('#d-nav button[data-go="profile"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-instr', { state: 'visible', timeout: 5000 });
+    // #4550: Instructions is inside Profile now, below the profile block; the shot is of it.
+    await page.evaluate(() => document.getElementById('d-sec-instr').scrollIntoView({ block: 'start' }));
+    await page.waitForTimeout(200);
+  } },
+  // #4550: AI Settings (Runs on, Memory and Fresh start, the terminal, Remove).
+  { name: 'agent-ai-settings', owner: 'Mona Lisa', go: async (page, data) => {
+    await at(page, '?tab=detail&agent=' + data.chatAgent);
+    await page.locator('#d-nav button[data-go="model"]').first().click({ timeout: 5000 });
+    await page.waitForSelector('#d-sec-term', { state: 'visible', timeout: 5000 });
+    await page.mouse.move(1, 1);
   } },
   // Tasks is Mona Lisa and April's lane: shot and reported on #3559, not fixed here.
   { name: 'tasks', owner: 'Mona Lisa / April', go: async (page) => {
@@ -365,6 +461,15 @@ function seedFiles(roots) {
     store.writeProfile(a.claim, { displayName: a.name, role });
   }
   require(path.join(REPO, 'engine', 'firstrun')).complete();
+  /* #4524: first run done BEFORE the board starts makes the board's one-time step read this as an
+     existing install, which owes the one-time Community notice (#4288 part B). It then opened over the
+     run's first shot, card hidden, and the report said ok. Seen it here, as a person who has would have;
+     the board's step leaves an existing file alone. MSHOTS_COVER_CONTROL=cmnotice skips this, and the
+     cover check below must then fail that shot. */
+  if (COVER_CONTROL !== 'cmnotice') {
+    const seen = require(path.join(REPO, 'engine', 'communityswitch')).markNoticeSeen();
+    if (!seen.ok) throw new Error('the seed could not mark the Community notice seen: ' + seen.because);
+  }
   try { require(path.join(REPO, 'engine', 'tips')).set({ off: true }); } catch { /* tips optional */ }
   const chat = require(path.join(REPO, 'engine', 'chat'));
   const t0 = Date.now() - 3600e3;
@@ -558,6 +663,7 @@ async function preflight(base) {
    preflight must stop it), `page` puts an address in an agent's role (the page
    scan must stop it). The address is invented and not example.com. */
 const LEAK_CONTROL = process.env.MSHOTS_LEAK_CONTROL || '';
+const COVER_CONTROL = process.env.MSHOTS_COVER_CONTROL || '';
 const PLANTED_EMAIL = 'planted.leak@leak-control.test';
 const { hitsIn } = require('./lib-leak-guard.js');
 async function leaksOn(page) {
@@ -653,17 +759,37 @@ async function fitOf(page) {
 
 async function run() {
   const args = parseArgs(process.argv.slice(2));
+  // A control with a mistyped name would arm nothing and pass; refuse it instead.
+  if (COVER_CONTROL && !['cmnotice', 'overlay', 'spill'].includes(COVER_CONTROL)) {
+    throw new Error('MSHOTS_COVER_CONTROL must be cmnotice, overlay or spill, not ' + COVER_CONTROL);
+  }
   if (args.list) { for (const s of SCREENS) console.log(s.name.padEnd(20) + s.owner); return 0; }
+  const screens = args.screens ? SCREENS.filter((s) => args.screens.includes(s.name)) : SCREENS;
+  // The overlay control is planted by allow-card only; on any other screen it would arm nothing and pass.
+  if ((COVER_CONTROL === 'overlay' || COVER_CONTROL === 'spill') && !screens.some((s) => s.name === 'allow-card')) {
+    throw new Error('MSHOTS_COVER_CONTROL=' + COVER_CONTROL + ' needs the allow-card screen');
+  }
+  // The long code fits at the desktop size (its 1.6rem cap), so spill with no phone size would arm nothing and pass.
+  if (COVER_CONTROL === 'spill' && args.sizes.every((sz) => SIZES[sz].desktop)) {
+    throw new Error('MSHOTS_COVER_CONTROL=spill needs a phone size');
+  }
+  /* Nothing to shoot is not a pass: every requested screen is phone-only at the sizes asked for. Decided before
+     any browser or board starts (tools.mobile-shots-desktop.test.js). */
+  const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !(SIZES[sz].desktop && sc.phoneOnly)).length, 0);
+  if (!planned) throw new Error('no shot would be taken: every requested screen is phone-only at these sizes');
+  // Test hook (tools.mobile-shots-desktop.test.js): report the plan and stop, before any browser or board.
+  if (process.env.MSHOTS_PLAN_ONLY === '1') { console.log(`planned ${planned} screen(s) per theme and engine`); return 0; }
   const { chromium, webkit } = require('playwright');
   const engines = { chromium, webkit };
   const out = args.out || fs.mkdtempSync(path.join(os.tmpdir(), 'mobile-shots-'));
   fs.mkdirSync(out, { recursive: true });
   DATA = DATA_SETS[args.data];
-  const screens = args.screens ? SCREENS.filter((s) => args.screens.includes(s.name)) : SCREENS;
 
   const board = await startBoard();
   const rows = [];
+  const skipped = [];   // phone-only screens at the desktop size: listed in both reports, never silently absent
   let overflowCount = 0, errors = 0;
+  let coverControlWaited = false;   // MSHOTS_COVER_CONTROL: the notice is waited for on the first shot only
   try {
     const ctxData = await seed(board.base, board.roots);
     await preflight(board.base);
@@ -674,13 +800,19 @@ async function run() {
           const s = SIZES[sz];
           for (const theme of args.themes) {
             for (const sc of screens) {
+              if (s.desktop && sc.phoneOnly) {
+                // The same shape as a shot row, so report.json stays one kind of entry.
+                skipped.push({ file: null, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note: '', taps: [], fields: [], audited: false, skipped: 'phone-only screen' });
+                console.log(`skip  ${sc.name}--${sz}--${theme}--${en}: a phone-only screen`);
+                continue;
+              }
               /* A fresh context per screen: the board remembers choices (layout,
                  open sections) in localStorage, and one screen's clicks must not
                  decide what the next screen looks like. */
               const ctx = await browser.newContext({
                 viewport: { width: s.width, height: s.height }, deviceScaleFactor: s.dpr,
-                // isMobile is Chromium-only in Playwright (WebKit refuses it); both get touch.
-                isMobile: en === 'chromium', hasTouch: true, colorScheme: theme,
+                // isMobile is Chromium-only in Playwright (WebKit refuses it); both get touch on a phone.
+                isMobile: !s.desktop && en === 'chromium', hasTouch: !s.desktop, colorScheme: theme,
                 // A page.route stub needs the service worker off in WebKit (see allow-card).
                 ...(sc.noServiceWorker || DATA.connected ? { serviceWorkers: 'block' } : {}),
               });
@@ -700,12 +832,20 @@ async function run() {
               const file = `${sc.name}--${sz}--${theme}--${en}.png`;
               let note = '';
               let fit = { taps: [], fields: [] };
+              let audited = false;   // true only once the phone audits have actually run on this screen
               try {
                 await page.goto(board.base + '/', { waitUntil: 'load' });
                 await page.waitForTimeout(900);
                 if (await page.isVisible('#firstrun')) await page.keyboard.press('Escape');
                 await sc.go(page, ctxData);
                 await page.waitForTimeout(250);
+                /* The control's notice opens after a fetch; wait for it, so a slow boot cannot turn the control
+                   green. A notice that never opens times out quietly here, and the gate arm then fails loud. */
+                if (COVER_CONTROL === 'cmnotice' && !coverControlWaited) {
+                  // Once: the notice is recorded as seen when it opens, so no later shot would get it.
+                  coverControlWaited = true;
+                  await page.waitForSelector('#cmnotice', { timeout: 10000 }).catch(() => {});
+                }
                 const leaks = await leaksOn(page);
                 if (leaks.length) {
                   const err = new Error('LEAK GUARD: this screen shows real data (' + leaks.length + ' hits, e.g. '
@@ -725,17 +865,29 @@ async function run() {
                   err.leak = true;
                   throw err;
                 }
+                /* #4524: the one-time Community notice sits over whatever the shot was for. Read after the shot,
+                   so it can also catch one opened just after it. A literal id, so bc-pr-select.js ties a change
+                   to its markup to this check. */
+                if (await page.evaluate(() => !!document.getElementById('cmnotice'))) {
+                  throw new Error('COVERED: #cmnotice is open over this screen (its shot is kept; the notice may have opened just after it)');
+                }
                 const ov = await overflowOf(page);
                 if (ov.containers.length || ov.worst) {
                   overflowCount++;
                   note = 'OVERFLOW ' + ov.containers.map((c) => `${c.sel} ${c.scrollWidth}>${c.clientWidth}`).join(', ')
                     + (ov.worst ? ` widest: ${ov.worst.tag}${ov.worst.id ? '#' + ov.worst.id : ''}${ov.worst.cls ? '.' + ov.worst.cls.split(' ')[0] : ''} to ${ov.worst.right}px of ${ov.vw}` : '');
                 }
-                fit = await fitOf(page);
+                if (!s.desktop) { fit = await fitOf(page); audited = true; }
               } catch (e) {
                 if (e.leak) { await ctx.close(); throw e; }
                 errors++;
                 note = 'ERROR ' + String(e.message || e).split('\n')[0];
+              }
+              /* A screen that changed the board's state puts it back here, whatever happened above,
+                 so no later screen photographs it (#4545). A failure to is a flag on this row (counted
+                 once: a row whose go() already errored is one errored screen, not two). */
+              if (sc.after) {
+                try { await sc.after(page, ctxData); } catch (e) { if (!/ERROR/.test(note)) errors++; note += (note ? '; ' : '') + 'ERROR after: ' + String(e.message || e).split('\n')[0]; }
               }
               if (pageErrors.length) note += (note ? '; ' : '') + 'page error: ' + pageErrors.splice(0).join(' | ').slice(0, 200);
               /* report.json and report.md travel with the shots: everything this row carries (the
@@ -750,9 +902,10 @@ async function run() {
                 err.leak = true;
                 throw err;
               }
-              rows.push({ file, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields });
+              rows.push({ file, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields, audited, skipped: null });
               console.log((note ? 'FLAG  ' : 'ok    ') + file + (note ? '  ' + note : '')
-                + `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}`);
+                + (!audited ? '  phone audits: n/a'
+                  : `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}`));
               await ctx.close();
             }
           }
@@ -777,14 +930,15 @@ async function run() {
   }
 
   const md = ['# Mobile screenshots', '',
-    `Throwaway board with the ${args.data} data set. WebKit is an engine approximation of iOS Safari, not Safari; Chromium at a phone size is not an Android phone.`, '',
+    `Throwaway board with the ${args.data} data set. WebKit is an engine approximation of iOS Safari, not Safari; Chromium at a phone size is not an Android phone. Phone audits read n/a where they did not run (the desktop size, or a screen that errored).`, '',
     `Shots: ${rows.length}. Flagged: ${rows.filter((r) => r.note).length} (overflow ${overflowCount}, errors ${errors}).`, '',
+    `Skipped (phone-only screens at the desktop size): ${skipped.length ? skipped.map((k) => `${k.screen}--${k.size}--${k.theme}--${k.engine}`).join(', ') : 'none'}.`, '',
     `| screen | owner | size | theme | engine | file | flag | taps<${MIN_TAP_PX} | fields<${MIN_FIELD_FONT_PX}px |`, '|---|---|---|---|---|---|---|---|---|',
-    ...rows.map((r) => `| ${r.screen} | ${r.owner} | ${SIZES[r.size].label} ${SIZES[r.size].width}x${SIZES[r.size].height} | ${r.theme} | ${r.engine} | ${r.file} | ${r.note.replace(/\|/g, '/')} | ${r.taps.length} | ${r.fields.length} |`)];
+    ...rows.map((r) => `| ${r.screen} | ${r.owner} | ${SIZES[r.size].label} ${SIZES[r.size].width}x${SIZES[r.size].height} | ${r.theme} | ${r.engine} | ${r.file} | ${r.note.replace(/\|/g, '/')} | ${r.audited ? r.taps.length : 'n/a'} | ${r.audited ? r.fields.length : 'n/a'} |`)];
   fs.writeFileSync(path.join(out, 'report.md'), md.join('\n') + '\n');
   // Every small target and field by name, for whoever fixes the screen.
-  fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify(rows, null, 1) + '\n');
-  console.log(`\n${rows.length} shots, ${overflowCount} with overflow, ${errors} errors -> ${out}`);
+  fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify([...rows, ...skipped], null, 1) + '\n');
+  console.log(`\n${rows.length} shots, ${overflowCount} with overflow, ${errors} errors, ${skipped.length} skipped -> ${out}`);
   /* tools/browser-checks.sh quotes a red's reason from lines starting FAIL. */
   if (errors) { console.error(`FAIL  mobile-shots: ${errors} shot(s) could not be taken; see the ERROR lines above`); return 2; }
   if (args.strict && overflowCount) { console.error(`FAIL  mobile-shots: ${overflowCount} shot(s) overflow sideways; see the FLAG lines above`); return 1; }

@@ -200,7 +200,7 @@ BEFORE="$(seen_before)"
 . "$REPO/tools/lib/cut-guard.sh" 2>/dev/null || true
 # #4498 (Kano's review, Liu Kang m3015): the claim is asked INSIDE _rt_box_clear below, on every poll, not once
 # here. Asked once, a suite already waiting when a cut claimed the box could start inside the cut. Now a claim is a
-# reason to wait, and the wait names the release; at the 20-minute bound the run refuses with that message.
+# reason to wait, and the wait names the release; at the wait's bound the run refuses with that message.
 # #4410: nor beside a live install harness (tools/test-install.sh). It boots real boards on test
 # ports and checks that they let go of them; a suite started 3 minutes into one, both behind a
 # clear heavy-gate, reddened its port checks (Kano, 2026-09-28). Fail-open on the library load,
@@ -211,8 +211,11 @@ BEFORE="$(seen_before)"
 # #4498: nor beside ANOTHER suite (three full suites overlapped on Mortals on 2026-09-28, because
 # plain `heavy-gate --twice` does not count a suite). A suite inside a test (a node --test ancestor or
 # the kt sandbox, the #4259 fixture rule) is part of the suite that started it, not a second one.
-# Both checks WAIT rather than refuse: every 30 s for up to 20 minutes, in a queue so the oldest
-# waiting suite goes first (tools/lib/cut-guard.sh, kosmos_wait_until_clear). KOSMOS_NO_WAIT=1
+# Both checks WAIT rather than refuse: every 30 s, in a queue so the oldest waiting suite goes
+# first, giving up when no waiter ahead has left for 45 minutes, whatever the blocker, and in any
+# case after four bounds plus one per waiter ahead at entry (#4574; tools/lib/cut-guard.sh,
+# kosmos_wait_until_clear). A run that skips the suite check (the override or a run inside a test,
+# below) does not queue, and waits 20 minutes from its start. KOSMOS_NO_WAIT=1
 # refuses at once; this runner's arguments all go to node --test, so it has no --no-wait flag.
 # Whether this run asks about other suites at all is decided once: the override and the inside-a-test rule skip the
 # suite check AND the queue (review 1), so neither can wait behind a waiting suite either.
@@ -235,6 +238,13 @@ if command -v kosmos_wait_until_clear >/dev/null 2>&1 && ! kosmos_holds_machine_
     kosmos_wait_until_clear "this test run" _rt_box_clear || exit 1
   fi
 fi
+# #4609: the queue overrides and wait controls are for THIS run's wait, read above; nothing later in this script reads
+# them. Its descendants lose them on purpose, a nested run-tests.sh in a test included (it waits on its own terms, and
+# does not inherit an operator's KOSMOS_IGNORE_MACHINE_CLAIM either). Unset
+# now, so no test this suite runs inherits them: an inherited KOSMOS_TESTS_IGNORE_SUITE made the #4498 queue tests' own
+# run-tests.sh skip the queue and fail, and an inherited KOSMOS_NO_WAIT reds 19 of test-cut-guard.sh's arms (2026-09-29).
+# The list lives in tools/lib/cut-guard.sh (KOSMOS_WAIT_CONTROL_VARS); a lib that failed to load leaves it empty and unsets nothing.
+unset ${KOSMOS_WAIT_CONTROL_VARS:-}
 
 # --- one temp root for this run, removed when it ends (#1151) -----------------
 #

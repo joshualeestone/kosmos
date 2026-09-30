@@ -14,7 +14,7 @@
  * 🔑 THE STORE IS THE CURRENT PENDING SET, REPLACED EACH TICK. engine/heartbeat.js
  * `step()` already computes `toAsk` -- the agents in an open stall worth a
  * check-in -- fresh every tick from the board's classified states. This holds the
- * latest such list. When a stall resolves, the next tick's toAsk drops that agent
+ * latest such list (#4544: as narrowed by engine/agentnudge.js realStalls). When a stall resolves, the next tick's toAsk drops that agent
  * and `write` replaces the set, so the nudge clears on its own; there is no
  * separate "dismiss" bookkeeping to drift. The runner calls `write` every tick
  * (best-effort); the API calls `read`.
