@@ -6,7 +6,9 @@ Plus change selects it.
 ## Done looks like
 The enrol-pair arm of docs/browser-checks/render-plus-signin-enter-0929.js is not undone by a paintPlus repaint,
 whether the repaint started before the hand-showing (still in flight) or after it (the 5s tick, where CI failed):
-the arm passes every run, and each of those two cases has a mutant that goes red without its guard.
+the arm passes every run. The after case is asserted in the check (the post-fill repaint must be held, and the
+pair visible at Enter). The before case rests on paintPlus's epoch order and was proven red/green by a probe (below),
+not by an arm in the check.
 
 ## Cause (measured)
 - CI run 36672061656: the email fill succeeded, then Enter sent nothing (posts `[]`), so the code row never showed and
@@ -32,6 +34,9 @@ the arm passes every run, and each of those two cases has a mutant that goes red
   named first, not only a later timeout. 3 of 3 green with 17 checks.
 - Round 3: visibility is checked again just before Enter (the gap CI hit), the first held read must happen before the
   pair is shown, and a missing code request skips the code step with a named FAIL instead of a 30s timeout.
+- Round 4: the hold check now requires the post-fill repaint's own read to be held (the count must rise past its
+  value at the fill), so a tick read cannot satisfy it; the claims now say which case the check asserts and which a
+  probe proved.
 - Not reproduced on main without the deliberate repaint (6 alone, 12 under load): the natural race is rare here.
 
 ## Weakest premise
