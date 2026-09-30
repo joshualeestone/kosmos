@@ -3916,8 +3916,8 @@ function projectHasAgent(stored, name, byKey) {
   return Array.isArray(stored.agents) && stored.agents.some((a) => sameAgentName(a, name, byKey));
 }
 /* #4491 slice 5: who a PROCESS caller is, worked out the way task built and task message do (slice 3): the agent
-   token first (header, or `token` in the body; a bad one is refused, never swapped for the pane), else the pane
-   through messages.resolveSender (the CLI sends tmux's %N, which no roster target equals). `notDone` finishes the
+   token first (header, or `token` in the body; a bad one is refused, never swapped for the pane), else the pane:
+   a roster target, or through messages.resolveSender (the CLI sends tmux's %N). `notDone` finishes the
    503 sentence. Returns { refusal: [status, sentence] }, or { card, byKey }: card null is the screen or a
    process nobody could name, which these routes do not refuse; byKey says the name is the token store's key. */
 function processCaller(req, body, roster, viaScreen, notDone) {
@@ -3928,8 +3928,11 @@ function processCaller(req, body, roster, viaScreen, notDone) {
   if (tokenSender && !tokenSender.ok) return { refusal: [403, tokenSender.because] };
   const fromPane = body && typeof body.from_pane === 'string' ? body.from_pane : '';
   if (roster === null && fromPane) return { refusal: couldNot };
-  const byPane = !tokenSender && fromPane ? messages.resolveSender(fromPane, roster) : null;
-  const card = tokenSender ? tokenSender.card : (byPane && byPane.ok ? byPane.card : null);
+  /* The pane, as task message reads it: a pane that IS a roster target (session:w.p) and is tied to our agent is
+     that card; otherwise ask resolveSender. */
+  const targetCard = !tokenSender && fromPane ? (roster || []).find((c) => c && c.target === fromPane && c.isNamedOurs === true) || null : null;
+  const byPane = !tokenSender && fromPane && !targetCard ? messages.resolveSender(fromPane, roster) : null;
+  const card = tokenSender ? tokenSender.card : (targetCard || (byPane && byPane.ok ? byPane.card : null));
   return { card: card || null, byKey: panelessCaller(tokenSender) };
 }
 /* Slice 5: an identified agent writes only in a project it is on, as task message and task built already require.
@@ -16654,7 +16657,7 @@ const server = http.createServer(async (req, res) => {
         const viaScreen = isViaScreen(req, body);
         /* #4491 slice 5: named as task built and task message name a caller (token, else the pane through
            resolveSender), and an identified agent adds tasks only to a project it is on. Before, only a pane that
-           was exactly a roster target was named, which the CLI's %N never is, so `by` was empty for every agent. */
+           was exactly a roster target was named, which the CLI's %N never is, so `by` was empty for a CLI caller. */
         const who = processCaller(req, body, roster, viaScreen, 'the task was not added');
         const whoRefusal = who.refusal || notOnProjectRefusal(who, id, 'add tasks to it', 'the task was not added');
         if (whoRefusal) { sendJson(res, whoRefusal[0], { error: whoRefusal[1] }); return; }

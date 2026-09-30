@@ -141,6 +141,23 @@ test('task add: a pane that resolves to an agent names it; a caller nobody can n
   assert.deepEqual(asked, ['%8', '%7', '%99'], 'the pane was not asked of resolveSender exactly when a process offered one');
 });
 
+test('a token the board cannot resolve is refused, never swapped for a pane that would have named a member', async (t) => {
+  const w = world(t);
+  const realResolve = messagesEngine.resolveSender;
+  messagesEngine.resolveSender = (pane, roster) => ({ ok: true, card: roster.find((c) => c.sessionName === 'mara') });
+  t.after(() => { messagesEngine.resolveSender = realResolve; });
+  /* The board token gets it past the gate, so the handler is what judges the bad agent token. */
+  const bad = withBoard(asAgent('d'.repeat(64)));
+  const add = await call('POST', '/api/project/p4491/tasks', { headers: bad, body: { sentence: 'as mara', from_pane: '%8' } });
+  assert.equal(add.code, 403, 'a bad token fell back to the pane on task add: ' + add.code + ' ' + add.text.slice(0, 120));
+  const close = await call('POST', '/api/project/p4491/task/1/close', { headers: bad });
+  assert.equal(close.code, 403, 'a bad token was ignored on task close: ' + close.code + ' ' + close.text.slice(0, 120));
+  assert.deepEqual([w.made, w.acts], [[], []]);
+  /* CONTROL: the same pane with no token at all IS named, so the 403 above is the bad token. */
+  assert.equal((await call('POST', '/api/project/p4491/tasks', { headers: withBoard(), body: { sentence: 'by pane', from_pane: '%8' } })).code, 200);
+  assert.equal(w.made[0].by, 'mara');
+});
+
 test('task add: when the projects cannot be read, an identified agent is refused (503) and nothing is added', async (t) => {
   let blind = false;
   const w = world(t, { unreadable: () => blind });

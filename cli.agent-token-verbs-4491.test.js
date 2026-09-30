@@ -1,6 +1,6 @@
 'use strict';
 /**
- * #4491 slices 2-4: `kosmos msg`, `kosmos post`, `kosmos react`, `kosmos task message`, and (slice 4) the reads
+ * #4491 slices 2-5 (slice 5 adds `kosmos task add` and `kosmos task close`): `kosmos msg`, `kosmos post`, `kosmos react`, `kosmos task message`, and (slice 4) the reads
  * `kosmos room`, `kosmos task list`, `kosmos agent roles` and `kosmos agent role-draft` present the agent's own token
  * (KOSMOS_AGENT_TOKEN, plain hex only) as `x-kosmos-agent-token`, as reply and report already do,
  * so the board can tell the agent from the person. The board token is still sent as well.
@@ -41,6 +41,9 @@ const ANSWERS = {
   '/api/post': { delivery: { state: 'placed' } },
   '/api/react': { ok: true },
   '/api/project/p4491/task/1/message': { ok: true, delivered: [] },
+  // Slice 5: task add and task close. Each CLI arm reads the board's own {"task":...} shape as success.
+  '/api/project/p4491/tasks': { task: { number: 1, sentence: 'write the docs' } },
+  '/api/project/p4491/task/1/close': { task: { number: 1, state: 'closed' } },
 };
 
 /* Slice 4: the reads. The room is answered as text (its `?as=text` arm), the others as the JSON each verb parses. */
@@ -87,6 +90,9 @@ const VERBS = [
   ['/api/tasks', ['task', 'list', 'p4491']],
   ['/api/roles', ['agent', 'roles']],
   ['/api/roles', ['agent', 'role-draft']],
+  // Slice 5, the two task writes.
+  ['/api/project/p4491/tasks', ['task', 'add', 'p4491', 'write the docs']],
+  ['/api/project/p4491/task/1/close', ['task', 'close', 'p4491', '1']],
 ];
 const verbName = (args) => args.slice(0, args[0] === 'task' || args[0] === 'agent' ? 2 : 1).join(' ');
 
