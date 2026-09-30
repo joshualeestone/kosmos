@@ -84,7 +84,7 @@ test('#3796 the in-app name is cleaned as typed: capitals lowercased, spaces to 
   assert.equal(clean(' my_mac'), 'my-mac', 'a leading space became a leading hyphen');
   assert.equal(clean('x'.repeat(40)).length, 32);
   // kosmos#4698: the connected flow's enrol pair (plus-name) is gone; the wizard's field is the one cleaned.
-  assert.match(SCRIPT, /getElementById\('plus-si-name'\) : null;\n  if \(el && el\.addEventListener\) el\.addEventListener\('input', \(\) => \{\n    const c = plusNameClean\(el\.value\)/, 'plus-si-name is not cleaned as typed');
+  assert.match(SCRIPT, /getElementById\('plus-si-name'\)[\s\S]{0,200}addEventListener\('input'[\s\S]{0,120}plusNameClean\(el\.value\)/, 'plus-si-name is not cleaned as typed');
   assert.doesNotMatch(HTML, /lowercase letters, digits/, 'a hint still says names must be lowercase');
 });
 

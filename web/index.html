@@ -16898,10 +16898,10 @@ window.kosmosMeasureScrollbarWidth();
            The "You have Kosmos+..." line is gone at his word. -->
 
       <!-- The wizard drives the engine's stages; plusSiShow() reveals exactly one
-           step at a time. `plus-si-*` ids so nothing collides with the enrol pair
-           (`plus-email`/`plus-code`/`plus-name`) inside the connected flow below --
-           a duplicate id makes getElementById return whichever comes first, caught
-           by the page's own id-uniqueness guard rather than by review. -->
+           step at a time. `plus-si-*` ids keep its fields apart from any other Plus
+           field (the connected flow's own enrol pair, which could never show, was
+           removed in #4698): a duplicate id makes getElementById return whichever
+           comes first, caught by the page's own id-uniqueness guard. -->
       <div id="plus-si-email">
         <!-- ⚠️ `tk-inp` INSIDE `.field`, NOT `.cinput`. `.cinput` is the COMPOSER
      input class (border: 0; background: none; borrows its border from a
@@ -42335,11 +42335,10 @@ let PLUS_SI_LANDED = false;
 let PLUS_SI_REGISTERING = false;
 /* The owned address to retry after an automatic register failed (review: never a dead end). */
 let PLUS_SI_RETRY = '';
-/* The computer-name format, shared by the enrol flow's plus-confirm and the sign-in
-   wizard's register step so the two cannot drift (CLAUDE.md #5). It mirrors the engine's
-   own NAME_RULE; the engine validates too, so this is a fast local echo, not the source
-   of truth. The two callers differ only in whether an EMPTY name is allowed (enrol lets
-   the engine name it; signin-register requires one) -- that is deliberate and separate. */
+/* The computer-name format for the sign-in wizard's register step (signin-register requires a
+   name). It mirrors the engine's own NAME_RULE; the engine validates too, so this is a fast
+   local echo, not the source of truth. (The connected flow's enrol pair also used it until
+   #4698 removed that pair, which could never show.) */
 const PLUS_NAME_RULE = /^[a-z0-9-]{3,32}$/;
 /* #3796 addenda 5 and 6 (Josh typed "MacbookPro..." and was refused for capitals): the address name
    is cleaned as it is typed, as login.kosmosplus.com does (#3791): lowercase, spaces and underscores

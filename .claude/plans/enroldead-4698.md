@@ -30,3 +30,10 @@ for a real cooldown. Test pins it; removing the fix fails it.
 
 ## Measured
 - web.*.test.js (291 files) + tools.browser-checks-wired + browser-checks-pr-select: 2239 of 2239.
+
+## Review iteration 1: NITs only; three taken
+- Two comments still described the removed pair (the plus-si-* id note, PLUS_NAME_RULE's "shared
+  by plus-confirm"): rewritten.
+- The name-cleaning assertion matched exact source whitespace: loosened to the binding's shape.
+- Not changed: the harmless 'plus-enrol' stubs in two older tests' element tables; slicing
+  plusSiMsg..plusSiPostRaw as one range in the code-box harness (guarded by its markers).
