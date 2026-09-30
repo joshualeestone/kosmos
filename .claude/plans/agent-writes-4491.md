@@ -6,8 +6,9 @@ that branch until it merges; then rebased onto main.
 ## Finished looks like
 1. `POST /api/project/<p>/tasks` (`kosmos task add`) and `POST /api/project/<p>/task/<n>/close` (`kosmos task
    close`) pass the board-token gate for a loopback caller presenting only a valid agent token in the header.
-2. Both handlers name the caller (the token, else the pane through `messages.resolveSender`), and an identified
-   agent adds and closes tasks only in a project it is on. A task added by an agent is recorded as added by it.
+2. Both handlers name the caller and an identified agent adds and closes tasks only in a project it is on. Task
+   add names it from the token, else from the pane. Task close reads no body, so it names it from the token ONLY.
+   A task added by an agent is recorded as added by it.
 3. Both CLIs send the agent's own token on those two verbs, plain hex only, and still send the board token.
 4. A caller nobody can name (the page, the person's terminal with no pane and no token) is exactly as before.
 
@@ -18,7 +19,11 @@ are different questions and get their own slice: `kosmos project create` (no pro
 may an agent put on a new project) and `kosmos room reopen` (it clears the loop-guard that exists to stop agents).
 
 ## Decisions
-- **One way to name a process caller, shared by both handlers** (`processCaller`): the agent token first (header,
+- **Close names its caller by token only, and that leaves one gap, stated:** a Mac agent on an OLD CLI (no token
+  sent) that is not on the project is refused on task add (its pane names it) and still allowed on task close
+  (nothing names it). It closes once that agent's CLI updates and sends the token. Rejected: reading a body on
+  close to get a pane; the CLI sends none, and the page and terminal would pay for it.
+- **One way to name a process caller, used by both handlers** (`processCaller`): the agent token first (header,
   or `token` in the body), and a bad token is refused, never swapped for the pane; else the pane through
   `messages.resolveSender`. This is what task built and task message do inline since slice 3. Their code is left
   as it is; the helper is for the new callers.
@@ -62,6 +67,8 @@ may an agent put on a new project) and `kosmos room reopen` (it clears the loop-
 ## Known limits, stated
 - Advisory, as every slice: an agent that holds the board token can still send no token and no pane and be an
   unnamed process. The rule binds the cooperating agent (T1 on the card) and any caller that holds only its token.
+- An agent whose session is literally named "operator" would have its tasks labelled "You" on the page, which
+  reads `addedBy === 'operator'` as the person. Not checked: whether Kosmos lets an agent be given that name.
 - A paneless token (a Windows agent, a token with no roster row) is matched to the project by key, as slice 3.
   Its task is recorded as added by that KEY ("ghost"), which can differ in spelling from the name the project
   lists ("Ghost"); the label shows the key.
@@ -75,7 +82,7 @@ tasks for other teams' projects would now be refused until it is put on them.
   the token still names who added it.
 
 ## Tests
-- `server.agent-writes-4491.test.js` (new, 14; the last two listed were added in round 1): the gate refuses both writes bare and with an unissued token; a
+- `server.agent-writes-4491.test.js` (new, 17; rounds 1 and 3 added five): the gate refuses both writes bare and with an unissued token; a
   member adds on its token alone and the task is recorded as added by it; a non-member is refused with and without
   the board token and nothing reaches the task engine; the body cannot name another agent; a pane names its agent
   (through resolveSender) and a non-member pane is refused, while a pane nobody holds, no pane, and the page are as
@@ -84,6 +91,9 @@ tasks for other teams' projects would now be refused until it is put on them.
   token and holds an identified non-member out; 13 neighbours stay closed; a revoked token does neither.
   An unreadable roster: a token is a 503 on both writes and nothing is written, while a pane and a tokenless close
   are as before. A live agent with no roster row is matched by key on both writes.
+  A roster pane not tied to our agent names nobody (red with the `isNamedOurs` test removed). A token resolver that
+  throws is a 503 on both writes and the board keeps answering (with the catch removed the test file hangs and
+  fails). An unreadable projects list is a 503 on close too.
   Measured red, one mutation each: no membership rule; the gate left closed; a bad token swapped for the pane; the
   close handler naming nobody; an unreadable list failing open; everyone counted a member; the page held to a pane
   it sent; the adder not recorded.
@@ -115,4 +125,16 @@ tasks for other teams' projects would now be refused until it is put on them.
 - NITs: a paneless caller is recorded under the token store's key, a stated limit now. The checks run before the
   runaway breaker: no gain to a caller (the breaker counts created tasks only), one tmux lookup for a tokenless
   pane caller, as task message already costs. The test ordering notes needed no change.
+
+## Review round 3 (opus): 0 BLOCKER, 2 WARNING, 1 CONVENTION, 4 NIT
+- W the close handler named its caller outside any try, and the token resolver can throw (measured with the real
+  roster order: a punctuation-only tmux session name such as "!!" sorting ahead of the agent's row; filed as
+  #4738, a defect on main). Fixed here at the helper: `processCaller` never throws; a token that cannot be checked
+  is a 503. Tested on both writes. The reviewer's example (a Japanese name) does not trigger it: it sorts after.
+- W "a roster pane not tied to an agent names nobody" had no test: added, with a tied control.
+- C "both handlers name the caller from the token, else the pane" was false for close: said, with the gap it
+  leaves (above).
+- NITs: an unreadable projects list is tested on close; two stale comments (engine/tasks.js, the Windows CLI's
+  header) corrected; the "operator" name is a stated limit. Not taken: a JSON `null` body on task add answers a
+  raw TypeError sentence, as it did before this branch.
 

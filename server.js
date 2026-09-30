@@ -3925,7 +3925,8 @@ function processCaller(req, body, roster, viaScreen, notDone) {
   const couldNot = [503, 'we could not check which agents are running, so ' + notDone];
   if (roster === null && presentedAgentToken(req, body)) return { refusal: couldNot };
   /* NEVER THROWS. The close handler calls this outside any try, and the board has no last-resort handler for a
-     throw in a request: it would exit. The token resolver can throw today (engine/sendertoken.js keys every roster
+     throw in a request: the caller would get no answer at all (measured in the test: the request hangs), and
+     the process may end. The token resolver can throw today (engine/sendertoken.js keys every roster
      row's name before it looks at whose row it is, and a name with no letter or digit cannot be keyed: a tmux
      session named "!!" sorting ahead of the agent's row does it, #4738), so
      a token that cannot be checked is answered like a roster that cannot be read. */

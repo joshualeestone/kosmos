@@ -223,7 +223,8 @@ test('a roster pane that is not tied to our agent names nobody: no name recorded
 test('a token the resolver cannot check (it throws) is a 503 on both writes, and the board keeps answering', async (t) => {
   /* #4738: a tmux session whose name has no letter or digit AND sorts ahead of the agent's row ("!!" does; a name
      in Japanese sorts after and does not) makes sendertoken.resolve throw. The close handler names its caller
-     outside any try, so a throw there would end the board's process; it must be answered instead. */
+     outside any try, so a throw there leaves the request unanswered (measured: with the catch removed this test
+     hangs until the runner gives up) and may end the board's process; it must be answered instead. */
   const w = world(t, { extra: [fleet.stranger('!!', { state: 'idle' })] });
   assert.throws(() => sendertoken.resolve(w.mara, w.agents), /invalid agent name/, 'control: the resolver no longer throws on this roster (if #4738 is fixed, make it throw another way, or drop this test\'s premise)');
   const close = await call('POST', '/api/project/p4491/task/1/close', { headers: asAgent(w.mara) });
