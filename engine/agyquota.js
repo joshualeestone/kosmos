@@ -54,25 +54,22 @@ function poolHeldUntil(roster, now) {
 }
 /* Each antigravity agent's last-seen reset, by session. A card stops carrying quotaUntil once its reset passes, and can
    stop showing its pause before then (its screen changed), while the pool is still empty; so the board remembers.
-   A card that shows a new reset corrects only its own entry; an entry is dropped once its release has been served.
-   In memory only: a board restart forgets it, and the release after that one reset is then lost. */
-const POOL_MEMO = { bySession: new Map() };
-function newPoolMemo() { return { bySession: new Map() }; }
-function agyCount(roster) {
-  return (Array.isArray(roster) ? roster : []).filter((c) => c && c.runner === 'antigravity').length;
-}
-/* After the pool's reset R the resume below owns the first slots (R + GRACE_MS + k * STAGGER_MS, one per agent), then the
-   held senders come back one agent per slot after them. releaseTailMs is where the last agent's senders are released. */
-function releaseTailMs(roster) {
-  const n = Math.max(1, agyCount(roster));
-  return GRACE_MS + STAGGER_MS * (2 * n - 1);
-}
-function releaseOffsetMs(card, roster) {
-  const names = (Array.isArray(roster) ? roster : []).filter((c) => c && c.runner === 'antigravity' && c.sessionName)
+   A card that shows a new reset corrects only its own entry; an entry is dropped MAX_AGE_MS after its reset.
+   `resume` is what the resume sweep below last saw for the current pool reset: still pending, or done at a time.
+   In memory only: a board restart forgets it, and the fallback schedule then applies to that one reset. */
+const POOL_MEMO = { bySession: new Map(), resume: null };
+function newPoolMemo() { return { bySession: new Map(), resume: null }; }
+/* One release step: the resume timer's own period (60 s) or its stagger, whichever is longer, so a step is never
+   shorter than the resume can actually move. */
+const SLOT_MS = Math.max(STAGGER_MS, 60 * 1000);
+function agyNames(roster) {
+  return (Array.isArray(roster) ? roster : []).filter((c) => c && c.runner === 'antigravity' && c.sessionName)
     .map((c) => String(c.sessionName)).sort();
-  const n = Math.max(1, names.length);
-  const i = names.indexOf(String(card.sessionName));
-  return GRACE_MS + STAGGER_MS * (n + (i === -1 ? n - 1 : i));
+}
+/* When the resume never reports for this reset (switched off, or the board restarted): room for every agent's resume
+   with all its tries, before the senders. */
+function fallbackResumeMs(roster) {
+  return GRACE_MS + SLOT_MS * Math.max(1, agyNames(roster).length) * (MAX_TRIES + 1);
 }
 /* Records what the cards show now and returns the pool's reset (the latest remembered), or null when none is pending. */
 function notePool(roster, now, memo = POOL_MEMO) {
@@ -82,10 +79,9 @@ function notePool(roster, now, memo = POOL_MEMO) {
     const at = Date.parse(c.quotaUntil);
     if (Number.isFinite(at) && at > now && at <= cap) memo.bySession.set(String(c.sessionName), at);
   }
-  const tail = releaseTailMs(roster);
   let reset = null;
   for (const [k, at] of memo.bySession) {
-    if (now >= at + tail) { memo.bySession.delete(k); continue; }
+    if (now >= at + MAX_AGE_MS) { memo.bySession.delete(k); continue; }
     if (reset === null || at > reset) reset = at;
   }
   return reset;
@@ -95,8 +91,10 @@ function poolPausedUntil(roster, now, memo = POOL_MEMO) {
   const reset = notePool(roster, now, memo);
   return reset !== null && now < reset ? reset : null;
 }
-/* When an automatic line to `session` may be typed, in epoch ms, or null for now: only an antigravity card is held,
-   while the pool is paused and until its own slot after the resume. The card is found by chat's own rule
+/* When an automatic line to `session` may be typed, in epoch ms, or null for now. Only an antigravity card is held:
+   while the pool is paused; after its reset while the resume below is still working through the agents; then one
+   agent per SLOT_MS after the resume reported done (by session name), so the timers do not all fire in one minute.
+   If the resume never reported for this reset, fallbackResumeMs stands in for it. The card is found by chat's own rule
    (resolveCard), so the gate and the delivery always mean the same card. */
 function heldForQuota(session, roster, now, memo = POOL_MEMO) {
   let card = null;
@@ -104,8 +102,14 @@ function heldForQuota(session, roster, now, memo = POOL_MEMO) {
   if (!card || card.runner !== 'antigravity') return null;
   const reset = notePool(roster, now, memo);
   if (reset === null) return null;
-  const releaseAt = reset + releaseOffsetMs(card, roster);
-  return now < releaseAt ? (now < reset ? reset : releaseAt) : null;
+  if (now < reset) return reset;
+  const r = memo.resume && memo.resume.reset === reset ? memo.resume : null;
+  if (r && r.doneAt == null) return now + SLOT_MS; // the resume is still working: look again next minute
+  const base = r ? r.doneAt : reset + fallbackResumeMs(roster);
+  const names = agyNames(roster);
+  const i = names.indexOf(String(card.sessionName));
+  const releaseAt = base + SLOT_MS * ((i === -1 ? names.length : i) + 1);
+  return now < releaseAt ? releaseAt : null;
 }
 
 /* The card states a nudge may be typed over: never a question (a typed line could answer it), work, or a lost
@@ -151,6 +155,7 @@ function sweepOnce(o) {
     const last = book.get(LAST);
     if (Number.isFinite(last) && now - last < STAGGER_MS) return { results, skipped: 'spacing resumes out' };
     const due = [];
+    let waiting = 0;
     for (const card of o.roster) {
       const session = card && card.sessionName;
       if (!session || card.runner !== 'antigravity') continue;
@@ -160,6 +165,15 @@ function sweepOnce(o) {
       const entry = book.get(session);
       const p = plan(report, entry, now);
       if (p.act === 'nudge') due.push({ card, session, report, entry, because: p.because, at: pausedUntil(report) });
+      else if (p.act === 'wait') waiting += 1;
+    }
+    /* #4588 PR B: tell the senders' gate how far the resume has got for this pool reset: pending while any agent is
+       due or backing off, done (at the first sweep that finds none) once all are resumed or given up on. */
+    if (poolReset !== null) {
+      const m = o.memo || POOL_MEMO;
+      const same = m.resume && m.resume.reset === poolReset ? m.resume : null;
+      if (due.length || waiting) m.resume = { reset: poolReset, doneAt: null };
+      else if (!same || same.doneAt == null) m.resume = { reset: poolReset, doneAt: now };
     }
     if (!due.length) return { results };
     due.sort((a, b) => (a.at - b.at) || String(a.session).localeCompare(String(b.session)));
@@ -200,4 +214,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, poolHeldUntil, notePool, poolPausedUntil, releaseTailMs, releaseOffsetMs, heldForQuota, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };
+module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, poolHeldUntil, notePool, poolPausedUntil, fallbackResumeMs, SLOT_MS, heldForQuota, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };

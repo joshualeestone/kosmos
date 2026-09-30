@@ -2269,7 +2269,8 @@ function sweepUnanswered(roster, now) {
         const line = '[the room has not seen an answer to ' + postId
           + '; to answer, run: kosmos post --in-reply-to ' + postId + ' ' + projectId + ']';
         const sent = chat.deliverAutomatic(name, line, roster);
-        /* #4588 PR B: held on the shared Google quota, nothing typed. No row, so the pair's one nudge is still unspent. */
+        /* #4588 PR B: held on the shared Google quota, nothing typed. No row, so the pair's one nudge is still unspent, and
+           unanswered() has only a lower age bound (UNANSWERED_AFTER_MS), so the post is still due after a long pause. */
         if (sent && sent.held === true) continue;
         appendLog({ kind: 'nudge', post: postId, to: name, project: projectId,
           at: new Date().toISOString(), outcome: sent.state });

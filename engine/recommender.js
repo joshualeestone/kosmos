@@ -228,9 +228,18 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
   };
   for (const item of out.toConvene) {
     /* #4588 PR B: a stuck agent held on its machine's shared Google quota is not convened yet: no note, no asks, no
-       playbook, no attempt counted, and a fresh item gives its hourly charge back. It is convened after the reset. */
+       playbook, no attempt counted, and a fresh item gives its hourly charge back. It is convened after the reset.
+       A fresh item waits too while any of its peers is held: its one ask per peer would be spent on a held pane, and
+       the playbook would tell the stuck agent that nobody could be reached. */
     let held = null;
-    if (typeof heldUntil === 'function') { try { held = heldUntil(item.session); } catch { held = null; } }
+    if (typeof heldUntil === 'function') {
+      const who = [item.session].concat(item.retry ? [] : (item.peers || []).map((p) => p && p.session).filter(Boolean));
+      for (const s of who) {
+        let h = null;
+        try { h = heldUntil(s); } catch { h = null; }
+        if (h !== null && h !== undefined) { held = h; break; }
+      }
+    }
     if (held !== null && held !== undefined) {
       if (!item.retry) {
         const i = out.next.log.findIndex((e) => e.at === now && e.session === item.session);
