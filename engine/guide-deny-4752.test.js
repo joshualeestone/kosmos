@@ -105,6 +105,8 @@ test('#4752 a process that has entered a named world (an agent\'s way, applyAgen
   assert.ok(!out.rules.includes(`Read(${abs(out.base)}/**)`), 'the base is denied whole, which cuts the guide off from its own folder');
 });
 
+/* The stub below makes WORLDS_SUBDIR throw where guideDenyRulesFor first reads it (the entry filter, after the
+   listing); the one `#4752:` line this test expects is that failure's. */
 test('#4752 when the extra folders cannot be worked out, the rules that were there before still come back', () => {
   const worlds = require('./worlds');
   const was = Object.getOwnPropertyDescriptor(worlds, 'WORLDS_SUBDIR');

@@ -260,7 +260,9 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
      The list is read when the rules are written (create.js when the guide is made, refreshGuideGuards at every
      board start); an entry made later is uncovered until the next start, except the token and its temporary
      copies, which are always named. */
-  const same = (a, b) => !!a && !!b && path.resolve(a) === path.resolve(b);
+  /* The same folder, spelt differently (case on a case-insensitive disk, a link) or not: real paths when both exist. */
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+  const same = (a, b) => !!a && !!b && (path.resolve(a) === path.resolve(b) || real(a) === real(b));
   let entryBase = null;
   let listed = false;   // earlier per-entry rules are dropped only when this list is complete
   try {
@@ -278,9 +280,9 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
       more.push(`Read(${ruleAbs(base)}/.*.tmp)`);   // every temporary file Kosmos writes there (a process id in each name)
       let entries = [];
       try { entries = fs.readdirSync(base, { withFileTypes: true }); listed = true; } catch (e) {
-        /* Only the entry list is lost: the rules above do not depend on it. */
-        if (e.code === 'ENOENT') listed = true;
-        else process.stderr.write(`#4752: the default world's store could not be listed, so its entries are not named one by one: ${e.message}\n`);
+        /* Only the entry list is lost: the rules above do not depend on it. A store that is not there (ENOENT)
+           has no entries to name, but it may only be moving, so the last listing's rules are kept for it too. */
+        if (e.code !== 'ENOENT') process.stderr.write(`#4752: the default world's store could not be listed, so its entries are not named one by one: ${e.message}\n`);
       }
       for (const d of entries) {
         if (!baseEntryToName(d.name, worlds.WORLDS_SUBDIR, registry, tokenFile)) continue;
@@ -318,8 +320,8 @@ function wasEntryRule(rule, base) {
 }
 /* #4752: whether an entry directly in the worlds' base gets a rule of its own. Not the worlds folder or its
    registry (the guide's own folder is under the first), nor the token (it has its own rule). Not a dot-named
-   temporary file (`.<name>.<process id>...tmp`) or the registry's lock: the `.board.token.*` and `.*.tmp` pattern rules cover the temporary files, the lock holds
-   nothing, and naming them one by one would add a rule per leftover that never goes away (earlier rules are
+   temporary file (`.<name>.<process id>...tmp`) or the registry's lock: the `.board.token.*` and `.*.tmp`
+   pattern rules cover the temporary files, the lock holds nothing, and naming them one by one would add a rule per leftover that never goes away (earlier rules are
    kept on every rewrite). Not a name with a character the rule syntax reads as a pattern or a bracket
    (`* ? [ ] ( ) { } !` or a backslash): such a rule would deny more than the entry or not parse, so the name is
    left readable; Kosmos makes none. */
