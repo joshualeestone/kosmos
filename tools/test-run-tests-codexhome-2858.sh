@@ -74,12 +74,16 @@ else
   fail "the unset did not clear both vars for a node child (got: $probe)"
 fi
 
-# #4491 slice 7, the behavioural leg for the switch, run through the RUNNER'S OWN unset line (not a copy of it), so
-# an unset that does not clear a node child is caught, not only one that moved.
+# #4491 slice 7, the behavioural leg for the switch: it runs the TEXT of the runner's unset line (grepped out of
+# run-tests.sh) and checks a node child no longer sees the switch, so a line that does not clear it is caught. It
+# cannot see whether the runner ever REACHES that line (a line inside an `if false` would pass); the column-0 check
+# below narrows that: the line must sit at the top level of the file, not indented inside a block.
 uline="$(grep -E '^[[:space:]]*unset([[:space:]].*)?[[:space:]]KOSMOS_AGENT_TOKEN_ONLY([[:space:]]|$)' "$RT" | head -1)"
 probe2="$(KOSMOS_AGENT_TOKEN_ONLY=1 bash -c "$uline"'
   node -pe "String(process.env.KOSMOS_AGENT_TOKEN_ONLY)"' 2>&1)"
-if [ -n "$uline" ] && [ "$probe2" = "undefined" ]; then
+if [ -n "$uline" ] && [ "${uline#unset }" = "$uline" ]; then
+  fail "the KOSMOS_AGENT_TOKEN_ONLY unset is indented, so it may sit inside a block the runner never enters"
+elif [ -n "$uline" ] && [ "$probe2" = "undefined" ]; then
   pass "the runner's own unset line clears KOSMOS_AGENT_TOKEN_ONLY for a node child"
 else
   fail "the runner's unset line did not clear KOSMOS_AGENT_TOKEN_ONLY for a node child (line: $uline; got: $probe2)"

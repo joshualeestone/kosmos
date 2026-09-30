@@ -3,7 +3,8 @@
  * #4491 slices 2-5 (slice 5 adds `kosmos task add` and `kosmos task close`): `kosmos msg`, `kosmos post`, `kosmos react`, `kosmos task message`, and (slice 4) the reads
  * `kosmos room`, `kosmos task list`, `kosmos agent roles` and `kosmos agent role-draft` present the agent's own token
  * (KOSMOS_AGENT_TOKEN, plain hex only) as `x-kosmos-agent-token`, as reply and report already do,
- * so the board can tell the agent from the person. The board token is still sent as well.
+ * so the board can tell the agent from the person. The board token is still sent as well, by default. Slice 7:
+ * with KOSMOS_AGENT_TOKEN_ONLY=1 the agent verbs send the agent token alone (the token-only tests below).
  *
  * The valid-token case is the control for the other two: a CLI that never sent the header would
  * pass every "no header" assertion here.

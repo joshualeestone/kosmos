@@ -76,8 +76,14 @@ already applies with the switch off. Review 1 found it.)
 1. The ABCDE case could only fail when the tests happened to run in a dictionary-ordered locale (under C it passed
    with the range put back). That one send now runs with LC_ALL=en_US.UTF-8, and with the range put back the suite
    run under LC_ALL=C turns 17 red.
-2. The runner guard only compared line numbers. It now also runs the runner's own unset line and checks that a
-   node child no longer sees the switch.
+2. The runner guard only compared line numbers. It now also runs the TEXT of the runner's unset line and checks
+   that a node child no longer sees the switch, and it requires that line to sit at the top level of the file. It
+   still cannot prove the runner reaches the line (round 3 showed one inside `if false` passed before the column
+   check); a guard that reads source cannot, and the existing Codex-home legs share the limit.
+
+## Review round 3 (a third blind reviewer, whole change): no blocker, no should-fix. CONVERGED.
+Two nits taken: the guard's comment claimed more than it runs (reworded, plus the top-level check above), and the
+test file's header still said the board token is always sent.
 
 ## Not done
 - Automatic status reports ignore the switch: the Mac report hook goes through `kosmos report` and so honours it,
