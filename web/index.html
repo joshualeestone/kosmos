@@ -21919,9 +21919,8 @@ async function tick() {
        card above already says the whole board is blind. */
     document.getElementById('st-agents').textContent = '?';
     document.getElementById('st-working').textContent = '?';
-    /* #2157: a failed poll shows "?" and must un-hide the Working tile -- a prior
-       known-zero tick may have hidden it, and staying hidden would claim "none
-       working" on the one poll that knows nothing. Same reason it shows "?". */
+    /* #2157, #4736: a failed poll shows "?" and un-hides the Working tile. A prior zero tick
+       ("0" or "0+") may have hidden it, and "?" is not a zero, so the tile shows it. */
     document.getElementById('st-working-tile').hidden = false;
     document.getElementById('st-idle').textContent = '?';
     /* ⚠️ SHOWN AS UNKNOWN RATHER THAN HIDDEN, unlike the alert tile beside it,

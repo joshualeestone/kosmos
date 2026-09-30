@@ -2,7 +2,7 @@
 
 /**
  * #2157: the Agents-tab "Working" tile (the count chip AND its .act animation)
- * must NOT render at a KNOWN zero -- Josh: "if no agents are working, we don't
+ * must NOT render at zero ("0+" included since #4736) -- Josh: "if no agents are working, we don't
  * show the little tab thing at the top that says the number of agents working",
  * because an animated "0 Working" looks like something is running when nothing
  * is. Since #4736 (Josh, 2026-09-30) that includes a FLOORED zero (unknowns present -> "0+"):
@@ -91,7 +91,7 @@ function check(name, pass, detail) {
       await tick();
       out.knownZero = { hidden: tileEl.hidden, count: countEl.textContent, anim: animLaidOut() };
 
-      // 3) zero working WITH an unknown -> a FLOOR, stays shown, renders "0+".
+      // 3) zero working WITH an unknown -> a FLOOR: renders "0+" and the tile hides (#4736).
       okFetch(['idle', 'unknown'], { total: 2, unreadableLines: 0 });
       await tick();
       out.floorZero = { hidden: tileEl.hidden, count: countEl.textContent, anim: animLaidOut() };

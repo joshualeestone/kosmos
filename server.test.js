@@ -3424,6 +3424,11 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
     '#4736: zero working WITH an unknown ("0+") hides the tile too (Josh: "if there are 0 working, lets not show the tile")');
   assert.equal(zeroFloor['st-working'].textContent, '0+',
     'the number underneath is still the floored 0+ (only the tile is hidden)');
+  /* #4736: the OTHER way to "0+", unreadable pane lines with no unknown agent, hides the tile too. */
+  const zeroUnread = drive([{ state: 'idle' }], { total: 1, needsYou: 0, notRunning: 0, unreadableLines: 1 });
+  assert.equal(zeroUnread['st-working'].textContent, '0+', 'fixture: unreadable lines floor the zero');
+  assert.equal(zeroUnread['st-working-tile'].hidden, true,
+    '#4736: a zero floored by unreadable lines hides the Working tile too');
   assert.equal(live['st-attn'].textContent, '1', 'the needs-you tile lost its count');
   assert.equal(live['st-attn-tile'].hidden, false, 'a nonzero needs-you must show the alert tile');
   /* #653 (Josh, 2026-08-24): the Not-running tile is gone. The painter must
