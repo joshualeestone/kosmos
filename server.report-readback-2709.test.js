@@ -165,3 +165,19 @@ test.after(() => {
   try { server.close(); } catch { /* ignore */ }
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
+
+test('#4569 fix 4: a working report\'s queue count ({ n, yours }) goes through the route and reads back; a bad one does not', async () => {
+  boardAuthState.on = false;
+  await withLeo(async () => {
+    const tok = sendertoken.mint(WHO).token;
+    try {
+      const wrote = await post('/api/report', { headers: { 'x-kosmos-agent-token': tok }, body: { state: 'working', auto: true, waiting: { n: 15, yours: 1 } } });
+      assert.equal(wrote.json.recorded, true, wrote.text);
+      const back = await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } });
+      assert.deepEqual(back.json.report.waiting, { n: 15, yours: 1 }, 'the route dropped the count: ' + back.text);
+      await post('/api/report', { headers: { 'x-kosmos-agent-token': tok }, body: { state: 'working', auto: true, waiting: { n: 'lots', yours: 1 } } });
+      const bad = await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } });
+      assert.equal(bad.json.report.waiting, null, 'a nonsense count was kept: ' + bad.text);
+    } finally { sendertoken.revoke(WHO); }
+  });
+});

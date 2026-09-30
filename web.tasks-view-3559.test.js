@@ -136,14 +136,16 @@ test('#3949 the layout: no Projects rail, the count in the title, Project and Cr
   assert.match(SCRIPT, /by: 'status'/, 'Group by does not default to Status');
 });
 
-test('the wiring: a Tasks tab, both allowlists, showTab loads it, and the consolidated rail has a way in', () => {
+test('the wiring: a Tasks tab, both allowlists, showTab loads it, and the consolidated tab opens Tasks in the column', () => {
   assert.match(PAGE, /<button class="tab"\s+data-tab="tasks"\s+role="tab"/);
   assert.match(SCRIPT, /const PANELS = \[[^\]]*'tasks'/);
   assert.match(SCRIPT, /const KNOWN_TABS = \[[^\]]*'tasks'/, 'a ?tab=tasks bookmark would land on Agents');
   assert.match(SCRIPT, /if \(tab === 'tasks'\) tskLoad\(true\);/, 'arriving on the tab does not load the view as an arrival');
   assert.match(PAGE, /<section class="panel panel-wide" id="panel-tasks" hidden>/);
-  assert.match(PAGE, /id="rail-projects-tasks"/);
-  assert.match(SCRIPT, /getElementById\('rail-projects-tasks'\)\.addEventListener\('click', openConsolidatedTasks\)/, 'the consolidated button must open Tasks inside the column, not kick out to the tabs (#2842)');
+  // #4595 (Josh): no Tasks pill in the projects rail; the tab bar is the way in, and in the
+  // consolidated view the tab still opens Tasks inside the column (#2842).
+  assert.doesNotMatch(PAGE, /id="rail-projects-tasks"/, 'the projects rail grew its Tasks pill back (#4595)');
+  assert.match(SCRIPT, /else if \(t === 'tasks'\) openConsolidatedTasks\(\);/, 'the consolidated tab must open Tasks inside the column, not kick out to the tabs (#2842)');
   assert.match(SCRIPT, /placeTasksPanel\(cons\);/, 'showTab does not place the Tasks panel with the layout');
   assert.match(SCRIPT, /for \(const id of \['panel-settings', 'panel-create', 'panel-tasks'(?:, '[a-z-]+')*\]\)/, 'taking over the display column does not hide the Tasks view');
   assert.match(SCRIPT, /if \(URL_TAB === 'tasks'\) return \{ screen: 'tasks' \};/, 'the setup guide is told the wrong screen on Tasks');
@@ -151,7 +153,7 @@ test('the wiring: a Tasks tab, both allowlists, showTab loads it, and the consol
 });
 
 test('no Tasks style declares a left border (Josh, 2026-09-24: no coloured bar down a left edge)', () => {
-  const rules = [...PAGE.matchAll(/^[^\n{]*(?:\.tsk-|#panel-tasks|\.rail-tasks)[^\n{]*\{[^}]*\}/gm)].map((x) => x[0]);
+  const rules = [...PAGE.matchAll(/^[^\n{]*(?:\.tsk-|#panel-tasks)[^\n{]*\{[^}]*\}/gm)].map((x) => x[0]);
   assert.ok(rules.length > 20, 'the Tasks rules were not found; update this test');
   /* A 1px NEUTRAL rule between segmented buttons is a divider, not a coloured bar; anything
      wider, or in any colour but the neutral --k-rule, is the thing Josh ruled out. */
@@ -160,7 +162,7 @@ test('no Tasks style declares a left border (Josh, 2026-09-24: no coloured bar d
   assert.deepEqual(bad, []);
   // CONTROL through the SAME extraction: a page with a planted coloured bar yields it.
   const planted = PAGE + '\n.tsk-planted { border-left: 3px solid var(--gold); }\n';
-  const plantedBad = [...planted.matchAll(/^[^\n{]*(?:\.tsk-|#panel-tasks|\.rail-tasks)[^\n{]*\{[^}]*\}/gm)].map((x) => x[0])
+  const plantedBad = [...planted.matchAll(/^[^\n{]*(?:\.tsk-|#panel-tasks)[^\n{]*\{[^}]*\}/gm)].map((x) => x[0])
     .flatMap((r) => [...r.matchAll(/border-(?:left|inline-start)[^;}]*/g)].map((m) => m[0]))
     .filter((d) => !/^border-left:\s*1px solid var\(--k-rule\)$/.test(d.trim()));
   assert.deepEqual(plantedBad, ['border-left: 3px solid var(--gold)'], 'the extraction cannot see a planted bar');

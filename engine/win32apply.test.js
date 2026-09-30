@@ -3460,6 +3460,20 @@ test('S5 rollback FIX1: a duplicate previous-<to> is not clobbered; the stray st
    file and let the helper read it through its own default (no mayStartBoard seam), so the real reader is
    what decides. The controls matter: without them "started nothing" passes on a helper that never starts. */
 const MODE_FILE = win32apply.computerModePath(process.env);
+/* #4695: on macOS MODE_FILE is path.win32.join of a POSIX temp path, i.e. ONE relative file name full of backslashes,
+   so writing it (and the real reader resolving it) happens in the process's cwd: the worktree, where win32board's
+   #4495 guard, running at the same time in another test process, saw it as a leak (CI, PR #4689). These cases run
+   with the cwd moved into this file's SANDBOX, so the file is written and read there, and the cwd always comes back. */
+async function inSandboxCwd(fn) {
+  const was = process.cwd();
+  process.chdir(SANDBOX);
+  try {
+    const at = path.resolve(MODE_FILE);   // with the separator, so a sibling sharing the random prefix cannot pass
+    assert.ok(at.startsWith(fs.realpathSync(SANDBOX) + path.sep) || at.startsWith(SANDBOX + path.sep),
+      'the mode file must resolve inside the sandbox: ' + at);
+    return await fn();
+  } finally { process.chdir(was); }
+}
 function setMode(bytes) {
   fs.rmSync(MODE_FILE, { force: true });
   if (bytes === null) return;
@@ -3482,7 +3496,7 @@ test('#4381: the helper reads the mode where Kosmos.exe writes it, by the same r
   }
 });
 
-test('#4381: H7 on a connect computer (or one whose choice does not read) starts no board, and the update stands; run, both and no file start it as before', T, async () => {
+test('#4381: H7 on a connect computer (or one whose choice does not read) starts no board, and the update stands; run, both and no file start it as before', T, () => inSandboxCwd(async () => {
   try {
     for (const [label, bytes] of NO_START_MODES) {
       setMode(bytes);
@@ -3511,9 +3525,9 @@ test('#4381: H7 on a connect computer (or one whose choice does not read) starts
       assert.equal(sim.identity, NEW_ID, label);
     }
   } finally { setMode(null); }
-});
+}));
 
-test('#4381: H8 on a connect computer puts the old build back and starts nothing; the controls start the old board', T, async () => {
+test('#4381: H8 on a connect computer puts the old build back and starts nothing; the controls start the old board', T, () => inSandboxCwd(async () => {
   const failAtApp = { hooks: { before: (step, d) => { if (step === 'H4' && d && d.entry === 'app') throw new Error('injected before app moved in'); } } };
   try {
     for (const [label, bytes] of [...NO_START_MODES, ...START_MODES]) {
@@ -3536,9 +3550,9 @@ test('#4381: H8 on a connect computer puts the old build back and starts nothing
       }
     }
   } finally { setMode(null); }
-});
+}));
 
-test('#4381: a run that ends held after ending the board issues no /Run on a connect computer, and says so; the controls /Run it once', T, async () => {
+test('#4381: a run that ends held after ending the board issues no /Run on a connect computer, and says so; the controls /Run it once', T, () => inSandboxCwd(async () => {
   try {
     /* connect and a garbled file (the card's two), and the three controls: each case waits out a held write. */
     for (const [label, bytes] of [NO_START_MODES[0], NO_START_MODES[1], ...START_MODES]) {
@@ -3570,4 +3584,4 @@ test('#4381: a run that ends held after ending the board issues no /Run on a con
       }
     }
   } finally { setMode(null); }
-});
+}));
