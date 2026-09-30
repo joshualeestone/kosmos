@@ -121,6 +121,7 @@ const newLook = async (page) => {
   await page.evaluate(() => localStorage.setItem('kosmos-look', 'new'));
   await page.reload({ waitUntil: 'load' });
   await page.waitForFunction(() => document.documentElement.getAttribute('data-look') === 'new', null, { timeout: 8000 });
+  if (await page.$('#firstrun:not([hidden])')) await page.keyboard.press('Escape');   // as the render check does after a reload
   await page.waitForTimeout(900);
 };
 

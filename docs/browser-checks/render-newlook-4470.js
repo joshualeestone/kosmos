@@ -19,9 +19,10 @@
  *    tabs marked by ink and weight; the consolidated layout keeping today's arrangement and back again,
  *  - with it off: every placement back where today has it, no state word, today's underline,
  *  - the Agents page's inks clearing 4.5:1 on the new grounds,
- *  - the Agents page in the new look: the plain idle card and the Agents tile lose their border while the
- *    working card keeps its stroke, New agent is a 40px round grey button, the current view is not gold;
- *    and with the look off, today's bordered card and New agent tile (the control),
+ *  - the Agents page in the new look: the plain idle card and the Agents tile lose their border, New agent is a
+ *    40px round grey button, a pressed Messages filter still looks pressed; the working card's stroke and the
+ *    current view's gold are the same as with the look off; and with the look off, today's bordered card,
+ *    tile and New agent tile (the control),
  *  - light, dark and 390 wide, with no sideways scroll and no page errors.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -332,7 +333,18 @@ const AGENTS_LOOK = `(() => {
       chk(agOn.tile === 'rgba(0, 0, 0, 0)', `${tag} On, Agents page: the Agents tile has no box`, JSON.stringify(agOn));
       chk(agOn.plus && Math.round(agOn.plus.w) === 40 && agOn.plus.round === '50%' && agOn.plus.bg === GREY_OF[theme],
         `${tag} On, Agents page: New agent is a 40px round grey button`, JSON.stringify(agOn.plus));
-      chk(agOn.seg === agOn.page, `${tag} On, Agents page: the current view is the page's ground, not gold`, JSON.stringify({ seg: agOn.seg, page: agOn.page }));
+      /* A pressed filter tile (the Messages filter) must still look pressed: the no-box rule skips a pressed tile.
+         The fixture has no unread messages, so the tile is shown and pressed by hand for the read, then restored. */
+      const pressed = await page.evaluate(() => {
+        const t = document.getElementById('st-dm-tile'); if (!t) return { found: false };
+        const was = { hidden: t.hidden, pressed: t.getAttribute('aria-pressed') };
+        t.hidden = false; t.setAttribute('aria-pressed', 'true');
+        const cs = getComputedStyle(t), out = { found: true, bg: cs.backgroundColor, border: cs.borderTopColor };
+        t.hidden = was.hidden; t.setAttribute('aria-pressed', was.pressed || 'false');
+        return out;
+      });
+      chk(pressed.found && pressed.bg !== 'rgba(0, 0, 0, 0)' && pressed.border !== 'rgba(0, 0, 0, 0)',
+        `${tag} On, Agents page: a pressed Messages filter still shows its pressed ground and border`, JSON.stringify(pressed));
 
       await page.reload({ waitUntil: 'networkidle' });
       await clearFirstRun(page);
@@ -367,8 +379,12 @@ const AGENTS_LOOK = `(() => {
       await page.evaluate(() => showTab('agents'));
       await page.waitForTimeout(600);
       const agOff = await page.evaluate(AGENTS_LOOK);
-      chk(agOff.idle !== 'rgba(0, 0, 0, 0)' && agOff.idle !== 'absent' && agOff.plus && agOff.plus.round !== '50%',
-        `${tag} Off, Agents page: today's bordered idle card and New agent tile`, JSON.stringify(agOff));
+      chk(agOff.idle !== 'rgba(0, 0, 0, 0)' && agOff.idle !== 'absent' && agOff.tile !== 'rgba(0, 0, 0, 0)' && agOff.plus && agOff.plus.round !== '50%',
+        `${tag} Off, Agents page: today's bordered idle card, Agents tile and New agent tile`, JSON.stringify(agOff));
+      /* What the new look must NOT change, compared on the same board: the working card's stroke (state owns the
+         stroke) and the current view's gold (Josh 2026-08-17: selected is gold). */
+      chk(agOn.working === agOff.working, `${tag} the working card's stroke is the same with the look on as off`, JSON.stringify({ on: agOn.working, off: agOff.working }));
+      chk(agOn.seg === agOff.seg && agOff.seg !== 'rgba(0, 0, 0, 0)', `${tag} the current view's fill is today's gold with the look on`, JSON.stringify({ on: agOn.seg, off: agOff.seg }));
       if (width >= 1088) {
         const tabsOff = await page.evaluate(TABS);
         chk(tabsOff.onUnderline !== 'rgba(0, 0, 0, 0)' && tabsOff.onUnderline !== 'absent', `${tag} Off: today's gold underline marks the current tab`, JSON.stringify(tabsOff));
