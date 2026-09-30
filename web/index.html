@@ -60617,6 +60617,9 @@ function pjFedMessage(body, fallback) {
   // and overloading it as an error key here is a needless ambiguity. Unknown reasons fall through
   // to the caller's safe fallback.
   const reason = body && (body.reason || body.error);
+  // kosmos#4699: "could not check" carries its cause (remote access off, a computer not allowed yet),
+  // which is the only part the person can act on.
+  if (reason === 'unchecked' && typeof body.error === 'string' && body.error) return body.error;
   const M = {
     'already-used': 'That code has already been used. Ask for a fresh one.',
     'expired': 'That code has expired. Ask for a fresh one.',

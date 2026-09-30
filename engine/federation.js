@@ -254,7 +254,9 @@ async function ownAccountNames(remote) {
   if (!r || !r.ok) return { ok: false, because: (r && r.because) || 'Kosmos+ did not answer' };
   const rows = r.data && Array.isArray(r.data.computers) ? r.data.computers : null;
   if (!rows) return { ok: false, because: 'the Kosmos+ answer carried no computers' };
-  const names = rows.map((c) => (c && typeof c.name === 'string' ? c.name.trim().toLowerCase() : '')).filter((n) => OWN_FROM_RE.test(n));
+  // The SAME derivation the maker used for `from`: the first label of the computer's address (a row's
+  // `name` is a separate field, and the two need not be spelled alike).
+  const names = rows.map((c) => ownFromOf(c && c.address)).filter(Boolean);
   return { ok: true, names };
 }
 

@@ -153,6 +153,13 @@ test('#4699: a code made on one of this account\'s computers is accepted, and th
   assert.deepEqual(remoteOk.calls, [['POST', '/v1/mac/account-computers', {}]], 'one signed read of this account\'s computers, and no invite redeemed');
 });
 
+test('#4699: the maker is matched on the label of each computer\'s ADDRESS, the way `from` was made, not on its name field', async () => {
+  const list = { ok: true, data: { computers: [{ name: 'The Study Mac', address: 'study.kosmos.test', this: false }, { name: 'kitchen', address: 'pantry.kosmos.test', this: false }] } };
+  assert.equal((await federation.verify(plusRemote(list), { code: ownCodeFrom('study', 'ref-label-1') })).status, 200, 'a display name that differs from the label refused the account\'s own code');
+  const byName = await federation.verify(plusRemote(list), { code: ownCodeFrom('kitchen', 'ref-label-2') });
+  assert.equal(byName.body.reason, 'other-account', 'a name field alone is not the computer\'s address');
+});
+
 test('#4699: a code from a computer that is not on this account is refused, and nothing is held for a join', async () => {
   const other = plusRemote(LIST('attic', 'kitchen'));
   const out = await federation.verify(other, { code: ownCodeFrom('study', 'ref-other') });

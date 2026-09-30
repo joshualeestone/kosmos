@@ -156,7 +156,7 @@ function onEvent(projectId, line) {
     if (typeof ev.data.t === 'string' && ev.data.t.startsWith('key-')) { onKeyFrame(projectId, s, ev.data); return; }
     const sealed = roomSeal(projectId);
     const sealedRoom = sealed === undefined ? undefined : isSealedRoom(sealed, sealLink(projectId));
-    if (sealedRoom === undefined) { noteOnce(projectId, s, 'sealUnreadable', 'A message from the external project was not shown: this computer cannot read its sealed-rooms record right now.'); return; }
+    if (sealedRoom === undefined) { noteOnce(projectId, s, 'sealUnreadable', 'A message from ' + farSide(projectId) + ' was not shown: this computer cannot read its sealed-rooms record right now.'); return; }
     if (fedseal.isSealed(ev.data)) {
       const now = Date.now();
       // A member seeing a newer epoch than its own missed a rotation: until the owner's
@@ -220,13 +220,13 @@ function onEvent(projectId, line) {
     s.inbound.count += 1;
     s.inbound.bytes += size;
     if (s.inbound.count > INBOUND_PER_WINDOW || s.inbound.bytes > INBOUND_BYTES_PER_WINDOW) {
-      if (!s.inday.minuteNoted) { s.inday.minuteNoted = true; say(projectId, FarSide(projectId) + ' sent more messages than Kosmos keeps in a minute; some were not kept. Kosmos says this once a day.'); }
+      if (!s.inday.minuteNoted) { s.inday.minuteNoted = true; say(projectId, farSide(projectId, true) + ' sent more messages than Kosmos keeps in a minute; some were not kept. Kosmos says this once a day.'); }
       return;
     }
     // Only what is KEPT counts toward the day: a flood the minute bound drops
     // must not spend the room's day for everyone else in it.
     if (s.inday.bytes + size > INBOUND_BYTES_PER_DAY || s.inday.rows + 1 > INBOUND_ROWS_PER_DAY) {
-      if (!s.inday.noted) { s.inday.noted = true; say(projectId, FarSide(projectId) + ' sent more than Kosmos keeps in a day; messages from there are not kept until the day resets (midnight UTC).'); }
+      if (!s.inday.noted) { s.inday.noted = true; say(projectId, farSide(projectId, true) + ' sent more than Kosmos keeps in a day; messages from there are not kept until the day resets (midnight UTC).'); }
       return;
     }
     s.inday.bytes += size;
@@ -247,13 +247,11 @@ function onEvent(projectId, line) {
 
 /* kosmos#4699: what the far side of a room is called in a note. A room shared only with the person's
    own computers (a `self` link, or an owner project shared by own code) is not an "external project". */
-function farSide(projectId) {
+function farSide(projectId, startsSentence) {
   const l = safeLink(projectId);
-  return l && (l.role === 'self' || (l.role === 'owner' && l.selfShared === true)) ? 'your other computers' : 'the external project';
-}
-function FarSide(projectId) {
-  const f = farSide(projectId);
-  return f.charAt(0).toUpperCase() + f.slice(1);
+  const own = l && (l.role === 'self' || (l.role === 'owner' && l.selfShared === true));
+  if (startsSentence === true) return own ? 'Your other computers' : 'The external project';
+  return own ? 'your other computers' : 'the external project';
 }
 
 function say(projectId, text) {

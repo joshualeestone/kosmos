@@ -55,3 +55,21 @@ account (it says both). A code is made to be pasted within minutes, so this shou
 - docs/browser-checks/render-owncode-4649.js: the code names its maker; a code from a computer not on the
   account shows the refusal's words on the join screen.
 - engine fedseats tests: unchanged and green (113).
+
+## Review 1 (sonnet)
+FIXED:
+- The account's computers are matched on the first label of each row's ADDRESS, the same derivation that
+  made `from`, not on the row's `name` field (the two are separate fields and need not be spelled alike).
+  Tested with a row whose name differs from its label, and one whose name alone matches.
+- `unchecked` shows its cause on the join screen (remote access off, a computer not allowed yet), not the
+  generic "try again in a moment", which for those causes can never succeed.
+- The sealed-rooms note also names the far side correctly; one helper, not two that differ by a capital.
+NOT AN ISSUE AS DESCRIBED: "the connector-too-old note still says the external project for a self link".
+That line is reached only when the link is neither `self` nor an owner seated in its own room; those take
+the branch above it, which already says "your other computers" (engine/fedseats.test.js pins both).
+STATED, NOT FIXED:
+- A NEW code on an OLDER Kosmos: its parser accepts only `v: 1`, so a `v: 2` code is read as an ordinary
+  invite and refused in generic words, with no hint to update. Own codes first merged to main on
+  2026-09-30 (#4704), so the only boards with that parser are builds cut from main that same day.
+- The order of refusals: a code whose room is already on this computer says "already on this computer"
+  before the account is checked.
