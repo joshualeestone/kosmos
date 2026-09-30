@@ -269,6 +269,9 @@ done
 # the real shared file is never touched. Scoped to accounts/home resolution, NOT
 # $HOME, so nothing else that reads $HOME is repointed.
 export KOSMOS_HOME="$SB/home" AGENT_WORKFORCE_HOME="$SB/home" KOSMOS_BIN_DIR="$SB/bin" KOSMOS_APP_DIR="$SB/apps"
+# #4449: the read-only app ships OFF by default (an older installer cannot lift it) and is on for this harness, so
+# every install below exercises it; the Applications probe's install runs with it off to check the default.
+export KOSMOS_READONLY_APP=1
 export KOSMOS_PROFILE_FILE="$SB/zprofile"
 # SHELL pinned for determinism only (belt and suspenders): with
 # KOSMOS_PROFILE_FILE exported above, setup.sh's non-zsh hedge is
@@ -809,6 +812,14 @@ chk "an over-65535 KOSMOS_PORT falls back to the derived default" "[ \"\$(_posti
 chk "an unset KOSMOS_PORT for uid 501 still pins the literal 16180" "[ \"\$(_postinstall_page_port 501)\" = 16180 ]"
 
 echo "== update (stale file must not survive; board must restart) =="
+# #4449: the installed app is read-only, so an agent's edit is refused (a tester's board went stale when an agent
+# edited it). Both halves: a file cannot be changed, and no file can be added.
+chk "#4449: the installed app refuses an edit to a file" "[ -f \"$SB/home/app/server.js\" ] && [ ! -w \"$SB/home/app/server.js\" ]"
+chk "#4449: the installed app refuses a new file" "! ( : > \"$SB/home/app/engine/agent-edit.js\" ) 2>/dev/null && [ ! -e \"$SB/home/app/engine/agent-edit.js\" ]"
+# The edit that happened: an editor writes a temp file BESIDE the target and renames it over (measured on the card).
+chk "#4449: an editor's write-beside-then-rename edit of server.js is refused" "! ( cp \"$SB/home/app/server.js\" \"$SB/home/app/server.js.tmp.4449\" && mv -f \"$SB/home/app/server.js.tmp.4449\" \"$SB/home/app/server.js\" ) 2>/dev/null && [ ! -e \"$SB/home/app/server.js.tmp.4449\" ]"
+# The stale leftover the swap must remove, planted the way an agent that chmods its way past would.
+chmod u+w "$SB/home/app/engine"
 touch "$SB/home/app/engine/stale-marker.js"
 # #935: a bare `cat` here aborted the WHOLE SUITE under set -e when the pid
 # file was not there yet (three times in a row under load 13-16, and once
@@ -822,6 +833,7 @@ chk "update exits 0" "rc_ok $RC"
 chk "stale file gone (swap, not merge)" "[ ! -e \"$SB/home/app/engine/stale-marker.js\" ]"
 chk "board restarted (new pid)" "[ \"$PID1\" != \"$(cat "$SB/home/board.pid")\" ]"
 chk "board serves after update" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+chk "#4449: the updated app is read-only again" "[ ! -w \"$SB/home/app/server.js\" ] && [ ! -w \"$SB/home/app/engine\" ] && [ ! -w \"$SB/home/app\" ] && [ ! -w \"$SB/home/app/web\" ]"
 # The idempotency check lives HERE, after a SECOND install against the
 # same profile: after one install a count of 1 is guaranteed even with
 # the marker guard deleted, so a first-pass count check cannot fail.
@@ -1136,7 +1148,8 @@ export KOSMOS_HOME="$SB/home2" KOSMOS_BIN_DIR="$SB/bin2"
 # override present (SYS_APP_DIR) and no profile named, the profile gate
 # must SKIP -- this is the arm that stops a harness run writing the
 # operator's real ~/.zprofile (leaked once, 2026-08-18, before the gate).
-RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_PROFILE_FILE= KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/probe1.log" 2>&1 || RC=$?
+RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_PROFILE_FILE= KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" KOSMOS_READONLY_APP= sh > "$SB/probe1.log" 2>&1 || RC=$?
+chk "#4449: by default (the switch unset) the installed app stays writable, as before" "[ -w \"$SB/home2/app/server.js\" ] && [ -w \"$SB/home2/app/engine\" ]"
 chk "the profile gate skipped: no zprofile written under the sandbox HOME" "[ ! -e \"$SBH/.zprofile\" ]"
 chk "probe install exits 0" "rc_ok $RC"
 chk "app landed in the system folder" "[ -x \"$SYS_OK/Kosmos.app/Contents/MacOS/Kosmos\" ]"
@@ -1149,6 +1162,8 @@ chk "the success closing line is pinned" "grep -q '^  Kosmos is running\\.\$' \"
 chk "#2073: fresh install launched the app (not a browser)" "[ \"\$(wc -l < \"$SB/opened.log\" 2>/dev/null | tr -d ' ')\" = \"1\" ] && grep -q \"Kosmos.app\" \"$SB/opened.log\" && ! grep -q \"127.0.0.1:$PORT\" \"$SB/opened.log\""
 
 # The update run through the same probe env must NOT open the browser.
+# #4449: this update runs with the harness's KOSMOS_READONLY_APP=1 on purpose (only the install above checks the
+# default), so it also updates a WRITABLE app into a read-only one; its uninstall later lifts it.
 RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/probe1b.log" 2>&1 || RC=$?
 chk "probe update exits 0" "rc_ok $RC"
 chk "update did not open the dashboard" "[ \"\$(wc -l < \"$SB/opened.log\" | tr -d ' ')\" = \"1\" ]"
@@ -2366,6 +2381,9 @@ D918_NOARGS
 
 # Scenario A's scratch directory is deleted DIRECTLY -- exactly the walk
 # convention #918 is about, never running --uninstall against it.
+# #4449: its app is installed read-only, so a direct delete lifts that first, as a person deleting the folder by
+# hand would have to (a plain rm -rf is refused inside it, and under set -e that ended this whole harness).
+chmod -R u+w "$D918_KHOME_A" 2>/dev/null || true
 rm -rf "$D918_KHOME_A"
 
 # Uninstalling scenario B (a completely different KOSMOS_HOME) must sweep
