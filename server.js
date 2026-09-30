@@ -3839,8 +3839,9 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    There is NO rule for the setup guide beyond that one. A member of a project is sent every post in its room
    as it is made (engine/messages.js: a request when named, marked as background otherwise) and may post there,
    so for a guide that is on a project the room read adds the history from before it joined and the posts that
-   were held, and the task list; off a project it reads neither. The page leaves the guide out of every member
-   list (#3739), so it is on a project only if a process holding the board token put it there.
+   were held, and the task list; off a project it reads neither. The page leaves the guide out of every list of
+   agents, the pickers that add a member to a project included (#3739), so it is on a project only if a process
+   holding the board token put it there.
    What the guide then SAYS is masked for secrets on its replies, `kosmos msg`, `kosmos post` and the team purpose
    (#3769), and NOT on a task message, a task-built note or a status report: that gap is on main already and is
    #4733, not this slice's to close. */

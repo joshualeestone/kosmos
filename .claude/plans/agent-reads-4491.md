@@ -36,7 +36,7 @@ has to name the caller first.
   room and task handlers ask `agentTokenOnlyCaller(req)`: enforcing board, no valid board token, so the agent
   token is what passed the gate. Then: the project must list that agent (by the token store's key, the same
   `projectHasAgent(..., byKey)` the task verbs use for a paneless caller); the task list needs `?project=`; the
-  Tasks view's arm (`?view=tasks`, `?withArchived=`) is not served; an unreadable projects list is a 503 for that
+  Tasks view's arm (`?view=tasks`) is not served; an unreadable projects list is a 503 for that
   caller while the board-token caller keeps the room's old fail-open read.
 - **Why not the two alternatives.** (a) Only documenting the proxied agent as a gainer: it would read other
   projects' conversations, and `kosmos post` and `react` already refuse a non-member, so reading would have been
@@ -56,7 +56,7 @@ has to name the caller first.
   - A member is already sent every post in its room as it is made (a request when named, marked as background
     otherwise) and may post there. The room read adds only the history from before it joined, the posts that were
     held, and the task list.
-  - The page leaves the guide out of every member list (#3739). It is on a project only if a process holding the
+  - The page leaves the guide out of every list of agents, the add-a-member pickers included (#3739). It is on a project only if a process holding the
     board token put it there, so in ordinary use it is on none and reads no room and no tasks.
   - What it says is masked for secrets on replies, msg, post and the team purpose, and NOT on a task message, a
     task-built note or a status report. That gap is on main already; filed as #4733. It is the reason the sentence
@@ -200,4 +200,8 @@ one more blind round follows on the corrected tree.
   it, with its own token. POST /api/projects and the members route are in none of the agent-token sets; POST
   /api/team makes agents and attaches nobody; post, react and the task verbs refuse a non-member and move no
   membership. So the membership rule is a real limit for it.
+
+## Review round 8 (sonnet), a sentence-by-sentence truth pass: 0 BLOCKER, 0 WARNING, 0 CONVENTION, 2 NIT. CONVERGED
+- NITs, both wording, both taken: "every member list" is now "every list of agents, the add-a-member pickers
+  included"; a leftover `?withArchived=` is gone from Decisions. No code changed after this round's review.
 
