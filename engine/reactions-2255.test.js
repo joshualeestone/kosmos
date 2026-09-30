@@ -198,3 +198,18 @@ test('#2255: "you" is reserved for the operator - an agent named "you" cannot re
   assert.match(r.because, /reserved/i);
   assert.equal(messages.record().rows.filter((m) => m.kind === 'reaction').length, 0, 'a refused react wrote no event');
 });
+
+/* #4631: a person pastes "message 12 in <room>" (the page's Copy message reference) or types "12", and an agent
+   reacts with it as written. The reaction lands on m12, as the id itself would; a number naming no post is
+   still refused. */
+test('#4631: react takes "12" and "message 12 in <room>" for the post m12', () => {
+  seedPost('m12', 'p', 'leo');
+  const a = messages.react({ project: 'p', of: 'message 12 in Kosmos Growth', emoji: THUMB, operator: true });
+  assert.equal(a.ok, true, 'a copied reference did not reach the post');
+  const b = messages.react({ project: 'p', of: '12', emoji: FIRE, operator: true });
+  assert.equal(b.ok, true, 'a bare number did not reach the post');
+  const rows = messages.record().rows.filter((m) => m.kind === 'reaction');
+  assert.deepEqual(rows.map((r) => r.of), ['m12', 'm12'], 'the reactions were stored against the canonical id');
+  assert.equal(messages.react({ project: 'p', of: 'message 13', emoji: THUMB, operator: true }).ok, false,
+    'a number that names no post is refused');
+});
