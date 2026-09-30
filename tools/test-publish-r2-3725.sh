@@ -149,6 +149,9 @@ import sys, zipfile
 out, ver, exe, tag = sys.argv[1:5]
 with zipfile.ZipFile(out, 'w') as z:
     z.writestr('app/package.json', '{"version":"%s"}' % ver); z.writestr('Kosmos.exe', open(exe, 'rb').read()); z.writestr('tag.txt', tag)
+    # kosmos#4597: every build carries the signed Plus connector. The launcher stands in for it:
+    # it is signed by the same signer, so the Authenticode check passes on Windows as well.
+    if tag != 'NOCONNECTOR': z.writestr('app/bin/kosmos-tunnel.exe', open(exe, 'rb').read())
 PYEOF
 }
 mkzip "$TMP/a.zip" 9.9.1 A; mkzip "$TMP/b.zip" 9.9.1 B
@@ -182,6 +185,9 @@ if [ "$rc" -eq 0 ] && grep -qE '^PUT kosmos-9\.9\.1-win-x64\.zip \| if-match="[0
 else fail "same-bytes re-stage headers: rc=$rc $(grep '^PUT kosmos-9.9.1-win-x64.zip ' "$FAKE/.calls")"; fi
 fake -Zip "$TMP/b.zip"; rc=$?; refuses_clean "different bytes under a published version are refused, nothing written" "DIFFERENT bytes"
 fake -Zip "$TMP/a.zip" -Version 9.9.2; rc=$?; refuses_clean "a -Version the zip was not built as is refused" "not the version this zip was built as"
+# kosmos#4597: a build without the Plus connector is refused at the door, nothing written.
+mkzip "$TMP/noconn.zip" 9.9.3 NOCONNECTOR
+fake -Zip "$TMP/noconn.zip"; rc=$?; refuses_clean "a zip with no Plus connector is refused, nothing written" "carries no Plus connector"
 
 promote; rc=$?; refuses_clean "promote with no verification record: refused, nothing written" "HOLD no verification record"
 record fail; promote; rc=$?; refuses_clean "promote with a FAILING record: refused, nothing written" "does not pass (FAIL"

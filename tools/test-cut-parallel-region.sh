@@ -41,6 +41,18 @@ if [ "${region_lines:-0}" -lt 20 ]; then
   echo "FAILS: $fails"; exit 1
 fi
 ok "extracted the gated-steps region from release.sh ($region_lines lines, by marker)"
+
+# #4534 (sibling of #4458): a parallel cut runs this suite INSIDE its own environment, with
+# KOSMOS_CUT_PARALLEL=1 exported, and run() below keeps the caller's environment, so the SERIAL arms
+# took the parallel branch and the 0.7.08 cut aborted at its own step 3. Every KOSMOS_ variable the guard
+# and the region read is cleared here, listed FROM those files so a variable they gain later is cleared
+# too. Each arm then sets exactly what it tests.
+_region_vars="$(cat "$GUARD" "$REGION" | grep -vE '^[[:space:]]*#' | grep -oE '\$\{?KOSMOS_[A-Z_0-9]+' | tr -d '${' | sort -u)"
+case " $(printf '%s ' $_region_vars)" in
+  *" KOSMOS_CUT_PARALLEL "*) ok "listed the KOSMOS_ variables the guard and region read, KOSMOS_CUT_PARALLEL among them" ;;
+  *) bad "could not list KOSMOS_CUT_PARALLEL among the variables the guard and region read; nothing is known to be cleared"; echo "FAILS: $fails"; exit 1 ;;
+esac
+for _v in $_region_vars; do unset "$_v"; done
 # sanity: the region must still contain both gates' commands and both abort lines,
 # or the extraction grabbed the wrong span.
 grep -q 'yarn test' "$REGION"                     && ok "region contains the suite run (yarn test)"        || bad "region missing the suite run"

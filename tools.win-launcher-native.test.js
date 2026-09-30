@@ -267,12 +267,15 @@ test('🛑 nothing is started before the runtime and app checks, so a runtime-le
      (tools.win-installer-native.test.js); the move starts the moved exe. #1118: the board window
      (Kosmos.exe --window, its own process) asks the opener for the address
      (ResolveBoardAddress), falls back to the opener's browser (OpenInBrowserInstead), and hands a
-     web link to the person's browser (OpenInPersonsBrowser). */
+     web link to the person's browser (OpenInPersonsBrowser). #4543: a board that holds its port
+     and does not answer is replaced before the hand-off, by schtasks /End and /Run (RunSchtasks)
+     and, when it outlives that, taskkill /T on its listener (EndProcessTree); only for a person at
+     a desktop, after the checks (tools.win-launcher-stuck-board-4543.test.js). */
   const declarations = [...SOURCE.matchAll(/\n {4}(?:internal |public |private )?static [^\n(=]*?\b(\w+)\(/g)].map((m) => ({ name: m[1], at: m.index }));
   const ownerOf = (at) => declarations.filter((d) => d.at < at).pop().name;
   assert.deepEqual(launches.map(ownerOf).sort(),
-    ['Main', 'Main', 'OpenInBrowserInstead', 'OpenInPersonsBrowser', 'ResolveBoardAddress', 'RunEngineHelper', 'StartLauncherAt'],
-    'the launcher starts something other than the window or opener, the server, an engine helper, the installed or moved launcher, and the window\'s opener and links');
+    ['EndProcessTree', 'Main', 'Main', 'OpenInBrowserInstead', 'OpenInPersonsBrowser', 'ResolveBoardAddress', 'RunEngineHelper', 'RunSchtasks', 'StartLauncherAt'],
+    'the launcher starts something other than the window or opener, the server, an engine helper, the installed or moved launcher, the window\'s opener and links, and a stuck board\'s replacement');
   const mainAt = SOURCE.indexOf('static int Main(');
   for (const at of launches.filter((l) => ownerOf(l) === 'Main')) {
     assert.ok(at > mainAt + appCheck, 'a process is started before the runtime and app checks; the tests below would reach the hand-off');
@@ -335,7 +338,8 @@ test('rounds 1-2 BUG: a board PROVABLY serving from the launcher (listening) get
   assert.match(lookup, /const int TCP_TABLE_OWNER_PID_LISTENER = 3;/);
   assert.match(lookup, /if \(result == ERROR_INSUFFICIENT_BUFFER\) continue;/, 'the lookup no longer resizes its buffer');
   assert.match(lookup, /finally\s*\{\s*if \(table != IntPtr\.Zero\) Marshal\.FreeHGlobal\(table\);\s*\}/, 'the lookup no longer frees its buffer on every path');
-  assert.match(main, /if \(p\.ExitCode != 0 && !stoppedByPerson\)/, 'a board the person stopped is reported as a crash');
+  /* #4381: nor one the person's Connect ended (tools.windows-computer-mode-4381.test.js). */
+  assert.match(main, /if \(p\.ExitCode != 0 && !stoppedByPerson && !endedByConnect\)/, 'a board the person stopped is reported as a crash');
   const keep = SOURCE.slice(SOURCE.indexOf('static bool KeepBoardUntilPersonStopsIt('), SOURCE.indexOf('static void StopServerAndEverythingItStarted('));
   assert.match(keep, /server\.WaitForExit\(\);/, 'nothing watches for the board ending while the box is up');
   assert.match(keep, /PostMessage\(window, WM_CLOSE,/, 'the box is not closed when the board ends by itself');
@@ -383,7 +387,8 @@ test('#1118: a person at a desktop gets the board window, its own process, which
   assert.ok(dispatch < main.indexOf('RunInstallerDuties('), '--window runs the installer duties (a move offer, the Start menu) before its window');
   /* The window, not the browser, for a person at a desktop; the opener as before with nobody
      there. Both wait on open-board.js, so a test's scratch folder (no opener) starts neither. */
-  assert.match(main, /if \(File\.Exists\(opener\)\)\s*\{\s*try\s*\{\s*ProcessStartInfo o = Environment\.UserInteractive\s*\? BoardWindowStartInfo\(here\)\s*: OpenerStartInfo\(here, node, opener, app, port, false\);\s*Process\.Start\(o\);/,
+  /* #4381: a connect computer (never with the release switch off) opens only the window, never the opener. */
+  assert.match(main, /if \(File\.Exists\(opener\) && \(!connects \|\| Environment\.UserInteractive\)\)\s*\{\s*try\s*\{\s*ProcessStartInfo o = Environment\.UserInteractive\s*\? BoardWindowStartInfo\(here\)\s*: OpenerStartInfo\(here, node, opener, app, port, false\);\s*Process\.Start\(o\);/,
     'the launch no longer chooses the window for a person at a desktop, gated on the opener');
   assert.match(sourceBetween('static ProcessStartInfo BoardWindowStartInfo(', 'static ProcessStartInfo OpenerStartInfo('),
     /new ProcessStartInfo\(Assembly\.GetExecutingAssembly\(\)\.Location, WindowFlag\)/, 'the window is not this same exe with --window');
@@ -449,6 +454,9 @@ const WEBVIEW2_SLOTS = {
   /* #3996: the page's count for the taskbar badge (chrome.webview.postMessage). */
   ICoreWebView2WebMessageReceivedEventHandler: ['57213f19-00e6-49fa-8e07-898ea01ecbd2', ['Invoke']],
   ICoreWebView2WebMessageReceivedEventArgs: ['0f99a40c-e962-4207-9e92-e3d542eff849', ['get_Source', 'get_WebMessageAsJson']],
+  /* #4381: whether a connect computer's Kosmos Plus sign-in loaded. */
+  ICoreWebView2NavigationCompletedEventHandler: ['d33a35bf-1c49-4f98-93ab-006e0533fe1c', ['Invoke']],
+  ICoreWebView2NavigationCompletedEventArgs: ['30d68b7d-20d9-4752-a9ca-ec8448fbb5c1', ['get_IsSuccess', 'get_WebErrorStatus']],
 };
 
 test('#1118: every WebView2 interface the launcher declares has WebView2.h\'s id and slot order', () => {
@@ -478,13 +486,14 @@ test('#3285 review: opening Kosmos.exe again signs an open window in again, thro
     'the window only comes forward when Kosmos.exe is opened again; it does not sign in again');
   const again = sourceBetween('internal void SignInAgain()', 'void NavigateToBoard()');
   assert.match(again, /fresh = resolveBoardAddress\(\);/, 'signing in again does not ask open-board.js for a fresh address');
-  assert.match(again, /if \(fresh != null && fresh\.Contains\("\?boot="\) && webView != null\) webView\.Navigate\(fresh\);/,
+  /* #4381: with what the page must know about this computer's choice (WithModeQuery; nothing, on a computer that runs agents). */
+  assert.match(again, /if \(fresh != null && fresh\.Contains\("\?boot="\) && webView != null\) webView\.Navigate\(KosmosLauncher\.WithModeQuery\(fresh, mode\)\);/,
     'signing in again loads something other than a fresh signed-in address');
   assert.match(again, /new Thread\(/, 'the fresh address is asked for on the window\'s own thread, freezing it for up to BoardWindowWaitMs');
   assert.match(again, /if \(!navigatedToBoard \|\| signingInAgain \|\| resolveBoardAddress == null\) return;/,
     'a second launch during the first load, or during a sign-in already under way, starts another');
   /* The same --print-url answer as the first load: the nonce travels over the private pipe, never argv. */
-  assert.match(SOURCE, /new BoardWindowForm\(port, loader, WebView2UserDataFolder\(\),\s*\(\) => ResolveBoardAddress\(here, node, opener, app, port\)\);/);
+  assert.match(SOURCE, /new BoardWindowForm\(port, loader, WebView2UserDataFolder\(\),\s*\(\) => ResolveBoardAddress\(here, node, opener, app, port\), mode, here\);/);
 });
 
 test('#3285 review: no box is shown and no browser opened while the window still holds the single-instance lock', () => {

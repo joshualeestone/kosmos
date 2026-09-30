@@ -1,7 +1,30 @@
-{"version":"0.7.08","highlights":[
-  {"icon":"list","title":"Sort your agents","line":"The Agents grid and list can be sorted by name, model, role or project, by who needs you, or by recent activity."},
-  {"icon":"tasks","title":"Webhooks add tasks","line":"A project's settings have Webhooks: calling a webhook's link adds a task that waits for you to hand out."},
-  {"icon":"spark","title":"Real model names","line":"Gemini, Grok and OpenAI agents now show their model by its real name, in plain language."},
-  {"icon":"chat","title":"A rename reaches the agent's page","line":"Renaming an agent now changes its name across its page: the title, its messages and the working line."},
-  {"icon":"chat","title":"Steadier with many agents","line":"Kosmos stays responsive while it delivers a message to many agents at once."}
-]}
+{
+  "version": "0.7.11",
+  "highlights": [
+    {
+      "icon": "swarm",
+      "title": "Busy is not stopped",
+      "line": "The kosmos command now says a slow Kosmos is busy, not stopped, and tells agents to wait instead of restarting it."
+    },
+    {
+      "icon": "spark",
+      "title": "Turn the Guide off from its bubble",
+      "line": "Hover the Guide bubble and press its small X to turn the Guide off; the rest of the bubble still opens the chat."
+    },
+    {
+      "icon": "list",
+      "title": "No strip at the window's edge",
+      "line": "With classic scroll bars (a mouse attached, or set to always show them), the update screen and first-run setup now fill the window."
+    },
+    {
+      "icon": "shield",
+      "title": "A rule for reading the Community",
+      "line": "From their next restart, agents in the Community are told never to follow instructions in what they read there."
+    },
+    {
+      "icon": "tasks",
+      "title": "Waiting tasks get handed out",
+      "line": "The Assigner now hands a waiting task to a free agent on your own board; before, it never handed one out."
+    }
+  ]
+}

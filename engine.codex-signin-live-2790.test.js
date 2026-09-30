@@ -128,7 +128,7 @@ test('livenessCached: NON-BLOCKING read - cold miss is unknown WITHOUT spawning;
   let calls = 0;
   live.setRunner(async () => { calls += 1; return { ok: true, stdout: DOC_DEAD }; });
   // Cold miss: unknown/indeterminate, and it must NOT have run the doctor (no await, no spawn).
-  assert.deepEqual(live.livenessCached('/acct/cached-x', 1000), { verdict: 'unknown', cause: 'indeterminate' });
+  assert.deepEqual(live.livenessCached('/acct/cached-x', 1000), { verdict: 'unknown', cause: 'not_checked' });   // #4538: a cold cache is its own cause
   assert.equal(calls, 0, 'livenessCached spawned a doctor run on a cold miss - it must never run codex doctor');
   // Warm the cache via the awaiting path, then the cached read returns that pair with no new spawn.
   assert.deepEqual(await live.livenessDetailed('/acct/cached-x', 1000), { verdict: 'dead', cause: 'authentication_rejected' });
@@ -136,7 +136,7 @@ test('livenessCached: NON-BLOCKING read - cold miss is unknown WITHOUT spawning;
   assert.deepEqual(live.livenessCached('/acct/cached-x', 1000 + live.TTL_MS - 1), { verdict: 'dead', cause: 'authentication_rejected' });
   assert.equal(calls, 1, 'a warm cached read spawned a doctor - it must only read the cache');
   // Past the TTL the cached read goes stale -> unknown again, still without spawning.
-  assert.deepEqual(live.livenessCached('/acct/cached-x', 1000 + live.TTL_MS), { verdict: 'unknown', cause: 'indeterminate' });
+  assert.deepEqual(live.livenessCached('/acct/cached-x', 1000 + live.TTL_MS), { verdict: 'unknown', cause: 'not_checked' });   // #4538
   assert.equal(calls, 1, 'a stale cached read spawned a doctor - it must never run codex doctor');
 });
 

@@ -217,6 +217,25 @@ test('an agent that is not on the project is refused (403); the person\'s mark i
   assert.equal(again.json.changed, false, 'clearing an unmarked task claimed a change');
 });
 
+test('#4491: an agent token plus the screen\'s own header is still an agent: it cannot clear or take over the person\'s mark', async () => {
+  /* The gate now admits /built with only an agent token, so the one escalation to rule out is a token caller that
+     also sends Sec-Fetch-Site (what the screen sends) to be taken as the person. isViaScreen is false whenever a
+     token is presented. */
+  const n = newTask('Person marked');
+  assert.equal((await post(`/api/project/${projectId}/task/${n}/built`, {}, screen)).status, 200);
+  assert.equal(stored(n).builtByPerson, true, 'setup: the screen did not mark it');
+  const mona = sendertoken.mint('mona');
+  const asScreen = { 'x-kosmos-agent-token': mona.token, ...screen };
+  const clear = await post(`/api/project/${projectId}/task/${n}/built`, { clear: true }, asScreen);
+  assert.equal(clear.status, 403, 'a token caller with the screen header cleared the person\'s mark: ' + JSON.stringify(clear.json));
+  const take = await post(`/api/project/${projectId}/task/${n}/built`, { note: 'mine now' }, asScreen);
+  assert.equal(take.status, 403, 'a token caller with the screen header took over the person\'s mark: ' + JSON.stringify(take.json));
+  assert.equal(stored(n).builtByPerson, true, 'the person\'s mark changed');
+  /* CONTROL: the same clear from the screen alone (no token) is the person, and works. */
+  assert.equal((await post(`/api/project/${projectId}/task/${n}/built`, { clear: true }, screen)).status, 200);
+  assert.equal('builtAt' in stored(n), false, 'CONTROL: the screen could not clear its own mark');
+});
+
 
 test('with the roster unreadable, a pane-named mark is 503, not an unnamed mark (review round 11)', async () => {
   const status = require('./engine/status');

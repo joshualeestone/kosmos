@@ -39,6 +39,19 @@ What it adds is how a Windows program presents itself (win32-launcher-native):
   syncs before the hand-off, past any fixed time. OK stops that board and everything
   still descended from it (`taskkill /T`), and the box closes by itself if the board
   ends first.
+- **A stuck board is replaced, not reopened (#4543).** Before it hands off, a launch by a
+  person at the desktop checks the board's port. If something holds it and `/api/status`
+  (asked on 127.0.0.1 only) gives no answer at all within 10 s, timing out or refusing the
+  whole time (a board frozen long enough fills its backlog, and then Windows refuses), and
+  what holds it after that wait is a Kosmos board of this user in this session (a `node.exe`
+  in a build's `runtime` folder, with `app\server.js` and `manifest.json` in the build, or
+  beside the logon task's `board-boot.js` and `engine-path`), the launcher holds that process
+  open, ends the `Kosmos\board` task, ends the listener's process tree if it outlives that
+  (measured: a frozen board survives `schtasks /End`, which ends only its `conhost`), and runs
+  the task again. Any answer, a 401, 403 or 500 included, is a board that is alive and is left
+  alone, as is anything that is not a Kosmos board of this user. A launch that sets `PORT`
+  never touches the task, only a stuck Kosmos board on its own port. `--console` and a launch
+  with nobody at the desktop do not check.
 - **Problems are a message box titled "Kosmos"**, never console text a person
   cannot see. That includes the most common mistake: double-clicking `Kosmos.exe`
   inside the zip in Explorer, which runs it from a temp folder with no
@@ -57,7 +70,7 @@ What it adds is how a Windows program presents itself (win32-launcher-native):
   CompanyName is still left out. The certificate's subject is now known
   (Kosmos Agent Manager, Inc.), but setting `AssemblyCompany` is a source change,
   so it means a rebuild and a re-sign; it is a follow-up of its own. The version is the **launcher's** own (`LauncherVersion`, currently
-  6.0.0.0), not the app's. This binary is copied unchanged into every release, so
+  8.0.0.0), not the app's. This binary is copied unchanged into every release, so
   an app version stamped into it would be wrong from the next release on.
 
 ## Kosmos's own window (#1118)
@@ -119,6 +132,31 @@ package, pinned by version and sha256. `runtime\` is a folder the updater and th
 carry whole. The WebView2 Runtime itself is part of Windows 11 and is kept up to date by Windows;
 Kosmos never ships it. An open window does not block an update: Windows lets the updater rename
 a running exe and a folder holding a loaded DLL (measured on the box).
+
+## Runs agents, or connects to them (#4381, the Windows half of #4356)
+
+**Off on main.** `FirstRunChoice` in `KosmosLauncher.cs` is the release switch, the twin of the
+Mac's `kosmosFirstRunChoice`. Off, the mode file is never read and every computer runs agents
+exactly as before. It turns on with #4382, once a connect computer can update itself.
+
+With it on, the choice is one word in `%LOCALAPPDATA%\Kosmos\mode` (`run`, `connect` or `both`),
+read with the Mac's rules byte for byte: no file is `unset`, anything else (a `\r\n` ending, a byte
+order mark, a read error) is `unreadable` and asks again. Only `Kosmos.exe` writes it.
+
+- The window adds `?mode=unset`, `?mode=unreadable` or `?mode=both` to the board's address; the
+  page (`frChoiceBridge`, `chrome.webview`) shows the first screen and posts `{ kosmosMode }` back,
+  heard only from the board's own page and only while the window is asking.
+- **Connect**: the badge stops, `Kosmos\board` is switched off (`/Change /DISABLE`; measured: a
+  disabled task refuses `/Run` and starts nothing), the board is ended with its tree, then the
+  window loads https://login.kosmosplus.com/. Every later launch starts only the window, never
+  `server.js` or `open-board.js`, and repeats the stop. The window keeps to Kosmos Plus (the Mac's
+  connect link rules) and says so when Kosmos Plus does not answer.
+- **The way back** is the window's system menu (right-click the title bar, or Alt+Space): "Run
+  agents on this computer", shown only on a connect computer. It writes `run`, switches the task
+  back on and opens `Kosmos.exe` again.
+- **Updates** (`engine/win32apply.js`): H7, H8, the resumers and the post-exit restart start no
+  board unless the mode file is absent or reads `run` or `both`.
+- A launch that sets `PORT` never touches the logon task, which serves another port.
 
 ## What it does as an installer (win32-installer-native)
 
@@ -232,6 +270,37 @@ the Start menu goes to a temp folder, the key goes under
 
 It targets .NET Framework 4.x, which ships in-box on every Windows 10 and 11
 machine: no runtime to install, and no bundled runtime to sign.
+
+## The one-line install (setup.ps1)
+
+`tools/windows/setup.ps1` is what the site serves at `https://installkosmos.com/setup.ps1`, for
+`irm https://installkosmos.com/setup.ps1 | iex`. It reads `latest-win.json` (or
+`latest-win-staging.json` under `KOSMOS_UPDATE_CHANNEL=staging`), downloads the versioned zip
+publish-r2.ps1 published, refuses unless the zip matches both the pointer's sha256 and the
+`.sha256` sidecar and the extracted Kosmos.exe is validly signed by Kosmos Agent Manager, Inc.,
+then runs that Kosmos.exe from a fresh folder under `%TEMP%`. Everything after that is the
+launcher's installer duties above: a temporary folder installs itself, a newer build updates the
+installed copy, the same or an older one hands off. The script removes the extracted copy once
+the launcher has handed over; any doubt (Kosmos running from it, the engine pointer naming it,
+or either of those unreadable) keeps it. `tools.win-setup-ps1.test.js` runs it through
+`irm | iex` against a fake host, including the launch step with a stand-in launcher.
+
+What it trusts, stated plainly as `install/setup.sh` does for the Mac:
+
+- **The origin.** The zip's SHA-256 is checked against the pointer and the sidecar, and all three
+  come from the same origin: installkosmos.com over HTTPS, redirected to the Kosmos R2 bucket. That
+  catches corruption, truncation and a half-updated CDN. It adds nothing against a compromised
+  origin, which served the script too.
+- **The signature is defence in depth, not a check of `app\`.** Kosmos.exe must be Authenticode
+  Valid, with subject common name "Kosmos Agent Manager, Inc.", under Microsoft's ID Verified
+  code-signing chain (an intermediate named "Microsoft ID Verified Code Signing PCA <year>", ending
+  at Microsoft Identity Verification Root Certificate Authority 2020, matched by thumbprint). That
+  proves the launcher came from Kosmos's verified signing identity. The rest of the zip is covered
+  only by the checksums. That chain is Azure Artifact Signing's for every customer (node.exe is
+  signed under it too), so the chain says "Microsoft verified this name", and the name says "Kosmos".
+- **No signer thumbprint is pinned.** Azure Artifact Signing (Trusted Signing) certificates last
+  about three days and rotate constantly, so a pinned leaf thumbprint would break the installer
+  within days.
 
 ## Why it is committed rather than built during the release
 
