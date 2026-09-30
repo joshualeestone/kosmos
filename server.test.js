@@ -7946,7 +7946,8 @@ test('the project notice is wired into paintOneProject, not just extractable', (
   // level (the notice is built, written to its box, and the box shown only when non-empty),
   // with a control that the box and its CSS still exist.
   const src = pageFnSource('paintOneProject');
-  assert.ok(/const notice = pjNotice\(roster, p\.id\);/.test(src), 'paintOneProject no longer builds the notice for this project');
+  // #4583: the coordinator warning (two coordinating roles on one project) leads the same notice.
+  assert.ok(/const notice = pjCoordNotice\(p\) \+ pjNotice\(roster, p\.id\);/.test(src), 'paintOneProject no longer builds the notice (the #4583 coordinator warning, then the member notice) for this project');
   assert.ok(/setIfChanged\(noticeBox, notice\);/.test(src), 'the notice is not written into its region');
   assert.ok(!/noticeBox\.hidden/.test(src), 'the live region is hidden again: a notice written into a hidden region is not announced on its first appearance');
   assert.ok(src.includes("getElementById('pj-one-notice')"), 'paintOneProject paints a different box');

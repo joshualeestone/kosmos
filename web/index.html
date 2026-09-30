@@ -1657,6 +1657,19 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):has(> body.plus-active) { background-color: #0b1428; }
 html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):has(> body.plus-active) > body { min-height: 100vh; }
 html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
+/* #4506: a dialog's dim (.rm-back) cannot paint the gutter either, so a bright strip of page showed beside every
+   dialog. While one is up the canvas takes the dimmed ground, the way the tour's dim does above: one colour, the
+   dim's rgb(17, 20, 24) at its 0.72 mixed over the root's ground (keep it equal to .rm-back's own background), and
+   the body fills the window so that canvas shows only in the gutter (without it a short page showed a band of
+   canvas under the body, dimmed twice). Only where scrollbars take width, as for Tasks above.
+   Rejected: dropping the gutter, which moves the board 15px behind a see-through wash on every dialog open (#1309).
+   Any shown .rm-back that is not inside a hidden section: plus-lost-modal sits inside the Plus section.
+   Not while the tour dims (its rules own the canvas then, as for Tasks above). The body's min-height skips Talk,
+   whose page must stay exactly the visible height (see the tour's Talk rule). */
+html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):has(.rm-back:not([hidden]):not([hidden] *)) { background: color-mix(in srgb, rgb(17, 20, 24) 72%, var(--k-bg)); }
+html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):not(:has(> body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden]))):has(.rm-back:not([hidden]):not([hidden] *)) > body { min-height: 100vh; }
+/* On Tasks the canvas is the surface (#4216 above), and so is the page beside the gutter, so the dim mixes over that. */
+html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):has(.rm-back:not([hidden]):not([hidden] *)):has(> body > #panel-tasks:not([hidden])) { background: color-mix(in srgb, rgb(17, 20, 24) 72%, var(--k-surface)); }
 .tipcard .tip-dots { display: flex; gap: 5px; }
 .tipcard .tip-dots i { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--k-ink-2) 35%, transparent); }
 .tipcard .tip-dots i.on { background: var(--gold-deep); }
@@ -3901,7 +3914,11 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-task
 /* #4345: the Agents view (org chart or card grid) relocated into the consolidated display column,
    the same placement the relocated Tasks panel uses. The agents list stays the rail beside it. */
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons-agents { grid-column: 2; grid-row: 1; margin: 0; width: 100%;
-  padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
+  padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+/* #4506: the pane reserves its own scrollbar gutter. The org chart is fitted to its width and its height follows,
+   so a scrollbar that came and went with the chart's height took 15px of width, the chart's width watcher repainted
+   it smaller, the scrollbar went, and the width came back: a repaint every frame in a band of window heights with a
+   big fleet. A fixed gutter gives the chart one width. render-gutter-return-4506 G3. */
 /* #4377: the full projects page in the consolidated display column, placed like the Agents view. */
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons-projects { grid-column: 2; grid-row: 1; margin: 0; width: 100%;
   padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
@@ -5254,7 +5271,9 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      row, KEPT on a dangling/orphan row so a child of a gone parent still shows its
      "under X" -- the one place the tree indent cannot carry the relationship). */
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjfaces,
-  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjpill { display: none; }
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjpill,
+  /* #4583: "Done not set" is status, so the titles-only rail leaves it out too (the list view keeps it). */
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pj-doneunset { display: none; }
   html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pc-t { display: none; }
   /* #867 (Josh, 2026-08-25 15:52, against the real consolidated-mock): each
      project row names its own agent count as a subtitle under the title
@@ -8039,6 +8058,9 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 .orgchart-list { margin: 0; padding-left: 1.4em; max-height: 18rem; overflow: auto;
   display: flex; flex-direction: column; gap: 4px; }
 .orgchart-list li { font: var(--text-callout) var(--font-ui); color: var(--label); }
+/* #4583: "Done not set" on a project's row: a small outlined tag in the row's secondary ink, readable, not an alarm. */
+.pj-doneunset { display: inline-block; align-self: flex-start; margin-top: 4px; padding: 1px 8px; border-radius: 100px;
+  border: 1px solid var(--border-strong); color: var(--label-2); font: var(--text-footnote, 600 .75rem/1.4 var(--font-ui)); }
 /* #4559: each previewed person can be put under someone else, and a line the reader was not sure of
    says why and waits for "Looks right" before Create is allowed. */
 .orgchart-list .oc-reports { display: inline-flex; align-items: center; gap: 6px; margin: 0 6px; white-space: nowrap; }
@@ -10005,6 +10027,11 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 #boot-cover { position: fixed; inset: 0; z-index: 70; background: var(--bg);
   display: flex; align-items: center; justify-content: center; }
 #boot-cover[hidden] { display: none; }
+/* #4506: the tab layout's scrollbar gutter (#1309) is a strip the fixed cover cannot paint, so while it is up the page
+   reserves none and does not scroll, as for the restart screen. The cover is opaque, so the 15px this moves the board
+   happens behind it. Rejected: the canvas-colour route the dialogs take, because the cover's ground is --bg and the
+   Plus section sets that on the body, where the root cannot read it. */
+html:has(> body > #boot-cover:not([hidden])) { overflow: hidden; scrollbar-gutter: auto; }
 #boot-cover .boot-spin { width: 26px; height: 26px; border-radius: 50%;
   border: 2px solid var(--separator, #e3e1dc); border-top-color: var(--label-2, #4a4f57);
   animation: boot-spin 0.8s linear infinite; }
@@ -10213,6 +10240,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #s-sec-plus .plus-asks .askreq { max-width: none; }
 #askcard .asknote { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 #plus-state2 h3 { font-size: 1.3rem; margin: 0 0 .25rem; }
+#plus-state2 .plus-si-code { font: 700 2rem/1.2 var(--font-mono, ui-monospace, monospace); letter-spacing: .12em; margin: 8px 0 4px; }   /* #4638: the code to match, large */
 #plus-state2 .plus-si-lead { color: var(--k-ink-2); margin: .5rem 0 0; }
 #plus-state2 .flabel { color: var(--k-ink-2); font-weight: 500; margin-top: 1rem; }
 #plus-state2 .plus-si-lead b { color: #E6EBF7; font-weight: 600; overflow-wrap: anywhere; }
@@ -15637,6 +15665,19 @@ window.kosmosMeasureScrollbarWidth();
       <p class="ferr" id="pj-add-desc-err" aria-live="polite"></p>
     </div>
 
+    <!-- #4583 (#4580, the Five Families finding): what done looks like, asked here so a team does not
+         assemble before anyone knows what finished is. Skippable: left blank, the brief says "Not set yet",
+         the project shows "Done not set", and its Project Manager asks first. Same cap as the description. -->
+    <div class="field">
+      <span class="flabel">Done looks like</span>
+      <p class="fhint" id="pj-add-done-hint">Optional. How will everyone know this is finished? Up to 1000 characters. Left blank, the project shows Done not set, and agents you put on it now ask you first.</p>
+      <textarea class="tk-inp" id="pj-add-done" rows="2"
+                aria-label="What done looks like"
+                aria-describedby="pj-add-done-hint"
+                placeholder="The new lease is signed and filed."></textarea>
+      <p class="ferr" id="pj-add-done-err" aria-live="polite"></p>
+    </div>
+
     <!-- #2458 sub-projects: choose a parent project AT creation (optional; blank =
          top-level). Populated in openAddProject from the active projects, none
          preselected -- a project being born has no self or descendants, so none of
@@ -17160,6 +17201,12 @@ window.kosmosMeasureScrollbarWidth();
            it (the approval lives in Settings > Kosmos+). -->
       <div id="plus-si-done" hidden>
         <p class="plus-si-lead" id="plus-si-done-line">To use Kosmos on another device, sign in at login.kosmosplus.com.</p>
+        <!-- #4638 (Josh, 15:17): a second computer on the account. The other computer is asked to let this one in,
+             with a code; this shows the same code so the person allows the right one. Filled by plusSiSecondDone. -->
+        <div id="plus-si-match" hidden>
+          <p class="plus-si-lead" id="plus-si-match-lead"></p>
+          <p class="plus-si-code" id="plus-si-match-code" aria-label="The code"></p>
+        </div>
         <div class="frow"><button class="btn uprime" type="button" id="plus-si-done-go">Done</button></div>
       </div>
 
@@ -17860,7 +17907,16 @@ function kplusBar() {
   try { kplusBarDrawMark(bar.querySelector('canvas')); } catch { /* the words still say Kosmos+ to a screen reader */ }
   kplusBarFit();
   window.addEventListener('resize', kplusBarFit);
-  if (typeof ResizeObserver === 'function') new ResizeObserver(kplusBarFit).observe(head);
+  /* #4506: BOTH of the header's boxes, one observer each (one observer holds one box per element). The bar's margins
+     cancel the header's padding, and that padding changes in two ways that no window resize reports. When the
+     scrollbar gutter comes or goes, the padding moves with it by design (#3497):
+     the border box changes and the content box does not (CI, render-plus-bar-3837 P2, 15px past the page). When
+     kosmosMeasureScrollbarWidth updates --scrollbar-width (on a press, a focus, a return to the tab), the padding
+     changes and the border box does not. render-plus-bar-3837 P8 drives both. */
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(kplusBarFit).observe(head, { box: 'border-box' });
+    new ResizeObserver(kplusBarFit).observe(head);
+  }
   const out = bar.querySelector('#kplus-logout'), msg = bar.querySelector('#kplus-bar-msg');
   out.addEventListener('click', async () => {
     out.disabled = true; msg.textContent = '';
@@ -21156,7 +21212,7 @@ function paintRailPjNotice() {
   const rn = document.getElementById('alist-pj-notice');
   if (!rn) return;
   const op = (document.body.classList.contains('consolidated') && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
-  setIfChanged(rn, op ? pjNotice(op.agents || [], op.id) : '');
+  setIfChanged(rn, op ? pjCoordNotice(op) + pjNotice(op.agents || [], op.id) : '');
   const rs = document.getElementById('alist-pj-notice-said');
   if (rs && rs.dataset.pj && (!op || rs.dataset.pj !== String(op.id))) { rs.textContent = ''; rs.dataset.pj = ''; }
 }
@@ -31602,6 +31658,24 @@ document.getElementById('orgmap').addEventListener('click', (e) => {
    Registered by name, not as an arrow: web.consolidated-breakpoint.test.js finds
    the layout resize handler as the only arrow-form resize listener. */
 let ORG_RESIZE_RAF = 0;   // one repaint per frame while a window edge is being dragged
+/* #4506: a width change can FEED BACK. When the chart's height follows its width, a repaint can add or remove a
+   scrollbar on the box it sits in, which moves the width by the scrollbar's size, which repaints, which removes or
+   adds the scrollbar again: a repaint every frame. scrollbar-gutter: stable on the panes stops that where it is
+   supported; Safari before 18.2 ignores it. So flips are counted: a repaint back to the width painted one step before,
+   by no more than a scrollbar's width and within half a second of that paint, is a flip. ONE flip back is a real
+   return (an overlay dropped the gutter and lifted); a second in a row is the loop, and is skipped, so the chart keeps
+   the width it has. render-gutter-return-4506 G1 (the return) and G3b (the loop). */
+let ORG_FLIP_FROM = 0, ORG_FLIP_AT = 0, ORG_FLIPS = 0;
+function orgFlipLoop(w) {   // true: skip this repaint (the second flip in a row); false: paint, and remember it
+  const now = performance.now();
+  // 32: a 15px scrollbar measures 15/zoom CSS px, so this still matches down to about 50% page zoom.
+  const flip = w === ORG_FLIP_FROM && Math.abs(ORG_FLIP_FROM - ORG_VIEW_W) <= 32 && now - ORG_FLIP_AT < 500;
+  ORG_FLIPS = flip ? ORG_FLIPS + 1 : 0;
+  // In the loop, rest on the NARROWER width: a chart painted wider than its box is clipped, one painted narrower fits.
+  if (ORG_FLIPS >= 2 && w >= ORG_VIEW_W) return true;
+  ORG_FLIP_FROM = ORG_VIEW_W; ORG_FLIP_AT = now;
+  return false;
+}
 function orgResizeRepaint() {
   if (ORG_RESIZE_RAF) return;
   ORG_RESIZE_RAF = requestAnimationFrame(() => {
@@ -31614,10 +31688,22 @@ function orgResizeRepaint() {
     // Against the width the chart was last PAINTED at, which every paint records:
     // a width remembered only here goes stale while the chart is hidden.
     if (wrap.clientWidth === ORG_VIEW_W) return;
+    if (orgFlipLoop(wrap.clientWidth)) return;
     paintOrg();
   });
 }
 window.addEventListener('resize', orgResizeRepaint);
+/* #4506: the chart's own box too, because its width also changes with NO window resize: the tab layout's scrollbar
+   gutter (#1309) is dropped while the boot cover, the first-run and update overlays, the first screen and the restart
+   screen are up, and by Talk, and it comes back when they go, giving the chart 15px on a classic-scrollbar machine.
+   One observer covers every one of those instead of a call at each place an overlay closes. The ~5s status poll also
+   repaints the chart, so without this it was wrong for up to one poll, not for good. orgResizeRepaint repaints only
+   when the width differs from the last paint's. render-gutter-return-4506 G1 measures it, with the poll held. */
+function orgWatchWidth() {
+  const wrap = document.getElementById('orgview');
+  if (wrap && typeof ResizeObserver === 'function') new ResizeObserver(orgResizeRepaint).observe(wrap);
+}
+orgWatchWidth();
 /* #718: where the person left the scroll, recorded only while the box is the width
    it was painted at. A box that gets wider clamps its scroll to the new, smaller
    maximum (and fires scroll) before the repaint runs, so reading scrollLeft then
@@ -42488,6 +42574,8 @@ let PLUS_SI_LANDED = false;
 let PLUS_SI_REGISTERING = false;
 /* The owned address to retry after an automatic register failed (review: never a dead end). */
 let PLUS_SI_RETRY = '';
+/* #4638: a second computer on the account: {base, tries, code, other, computer}, or null. */
+let PLUS_SI_SECOND = null;
 /* The computer-name format for the sign-in wizard's register step (signin-register requires a
    name). It mirrors the engine's own NAME_RULE; the engine validates too, so this is a fast
    local echo, not the source of truth. (The connected flow's enrol pair also used it until
@@ -43057,6 +43145,10 @@ function plusSiStage(stage, data) {
     return;
   }
   if (stage === 'session') {
+    /* #4638 (Josh, 15:13, a second computer on his account): no address chooser. The engine names the other
+       computer's address when this account already has one; this computer is named after itself and registered
+       now, and the done step shows the code the other computer is asking to match. */
+    if (!data.account_address && data.other_address && plusSiSecondStart(data)) return;
     plusSiRegisterMode(data.account_address);
     plusSiShow('plus-si-register');
     /* #3796 addendum 9: an account that already has an address skips this step: register to it now. */
@@ -43103,6 +43195,11 @@ function plusSiClear() {
   if (typeof PLUS_SI_LANDED !== 'undefined') PLUS_SI_LANDED = false;
   if (typeof PLUS_SI_REGISTERING !== 'undefined') PLUS_SI_REGISTERING = false;
   if (typeof PLUS_SI_RETRY !== 'undefined') PLUS_SI_RETRY = '';
+  /* #4638: a later sign-in starts as a first computer until its own answer says otherwise, with the plain landing. */
+  if (typeof PLUS_SI_SECOND !== 'undefined') PLUS_SI_SECOND = null;
+  const match = typeof document.getElementById === 'function' ? document.getElementById('plus-si-match') : null; if (match) match.hidden = true;
+  const doneLine = typeof document.getElementById === 'function' ? document.getElementById('plus-si-done-line') : null;
+  if (doneLine) doneLine.textContent = 'To use Kosmos on another device, sign in at login.kosmosplus.com.';
 }
 function plusSiEnter(e) {
   if (e) e.preventDefault();
@@ -43601,6 +43698,51 @@ document.getElementById('plus-si-enrol-confirm-go').addEventListener('click', as
    is up, and #1014's "on its way" wording before then). A separate done panel would
    be drawn and then immediately replaced by that same paint, so it could flash for
    well under a round trip or not be seen at all. */
+/* #4638: the name a second computer gets: its own computer name made valid (letters, digits, hyphens, 3 to 32), or
+   the usual private suggestion when nothing usable is left. A clash tries base-2, base-3 ... (plusSiDoRegister). */
+function plusSiSecondName(computer) {
+  const n = plusNameClean(computer).replace(/-+$/, '');
+  return PLUS_NAME_RULE.test(n) ? n : plusNameSuggest();
+}
+function plusSiSecondNext(base, tries) {
+  const tail = '-' + (tries + 1);
+  return base.slice(0, 32 - tail.length).replace(/-+$/, '') + tail;
+}
+function plusSiDomainOf(address) {
+  const m = /^[a-z0-9-]{3,32}\.([a-z0-9.-]{3,253})$/.exec(String(address || ''));
+  return m ? m[1] : '';
+}
+function plusSiSecondStart(data) {
+  const domain = plusSiDomainOf(data.other_address);
+  if (!domain) return false;
+  const base = plusSiSecondName(data.computer);
+  const labels = Array.isArray(data.other_labels) ? data.other_labels.map(String) : [];
+  /* Review round 1: this computer's own name is already one of the account's addresses. That is most likely THIS
+     computer, reinstalled or restored, with its old record still live: registering it again as name-2 would leave
+     an Allow card that nobody can answer. Take today's path instead (the chooser), where the coordinator's own
+     refusal for that name explains what to do. */
+  if (labels.includes(base)) return false;
+  PLUS_SI_SECOND = { base, tries: 0, code: String(data.match_code || ''), other: String(data.other_address), several: labels.length > 1, computer: String(data.computer || ''), domain };
+  plusSiRegisterMode(base + '.' + domain);
+  plusSiShow('plus-si-register');
+  plusSiDoRegister(base, base + '.' + domain);
+  return true;
+}
+/* #4638: the landing for a second computer: where it is now reachable, and the code the other computer shows. */
+function plusSiSecondDone(address) {
+  const sec = PLUS_SI_SECOND;
+  const who = sec.computer || 'This computer';
+  document.getElementById('plus-si-done-line').textContent = who + ' is connected to Kosmos+ as ' + (address || (sec.base + '.' + sec.domain)) + '.';
+  const whose = sec.several ? 'one of your other computers is' : 'your other computer (' + sec.other.replace(/\..*$/, '') + ') is';
+  const box = document.getElementById('plus-si-match');
+  document.getElementById('plus-si-match-lead').textContent = sec.code
+    ? 'Last step: ' + whose + ' asking whether to let this one in. Allow it there if it shows this code:'
+    : 'Last step: ' + whose + ' asking whether to let this one in. Allow it there.';
+  document.getElementById('plus-si-match-code').textContent = sec.code;
+  document.getElementById('plus-si-match-code').hidden = !sec.code;
+  box.hidden = false;
+}
+
 /* #3796 addendum 9: register THIS computer to `name`. Called by the button for a chosen name, and
    automatically for an account that already owns one (`owned` is then its full address, when known). */
 async function plusSiDoRegister(name, owned) {
@@ -43647,6 +43789,18 @@ async function plusSiDoRegister(name, owned) {
      ("your account already owns the name X"). Register to that one instead, once. */
   const owns = !r.ok && !owned ? /already owns the name ([a-z0-9-]{3,32})\b/.exec(String(r.because || '')) : null;
   if (owns) { plusSiRegisterMode('', owns[1]); plusSiDoRegister(owns[1], owns[1]); return; }
+  /* #4638: a second computer's own name is taken by someone else, or kept by Kosmos itself: try the next one, a few
+     times. NOT "already in use by a Mac on this account" (review round 1): that refusal is about THIS account's own
+     computers and says what to do, so the person reads it (below) rather than getting a name-2 they did not ask for. */
+  if (!r.ok && owned && PLUS_SI_SECOND && PLUS_SI_SECOND.tries < 9 && /that name is taken|that name is kept by Kosmos itself/i.test(String(r.because || ''))) {
+    PLUS_SI_SECOND.tries += 1;
+    // name-2 ... name-9, then once the private suggestion (#3842), so a run of clashes never ends on a Try again
+    // that can only resend the same taken name.
+    const next = PLUS_SI_SECOND.tries >= 9 ? plusNameSuggest() : plusSiSecondNext(PLUS_SI_SECOND.base, PLUS_SI_SECOND.tries);
+    plusSiRegisterMode(next + '.' + PLUS_SI_SECOND.domain);
+    plusSiDoRegister(next, next + '.' + PLUS_SI_SECOND.domain);
+    return;
+  }
   if (!r.ok && owned && !/start again from the email/i.test(String(r.because || ''))) {
     /* Review: an automatic register that failed (a second computer on a web-named account is refused
        today, #3796's carded multi-Mac gap) must not leave the person with no control: say so, keep
@@ -43664,6 +43818,7 @@ async function plusSiDoRegister(name, owned) {
   if (owned) {
     /* The landing, not the connected flow: PLUS_SI_LANDED keeps paintPlus from taking the pane. */
     PLUS_SI_LANDED = true;
+    if (PLUS_SI_SECOND) plusSiSecondDone(r.data && r.data.address);
     plusSiShow('plus-si-done');
     document.getElementById('plus-si-done-go').focus();
     return;
@@ -50805,6 +50960,24 @@ function pjNoticeStill(r, projectId) {
   return PJ_NOTICE_TRIED.get(k) === r.because ? ' It still did not work.' : '';
 }
 
+/* #4583: the two-coordinator warning, shown after an add or a create that brought a second coordinator on (the
+   server says so in that answer), until it no longer holds (the project read's `coordinators` is null) or the
+   person dismisses it. Remembered for this tab only: a warning, never a refusal, and never a nag on every visit. */
+/* id -> the projects-read number current when the add or create answered. Review round 2: a repaint can run on a
+   read that STARTED before the add (coordinators still null), and that null says nothing about the add; only a
+   read started after it (a higher number, PJ_READ_SHOWN) can say the warning no longer holds. */
+const PJ_COORD_WARN = new Map();
+let PJ_READ_SEQ = 0;     // numbers each /api/projects read as it starts
+let PJ_READ_SHOWN = 0;   // the number of the read whose answer is in PROJECTS now
+function pjCoordNotice(p) {
+  const id = p && p.id;
+  if (!id || !PJ_COORD_WARN.has(String(id))) return '';
+  if (!p.coordinators) { if (PJ_READ_SHOWN > PJ_COORD_WARN.get(String(id))) PJ_COORD_WARN.delete(String(id)); return ''; }
+  return '<div class="pnotice pn-coord"><span class="haz" aria-hidden="true">!</span><div class="pn-b"><b>Two coordinators on this project.</b>'
+    + '<div class="pnrow"><span class="pnwhy">' + esc(pjSentence(p.coordinators) || String(p.coordinators)) + '</span>'
+    + '<button class="qopt" type="button" data-pn-coord-dismiss="' + esc(String(id)) + '">Dismiss</button></div></div></div>';
+}
+
 /** The whole notice: '' when every agent has the folder. */
 function pjNotice(roster, projectId) {
   const failing = (roster || []).filter((m) => m && m.told && m.told.state === 'could_not');
@@ -51893,6 +52066,9 @@ function projectCard(p, unreadable, depth, childCount) {
     + unreadBadge(p.id === PJ_CURRENT ? 0 : p.unread) + '</span>'
     + (pill.label ? '<span class="pjpill ' + pill.cls + '">' + pill.glyph + esc(pill.label) + '</span>' : '') + '</span>'
     + (p.description ? '<span class="pc-t">' + esc(p.description) + '</span>' : '')
+    /* #4583: the brief does not say what done looks like yet. Only a definite false shows it; null (no folder
+       to read) says nothing here, the folder warning below already speaks. */
+    + (p.doneSet === false ? '<span class="pj-doneunset">Done not set</span>' : '')
     + facesRow
     + parentChip
     + (bits.length ? '<span class="pj-who">' + esc(bits.join(', ')) + '</span>' : '')
@@ -52065,6 +52241,7 @@ async function loadProjects() {
   // it). Callers that branch on PJ_READ_FAILED right after awaiting need to
   // know the flag is their read's, not a predecessor's -- see pjAnswerFrom
   // (round 21).
+  const readNo = ++PJ_READ_SEQ;   // #4583: which read this is, for the coordinator warning
   try {
     const res = await fetch('/api/projects');
     reached = true;
@@ -52088,6 +52265,7 @@ async function loadProjects() {
       throw new Error(body.error || 'we cannot read your projects right now');
     }
     PROJECTS = body.projects || [];
+    PJ_READ_SHOWN = readNo;
     /* #2407: ring the bubble-pop if any project's unread rose since the last load.
        Placed on the fresh PROJECTS, before the first-load deep-link work below, and
        itself no-ops on the first load (it only baselines then). */
@@ -55018,7 +55196,7 @@ function paintOneProject() {
   paintRoomBusy(roster.map((a) => (a && a.sessionName) || a), p.id);
   /* #3923: an agent that could not be given the folder is said once, in the project notice
      above the list (Mona's design), not on its row: every member row passes suppressTold. */
-  const notice = pjNotice(roster, p.id);
+  const notice = pjCoordNotice(p) + pjNotice(roster, p.id);
   const noticeBox = document.getElementById('pj-one-notice');
   // The region is never hidden (see the CSS note): only its content comes and goes.
   setIfChanged(noticeBox, notice);
@@ -60683,10 +60861,12 @@ function openAddProject() {
   name.value = '';
   name.dataset.auto = '1';
   document.getElementById('pj-add-desc').value = ''; // #551: no leak between opens
+  document.getElementById('pj-add-done').value = ''; // #4583: nor between the done boxes
   document.getElementById('pj-add-msg').textContent = '';
   // #2606: clear the field-level errors so a reopened form is not pre-flagged.
   pjFieldOk('pj-name', 'pj-name-err');
   pjFieldOk('pj-add-desc', 'pj-add-desc-err');
+  pjFieldOk('pj-add-done', 'pj-add-done-err');   // #4583
   document.getElementById('pj-add-agent-row').hidden = true;
   document.getElementById('pj-chosen').textContent = 'No folder chosen yet.';
   // The advanced route starts closed on every arrival, so a person who opened
@@ -61257,6 +61437,7 @@ document.getElementById('pj-create').addEventListener('click', async () => {
   const msg = document.getElementById('pj-add-msg');
   const btn = document.getElementById('pj-create');
   pjFieldOk('pj-add-desc', 'pj-add-desc-err');
+  pjFieldOk('pj-add-done', 'pj-add-done-err');   // #4583
   pjFieldOk('pj-name', 'pj-name-err');
   // #2606, the create half of Josh's "this probably applies to creating a project
   // too": the commonest name refusal (empty) caught AT the field before the round
@@ -61275,6 +61456,14 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     pjFieldBad('pj-add-desc', 'pj-add-desc-err',
       'That description is longer than ' + PJ_DESC_MAX + ' characters. Shorten it and try again.');
     // Same pointer as the settings save, for the same reason. See there.
+    msg.textContent = 'Nothing added. There is something to fix above.';
+    return;
+  }
+  /* #4583 (review round 4): the done box, pre-checked the same way at the engine's cap (cleanDone, 1000 code points,
+     the same as the description), so a long paste is caught at the box before the round trip. */
+  if (pjDescTooLong(document.getElementById('pj-add-done').value)) {
+    pjFieldBad('pj-add-done', 'pj-add-done-err',
+      'What done looks like is longer than ' + PJ_DESC_MAX + ' characters. Shorten it and try again.');
     msg.textContent = 'Nothing added. There is something to fix above.';
     return;
   }
@@ -61305,6 +61494,9 @@ document.getElementById('pj-create').addEventListener('click', async () => {
         /* #551: absent when blank, same absent-not-null discipline as folder. */
         ...(document.getElementById('pj-add-desc').value.trim()
           ? { description: document.getElementById('pj-add-desc').value.trim() } : {}),
+        /* #4583: absent when blank, the same discipline; the engine then writes "Not set yet" in the brief. */
+        ...(document.getElementById('pj-add-done').value.trim()
+          ? { done: document.getElementById('pj-add-done').value.trim() } : {}),
         /* #2458: the chosen parent, absent when blank (top-level) -- same
            absent-not-null discipline as folder/description; the engine refuses a
            missing/non-string parent and blank means top-level, so sending nothing is
@@ -61325,6 +61517,7 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     // land the person INSIDE the new project. openProject also carries the
     // read-back-failure case (body.id set, body.project null) with its notice.
     const newProjectId = (body.project && body.project.id) || body.id;
+    if (body.coordinators && newProjectId) PJ_COORD_WARN.set(String(newProjectId), PJ_READ_SEQ);   // #4583
     openProject(newProjectId);
   } catch (err) {
     // Through pjSentence like every other engine `because` on this screen
@@ -61332,6 +61525,11 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     // one place still pasting a lowercase clause in as a whole sentence.
     if (err && err.message && /description/i.test(err.message)) {
       pjFieldBad('pj-add-desc', 'pj-add-desc-err', pjSentence(err.message) || String(err.message));
+      msg.textContent = 'Nothing added. There is something to fix above.';
+    } else if (err && err.message && /^(what done looks like has to be words|keep what done looks like to 1000 characters)$/i.test(err.message)) {
+      // #4583: cleanDone's two refusals, matched WHOLE (review round 5): a folder refusal can quote an existing
+      // project's name, and a project called "What done looks like..." must not send it to this box.
+      pjFieldBad('pj-add-done', 'pj-add-done-err', pjSentence(err.message) || String(err.message));
       msg.textContent = 'Nothing added. There is something to fix above.';
     } else if (err && err.message && /give this project a name|a name has to be words|name is longer than a project name|too many projects with that name/i.test(err.message)) {
       // #2606: route a project NAME-RULE refusal to the name field. Matched on the specific
@@ -61374,6 +61572,7 @@ async function addMemberToProject(who, msg) {
     const res = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/agent/' + encodeURIComponent(who), { method: 'POST' });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not change that project');
+    if (body.coordinators) PJ_COORD_WARN.set(String(PJ_CURRENT), PJ_READ_SEQ);   // #4583: shown in the project notice
     return true;
   } catch (err) {
     // Through pjSentence like every sibling on this screen (round 24): the
@@ -61477,6 +61676,16 @@ async function pjNoticeRetryClick(e) {
   }
 }
 document.getElementById('pj-one-notice').addEventListener('click', pjNoticeRetryClick);
+/* #4583: Dismiss on the two-coordinator warning, in either notice. */
+function pjCoordDismissClick(e) {
+  const btn = e.target && e.target.closest ? e.target.closest('[data-pn-coord-dismiss]') : null;
+  if (!btn) return;
+  PJ_COORD_WARN.delete(btn.dataset.pnCoordDismiss);
+  paintOneProject();
+  paintRailPjNotice();
+}
+document.getElementById('pj-one-notice').addEventListener('click', pjCoordDismissClick);
+{ const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjCoordDismissClick); }
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNoticeRetryClick); }
 document.getElementById('pj-one-add-go').addEventListener('click', async () => {
   // #2429 (Josh, 0.6.45): once the member is added there is nothing more to do in the
