@@ -5,10 +5,9 @@
  * must NOT render at a KNOWN zero -- Josh: "if no agents are working, we don't
  * show the little tab thing at the top that says the number of agents working",
  * because an animated "0 Working" looks like something is running when nothing
- * is. It stays shown when the zero is a FLOOR (unknowns present -> "0+") or on a
- * failed poll ("?"), because hiding there would claim "none working" on a read
- * that cannot stand behind it (the honest-rendering rule this file's alert tile
- * and #2023 already follow).
+ * is. Since #4736 (Josh, 2026-09-30) that includes a FLOORED zero (unknowns present -> "0+"):
+ * "if there are 0 working, lets not show the tile". A failed poll ("?") is not a zero and the
+ * tile stays shown there.
  *
  * 🔑 WHY A BROWSER, not only the extracted-slice unit test in server.test.js.
  * Two things a fake-element unit test cannot see and that ARE the point here:
@@ -130,8 +129,10 @@ function check(name, pass, detail) {
       seen.knownZero.hidden === true && seen.knownZero.anim === false,
       `hidden=${seen.knownZero.hidden} count=${JSON.stringify(seen.knownZero.count)} anim=${seen.knownZero.anim}`);
 
-    check(`${engine}: a FLOORED zero (unknown present) stays shown and renders "0+", not hidden`,
-      seen.floorZero.hidden === false && seen.floorZero.count === '0+' && seen.floorZero.anim === true,
+    /* #4736 (Josh, 2026-09-30 10:05: "if there are 0 working, lets not show the tile"): a FLOORED zero
+       ("0+") hides the tile too now. The number underneath is still "0+". */
+    check(`${engine}: a FLOORED zero (unknown present, "0+") hides the tile and its animation too (#4736)`,
+      seen.floorZero.hidden === true && seen.floorZero.count === '0+' && seen.floorZero.anim === false,
       `hidden=${seen.floorZero.hidden} count=${JSON.stringify(seen.floorZero.count)} anim=${seen.floorZero.anim}`);
 
     check(`${engine}: a failed poll brings the tile BACK showing "?" (was hidden), never leaves it hidden`,
