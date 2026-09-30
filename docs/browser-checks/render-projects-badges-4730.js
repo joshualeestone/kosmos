@@ -98,6 +98,15 @@ function ok(name, cond, detail) {
       if (view === 'grid') {
         const bgs = new Set(rows.map((r) => r.bg));
         ok(`${t} grid: no stripe is painted (every card has one background)`, bgs.size === 1, JSON.stringify([...bgs]));
+        // The grid with a STALE list class still set: the fold walk marks rows, and the CSS must still paint none.
+        const stale = await page.evaluate(() => {
+          document.body.classList.add('pj-roadmap');
+          const rs = [...document.querySelectorAll('#pj-list.asgrid .pj-row[data-project]')];
+          const out = { marked: rs.some((r) => r.classList.contains('pj-stripe')), bgs: [...new Set(rs.map((r) => getComputedStyle(r).backgroundColor))] };
+          document.body.classList.remove('pj-roadmap');
+          return out;
+        });
+        ok(`${t} grid with a stale list class: still no stripe painted`, stale.bgs.length === 1, JSON.stringify(stale));
       } else {
         const vis = rows.filter((r) => r.shown);
         ok(`${t} list: every second visible row is shaded, starting with the second`,
@@ -105,17 +114,28 @@ function ok(name, cond, detail) {
         /* The shade measured as a COLOUR ON SCREEN: each row's background composited over the list's
            ground, then compared. A string compare would pass an rgba that paints nothing visible. */
         const lum = await page.evaluate(() => {
-          const parse = (c) => { const m = c.match(/rgba?\(([^)]+)\)/); if (!m) return null; const v = m[1].split(/[ ,\/]+/).filter(Boolean).map(Number); return { r: v[0], g: v[1], b: v[2], a: v.length > 3 ? v[3] : 1 }; };
+          /* Both serialisations: rgb()/rgba() with 0-255 channels, and color(srgb r g b / a) with 0-1
+             channels (how a color-mix() result can come back). Anything else is null, and reported. */
+          const parse = (c) => {
+            let m = c.match(/^rgba?\(([^)]+)\)$/);
+            if (m) { const v = m[1].split(/[ ,\/]+/).filter(Boolean).map(Number); return { r: v[0], g: v[1], b: v[2], a: v.length > 3 ? v[3] : 1 }; }
+            m = c.match(/^color\(srgb ([^)]+)\)$/);
+            if (m) { const v = m[1].split(/[ \/]+/).filter(Boolean).map(Number); return { r: v[0] * 255, g: v[1] * 255, b: v[2] * 255, a: v.length > 3 ? v[3] : 1 }; }
+            return null;
+          };
           const ground = (el) => { for (let e = el.parentElement; e; e = e.parentElement) { const c = parse(getComputedStyle(e).backgroundColor); if (c && c.a > 0) return c; } return { r: 255, g: 255, b: 255, a: 1 }; };
           const over = (top, g) => ({ r: top.r * top.a + g.r * (1 - top.a), g: top.g * top.a + g.g * (1 - top.a), b: top.b * top.a + g.b * (1 - top.a) });
           const L = (c) => { const f = (x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
           const rows = [...document.querySelectorAll('#pj-list .pj-row[data-project]')].filter((r) => getComputedStyle(r).display !== 'none');
           const g = ground(rows[0]);
-          const shown = (r) => L(over(parse(getComputedStyle(r).backgroundColor) || { r: 0, g: 0, b: 0, a: 0 }, g));
-          const plain = shown(rows[0]); const striped = shown(rows[1]);
-          return { plain, striped, groundL: L(g), ratio: (Math.max(plain, striped) + 0.05) / (Math.min(plain, striped) + 0.05) };
+          const raw0 = getComputedStyle(rows[0]).backgroundColor, raw1 = getComputedStyle(rows[1]).backgroundColor;
+          const shown = (raw) => { const c = parse(raw); return c ? L(over(c, g)) : NaN; };
+          const plain = shown(raw0); const striped = shown(raw1);
+          return { raw0, raw1, plain, striped, groundL: L(g), ratio: (Math.max(plain, striped) + 0.05) / (Math.min(plain, striped) + 0.05) };
         });
         ok(`${t} list: the shade is visible but light (ratio 1.02 to 1.25 against an unshaded row)`, lum.ratio >= 1.02 && lum.ratio <= 1.25, JSON.stringify(lum));
+        ok(`${t} list: the shade goes the right way (darker than the ground in light, lighter in dark)`,
+          theme === 'light' ? lum.striped < lum.plain : lum.striped > lum.plain, JSON.stringify(lum));
         /* Hover still stands out on a shaded row: hovering it must change what it paints. */
         const rowsVis = vis.map((r) => r.id);
         const before = await page.evaluate((id) => getComputedStyle(document.querySelector(`#pj-list .pj-row[data-project="${id}"]`)).backgroundColor, rowsVis[1]);
