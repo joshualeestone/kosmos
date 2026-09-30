@@ -359,8 +359,12 @@ function resolve(token, roster) {
     try { held = readTokens(key); } catch { continue; }
     const hit = held.find((t) => sameToken(t.token, presented));
     if (!hit) continue;
+    /* #4738: whose row it is FIRST, and a name that cannot be keyed (a stranger's tmux session named "!!") is simply
+       not this agent. Keying every row before that check threw "invalid agent name" for the whole roster, so one such
+       session sorted ahead of the agents broke every agent's token, with a message that blamed the agent. */
+    const keyOf = (name) => { try { return store.safeKey(name); } catch { return null; } };
     const card = Array.isArray(roster)
-      ? roster.find((a) => a && a.sessionName && store.safeKey(a.sessionName) === key && a.isNamedOurs === true)
+      ? roster.find((a) => a && a.isNamedOurs === true && a.sessionName && keyOf(a.sessionName) === key)
       : null;
     /* A token matching a file but no tied roster row is the revoked or stale
        case, and it must read the same as a token we never issued. Saying "that
