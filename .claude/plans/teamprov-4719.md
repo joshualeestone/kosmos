@@ -78,3 +78,11 @@ teamcreate-ui-4557 (PR #4709, not yet on main); rebased onto main once #4709 mer
 - Not changed (NITs, recorded): the create form's read and the step's read both write the shared
   account globals (last wins; matters only if one fails after the other succeeds); a non-string
   account is dropped rather than refused (POST /api/agents validates it anyway).
+
+## Review iteration 6 (changes)
+- The choice is fixed once any member exists (tcAnyMade), not at the start: a start whose lead was
+  refused (a stale account, a provider with no sign-in; the name check does not validate these) left
+  the menus locked on the bad choice, so Try again could only resend it. Now the menus open again until
+  something is made, and the next run uses what they say. The lead-refused browser arm pins both halves.
+- The menus are disabled during the up-to-5 s account wait (they held the last team's options).
+- The Google-subscription (Antigravity) answer settles the team menu too, as the Muse answer does.
