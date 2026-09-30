@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: orgWatchWidth pjMentionWatchWidth orgview pj-post pj-post-mirror boot-cover panel-cons-agents
+// Browser-check-surface: orgWatchWidth orgview pj-post pj-post-mirror boot-cover panel-cons-agents
 // (#2518) the distinctive web/index.html tokens this check asserts: the two width watchers #4506 added, the boxes
 // they watch, and the boot cover whose gutter drop the check drives.
 /* kosmos#4506: the tab layout's scrollbar gutter (#1309) is dropped while the boot cover (and the first-run and update
@@ -7,7 +7,7 @@
  * width by 15px on a classic-scrollbar machine with NO window resize, so anything fitted to a width on `resize` alone
  * goes stale. Two such fits, each watched by its own ResizeObserver since this card:
  *   G1  the org chart (orgWatchWidth): it is fitted to #orgview's width, recorded as ORG_VIEW_W at each paint.
- *   G2  the @mention mirror in a project room (pjMentionWatchWidth): it copies #pj-post's width.
+ *   G2  the @mention mirror in a project room (#4585's ResizeObserver on #pj-post): it copies #pj-post's width.
  *   G3  the org chart's watcher must not LOOP: in the consolidated Agents view the pane scrolls on its own, and with a
  *       big fleet the chart's height follows its width, so a pane scrollbar that comes and goes with the height fed
  *       the width watcher every frame (40 to 144 repaints a second in a band of window heights). The pane now
