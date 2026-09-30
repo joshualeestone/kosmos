@@ -6911,6 +6911,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    symptom above the fold and not this. */
 .dm.mine .dm-w { text-align: right; }
 .dmnone { font-size: .875rem; color: var(--k-ink-2); margin: 0; }
+/* #4612: what a Muse agent answered in its own window when it never replied here. Kept in the person's own reading
+   size, line breaks as written, and bounded so a long answer scrolls instead of pushing the composer away. */
+.dmunsent-text { margin: 6px 0 0; padding: 8px 12px; border-left: 3px solid var(--k-rule); color: var(--k-ink);
+  font-size: .9375rem; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow-y: auto; }
+.dmunsent-text:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }   /* #4612 review: it scrolls, so the keyboard can reach it */
 /* ⚠️ THE SAME DOTS THE CARD USES, not a second animation: `.act` is the
    board's working glyph, and a different one here would be two renderings of
    one fact. It borrows the sibling hint's size and colour so the line reads as
@@ -11207,6 +11212,20 @@ window.kosmosMeasureScrollbarWidth();
              #2456/#2575 reported-question false state. -->
         <button class="btn" id="d-qask-trust-restart" type="button" hidden>Trust &amp; Restart</button>
         <p class="fmsg" id="d-qask-trust-restart-msg" role="status" aria-live="polite"></p>
+        <!-- #4607: Codex's "Hooks need review", answered here by the person (never by a typed message, #4589). The
+             render unhides it only when the thread route sends body.codexHooks. Two choices; leaving it is not
+             pressing either. Self-contained, like the Trust & Restart above. -->
+        <div id="d-qask-codex" hidden>
+          <p class="fhint" id="d-qask-codex-what" style="margin:4px 0 8px;"></p>
+          <p class="fhint" id="d-qask-codex-source" hidden style="margin:0 0 8px;">Where Codex says it comes from: <code id="d-qask-codex-source-text" style="overflow-wrap:anywhere;min-width:0;"></code></p>
+          <p class="fhint" id="d-qask-codex-command" hidden style="margin:0 0 8px;">What it runs: <code id="d-qask-codex-command-text" style="overflow-wrap:anywhere;min-width:0;"></code></p>
+          <div class="frow" style="gap:8px;flex-wrap:wrap;">
+            <button class="btn" id="d-qask-codex-skip" type="button">Continue without them</button>
+            <button class="btn btn-quiet" id="d-qask-codex-trust" type="button">Trust all of them</button>
+            <button class="btn" id="d-qask-codex-close" type="button" hidden>Close the list</button>
+          </div>
+          <p class="fmsg" id="d-qask-codex-msg" role="status" aria-live="polite"></p>
+        </div>
       </div>
     </div>
     <!-- #2622: the search moved up beside the caption (.d-talk-caprow above). It still
@@ -34116,7 +34135,9 @@ async function paintTalk(sessionName, agentName) {
      below keying on `answerNote` alone is equivalent -- kept explicit so a future
      route change that decoupled them cannot silently show the box on a non-asking
      paint. */
-  const nowHidden = !(body.asking && body.answerNote);
+  /* #4607: the box also shows for Codex's hook review (body.codexHooks), a permission decision answered with a
+     button, like the folder-trust recovery. */
+  const nowHidden = !(body.asking && (body.answerNote || body.codexHooks));
   /**
    * ⚠️ THE RESCUE COMES BEFORE EVERY HIDE IN THIS SECTION, and its first
    * version did not.
@@ -34181,6 +34202,10 @@ async function paintTalk(sessionName, agentName) {
   /* #2129: default the recovery button hidden every paint, so it only shows
      where the branch below explicitly turns it on. */
   if (qTrust) qTrust.hidden = true;
+  const qCodex = document.getElementById('d-qask-codex');
+  if (qCodex) qCodex.hidden = true;
+  /* A line left from an earlier answer goes with the question it answered (review round 1). */
+  if (!(body.asking && body.codexHooks)) { const m = document.getElementById('d-qask-codex-msg'); if (m) m.textContent = ''; window.__codexHooksShown = null; }
   if (body.answerNote) {
     /* #2129 folder-trust recovery: the ONLY state that still shows this box. The
        trust-dialog question is itself an ordinary thread bubble now (engine
@@ -34189,6 +34214,61 @@ async function paintTalk(sessionName, agentName) {
        wording Josh removed in #3419) plus the one-click Trust & Restart (#2129). */
     qlab.textContent = name + ' is stuck on a folder-trust prompt. ' + body.answerNote;
     if (qTrust) qTrust.hidden = false;
+  } else if (body.asking && body.codexHooks && qCodex) {
+    /* #4607: only what the screen says. The count from the menu, the events from the table, the source from one
+       hook's page; a missing fact is left out, never guessed. */
+    const h = body.codexHooks;
+    /* #4607 (review round 4): what the person is shown is sent back with their answer, so a changed dialog is
+       refused rather than answered. */
+    /* A summary that changed since the last paint holds the buttons for a moment (review round 16), so a click does
+       not land on words the person had no time to read. */
+    const prevShown = window.__codexHooksShown;
+    const changed = !prevShown || prevShown.forAgent !== sessionName || JSON.stringify(prevShown.hooks) !== JSON.stringify(h);
+    window.__codexHooksShown = { forAgent: sessionName, hooks: h };
+    if (changed) {
+      /* A hold NUMBER, bumped only by a changed paint (review round 17: comparing the summary object left the buttons
+         disabled for good when an identical paint landed inside the hold). An answer in flight owns the buttons. */
+      const seq = (window.__codexHoldSeq = (window.__codexHoldSeq || 0) + 1);
+      window.__codexHoldUntil = Date.now() + 1200;
+      const hold = ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close'].map((id) => document.getElementById(id));
+      /* A focused button would drop keyboard focus to the page when disabled (round 18): hand it to the box first. */
+      if (hold.includes(document.activeElement)) { const box = document.getElementById('d-talk-box'); if (box) box.focus(); }
+      hold.forEach((b) => { b.disabled = true; });
+      setTimeout(() => { if (window.__codexHoldSeq === seq && !window.__codexAnswering) hold.forEach((b) => { b.disabled = false; }); }, 1200);
+    }
+    const listOpen = h.screen === 'trusted';
+    const srcRow = document.getElementById('d-qask-codex-source');
+    document.getElementById('d-qask-codex-source-text').textContent = h.source && !listOpen ? String(h.source).slice(0, 160) : '';
+    srcRow.hidden = !(h.source && !listOpen);
+    const cmdRow = document.getElementById('d-qask-codex-command');
+    document.getElementById('d-qask-codex-command-text').textContent = h.command && !listOpen ? String(h.command).slice(0, 160) : '';
+    cmdRow.hidden = !(h.command && !listOpen);
+    const n = typeof h.count === 'number' && h.count > 0 ? h.count : null;
+    const events = Array.isArray(h.events) ? h.events.map((e) => e && e.event).filter(Boolean) : [];
+    /* The trusted-but-open list (a dropped Escape after trusting): only Close. Otherwise the two choices, and the
+       summary says Trust covers every hook Codex lists (from one hook's page the screen names only that one). */
+    document.getElementById('d-qask-codex-trust').hidden = listOpen;
+    /* From one hook's page Trust only goes back to the full list (it names one hook; Codex trusts them all), so the
+       button says what it does there (review round 8). */
+    document.getElementById('d-qask-codex-trust').textContent = h.screen === 'hook' ? 'Show the full list' : 'Trust all of them';
+    document.getElementById('d-qask-codex-skip').hidden = listOpen;
+    document.getElementById('d-qask-codex-close').hidden = !listOpen;
+    if (listOpen) {
+      qlab.textContent = name + '\u2019s Codex hooks are trusted, and their list is still open.';
+      document.getElementById('d-qask-codex-what').textContent = 'Close the list and Codex carries on.';
+    } else {
+      qlab.textContent = name + ' needs you to decide about Codex hooks.';
+      document.getElementById('d-qask-codex-what').textContent =
+        'Codex found ' + (n ? n + (n === 1 ? ' hook' : ' hooks') : 'hooks') + ' it has not been told to trust'
+        + (events.length ? ' (' + events.join(', ') + ')' : '')
+        + '.'
+        /* Review round 3: say what the screen does NOT tell, rather than let a count read as enough to trust on. */
+        + (!events.length && !h.source ? ' Its screen does not name them or say what they run.'
+          : (!h.command ? ' Its screen does not say what they run.' : ''))
+        + (/^Project config\b/i.test(String(h.source || '')) ? ' Codex says this one is in a project\u2019s own settings, which the agent can write to, so the agent could have written it.' : '')
+        + ' Trusting covers every hook Codex lists, for every Codex agent on this account, and trusted hooks can act freely on this computer. If you are not sure, continue without them.';
+    }
+    qCodex.hidden = false;
   } else {
     /* Every other state -- a regular needs_you question, a stranded "Issue", or
        nothing asking -- shows nothing here (nowHidden hides the box); the
@@ -35398,6 +35478,9 @@ function openDetail(sessionName, section, fromProject) {
      same as the two above (an in-flight POST for the leaving agent left it
      disabled; the leaving agent's own finally re-enable is a harmless no-op). */
   { const b = document.getElementById('d-qask-trust-restart'); if (b) b.disabled = false; }
+  /* #4607: the Codex hook buttons, the same way. */
+  for (const id of ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close']) { const b = document.getElementById(id); if (b) b.disabled = false; }
+  { const m = document.getElementById('d-qask-codex-msg'); if (m) m.textContent = ''; }
   /* #2808: re-enable the chat-box dismiss for the agent we are opening, same as
      the trust-restart button above. */
 
@@ -41009,6 +41092,49 @@ document.getElementById('d-qask-trust-restart').addEventListener('click', async 
     btn.disabled = false;
   }
 });
+
+/* #4607: the person answers Codex's "Hooks need review" with a button. POST /api/agent/<name>/codex-hooks, owner-only
+   on the server, which reads the screen again before every key. Self-contained, with the same capture-and-recheck as
+   the Trust & Restart twin above, so a receipt cannot land under a different agent. The next poll hides the box once
+   the dialog is gone. */
+async function answerCodexHooksFromBox(choice) {
+  if (!CURRENT) return;
+  const forAgent = CURRENT.sessionName;
+  const buttons = ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close'].map((id) => document.getElementById(id));
+  const msg = document.getElementById('d-qask-codex-msg');
+  buttons.forEach((b) => { b.disabled = true; });
+  window.__codexAnswering = true;
+  if (choice === 'trust' && document.getElementById('d-qask-codex-trust').textContent === 'Show the full list') choice = 'list';
+  const opening = choice === 'list';
+  msg.textContent = opening ? 'Opening the full list\u2026' : (choice === 'trust' ? 'Trusting the hooks\u2026' : (choice === 'close' ? 'Closing the list\u2026' : 'Continuing without the hooks\u2026'));
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/codex-hooks',
+      { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ choice, seen: (window.__codexHooksShown && window.__codexHooksShown.forAgent === forAgent) ? window.__codexHooksShown.hooks : null }) });
+    const r = await res.json().catch(() => ({}));
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      /* Done means what was seen: its screen stopped asking about hooks (review round 1: not a claim about what
+         Codex does next). */
+      msg.textContent = (res.ok && r.ok)
+        ? (choice === 'trust' ? 'Done. Its screen is no longer asking about hooks.'
+          : (choice === 'close' ? 'Done. The list is closed.' : 'Done. Its screen is no longer asking about hooks, and they were not trusted.'))
+        : (r.because || r.error || 'We could not answer it. Look at its window.');
+      /* The box hides on the next poll once the question is gone, so a success is also said where it stays a moment. */
+      if (res.ok && r.ok && typeof msgToast === 'function') msgToast(msg.textContent);
+    }
+  } catch {
+    if (CURRENT && CURRENT.sessionName === forAgent) msg.textContent = 'We could not reach Kosmos to answer it.';
+  } finally {
+    window.__codexAnswering = false;
+    /* Not inside a hold a poll started meanwhile (review round 17): wait it out. */
+    const left = (window.__codexHoldUntil || 0) - Date.now();
+    if (left > 0) setTimeout(() => { if (!window.__codexAnswering) buttons.forEach((b) => { b.disabled = false; }); }, left);
+    else buttons.forEach((b) => { b.disabled = false; });
+  }
+}
+document.getElementById('d-qask-codex-trust').addEventListener('click', () => answerCodexHooksFromBox('trust'));
+document.getElementById('d-qask-codex-skip').addEventListener('click', () => answerCodexHooksFromBox('skip'));
+document.getElementById('d-qask-codex-close').addEventListener('click', () => answerCodexHooksFromBox('close'));
 
 /* Open Terminal (Josh 0.6.44): POST /api/agent/<name>/launch-terminal (Pete's route)
    attaches a Terminal.app window to the agent's live tmux session so the person can watch
@@ -56989,6 +57115,13 @@ function dmOwesLine(owes) {
      ⚠️ THE GRACE: `owes` is true the instant a message lands, so without it every thread accuses the agent for the
      first two minutes of every exchange. `pjOldEnoughToJudge` is the room's own test and refuses an unparseable
      timestamp rather than treating it as long ago. */
+  /* #4612: the agent finished a turn after this message and answered only in its own window (a Muse agent that never
+     ran kosmos reply). Said at once, with no grace: the turn is over, so there is nothing left to wait for. */
+  if (owes.unsent && typeof owes.unsent.text === 'string' && owes.unsent.text) {
+    return '<div class="dmunsent"><p class="dmnone">It finished without replying here. What it said in its own window:</p>'
+      + '<blockquote class="dmunsent-text" tabindex="0" aria-label="What it said in its own window">'   // scrolls, so keyboard-reachable
+      + esc(owes.unsent.text) + '</blockquote></div>';
+  }
   if (!pjOldEnoughToJudge(owes.lastHeardAt)) return '';
   return '<p class="dmnone">Nothing back yet.</p>';
 }
