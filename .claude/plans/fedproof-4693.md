@@ -150,3 +150,11 @@ Blind sonnet review of 5a4b3eff7: no BLOCKER, no WARNING. Converged. NITs, all d
 - The exit fallback signals started pids only (already deferred in iteration 4).
 - Fixed as text: the plan and a code comment claimed the next run reports leftovers. It does
   not; a SIGKILLed harness can leave seats and a sandbox dir with no signal. Both now say so.
+
+## Merge with origin/main (cc9c778dc)
+
+The branch was based on selfroom-4649's pre-squash commits; #4649 landed on main squashed (#4704,
+#4708). Three conflicts (engine/remote.js, docs/browser-checks/README.md,
+browser-checks-reason-grep.test.js), each touched on this branch only by selfroom-4649 commits.
+Resolved by taking main's version, which carries the landed #4649 plus later work. After the
+merge the tree differs from origin/main only by tools/fed-own-e2e.js and this plan.

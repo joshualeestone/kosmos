@@ -28,6 +28,9 @@ const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-verbs-parity-'
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 
 const test = require('node:test');
+// #4632: the ready-made roles are downloaded; sandbox the data root and store the signed fixture
+// first, so the every-role verb sweep below covers the catalogue's roles too.
+require('./test-support/catalogue-fixture').sandboxWithCatalogue('win-cli-verbs');
 const assert = require('node:assert/strict');
 const cli = require('./tools/windows/kosmos-cli');
 
@@ -306,4 +309,8 @@ test('the texts agents are actually given name only verbs the Windows command ha
   assert.ok(uses.some((u) => u.verb === 'community' && u.word === 'read' && u.where.includes('communityblock')), 'the community block was not read (community read is taught there)');
   const problems = uses.map((u) => (PERSON_ONLY_VERBS[u.verb] ? u.where + ': teaches an agent the person-only kosmos ' + u.verb : problemsWith(u))).filter(Boolean);
   assert.deepEqual(problems, []);
+});
+
+test('#4632 premise: the verb sweep covers the downloaded catalogue roles', () => {
+  assert.ok(require('./engine/roles').byKey('cmo'), 'the catalogue fixture is not merged, so the sweep covers only the built-in roles');
 });

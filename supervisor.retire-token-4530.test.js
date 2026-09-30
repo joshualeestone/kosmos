@@ -348,9 +348,13 @@ test('#4530 UNTAGGED, adopt: adopting a live run never retires untagged tokens',
   const f = fixture();
   try {
     f.flag('notwin');
+    const before = mintUntagged(f);   // the first launch's sweep retires this; seeing it gone means the sweep is over
     const one = f.start();
     await f.until(() => f.tokens().length === 1, 'the run to receive its token');
     await f.until(() => fs.existsSync(path.join(f.root, 'state', 'opt-kosmos_token_instance')), 'the run to be recorded on its session');
+    /* #4666: the sweep runs after the session is recorded, in a node process a SIGKILL of the supervisor does not
+       stop. Killed before it finished, that sweep went on to retire the token minted below (seen under load). */
+    assert.ok(await f.settles(() => !f.resolves(before)), 'CONTROL: the first launch\'s sweep never retired an earlier untagged token');
     one.kill('SIGKILL');   // an update restarts the supervisor while the run lives on
     await f.ends(one);
     const live = mintUntagged(f);   // stands for a live run's own pre-#4530 token
