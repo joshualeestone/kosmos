@@ -370,3 +370,49 @@ test('a serial far in the future is refused, so one publishing mistake cannot lo
   // CONTROL: a serial of now passes the same check.
   assert.equal((await catalogue.refresh({ fetcher: server(signed(150)).fetcher, force: true })).loaded, true);
 });
+
+test('a test run that passes no fetcher and names no address never downloads from installkosmos.com (#4253)', async () => {
+  fresh();
+  const was = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => { calls.push(String(url)); throw new Error('offline in this test'); };
+  try {
+    await catalogue.refresh({ force: true });
+    assert.deepEqual(calls, [], 'a test run with no address downloaded from the default one');
+    // CONTROL: with an address named, the same call does download (and fails offline).
+    process.env.KOSMOS_CATALOGUE_BASE = 'http://127.0.0.1:9/';
+    await catalogue.refresh({ force: true });
+    assert.ok(calls.length > 0 && calls.every((u) => u.startsWith('http://127.0.0.1:9/')), `CONTROL: ${JSON.stringify(calls)}`);
+  } finally {
+    globalThis.fetch = was;
+    delete process.env.KOSMOS_CATALOGUE_BASE;
+  }
+});
+
+test('a role key that is not text is refused, so no role shows in the menu that cannot be created', async () => {
+  const { privateKey, signed } = fresh();
+  const body = signed(160).body.replace('"key": "cos"', '"key": 123');
+  assert.notEqual(body, signed(160).body, 'premise: the fixture has a role keyed cos');
+  const sig = crypto.sign(null, Buffer.from(body), privateKey).toString('base64');
+  const st = await catalogue.refresh({ fetcher: server({ body, sig }).fetcher, force: true });
+  assert.equal(st.loaded, false);
+  assert.match(st.error || '', /role 123 is incomplete/);
+  // CONTROL: the unchanged file is taken.
+  assert.equal((await catalogue.refresh({ fetcher: server(signed(160)).fetcher, force: true })).loaded, true);
+});
+
+test('a download that verifies is used even when it cannot be saved, and the failure is reported', async () => {
+  const { signed } = fresh();
+  // A folder where the stored file goes: the rename over it fails.
+  fs.mkdirSync(catalogue.cacheFile(), { recursive: true });
+  const st = await catalogue.refresh({ fetcher: server(signed(170)).fetcher, force: true });
+  assert.equal(st.loaded, true, 'a verified download was thrown away because it could not be saved');
+  assert.equal(st.serial, catalogue.MIN_SERIAL + 170);
+  assert.ok(roles.ROLES.length > BUILT_IN, 'the catalogue roles were not merged');
+  assert.match(st.error || '', /could not be saved/);
+  // The next download, once the file can be written, saves it.
+  fs.rmSync(catalogue.cacheFile(), { recursive: true, force: true });
+  const again = await catalogue.refresh({ fetcher: server(signed(170)).fetcher, force: true });
+  assert.equal(again.error, null);
+  assert.ok(fs.statSync(catalogue.cacheFile()).isFile(), 'the same serial was not saved on the next download');
+});

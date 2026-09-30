@@ -79,7 +79,7 @@ function shapeProblem(c) {
   if (!Array.isArray(c.groups) || !c.groups.every(isText)) return 'groups is not a list of names';
   if (!Array.isArray(c.roles) || !Array.isArray(c.teams)) return 'roles or teams is not a list';
   for (const r of c.roles) {
-    if (!r || !KEY_RE.test(String(r.key)) || !isText(r.label) || !isText(r.blurb) || !isText(r.firstAction) || !isText(r.group)
+    if (!r || typeof r.key !== 'string' || !KEY_RE.test(r.key) || !isText(r.label) || !isText(r.blurb) || !isText(r.firstAction) || !isText(r.group)
       || !Array.isArray(r.instructions) || !r.instructions.every((l) => typeof l === 'string')) {
       return `role ${JSON.stringify(r && r.key)} is incomplete`;
     }
@@ -95,7 +95,7 @@ function shapeProblem(c) {
   const teamKeys = c.teams.map((t) => t && t.key);
   if (new Set(teamKeys).size !== teamKeys.length) return 'two teams share a key';
   for (const t of c.teams) {
-    if (!t || !KEY_RE.test(String(t.key)) || !isText(t.label) || !t.project || !isText(t.project.goal) || !Array.isArray(t.members)
+    if (!t || typeof t.key !== 'string' || !KEY_RE.test(t.key) || !isText(t.label) || !t.project || !isText(t.project.goal) || !Array.isArray(t.members)
       || !['business', 'personal'].includes(t.kind) || !Number.isInteger(t.rank)) {
       return `team ${JSON.stringify(t && t.key)} is incomplete`;
     }
@@ -195,6 +195,9 @@ function refresh(opts = {}) {
   // The same condition load() honours: a test run with no sandboxed data root neither reads nor
   // writes the operator's stored copy, and does not download, whatever fetcher it passes.
   if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_DATA) return Promise.resolve(status());
+  // No test run downloads from installkosmos.com (#4253): one that passes no fetcher must name the
+  // address itself (tools/run-tests.sh pins a dead port), so a test run on its own is covered too.
+  if (process.env.NODE_TEST_CONTEXT && !opts.fetcher && !process.env.KOSMOS_CATALOGUE_BASE) return Promise.resolve(status());
   if (!opts.force && Date.now() - lastTry < MIN_GAP_MS) return Promise.resolve(status());
   lastTry = Date.now();
   inflight = (async () => {
@@ -232,20 +235,23 @@ function refresh(opts = {}) {
       const changed = !held || held.serial !== r.catalogue.serial || JSON.stringify(held) !== JSON.stringify(r.catalogue);
       // The same serial is written again only when the stored copy is gone or no longer verifies
       // (a disk cleanup, say), so what is held in memory survives a restart.
+      /* A copy that verified is used even when saving it fails (on Windows another process can
+         hold the stored file open): the save failure is reported, and the next download saves it. */
+      let saveError = null;
       if (changed || storedSerial() !== r.catalogue.serial) {
         const file = cacheFile();
-        fs.mkdirSync(path.dirname(file), { recursive: true });
         const tmp = `${file}.${process.pid}.tmp`;
         try {
+          fs.mkdirSync(path.dirname(file), { recursive: true });
           fs.writeFileSync(tmp, JSON.stringify({ sig: sig.toString('utf8').trim(), text }));
           fs.renameSync(tmp, file);
         } catch (err) {
           try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ }
-          throw err;
+          saveError = `the downloaded catalogue is in use but could not be saved: ${(err && err.message) || err}`;
         }
       }
       data = r.catalogue;
-      lastError = null;
+      lastError = saveError;
       if (changed) require('./roles').remerge();
     } catch (err) {
       lastError = (err && err.message) || String(err);
