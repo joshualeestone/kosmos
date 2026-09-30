@@ -42,7 +42,8 @@ may an agent put on a new project) and `kosmos room reopen` (it clears the loop-
   (1) A token the board cannot resolve is refused (403), where before the CLI sent none and the write went
   through: an agent whose session is no longer tied to its name, one the person hid by removing it, a child
   process carrying a token from an earlier run. This is what msg, post and task message already do (a bad
-  credential is never swapped for a weaker one). (2) A token cannot be checked when the running agents cannot be
+  credential is never swapped for a weaker one), and it holds on a board that is not enforcing too: a stale
+  token left in an agent's environment turns these two verbs from working into a 403 there as well. (2) A token cannot be checked when the running agents cannot be
   read (tmux not answering): 503, "we could not check which agents are running, so the task was not added".
   A caller with NO token is untouched by both: a pane with an unreadable roster names nobody and the task is
   added unnamed, as before (rejected: answering 503 there as task message does, which would take `kosmos task
@@ -137,4 +138,13 @@ tasks for other teams' projects would now be refused until it is put on them.
 - NITs: an unreadable projects list is tested on close; two stale comments (engine/tasks.js, the Windows CLI's
   header) corrected; the "operator" name is a stated limit. Not taken: a JSON `null` body on task add answers a
   raw TypeError sentence, as it did before this branch.
+
+## Review round 4 (sonnet): 0 BLOCKER, 0 WARNING, 1 CONVENTION, 2 NIT
+- C the 503 for a throwing resolver said "we could not check which agents are running", which is false there (the
+  roster was read): it has its own sentence now ("we could not check that agent just now, so ..."), asserted.
+- NITs: the bad-token test now proves its 403 is the handler's, not the gate's; the stale-token effect is said to
+  hold on a non-enforcing board too.
+- Asked directly and answered from the code: nothing in the close handler's new block, or in what it calls, can
+  still throw; the 503 cannot be forced on another agent's token or hide a "not yours" (a garbage token never
+  reaches the throw).
 

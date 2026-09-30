@@ -150,8 +150,10 @@ test('a token the board cannot resolve is refused, never swapped for a pane that
   const bad = withBoard(asAgent('d'.repeat(64)));
   const add = await call('POST', '/api/project/p4491/tasks', { headers: bad, body: { sentence: 'as mara', from_pane: '%8' } });
   assert.equal(add.code, 403, 'a bad token fell back to the pane on task add: ' + add.code + ' ' + add.text.slice(0, 120));
+  assert.doesNotMatch(add.text, GATE_REFUSAL, 'the 403 is the gate\'s, so the handler was never asked');
   const close = await call('POST', '/api/project/p4491/task/1/close', { headers: bad });
   assert.equal(close.code, 403, 'a bad token was ignored on task close: ' + close.code + ' ' + close.text.slice(0, 120));
+  assert.doesNotMatch(close.text, GATE_REFUSAL);
   assert.deepEqual([w.made, w.acts], [[], []]);
   /* CONTROL: the same pane with no token at all IS named, so the 403 above is the bad token. */
   assert.equal((await call('POST', '/api/project/p4491/tasks', { headers: withBoard(), body: { sentence: 'by pane', from_pane: '%8' } })).code, 200);
@@ -229,6 +231,7 @@ test('a token the resolver cannot check (it throws) is a 503 on both writes, and
   assert.throws(() => sendertoken.resolve(w.mara, w.agents), /invalid agent name/, 'control: the resolver no longer throws on this roster (if #4738 is fixed, make it throw another way, or drop this test\'s premise)');
   const close = await call('POST', '/api/project/p4491/task/1/close', { headers: asAgent(w.mara) });
   assert.equal(close.code, 503, 'a throwing resolver was not answered with a 503 on close: ' + close.code + ' ' + close.text.slice(0, 120));
+  assert.match(JSON.parse(close.text).error, /^we could not check that agent just now, so the task was not closed$/, 'the roster WAS read here, so the sentence must not say it was not');
   const add = await call('POST', '/api/project/p4491/tasks', { headers: asAgent(w.mara), body: { sentence: 'unchecked' } });
   assert.equal(add.code, 503, 'a throwing resolver was not a 503 on add: ' + add.code + ' ' + add.text.slice(0, 120));
   assert.deepEqual([w.made, w.acts], [[], []]);

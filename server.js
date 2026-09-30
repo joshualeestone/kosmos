@@ -3929,9 +3929,10 @@ function processCaller(req, body, roster, viaScreen, notDone) {
      the process may end. The token resolver can throw today (engine/sendertoken.js keys every roster
      row's name before it looks at whose row it is, and a name with no letter or digit cannot be keyed: a tmux
      session named "!!" sorting ahead of the agent's row does it, #4738), so
-     a token that cannot be checked is answered like a roster that cannot be read. */
+     a token that cannot be checked is a 503 with its own sentence (the roster WAS read in that case). */
   let tokenSender;
-  try { tokenSender = senderFromAgentToken(req, body, roster); } catch { return { refusal: couldNot }; }
+  try { tokenSender = senderFromAgentToken(req, body, roster); }
+  catch { return { refusal: [503, 'we could not check that agent just now, so ' + notDone] }; }
   if (tokenSender && !tokenSender.ok) return { refusal: [403, tokenSender.because] };
   /* A pane with a roster nobody could read names nobody, and the write goes on unnamed, as these two routes
      always did (task message and task built answer 503 there, a slice-3 choice; here it would be a new refusal
