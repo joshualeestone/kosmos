@@ -47,6 +47,16 @@ function chk(ok, label, extra) {
   if (!ok) fail.push(label);
 }
 const now = () => Math.floor(Date.now() / 1000);
+/* The worst contrast of an element's text against every stop of its host's gradient (the sheet's or the notice's
+   navy), WCAG relative luminance. The small new text on navy is measured, not assumed (review round 3). */
+const WORST_CONTRAST = `(el) => {
+  const nums = (v) => (v.match(/[\\d.]+/g) || []).map(Number);
+  const lum = ([r, g, b]) => { const f = (x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+  const host = el.closest('.askreq') || el.closest('#askcard');
+  const stops = (getComputedStyle(host).backgroundImage.match(/rgba?\\([^)]*\\)/g) || []).map(nums);
+  const fg = lum(nums(getComputedStyle(el).color));
+  return stops.length ? Math.min(...stops.map((st) => { const b = lum(st); return (Math.max(fg, b) + 0.05) / (Math.min(fg, b) + 0.05); })) : 0;
+}`;
 const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'up', address: 'hers.kosmosplus.com' } };
 
 (async () => {
@@ -93,6 +103,9 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         return { shown: !!(c && !c.hidden && c.getBoundingClientRect().height > 0), text: (c && c.innerText || '').replace(/\s+/g, ' ').trim(), review: !!(c && c.querySelector('[data-ask="open"]')) };
       });
       chk(note.shown && /2 devices want to connect to your Kosmos\./.test(note.text) && note.review && /kosmos\+/i.test(note.text), `${tag} on another page: a Kosmos+ notice with Review`, JSON.stringify(note));
+      const noteContrast = await page.evaluate((fn) => { const w = eval(fn); const n = document.querySelector('#askcard .asknote');
+        return n ? [...n.querySelectorAll('span')].map((e) => Math.round(w(e) * 100) / 100) : []; }, WORST_CONTRAST);
+      chk(noteContrast.length === 2 && noteContrast.every((r) => r >= 4.5), `${tag} the notice's words read on its navy (4.5:1)`, JSON.stringify(noteContrast));
       /* Review W2: the notice's edges line up with the banner under it (#conn). Fails if the banner is not shown. */
       const edges = await page.evaluate(() => {
         const a = document.getElementById('askcard').getBoundingClientRect(), c = document.getElementById('conn');
@@ -122,6 +135,9 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       }));
       /* Measured while the sheets are there (an empty list would pass every()). */
       const nowrap = await page.evaluate(() => { const t = [...document.querySelectorAll('#plus-ask-rows .askreq .askwho span')]; return t.length === 2 && t.every((e) => getComputedStyle(e).whiteSpace === 'nowrap'); });
+      const contrast = await page.evaluate((fn) => { const w = eval(fn); const pick = (sel) => document.querySelector('#plus-ask-rows ' + sel);
+        return Object.fromEntries([['brand', '.askbrand'], ['time', '.askwho span'], ['notme', '.btn.quiet'], ['say', '.asksay']].map(([k, sel]) => [k, pick(sel) ? Math.round(w(pick(sel)) * 100) / 100 : 0])); }, WORST_CONTRAST);
+      chk(Object.values(contrast).every((r) => r >= 4.5), `${tag} the sheet's small text reads on the navy (4.5:1 against every stop of its gradient)`, JSON.stringify(contrast));
       const pc = sheets.find((x) => /windowsbox/.test(x.head)) || {};
       const ph = sheets.find((x) => /iPhone/.test(x.head)) || {};
       chk(pc.head === 'Your computer "windowsbox" wants to join' && pc.say === 'Allow it if you just signed it in, and it shows this code.',
@@ -137,7 +153,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-pc"]');
       await page.waitForFunction(() => /windowsbox is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
       const done = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
-      chk(/windowsbox is connected\. Your computers now trust each other\. You can remove it any time under Devices\./.test(done),
+      chk(/windowsbox is connected\. You can remove it any time under Devices\./.test(done) && !/trust each other/.test(done),
         `${tag} after Allow: "windowsbox is connected." and where to remove it`, done);
       chk(/iPhone wants to connect to your Kosmos/.test(done), `${tag} the other request is still waiting`, done);
       chk(await page.evaluate(() => !document.getElementById('plus-asks-title').hidden), `${tag} with a request still waiting, the heading shows`);

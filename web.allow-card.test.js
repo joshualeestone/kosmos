@@ -60,7 +60,6 @@ test('#3829 an unnamed request is "Unknown device", never the bare noun', () => 
 
 test('the change-your-password sentence appears on the Deny branch and the re-ask line, never on the plain ask', () => {
   const at = JS.indexOf("const say = d.joining_computer");
-  assert.ok(at > -1, 'the plain sentence moved; re-anchor');
   const plain = JS.slice(at, JS.indexOf(';', at));   // #4637: the plain ask spans two lines now (the computer variant)
   assert.ok(at > -1, 'the plain sentence moved; re-anchor');
   assert.doesNotMatch(plain, /password/, 'the plain ask carries the intruder sentence, which the wrong person reads every time');

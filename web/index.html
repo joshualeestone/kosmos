@@ -480,7 +480,6 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
              border-radius: 10px;
              background: linear-gradient(160deg,#1b2c50,#0f1d38); font-size: .875rem; color: #c3cde3; }
   .askcard h3 { font: 600 1rem var(--font-ui); color: #fff; margin: 0 0 4px; }
-  .askcard .asknote b { color: #fff; }
   .askbrand { font: 700 .72rem var(--font-ui); letter-spacing: .12em; text-transform: uppercase; color: #7ea0f0; margin: 0; }
   /* #718: the Allow card is a decision taken with a thumb, often on the phone being allowed. */
   @media (hover: none) { .askcard button { min-height: 44px; } }
@@ -493,7 +492,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   /* #3829: one compact card per request; older than an hour: faded. */
   /* #4637: one sheet per request, on the Kosmos+ navy: the brand, who wants in, the code large and once, one line,
      then Allow (Kosmos+ blue) and a quiet Not me. */
-  .askreq { display: grid; grid-template-columns: 40px 1fr auto; gap: 4px 14px; align-items: center;
+  .askreq { display: grid; gap: 4px 14px; align-items: center;
             padding: 16px 18px; margin-top: 8px; border: 1px solid #3a68d8; border-radius: 14px; max-width: 640px;
             background: linear-gradient(160deg,#1f3360,#132449); color: #c3cde3; }
   /* Named areas: the brand across the top, the icon beside who and when, then the line, the code and the buttons
@@ -4468,11 +4467,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      `--space-8` inset, and this view sets `padding: 0`. Measured, it
      rendered `left: 0; width: 1280` at a 1280px viewport, so its rounded
      corners sat flush against the window edges.
-     📌 The sibling in the same pre-rail run does NOT need this, and the
-     difference is the tell: `.askcard` carries `margin: 10px 24px 0`
-     itself, so it kept its inset when the padding went. Matching that
-     inset here rather than inventing one keeps the two cards, which
-     appear in the same place, agreeing about where the edge is. */
+     #4637: the Kosmos+ notice (#askcard) carries no side margin either now, so it takes the same inset
+     from this rule and the two cards agree about where the edge is. */
   html[data-layout="consolidated"] body.consolidated > #conn,
   html[data-layout="consolidated"] body.consolidated > #askcard { margin-left: var(--space-8); margin-right: var(--space-8); }
   html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 40; }
@@ -42601,7 +42597,7 @@ function paintAsk() {
   /* #4637 (Mona Lisa's review W1): "Waiting for you" only while something waits; a success line stands alone. A request
      whose Allow or Not me failed still waits (its sheet shows again, with the reason). */
   const answered = (id) => !!ASK.done[id] && (ASK.done[id].state === 'allowed' || ASK.done[id].state === 'denied');
-  { const t = document.getElementById('plus-asks-title'); if (t) t.hidden = !ASK.devices.some((d) => !answered(d.device_id)); }
+  { const t = document.getElementById('plus-asks-title'); if (t) t.hidden = !rows.some((d) => !answered(d.device_id)); }   // the rows the sheets are drawn from
   const hide = !anything || inPanel || (!onPlus && !live.length);
   card.hidden = hide;
   /* The Plus tab's needs-you dot marks a request waiting, in the nav's own grammar. */
@@ -42628,7 +42624,7 @@ function paintAsk() {
       /* #4637: the success state names it, and says where it can be removed later. */
       const who = d.joining_computer ? askEsc(d.joining_computer) : askEsc(kind);
       return '<div class="askrow done"><p class="askok">' + who + ' is connected.</p>' +
-        '<p>' + (d.joining_computer ? 'Your computers now trust each other.' : 'It opens Kosmos on its own in a moment.') + ' You can remove it any time under Devices.</p></div>';
+        '<p>' + (d.joining_computer ? '' : 'It opens Kosmos on its own in a moment. ') + 'You can remove it any time under Devices.</p></div>';
     }
     if (e && e.state === 'denied') {
       /* #3829 review: denying an OLD request (older than an hour, likely the person's own stale sign-in)
