@@ -143,6 +143,17 @@ function emptySpot(page, sel) {
             const r = e.getBoundingClientRect(); return { px: parseFloat(getComputedStyle(e).fontSize), h: Math.round(r.height) }; });
           chk(!!sort && sort.px >= 16, `${tag} #4662: the Sort dropdown is at least 16px, so focusing it does not zoom an iPhone`, JSON.stringify(sort));
           chk(!!sort && sort.h <= 40, `${tag} #4662: the Sort dropdown keeps its compact box`, JSON.stringify(sort));
+          // Every sort dropdown, including the one-screen layout's (built by the same function, so one is made here
+          // to measure): the first version of this fix covered #agent-sort alone and missed #agent-sort-cons.
+          const sorts = await page.evaluate(() => {
+            const made = typeof agentSortControlHtml === 'function' ? document.createElement('div') : null;
+            if (made) { made.innerHTML = agentSortControlHtml('agent-sort-probe'); document.body.appendChild(made); }
+            const out = [...document.querySelectorAll('.sortctl select')].map((e) => ({ id: e.id, px: parseFloat(getComputedStyle(e).fontSize) }));
+            if (made) made.remove();
+            return out;
+          });
+          chk(sorts.length >= 2 && sorts.some((x) => x.id === 'agent-sort-probe') && sorts.every((x) => x.px >= 16),
+            `${tag} #4662: every sort dropdown (one-screen layout's too) is at least 16px`, JSON.stringify(sorts));
           for (const [layout, sel, what] of [['grid', '#grid .acard[data-agent="ada"]', 'card'], ['list', '#alist .lrow[data-agent="ada"]', 'row']]) {
             await home(page, URL, layout);
             const pageW = await page.evaluate(() => document.documentElement.scrollWidth);

@@ -12,15 +12,17 @@ project page's fields are already 16px on a touchscreen (#718's one field rule);
 mobile-shots' field audit flagged it on home, agents-list and nav-menu at 375 and 393.
 
 ## Decisions
-- `@media (hover: none) { #agent-sort { font-size: 16px; line-height: 1.2; } }`, next to .sortctl's own rules.
+- `@media (hover: none) { .sortctl select { font-size: 16px; line-height: 1.2; } }`, next to .sortctl's own rules.
   Touchscreen-only, the same condition the project page's field rule uses, so a desktop is untouched.
-- Only #agent-sort: the Projects sort is already inside the project page's rule, and no other field on the
-  Agents board was flagged.
-- Rejected: raising .sortctl select to 16px everywhere (it would grow the desktop control bar for no reason).
+- Every .sortctl select, not #agent-sort alone: the one-screen layout builds its own sorts (#agent-sort-cons via
+  agentSortControlHtml, and #pj-full-sort outside the project page's field rule), and an id-only rule missed both
+  (review round 1).
+- Rejected: raising .sortctl select to 16px on every device (it would grow the desktop control bar for no reason).
 
 ## Weakest premise
-That (hover: none) catches every phone. It is the rule the project page already relies on.
+That every sort dropdown is a .sortctl select. The check sweeps them, and builds the one-screen layout's the way that
+layout does, so a new sort built another way would still need adding to the sweep.
 
 ## Checks
-- render-home-phone-718: two arms per phone size (at least 16px; box at most 40px, measured 32) and a desktop CONTROL
+- render-home-phone-718: three arms per phone size (every .sortctl select, including one built by agentSortControlHtml, at least 16px); (at least 16px; box at most 40px, measured 32) and a desktop CONTROL
   (still under 16px). Red on origin/main (13px), green here, Chromium and WebKit at 375, 393, 412 and 430.
