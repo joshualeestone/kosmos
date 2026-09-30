@@ -44,6 +44,8 @@ const ANSWERS = {
   // Slice 5: task add and task close. Each CLI arm reads the board's own {"task":...} shape as success.
   '/api/project/p4491/tasks': { task: { number: 1, sentence: 'write the docs' } },
   '/api/project/p4491/task/1/close': { task: { number: 1, state: 'closed' } },
+  // Slice 5b: project create.
+  '/api/projects': { project: { id: 'my-project' }, told: [], id: 'my-project', agentsUnreadable: false },
 };
 
 /* Slice 4: the reads. The room is answered as text (its `?as=text` arm), the others as the JSON each verb parses. */
@@ -93,8 +95,10 @@ const VERBS = [
   // Slice 5, the two task writes.
   ['/api/project/p4491/tasks', ['task', 'add', 'p4491', 'write the docs']],
   ['/api/project/p4491/task/1/close', ['task', 'close', 'p4491', '1']],
+  // Slice 5b: the maker of a project is named by its token.
+  ['/api/projects', ['project', 'create', 'My Project', '/tmp/kosmos-4491-no-such-folder']],
 ];
-const verbName = (args) => args.slice(0, args[0] === 'task' || args[0] === 'agent' ? 2 : 1).join(' ');
+const verbName = (args) => args.slice(0, args[0] === 'task' || args[0] === 'agent' || args[0] === 'project' ? 2 : 1).join(' ');
 
 // Async execFile, never execFileSync: a synchronous child blocks the event loop the stub answers on.
 // The exit code itself is not asserted (the headers the stub saw are), but a run that ended with no

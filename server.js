@@ -3996,17 +3996,16 @@ function processCaller(req, body, roster, viaScreen, notDone) {
    [status, sentence] to refuse with, or null. An unreadable projects list refuses (503): a member that cannot be
    checked is not let through. A project nobody stored is left to the handler's own 404.
    ONE exception: a project a PROCESS made that lists nobody (`made.via === 'process'`, `agents: []`). That is
-   what `kosmos project create` makes (it lists nobody, not even its maker, whose name goes in the record of who
-   made it and not on the member list; run by an agent or by the person in a terminal, the record is the same), and every agent's working rules say "once it exists you ... hand it work
-   the same way as any other project" (engine/defaults.js, "Making a project"): refusing the maker its own new
-   project would break the one workflow the product prescribes. A task there can have no assignee (an assignee
+   what `kosmos project create` made before slice 5b put an identified maker on its project, and still makes for
+   a caller nobody can name (the person in a terminal outside tmux). Every agent's working rules say "once it
+   exists you ... hand it work the same way as any other project" (engine/defaults.js, "Making a project"), so
+   the projects agents made before 5b keep taking their tasks. A task there can have no assignee (an assignee
    must be a member). A project made ON THE PAGE is not that, with nobody ticked or emptied later: nobody
    identified writes in it until someone is on it. An `agents` that is not an array is not "no members".
    ⚠️ What it cannot tell apart: a process-made project that was staffed and then emptied again looks the same in
    the store (removing a member keeps `made`), so it is open too. Accepted: nobody is on it to be spoken for.
    `made` is an advisory record (engine/projects.js says so), used here only to keep something working, never to
-   let a caller into a project that has members. This exception is a bridge: once project create puts its maker
-   on the project (#4491's next slice), it has no reason to exist. */
+   let a caller into a project that has members. */
 function notOnProjectRefusal(who, id, verb, notDone) {
   if (!who || !who.card) return null;
   let stored;
@@ -15846,9 +15845,13 @@ const server = http.createServer(async (req, res) => {
            write already trusts. An agent runs as the operator; this is for
            telling things apart. */
         const viaScreen = isViaScreen(req, body);
-        const paneCard = !viaScreen && typeof body.from_pane === 'string'
-          ? (Array.isArray(roster) ? roster.find((c) => c && c.target === body.from_pane) : null)
-          : null;
+        /* #4491 slice 5b: the maker is named as the task verbs name a caller (the agent token, else the pane as a
+           roster target or through resolveSender; a token that does not resolve is refused, never swapped for
+           the pane). Before, only a pane that was exactly a roster target was named, which the CLI's %N never
+           is, so a project an agent made recorded no maker. */
+        const who = processCaller(req, body, roster, viaScreen, 'the project was not made');
+        if (who.refusal) { sendJson(res, who.refusal[0], { error: who.refusal[1] }); return; }
+        const paneCard = who.card;
         /* The runaway breaker (#327 q2, #3959): a looping process can create projects
            as fast as it can curl. Only a loop is stopped; see agentRunawayRefusal.
            The SCREEN is never valved. */
@@ -15860,7 +15863,13 @@ const server = http.createServer(async (req, res) => {
             sendJson(res, 429, { error: refusal.because, retry_after_secs: refusal.retryAfterSecs }); return;
           }
         }
-        const made = projects.create({ name: body.name, folder: body.folder, agents: body.agents, roster, description: body.description, done: body.done,
+        /* Slice 5b: an agent that makes a project is ON it. Its working rules promise exactly that ("it exists on
+           the board with your name on it ... you post to it and hand it work the same way as any other project",
+           engine/defaults.js), and until now the project listed nobody, so its own maker could not post in its
+           room. Added to whatever members the request names; the page's request is never touched (no maker). */
+        const makerName = paneCard && typeof paneCard.sessionName === 'string' && paneCard.sessionName ? paneCard.sessionName : null;
+        const members = makerName ? [...(Array.isArray(body.agents) ? body.agents : []), makerName] : body.agents;
+        const made = projects.create({ name: body.name, folder: body.folder, agents: members, roster, description: body.description, done: body.done,
           // #2458: the parent chosen on the create page (blank/absent = top-level).
           // The engine validates it through the same cleanParent the edit route
           // uses (a missing parent or a non-string is refused), so a bad parent is
