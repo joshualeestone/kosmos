@@ -46696,6 +46696,7 @@ async function openTeamCreate(key) {
 /* #4719: whether the person has chosen on the team's Model menu (a late account list or a changed Muse
    answer may then set the default again only while they have not). */
 let TC_PROVIDER_TOUCHED = false;
+let TC_PROVIDER_START = '';
 /* The team menu's default and its fallback from an option that is not usable here: OpenAI when it is the
    one usable provider (createPickGone's rule), else Claude. */
 function tcProviderDefault() {
@@ -46705,11 +46706,19 @@ function tcProviderDefault() {
 }
 /* After any repaint of the team menu: a selected option that is not usable here goes back to the default
    (and the accounts follow), unless the team has started (its choice is fixed, TC.model). */
+let TC_SETTLING = false;
 function tcProviderSettle() {
   const sel = document.getElementById('tc-provider');
-  if (!sel || (TC && (TC.started || TC.busy))) return;
+  const step = document.getElementById('cstep-team');
+  /* Only a team step that is open and filled: the Muse answer that calls this comes on every create-form
+     paint, and an empty or unopened team menu is not a choice to correct (review round 4: treating it as
+     one refilled it, which asked Muse again, which settled again, forever). */
+  if (!sel || !sel.options.length || !step || step.hidden || !TC || TC.started || TC.busy || TC_SETTLING) return;
   const cur = sel.options[sel.selectedIndex];
-  if (!cur || cur.disabled) { sel.value = tcProviderDefault(); fillCreateAccounts(TC_PICKER); }
+  if (!cur || cur.disabled) {
+    TC_SETTLING = true;   // fillCreateAccounts asks Muse again; its answer must not re-enter here
+    try { sel.value = tcProviderDefault(); fillCreateAccounts(TC_PICKER); } finally { TC_SETTLING = false; }
+  }
 }
 async function tcFillProvider(gen) {
   const from = document.getElementById('create-provider');
@@ -46736,6 +46745,8 @@ async function tcFillProvider(gen) {
     if (!inTime) {
       read.then(() => {
         if (stale() || TC_PROVIDER_TOUCHED || !TC || TC.started || TC.busy) return;
+        // Only the default the step started on is replaced; a choice copied from the form stays.
+        if (sel.value !== TC_PROVIDER_START) return;
         sel.value = tcProviderDefault();
         fillCreateAccounts(TC_PICKER);
         tcProviderSettle();
@@ -46754,10 +46765,13 @@ async function tcFillProvider(gen) {
     delete opt.dataset.swarmGated; delete opt.dataset.swarmWasOff; delete opt.dataset.swarmWasText;
   }
   sel.value = from.dataset.swarmWasValue || from.value;
+  const copied = sel.value;
   if (sel.value === 'anthropic') sel.value = tcProviderDefault();
   fillCreateAccounts(TC_PICKER);
   // After the paint, which is what decides which options are usable here.
   tcProviderSettle();
+  // What a late account list may replace: the plain default, never a choice copied from the form.
+  TC_PROVIDER_START = copied === 'anthropic' ? sel.value : '\u0000';
 }
 document.getElementById('tc-provider').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; fillCreateAccounts(TC_PICKER); });
 
