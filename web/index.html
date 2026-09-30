@@ -53474,8 +53474,8 @@ function tkActPhrase(ev, p) {
     case 'part-reopened': return 'A part put back';
     case 'due-set': return ev.dueDate ? 'Due date set to ' + ev.dueDate : 'Due date set';
     case 'due-cleared': return 'Due date cleared';
-    case 'hold-set': return 'Put on hold';
-    case 'hold-cleared': return 'Taken off hold';
+    case 'hold-set': return ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold';
+    case 'hold-cleared': return ev.via === 'agent' ? 'Taken off hold by an agent' : 'Taken off hold';
     // #3861: a task put under another task on its project, or taken out from under one.
     case 'parent-set': return ev.parent ? 'Put under task ' + ev.parent : 'Put under another task';
     case 'parent-cleared': return 'Taken out from under its task';

@@ -102,6 +102,7 @@ function chk(ok, label, extra) {
       chk(await text(page, '#tk-hold') === 'Take off hold', `${tag} pressing it puts the task on hold; the button then offers Take off hold`, await text(page, '#tk-hold'));
       await page.waitForFunction(() => /Put on hold/.test(document.getElementById('tk-activity').textContent), null, { timeout: 5000 }).catch(() => {});
       chk(/Put on hold/.test(await text(page, '#tk-activity') || ''), `${tag} the task's activity says Put on hold`);
+      chk(!/by an agent/.test(await text(page, '#tk-activity') || ''), `${tag} the person's own hold is not credited to an agent`, await text(page, '#tk-activity'));
 
       chk(await heldCount(page, '1') === '1', `${tag} the On hold tile counts the held task`, await text(page, '#tsk-tiles [data-tile="held"] .num'));
       const held1 = await heldRows(page);

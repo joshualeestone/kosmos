@@ -476,6 +476,24 @@ test('#4771 task hold / unhold: POST .../task/<n>/hold with {onHold} and the boa
   const refused = await run(['task', 'hold', 'p1', '9'], () => ({ status: 404, body: { error: 'there is no task by that number on this project' } }));
   assert.equal(refused.code, 1);
   assert.match(refused.err, /no task by that number/);
+  // The list marks held work, from the task's own hold or its paused project; a plain task is the control.
+  const list = await run(['task', 'list', 'p1'], () => ({ body: { tasks: [
+    { number: 1, sentence: 'held itself', onHold: true },
+    { number: 2, sentence: 'in a paused project', projectPaused: true },
+    { number: 3, sentence: 'real work' },
+    { number: 4, sentence: 'finished while held', onHold: true, isClosed: true },
+  ] } }));
+  assert.equal(list.code, 0, list.err);
+  const lines = list.out.split('\n');
+  assert.ok(lines.includes('[1] [on hold] held itself'), list.out);
+  assert.ok(lines.includes('[2] [on hold] in a paused project'), list.out);
+  assert.ok(lines.includes('[3] real work'), 'control: a task not held is marked: ' + list.out);
+  assert.ok(lines.includes('[4] [done] finished while held'), list.out);
+  // Help: --clear stays under task built, where it belongs.
+  const help = await run(['task']);
+  const h = help.err.split('\n');
+  const at = h.findIndex((l) => /kosmos task built /.test(l));
+  assert.ok(at >= 0 && /--clear/.test(h[at + 1]), help.err);
 });
 
 test('room reopen: POST .../room/reopen with no body and no agent token; 2xx -> 0, 404 -> 1, other -> 1 with the board\'s because', async () => {

@@ -16876,7 +16876,7 @@ const server = http.createServer(async (req, res) => {
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
       try {
-        const t = tasks.setOnHold(id, taskHold[2], body.onHold);
+        const t = tasks.setOnHold(id, taskHold[2], body.onHold, { viaScreen: isViaScreen(req, body) });
         sendJson(res, 200, { task: t });
       } catch (err) {
         const msg = String((err && err.message) || '');

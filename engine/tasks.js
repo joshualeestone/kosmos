@@ -705,9 +705,9 @@ function isOnHold(t) {
 
 /**
  * #4771: put a task on hold, or take it off. Stored as `onHold: true` (absent when off, so every task written before
- * this reads as not held) and recorded in the task's activity, the same no-op discipline as setDue.
+ * this reads as not held) and recorded in the task's activity with who did it, the same no-op discipline as setDue.
  */
-function setOnHold(projectId, n, onHold) {
+function setOnHold(projectId, n, onHold, { viaScreen = false } = {}) {
   if (typeof onHold !== 'boolean') throw new Error('onHold must be true or false');
   let changed;
   let didChange = false;
@@ -722,7 +722,8 @@ function setOnHold(projectId, n, onHold) {
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
     };
   });
-  if (didChange) taskchat.record(projectId, changed.number, { kind: onHold ? 'hold-set' : 'hold-cleared' });
+  // via: whether the person did it on the screen or a process (an agent) did, so an agent's hold never reads as the person's.
+  if (didChange) taskchat.record(projectId, changed.number, { kind: onHold ? 'hold-set' : 'hold-cleared', via: viaScreen === true ? 'screen' : 'agent' });
   return changed;
 }
 

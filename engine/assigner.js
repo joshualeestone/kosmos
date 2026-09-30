@@ -92,7 +92,7 @@ function liveProjects(records) {
 function hasOpenWork(session, projects) {
   for (const p of projects) {
     /* #4771: held work (a task on hold, or a paused project) does not keep an agent busy, so the agent can be given
-       real work; it stays on the agent's list. The same rule as agentnudge.openParts. */
+       real work; it stays on the agent's list. */
     if (require('./projects').isPaused(p)) continue;
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (tasks.isOnHold(t)) continue;

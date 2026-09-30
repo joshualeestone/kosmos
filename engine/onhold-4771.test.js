@@ -120,6 +120,11 @@ test('#4771 the states are stored, shown and recorded: task on hold, project pau
     assert.notEqual(tasks.taskState(row()), 'held', 'control: off hold, the task still reads held');
     const kinds = taskchat.read(w.pid, w.n).map((e) => e.kind).filter((k) => /^hold-/.test(k));
     assert.deepEqual(kinds, ['hold-set', 'hold-cleared'], 'the activity did not record exactly one hold and one release');
+    const vias = () => taskchat.read(w.pid, w.n).filter((e) => /^hold-/.test(e.kind)).map((e) => e.via);
+    assert.deepEqual(vias(), ['agent', 'agent'], 'a hold not made on the screen did not record it as an agent\'s');
+    tasks.setOnHold(w.pid, w.n, true, { viaScreen: true });
+    tasks.setOnHold(w.pid, w.n, false, { viaScreen: true });
+    assert.deepEqual(vias().slice(2), ['screen', 'screen'], 'the person\'s hold on the screen was not recorded as theirs');
 
     assert.throws(() => projects.setPaused(w.pid, 'yes'), /paused must be true or false/);
     projects.setPaused(w.pid, true);

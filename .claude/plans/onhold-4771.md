@@ -24,6 +24,12 @@ agents onto tasks the person had put on hold and into a project the person had p
   Rejected: counting held tasks as busy, which would leave that agent idle for as long as the person keeps it parked.
 - A held task still counts as open work for the project's goal ask (the project is not empty; the person parked the
   task, so the goal is not put to an agent). A paused project is not asked about at all.
+- Holding is NOT a person-only act: an agent may hold a task through the CLI (the user's lead agent was doing this by
+  hand with labels). The task's activity records who did it: the person on the screen, or an agent ("Put on hold by an
+  agent"), from the same screen-or-process test the built mark uses. Rejected: refusing agents, which removes the one
+  tool a lead agent asked for. Also rejected: naming the agent, which needs the built route's token and pane
+  resolution; a follow-up if people want the name.
+- `kosmos task list` marks held work "[on hold]" (the task's own hold or its paused project), so an agent can see it.
 - The On hold tile sits after Josh's five open groups and before Completed; his order is otherwise unchanged.
 - Its colour is --k-ink-2, Unassigned's neutral: both mean nothing is moving, and the label and icon tell them apart.
 - A paused project holds every task in it on the Tasks view (they count under On hold), and resuming brings them
