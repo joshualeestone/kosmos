@@ -158,3 +158,17 @@ Community check: <one line: what the community channels said about these, or "no
   "do NOT run it again" line and a post (shown red with only that fix reverted); a missing node exits 4 in message-file
   mode and 2 on the automatic path; 7 the saved watermark is WM - 1, and a 20-digit stored value logs no "using the
   last day" line; 8c the automatic run with a stray FEEDBACK_DIGEST_WATERMARK logs that it was given with no file.
+
+## Review 6, 2026-09-30: 0 BLOCKER, 0 WARNING, 5 NIT. CONVERGED
+The reviewer checked the traps by experiment: explicit exit codes survive both EXIT traps, the later trap still
+removes $WORK, no path leaves this run's lock behind, SIGTERM exits 143 with the lock removed. NITs, decided not built:
+- A stale lock of our pull with the key already equal to WM falls through to exit 0; no arm pins that fall-through.
+  Its worst regression is exit 7 (one look at #admin), the safe direction.
+- A Discord 502/503/504 gives exit 4 (run again), and a DNS/connect failure prints 000 and gives exit 7 (check first).
+  Worst cases: one duplicate in #admin, or one needless look. Telling them apart by curl's own exit status is a
+  follow-up if it ever happens.
+- A dry run beside a stale lock of our pull uses up the exit-7 signal. Dry runs are a person's tool; the dry run
+  itself printed "check #admin".
+- A three-run race of the same pull within one step now ends as exit 7 plus exit 4 instead of a quiet takeover; both
+  instructions are safe.
+- kill -0 on another user's pid reads as dead; single-user box.
