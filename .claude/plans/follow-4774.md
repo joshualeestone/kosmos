@@ -112,3 +112,15 @@ is simply sent (the service's own answer stays right).
 ### Weakest premise
 That 5 s (the default per-request timeout) is also the most one request takes. readCapped reads the body under the
 same abort signal, so a slow body is cut at the timeout too; a sender that ignores the signal would break this.
+
+## Review round 3, 2026-09-30: 0 BLOCKER, 0 WARNING, 6 NIT. CONVERGED
+The reviewer checked every sweep answer against its cap (the largest, /agents/me/posts, is about 2.5 MB at worst,
+under 4 MiB), the budget against re-login and registration retries, and the sweep's new wait in the queue (bounded:
+each agent call ends 25 s after it was queued). NITs, decided not built:
+- A disk error while saving keys reads as "could not be reached" (502). Rare; the board log names the write failure.
+- The switch and https checks run after the queue wait, so a follow during a slow sweep with the switch off can say
+  "busy" rather than "switched off". The next try says "switched off".
+- readCapped keeps a leading BOM that res.json() would strip. Not live with FastAPI.
+- A service 429 on the follow reads as unreadable. The board's own cap (20 an hour) is far below the service's.
+- A timed-out registration can create a second identity: pre-existing in the sweep; follow-up card #4800.
+- The cap comment says characters where it means UTF-16 units. Cosmetic.
