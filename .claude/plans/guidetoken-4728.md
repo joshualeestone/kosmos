@@ -26,20 +26,24 @@ So, for the `kosmos` command's read of `board.token` in the data folder:
 | Codex, Gemini, Grok | no | read from code, not measured: the settings file IS written for every guide (`create.js` calls `guardGuideFolder` for the `setup` role with no provider check), but only Claude Code reads it. |
 
 **This is narrower than "the Mac guide cannot get the board token"** (review round 1). The deny rules name
-the data folder only. Two other places can hold the same token and are not named: the older data folder
+the data folder only. Other places can hold a board token and are not named: the older data folder
 (`boardauth.legacyTokenPath`; boardauth.js records that a box which ran the old mirror may still hold a valid
-token there), and a browser's copy of the board's cookie (`boardauth.cookieHeader`, 400 days). Neither was
-measured. So the comments no longer call the Mac guide's state a boundary at all: they state the one measured
+token there), a browser's copy of the board's cookie (`boardauth.cookieHeader`, 400 days), and, review round 3,
+another Kosmos world's `board.token` (a world's guide denies its own `store.ROOT`; `boardTokenOk` in server.js
+accepts any of the account's world tokens at the main gate, though not on the team create path). None was
+measured. The source comment does not list them (a list in a comment is what goes stale); the card does. So the comments no longer call the Mac guide's state a boundary at all: they state the one measured
 refusal and what the rules do not cover. Both go on the card as part of the open gap.
 
 The sentence that is false on main is in `engine/setup-assistant.js` above `guideDenyRules` ("the `kosmos`
 command it runs reads the board token as its own process", with nothing about the sandbox): it predates the
-sandbox added in #3769's review, and the same file says the opposite 60 lines lower. The same comment's "a
+sandbox added in #3769's review, and the same file says the opposite lower down, in `guardGuideFolder`. The same comment's "a
 Codex, Gemini or Grok guide has no such file" is also not what the code does, and is corrected.
 
 ## The change (comments only, no behaviour)
 - `engine/setup-assistant.js`: replace the stale sentence with the three rows (each marked measured or not),
-  what the rules do not name, and the corrected "Claude only" line.
+  a pointer to the card for what the rules leave out, and the corrected "Claude only" line.
+- `engine/roles.js` and `engine/roles.test.js` (review round 3): "sandboxed away from the person's secrets"
+  described every guide; now "kept away from the person's secrets (#3769)", which is true of every guide.
 - `engine/team.js`, above `vetAgentMember`: the guide rule is a cooperative guard; the one measured exception
   (the Mac Claude guide cannot read the data folder) is named, not called a boundary. Points at that comment.
 - `install/kosmos`, the reply verb (#3769), and the header of `cli.reply-token-3769.test.js`: the same scope.
@@ -60,7 +64,7 @@ Codex, Gemini or Grok guide has no such file" is also not what the code does, an
 - **Weakest premise:** that Claude Code turns a Read deny rule into an operating-system deny inside its
   sandbox on every version people run. True on 2.1.285.
 - **Not measured:** the `dangerouslyDisableSandbox` retry (the nested session declined to try; #3769 records
-  it), the real `kosmos` command in a real guide session, and the two "yes" rows (read from code).
+  it), the real `kosmos` command in a real guide session, and the two "not refused" rows (read from code).
 
 ## Tests
 Comment-only. Ran the non-server tests for the touched files (team, team.newrole-4474, setup-assistant.*,

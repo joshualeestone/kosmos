@@ -121,11 +121,11 @@ const RULES_HEADING = defaults.RULES_PHRASE;   // the one phrase appendTo keys o
 /**
  * #4474 (Josh, on #1279: "if the type of agent they need created isn't there, they can create it from scratch"):
  * what an AGENT may ask create for, member by member. The operator path is not vetted here (it is the person).
- * ⚠️ WHAT KIND OF BOUNDARY THIS IS: a cooperative guard. A caller that presents the board token reaches the
- * unvetted operator path (as the per-creator cap in server.js says of itself), and an agent's commands can read
- * that token. The one measured exception is a Claude setup guide on macOS, whose sandbox refuses reads of
- * Kosmos's data folder (#4728; the comment above guideDenyRules in setup-assistant.js says what that covers
- * and what it does not). It keeps a cooperating agent inside the lines.
+ * ⚠️ WHAT KIND OF BOUNDARY THIS IS: a cooperative guard. An agent that can read the board token can call the
+ * route without its own token, which is the unvetted operator path (as the per-creator cap in server.js says of
+ * itself). #4728 measured one agent whose commands are refused that token's folder, a Claude setup guide on
+ * macOS; the comment above guideDenyRules in setup-assistant.js has the rows. The vetting keeps a cooperating
+ * agent inside the lines.
  *   - Only the fields an agent's request has any use for (AGENT_MEMBER_KEYS): never a runner binary, a config
  *     folder or a launch flag, which would let an agent choose what the new agent's launch job runs (and let the
  *     setup guide, where it is sandboxed, step outside its sandbox, #3769). Other fields are dropped.

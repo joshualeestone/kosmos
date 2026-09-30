@@ -210,8 +210,8 @@ function markGuideFolder(agentName) {
  *     a Claude guide on macOS          refused, by the sandbox guardGuideFolder adds (measured)
  *     a Claude guide anywhere else     not refused: no sandbox is written there (from the code below)
  *     a Codex, Gemini or Grok guide    not refused: its runner does not read this file (not measured)
- *   Even in the first row only the data folder is refused: these rules do not name the older folder
- *   boardauth.legacyTokenPath names, or a browser's copy of the board's cookie.
+ *   Even in the first row the refusal reaches only the paths these rules name. #4728 lists the places
+ *   a board token can sit outside them.
  */
 /* The same home accounts.js and create.js use (a named world or a test sets it). */
 function kosmosHome() { return process.env.AGENT_WORKFORCE_HOME || require('os').homedir(); }

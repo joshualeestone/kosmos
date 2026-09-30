@@ -1555,7 +1555,7 @@ cmd_reply() {
   local _bt; _bt="$(board_token || true)"
   # #3769: the agent's own token too, as `whoami` and `report` present it (hex only). A Claude setup
   # guide on a Mac runs sandboxed with Kosmos's data folder denied, so this command cannot read the
-  # board token there (#4728: only there; any other guide can); its agent token is what keeps its
+  # board token there (#4728 measured that case only); its agent token is what keeps its
   # reply on an enforcing board. Omitted when empty, as before.
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in
