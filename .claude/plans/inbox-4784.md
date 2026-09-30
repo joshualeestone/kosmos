@@ -111,3 +111,9 @@ Focused: 36 of 36 (the four #4784 files).
   Date.parse accepts, newline included). The row prints a time only in the board's ISO shape, else none.
   Test with the reviewer's own string (control: an ISO time still prints); perturbation reds it.
 Focused: server.inbox-4784 9 of 9.
+
+## Review 8 (sonnet, blind, on 183876eeb), 17:50 CDT: CONVERGED (no BLOCKER or WARNING), 2 NITs, not taken
+- Invisible format characters (U+2060-2064, U+FEFF, tag characters) are kept: they cannot move a row, and the text
+  is the person's own, which is the side this verb trusts. Hiding text from the person in their own message is not
+  a threat model this card covers.
+- A name holding "; " reads as two inside one marker: it stays before the colon, so it cannot forge a row.
