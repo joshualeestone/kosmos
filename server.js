@@ -13047,9 +13047,11 @@ const server = http.createServer(async (req, res) => {
           because: said(body.text),
           waiting: body.waiting,   // #4569 fix 4: selfreport keeps it only on a sane working report
           /* #4612: a Muse turn's answer; selfreport keeps it only on a sane idle or working report. #4733: its text
-             is the guide's words too, so it is masked like the fields below (anything else is dropped there). */
+             is the guide's words too, so it is masked like the fields below (anything else is dropped there),
+             after the store's own cleaning: masked first, a key split by a control character would pass, and
+             the cleaning would join it back. */
           final: body.final && typeof body.final === 'object' && typeof body.final.text === 'string'
-            ? { ...body.final, text: said(body.final.text) } : body.final,
+            ? { ...body.final, text: said(selfreport.finalTextClean(body.final.text)) } : body.final,
           on: said(body.on),
           owner: said(body.owner),
           until: said(body.until),
@@ -14024,7 +14026,8 @@ const server = http.createServer(async (req, res) => {
         const heard = Date.parse(owes.lastHeardAt || '');
         // Any latest state: the turn that answered is over, and a room turn running now does not unsay it (round 3).
         if (rep && rep.found && rep.final && Number.isFinite(heard) && Date.parse(rep.final.startedAt) >= heard) {
-          owes.unsent = { text: rep.final.text };
+          // #4733: the guide's stored answer is masked as read too (one stored before the write-side mask existed).
+          owes.unsent = { text: guideMasked(name, rep.final.text) };
         }
       } catch { /* no report: the line stays "Nothing back yet" */ }
     }

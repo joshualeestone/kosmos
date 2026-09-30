@@ -164,6 +164,37 @@ test('#4733 the guide\'s turn answer (#4612 final) is recorded masked; another a
   assert.equal(selfreport.read(OTHER).final.text, body.final.text, 'CONTROL: another agent\'s answer was changed');
 });
 
+test('#4733 a key in the guide\'s turn answer split by a control character is still masked (the store removes it)', async () => {
+  const split = KEY.slice(0, 20) + '\u0007' + KEY.slice(20);
+  assert.ok(require('./engine/secretmask').mask(split).text.includes(KEY.slice(20)), 'premise: masked before the store cleans it, part of the split key stays in the clear');
+  const g = await post('/api/report', { state: 'idle', final: { text: `It is ${split}`, startedAt: new Date().toISOString() } }, GUIDE);
+  assert.equal(g.json.recorded, true, JSON.stringify(g.json));
+  const gr = selfreport.read(GUIDE);
+  assert.equal(gr.final.text, `It is ${MASK}`);
+  assert.ok(!JSON.stringify(gr).includes(KEY), 'the store joined the split key back, unmasked: ' + JSON.stringify(gr));
+});
+
+test('#4733 the guide\'s stored turn answer is masked as read on its thread (one stored before the write-side mask)', async () => {
+  const create = require('./engine/create');
+  const answer = async (who) => (await (await fetch(`${base}/api/agent/${who}/thread`)).json()).owes;
+  const heard = Date.now() - 5 * 60000;
+  for (const who of [GUIDE, OTHER]) {
+    fs.mkdirSync(create.workerDir(who), { recursive: true });
+    fs.writeFileSync(path.join(create.workerDir(who), 'CLAUDE.md'), `# ${who}\n`);
+    chat.appendMessage(chat.DIRECT, who, { text: 'hello', at: new Date(heard).toISOString(), delivery: { state: chat.DELIVERY.PLACED } });
+    // Straight into the store, as a build without the write-side mask would have kept it.
+    selfreport.record(who, { state: 'idle', auto: true, final: { text: `Your key is ${KEY}`, startedAt: new Date(heard + 1000).toISOString() } });
+  }
+  const g = await answer(GUIDE);
+  assert.ok(g && g.unsent, 'premise: the guide owes the DM and its answer is shown: ' + JSON.stringify(g));
+  assert.equal(g.unsent.text, `Your key is ${MASK}`);
+  const o = await answer(OTHER);
+  assert.equal(o.unsent && o.unsent.text, `Your key is ${KEY}`, 'CONTROL: another agent\'s answer was changed');
+  // A started report ends the carried answer, so the unmasked one stored here reaches no later test.
+  for (const who of [GUIDE, OTHER]) selfreport.record(who, { state: 'started' });
+  assert.equal(selfreport.read(GUIDE).final, null, 'cleanup: the stored answer is still carried');
+});
+
 test('#4733 a report field that is not a string is made text and masked for the guide (the store would make text of it unmasked)', async () => {
   const body = { state: 'needs_you', text: [`the key is ${KEY}`], on: [KEY], owner: [`holder ${KEY}`], until: [`after ${KEY}`], project: [KEY] };
 
