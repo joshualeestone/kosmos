@@ -263,10 +263,15 @@ function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase
     if (base && !same(base, dataRoot)) {
       more.push(`Read(${abs(path.join(base, require('./boardauth').TOKEN_FILE))})`);   // the default world's token
       const worldsDir = path.join(base, require('./worlds').WORLDS_SUBDIR);
-      for (const leaf of [store.APP, store.LEGACY_APP]) more.push(`Read(${abs(worldsDir)}/*/${leaf}/**)`);   // every named world's store
+      // every named world's store. On Windows this joins `/` onto a `\` path, as the data folder rule always has; not measured there.
+      for (const leaf of [store.APP, store.LEGACY_APP]) more.push(`Read(${abs(worldsDir)}/*/${leaf}/**)`);
     }
     rules.push(...more);
-  } catch { /* the rules above still stand: a guide is never left with none because these could not be worked out */ }
+  } catch (err) {
+    /* The rules above still stand: a guide is never left with none because these could not be worked out. Said,
+       so a guide written without them can be told apart from one written with them. */
+    process.stderr.write(`#4752: the setup guide's rules for the older data folder and the other worlds were left out: ${(err && err.message) || err}\n`);
+  }
   return rules;
 }
 /* #4752: the worlds' base (the default world's data folder), as it was before any world was applied to this

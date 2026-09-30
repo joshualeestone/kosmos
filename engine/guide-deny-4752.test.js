@@ -7,7 +7,8 @@
  *
  * The rules as strings are proven here. That a Mac's sandbox refuses a command's read under each rule
  * shape (one file, a folder, a `*` in the middle of the path) and still lets the guide read its own
- * folder under the base was measured once by hand, 2026-09-30, and is recorded on the card.
+ * folder under the base was measured once by hand, 2026-09-30: the table is in
+ * .claude/plans/guidedeny-4752-20260930.md and on #4752.
  *
  *   node --test engine/guide-deny-4752.test.js
  */
@@ -95,8 +96,8 @@ test('#4752 a process that has entered a named world (as a guide\'s board does) 
   assert.notEqual(out.root, out.base, 'CONTROL: the child is not in a named world, so this arm proves nothing');
   assert.ok(out.root.startsWith(path.join(out.base, 'worlds', 'beta') + path.sep), 'CONTROL: the world\'s store is not under the base: ' + out.root);
   assert.ok(out.rules.includes(`Read(${abs(out.root)}/**)`), 'the world\'s own store is not denied');
-  assert.ok(out.rules.includes(`Read(${abs(path.join(out.base, 'board.token'))})`), 'the default world\'s token is not denied');
-  assert.ok(out.rules.includes(`Read(${abs(path.join(out.base, 'worlds'))}/*/${store.APP}/**)`), 'the other worlds\' stores are not denied');
+  assert.ok(out.rules.includes(`Read(${abs(path.join(out.base, require('./boardauth').TOKEN_FILE))})`), 'the default world\'s token is not denied');
+  assert.ok(out.rules.includes(`Read(${abs(path.join(out.base, require('./worlds').WORLDS_SUBDIR))}/*/${store.APP}/**)`), 'the other worlds\' stores are not denied');
   assert.ok(!out.rules.includes(`Read(${abs(out.base)}/**)`), 'the base is denied whole, which cuts the guide off from its own folder');
 });
 
@@ -104,11 +105,16 @@ test('#4752 when the extra folders cannot be worked out, the rules that were the
   const worlds = require('./worlds');
   const was = Object.getOwnPropertyDescriptor(worlds, 'WORLDS_SUBDIR');
   Object.defineProperty(worlds, 'WORLDS_SUBDIR', { configurable: true, get() { throw new Error('cannot be read'); } });
+  const said = [];
+  const write = process.stderr.write;
+  process.stderr.write = (s, ...rest) => { if (String(s).startsWith('#4752')) { said.push(String(s)); return true; } return write.call(process.stderr, s, ...rest); };
   try {
     const rules = setupAssistant.guideDenyRules({ dataRoot: '/b/worlds/w1/Kosmos', worldsBase: '/b', legacyRoots: ['/old/AgentWorkforce'] });
     assert.ok(rules.includes('Read(//b/worlds/w1/Kosmos/**)') && rules.includes('Read(~/.ssh/**)'), 'the earlier rules were lost: ' + rules.length);
     assert.deepEqual(rules.filter((r) => r.includes('/old/') || r.includes('board.token')), [], 'half of the extra rules were kept');
-  } finally { Object.defineProperty(worlds, 'WORLDS_SUBDIR', was); }
+    assert.equal(said.length, 1, 'leaving the rules out was not said on stderr');
+    assert.match(said[0], /left out: cannot be read/);
+  } finally { process.stderr.write = write; Object.defineProperty(worlds, 'WORLDS_SUBDIR', was); }
   assert.ok(setupAssistant.guideDenyRules({ dataRoot: '/b/worlds/w1/Kosmos', worldsBase: '/b', legacyRoots: [] }).includes('Read(//b/board.token)'),
     'CONTROL: with the folder readable again the extra rules are back');
 });
