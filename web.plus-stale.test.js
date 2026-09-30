@@ -6,6 +6,7 @@
  *
  *   #1011  "Connected. Your address: ..." with "the coordinator said no
  *          (409)" still sitting under it, left over from a previous attempt.
+ *          (Its setup-failure source was removed in #4698; see below.)
  *   #1012  "I lost my phone" and Reset the second step offered directly
  *          under a device list reading "None yet".
  *
@@ -109,42 +110,10 @@ test('#1012: it can only hide further, never reveal on an unenrolled Mac', async
     'an unenrolled Mac must fall back to the state 1 holding place');
 });
 
-test('#1011: being connected clears a stale SETUP failure', async () => {
-  const w = world(connected([]));
-  w.ctx.plusSay('the coordinator said no (409): that name is already in use', 'setup');
-  assert.equal(w.el('plus-msg').textContent.length > 0, true, 'precondition: the error is on screen');
-  await paint(w);
-  assert.equal(w.el('plus-msg').textContent, '',
-    'the panel said Connected and "the coordinator said no" at the same time');
-});
-
-test('#1011: but a SWITCH failure is left alone, because those happen while connected', async () => {
-  const w = world(connected([]));
-  w.ctx.plusSay('we could not change that', 'switch');
-  await paint(w);
-  assert.equal(w.el('plus-msg').textContent, 'we could not change that',
-    'a real refusal to turn Plus off was wiped by the next repaint');
-});
-
-test('#1011: a setup failure survives while NOT connected, which is when it is true', async () => {
-  const r = connected([]);
-  r.status = { state: 'down', because: 'starting the connection' };
-  const w = world(r);
-  w.ctx.plusSay('we could not finish the sign-up', 'setup');
-  await paint(w);
-  assert.equal(w.el('plus-msg').textContent, 'we could not finish the sign-up',
-    'the error vanished while it was still the truth');
-});
-
-test('#1011: clearing the message clears its kind, so a later switch error is not eaten', async () => {
-  const w = world(connected([]));
-  w.ctx.plusSay('a setup failure', 'setup');
-  w.ctx.plusSay('');                      // the next action starts, clearing it
-  w.ctx.plusSay('we could not change that', 'switch');
-  await paint(w);
-  assert.equal(w.el('plus-msg').textContent, 'we could not change that',
-    'the cleared setup kind lingered and ate a later switch error');
-});
+/* kosmos#4698: the #1011 tests (being connected clears a stale SETUP failure, but not a switch
+   failure) went with the connected flow's enrol pair: its Confirm was the only writer of a setup
+   failure, so the rule could no longer fire and the tests only staged a state the page cannot
+   reach. The sign-in wizard reports its own failures on its own step. */
 
 // ---------------------------------------------------------------------------
 // kosmos#1014. Setup ended by handing you a URL and stopping. Josh, with a
