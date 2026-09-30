@@ -1,4 +1,4 @@
-// Browser-check-surface: team-orgchart-open cstep-team orgchartpick orgchart-read-stop orgchart-edit orgchart-file-btn orgchart-file orgchart-file-note orgchart-consent orgchart-consent-say orgchart-consent-go orgchart-consent-no orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-msg orgchart-usenames
+// Browser-check-surface: orgchart-undo create-path-back team-orgchart-open cstep-team orgchartpick orgchart-read-stop orgchart-edit orgchart-file-btn orgchart-file orgchart-file-note orgchart-consent orgchart-consent-say orgchart-consent-go orgchart-consent-no orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-msg orgchart-usenames
 'use strict';
 
 /*
@@ -225,6 +225,11 @@ async function run() {
         await pk.waitForSelector('#orgchartpick', { state: 'hidden', timeout: 5000 });
         const kept = await pk.evaluate(() => ({ created: ORGCHART_CREATED.length, undoShown: !document.getElementById('orgchart-undo').hidden, count: document.getElementById('orgchart-count').textContent }));
         check('CLOSE AFTER CREATE: closing the panel keeps the created team and its Undo', kept.created === 7 && kept.undoShown && /Created 7 agents/.test(kept.count), JSON.stringify(kept));
+        // #4688: and reopening it still offers that Undo (the reopen used to clear it).
+        await pk.click('#team-orgchart-open');
+        await pk.waitForSelector('#orgchartpick', { state: 'visible', timeout: 5000 });
+        const re = await pk.evaluate(() => ({ created: ORGCHART_CREATED.length, undoShown: !document.getElementById('orgchart-undo').hidden, box: !document.getElementById('orgchart-preview-box').hidden }));
+        check('#4688 CLOSE, REOPEN AFTER CREATE: reopening the panel still offers the team\'s Undo', re.created === 7 && re.undoShown && re.box, JSON.stringify(re));
       } else check('CLOSE AFTER CREATE: the panel offers a file', false);
       await pk.close();
     }
@@ -496,8 +501,57 @@ async function run() {
       const sortedL = putsL.slice().sort();
       check('LEAVE DURING CREATE: the reporting-line fix-up still lands after the person left the panel',
         JSON.stringify(sortedL) === JSON.stringify(['account-executive={"reportsTo":"head-of-sales-2"}', 'sales-engineer={"reportsTo":"head-of-sales-2"}']), JSON.stringify(sortedL));
+      /* #4688: the team made after they left comes back with the panel, with its Undo, not a blank panel and 7
+         agents to remove one by one. */
+      await plc.click('#cstep-kind [data-path="team"]');
+      await plc.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
+      await plc.click('#team-orgchart-open');
+      await plc.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
+      const back = await plc.evaluate(() => ({ created: ORGCHART_CREATED.length, box: !document.getElementById('orgchart-preview-box').hidden,
+        undo: !document.getElementById('orgchart-undo').hidden ? document.getElementById('orgchart-undo').textContent : null,
+        count: document.getElementById('orgchart-count').textContent, create: document.getElementById('orgchart-create').disabled }));
+      check('#4688 LEAVE DURING CREATE, REOPENED: the team made after the person left comes back with its result and Undo',
+        back.created === 7 && back.box && /remove these 7 agents/.test(back.undo || '') && /Created 7 agents/.test(back.count) && back.create, JSON.stringify(back));
+      // CONTROL: a new batch still replaces it (a fresh Preview), so the kept Undo is not sticky forever.
+      await plc.fill('#orgchart-text', 'Chief Executive Officer');
+      await plc.click('#orgchart-preview');
+      await plc.waitForTimeout(300);
+      const fresh = await plc.evaluate(() => ({ created: ORGCHART_CREATED.length, undo: !document.getElementById('orgchart-undo').hidden }));
+      check('#4688 CONTROL: a fresh Preview after the reopen is a new batch and drops the old Undo', fresh.created === 0 && !fresh.undo, JSON.stringify(fresh));
     } else check('LEAVE DURING CREATE: the panel offers a file', false);
     await plc.close();
+
+    /* #4688: the person leaves while the team is being made and is BACK in the panel before the answer lands. The
+       late answer shows its result and Undo in the idle panel, rather than recording it for a reopen that already
+       happened. The create is held until released, so the order is certain. */
+    const prb = await page();
+    let releaseTeam;
+    const teamHeld = new Promise((ok) => { releaseTeam = ok; });
+    await prb.route('**/api/team', async (r) => {
+      const body = JSON.parse(r.request().postData() || '{}');
+      await teamHeld;
+      r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } });
+    });
+    await openPanel(prb);
+    if (await prb.$('#orgchart-file-btn')) {
+      await prb.setInputFiles('#orgchart-file', path.join(FIX, 'people.csv'));
+      await prb.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
+      await prb.click('#orgchart-create');
+      await prb.waitForTimeout(300);
+      await prb.click('#create-path-back');
+      await prb.click('#cstep-kind [data-path="team"]');
+      await prb.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
+      await prb.click('#team-orgchart-open');
+      await prb.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
+      const before = await prb.evaluate(() => ({ box: !document.getElementById('orgchart-preview-box').hidden, undo: !document.getElementById('orgchart-undo').hidden }));
+      releaseTeam();
+      await prb.waitForFunction(() => !document.getElementById('orgchart-undo').hidden, null, { timeout: 5000 }).catch(() => {});
+      const after = await prb.evaluate(() => ({ created: ORGCHART_CREATED.length, undo: !document.getElementById('orgchart-undo').hidden ? document.getElementById('orgchart-undo').textContent : null,
+        count: document.getElementById('orgchart-count').textContent }));
+      check('#4688 REOPEN BEFORE THE ANSWER: the panel is idle while it waits, then the late create shows its result and Undo',
+        !before.box && !before.undo && after.created === 7 && /remove these 7 agents/.test(after.undo || '') && /Created 7 agents/.test(after.count), JSON.stringify([before, after]));
+    } else check('#4688 REOPEN BEFORE THE ANSWER: the panel offers a file', false);
+    await prb.close();
 
     // RENAMED + FAILED: create canonicalises a manager's name (head-of-sales -> head-of-sales-2), so the person
     // under it is re-pointed to the name it was created under; and a profile update that fails is named, not counted.
