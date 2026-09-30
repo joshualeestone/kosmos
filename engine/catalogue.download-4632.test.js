@@ -188,7 +188,7 @@ test('the key this version trusts is an Ed25519 public key', () => {
 test('the catalogue was checked against the roles this version has built in', () => {
   // The catalogue repo keeps a copy of Kosmos's built-in role keys (kosmos-builtin-roles.json) and
   // names them in every build as kosmosRoles. When roles.js gains, loses or renames one, this fails:
-  // update that list in joshualeestone/kosmos-catalogue and refresh test-support/catalogue-fixture.json.
+  // update that list in joshualeestone/kosmos-catalogue and refresh test-support/catalogue-published/.
   const listed = JSON.parse(TEXT).kosmosRoles;
   assert.deepEqual(listed, roles.BUILT_IN.map((r) => r.key).sort());
 });
@@ -270,4 +270,39 @@ test('the same serial is written again when the stored copy has gone, so a resta
   assert.ok(fs.existsSync(catalogue.cacheFile()), 'the stored copy was not written back');
   catalogue.useKeyForTest(pem);   // what a restart does
   assert.equal(catalogue.status().serial, catalogue.MIN_SERIAL + 95);
+});
+
+test('remerge, however often it runs, keeps ROLES the same array and gives every role its rhythm once', async () => {
+  const { signed } = fresh();
+  const same = roles.ROLES;
+  await catalogue.refresh({ fetcher: server(signed(100)).fetcher, force: true });
+  const builtInText = roles.BUILT_IN.map((r) => r.instructions);
+  for (let i = 0; i < 5; i += 1) roles.remerge();
+  assert.equal(roles.ROLES, same, 'ROLES was replaced, not rebuilt in place');
+  assert.deepEqual(roles.BUILT_IN.map((r) => r.instructions), builtInText, 'a built-in role changed on remerge');
+  // The summary rhythm's own opening words, counted in every role that gets one.
+  const marker = roles.byKey('pm').instructions.split('\n').find((l) => /summary/i.test(l) && l.startsWith('- '));
+  assert.ok(marker, 'premise: the rhythm has a line to count');
+  for (const r of roles.ROLES.filter((x) => !roles.NO_SUMMARY.has(x.key))) {
+    assert.equal(r.instructions.split(marker).length - 1, 1, `${r.key} carries the rhythm ${r.instructions.split(marker).length - 1} times`);
+  }
+  assert.ok(roles.byKey('cmo'), 'CONTROL: the catalogue roles are in the merge being counted');
+});
+
+test('a catalogue role cannot set fields beyond its own, and a malformed team is refused', async () => {
+  const { signed } = fresh();
+  const c = JSON.parse(TEXT);
+  c.roles[0].menu = false;
+  c.roles[0].shared = 'x';
+  const withExtras = signed(110, JSON.stringify(c, null, 2));
+  await catalogue.refresh({ fetcher: server(withExtras).fetcher, force: true });
+  const r = catalogue.rawRoles().find((x) => x.key === c.roles[0].key);
+  assert.equal(r.menu, undefined, 'a catalogue role marked itself hidden');
+  assert.equal(r.shared, undefined);
+  for (const spoil of [(t) => { t.kind = 'other'; }, (t) => { delete t.rank; }, (t) => { t.members[0].focus = [{}]; }]) {
+    const d = JSON.parse(TEXT);
+    spoil(d.teams[0]);
+    const st = await catalogue.refresh({ fetcher: server(signed(120, JSON.stringify(d, null, 2))).fetcher, force: true });
+    assert.match(st.error || '', /incomplete/, spoil.toString());
+  }
 });

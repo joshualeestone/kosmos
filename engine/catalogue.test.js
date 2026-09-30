@@ -1,7 +1,7 @@
 'use strict';
 /**
- * #4555: the seeded catalogue of roles and prebuilt teams (engine/catalogue.js,
- * engine/catalogue-roles.js, engine/catalogue-teams.js), and what team creation (#4557) relies on.
+ * #4555: the catalogue of roles and prebuilt teams (engine/catalogue.js; since #4632 downloaded from
+ * joshualeestone/kosmos-catalogue, here the stored test copy), and what team creation (#4557) relies on.
  *
  *   node --test engine/catalogue.test.js
  */
@@ -270,7 +270,7 @@ test('#4632: the catalogue is not shipped in the app, only downloaded; the fixtu
   const data = fs.readdirSync(__dirname).filter((f) => /^catalogue-.*\.js$/.test(f) && !f.endsWith('.test.js'));
   assert.deepEqual(data, []);
   assert.ok(!fs.existsSync(path.join(REPO, 'tools', 'catalogue')), 'tools/catalogue moved to joshualeestone/kosmos-catalogue');
-  assert.equal(path.dirname(require(FIXTURE).FIXTURE), path.join(REPO, 'test-support'));
+  assert.equal(path.dirname(require(FIXTURE).FIXTURE), path.join(REPO, 'test-support', 'catalogue-published'));
   // CONTROL: the same scan, on a folder that holds a data module, finds it.
   const probe = fs.mkdtempSync(path.join(os.tmpdir(), 'catalogue-scan-'));
   try {

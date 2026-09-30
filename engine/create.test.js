@@ -682,7 +682,7 @@ test('the roles where being wrong is expensive carry their limit in BOTH places'
     // its skill -- it briefs the agent who has it.
     pm: /brief the agent who\s+has\s+it rather than attempting it badly/i,
     // #4555: the seeded catalogue's cautioned roles (joshualeestone/kosmos-catalogue, stored here
-    // from test-support/catalogue-fixture.json). Each states its boundary once in its own
+    // from test-support/catalogue-published/catalogue.json). Each states its boundary once in its own
     // instructions; the patterns allow the line wrap between words.
     cos: /draft,\s+never\s+send\s+or\s+accept/i,
     officemgr: /draft,\s+never\s+send/i,

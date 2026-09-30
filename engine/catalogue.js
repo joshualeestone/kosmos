@@ -82,11 +82,12 @@ function shapeProblem(c) {
     }
   }
   for (const t of c.teams) {
-    if (!t || !KEY_RE.test(String(t.key)) || !isText(t.label) || !t.project || !isText(t.project.goal) || !Array.isArray(t.members)) {
+    if (!t || !KEY_RE.test(String(t.key)) || !isText(t.label) || !t.project || !isText(t.project.goal) || !Array.isArray(t.members)
+      || !['business', 'personal'].includes(t.kind) || !Number.isInteger(t.rank)) {
       return `team ${JSON.stringify(t && t.key)} is incomplete`;
     }
     for (const m of t.members) {
-      if (!m || !isText(m.slot) || !isText(m.role) || !isText(m.title) || !isText(m.name) || !Array.isArray(m.focus)
+      if (!m || !isText(m.slot) || !isText(m.role) || !isText(m.title) || !isText(m.name) || !Array.isArray(m.focus) || !m.focus.every(isText)
         || !(m.reportsTo === null || m.reportsTo === 'lead')) {
         return `a member of team ${t.key} is incomplete`;
       }
@@ -248,7 +249,13 @@ function groupOrder() { return readRoles().groups.slice(); }
  * one string. A fresh copy each call: roles.js appends its rhythm to what it gets.
  */
 function rawRoles() {
-  return readRoles().roles.map((r) => ({ ...r, instructions: r.instructions.join('\n') }));
+  // The fields a catalogue role may set, and no others: nothing it carries can mark itself hidden or
+  // stand in for another of roles.js's own fields.
+  return readRoles().roles.map((r) => ({
+    key: r.key, group: r.group, label: r.label, blurb: r.blurb, firstAction: r.firstAction,
+    ...(typeof r.caution === 'string' && r.caution ? { caution: r.caution } : {}),
+    instructions: r.instructions.join('\n'),
+  }));
 }
 
 /** Every prebuilt team, ordered business first, then personal, each by rank. Copies, like

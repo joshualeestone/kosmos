@@ -4,9 +4,9 @@
  * this fixture the way a download would: signed (with a key pair made for this process and handed
  * to engine/catalogue.js through useKeyForTest) into the sandboxed data root.
  *
- * catalogue-fixture.json is the catalogue joshualeestone/kosmos-catalogue published (its
- * catalogue.json on Pages); refresh it from there when a test needs newer roles or teams. It is
- * re-signed here with a test key, so its own signature is not used.
+ * The catalogue is test-support/catalogue-published/catalogue.json, the file joshualeestone/
+ * kosmos-catalogue published (refresh it and its .sig from Pages together when a test needs newer
+ * roles or teams). It is re-signed here with a test key, so its own signature is not used.
  *
  *   const fixture = require('../test-support/catalogue-fixture');
  *   fixture.install(SANDBOX);   // after AGENT_WORKFORCE_DATA points into SANDBOX
@@ -18,7 +18,9 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const FIXTURE = path.join(__dirname, 'catalogue-fixture.json');
+// One copy of the catalogue: the published file the browser harness also serves (with its own
+// signature there); tests re-sign it with their own key and set their own serial.
+const FIXTURE = path.join(__dirname, 'catalogue-published', 'catalogue.json');
 
 /** Sign `text` with a fresh key pair and store it as the catalogue; returns the private key so a
  *  test can sign variants of its own. */
