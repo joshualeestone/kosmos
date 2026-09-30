@@ -683,7 +683,9 @@ function currentReader(name) {
     // The account too, so the consent's reader id pins the Claude account the box names, not just "Claude".
     let acct = null;
     try { acct = readAccount(); } catch { acct = null; }
-    return { kind: 'claude', dir: acct ? acct.dir : null };
+    // Whether it runs on a pasted API key (#2420): the consent then says it is billed to that key, and that key's
+    // retention (#4660).
+    return { kind: 'claude', dir: acct ? acct.dir : null, apiKey: Boolean(acct && acct.apiKey === true) };
   }
   /* #5346: a ChatGPT subscription next, read through Codex with every tool that can act switched off. Before a key,
      because a key read is billed per call and the subscription is already paid for. */
@@ -731,7 +733,8 @@ function readerId(r) {
 function consentFor(r) {
   const keys = require('./orgchartkeys');
   // A ChatGPT read is on the person's plan, like Claude's (#5346); only a key read is billed per call.
-  return { provider: providerLabel(r), reader: readerId(r), uses: r && r.kind === 'key' ? 'billed to your ' + keys.PROVIDERS[r.provider].name + ' key' : 'using your plan', keeps: r && r.kind === 'codex' ? require('./orgchartcodex').KEEPS : keys.keeps(r) };
+  return { provider: providerLabel(r), reader: readerId(r), uses: r && r.kind === 'key' ? 'billed to your ' + keys.PROVIDERS[r.provider].name + ' key'
+    : (r && r.kind === 'claude' && r.apiKey === true ? 'billed to your Anthropic API key' : 'using your plan'), keeps: r && r.kind === 'codex' ? require('./orgchartcodex').KEEPS : keys.keeps(r) };
 }
 let availability = readerHere;
 /* `reader`, when the caller has already worked it out, so one request asks once (a second look can disagree). */
