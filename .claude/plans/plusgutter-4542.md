@@ -40,3 +40,8 @@ against the viewport; mobile, overlay-scrollbar Macs and the consolidated layout
 identical rule are mutually exclusive). NITs taken: the #4506 note is advice, not a rule that exists; G1's reason reworded.
 ACCEPTED: 100vh counts a horizontal scrollbar, as tip-dimming's rule does; nothing on Plus overflows sideways.
 
+
+## After merging main (8ec84f570)
+origin/main was merged in; the pinned counts in browser-checks-reason-grep.test.js were re-measured on the merged tree
+(+2/+1, the branch's own delta). Review iteration 3 (blind, opus) on the merged diff: clean. The check passes 17/17.
+Full local validation on 8ec84f570: PASSED 2026-09-29 22:56 (validation_rc=0 audit_rc=0).
