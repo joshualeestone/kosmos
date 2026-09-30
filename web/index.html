@@ -5941,7 +5941,7 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
 /* #4663 (Mona Lisa's phone audit): on a touchscreen the project page's small controls (Back, the settings cog,
    + Add member, + New task and the two View All links, drawn 22 to 28px) take a thumb-sized tap: an invisible
-   area on each, at least 36px, the room's --room-tap (defined on #pj-room, which these sit outside, so the value is
+   area on each, at least 36px, the room's --room-tap (defined on the conversation element, which these sit outside, so the value is
    written here; render-room-msgbox-2806 asserts the same 36). Back, the cog and + Add member have room all round, so
    theirs is centred. The two View All links and + New task sit a few px above the first file or task, so theirs
    grows up and sideways only, never below the control's own bottom edge (a centred area took the top 3 to 6% of
