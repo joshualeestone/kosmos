@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: panel-cons-agents openConsolidatedAgents placeAgentsPanel consNavLight CONS_AGENTS_OPEN panel-cons-projects pj-full-list pj-full-sort openConsolidatedProjects paintConsProjects CONS_PROJECTS_OPEN
+// Browser-check-surface: panel-cons-agents cons-agents-lay consLaySync openConsolidatedAgents placeAgentsPanel consNavLight CONS_AGENTS_OPEN panel-cons-projects pj-full-list pj-full-sort openConsolidatedProjects paintConsProjects CONS_PROJECTS_OPEN
 // (#2518) the distinctive web/index.html tokens this check asserts. A change to any of them must
 // update this check at PR time.
 /* #4345 (Josh, #admin 2026-09-28 09:21): in the consolidated view the top nav (Agents, Projects,
@@ -210,13 +210,13 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         const sw = (v) => $('panel-cons-agents').querySelector('[data-conslay="' + v + '"]');
         sw('org').click();
         let saved = null; try { saved = localStorage.getItem('kosmos.layout.agents'); } catch { saved = 'unreadable'; }
-        res.s_org = $('orgview').hidden === false && $('grid').hidden === true && sw('org').getAttribute('aria-pressed') === 'true' && saved === 'org';
+        res.s_org = $('orgview').hidden === false && $('grid').hidden === true && sw('org').getAttribute('aria-checked') === 'true' && saved === 'org';
         sw('grid').click();
-        res.s_grid = $('grid').hidden === false && $('orgview').hidden === true && sw('grid').getAttribute('aria-pressed') === 'true';
+        res.s_grid = $('grid').hidden === false && $('orgview').hidden === true && sw('grid').getAttribute('aria-checked') === 'true';
         // (c2) A saved 'list' shows the grid but presses neither button (no silent overwrite).
         BOARD_LAYOUT = 'list';
         tab('agents').click();
-        res.l_neither = $('grid').hidden === false && sw('grid').getAttribute('aria-pressed') === 'false' && sw('org').getAttribute('aria-pressed') === 'false';
+        res.l_neither = $('grid').hidden === false && sw('grid').getAttribute('aria-checked') === 'false' && sw('org').getAttribute('aria-checked') === 'false';
         BOARD_LAYOUT = 'grid';
         tab('agents').click();
         // (d) Another overlay taking the column re-hides the grid, not only its wrapper.
@@ -237,8 +237,40 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' focus after a removal lands on the lit nav item', r0 && r1.f_lit === true, R1);
     ok(t + ' the column\'s Org chart switch shows the chart and saves the choice', r0 && r1.s_org === true, R1);
     ok(t + ' the column\'s Grid switch brings the grid back', r0 && r1.s_grid === true, R1);
-    ok(t + ' a saved list layout shows the grid and presses neither switch button', r0 && r1.l_neither === true, R1);
+    ok(t + ' a saved list layout shows the grid and checks neither segment', r0 && r1.l_neither === true, R1);
     ok(t + ' another overlay taking the column re-hides the grid itself', r0 && r1.t_rehidden === true, R1);
+
+    // ---- #4594 (Josh, 2026-09-29 12:01): the Agents view switch is ONE segmented control, not two pills. ----
+    await page.evaluate(() => { BOARD_LAYOUT = 'grid'; document.querySelector('#tabs .tab[data-tab="agents"]').click(); });
+    const seg = await page.evaluate(() => {
+      const box = document.querySelector('#panel-cons-agents .cons-agents-lay');
+      const bs = [...box.querySelectorAll('[data-conslay]')];
+      const cs = getComputedStyle(box);
+      const r0 = bs[0].getBoundingClientRect(); const r1b = bs[1].getBoundingClientRect();
+      const probe = (v) => { const e = document.createElement('i'); e.style.color = v; document.body.appendChild(e); const c = getComputedStyle(e).color; e.remove(); return c; };
+      return {
+        role: box.getAttribute('role'), radios: bs.map((b) => b.getAttribute('role')).join(','),
+        track: parseFloat(cs.borderTopWidth) > 0 && cs.overflow === 'hidden',
+        touching: Math.abs(r1b.left - r0.right) <= 1 && Math.abs(r0.top - r1b.top) <= 1,
+        onBg: getComputedStyle(bs[0]).backgroundColor, gold: probe('var(--gold-bright)'),
+        offBg: getComputedStyle(bs[1]).backgroundColor,
+        tabs: bs.map((b) => b.tabIndex).join(','),
+        checked: bs.map((b) => b.getAttribute('aria-checked')).join(','),
+      };
+    });
+    const SEG = JSON.stringify(seg);
+    ok(t + ' #4594: the switch is a radiogroup of two radios', seg.role === 'radiogroup' && seg.radios === 'radio,radio', SEG);
+    ok(t + ' #4594: one connected track: a bordered, clipped box with the segments touching (not two pills with a gap)', seg.track && seg.touching, SEG);
+    ok(t + ' #4594: the selected segment is filled gold and the other is not', seg.onBg === seg.gold && seg.offBg !== seg.gold && seg.checked === 'true,false', SEG);
+    ok(t + ' #4594: one tab stop, on the selected segment', seg.tabs === '0,-1', SEG);
+    await page.focus('#panel-cons-agents [data-conslay="grid"]');
+    await page.keyboard.press('ArrowRight');
+    const k1 = await page.evaluate(() => ({ org: document.getElementById('orgview').hidden === false, focus: document.activeElement && document.activeElement.dataset.conslay,
+      checked: [...document.querySelectorAll('#panel-cons-agents [data-conslay]')].map((b) => b.getAttribute('aria-checked')).join(',') }));
+    ok(t + ' #4594: ArrowRight moves to Org chart, chooses it and takes focus', k1.org && k1.focus === 'org' && k1.checked === 'false,true', JSON.stringify(k1));
+    await page.keyboard.press('ArrowRight');
+    const k2 = await page.evaluate(() => ({ grid: document.getElementById('grid').hidden === false, focus: document.activeElement && document.activeElement.dataset.conslay }));
+    ok(t + ' #4594: ArrowRight from the last segment wraps to Grid', k2.grid && k2.focus === 'grid', JSON.stringify(k2));
 
     // ---- #4377, slice 2: the full projects page. fetch never settles here, so the fixture's rows are
     // the ones painted (over file:// the read fails and would paint "cannot read" instead). ----
