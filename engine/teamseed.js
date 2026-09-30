@@ -170,6 +170,8 @@ function specs(req, cat, deps) {
   }
 
   const project = (req && typeof req.project === 'string' && req.project.trim()) ? req.project.trim() : null;
+  // Refused, not read as "none": a provider that is not text would otherwise quietly mean Claude.
+  if (req && req.provider != null && typeof req.provider !== 'string') return { ok: false, because: 'that provider is not one Kosmos knows' };
   const provider = (req && typeof req.provider === 'string') ? req.provider.trim().toLowerCase() : '';
   if (provider && !/^[a-z0-9-]{1,32}$/.test(provider)) return { ok: false, because: 'that provider is not one Kosmos knows' };
   const account = (req && typeof req.account === 'string') ? req.account.trim() : '';

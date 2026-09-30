@@ -226,8 +226,12 @@ test('#4719 nothing chosen (or Anthropic, the default) sends no provider, like t
   assert.deepEqual(a.specs.map((s) => [s.spec.provider, s.spec.account]), a.specs.map(() => [undefined, '/acct/claude-2']));
 });
 
-test('#4719 a provider that is not a plain name is refused before anything is made', () => {
-  const r = teamseed.specs({ team: 'marketing', names: NAMES, provider: 'openai; rm -rf /' }, fixture());
-  assert.equal(r.ok, false);
-  assert.match(r.because, /not one Kosmos knows/);
+test('#4719 a provider that is not a plain name, or not text at all, is refused before anything is made', () => {
+  for (const provider of ['openai; rm -rf /', 5, { a: 1 }, ['openai']]) {
+    const r = teamseed.specs({ team: 'marketing', names: NAMES, provider }, fixture());
+    assert.equal(r.ok, false, JSON.stringify(provider));
+    assert.match(r.because, /not one Kosmos knows/);
+  }
+  // CONTROL: no provider at all (undefined or null) is the default, not a refusal.
+  for (const provider of [undefined, null]) assert.equal(teamseed.specs({ team: 'marketing', names: NAMES, provider }, fixture()).ok, true);
 });

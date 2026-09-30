@@ -106,3 +106,15 @@ teamcreate-ui-4557 (PR #4709, not yet on main); rebased onto main once #4709 mer
 - A comment in tcProviderSettle says why no loop follows its refill (the default is never disabled).
 - Test: tcModel with a stale remembered choice and nothing made reads the menus (fails with the
   iteration-7 condition restored); with a member made it returns the remembered one.
+
+## Review iteration 9 (changes)
+- A late account list that lands during a click or a run is kept (TC.lateAccounts) and applied when
+  the choice is next open (tcPaint calls tcApplyLateAccounts), instead of being dropped for good.
+- A provider that is not text is refused by the engine, not read as "none".
+- ACCEPTED, recorded (MINOR): `maybeMade` (a create whose answer was lost, #4557's adoption logic)
+  keeps the choice locked even if that member turns out not to exist and its retry is refused.
+  It takes a dropped create that did not land, then a refused retry, then the agent not showing on the
+  board; the way out is another team or a reload. Clearing maybeMade sooner would lose the adoption
+  of a create that is still landing, which is the worse failure; that logic is #4557's.
+- NIT, recorded: a disabled selected option can survive Back and reopen of a live team (the step is
+  hidden, so nothing settles it); the server refuses it per member, visibly.
