@@ -38,6 +38,12 @@ const projects = require('../../engine/projects');
 const federation = require('../../engine/federation');
 const remote = require('../../engine/remote');
 remote.kosmosPlus = () => true;   // the own-code route needs Kosmos Plus; the page gate is stubbed the same way below
+remote.address = () => 'study.kosmos.test';   // kosmos#4699: a code names the computer that made it, so the route needs this one's address
+// kosmos#4699: Verify checks a code's maker against this account's computers. The coordinator's
+// answer is stubbed: this account has "study" (this board) and "laptop".
+remote.macRequest = async (method, route) => (route === '/v1/mac/account-computers'
+  ? { ok: true, data: { computers: [{ name: 'study', address: 'study.kosmos.test', this: true }, { name: 'laptop', address: 'laptop.kosmos.test', this: false }] } }
+  : { ok: false, because: 'unexpected route ' + route });
 
 const fail = [];
 function chk(ok, label, extra) {
@@ -91,7 +97,7 @@ function chk(ok, label, extra) {
           const got = await page.evaluate(() => ({ code: document.getElementById('pjs-own-code').value, row: !document.getElementById('pjs-own-row').hidden, msg: document.getElementById('pjs-own-msg').textContent }));
           const parsed = federation.parseOwnCode(got.code);
           const link = federation.linkFor(a.id);
-          chk(parsed && link && parsed.ref === link.ref && parsed.name === a.name, `${E} the code names THIS project's room`, JSON.stringify({ parsed, link }));
+          chk(parsed && link && parsed.ref === link.ref && parsed.name === a.name && parsed.from === 'study', `${E} the code names THIS project's room and the computer that made it`, JSON.stringify({ parsed, link }));
           chk(link && link.role === 'owner' && link.selfShared === true, `${E} the project is marked shared with the person's other computers`, JSON.stringify(link));
           chk(got.row && /Join a project/.test(got.msg), `${E} the code and how to use it are shown`, got.msg);
           await open(b.id);
@@ -99,7 +105,15 @@ function chk(ok, label, extra) {
           chk(other.code === '' && !other.row, `${E} another project's settings do not show the first one's code`, JSON.stringify(other));
           // The joining side: an own code for a room NOT on this board (this board's own code would
           // be refused as already here), verified through the real /api/federation/verify.
-          const foreign = federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: 'bc-laptop-' + engineName + width, name: 'From the laptop' }), 'utf8').toString('base64url');
+          const ownCodeFrom = (from) => federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 2, ref: 'bc-' + from + '-' + engineName + width, name: 'From the ' + from, from }), 'utf8').toString('base64url');
+          // kosmos#4699: a code made on a computer that is NOT on this account is refused, in words.
+          const stranger = await page.evaluate(async (c) => {
+            document.getElementById('pj-join-code').value = c;
+            await pjVerifyCode();
+            return { owner: document.getElementById('pj-join-owner').textContent, err: document.getElementById('pj-join-err').textContent };
+          }, ownCodeFrom('elsewhere'));
+          chk(/not on this Kosmos\+ account/.test(stranger.err) && stranger.owner !== 'Your other computer', `${E} a code from a computer that is not on this account is refused, and says so`, JSON.stringify(stranger));
+          const foreign = ownCodeFrom('laptop');
           const owner = await page.evaluate(async (c) => {
             document.getElementById('pj-join-code').value = c;
             await pjVerifyCode();

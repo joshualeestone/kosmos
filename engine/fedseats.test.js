@@ -133,6 +133,24 @@ test('#4649 an owner SHARED with its other computers sits in its own room even w
   assert.strictEqual(h2.spawned[0].edge, 'edge-os');
 });
 
+test('#4699 a room shared only with your own computers is never called "the external project" in a room note', async () => {
+  // The relay-down line (the card's case): the seat is starting, not connected yet.
+  federation.recordLink('proj-far-own', { role: 'owner', ref: 'ref-far-own', selfShared: true });
+  federation.recordLink('proj-far-self', { role: 'self', ref: 'ref-far-self' });
+  federation.recordLink('proj-far-guest', { role: 'member', edge_id: 'edge-far-guest' });
+  const h = harness({ edges: [{ id: 'edge-far-guest', project_ref: 'ref-far-guest', status: 'active' }] });
+  for (const id of ['proj-far-own', 'proj-far-self', 'proj-far-guest']) {
+    await fedseats.ensure(id);
+    assert.strictEqual(fedseats.post(id, { from: 'Josh', kind: 'person', text: 'hello' }), false, id + ': not connected yet');
+  }
+  const last = (id) => h.notes.filter((n) => n.projectId === id).pop().text;
+  assert.match(last('proj-far-own'), /the connection to your other computers is not up right now/);
+  assert.match(last('proj-far-self'), /the connection to your other computers is not up right now/);
+  assert.doesNotMatch(last('proj-far-own') + last('proj-far-self'), /external project/);
+  // Control: a project joined from someone else still says what it is.
+  assert.match(last('proj-far-guest'), /the connection to the external project is not up right now/);
+});
+
 test('#4649 an owner\'s OWN room refused for good stops seating it and says so once; the project is not ended', async () => {
   federation.recordLink('proj-or', { role: 'owner', ref: 'ref-or', selfShared: true });
   const h = harness({ edges: [] });

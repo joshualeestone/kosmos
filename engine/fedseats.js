@@ -150,7 +150,7 @@ function onEvent(projectId, line) {
     say(projectId, 'This computer is no longer connected to the external project: ' + s.ended + '. To take part again, ask the owner for a new code.');
     return;
   }
-  if (ev.event === 'refused_post') { say(projectId, 'A message was not sent to the external project: ' + clean(ev.because, 200) + '.'); return; }
+  if (ev.event === 'refused_post') { say(projectId, 'A message was not sent to ' + farSide(projectId) + ': ' + clean(ev.because, 200) + '.'); return; }
   if (ev.event === 'message' && ev.data && typeof ev.data === 'object' && !Array.isArray(ev.data)) {
     // #3728: key frames are the room's handshake, never a row.
     if (typeof ev.data.t === 'string' && ev.data.t.startsWith('key-')) { onKeyFrame(projectId, s, ev.data); return; }
@@ -220,13 +220,13 @@ function onEvent(projectId, line) {
     s.inbound.count += 1;
     s.inbound.bytes += size;
     if (s.inbound.count > INBOUND_PER_WINDOW || s.inbound.bytes > INBOUND_BYTES_PER_WINDOW) {
-      if (!s.inday.minuteNoted) { s.inday.minuteNoted = true; say(projectId, 'The external project sent more messages than Kosmos keeps in a minute; some were not kept. Kosmos says this once a day.'); }
+      if (!s.inday.minuteNoted) { s.inday.minuteNoted = true; say(projectId, FarSide(projectId) + ' sent more messages than Kosmos keeps in a minute; some were not kept. Kosmos says this once a day.'); }
       return;
     }
     // Only what is KEPT counts toward the day: a flood the minute bound drops
     // must not spend the room's day for everyone else in it.
     if (s.inday.bytes + size > INBOUND_BYTES_PER_DAY || s.inday.rows + 1 > INBOUND_ROWS_PER_DAY) {
-      if (!s.inday.noted) { s.inday.noted = true; say(projectId, 'The external project sent more than Kosmos keeps in a day; its messages are not kept until the day resets (midnight UTC).'); }
+      if (!s.inday.noted) { s.inday.noted = true; say(projectId, FarSide(projectId) + ' sent more than Kosmos keeps in a day; messages from there are not kept until the day resets (midnight UTC).'); }
       return;
     }
     s.inday.bytes += size;
@@ -240,9 +240,20 @@ function onEvent(projectId, line) {
         text: ev.data.text,
       });
     } catch {
-      say(projectId, 'A message from the external project could not be saved on this computer.');
+      say(projectId, 'A message from ' + farSide(projectId) + ' could not be saved on this computer.');
     }
   }
+}
+
+/* kosmos#4699: what the far side of a room is called in a note. A room shared only with the person's
+   own computers (a `self` link, or an owner project shared by own code) is not an "external project". */
+function farSide(projectId) {
+  const l = safeLink(projectId);
+  return l && (l.role === 'self' || (l.role === 'owner' && l.selfShared === true)) ? 'your other computers' : 'the external project';
+}
+function FarSide(projectId) {
+  const f = farSide(projectId);
+  return f.charAt(0).toUpperCase() + f.slice(1);
 }
 
 function say(projectId, text) {
@@ -788,7 +799,7 @@ function post(projectId, { from, kind, text }) {
     // anywhere else for it to go, so only there is staying local worth a line.
     if (!safeLink(projectId)) return false;
     if (s && s.status === 'ended') {
-      say(projectId, 'That message stayed on this computer: the connection to the external project has ended.');
+      say(projectId, 'That message stayed on this computer: the connection to ' + farSide(projectId) + ' has ended.');
       return false;
     }
     if (s && s.status === 'waiting' && s.ownRefused) {
@@ -799,7 +810,7 @@ function post(projectId, { from, kind, text }) {
       say(projectId, 'That message stayed on this computer: nobody outside has joined this shared project yet.');
       return false;
     }
-    say(projectId, 'That message stayed on this computer: the connection to the external project is not up right now.');
+    say(projectId, 'That message stayed on this computer: the connection to ' + farSide(projectId) + ' is not up right now.');
     return false;
   }
   let payload = { from: clean(from, 80) || 'someone', kind: kind === 'agent' ? 'agent' : 'person', text: String(text || '') };
@@ -832,7 +843,7 @@ function post(projectId, { from, kind, text }) {
   // frame). Measured on the line itself, escapes included, and said here before
   // sending rather than as a refusal after.
   if (Buffer.byteLength(line) > MAX_POST_LINE) {
-    say(projectId, 'That post stayed on this computer: it is too long to send to the external project. Shorter posts go out.');
+    say(projectId, 'That post stayed on this computer: it is too long to send to ' + farSide(projectId) + '. Shorter posts go out.');
     return false;
   }
   try { s.child.stdin.write(line + '\n'); return true; } catch { return false; }

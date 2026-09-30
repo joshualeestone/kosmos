@@ -26,6 +26,7 @@ const fedseal = require('./fedseal');
 const FILE = 'federation.json';
 const MAC_INVITE = '/v1/mac/federation/invite';
 const MAC_VERIFY = '/v1/mac/federation/verify';
+const MAC_ACCOUNT_COMPUTERS = '/v1/mac/account-computers';   // kosmos#4648; read here for #4699
 
 function file() {
   return path.join(store.ROOT, FILE);
@@ -175,6 +176,18 @@ const OWN_CODE_MAX = 1024;
    code is written by whoever made it, so it must look like a ref this board mints (a UUID):
    letters, digits, _ and -, never starting with -. */
 const OWN_REF_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+/* kosmos#4699: an own code names the computer that made it (`from`, its Kosmos+ name: the first
+   label of its address), so the computer it is pasted on can check that name against the computers
+   of ITS OWN account. Without it, a code pasted on another account's computer was accepted: that
+   computer got a project sitting alone in its own account's room, under a note saying it was shared.
+   A name, not a secret: a code gets pasted around, and the name is already that computer's public
+   address. */
+const OWN_FROM_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
+/** The Kosmos+ name of the computer at `address` (its first label), or null. */
+function ownFromOf(address) {
+  const label = typeof address === 'string' ? address.trim().toLowerCase().split('.')[0] : '';
+  return OWN_FROM_RE.test(label) ? label : null;
+}
 /* The key an own-account join is held under between verify and join (never an edge id,
    which the coordinator mints as 32 hex characters). */
 const OWN_KEY_PREFIX = 'own:';
@@ -189,7 +202,9 @@ function ownCodeRefusal(projectId) {
   if (link.role === 'owner' && refOk(link.ref) && fedseal.isSealedRef(link.ref)) return 'sealed';
   return null;
 }
-function ownCode(projectId, projectName) {
+function ownCode(projectId, projectName, from) {
+  // Before anything is recorded: a code that cannot name its maker is never made.
+  if (typeof from !== 'string' || !OWN_FROM_RE.test(from)) return null;
   if (ownCodeRefusal(projectId)) return null;
   const link = linkFor(projectId);
   let ref = link && (link.role === 'owner' || link.role === 'self') && OWN_REF_RE.test(String(link.ref)) ? link.ref : null;
@@ -204,7 +219,7 @@ function ownCode(projectId, projectName) {
   }
   // parseOwnCode refuses a code over OWN_CODE_MAX; the name is cut, by whole characters, to fit.
   let chars = Array.from(String(projectName || '').slice(0, NAME_MAX));
-  const make = () => OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref, name: chars.join('') }), 'utf8').toString('base64url');
+  const make = () => OWN_PREFIX + Buffer.from(JSON.stringify({ v: 2, ref, from, name: chars.join('') }), 'utf8').toString('base64url');
   let code = make();
   while (code.length > OWN_CODE_MAX && chars.length > 1) { chars = chars.slice(0, Math.floor(chars.length / 2)); code = make(); }
   return code;
@@ -218,15 +233,29 @@ function selfSharedRef(ref) {
 function ownRefHere(ref) {
   return Object.values(links()).some((l) => l && (l.role === 'self' || l.role === 'owner') && l.ref === ref);
 }
-/** The {ref, name} an own-account code carries, or null for anything else. */
+/** The {ref, name, from} an own-account code carries, or null for anything else. `from` is null for a
+    code in the first format (v 1, before #4699), which named no computer; verify refuses those. */
 function parseOwnCode(text) {
   const t = typeof text === 'string' ? text.trim() : '';
   if (!t.startsWith(OWN_PREFIX) || t.length > OWN_CODE_MAX) return null;
   let o;
   try { o = JSON.parse(Buffer.from(t.slice(OWN_PREFIX.length), 'base64url').toString('utf8')); } catch { return null; }
-  if (!o || o.v !== 1 || typeof o.ref !== 'string' || !OWN_REF_RE.test(o.ref) || typeof o.name !== 'string') return null;
+  if (!o || (o.v !== 1 && o.v !== 2) || typeof o.ref !== 'string' || !OWN_REF_RE.test(o.ref) || typeof o.name !== 'string') return null;
+  if (o.v === 2 && (typeof o.from !== 'string' || !OWN_FROM_RE.test(o.from))) return null;
   const name = o.name.trim().slice(0, NAME_MAX);
-  return name ? { ref: o.ref, name } : null;
+  return name ? { ref: o.ref, name, from: o.v === 2 ? o.from : null } : null;
+}
+
+/** The Kosmos+ names of the computers on THIS computer's account, asked of the coordinator through
+    the tunnel (signed with this computer's key, so it can only be this account's list). Never throws. */
+async function ownAccountNames(remote) {
+  let r;
+  try { r = await remote.macRequest('POST', MAC_ACCOUNT_COMPUTERS, {}); } catch (err) { return { ok: false, because: String((err && err.message) || 'Kosmos+ did not answer') }; }
+  if (!r || !r.ok) return { ok: false, because: (r && r.because) || 'Kosmos+ did not answer' };
+  const rows = r.data && Array.isArray(r.data.computers) ? r.data.computers : null;
+  if (!rows) return { ok: false, because: 'the Kosmos+ answer carried no computers' };
+  const names = rows.map((c) => (c && typeof c.name === 'string' ? c.name.trim().toLowerCase() : '')).filter((n) => OWN_FROM_RE.test(n));
+  return { ok: true, names };
 }
 
 /** Mint an invite for a project the person is creating or owns. */
@@ -295,6 +324,19 @@ async function verify(remote, body) {
     let here;
     try { here = ownRefHere(own.ref); } catch { return { status: 500, body: { error: 'Kosmos could not read which projects are shared on this computer. Try again in a moment.' } }; }
     if (here) return { status: 409, body: { reason: 'already_joined', error: 'This project is already on this computer.' } };
+    /* kosmos#4699: only a code made on one of THIS account's computers. The own room a seat opens is
+       always the caller's own account's, so another account's code leaked nothing, but it made a
+       project that sat alone under a note saying it was shared. */
+    if (!own.from) {
+      return { status: 409, body: { reason: 'old-code', error: 'This code was made by an older Kosmos. Update Kosmos on the computer that has the project, then make a new code there.' } };
+    }
+    const mine = await ownAccountNames(remote);
+    if (!mine.ok) {
+      return { status: 502, body: { reason: 'unchecked', error: 'Kosmos could not check that this code is from one of your computers (' + mine.because + '). Try again in a moment.' } };
+    }
+    if (!mine.names.includes(own.from)) {
+      return { status: 409, body: { reason: 'other-account', error: 'This code is from a computer that is not on this Kosmos+ account (a different account, or a computer that has since been removed), so the project cannot be added here. If it came from your own computer, make a new code there.' } };
+    }
     const key = OWN_KEY_PREFIX + own.ref;
     const snap = { edge_id: key, own: true, project_name: externalName(own.name, NAME_MAX), project_desc: null, owner_handle: 'your other computer' };
     verified.delete(key);
@@ -354,7 +396,7 @@ function forgetSnapshot(edgeId) {
 }
 
 module.exports = {
-  ownCode, ownCodeRefusal, ownRefHere, parseOwnCode, OWN_PREFIX,
+  ownCode, ownCodeRefusal, ownRefHere, parseOwnCode, ownFromOf, OWN_PREFIX,
   FILE, MAC_INVITE, MAC_VERIFY,
   invite, verify, joinSnapshot, forgetSnapshot, linkFor, recordLink, forgetLink, readLinks, reasonFor, refOk,
   SNAPSHOT_TTL_MS, SNAPSHOT_MAX, NAME_MAX, DESC_MAX, HANDLE_MAX,
