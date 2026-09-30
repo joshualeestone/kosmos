@@ -155,6 +155,51 @@ test('#4588 B room: an un-addressed colleague post is held for the paused (idle-
   });
 });
 
+test('#4588 B review 2 (W2): a quota-held post carries when it will be told (heldUntil), in the reply and the log row; a typed member has none', () => {
+  withFleet(room3(), (board) => {
+    report('mara', 'idle');
+    report('april', 'idle');
+    armSender('leo-discord');
+    arm();
+    const until = AHEAD();
+    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara @april when?' }, rosterOf(board, until), MEMBERS);
+    assert.equal(sent.outcomes.mara, roomhold.HELD);
+    assert.ok(sent.heldUntil && typeof sent.heldUntil.mara === 'string', 'a HELD outcome with no heldUntil reads as delivered');
+    assert.equal(Date.parse(sent.heldUntil.mara), Date.parse(until));
+    assert.equal('april' in sent.heldUntil, false, 'CONTROL: a typed member is not held until anything');
+    const row = messages.readLog().find((m) => m && m.id === sent.id);
+    assert.deepEqual(row && row.heldUntil, sent.heldUntil, 'the stored row must carry heldUntil for a later reader');
+  });
+});
+
+test('#4588 B review 2 (W2) CONTROL: a post that holds nobody has no heldUntil field at all (an ordinary row is unchanged)', () => {
+  withFleet(room3(), (board) => {
+    report('april', 'idle');
+    armSender('leo-discord');
+    arm();
+    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@april only you' }, rosterOf(board, null), MEMBERS);
+    assert.equal('heldUntil' in sent, false);
+  });
+});
+
+test('#4588 B review 2 (W1): with the brake on (ROOM_HOLD_OFF=1) a quota-held post is NOT kept (nothing would ever flush it): not reached, and the sender sees it', () => {
+  withFleet(room3(), (board) => {
+    report('mara', 'idle');
+    report('april', 'idle');
+    armSender('leo-discord');
+    const tmux = arm();
+    process.env.AGENT_WORKFORCE_ROOM_HOLD_OFF = '1';
+    try {
+      const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara @april brake on' }, rosterOf(board, AHEAD()), MEMBERS);
+      assert.equal(sent.outcomes.mara, chat.DELIVERY.COULD_NOT, 'a hold with the brake on is stranded: no flush ever tells it');
+      assert.deepEqual(roomhold.heldIn('mara', PROJECT), [], 'kept anyway');
+      assert.notEqual(sent.state, chat.DELIVERY.PLACED, 'a post that did not reach mara read as placed');
+      assert.deepEqual(typedTo(tmux, 'mara'), [], 'the quota hold still types nothing into a paused member');
+      assert.equal(typedTo(tmux, 'april').length, 1, 'CONTROL: the claude member is typed as before');
+    } finally { delete process.env.AGENT_WORKFORCE_ROOM_HOLD_OFF; }
+  });
+});
+
 test('#4588 B room CONTROL: the person\'s own post is typed into the paused agy member at once, carrying the held line', () => {
   withFleet(room3(), (board) => {
     report('mara', 'idle');

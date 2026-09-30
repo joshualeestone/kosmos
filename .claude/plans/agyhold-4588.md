@@ -263,3 +263,23 @@ since this branch is stacked on it.
 - Mutations, each restored and cmp-checked: the gate removed from room posts (6 red), deliverAutomaticAsync ungated
   (3 red), a held verdict not kept (6 red), the retry ignoring `working` (1 red, its CONTROL), the person's post gated
   (1 red, its CONTROL), the server idle flush back on chat.deliverAsync (1 red, its pin).
+
+## Review round 2 after the room WARNING fix, 2026-09-30: 0 BLOCKER, 2 WARNING, 3 NIT
+- **W1 FIXED.** With AGENT_WORKFORCE_ROOM_HOLD_OFF=1 a quota-held room post was still kept by roomhold.hold(), and
+  flushOnIdle / flushReleased return nothing with the brake on, so it was stranded while reading as placed. Now the
+  quota branch keeps it only when the brake is off; with the brake on it is COULD_NOT (not reached), which the sender
+  sees. Rejected: typing it anyway, since the member's quota is out and it cannot act on it; the brake restores "not
+  held", not "typed into a paused agent". Test arm reds with the off() check removed.
+- **W2 FIXED (the data half).** A quota-held member now carries `heldUntil[name]` (ISO, from deliverAutomatic's
+  heldUntil) beside `outcomes[name] = HELD`, in the reply and the stored row, present only when something was held
+  (an ordinary row is byte-unchanged; a CONTROL arm pins that). No UI reads it yet: saying "held until <time>" in the
+  room is a follow-up card for the room UI. Test arm reds with the assignment removed.
+- **NITs, decided not built:**
+  - flushReleased can type a held line mid-turn when the member made no working report for 5 minutes. Kept: the
+    same staleness rule the #4624 idle flush already uses; a stricter rule would strand posts on agents that never
+    report.
+  - KEEP=200 drops the oldest held ids. Kept: 200 posts held for one member in one room within one quota window is
+    not a real case, and the cap exists so a runaway sender cannot grow the file without bound.
+  - Nudge versus pointer ordering after the reset. Kept: both arrive in the same minute and each is self-contained.
+- Weakest premise: that COULD_NOT is the right brake behaviour. If the brake is meant to mean "exactly the pre-#4588
+  behaviour", the answer would be to skip the quota gate entirely under the brake; that is one line and reversible.

@@ -237,4 +237,4 @@ async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver,
   return out;
 }
 
-module.exports = { HELD, KEEP, SHOWN, dir, fileFor, shouldHold, hold, heldIn, heldProjects, take, restore, forget, clauseFor, flushOnIdle, addressedId, plainId, flushReleased };
+module.exports = { HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, clauseFor, flushOnIdle, addressedId, plainId, flushReleased };

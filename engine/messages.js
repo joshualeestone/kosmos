@@ -1837,6 +1837,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   const quoteFor = (name) => ((operator !== true && answered && answered.operator === true)
     || (originalAudience && !originalAudience.has(name) && !mentioned.has(name)) ? '' : replied.quote);
   const outcomes = {};
+  /* #4588 PR B review 2 (W2): when each quota-held member's post will be told (ISO), beside its HELD outcome, so a
+     reader can say "held until <time>" rather than read HELD as delivered. Present only when something was held. */
+  const heldUntil = {};
   let reached = 0;
   const deliverOne = (name) => {
     if (offHere.has(name)) return null;
@@ -1957,12 +1960,16 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
       /* #4588 PR B: held on the shared Google quota, nothing typed. The post is kept for this member like a #4624
          hold (its id, marked when it names them), so it counts as placed for the sender and is told in one line by the
          idle flush, the next typed arrival here, or roomhold.flushReleased after the reset. Could not keep it: not
-         reached, as before. */
+         reached, as before.
+         Review 2 (W1): with the brake on (AGENT_WORKFORCE_ROOM_HOLD_OFF=1) nothing ever flushes a hold, so a kept
+         post would be stranded while reading as placed. Then it is not reached, which the sender sees. */
       if (sent && sent.held === true) {
         roomhold.restore(name, projectId, heldIds);
         unspill(spilled[name]);
-        if (roomhold.hold(name, projectId, mentioned.has(name) ? roomhold.addressedId(id) : id)) {
+        if (!roomhold.off(process.env)
+          && roomhold.hold(name, projectId, mentioned.has(name) ? roomhold.addressedId(id) : id)) {
           outcomes[name] = roomhold.HELD;
+          if (typeof sent.heldUntil === 'string') heldUntil[name] = sent.heldUntil;
           reached += 1;
         } else outcomes[name] = chat.DELIVERY.COULD_NOT;
         return sent;
@@ -2015,6 +2022,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   // that an ambiguous quote resolves to no styling.
   const quotes = quotedSegments(stored, from, projectId, log);
   appendLog({ kind: 'post', id, project: projectId, from, to: recipients.filter((n) => !offHere.has(n)), text: stored, at, outcomes,
+    ...(Object.keys(heldUntil).length ? { heldUntil } : {}),
     ...(quotes.length ? { quotes } : {}),
     /* #185: the tokenizer's verdict, persisted at the one moment it runs.
        The unanswered state keys on WHO WAS ASKED, and re-deriving that at
@@ -2042,7 +2050,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   const state = aggregateState(outcomes);
   // `text` is the form the room stored, so a federated room can send out
   // exactly what this room shows (#3311).
-    return { state, because: null, id, at, outcomes, from, text: stored };
+    return { state, because: null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored };
   };
 
   if (asynchronousDelivery) {
