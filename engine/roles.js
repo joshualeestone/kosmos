@@ -1489,18 +1489,33 @@ const OVERSIGHT_RHYTHM = [
   '  newest summary and how old it is. A missing or stale one is a',
   '  finding to raise, never silence.',
 ].join('\n');
+/* pm and director, exactly (#519): the two roles Josh named. */
+const OVERSEERS = new Set(['pm', 'director']);
+/* #3034: the setup guide answers questions; it has no queue to summarise, and a
+   summary file every four hours would be noise in a new person's folder. */
+const NO_SUMMARY = new Set(['setup']);
+function withRhythm(r) {
+  r.instructions += (NO_SUMMARY.has(r.key) ? '' : SUMMARY_RHYTHM) + (OVERSEERS.has(r.key) ? OVERSIGHT_RHYTHM : '') + '\n';
+  return r;
+}
+for (const r of ROLES) withRhythm(r);
+/* The roles built into this file, rhythm included: the fixed part of ROLES, which works with no
+   catalogue at all (offline, or before the first download). */
+const BUILT_IN = ROLES.slice();
+
 /* #4555 (Josh, 2026-09-29 09:06, #4554: "we probably could easily get that list cranked up to 100
-   different roles, organized into different categories"): the seeded catalogue's roles join the ones
-   above, BEFORE the rhythm below is appended, so every role carries it. The page groups the picker by
-   first appearance (web/index.html), so ROLES is put in the catalogue's group order; within a group
-   the roles above keep their order and the catalogue's follow them. A catalogue key that is already
-   a role here is skipped (engine/catalogue.test.js keeps there being none). Hidden roles stay last.
-   This runs when roles.js loads, so the generated catalogue-roles.js is on the board's boot path. */
-{
-  /* Only LOADING the generated data is guarded: a broken or missing catalogue costs the new roles,
-     never the board (roles.js is on the boot path of the server, create and the setup guide).
-     The merge below is not guarded, so a bug in it fails loudly instead of quietly dropping roles.
-     engine/catalogue.test.js keeps the shipped data loadable; the catch is for a build it did not see. */
+   different roles, organized into different categories"): the catalogue's roles join the ones
+   above, each with the same rhythm. The page groups the picker by first appearance
+   (web/index.html), so ROLES is put in the catalogue's group order; within a group the built-in
+   roles keep their order and the catalogue's follow them. A catalogue key that is already a
+   built-in role is skipped. Hidden roles stay last.
+   #4632: the catalogue is downloaded on demand (engine/catalogue.js), so this runs when roles.js
+   loads (from the stored copy, if any) and again, through remerge(), after each download that
+   brings a new one. ROLES is rebuilt IN PLACE, so every module holding the array sees the change. */
+function remerge() {
+  /* Only LOADING the catalogue is guarded: a broken catalogue costs its roles, never the board
+     (roles.js is on the boot path of the server, create and the setup guide). The merge below is
+     not guarded, so a bug in it fails loudly instead of quietly dropping roles. */
   let loaded = null;
   try {
     const catalogue = require('./catalogue');
@@ -1509,29 +1524,21 @@ const OVERSIGHT_RHYTHM = [
     const why = err && err.message;
     process.stderr.write(`kosmos: the ready-made role catalogue did not load (${why}); showing the original roles only\n`);
   }
-  if (loaded) {
-    const { order, extra } = loaded;
-    const have = new Set(ROLES.map((r) => r.key));
-    const skipped = extra.filter((r) => have.has(r.key)).map((r) => r.key);
-    if (skipped.length) {
-      process.stderr.write(`kosmos: catalogue roles already defined in roles.js were skipped: ${skipped.join(', ')}\n`);
-    }
-    const menu = ROLES.filter((r) => r.menu !== false).concat(extra.filter((r) => !have.has(r.key)));
-    const hidden = ROLES.filter((r) => r.menu === false);
-    const rank = (r) => { const i = order.indexOf(r.group); return i === -1 ? order.length : i; };
-    const sorted = menu.map((r, i) => ({ r, i })).sort((x, y) => (rank(x.r) - rank(y.r)) || (x.i - y.i)).map((x) => x.r);
-    ROLES.length = 0;
-    ROLES.push(...sorted, ...hidden);
+  const order = loaded ? loaded.order : [];
+  const extra = loaded ? loaded.extra : [];
+  const have = new Set(BUILT_IN.map((r) => r.key));
+  const skipped = extra.filter((r) => have.has(r.key)).map((r) => r.key);
+  if (skipped.length) {
+    process.stderr.write(`kosmos: catalogue roles already defined in roles.js were skipped: ${skipped.join(', ')}\n`);
   }
+  const menu = BUILT_IN.filter((r) => r.menu !== false).concat(extra.filter((r) => !have.has(r.key)).map(withRhythm));
+  const hidden = BUILT_IN.filter((r) => r.menu === false);
+  const rank = (r) => { const i = order.indexOf(r.group); return i === -1 ? order.length : i; };
+  const sorted = menu.map((r, i) => ({ r, i })).sort((x, y) => (rank(x.r) - rank(y.r)) || (x.i - y.i)).map((x) => x.r);
+  ROLES.length = 0;
+  ROLES.push(...sorted, ...hidden);
 }
-/* pm and director, exactly (#519): the two roles Josh named. */
-const OVERSEERS = new Set(['pm', 'director']);
-/* #3034: the setup guide answers questions; it has no queue to summarise, and a
-   summary file every four hours would be noise in a new person's folder. */
-const NO_SUMMARY = new Set(['setup']);
-for (const r of ROLES) {
-  r.instructions += (NO_SUMMARY.has(r.key) ? '' : SUMMARY_RHYTHM) + (OVERSEERS.has(r.key) ? OVERSIGHT_RHYTHM : '') + '\n';
-}
+remerge();
 
 function byKey(key) {
   return ROLES.find((r) => r.key === String(key || '')) || null;
@@ -1551,5 +1558,5 @@ function instructionsFor(key, name) {
   return `${role.instructions.split('{{NAME}}').join(String(name))}\n`;
 }
 
-module.exports = { ROLES, byKey, instructionsFor, PAGE_FILE, GUIDE_TAG, GUIDE_GREETING, GUIDE_TITLE, NO_SUMMARY, SETUP_HANDS_OFF, HANDS_OFF_LINES,
+module.exports = { ROLES, BUILT_IN, remerge, byKey, instructionsFor, PAGE_FILE, GUIDE_TAG, GUIDE_GREETING, GUIDE_TITLE, NO_SUMMARY, SETUP_HANDS_OFF, HANDS_OFF_LINES,
   SETUP_MAKES_AGENTS, MAKE_AGENTS_LINES, PM_MAKES_AGENTS, PM_MAKE_AGENTS_LINES, HANDS_OFF_LINES_BEFORE_3734, WHO_YOU_ARE_LINES, WHO_YOU_ARE_LINES_BEFORE_3947, GUIDE_SECRETS_HEADING, GUIDE_SECRET_LINES };

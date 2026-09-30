@@ -581,6 +581,9 @@ async function startBoard() {
     /* The board installs its agent browser (a ~100MB download) on start unless
        it is told it is a sandbox; every other self-booting check sets this. */
     AGENT_WORKFORCE_DRY_RUN: '1', AGENT_WORKFORCE_RUNNERS_DIR: path.join(home, 'runners'),
+    /* #4632: the catalogue the picker downloads. The harness passes its local copy; run alone,
+       a dead port, so this board never asks installkosmos.com (#4253). */
+    KOSMOS_CATALOGUE_BASE: process.env.KOSMOS_CATALOGUE_BASE || 'http://127.0.0.1:9/',
   };
   /* HOME is sealed in this process too (an engine writer can fall back to os.homedir()), and
      Playwright finds its browsers under the home. Pin its cache to the REAL one first, so the

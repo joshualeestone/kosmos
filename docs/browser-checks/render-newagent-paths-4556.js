@@ -30,6 +30,7 @@
  *   K12 a slow first roles load across Team, Back, Team, Back, Single: Team ends with the org chart and no failure
  *       note, and Single ends fully built. Its failing second answer is served only if a second request is made,
  *       so this arm guards against a return to two requests (red on the code before fetchRoles).
+ *   K13 an incomplete catalogue (#4632) is asked for again on the next open; a complete one is not;
  *   K10 the roles cannot be read: the Team screen says the org chart cannot be offered (not only "coming soon"),
  *       and choosing Team again tries again and offers it once they load.
  *
@@ -71,15 +72,19 @@ const ROLES = {
   ],
   own: { key: 'own', label: 'Your own', blurb: 'Describe it yourself.' },
   models: [],
+  catalogue: { loaded: true },   // #4632: the downloaded catalogue is in, so a loaded menu is not asked for again
 };
+let CATALOGUE_LOADED = true;   // K13: false serves the built-in roles only (the download has not happened)
+let ROLES_HITS = 0;            // K13: how many /api/roles requests arrived
 const json = (res, body) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
 const server = http.createServer((req, res) => {
   const u = req.url.split('?')[0];
   if (u === '/api/roles') {
+    ROLES_HITS += 1;
     if (ROLES_FAIL) { res.writeHead(500, { 'content-type': 'application/json' }); return res.end('{}'); }
     if (ROLES_SLOW_THEN_FAIL === 1) { ROLES_SLOW_THEN_FAIL = 2; setTimeout(() => { ROLES_SLOW_THEN_FAIL = 0; json(res, ROLES); }, 900); return; }
     if (ROLES_SLOW_THEN_FAIL === 2) { res.writeHead(500, { 'content-type': 'application/json' }); return res.end('{}'); }
-    const body = NO_OWN ? { ...ROLES, own: null } : ROLES;
+    const body = { ...ROLES, ...(NO_OWN ? { own: null } : {}), catalogue: { loaded: CATALOGUE_LOADED } };
     const wait = ROLES_DELAY_ONCE; ROLES_DELAY_ONCE = 0;
     if (wait) { setTimeout(() => json(res, body), wait); return; }
     return json(res, body);
@@ -334,6 +339,25 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
       ROLES_SLOW_THEN_FAIL = 0;
       ok(t + ' K12 after a slow first roles load, Team ends with the org chart offered and no failure note', k12t.opt === false && k12t.note === true, JSON.stringify(k12t));
       ok(t + ' K12 and Single ends fully built (the menu, define-your-own, a named Project Manager, no Loading)', k12s.list && k12s.own && k12s.pm.trim() !== '' && k12s.msg === '', JSON.stringify(k12s));
+
+      // K13 (#4632 on the shared request): a menu without the downloaded catalogue is asked for again on the next
+      // open; a complete one is not.
+      CATALOGUE_LOADED = false;
+      await page.evaluate(() => { ROLES = null; OWN_ROLE = null; openCreate(); });
+      await page.waitForTimeout(400);
+      const hits0 = ROLES_HITS;
+      await page.evaluate(() => { openCreate(); });
+      await page.waitForTimeout(400);
+      const againIncomplete = ROLES_HITS - hits0;
+      CATALOGUE_LOADED = true;
+      await page.evaluate(() => { openCreate(); });   // this load brings the catalogue
+      await page.waitForTimeout(400);
+      const hits1 = ROLES_HITS;
+      await page.evaluate(() => { openCreate(); });
+      await page.waitForTimeout(400);
+      const againComplete = ROLES_HITS - hits1;
+      ok(t + ' K13 an incomplete catalogue is asked for again on the next open, a complete one is not',
+        againIncomplete === 1 && againComplete === 0, JSON.stringify({ againIncomplete, againComplete }));
 
       // K10: the roles cannot be read. The Team screen says why there is no org chart, and choosing Team again retries.
       ROLES_FAIL = true;
