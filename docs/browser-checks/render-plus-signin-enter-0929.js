@@ -66,7 +66,8 @@ async function openPlus(page, remote) {
       /* page.__holdRemote: once set, a status read never answers, so no later paintPlus (the 5s tick included)
          can repaint over a state the check set by hand (#4694). The hold ends only when the page closes, so never
          await paintPlus() after setting it: it would never finish. It relies on paintPlus's read having no timeout
-         of its own; if one is ever added, the held read ends, state 1 repaints, and the arm fails (loudly). */
+         shorter than this arm's run (about 2s after the hold); a shorter one would end the held read, state 1 would
+         repaint, and the arm would fail (loudly). */
       if (page.__holdRemote) { page.__held = (page.__held || 0) + 1; return; }
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(remote) });
     }
@@ -221,7 +222,8 @@ async function openPlus(page, remote) {
       await page.evaluate(() => paintPlus());
       page.__holdRemote = true;
       await page.evaluate(() => { paintPlus(); });
-      // That paint's read must be the first held one, BEFORE the pair is shown (its place is what closes the gap).
+      /* The epoch bump inside that evaluate is what cancels earlier paints, and it happened at once. This wait only
+         proves the route really caught the pane's status read before the pair is shown (a self-check of the hold). */
       for (let i = 0; i < 40 && (page.__held || 0) < 1; i++) await new Promise((r) => setTimeout(r, 50));
       const heldBeforeShow = page.__held || 0;
       chk(heldBeforeShow >= 1, 'a status read was held before the pair was shown', String(heldBeforeShow));
@@ -240,11 +242,15 @@ async function openPlus(page, remote) {
         });
       }
       chk(await visible(page, '#plus-email'), 'the enrol pair is on screen after it is shown', '');
-      await page.fill('#plus-email', 'josh@example.com');
+      /* A short fill that reports by name: if a repaint hid the pair after it was shown, this says so instead of
+         Playwright's 30s timeout ending the run (exit 2) before the remaining checks print. */
+      const filled = await page.fill('#plus-email', 'josh@example.com', { timeout: 3000 }).then(() => true, () => false);
+      chk(filled, 'the enrol pair\'s email box takes the typed email', '');
       const heldAtFill = page.__held || 0;
       /* A repaint that STARTS here, between the fill and Enter, where CI's status tick landed. Its read is held, so it
-         must not move anything; without the hold, Enter below sends nothing. Not awaited: it never finishes. (A paint
-         that started earlier is covered by the epoch bump above, not by this line.) */
+         must not move anything; without the hold, Enter below sends nothing. Not awaited: it never finishes. (It also
+         bumps PLUS_EPOCH, so it cancels a paint still in flight at the fill; the held paint before the show is what
+         covers one landing between the show and the fill.) */
       await page.evaluate(() => { paintPlus(); });
       /* This repaint's own read reached the hold: the count rose past its value at the fill (a 5s-tick read held
          before the fill cannot satisfy this). If the route ever stops matching the pane's status read, the hold

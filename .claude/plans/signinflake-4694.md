@@ -37,6 +37,9 @@ not by an arm in the check.
 - Round 4: the hold check now requires the post-fill repaint's own read to be held (the count must rise past its
   value at the fill), so a tick read cannot satisfy it; the claims now say which case the check asserts and which a
   probe proved.
+- Round 5: the email fill is short and named (3s, a named FAIL), so a repaint between the show and the fill fails by
+  name with exit 1 instead of a 30s timeout (hiding the flow before the fill: 4 named FAILs, exit 1). Comments say
+  which guard covers which moment. The unreachable pair is its own card, #4698.
 - Not reproduced on main without the deliberate repaint (6 alone, 12 under load): the natural race is rare here.
 
 ## Weakest premise
@@ -48,5 +51,5 @@ visibility would not be held by the frozen status read. None found: the pair's h
 For every /api/remote answer, paintPlus shows the connected flow only when enrolled is true, and the enrol pair only
 when enrolled is not true, so the pair never shows on a real board in this build: certain from the code (the enrol
 write runs only after the early return for enrolled !== true, and nothing else writes plus-enrol); not seen on a live
-board. Posted on #4694 for the Plus owner (comment 5905625279). The arm shows the pair by hand and freezes
+board. Filed for the Plus owner as #4698. The arm shows the pair by hand and freezes
 repaints, so it tests the Enter handler only and cannot see this.
