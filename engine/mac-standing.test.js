@@ -331,6 +331,8 @@ test('#4743: switching remote access off tells the coordinator at once, not at t
     const off = fake.calls().find((c) => fake.flag(c, '--path') === '/v1/mac/standing');
     assert.ok(off, 'switching off sent no standing question');
     assert.deepEqual(JSON.parse(off.stdin), { remote: { on: false } });
+    await new Promise((r) => setTimeout(r, 500));
+    assert.equal(fake.calls().length, 1, 'the flip was told more than once');
   } finally {
     delete process.env.FAKE_MAC_REQUEST_MODE;
   }
@@ -370,6 +372,36 @@ test('#4743: saving the switch at the value it already has sends nothing', async
     assert.equal(remote.setOn(false).ok, true);
     await new Promise((r) => setTimeout(r, 500));
     assert.equal(fake.calls().length, 0, 'a save that changed nothing sent a standing question');
+  } finally {
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+  }
+});
+
+test('#4743: a flip whose first ask was stopped is told by the next refresh, even after another writer stamped the standing fresh', async () => {
+  // The flip is made while the board is not enrolled (as during a sign-in), so its own ask stops early.
+  enroll(true);
+  unenroll();
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    assert.equal(remote.setOn(false).ok, true);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(fake.calls().length, 0, 'precondition: the first ask was stopped (nothing sent)');
+    // The sign-in finishes: enrolled again, and its own write stamps the standing fresh.
+    for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(path.join(STATE, f), 'x');
+    const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+    fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(cur, { standing_at: Date.now() })) + '\n');
+    await remote.refreshStandingIfStale({ ttlMs: 0 });
+    await waitForFakeCalls(fake, 1, 5000);
+    const off = fake.calls().find((c) => fake.flag(c, '--path') === '/v1/mac/standing');
+    assert.ok(off, 'the pending flip was never told');
+    assert.deepEqual(JSON.parse(off.stdin), { remote: { on: false } });
+    // CONTROL: told once, the next refresh on a fresh stamp sends nothing.
+    fake.reset();
+    const now = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+    fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(now, { standing_at: Date.now() })) + '\n');
+    await remote.refreshStandingIfStale({ ttlMs: 0 });
+    assert.equal(fake.calls().length, 0, 'control: with no flip pending, a fresh stamp was asked again');
   } finally {
     delete process.env.FAKE_MAC_REQUEST_MODE;
   }

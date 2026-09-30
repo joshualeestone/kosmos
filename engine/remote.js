@@ -334,7 +334,9 @@ async function refreshStandingIfStale(opts) {
   const s = read();
   if (s.ok !== true) return;
   // #4731: off, the cadence is OFF_STANDING_TTL_MS whatever the caller asked (a 0 TTL included).
-  const due = s.on === true ? ttl : Math.max(ttl, OFF_STANDING_TTL_MS);
+  // kosmos#4743: a flip not yet told (its first ask was stopped by busy(), a sign-in or a Forget) is due
+  // at once, whatever stamp another writer left meanwhile.
+  const due = flipPending ? 0 : (s.on === true ? ttl : Math.max(ttl, OFF_STANDING_TTL_MS));
   // Math.abs (kosmos#4277): a wall clock stepped backwards (a wrong Mac clock being
   // corrected) leaves standing_at in the future; without it every refresh read as fresh, the early
   // tick's TTL 0 included, until the clock caught up. The same guard as reportNotEnrolledIfDue.
@@ -604,7 +606,9 @@ function setOn(on) {
   if (on) { const b = busy(); if (b) return b; }
   // Off during a register is an answer the register must respect: it would
   // otherwise switch Kosmos+ back on when it finishes (turnOnAfterSignin).
-  const was = read().on === true;
+  // An unreadable file (#4308) says nothing about the old value, so a save over it counts as a flip.
+  const before = read();
+  const was = before.ok === true ? before.on === true : !on;
   const wrote = write({ on }, { repair: true });   // #4308: the person's switch repairs a damaged file
   if (!wrote.ok) return wrote;
   if (!on) offEpoch += 1;   // only an off that was saved counts

@@ -81,7 +81,8 @@ async function fetchStanding() {
        computer quiet for a day opens the lost-computer recovery doors). Nothing about remote access
        itself changes: no tunnel, no relay ticket, and no remote report.
        kosmos#4743: the body says ONE thing, {"remote":{"on":false}}, so the account page can say
-       "Remote access is off" instead of "Answering now". No other report field goes out. */
+       "Remote access off, last heard from ..." instead of "Answering now". No other report field
+       goes out. */
     const settings = remote.read();
     if (settings.ok !== true) return null;   // #4308: an unreadable settings file says nothing, so nothing goes out
     const on = settings.on === true;
