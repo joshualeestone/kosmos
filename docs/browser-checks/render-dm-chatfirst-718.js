@@ -103,7 +103,7 @@ function navGeo() {
   const bs = [...document.querySelectorAll('#d-nav button')].filter((b) => !b.hidden && b.getBoundingClientRect().height > 0);
   const rs = bs.map((b) => b.getBoundingClientRect()); const vw = document.documentElement.clientWidth;
   const nav = document.getElementById('d-nav');
-  const cut = []; const lines = [];
+  const cut = []; const lines = []; const labels = [];
   for (const b of bs) {
     for (const el of b.querySelectorAll('.dnav-lab, .swpill')) {
       const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let tn; let prev = null; let space = false; const tops = [];
@@ -119,7 +119,11 @@ function navGeo() {
           prev = { top: rect.top, ch }; space = false;
         }
       }
-      if (el.classList.contains('dnav-lab') || el.classList.contains('swpill')) lines.push(tops.length);
+      if (el.classList.contains('dnav-lab') || el.classList.contains('swpill')) {
+        lines.push(tops.length);
+        // Which words, in how many lines, in how wide a column: a failed height names its cause.
+        labels.push({ text: el.textContent.trim().slice(0, 24), lines: tops.length, w: Math.round(el.getBoundingClientRect().width), btnW: Math.round(b.getBoundingClientRect().width) });
+      }
     }
   }
   /* Every label and status word inside its own button, and no label ellipsised: a word wider than its column is
@@ -136,7 +140,7 @@ function navGeo() {
     }
   }
   return { n: bs.length, oneRow: rs.length > 0 && rs.every((r) => Math.abs(r.top - rs[0].top) < 1),
-    whole: rs.every((r) => r.left >= -0.5 && r.right <= vw + 0.5), cut, spill, maxLines: Math.max(0, ...lines),
+    whole: rs.every((r) => r.left >= -0.5 && r.right <= vw + 0.5), cut, spill, maxLines: Math.max(0, ...lines), labels,
     scrolls: nav.scrollWidth > nav.clientWidth + 1, h: Math.round(Math.max(...rs.map((r) => r.height))),
     // The row's own height, top of its highest button to bottom of its lowest: `h` is one button, and undercounts a
     // row that has wrapped.
@@ -203,7 +207,7 @@ function measure() {
         chk(g.oneRow && g.n >= 3, `${t} the section tabs are one row`, `oneRow=${g.oneRow} n=${g.n}`);
         chk(g.whole && !g.scrolls, `${t} #4661: every section tab is whole on screen, and the row does not scroll`, `whole=${g.whole} scrolls=${g.scrolls}`);
         chk(g.cut.length === 0 && g.spill.length === 0, `${t} #4661: no label is broken inside a word, clipped, or outside its button`, JSON.stringify({ cut: g.cut, spill: g.spill }));
-        chk(g.h >= 44 && g.h <= 52, `${t} #4661: at 375 and wider, with default text, the row keeps its one-line 44px height`, `h=${g.h}`);
+        chk(g.h >= 44 && g.h <= 52, `${t} #4661: at 375 and wider, with default text, the row keeps its one-line 44px height`, `h=${g.h} ${JSON.stringify(g.labels)}`);
         chk(!(m.label && m.label.w > 2 && m.label.h > 2) && m.labelDisplay !== 'none' && m.labelText.length > 0, `${t} the caption that repeats the agent's name is not shown but kept for screen readers`, JSON.stringify({ label: m.label, display: m.labelDisplay, text: m.labelText }));
         chk(m.visibleVar === m.vh + 'px', `${t} the page's visualViewport listener writes the visible height`, `var=${m.visibleVar} vh=${m.vh}`);
         chk(m.boxMinH === '0px', `${t} the phone rules win over the 56rem talk-fill block (talk box min-height 0)`, m.boxMinH);
