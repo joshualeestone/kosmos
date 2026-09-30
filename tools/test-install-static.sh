@@ -11,8 +11,7 @@
 #   bash tools/test-install-static.sh
 #
 # KOSMOS_STATIC_SETUP, KOSMOS_STATIC_LIB and KOSMOS_STATIC_INSTALL_SH point at other copies of setup.sh, the lib
-# and test-install.sh; only the control
-# (tools/test-install-static-control-4641.sh) uses them.
+# and test-install.sh; only the control (tools/test-install-static-control-4641.sh) uses them.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SETUP="${KOSMOS_STATIC_SETUP:-$HERE/install/setup.sh}"
@@ -29,6 +28,13 @@ chk() {
 }
 # shellcheck source=lib/install-static-checks.sh
 source "$LIB"
+# Every group the lib defines must be in STATIC_GROUPS, and every listed group must exist: a group added to the lib
+# and not listed here would run nowhere on a PR.
+defined=$(declare -F | awk '{print $3}' | grep -E '^install_static_[a-z_]+_checks$' | sed -E 's/^install_static_//; s/_checks$//' | sort || true)
+listed=$(for spec in $STATIC_GROUPS; do echo "${spec%%:*}"; done | sort)
+if [ "$defined" != "$listed" ]; then
+  echo "install-static: the lib defines groups [$(echo $defined)] but STATIC_GROUPS lists [$(echo $listed)]" >&2; exit 1
+fi
 COUNT_BAD=""
 for spec in $STATIC_GROUPS; do
   g="${spec%%:*}"; want="${spec##*:}"; before=$((PASS + FAIL))

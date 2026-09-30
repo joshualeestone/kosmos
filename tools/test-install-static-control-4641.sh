@@ -45,6 +45,12 @@ if KOSMOS_STATIC_LIB="$T/lib-moved.sh" bash "$HERE/tools/test-install-static.sh"
   cat "$T/moved.log"; echo "control: a check moved out of a cut group still passed" >&2; exit 1
 fi
 grep -q "group port: 13 checks ran, expected 14" "$T/moved.log" || { cat "$T/moved.log"; echo "control: it failed, but not on the port group's count" >&2; exit 1; }
+# A group the lib defines but the runner does not list would run nowhere on a PR.
+{ cat "$HERE/tools/lib/install-static-checks.sh"; printf '%s\n' 'install_static_extra_checks() {' '  chk "a new group" "true"' '}'; } > "$T/lib-extra.sh"
+if KOSMOS_STATIC_LIB="$T/lib-extra.sh" bash "$HERE/tools/test-install-static.sh" > "$T/extra.log" 2>&1; then
+  cat "$T/extra.log"; echo "control: a lib with an unlisted group still passed" >&2; exit 1
+fi
+grep -q "the lib defines groups" "$T/extra.log" || { cat "$T/extra.log"; echo "control: it failed, but not on the unlisted group" >&2; exit 1; }
 # test-install.sh loading the lib after its first group call, or not at all, would break the cut while this runner
 # (which loads the lib itself) stayed green.
 LOADLINE='source "$HERE/tools/lib/install-static-checks.sh"'
@@ -59,4 +65,4 @@ if KOSMOS_STATIC_INSTALL_SH="$T/test-install-noload.sh" bash "$HERE/tools/test-i
   cat "$T/noload.log"; echo "control: a test-install.sh that never loads the lib still passed" >&2; exit 1
 fi
 grep -q "does not load the checks library exactly once" "$T/noload.log" || { cat "$T/noload.log"; echo "control: it failed, but not on the missing load" >&2; exit 1; }
-echo "install-static control: clean passes, a restart that skips the choice fails on its check, a lost check fails the count, a check moved between groups fails its group's count, a dropped group call fails, a cut group after the gate exit fails, a late or missing lib load fails"
+echo "install-static control: clean passes, a restart that skips the choice fails on its check, a lost check fails the count, a check moved between groups fails its group's count, a dropped group call fails, a cut group after the gate exit fails, a late or missing lib load fails, an unlisted group fails"

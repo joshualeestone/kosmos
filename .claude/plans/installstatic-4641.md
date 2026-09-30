@@ -15,12 +15,12 @@ them goes red in the shell suite (a control proves it).
   pattern text is set aside, plus the helpers they call (`_kosmos_expected_port`, `_kosmos_formula_from`,
   `_postinstall_port_block`, `_postinstall_page_port`), moved verbatim with their comments (the port comment's
   "above" and "this file" reworded for where it now sits). Four groups:
-  port derivation (14), the update-on-a-connect-computer greps (3), the board-off greps (5), the open default (1),
-  and `install_static_all`.
+  port derivation (14), the update-on-a-connect-computer greps (3), the board-off greps (5), the open default (1).
 - `tools/test-install.sh`: sources the lib right after `chk`, and calls each group where its checks sat, so the
   cut runs them as before (the selftest block above them still uses `_kosmos_expected_port` from the lib).
-- `tools/test-install-static.sh` (new): defines the same `chk`, runs `install_static_all`, fails on any FAIL, on a
-  count other than 23 (so a group that loses a check does not pass quietly), and unless tools/test-install.sh calls
+- `tools/test-install-static.sh` (new): defines the same `chk`, runs each group, fails on any FAIL, on a group
+  count other than its own (port 14, update 3, board off 5, open 1), on a group the lib defines but the runner does
+  not list, and unless tools/test-install.sh calls
   each of the four groups exactly once, with the three cut groups before its release-gate exit (so the cut keeps
   running them).
 - `tools/test-install-static-control-4641.sh` (new): the runner passes on setup.sh; fails, on the exact check, on a
@@ -56,3 +56,6 @@ lib; the count guard makes that a deliberate edit, not a silent one.
 - The runner now counts checks per group (port 14, update 3, board off 5, open 1), so a check moved from a cut group into the open group, which keeps the total, fails its group's count.
 - The runner requires test-install.sh to load the lib exactly once at the start of a line, before its first group call.
 - Control arms added for both: a check moved from port to open fails "group port: 13 checks ran, expected 14"; the load moved after the port call fails on the load position; the load removed fails on the missing load.
+
+## Review iteration 2 (fresh loop)
+- `install_static_all` removed (nothing called it once the runner counted per group); the runner instead fails when the groups the lib defines differ from the ones it lists, so a new group cannot run nowhere. Control arm added for it.

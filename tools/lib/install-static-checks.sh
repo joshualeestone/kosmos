@@ -33,7 +33,6 @@ _kosmos_formula_from() { # $1 = file, reads from the anchor line through PORT=
   awk '/^_kosmos_uid="\$\(\/usr\/bin\/id -u\)"$/{f=1} f{print} f&&/^PORT="\$\{KOSMOS_PORT:-\$_kosmos_default_port\}"$/{exit}' "$1"
 }
 
-
 # 🔑 postinstall's KOSMOS_PORT guard, EXECUTED not just diffed: unlike the
 # two shell files above (byte-identical to each other so a text diff is
 # meaningful), postinstall names its own variables and can't run through
@@ -91,9 +90,3 @@ install_static_open_checks() {
   chk "the served file defaults to /usr/bin/open" "grep -q 'KOSMOS_OPEN_CMD:-/usr/bin/open' \"$SETUP\""
 }
 
-install_static_all() {
-  install_static_port_checks
-  install_static_update_checks
-  install_static_board_off_checks
-  install_static_open_checks
-}
