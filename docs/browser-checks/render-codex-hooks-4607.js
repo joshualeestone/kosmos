@@ -77,6 +77,8 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
 
     const base = { messages: [], presence: 'on', asking: true };
     const a = await paint({ ...base, codexHooks: TABLE });
+    const held = await page.evaluate(() => document.getElementById('d-qask-codex-skip').disabled);
+    chk(held === true, `${t} a new summary holds the buttons for a moment (round 16)`, String(held));
     chk(a.exists && a.box && a.codex, `${t} the needs-you box shows the Codex hook choice`, JSON.stringify(a));
     chk(/Sam needs you to decide about Codex hooks\./.test(a.label), `${t} the label names the agent`, a.label);
     chk(/Codex found 2 hooks it has not been told to trust \(SubagentStop, Stop\)\./.test(a.what) && a.source === null,
@@ -108,6 +110,8 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
         sent = { url: String(url), method: opts && opts.method, body: opts && opts.body };
         return new Response(JSON.stringify(answer.body), { status: answer.status, headers: { 'content-type': 'application/json' } });
       };
+      /* A changed summary holds the buttons 1.2 s (round 16); wait for that, then click. */
+      for (let i = 0; i < 60 && document.getElementById(id).disabled; i++) await new Promise((r) => setTimeout(r, 50));
       document.getElementById(id).click();
       for (let i = 0; i < 40 && document.getElementById('d-qask-codex-trust').disabled; i++) await new Promise((r) => setTimeout(r, 25));
       return {

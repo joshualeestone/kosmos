@@ -94,6 +94,10 @@ Round 15: "Show the full list" is its own choice ('list'), never logged or worde
 refused. Not covered (predates #4607): the PROJECT room shows the generic "waiting on an answer" for this dialog with
 no pointer to the agent page, where the only answer is.
 
+Round 16: isViaScreen alone would pass a cross-site request (it takes Sec-Fetch-Site or a loopback Origin); the route
+relies on the board's global cross-site write guard (crossSiteWrite) and the board-token gate in front of it. A summary
+that changes between polls holds the buttons 1.2 s; source and command lines wrap at phone width.
+
 ## Weakest premise
 That 0.149.1's screens and keys hold for the Codex the person runs. A newer Codex (0.159.2 exists) may word the
 dialog differently; then codexHookReview reads nothing, the card shows no buttons, and nothing is pressed (fails

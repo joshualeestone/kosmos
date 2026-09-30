@@ -11130,8 +11130,8 @@ window.kosmosMeasureScrollbarWidth();
              pressing either. Self-contained, like the Trust & Restart above. -->
         <div id="d-qask-codex" hidden>
           <p class="fhint" id="d-qask-codex-what" style="margin:4px 0 8px;"></p>
-          <p class="fhint" id="d-qask-codex-source" hidden style="margin:0 0 8px;">Where Codex says it comes from: <code id="d-qask-codex-source-text"></code></p>
-          <p class="fhint" id="d-qask-codex-command" hidden style="margin:0 0 8px;">What it runs: <code id="d-qask-codex-command-text"></code></p>
+          <p class="fhint" id="d-qask-codex-source" hidden style="margin:0 0 8px;">Where Codex says it comes from: <code id="d-qask-codex-source-text" style="overflow-wrap:anywhere;min-width:0;"></code></p>
+          <p class="fhint" id="d-qask-codex-command" hidden style="margin:0 0 8px;">What it runs: <code id="d-qask-codex-command-text" style="overflow-wrap:anywhere;min-width:0;"></code></p>
           <div class="frow" style="gap:8px;flex-wrap:wrap;">
             <button class="btn" id="d-qask-codex-skip" type="button">Continue without them</button>
             <button class="btn btn-quiet" id="d-qask-codex-trust" type="button">Trust all of them</button>
@@ -34068,7 +34068,16 @@ async function paintTalk(sessionName, agentName) {
     const h = body.codexHooks;
     /* #4607 (review round 4): what the person is shown is sent back with their answer, so a changed dialog is
        refused rather than answered. */
+    /* A summary that changed since the last paint holds the buttons for a moment (review round 16), so a click does
+       not land on words the person had no time to read. */
+    const prevShown = window.__codexHooksShown;
+    const changed = !prevShown || prevShown.forAgent !== sessionName || JSON.stringify(prevShown.hooks) !== JSON.stringify(h);
     window.__codexHooksShown = { forAgent: sessionName, hooks: h };
+    if (changed) {
+      const hold = ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close'].map((id) => document.getElementById(id));
+      hold.forEach((b) => { b.disabled = true; });
+      setTimeout(() => { if (window.__codexHooksShown && window.__codexHooksShown.hooks === h) hold.forEach((b) => { b.disabled = false; }); }, 1200);
+    }
     const listOpen = h.screen === 'trusted';
     const srcRow = document.getElementById('d-qask-codex-source');
     document.getElementById('d-qask-codex-source-text').textContent = h.source && !listOpen ? String(h.source).slice(0, 160) : '';

@@ -1289,6 +1289,7 @@ async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card,
   if (now.screen === 'trusted' && choice !== 'close') return no('its hooks are already trusted and their list is still open; close the list');
   if (now.screen !== 'trusted' && choice === 'close') return no('there is no open hook list to close on its screen now, so nothing was pressed');
   if (now.screen === 'hook' && choice === 'trust') return no('this page names one hook; show the full list first, then choose');
+  if (choice === 'list' && now.screen !== 'hook') return no('showing the full list is only for one hook\u2019s page, so nothing was pressed');
   let first = true;
   for (let n = 0; n < 4; n += 1) {
     const step = steps[now.screen];
