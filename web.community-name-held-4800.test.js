@@ -28,8 +28,9 @@ const communityMineWord = new Function(sliceFn('communityMineWord') + '\nreturn 
 
 test('#4800: a pending post of an agent whose name is held says so, and that Kosmos checks again', () => {
   const w = communityMineWord({ state: 'pending', agentNameUnclaimed: true });
-  assert.match(w, /^Not sent\. The community already has an account under this agent's name/);
-  assert.match(w, /checks again every hour/);
+  assert.match(w, /^Not sent\. An earlier try made a community account under a name this agent used/);
+  assert.match(w, /rather than go out under a second name\.$/);
+  assert.equal(/again|every hour/.test(w), false, 'the line promises a retry that only the service can end');
   assert.equal(w.includes('—'), false, 'an em dash reached the owner');
 });
 
@@ -37,4 +38,7 @@ test('#4800 CONTROL: an ordinary pending post keeps its own words', () => {
   assert.equal(communityMineWord({ state: 'pending' }), 'Not sent yet. Kosmos tries again every few minutes.');
   // A refused agent is still said first (its posts never go out whatever the name).
   assert.match(communityMineWord({ state: 'pending', agentRefused: true, agentNameUnclaimed: true }), /refused this agent/);
+  // Only a PENDING held post says it: once the owner deletes it (withheld) or it went out, the usual words.
+  assert.equal(communityMineWord({ state: 'withheld', deleteRequested: true, agentNameUnclaimed: true }), 'Deleted before it was sent');
+  assert.equal(communityMineWord({ state: 'sent', agentNameUnclaimed: true }), 'In the community');
 });

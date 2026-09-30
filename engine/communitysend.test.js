@@ -43,7 +43,7 @@ function backend() {
       if (req.method === 'POST' && req.url === '/agents/register') {
         if ([...st.agents.values()].some((a) => a.name.toLowerCase() === body.name.toLowerCase())) return send(409, { detail: 'that name is taken' });
         const id = 'a' + (++st.n);
-        const a = { id, name: body.name, bio: body.bio, key: 'kc_key_' + id, token: 'tok_' + id + '_1', active: true };
+        const a = { id, name: body.name, bio: body.bio, key: 'kc_key_' + id, token: 'tok_' + id + '_1', active: true, registeredAt: new Date().toISOString() };
         st.agents.set(id, a);
         return send(201, { agent_id: id, name: a.name, name_replaced: false, api_key: a.key, token: a.token });
       }
@@ -51,7 +51,7 @@ function backend() {
       if (req.method === 'GET' && req.url.startsWith('/agents/by-name/')) {
         const name = decodeURIComponent(req.url.slice('/agents/by-name/'.length)).toLowerCase();
         const a = [...st.agents.values()].find((x) => x.active && x.name.toLowerCase() === name);
-        return a ? send(200, { name: a.name, bio: a.bio || null, counts: {} }) : send(404, { detail: 'agent not found' });
+        return a ? send(200, { name: a.name, bio: a.bio || null, registered_at: a.registeredAt || null, counts: {} }) : send(404, { detail: 'agent not found' });
       }
       if (req.method === 'POST' && req.url === '/agents/login') {
         const a = [...st.agents.values()].find((x) => x.name === body.name && x.key === body.api_key && x.active);
@@ -1008,10 +1008,44 @@ test('#4800: a lookup the service cannot answer (a 503) waits: no register that 
 });
 
 test('#4800: a display name the service would swap for its own handle (a slash, only dots) registers as our own handle', () => {
-  for (const displayName of ['Sales/Ops', '...']) {
+  for (const displayName of ['Sales/Ops', '...', '.']) {
     store.writeProfile('ux', { displayName });
     assert.match(cs.registration('ux').name, /^agent-[0-9a-f]{6}$/, `"${displayName}" was sent as the name`);
   }
   store.writeProfile('ux', { displayName: 'Sales Ops' });
   assert.equal(cs.registration('ux').name, 'Sales Ops', 'CONTROL: an ordinary name was replaced');
+  // The service strips dots from the ENDS only (name.strip('.')), so a name with other characters between dots stays.
+  store.writeProfile('ux', { displayName: '. . .' });
+  assert.equal(cs.registration('ux').name, '. . .', 'a name the service keeps was replaced');
+});
+
+test('#4800 review 2: a lost try on a name ANOTHER install already held takes a suffix, as before, instead of waiting forever', async () => {
+  await on();
+  const dayAgo = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  be.st.agents.set('z', { id: 'z', name: 'Researcher', key: 'k', token: 't', active: true, registeredAt: dayAgo });
+  store.writeProfile('vic', { displayName: 'Researcher' });
+  const r = agentPost('vic', { topic: 't', body: 'b' });
+  loseRegister('before');                             // offline: the try never reached the service
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(lookups().length, 1, 'CONTROL: the name was not looked up, so the age check was never reached');
+  const names = registers().map((x) => x.body.name);
+  assert.equal(names[0], 'Researcher');
+  assert.match(names.at(-1), /^Researcher-[0-9a-f]{4}$/, 'an account made a day before our try was taken for ours');
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+  assert.equal(cs.statuses()[r.id].agentNameUnclaimed, undefined);
+});
+
+test('#4800 review 2: the owner deletes a held post: it is withheld, never sent, and says so', async () => {
+  await on();
+  store.writeProfile('wes', { displayName: 'Wes' });
+  const r = agentPost('wes', { topic: 't', body: 'b' });
+  loseRegister('after');
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].agentNameUnclaimed, true, 'CONTROL: the post was not held');
+  assert.equal(cs.requestDelete(r.id).ok, true);
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].state, 'withheld');
+  assert.equal(posts().length, 0);
 });

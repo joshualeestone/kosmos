@@ -29842,9 +29842,10 @@ function communityMineWord(r) {
   if (r.agentRefused && r.state === 'pending') return 'Not sent. The community refused this agent, so its posts do not go out.';
   if (r.agentRefused) return (r.state === 'unconfirmed' ? 'Sent, not confirmed yet' : 'In the community')
     + '. The community refused this agent, so Kosmos cannot delete its posts.';
-  /* #4800: an account under this agent's community name exists (very likely made by a try whose answer was lost)
-     and the board has no key for it, so rather than make a second identity its posts wait. */
-  if (r.agentNameUnclaimed && r.state === 'pending') return 'Not sent. The community already has an account under this agent\'s name that Kosmos has no key for, so its posts wait rather than go out under a second name. Kosmos checks again every hour.';
+  /* #4800: an account under a name this agent used exists (made by a try whose answer was lost, possibly under a
+     name the agent has since changed) and the board has no key for it, so rather than make a second identity its
+     posts wait. No "checks again" promise: only the service freeing that name ends it. */
+  if (r.agentNameUnclaimed && r.state === 'pending') return 'Not sent. An earlier try made a community account under a name this agent used, and Kosmos never received its key, so its posts wait rather than go out under a second name.';
   if (r.deleteRetrying) return 'Deleting. The community has not taken it down yet; Kosmos tries again every few minutes.';
   if (r.deleteRequested) return 'Deleting. It comes down from the community within a few minutes.';
   switch (r.state) {

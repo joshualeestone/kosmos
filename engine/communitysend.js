@@ -223,7 +223,7 @@ function registration(agentKey) {
     const s = communitysite.scrubAuthorName(profile.displayName);
     // #4800: the service swaps a name holding '/' or only dots for a random handle of its own (they cannot be looked
     // up at /agents/by-name/{name}); taking our own handle instead keeps the name we registered the name it holds.
-    if (s.ok && s.name !== communitysite.DEFAULT_AUTHOR_NAME && !s.name.includes('/') && s.name.replace(/\./g, '').trim()) name = s.name;
+    if (s.ok && s.name !== communitysite.DEFAULT_AUTHOR_NAME && !s.name.includes('/') && s.name.replace(/^\.+|\.+$/g, '')) name = s.name;   // the service's name.strip('.')
   }
   const out = { name: name || handle() };
   if (typeof profile.role === 'string' && profile.role.trim()) {
@@ -322,8 +322,9 @@ const registerRetryAt = new Map();   // agentKey -> ms; a 429 on register waits,
    looks the name up publicly first:
    - 404 (no active agent has it): register the SAME name (a deactivated holder keeps its name, so that register
      409s and the loop takes a suffix, as before);
-   - 200: the account exists and is very likely ours with no key. Register nothing: the agent does not post until
-     the name is free again (asked hourly), the log says so once, and its posts show agentNameUnclaimed;
+   - 200, made after our try began (less a clock margin): very likely ours with no key. Register nothing: the agent
+     does not post until the name is free again (asked hourly), the log says so once, and its posts show
+     agentNameUnclaimed. Made well before our try: somebody else's; drop the mark and register as before (suffix);
    - anything else (no answer, a 5xx): wait for the next sweep.
    The mark is cleared only by an answer that proves nothing was made, a 4xx. A 5xx (a gateway can answer 504 after
    the service committed) or a 2xx without a usable body (request() returns the status even when the body never
@@ -331,6 +332,7 @@ const registerRetryAt = new Map();   // agentKey -> ms; a 429 on register waits,
    never sends a name the service would swap for its own handle. A mark outlives a rename on purpose: the account
    may exist under the old name. An entry with no apiKey is skipped by every other loop here. */
 const REGISTER_LOST_RECHECK_MS = 60 * 60 * 1000;
+const REGISTER_CLOCK_SKEW_MS = 10 * 60 * 1000;
 async function ensureRegistered(agentKey, keys, now, ctx = {}) {
   if (keys[agentKey] && keys[agentKey].apiKey) return keys[agentKey];
   if ((registerRetryAt.get(agentKey) || 0) > now) return null;
@@ -338,7 +340,15 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
   const mark = keys[agentKey] && keys[agentKey].registering;
   if (mark && typeof mark.name === 'string' && mark.name) {
     const look = await request('GET', '/agents/by-name/' + encodeURIComponent(mark.name));
-    if (look.status === 200) {
+    /* Review 2: an account made well BEFORE our first try is somebody else's (a common name another install holds,
+       and our try was lost before it reached the service). Then the mark is not ours: drop it and register as
+       before, where the 409 takes a suffix. The margin allows for our clock and the service's to disagree. */
+    const madeAt = look.status === 200 && look.json ? Date.parse(look.json.registered_at) : NaN;
+    const triedAt = Date.parse(mark.at);
+    if (look.status === 200 && Number.isFinite(madeAt) && Number.isFinite(triedAt) && madeAt < triedAt - REGISTER_CLOCK_SKEW_MS) {
+      delete keys[agentKey];
+      saveJson(keysFile(), keys);
+    } else if (look.status === 200) {
       if (!mark.taken) {
         keys[agentKey] = { registering: { ...mark, taken: true } };
         saveJson(keysFile(), keys);
@@ -346,9 +356,11 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
       }
       registerRetryAt.set(agentKey, now + REGISTER_LOST_RECHECK_MS);
       return null;
+    } else if (look.status !== 404) {
+      return null;                                    // could not tell: the next sweep asks again
+    } else {
+      reg.name = mark.name;                           // nothing live under it: take the same name, not a new one
     }
-    if (look.status !== 404) return null;             // could not tell: the next sweep asks again
-    reg.name = mark.name;                             // nothing live under it: take the same name, not a new one
   }
   const base = reg.name;
   for (let i = 0; i < 3; i++) {
