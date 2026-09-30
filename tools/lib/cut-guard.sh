@@ -617,21 +617,45 @@ _kosmos_drop_suite_waiters() {
 kosmos_mark_suite_waiting() {
   local ts="${1:-$(date +%s)}" dir
   dir="$(_kosmos_marker_dir)"; mkdir -p "$dir" 2>/dev/null || return 0
-  printf '%s %s\n%s\n%s\n%s\n' "$ts" "$$" "$(ps -ww -o command= -p "$$" 2>/dev/null)" "$(_kosmos_pid_started_local "$$")" "$(_kosmos_pid_started "$$")" > "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null \
+  # #4609 light lane: line 5 is this run's class (KOSMOS_QUEUE_CLASS=light, anything else is heavy). An older copy of
+  # this lib reads lines 1 to 4 only, so it keeps plain oldest-first order.
+  printf '%s %s\n%s\n%s\n%s\n%s\n' "$ts" "$$" "$(ps -ww -o command= -p "$$" 2>/dev/null)" "$(_kosmos_pid_started_local "$$")" "$(_kosmos_pid_started "$$")" "$(_kosmos_queue_class)" > "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null \
     && mv -f "$(_kosmos_suite_waiter_file "$$").tmp.$$" "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null
   return 0
 }
 kosmos_unmark_suite_waiting() { rm -f "$(_kosmos_suite_waiter_file "$$")" "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null; return 0; }
 
+# #4609 light lane: a run declared light (KOSMOS_QUEUE_CLASS=light: one browser check, one focused test file) goes ahead
+# of heavy waiters (full suites, cargo runs, pushes), still ONE run at a time: the class changes the order, never how
+# many hold the box. A heavy waiter that has waited KOSMOS_QUEUE_STARVE_S (default 2700 s, the queue's bound) goes ahead
+# of the light ones, so a stream of light runs cannot hold a suite back for ever. Measured before this (2026-09-30
+# 10:07): 22 waiters, 19 of them one-offs that hold the box 7 to 200 s, queued behind suites that hold it 15 to 20 min.
+_kosmos_queue_class() { case "${KOSMOS_QUEUE_CLASS:-}" in light) echo light ;; *) echo heavy ;; esac; }
+# _kosmos_queue_rank <queue time> <class> <now>: 0 a heavy waiter past the starve line, 1 a light one, 2 any other heavy.
+_kosmos_queue_rank() {
+  local starve="${KOSMOS_QUEUE_STARVE_S:-2700}"
+  case "$starve" in ''|*[!0-9]*) starve=2700 ;; esac
+  if [ "$2" = light ]; then echo 1
+  elif [ $(( $3 - $1 )) -ge "$starve" ]; then echo 0
+  else echo 2; fi
+}
+
 # _kosmos_suite_waiters_ahead: the pids of the live waiters ahead of this run in the suite queue, one per line (all of
 # them before this run holds a marker). The refusal below and the #4574 bound both read this, so they agree on "ahead".
+# Ahead means first by rank (_kosmos_queue_rank), then by queue time, then by pid.
 _kosmos_suite_waiters_ahead() {
-  local dir f pid mine_ts mine_pid ts
+  local dir f pid mine_ts mine_pid ts cls rank mine_rank now
   dir="$(_kosmos_marker_dir)"; [ -d "$dir" ] || return 0
   # A caller that already read this run's queue time passes it (the bound, review 23), so there is no gap between a
   # check that the marker exists and this read; otherwise it is read here.
   if [ $# -ge 2 ]; then mine_ts="$1"; mine_pid="$2"
   else read -r mine_ts mine_pid 2>/dev/null < "$(_kosmos_suite_waiter_file "$$")" || { mine_ts=""; mine_pid=""; }
+  fi
+  # Queue times are the real clock (see kosmos_wait_until_clear), so the starve line is measured against it too.
+  now="$(date +%s)"
+  if [ -n "$mine_ts" ]; then
+    cls="$(sed -n '5p' "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null)"; [ -n "$cls" ] || cls="$(_kosmos_queue_class)"
+    mine_rank="$(_kosmos_queue_rank "$mine_ts" "$cls" "$now")"
   fi
   for f in "$dir"/suitewait.*; do
     [ -e "$f" ] || continue
@@ -642,22 +666,25 @@ _kosmos_suite_waiters_ahead() {
     _kosmos_suite_waiter_live "$pid" || continue
     read -r ts _ 2>/dev/null < "$f" || continue
     case "$ts" in ''|*[!0-9]*) continue ;; esac
-    if [ -z "$mine_ts" ] || [ "$ts" -lt "$mine_ts" ] || { [ "$ts" -eq "$mine_ts" ] && [ "$pid" -lt "$mine_pid" ]; }; then
+    if [ -z "$mine_ts" ]; then echo "$pid"; continue; fi
+    cls="$(sed -n '5p' "$f" 2>/dev/null)"   # an older lib's marker has no line 5: heavy
+    rank="$(_kosmos_queue_rank "$ts" "$cls" "$now")"
+    if [ "$rank" -lt "$mine_rank" ] || { [ "$rank" -eq "$mine_rank" ] && { [ "$ts" -lt "$mine_ts" ] || { [ "$ts" -eq "$mine_ts" ] && [ "$pid" -lt "$mine_pid" ]; }; }; }; then
       echo "$pid"
     fi
   done
   return 0
 }
 
-# kosmos_refuse_if_earlier_suite_waiter <what>: refuses while another suite has waited longer
-# (earlier epoch, then lower pid). A caller with no marker of its own is behind every waiter. Since #4574 it walks every
+# kosmos_refuse_if_earlier_suite_waiter <what>: refuses while another waiter is ahead of this run
+# (_kosmos_suite_waiters_ahead: rank, then earlier epoch, then lower pid). A caller with no marker of its own is behind every waiter. Since #4574 it walks every
 # marker (the shared helper) rather than stopping at the first: a few ps calls a marker, once or twice a 30 s poll.
 kosmos_refuse_if_earlier_suite_waiter() {
   local what="${1:-this run}" pid
   # A read loop, not `head -1`: closing the pipe early could print "Broken pipe" into this refusal's own message.
   pid="$(_kosmos_suite_waiters_ahead | { read -r p || true; printf '%s' "$p"; cat >/dev/null; })" || true
   [ -n "$pid" ] || return 0
-  echo "another test suite (tools/run-tests.sh, pid $pid) has been waiting for the box longer than $what; it goes first." >&2
+  echo "another queued run (pid $pid) is ahead of $what in the queue (it has waited longer, or it is a light run, #4609); it goes first." >&2
   return 1
 }
 

@@ -665,6 +665,40 @@ kosmos_mark_suite_waiting 50
 out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#4498 CONTROL: the earliest waiter goes" || fail "#4498 the earliest waiter was held (rc=$rc, $out)"
 kosmos_unmark_suite_waiting
+
+# --- #4609 light lane: a light run goes ahead of heavy waiters, one at a time; a heavy one past the starve line goes first --
+# lwait <queue time> [class]: rewrite the stand-in waiter's marker (class on line 5, none for an older lib's marker).
+lwait() { { printf '%s %s\n%s\n%s\n%s\n' "$1" "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")"; [ -n "${2:-}" ] && printf '%s\n' "$2"; } > "$W/markers/suitewait.$wp"; }
+NOW="$(date +%s)"
+lwait $((NOW - 60))                                   # an older lib's marker: no class, so heavy
+KOSMOS_QUEUE_CLASS=light kosmos_mark_suite_waiting $((NOW - 30))
+out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#4609 a light run goes ahead of an older heavy waiter (and an older lib's marker reads as heavy)" \
+  || fail "#4609 a light run waited behind a heavy one (rc=$rc, $out)"
+[ "$(sed -n '5p' "$W/markers/suitewait.$$")" = light ] && pass "#4609 the marker records the class on line 5" \
+  || fail "#4609 the marker's line 5 is not the class ($(sed -n '5p' "$W/markers/suitewait.$$"))"
+kosmos_mark_suite_waiting $((NOW - 30))                # CONTROL: the same place, heavy
+out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "is ahead of" && has_pid "$out" "$wp"; } && pass "#4609 CONTROL: a heavy run in the same place waits behind the older heavy one" \
+  || fail "#4609 CONTROL: a heavy run jumped an older heavy waiter (rc=$rc, $out)"
+lwait $((NOW - 3000))                                 # heavy, past the default starve line (2700 s)
+KOSMOS_QUEUE_CLASS=light kosmos_mark_suite_waiting $((NOW - 30))
+out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && has_pid "$out" "$wp"; } && pass "#4609 a heavy waiter past the starve line goes ahead of a light run" \
+  || fail "#4609 a starving heavy waiter was passed by a light run (rc=$rc, $out)"
+out="$(KOSMOS_QUEUE_STARVE_S=4000 kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#4609 CONTROL: under a longer starve line the same heavy waiter does not" \
+  || fail "#4609 CONTROL: KOSMOS_QUEUE_STARVE_S did not move the starve line (rc=$rc, $out)"
+lwait $((NOW - 60)) light                             # two light runs: oldest first between them
+KOSMOS_QUEUE_CLASS=light kosmos_mark_suite_waiting $((NOW - 30))
+out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && has_pid "$out" "$wp"; } && pass "#4609 two light runs keep oldest-first order between them" \
+  || fail "#4609 a later light run went ahead of an earlier one (rc=$rc, $out)"
+KOSMOS_QUEUE_CLASS=bogus kosmos_mark_suite_waiting $((NOW - 30))
+[ "$(sed -n '5p' "$W/markers/suitewait.$$")" = heavy ] && pass "#4609 an unknown class is recorded as heavy" \
+  || fail "#4609 an unknown class was recorded as $(sed -n '5p' "$W/markers/suitewait.$$")"
+kosmos_unmark_suite_waiting
+lwait 100
 kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null
 out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
 { [ "$rc" -eq 0 ] && [ ! -e "$W/markers/suitewait.$wp" ]; } && pass "#4498 a dead waiter holds no place and its marker is removed" \
@@ -902,7 +936,7 @@ sleep 60 & wp=$!
 printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 rm -f "$W/calls"
 out="$(KOSMOS_NO_WAIT=1 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wcheck 2>&1)"; rc=$?
-{ [ "$rc" -eq 1 ] && has "$out" "has been waiting for the box longer" && has_pid "$out" "$wp"; } \
+{ [ "$rc" -eq 1 ] && has "$out" "is ahead of" && has_pid "$out" "$wp"; } \
   && pass "#4498 a clear box still waits behind an older waiting suite" \
   || fail "#4498 the wait jumped an older waiting suite (rc=$rc, $out)"
 kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null
@@ -924,7 +958,7 @@ printf '#!/bin/sh\n{ [ "$1" = '"$DEAD"' ] || [ "$1" = '"$SUITE"' ]; } || printf 
 rt_run() { (cd "$RT" && env KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
   KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= "$@" bash tools/run-tests.sh 2>&1); }
 out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none")"
-has "$out" "has been waiting for the box longer" && pass "#4498 CONTROL: a plain run waits behind an older waiting suite" \
+has "$out" "is ahead of" && pass "#4498 CONTROL: a plain run waits behind an older waiting suite" \
   || fail "#4498 CONTROL: a plain run did not queue ($(printf '%s' "$out" | tail -2))"
 out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TESTS_IGNORE_SUITE=1)"
 { has "$out" "COVERAGE MISMATCH" && ! has "$out" "waiting for the box longer"; } \
