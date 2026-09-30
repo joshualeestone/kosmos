@@ -683,9 +683,13 @@ function currentReader(name) {
     // The account too, so the consent's reader id pins the Claude account the box names, not just "Claude".
     let acct = null;
     try { acct = readAccount(); } catch { acct = null; }
-    // Whether it runs on a pasted API key (#2420): the consent then says it is billed to that key, and that key's
-    // retention (#4660).
-    return { kind: 'claude', dir: acct ? acct.dir : null, apiKey: Boolean(acct && acct.apiKey === true) };
+    // Whether the read is billed to an API key (#4660): the consent then says so, with that key's retention. Two ways
+    // Kosmos can tell: the account row is a key account (#2420, which accounts.list() marks only on a non-default
+    // folder), or ANTHROPIC_API_KEY is in the board's environment, which the Claude read passes on to `claude`
+    // (defaultModelRunner) and so bills. Not seen: an apiKeyHelper set up by hand on the default ~/.claude. That
+    // person gets "using your plan" and the both-cases line, which still names an API account's 30 days.
+    const apiKey = Boolean(acct && acct.apiKey === true) || Boolean(process.env.ANTHROPIC_API_KEY);
+    return { kind: 'claude', dir: acct ? acct.dir : null, apiKey };
   }
   /* #5346: a ChatGPT subscription next, read through Codex with every tool that can act switched off. Before a key,
      because a key read is billed per call and the subscription is already paid for. */
