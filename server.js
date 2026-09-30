@@ -659,8 +659,9 @@ function fedKosmosPlusNow() {
       "federation live" bool from the coordinator (remote.federationLive()), refreshed on
       a TTL from the /api/status poll. This is how a CUSTOMER -- who cannot set an env var
       -- gets the flip: central on/off + rollback-without-a-release. (The real coordinator
-      fetch is a stub pending ICK's endpoint; until wired it returns false, so the env is
-      the only live source and behaviour is unchanged.)
+      read is the coordinator's public /v1/meta `federation_live` (kosmos#4649), asked only by a
+      board whose person turned Kosmos+ remote access on; unknown keeps the last-known value, and
+      only an explicit false switches it off.)
    2. The AGENT_WORKFORCE_FEDERATION_LIVE env override, for an OPERATOR/dev board:
       set it on the launchd job and restart (a live process cannot have its inherited env
       changed from outside, so production needs that one restart; the per-request read is
@@ -1141,7 +1142,7 @@ const webhooks = require('./engine/webhooks');
 const HOOK_BODY_MAX = 16 * 1024;
 const HOOK_RATE = { perMinute: 30, perProjectHour: 120, openMax: 200, bodyMs: 10000, seen: new Map(), byProject: new Map() };
 /* #4419: the internet link for a webhook, shown beside the local one in the same answer (the secret
-   exists only there). Only when Kosmos Plus is up AND the running connector says it admits hooks;
+   exists only there). Only when Kosmos+ is up AND the running connector says it admits hooks;
    otherwise publicWhy says, in words for the page, why there is none. The address must be a dotted
    host name whose last label is letters, so an IP literal or anything with a path never lands in a link. */
 const HOOK_HOST_RE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
@@ -1153,21 +1154,21 @@ function hookPublicLink(id, secret) {
   try { const set = remote.read(); on = set.on === true; settingsOk = set.ok !== false; } catch { on = false; settingsOk = false; }
   try { signedIn = remote.enrolled() === true; } catch { signedIn = false; }
   const why = (w) => ({ publicUrl: null, publicWhy: HOOK_LOCAL_ONLY + w });
-  if (!settingsOk) return why('Kosmos could not read the Kosmos Plus settings just now, so there is no internet link this time.');
-  if (!on) return why('Kosmos Plus can also give a link that works from the internet.');
-  if (!signedIn) return why('Finish signing in to Kosmos Plus in Settings to also get a link that works from the internet.');
+  if (!settingsOk) return why('Kosmos could not read the Kosmos+ settings just now, so there is no internet link this time.');
+  if (!on) return why('Kosmos+ can also give a link that works from the internet.');
+  if (!signedIn) return why('Finish signing in to Kosmos+ in Settings to also get a link that works from the internet.');
   if (!st || st.state !== 'up') {
     return why(st && (st.state === 'connecting' || st.state === 'restarting')
-      ? 'Kosmos Plus is still connecting; make a new webhook once it is connected to also get a link that works from the internet.'
-      : 'Kosmos Plus is not connected right now, so there is no internet link this time.');
+      ? 'Kosmos+ is still connecting; make a new webhook once it is connected to also get a link that works from the internet.'
+      : 'Kosmos+ is not connected right now, so there is no internet link this time.');
   }
-  if (st.admitsHooks !== true) return why('This computer\'s Kosmos Plus connection does not take webhooks from the internet.');
+  if (st.admitsHooks !== true) return why('This computer\'s Kosmos+ connection does not take webhooks from the internet.');
   // The link carries the secret, so its host must be THIS computer's enrolled Kosmos Plus name, not just any host name
   // a status file happens to hold (a stale or damaged file must never send the secret to someone else's host).
   let enrolledName = '';
   try { enrolledName = String(remote.address() || '').toLowerCase(); } catch { enrolledName = ''; }
   if (HOOK_HOST_RE.test(String(st.address || '')) && enrolledName && String(st.address).toLowerCase() !== enrolledName) {
-    return why('This computer\'s Kosmos Plus name changed since it connected, so there is no internet link this time.');
+    return why('This computer\'s Kosmos+ name changed since it connected, so there is no internet link this time.');
   }
   if (!HOOK_HOST_RE.test(String(st.address || '')) || String(st.address).toLowerCase() !== enrolledName) return why('Kosmos could not read this computer\'s internet address, so there is no internet link this time.');
   return { publicUrl: 'https://' + String(st.address).toLowerCase() + '/hooks/' + id + '/' + secret, publicWhy: null };
@@ -8207,8 +8208,10 @@ const server = http.createServer(async (req, res) => {
      card only when Plus is on and enrolled, which the engine already
      encodes as an empty list. */
   if (pathname === '/api/remote/pending' && (req.method === 'GET' || req.method === 'HEAD')) {
-    // #3829 follow-up: the card names this Mac's own sign-in the same way the list does.
-    try { sendJson(res, 200, Object.assign({}, remote.pendingDevices(), { self_device_id: typeof remote.read().device_id === 'string' ? remote.read().device_id : '' })); }
+    /* #4610 (Josh's ruling 13:00, blind review round 1): this Mac's own sign-in is never shown, so its id is no longer
+       sent to the page (the engine leaves it out of pending, and grants it). Not sending it also keeps the one value
+       that picks the automatic grant off every read route. */
+    try { sendJson(res, 200, remote.pendingDevices()); }
     catch { sendJson(res, 500, { error: 'we could not read what is waiting' }); }
     return;
   }
@@ -8227,10 +8230,11 @@ const server = http.createServer(async (req, res) => {
       .then((list) => {
         if (!list.ok) { sendJson(res, 500, { error: list.because }); return; }
         const pending = remote.pendingDevices();
-        /* #3829 follow-up (ICK's finding): this Mac's own in-app sign-in is a row too, and it sends no name.
-           Its id (an opaque label kept in remote.json, not a credential) lets the page call it "This Mac". */
+        /* #4610: nor in the ALLOWED list. Josh: "never display to the user"; shown there it also carried a Remove
+           the automatic grant would quietly undo. Matched by the id this board minted for its own sign-in. */
         const self = typeof remote.read().device_id === 'string' ? remote.read().device_id : '';
-        sendJson(res, 200, { pending: pending.devices, allowed: list.data.devices, email: pending.email, on: remote.read().on === true, self_device_id: self });
+        const allowed = (Array.isArray(list.data.devices) ? list.data.devices : []).filter((d) => !self || !d || d.device_id !== self);
+        sendJson(res, 200, { pending: pending.devices, allowed, email: pending.email, on: remote.read().on === true });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the devices' }));
     return;
@@ -12914,6 +12918,7 @@ const server = http.createServer(async (req, res) => {
           state: body.state,
           project: typeof body.project === 'string' ? body.project : undefined,
           because: body.text,
+          waiting: body.waiting,   // #4569 fix 4: selfreport keeps it only on a sane working report
           on: body.on,
           owner: body.owner,
           until: body.until,
