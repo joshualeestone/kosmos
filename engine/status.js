@@ -1641,10 +1641,10 @@ function codexHookReview(paneText) {
    characters: rendered through textContent and as JSON. */
 const CODEX_HOOK_DIALOG_SENTENCE = 'it is waiting on a Codex hook approval: Codex found hooks it has not been told to trust '
   + '(often from the Codex desktop app\u2019s plugins) and will not start until someone answers. Typing cannot answer it, '
-  + 'so nothing was typed. Answer it on its agent page (the box above the conversation), then send this again.';
+  + 'so nothing was typed. The person answers it on its agent page in Kosmos; ask them to, then send this again.';
 /* #4607 (review round 3): the trusted-but-open list. Its hooks are trusted already; Codex waits for the list to close. */
 const CODEX_HOOK_LIST_SENTENCE = 'its Codex hook list is open on its screen, so nothing was typed: Codex waits for it to be '
-  + 'closed. Close it on its agent page (the box above the conversation), then send this again.';
+  + 'closed. The person closes it on its agent page in Kosmos; ask them to, then send this again.';
 /* True when a card's evidence is this dialog's. Only the Codex hook branch of classify writes these rows as
    needs_you evidence. Unlike isTrustDialogEvidence, NO production code keys on it (round 4): the delivery floor
    reads the screen fresh. Its callers are the tests that pin what the card shows. */
@@ -1720,6 +1720,9 @@ function codexHookSummary(paneText) {
     if (events.length) count = events.reduce((n, e) => n + e.count, 0);
   } else if (seen.screen === 'hook') {
     const ev = rows.map((r) => /^\s*Event\s{2,}(\S+)\s*$/.exec(r)).filter(Boolean).pop();
+    /* Its own "N hooks need review" line: the whole set, not only this page's hook (review round 5). */
+    const w = rows.map((r) => /^\s*(?:⚠\s*)?(\d+) hooks? needs? review before (?:it|they) can run\.\s*$/.exec(r)).filter(Boolean).pop();
+    if (w) count = Number(w[1]);
     if (ev) events.push({ event: ev[1], count: 1 });
     let si = -1;
     rows.forEach((r, i) => { if (/^\s*Source\s{2,}\S/.test(r)) si = i; });
@@ -1728,7 +1731,7 @@ function codexHookSummary(paneText) {
       const first = rows[si].replace(/^\s*Source\s+/, '');
       const next = rows[si + 1] && /^\s{8,}\S/.test(rows[si + 1]) && !/^\s*[A-Z][a-z]+\s{2,}/.test(rows[si + 1]) ? rows[si + 1].trim() : '';
       /* One line, capped: it is shown beside the Trust button, and it is text from the screen, not ours. */
-      source = (first + next).replace(/\s+/g, ' ').trim().slice(0, 160) || null;
+      source = (first + (next && !/[\/\-]$/.test(first) ? ' ' : '') + next).replace(/\s+/g, ' ').trim().slice(0, 160) || null;
     }
   }
   return { screen: seen.screen, count, events, source };

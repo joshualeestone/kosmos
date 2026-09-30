@@ -97,7 +97,6 @@ const CASES = [
   { name: 'menu, skip', choice: 'skip', screens: [MENU, MENU, IDLE], keys: ['3'] },
   { name: 'table, trust', choice: 'trust', screens: [TABLE, TABLE, TRUSTED, TRUSTED, IDLE], keys: ['t', 'Escape'] },
   { name: 'table, skip', choice: 'skip', screens: [TABLE, TABLE, IDLE], keys: ['Escape'] },
-  { name: 'hook, trust', choice: 'trust', screens: [HOOK, HOOK, TABLE, TABLE, TRUSTED, TRUSTED, IDLE], keys: ['Escape', 't', 'Escape'] },
   { name: 'hook, skip', choice: 'skip', screens: [HOOK, HOOK, TABLE, TABLE, IDLE], keys: ['Escape', 'Escape'] },
 ];
 for (const c of CASES) {
@@ -345,3 +344,32 @@ test('#4607 round 4: an answer that says nothing about what was shown presses no
   }
   assert.deepEqual(t.keys(), []);
 }));
+
+/* Review round 5: only measured steps. */
+test('#4607 round 5: Trust from one hook\'s page only goes back to the full list, and asks again', () => withCodex(HOOK, async (board) => {
+  const t = arm([HOOK, HOOK, TABLE]);
+  const r = await chat.answerCodexHooks('sam', 'trust', board.agents, SHOWN);
+  assert.equal(r.ok, false);
+  assert.equal(r.reread, true);
+  assert.match(r.because, /full list of hooks is showing now/);
+  assert.deepEqual(t.keys(), ['Escape'], 'no "t" was pressed: the person has not seen the full list');
+}));
+
+test('#4607 round 5: a Trust that lands on an unmeasured menu presses nothing there', () => withCodex(TABLE, async (board) => {
+  const t = arm([TABLE, TABLE, TRUSTED, TRUSTED, MENU]);
+  const r = await chat.answerCodexHooks('sam', 'trust', board.agents, SHOWN);
+  assert.equal(r.ok, false);
+  assert.match(r.because, /not measured/);
+  assert.deepEqual(t.keys(), ['t', 'Escape'], 'the menu after the list got no "2"');
+}));
+
+test('#4607 round 5: Close that reaches a menu presses nothing there', () => withCodex(TRUSTED, async (board) => {
+  const t = arm([TRUSTED, TRUSTED, MENU]);
+  const r = await chat.answerCodexHooks('sam', 'close', board.agents, SHOWN);
+  assert.equal(r.ok, false);
+  assert.deepEqual(t.keys(), ['Escape']);
+}));
+
+test('#4607 round 5: the refusal sentences say the PERSON answers it, for an agent to pass on', () => {
+  for (const s of [status.CODEX_HOOK_DIALOG_SENTENCE, status.CODEX_HOOK_LIST_SENTENCE]) assert.match(s, /The person (answers|closes) it on its agent page/);
+});

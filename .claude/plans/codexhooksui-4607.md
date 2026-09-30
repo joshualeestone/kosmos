@@ -28,8 +28,10 @@ the route (see Residual), or that Codex is back at its prompt: "done" means its 
 - engine/chat.js `answerCodexHooks(session, choice, roster)`, choice `trust` | `skip` | `close` (the open list only), following
   `answerGeminiQuotaStop`: a fresh `status.capturePane` read immediately before each key; act only on a screen
   `status.codexHookReview` recognises; then confirm the screen changed as measured.
-  - trust: MENU -> the digit beside "Trust all and continue". TABLE -> `t`, confirm the "view hooks" footer, then Esc.
-    HOOK -> Esc to TABLE, then as TABLE.
+  - ONLY the measured steps (review round 5, CODEX_HOOK_STEPS); any other step stops, so no key lands on a screen
+    reached by a step nobody measured:
+  - trust: MENU -> the digit beside "Trust all and continue" -> gone. TABLE -> `t` -> the trusted list -> Esc -> gone.
+    HOOK -> Esc -> TABLE, then STOP and ask again: one hook's page names one hook and `t` trusts them all.
   - skip: MENU -> the digit beside "Continue without trusting". TABLE -> Esc. HOOK -> Esc to TABLE, then Esc.
   - Round 1: menu digits are read from the option text on the same read that precedes the key (a reordered menu got
     Trust for Continue before); a missing option presses nothing. One answer per agent at a time (two surfaces

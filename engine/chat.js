@@ -1232,60 +1232,73 @@ async function answerCodexHooks(sessionName, choice, roster, seen) {
   CODEX_HOOK_BUSY.add(lockKey);
   try { return await answerCodexHooksOnce(sessionName, choice, roster, keys, no, allowed.card, seen); } finally { CODEX_HOOK_BUSY.delete(lockKey); }
 }
+/* #4607 (review round 5): the ONLY screen steps this answer takes, each one measured on 0.149.1. `[screen, key, next]`:
+   `key` is pressed on `screen` and the next read must be `next` ('gone' = no hook screen and not blank). Any other
+   step stops, so no key is ever pressed on a screen reached by a step nobody measured (a Trust that landed on a new
+   menu pressed "2" there before). 'digit' is the number beside the chosen option on that menu, read then.
+   Trust from ONE hook's page only goes back to the full table and stops: that page names one hook, "t" trusts them
+   all, so the person reads the whole list first. */
+const CODEX_HOOK_STEPS = {
+  trust: { menu: ['digit', 'gone'], table: ['t', 'trusted'], trusted: ['Escape', 'gone'], hook: ['Escape', 'table'] },
+  skip: { menu: ['digit', 'gone'], table: ['Escape', 'gone'], hook: ['Escape', 'table'] },
+  close: { trusted: ['Escape', 'gone'] },
+};
 async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card, seen) {
   if (card.runner !== 'codex') return no('that is not a Codex agent');
   if (card.reachedByChannel === true) return no('Kosmos cannot answer this on Windows yet; choose in the agent\u2019s own window');
   const t = paneTarget(card);
   const wait = (ms) => (pauser ? Promise.resolve(pauser(ms)) : (runner ? Promise.resolve() : new Promise((r) => setTimeout(r, ms))));
   const look = () => {
+    /* The pane is checked again on every read (review round 5): a pane that stopped being this agent's, or went into
+       copy mode, between keys takes no more keys. */
+    if (!addressable(sessionName, roster).ok) return { unseen: true };
     const view = viewport(sessionName, roster);
     const text = view && typeof view.text === 'string' ? view.text : null;
     if (text === null) return { unseen: true };
-    const seen = status.codexHookReview(text);
-    if (seen) return { screen: seen.screen, text };
+    const q = status.codexHookReview(text);
+    if (q) return { screen: q.screen, text };
     if (status.codexHookTrustedTable(text)) return { screen: 'trusted', text };
-    return { screen: null, text };
+    return { screen: String(text).trim() ? 'gone' : 'blank', text };
   };
   const press = (key) => {
     const got = tmux(['send-keys', '-t', t, key]);
     keys.push(key);
     return !(got.spawnFailed || !got.ran || got.status !== 0);
   };
-  /* The first read is the one the person's click answers: the dialog must be on screen now. */
+  const steps = CODEX_HOOK_STEPS[choice];
   let now = look();
   if (now.unseen) return no('we could not see its screen just now, so nothing was pressed');
-  if (!now.screen) return no('the hook question is not on its screen now, so nothing was pressed');
-  /* The trusted-but-open list takes only Close (the card offers only that there); anything else is refused, because
-     "continue without" would claim a choice that was already made the other way. */
+  if (now.screen === 'gone' || now.screen === 'blank') return no('the hook question is not on its screen now, so nothing was pressed');
   if (now.screen === 'trusted' && choice !== 'close') return no('its hooks are already trusted and their list is still open; close the list');
-  /* The dialog the person answered must be the one on screen now (review round 4: a stale summary must not trust
-     hooks the person never saw). */
-  if (!sameCodexHooks(seen, status.codexHookSummary(now.text))) return no('its hook question changed since you read it, so nothing was pressed; read it again and choose');
   if (now.screen !== 'trusted' && choice === 'close') return no('there is no open hook list to close on its screen now, so nothing was pressed');
-  /* At most four keys (hook -> table -> trusted table -> prompt); a screen that does not move stops the loop. */
-  for (let step = 0; step < 4; step += 1) {
-    /* Read again immediately before the key: the screen must still be the one this key was measured on, and on the
-       menu the key is the digit printed beside the chosen option on THIS read (never its position, review round 1). */
+  let first = true;
+  for (let n = 0; n < 4; n += 1) {
+    const step = steps[now.screen];
+    if (!step) return no('its screen went somewhere we have not measured, so nothing more was pressed; look at its window');
+    /* Read again immediately before the key: it must still be this screen, and on the FIRST key it must be the dialog
+       the person was shown (review round 4, checked on this same read, round 5). */
     const before = look();
-    if (before.screen !== now.screen) return no('its screen changed before we could answer, so nothing more was pressed; look at its window');
-    let key;
-    if (now.screen === 'menu') {
+    if (before.unseen || before.screen !== now.screen) return no('its screen changed before we could answer, so nothing more was pressed; look at its window');
+    if (first && !sameCodexHooks(seen, status.codexHookSummary(before.text))) return no('its hook question changed since you read it, so nothing was pressed; read it again and choose');
+    let key = step[0];
+    if (key === 'digit') {
       const mk = status.codexHookMenuKeys(before.text);
       key = choice === 'trust' ? mk.trust : mk.skip;
       if (!key) return no('the hook question on its screen does not show that choice the way we know it, so nothing was pressed; look at its window');
     }
-    else if (now.screen === 'table') key = choice === 'trust' ? 't' : 'Escape';
-    else if (now.screen === 'hook') key = 'Escape';
-    else if (now.screen === 'trusted') key = choice === 'close' ? 'Escape' : (choice === 'trust' ? 'Escape' : null);   // trust reaches here only after "t" on the table
-    if (!key) return no('its screen changed to something we did not expect, so nothing more was pressed; look at its window');
     if (!press(key)) return no('we could not press the key; look at its window');
+    first = false;
     await wait(CODEX_HOOK_SETTLE_MS);
     const after = look();
     if (after.unseen) return no('we answered, and then could not see its screen to check it; look at its window');
-    /* A blank screen is not evidence the question went (review round 2): it may be mid-redraw. */
-    if (!after.screen && !String(after.text || '').trim()) return no('we answered, and its screen was blank when we checked; look at its window');
-    if (!after.screen) return { ok: true, choice, keys };
-    if (after.screen === now.screen) return no('its screen did not change after we answered; look at its window');
+    if (after.screen === 'blank') return no('we answered, and its screen was blank when we checked; look at its window');
+    if (after.screen !== step[1]) {
+      if (after.screen === now.screen) return no('its screen did not change after we answered; look at its window');
+      return no('its screen went somewhere we have not measured, so nothing more was pressed; look at its window');
+    }
+    if (after.screen === 'gone') return { ok: true, choice, keys };
+    /* Trust from one hook's page: the full list is up now; the person chooses again with every hook in view. */
+    if (choice === 'trust' && now.screen === 'hook') return { ok: false, keys, because: 'the full list of hooks is showing now; read it and choose again', reread: true };
     now = after;
   }
   return no('its screen is still asking after four keys, so we stopped; look at its window');
@@ -1299,7 +1312,7 @@ const PAUSED_SWARM_COMMANDS = /^\/(compact|clear|cost|context|status)([ \t][^\r\
  * Shared by deliverWithGap (every message) and keysAllowed (Stop now's keys), so a message and a key obey one rule.
  * Codex stops at startup on its "Hooks need review" dialog, where a typed "2" or "t" trusts every hook (outside the
  * sandbox). So, for a Codex agent with a tmux pane, a FRESH read decides:
- *   - either dialog screen on it -> refused (the person answers in the terminal; #4607 is the board action);
+ *   - either dialog screen on it -> refused (the person answers it on the agent page, #4607);
  *   - a read that succeeds with a BLANK screen -> refused as still starting (round 1: the dialog is about to draw,
  *     and text pasted then lands on it as raw keys);
  *   - a read that FAILS -> refused as unseen (round 2: the snapshot is from before startup, so it cannot vouch that

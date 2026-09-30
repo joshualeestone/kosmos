@@ -128,5 +128,6 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
     await browser.close();
   }
   if (fail.length) { console.log('\n' + fail.length + ' FAILED'); process.exit(1); }
+  if (passes === 0) { console.log('\nno engine ran, so nothing was checked: FAILED'); process.exit(1); }
   console.log(`\nall passed (${passes})`);
 })().catch((e) => { console.error(e); process.exit(2); });
