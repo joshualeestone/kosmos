@@ -17,7 +17,9 @@
 # The variable set to an empty value, a missing or unreadable file, or an empty one REFUSES (exit 2): falling back to
 # the automatic text would tell #admin nothing was triaged on a day it was. A held lock in this mode exits 3 (not
 # posted), since the run that holds it will not post Echo's text, and a failed post (Discord's error, a timeout, no bot
-# token) exits 4. Both mean: run it again. The watermark never moves backwards in this mode.
+# token, or a broken environment: no state or temp folder, node or jq failing, named in the log line) exits 4. Both
+# mean: run it again. A post that went out but whose watermark could not be written exits 5: do NOT run it again (it
+# would post twice). The watermark never moves backwards in this mode.
 #
 # WHY ONLY SINCE THE LAST POST: over all time the store held 39 reports and about 105 candidates (measured
 # 2026-09-28); a digest of all of them every day would be the same wall each morning. A day's worth is a handful.
@@ -74,7 +76,20 @@ if [ -n "${FEEDBACK_DIGEST_MESSAGE_FILE+x}" ]; then
   if [ "$WM" -gt "$(date +%s)" ]; then
     log "REFUSED: FEEDBACK_DIGEST_WATERMARK $WM is in the future; nothing posted, the watermark stays"; exit 2
   fi
+elif [ -n "${FEEDBACK_DIGEST_WATERMARK+x}" ]; then
+  # Review 3 (nit): a watermark only means something with Echo's text; say so rather than drop it silently.
+  log "a watermark was given but no message file; posting the automatic text"
 fi
+# Review 2 (warning 3): a failed POST is not a refusal. In message-file mode there is no next run to retry it, so it exits
+# 4 and says to run it again (exit 2 is a refusal: fix the file or the watermark; 3 is a held lock). The automatic path
+# keeps its exit 2 and its words: tomorrow's run does retry the same reports.
+# Review 3: a broken ENVIRONMENT (no state or temp folder, no node, node or jq failing) goes through here too, so in
+# message-file mode it is exit 4 with the cause in the log line, never exit 2, which would send Echo to fix a file that is
+# fine. Defined here, once MSG_FILE is known, so the earliest of those failures can use it.
+post_failed() {   # <what failed> <the automatic path's tail>
+  if [ -n "$MSG_FILE" ]; then log "FAILED: $1; the digest was NOT posted; run it again"; exit 4; fi
+  log "FAILED: $1$2"; exit 2
+}
 # Review (warning 2): a run that steps aside for another one leaves Echo's message UNPOSTED, so in message-file mode it
 # is a failure (exit 3), not a quiet success. The automatic path keeps exit 0: the other run posts the same summary.
 step_aside() {
@@ -83,8 +98,8 @@ step_aside() {
   if [ -n "$MSG_FILE" ]; then log "FAILED: the digest was NOT posted (another run holds the lock); run it again"; exit 3; fi
   exit 0
 }
-mkdir -p "$STATE" && chmod 700 "$STATE" || { log "FAILED: no state folder $STATE"; exit 2; }
-WORK="$(mktemp -d)" || { log "FAILED: no temp folder"; exit 2; }
+mkdir -p "$STATE" && chmod 700 "$STATE" || post_failed "no state folder $STATE" ""
+WORK="$(mktemp -d)" || post_failed "no temp folder" ""
 # One run at a time (review 3: a launchd run and a manual one both posted). The lock holds its owner's pid.
 # Review 4, the races: a lock with no pid yet is a run STARTING, not a dead one (unless it is a minute old); a live
 # pid counts for an hour only (a real run takes about a minute, and a pid can be reused); a stale lock is taken over
@@ -113,20 +128,24 @@ trap 'rm -rf "$WORK"; [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LO
 # the pull would otherwise sit exactly on the watermark, outside both windows.
 RUN_START=$(( $(date +%s) - 1 ))
 since=0
-if [ -f "$STATE/last-posted" ]; then
-  since=""; read -r since < "$STATE/last-posted"
-  # Review 2 (warning 1): the stored value gets the same shape check, so a huge number never reaches a numeric compare
-  # below. A bad one (a hand edit, an old run's write) is treated as a first run, and said.
-  if ! epoch_shaped "$since"; then
-    log "the stored watermark '$since' in $STATE/last-posted is not epoch seconds; using the last day, as on a first run"
-    since=0
+# Review 3 (nit): message-file mode has no window (Echo pulled), so the stored watermark is not read here and its "using
+# the last day" lines, which would be false in this mode, are not logged. It is read raw, under the lock, at the write.
+if [ -z "$MSG_FILE" ]; then
+  if [ -f "$STATE/last-posted" ]; then
+    since=""; read -r since < "$STATE/last-posted"
+    # Review 2 (warning 1): the stored value gets the same shape check, so a huge number never reaches a numeric compare
+    # below. A bad one (a hand edit, an old run's write) is treated as a first run, and said.
+    if ! epoch_shaped "$since"; then
+      log "the stored watermark '$since' in $STATE/last-posted is not epoch seconds; using the last day, as on a first run"
+      since=0
+    fi
   fi
+  # Review 4: a watermark in the FUTURE (a clock stepped back, a hand edit) would make every window empty and say "no new
+  # reports" for good. It is treated as unreadable: the last day, as on a first run.
+  [ "$since" -gt "$RUN_START" ] && { log "the watermark $since is in the future; using the last day"; since=0; }
+  # First run: the last day only, not the whole history.
+  [ "$since" -eq 0 ] && since=$(( $(date +%s) - 86400 ))
 fi
-# Review 4: a watermark in the FUTURE (a clock stepped back, a hand edit) would make every window empty and say "no new
-# reports" for good. It is treated as unreadable: the last day, as on a first run.
-[ "$since" -gt "$RUN_START" ] && { log "the watermark $since is in the future; using the last day"; since=0; }
-# First run: the last day only, not the whole history.
-[ "$since" -eq 0 ] && since=$(( $(date +%s) - 86400 ))
 
 if [ -n "$MSG_FILE" ]; then
   : # Echo's result: no card list, pull or triage needed (below).
@@ -177,10 +196,11 @@ JS
 mkdir -p "$WORK/pulled"
 # Review 2 (nit): a node that cannot run is said as such, not as "could not read the message file" (which sends the
 # reader to a file that is fine).
-[ -x "$NODE" ] || { log "FAILED: the node runtime $NODE is missing or not executable; nothing posted, the watermark stays"; exit 2; }
+[ -x "$NODE" ] || post_failed "the node runtime $NODE is missing or not executable" "; nothing posted, the watermark stays"
 if [ -n "$MSG_FILE" ]; then
+  # The file was checked readable and non-blank above, so a failure here is node's or the temp folder's (review 3).
   "$NODE" "$WORK/bound.js" "$MSG_FILE" "$WORK/message" 2> "$WORK/bound.err" \
-    || { log "FAILED: could not read the message file $MSG_FILE"; exit 2; }
+    || post_failed "node could not prepare the message from $MSG_FILE: $(cat "$WORK/bound.err" 2>/dev/null)" ""
   [ -s "$WORK/bound.err" ] && log "the message file was longer than one Discord message: $(cat "$WORK/bound.err")"
   summary="(Echo's result, $MSG_FILE)"
 else
@@ -193,15 +213,9 @@ fi
 if [ -z "$summary" ]; then log "no new reports since $(date -r "$since" '+%Y-%m-%d %H:%M'); nothing posted"; exit 0; fi
 if [ -n "$DRY" ]; then log "DRY RUN, would post:"; cat "$WORK/message"; echo; exit 0; fi
 
-# Review 2 (warning 3): a failed POST is not a refusal. In message-file mode there is no next run to retry it, so it exits
-# 4 and says to run it again (exit 2 is a refusal: fix the file or the watermark; 3 is a held lock). The automatic path
-# keeps its exit 2 and its words: tomorrow's run does retry the same reports.
-post_failed() {   # <what failed> <the automatic path's tail>
-  if [ -n "$MSG_FILE" ]; then log "FAILED: $1; the digest was NOT posted; run it again"; exit 4; fi
-  log "FAILED: $1$2"; exit 2
-}
+# post_failed is defined near the top (review 3), so the environment failures above use it too.
 jq -Rs '{content: ., allowed_mentions: {parse: []}}' < "$WORK/message" > "$WORK/payload" \
-  || { log "FAILED: could not build the message"; exit 2; }
+  || post_failed "could not build the message (jq failed)" ""
 if [ -n "${FEEDBACK_DIGEST_POST_CMD:-}" ]; then
   code=$($FEEDBACK_DIGEST_POST_CMD "$WORK/payload")
 else
@@ -218,19 +232,27 @@ if [ "$code" = 200 ]; then
   # exit 0 while every later run re-posted everything since the stale watermark.
   NEW_WM="$RUN_START"
   if [ -n "$MSG_FILE" ]; then
-    NEW_WM="$WM"   # message-file mode: when Echo's pull started
+    # message-file mode: one second before Echo's pull started, as the automatic path saves its start minus one; the
+    # window is (since, now], so a report stamped in the very second the pull began is not left on the line.
+    NEW_WM=$(( WM - 1 ))
     # Review 2 (warning 2): never BACKWARDS. A WM older than the current last-posted would make the next automatic digest
     # re-post reports already triaged. The raw file is read here, under the lock ($since was rewritten above for a
     # first run or a future value). A stored value that is malformed or in the future is not kept: the automatic path
     # distrusts it too, and WM replaces it.
     cur=""; [ -f "$STATE/last-posted" ] && read -r cur < "$STATE/last-posted"
-    if epoch_shaped "$cur" && [ "$cur" -gt "$WM" ] && [ "$cur" -le "$(date +%s)" ]; then
-      log "the watermark $WM is older than the last post's $cur; keeping $cur"
+    if epoch_shaped "$cur" && [ "$cur" -gt "$NEW_WM" ] && [ "$cur" -le "$(date +%s)" ]; then
+      log "the watermark $NEW_WM is older than the last post's $cur; keeping $cur"
       NEW_WM="$cur"
     fi
   fi
   if printf '%s\n' "$NEW_WM" > "$STATE/last-posted.tmp" && mv -f "$STATE/last-posted.tmp" "$STATE/last-posted"; then
     log "posted to #admin"; exit 0
+  fi
+  # Review 3 (warning): in message-file mode Echo's text IS in #admin, so this is neither a refusal (2) nor "run it
+  # again" (4): a rerun would post it twice. Its own exit, 5.
+  if [ -n "$MSG_FILE" ]; then
+    log "POSTED, but the watermark was not recorded in $STATE/last-posted; do NOT run it again (it would post twice). Write $NEW_WM there once the folder is writable"
+    exit 5
   fi
   log "FAILED: posted, but could not record it in $STATE/last-posted; the next run will post these again"; exit 2
 fi

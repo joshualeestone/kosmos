@@ -35,6 +35,19 @@ automatic text read as a task for him and as a final word, and Echo's actual res
 - Review 2 (warning 3): in message-file mode a failed post exits 4 with "the digest was NOT posted; run it again"; the
   automatic path keeps exit 2 and "will try again next run" (true there). A node that cannot run is logged as that,
   not as an unreadable message file.
+- Review 3 (warning): in message-file mode a 200 whose last-posted write fails exits 5, "POSTED, but the watermark was
+  not recorded ...; do NOT run it again". It used to exit 2, which the contract reads as "refused, nothing posted", so
+  Echo would re-run and double-post. The automatic path keeps exit 2 and its words.
+- Review 3 (environment failures): CHOSEN, routed through post_failed, so in message-file mode no state folder, no temp
+  folder, node missing, bound.js failing and jq failing all exit 4 with the cause in the log line. Rejected: keeping
+  exit 2 and widening its meaning, because 2 tells Echo to fix a file that is fine. Routing was not awkward: MSG_FILE
+  and the watermark are validated before the first of these failures, so post_failed is simply defined right after that
+  validation. The automatic path's exit (2) and words are unchanged. Weakest premise: "run it again" does not fix a
+  missing node; the log line names the cause, and a rerun is harmless because nothing was posted.
+- Review 3 (nits): message-file mode saves WM - 1 (the automatic path saves its start minus one; the window is
+  (since, now]); a watermark given with no message file logs "a watermark was given but no message file; posting the
+  automatic text"; message-file mode skips the stored-watermark checks and their "using the last day" lines (it has no
+  window; the raw value is still read under the lock for the never-backwards rule).
 
 ## Weakest premise
 That Echo passes an honest pull-start epoch. The script can check the number is well formed and not in the future,
@@ -52,8 +65,10 @@ Where they live: https://installkosmos.com/admin (Reports). This counts reports 
 Before `kosmos feedback pull`, Echo records `PULL_START=$(date +%s)`; after triage it runs
 `FEEDBACK_DIGEST_MESSAGE_FILE=<file> FEEDBACK_DIGEST_WATERMARK=$PULL_START bash tools/feedback-digest-daily.sh`.
 Exit codes in this mode: 0 posted; 2 a refusal, nothing posted (fix the file or the watermark); 3 another run held
-the lock, not posted (run it again); 4 the post failed, not posted (Discord's error, a timeout, no bot token: run it
-again).
+the lock, not posted (run it again); 4 the post failed or the environment is broken, not posted (Discord's error, a
+timeout, no bot token, no state or temp folder, node or jq failing; the log line names which: run it again, after
+fixing the environment if it says so); 5 POSTED, but the watermark could not be written (do NOT run it again, it would
+post twice; the log line gives the value to write into last-posted).
 Renet puts this into Echo's instructions; this branch does not edit Echo's folder. Plain text, no em dashes, under
 2000 characters, a section with "0" rather than left out:
 ```
@@ -81,3 +96,7 @@ Community check: <one line: what the community channels said about these, or "no
 - Review 2 arms: 8b also refuses a 20-digit, a 0 and a leading-zero watermark; a 20-digit stored last-posted is a first
   run; 7 an older WM leaves last-posted where it was, a 500 and a missing bot token exit 4 (the automatic path still 2);
   a missing node is named. Each warning's arm was shown red with only that fix reverted.
+- Review 3 arms: 2c also runs message-file mode against the unwritable watermark and requires exit 5 exactly, the
+  "do NOT run it again" line and a post (shown red with only that fix reverted); a missing node exits 4 in message-file
+  mode and 2 on the automatic path; 7 the saved watermark is WM - 1, and a 20-digit stored value logs no "using the
+  last day" line; 8c the automatic run with a stray FEEDBACK_DIGEST_WATERMARK logs that it was given with no file.

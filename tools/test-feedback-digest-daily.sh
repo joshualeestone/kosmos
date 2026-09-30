@@ -92,6 +92,13 @@ report 2026-09-29-ro.md "$(before_next)" 'The export dialog is broken and never 
 # go makes the write fail in a way it cannot fix.
 mkdir "$T/state/last-posted.tmp"; before_w=$(cat "$T/state/last-posted")
 if run >/dev/null 2>&1; then rmdir "$T/state/last-posted.tmp"; fail "an unwritable watermark exited zero after posting"; fi
+# Review 3 (warning): in message-file mode Echo's text DID reach #admin, so the exit is 5 ("do NOT run it again"), never
+# 2 (a refusal, nothing posted) or 4 (run it again): either would send Echo to post it twice.
+printf 'Echo result for the unwritable-watermark arm.\n' > "$T/echo-ro.txt"; rm -f "$T/posted.json"
+out="$(FEEDBACK_DIGEST_WATERMARK=$((now - 600)) FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo-ro.txt" run 2>&1)"; rc=$?
+[ "$rc" = 5 ] || { rmdir "$T/state/last-posted.tmp"; fail "a message-file post with an unwritable watermark exited $rc, not 5: $out"; }
+printf '%s' "$out" | grep -q 'POSTED, but the watermark was not recorded.*do NOT run it again' || { rmdir "$T/state/last-posted.tmp"; fail "exit 5 did not say not to run it again: $out"; }
+[ -f "$T/posted.json" ] || { rmdir "$T/state/last-posted.tmp"; fail "the exit-5 arm did not post"; }
 rmdir "$T/state/last-posted.tmp"
 [ "$(cat "$T/state/last-posted")" = "$before_w" ] || fail "a failed watermark write still changed the watermark"
 
@@ -183,7 +190,12 @@ cmp -s "$T/posted.txt" "$T/echo.txt" || fail "the message file was not posted ve
 [ "$(jq -c '.allowed_mentions.parse' "$T/posted.json")" = '[]' ] || fail "a message-file post can mention people"
 grep -q '@everyone' "$T/posted.txt" || fail "the @everyone line was not posted verbatim"   # ...and cannot ping:
 [ "$(jq -c '.allowed_mentions' "$T/posted.json")" = '{"parse":[]}' ] || fail "a message-file post with @everyone can ping"
-w=$(cat "$T/state/last-posted"); [ "$w" = "$FEEDBACK_DIGEST_WATERMARK" ] || fail "the watermark after a message-file 200 is $w, not Echo's pull start $FEEDBACK_DIGEST_WATERMARK"
+# Review 3 (nit): one second before Echo's pull start, as the automatic path saves its start minus one.
+w=$(cat "$T/state/last-posted"); [ "$w" = "$((FEEDBACK_DIGEST_WATERMARK - 1))" ] || fail "the watermark after a message-file 200 is $w, not Echo's pull start minus one $((FEEDBACK_DIGEST_WATERMARK - 1))"
+# Review 3 (nit): message-file mode logs no "using the last day" line (it has no window), even over a bad stored value.
+echo 99999999999999999999 > "$T/state/last-posted"; rm -f "$T/posted.json"
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)" || fail "a message-file run over a bad stored watermark failed: $out"
+printf '%s' "$out" | grep -q 'using the last day' && fail "a message-file run logged the automatic window's first-run line: $out"
 # Review 2 (warning 2): a watermark OLDER than last-posted never moves it backwards (the next automatic digest would
 # re-post reports already triaged).
 echo "$((now - 60))" > "$T/state/last-posted"; rm -f "$T/posted.json"
@@ -211,10 +223,14 @@ echo 200 > "$T/code"
 
 # Review 2 (nit): a node that cannot run is named as such, not as an unreadable message file.
 rm -f "$T/posted.json"
-out="$(KOSMOS_NODE="$T/no-such-node" FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)" && fail "a missing node exited zero: $out"
+out="$(KOSMOS_NODE="$T/no-such-node" FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
+# Review 3: a broken environment in message-file mode is exit 4 (run it again), not 2 (fix a file that is fine).
+[ "$rc" = 4 ] || fail "a missing node in message-file mode exited $rc, not 4: $out"
 printf '%s' "$out" | grep -q 'node runtime .* is missing or not executable' || fail "a missing node was not named: $out"
 printf '%s' "$out" | grep -q 'could not read the message file' && fail "a missing node blamed the message file: $out"
 [ ! -f "$T/posted.json" ] || fail "a run with a missing node posted"
+out="$(KOSMOS_NODE="$T/no-such-node" run 2>&1)"; rc=$?
+[ "$rc" = 2 ] || fail "a missing node on the automatic path exited $rc, not 2: $out"
 
 # 8. The variable set with no usable file REFUSES: non-zero, a clear line, nothing posted, the watermark still.
 : > "$T/empty.txt"; printf ' \n\t\n' > "$T/blank.txt"
@@ -244,6 +260,8 @@ report 2026-09-30-mid-triage.md $((now - 300)) 'The provider sheet is broken and
 out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)" || fail "the message-file run before the window check failed: $out"
 rm -f "$T/posted.json"; out="$(run 2>&1)" || fail "the automatic run after Echo's post failed: $out"
 jq -r .content "$T/posted.json" 2>/dev/null | grep -q 'loses the key while Echo' || fail "a report that arrived while Echo triaged was skipped for good: $out"
+# Review 3 (nit): FEEDBACK_DIGEST_WATERMARK is still exported here, with no message file: said, not silently dropped.
+printf '%s' "$out" | grep -q 'a watermark was given but no message file; posting the automatic text' || fail "a watermark with no message file was dropped silently: $out"
 
 # 8d. Warning 2: a held lock in message-file mode is a failure (Echo's text is NOT posted), never a quiet exit 0.
 echo "$((now - 3600))" > "$T/state/last-posted"; mkdir "$T/state/lock" && echo $$ > "$T/state/lock/pid"; rm -f "$T/posted.json"
@@ -274,4 +292,4 @@ out="$(FEEDBACK_DIGEST_DRY_RUN=1 FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run)
 printf '%s' "$out" | grep -q '#9001 Room scroll jumps' || fail "the dry run did not print the message file: $out"
 [ ! -f "$T/posted.json" ] || fail "a message-file dry run posted"
 
-echo "PASS: feedback-digest-daily (message file verbatim with @everyone unpinged, refusals, watermark required and used, lock refusal, watermark never backwards, failed post exits 4, missing node named, 20-digit/zero/leading-zero watermark refused, cut at a line break, message-file dry run, nothing new, posted, mid-post arrival once, unwritable watermark, lock races, future watermark, failed post, dry run, no cards, card list at its limit)"
+echo "PASS: feedback-digest-daily (message file verbatim with @everyone unpinged, refusals, watermark required and used, lock refusal, watermark never backwards, failed post exits 4, missing node named and exits 4, posted-but-unrecorded exits 5, watermark is pull start minus one, stray watermark said, 20-digit/zero/leading-zero watermark refused, cut at a line break, message-file dry run, nothing new, posted, mid-post arrival once, unwritable watermark, lock races, future watermark, failed post, dry run, no cards, card list at its limit)"
