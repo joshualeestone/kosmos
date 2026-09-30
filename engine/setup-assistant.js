@@ -221,7 +221,10 @@ function markGuideFolder(agentName) {
 function kosmosHome() { return process.env.AGENT_WORKFORCE_HOME || require('os').homedir(); }
 /* `worldsBase` and `legacyRoots` are for tests: left out, both are worked out from this process (as `dataRoot`'s
    default is), and production passes none of the three. */
-function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase, legacyRoots } = {}) {
+function guideDenyRules(opts = {}) { return guideDenyRulesFor(opts).rules; }
+/* The rules, and the default world's store they name entry by entry (null when none is), so guardGuideFolder
+   can drop earlier per-entry rules for that store instead of keeping one for every entry that ever existed. */
+function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase, legacyRoots } = {}) {
   const abs = (p) => '//' + String(p).replace(/^\/+/, '');
   const rules = [
     'Read(~/.ssh/**)', 'Read(~/.aws/**)', 'Read(~/.config/**)', 'Read(~/.gnupg/**)', 'Read(~/.kube/**)',
@@ -258,9 +261,11 @@ function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase
      board start); an entry made later is uncovered until the next start, except the token and its temporary
      copies, which are always named. */
   const same = (a, b) => !!a && !!b && path.resolve(a) === path.resolve(b);
+  let entryBase = null;
+  let listed = false;   // earlier per-entry rules are dropped only when this list is complete
   try {
     const more = [];
-    for (const old of (legacyRoots !== undefined ? legacyRoots : guideLegacyRoots())) {
+    for (const old of (legacyRoots !== undefined ? legacyRoots : guideLegacyRoots(home))) {
       if (old && !same(old, dataRoot)) more.push(`Read(${abs(old)}/**)`);
     }
     const base = worldsBase !== undefined ? worldsBase : guideWorldsBase();
@@ -272,9 +277,10 @@ function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase
       const registry = path.basename(worlds.registryPath(base));
       more.push(`Read(${abs(base)}/.*.tmp)`);   // every temporary file Kosmos writes there (a process id in each name)
       let entries = [];
-      try { entries = fs.readdirSync(base, { withFileTypes: true }); } catch (e) {
+      try { entries = fs.readdirSync(base, { withFileTypes: true }); listed = true; } catch (e) {
         /* Only the entry list is lost: the rules above do not depend on it. */
-        if (e.code !== 'ENOENT') process.stderr.write(`#4752: the default world's store could not be listed, so its entries are not named one by one: ${e.message}\n`);
+        if (e.code === 'ENOENT') listed = true;
+        else process.stderr.write(`#4752: the default world's store could not be listed, so its entries are not named one by one: ${e.message}\n`);
       }
       for (const d of entries) {
         if (!baseEntryToName(d.name, worlds.WORLDS_SUBDIR, registry, tokenFile)) continue;
@@ -288,13 +294,15 @@ function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase
       for (const leaf of [store.APP, store.LEGACY_APP]) more.push(`Read(${abs(worldsDir)}/*/${leaf}/**)`);
     }
     rules.push(...more);
+    if (listed) entryBase = base;
   } catch (err) {
     /* The rules above still stand: a guide is never left with none because these could not be worked out. Said,
        so a guide written without them can be told apart from one written with them. */
     process.stderr.write(`#4752: the setup guide's rules for the older data folder and the other worlds' stores were left out: ${(err && err.message) || err}\n`);
   }
-  return rules;
+  return { rules, entryBase };
 }
+function escapeRegExp(t) { return String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 /* #4752: whether an entry directly in the worlds' base gets a rule of its own. Not the worlds folder or its
    registry (the guide's own folder is under the first). Not a temporary file (`.<name>.<process id>...tmp`) or
    the registry's lock: the `.board.token.*` and `.*.tmp` pattern rules cover the temporary files, the lock holds
@@ -314,11 +322,12 @@ function guideWorldsBase() {
   return worlds.baseRoot(worlds.preWorldEnv(process.env));   // a throw reaches guideDenyRules, which says so
 }
 /* #4752: the older data folder (store.LEGACY_APP), for this world and for the default world. */
-function guideLegacyRoots() {
+function guideLegacyRoots(home) {
   const worlds = require('./worlds');   // a throw reaches guideDenyRules, which says so
   const out = [];
-  for (const env of [process.env, worlds.preWorldEnv(process.env)]) {
-    const root = store.dataRootFor(process.platform, env.AGENT_WORKFORCE_HOME || require('os').homedir(), env, store.LEGACY_APP);
+  const pre = worlds.preWorldEnv(process.env);
+  for (const [env, at] of [[process.env, home], [pre, pre.AGENT_WORKFORCE_HOME || require('os').homedir()]]) {
+    const root = store.dataRootFor(process.platform, at, env, store.LEGACY_APP);
     if (root && !out.includes(root)) out.push(root);
   }
   return out;
@@ -345,7 +354,13 @@ function guardGuideFolder(dir, agentName, deps = {}) {
     } catch { cur = {}; }
     const perms = cur.permissions && typeof cur.permissions === 'object' && !Array.isArray(cur.permissions) ? cur.permissions : {};
     const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string') : [];
-    const deny = [...new Set([...had, ...guideDenyRules(deps)])];
+    const fresh = guideDenyRulesFor(deps);
+    /* #4752: an earlier rule for one entry of the default world's store is dropped and made again from the store
+       as it is now, so an entry that was deleted or renamed (a dated backup, a rotated log) does not leave a rule
+       behind for ever. Only rules for a single entry directly in that store are dropped; any other rule stays. */
+    const entryRule = fresh.entryBase ? new RegExp('^Read\\(' + escapeRegExp('//' + String(fresh.entryBase).replace(/^\/+/, '')) + '/[^/]+(/\\*\\*)?\\)$') : null;
+    const kept = entryRule ? had.filter((r) => !entryRule.test(r) || fresh.rules.includes(r)) : had;
+    const deny = [...new Set([...kept, ...fresh.rules])];
     const next = { ...cur, permissions: { ...perms, deny } };
     /* Sandboxed Bash (Ice Cream Kitty's review): the deny rules above bind Claude Code's own tools, and
        a shell command such as `node -e readFileSync('.env')` or `grep -r` is a subprocess they do not

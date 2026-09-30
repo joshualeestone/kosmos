@@ -187,3 +187,63 @@ test('#4752 when the default world\'s store cannot be listed, only its entry lis
   assert.equal(said.length, 1, 'the lost list was not said');
   assert.match(said[0], /could not be listed/);
 });
+
+test('#4752 rewriting the guide\'s rules drops the rule for a store entry that is gone, and keeps every other rule', () => {
+  const base = path.join(SANDBOX, 'base-rewrite');
+  fs.mkdirSync(path.join(base, 'worlds'), { recursive: true });
+  for (const f of ['keep.json', 'projects.json.bak-20260824-201717']) fs.writeFileSync(path.join(base, f), 'x');
+  const guide = path.join(SANDBOX, 'guide-rewrite');
+  fs.mkdirSync(guide, { recursive: true });
+  const deps = { dataRoot: path.join(base, 'worlds', 'w1', store.APP), worldsBase: base, legacyRoots: [] };
+  const abs = (p) => '//' + p.replace(/^\/+/, '');
+  const read = () => JSON.parse(fs.readFileSync(path.join(guide, '.claude', 'settings.json'), 'utf8')).permissions.deny;
+  assert.equal(setupAssistant.guardGuideFolder(guide, 'guide', deps).ok, true);
+  const bak = `Read(${abs(path.join(base, 'projects.json.bak-20260824-201717'))})`;
+  assert.ok(read().includes(bak), 'CONTROL: the backup was not named the first time');
+  /* A person's own rule under the same folder but deeper, and one elsewhere, must survive. */
+  const s = JSON.parse(fs.readFileSync(path.join(guide, '.claude', 'settings.json'), 'utf8'));
+  s.permissions.deny.push(`Read(${abs(path.join(base, 'deeper', 'x.txt'))})`, 'Read(//elsewhere/**)');
+  fs.writeFileSync(path.join(guide, '.claude', 'settings.json'), JSON.stringify(s));
+  fs.unlinkSync(path.join(base, 'projects.json.bak-20260824-201717'));
+  assert.equal(setupAssistant.guardGuideFolder(guide, 'guide', deps).ok, true);
+  const after = read();
+  assert.ok(!after.includes(bak), 'the rule for a deleted entry stayed');
+  assert.ok(after.includes(`Read(${abs(path.join(base, 'keep.json'))})`), 'the rule for an entry that is still there was lost');
+  assert.ok(after.includes(`Read(${abs(path.join(base, 'deeper', 'x.txt'))})`) && after.includes('Read(//elsewhere/**)'), 'a rule that is not one entry of the store was dropped');
+  assert.ok(after.includes('Read(~/.ssh/**)'), 'CONTROL: the ordinary rules are gone');
+});
+
+test('#4752 when the store cannot be listed on a rewrite, the earlier rules for its entries are kept', () => {
+  const base = path.join(SANDBOX, 'base-unlistable');
+  fs.mkdirSync(path.join(base, 'worlds'), { recursive: true });
+  fs.writeFileSync(path.join(base, 'keep.json'), 'x');
+  const guide = path.join(SANDBOX, 'guide-unlistable');
+  fs.mkdirSync(guide, { recursive: true });
+  const deps = { dataRoot: path.join(base, 'worlds', 'w1', store.APP), worldsBase: base, legacyRoots: [] };
+  const rule = `Read(//${path.join(base, 'keep.json').replace(/^\/+/, '')})`;
+  assert.equal(setupAssistant.guardGuideFolder(guide, 'guide', deps).ok, true);
+  const read = () => JSON.parse(fs.readFileSync(path.join(guide, '.claude', 'settings.json'), 'utf8')).permissions.deny;
+  assert.ok(read().includes(rule), 'CONTROL: the entry was not named the first time');
+  const write = process.stderr.write;
+  process.stderr.write = (s, ...rest) => (String(s).startsWith('#4752') ? true : write.call(process.stderr, s, ...rest));
+  fs.chmodSync(base, 0o000);
+  try { assert.equal(setupAssistant.guardGuideFolder(guide, 'guide', deps).ok, true); }
+  finally { fs.chmodSync(base, 0o755); process.stderr.write = write; }
+  assert.ok(read().includes(rule), 'an unlistable store dropped the rules made from its last listing');
+});
+
+test('#4752 the older folder is worked out for the home the rules were asked about, as the other rules are', () => {
+  const home = path.join(SANDBOX, 'other-home');
+  const env = { PATH: process.env.PATH, HOME: path.join(SANDBOX, 'home'), AGENT_WORKFORCE_HOME: path.join(SANDBOX, 'home') };
+  const script = `
+    const sa = require(${JSON.stringify(path.join(__dirname, 'setup-assistant.js'))});
+    const store = require(${JSON.stringify(path.join(__dirname, 'store.js'))});
+    const want = store.dataRootFor(process.platform, ${JSON.stringify(home)}, {}, store.LEGACY_APP);
+    const ambient = store.dataRootFor(process.platform, process.env.AGENT_WORKFORCE_HOME, {}, store.LEGACY_APP);
+    process.stdout.write(JSON.stringify({ want, ambient, rules: sa.guideDenyRules({ home: ${JSON.stringify(home)}, worldsBase: null }) }));
+  `;
+  const out = JSON.parse(execFileSync(process.execPath, ['-e', script], { env, encoding: 'utf8' }));
+  const abs = (p) => '//' + p.replace(/^\/+/, '');
+  assert.notEqual(out.want, out.ambient, 'CONTROL: the two homes give the same folder, so this arm proves nothing');
+  assert.ok(out.rules.includes(`Read(${abs(out.want)}/**)`), 'the older folder of the home asked about is not denied');
+});
