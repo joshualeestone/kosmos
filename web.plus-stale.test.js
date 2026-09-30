@@ -162,8 +162,12 @@ test('#4744: the copy-failure note survives a connected repaint and is cleared b
   const st = w.el('plus-status');
   st.dataset = { copyFail: '1' };
   st.textContent = 'Kosmos could not copy it. The address is selected: copy it from there.';
+  // Count writes: a live region rewritten with the same words is read again, so a standing note must be left alone.
+  let text = st.textContent, writes = 0;
+  Object.defineProperty(st, 'textContent', { get: () => text, set: (v) => { writes += 1; text = v; }, configurable: true });
   await paint(w);
   assert.match(st.textContent, /could not copy it/, 'a connected repaint wiped the copy-failure note');
+  assert.equal(writes, 0, 'a connected repaint rewrote the standing note (a screen reader reads it again every poll)');
   r.status = { state: 'down', because: 'the connection dropped' };
   await paint(w);
   assert.equal(st.dataset.copyFail, undefined, 'the failure flag outlived the box');

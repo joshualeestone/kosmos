@@ -148,7 +148,7 @@ const STATES = {
         chk(v.chip && v.chipSay.trim() === 'Access this computer from other devices at login.kosmosplus.com' && v.bold === 'login.kosmosplus.com'
           && v.copyLabel.trim() === 'Copy' && v.noOpen, `${t} #4744: the box says where other devices reach this computer, the address bold, with Copy and no Open`,
           JSON.stringify({ chip: v.chip, say: v.chipSay, bold: v.bold, copy: v.copyLabel, noOpen: v.noOpen }));
-        chk(v.fit && v.fit.lines === 1 && v.fit.sameRow && v.fit.spare >= 10 && v.fit.clear >= 8 && parseFloat(v.fit.font) >= 12, `${t} #4744: the sentence is one line at 12px or more, ends 10px+ inside its box and before Copy, on Copy's row`, JSON.stringify(v.fit));
+        chk(v.fit && v.fit.lines === 1 && v.fit.sameRow && v.fit.spare >= 10 && v.fit.clear >= 18 && parseFloat(v.fit.font) >= 12, `${t} #4744: the sentence is one line at 12px or more, ends 10px+ inside its box and before Copy, on Copy's row`, JSON.stringify(v.fit));
         if (key === 'connected') { // #4744: at 640 and 600 wide (the Windows launcher's 640 window, less its frame and scrollbar) it is still one line.
           const vp = page.viewportSize();
           for (const wide of [640, 600]) {
@@ -160,7 +160,7 @@ const STATES = {
               return { shown: e.getBoundingClientRect().height > 0, lines: (rs.some((x) => Math.abs(x.top - rs[0].top) > 4) ? 2 : 1), font: getComputedStyle(e).fontSize,
                 spare: Math.round(e.getBoundingClientRect().right - right), clear: Math.round(c.getBoundingClientRect().left - right) };
             });
-            chk(n.shown && n.lines === 1 && n.spare >= 10 && n.clear >= 8 && parseFloat(n.font) >= 12, `${t} #4744: at ${wide} wide the sentence is one line at 12px or more, 10px+ inside its box and before Copy`, JSON.stringify(n));
+            chk(n.shown && n.lines === 1 && n.spare >= 10 && n.clear >= 18 && parseFloat(n.font) >= 12, `${t} #4744: at ${wide} wide the sentence is one line at 12px or more, 10px+ inside its box and before Copy`, JSON.stringify(n));
           }
           await page.setViewportSize(vp); await page.waitForTimeout(250);
         }
@@ -178,12 +178,25 @@ const STATES = {
             return { clip, label: c.textContent, said: document.getElementById('plus-copy-status').textContent,
               lines: (rs.some((x) => Math.abs(x.top - rs[0].top) > 4) ? 2 : 1), clear: Math.round(c.getBoundingClientRect().left - right) };
           });
-          chk(cp.lines === 1 && cp.clear >= 8, `${t} #4744: pressing Copy ("Copied") does not push the sentence off its line`, JSON.stringify({ lines: cp.lines, clear: cp.clear }));
+          chk(cp.lines === 1 && cp.clear >= 18, `${t} #4744: pressing Copy ("Copied") does not push the sentence off its line`, JSON.stringify({ lines: cp.lines, clear: cp.clear }));
           chk(cp.label === 'Copied' && /copied/i.test(cp.said) && cp.clip === 'https://login.kosmosplus.com/',
             `${t} #4744: Copy copies https://login.kosmosplus.com/ and says Copied (button and screen reader)`, JSON.stringify(cp));
-          await page.waitForTimeout(2200);
+          await page.waitForFunction(() => document.getElementById('plus-copy').textContent === 'Copy', null, { timeout: 5000 }).catch(() => {});
           const back = await page.evaluate(() => document.getElementById('plus-copy').textContent);
           chk(back === 'Copy', `${t} #4744: the button reads Copy again after 2 seconds`, back);
+          // The safety valve: a font much wider than the sizing allows (a stand-in for an unmeasured Windows font) must
+          // wrap the sentence rather than run it under Copy; back to normal, it is one line again.
+          const wide = await page.evaluate(async () => {
+            const e = document.getElementById('plus-chip-say'), c = document.getElementById('plus-copy');
+            const measure = () => { const r = document.createRange(); r.selectNodeContents(e); const rs = [...r.getClientRects()].filter((x) => x.width > 0);
+              return { lines: rs.some((x) => Math.abs(x.top - rs[0].top) > 4) ? 2 : 1, clear: Math.round(c.getBoundingClientRect().left - Math.max(...rs.map((x) => x.right))) }; };
+            e.style.letterSpacing = '.18em'; plusChipFit(); await new Promise((r) => setTimeout(r, 80));
+            const wideOut = { ...measure(), wrapped: e.classList.contains('plus-chip-wrap') };
+            e.style.letterSpacing = ''; plusChipFit(); await new Promise((r) => setTimeout(r, 80));
+            return { wide: wideOut, normal: { ...measure(), wrapped: e.classList.contains('plus-chip-wrap') } };
+          });
+          chk(wide.wide.wrapped && wide.wide.clear >= 0 && !wide.normal.wrapped && wide.normal.lines === 1,
+            `${t} #4744: a font too wide for the sizing wraps the sentence instead of running under Copy; normal text is one line again`, JSON.stringify(wide));
           // The failure path: both copy routes refuse. The address is selected, the line under the box says so (and
           // survives a repaint), and the button keeps its label and its width.
           const fail = await page.evaluate(async () => {

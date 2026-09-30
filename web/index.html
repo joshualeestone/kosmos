@@ -10131,7 +10131,7 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-pill[data-state="up"] { background: rgba(63,191,127,.14); color: #7fe0ae; }
 #s-sec-plus .plus-pill[data-state="connecting"] { background: rgba(126,160,240,.14); color: #9cc0ff; }
 #s-sec-plus .plus-pill[data-state="down"] { background: rgba(232,112,94,.14); color: #f0a397; }
-#s-sec-plus .plus-chip { display: flex; align-items: center; gap: 8px; margin-top: 12px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 10px; padding: 6px 6px 6px 14px; }
+#s-sec-plus .plus-chip { display: flex; align-items: center; gap: 8px; margin: 12px -12px 0; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 10px; padding: 6px 6px 6px 12px; container-type: inline-size; }
 #s-sec-plus .plus-chip .btn { flex: 0 0 auto; background: transparent; color: #E6EBF7; border: 1px solid rgba(255,255,255,.25); border-radius: 8px; padding: 6px 12px; font-size: .9rem; }
 #s-sec-plus .devrow .btn { border: 1px solid rgba(255,255,255,.25); }   /* #3829: Remove visible on navy */
 /* #4080 (Josh's design): logo, switch, badge on top; the sign-in box; the bottom row. */
@@ -10141,7 +10141,6 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
    a desktop window, where the sentence at .9rem needs ~452px of the ~404 left beside Copy (measured). So the box
    reaches into the panel's side padding, Copy is compact, and the sentence's size follows the box's width (container
    units): .9rem where there is room, down to .75rem, on one line. Narrower than that (a phone) it wraps, never cuts. */
-#s-sec-plus .plus-chip { margin-left: -12px; margin-right: -12px; padding: 6px 6px 6px 12px; container-type: inline-size; }
 /* A fixed width that fits both "Copy" and "Copied", so pressing it never takes room from the sentence. */
 #s-sec-plus .plus-chip #plus-copy { padding: 6px 0; width: 72px; text-align: center; }
 #s-sec-plus .plus-chip-say { flex: 1 1 auto; min-width: 0; font: 500 .9rem var(--font-ui); color: #E6EBF7; }
@@ -10150,6 +10149,9 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 @container (min-width: 490px) {
   #s-sec-plus .plus-chip-say { white-space: nowrap; font-size: clamp(.75rem, calc((100cqw - 80px) / 34), .9rem); }
 }
+/* The safety valve: if a font runs wider than that margin allows, plusChipFit sees the sentence overflow and lets it
+   wrap, so it never paints under Copy. */
+#s-sec-plus .plus-chip-say.plus-chip-wrap { white-space: normal; }
 #s-sec-plus .plus-chip-say b { font-weight: 700; color: #fff; }
 #s-sec-plus .plus-foot { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.1); }
 #s-sec-plus .plus-remove-link, #s-sec-plus .plus-lost-link { background: none; border: 0; padding: 4px 0; font: 600 .95rem var(--font-ui); cursor: pointer; }
@@ -42539,8 +42541,9 @@ const PLUS_ACCOUNT_URL = 'https://login.kosmosplus.com/';
    The app's copy -> "Copied" pattern: the button says it for 2s and the live region says it for a screen reader.
    If the clipboard is refused, the address is selected on screen so the person can copy it themselves. */
 let PLUS_COPY_TIMER = null;
-function plusCopyFallback() {
-  // Tried first because the file's other copy buttons rely on it in the app's web views; the clipboard API is the second try.
+function plusCopyViaExec() {
+  // execCommand first, the clipboard API second: both copy the same full URL, so the order only decides which path
+  // a web view that refuses one of them still has.
   const t = document.createElement('textarea'); t.value = PLUS_ACCOUNT_URL; t.setAttribute('readonly', '');
   t.style.position = 'fixed'; t.style.opacity = '0';
   let ok = false;
@@ -42554,7 +42557,7 @@ async function plusCopyAddress() {
   const status = document.getElementById('plus-copy-status');
   const note = document.getElementById('plus-status');
   if (!btn) return;
-  let ok = plusCopyFallback();
+  let ok = plusCopyViaExec();
   if (!ok) {
     try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(PLUS_ACCOUNT_URL); ok = true; } } catch { ok = false; }
   }
@@ -42570,11 +42573,23 @@ async function plusCopyAddress() {
   }
   // Could not copy: the address is selected, and the line under the box (a live region) says so until the next press.
   const b = document.querySelector('#plus-chip-say b');
-  try { const r = document.createRange(); r.selectNodeContents(b); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); } catch { /* nothing selectable */ }
+  let selected = false;
+  try { const r = document.createRange(); r.selectNodeContents(b); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); selected = true; } catch { selected = false; }
   btn.textContent = 'Copy';
+  const say = selected ? 'Kosmos could not copy it. The address is selected: copy it from there.' : 'Kosmos could not copy it. The address is login.kosmosplus.com.';
   // Cleared first and set a moment later, so a second failure is spoken again.
-  if (note) { note.textContent = ''; note.dataset.copyFail = '1'; setTimeout(() => { if (note.dataset.copyFail) note.textContent = 'Kosmos could not copy it. The address is selected: copy it from there.'; }, 30); }
+  if (note) { note.textContent = ''; note.dataset.copyFail = '1'; setTimeout(() => { if (note.dataset.copyFail) note.textContent = say; }, 30); }
 }
+/* #4744: the one-line sentence may wrap only if it would overflow (a font wider than the sizing allows): measured
+   with the wrap removed, on every resize of the box and when the box is shown. */
+function plusChipFit() {
+  const say = document.getElementById('plus-chip-say');
+  if (!say || !say.classList) return;
+  say.classList.remove('plus-chip-wrap');
+  if (say.scrollWidth > say.clientWidth + 1) say.classList.add('plus-chip-wrap');
+}
+{ const chip = document.getElementById('plus-chip');
+  if (chip && typeof ResizeObserver === 'function') new ResizeObserver(() => plusChipFit()).observe(chip); }
 { const b = document.getElementById('plus-copy'); if (b) b.addEventListener('click', plusCopyAddress); }
 
 async function paintPlus() {
@@ -42682,16 +42697,19 @@ async function paintPlus() {
   }
   const acct = document.getElementById('plus-account'); if (acct && typeof PLUS_ACCOUNT_URL !== 'undefined') acct.href = PLUS_ACCOUNT_URL;
   const chip = document.getElementById('plus-chip');
-  if (chip) chip.hidden = !up;
+  if (chip) { chip.hidden = !up; if (up) plusChipFit(); }
   /* Connected: one plain line under the chip. Otherwise the engine's own sentence says why not. */
   /* Josh's 17:30 ruling (the #3796 landing's line): one way in on another device, the website. */
   /* #4080: connected, the sentence lives in the box above, so the line under it is empty. */
   /* #4744: a Copy failure's note stays while the box is up; once the box goes, so does the note and its flag. */
   if (!up && st.dataset && st.dataset.copyFail) delete st.dataset.copyFail;
-  st.textContent = up
-    ? (st.dataset && st.dataset.copyFail ? st.textContent : '')
-    : (stat.state === 'up' ? 'Connected. Your address is on its way.'
-      : (because ? because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.') : ''));
+  // A standing copy-failure note is left untouched (not rewritten), so a screen reader does not re-read it every poll.
+  if (!(up && st.dataset && st.dataset.copyFail)) {
+    st.textContent = up
+      ? ''
+      : (stat.state === 'up' ? 'Connected. Your address is on its way.'
+        : (because ? because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.') : ''));
+  }
   /* #1014: only a real address earns an instruction. While the tunnel is
      still coming up there is nothing to tell somebody to open, and telling
      them to open "is on its way." would be worse than saying nothing. */
