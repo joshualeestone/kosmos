@@ -43098,7 +43098,8 @@ function plusSiStage(stage, data) {
     document.getElementById('plus-si-enrol-code').focus();
     return;
   }
-  /* Anything that goes wrong in the new step lands on the old one, never on a loader with no way on. */
+  /* A failure while the new step decides lands on the old step, never on a loader with no way on. (The register it
+     then starts reports its own failures, as before.) */
   if (stage === 'session') { const epoch = PLUS_SI_EPOCH; plusSiSession(data).catch(() => { if (epoch === PLUS_SI_EPOCH) plusSiAsBefore(data); }); return; }
   if (stage === 'registered') return;  // handled by the register button itself
   /* Any other value means the coordinator returned a stage this client does not know.
@@ -43721,7 +43722,7 @@ async function plusSiSession(data, again, keep) {
   /* This computer already holds one of the account's addresses (set up before, signing in again): it keeps it. */
   const mine = b && b.this_name ? b.addresses.filter((r) => r.name === b.this_name)[0] : null;
   // A register that goes ahead does not keep a refusal's words beside it (again: after a refused pick).
-  if (mine && !(own && mine.name === own[1]) && PLUS_SI_REFUSED.indexOf(mine.name) === -1) { if (again) plusSiMsg(''); PLUS_SI_PICKED = true; plusSiRegisterMode(mine.address); plusSiShow('plus-si-register'); plusSiDoRegister(mine.name, mine.name); return; }
+  if (mine && mine.state !== 'pending' && !(own && mine.name === own[1]) && PLUS_SI_REFUSED.indexOf(mine.name) === -1) { if (again) plusSiMsg(''); PLUS_SI_PICKED = true; plusSiRegisterMode(mine.address); plusSiShow('plus-si-register'); plusSiDoRegister(mine.name, mine.name); return; }
   /* As before: no list (switch off, or not readable on the first read), or the account's own address when it is free
      (or absent from the list, failing open) or already this computer's. A PENDING one is not bought yet, and an
      account with no address cannot name one here: both get the list, or the way to buy one. */

@@ -11674,21 +11674,23 @@ test('#4756: GET /api/remote/signin-addresses needs the held sign-in, answers th
     'const a = process.argv.slice(2);',
     "if (a[0] === 'signin' && a[1] === 'start') { console.log(JSON.stringify({ stage: 'code_sent' })); process.exit(0); }",
     "if (a[0] === 'signin' && a[1] === 'verify') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.route-addr', account_address: 'first.kosmos.invalid' })); process.exit(0); }",
+    // The list through the binary, the session on stdin (recorded, so the test can see where it went).
+    "if (a[0] === 'signin' && a[1] === 'addresses') { const t = require('node:fs').readFileSync(0, 'utf8').trim(); require('node:fs').writeFileSync(process.env.FAKE_ADDR_TOKEN, t); console.log(JSON.stringify({ addresses: [{ name: 'first', address: 'first.kosmos.invalid', state: 'in_use' }, { name: 'spare', address: 'spare.kosmos.invalid', state: 'free' }], buy_url: 'https://login.kosmos.invalid/signin#add-computer' })); process.exit(0); }",
     'process.exit(0);', ''].join('\n'));
   fs.chmodSync(fakeBin, 0o755);
   const seen = [];
   const coord = http.createServer((q, s2) => {
     seen.push({ url: q.url, auth: q.headers.authorization || null });
     s2.writeHead(200, { 'content-type': 'application/json' });
-    if (q.url === '/v1/meta') { s2.end(JSON.stringify({ bought_addresses: true })); return; }
-    s2.end(JSON.stringify({ addresses: [{ name: 'first', address: 'first.kosmos.invalid', state: 'in_use' }, { name: 'spare', address: 'spare.kosmos.invalid', state: 'free' }], buy_url: 'https://login.kosmos.invalid/signin#add-computer' }));
+    s2.end(JSON.stringify(q.url === '/v1/meta' ? { bought_addresses: true } : {}));
   });
   await new Promise((r) => coord.listen(0, '127.0.0.1', r));
-  const keys = ['AGENT_WORKFORCE_TUNNEL_BIN', 'AGENT_WORKFORCE_TUNNEL_COORDINATOR', 'AGENT_WORKFORCE_TUNNEL_STATE'];
+  const keys = ['AGENT_WORKFORCE_TUNNEL_BIN', 'AGENT_WORKFORCE_TUNNEL_COORDINATOR', 'AGENT_WORKFORCE_TUNNEL_STATE', 'FAKE_ADDR_TOKEN'];
   const prev = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
   process.env.AGENT_WORKFORCE_TUNNEL_BIN = fakeBin;
   process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'http://127.0.0.1:' + coord.address().port + '/';
   process.env.AGENT_WORKFORCE_TUNNEL_STATE = nodePath.join(sb, 'state');
+  process.env.FAKE_ADDR_TOKEN = nodePath.join(sb, 'addr-token');
   try {
     await postJson('/api/remote/signin-cancel', {});
     const early = await req('/api/remote/signin-addresses');
@@ -11706,11 +11708,14 @@ test('#4756: GET /api/remote/signin-addresses needs the held sign-in, answers th
     assert.deepEqual(body.addresses.map((r) => [r.name, r.state]), [['first', 'in_use'], ['spare', 'free']]);
     assert.equal(body.buy_url, 'https://login.kosmos.invalid/signin#add-computer');
     assert.ok(!/kst1\.route-addr/.test(got.body), 'the session token crossed the HTTP boundary');
-    assert.equal(seen.find((x) => x.url === '/v1/account/addresses').auth, 'Bearer kst1.route-addr');
+    assert.equal(fs.readFileSync(process.env.FAKE_ADDR_TOKEN, 'utf8'), 'kst1.route-addr', 'the session did not reach the binary on stdin');
+    assert.equal(seen.some((x) => x.auth), false, 'a credential went to the coordinator outside the binary');
     const before = seen.length;
+    fs.rmSync(process.env.FAKE_ADDR_TOKEN, { force: true });
     const foreign = await req('/api/remote/signin-addresses', { headers: { 'sec-fetch-site': 'cross-site' } });
     assert.equal(foreign.status, 403, foreign.body);
     assert.equal(seen.length, before, 'another website made the engine call the coordinator');
+    assert.equal(fs.existsSync(process.env.FAKE_ADDR_TOKEN), false, 'another website made the engine spend the session');
     const same = await req('/api/remote/signin-addresses', { headers: { 'sec-fetch-site': 'same-origin' } });
     assert.equal(same.status, 200, 'the same-origin control was refused too; the 403 above proves nothing: ' + same.body);
   } finally {

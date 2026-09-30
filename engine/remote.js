@@ -1430,7 +1430,7 @@ async function deviceRemove(id) {
    sensitive and live in `signinSession` in this process for the seconds between
    steps -- the wizard sees only page-safe fields (never bearer material), and
    `register` spends the session token from here (piped to the CLI over stdin, off
-   argv). This is the #874 posture: the page cannot carry, replay, or leak a
+   argv), and so does `signinAddresses` (kosmos#4756, the same way). This is the #874 posture: the page cannot carry, replay, or leak a
    credential it never holds. It is memory-only on purpose -- a board restart mid-flow drops it and
    the person simply starts sign-in again, which is safe and quick.
 
@@ -1944,13 +1944,13 @@ function turnOnAfterSignin() {
 /* kosmos#4754 / #4756 (Josh 2026-09-30, ruling "A"): a new computer is a purchase. Once the coordinator
    says bought addresses are live (/v1/meta bought_addresses, or AGENT_WORKFORCE_BOUGHT_ADDRESSES=1 to test),
    a computer signs in to an address the account has BOUGHT and never makes one, so the wizard needs the
-   account's addresses at the session step, before register. Read with the session this sign-in holds
-   (the coordinator's GET /v1/account/addresses, contract on kosmos#4754). It is a direct request to COORDINATOR(),
-   not a tunnel-binary call: it only decides what the step OFFERS, and register_mac refuses an address not bought
-   whatever this says. It carries the session token, so the token goes only to COORDINATOR(), redirects
-   are refused, and only a JSON answer is read.
-   Answers { live:false } with the switch off (the wizard is exactly as before), else the rows in their
-   own shapes only, the website's buy link (https only), and this computer's own name if it is set up. */
+   account's addresses at the session step, before register. The list (the coordinator's GET
+   /v1/account/addresses, contract on kosmos#4754) is read THROUGH THE TUNNEL BINARY, as register is: the
+   session token goes on stdin, never argv, and the binary reaches the coordinator on its pinned key. Only the
+   switch itself is a plain request (fetchMetaFlag), because it carries no credential. A binary without the
+   `signin addresses` verb fails the read, and the page then takes the step as before.
+   Answers { live:false } with the switch off (the wizard is exactly as before), else the rows in their own
+   shapes only, the website's buy link (https only), and this computer's own name if it is set up. */
 const BOUGHT_STATES = new Set(['in_use', 'free', 'pending']);
 async function signinAddresses(opts) {
   opts = opts || {};
@@ -1961,26 +1961,13 @@ async function signinAddresses(opts) {
   const live = process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES === '1' || (await fetchMetaFlag('bought_addresses', { fetch: get, timeoutMs: opts.timeoutMs })) === true;
   if (!live) return { ok: true, because: null, data: { live: false } };
   if (!signinSession || signinSession.token !== token) return { ok: false, because: 'the sign-in ended; start again from the email' };
-  let res, body;
-  try {
-    res = await get(String(COORDINATOR()).replace(/\/+$/, '') + '/v1/account/addresses', {
-      headers: { authorization: 'Bearer ' + token },
-      signal: AbortSignal.timeout(opts.timeoutMs || FED_LIVE_TIMEOUT_MS), redirect: 'error' });
-  } catch {
-    return { ok: false, because: 'Kosmos+ could not be reached to list your addresses' };
-  }
-  // Only the coordinator's own JSON: a page from anything in between is not read, so its words are never shown.
-  try {
-    if (!/^application\/json\b/i.test(String((res.headers && res.headers.get && res.headers.get('content-type')) || ''))) throw new Error('not json');
-    body = await res.json();
-  } catch {
-    return { ok: false, because: 'Kosmos+ could not list your addresses' };
-  }
-  if (!res.ok) return { ok: false, because: (body && typeof body.error === 'string' && body.error.slice(0, 300)) || 'Kosmos+ could not list your addresses' };
+  const r = parseSaid(await setupRun(['signin', 'addresses', '--coordinator', COORDINATOR()], token, opts.timeoutMs || FED_LIVE_TIMEOUT_MS * 2));
+  if (!r.ok) return { ok: false, because: String(r.because || 'Kosmos+ could not list your addresses').slice(0, 300) };
+  const body = r.data;
   const rows = (body && Array.isArray(body.addresses) ? body.addresses : [])
-    .filter((r) => r && NAME_RULE.test(String(r.name)) && BOUGHT_STATES.has(r.state)
-      && typeof r.address === 'string' && /^[a-z0-9-]{3,32}\.[a-z0-9.-]{3,253}$/.test(r.address) && r.address.split('.')[0] === r.name)
-    .map((r) => ({ name: r.name, address: r.address, state: r.state }));
+    .filter((x) => x && NAME_RULE.test(String(x.name)) && BOUGHT_STATES.has(x.state)
+      && typeof x.address === 'string' && /^[a-z0-9-]{3,32}\.[a-z0-9.-]{3,253}$/.test(x.address) && x.address.split('.')[0] === x.name)
+    .map((x) => ({ name: x.name, address: x.address, state: x.state }));
   const buy = body && typeof body.buy_url === 'string' && /^https:\/\/[^\s"'<>]+$/.test(body.buy_url) ? body.buy_url : '';
   const here = enrolled() ? String(address() || '').split('.')[0] : '';
   return { ok: true, because: null, data: { live: true, addresses: rows, buy_url: buy, this_name: NAME_RULE.test(here) ? here : '' } };

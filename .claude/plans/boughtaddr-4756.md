@@ -7,8 +7,15 @@ hold ends by itself after 31 minutes) change nothing this branch relies on.
 ## What changes
 - engine/remote.js: `fetchMetaFlag(field)` (federation_live keeps its wrapper) and `signinAddresses()`: with a held
   sign-in session and bought addresses live (/v1/meta bought_addresses, or AGENT_WORKFORCE_BOUGHT_ADDRESSES=1),
-  reads GET /v1/account/addresses with the session as a Bearer, rows only in their own shapes, https buy link only.
-  No session: no call at all.
+  reads GET /v1/account/addresses THROUGH THE TUNNEL BINARY (`kosmos-tunnel signin addresses --coordinator <url>`,
+  the session token on stdin, the coordinator reached on its pinned key), exactly as `signin register` spends it.
+  Rows only in their own shapes, https buy link only. No session: no call at all. Only the switch (/v1/meta) is a
+  plain request, because it carries no credential.
+  NEEDS a tunnel verb from the server half (Ice Cream Kitty): `signin addresses`, token on stdin, prints the
+  coordinator's JSON on one line, exits non-zero with "Kosmos+ said no (<code>): <words>" on a refusal. Until it
+  exists the read fails and the page takes the step as before.
+  Rejected (review round 15): a direct HTTPS request with the token as a Bearer. It trusts any system CA, so a
+  TLS-inspecting proxy would see a token that can register a computer to the account.
 - server.js: GET /api/remote/signin-addresses.
 - web/index.html: the session step. On the first read, anything but a definite live:true is the step exactly as
   before. Live: the account's first computer, and a computer signing in again to its own address, register as
