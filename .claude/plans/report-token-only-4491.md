@@ -40,6 +40,11 @@ on a current board.
 - Five mutations, one per path (the switch check removed): each turns exactly that path's new test red; each file
   restored byte-identical.
 
+## Review round 1 (one blind reviewer, whole change): no blocker, no should-fix. CONVERGED.
+One nit taken: the code comments said "the CLIs' same switch", which is not yet true of main (slice 7 is unmerged).
+Reworded to name slice 7. The reviewer also RAN the report-path tests with the switch and a hex token in the
+environment: 136 of 136, so the isolation claim holds for these files.
+
 ## Not done
 - No review yet, no full run.
 - Nothing sets the switch.
