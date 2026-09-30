@@ -48,9 +48,12 @@
  *      stopped, a post on A must not arrive on B (bounded wait) and a "not connected"
  *      note must be the very next row after THAT post in A's room (and the row after an
  *      earlier post must not be one); (c) the harness's own detector reports FAIL for a
- *      string that was never posted; (d) the relay-log parser is run on a fixture and must
+ *      string that was never posted, and each absence watch ends with every room it read
+ *      shown readable; (d) the relay-log parser is run on a fixture and must
  *      keep a seated member and drop a disconnected one; (e) the env allowlist check must
- *      flag a board's env, which is not service-shaped.
+ *      flag a board's env, which is not service-shaped; (f) the pane recorder (typed.log)
+ *      is driven with each typing verb and must log all of them. If C is instead refused
+ *      A's code, the refusal must be a 4xx.
  *   8. PASS/FAIL per step, a verdict, exit 1 on any FAIL. Every process it started
  *      (and each one's descendants: seats, tunnels) is stopped by exact pid, and the
  *      sandbox removed, on success and on failure. Once stopping has begun no new
@@ -144,6 +147,9 @@ function start(name, cmd, args, opts = {}) {
   const child = spawn(cmd, args, { cwd: opts.cwd || SANDBOX, env: opts.env, stdio: ['ignore', fd, fd] });
   fs.closeSync(fd);
   started.push({ name, child, log, env: opts.env });
+  // A spawn failure (EACCES, ENOEXEC) is an 'error' event: logged, never an uncaught throw
+  // that would skip the cleanup and orphan what already started.
+  child.on('error', (err) => { try { fs.appendFileSync(log, '\n[harness] spawn error: ' + err.message + '\n'); } catch { /* sandbox gone */ } });
   child.on('exit', (code, sig) => { try { fs.appendFileSync(log, '\n[harness] exited code=' + code + ' signal=' + sig + '\n'); } catch { /* sandbox gone */ } });
   return { child, log };
 }
@@ -190,6 +196,9 @@ async function stopTree(entry) {
   let table = [];
   try { table = psTable(); } catch { table = []; }
   const pid = entry.child.pid;
+  if (!pid || entry.child.exitCode !== null || entry.child.signalCode !== null) {
+    await stopPids(descendantsOf(pid, table)); return;   // exited: its pid may be reused, never signal it
+  }
   await stopPids([...descendantsOf(pid, table), pid]);
 }
 /* Every pid this run owns that is still alive: the started processes, their descendants,
@@ -327,8 +336,25 @@ async function startBoard(letter) {
   b.typed = path.join(b.data, 'typed.log');
   fs.writeFileSync(b.typed, '');
   b.tmuxWrap = path.join(b.data, 'tmux-wrap.sh');
-  fs.writeFileSync(b.tmuxWrap, '#!/bin/sh\n[ "$1" = set-buffer ] && printf \'%s\\n\' "$*" >> "' + b.typed + '"\nexec "'
-    + path.join(REPO, 'test-support', 'fake-tmux.sh') + '" "$@"\n', { mode: 0o755 });
+  // Every call that is not one of the fake's reads is recorded with its arguments, and
+  // load-buffer's text too (a file, or stdin via '-'), so a federated text that reached a pane
+  // by ANY verb (set-buffer, paste-buffer, send-keys -l, load-buffer) is in typed.log.
+  const fake = path.join(REPO, 'test-support', 'fake-tmux.sh');
+  fs.writeFileSync(b.tmuxWrap, [
+    '#!/bin/sh',
+    'T="' + b.typed + '"',
+    'case "$1" in',
+    '  list-panes|list-sessions|capture-pane|display-message|has-session) ;;',
+    '  load-buffer)',
+    '    printf \'%s\\n\' "$*" >> "$T"',
+    '    for a in "$@"; do last="$a"; done',
+    '    if [ "$last" = - ]; then tee -a "$T" | "' + fake + '" "$@"; exit $?; fi',
+    '    [ -f "$last" ] && cat "$last" >> "$T" ;;',
+    '  *) printf \'%s\\n\' "$*" >> "$T" ;;',
+    'esac',
+    'exec "' + fake + '" "$@"',
+    '',
+  ].join('\n'), { mode: 0o755 });
   const s = start('board-' + letter, process.execPath, [path.join(REPO, 'server.js')], { cwd: REPO, env: boardEnv(b) });
   b.proc = s;
   // A board that EXITED (a port taken between the check and its bind) is reported at once.
@@ -410,7 +436,9 @@ const TYPED_WATCH = [];   // { board, text, expect } re-read at the end of the r
 
 async function main() {
   console.log('#4693 own-account room proof, run ' + RUN + ', sandbox ' + SANDBOX);
-  for (const [k, p] of Object.entries(BIN)) if (!fs.existsSync(p)) throw new Error('missing ' + k + ' binary at ' + p + ' (set FEDPROOF_BIN_DIR)');
+  for (const [k, p] of Object.entries(BIN)) {
+    try { fs.accessSync(p, fs.constants.X_OK); } catch { throw new Error('missing or not executable: ' + k + ' binary at ' + p + ' (set FEDPROOF_BIN_DIR)'); }
+  }
 
   // 1. coordinator
   const coordPort = await freePort();
@@ -475,6 +503,19 @@ async function main() {
   info('step 3: boards A (' + A.port + ') and B (' + B.port + ') answer, each sandboxed with a fake agent');
   // Control for the env allowlist check: a board's env (AGENT_WORKFORCE_*, USER) is NOT
   // service-shaped, so the same instrument does flag foreign keys when there are some.
+  const canary = 'recorder-canary-' + RUN;
+  const verbs = {
+    'send-keys': ['send-keys', '-t', 'x', '-l', canary + '-sk'],
+    'paste-buffer': ['paste-buffer', '-b', canary + '-pb', '-t', 'x'],
+    'set-buffer': ['set-buffer', '-b', 'k', canary + '-sb'],
+  };
+  for (const argv of Object.values(verbs)) execFileSync(A.tmuxWrap, argv, { stdio: 'ignore' });
+  execFileSync(A.tmuxWrap, ['load-buffer', '-b', 'k', '-'], { input: canary + '-lb\n', stdio: ['pipe', 'ignore', 'ignore'] });
+  execFileSync(A.tmuxWrap, ['capture-pane', '-p', '-t', canary + '-read'], { stdio: 'ignore' });
+  const rec = fedproofReadLog(A.typed);
+  const seen = ['sk', 'pb', 'sb', 'lb'].filter((v) => rec.includes(canary + '-' + v));
+  chk(seen.length === 4 && !rec.includes(canary + '-read'), 'step 3 control: the pane recorder logs every typing verb (send-keys, paste-buffer, set-buffer, load-buffer stdin) and not a read',
+    'seen ' + seen.join(','));
   const boardForeign = fedproofForeignKeys((started.find((x) => x.name === 'board-A') || {}).env);
   chk(boardForeign.length > 0, 'step 3 control: the env allowlist check flags foreign keys (board A\'s env has some)', boardForeign.slice(0, 4).join(','));
 
@@ -532,13 +573,13 @@ async function main() {
   // relay's line; a post before that is answered "stayed on this computer", so retry until not.
   const sa = await postUntilSent(A, pidA, 'from-A-' + RUN);
   const aText = sa.text;
-  chk(!!aText && sa.r.json && sa.r.json.delivery && sa.r.json.delivery.state !== 'could_not', 'step 6: A posts into the room and it is not kept local',
+  chk(!!aText && sa.r.json && sa.r.json.delivery && sa.r.json.delivery.state !== 'could_not', 'step 6: A posts into the room (placed, and no stayed-on-this-computer note after it)',
     'attempts ' + sa.tried.length + ', ' + sa.r.text.slice(0, 160));
   const gotA = aText && await waitFor(() => hasExternal(B, pidB, aText), DELIVERY_MS);
   chk(!!gotA, 'step 6: A\'s post arrives on B as an external row');
   const sb = await postUntilSent(B, pidB, 'from-B-' + RUN);
   const bText = sb.text;
-  chk(!!bText && sb.r.json && sb.r.json.delivery && sb.r.json.delivery.state !== 'could_not', 'step 6: B posts into the room and it is not kept local',
+  chk(!!bText && sb.r.json && sb.r.json.delivery && sb.r.json.delivery.state !== 'could_not', 'step 6: B posts into the room (placed, and no stayed-on-this-computer note after it)',
     'attempts ' + sb.tried.length + ', ' + sb.r.text.slice(0, 160));
   const gotB = bText && await waitFor(() => hasExternal(A, pidA, bText), DELIVERY_MS);
   chk(!!gotB, 'step 6: B\'s post arrives on A as an external row');
@@ -569,8 +610,10 @@ async function main() {
   r = await http(C.base, 'POST', '/api/federation/verify', { code: own }, SCREEN);
   const cVerify = r.status;
   let pidC = null;
+  let cJoin = null;
   if (r.status === 200) {
     r = await http(C.base, 'POST', '/api/federation/join', { edge_id: 'own:' + ref, agents: [] }, SCREEN);
+    cJoin = r.status;
     pidC = r.status === 200 && r.json ? r.json.id : null;
   }
   info('C verify ' + cVerify + ', join ' + (pidC ? 'made project ' + pidC : 'refused'));
@@ -586,10 +629,10 @@ async function main() {
     chk(cInARoom.length === 2, 'step 7a: A\'s room still holds exactly the two same-account seats (C is not in it)', cInARoom.map((s) => s.member).join(', '));
     // Without this the absence below could be C simply having no seat; with it, C is seated,
     // in its own account's room.
-    chk(!!cSeat, 'step 7a: C holds a seat, in a DIFFERENT room (its own account\'s)', cSeat ? 'room ' + cSeat.room.slice(0, 12) + '... member ' + cSeat.member : 'no seat seen');
+    chk(!!cSeat && cSeat.member.split(':')[0] !== parts[0][0], 'step 7a: C holds a seat, in a DIFFERENT room, as a DIFFERENT account', cSeat ? 'room ' + cSeat.room.slice(0, 12) + '... member ' + cSeat.member : 'no seat seen');
     const sc = await postUntilSent(C, pidC, 'from-C-' + RUN);
     const cText = sc.text;
-    chk(!!cText && sc.r.json && sc.r.json.delivery && sc.r.json.delivery.state !== 'could_not', 'step 7a: C posts into its room and it is not kept local',
+    chk(!!cText && sc.r.json && sc.r.json.delivery && sc.r.json.delivery.state !== 'could_not', 'step 7a: C posts into its room (placed, and no stayed-on-this-computer note after it)',
       'attempts ' + sc.tried.length + ', ' + sc.r.text.slice(0, 160));
     const aText2 = 'from-A-again-' + RUN;
     r = await post(A, pidA, aText2);
@@ -601,6 +644,10 @@ async function main() {
       return hasExternal(C, pidC, aText2);
     }, ABSENCE_MS);
     chk(!leak, 'step 7a: nothing crosses between C and A/B (watched ' + ABSENCE_MS / 1000 + ' s)');
+    // The absence is only evidence if each room the watch read was readable at its end: an
+    // unreadable room reads as '' and can hold no leaked row.
+    chk((await roomText(A, pidA)).includes(aText2) && (await roomText(B, pidB)).includes(bText) && !!cText && (await roomText(C, pidC)).includes(cText),
+      'step 7a control: A\'s, B\'s and C\'s rooms were readable at the end of that watch (each holds its own post)');
     // The watch was live: A's second post DID reach B in the same window.
     chk(await hasExternal(B, pidB, aText2), 'step 7a control: in that window A\'s second post did reach B');
     const cNotes = (await roomText(C, pidC)).split('\n').filter((l) => l.includes('[kosmos]'));
@@ -617,8 +664,11 @@ async function main() {
       chk(seats.members.every((m) => kept.includes(m)), 'step 7a: A\'s and B\'s seats are still held after C\'s left (a disconnect of theirs would show)', kept.join(', '));
     }
   } else {
-    info('step 7a: C could not join with A\'s own code (refused at verify/join)');
-    console.log('NOTE  C never held a seat, so the relay-log parser\'s "disconnected" half had no live control this run; the step 6 no-disconnect check is unproven');
+    // A refusal proves the cross-account property only if it IS a refusal (a 4xx), not a
+    // crash or a timeout. The parser's "disconnected" half still has its step 2 fixture control.
+    const refused = (cVerify >= 400 && cVerify < 500) || (cJoin !== null && cJoin >= 400 && cJoin < 500);
+    chk(refused, 'step 7a: C is REFUSED A\'s own code (a 4xx at verify or join)', 'verify ' + cVerify + ', join ' + cJoin);
+    console.log('NOTE  C never held a seat, so the relay-log parser\'s "disconnected" half had only its step 2 fixture control this run');
   }
 
   // 7b. relay down: a post is not delivered, and A does not claim it was.
@@ -627,6 +677,7 @@ async function main() {
   chk(!!down, 'step 7b: relay stopped');
   // Post until A answers a post with the not-connected note (its seat has seen the relay go).
   // The note must follow THAT post in A's room, and the count of such notes must rise.
+  const bReadable = (await roomText(B, pidB)).includes(bText);
   const dTried = [];
   let dText = null;
   let dResp = null;
@@ -659,6 +710,8 @@ async function main() {
     (earlierNext || '(end of room)').trim().slice(0, 120));
   const delivered = await waitFor(async () => { for (const t of dTried) if (await hasExternal(B, pidB, t)) return true; return false; }, ABSENCE_MS);
   chk(!delivered, 'step 7b: with the relay down, none of A\'s posts arrives on B (watched ' + ABSENCE_MS / 1000 + ' s)');
+  // B's room was readable across that window (before: checked when the posts began; after: now).
+  chk(bReadable && (await roomText(B, pidB)).includes(bText), 'step 7b control: B\'s room was readable at the start and end of that watch (it holds B\'s own post)');
 
   // End of run: a delayed typing path would put a federated text into a pane late.
   for (const w of TYPED_WATCH) {
@@ -693,4 +746,9 @@ async function fedproofFinish(code) {
     + Math.round((Date.now() - T0) / 1000) + ' s)');
   process.exit(code === 0 && !failed ? 0 : 1);
 }
+// Anything thrown outside main's own try (an event handler, a stray rejection) still tears down.
+for (const ev of ['uncaughtException', 'unhandledRejection']) process.on(ev, (err) => {
+  console.log('FAIL  harness error (' + ev + '): ' + (err && err.message ? err.message : err));
+  results.push({ ok: false }); halted = true; fedproofFinish(1);
+});
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { if (!halted) console.log('interrupted (' + sig + ')'); results.push({ ok: false }); halted = true; fedproofFinish(1); });

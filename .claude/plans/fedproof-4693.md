@@ -82,3 +82,25 @@ to notice would write into a dead connector and the "stayed on this computer" ch
    computer: the connection to the external project is not up right now." (engine/fedseats.js
    `post`). For a room shared only with the person's own computers, "external project" is the
    wrong noun; same family as #4657.
+
+## Review iteration 2
+
+Blind sonnet review of b23c0b463 found WARNINGs, all fixed in tools/fed-own-e2e.js:
+- The pane recorder (typed.log) only logged `set-buffer`, so a federated text typed by
+  `send-keys`, `paste-buffer` or `load-buffer` would be missed. The wrapper now logs every
+  non-read verb (and load-buffer's stdin or file), and a step 3 control drives all four verbs
+  plus a read and requires exactly the four.
+- The absence watches (7a, 7b) could pass on an unreadable room (it reads as ''). Each now
+  ends with a control that every room it read still holds its own post.
+- The 7a refusal branch was a silent NOTE; a refusal must now be a 4xx at verify or join, so a
+  crash or timeout cannot read as "refused". C's seat must also be a DIFFERENT account.
+- A spawn 'error' event, or any throw outside main (event handler, stray rejection), could skip
+  cleanup: now logged / routed to fedproofFinish. A stopped child's pid is never signalled.
+- Binaries are checked for X_OK, not just existence.
+
+Measured 2026-09-30 06:34 to 06:37 CDT, over that exact tree (cmp-identical to the tested copy):
+clean VERDICT PASS 54/54, 36 s. Mutations, each restored and cmp-checked after: set-buffer-only
+recorder FAILs step 3 control; unreadable B room FAILs step 7b control; injected stray throw
+FAILs as harness error (uncaughtException); forcing the refusal branch FAILs "C is REFUSED"
+(verify 200, join 200); non-executable bin dir FAILs at start. Zero leftover processes or
+sandbox dirs after every run.
