@@ -103,6 +103,6 @@ because round 7's record survived only as its fix commit, with no round after it
   - web.* 2201/0.
   - web.plus-copy-once-4744: 4/0, and each earlier head fails exactly the behaviours it lacks.
   - render-plus-panel-3829 on the final head 58c2e0b1d: 108/0.
-- **Merged origin/main 001612050** in bcdfec938: a clean merge, no conflict. It overlaps this PR in web/index.html, so this is path C.
+- **Merged origin/main 57b007634** in bcdfec938: a clean merge, no conflict. It overlaps this PR in web/index.html, so this is path C.
   - Focused tests on it: web.* 2212/0, the Copy and reason-grep tests 9/0, the prose guards 0 fail, surface gate 0.
   - **render-plus-panel-3829 on bcdfec938: 108/0, all page checks passed.**
