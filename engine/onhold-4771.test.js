@@ -72,12 +72,12 @@ test('#4771 Assigner: an unowned task on hold is never handed out (control: the 
 test('#4771 Assigner: nothing in a paused project is handed out, and its goal is not asked about (control: resumed)', () => {
   const w = world('pausegive' + seq, false);
   try {
-    projects.setPaused(w.pid, true);
+    projects.edit(w.pid, { paused: true });
     assert.deepEqual(given(w), [], 'the Assigner handed out a paused project\'s task');
     const rec = projects.readAll().find((p) => p.id === w.pid);
     assert.equal(a.goalProject(w.who, [Object.assign({}, rec, { tasks: [] })], new Map([[w.pid, 'ship it']]), new Map(), Date.now()), null,
       'a paused project\'s goal was put to an agent');
-    projects.setPaused(w.pid, false);
+    projects.edit(w.pid, { paused: false });
     assert.equal(given(w).length, 1, 'control: resumed, the same task was not handed out');
     const back = projects.readAll().find((p) => p.id === w.pid);
     assert.ok(a.goalProject(w.who, [Object.assign({}, back, { tasks: [] })], new Map([[w.pid, 'ship it']]), new Map(), Date.now()),
@@ -96,7 +96,7 @@ test('#4771 Prompter: an agent holding only held work is not nudged; held work d
     assert.equal(a.hasOpenWork(w.who, recs()), false, 'a task on hold still keeps the agent busy for the Assigner');
     assert.deepEqual(nudge.realStalls([{ session: w.who, from: 'working', to: 'idle' }], recs()), [], 'a check-in was raised about held work');
     tasks.setOnHold(w.pid, w.n, false);
-    projects.setPaused(w.pid, true);
+    projects.edit(w.pid, { paused: true });
     assert.deepEqual(nudge.openParts(w.who, recs()), [], 'a paused project\'s task is still open work to be nudged about');
     assert.equal(a.hasOpenWork(w.who, recs()), false, 'a paused project\'s task still keeps the agent busy');
     // A broken agent is still asked about, whatever it holds (engine/heartbeat.js has no other path to the person).
@@ -126,11 +126,11 @@ test('#4771 the states are stored, shown and recorded: task on hold, project pau
     tasks.setOnHold(w.pid, w.n, false, { viaScreen: true });
     assert.deepEqual(vias().slice(2), ['screen', 'screen'], 'the person\'s hold on the screen was not recorded as theirs');
 
-    assert.throws(() => projects.setPaused(w.pid, 'yes'), /paused must be true or false/);
-    projects.setPaused(w.pid, true);
+    assert.throws(() => projects.edit(w.pid, { paused: 'yes' }), /paused must be true or false/);
+    projects.edit(w.pid, { paused: true });
     assert.equal(row().projectPaused, true);
     assert.equal(tasks.taskState(row()), 'held', 'a paused project\'s task does not read held on the Tasks view');
-    projects.setPaused(w.pid, false);
+    projects.edit(w.pid, { paused: false });
     assert.equal('paused' in projects.readAll().find((p) => p.id === w.pid), false, 'resuming left a stored field behind');
   } finally { w.restore(); }
 });
@@ -154,10 +154,10 @@ test('#4771 review: in a paused project a task marked built reads held (held is 
     tasks.setBuilt(w.pid, w.n, { by: w.who, note: 'waiting on the release' });
     const row = () => tasks.allTasks().find((t) => t.projectId === w.pid && t.number === w.n);
     assert.equal(tasks.taskState(row()), 'built', 'control: the built mark did not read built');
-    projects.setPaused(w.pid, true);
+    projects.edit(w.pid, { paused: true });
     assert.equal(tasks.taskState(row()), 'held');
     assert.ok(row().builtAt, 'pausing lost the built mark');
-    projects.setPaused(w.pid, false);
+    projects.edit(w.pid, { paused: false });
     assert.equal(tasks.taskState(row()), 'built', 'resuming did not bring the built state back');
   } finally { w.restore(); }
 });
@@ -197,17 +197,17 @@ test('#4771 review: the person\'s own pause is resumed only on the screen; an ag
   const w = world('pausemine' + seq, false);
   try {
     const rec = () => projects.readAll().find((p) => p.id === w.pid);
-    projects.setPaused(w.pid, true, { viaScreen: true });
+    projects.edit(w.pid, { paused: true, viaScreen: true });
     assert.equal(rec().pausedByPerson, true);
-    assert.throws(() => projects.setPaused(w.pid, false), (e) => e.status === 403 && /only they can resume it, on the screen/.test(e.message));
+    assert.throws(() => projects.edit(w.pid, { paused: false }), (e) => e.status === 403 && /only they can resume it, on the screen/.test(e.message));
     assert.equal(projects.isPaused(rec()), true, 'a refused resume still resumed the project');
-    projects.setPaused(w.pid, false, { viaScreen: true });
+    projects.edit(w.pid, { paused: false, viaScreen: true });
     assert.equal(projects.isPaused(rec()), false, 'the person could not resume their own pause');
     assert.equal('pausedByPerson' in rec(), false, 'resuming left the person mark behind');
     // Control: an agent's pause, which anyone can lift.
-    projects.setPaused(w.pid, true);
+    projects.edit(w.pid, { paused: true });
     assert.equal('pausedByPerson' in rec(), false, 'an agent\'s pause was stored as the person\'s');
-    projects.setPaused(w.pid, false);
+    projects.edit(w.pid, { paused: false });
     assert.equal(projects.isPaused(rec()), false, 'control: an agent could not lift an agent\'s pause');
   } finally { w.restore(); }
 });
@@ -224,11 +224,11 @@ test('#4771 review: the person\'s hold or pause over an agent\'s earlier one bec
     assert.equal(stored().onHoldByPerson, true, 'an agent\'s repeat hold took the person\'s away');
     tasks.setOnHold(w.pid, w.n, false, { viaScreen: true });
     const rec = () => projects.readAll().find((p) => p.id === w.pid);
-    projects.setPaused(w.pid, true);
-    projects.setPaused(w.pid, true, { viaScreen: true });
+    projects.edit(w.pid, { paused: true });
+    projects.edit(w.pid, { paused: true, viaScreen: true });
     assert.equal(rec().pausedByPerson, true, 'the person\'s pause over an agent\'s did not become theirs');
-    assert.throws(() => projects.setPaused(w.pid, false), (e) => e.status === 403);
-    projects.setPaused(w.pid, false, { viaScreen: true });
+    assert.throws(() => projects.edit(w.pid, { paused: false }), (e) => e.status === 403);
+    projects.edit(w.pid, { paused: false, viaScreen: true });
     tasks.close(w.pid, w.n);
     assert.throws(() => tasks.setOnHold(w.pid, w.n, true), /a finished task cannot be put on hold/);
     assert.equal(tasks.isOnHold(stored()), false);

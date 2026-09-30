@@ -2534,9 +2534,6 @@ function cleanArchivedAt(value) {
 function isPaused(record) {
   return Boolean(record && record.paused === true);
 }
-function setPaused(id, want, { viaScreen = false } = {}) {
-  return edit(id, { paused: want, viaScreen });
-}
 
 /**
  * #3564: swarms switched OFF in a project. An Off swarm stays a member, but work in
@@ -3274,7 +3271,7 @@ function toldOverride(verdict, sessionName, known) {
 }
 
 module.exports = {
-  joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, setPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
+  joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,

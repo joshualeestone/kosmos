@@ -7,7 +7,7 @@ agents onto tasks the person had put on hold and into a project the person had p
 ## What changes
 - engine/tasks.js: `isOnHold(t)` / `setOnHold(projectId, n, onHold)`. Stored as `onHold: true`, absent when off, so
   every task written before reads as not held. Activity records `hold-set` / `hold-cleared`.
-- engine/projects.js: `paused` on the record (absent = not paused), set through `edit`, `isPaused` / `setPaused`.
+- engine/projects.js: `paused` on the record (absent = not paused), set through `edit` (with `viaScreen`), read through `isPaused`.
 - engine/agentnudge.js (the Prompter): a paused project's tasks and a held task are not the agent's work to nudge
   about. engine/assigner.js: neither is handed out, and neither keeps an agent busy.
 - server.js: `POST /api/project/:id/task/:n/hold {onHold}`; `paused` on the project edit (PUT).
