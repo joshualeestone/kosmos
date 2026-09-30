@@ -76,7 +76,7 @@ async function fetchStanding() {
     // No Mac identity when not enrolled.
     if (!remote.enrolled()) return null;
     /* #4731: with remote access OFF this is still sent, at the slow cadence remote.js's
-       refreshStandingIfStale sets for that state, with an EMPTY body: the coordinator must be able to
+       refreshStandingIfStale sets for that state, with no remote report: the coordinator must be able to
        tell a computer that is in use with remote access off from one that is gone (since #4681 a
        computer quiet for a day opens the lost-computer recovery doors). Nothing about remote access
        itself changes: no tunnel, no relay ticket, and no remote report.

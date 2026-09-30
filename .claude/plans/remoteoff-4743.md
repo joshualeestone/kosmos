@@ -13,8 +13,9 @@ holds). With the switch on nothing changes: the full report as before.
 
 ## Coordinator half (kosmos-relay branch remoteoff-4743)
 The account page reads a computer whose latest check-in said `on: false` as "Remote access is off. Checked
-in <when>." A coordinator without that half stores the one-bit report (kosmos#4277's normaliser keeps `on`)
-and changes nothing else, so the two halves can land in either order.
+in <when>." With that half the off bit is kept apart and never replaces the stored diagnosis. A coordinator
+WITHOUT it stores the one-bit body as a report, replacing the last diagnosis (review 1 of the relay half), so
+this board half should reach users only after the coordinator half is deployed.
 
 ## Tests
 `engine/mac-standing.test.js`: the #4731 off-arm test now asserts the body is exactly
