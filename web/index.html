@@ -42663,8 +42663,11 @@ function paintAsk() {
       '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + label + '">Allow</button>' +
       '<button class="btn quiet" type="button" data-ask="deny" data-id="' + askEsc(d.device_id) + '" aria-label="Not me: turn away ' + label + '">Not me</button></div></div>';
   };
-  for (const d of rows) { seen.add(d.device_id); out.push(render(d, ASK.done[d.device_id])); }
-  for (const id of doneIds) { if (!seen.has(id)) out.push(render(ASK.done[id].device, ASK.done[id])); }
+  /* #4637 (Mona Lisa's review W1): what still waits comes first, under "Waiting for you"; answered ones follow it. */
+  const after = [];
+  for (const d of rows) { seen.add(d.device_id); (ASK.done[d.device_id] ? after : out).push(render(d, ASK.done[d.device_id])); }
+  for (const id of doneIds) { if (!seen.has(id)) after.push(render(ASK.done[id].device, ASK.done[id])); }
+  out.push(...after);
   askWrite(document.getElementById(inPanel ? 'plus-ask-rows' : 'ask-rows'), out.join(''));
   askWrite(document.getElementById(inPanel ? 'ask-rows' : 'plus-ask-rows'), '');
 }

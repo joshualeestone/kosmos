@@ -88,6 +88,8 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
 
       /* On Kosmos Plus: the sheets. */
       await page.evaluate(() => showTab('settings'));
+      // First run can open after the early Escape; it must not sit over the Kosmos+ tab.
+      if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
       await page.click('#s-nav button[data-go="plus"]');
       await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
       await page.evaluate(() => { if (typeof pollAsk === 'function') return pollAsk(); });
@@ -124,6 +126,9 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         `${tag} after Allow: "windowsbox is connected." and where to remove it`, done);
       chk(/iPhone wants to connect to your Kosmos/.test(done), `${tag} the other request is still waiting`, done);
       chk(await page.evaluate(() => !document.getElementById('plus-asks-title').hidden), `${tag} with a request still waiting, the heading shows`);
+      /* Review W1: under the heading, what waits comes first; the answered line follows it. */
+      const order = await page.evaluate(() => [...document.getElementById('plus-ask-rows').children].map((e) => e.classList.contains('askreq') ? 'waiting' : 'answered'));
+      chk(JSON.stringify(order) === JSON.stringify(['waiting', 'answered']), `${tag} the waiting sheet sits under the heading, the answered line after it`, JSON.stringify(order));
       /* Review W1: with nothing left waiting, "Waiting for you" goes; the success lines stand alone. */
       await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-ph"]');
       await page.waitForFunction(() => /iPhone is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
