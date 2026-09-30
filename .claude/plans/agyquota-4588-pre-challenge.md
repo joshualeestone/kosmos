@@ -70,8 +70,8 @@ Focused set 552/552 over 30 files; both browser-check gates rc 0.
 - [NIT] engine/agyhooks.test.js - the seam test's 60 s upper bound rests on the bridge starting within a minute (same as the review-7 test) --> left
 - [NIT] no test combines `waiting` with a quota `final` --> not reachable (waiting is working-only, quota is idle-only)
 **Converged** - no new actionable findings.
-Browser check render-dm-owes-4340.js (the #4612 surface): queued through queued-heavy.sh at 13:04 CDT behind a machine
-reservation; result not yet recorded at this commit. Full validation: pending (Renet runs it).
+Browser check render-dm-owes-4340.js (the #4612 surface) on this tree, through queued-heavy.sh: END rc=0 at 14:11 CDT,
+20 PASS, 0 FAIL. Full validation: pending (Renet runs it).
 
 ### Final Ledger (iterations 7-8)
 
