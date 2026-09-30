@@ -234,3 +234,27 @@ test('#4557 teamBlockState: whole, none, or broken (a lone, doubled or reversed 
   assert.equal(teamBlockState('a ' + S + ' b ' + E + ' c'), 'whole');
   for (const bad of [S + ' only', 'only ' + E, E + ' x ' + S, S + E + S + E]) assert.equal(teamBlockState(bad), 'broken', bad);
 });
+
+test('#4557 (iteration 14): a REAL seeded member carries its role text ONCE and one live messaging block, never a frozen copy', () => {
+  teamseed.setCatalogue(null);   // the installed catalogue (#4555), not the fixture
+  try {
+    const cat = teamseed.catalogue();
+    assert.ok(cat, 'the seed is installed');
+    const t = cat.teams()[0];
+    const names = {};
+    for (const m of t.members) names[m.slot] = 'Real ' + m.name;   // names free on this sandbox
+    const r = teamseed.specs({ team: t.key, names });
+    assert.equal(r.ok, true, r.because);
+    const messages = require('./engine/messages');
+    for (const s of r.specs) {
+      const out = create.createAgent({ ...BINS, ...s.spec });
+      assert.equal(out.outcome, create.OUTCOME.CREATED, s.slot + ': ' + out.because);
+      const text = file(out.name);
+      const opening = require('./engine/roles').instructionsFor(s.spec.role, s.spec.name).split('\n').find((l) => l.trim());
+      assert.equal(text.split(opening).length - 1, 1, s.slot + ': the role text appears ' + (text.split(opening).length - 1) + ' times');
+      const team = blockOf(text, projects.TEAM_START, projects.TEAM_END);
+      assert.ok(team && /## On this team/.test(team), s.slot + ': no team section in its block');
+      assert.ok(!team.includes(messages.START) && !team.includes('kosmos:messages'), s.slot + ': a messaging block (or its neutralised marker) sits frozen inside the team block');
+    }
+  } finally { teamseed.setCatalogue(CATALOGUE); }
+});

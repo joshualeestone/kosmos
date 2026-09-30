@@ -131,7 +131,13 @@ function memberProblem(teamKey, slot, names) {
  * @returns {string|null} null exactly when memberProblem() returns a reason: an unknown
  *   team, slot or role, a name create refuses, or two seats with the same name.
  */
-function memberInstructions(teamKey, slot, names) {
+/**
+ * #4557: only the member's `## On this team` section (no role text, no messaging block), for a
+ * create that layers it INTO the role's own instructions (create's `teamInstructions`), where the
+ * role text and the live messaging block come from create itself. null exactly when memberProblem
+ * returns a reason. memberInstructions is this section on its role text, plus the messaging block.
+ */
+function memberTeamSection(teamKey, slot, names) {
   if (memberProblem(teamKey, slot, names) !== null) return null;
   const t = team(teamKey);
   const m = t.members.find((x) => x.slot === slot);
@@ -143,8 +149,6 @@ function memberInstructions(teamKey, slot, names) {
   // No command path here: this section sits outside any managed block, so a path written into it
   // would go stale when the install layout changes. It names each teammate's machine name; the
   // messaging block below (kept current by projects.healColleagues) teaches the command itself.
-  const roles = require('./roles');
-  const base = roles.instructionsFor(m.role, nameOf(m));
   const lead = leadOf(t);
   const lines = ['', '## On this team', ''];
   if (m.reportsTo === null) {
@@ -165,7 +169,16 @@ function memberInstructions(teamKey, slot, names) {
     lines.push('', 'Your focus here:', '');
     for (const f of m.focus) lines.push(...wrapLines(f, '- ', '  '));
   }
-  const text = base.replace(/\n+$/, '\n') + lines.join('\n') + '\n';
+  return lines.join('\n').replace(/^\n/, '') + '\n';
+}
+
+function memberInstructions(teamKey, slot, names) {
+  const section = memberTeamSection(teamKey, slot, names);
+  if (section === null) return null;
+  const t = team(teamKey);
+  const m = t.members.find((x) => x.slot === slot);
+  const base = require('./roles').instructionsFor(m.role, chosenName(m, names));
+  const text = base.replace(/\n+$/, '\n') + '\n' + section;
   /* create adds the messaging block (how to answer the person, kosmos reply / post / msg) only to
      role templates, never to explicit instructions like these, so it is spliced in here with the
      same markers: projects.healColleagues keeps it current afterwards, as for any agent. Without it
@@ -174,4 +187,4 @@ function memberInstructions(teamKey, slot, names) {
   return require('./projects').spliceBlock(text, messages.blockBody(), messages.START, messages.END);
 }
 
-module.exports = { ROLES_FILE, TEAMS_FILE, groupOrder, rawRoles, teams, team, leadOf, memberInstructions, memberProblem };
+module.exports = { ROLES_FILE, TEAMS_FILE, groupOrder, rawRoles, teams, team, leadOf, memberInstructions, memberTeamSection, memberProblem };

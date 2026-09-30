@@ -46613,20 +46613,20 @@ async function tcRunOnce(gen) {
       /* Round 4: the create may have landed before the connection dropped, so say so: Try again then
          answers "already an agent called ..." and the agent is on the board. */
       out = { because: 'Kosmos could not be reached (' + ((err && err.message) || 'network error') + '). It may have been made anyway: look for it on your board before trying again.' };
-      m.maybeMade = true;
+      m.maybeMade = s.session;   // the agent that may exist is THIS name's: a renamed row adopts nothing
     }
     if (gen !== TC_GEN) return;
     /* A create that landed before the connection dropped: Try again is refused. The names were checked
        free before the run, so if that exact agent is now on the board, it is this member: take it as
        made, which releases the reports held behind a lead. */
-    if (m.maybeMade && out && out.outcome !== 'created' && s.session) {
+    if (m.maybeMade && m.maybeMade === s.session && out && out.outcome !== 'created') {
       let found = null;
       try { const res = await fetch('/api/status', { cache: 'no-store' }); if (res.ok) found = ((await res.json()).agents || []).find((a) => a.sessionName === s.session) || null; } catch { found = null; }
       if (gen !== TC_GEN) return;
       if (found) out = { outcome: 'created', name: s.session, shownAs: s.spec.name, steps: [], projects: [] };
     }
     if (out && out.outcome === 'created') {
-      m.state = 'made'; m.seen = null; m.maybeMade = false;
+      m.state = 'made'; m.seen = null; m.maybeMade = null;
       m.made = { name: out.name, shownAs: out.shownAs || m.name.trim(), image: (s.avatar && s.avatar.image) || null, projects: out.projects || [] };
       m.warn = (Array.isArray(out.steps) ? out.steps : []).filter((st) => st && st.ok === false && st.label).map((st) => String(st.label));
       for (const pr of m.made.projects) if (pr && pr.added === false) m.warn.push('It was not added to the project' + (pr.because ? ': ' + pr.because : '.'));

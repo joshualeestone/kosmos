@@ -38,7 +38,10 @@ creates through the existing route.
 - `engine/teamseed.js`:
   - `specs({team, names, project}, catalogue)` returns every member's create spec IN CREATION ORDER, lead
     first: `{ slot, title, spec: { name, role, label, teamInstructions, reportsTo, projects }, avatar: { image } }`.
-    `teamInstructions` comes from `memberInstructions` (`{{NAME}}` filled). `role` is the catalogue's when
+    `teamInstructions` comes from `memberTeamSection` (iteration 14): only the member's `## On this team`
+    section, because create layers it INTO the role's own instructions, which already hold the role text
+    and the live messaging block. `memberInstructions` (the whole file: role text + section + messaging
+    block) is for a caller that REPLACES the role text, and sent here it doubled both. `role` is the catalogue's when
     the catalogue names; a role this version lacks is REFUSED by the catalogue's memberProblem (iteration 8: the
     brief is written for that role, and the real seed ships every role it uses). A report's `reportsTo` is the lead's machine
     name, stored in its RECORD, so the board's reports sweep writes the tree (Josh, 20:24).

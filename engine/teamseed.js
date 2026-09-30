@@ -155,7 +155,13 @@ function specs(req, cat, deps) {
   for (const m of membersOf(team)) {
     const why = typeof c.memberProblem === 'function' ? c.memberProblem(team.key, m.slot, names) : null;
     if (why) return { ok: false, because: why };
-    briefs[m.slot] = c.memberInstructions(team.key, m.slot, names);
+    /* Only the team section: create layers it INTO the role's own instructions, which already carry the
+       role text and the live messaging block (iteration 14: the full memberInstructions file doubled the
+       role text and froze a copy of the messaging block). A catalogue without the section function
+       (an older build, a test fake) gives its whole brief. */
+    briefs[m.slot] = typeof c.memberTeamSection === 'function'
+      ? c.memberTeamSection(team.key, m.slot, names)
+      : c.memberInstructions(team.key, m.slot, names);
     if (typeof briefs[m.slot] !== 'string' || !briefs[m.slot]) return { ok: false, because: 'the ' + m.title + '\'s instructions could not be made' };
   }
 
