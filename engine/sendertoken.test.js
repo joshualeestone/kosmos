@@ -87,10 +87,12 @@ test('#4763: two running agents whose names share a key (Mara / mara): neither t
       assert.equal(who.ok, false, 'a token resolved while two agents share its key: ' + JSON.stringify(who && who.card && who.card.sessionName));
       assert.equal(who[sendertoken.CLASH], true, 'the clash refusal is not marked, so the paneless fallback would re-admit it');
       assert.match(who.because, /could not match that to one of your agents/, 'a clash must read like a token we never issued');
+      // A regression guard for a STRING-keyed mark: while CLASH is a Symbol, JSON.stringify drops it and this cannot fail.
       assert.equal(JSON.stringify(who).includes('clash'), false, 'the clash mark reached a serialized answer');
       /* KNOWN LIMIT, pinned so it is not hidden: resolveName is key-level (the file is the key) and still answers
-         for the clash. Its callers (outbox keep-time sender, the token-only read routes) act as the KEY, never as
-         the other agent's name. Tracked as #4792, not this card. */
+         for the clash. The key "mara" IS agent mara's exact name, so its callers (the outbox keep-time sender, the
+         token-only read routes) let Mara's token act AS mara. The same defect as this card, on the key-level
+         paths; tracked as #4792 (store the name on each token), not fixed here. */
       const byName = sendertoken.resolveName(t);
       assert.equal(byName.ok, true);
       assert.equal(byName.key, 'mara');

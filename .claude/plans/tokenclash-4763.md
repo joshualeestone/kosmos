@@ -29,3 +29,20 @@ is stopped or renamed. Chosen over "guess by instance" because a wrong guess is 
 - NIT, taken: resolveName's answer for the clash is asserted.
 Perturbations: removing the server guard reds exactly the new paneless arm; removing the CLASH mark reds both
 #4763 arms. Focused: sendertoken.test.js + server.paneless-sender.test.js, 58 of 58.
+
+## Review 2 (opus, blind, on daac5c757), 17:28 CDT: no BLOCKER, 2 WARNINGs, 2 NITs
+- WARNING, taken: POST /api/agent-token minted for any keyable name, so "mara" issued while pane agent "Mara" runs
+  landed in Mara's file and resolved AS Mara (one row, no clash visible). The route now refuses (409) when one of
+  our PANE rows shares the key with a different spelling. Paneless/created rows are named by their key, so they
+  cannot be told apart by spelling and are not refused (re-issuing a remote agent under its own name works).
+  Test in server.remote-bind-1112.test.js with a control (the pane agent's own spelling is issued).
+- WARNING, taken as a correction: "never as the other's NAME" was false. The key "mara" IS agent mara's name, so
+  the key-level paths let Mara act AS mara. Corrected in the test comment, here, and on #4792 (comment), which is
+  now the same severity as this card. Not fixed here: the fix is the name stored on each token, and a plain
+  exact-name compare would lock out remote agents whose paneless rows are named by key. Rejected for this PR:
+  an outbox drain guard (the keep-time sender has no roster; #4792's fix covers it at the source).
+- NIT, taken: a clash refusal logs one server line per key per process, naming the key and the sessions.
+- NIT, taken: the JSON leak assertion is labelled a regression guard for a string-keyed mark.
+Weakest premise: that a clash between two pane agents is the only two-row case; a created-never-run row keyed
+the same as a pane row is deduped by boardKeys, so it cannot make a second row.
+Perturbation: the route guard disabled reds exactly the new route arm. Focused: 73 of 73 (three files).

@@ -264,6 +264,29 @@ test('POST /api/agent-token mints a resolvable token, from loopback', async () =
   assert.equal(back.key, store.safeKey(name), 'the issued token resolves to the wrong agent');
 });
 
+/* #4763: a pane agent "Mara" is running; issuing a remote token for "mara" would share Mara's token file and resolve
+   as Mara. Refused, and nothing is written. Control: the pane agent's own spelling is not refused by this rule. */
+test('#4763: POST /api/agent-token refuses a name that shares a key with a running pane agent of ours', async () => {
+  const fleet = require('./test-support/fleet');
+  const board = fleet.install([fleet.agent('Mara4763', { state: 'idle' })]);
+  try {
+    assert.equal(board.roster.filter((r) => r.isNamedOurs === true && r.sessionName === 'Mara4763').length, 1, 'CONTROL: Mara4763 is ours on the roster');
+    const before = sendertoken.live('mara4763').length;
+    const res = await fetch(`${base}/api/agent-token`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'mara4763' }),
+    });
+    const j = await res.json();
+    assert.equal(res.status, 409, 'a clashing name was issued a token: ' + JSON.stringify(j));
+    assert.equal(j.issued, false);
+    assert.match(j.because, /Mara4763 is already running/);
+    assert.equal(sendertoken.live('mara4763').length, before, 'the refusal still wrote a token into the shared file');
+    const same = await fetch(`${base}/api/agent-token`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Mara4763' }),
+    });
+    assert.equal(same.status, 200, 'CONTROL: the running agent\'s own spelling was refused by the clash rule');
+  } finally { board.restore(); }
+});
+
 test('POST /api/agent-token refuses an empty name', async () => {
   const res = await fetch(`${base}/api/agent-token`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: '   ' }),

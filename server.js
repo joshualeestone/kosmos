@@ -13251,7 +13251,21 @@ const server = http.createServer(async (req, res) => {
         // punctuation, e.g. "!!!") is a CLIENT error, not a server fault, so
         // validate keyability up front and return 400 -- consistent with the
         // empty-name 400 above. safeKey throws on an unkeyable name.
-        try { store.safeKey(name); } catch { const bad = new Error('that is not a name we can key a token on'); bad.status = 400; throw bad; }
+        let key;
+        try { key = store.safeKey(name); } catch { const bad = new Error('that is not a name we can key a token on'); bad.status = 400; throw bad; }
+        /* #4763: safeKey is lossy and the token file is keyed on it, so issuing for "mara" while an agent of ours
+           called "Mara" runs in a pane puts a token in Mara's file that resolves as Mara. Refuse, as creating an
+           agent does. Only PANE rows can be told apart by spelling: a paneless or created row is named by its key,
+           so re-issuing for a remote agent under its own name still works. An unreadable roster (null) finds no
+           clash, which is today's behaviour; #4792 (the name on each token) closes this without a roster. */
+        const clash = (safeRoster() || []).find((r) => {
+          if (!r || r.isNamedOurs !== true || r.paneless === true || !r.sessionName || r.sessionName === name) return false;
+          try { return store.safeKey(r.sessionName) === key; } catch { return false; }
+        });
+        if (clash) {
+          sendJson(res, 409, { issued: false, because: `an agent called ${clash.sessionName} is already running on this computer, and a token for ${name} would be filed under the same name` });
+          return;
+        }
         // #4530: tagged remote, so a Mac supervisor's sweep of untagged tokens skips a token minted here.
         const minted = sendertoken.mint(name, { launcher: 'remote' });
         // Past the keyability check, an ok:false from mint can only be a genuine
