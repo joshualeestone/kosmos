@@ -1669,9 +1669,18 @@ function codexHookTrustedTable(paneText) {
   /* Wrap-tolerant, like the footers (review round 7: on a narrow pane the heading wraps and a one-row match missed
      the list, so a Trust read as failed and the open list went unguarded). */
   if (!/Lifecyclehooksfromconfigandenabledplugins\./.test(tail.slice(0, -1).join('').replace(/\s+/g, ''))) return false;
-  /* At least one ACTIVE hook (review round 3): the same viewer with nothing active is Codex's plain /hooks list, and
-     "their hooks are trusted" would be untrue there. Rows: "Event  Installed  Active  Description". */
-  return tail.some((r) => { const m = /^\s*[A-Za-z]+\s+(\d+)\s+(\d+)\s+\S/.exec(r); return !!m && Number(m[2]) > 0; });
+  /* The measured shape (review round 12: a loose match let four printed lines read as this list, draw an Escape, and
+     refuse messages): its "Event  Installed  Active  Description" header below the heading, then ONLY event rows up
+     to the footer, at least five of them (0.149.1 draws eleven), and at least one ACTIVE hook (review round 3: the
+     same viewer with nothing active is Codex's plain /hooks list, where "trusted" would be untrue). */
+  const head = tail.findIndex((r) => /^\s*Event\s+Installed\s+Active\s+Description\s*$/.test(r));
+  if (head < 0) return false;
+  const body = tail.slice(head + 1).filter((r) => r.trim());
+  const footerRows = body.length - body.findIndex((r) => /Press/.test(r));
+  const events = body.slice(0, body.length - Math.max(footerRows, 1));
+  const EVENT_ROW = /^\s*[A-Za-z]+\s+(\d+)\s+(\d+)\s+\S/;
+  if (events.length < 5 || !events.every((r) => EVENT_ROW.test(r))) return false;
+  return events.some((r) => Number(EVENT_ROW.exec(r)[2]) > 0);
 }
 /* #4607 (review round 1): the menu key is the number Codex prints beside the exact option, never its position (a
    Codex that reorders the menu would otherwise get "Trust all" when the person chose to continue without). Rows are

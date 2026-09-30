@@ -465,3 +465,10 @@ test('#4607 round 10: a bare table footer an agent printed gets no "t", and a ba
     });
   }
 });
+
+/* Review round 12. */
+test('#4607 round 12: four printed lines imitating the trusted list are not it (no Escape, no refusal)', () => {
+  const fake = '  Lifecycle hooks from config and enabled plugins.\n  Event   Installed   Active   Description\n  Stop    1           1        x\n  Press enter to view hooks; esc to close';
+  assert.equal(status.codexHookTrustedTable(fake), false);
+  assert.equal(status.codexHookTrustedTable(TRUSTED), true, 'CONTROL: the real list still reads');
+});

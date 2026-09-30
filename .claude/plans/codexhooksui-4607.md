@@ -86,6 +86,10 @@ digit; one that let an agent write those rows right above that footer would get 
 question (no hook is trusted). Unmeasured; stated. Trust writes to the account's Codex settings, so it applies to every
 Codex agent on that account (the page says so).
 
+Round 12: the trusted list needs its measured shape too (header, only event rows, at least five, an active hook);
+a decision leaves a server log line (agent, choice, screen, ok, keys). The writable-by-the-agent warning shows only
+where Codex names a source ("Project config"), i.e. on one hook's page.
+
 ## Weakest premise
 That 0.149.1's screens and keys hold for the Codex the person runs. A newer Codex (0.159.2 exists) may word the
 dialog differently; then codexHookReview reads nothing, the card shows no buttons, and nothing is pressed (fails

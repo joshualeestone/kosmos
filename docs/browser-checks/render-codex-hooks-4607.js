@@ -132,6 +132,7 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
     chk(sk.sent && JSON.parse(sk.sent.body || '{}').choice === 'skip', `${t} Continue POSTs { choice: 'skip' }`, JSON.stringify(sk.sent));
     chk(sk.msg === 'the hook question is not on its screen now, so nothing was pressed' && sk.enabled,
       `${t} a refusal shows the route's own sentence`, sk.msg);
+    await paint({ ...base, codexHooks: { screen: 'trusted', count: null, events: [], source: null, command: null } });   // Close answers the trusted list's own summary
     const cl = await press('d-qask-codex-close', { status: 200, body: { ok: true, choice: 'close', because: null } });
     chk(cl.sent && JSON.parse(cl.sent.body || '{}').choice === 'close' && /The list is closed\./.test(cl.msg), `${t} Close POSTs { choice: 'close' }`, JSON.stringify(cl));
     chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));

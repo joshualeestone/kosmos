@@ -1194,22 +1194,6 @@ const CODEX_HOOK_SETTLE_MS = 1500;
 /* #4607 (review round 1): one answer per agent at a time. Two surfaces (the app and a browser tab) answering at once
    would each read the menu before Codex redrew, and the second key would land in its composer. */
 const CODEX_HOOK_BUSY = new Set();
-/**
- * #4607: the PERSON answers Codex's "Hooks need review" from the board: choice 'trust' (every hook it lists) or
- * 'skip' (continue without trusting; the hooks do not run). The only caller is the owner-only route; no message path
- * reaches it, and #4589's floor (codexScreenRefusal, in deliverWithGap and keysAllowed) is unchanged for every other
- * key. So this checks what keysAllowed checks EXCEPT that floor: this is the one place the dialog may be answered.
- *
- * Keys, measured 2026-09-30 on a live pane (Codex 0.149.1, isolated CODEX_HOME, one `true` Stop and one `true`
- * SubagentStop hook):
- *   menu:  trust "2", skip "3" (each acts at once, no Enter) -> the prompt
- *   table: trust "t" -> the same table with "Press enter to view hooks; esc to close", then Escape -> the prompt;
- *          skip Escape -> the prompt, nothing trusted
- *   hook:  Escape -> the table, then as the table
- * Before EVERY key the screen is read again and must be the screen that key was measured on; after it, the screen
- * settles and is read again. Anything else stops with what it saw: nothing is pressed into a screen we did not expect.
- * Resolves { ok: true, choice, keys } | { ok: false, because, keys }. Never rejects.
- */
 /* #4607 (review round 4): what the person was shown, as the thread route sent it (status.codexHookSummary). The
    answer must be about THAT dialog: a different one on screen now (another hook set, or another screen) is refused. */
 function sameCodexHooks(a, b) {
@@ -1224,6 +1208,22 @@ function sameCodexHooks(a, b) {
   };
   return norm(a) !== null && norm(a) === norm(b);
 }
+/**
+ * #4607: the PERSON answers Codex's "Hooks need review" from the board: choice 'trust' (every hook it lists),
+ * 'skip' (continue without trusting; the hooks do not run) or 'close' (the trusted list left open). The only caller is the owner-only route; no message path
+ * reaches it, and #4589's floor (codexScreenRefusal, in deliverWithGap and keysAllowed) is unchanged for every other
+ * key. So this checks what keysAllowed checks EXCEPT that floor: this is the one place the dialog may be answered.
+ *
+ * Keys, measured 2026-09-30 on a live pane (Codex 0.149.1, isolated CODEX_HOME, one `true` Stop and one `true`
+ * SubagentStop hook):
+ *   menu:  trust "2", skip "3" (each acts at once, no Enter) -> the prompt
+ *   table: trust "t" -> the same table with "Press enter to view hooks; esc to close", then Escape -> the prompt;
+ *          skip Escape -> the prompt, nothing trusted
+ *   hook:  Escape -> the table, then as the table
+ * Before EVERY key the screen is read again and must be the screen that key was measured on; after it, the screen
+ * settles and is read again. Anything else stops with what it saw: nothing is pressed into a screen we did not expect.
+ * Resolves { ok: true, choice, keys } | { ok: false, because, keys }. Never rejects.
+ */
 async function answerCodexHooks(sessionName, choice, roster, seen) {
   const keys = [];
   const no = (because) => ({ ok: false, because, keys });

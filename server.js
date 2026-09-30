@@ -6100,7 +6100,11 @@ const server = http.createServer(async (req, res) => {
         if (!isViaScreen(req, body)) { sendJson(res, 403, { ok: false, because: 'only you can answer this, from the board' }); return; }
         const choice = body.choice;
         if (choice !== 'trust' && choice !== 'skip' && choice !== 'close') { sendJson(res, 400, { ok: false, because: 'choose to trust the hooks, to continue without them, or to close the list' }); return; }
-        const r = await chat.answerCodexHooks(name, choice, safeRoster(), body.seen);
+        let r;
+        try { r = await chat.answerCodexHooks(name, choice, safeRoster(), body.seen); }
+        catch { sendJson(res, 500, { ok: false, because: 'something went wrong answering it; nothing more was pressed' }); return; }
+        /* A record of the decision (review round 12): trusting writes to the account's Codex settings. */
+        process.stdout.write(`codex-hooks: ${name} choice=${choice} screen=${(body.seen && body.seen.screen) || '-'} ok=${r.ok === true} keys=${JSON.stringify(r.keys || [])}${r.ok ? '' : ' - ' + r.because}\n`);
         sendJson(res, 200, { ok: r.ok === true, choice, because: r.ok ? null : r.because, reread: r.reread === true });
       })
       .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
