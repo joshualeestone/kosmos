@@ -260,7 +260,7 @@ async function fedproofCleanup() {
   if (left.length) console.log('WARN  processes this run owns are still alive: ' + left.join(','));
   cleanedDone = !left.length;
   if (KEEP) console.log('kept sandbox: ' + SANDBOX);
-  else { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* reported by the next run's leftovers */ } }
+  else { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* left behind; nothing reports it (no startup leftover check) */ } }
 }
 
 // ---------- HTTP ----------

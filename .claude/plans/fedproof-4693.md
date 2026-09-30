@@ -138,5 +138,15 @@ Blind sonnet review of be0be253c: no BLOCKER, 1 WARNING, 4 NITs.
   dies mid-run leaves seats only the command-line sweep catches. It does catch them (seat argv is
   the run's tunnel binary plus a sandbox --state-dir); no other descendant kind exists today.
 - NIT (deferred, documented here): the `exit` last-resort handler signals only started pids, not
-  seats; a hard exit that skips the async cleanup can leave seats, which the next run's leftover
-  check reports.
+  seats; a hard exit that skips the async cleanup can leave seats. Corrected in iteration 5:
+  nothing reports that afterwards (the harness has no startup leftover check).
+
+## Review iteration 5
+
+Blind sonnet review of 5a4b3eff7: no BLOCKER, no WARNING. Converged. NITs, all deferred:
+- If fedproofCleanup ever threw, fedproofFinish would never reach process.exit and the run could
+  hang. Every cleanup step except the (wrapped) rmSync is non-throwing today.
+- The 7b absence watch brackets B's readability at start and end only, not mid-window.
+- The exit fallback signals started pids only (already deferred in iteration 4).
+- Fixed as text: the plan and a code comment claimed the next run reports leftovers. It does
+  not; a SIGKILLed harness can leave seats and a sandbox dir with no signal. Both now say so.
