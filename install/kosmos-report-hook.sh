@@ -88,7 +88,7 @@
 #
 # FAIL-SAFE: a reporting bug must never break an agent. Every path exits 0,
 # with ONE deliberate exception (#4671): the kill-all guard below exits 2 on a
-# PreToolUse that would signal every process the person owns, which blocks
+# PreToolUse that would stop every process the person owns, which blocks
 # that one tool call. It matches only those shapes, and a failure inside it
 # falls through to the normal, non-blocking path.
 #
@@ -152,6 +152,8 @@ KOSMOS="$(resolve_kosmos)"
 
 JQ="$(command -v jq 2>/dev/null || true)"
 if [ -z "$JQ" ] && [ -f /opt/homebrew/bin/jq ] && [ -x /opt/homebrew/bin/jq ]; then JQ=/opt/homebrew/bin/jq; fi
+# #4671: tests drive the no-jq path on a Mac that has jq (a clean Mac has none).
+if [ -n "${KOSMOS_REPORT_HOOK_NO_JQ:-}" ]; then JQ=''; fi
 
 INPUT=$(cat 2>/dev/null || true)
 if [ -n "$JQ" ]; then
@@ -169,41 +171,66 @@ json_field() { # $1 jq path, $2 sed key fallback
   else printf '%s' "$INPUT" | sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1; fi
 }
 
-# --- #4671: never let an agent signal every process the person owns ----------
-# On 2026-09-29 a review subagent on a Kosmos Mac ran process.kill(-1, 'SIGKILL')
-# in a throwaway test script. Pid -1 means every process this user may signal,
-# so it ended the person's whole login session: every agent, the board, the
-# Kosmos app, their open apps. It was an accident (it was checking whether
-# killing a missing pid throws). This blocks the tool call that would do it.
-#
-# What it blocks, read from the raw hook input so it works without jq:
-#   Bash, Write, Edit, MultiEdit, NotebookEdit:
-#     a shell `kill` whose target is -1 (kill -9 -1, kill -KILL -1, kill -- -1,
-#     kill -s KILL -1), `killall`, `pkill ... -u`, and code that signals pid -1
-#     (process.kill(-1, os.kill(-1, kill(-1, and friends).
-# What it leaves alone: `kill -1 <pid>` (SIGHUP to one process), kill of a
-# named pid, process.kill of 0 or a negative group id (bounded to one group).
-# Weakest premise: it is a text match. A pid computed at run time (a variable
-# that holds -1, a parent pid of 1 negated) passes; it stops the accident that
-# happened, not a determined process. Writing ABOUT these commands in a file is
-# blocked too; the message says to reword. Windows agents use the node hook
-# (engine/kosmos-report-hook.js), which does not carry this guard.
-_kill_all_reason() { # $1 tool name; prints the refusal and succeeds when the input would kill everything
-  local _t="( |\\\\[nt]|[[:space:]]|$|[;&|)\"'\\\\])" _b='(^|[^A-Za-z0-9_.-]|\\[nt])' _hit=''
-  local _code='([Kk]ill(pg)?|kill_all)[[:space:]]*\([[:space:]]*-1[[:space:]]*[,)]'
-  local _sh="${_b}kill[[:space:]]+((-s[[:space:]]+[A-Za-z0-9]+|-n[[:space:]]+[0-9]+|--|-[A-Za-z0-9]+)[[:space:]]+)+([0-9]+[[:space:]]+)*-1${_t}"
-  local _killall="${_b}killall${_t}" _pkill="${_b}pkill[[:space:]]+(-[A-Za-z0-9]+[[:space:]]+)*-[A-Za-z]*u${_t}"
-  case "$1" in Bash|Write|Edit|MultiEdit|NotebookEdit) ;; *) return 1 ;; esac
-  if printf '%s' "$INPUT" | grep -Eq -- "$_code"; then _hit='code that signals process id -1'
-  elif printf '%s' "$INPUT" | grep -Eq -- "$_sh"; then _hit='a kill whose target is -1'
-  elif printf '%s' "$INPUT" | grep -Eq -- "$_killall"; then _hit='killall'
-  elif printf '%s' "$INPUT" | grep -Eq -- "$_pkill"; then _hit='pkill -u'
-  else return 1; fi
-  printf 'Kosmos blocked this %s call: it contains %s, which signals EVERY process you own. On this computer that ends the whole login session of the person you work for: every agent, the Kosmos board, and their open apps (kosmos#4671). Stop only exact process ids you started yourself and checked. If you are only writing ABOUT such a command, reword it.\n' "$1" "$_hit"
+# --- #4671: never let an agent stop every process the person owns ------------
+# On 2026-09-29 a review subagent on a Kosmos Mac ran a throwaway script that
+# signalled pid -1, which means every process this user may signal. It ended the
+# person's whole login session: every agent, the board, the Kosmos app, their open
+# apps. This blocks a tool call (exit 2, the reason on stderr) whose command or
+# written code holds one of these LITERAL shapes:
+#   a shell `kill` whose target is -1 (also quoted, or fed to xargs); killall -u or
+#   -m; pkill -u/-U, or pkill -f with a match-everything pattern; kill fed by
+#   `pgrep -u`; code signalling pid -1 (process.kill, os.kill, C kill, Ruby, Perl,
+#   an argv array); launchctl bootout of a whole gui/user domain, launchctl reboot.
+# Allowed: a named pid, `kill -1 <pid>` (SIGHUP to one), group kills, kill 0,
+# killall/pkill by name, signal 0 to -1 (it sends nothing).
+# 🛑 IT DOES NOT STOP THE 2026-09-29 SCRIPT ITSELF: that one took -1 from a list
+# at run time (`for (const pid of [-1, ...]) process.kill(pid, ...)`). No text
+# match can see a computed pid; report-hook-killguard-4671.test.js pins that as a
+# known gap. It stops the literal shapes only.
+# Scope: with jq it reads only what runs or is written (tool_input.command,
+# content, new_string, new_source, edits[].new_string), for ANY tool, so Monitor
+# and command-running MCP tools are covered and a description or a deleted line
+# is not. Without jq it reads the raw input (wider, may refuse a mention).
+# Not guarded at all: Windows agents (the node hook, engine/kosmos-report-hook.js)
+# and Codex, Gemini and Grok agents, which have no such hook.
+_kg_text() { # what the guard reads
+  if [ -n "$JQ" ]; then
+    printf '%s' "$INPUT" | "$JQ" -r '.tool_input // {} | [.command, .content, .new_string, .new_source, (.edits // [] | .[]? | .new_string)] | map(select(type == "string")) | join("\n")' 2>/dev/null
+  else
+    printf '%s' "$INPUT"
+  fi
+}
+_kill_all_reason() { # $1 the text; prints the reason and succeeds when it would stop everything
+  local B='(^|[^A-Za-z0-9_.-]|\\[nt])' T="([[:space:]]|\$|\\\\[nt]|[;&|)<>\`\"'\\\\])"
+  local Q="(\\\\?[\"'])?" SP='([[:space:]]|\\t)+' NZ='([^0[:space:]]|0[^[:space:])])'
+  local shkill="${B}kill${SP}((-s${SP}[A-Za-z0-9]+|-n${SP}[0-9]+|--|-[A-Za-z0-9]+)${SP})+(${Q}[0-9]+${Q}${SP})*${Q}-1${Q}${T}"
+  local xkill="${B}(echo|printf)${SP}${Q}-1${Q}${T}.*xargs.*${B}kill"
+  local kall="${B}killall${SP}(-[A-Za-z0-9]+${SP})*-[A-Za-z]*[um]"
+  local pk="${B}pkill${SP}(-[A-Za-z0-9]+${SP})*-[A-Za-z]*[uU]|${B}pkill${SP}(-[A-Za-z0-9]+${SP})*-[A-Za-z]*f${SP}(\\\\?[\"'](\\.\\*?)?\\\\?[\"']|\\.\\*?)([[:space:]]|\$|\\\\[nt]|[;&|)\"])"
+  local pg="${B}pgrep${SP}(-[A-Za-z0-9]+${SP})*-[A-Za-z]*[uU]"
+  local code="([Pp]rocess|os|syscall|unix|libc|posix)(\\.|::)[Kk]ill(pg)?[[:space:]]*\\([[:space:]]*-[[:space:]]*1[[:space:]]*(\\)|,[[:space:]]*${NZ})|${B}kill[[:space:]]*\\([[:space:]]*-1[[:space:]]*,[[:space:]]*${NZ}"
+  local sigfirst="(Process\\.kill|${B}kill)[[:space:]]*\\(?[[:space:]]*[A-Za-z0-9:_\"'\\\\]+[[:space:]]*,[[:space:]]*-1([^0-9]|\$)"
+  local argv="\\\\?[\"']kill\\\\?[\"'][[:space:]]*,[^]]*\\\\?[\"']-1\\\\?[\"']"
+  local lctl="${B}launchctl${SP}(reboot|bootout${SP}(gui|user|login)/(\\\$\\(id -u\\)|[^/([:space:]\\\\\"']+)${T})"
+  local _t="$1"
+  # One pass on the common path; the named passes only run on a hit.
+  printf '%s' "$_t" | grep -Eq -- "$shkill|$xkill|$kall|$pk|$pg|$code|$sigfirst|$argv|$lctl" || return 1
+  if printf '%s' "$_t" | grep -Eq -- "$lctl"; then
+    echo "launchctl ending your whole login domain"
+  elif printf '%s' "$_t" | grep -Eq -- "$pg"; then
+    printf '%s' "$_t" | grep -Eq -- "${B}kill" || return 1
+    echo "a kill fed by pgrep -u (every process you own)"
+  elif printf '%s' "$_t" | grep -Eq -- "$kall|$pk"; then
+    echo "a killall or pkill that matches every process you own"
+  else
+    echo "a signal to process id -1 (every process you own)"
+  fi
 }
 if [ "$EVENT" = PreToolUse ]; then
-  if _GUARD_WHY="$(_kill_all_reason "$(json_field '.tool_name' 'tool_name')" 2>/dev/null)" && [ -n "$_GUARD_WHY" ]; then
-    printf '%s\n' "$_GUARD_WHY" >&2
+  _KG_TEXT="$(_kg_text)"
+  if [ -n "$_KG_TEXT" ] && _KG_WHY="$(_kill_all_reason "$_KG_TEXT" 2>/dev/null)" && [ -n "$_KG_WHY" ]; then
+    printf 'Kosmos blocked this %s call: it contains %s. On this computer that ends the whole session of the person you work for: every agent, the Kosmos board, and their open apps (kosmos#4671). Stop only exact process ids you started yourself and checked. If you are only writing ABOUT such a command, reword it.\n' \
+      "$(json_field '.tool_name' 'tool_name')" "$_KG_WHY" >&2
     exit 2
   fi
 fi
