@@ -76,6 +76,10 @@ narrow pane that wraps an option row therefore gives no digit either (fails clos
 command show only on one hook's page, where Trust presses nothing; on the table and menu the page says the screen
 does not say what they run. #4589's floor is shared with Stop now, so Stop now is refused while the list is open.
 
+Round 10: before any key on the TABLE or one HOOK page, the screen must have its exact measured shape (warning, header,
+a hook to review, footer last; or warning, a "[!] Hook N" row, footer last). codexHookReview stays loose on purpose:
+for #4589's message floor a false positive only refuses typing.
+
 ## Weakest premise
 That 0.149.1's screens and keys hold for the Codex the person runs. A newer Codex (0.159.2 exists) may word the
 dialog differently; then codexHookReview reads nothing, the card shows no buttons, and nothing is pressed (fails

@@ -1287,6 +1287,11 @@ async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card,
     const before = look();
     if (before.unseen || before.screen !== now.screen) return no('its screen changed before we could answer, so nothing more was pressed; look at its window');
     if (first && !sameCodexHooks(seen, status.codexHookSummary(before.text))) return no('its hook question changed since you read it, so nothing was pressed; read it again and choose');
+    /* The table and one hook's page must have their exact measured shape before any key (review round 10: a bare
+       table footer printed by an agent read as the table, and Trust pressed "t" there). */
+    if ((now.screen === 'table' || now.screen === 'hook') && !status.codexHookScreenExact(before.text, now.screen)) {
+      return no('the hook question on its screen is not the one we know, so nothing was pressed; look at its window');
+    }
     let key = step[0];
     if (key === 'digit') {
       const mk = status.codexHookMenuKeys(before.text);

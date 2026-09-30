@@ -448,3 +448,20 @@ test('#4607 round 9: an odd "seen" is refused, never thrown', () => withCodex(ME
   assert.equal(r.ok, false);
   assert.deepEqual(t.keys(), []);
 }));
+
+/* Review round 10. */
+test('#4607 round 10: a bare table footer an agent printed gets no "t", and a bare hook footer no Escape', async () => {
+  const bareTable = 'some agent output\nmore\n\nPress t to trust all; enter to review hooks; esc to close';
+  const bareHook = '  2 hooks need review before they can run.\n  some agent output\n\nPress t to trust; esc to go back';
+  assert.equal(status.codexHookReview(bareTable).screen, 'table', 'fixture: the loose detector still reads it (for the floor)');
+  assert.equal(status.codexHookScreenExact(bareTable, 'table'), false);
+  assert.equal(status.codexHookScreenExact(TABLE, 'table'), true, 'CONTROL');
+  for (const [screen, choice] of [[bareTable, 'trust'], [bareTable, 'skip'], [bareHook, 'skip']]) {
+    await withCodex(MENU, async (board) => {
+      const t = arm([screen, screen, IDLE]);
+      const r = await chat.answerCodexHooks('sam', choice, board.agents, SHOWN);
+      assert.equal(r.ok, false, choice);
+      assert.deepEqual(t.keys(), [], choice);
+    });
+  }
+});

@@ -33,6 +33,7 @@ const chat = require('./engine/chat');
 const status = require('./engine/status');
 const fleet = require('./test-support/fleet');
 const MENU = fs.readFileSync(path.join(__dirname, 'test-support', 'codex-screens', 'hook-review-menu-0.149.1.txt'), 'utf8');
+const TRUSTED = fs.readFileSync(path.join(__dirname, 'test-support', 'codex-screens', 'hook-review-table-trusted-0.149.1.txt'), 'utf8');
 const IDLE_SCREEN = '› Ask Codex to do anything\n  gpt-5.6-sol default · ~/projects/newsletter';
 
 const BOARD = 'BOARDTOKEN_test_4607_0123456789abcdef';
@@ -132,6 +133,20 @@ test('#4607 the thread tells the page what the hook dialog says, and the person\
     assert.equal(r.code, 200, r.text);
     assert.equal(r.json.ok, true, r.text);
     assert.deepEqual(keys, ['2']);
+  } finally {
+    board.restore();
+    chat.resetForTests();
+  }
+});
+
+test('#4607 the thread says when the trusted list is left open, which draws only Close', async () => {
+  const board = fleet.install([fleet.agent('sam', { state: 'needs_you', runner: 'codex', command: 'node', screen: TRUSTED })]);
+  try {
+    scriptedCodex([TRUSTED, TRUSTED, TRUSTED]);
+    const thread = await fetch(base + '/api/agent/sam/thread', { headers: PAGE(), signal: AbortSignal.timeout(10000) });
+    const body = await thread.json();
+    assert.equal(thread.status, 200);
+    assert.deepEqual(body.codexHooks, { screen: 'trusted', count: null, events: [], source: null, command: null });
   } finally {
     board.restore();
     chat.resetForTests();

@@ -1706,6 +1706,31 @@ function codexHookMenuKeys(paneText) {
   const skip = k[0][1];
   return { trust, skip: skip !== trust ? skip : null };
 }
+/* #4607 (review round 10): the EXACT measured shape of the table and of one hook's page, required before a key is
+   pressed on either (codexHookReview stays loose on purpose: for #4589's floor a false positive only refuses typing,
+   which is safe; for a key it would press "t" on a bare footer an agent printed). Table: its "N hooks need review"
+   warning, the "Event  Installed  Active  Review" header below it, at least one row with a hook to review, and the
+   footer last. Hook page: its warning, a "[!] Hook N" row below it, and its footer last. */
+function codexHookScreenExact(paneText, screen) {
+  const rows = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
+  while (rows.length && !rows[rows.length - 1]) rows.pop();
+  const last3 = rows.slice(-3).join('').replace(/\s+/g, '');
+  const lastIdx = (re) => { let k = -1; rows.forEach((r, i) => { if (re.test(r)) k = i; }); return k; };
+  const warn = lastIdx(CODEX_HOOK_TABLE_WARNING);
+  if (warn < 0) return false;
+  if (screen === 'table') {
+    if (!CODEX_HOOK_TABLE_FOOTER_END.test(last3)) return false;
+    const head = rows.findIndex((r, i) => i > warn && /^\s*Event\s+Installed\s+Active\s+Review\b/.test(r));
+    if (head < 0) return false;
+    return rows.slice(head + 1).some((r) => { const m = CODEX_HOOK_TABLE_ROW.exec(r); return !!m && Number(m[4]) > 0; });
+  }
+  if (screen === 'hook') {
+    if (!CODEX_HOOK_ONE_FOOTER_END.test(last3)) return false;
+    return rows.some((r, i) => i > warn && CODEX_HOOK_ONE_ROW.test(r));
+  }
+  return false;
+}
+
 /* #4607: what the card shows beside its two buttons. From the MENU, the count ("2 hooks are new or changed."); from
    the TABLE, the events with hooks to review (the Review column); from one HOOK, its event and source. Only what the
    screen says: null fields when it does not say them. */
@@ -8210,7 +8235,7 @@ module.exports = {
   isTrustDialogEvidence,
   TRUST_DIALOG_SENTENCE,
   codexHookReview, // #4589
-  codexHookTrustedTable, codexHookSummary, codexHookMenuKeys, // #4607
+  codexHookTrustedTable, codexHookSummary, codexHookMenuKeys, codexHookScreenExact, // #4607
   isCodexHookEvidence,
   CODEX_HOOK_DIALOG_SENTENCE,
   CODEX_HOOK_LIST_SENTENCE, // #4607
