@@ -211,3 +211,26 @@ test('#4771 review: the person\'s own pause is resumed only on the screen; an ag
     assert.equal(projects.isPaused(rec()), false, 'control: an agent could not lift an agent\'s pause');
   } finally { w.restore(); }
 });
+
+test('#4771 review: the person\'s hold or pause over an agent\'s earlier one becomes theirs; a finished task cannot be held', () => {
+  const w = world('holdtake' + seq, true);
+  try {
+    const stored = () => tasks.byNumber(projects.readAll().find((p) => p.id === w.pid), w.n);
+    tasks.setOnHold(w.pid, w.n, true);                        // the agent's hold first
+    tasks.setOnHold(w.pid, w.n, true, { viaScreen: true });   // then the person's
+    assert.equal(stored().onHoldByPerson, true, 'the person\'s hold over an agent\'s did not become theirs');
+    assert.throws(() => tasks.setOnHold(w.pid, w.n, false), /only they can take it off/);
+    tasks.setOnHold(w.pid, w.n, true);                        // an agent's hold again does not take it away
+    assert.equal(stored().onHoldByPerson, true, 'an agent\'s repeat hold took the person\'s away');
+    tasks.setOnHold(w.pid, w.n, false, { viaScreen: true });
+    const rec = () => projects.readAll().find((p) => p.id === w.pid);
+    projects.setPaused(w.pid, true);
+    projects.setPaused(w.pid, true, { viaScreen: true });
+    assert.equal(rec().pausedByPerson, true, 'the person\'s pause over an agent\'s did not become theirs');
+    assert.throws(() => projects.setPaused(w.pid, false), (e) => e.status === 403);
+    projects.setPaused(w.pid, false, { viaScreen: true });
+    tasks.close(w.pid, w.n);
+    assert.throws(() => tasks.setOnHold(w.pid, w.n, true), /a finished task cannot be put on hold/);
+    assert.equal(tasks.isOnHold(stored()), false);
+  } finally { w.restore(); }
+});

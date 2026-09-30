@@ -711,19 +711,25 @@ function setOnHold(projectId, n, onHold, { viaScreen = false } = {}) {
   if (typeof onHold !== 'boolean') throw new Error('onHold must be true or false');
   let changed;
   let didChange = false;
+  let tookOver = false;
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
+    tookOver = onHold && isOnHold(t) && viaScreen === true && t.onHoldByPerson !== true;
     /* The person's own hold is taken off only on the screen: the feature exists to honour it, and an agent that could
        lift it could put itself back on parked work (the built mark's refusePersonMark, the same rule). */
     if (!onHold && isOnHold(t) && t.onHoldByPerson === true && viaScreen !== true) {
       throw new Error('the person put this task on hold, so only they can take it off, on the screen');
     }
+    if (onHold && !isOnHold(t) && progressOf(t).closed) throw new Error('a finished task cannot be put on hold');
     didChange = isOnHold(t) !== onHold;
     changed = { ...t };
     if (onHold) {
       changed.onHold = true;
-      if (didChange) { if (viaScreen === true) changed.onHoldByPerson = true; else delete changed.onHoldByPerson; }
+      /* The person's hold on the screen is theirs even over an agent's earlier hold (else the agent could still lift it);
+         an agent's hold never takes the person's away. */
+      if (viaScreen === true) changed.onHoldByPerson = true;
+      else if (didChange) delete changed.onHoldByPerson;
     } else { delete changed.onHold; delete changed.onHoldByPerson; }
     return {
       ...p,
@@ -732,6 +738,7 @@ function setOnHold(projectId, n, onHold, { viaScreen = false } = {}) {
   });
   // via: whether the person did it on the screen or a process (an agent) did, so an agent's hold never reads as the person's.
   if (didChange) taskchat.record(projectId, changed.number, { kind: onHold ? 'hold-set' : 'hold-cleared', via: viaScreen === true ? 'screen' : 'agent' });
+  else if (tookOver) taskchat.record(projectId, changed.number, { kind: 'hold-set', via: 'screen' });   // the person made an agent's hold theirs
   return changed;
 }
 

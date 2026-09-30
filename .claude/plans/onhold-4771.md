@@ -47,6 +47,11 @@ agents onto tasks the person had put on hold and into a project the person had p
 - A paused project holds every task in it on the Tasks view (they count under On hold), and resuming brings them
   back; the tasks' own onHold flags are untouched by a pause.
 
+- An agent whose only work is held sits idle: the Assigner treats it as free and gives it work from other projects,
+  and the parked project's goal is not asked (its held tasks keep it from reading as empty). Idle is the person's
+  choice there; asking the goal would reopen what they set aside.
+- A finished task cannot be put on hold (409); the page hides the control for one.
+
 ## Weakest premise
 That skipping held work in the Assigner's busy count is what the person wants: an agent whose only work is held is
 treated as free and may be given something new. If people read "on hold" as "this agent is reserved for it", the

@@ -2474,7 +2474,9 @@ function edit(id, fields = {}) {
         throw refused;
       }
       if (fields.paused) {
-        if (p.paused !== true) { if (fields.viaScreen === true) next.pausedByPerson = true; else delete next.pausedByPerson; }
+        // The person's pause is theirs even over an agent's earlier pause; an agent's pause never takes it away.
+        if (fields.viaScreen === true) next.pausedByPerson = true;
+        else if (p.paused !== true) delete next.pausedByPerson;
         next.paused = true;
       } else { delete next.paused; delete next.pausedByPerson; }   // absent = not paused, as every older record reads
     }
