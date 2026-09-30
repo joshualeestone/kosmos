@@ -22,8 +22,12 @@ That an ::after tap area never covers a neighbour in states this check does not 
 the cog, a member list longer than the sample). The neighbour arm checks every control within 40px in the sample.
 
 ## Checks
-- render-room-msgbox-2806 [phone] two arms: each of the six, scrolled to the middle of the screen, is hit at four
-  points on its 36px box (all on screen); and no button or link within 40px loses its own centre to one of them.
-  Red on origin/main (all six false), green here. The first version counted an off-screen point as reached, so Back
-  and the cog passed on main unmeasured; fixed before commit.
+- render-room-msgbox-2806, one in-page helper (tapProbe4663) run on the phone page (375, tab layout) and the touch
+  tablet page (1180, one-screen layout): each of the six, scrolled to mid-screen, is hit at four on-screen points on
+  its 36px box; no button or link within 40px loses its own centre to one of them; and the probe puts back every change
+  it made to reveal them (hidden, inert, inline display, only forcing display where it computed none), checked by a
+  before/after snapshot, so later arms see the real layout (review round 1).
+- Red on origin/main's page (both reach arms); the restore arm is red with the undo removed.
+- Not measured: partial overlap of two enlarged areas with each other (the sample's gaps are 8px against 7px of growth
+  a side), and states the sample does not draw (long names, long member lists): the weakest premise above.
 - mobile-shots' tap audit still lists these (it measures drawn boxes, not hit areas); that is expected.
