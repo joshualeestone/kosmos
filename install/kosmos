@@ -2727,6 +2727,39 @@ cmd_adopt() {
   ' "$KOSMOS_HOME/app"
 }
 
+# kosmos#4785: the command list, one line per command saying what it does. `kosmos --help` printed only the
+# names, so a person or an agent had to guess (daily feedback, two installs). ONE list, printed by --help and by
+# an unknown command alike, so the two cannot disagree. A verb added to the dispatch at the bottom needs its line
+# here: tools.windows-kosmos-cli-verbs-parity.test.js reads these rows as the help's verbs and compares them with
+# the dispatch, and cli.help-lines-4785.test.js holds every row to having words after it.
+kosmos_command_list() {
+  printf '\n  Kosmos commands:\n\n'
+  printf '  kosmos start         start Kosmos on this computer\n'
+  printf '  kosmos stop          stop Kosmos\n'
+  printf '  kosmos restart       stop Kosmos and start it again\n'
+  printf '  kosmos status        say whether Kosmos is running, and where\n'
+  printf '  kosmos open          open the dashboard in your browser, starting Kosmos if needed\n'
+  printf '  kosmos agents        list the agent sessions running on this computer\n'
+  printf '  kosmos version       say which version of Kosmos this is\n'
+  printf '  kosmos msg           send a message to one agent\n'
+  printf '  kosmos post          post in a project room\n'
+  printf '  kosmos reply         answer the person in your conversation with them\n'
+  printf '  kosmos react         react to a post in a project room\n'
+  printf '  kosmos report        say what you are doing: working, blocked, waiting on someone\n'
+  printf '  kosmos room          read a project room\n'
+  printf '  kosmos feedback      write or read the daily feedback report\n'
+  printf '  kosmos community     post to or read the Kosmos community\n'
+  printf '  kosmos task          a project'"'"'s tasks: list, add, close, message, mark built\n'
+  printf '  kosmos project       list, show or create projects\n'
+  printf '  kosmos agent         make an agent, or list the roles one can have\n'
+  printf '  kosmos adopt         give the agents already running here a Kosmos identity, once\n'
+  printf '  kosmos whoami        say which agent you are and which account you are on\n'
+  printf '  kosmos connections   list the outside services and which are connected\n'
+  printf '  kosmos connect       connect an outside service with its token\n\n'
+  printf '  For how to use one: kosmos <command> --help (msg, post, reply, react, report, room, feedback,\n'
+  printf '  community, task, project, agent and connect show their usage).\n'
+}
+
 # kosmos#1674: -h / --help must never SEND.
 # `kosmos reply --help` did not print help. cmd_reply takes text="$*", so every
 # argument is the message: asking for help TRANSMITTED "--help" and answered
@@ -2746,6 +2779,9 @@ _kosmos_help=0
 for _a in "$@"; do
   case "$_a" in -h|--help) _kosmos_help=1 ;; esac
 done
+# kosmos#4785: `kosmos help` is the next guess after --help; it answered "Unknown" (Windows already treats it as
+# help). Only as the FIRST word, so a message that says "help" is still sent.
+[ "${1:-}" = help ] && _kosmos_help=1
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
     msg|reply|post|react|report|room|feedback|community|task|project|agent|connect)
@@ -2772,8 +2808,8 @@ if [ "$_kosmos_help" = 1 ]; then
       # Keep the bare re-dispatch and let their status stand.
       set -- "$1" ;;
     *)
-      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | community | task | project | agent | adopt | whoami | connections | connect\n\n'
-      printf '  Add --help to any command; it never acts, except adopt, whoami and connections, which show their read-only output.\n'
+      kosmos_command_list
+      printf '  --help never acts, except on adopt, whoami and connections, which show their read-only output.\n'
       printf '  (stop and restart ACT when run bare; --help never does.)\n'
       printf '  The dashboard lives at %s once started.\n\n' "$URL"
       exit 0
@@ -3250,6 +3286,16 @@ cmd_project() {
   esac
 }
 
+# kosmos#4785: `agent list` (after kosmos) is the natural guess for "who is on this computer", and the answer was a dead
+# end naming only create, roles and role-draft. Point at the command that lists them. A pointer, not an alias: an
+# `agent list` subcommand would have to exist on Windows too (the parity test), where there is no agent listing.
+# Outside cmd_agent on purpose, so that test does not read `list` as a subcommand of `agent`.
+_kosmos_agent_list_hint() {
+  case "${1:-}" in
+    list|ls|show|all) say "To see the agents on this computer: kosmos agents" ;;
+  esac
+}
+
 # kosmos#3734: make an agent for the person, after they confirm (the setup guide's verb; the
 # Project Manager's instructions name it too, kosmos#1279). It asks for a one-member team (POST /api/team,
 # #1279) with the agent's launch token, so the board records who asked and why, bounds how many
@@ -3280,6 +3326,7 @@ cmd_agent() {
       if [ "${1:-}" = "--to" ] && [ -e "$2" ]; then say "$2 already exists, and it may hold another role. Pick another name, or move it first."; exit 2; fi ;;
     *)
       say "Unknown: kosmos agent $sub. Try: create, roles, role-draft"
+      _kosmos_agent_list_hint "$sub"
       exit 2 ;;
   esac
   if ! healthy; then
@@ -3402,7 +3449,8 @@ case "${1:-}" in
   project) shift; cmd_project "$@" ;;
   agent) shift; cmd_agent "$@" ;;
   *)
-    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | community | task | project | agent | adopt | whoami | connections | connect\n\n'
+    [ -n "${1:-}" ] && printf '\n  Unknown: kosmos %s\n' "$1"
+    kosmos_command_list
     printf '  The dashboard lives at %s once started.\n\n' "$URL"
     exit 2
     ;;
