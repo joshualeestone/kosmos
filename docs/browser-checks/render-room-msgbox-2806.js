@@ -1694,7 +1694,7 @@ function tapProbe4663(skip) {
     // static page does not choose it by itself). Back (its crumb row is display:none) and + Add member (the Members
     // card is display:none here, #3218) are not shown in this layout, so both are left out rather than forced
     // visible (forcing Members visible also reflows the Files card); the other four must all take their 36px tap.
-    for (const w of [1024, 1180]) {
+    for (const w of [960, 1024, 1180]) {   // 960: the narrowest width the one-screen layout (and these rules) exist at
       const consTap = await browser.newPage({ viewport: { width: w, height: 820 }, colorScheme: 'light', hasTouch: true, isMobile: true });
       const consTapErrors = watchErrors(consTap);
       try {

@@ -5,7 +5,8 @@ Card: kosmos#4663 (Mona Lisa's phone audit, 2026-09-29).
 ## Done looks like
 On a touchscreen, Back (#pj-back), the settings cog (#pj-settings-link), + Add member, + New task and both View
 All links each take a tap across at least 36px (the room's --room-tap), and no enlarged area takes any part of a
-neighbouring control, the first task card and the first file row under their headers included. Drawn changes only
+neighbouring control, the first task card and the first file row under their headers included. In the one-screen
+layout that means the four controls it shows (Back and + Add member are not drawn there). Drawn changes only
 in the one-screen layout on a touchscreen (below).
 
 ## Cause
@@ -19,7 +20,11 @@ reaction bar already meets. Back is the one people use most.
   2 to 6px above the first file or task (measured in WebKit), so theirs grows up and sideways only, never below the
   control's bottom edge (review round 4 measured a centred area taking the top 3 to 6% of the first file row and the
   first task card).
-- 36px, the room's --room-tap (#3811), not 44: these sit in tight headers beside other controls.
+- 36px, the room's --room-tap (#3811), not 44: these sit in tight headers beside other controls. The variable is
+  defined on the conversation element, which these sit outside, so 36 is written in the CSS and asserted as a literal
+  in the check: if the room's value changes, these do not follow (accepted, named in both comments).
+- Touch means (hover: none), as the room's own rules use; a tablet with a trackpad reports hover and keeps the drawn
+  sizes, which a pointer can hit.
 - In the one-screen layout, + New task and the tasks View All sit at the top (+ New task also at the right edge) of a
   column that clips (overflow: hidden, needed for its scroller), and the first task is right under them, so there is
   no room up or down. The tasks header gains 14px above it there on a touchscreen, which their areas grow into
@@ -54,7 +59,7 @@ list scrolls (overflow-y: auto), so nothing is cut off, only one more scroll soo
   not only span it (round 8: a 36x12 overlay across + Add member's area kept a 37x37 span). Not caught: clipping or
   covering under 1px. Shape-agnostic, so it measures a centred area and an inward one alike. Runs on: phone 375 (tab
   layout), touch tablet 1180 (tab layout, all six), and the ONE-SCREEN layout set for real (data-layout=consolidated,
-  body.consolidated) at 1024 and 1180 (four: Back and + Add member are not shown there). The probe draws one task
+  body.consolidated) at 960, 1024 and 1180 (four: Back and + Add member are not shown there; 960 is the layout's narrowest width). The probe draws one task
   and one file first and asserts both rows are drawn (subjects [1,1]), and puts the lists back after. Also: no button or link within 40px has ANY pixel of
   its drawn box (every pixel sampled) answering as one of the areas (round 6: a 1% share let a 6px strip across the
   first task card pass) (round 3: a centre-only test missed an edge overlap), and the probe restores every change (hidden, inert, inline display, scroll positions),
