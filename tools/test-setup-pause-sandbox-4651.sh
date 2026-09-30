@@ -61,9 +61,11 @@ EOF
 
 free_port() { "$NODE" -e "const s=require('net').createServer();s.listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})"; }
 # mode http: answers like a board. mode silent: accepts and never answers. mode v6: answers, on ::1 only.
+# mode banner: speaks first and not HTTP, as ssh does (curl exits 1 on it, measured).
 start_listener() {
   "$NODE" -e "const m=process.argv[2];const p=+process.argv[1];
     if(m==='http'){require('http').createServer((q,r)=>r.end('<title>Kosmos</title>')).listen(p,'127.0.0.1')}
+    else if(m==='banner'){require('net').createServer(c=>c.write('SSH-2.0-OpenSSH_9.6\r\n')).listen(p,'127.0.0.1')}
     else if(m==='v6'){require('http').createServer((q,r)=>r.end('<title>Kosmos</title>')).listen(p,'::1')}
     else{require('net').createServer(()=>{}).listen(p,'127.0.0.1')}
     setTimeout(()=>process.exit(0),120000)" "$1" "$2" &
@@ -91,6 +93,10 @@ chk "control: outside a sandbox, a free port passes the pause" '[[ "$OUT" == *"P
 # CONTROL: outside a sandbox, a listener that accepts but never answers keeps the existing kill advice.
 P="$(free_port)"; start_listener "$P" silent; OUT="$(run_pause "" "$P")"; stop_listener
 chk "control: outside a sandbox, a silent listener still gets the existing pid advice" '[[ "$OUT" == *"is still holding port"* && "$OUT" != *"normal Terminal"* ]]'
+
+# Outside a sandbox, a listener that speaks first and not HTTP keeps the existing pid advice too.
+P="$(free_port)"; start_listener "$P" banner; OUT="$(run_pause "" "$P")"; stop_listener
+chk "control: outside a sandbox, a non-HTTP banner listener keeps the existing pid advice" '[[ "$OUT" == *"is still holding port"* && "$OUT" != *"normal Terminal"* ]]'
 
 # Outside a sandbox, a listener on ::1 only (curl to 127.0.0.1 cannot connect, lsof sees it). This is an
 # ordinary Terminal, so the words must still name the pid and say what to quit, not only "use a normal Terminal".
