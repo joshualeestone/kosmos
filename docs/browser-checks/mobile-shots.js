@@ -119,7 +119,8 @@ const at = async (page, qs) => {
 async function openConsAgents(page) {
   await page.route('**/api/style', async (r) => {
     if (r.request().method() !== 'GET') return r.continue();
-    const resp = await r.fetch();
+    let resp;
+    try { resp = await r.fetch(); } catch { return r.continue(); }   // never leave the request hanging
     const j = await resp.json().catch(() => null);
     if (!j) return r.fulfill({ response: resp });
     return r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } });
@@ -294,7 +295,7 @@ const SCREENS = [
     await page.click('#panel-cons-agents [data-conslay="org"]', { timeout: 5000 });
     await page.waitForSelector('#panel-cons-agents [data-conslay="org"][aria-checked="true"]', { timeout: 5000 });
   } },
-  // Mona's ask: the keyboard focus ring on a segment. A real key press, so :focus-visible shows (a scripted
+  // The design review's ask (kosmos#4594): the keyboard focus ring on a segment. A real key press, so :focus-visible shows (a scripted
   // .focus() alone may not): focus Grid, ArrowRight moves to Org chart, chooses it and keeps focus there.
   { name: 'cons-agents-focus', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page) => {
     await openConsAgents(page);
