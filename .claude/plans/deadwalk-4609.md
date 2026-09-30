@@ -17,6 +17,8 @@ Measurement and mechanism: card comment 5902966954.
 
 ## Weakest premise
 A subshell orphaned while alive (parent exited first, reparented to 1) is still counted live; assumed rare.
+A zombie (exited, not yet reaped) also answers `kill -0` and is counted live; its window is the reap delay, much
+smaller than the old one. Both err toward counting a suite, the safe side.
 
 ## Measured
 - tools/test-cut-guard.sh on 5c2f76d78: 131 PASS, 0 failures, twice (rc 0). origin/main control: 0 failures.
@@ -53,3 +55,8 @@ A subshell orphaned while alive (parent exited first, reparented to 1) is still 
   the exited-candidate arm reds on that box).
 - Mutation 3 (the suite arm's `_kosmos_drop_self_subtree "$self"` replaced by `cat`, line 467 only): exactly the #4410
   self-drop arm reds. Restored from HEAD. Before the iteration-3 fix this arm stayed green under the same mutation.
+
+## Review iteration 4 (blind, sonnet): CONVERGED (no BLOCKER, WARNING or CONVENTION)
+- (N) TAKEN: the zombie window is now named under Weakest premise.
+- (N) LEFT: wording outside bash, dash and zsh (busybox untested) falls to "not gone", the old safe behaviour.
+- (N) LEFT: the SIGKILL orphan sleep (recorded above).
