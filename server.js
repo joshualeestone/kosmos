@@ -3810,7 +3810,8 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    A token is only as private as its launch: #4497 moved it off tmux's command line (see
    supervisor.agent-token-argv-4497.test.js). */
 /* #4581: the two project reads (list here, show in the patterns below) let an agent holding only its own token,
-   the setup guide included, read every project's folder, members, roles, states and brief. Decided:
+   the setup guide included (see the #4728 rows above guideDenyRules in engine/setup-assistant.js), read every
+   project's folder, members, roles, states and brief. Decided:
    membership is not a boundary (GET /api/projects), and none of it is a credential. */
 /* #4491 slice 4: three more READS an agent already makes with the board token every day (`kosmos agent roles`,
    `kosmos task list`, `kosmos room`), now reachable with its own token, so the CLIs can stop reading the person's
