@@ -95,3 +95,14 @@ because round 7's record survived only as its fix commit, with no round after it
 - execCommand runs inside the press. The clipboard API is limited to 3 s, and a late yes is honoured.
 - The failure note is tied to the box from both ends and is never re-announced by a poll.
 - The check measures the whole line against a clipboard sentinel, through a real resize, and inside the screen and the panel at six widths.
+
+### Validation and merge (2026-09-30 15:35 CDT)
+
+- **Full suite on Mortals at 747aa169d: 12837 tests, 0 fail.** The run's only red was the #2518 surface gate, naming render-plus-stars-3778, render-plus-asks-signin-4610 and render-plus-gate-1615. Those are the three trailered in c15230cd1, after all five Kosmos+ checks ran green through the runner. The gate exits 0 from there.
+- **Rounds 8 to 11 changed code after 747aa169d; they carry by D3** (focused tests on every changed file):
+  - web.* 2201/0.
+  - web.plus-copy-once-4744: 4/0, and each earlier head fails exactly the behaviours it lacks.
+  - render-plus-panel-3829 on the final head 58c2e0b1d: 108/0.
+- **Merged origin/main 001612050** in bcdfec938: a clean merge, no conflict. It overlaps this PR in web/index.html, so this is path C.
+  - Focused tests on it: web.* 2212/0, the Copy and reason-grep tests 9/0, the prose guards 0 fail, surface gate 0.
+  - **render-plus-panel-3829 on bcdfec938: 108/0, all page checks passed.**
