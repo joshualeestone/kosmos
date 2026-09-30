@@ -2521,11 +2521,8 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 }
 /* #3956 (Josh, 2026-09-26): "the green was glowing to a slightly darker green and back ... not
    fast, very gradual ... a 10% or 15% increase". Every working-green ground (grid card, list row
-   and its one-screen variant, project member box) runs these keyframes, kept in phase by
-   pinWorkingPulse, set up just before the first tick(). It moves only the layer UNDER the static
-   wash, from the surface to the surface with 10% green mixed in. No JS timer. Its cost is a
-   repaint of each working box per frame (background-color is not a compositor property). Off
-   for reduced motion, which keeps the static wash. */
+   and its one-screen variant, project member box) pulses on these keyframes, kept in phase by
+   pinWorkingPulse, set up just before the first tick(). No JS timer. How it is drawn since #4765: below. */
 /* #4765: this pulse is now a green layer that FADES (opacity, which the GPU animates) rather than a background
    colour that changes (a restyle and repaint of every working box on every frame; see the breath above). Same
    look: at its peak the layer is 10% green over the box, as the colour was 10% green mixed in. The keyframes keep
@@ -2543,7 +2540,10 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
     background: #2f7d5a; opacity: 0; animation: working-pulse 3.6s ease-in-out infinite;
   }
   #pj-one-agents .pj-member.pjm-working::before { inset: -0.5px; }
-  html[data-layout="consolidated"] body.consolidated .pj-member.pjm-working::before { inset: 0; }
+  /* The one-screen layout takes the row's and the member box's border away, so there the layer sits on the box
+     itself. The id is in the selector so this outranks the member rule just above (review 2). */
+  html[data-layout="consolidated"] body.consolidated .lrow.working::before,
+  html[data-layout="consolidated"] body.consolidated #pj-one-agents .pj-member.pjm-working::before { inset: 0; }
 }
 @keyframes working-pulse {
   0%, 100% { opacity: 0; }

@@ -203,12 +203,14 @@ async function placeSiblings(page) {
           html.setAttribute('data-layout', 'consolidated');
           body.classList.add('consolidated', 'fold-a');
           const el = document.querySelector('[data-pulse3956="lrow"]');
-          const out = { name: getComputedStyle(el, '::before').animationName, wash: /gradient/.test(getComputedStyle(el).backgroundImage) };
+          const out = { name: getComputedStyle(el, '::before').animationName, wash: /gradient/.test(getComputedStyle(el).backgroundImage), layerTop: getComputedStyle(el, '::before').top, border: getComputedStyle(el).borderTopWidth };
           if (before.layout === null) html.removeAttribute('data-layout'); else html.setAttribute('data-layout', before.layout);
           body.className = before.cls;
           return out;
         });
         chk(folded.name === 'working-pulse' && folded.wash, `${engineName}: the one-screen (folded) list row pulses over its wash`, JSON.stringify(folded));
+        /* #4765 review 2: the one-screen row has no border, so its layer sits on the box, not 1px outside it. */
+        chk(folded.border === '0px' && folded.layerTop === '0px', `${engineName}: the one-screen row's layer sits on the box (no border to cover)`, JSON.stringify(folded));
 
         /* Dark theme: the pulse mixes into the dark surface, so it must still swing there. */
         await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));

@@ -24,7 +24,8 @@ agents working.
 
 ## The change (web/index.html)
 - working-pulse: `.acard.working`, `.lrow.working` and `#pj-one-agents .pj-member.pjm-working` get
-  `position: relative; isolation: isolate` and a `::before` layer (#2f7d5a, inset 0, z-index -1, radius inherited,
+  `position: relative; isolation: isolate` and a `::before` layer (#2f7d5a, z-index -1, radius inherited, set out
+  by the box's border width: -1px on the card and row, -0.5px on the member box, 0 in the one-screen layout,
   no pointer events) whose opacity goes 0 to .10 and back over 3.6 s. At its peak that is 10% green over the box,
   where the old colour was the surface with 10% green mixed in.
 - breathe: the Working pill keeps the breath's LOW point as its own background and border, and a `::before` layer
@@ -82,6 +83,16 @@ desktop. /design-shots owes the rest.
    engines round 1.5px to 1px, and a 1px ring could not be told from 1.5px: a mutant with the old 1px ring passed).
 7. Taken: render-working-pulse-3956 now asserts the pill's layer covers its whole border, the pill rests at the
    breath's low point in light and dark, and with reduced motion the pill is its old static self with no layer.
+
+## Review round 2 (a second blind reviewer, whole branch): no blocker, one should-fix, three nits
+1. Taken: the one-screen layout's `inset: 0` lost to the member rule (an id outranks it), and the list row had no
+   such rule, so there the layer spilled 0.5 to 1px outside boxes that have no border. Both now sit on the box.
+2. Taken: the old #3956 comment still described the colour animation; trimmed to Josh's words and a pointer.
+3. Taken: the plan said "inset 0" in The change; corrected.
+4. Disclosed, not changed: in Chromium at 1x the member box's 0.5px transparent border is drawn 1px wide while the
+   layer sits 0.5px out, so a half-pixel strip at its edge does not pulse. Same class as the pill's half pixel.
+The reviewer RAN sync-forced-theme --check (exit 0: nothing here sits in a dark media block) and the theme tests
+(28 of 28), and confirmed the pill pin outranks no pill style it should not (none exists besides the dark ones).
 
 ## Not done
 - /design-shots (light and dark, desktop and phone) for a design review: the set taken at 16:02 predates review
