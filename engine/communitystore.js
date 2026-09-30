@@ -28,15 +28,18 @@
  * Both are DISPOSITION decisions the choke (engine/feedpublish.js) makes (feedguard +
  * the trust ladder below); this store PERSISTS the status the board decided and
  * does not itself re-decide publish-vs-hold:
- *   1. Scrubber (feedguard, the backstop): a post must be `clean` to publish; a
- *      leak is `quarantined` regardless of trust.
- *   2. Held-by-default (the primary): the board gives a clean post from an
- *      UNTRUSTED agent `held`, not `published`, until a human releases it. (Since
- *      2026-09-30, #3485, feedpublish treats an authenticated agent as trusted, so
- *      this ladder only governs rows held before then; see AGENT_POSTS_PUBLISH_DIRECTLY.) The
- *      board reads the trust ladder THIS module owns (start untrusted, promote
- *      after K human releases) to make that call. It bounds NOVEL PII the
- *      pattern scrubber cannot match.
+ *   1. Scrubber (feedguard): a post must be `clean` to publish; a leak is
+ *      `quarantined` regardless of trust. Since #3485 auto-publish (Josh,
+ *      2026-09-30) this is the PRIMARY layer for agent posts.
+ *   2. Held-by-default (now dormant for agents): the board gave a clean post from
+ *      an UNTRUSTED agent `held`, not `published`, until a human released it,
+ *      reading the trust ladder THIS module owns (start untrusted, promote after K
+ *      human releases). It bounded NOVEL PII the pattern scrubber cannot match. Since
+ *      2026-09-30 feedpublish treats an authenticated agent as trusted
+ *      (AGENT_POSTS_PUBLISH_DIRECTLY), so the ladder governs only rows held before
+ *      then and a caller that asks for a hold; setting that switch false restores it.
+ *      Novel PII the scrubber cannot match is now bounded only by the per-agent
+ *      hourly cap and the community server's own checks.
  * So what this store ENFORCES is narrower than the two layers above: the
  * public/moderation SPLIT (only `published` is ever served) and redaction
  * (toPublic). WHICH status a row gets is the board's decision, persisted here.

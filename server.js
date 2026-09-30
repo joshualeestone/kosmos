@@ -2105,10 +2105,20 @@ function builtMarkRefusal(now = Date.now()) {
 // window so it does not share the task budget. Each agent's list is pruned to the
 // window on every check, and an agent whose window has fully drained is dropped from
 // the Map, so it does not accumulate an entry per distinct identity ever seen.
-const COMMUNITY_CAP_PER_HOUR = (() => {
+// #3485 auto-publish (Josh, 2026-09-30): with no human release step, this per-agent cap is the
+// board's only bound on a looping agent, so the AGENT default is 10 an hour (Josh's cadence is one
+// post and two replies a day). The operator's own path (the Symbol key below) keeps 120: a person
+// replying in a thread is not a loop. AGENT_WORKFORCE_COMMUNITY_CAP still overrides both.
+const COMMUNITY_AGENT_CAP_DEFAULT = 10;
+const COMMUNITY_HUMAN_CAP_DEFAULT = 120;
+const COMMUNITY_CAP_OVERRIDE = (() => {
   const n = Number(process.env.AGENT_WORKFORCE_COMMUNITY_CAP);
-  return Number.isFinite(n) && n >= 0 ? n : 120;
+  return process.env.AGENT_WORKFORCE_COMMUNITY_CAP != null && process.env.AGENT_WORKFORCE_COMMUNITY_CAP !== '' && Number.isFinite(n) && n >= 0 ? n : null;
 })();
+function communityCapFor(key) {
+  if (COMMUNITY_CAP_OVERRIDE !== null) return COMMUNITY_CAP_OVERRIDE;
+  return typeof key === 'symbol' ? COMMUNITY_HUMAN_CAP_DEFAULT : COMMUNITY_AGENT_CAP_DEFAULT;
+}
 const COMMUNITY_WINDOW_MS = 3600000;
 const communitySends = new Map(); // agentId -> [timestamps within the window]
 function communityValveTripped(agentId) {
@@ -2116,7 +2126,7 @@ function communityValveTripped(agentId) {
   const arr = (communitySends.get(agentId) || []).filter((t) => t >= cutoff);
   if (arr.length) communitySends.set(agentId, arr);
   else communitySends.delete(agentId); // drop a fully-drained agent, so the Map does not grow with churn
-  return arr.length >= COMMUNITY_CAP_PER_HOUR;
+  return arr.length >= communityCapFor(agentId);
 }
 function communityValveRecord(agentId) {
   const arr = communitySends.get(agentId) || [];
@@ -4432,7 +4442,8 @@ const server = http.createServer(async (req, res) => {
      account that started the board reaches it -- that authenticated operator is
      the SITE's human identity, and communitysite passes feedpublish `trusted:true`
      accordingly. (The AGENT write path is /api/community/{post,comment} lower down,
-     token-authenticated per-agent and held-by-default; the human path is trusted
+     token-authenticated per-agent, and since #3485 auto-publish (2026-09-30) it
+     publishes a clean post too; the human path is trusted
      because the board token already proved the operator.) communitysite owns the
      author.name scrub (feedguard does not scan `author`) and the board taxonomy.
      🛑 findings are moderator-only -- NEVER echoed to the submitter (evasion
@@ -7961,9 +7972,12 @@ const server = http.createServer(async (req, res) => {
      (an /api/ route in no exempt set), so no network peer reaches it; and WITHIN the
      route the posting agent is resolved via resolveAgentSender (its AGENT TOKEN),
      never from a `body.agent` field -- otherwise any local caller could post as an
-     already-trusted persona and skip held-by-default (the mirror of /api/team's
-     "never a self-declared body.creator"). The authenticated identity is what we
-     attribute the post to AND what we key the trust ladder on, so the two match.
+     already-trusted persona (the mirror of /api/team's "never a self-declared
+     body.creator"). The authenticated identity is what we attribute the post to AND
+     what we key the trust ladder and the hourly cap on, so they match. Since #3485
+     auto-publish (Josh, 2026-09-30) feedpublish publishes an authenticated agent's
+     clean post straight away (AGENT_POSTS_PUBLISH_DIRECTLY), so attribution is what
+     this guards; a post with a scrub finding is still quarantined.
      The human-post path is NOT here: the community SITE's routes call feedpublish
      directly with an explicit `trusted` and their own (site-owned) identity model.
      🛑 findings (leak class + field) are moderator-only and are NOT echoed to the
@@ -8003,11 +8017,13 @@ const server = http.createServer(async (req, res) => {
         catch (e) { console.error('FAIL /api/community/post: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); return; }
         if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
         communityValveRecord(agentId);
-        // Collapse quarantined -> held for the SUBMITTER. An UNTRUSTED submitter then
-        // sees `held` for both a clean-but-untrusted post and a leak, so the response
-        // is not a scrubber oracle for them. (A TRUSTED submitter still sees published
-        // vs held -- an inherent residual, since a trusted agent must learn its own
-        // post published; low-risk given board-token-gated fleet agents.) The store
+        // Collapse quarantined -> held for the SUBMITTER: it is never told `quarantined`,
+        // and the findings (leak class + field) are never echoed. ⚠️ Since #3485
+        // auto-publish (2026-09-30) every authenticated agent's CLEAN post publishes, so
+        // an agent CAN now tell a clean post (published) from one the scrub stopped
+        // (held): the scrub's yes/no is observable, though not what it found. Retries
+        // against it are bounded by the per-agent hourly cap above (10 by default), and
+        // by the community server's own feedguard pass and per-agent daily cap. The store
         // keeps the true status for the moderator surface.
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
       })
@@ -8046,8 +8062,8 @@ const server = http.createServer(async (req, res) => {
         catch (e) { console.error('FAIL /api/community/comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
         if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
         communityValveRecord(agentId);
-        // Collapse quarantined -> held for the SUBMITTER (not a scrubber oracle for an
-        // untrusted submitter; see the post route for the trusted residual note).
+        // Collapse quarantined -> held for the SUBMITTER, findings never echoed. Since
+        // #3485 auto-publish the scrub's yes/no is observable here too; see the post route.
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
       })
       .catch((e) => { console.error('FAIL /api/community/comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
