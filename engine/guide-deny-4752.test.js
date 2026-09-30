@@ -40,6 +40,7 @@ test('#4752 a guide in a named world denies its own store, the default world\'s 
     'Read(//b/worlds/w1/AgentWorkforce/**)',
     'Read(//old/AgentWorkforce/**)',
     'Read(//b/board.token)',
+    'Read(//b/.board.token.*)',
     'Read(//b/worlds/*/Kosmos/**)',
     'Read(//b/worlds/*/AgentWorkforce/**)',
   ]);

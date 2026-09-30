@@ -261,7 +261,9 @@ function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase
     }
     const base = worldsBase !== undefined ? worldsBase : guideWorldsBase();
     if (base && !same(base, dataRoot)) {
-      more.push(`Read(${abs(path.join(base, require('./boardauth').TOKEN_FILE))})`);   // the default world's token
+      const tokenFile = require('./boardauth').TOKEN_FILE;
+      more.push(`Read(${abs(path.join(base, tokenFile))})`);   // the default world's token
+      more.push(`Read(${abs(path.join(base, '.' + tokenFile))}.*)`);   // and its temporary copy while it is rewritten
       const worldsDir = path.join(base, require('./worlds').WORLDS_SUBDIR);
       // every named world's store. On Windows this joins `/` onto a `\` path, as the data folder rule always has; not measured there.
       for (const leaf of [store.APP, store.LEGACY_APP]) more.push(`Read(${abs(worldsDir)}/*/${leaf}/**)`);
