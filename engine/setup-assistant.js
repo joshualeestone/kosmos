@@ -211,7 +211,7 @@ function markGuideFolder(agentName) {
  *     a Claude guide on macOS          refused, by the sandbox guardGuideFolder adds (measured, with a
  *                                      stand-in for the command)
  *     a Claude guide anywhere else     not refused: no sandbox is written there (not measured)
- *     a Codex, Gemini or Grok guide    not refused: its runner does not read this file (not measured)
+ *     a Codex, Gemini or Grok guide    not refused: its runner does not read that settings file (not measured)
  *   Even in the first row the refusal reaches only the paths these rules name.
  */
 /* The same home accounts.js and create.js use (a named world or a test sets it). */
