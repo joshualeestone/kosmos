@@ -135,6 +135,17 @@ test('#4632 not downloaded (offline): all three routes answer 503 with the sente
   } finally { teamseed.setCatalogue(CATALOGUE); }
 });
 
+test('review 23: a project whose folder is already a project is refused with a code the Team step acts on', async () => {
+  const first = await call('POST', '/api/projects', { name: 'Taken 4557' });
+  assert.ok(first.status === 200 || first.status === 201, JSON.stringify(first.json));
+  const second = await call('POST', '/api/projects', { name: 'Taken 4557' });
+  assert.equal(second.status, 400, JSON.stringify(second.json));
+  assert.equal(second.json.code, 'folder_taken', JSON.stringify(second.json));
+  const other = await call('POST', '/api/projects', { name: '' });
+  assert.equal(other.status, 400);
+  assert.equal(other.json.code, undefined, 'control: another refusal carries no code');
+});
+
 test('list and detail read the catalogue; an unknown team is a 404', async () => {
   teamseed.setCatalogue(CATALOGUE);
   const l = await call('GET', '/api/teams/seeded');

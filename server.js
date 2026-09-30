@@ -15515,7 +15515,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null, federationLinked });
       })
       .catch((err) => sendJson(res, (err && err.code === 'UNREADABLE') ? 500 : 400,
-        { error: String((err && err.message) || 'we could not read that request') }));
+        { error: String((err && err.message) || 'we could not read that request'), ...(err && err.code === 'FOLDER_TAKEN' ? { code: 'folder_taken' } : {}) }));
     return;
   }
 

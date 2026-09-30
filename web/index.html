@@ -46576,7 +46576,7 @@ async function openTeamCreate(key) {
   } catch (err) {
     if (gen !== TC_GEN) return;
     document.getElementById('tc-title').textContent = 'We could not load that team';
-    msg.hidden = false; msg.textContent = (err && err.message) ? String(err.message) : 'Try again in a moment.';
+    msg.hidden = false; msg.textContent = tcSay(err, 'Try again in a moment.');
     return;
   }
   TC = {
@@ -46609,8 +46609,9 @@ function tcFillProjects() {
      whose folder is already a project, so the new one takes the first free name (Marketing 2, ...). */
   const taken = new Set((Array.isArray(PROJECTS) ? PROJECTS : []).map((p) => String((p && p.name) || '').trim().toLowerCase()));
   let wanted = base;
-  for (let i = 2; taken.has(wanted.toLowerCase()) && i < 100; i++) wanted = base + ' ' + i;
-  TC.newProjectName = wanted;
+  let next = 2;
+  for (; taken.has(wanted.toLowerCase()) && next < 100; next++) wanted = base + ' ' + next;
+  TC.newProjectName = wanted; TC.newProjectBase = base; TC.newProjectNext = next;
   const opts = [['new', 'A new project called ' + wanted], ['none', 'No project']];
   for (const p of (Array.isArray(PROJECTS) ? PROJECTS : [])) {
     if (p && p.id && !p.archived) opts.push(['id:' + p.id, p.name || p.id]);
@@ -46709,7 +46710,7 @@ function tcPaint() {
      "Ready" only once the board has seen every member running, not when every create was accepted. */
   let note;
   if (!TC.started) {
-    note = 'This makes ' + n + ' agents at once. Each one is a real agent that works on your AI plan, like any agent you make.'
+    note = (n === 1 ? 'This makes 1 agent. It is a real agent' : 'This makes ' + n + ' agents at once. Each one is a real agent') + ' that works on your AI plan, like any agent you make.'
       + (TC.team && TC.team.caution ? ' ' + TC.team.caution : '');
   } else if (runningN === n) {
     const warned = TC.members.filter((m) => (m.warn || []).length).length;
@@ -46720,6 +46721,13 @@ function tcPaint() {
   }
   const noteEl = document.getElementById('tc-note');
   if (noteEl.textContent !== note) noteEl.textContent = note;
+}
+
+/* What to say for a caught error: a fetch that never reached the board throws the browser's own words
+   ("Failed to fetch", "Load failed"), which are not ours to show. */
+function tcSay(err, fallback) {
+  if (err instanceof TypeError) return 'Kosmos could not be reached. Try again in a moment.';
+  return (err && err.message) ? String(err.message) : fallback;
 }
 
 function tcNames() {
@@ -46760,14 +46768,27 @@ document.getElementById('tc-go').addEventListener('click', async () => {
     const choice = document.getElementById('tc-project').value;
     let project = null;
     if (choice === 'new') {
-      const want = TC.newProjectName;
-      const res = await fetch('/api/projects', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: want, ...(TC.team.project && TC.team.project.goal ? { description: TC.team.project.goal } : {}) }),
-      });
-      const body = await res.json().catch(() => null);
-      if (gen !== TC_GEN) return;
+      /* Review 23: the menu's free name is judged by the projects' NAMES, the refusal by their FOLDERS (a
+         renamed project keeps its folder). A folder already taken takes the next name, a few times. */
+      let want = TC.newProjectName;
+      let res = null;
+      let body = null;
+      for (let tries = 0; ; tries++) {
+        res = await fetch('/api/projects', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name: want, ...(TC.team.project && TC.team.project.goal ? { description: TC.team.project.goal } : {}) }),
+        });
+        body = await res.json().catch(() => null);
+        if (gen !== TC_GEN) return;
+        if (res.ok || !body || body.code !== 'folder_taken' || tries >= 5) break;
+        want = TC.newProjectBase + ' ' + TC.newProjectNext; TC.newProjectNext += 1;
+      }
       if (!res.ok || !body) throw new Error((body && body.error) || 'Kosmos could not make the project');
+      if (want !== TC.newProjectName) {
+        TC.newProjectName = want;
+        const opt = document.querySelector('#tc-project option[value="new"]');
+        if (opt) opt.textContent = 'A new project called ' + want;
+      }
       project = (body.project && body.project.id) || body.id || null;
       if (!project) throw new Error('Kosmos made the project but did not say which one it is');
     } else if (choice.startsWith('id:')) {
@@ -46781,7 +46802,7 @@ document.getElementById('tc-go').addEventListener('click', async () => {
   } catch (err) {
     if (gen !== TC_GEN) return;
     go.disabled = false;
-    msg.hidden = false; msg.textContent = (err && err.message) ? String(err.message) : 'Something went wrong. Try again.';
+    msg.hidden = false; msg.textContent = tcSay(err, 'Something went wrong. Try again.');
   } finally {
     if (TC && gen === TC_GEN) TC.busy = false;
   }
@@ -46816,7 +46837,7 @@ async function tcRunOnce(gen) {
   try { specs = await tcSpecs(TC.project); } catch (err) {
     if (gen !== TC_GEN) return;
     // `together`: these rows failed as one (the read, not the member), so one Try again takes them all.
-    for (const m of TC.members) if (m.state === 'waiting' || m.state === 'held') { m.state = 'failed'; m.together = true; m.why = String((err && err.message) || err); }
+    for (const m of TC.members) if (m.state === 'waiting' || m.state === 'held') { m.state = 'failed'; m.together = true; m.why = tcSay(err, 'Kosmos could not prepare the team.'); }
     tcPaint(); return;
   }
   const bySlot = new Map(specs.map((s) => [s.slot, s]));
@@ -46829,8 +46850,12 @@ async function tcRunOnce(gen) {
     if (!s || !s.spec) { m.state = 'failed'; m.why = 'Kosmos did not prepare this member. Try again.'; tcPaint(); continue; }
     /* Review 22: a row renamed and retried while this pass was making an earlier one has a spec read
        before the rename. It stays waiting and the run goes round again, reading the specs afresh. */
-    if (s.spec.name !== m.name.trim()) { TC.again = true; continue; }
-    m.state = 'creating'; m.why = ''; tcPaint();
+    if (s.spec.name !== m.name.trim()) {
+      m.stale = (m.stale || 0) + 1;
+      if (m.stale <= 3) { TC.again = true; continue; }
+      m.state = 'failed'; m.stale = 0; m.why = 'Kosmos could not use that name as it is typed. Change it and try again.'; tcPaint(); continue;
+    }
+    m.state = 'creating'; m.why = ''; m.stale = 0; tcPaint();
     let out = null;
     try {
       const res = await fetch('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(s.spec) });

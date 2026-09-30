@@ -218,3 +218,15 @@ DUPLICATE (decided earlier, unchanged):
 NOT TAKEN:
 - Commit subjects say `teamcreate-4557`, the branch is `teamcreate-ui-4557`. The PR squash-merges under
   its title; rewriting pushed history to fix a prefix would cost every recorded run its sha.
+
+## Review 23 (sonnet)
+FIXED:
+- The menu's "first free name" for a new project is judged by project NAMES; the server refuses on the
+  FOLDER (a renamed project keeps its folder). The refusal now carries a code (`folder_taken`, from
+  `projects.create` through `POST /api/projects`), and the Team step takes the next name, up to five
+  times, and shows the name it made. Engine test, route test, browser arm.
+- The go-round added in review 22 had no bound. A row whose spec does not match after three reads fails
+  with a sentence. Browser arm (a spec that comes back under another name).
+- "This makes 1 agents"; and a fetch that never reached the board showed the browser's own words.
+DUPLICATE (decided earlier): a board with no catalogue asks the network on every open of the step; the
+browser check's fixture has no `status` and no `memberTeamSection` (the server tests pin both).

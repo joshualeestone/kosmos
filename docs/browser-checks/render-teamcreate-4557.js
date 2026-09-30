@@ -110,9 +110,26 @@ function chk(ok, label, extra) {
           const drop = {};        // name -> its create LANDS, then the connection drops (iteration 12's arm)
           const made = [];
           const specsFail = { n: 0 };   // how many of the RUN's spec reads fail (the names pre-check never does)
+          const specsMangle = { slot: null, reads: 0 };   // a slot whose spec comes back under another name than was sent
           await page.route('**/api/teams/seeded/*/specs', async (r) => {
             const b = JSON.parse(r.request().postData() || '{}');
             if (!b.check && specsFail.n > 0) { specsFail.n -= 1; return r.fulfill({ status: 503, json: { error: 'Kosmos could not prepare the team' } }); }
+            if (!b.check && specsMangle.slot) {
+              specsMangle.reads += 1;
+              const resp = await r.fetch();
+              const j = await resp.json().catch(() => null);
+              if (j && Array.isArray(j.specs)) for (const sp of j.specs) if (sp.slot === specsMangle.slot) sp.spec.name += ' x';
+              return r.fulfill({ response: resp, json: j });
+            }
+            return r.continue();
+          });
+          const projectTaken = { n: 0 };   // how many project creates are refused as "that folder is already a project"
+          const projectPosts = [];
+          await page.route('**/api/projects', async (r) => {
+            if (r.request().method() !== 'POST') return r.continue();
+            const b = JSON.parse(r.request().postData() || '{}');
+            projectPosts.push(b.name);
+            if (projectTaken.n > 0) { projectTaken.n -= 1; return r.fulfill({ status: 400, json: { error: 'that folder is already the project "Growth"', code: 'folder_taken' } }); }
             return r.continue();
           });
           await page.route('**/api/agents', async (r) => {
@@ -141,7 +158,7 @@ function chk(ok, label, extra) {
           });
           await page.goto(URL, { waitUntil: 'networkidle' });
           await clearFirstRun(page);
-          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail };
+          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts };
         };
         const rows = (page) => page.evaluate(() => [...document.querySelectorAll('#tc-list li')].map((li) => ({
           slot: li.dataset.slot,
@@ -434,6 +451,47 @@ function chk(ok, label, extra) {
           chk(posted.map((b) => b.name).join() === 'Maya,Leo,Ana' && done.every((r) => r.state === 'Running'),
             `${E} one Try again after a failed read makes the whole team`, JSON.stringify({ posted: posted.map((b) => b.name), rows: done.map((r) => r.state) }));
           chk(errs.length === 0, `${E} no page errors (failed-read arm)`, errs.join(' | '));
+          await page.close();
+        }
+
+        /* --- review 23: the new project's folder is already a project (a renamed one keeps its folder, so
+           the menu's name check cannot see it). The step takes the next name and says which one it made. --- */
+        {
+          const { page, errs, posted, projectTaken, projectPosts } = await newPage(1280);
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          const offered = await page.evaluate(() => document.querySelector('#tc-project option[value="new"]').textContent);
+          projectTaken.n = 1;
+          await page.click('#tc-go');
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].length === 3 && [...document.querySelectorAll('#tc-list .tc-state')].every((x) => x.textContent === 'Running'));
+          const shown = await page.evaluate(() => document.querySelector('#tc-project option[value="new"]').textContent);
+          const last = projectPosts[projectPosts.length - 1];
+          const done = await rows(page);
+          chk(projectPosts.length >= 2 && offered === 'A new project called ' + projectPosts[0] && last !== projectPosts[0] && shown === 'A new project called ' + last,
+            `${E} a project whose folder is taken takes the next name, and the menu says the name that was made`, JSON.stringify({ offered, projectPosts, shown }));
+          chk(done.every((r) => r.state === 'Running') && posted.length === 3 && posted.every((b) => Array.isArray(b.projects) && b.projects.length === 1 && b.projects[0] === posted[0].projects[0]),
+            `${E} and the whole team is made on that one project`, JSON.stringify({ rows: done.map((r) => r.state), projects: posted.map((b) => b.projects) }));
+          chk(errs.length === 0, `${E} no page errors (folder-taken arm)`, errs.join(' | '));
+          await page.close();
+        }
+
+        /* --- review 23: a spec that comes back under another name than the row's cannot spin the run. The
+           row fails with a sentence after a few reads; the rest of the team is made. -------------------- */
+        {
+          const { page, errs, posted, specsMangle } = await newPage(1280);
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          specsMangle.slot = 'social';
+          await page.click('#tc-go');
+          await settle(page, () => /Not made/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || ''));
+          const r = await rows(page);
+          chk(r[2].state === 'Not made' && /could not use that name/.test(r[2].why) && r[2].retry && posted.map((b) => b.name).join() === 'Maya,Leo',
+            `${E} a member whose spec never matches its row fails with a sentence, and is never posted`, JSON.stringify({ row: r[2], posted: posted.map((b) => b.name) }));
+          const reads = specsMangle.reads;
+          await page.waitForTimeout(1500);
+          chk(reads >= 2 && reads <= 6 && specsMangle.reads === reads, `${E} and the run stops reading the specs (no spin)`, JSON.stringify({ reads, later: specsMangle.reads }));
+          chk(errs.length === 0, `${E} no page errors (mismatched-spec arm)`, errs.join(' | '));
           await page.close();
         }
 

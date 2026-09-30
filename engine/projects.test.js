@@ -1651,6 +1651,9 @@ test('a second project of the same name meets the duplicate refusal, not a silen
   reset();
   projects.create({ name: 'Twice' });
   assert.throws(() => projects.create({ name: 'Twice' }), /already the project/);
+  // #4557: the refusal carries a code, so a caller that chose the name itself can take another one.
+  assert.throws(() => projects.create({ name: 'Twice' }), (err) => err.code === 'FOLDER_TAKEN');
+  assert.throws(() => projects.create({ name: '' }), (err) => err.code !== 'FOLDER_TAKEN', 'control: another refusal carries no such code');
 });
 
 test('pointing at a folder you already have still works, and is untouched by any of this', () => {

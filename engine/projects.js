@@ -1911,7 +1911,12 @@ function create({ name, folder, agents, roster, description, made, parent } = {}
   // written to the store since, and one read keeps the duplicate check and the id
   // derivation looking at the same snapshot.
   const already = all.find((p) => folderState(p.folder).real === state.real);
-  if (already) throw new Error(`that folder is already the project "${already.name}"`);
+  if (already) {
+    // The code is for a caller that can pick another name (the Team step, #4557); the sentence is the person's.
+    const taken = new Error(`that folder is already the project "${already.name}"`);
+    taken.code = 'FOLDER_TAKEN';
+    throw taken;
+  }
 
   // ⚠️ Coerced, not trusted. A caller handing `agents` a string or an object
   // put a raw TypeError through the route's catch and out to the person as
