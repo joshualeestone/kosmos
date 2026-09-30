@@ -1971,6 +1971,7 @@ async function signinAddresses(opts) {
   const token = signinSession && typeof signinSession.token === 'string' ? signinSession.token : null;
   if (token && addressesInFlight && addressesInFlight.token === token && !(opts && (opts.fetch || opts.timeoutMs))) return addressesInFlight.run;
   const run = signinAddressesOnce(opts);
+  if (opts && (opts.fetch || opts.timeoutMs)) return run;   // a test seam neither joins nor is joined
   const mine = { token, run };
   addressesInFlight = mine;
   try { return await run; } finally { if (addressesInFlight === mine) addressesInFlight = null; }

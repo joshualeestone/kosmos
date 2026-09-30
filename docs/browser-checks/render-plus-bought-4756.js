@@ -72,8 +72,7 @@ const SCENARIOS = {
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] },
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'in_use', { first_free: true }), row('spare', 'free')] },
   ], auto: null },
-  // Review: Finish pressed again while the re-read after a 402 is out. That register is running, so the re-read's
-  // answer must not draw the list over it.
+  // Review: the re-read after a typed name's 402 shows its wait, and leaves no Finish to press into it.
   'app-free-finish-during-reread': { account: '', notboughtFirst: 'mymac', readDelays: [0, 2500], lists: [
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] },
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'in_use', { first_free: true }), row('spare', 'free')] },
@@ -380,13 +379,14 @@ const visible = (page, sel) => page.evaluate((s) => {
       } else if (key === 'app-free-finish-during-reread') {
         await typeName(page, key);
         await page.waitForFunction(() => /address you have bought/.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});
-        const again = await page.evaluate(() => { const b = document.getElementById('plus-si-register-go'); const f = document.getElementById('plus-si-name-field');
-          if (!b || b.hidden || b.disabled || !f || f.hidden) return false; b.click(); return true; });
-        await page.waitForTimeout(3500);   // past the re-read's 2.5 s
-        chk(again, `[${key}] Finish was there to press during the re-read`);
+        const during = { checking: await visible(page, '#plus-si-owned'), lead: await page.textContent('#plus-si-owned-lead'),
+          field: await visible(page, '#plus-si-name-field'), go: await visible(page, '#plus-si-register-go') };
+        chk(during.checking && /Checking your Kosmos\+ addresses/.test(during.lead), `[${key}] during the re-read the wait is shown`, JSON.stringify(during));
+        chk(!during.field && !during.go, `[${key}] and no second register can start into it (the name field and Finish are gone)`, JSON.stringify(during));
+        await page.waitForSelector('#plus-si-bought-list button[data-bought="spare"]', { state: 'visible', timeout: 8000 }).catch(() => {});
         chk(asked === 2, `[${key}] the re-read ran`, String(asked));
-        chk(regs.length === 2, `[${key}] the second Finish registered`, JSON.stringify({ again, regs }));
-        chk(!(await visible(page, '#plus-si-bought-list button[data-bought="spare"]')), `[${key}] the re-read's list is not drawn over the register it outlived`);
+        chk(regs.length === 1, `[${key}] only the one register was sent`, JSON.stringify(regs));
+        chk(await visible(page, '#plus-si-bought-list button[data-bought="spare"]'), `[${key}] and it ends on the list`);
       } else if (key === 'app-free-typed-taken') {
         await typeName(page, key);
         await page.waitForFunction(() => /that name is taken/.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});

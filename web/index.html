@@ -43788,6 +43788,7 @@ async function plusSiBoughtRead() {
 /* A re-read that threw (not one that answered badly, which plusSiSession says itself): Check again stays usable. */
 function plusSiReReadFailed() {
   const recheck = document.getElementById('plus-si-bought-recheck'); if (recheck) recheck.disabled = false;
+  document.querySelectorAll('#plus-si-bought-list button').forEach((x) => { x.disabled = false; });   // the re-read disabled them
   const spin = document.getElementById('plus-si-spin'); if (spin) spin.hidden = true;
   plusSiMsg('That did not work. Check again in a moment.');
 }
@@ -44006,6 +44007,11 @@ async function plusSiDoRegister(name, owned) {
     if (needsBought) PLUS_SI_NOT_FREE = true;   // the coordinator's word beats a list read a moment ago: never the name step again
     PLUS_SI_REFUSED.push(name);
     const lead = document.getElementById('plus-si-owned-lead'); if (lead) lead.textContent = 'Checking your Kosmos+ addresses';
+    /* A typed name's step has the checking line hidden and the name field live: show the one, hide the other, so the
+       wait is seen and no second register can start into it (the re-read ends on the list either way). */
+    { const own = document.getElementById('plus-si-owned'); if (own) own.hidden = false;
+      const fld = document.getElementById('plus-si-name-field'); if (fld) fld.hidden = true;
+      const go = document.getElementById('plus-si-register-go'); if (go) go.hidden = true; }
     document.getElementById('plus-si-owned-addr').textContent = '';
     const tail = document.getElementById('plus-si-owned-tail'); if (tail) tail.textContent = '...';
     if (siSpin) siSpin.hidden = false;
