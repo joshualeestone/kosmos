@@ -42,7 +42,7 @@ function chk(ok, label, extra) {
 
 const UNENROLLED = { configured: true, on: false, ok: true, enrolled: false, email: '', status: {} };
 const BUY = 'https://login.kosmosplus.test/signin#add-computer';
-const row = (name, state) => ({ name, address: name + '.kosmosplus.com', state });
+const row = (name, state, extra) => Object.assign({ name, address: name + '.kosmosplus.com', state }, extra || {});
 const reg = (name) => ({ ok: true, stage: 'registered', address: name + '.kosmosplus.com', name, standing: 'good' });
 
 /* Each scenario: what signin-addresses answers (a list, so a Check again can get the next one), and the
@@ -59,8 +59,21 @@ const SCENARIOS = {
   'this-computer': { lists: [{ ok: true, live: true, this_name: 'first', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: 'first' },
   // Set up before as another of the account's addresses: it keeps that one, with no pick.
   'this-other': { lists: [{ ok: true, live: true, this_name: 'spare', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'in_use'), row('other', 'free')] }], auto: 'spare' },
-  // An account with no address yet, switch on: it cannot name one here, so it is told how to buy one (no name step).
+  // kosmos#4754 review 3: an account made in the app (no web name) with no computer yet has its first address free
+  // with the subscription, so its first computer names one as before (the name step, not the way to buy one).
   'no-address': { account: '', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] }], auto: null },
+  // The same beside computers that are all on BOUGHT addresses (a lost only computer replaced): still free, name step.
+  'app-free-beside-bought': { account: '', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('spare', 'in_use', { bought_at: 1759250000 })] }], auto: null },
+  // An app-made account whose free first address is in use (a live computer on a name it has not bought): a purchase.
+  'app-slot-used': { account: '', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'in_use', { bought_at: null, grandfathered: false }), row('spare', 'free')] }], auto: null },
+  // The slot is taken between the read and the register: the 402 goes to the list rather than keeping a name step
+  // where no name can work.
+  'app-free-then-taken': { account: '', notbought: 'mymac', lists: [
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] },
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'in_use', { bought_at: null, grandfathered: false }), row('spare', 'free')] },
+  ], auto: null },
+  // A typed name taken by someone else keeps the name step, as before: a typed name is not a pick from the list.
+  'app-free-typed-taken': { account: '', refuse: 'mymac', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] }], auto: null },
   // Check again that finds the switch now off takes the step as before, not a list that can never work.
   'recheck-switched-off': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] }, { ok: true, live: false }], auto: null },
   // Check again that cannot reach the service stays on the panel and says so; it never falls back to the account's address.
@@ -141,6 +154,12 @@ async function open(page) {
   await page.waitForFunction(() => { const s1 = document.getElementById('plus-state1'); return s1 && s1.offsetHeight > 0; }, null, { timeout: 5000 });
 }
 
+/* A name step that is not there is a FAIL for this scenario, not a crash that skips the rest. */
+async function typeName(page, key) {
+  const ok = await page.fill('#plus-si-name', 'mymac', { timeout: 3000 }).then(() => true, () => false);
+  chk(ok, `[${key}] a name can be typed`);
+  if (ok) await page.click('#plus-si-register-go');
+}
 const visible = (page, sel) => page.evaluate((s) => {
   const e = document.querySelector(s);
   return !!(e && e.getBoundingClientRect().height > 0 && !e.hidden);
@@ -328,10 +347,32 @@ const visible = (page, sel) => page.evaluate((s) => {
         await page.click('#plus-si-register-go');
         await page.waitForFunction(() => { const d = document.getElementById('plus-si-done'); return d && !d.hidden; }, null, { timeout: 8000 }).catch(() => {});
         chk(JSON.stringify(regs) === JSON.stringify(['spare', 'spare']), `[${key}] and it succeeds on the retry`, JSON.stringify(regs));
-      } else if (key === 'no-address') {
-        chk(!(await visible(page, '#plus-si-name-field')), `[${key}] no name field: a computer never makes an address`);
-        chk(await visible(page, '#plus-si-bought-none'), `[${key}] it is told how to buy one`);
+      } else if (key === 'no-address' || key === 'app-free-beside-bought') {
+        chk(await visible(page, '#plus-si-name-field'), `[${key}] the name step: the first address comes with the subscription`);
+        chk(!(await visible(page, '#plus-si-bought')), `[${key}] no bought-address chooser and no way to buy one`);
         chk(regs.length === 0, `[${key}] nothing registered by itself`, JSON.stringify(regs));
+        await typeName(page, key);
+        await page.waitForFunction(() => { const d = document.getElementById('plus-si-done'); return d && !d.hidden; }, null, { timeout: 8000 }).catch(() => {});
+        chk(JSON.stringify(regs) === JSON.stringify(['mymac']), `[${key}] the typed name registers`, JSON.stringify(regs));
+      } else if (key === 'app-slot-used') {
+        chk(!(await visible(page, '#plus-si-name-field')), `[${key}] no name field: the free first address is in use`);
+        const btns = await page.$$eval('#plus-si-bought-list button', (b) => b.map((x) => x.getAttribute('data-bought')));
+        chk(JSON.stringify(btns) === JSON.stringify(['spare']), `[${key}] the bought address is offered`, JSON.stringify(btns));
+        chk(regs.length === 0, `[${key}] nothing registered by itself`, JSON.stringify(regs));
+      } else if (key === 'app-free-then-taken') {
+        await typeName(page, key);
+        await page.waitForSelector('#plus-si-bought-list button[data-bought="spare"]', { state: 'visible', timeout: 8000 }).catch(() => {});
+        chk(asked === 2, `[${key}] the list was read again`, String(asked));
+        chk(!(await visible(page, '#plus-si-name-field')), `[${key}] the name step, where no name can work now, is gone`);
+        chk(await visible(page, '#plus-si-bought-list button[data-bought="spare"]'), `[${key}] the bought address is offered`);
+        chk(/address you have bought/.test(await page.textContent('#plus-signin-msg')), `[${key}] the reason is said`, await page.textContent('#plus-signin-msg'));
+      } else if (key === 'app-free-typed-taken') {
+        await typeName(page, key);
+        await page.waitForFunction(() => /that name is taken/.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+        await page.waitForTimeout(500);
+        chk(asked === 1, `[${key}] the list is not read again`, String(asked));
+        chk(await visible(page, '#plus-si-name-field'), `[${key}] the name step stays, so another name can be typed`);
+        chk(!(await visible(page, '#plus-si-bought')), `[${key}] no bought-address chooser`);
       } else if (key === 'recheck-fails') {
         chk(await visible(page, '#plus-si-bought-none'), `[${key}] starts on the none panel`);
         await page.click('#plus-si-bought-recheck');

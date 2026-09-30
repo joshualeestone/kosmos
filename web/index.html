@@ -43268,7 +43268,7 @@ function plusSiClear() {
   if (typeof PLUS_SI_REGISTERING !== 'undefined') PLUS_SI_REGISTERING = false;
   if (typeof PLUS_SI_RETRY !== 'undefined') PLUS_SI_RETRY = '';
   /* kosmos#4756: the bought-address list belongs to the sign-in that read it. */
-  if (typeof PLUS_SI_SESSION !== 'undefined') { PLUS_SI_BOUGHT_SEQ += 1; PLUS_SI_SESSION = null; PLUS_SI_BOUGHT_LAST = null; PLUS_SI_PICKED = false; PLUS_SI_RETRY_FROM_LIST = false; PLUS_SI_REFUSED = []; PLUS_SI_UNREAD = false; }
+  if (typeof PLUS_SI_SESSION !== 'undefined') { PLUS_SI_BOUGHT_SEQ += 1; PLUS_SI_SESSION = null; PLUS_SI_BOUGHT_LAST = null; PLUS_SI_PICKED = false; PLUS_SI_RETRY_FROM_LIST = false; PLUS_SI_REFUSED = []; PLUS_SI_UNREAD = false; PLUS_SI_FIRST_FREE = false; PLUS_SI_NOT_FREE = false; }
   const bought = document.getElementById('plus-si-bought'); if (bought) bought.hidden = true;
 }
 function plusSiEnter(e) {
@@ -43766,6 +43766,8 @@ let PLUS_SI_PICKED = false;   // the register now running came from the bought-a
 let PLUS_SI_RETRY_FROM_LIST = false;
 let PLUS_SI_REFUSED = [];    // addresses refused in this sign-in: not offered, or registered to automatically, from a list again
 let PLUS_SI_UNREAD = false;  // the first read failed (not a switch that is off), so the old step ran without a list
+let PLUS_SI_FIRST_FREE = false;   // the old name step ran for the account's free first address (kosmos#4754 review 3)
+let PLUS_SI_NOT_FREE = false;     // the coordinator refused a name as not bought in this sign-in: no free first address, whatever a list says
 let PLUS_SI_BOUGHT_SEQ = 0;
 let PLUS_SI_BOUGHT_LAST = null;   // the last list shown, re-shown when a re-read fails
 async function plusSiBoughtRead() {
@@ -43800,6 +43802,7 @@ function plusSiAsBefore(data) {
 async function plusSiSession(data, again, keep) {
   PLUS_SI_SESSION = data;
   PLUS_SI_PICKED = false;
+  PLUS_SI_FIRST_FREE = false;
   const bought = document.getElementById('plus-si-bought');
   const recheck = document.getElementById('plus-si-bought-recheck');
   const lead = document.getElementById('plus-si-owned-lead');
@@ -43857,6 +43860,13 @@ async function plusSiSession(data, again, keep) {
   const asBefore = !b || (own && PLUS_SI_REFUSED.indexOf(own[1]) === -1 && (!ownRow || ownRow.state === 'free' || b.this_name === own[1]));
   /* With a list in hand, an automatic register is still a choice from it: a refusal goes back to the list. */
   if (asBefore) { if (again && !keep) plusSiMsg(''); if (b) PLUS_SI_PICKED = true; plusSiAsBefore(data); return; }
+  /* kosmos#4754 review 3: an account made in the app (no web name, so no account_address) whose free first address
+     is unused names this computer as before, free: no live computer sits on an address it has not bought (the first
+     address is the only such row that is neither bought nor grandfathered). A typed name is not a pick: "that name
+     is taken" keeps the name step. Only a refusal saying the address must be bought (the slot went meanwhile) goes
+     to the list. */
+  const firstFree = !PLUS_SI_NOT_FREE && !own && !b.this_name && !b.addresses.some((r) => r.state === 'in_use' && !r.bought_at && !r.grandfathered);
+  if (firstFree) { if (again && !keep) plusSiMsg(''); PLUS_SI_FIRST_FREE = true; plusSiAsBefore(data); return; }
   plusSiBoughtPick(b);
 }
 function plusSiBoughtPick(b) {
@@ -43987,9 +43997,11 @@ async function plusSiDoRegister(name, owned) {
      computer holds it would otherwise offer Try again forever), and a typed name refused as not bought (no name can
      work then). Any other refusal of a typed name keeps the name step. */
   const needsBought = /needs an address you have bought|address_not_bought/i.test(String(r.because || ''));   // proves the switch is on
-  if (refused && (PLUS_SI_PICKED || (PLUS_SI_UNREAD && (owned || needsBought))) && PLUS_SI_SESSION && !/start again from the email/i.test(String(r.because || ''))) {
+  if (refused && (PLUS_SI_PICKED || ((PLUS_SI_UNREAD || PLUS_SI_FIRST_FREE) && (owned || needsBought))) && PLUS_SI_SESSION && !/start again from the email/i.test(String(r.because || ''))) {
     PLUS_SI_PICKED = false;
     PLUS_SI_UNREAD = false;
+    PLUS_SI_FIRST_FREE = false;
+    if (needsBought) PLUS_SI_NOT_FREE = true;   // the coordinator's word beats a list read a moment ago: never the name step again
     PLUS_SI_REFUSED.push(name);
     const lead = document.getElementById('plus-si-owned-lead'); if (lead) lead.textContent = 'Checking your Kosmos+ addresses';
     document.getElementById('plus-si-owned-addr').textContent = '';
