@@ -83,6 +83,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         if (id === 'd-ph' && phoneFailsOnce) { phoneFailsOnce = false; return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'the tunnel did not answer' }) }); }
         pending = pending.filter((d) => d.device_id !== id); return route.fulfill(json({ ok: true }));
       });
+      await page.route('**/api/remote/devices/deny', (route, req) => { const id = JSON.parse(req.postData() || '{}').device_id; pending = pending.filter((d) => d.device_id !== id); return route.fulfill(json({ ok: true })); });
       await page.route('**/api/remote/devices', (route) => route.fulfill(json({ on: true, allowed: [], pending })));
       await page.goto(BASE, { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
@@ -163,9 +164,9 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       /* Review round 1: an Allow that fails leaves the request waiting: the heading stays and its sheet stays first. */
       await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-ph"]');
       await page.waitForFunction(() => /did not answer/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
-      const err = await page.evaluate(() => ({ title: !document.getElementById('plus-asks-title').hidden,
+      const err = await page.evaluate(() => ({ title: !document.getElementById('plus-asks-title').hidden, reason: /the tunnel did not answer/.test(document.getElementById('plus-ask-rows').innerText),
         order: [...document.getElementById('plus-ask-rows').children].map((e) => e.classList.contains('askreq') ? 'waiting' : 'answered') }));
-      chk(err.title && JSON.stringify(err.order) === JSON.stringify(['waiting', 'answered']), `${tag} a failed Allow still waits: the heading stays, its sheet first`, JSON.stringify(err));
+      chk(err.title && err.reason && JSON.stringify(err.order) === JSON.stringify(['waiting', 'answered']), `${tag} a failed Allow still waits and says why: the heading stays, its sheet first`, JSON.stringify(err));
       /* Review W1: with nothing left waiting, "Waiting for you" goes; the success lines stand alone. */
       await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-ph"]');
       await page.waitForFunction(() => /iPhone is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
@@ -173,6 +174,14 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(!after.title && /windowsbox is connected\./.test(after.text) && /iPhone is connected\./.test(after.text), `${tag} nothing waiting: no "Waiting for you" over the success lines`, JSON.stringify(after));
 
       chk(nowrap, `${tag} "a moment ago" stays on one line`);
+      /* Not me on a computer joining names it the way its sheet did (review round 5). */
+      pending = [{ device_id: 'd-pc2', name: 'Laptop2', code: 'M5-N6', first_seen: now() - 20, joining_computer: 'laptop2' }];
+      await page.evaluate(() => pollAsk());
+      await page.waitForSelector('#plus-ask-rows [data-ask="deny"][data-id="d-pc2"]', { timeout: 5000 }).catch(() => {});
+      await page.click('#plus-ask-rows [data-ask="deny"][data-id="d-pc2"]');
+      await page.waitForFunction(() => /Turned away\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      const away = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
+      chk(/Turned away\. That computer, laptop2, was not let in/.test(away) && !/Laptop2/.test(away), `${tag} Not me on a computer names it as its sheet did`, away);
       const wide = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
       chk(wide <= 0, `${tag} no sideways scroll`, String(wide));
       chk(errs.length === 0, `${tag} no page errors`, JSON.stringify(errs));

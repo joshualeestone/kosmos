@@ -472,7 +472,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
      no solid coloured left bars on cards). --gold-edge, not --gold: a 1px line needs the
      token measured to clear 3:1 non-text contrast (it is deeper than --gold in light). */
   /* #3829: Kosmos+ blue, not gold (the 09-16 ruling: gold is regular Kosmos only); #3a68d8 clears 3:1 as a
-     1px line on the light surface (about 5:1) and the dark one (about 3.4:1). */
+     1px line; since #4637 the card's own navy fill carries its edge. */
   /* #4637 (Josh 09-29: "radically redesign... doesn't fit the branding"; Mona Lisa's flow outline, #4754): the notice
      and the sheet are drawn in the Kosmos+ navy, on every page, in both themes. */
   /* #4637 (Mona Lisa's review W2): no side margin of its own, so its edges line up with the banner under it (#conn). */
@@ -42487,7 +42487,7 @@ paintStyles(true);
    while shown; the two buttons keep their colours whatever the history,
    because swapping the gold one on a re-ask is itself a mis-tap hazard. */
 const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null };
-/* #3829: "Not now" is gone (a waiting request stays on screen until Allow or Deny; an old one fades). A
+/* #3829: "Not now" is gone (a waiting request stays on screen until Allow or Not me; an old one fades). A
    session flag an older build left behind must not keep hiding the card, so it is cleared, never read. */
 try { sessionStorage.removeItem('ask-later'); } catch { /* no storage: nothing to clear */ }
 /* #3829 (Josh's shots: a list row named just "device"): a request with no name reads "Unknown device",
@@ -42534,7 +42534,7 @@ function askClock(unix) {
 }
 function askEsc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 /* #3978: the rows are written only when their shape changes (setLive), so a poll that changes nothing
-   leaves the Allow / Deny buttons, and keyboard focus on them, in place; they were rebuilt every 5
+   leaves the Allow / Not me buttons, and keyboard focus on them, in place; they were rebuilt every 5
    seconds. The one thing that does change on its own, how long ago, is a span carrying its time, filled
    here in place. aria-live="off" on the span is meant to make it its own, silent region, so the minute
    tick is not announced while a new or changed request still is. ⚠️ Not measured with a screen reader:
@@ -42557,7 +42557,8 @@ function askWrite(el, html) {
     if (s.textContent !== t) s.textContent = t;
   }
 }
-function askLive() { return ASK.devices.filter((d) => !ASK.done[d.device_id]); }
+/* Waiting: not answered yet, or an Allow / Not me that failed (#4637: it still waits, here as in the panel). */
+function askLive() { return ASK.devices.filter((d) => !ASK.done[d.device_id] || ASK.done[d.device_id].state === 'error'); }
 async function pollAsk() {
   let r = null;
   try { r = await (await fetch('/api/remote/pending', { cache: 'no-store' })).json(); } catch { r = null; }
@@ -42591,7 +42592,7 @@ function paintAsk() {
      every state it is in: signing in, signed in, connected. This reverses the #3829 review rule that kept them in the
      top card unless the connected panel (#plus-flow) was showing, which is how, right after sign-in (the "You're
      signed in" card, #plus-flow hidden), they spread across the top of the whole window above the sidebars. The top
-     card stays the compact "N devices are asking" notice on every other view. */
+     card stays the compact "N devices want to connect" notice on every other view. */
   const inPanel = onPlus && !!panel;
   if (panel) panel.hidden = !(inPanel && anything);
   /* #4637 (Mona Lisa's review W1): "Waiting for you" only while something waits; a success line stands alone. A request
@@ -42630,14 +42631,14 @@ function paintAsk() {
       /* #3829 review: denying an OLD request (older than an hour, likely the person's own stale sign-in)
          does not accuse anyone; the password sentence is for a fresh one they did not make. */
       const oldAsk = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
-      if (oldAsk) return '<div class="askrow done"><p>Turned away. That ' + askEsc(kind) + ' was not let in; it can ask again by signing in.</p>' +
+      if (oldAsk) return '<div class="askrow done"><p>Turned away. That ' + (d.joining_computer ? 'computer, ' + askEsc(d.joining_computer) + ',' : askEsc(kind)) + ' was not let in; it can ask again by signing in.</p>' +
         '<div class="acts"><button class="btn" type="button" data-ask="gotit" data-id="' + askEsc(d.device_id) + '">Got it</button></div></div>';
-      return '<div class="askrow done"><p>Turned away. That ' + askEsc(kind) + ' was not let in. If you did not just sign in anywhere, someone has a code sent to <b>' + askEsc(ASK.email || 'your email') +
+      return '<div class="askrow done"><p>Turned away. That ' + (d.joining_computer ? 'computer, ' + askEsc(d.joining_computer) + ',' : askEsc(kind)) + ' was not let in. If you did not just sign in anywhere, someone has a code sent to <b>' + askEsc(ASK.email || 'your email') +
         '</b>: change that email\'s password.</p>' +
         '<div class="acts"><button class="btn" type="button" data-ask="gotit" data-id="' + askEsc(d.device_id) + '">Got it</button></div></div>';
     }
     /* #3829 (Josh: "terribly worded"; Mona Lisa's sketch): one compact card per request. The device and
-       how long ago, one sentence, then the code LARGE directly above Allow / Deny (it is what the person checks
+       how long ago, one sentence, then the code LARGE directly above Allow / Not me (it is what the person checks
        against the device in their hand; #3952). A request older than an hour is faded. No paragraphs, no "Not now". */
     const stale = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
     const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';

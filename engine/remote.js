@@ -1322,6 +1322,8 @@ function pendingDevices() {
       /* kosmos#4773/#4637: the waiting computer's name when the request is another of the person's own computers
          joining (the coordinator's `joining_computer`), else null for a phone or a browser. A computer name only. */
       // Lowercased first, as the coordinator names computers (signinRegister does the same), so "Josh-PC" keeps its wording.
+      // 🛑 It softens the page's prompt ("Allow it if you just signed it in"), so the coordinator must set it from its OWN
+      // record of the person's signed-in computer (#4773), never from anything the requesting device says about itself.
       joining_computer: typeof d.joining_computer === 'string' && NAME_RULE.test(d.joining_computer.trim().toLowerCase()) ? d.joining_computer.trim().toLowerCase() : null,
       /* When this Mac last said no to this id, or 0: the re-ask sentence. */
       denied_at: Number(settings.denied[String(d.device_id)]) || 0,
