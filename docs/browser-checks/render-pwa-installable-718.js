@@ -129,6 +129,15 @@ const HEADED = process.env.HEADED !== '0';
     if (i.src) iconUrls.add(new URL(i.src, manifestUrl).href);
   }
   if (head.appleIconHref) iconUrls.add(new URL(head.appleIconHref, BASE).href);
+  /* kosmos#4798 (Josh: a black frame round the home-screen icon): iOS fills a touch icon's transparent pixels with
+     black, and Android's maskable icons fill theirs too, so the icons a phone puts on its home screen must be served
+     with NO alpha channel (PNG colour type 2). The served bytes are read, not the repo file. The full-bleed corners
+     are checked on the files by web.touch-icon-4798.test.js. */
+  const opaqueOnly = new Set();
+  if (head.appleIconHref) opaqueOnly.add(new URL(head.appleIconHref, BASE).href);
+  const maskable = ((manifest && manifest.icons) || []).filter((i) => String(i.purpose || '').split(/\s+/).includes('maskable'));
+  if (manifest && !maskable.length) problems.push('#4798: the manifest declares no maskable icon (Android rings a plain one)');
+  for (const i of maskable) opaqueOnly.add(new URL(i.src, manifestUrl).href);
   for (const url of iconUrls) {
     const r = await page.request.get(url).catch(() => null);
     if (!r || r.status() !== 200) {
@@ -138,6 +147,11 @@ const HEADED = process.env.HEADED !== '0';
     const ct = r.headers()['content-type'] || '';
     if (!/^image\//.test(ct)) {
       problems.push(`icon ${url} served content-type "${ct}", not image/*`);
+    }
+    if (opaqueOnly.has(url)) {
+      const body = await r.body();
+      const colour = body.length > 25 && body.toString('latin1', 1, 4) === 'PNG' ? body[25] : -1;
+      if (colour !== 2) problems.push(`#4798: home-screen icon ${url} is not an opaque RGB PNG (colour type ${colour}; 6 has alpha, which a phone fills with black)`);
     }
   }
 
