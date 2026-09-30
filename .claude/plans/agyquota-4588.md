@@ -194,3 +194,34 @@ error, so it cannot read as a quota pause.
   posts held while the agent worked are typed into it at the pause. The turn fails on the exhausted quota and files
   a fresh quota report; the pause card holds. Reasoned, not run. This is one of the automatic senders during the
   pause that PR B holds (see Rejected).
+
+## After merging main again (#4618), 2026-09-30
+- Merged origin/main (10 commits, to 471492a54) as 58245ebd4. One conflict, bin/agy-report-bridge.js, against main's
+  #4618 (#4612: a Muse agent's answer to a DM travels as `final` on its Stop or working report, so the DM shows it).
+  Both kept:
+  - buildBody(state, text, env, waiting, final, until): main's `final` stays 5th (musefront.test.js calls it so),
+    this branch's `until` moves to 6th; the send passes mapped.waiting, mapped.final, mapped.until.
+  - reportFor's quota early return now also carries `final`, so a Stop with both a Muse answer and a quota error posts
+    both. Main's throttle key (the answer's startedAt) is unchanged; only a repeated working is ever held.
+  - server.js and web/index.html auto-merged with no overlap: the report route already passes body.final and
+    body.until side by side, status.js quotaResetOf never reads `final`, and the DM unsent logic keys on
+    final.startedAt, not the report text.
+- Seam test (engine/agyhooks.test.js): the real bridge posts one Stop carrying a Muse answer and a quota error; the
+  board receives `final` and a strict ISO `until` at the reset. Control arm: an answer alone arrives with until ''.
+  Mutations, measured (agyhooks + musefront): swapping final/until at the send reds 2, dropping until reds 2,
+  dropping final at the send reds 1, the quota return without final reds 1. The buildBody unit test now passes until
+  6th and pins that `final` in 5th place still travels.
+- Focused set on the merged tree, one run, 30 files: 552/552 (agyhooks 37, musefront 47, the six 4588 files,
+  web.dm-unsent-4612, server.dm-owes-4340, status, goldencard, report-readback-2709, report-refusal-4606, selfreport
+  x3, status/web muse-waiting-4569, the web stateReason files, reason-grep, indexed, selectors, browser-checks-wired,
+  fixture-discipline, geminisettings). The guard counts needed no change: the merge adds no browser check and the
+  guard tests pass as measured. Both browser-check gates rc 0 (the coarse one on the merge's Browser-check trailer).
+- render-dm-owes-4340.js (the #4612 surface) was queued through queued-heavy.sh; the machine was reserved for over
+  40 minutes, so its result is recorded in the proof file, not here. No browser check renders a quota-paused agy card.
+
+### Review iteration 10 (blind, sonnet), over the merge: CONVERGED (0 BLOCKER, 0 WARNING)
+Checked every buildBody and reportFor caller in the repo (argument order), both `final` paths from main, the quota
+return, the route, selfreport.finalOf, status.js quotaResetOf and the DM unsent logic. Ran agyhooks 37/37 and
+musefront 47/47. NITs, left: reportFor's header comment does not say a quota stop can carry `final` (the line at the
+return does); the seam test's 60 s upper bound on the reset rests on the bridge process starting within a minute
+(the same bound as the review-7 test).
