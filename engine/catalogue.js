@@ -1,7 +1,7 @@
 'use strict';
 /**
  * #4555 (#4554 parts 1-2): the catalogue of ready-made ROLES beyond the original set in
- * engine/roles.js, and of prebuilt TEAMS (a lead plus 4 or 5 reports) a person can create in one
+ * engine/roles.js, and of prebuilt TEAMS (a lead plus 1 to 5 reports) a person can create in one
  * go (#4557).
  *
  * #4632: the catalogue no longer ships inside Kosmos. It is built and signed by the public repo
@@ -127,7 +127,8 @@ function shapeProblem(c) {
       }
     }
     const leads = t.members.filter((m) => m.reportsTo === null).length;
-    if (leads !== 1 || t.members.length - leads < 4 || t.members.length - leads > 5) return `team ${t.key} is not a lead and 4 or 5 reports`;
+    // Josh, 09-30 17:27: a team is 2 to 6 people, some small on purpose (#4555): a lead and 1 to 5 reports.
+    if (leads !== 1 || t.members.length - leads < 1 || t.members.length - leads > 5) return `team ${t.key} is not a lead and 1 to 5 reports`;
   }
   return null;
 }
