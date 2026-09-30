@@ -993,7 +993,7 @@ async function run() {
                 err.leak = true;
                 throw err;
               }
-              rows.push({ file: shotGone ? null : file, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields, audited, skipped: null });
+              rows.push({ file: shotGone ? null : file, deleted: shotGone, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields, audited, skipped: null });
               console.log((note ? 'FLAG  ' : 'ok    ') + file + (note ? '  ' + note : '')
                 + (!audited ? '  phone audits: n/a'
                   : `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}`));
