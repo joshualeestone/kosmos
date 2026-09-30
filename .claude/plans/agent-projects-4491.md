@@ -86,6 +86,9 @@ and had to carry an exception for these memberless projects. This slice makes th
   project. Nothing was typed by Kosmos; what was on its screen is the CLI's own "Created project ..." line. It
   does know, so the restart prompt that sentence suppresses would be wrong too. Stated, not changed.
 
+- The goal-ask skip also applies to a maker LEFT alone on its project (the person removed everyone else): the
+  Assigner cannot tell that from a newly made one.
+
 ## Known limits
 - Advisory, as every slice: a caller holding the board token can send no token and no pane and make a project
   with nobody on it.
@@ -182,4 +185,10 @@ nobody has ruled on a lead agent that sets up projects for others and does not w
   stated above.
 - C "which is what happened before this slice" contradicted the Why (no maker was recorded before): reworded.
 - NITs taken: "below" is "above" in a comment; the two things the person newly sees on the page are stated.
+
+## Review round 6 (sonnet), a sentence-by-sentence truth pass: 0 BLOCKER, 0 WARNING, 0 CONVENTION, 2 NIT. CONVERGED
+- NITs, both wording, both taken: the Assigner comment says the skip also covers a maker left alone on its project;
+  the exception's comment says which projects still rely on it. No code changed after this round's review.
+- It walked six Assigner cases (a maker alone, and with a second member; a person-added task, a goal with no tasks,
+  a goal with only a closed task) and found the code does what this plan says in each.
 

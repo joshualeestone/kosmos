@@ -4000,7 +4000,7 @@ function processCaller(req, body, roster, viaScreen, notDone) {
    a caller nobody can name (the person in a terminal outside tmux) and for the setup guide, which is recorded as
    the maker and never put on a project. Every agent's working rules say "once it
    exists you ... hand it work the same way as any other project" (engine/defaults.js, "Making a project"), so
-   the projects agents made before 5b keep taking their tasks. A task there can have no assignee (an assignee
+   those projects (the ones agents made before 5b, and the ones still made with nobody on them) keep taking tasks. A task there can have no assignee (an assignee
    must be a member). A project made ON THE PAGE is not that, with nobody ticked or emptied later: nobody
    identified writes in it until someone is on it. An `agents` that is not an array is not "no members".
    ⚠️ What it cannot tell apart: a process-made project that was staffed and then emptied again looks the same in

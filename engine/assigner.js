@@ -76,7 +76,7 @@ function idleCard(a) {
    closes a require cycle and hands back a half-built module. */
 const isSwarmOff = (p, session) => require('./projects').isSwarmOff(p, session);
 /* #4740: an agent that makes a project is now on it (server.js, POST /api/projects). Alone on a project it made
-   itself, it is NOT asked to draft tasks toward that project's goal: the goal there is the agent's own description,
+   itself (newly made, or left alone on it again after others were removed), it is NOT asked to draft tasks toward that project's goal: the goal there is the agent's own description,
    not the person's, and asking would have an idle agent writing itself new work every day with nobody in the loop
    (before #4740 such a project listed nobody, so the Assigner never touched it). Tasks that already exist there
    ARE handed out like any project's (`pick` has no such skip): the person, or the maker itself, put them there.
