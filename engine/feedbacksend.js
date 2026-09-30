@@ -401,7 +401,7 @@ function underTest() {
  * missing or down collector (including the 404 before the collect route ships)
  * loses nothing -- the report is already safe on disk.
  */
-function maybeSend(date) {
+function maybeSend(date, onOk) {
   try {
     /* Only guard the REAL network. A test that injected its own sender touches
        no network, so guarding it there would make the send path untestable --
@@ -418,7 +418,15 @@ function maybeSend(date) {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(data),
       signal: ctl.signal,
-    })).catch(() => { /* fire and forget: no collector, no problem */ })
+    })).then((res) => {
+      // kosmos#4766: `onOk` runs only when the collector accepted the report. A
+      // fetch Response with ok:false (a 4xx/5xx) is a failure; an injected test
+      // sender that resolves with nothing counts as accepted. It is guarded so a
+      // throw in it can never become an unhandled rejection.
+      if (typeof onOk === 'function' && !(res && res.ok === false)) {
+        try { onOk(); } catch { /* never reach the caller */ }
+      }
+    }).catch(() => { /* fire and forget: no collector, no problem */ })
       .finally(() => clearTimeout(timer));
   } catch { /* nothing here may reach the caller */ }
 }
@@ -450,11 +458,19 @@ function bodyHash(body) {
  * same-day re-send (chaoskosmos-site api/_feedbackcore.js), so a re-send updates
  * the day's report rather than adding a second one.
  *
- * 🛑 MARK-SENT BEFORE THE POST, ON PURPOSE. The send is fire-and-forget, so a
- * failed POST cannot be observed here anyway; marking sent up front means a
- * down collector does not make the sweep re-POST every hour. It is a
- * best-effort DAILY report. Returns nothing (like maybeSend), so no caller can
- * wait on it. `now` (epoch ms) is the test seam for the clock.
+ * Known consequence (review of #4766, accepted): the collector keeps only the
+ * LATEST version per install and day, so a shorter or different rewrite replaces
+ * a fuller earlier one there. Accepted because the day's report is the agent's
+ * own latest word; the latest version is the intended one.
+ *
+ * 🛑 THE DATE AND TIME ARE MARKED BEFORE THE POST, THE HASH ONLY AFTER IT
+ * SUCCEEDS. Marking `sent`/`sentAt` up front means a down collector can never
+ * make the sweep POST more than once per RESEND_MIN_MS. `sentHash` is written
+ * only when the collector accepted the POST, so a FAILED send leaves the old
+ * hash (or none) behind and the same content is retried after the interval,
+ * rather than being recorded as delivered and lost for good. Returns nothing
+ * (like maybeSend), so no caller can wait on it. `now` (epoch ms) is the test
+ * seam for the clock.
  */
 function sendDailyOnce(date, now) {
   try {
@@ -483,8 +499,17 @@ function sendDailyOnce(date, now) {
     // every hourly sweep re-POST the same report to the collector forever,
     // which is the exact failure this guard exists to prevent. A missed send
     // (favouring not-sending) is the safe direction for a best-effort report.
-    if (!markSent(d, h, t).ok) return;
-    maybeSend(d);
+    // Before the POST: the date and the attempt time. The hash of what was last
+    // DELIVERED is kept for the same day (a failed re-send must not erase it),
+    // and dropped on a new day (it described another day's report).
+    const keep = st.sent === d ? st.sentHash : null;
+    if (!markSent(d, keep, t).ok) return;
+    maybeSend(d, () => {
+      // After the collector accepted it: record what was delivered, but only if
+      // no later attempt has marked since (that attempt records its own).
+      const cur = read();
+      if (cur.ok && cur.sent === d && cur.sentAt === t) write({ sentHash: h });
+    });
   } catch { /* nothing here may reach the caller */ }
 }
 

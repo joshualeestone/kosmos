@@ -306,75 +306,79 @@ test('sendDailyOnce does NOT send if the sent-marker write fails (no all-day re-
    clock is the second argument, so no test sleeps. */
 const H = 60 * 60 * 1000;
 const T0 = Date.parse('2026-09-30T13:49:00Z');
+// The hash is recorded only after the POST resolves (review round 1), so each
+// sweep waits a macrotask for the sender's promise chain to settle.
+const tick = () => new Promise((r) => setImmediate(r));
+async function sweep(t) { feedbacksend.sendDailyOnce('2026-09-30', t); await tick(); await tick(); }
 function capture() {
   const bodies = [];
   feedbacksend.setSender((url, init) => { bodies.push(JSON.parse(init.body).body); return Promise.resolve(); });
   return bodies;
 }
 
-test('#4766: a report changed after it was sent is sent again once the interval has passed, with the new line', () => {
+test('#4766: a report changed after it was sent is sent again once the interval has passed, with the new line', async () => {
   feedback.write('first finding', { date: '2026-09-30' });
   const bodies = capture();
-  feedbacksend.sendDailyOnce('2026-09-30', T0);
+  await sweep(T0);
   assert.equal(bodies.length, 1, 'setup: the first send did not happen');
   feedback.write('first finding\nthe board is slow after lunch', { date: '2026-09-30' });
-  feedbacksend.sendDailyOnce('2026-09-30', T0 + 3 * H + 1);
+  await sweep(T0 + 3 * H + 1);
   assert.equal(bodies.length, 2, 'the changed report was not sent again (the #4766 loss)');
   assert.match(bodies[1], /the board is slow after lunch/, 'the re-send did not carry the new line');
   assert.equal(feedbacksend.read().sentAt, T0 + 3 * H + 1, 'the re-send did not record when it was sent');
 });
 
-test('#4766 CONTROL: an unchanged report is never sent twice in a day, however long the gap', () => {
+test('#4766 CONTROL: an unchanged report is never sent twice in a day, however long the gap', async () => {
   feedback.write('first finding', { date: '2026-09-30' });
   const bodies = capture();
-  feedbacksend.sendDailyOnce('2026-09-30', T0);
+  await sweep(T0);
   // A rewrite with the SAME words: the header's generated_at changes, the report does not.
   feedback.write('first finding', { date: '2026-09-30' });
-  feedbacksend.sendDailyOnce('2026-09-30', T0 + 3 * H + 1);
-  feedbacksend.sendDailyOnce('2026-09-30', T0 + 9 * H);
+  await sweep(T0 + 3 * H + 1);
+  await sweep(T0 + 9 * H);
   assert.equal(bodies.length, 1, 'an unchanged report was POSTed again');
 });
 
-test('#4766 CONTROL: a change inside the interval is not sent yet, and is sent once it passes', () => {
+test('#4766 CONTROL: a change inside the interval is not sent yet, and is sent once it passes', async () => {
   feedback.write('first finding', { date: '2026-09-30' });
   const bodies = capture();
-  feedbacksend.sendDailyOnce('2026-09-30', T0);
+  await sweep(T0);
   feedback.write('first finding\nmore', { date: '2026-09-30' });
-  feedbacksend.sendDailyOnce('2026-09-30', T0 + 1 * H);
-  feedbacksend.sendDailyOnce('2026-09-30', T0 + 3 * H - 1);
+  await sweep(T0 + 1 * H);
+  await sweep(T0 + 3 * H - 1);
   assert.equal(bodies.length, 1, 'a change was re-sent inside the interval (POST storm risk)');
-  feedbacksend.sendDailyOnce('2026-09-30', T0 + 3 * H);
+  await sweep(T0 + 3 * H);
   assert.equal(bodies.length, 2, 'the change was not sent once the interval passed');
-  feedbacksend.sendDailyOnce('2026-09-30', T0 + 4 * H);
+  await sweep(T0 + 4 * H);
   assert.equal(bodies.length, 2, 'the same changed report was sent a third time');
 });
 
-test('#4766: a re-send whose marker cannot be written does not POST (the no-re-POST-forever safety)', () => {
+test('#4766: a re-send whose marker cannot be written does not POST (the no-re-POST-forever safety)', async () => {
   feedback.write('first finding', { date: '2026-09-30' });
   const bodies = capture();
-  feedbacksend.sendDailyOnce('2026-09-30', T0);
+  await sweep(T0);
   feedback.write('first finding\nmore', { date: '2026-09-30' });
   const tmpBlock = feedbacksend.FILE + '.tmp';
   fs.mkdirSync(tmpBlock, { recursive: true }); // the atomic write's temp path is now a directory
   try {
     assert.equal(feedbacksend.markSent('2026-09-30', 'x', T0).ok, false, 'setup: the write did not fail, so this proves nothing');
-    feedbacksend.sendDailyOnce('2026-09-30', T0 + 3 * H + 1);
+    await sweep(T0 + 3 * H + 1);
     assert.equal(bodies.length, 1, 'a re-send went out although its marker could not be recorded');
   } finally {
     fs.rmSync(tmpBlock, { recursive: true, force: true });
   }
 });
 
-test('#4766: an old settings file whose `sent` is a bare date is migrated with at most one extra send', () => {
+test('#4766: an old settings file whose `sent` is a bare date is migrated with at most one extra send', async () => {
   feedback.write('first finding', { date: '2026-09-30' });
   fs.mkdirSync(nodePath.dirname(feedbacksend.FILE), { recursive: true });
   fs.writeFileSync(feedbacksend.FILE, JSON.stringify({ on: true, sent: '2026-09-30' }) + '\n');
   const r = feedbacksend.read();
   assert.deepEqual([r.on, r.sent, r.sentHash, r.sentAt, r.ok], [true, '2026-09-30', null, null, true], 'the old file did not read as sent-today-content-unknown');
   const bodies = capture();
-  feedbacksend.sendDailyOnce('2026-09-30', T0);
-  feedbacksend.sendDailyOnce('2026-09-30', T0 + 1 * H);
-  feedbacksend.sendDailyOnce('2026-09-30', T0 + 5 * H);
+  await sweep(T0);
+  await sweep(T0 + 1 * H);
+  await sweep(T0 + 5 * H);
   assert.equal(bodies.length, 1, 'an old-format marker produced more than one extra send (or none)');
   const after = JSON.parse(fs.readFileSync(feedbacksend.FILE, 'utf8'));
   assert.equal(after.sent, '2026-09-30');
@@ -382,16 +386,74 @@ test('#4766: an old settings file whose `sent` is a bare date is migrated with a
   assert.equal(after.on, true, 'the migration flipped the opt-in');
 });
 
-test('#4766: setOn keeps the hash and time of the last send', () => {
+test('#4766: setOn keeps the hash and time of the last send', async () => {
   feedback.write('first finding', { date: '2026-09-30' });
   capture();
-  feedbacksend.sendDailyOnce('2026-09-30', T0);
+  await sweep(T0);
   const before = feedbacksend.read();
   feedbacksend.setOn(false);
   feedbacksend.setOn(true);
   const after = feedbacksend.read();
   assert.deepEqual([after.sent, after.sentHash, after.sentAt], [before.sent, before.sentHash, before.sentAt], 'toggling the switch lost what was sent');
   assert.ok(before.sentHash, 'setup: no hash was recorded, so this proves nothing');
+});
+
+test('#4766 review: a FAILED re-send is retried after the interval, at most once per interval while failing', async () => {
+  feedback.write('first finding', { date: '2026-09-30' });
+  const bodies = capture();
+  await sweep(T0);
+  feedback.write('first finding\nthe slowness write-up', { date: '2026-09-30' });
+  let fail = true;
+  const tries = [];
+  feedbacksend.setSender((url, init) => {
+    tries.push(JSON.parse(init.body).body);
+    return fail ? Promise.reject(new Error('collector down')) : Promise.resolve({ ok: true });
+  });
+  await sweep(T0 + 3 * H + 1);          // re-send attempt 1: fails
+  assert.equal(tries.length, 1, 'setup: the re-send was not attempted');
+  await sweep(T0 + 4 * H);              // inside the interval of the failed attempt
+  await sweep(T0 + 6 * H);
+  assert.equal(tries.length, 1, 'a failing collector was POSTed more than once per interval');
+  await sweep(T0 + 6 * H + 2);          // interval since the failed attempt: retried
+  assert.equal(tries.length, 2, 'a failed re-send was never retried (the revision would be lost for good)');
+  fail = false;
+  await sweep(T0 + 9 * H + 3);          // retried again, and this time it lands
+  assert.equal(tries.length, 3, 'setup: the third attempt did not happen');
+  assert.match(tries[2], /the slowness write-up/);
+  await sweep(T0 + 13 * H);             // delivered: no re-POST of the same content
+  assert.equal(tries.length, 3, 'a delivered report was POSTed again');
+  assert.equal(bodies.length, 1);
+});
+
+test('#4766 review: an HTTP error response (ok:false) counts as failed, and a success records the hash', async () => {
+  feedback.write('first finding', { date: '2026-09-30' });
+  const tries = [];
+  feedbacksend.setSender(() => { tries.push(1); return Promise.resolve({ ok: false, status: 500 }); });
+  await sweep(T0);
+  assert.equal(feedbacksend.read().sentHash, null, 'a 500 was recorded as delivered');
+  assert.equal(feedbacksend.read().sentAt, T0, 'the attempt time was not recorded before the POST');
+  await sweep(T0 + 1 * H);
+  assert.equal(tries.length, 1, 'a failing first send was retried inside the interval');
+  feedbacksend.setSender(() => { tries.push(1); return Promise.resolve({ ok: true }); });
+  await sweep(T0 + 3 * H);
+  assert.equal(tries.length, 2, 'the failed first send was not retried after the interval');
+  assert.equal(typeof feedbacksend.read().sentHash, 'string', 'a successful send did not record the hash');
+  await sweep(T0 + 7 * H);
+  assert.equal(tries.length, 2, 'a delivered report was POSTed again');
+});
+
+test('#4766 review: a clock set back still needs a changed report to send', async () => {
+  feedback.write('first finding', { date: '2026-09-30' });
+  const bodies = capture();
+  await sweep(T0);
+  await sweep(T0 - 1 * H);              // clock set back, same report: nothing
+  assert.equal(bodies.length, 1, 'a clock set back re-sent an unchanged report');
+  feedback.write('first finding\nmore', { date: '2026-09-30' });
+  await sweep(T0 - 1 * H);              // changed, and a future sentAt counts as elapsed: once
+  assert.equal(bodies.length, 2, 'a changed report was held forever by a clock set back');
+  feedback.write('first finding\nmore\nand more', { date: '2026-09-30' });
+  await sweep(T0 - 1 * H + 60 * 1000);  // changed again, but the new mark is a real time: the interval holds
+  assert.equal(bodies.length, 2, 'a clock set back allowed a POST storm');
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
