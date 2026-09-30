@@ -3170,22 +3170,18 @@ test('#1629: deliver refuses to type at an agent whose snapshot shows the trust 
 });
 
 test('#4557 defaultAgentFor: in a deeper chart the TOP opens the room, not a middle manager with more direct reports', () => {
+  /* Real produced cards (fixture discipline); only profile.reportsTo is set, where create.js stores it. */
+  const membersFor = (names, reports) => withFleet(names.map((n) => fleet.agent(n, { displayName: n, role: 'Writer', state: 'idle' })), (board) => {
+    const agents = board.agents.map((a) => (reports[a.sessionName] ? { ...a, profile: { ...(a.profile || {}), reportsTo: reports[a.sessionName] } } : a));
+    const everSeen = {}; for (const n of names) everSeen[n] = true;
+    return projects.describe({ id: 'p', name: 'P', folder: SANDBOX, agents: names, everSeen, told: {} }, agents).agents;
+  });
   // ceo <- vp; vp <- a, b, c (vp has more direct reports than the ceo).
-  const members = [
-    { sessionName: 'vp', role: 'vice president', reportsTo: 'ceo' },
-    { sessionName: 'a', role: 'writer', reportsTo: 'vp' },
-    { sessionName: 'b', role: 'writer', reportsTo: 'vp' },
-    { sessionName: 'c', role: 'writer', reportsTo: 'vp' },
-    { sessionName: 'ceo', role: 'chief', reportsTo: null },
-  ];
-  assert.equal(chat.defaultAgentFor(members), 'ceo');
+  const deep = membersFor(['vp', 'a', 'b', 'c', 'ceo'], { vp: 'ceo', a: 'vp', b: 'vp', c: 'vp' });
+  assert.equal(deep.find((m) => m.sessionName === 'vp').reportsTo, 'ceo', 'control: the reports came through describe');
+  assert.equal(chat.defaultAgentFor(deep), 'ceo');
   // Two separate charts on one project (two roots): most direct reports, as before.
-  const two = [
-    { sessionName: 'x', role: 'lead', reportsTo: null }, { sessionName: 'y', role: 'lead', reportsTo: null },
-    { sessionName: 'x1', role: 'r', reportsTo: 'x' }, { sessionName: 'y1', role: 'r', reportsTo: 'y' }, { sessionName: 'y2', role: 'r', reportsTo: 'y' },
-  ];
-  assert.equal(chat.defaultAgentFor(two), 'y');
+  assert.equal(chat.defaultAgentFor(membersFor(['x', 'y', 'x1', 'y1', 'y2'], { x1: 'x', y1: 'y', y2: 'y' })), 'y');
   // A cycle has no root: it falls to most reports, then list order, and never throws.
-  const cycle = [{ sessionName: 'p', role: 'r', reportsTo: 'q' }, { sessionName: 'q', role: 'r', reportsTo: 'p' }];
-  assert.equal(chat.defaultAgentFor(cycle), 'p');
+  assert.equal(chat.defaultAgentFor(membersFor(['p', 'q'], { p: 'q', q: 'p' })), 'p');
 });
