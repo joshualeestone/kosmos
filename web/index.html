@@ -46529,7 +46529,7 @@ let IMPORT_GEN = 0;
    nothing) and the page MAKES each one through POST /api/agents, one request per agent, so every agent
    gets a single agent's full birth and a failed one is retried alone without redoing the rest.
    The lead is made first: the others report to it by name, so they wait until it exists. */
-let TC = null;       // { key, team, leadSlot, members:[{slot,title,name,firstName,state,why,made,seen,portrait,renamedFrom,warn}], newProjectName, project, started, busy, running, again, watching, watchUntil, paintedSig }
+let TC = null;       // { key, team, leadSlot, members:[{slot,title,name,firstName,state,why,made,seen,portrait,renamedFrom,warn,together,stale,maybeMade}], newProjectName, newProjectBase, newProjectNext, project, started, busy, running, again, watching, watchUntil, paintedSig }
 let TC_GEN = 0;      // bumped when the step is left or reopened, so a late answer cannot paint over it
 
 async function openTeamCreate(key) {
@@ -46610,7 +46610,7 @@ function tcFillProjects() {
   const taken = new Set((Array.isArray(PROJECTS) ? PROJECTS : []).map((p) => String((p && p.name) || '').trim().toLowerCase()));
   let wanted = base;
   let next = 2;
-  for (; taken.has(wanted.toLowerCase()) && next < 100; next++) wanted = base + ' ' + next;
+  for (; taken.has(wanted.toLowerCase()) && next < TC_PROJECT_NAME_CAP; next++) wanted = base + ' ' + next;
   TC.newProjectName = wanted; TC.newProjectBase = base; TC.newProjectNext = next;
   const opts = [['new', 'A new project called ' + wanted], ['none', 'No project']];
   for (const p of (Array.isArray(PROJECTS) ? PROJECTS : [])) {
@@ -46781,7 +46781,7 @@ document.getElementById('tc-go').addEventListener('click', async () => {
         });
         body = await res.json().catch(() => null);
         if (gen !== TC_GEN) return;
-        if (res.ok || !body || body.code !== 'folder_taken' || tries >= 5) break;
+        if (res.ok || !body || body.code !== 'folder_taken' || tries >= TC_PROJECT_NAME_TRIES) break;
         want = TC.newProjectBase + ' ' + TC.newProjectNext; TC.newProjectNext += 1;
       }
       if (!res.ok || !body) throw new Error((body && body.error) || 'Kosmos could not make the project');
@@ -46853,20 +46853,27 @@ async function tcRunOnce(gen) {
        before the rename. It stays waiting and the run goes round again, reading the specs afresh. */
     if (s.spec.name !== m.name.trim()) {
       m.stale = (m.stale || 0) + 1;
-      if (m.stale <= 3) { TC.again = true; continue; }
+      if (m.stale <= TC_STALE_READS) { TC.again = true; continue; }
       m.state = 'failed'; m.stale = 0; m.why = 'Kosmos could not use that name as it is typed. Change it and try again.'; tcPaint(); continue;
     }
     m.state = 'creating'; m.why = ''; m.stale = 0; tcPaint();
     let out = null;
     try {
-      const res = await fetch('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(s.spec) });
+      /* Review 25: the "Let Kosmos know an agent was created" box is the person's choice for EVERY create
+         on this sheet. The board tells unless the request says false, so a team sent without it ignored the
+         box once per member. The same box's state the single create sends (#3877). */
+      const tellBox = document.getElementById('create-tell');
+      const res = await fetch('/api/agents', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...s.spec, notifyCreated: tellBox ? tellBox.checked === true : true }) });
       out = await res.json().catch(() => null);
     } catch (err) {
       /* Round 4: the create may have landed before the connection dropped, so say so: Try again then
          answers "already an agent called ..." and the agent is on the board. */
       console.warn('[team] a create did not answer:', (err && err.message) || err);
       out = { because: 'Kosmos could not be reached. It may have been made anyway: look for it on your board before trying again.' };
-      m.maybeMade = s.session;   // the agent that may exist is THIS name's: a renamed row adopts nothing
+      /* Only a name that was checked free before the run can be adopted. A retry re-reads the specs
+         without that check, so a row renamed to an agent that already exists would adopt THAT agent. */
+      m.maybeMade = (s.spec.name === m.firstName) ? s.session : null;
     }
     if (gen !== TC_GEN) return;
     /* A create that landed before the connection dropped: Try again is refused. The names were checked
@@ -46897,6 +46904,10 @@ async function tcRunOnce(gen) {
    not_tried on purpose). So, exactly as the single create does after it: poll /api/status for up to 30s,
    and for each member that appears, set its portrait, re-run its project tell, and mark it running. */
 let TC_WATCH_MS = 30000;   // let, not const: a browser check shortens it to run the timeout arm fast
+const TC_POLL_MS = 2000;            // how often the watcher asks the board who is running (the single create's pace)
+const TC_PROJECT_NAME_TRIES = 5;    // next names tried when the new project's folder is taken; then the refusal is shown
+const TC_PROJECT_NAME_CAP = 100;    // the menu stops looking for a free "<name> N" here (a bound, not a limit anyone meets)
+const TC_STALE_READS = 3;           // go-rounds for a row whose spec is not the name on screen, before it fails with a sentence
 /* ONE watcher (round 2): a retry after a run ended started a second one, and both then set the same
    portrait and re-told the same project. A run that ends while one is watching asks it to go on longer.
    Leaving the step does not stop it (Back keeps a live team); it stops at its window, or if the team is
@@ -46912,7 +46923,7 @@ async function tcWatchLoop(gen) {
   while (TC && gen === TC_GEN && Date.now() < TC.watchUntil) {
     const waiting = TC.members.filter((m) => m.state === 'made' && m.seen !== 'running');
     if (!waiting.length) return;
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, TC_POLL_MS));
     if (!TC || gen !== TC_GEN) return;
     let agents = [];
     try { const res = await fetch('/api/status', { cache: 'no-store' }); if (res.ok) agents = (await res.json()).agents || []; } catch { /* next round */ }

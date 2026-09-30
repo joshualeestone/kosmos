@@ -84,7 +84,7 @@ creates through the existing route.
   (measured: `that folder is already the project "Marketing"`), so the menu offers "Marketing 2" and says so.
 - **A failed row keeps its name editable.** Try again re-reads the specs with the current names (made members
   keep their made names), so a renamed lead's reports get the new machine name.
-- render-teamcreate-4557.js, 87 checks (43 per engine plus the created-count check), chromium + webkit. The service worker is blocked there, because in
+- render-teamcreate-4557.js, chromium + webkit (the count of checks is whatever the file holds; a number written here went stale twice). The service worker is blocked there, because in
   webkit it answered /api/agents before the intercept and those creates reached the real route (the sandboxed
   one; no launchd job leaked, checked). The check asserts the server's created count stays 0.
 
@@ -243,3 +243,24 @@ FIXED:
 NITs NOT TAKEN: a blank name left in another failed row fails the retried row with that seat's
 complaint (one Try again recovers); a member adopted after a dropped connection gets no project tell;
 the unknown-team sentence shows the team's key; `body.team` is read outside the load's try.
+
+## Review 25 (opus)
+FIXED:
+- The team step posted each member without `notifyCreated`, so the sheet's "Let Kosmos know an agent was
+  created" box was ignored once per member. It now sends the box's state, as the single create does.
+  Browser arm (box unticked: every post carries false).
+- A create that dropped could adopt an agent this run never made: a failed row renamed to an EXISTING
+  agent's name is not checked free on retry, and the adoption looked that name up on the board. If the row
+  was the lead, every report was then made under that agent. Adoption is now only for the name checked
+  free before the run. Browser arm (rename to Ada, drop, the row stays Not made).
+- Two race arms in the browser check could pass with no race on a loaded machine (a 2.5 s hold, then
+  several round trips). The held create now waits on a gate the arm releases, and each arm asserts the
+  earlier create was still being made when Try again was pressed.
+- One derivation with create.js for "is this name held on this computer" (`create.nameHeld`) and for the
+  removed-list words (`create.removedNameWords`); teamseed no longer restates either.
+- Named constants for the step's four bounds; README row brought up to date; the TC shape comment;
+  an unused require.
+NITs NOT TAKEN: the unreachable not-installed branch and `memberInstructions`' last caller; `tcPortrait`
+ships untested until #4720 gives it something to fetch; the idle-replaced arm is witnessed by a 404;
+webkit's expected project name depends on chromium's arms (it fails closed); an unfinished same team can
+only be abandoned by a reload; three different figures for a brief's size; lowercase server sentences.

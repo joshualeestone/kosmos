@@ -14,9 +14,7 @@
  * that has not downloaded one has no teams, and `refresh()` is what the Team screen's routes call so
  * that opening the screen is what downloads it.
  */
-const fs = require('node:fs');
 const create = require('./create');
-const roles = require('./roles');
 
 let injected = null;
 
@@ -26,7 +24,8 @@ function setCatalogue(c) { injected = (c === false) ? false : (c || null); }
 /* Whether a machine name is already taken on this computer, by the same two things create refuses on:
    the agent's folder, or its launch job (create.js, before it makes anything). */
 function takenDefault(slug) {
-  return fs.existsSync(create.workerDir(slug)) || fs.existsSync(create.plistPath(slug));
+  const held = create.nameHeld(slug);
+  return held.folder || held.job;
 }
 
 /* Whether that machine name belongs to an agent the person removed (remove keeps its folder). Loaded
@@ -208,7 +207,7 @@ function specs(req, cat, deps) {
     /* A REMOVED agent keeps its folder, so its name is taken too, but it is not "on your board": say
        what create itself says for that name (the removed list, and how to free the name). */
     if (req && req.checkTaken === true && removed(slug)) {
-      return { ok: false, because: raw + ' is on your removed list. Put that one back from "Show removed agents" at the bottom of the Agents tab, delete what was left of it there to free the name, or give the ' + m.title + ' another name' };
+      return { ok: false, because: create.removedNameWords(raw) + 'give the ' + m.title + ' another name' };
     }
     if (req && req.checkTaken === true && taken(slug)) takenSeats.push({ raw, title: m.title });
     names[m.slot] = raw;

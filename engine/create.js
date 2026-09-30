@@ -4436,7 +4436,7 @@ function createAgentInner(opts) {
   if (removedList.isRemoved(name)) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `${shown} is on your removed list. Put that one back from "Show removed agents" at the bottom of the Agents tab, delete what was left of it there to free the name, or pick a different name.`,
+      because: `${removedNameWords(shown)}pick a different name.`,
       field: 'name', // #2606: a name collision is a name refusal; land it at the name field
       steps,
     };
@@ -4457,8 +4457,7 @@ function createAgentInner(opts) {
    * the screen offers Start over, and the person needs to be told what is in
    * the way rather than that an agent they can see is not running exists.
    */
-  const hasFolder = fs.existsSync(workerDir(name));
-  const hasJob = fs.existsSync(plistPath(name));
+  const { folder: hasFolder, job: hasJob } = nameHeld(name);
   if (hasFolder && hasJob) {
     return {
       outcome: OUTCOME.REFUSED,
@@ -5702,7 +5701,19 @@ function createAgentInner(opts) {
    punctuation: each surface finishes its own sentence. */
 const SELF_STARTS = 'it starts itself when this computer is on and it is not removed';
 
+/* #4557: what holds a machine name on this computer, and the words for a name on the removed list.
+   One derivation each: create refuses on them, and the team step's names pre-check (teamseed.js) asks
+   the same two things before anything is made. */
+function nameHeld(name) {
+  return { folder: fs.existsSync(workerDir(name)), job: fs.existsSync(plistPath(name)) };
+}
+function removedNameWords(shown) {
+  return `${shown} is on your removed list. Put that one back from "Show removed agents" at the bottom of the Agents tab, delete what was left of it there to free the name, or `;
+}
+
 module.exports = {
+  nameHeld,
+  removedNameWords,
   MODELS,
   /* #4479: the name the person sees, for machine.js's login-job row (one derivation with the board's). */
   spokenName,
