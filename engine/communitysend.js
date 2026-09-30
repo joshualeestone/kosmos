@@ -214,18 +214,25 @@ function payload(post, channel) {
  * key, which can be derived from the machine). The bio is the profile's role, same
  * scrub, left out if refused.
  */
+/* The display name the board registers an agent under, or null when it gets a generated handle instead.
+   #4800: a name the service would swap for a random handle of its own is null here too, so the name we register is
+   the name the service holds and a lookup of it finds the account: one holding '/' or '@' (the service refuses both),
+   one of only dots at its ends (the service's name.strip('.')), and one carrying an invisible character the service
+   strips and our scrub keeps (it would store a different name, or none). */
+function profileName(profile) {
+  if (typeof profile.displayName !== 'string' || !profile.displayName.trim()) return null;
+  const s = communitysite.scrubAuthorName(profile.displayName);
+  if (!s.ok || s.name === communitysite.DEFAULT_AUTHOR_NAME) return null;
+  if (s.name.includes('/') || s.name.includes('@') || !s.name.replace(/^\.+|\.+$/g, '')) return null;
+  if (/\p{Default_Ignorable_Code_Point}/u.test(s.name)) return null;
+  return s.name;
+}
+function readProfileSafe(agentKey) {
+  try { return store.readProfile(agentKey) || {}; } catch { return {}; }
+}
 function registration(agentKey) {
-  let profile = {};
-  try { profile = store.readProfile(agentKey) || {}; } catch { profile = {}; }
-  const handle = () => 'agent-' + crypto.randomBytes(3).toString('hex');
-  let name = null;
-  if (typeof profile.displayName === 'string' && profile.displayName.trim()) {
-    const s = communitysite.scrubAuthorName(profile.displayName);
-    // #4800: the service swaps a name holding '/' or only dots for a random handle of its own (they cannot be looked
-    // up at /agents/by-name/{name}); taking our own handle instead keeps the name we registered the name it holds.
-    if (s.ok && s.name !== communitysite.DEFAULT_AUTHOR_NAME && !s.name.includes('/') && s.name.replace(/^\.+|\.+$/g, '')) name = s.name;   // the service's name.strip('.')
-  }
-  const out = { name: name || handle() };
+  const profile = readProfileSafe(agentKey);
+  const out = { name: profileName(profile) || 'agent-' + crypto.randomBytes(3).toString('hex') };
   if (typeof profile.role === 'string' && profile.role.trim()) {
     const r = communitysite.scrubAuthorName(profile.role);
     if (r.ok && r.name !== communitysite.DEFAULT_AUTHOR_NAME) out.bio = r.name;
@@ -320,7 +327,8 @@ const registerRetryAt = new Map();   // agentKey -> ms; a 429 on register waits,
    handle each call, so the second try did not even clash.) So each attempt is written ahead: the name goes into the
    agent's keys entry as `registering` before the POST, and only a 201 replaces it. A later attempt that finds the mark
    looks the name up publicly first:
-   - 404 (no active agent has it): register the SAME name (a deactivated holder keeps its name, so that register
+   - 404 (no active agent has it): register again, reusing a generated handle (a nameless agent got a new random
+     one each call) or the agent's display name as it is now (a deactivated holder keeps its name, so that register
      409s and the loop takes a suffix, as before);
    - 200, made after our try began (less a clock margin): very likely ours with no key. Register nothing: the agent
      does not post until the name is free again (asked hourly), the log says so once, and its posts show
@@ -329,8 +337,9 @@ const registerRetryAt = new Map();   // agentKey -> ms; a 429 on register waits,
    The mark is cleared only by an answer that proves nothing was made, a 4xx. A 5xx (a gateway can answer 504 after
    the service committed) or a 2xx without a usable body (request() returns the status even when the body never
    arrives) keeps it. The name looked up is the name sent: the service cleans both the same way, and registration()
-   never sends a name the service would swap for its own handle. A mark outlives a rename on purpose: the account
-   may exist under the old name. An entry with no apiKey is skipped by every other loop here. */
+   sends a generated handle for every name the service would swap for its own (profileName). A mark outlives a
+   rename on purpose for the 200 case (the account may exist under the old name); after a 404 a display name is
+   taken as it is now. An entry with no apiKey is skipped by every other loop here. */
 const REGISTER_LOST_RECHECK_MS = 60 * 60 * 1000;
 const REGISTER_CLOCK_SKEW_MS = 10 * 60 * 1000;
 async function ensureRegistered(agentKey, keys, now, ctx = {}) {
@@ -359,7 +368,9 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
     } else if (look.status !== 404) {
       return null;                                    // could not tell: the next sweep asks again
     } else {
-      reg.name = mark.name;                           // nothing live under it: take the same name, not a new one
+      // Nothing live under it. A generated handle is reused (a new one each call made the old retry a twin under
+      // another name); a display name is taken as it is NOW (review 3: a renamed agent must not register its old one).
+      if (profileName(readProfileSafe(agentKey)) === null) reg.name = mark.name;
     }
   }
   const base = reg.name;

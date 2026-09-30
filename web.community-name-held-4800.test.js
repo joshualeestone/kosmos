@@ -26,7 +26,7 @@ function sliceFn(name) {
 // eslint-disable-next-line no-new-func
 const communityMineWord = new Function(sliceFn('communityMineWord') + '\nreturn communityMineWord;')();
 
-test('#4800: a pending post of an agent whose name is held says so, and that Kosmos checks again', () => {
+test('#4800: a pending post of an agent whose name is held says so, and promises no retry', () => {
   const w = communityMineWord({ state: 'pending', agentNameUnclaimed: true });
   assert.match(w, /^Not sent\. An earlier try made a community account under a name this agent used/);
   assert.match(w, /rather than go out under a second name\.$/);

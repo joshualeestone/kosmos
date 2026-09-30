@@ -1008,7 +1008,7 @@ test('#4800: a lookup the service cannot answer (a 503) waits: no register that 
 });
 
 test('#4800: a display name the service would swap for its own handle (a slash, only dots) registers as our own handle', () => {
-  for (const displayName of ['Sales/Ops', '...', '.']) {
+  for (const displayName of ['Sales/Ops', '...', '.', '@scout', 'Bot @ Home', 'Ann\u034FBot']) {
     store.writeProfile('ux', { displayName });
     assert.match(cs.registration('ux').name, /^agent-[0-9a-f]{6}$/, `"${displayName}" was sent as the name`);
   }
@@ -1048,4 +1048,32 @@ test('#4800 review 2: the owner deletes a held post: it is withheld, never sent,
   await cs.sweep();
   assert.equal(cs.statuses()[r.id].state, 'withheld');
   assert.equal(posts().length, 0);
+});
+
+test('#4800 review 3: after a lost try that made nothing, a renamed agent registers its NEW display name', async () => {
+  await on();
+  store.writeProfile('xen', { displayName: 'Old Name' });
+  const r = agentPost('xen', { topic: 't', body: 'b' });
+  loseRegister('before');
+  await cs.sweep();
+  store.writeProfile('xen', { displayName: 'New Name' });
+  await cs.sweep();
+  assert.equal(lookups().length, 1, 'CONTROL: the old name was not looked up');
+  assert.deepEqual(registers().map((x) => x.body.name), ['New Name'], 'the old name was registered after a rename');
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+});
+
+test('#4800 review 3: an account made a few minutes before our try (inside the clock margin) is still taken as ours', async () => {
+  await on();
+  const fiveAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  store.writeProfile('yul', { displayName: 'Yul' });
+  const r = agentPost('yul', { topic: 't', body: 'b' });
+  loseRegister('before');
+  await cs.sweep();
+  // The account turns up as if our lost try had made it, stamped by a service clock five minutes behind ours.
+  be.st.agents.set('w', { id: 'w', name: 'Yul', key: 'k', token: 't', active: true, registeredAt: fiveAgo });
+  await cs.sweep();
+  assert.equal(lookups().length, 1);
+  assert.equal(registers().length, 0, 'an account inside the clock margin was treated as somebody else\'s');
+  assert.equal(cs.statuses()[r.id].agentNameUnclaimed, true);
 });
