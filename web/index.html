@@ -25898,7 +25898,7 @@ function computersRender(data) {
       row.setAttribute('aria-current', 'true');
       st.textContent = 'This computer';
     } else {
-      const state = held ? 'Waiting for approval on your other computer'
+      const state = held ? 'Waiting to be allowed from another of your computers'
         : (c.updating === true ? 'Updating' : (c.online === true ? 'Online' : 'Not connected'));
       st.textContent = state;
       if (opens) {

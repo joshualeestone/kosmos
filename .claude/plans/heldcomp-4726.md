@@ -9,7 +9,7 @@ Retire, never Open.
 - engine/account-computers.js parseComputers carries `held: r.held === true`; fetchComputers does not probe a
   held computer (it cannot serve until allowed, and is never opened from the switcher).
 - web/index.html computersRender: a held row is never a link, is greyed (worldsw-row-off) and says
-  "Waiting for approval on your other computer".
+  "Waiting to be allowed from another of your computers".
 
 ## kosmos-relay (the web account page), branch heldcomp-4726
 - coordinator/src/signin.html macWhen: "Waiting to be allowed from your other computer." after the retired
