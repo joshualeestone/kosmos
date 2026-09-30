@@ -182,7 +182,7 @@ test('#4588 B review 2 (W2) CONTROL: a post that holds nobody has no heldUntil f
   });
 });
 
-test('#4588 B review 2 (W1): with the brake on (ROOM_HOLD_OFF=1) a quota-held post is NOT kept (nothing would ever flush it): not reached, and the sender sees it', () => {
+test('#4588 B review 3: with the brake on (ROOM_HOLD_OFF=1) a colleague post is typed to a quota-paused member as before: not held, not refused', () => {
   withFleet(room3(), (board) => {
     report('mara', 'idle');
     report('april', 'idle');
@@ -191,11 +191,24 @@ test('#4588 B review 2 (W1): with the brake on (ROOM_HOLD_OFF=1) a quota-held po
     process.env.AGENT_WORKFORCE_ROOM_HOLD_OFF = '1';
     try {
       const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara @april brake on' }, rosterOf(board, AHEAD()), MEMBERS);
-      assert.equal(sent.outcomes.mara, chat.DELIVERY.COULD_NOT, 'a hold with the brake on is stranded: no flush ever tells it');
-      assert.deepEqual(roomhold.heldIn('mara', PROJECT), [], 'kept anyway');
-      assert.notEqual(sent.state, chat.DELIVERY.PLACED, 'a post that did not reach mara read as placed');
-      assert.deepEqual(typedTo(tmux, 'mara'), [], 'the quota hold still types nothing into a paused member');
-      assert.equal(typedTo(tmux, 'april').length, 1, 'CONTROL: the claude member is typed as before');
+      assert.equal(sent.outcomes.mara, chat.DELIVERY.PLACED, 'the brake must type as before: ' + (sent.because || ''));
+      assert.equal(typedTo(tmux, 'mara').length, 1);
+      assert.deepEqual(roomhold.heldIn('mara', PROJECT), [], 'kept under the brake: only a typed arrival would ever tell it');
+      assert.equal('heldUntil' in sent, false);
+    } finally { delete process.env.AGENT_WORKFORCE_ROOM_HOLD_OFF; }
+  });
+});
+
+test('#4588 B review 3: with the brake on, a post whose ONLY recipient is the quota-paused member is still stored in the room', () => {
+  withFleet(room3(), (board) => {
+    report('mara', 'idle');
+    armSender('leo-discord');
+    arm();
+    process.env.AGENT_WORKFORCE_ROOM_HOLD_OFF = '1';
+    try {
+      const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara only you, brake on' }, rosterOf(board, AHEAD()), ['leo', 'mara']);
+      assert.ok(sent.id, 'the post was refused and never reached the room log: ' + (sent.because || ''));
+      assert.ok(messages.readLog().some((m) => m && m.id === sent.id), 'the room lost the post');
     } finally { delete process.env.AGENT_WORKFORCE_ROOM_HOLD_OFF; }
   });
 });

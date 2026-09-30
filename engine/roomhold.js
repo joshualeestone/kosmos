@@ -27,7 +27,8 @@
  * reported, or a `working` older than the board's own decay window, status.REPORT_WORKING_DECAY_MS).
  * So a runner that does not report is never held, and a report that went stale falls back to typing.
  *
- * Brake: AGENT_WORKFORCE_ROOM_HOLD_OFF=1 types every post as before.
+ * Brake: AGENT_WORKFORCE_ROOM_HOLD_OFF=1 types every post as before, including past the #4588 quota gate for room
+ * posts (engine/messages.js typeInto).
  *
  * Held only for a member the board can type into right now (chat.addressable), so a post to a dead or
  * missing pane is still refused as before rather than kept for someone who cannot hear it. Never held:

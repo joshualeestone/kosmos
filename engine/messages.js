@@ -1960,14 +1960,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
       /* #4588 PR B: held on the shared Google quota, nothing typed. The post is kept for this member like a #4624
          hold (its id, marked when it names them), so it counts as placed for the sender and is told in one line by the
          idle flush, the next typed arrival here, or roomhold.flushReleased after the reset. Could not keep it: not
-         reached, as before.
-         Review 2 (W1): with the brake on (AGENT_WORKFORCE_ROOM_HOLD_OFF=1) nothing ever flushes a hold, so a kept
-         post would be stranded while reading as placed. Then it is not reached, which the sender sees. */
+         reached, as before. (With the brake on this branch is not reached: see typeInto below.) */
       if (sent && sent.held === true) {
         roomhold.restore(name, projectId, heldIds);
         unspill(spilled[name]);
-        if (!roomhold.off(process.env)
-          && roomhold.hold(name, projectId, mentioned.has(name) ? roomhold.addressedId(id) : id)) {
+        if (roomhold.hold(name, projectId, mentioned.has(name) ? roomhold.addressedId(id) : id)) {
           outcomes[name] = roomhold.HELD;
           if (typeof sent.heldUntil === 'string') heldUntil[name] = sent.heldUntil;
           reached += 1;
@@ -1986,8 +1983,12 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     const putBack = (err) => { roomhold.restore(name, projectId, heldIds); throw err; };
     /* #4588 PR B: the person's own post is typed at once (never held); a colleague's post, addressed or not, is an
        automatic sender from this member's side, so it goes through the gate that holds it while a Gemini (Antigravity)
-       member is paused on the shared Google quota. */
-    const typeInto = operator === true ? deliverToPane : (deliverAutomaticToPane || deliverToPane);
+       member is paused on the shared Google quota.
+       Review 3: the brake (AGENT_WORKFORCE_ROOM_HOLD_OFF=1) types every post as before, so it skips this gate too.
+       Holding under the brake would keep a post only the next typed arrival tells (the idle flush and flushReleased
+       are off), and refusing it would drop a post to a room whose only other member is paused from the room log. */
+    const typeInto = operator === true || roomhold.off(process.env)
+      ? deliverToPane : (deliverAutomaticToPane || deliverToPane);
     let sent;
     try { sent = typeInto(name, envelope + catchUp + heldLine, roster, undefined, typeof trailer === 'string' ? trailer : undefined); }
     catch (err) { putBack(err); }

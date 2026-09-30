@@ -283,3 +283,23 @@ since this branch is stacked on it.
   - Nudge versus pointer ordering after the reset. Kept: both arrive in the same minute and each is self-contained.
 - Weakest premise: that COULD_NOT is the right brake behaviour. If the brake is meant to mean "exactly the pre-#4588
   behaviour", the answer would be to skip the quota gate entirely under the brake; that is one line and reversible.
+
+## Review round 3, 2026-09-30: 0 BLOCKER, 1 WARNING, 4 NIT
+- **WARNING FIXED, and it reverses round 2's W1 call.** Round 2 made a quota-held room post COULD_NOT under the brake.
+  Round 3 showed the cost: a post whose only recipient is the paused member reaches nobody, so the whole post is
+  refused and never enters the room log. Now the brake skips the quota gate for room posts (typeInto uses
+  deliverToPane when roomhold.off), which is what roomhold.js's "types every post as before" always promised; the
+  finish branch's off() check is removed as dead. Two arms: typed-as-before, and the single-recipient post is stored.
+  Both red against the round-2 code; the first reds with the brake removed from typeInto (the second cannot, since
+  without the brake check the post is held and logged, which is also not a loss).
+  Weakest premise: typing into a quota-paused agent under the brake is useless to that agent until the reset. The
+  brake is an escape hatch from a hold bug, and "as before" is the behaviour its operator is choosing.
+- NITs, decided not built:
+  - Round 2's "nothing ever flushes a hold" overstated: the next typed arrival still carries a held line. Moot now,
+    since nothing is held under the brake.
+  - The new arms cover the sync path only. finish() and typeInto are shared by sendPostAsync; the existing async arm
+    covers the hold itself.
+  - heldUntil is when the quota gate opens, not when the post is told (flushReleased skips a working agent). A UI
+    must say "held until at least <time>"; noted for the room UI follow-up card.
+  - A throw mid-loop leaves earlier members' holds with no logged row, and the next post can reuse the id.
+    Pre-existing (#4624's putBack), made likelier by PR B marking ids as addressed. Follow-up card, not this PR.
