@@ -1,8 +1,20 @@
 'use strict';
 /* #4588: agents paused on their Google account's shared Antigravity quota are resumed after the reset, ONE AT A TIME. */
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits
+const os = require('node:os');
+const fs = require('node:fs');
+const path = require('node:path');
+// Sandbox every root BEFORE requiring any engine module (they resolve roots at require time).
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-agyquota-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 const test = require('node:test');
 const assert = require('node:assert');
 const q = require('./agyquota');
+const fleet = require('../test-support/fleet');
 
 const RESET = '2026-09-28T22:11:54.000Z';
 const AT = Date.parse(RESET);
@@ -11,14 +23,20 @@ const status = require('./status');
 // The shape the bridge really writes (status.js keys on its first sentence).
 const paused = (until) => ({ found: true, state: 'idle', by: 'auto', until: until || RESET, because: status.QUOTA_REPORT_PREFIX + ' Google said: ...' });
 
+// Real cards from the real producer (fleet + status.snapshot()), never hand-built (fixture-discipline.test.js). Each
+// test gets plain copies with only the state its scenario needs.
+const AGY = { state: 'unknown', runner: 'antigravity', command: 'agy', screen: '' };
+const CARDS = (() => {
+  const board = fleet.install([fleet.agent('agy-a', AGY), fleet.agent('agy-b', AGY), fleet.agent('agy-c', AGY), fleet.agent('agy-free', AGY), fleet.agent('claude-x', { state: 'idle' })]);
+  try { return status.snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
+})();
+const STATES = { 'agy-a': 'rate_limited', 'agy-b': 'idle', 'agy-c': 'unknown', 'agy-free': 'idle', 'claude-x': 'idle' };
 function world(reports) {
-  const roster = [
-    { sessionName: 'agy-a', name: 'A', runner: 'antigravity', state: 'rate_limited' },
-    { sessionName: 'agy-b', name: 'B', runner: 'antigravity', state: 'idle' },
-    { sessionName: 'agy-c', name: 'C', runner: 'antigravity', state: 'unknown' },
-    { sessionName: 'agy-free', name: 'Free', runner: 'antigravity', state: 'idle' },
-    { sessionName: 'claude-x', name: 'X', runner: 'claude', state: 'idle' },
-  ];
+  const roster = Object.keys(STATES).map((s) => {
+    const card = CARDS.find((c) => c.sessionName === s);
+    assert.ok(card, 'fixture: no real card for ' + s);
+    return { ...card, state: STATES[s] };
+  });
   const sent = [];
   return {
     roster, sent, book: new Map(),

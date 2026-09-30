@@ -136,3 +136,11 @@ Three WARNINGs, each judged against the code, none a change:
   carry-on line (one per reset; the in-memory book can repeat it once after a restart within six hours).
 NITs left: a small shared quota module instead of requiring status.js; compact-only regex forms; the source-match pin.
 Next: the full validation once #4574 is on main (the queue override would otherwise red the queue tests), then proof.
+
+## After the full validation (2026-09-29 23:23: REAL FAILURE, 2 tests)
+- fixture-discipline.test.js: engine/agyquota-4588.test.js hand-built five roster rows (object literals with a
+  sessionName key). FIXED: the rows are real cards from the real producer (fleet.install + status.snapshot()), copied
+  with only the state each scenario needs; the roots are sandboxed first.
+- render-talk-goldencard-2519.test.js: the recorded card lacked the new quotaUntil key. FIXED with the sanctioned
+  tool (node tools/capture-agent-card.js), which added exactly one key, "quotaUntil": null.
+- Then main (d30a0c13a, the #4609 queue fix) merged in and re-queued with no override.
