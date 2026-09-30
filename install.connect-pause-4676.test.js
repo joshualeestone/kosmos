@@ -142,7 +142,7 @@ test('#4676: switched to run after the pause left another install\'s board: this
   const r = await runPause({ mode: 'connect', own: false, after: FLIP });
   assert.match(r.out, /PASSED THE PAUSE/, r.out);
   assert.match(r.out, /^OFF=yes$/m, r.out);
-  assert.match(r.out, new RegExp('^WHY=while another Kosmos is using port ' + r.port + '$', 'm'), r.out);
+  assert.match(r.out, new RegExp("^WHY=until you run 'kosmos start' \\(another Kosmos was using port " + r.port + '\\)$', 'm'), r.out);
 });
 
 test('#4676 CONTROL: switched to run with NO other board on the port, the board is started as chosen', { timeout: 60000 }, async () => {
@@ -157,4 +157,95 @@ test('#4676: a connect computer whose OWN board holds the port behind a stale bo
   assert.match(r.out, /so it is left alone/, r.out);
   assert.match(r.out, /DIE: A process is still holding port \d+ after the pause/, r.out);
   assert.doesNotMatch(r.out, /PASSED THE PAUSE/, r.out);
+});
+
+test('#4676: an UNREADABLE choice keeps its own words after the pause left another board (it is not told to start one)', { skip: !HAVE_LSOF && 'no lsof here', timeout: 60000 }, async () => {
+  const r = await runPause({ mode: 'connect', own: false, after: 'MODE=ask; _kosmos_board_decide; echo "OFF=$_kosmos_board_off"; echo "WHY=$(_kosmos_off_why)"' });
+  assert.match(r.out, /^OFF=yes$/m, r.out);
+  assert.match(r.out, /^WHY=until this computer's setup is chosen in the Kosmos app$/m, r.out);
+});
+
+/* The later points, each extracted from the shipped file and run on their own: the functions, the start
+   step (with a recording bin/kosmos), and the last reading plus the summary's board-off branches. */
+const LINES = SETUP.split('\n');
+const at = (pred, from = 0) => LINES.findIndex((l, j) => j >= from && pred(l, j));
+const FUNCS = (() => {
+  const a = at((l) => l.startsWith('_kosmos_off_why() {'));
+  const b = at((l) => l === '_kosmos_board_decide', a);
+  return a >= 0 && b > a ? LINES.slice(a, b).join('\n') : null;
+})();
+const START = (() => {
+  const a = at((l) => l.startsWith('# Read again now (_kosmos_board_decide)'));
+  const b = at((l) => l === 'ok', a);
+  return a >= 0 && b > a ? LINES.slice(a, b + 1).join('\n') : null;
+})();
+const LAST = (() => {
+  const a = at((l, j) => l === '_kosmos_board_decide' && (LINES[j + 1] || '').startsWith('if _kosmos_off_for_foreign && [ "$BOARD_OURS" = yes ]'));
+  const b = at((l) => l.startsWith('OPEN_CMD='), a);
+  return a >= 0 && b > a ? LINES.slice(a, b).join('\n') : null;
+})();
+const SUMMARY = (() => {
+  const a = at((l) => l === 'if [ "$_kosmos_board_off" = "yes" ] && [ "$BOARD_OURS" = "yes" ]; then');
+  const b = at((l) => l.startsWith('elif [ "$_kosmos_started" = no ] && [ "$BOARD_OURS" != "yes" ]; then'), a);
+  return a >= 0 && b > a ? LINES.slice(a, b).join('\n') + '\nelse echo "SUMMARY=other"\nfi' : null;
+})();
+
+function runLater({ mode, foreign, boardOurs = 'no', part }) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4676-later-'));
+  fs.mkdirSync(path.join(home, 'bin'));
+  const calls = path.join(home, 'calls');
+  fs.writeFileSync(path.join(home, 'bin', 'kosmos'), `#!/bin/sh\necho "$*" >> "${calls}"\nexit 0\n`, { mode: 0o755 });
+  const script = [
+    'set -euo pipefail',
+    'step() { echo "STEP: $*"; }', 'ok() { :; }', 'info() { echo "INFO: $*"; }', 'die() { echo "DIE: $*"; exit 1; }',
+    '_kosmos_mode_read() { _kosmos_mode_file=yes; _kosmos_mode_word="$MODE"; }',
+    'KOSMOS_HOME="$1"; PORT=47671; MODE="$2"; _kosmos_pause_left_foreign="$3"; BOARD_OURS="$4"',
+    FUNCS,
+    part === 'start' ? START : ['_kosmos_wrote_marker=yes', ': > "$KOSMOS_HOME/board.stopped"', LAST, SUMMARY].join('\n'),
+    'echo "OFF=$_kosmos_board_off"',
+  ].join('\n');
+  return new Promise((resolve) => {
+    execFile('sh', ['-c', script, 'sh', home, mode, foreign ? 'yes' : 'no', boardOurs], { encoding: 'utf8', timeout: 20000 }, (err, stdout) => {
+      resolve({ code: err ? (err.code ?? 1) : 0, out: stdout,
+        marker: fs.existsSync(path.join(home, 'board.stopped')),
+        calls: fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8') : '' });
+    });
+  });
+}
+
+test('#4676: the later blocks were extracted from the shipped file', () => {
+  assert.ok(FUNCS && START && LAST && SUMMARY, 'an extraction failed, so the arms below measured nothing');
+  assert.match(START, /kosmos" start --force/);
+  assert.match(SUMMARY, /another Kosmos on this computer is using port/);
+});
+
+test('#4676: the start step, chosen to run after the pause left another board: nothing started, the marker written, and why', async () => {
+  const r = await runLater({ mode: 'run', foreign: true, part: 'start' });
+  assert.match(r.out, /STEP: Another Kosmos is using port 47671, so this computer's board was not started\. Quit that one, then run 'kosmos start'/, r.out);
+  assert.equal(r.calls, '', 'no kosmos start against the other board');
+  assert.equal(r.marker, true, 'board.stopped keeps launchd and the watchdog off the port');
+});
+
+test('#4676 CONTROLS: the start step keeps its connect and unreadable words, and starts a run computer with no other board', async () => {
+  const c = await runLater({ mode: 'connect', foreign: true, part: 'start' });
+  assert.match(c.out, /STEP: This computer connects to agents on another computer/, c.out);
+  const u = await runLater({ mode: 'ask', foreign: true, part: 'start' });
+  assert.match(u.out, /STEP: This computer's setup choice could not be read/, u.out);
+  const n = await runLater({ mode: 'run', foreign: false, part: 'start' });
+  assert.match(n.out, /STEP: Starting Kosmos\./, n.out);
+  assert.match(n.calls, /^start --force$/m, n.calls);
+});
+
+test('#4676: the summary, chosen to run while the other board held the port, says so and what to do', async () => {
+  const r = await runLater({ mode: 'run', foreign: true, part: 'summary' });
+  assert.match(r.out, /Kosmos is installed, but its board was not started: another Kosmos on this computer is using port 47671\./, r.out);
+  assert.match(r.out, /Quit that one, then run 'kosmos start'\./, r.out);
+  assert.equal(r.marker, true);
+});
+
+test('#4676: our own board up by the end on a computer chosen to run is a running board, not an off one', async () => {
+  const r = await runLater({ mode: 'run', foreign: true, boardOurs: 'yes', part: 'summary' });
+  assert.match(r.out, /^OFF=no$/m, r.out);
+  assert.match(r.out, /SUMMARY=other/, 'not the "could not be read" or foreign wording');
+  assert.equal(r.marker, false, 'the marker is lifted so launchd supervises the board');
 });
