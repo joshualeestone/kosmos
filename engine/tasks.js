@@ -714,9 +714,17 @@ function setOnHold(projectId, n, onHold, { viaScreen = false } = {}) {
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
+    /* The person's own hold is taken off only on the screen: the feature exists to honour it, and an agent that could
+       lift it could put itself back on parked work (the built mark's refusePersonMark, the same rule). */
+    if (!onHold && isOnHold(t) && t.onHoldByPerson === true && viaScreen !== true) {
+      throw new Error('the person put this task on hold, so only they can take it off, on the screen');
+    }
     didChange = isOnHold(t) !== onHold;
     changed = { ...t };
-    if (onHold) changed.onHold = true; else delete changed.onHold;
+    if (onHold) {
+      changed.onHold = true;
+      if (didChange) { if (viaScreen === true) changed.onHoldByPerson = true; else delete changed.onHoldByPerson; }
+    } else { delete changed.onHold; delete changed.onHoldByPerson; }
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),

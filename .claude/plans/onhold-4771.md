@@ -36,6 +36,9 @@ agents onto tasks the person had put on hold and into a project the person had p
 - In a paused project a task marked built or being worked reads "held" on the Tasks view (held is checked first): the
   pause is the fact the person set most recently. Its built mark is kept, and resuming shows it again (tested).
 - The hold route is open to any caller the board admits, like its sibling /due route; who did it is recorded.
+- The person's own hold (made on the screen, stored as `onHoldByPerson`) is lifted only on the screen: an agent's
+  unhold of it is refused (403), the same rule as the built mark's refusePersonMark. An agent's hold can be lifted by
+  anyone. Rejected: letting agents lift any hold, which lets an agent put itself back on work the person parked.
 - The On hold tile sits after Josh's five open groups and before Completed; his order is otherwise unchanged.
 - Its colour is --k-ink-2, Unassigned's neutral: both mean nothing is moving, and the label and icon tell them apart.
 - A paused project holds every task in it on the Tasks view (they count under On hold), and resuming brings them

@@ -161,3 +161,34 @@ test('#4771 review: in a paused project a task marked built reads held (held is 
     assert.equal(tasks.taskState(row()), 'built', 'resuming did not bring the built state back');
   } finally { w.restore(); }
 });
+
+test('#4771 review: a project whose only open task is on hold is not empty, so its goal is not asked (control: the same project with no tasks is)', () => {
+  const w = world('holdgoal' + seq, false);
+  try {
+    tasks.setOnHold(w.pid, w.n, true);
+    const rec = projects.readAll().find((p) => p.id === w.pid);
+    assert.equal(a.goalProject(w.who, [rec], new Map([[w.pid, 'ship it']]), new Map(), Date.now()), null,
+      'a project holding a parked task had its goal put to an agent');
+    assert.ok(a.goalProject(w.who, [Object.assign({}, rec, { tasks: [] })], new Map([[w.pid, 'ship it']]), new Map(), Date.now()),
+      'control: the same project with no tasks was not asked about either');
+  } finally { w.restore(); }
+});
+
+test('#4771 review: the person\'s own hold is lifted only on the screen; an agent\'s hold, by anyone', () => {
+  const w = world('holdmine' + seq, true);
+  try {
+    tasks.setOnHold(w.pid, w.n, true, { viaScreen: true });
+    const stored = () => tasks.byNumber(projects.readAll().find((p) => p.id === w.pid), w.n);
+    assert.equal(stored().onHoldByPerson, true);
+    assert.throws(() => tasks.setOnHold(w.pid, w.n, false), /only they can take it off, on the screen/);
+    assert.equal(tasks.isOnHold(stored()), true, 'a refused unhold still took the hold off');
+    tasks.setOnHold(w.pid, w.n, false, { viaScreen: true });
+    assert.equal(tasks.isOnHold(stored()), false, 'the person could not take their own hold off');
+    assert.equal('onHoldByPerson' in stored(), false, 'off hold left the person mark behind');
+    // Control: an agent's own hold, which the agent (or anyone) can lift.
+    tasks.setOnHold(w.pid, w.n, true);
+    assert.equal('onHoldByPerson' in stored(), false, 'an agent\'s hold was stored as the person\'s');
+    tasks.setOnHold(w.pid, w.n, false);
+    assert.equal(tasks.isOnHold(stored()), false, 'control: an agent could not lift an agent\'s hold');
+  } finally { w.restore(); }
+});

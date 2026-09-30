@@ -16036,7 +16036,12 @@ test('#4771: a task is put on hold and taken off through its route; a project is
   assert.equal(screen.status, 200, screen.body);
   const vias = require('./engine/taskchat').read(p.id, t.number).filter((e) => /^hold-/.test(e.kind)).map((e) => e.via);
   assert.deepEqual(vias, ['agent', 'agent', 'screen'], 'the route did not record who put the task on hold');
-  await postJson(url, { onHold: false });
+  // The person's hold: a process (an agent) cannot take it off; the screen can.
+  const agentLift = await postJson(url, { onHold: false });
+  assert.equal(agentLift.status, 403, agentLift.body);
+  assert.match(JSON.parse(agentLift.body).error, /only they can take it off/);
+  const personLift = await req(url, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ onHold: false }) });
+  assert.equal(personLift.status, 200, personLift.body);
   const put = (body) => req('/api/project/' + encodeURIComponent(p.id), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const paused = await put({ paused: true });
   assert.equal(paused.status, 200, paused.body);

@@ -15362,7 +15362,8 @@ const server = http.createServer(async (req, res) => {
                         roster read and one commitments reading per agent for
                         the whole request
          waitingOnPerson tasks.waitingOnPerson: its agent needs the person about it (#3949)
-         state          tasks.taskState: closed / decision / built / nobody / working / assigned
+         state          tasks.taskState: closed / held / decision / built / nobody / working / assigned
+         projectPaused  its project is paused (#4771; with the task's own onHold, the held state)
          lastActivityAt the newest transcript event, else created/closed
        A task's own builtAt / builtBy / builtNote (#3951, set by POST .../built) ride every row as stored.
        Added fields only, and only on ?view=tasks, which also leaves out archived
@@ -16880,7 +16881,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { task: t });
       } catch (err) {
         const msg = String((err && err.message) || '');
-        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /only they can take it off/.test(msg) ? 403 : 400,
           { error: msg || 'we could not change that task' });
       }
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
