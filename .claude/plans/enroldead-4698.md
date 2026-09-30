@@ -55,3 +55,14 @@ for a real cooldown. Test pins it; removing the fix fails it.
 ## Review iteration 4: converged (NITs only, recorded, not changed)
 - One long reflowed line in the browser check's header comment (cosmetic).
 - The plus-si-name cleaning assertion depends on source layout; it fails loudly, never falsely passes.
+
+## PR CI (first run): two reds, both mine, both fixed
+- suite (node): 12410 tests, 0 failed; the job failed on the browser-check surface gate (#2518):
+  the diff changed lines carrying the token 'msg' (PLUS_MSG_KIND comment, the removed plusSay
+  line), which maps to render-unread-edge-3743 and render-agentdm-3414. Neither is about Kosmos+:
+  per-check Browser-check-surface trailers on the fix commit.
+- browser-checks: render-plus-blue-1615 and render-plus-signin-3478 counted on the removed fields
+  (a white #plus-flow field for the light-red error border; "10 inputs, 3 enrol-flow"). Missed by
+  my id search and four review rounds because they reach the fields by selector, not by id. Now:
+  the pane has 7 inputs, all the wizard's; plus-blue asserts no white field is left (and says to
+  check its border if one comes back). render-plus-signin-enter-0929 (the edited one) passed in CI.
