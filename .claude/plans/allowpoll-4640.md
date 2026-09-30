@@ -114,3 +114,14 @@ PASS 0 FAIL; the four browser-check guards and web.plus-tab green. Mutations, ea
 no waiting return (1 red), any code counts (the standing_lapsed control reds), code-less spelling dropped (reds), not
 kept through the retry (reds), prefix kept in the sentence (2 reds), report row removed (1 red), tunnelState unmapped
 (1 red), page pill mapping removed (browser check 104 PASS 1 FAIL: "Not connected" on a red pill).
+
+## Review round 1 of the waiting-allow build (blind, sonnet, 11:30): 0 BLOCKER, 1 WARNING (fixed), 3 NIT
+- WARNING, fixed: `code own_lineage` alone counted as waiting, but the coordinator (retirehold-4681 macs.rs
+  held_refusal) sends that code with two FINAL sentences too ("was not allowed on your account", and "no other
+  computer ... is left to allow it"). A denied or orphaned computer would have read "Waiting to be allowed" for ever.
+  The wait now also needs the wait sentence. Controls for both final sentences in remote.test.js and
+  remote-report.test.js; mutation (the sentence check removed) reds the new control. remote + remote-report 141/141.
+- NIT noted: the sticky waiting state could mask a dial that hangs after the Allow (bounded: cleared on up, a new
+  failure, or a new child; fails toward the old wording). NIT noted: if the tunnel process exits after the refusal
+  rather than retrying in-process, the pill could alternate with "Connecting" (not confirmed which it does).
+- NIT noted: POST /api/remote/signin-allowed-done has no cross-site guard; it only drops the watch token.

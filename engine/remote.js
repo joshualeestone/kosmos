@@ -190,8 +190,11 @@ function allowWaitSentence(line) {
   const m = ALLOW_WAIT_LINE.exec(line.trim());
   if (!m) return null;
   const [, said, http, path, code] = m;
+  // The code alone is not enough (#4640 review): own_lineage also carries two FINAL refusals ("was not allowed on your
+  // account", and "no other computer ... is left to allow it"), which must stay refusals, never read as a wait.
+  if (!said.startsWith(ALLOW_WAIT_SENTENCE)) return null;
   const waiting = code === 'own_lineage'
-    || (code === undefined && http === '403' && path === '/v1/mac/relay-ticket' && said.startsWith(ALLOW_WAIT_SENTENCE));
+    || (code === undefined && http === '403' && path === '/v1/mac/relay-ticket');
   return waiting ? said.trim() : null;
 }
 

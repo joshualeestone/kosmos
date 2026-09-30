@@ -164,6 +164,9 @@ test('kosmos#4640: waiting for the other computer\'s Allow is waiting-allow, not
     [ALLOW_SAID, 'waiting-allow'],
     // CONTROLS: the same words with another code, the same words on another path, and an ordinary refusal stay as before.
     ['Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code standing_lapsed)', 'coordinator-refused'],
+    // #4640 review: own_lineage's FINAL sentences (denied; no computer left to allow) are refusals, not a wait.
+    ['Kosmos+ refused this Mac: this computer was not allowed on your account; retire this computer and set it up again (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)', 'coordinator-refused'],
+    ['Kosmos+ refused this Mac: this computer is still waiting to be allowed, and no other computer on your account is left to allow it; retire this computer and set it up again (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)', 'coordinator-refused'],
     ['Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/standing)', 'coordinator-refused'],
     ['Kosmos+ refused this Mac: standing lapsed (HTTP 403 on /v1/mac/relay-ticket)', 'coordinator-refused'],
   ];

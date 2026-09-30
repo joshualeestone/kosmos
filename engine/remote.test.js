@@ -852,6 +852,11 @@ test('kosmos#4640: the waiting-to-be-allowed refusal is recognised in both spell
   assert.equal(remote.allowWaitSentence(ALLOW_LINE + ')'), ALLOW_SAID, 'relay main tunnel (no code)');
   // CONTROLS: each must stay an ordinary refusal.
   assert.equal(remote.allowWaitSentence(ALLOW_LINE + ', code standing_lapsed)'), null, 'the same words with another code');
+  // CONTROLS (#4640 review): own_lineage's two FINAL sentences stay refusals.
+  for (const final of ['this computer was not allowed on your account; retire this computer and set it up again',
+    'this computer is still waiting to be allowed, and no other computer on your account is left to allow it; retire this computer and set it up again']) {
+    assert.equal(remote.allowWaitSentence('Kosmos+ refused this Mac: ' + final + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)'), null, 'a final own_lineage refusal read as a wait: ' + final);
+  }
   assert.equal(remote.allowWaitSentence('Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/standing)'), null, 'the same words on another path, no code');
   assert.equal(remote.allowWaitSentence('Kosmos+ refused this Mac: standing lapsed (HTTP 403 on /v1/mac/relay-ticket)'), null, 'an ordinary refusal');
   assert.equal(remote.allowWaitSentence('relay refused the tunnel: bad ticket'), null);
