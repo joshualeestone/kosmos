@@ -2,7 +2,8 @@
 /**
  * kosmos#4744 (review 8): the Kosmos+ box's Copy button. When the synchronous copy fails, the handler waits on the
  * clipboard API; a second press during that wait must not start a second copy, so the screen never says "could
- * not copy" after the address was copied.
+ * not copy" after the address was copied. A clipboard that never answers counts as a refusal after 3 seconds, so
+ * the button is not left locked.
  *
  *   node --test web.plus-copy-once-4744.test.js
  *   PLUS_PAGE=<web/index.html at 747aa169d> node --test web.plus-copy-once-4744.test.js   (the handler before the
@@ -67,7 +68,22 @@ test('#4744: a press that succeeds while an earlier one waits cannot be followed
   refuse(new Error('refused')); await first; await second;
   w.flush();
   const note = w.el('plus-status').textContent;
-  // Either the second press was refused (nothing was copied, so "could not copy" is true), or it copied and the
-  // screen must not then say it could not.
-  assert.ok(!(copied && note), `the address was copied, then the screen said: "${note}"`);
+  // The second press is refused while the first waits, so nothing was copied and the screen says so, once.
+  assert.equal(copied, false, 'the second press copied while the first was still waiting');
+  assert.match(note, /could not copy/, `nothing was copied, but the screen said: "${note}"`);
+  assert.notEqual(w.el('plus-copy').textContent, 'Copied');
+});
+
+test('#4744: a clipboard answer that never comes does not leave Copy locked', async () => {
+  const w = world({ execOk: false, clipboard: { writeText: () => new Promise(() => {}) } });   // never settles
+  const first = w.ctx.plusCopyAddress();
+  await new Promise((r) => setImmediate(r));
+  w.flush();                                               // the 3 s limit fires
+  const settled = await Promise.race([first.then(() => true), new Promise((r) => setTimeout(() => r(false), 500))]);
+  assert.ok(settled, 'the press never finished: the clipboard\'s silence left it waiting (and Copy locked)');
+  w.flush();                                               // the failure's words land
+  assert.match(w.el('plus-status').textContent, /could not copy/, 'no failure was said after the clipboard gave no answer');
+  w.ctx.document.execCommand = () => true;
+  await w.ctx.plusCopyAddress();                           // a later press works
+  assert.equal(w.el('plus-copy').textContent, 'Copied', 'Copy stayed locked after a clipboard that never answered');
 });

@@ -42566,7 +42566,9 @@ async function plusCopyAddress() {
   let ok = plusCopyViaExec();
   if (!ok) {
     PLUS_COPY_BUSY = true;
-    try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(PLUS_ACCOUNT_URL); ok = true; } } catch { ok = false; }
+    // A clipboard answer that never comes (a web view's permission prompt nobody answers) counts as a refusal after
+    // 3 seconds, so the button is never left locked.
+    try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await Promise.race([navigator.clipboard.writeText(PLUS_ACCOUNT_URL), new Promise((_, no) => setTimeout(() => no(new Error('no answer')), 3000))]); ok = true; } } catch { ok = false; }
     finally { PLUS_COPY_BUSY = false; }
   }
   if (PLUS_COPY_TIMER) { clearTimeout(PLUS_COPY_TIMER); PLUS_COPY_TIMER = null; }
