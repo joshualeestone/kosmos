@@ -50,13 +50,21 @@ may an agent put on a new project) and `kosmos room reopen` (it clears the loop-
   presented, so the page's and the terminal's close cost what they cost before.
 - **Reopen shares the handler and so the rule, but not the gate.** `reopen` is not in the pattern: it stays behind
   the board token (no CLI verb uses it). With the board token, an identified non-member is refused there too.
-- **`made.by` now names the agent.** It was always empty for a CLI caller (see above). Nothing else reads it
-  differently: it is a record of who added the task.
+- **`made.by` now names the agent, and the person sees it.** It was empty for a CLI caller (see above), so the
+  task page's "added by" label and the task's activity log said "An agent". They now say the agent's name. That
+  is the intent. Nothing else reads the field: it does not change who the task is given to, what the breaker
+  counts, or how the task is listed.
+- **A roster pane that is not tied to an agent no longer names anyone.** Before, task add named the caller from
+  any roster row whose `target` equalled the pane. Now the row must be tied to our agent (`isNamedOurs`), as
+  task message and `resolveSender` require; otherwise the caller is unnamed (recorded with no name, and not held
+  to membership). A tightening: a stranger's pane is not taken for an agent.
 
 ## Known limits, stated
 - Advisory, as every slice: an agent that holds the board token can still send no token and no pane and be an
   unnamed process. The rule binds the cooperating agent (T1 on the card) and any caller that holds only its token.
 - A paneless token (a Windows agent, a token with no roster row) is matched to the project by key, as slice 3.
+  Its task is recorded as added by that KEY ("ghost"), which can differ in spelling from the name the project
+  lists ("Ghost"); the label shows the key.
 
 ## Weakest premise
 That no real workflow has an agent adding or closing tasks on a project it is not on. A lead agent that files
@@ -99,4 +107,12 @@ tasks for other teams' projects would now be refused until it is put on them.
 - NITs: the Mac CLI's printing of the refusal is tested (exit 1, the board's sentence); a paneless member by key is
   tested on both writes; "who gains" is stated. Not taken: passing the roster through to tellEveryoneOn to save a
   second read on a token close (a small cost on one path; it would change a shared helper's signature).
+
+## Review round 2 (sonnet): 0 BLOCKER, 0 WARNING, 2 CONVENTION, 3 NIT
+- C the pane path tightened (a roster pane must be tied to our agent) and the plan did not say so: said, above.
+- C "nothing else reads `made.by` differently" was false: the page's "added by" label and the activity log show
+  the name now. Said, as the intent.
+- NITs: a paneless caller is recorded under the token store's key, a stated limit now. The checks run before the
+  runaway breaker: no gain to a caller (the breaker counts created tasks only), one tmux lookup for a tokenless
+  pane caller, as task message already costs. The test ordering notes needed no change.
 
