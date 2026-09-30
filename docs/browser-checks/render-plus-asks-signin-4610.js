@@ -65,6 +65,11 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
         plusSiShow('plus-si-done');
         if (typeof pollAsk === 'function') await pollAsk();
         paintAsk();
+        /* Measured from the top of the page. The app header is sticky, so a page scrolled down (at 390 the wizard's
+           focus scrolls it; in CI further than here) slides the requests under the header by ordinary scrolling, and a
+           "below the header" read then fails for a reason that is not placement (PR #4680 CI, twice, 390 only). */
+        scrollTo(0, 0);
+        await new Promise((r) => requestAnimationFrame(() => r()));
         const vis = (id) => { const e = document.getElementById(id); return !!(e && !e.hidden && e.getBoundingClientRect().height > 0); };
         const asks = document.getElementById('plus-asks'), sec = document.getElementById('s-sec-plus'), head = document.querySelector('.apphead');
         const a = asks.getBoundingClientRect(), s = sec.getBoundingClientRect();
@@ -74,6 +79,7 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
           rows: document.querySelectorAll('#plus-ask-rows .askreq').length,
           withinSection: a.left >= s.left - 1 && a.right <= s.right + 1,
           belowHeader: a.top >= Math.round(head.getBoundingClientRect().bottom),
+          asksTop: Math.round(a.top), headBottom: Math.round(head.getBoundingClientRect().bottom), scrollY: Math.round(scrollY),
           /* The first Allow's centre must be inside the viewport with no scrolling: placed after the sign-in wizard,
              the requests rendered off screen (mobile-shots allow-card, y=985 on desktop). */
           allowInView: (() => { const b = document.querySelector('#plus-ask-rows [data-ask="allow"]'); if (!b) return null;
