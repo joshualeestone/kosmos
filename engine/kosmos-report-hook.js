@@ -327,11 +327,15 @@ async function main(io) {
 
   const url = o.url || resolveUrl(env, typeof o.uid === 'number' ? o.uid : safeUid());
   // The board token: injectable for tests, else boardauth (the single source).
-  const boardToken = o.boardToken !== undefined ? o.boardToken : readBoardToken();
+  // #4491 slice 8: with KOSMOS_AGENT_TOKEN_ONLY exactly '1' and a usable agent token, the report goes with that token
+  // alone and the board token is not read (POST /api/report takes the agent's token; the CLIs' same switch).
+  const ownToken = agentToken(env);
+  const tokenOnly = Boolean(ownToken) && env.KOSMOS_AGENT_TOKEN_ONLY === '1';
+  const boardToken = tokenOnly ? null : (o.boardToken !== undefined ? o.boardToken : readBoardToken());
   const verdict = await deliver(report, {
     url,
     boardToken,
-    agentToken: agentToken(env),
+    agentToken: ownToken,
     fetchImpl: o.fetchImpl,
     timeoutMs: o.timeoutMs || timeoutFor(report),
     fromPane: env.TMUX_PANE || '',

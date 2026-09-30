@@ -189,7 +189,9 @@ async function main() {
      for the path. Guarded to this file's cardinal rule: a token we cannot read
      must never break the agent. */
   const engine = engineDir();
-  try {
+  /* #4491 slice 8: with KOSMOS_AGENT_TOKEN_ONLY exactly '1' and the agent's own token above, the report goes with that
+     token alone and the board token is not read (POST /api/report takes the agent's token; the CLIs' same switch). */
+  if (!(headers['x-kosmos-agent-token'] && process.env.KOSMOS_AGENT_TOKEN_ONLY === '1')) try {
     const boardTok = require(require('node:path').join(engine, 'boardauth')).readToken();
     if (typeof boardTok === 'string' && boardTok) headers['x-kosmos-board-token'] = boardTok;
   } catch { /* a missed board token must never become a failed turn */ }
