@@ -153,6 +153,10 @@ if (args[0] === 'signin') {
   }
   if (verb === 'addresses') {
     // kosmos#4756: the session token on stdin (never argv); the answer is the coordinator's JSON, from a file a test writes.
+    // 'OLDBIN' in that file plays a tunnel binary older than the verb (clap's own two-part error).
+    let first = '';
+    try { first = fs.readFileSync(${JSON.stringify(RECORD)} + '.addresses', 'utf8'); } catch { first = ''; }
+    if (first === 'OLDBIN') { process.stderr.write("error: unrecognized subcommand 'addresses'\\n\\nUsage: kosmos-tunnel signin <COMMAND>\\n\\nFor more information, try '--help'.\\n"); process.exit(2); }
     const token = fs.readFileSync(0, 'utf8').trim();
     fs.writeFileSync(${JSON.stringify(RECORD)} + '.addresses-token', token);
     if (!token) { process.stderr.write('no session token on stdin\\n'); process.exit(1); }
@@ -3057,4 +3061,19 @@ test('#4756: a computer already set up says which of the account\'s addresses it
       assert.equal(r.data.this_name, '', 'named an address for a computer that holds none');
     });
   } finally { remote.resetForTests(); }
+});
+
+test('#4756: a tunnel binary older than the verb reads as "update Kosmos", not clap\'s usage line', async () => {
+  delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES;
+  try {
+    await signedIn();
+    fs.writeFileSync(ADDR_ANSWER, 'OLDBIN');
+    await withMetaServer({ bought_addresses: true }, async () => {
+      const r = await remote.signinAddresses();
+      assert.equal(r.ok, false);
+      assert.equal(r.unsupported, true);
+      assert.equal(r.because, 'this version of Kosmos cannot list your addresses yet; update Kosmos');
+      assert.doesNotMatch(r.because, /--help/);
+    });
+  } finally { fs.writeFileSync(ADDR_ANSWER, JSON.stringify({ addresses: [] })); remote.resetForTests(); }
 });

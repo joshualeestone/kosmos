@@ -43785,7 +43785,8 @@ function plusSiBoughtPick(b) {
     const ep = PLUS_SI_EPOCH;
     plusSiMsg('');
     PLUS_SI_REFUSED = [];   // the person asked to look again: an address refused earlier may be free now (its computer retired)
-    plusSiSession(PLUS_SI_SESSION, true).catch(() => { if (ep === PLUS_SI_EPOCH) plusSiReReadFailed(); });
+    const run = plusSiSession(PLUS_SI_SESSION, true); const sq = PLUS_SI_BOUGHT_SEQ;   // the read's own number, taken as it starts
+    run.catch(() => { if (ep === PLUS_SI_EPOCH && sq === PLUS_SI_BOUGHT_SEQ) plusSiReReadFailed(); });
   });
 }
 
@@ -43868,7 +43869,8 @@ async function plusSiDoRegister(name, owned) {
     if (siSpin) siSpin.hidden = false;
     if (PLUS_SI_BOUGHT_LAST) PLUS_SI_BOUGHT_LAST = Object.assign({}, PLUS_SI_BOUGHT_LAST, { addresses: PLUS_SI_BOUGHT_LAST.addresses.filter((x) => x.name !== name) });
     plusSiMsg(r.because);
-    { const ep = PLUS_SI_EPOCH; plusSiSession(PLUS_SI_SESSION, true, r.because).catch(() => { if (ep === PLUS_SI_EPOCH) plusSiReReadFailed(); }); }
+    { const ep = PLUS_SI_EPOCH; const run = plusSiSession(PLUS_SI_SESSION, true, r.because); const sq = PLUS_SI_BOUGHT_SEQ;
+    run.catch(() => { if (ep === PLUS_SI_EPOCH && sq === PLUS_SI_BOUGHT_SEQ) plusSiReReadFailed(); }); }
     return;
   }
   PLUS_SI_RETRY_FROM_LIST = PLUS_SI_PICKED && !r.ok;   // a Try again on a picked address is still a pick

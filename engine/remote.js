@@ -1952,14 +1952,17 @@ function turnOnAfterSignin() {
    Answers { live:false } with the switch off (the wizard is exactly as before), else the rows in their own
    shapes only, the website's buy link (https only), and this computer's own name if it is set up. */
 const BOUGHT_STATES = new Set(['in_use', 'free', 'pending']);
-// Well inside the page's 15 s (PLUS_ASK_TIMEOUT_MS), so a slow but working read is not lost to the page's own timer.
-const ADDR_META_MS = 4000, ADDR_READ_MS = 8000;
-let addressesInFlight = null;   // one read at a time: a second caller shares it rather than spawning another binary
+// Inside the page's 15 s (PLUS_ASK_TIMEOUT_MS), and past the binary's own 10 s deadline for the read, so neither
+// timer cuts off a read that would have worked.
+const ADDR_META_MS = 3000, ADDR_READ_MS = 11000;
+let addressesInFlight = null;   // { token, run }: one read at a time per sign-in; a second caller of the SAME one shares it
 async function signinAddresses(opts) {
-  if (addressesInFlight && !(opts && (opts.fetch || opts.timeoutMs))) return addressesInFlight;
+  const token = signinSession && typeof signinSession.token === 'string' ? signinSession.token : null;
+  if (token && addressesInFlight && addressesInFlight.token === token && !(opts && (opts.fetch || opts.timeoutMs))) return addressesInFlight.run;
   const run = signinAddressesOnce(opts);
-  addressesInFlight = run;
-  try { return await run; } finally { if (addressesInFlight === run) addressesInFlight = null; }
+  const mine = { token, run };
+  addressesInFlight = mine;
+  try { return await run; } finally { if (addressesInFlight === mine) addressesInFlight = null; }
 }
 async function signinAddressesOnce(opts) {
   opts = opts || {};
@@ -1972,7 +1975,18 @@ async function signinAddressesOnce(opts) {
   const live = process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES === '1' || (await fetchMetaFlag('bought_addresses', { fetch: get, timeoutMs: opts.timeoutMs || ADDR_META_MS })) === true;
   if (!live) return { ok: true, because: null, data: { live: false } };
   if (!signinSession || signinSession.token !== token) return { ok: false, because: 'the sign-in ended; start again from the email' };
-  const r = parseSaid(await setupRun(['signin', 'addresses', '--coordinator', COORDINATOR()], token, opts.timeoutMs || ADDR_READ_MS));
+  const ran = await setupRun(['signin', 'addresses', '--coordinator', COORDINATOR()], token, opts.timeoutMs || ADDR_READ_MS);
+  // A sign-out, or another sign-in, while the binary ran: this answer is not theirs.
+  if (!signinSession || signinSession.token !== token) return { ok: false, because: 'the sign-in ended; start again from the email' };
+  if (!ran.ok) {
+    /* A tunnel binary older than the verb: clap prints "unrecognized subcommand" first and its usage after, so the
+       last line alone never says so (the same reading as assistantChat's). */
+    if (/unrecognized subcommand|invalid subcommand/i.test(String(ran.stderr || '') + '\n' + String(ran.because || ''))) {
+      return { ok: false, unsupported: true, because: 'this version of Kosmos cannot list your addresses yet; update Kosmos' };
+    }
+    return { ok: false, because: String(ran.because || 'Kosmos+ could not list your addresses').slice(0, 300) };
+  }
+  const r = parseSaid(ran);
   if (!r.ok) return { ok: false, because: String(r.because || 'Kosmos+ could not list your addresses').slice(0, 300) };
   const body = r.data;
   const rows = (body && Array.isArray(body.addresses) ? body.addresses : [])
