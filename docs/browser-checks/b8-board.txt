@@ -8,7 +8,9 @@ import-agent-flow
 named-controls
 render-adopt-1531
 render-boot-no-flash
+render-catalogue-fetch-4632
 render-community-delete-4313
+render-community-industry-4375
 render-community-switch-4288
 render-create-form
 render-engine-restart-4408

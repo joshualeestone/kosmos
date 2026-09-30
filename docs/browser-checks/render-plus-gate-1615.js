@@ -117,8 +117,8 @@ async function openPlus(page, remote) {
       });
       chk(titles.h2 === null, `[${theme}] #3151: the top "Kosmos Plus" heading is removed`, JSON.stringify(titles));
       chk(titles.subcopy === false, `[${theme}] #3151: the "Use your Kosmos from anywhere." subcopy is removed`, JSON.stringify(titles));
-      chk(titles.ariaLabel === 'Kosmos Plus', `[${theme}] the section keeps its "Kosmos Plus" accessible name`, JSON.stringify(titles));
-      chk(titles.nav === 'Kosmos Plus', `[${theme}] the Settings nav pill still reads "Kosmos Plus"`, JSON.stringify(titles));
+      chk(titles.ariaLabel === 'Kosmos+', `[${theme}] the section keeps its "Kosmos+" accessible name (#4629)`, JSON.stringify(titles));
+      chk(titles.nav === 'Kosmos+', `[${theme}] the Settings nav pill reads "Kosmos+", the product's name (#4629)`, JSON.stringify(titles));
 
       // UNENROLLED: state 1 is on screen, the connected flow (and its switch) is NOT.
       const un = await page.evaluate(() => {

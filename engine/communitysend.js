@@ -29,7 +29,8 @@
  * ruling on #3485), belong to engine/communityswitch.js (#4288). This layer only reads
  * it, at send time. Until that module lands it reads as OFF, so no post is sent: a
  * default and its control land together (#2013), and here the control lands in #4288.
- * Deletes the owner asks for, and take-down reads, still run with the switch OFF.
+ * Deletes the owner asks for, take-down reads, and clearing the owner's industry off the
+ * agents' profiles (#4375) still run with the switch OFF.
  *
  * 🛑 ONLY PUBLISHED POSTS, AND ONLY THOSE PUBLISHED WHILE SENDING IS ON. Held and
  * quarantined posts are never read here (communitystore.publishedPosts). The layer records
@@ -50,6 +51,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const store = require('./store');
 const communitystore = require('./communitystore');
+const industry = require('./communityindustry');   // #4375
 const communitysite = require('./communitysite');
 
 const DEFAULT_ENDPOINT = 'https://community.installkosmos.com';
@@ -503,6 +505,105 @@ async function sweepComments(keys, from, now) {
   }
 }
 
+/**
+ * #4375: the owner's industry on each registered agent's public profile ("Works for ..."), as
+ * PATCH /agents/me { industry } (kosmos-community #4370). Sent when it differs from what this agent
+ * was last sent: a key when set, null ONCE when a set industry is cleared, and nothing for an agent
+ * that was never sent one while none is set. An unreadable setting is unknown and sends nothing.
+ * A key the service refuses (400, its list moved) is recorded and not sent again until it changes.
+ */
+/* The service's OWN refusal of a value: its 400 {detail: "unknown industry"} (kosmos-community app/routers/agents.py
+   update_me), the one answer that is about the value and not the route (review 9). Every other 400/422 (a regressed
+   schema, a proxy) is retried like a 404, and the service never refuses null this way, so a clear is never final. */
+function serviceRefusedIndustry(r) {
+  return r.status === 400 && Boolean(r.json) && r.json.detail === 'unknown industry';
+}
+
+async function sweepIndustry(keys, on) {
+  const cur = industry.read();
+  if (!cur.ok) return;
+  const want = cur.industry;                        // a key, or null
+  // A CLEAR goes out whatever the switch says, like the owner's deletes: taking information back off a public
+  // profile must not wait for Community to be switched on again. A new or changed industry goes only while ON.
+  const clearing = want === null;
+  if (!clearing) {
+    // A new pick: the next clear to a shut-out agent is logged again, whatever the switch says (review 5).
+    let changed = false;
+    for (const k of Object.values(keys)) if (k && k.industryClearUnreachable) { delete k.industryClearUnreachable; changed = true; }
+    if (changed) saveJson(keysFile(), keys);
+  }
+  if (!on && !clearing) return;
+  for (const agentKey of Object.keys(keys)) {
+    if (!clearing && !switchOn()) break;
+    const k = keys[agentKey];
+    if (!k || !k.apiKey) continue;
+    if (k.refused) {
+      // The service refused this agent's key, so its profile cannot be changed from here: a clear the owner asked
+      // for cannot reach it. Said once in the log, so it is on record.
+      if (clearing && (k.industrySent || k.industryUnsure) && !k.industryClearUnreachable) {
+        k.industryClearUnreachable = true;
+        saveJson(keysFile(), keys);
+        log(`industry for ${agentKey}: the service refused this agent's key, so its profile keeps ${k.industrySent ? `"${k.industrySent}"` : 'whatever an unanswered change left there'}`);
+      }
+      continue;
+    }
+    const sentBefore = Object.prototype.hasOwnProperty.call(k, 'industrySent');
+    // An unanswered PATCH may have landed (review 7): until one is answered, what the profile shows is unknown, so the
+    // "nothing to send" shortcut is not taken. The PATCH is idempotent, so sending again is always safe.
+    if (!k.industryUnsure && (sentBefore ? k.industrySent === want : want === null)) {
+      // Nothing to send, but a refusal of a value no longer wanted is forgotten here too, so choosing that value
+      // again later is tried (a None in between must not leave it skipped forever).
+      if (Object.prototype.hasOwnProperty.call(k, 'industryRefused') && k.industryRefused !== want) {
+        delete k.industryRefused;
+        saveJson(keysFile(), keys);
+      }
+      continue;
+    }
+    // A value refused before is skipped only while it is still what is wanted; any other choice forgets the
+    // refusal, so a key the service accepts later can be chosen again.
+    if (Object.prototype.hasOwnProperty.call(k, 'industryRefused')) {
+      if (k.industryRefused === want) continue;
+      delete k.industryRefused;
+    }
+    // Write-ahead: if the answer never arrives (or the board stops), the next sweep knows it cannot trust industrySent.
+    const wasUnsure = k.industryUnsure === true;        // set by an EARLIER unanswered PATCH, which may have landed
+    k.industryUnsure = true;
+    saveJson(keysFile(), keys);
+    const r = await asAgent(agentKey, keys, 'PATCH', '/agents/me', { industry: want });
+    if (r.status === 204 || r.status === 200) {
+      k.industrySent = want;
+      delete k.industryRefused;
+      delete k.industryRetrying;
+      delete k.industryUnsure;
+      saveJson(keysFile(), keys);
+    } else if (r.status === 404 || r.status === 405 || ((r.status === 400 || r.status === 422) && !serviceRefusedIndustry(r))) {
+      // (A 400/422 cannot be the service's answer to null, which it always accepts: something in between refused it,
+      // so a CLEAR is not given up on it either.)
+      // The route being absent right now (a rollback, a deploy, a service older than #4370) is a fact about the ROUTE,
+      // not the value (review 6): nothing is given up on it, a clear least of all. Tried again every sweep, logged once
+      // per value, until it lands. Only 400/422 (the service refusing this value) are final.
+      if (k.industryRetrying !== want) {
+        k.industryRetrying = want;
+        saveJson(keysFile(), keys);
+        log(`industry for ${agentKey}: got ${r.status}; trying again every sweep until it lands`);
+      }
+    } else if (serviceRefusedIndustry(r)) {
+      // A refusal says THIS PATCH changed nothing; it says nothing about an earlier unanswered one (review 8), so the
+      // mark is put back as it was before this send, not deleted.
+      if (!wasUnsure) delete k.industryUnsure;
+      delete k.industryRetrying;                        // an answer: a later outage for this value is logged again
+      k.industryRefused = want;
+      saveJson(keysFile(), keys);
+      log(`industry for ${agentKey}: refused with ${r.status}; not sent again until it changes`);
+    } else if (k.industryRetrying !== want) {
+      // No usable answer (a timeout, a 5xx, a 429): tried again next sweep, logged once per value like a 404 (review 10).
+      k.industryRetrying = want;
+      saveJson(keysFile(), keys);
+      log(`industry for ${agentKey}: no usable answer (status ${r.status || 'none'}); trying again every sweep until it lands`);
+    }
+  }
+}
+
 async function sweepOnce(now) {
   if (!sender && underTest()) return { skipped: 'test' };
   const on = switchOn();
@@ -560,8 +661,10 @@ async function sweepOnce(now) {
     await sweepTakedowns(keys, sent, now);
     saveJson(sentFile(), sent);
   } catch (e) { log(`take-down reads: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
-  // #4373 part B: comments go after the owner's deletes and the take-down reads, so a slow comment pass (each can
-  // take a POST, a login and a re-POST) never holds a delete of a public post back.
+  try { await sweepIndustry(keys, on); }
+  catch (e) { log(`industry: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  // #4373 part B: comments go after the owner's deletes, the take-down reads and the industry pass, so a slow comment
+  // pass (each can take a POST, a login and a re-POST) never holds back taking something off the public site.
   if (on && st && from) {
     try { await sweepComments(keys, from, now); }
     catch (e) { log(`comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
@@ -721,13 +824,26 @@ function commentStatuses() {
   return out;
 }
 
+/**
+ * #4375: how many registered agents still show an industry on their profile that the board can no longer change,
+ * because the service refused their key. The page says so when the owner takes the industry off.
+ */
+function industryUnreachable() {
+  // null when the sweep cannot run at all (an unreadable file it needs, or an address it will not send to): then
+  // nothing reaches any profile, and the page must not promise that a clear does.
+  const keys = loadJson(keysFile());
+  if (!keys || !loadJson(sentFile()) || !loadJson(deletesFile()) || !endpointAllowed()) return null;
+  // An unsure mark counts too: an unanswered PATCH may have put an industry on the profile (review 8).
+  return Object.values(keys).filter((k) => k && k.refused && ((typeof k.industrySent === 'string' && k.industrySent) || k.industryUnsure)).length;
+}
+
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
 
 module.exports = {
-  switchOn, willSend, markNotSent, recordPeriodStart, endOnPeriodNow, sweep, requestDelete, statuses, commentStatuses, payload, titleFor, registration, underTest,
+  switchOn, willSend, markNotSent, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, requestDelete, statuses, commentStatuses, payload, titleFor, registration, underTest,
   setSender, setTimeoutMs, setSwitch, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
   _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile },
 };

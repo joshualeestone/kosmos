@@ -3109,7 +3109,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .snav button:hover { color: var(--k-ink); }
 /* #3505 (Josh, 2026-09-23): size the SETTINGS nav pills to their longest label rather than
    stretching to the full nav column, which read as cluttered full-width blocks ("Advanced" as
-   wide as "Kosmos Plus"). .snav is a flex column, so width:max-content shrinks #s-nav to its
+   wide as "Kosmos+"). .snav is a flex column, so width:max-content shrinks #s-nav to its
    widest button and the width:100% buttons all match that one width: uniform, left-aligned, no
    longer full-column. Scoped to #s-nav (the Settings nav), NOT the shared .snav: the
    agent-detail nav #d-nav is #3500's separate redesign and must not change here. This id rule
@@ -5972,6 +5972,35 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .pjtitle #pj-one-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
 .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 1px 0 0; max-width: none; line-height: 1.35; }
 .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
+/* #4663 (Mona Lisa's phone audit): on a touchscreen the project page's small controls (Back, the settings cog,
+   + Add member, + New task and the two View All links, drawn 22 to 28px) take a thumb-sized tap: an invisible
+   area on each, at least 36px, the room's --room-tap (defined on the conversation element, which these sit outside, so the value is
+   written here; render-room-msgbox-2806 asserts the same 36). Back, the cog and + Add member have room all round, so
+   theirs is centred. The two View All links and + New task sit a few px above the first file or task, so theirs
+   grows up and sideways only, never below the control's own bottom edge (a centred area took the top 3 to 6% of
+   the first file row and the first task card). Nothing drawn changes here; the one-screen block below has the
+   only two drawn changes. */
+@media (hover: none) {
+  #pj-back, #pj-settings-link, #pj-add-member, #pj-newtask, #pj-docs-all, #pj-alltasks { position: relative; }
+  :is(#pj-back, #pj-settings-link, #pj-add-member, #pj-newtask, #pj-docs-all, #pj-alltasks)::after {
+    content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: max(100%, 36px); height: max(100%, 36px); }
+  :is(#pj-newtask, #pj-docs-all, #pj-alltasks)::after { top: auto; bottom: 0; transform: translateX(-50%); }
+}
+/* The one-screen layout exists only at 960px and wider (the block that lays it out is gated the same way), so these
+   are too: forced narrower, + New task's area would cover View All.
+   In it the tasks header sits at the very top of a column that clips (overflow: hidden, for its scroller), so an
+   area growing up had no room: the header gains 14px above it on touch, which the areas of + New task and View All
+   grow into. + New task sits at the column's right edge, so its area grows left. */
+@media (hover: none) and (min-width: 960px) {
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field { padding-top: 14px; }
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-newtask::after { left: auto; right: 0; transform: none; }
+  /* + New task's area reaches 14px left of its drawn edge, 6px more than the 8px gap to View All: View All steps 8px
+     left here (6px, plus 2px so sub-pixel layout cannot close the gap) so no part of it answers as New task. */
+  /* Descendant, not child, so web.controls-1303h's anchor on the child form still names one rule (the layout's);
+     same specificity, and later, so this margin wins over that rule's margin: 0. */
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field #pj-alltasks { margin-right: 8px; }
+}
 /* Josh, 2026-09-10 (#2711 item 4): the tab-view conversation search is narrow
    at rest ("Search"), and widens when the person clicks into it so they have
    room to type. Scoped to body:not(.consolidated) so it never applies in the
@@ -6348,7 +6377,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    the message area (.thread in the tab view; the merged .pj3 > .pjmid panel in the
    consolidated view, where #980 leaves .thread transparent) PLUS the sticky .composer,
    which #3267 already tied to that ground in lockstep, so both layouts black the composer too.
-   Two scoping guards, both deliberate. (1) body:not(.plus-active): the Kosmos Plus paid
+   Two scoping guards, both deliberate. (1) body:not(.plus-active): the Kosmos+ paid
    theme (body.plus-active, line ~7903) is a whole-app navy reskin via body-level TOKEN
    override; a hard-coded #000/#fff here would beat its inherited tokens and turn its navy
    dialogue black on a dark-OS machine, so Plus is excluded and keeps its own design (leave
@@ -6756,7 +6785,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    agent-message backgrounds should not vary message-to-message ("we determined we
    were only going to have one fixed color for the background message color for
    agent messages"). Every agent bubble now resolves to the flat --agent-msg base
-   set above (still per-theme, still the translucent --k-sunk on the Kosmos Plus
+   set above (still per-theme, still the translucent --k-sunk on the Kosmos+
    tab), and the data-am attribute is no longer emitted in dmRow / pjRoomRow. */
 /* #2067 / #2239: restricted-markdown treatments, on the surfaces that render
    them -- the talk thread (.dm-b) and the project message list (.pj-msg-text),
@@ -9043,6 +9072,8 @@ html[data-kosmos-platform="win32"] ::-webkit-scrollbar-button { display: none; }
    a non-Plus viewer who selects Join gets showPlusGate("join") instead (see the change handler),
    so the form is never reached anyway; this rule is the belt-and-suspenders. */
 html:not([data-fed-ui="show"]) #pj-invite-panel,html:not([data-fed-ui="show"]) #pj-join-mode { display: none !important; }
+/* kosmos#4649: "Add your other computer" is a shared-room control, so it hides exactly when they do. */
+html:not([data-fed-ui="show"]) #pjs-own-field { display: none !important; }
 /* The Add-external buttons show GRAYED (not hidden) for a non-"show" viewer, and stay CLICKABLE so
    the click can open showPlusGate("connect"). Visual gray only -- no pointer-events:none. */
 html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"]) #pj-add-ext-agent { opacity: .55; }
@@ -9938,7 +9969,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 @media (prefers-reduced-motion: reduce) { #boot-cover .boot-spin { animation: none; } }
 
 /* ================= Kosmos Plus — whole-app blue reskin (#1615) =================
-   Mona Lisa's decision (2026-09-06): while the Kosmos Plus tab is on screen the
+   Mona Lisa's decision (2026-09-06): while the Kosmos+ tab is on screen the
    WHOLE app takes the "first step" blue ground (nav + sidebar + content), for a
    premium feel unlike anywhere else in the app. Scoped to `body.plus-active`,
    toggled by syncPlusChrome() on section/tab change — and torn down on leave, so
@@ -10704,7 +10735,7 @@ window.kosmosMeasureScrollbarWidth();
       </button>
       <div class="userpop-menu" id="userpop-menu" hidden>
         <!-- #3360: Kosmos+ promo at the top. Logged-out shows "Log in to Kosmos+" (deep-links
-             to Settings > Kosmos Plus, the real sign-in surface -- sign-up itself happens on
+             to Settings > Kosmos+, the real sign-in surface -- sign-up itself happens on
              the site). A member in good standing sees the member line below instead
              (plusMember() reads data-fed-member). syncUserpopPlus() shows exactly one of the two. -->
         <button class="userpop-item userpop-plus" id="userpop-plus" type="button">
@@ -11933,7 +11964,7 @@ window.kosmosMeasureScrollbarWidth();
      (fed-gate state, when to gate) lives in fedGateMode; this modal only shows the prompt. -->
 <div class="rm-back" id="plus-gate-modal" hidden>
   <div class="rm-box" role="dialog" aria-modal="true" aria-labelledby="plus-gate-t" aria-describedby="plus-gate-msg">
-    <h2 class="rm-title" id="plus-gate-t">Kosmos Plus</h2>
+    <h2 class="rm-title" id="plus-gate-t">Kosmos+</h2>
     <p class="rm-small" id="plus-gate-msg"></p>
     <div class="rm-acts">
       <button class="btn" type="button" id="plus-gate-close">Not now</button>
@@ -15401,6 +15432,21 @@ window.kosmosMeasureScrollbarWidth();
       </div>
     </div>
 
+    <!-- kosmos#4649 (weekend goal #4647): put this project on another of YOUR computers, so the agents
+         on each computer share one conversation. The code is pasted into Join a project there. -->
+    <div class="field" id="pjs-own-field">
+      <span class="flabel" id="pjs-own-label">Your other computers</span>
+      <p class="fhint" id="pjs-own-hint">Share this project with another computer signed in to your Kosmos Plus account. Its agents and the agents here will talk in one conversation. Once it is shared with your other computers, it cannot also be shared with other people yet.</p>
+      <div class="frow" id="pjs-own-row" hidden>
+        <input id="pjs-own-code" type="text" readonly aria-labelledby="pjs-own-label" spellcheck="false">
+        <button class="btn" id="pjs-own-copy" type="button">Copy</button>
+      </div>
+      <p class="fmsg" id="pjs-own-msg" aria-live="polite" tabindex="-1"></p>
+      <div class="frow" style="margin-top: var(--space-4)">
+        <button class="btn" id="pjs-own-add" type="button"><span aria-hidden="true">+</span> Add your other computer</button>
+      </div>
+    </div>
+
     <div class="field">
       <!-- #2923 (Josh 6.59 QA): the save confirmation sits to the LEFT of the
            button (#pjs-save-live), not in the after-button slot below, where
@@ -15791,7 +15837,7 @@ window.kosmosMeasureScrollbarWidth();
     <button type="button" data-go="automation" aria-controls="s-sec-automation">Automation</button>
     <button type="button" data-go="usage" aria-controls="s-sec-usage">Token Usage</button>
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
-    <button type="button" data-go="plus" aria-controls="s-sec-plus"><span>Kosmos Plus</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
+    <button type="button" data-go="plus" aria-controls="s-sec-plus"><span>Kosmos+</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
     <button type="button" data-go="advanced" aria-controls="s-sec-advanced">Advanced</button>
   </nav>
   <div class="dsecs">
@@ -16510,11 +16556,19 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Community</h3>
       <div class="setrow" id="community-row">
         <div><b>My agents take part in the Kosmos community</b>
-          <p class="dhint" style="margin:2px 0 0;">They share what they are working on at community.installkosmos.com. Nothing goes out until you release it.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">They share what they are working on at community.installkosmos.com. Nothing they write goes out until you release it. Their public profiles also show the kind of business you pick below, if you pick one.</p></div>
         <button class="toggle" id="community-toggle" role="switch" aria-label="My agents take part in the Kosmos community" hidden><i></i></button>
       </div>
+      <!-- #4375: the owner's industry, on their agents' public profiles ("Works for a law firm"). A fixed
+           list, never free text (#4336: a typed business name is what the name scrub cannot catch). -->
+      <div class="frow" id="community-industry-row" style="margin:10px 0 0;">
+        <label class="dhint" for="community-industry">Your kind of business, shown on your agents’ public profiles</label>
+        <select id="community-industry" aria-describedby="community-industry-hint" hidden></select>
+      </div>
+      <p class="dhint" id="community-industry-hint" style="margin:4px 0 0;">Optional. A profile reads “Works for” and what you pick; with none picked it leaves the line out.</p>
+      <p class="dhint" id="community-industry-msg" role="status" style="margin:4px 0 0;"></p>
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
-      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Posts already in the community stay up until you delete them below.</p>
+      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None. Posts already in the community stay up until you delete them below.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #4525: what the agents wrote that is held for the person (every new agent's post and
            comment is held by default), each with Release and Discard. Release is also the only way
@@ -16746,11 +16800,11 @@ window.kosmosMeasureScrollbarWidth();
        tab starts working without a rebuild. No domain appears anywhere in
        this section on purpose: the address arrives from the service, and
        the name Josh has ruled durable is "Plus", not any hostname. -->
-  <section class="dsec" id="s-sec-plus" data-sec="plus" tabindex="-1" aria-label="Kosmos Plus" hidden>
+  <section class="dsec" id="s-sec-plus" data-sec="plus" tabindex="-1" aria-label="Kosmos+" hidden>
     <!-- #3151 (Josh, 2026-09-15): the top "Kosmos Plus" heading and the
          "Use your Kosmos from anywhere." subcopy are deleted so the
          "Already have Kosmos+? Sign in" bar reflows to the top. The section
-         keeps aria-label="Kosmos Plus", so its accessible name is unchanged. -->
+         keeps aria-label="Kosmos+", so its accessible name is unchanged. -->
 
     <!-- #1615 blue reskin: the ambient star field behind the whole pane. It sits
          OUTSIDE #plus-state1 on purpose (web.plus-tab.test.js scopes its
@@ -16759,6 +16813,17 @@ window.kosmosMeasureScrollbarWidth();
          by syncPlusChrome() on tab enter/leave so it never burns CPU off-screen.
          Decorative -> aria-hidden. -->
     <canvas id="plus-stars" aria-hidden="true"></canvas>
+
+    <!-- #3829 addendum (Josh, 20:00): on Settings > Kosmos Plus the device requests sit directly ABOVE the
+         panel, at its width, in the settings column. Elsewhere the top card is only a compact notice linking here.
+         #4610 (Josh, 12:50): here in every Plus state, including right after sign-in, never across the top. They
+         sit FIRST in the section, before state 1 and state 2: after them, a waiting request rendered below the whole
+         sign-in wizard, off screen (mobile-shots allow-card, Allow at y=985 on desktop). States 1 and 2 are hidden
+         while the connected panel shows, so there this is still directly above #plus-flow. -->
+    <div class="plus-asks" id="plus-asks" role="status" aria-live="polite" hidden>
+      <p class="setname" id="plus-asks-title">Asking to use this Kosmos</p>
+      <div id="plus-ask-rows"></div>
+    </div>
 
     <!-- #1615, design/plus-flow.html section 5: this pane is THREE states, not one.
          Today's single state described a signup that does not happen here, which is
@@ -16890,10 +16955,10 @@ window.kosmosMeasureScrollbarWidth();
            The "You have Kosmos+..." line is gone at his word. -->
 
       <!-- The wizard drives the engine's stages; plusSiShow() reveals exactly one
-           step at a time. `plus-si-*` ids so nothing collides with the enrol pair
-           (`plus-email`/`plus-code`/`plus-name`) inside the connected flow below --
-           a duplicate id makes getElementById return whichever comes first, caught
-           by the page's own id-uniqueness guard rather than by review. -->
+           step at a time. `plus-si-*` ids keep its fields apart from any other Plus
+           field (the connected flow's own enrol pair, which could never show, was
+           removed in #4698): a duplicate id makes getElementById return whichever
+           comes first, caught by the page's own id-uniqueness guard. -->
       <div id="plus-si-email">
         <!-- ⚠️ `tk-inp` INSIDE `.field`, NOT `.cinput`. `.cinput` is the COMPOSER
      input class (border: 0; background: none; borrows its border from a
@@ -16941,7 +17006,7 @@ window.kosmosMeasureScrollbarWidth();
              reset from a computer already connected to Kosmos+ (#733's "I lost my phone"); there is
              no support path or server unlock by design (docs/second-factor.md in kosmos-relay). -->
         <p class="plus-si-small"><a id="plus-si-second-help" class="plus-signin-link" href="#" role="button" aria-expanded="false" aria-controls="plus-si-second-recover">Can't get a code?</a></p>
-        <p class="plus-si-small" id="plus-si-second-recover" hidden>Open Kosmos on a computer that is already connected to Kosmos+, go to Settings, Kosmos Plus, and choose “Lost your phone?”. That resets this step, and nobody else can.</p>
+        <p class="plus-si-small" id="plus-si-second-recover" hidden>Open Kosmos on a computer that is already connected to Kosmos+, go to Settings, Kosmos+, and choose “Lost your phone?”. That resets this step, and nobody else can.</p>
       </div>
 
       <!-- Set up a second factor (signin-enrol): reached only when the account has
@@ -17022,7 +17087,7 @@ window.kosmosMeasureScrollbarWidth();
            Done hands over to the connected flow. -->
       <!-- #3796 addendum 10 (Josh's ruling, 17:28): the landing is the heading and ONE line. No address,
            no Copy, no tiles: another device signs in at the website, and this computer then asks to allow
-           it (the approval lives in Settings > Kosmos Plus). -->
+           it (the approval lives in Settings > Kosmos+). -->
       <div id="plus-si-done" hidden>
         <p class="plus-si-lead" id="plus-si-done-line">To use Kosmos on another device, sign in at login.kosmosplus.com.</p>
         <div class="frow"><button class="btn uprime" type="button" id="plus-si-done-go">Done</button></div>
@@ -17040,12 +17105,6 @@ window.kosmosMeasureScrollbarWidth();
       <p class="plus-si-small plus-si-foot"><a id="plus-si-cancel" class="plus-signin-link" href="#">Cancel</a></p>
     </div>
 
-    <!-- #3829 addendum (Josh, 20:00): on Settings > Kosmos Plus the device requests sit directly ABOVE the
-         panel, at its width, in the settings column. Elsewhere the top card is only a compact notice linking here. -->
-    <div class="plus-asks" id="plus-asks" role="status" aria-live="polite" hidden>
-      <p class="setname" id="plus-asks-title">Asking to use this Kosmos</p>
-      <div id="plus-ask-rows"></div>
-    </div>
     <div id="plus-flow" hidden>
       <!-- #3829 (Josh, 16:54: "terribly worded and designed"; Mona Lisa's sketch on the card): status first,
            View my account top right, the address in ONE chip with Copy and Open and one plain line under it,
@@ -17056,9 +17115,9 @@ window.kosmosMeasureScrollbarWidth();
            shows the setting (on = remote access wanted); the badge says whether it is connected. The logo is drawn
            from the Kosmos+ dot data the app already ships (kplusBarDrawMark, also the remote-access bar's mark). -->
       <div class="plus-headrow">
-        <canvas class="plus-logo" id="plus-logo" role="img" aria-label="Kosmos Plus"></canvas>
+        <canvas class="plus-logo" id="plus-logo" role="img" aria-label="Kosmos+"></canvas>
         <span class="plus-sp"></span>
-        <button class="toggle" type="button" id="plus-switch" role="switch" aria-label="Let your devices reach this computer through Kosmos Plus" hidden><i></i></button>
+        <button class="toggle" type="button" id="plus-switch" role="switch" aria-label="Let your devices reach this computer through Kosmos+" hidden><i></i></button>
         <span class="plus-pill" id="plus-pill" data-state="off">Off</span>
       </div>
       <!-- #4080 (Josh, 22:09: "lets put this ... in that box that the current URL is in"): the box holds the way
@@ -17089,31 +17148,6 @@ window.kosmosMeasureScrollbarWidth();
                These words were reviewed by the design lane (Mona Lisa, #2499)
                and left as-is; the recovery block below was reviewed too. -->
           <p class="fhint" id="plus-next" hidden></p>
-        </div>
-      </div>
-      <div id="plus-enrol" hidden style="margin-top:12px;">
-        <div class="field">
-          <label class="flabel" for="plus-email">Your email</label>
-          <input class="tk-inp" id="plus-email" type="email" maxlength="120" autocomplete="email">
-        </div>
-        <div class="frow">
-          <button class="btn" type="button" id="plus-send-code">Email me a code</button>
-        </div>
-        <p class="dhint" id="plus-sent" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
-        <div id="plus-code-row" hidden>
-          <div class="field">
-            <label class="flabel" for="plus-code">The code from the email</label>
-            <input class="tk-inp" id="plus-code" type="text" inputmode="numeric" maxlength="12">
-          </div>
-          <div class="field">
-            <label class="flabel" for="plus-name">A name for your address</label>
-            <p class="fhint">3 to 32 letters, numbers or hyphens.</p>
-            <input class="tk-inp" id="plus-name" type="text" maxlength="32" autocomplete="off" autocapitalize="none" aria-describedby="plus-name-suggested">
-            <p class="fhint" id="plus-name-suggested" hidden>We picked a private one. Type over it to choose your own.</p>
-          </div>
-          <div class="frow" style="margin-top:8px;">
-            <button class="btn uprime" type="button" id="plus-confirm">Confirm</button>
-          </div>
         </div>
       </div>
       <!-- #567: the durable home of the Allow rows. Pending first (the same
@@ -17148,7 +17182,7 @@ window.kosmosMeasureScrollbarWidth();
         <a class="plus-signin-link" id="plus-account" href="#" target="_blank" rel="noreferrer noopener">View account</a>
       </div>
       <div id="plus-forget-ask" hidden>
-        <p class="fhint" id="plus-forget-sure">This computer leaves your Kosmos Plus account and its address is freed. Your devices will no longer reach it. You can connect it again later by signing in.</p>
+        <p class="fhint" id="plus-forget-sure">This computer leaves your Kosmos+ account and its address is freed. Your devices will no longer reach it. You can connect it again later by signing in.</p>
         <div class="frow">
           <button class="btn danger-btn" type="button" id="plus-forget-yes">Remove</button>
           <button class="btn" type="button" id="plus-forget-no">Cancel</button>
@@ -17160,7 +17194,7 @@ window.kosmosMeasureScrollbarWidth();
 <!-- #4080: "Lost your phone?" opens this, in place of the essay that sat on the Kosmos Plus pane (Josh, 22:06:
        "all of this probably doesnt belong on that page"). The reset keeps its ids and its two-step arm (#733).
        The words are shortened; "always" is kept, per Josh's 2026-08-29 ruling that the second step ALWAYS happens.
-       It sits INSIDE the Kosmos Plus section, not as a direct child of <body>: the consolidated grid reserves 39 rows
+       It sits INSIDE the Kosmos+ section, not as a direct child of <body>: the consolidated grid reserves 39 rows
        for body's children (web.consolidated-980.test.js) and main already has 39. The section's own child rule would
        make it position:relative, so a rule restores the fixed overlay (#s-sec-plus > #plus-lost-modal; review round 3). -->
   <div class="rm-back" id="plus-lost-modal" hidden>
@@ -29083,6 +29117,95 @@ async function communityToggleClick() {
 }
 document.getElementById('community-toggle').addEventListener('click', communityToggleClick);
 
+/* #4375: the owner's industry picker. The options come from the board's own list (GET), so the page
+   offers exactly the keys the board accepts. An unreadable setting (or a failed read) draws NO
+   industry as chosen, says so, and keeps "None" pickable, so the person can always clear what their
+   profiles show: a privacy control never shows a position it does not know, and never disappears. */
+let INDUSTRY_EPOCH = 0;
+let INDUSTRY_SAVING = false;
+const INDUSTRY_NONE_LABEL = 'None: profiles leave it out';
+const INDUSTRY_UNKNOWN_LABEL = 'Could not be read just now';
+function industryPaint(r, keepMsg) {
+  const sel = document.getElementById('community-industry');
+  const unread = !r || r.ok !== true || !Array.isArray(r.industries);
+  // The list comes with every board answer, readable setting or not, so "Pick one" is true on a corrupt file too.
+  if (r && Array.isArray(r.industries)) sel.__industries = r.industries;
+  const list = sel.__industries || [];
+  const opts = [];
+  if (unread) opts.push({ value: '__unknown', text: INDUSTRY_UNKNOWN_LABEL, disabled: true });
+  opts.push({ value: '', text: INDUSTRY_NONE_LABEL });
+  for (const i of list) opts.push({ value: i.key, text: String(i.display || i.label || '') });   // the board dresses the label
+  sel.textContent = '';
+  for (const o of opts) {
+    const el = document.createElement('option');
+    el.value = o.value; el.textContent = o.text;
+    if (o.disabled) el.disabled = true;
+    sel.appendChild(el);
+  }
+  sel.value = unread ? '__unknown' : (r.industry || '');
+  sel.hidden = false;
+  // A re-read after a refused save keeps the refusal on screen (keepMsg), even when that re-read cannot be read.
+  if (keepMsg) return;
+  // Said by case: with the list here, any choice sets it again; without it, only None is offered.
+  document.getElementById('community-industry-msg').textContent = !unread ? ''
+    : (list.length ? 'We could not read which business your profiles show just now. Pick one, or None, to set it again.'
+      : 'We could not read which business your profiles show just now. Try again in a moment.');
+}
+async function refreshIndustry(keepMsg) {
+  const mine = ++INDUSTRY_EPOCH;
+  try {
+    const res = await fetch('/api/community-industry');
+    if (!res.ok) { if (mine === INDUSTRY_EPOCH) industryPaint(null, keepMsg === true); return; }
+    const r = await res.json();
+    if (mine === INDUSTRY_EPOCH) industryPaint(r, keepMsg === true);
+  } catch {
+    if (mine === INDUSTRY_EPOCH) industryPaint(null, keepMsg === true);
+  }
+}
+/* A change while a save is out is not dropped: arrow keys on a closed select fire `change` at every step, and the
+   step the person stops on is the one they meant. The latest pending choice is saved when the one in flight ends. */
+let INDUSTRY_PENDING = null;
+async function industryChange() {
+  const sel = document.getElementById('community-industry');
+  if (sel.value === '__unknown') return;
+  if (INDUSTRY_SAVING) { INDUSTRY_PENDING = sel.value; return; }
+  INDUSTRY_SAVING = true;
+  const mine = ++INDUSTRY_EPOCH;
+  const msg = document.getElementById('community-industry-msg');
+  try {
+    const res = await fetch('/api/community-industry', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ industry: sel.value === '' ? null : sel.value }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (mine !== INDUSTRY_EPOCH) return;
+    if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; refreshIndustry(true); return; }
+    industryPaint(body);
+    // Sentences true in EVERY state (#4375 review 3): no timing promise (an agent has no profile until its first post)
+    // and no reading of the switch (it can change, or be unreadable). A pick goes out while Community is on; taking
+    // it off goes out whatever the switch says, except to an agent the community has shut out (`unreachable`).
+    const n = Number(body.unreachable) || 0;
+    msg.textContent = body.ok !== true ? 'Saved, but we could not read it back just now.'
+      : body.industry ? 'Saved. While Community is on, your agents\u2019 public profiles show it.'
+        : body.unreachable === null ? 'Saved. Kosmos takes it off your agents\u2019 public profiles once it can send to the community again.'
+        : 'Saved. Kosmos takes it off your agents\u2019 public profiles, even with Community off'
+          + (n ? ', except ' + n + (n === 1 ? ' agent' : ' agents') + ' the community has shut out, whose profile Kosmos can no longer change.' : '.');
+  } catch {
+    msg.textContent = 'We could not save that setting.';
+    refreshIndustry(true);
+  } finally {
+    INDUSTRY_SAVING = false;
+    if (INDUSTRY_PENDING !== null) {
+      const next = INDUSTRY_PENDING;
+      INDUSTRY_PENDING = null;
+      sel.value = next;                              // the answer just painted may have moved it
+      industryChange();                              // saving the same value again is harmless
+    }
+  }
+}
+document.getElementById('community-industry').addEventListener('change', industryChange);
+
 /* #4288 part B: the one-time Community notice. It opens only for a board that says the setting was read,
    is ON, and the notice is pending (an existing install; a fresh one is told in first run), and only
    once nothing else is on screen: first run, the tour, What's New, the update overlay or another
@@ -29752,6 +29875,7 @@ refreshEngMode();
 refreshAutoUpdate();
 refreshFeedback(); // #2037 PR-C1: the daily-report send switch (three-state, 403-safe, privacy)
 refreshCommunity(); // #4288: the Kosmos Community switch (three-state, 403-safe, privacy)
+refreshIndustry(); // #4375: the owner's industry on the agents' public profiles
 refreshCommunityMine(); // #4313: your agents' posts in the community, each with Delete
 refreshCommunityHeld(); // #4525: what is held for the person, each with Release and Discard
 refreshYou();
@@ -31905,7 +32029,7 @@ function fedGateStamp(data) {
     const b = document.getElementById(id);
     if (b) b.title = mode === 'show'
       ? 'Invite ' + who + " outside your Kosmos to this project's messages"
-      : 'Inviting ' + who + ' from outside your Kosmos needs Kosmos Plus';
+      : 'Inviting ' + who + ' from outside your Kosmos needs Kosmos+';
   }
 }
 /* The plus-gate modal's Sign up button routes into the in-app Kosmos Plus section --
@@ -31920,9 +32044,9 @@ function fedPlusSignupGo() {
    absent, so a caller (the fedGateMode gate behaviour, Angel's half) is always safe to call it. The
    gate DECISION (when a viewer is gated) lives in fedGateMode; this only PRESENTS the prompt. */
 const PLUS_GATE_COPY = {
-  join: "It's a Kosmos Plus feature and you must be logged in to access it.",
-  connect: 'To connect external people or agents, you must be signed in as a Kosmos Plus user.',
-  soon: 'This is coming to Kosmos Plus soon. You are already a member, so there is nothing to do.',
+  join: "It's a Kosmos+ feature and you must be logged in to access it.",
+  connect: 'To connect external people or agents, you must be signed in as a Kosmos+ user.',
+  soon: 'This is coming to Kosmos+ soon. You are already a member, so there is nothing to do.',
 };
 /* The element that opened the gate, so closing returns the keyboard to it. The caller passes it
    EXPLICITLY: WebKit (the production WKWebView) does not focus a <button> on click, so
@@ -33170,6 +33294,14 @@ function holdFloorOnResize(el) {
     });
   }).observe(el);
 }
+/* #4639 (Josh, 2026-09-29, "like Discord"): the person's OWN message takes them to
+   the newest row, wherever they were reading. An agent's post never moves them;
+   that rule stays with setThread and paintRoom, untouched. Not while a search is
+   filtering the list. */
+function jumpToOwnSend(el, query) {
+  if (!el || String(query || '').trim()) return;
+  pinToBottom(el);
+}
 function pinToBottom(el) {
   /* 🛑 NOTHING IS ARMED FOR A BOX NOBODY CAN SEE. On a hidden container the
      assignment below is a harmless no-op, but the image listeners are NOT: they
@@ -34330,6 +34462,8 @@ async function sendTalk(text, attachment) {
        TALK_PENDING). Painted from the last thread read, so nothing waits on a fetch. */
     TALK_PENDING[sentName] = { text, startedAt: Date.now(), recorded: false, failed: false, because: null };
     talkPaintPending(sentName, name);
+    /* #4639: after the drawn bubble, so it is the row they land on. */
+    jumpToOwnSend(document.getElementById('d-dmthread'), TALK_QUERY);
     const res = await fetch('/api/agent/' + encodeURIComponent(sentName) + '/thread', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -40955,7 +41089,8 @@ document.getElementById('d-save').addEventListener('click', async () => {
       validators of one fact is the defect this codebase keeps finding.
 ========================================================================== */
 
-let ROLES = null;          // the menu, fetched once
+let ROLES = null;          // the menu, fetched once it includes the downloaded catalogue
+let ROLES_COMPLETE = false; // #4632: false while the board holds only the built-in roles
   /* ---- the K loader, ported from the pack ------------------------------
      🔑 PORTED, NOT REWRITTEN, and the pack's own note below says why: its loop
      never fills toward completion. That is the only reason a loader is allowed
@@ -41958,16 +42093,16 @@ paintStyles(true);
    it asked, never by anything that identifies it; the time keeps ticking
    while shown; the two buttons keep their colours whatever the history,
    because swapping the gold one on a re-ask is itself a mis-tap hazard. */
-const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, self: '' };
+const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null };
 /* #3829: "Not now" is gone (a waiting request stays on screen until Allow or Deny; an old one fades). A
    session flag an older build left behind must not keep hiding the card, so it is cleared, never read. */
 try { sessionStorage.removeItem('ask-later'); } catch { /* no storage: nothing to clear */ }
 /* #3829 (Josh's shots: a list row named just "device"): a request with no name reads "Unknown device",
    never the bare noun. The name comes from the device's own sign-in ("Windows browser", "iPhone"). */
 function askKind(d) {
-  /* #3829 follow-up (ICK): this computer's own in-app sign-in has no name; it is this computer, not an unknown
-     device. "computer", not "Mac": Kosmos runs on Windows too, and engine/machine.test.js holds the page to it. */
-  if (d && ASK.self && d.device_id === ASK.self) return 'This computer (Kosmos app)';
+  /* #4610 (Josh's ruling, 2026-09-29 13:00): this computer's own in-app sign-in is granted by the board and never
+     reaches the page, so #3829's relabel of that row (matched by its device id) is gone. A request with no name is
+     "Unknown device". */
   return d && typeof d.name === 'string' && d.name ? d.name : 'Unknown device';
 }
 /* The request card's icon, from the kind: a phone, a tablet, or a computer (a browser, or unknown). */
@@ -42030,7 +42165,6 @@ async function pollAsk() {
   if (!r || !Array.isArray(r.devices)) return;   /* a blip keeps the last paint; nothing is invented */
   ASK.devices = r.devices;
   ASK.email = r.email || '';
-  if (typeof r.self_device_id === 'string') ASK.self = r.self_device_id;
   /* A finished row leaves once the tunnel stops listing the device (allowed
      ids are excluded from pending; a deny drops the row at the coordinator),
      and an allowed row leaves on its own after a few seconds regardless. */
@@ -42053,10 +42187,13 @@ function paintAsk() {
      other view the top card is one compact line linking there. */
   const onPlus = typeof plusOnScreen === 'function' && plusOnScreen();
   const panel = document.getElementById('plus-asks');
-  /* Review (#3829): "above the panel" only exists while the connected panel (#plus-flow) is showing. In the
-     not-enrolled or sign-in states there is no panel to sit above, so the full cards stay in the top card. */
-  const flow = document.getElementById('plus-flow');
-  const inPanel = onPlus && !!panel && !!flow && !flow.hidden;
+  /* #4610 (Josh, 12:50, a new Kosmos+ account in the Mac app): "these should have rendered in the same spot as the
+     login and not above everything". On Kosmos Plus the requests always render in the Plus section (#plus-asks), in
+     every state it is in: signing in, signed in, connected. This reverses the #3829 review rule that kept them in the
+     top card unless the connected panel (#plus-flow) was showing, which is how, right after sign-in (the "You're
+     signed in" card, #plus-flow hidden), they spread across the top of the whole window above the sidebars. The top
+     card stays the compact "N devices are asking" notice on every other view. */
+  const inPanel = onPlus && !!panel;
   if (panel) panel.hidden = !(inPanel && anything);
   const hide = !anything || inPanel || (!onPlus && !live.length);
   card.hidden = hide;
@@ -42161,7 +42298,12 @@ document.getElementById('plus-asks').addEventListener('click', (e) => {
    the Turn on / Turn off switch, and those happen WHILE connected -- wiping
    them would hide a real refusal to trade against a stale one. So the
    message remembers where it came from, and only a SETUP failure is
-   superseded by being connected. */
+   superseded by being connected.
+
+   #4698: that rule is gone with its only source. Setup failures came from the
+   connected flow's enrol pair, which could never show and was removed; the
+   sign-in wizard reports its own failures on its own step. PLUS_MSG_KIND is
+   still set by plusSay (the switch passes 'switch'), and nothing reads it. */
 let PLUS_MSG_KIND = '';
 let PLUS_ADDRESS = '';   // #1014: the address, when there is a real one
 function plusSay(text, kind) {
@@ -42179,7 +42321,6 @@ async function paintDevices() {
   if (!r || !Array.isArray(r.allowed)) { msg.textContent = plusWords((r && r.error) || 'we could not read the devices'); return; }
   msg.textContent = '';
   ASK.allowed = r.allowed;
-  if (typeof r.self_device_id === 'string') ASK.self = r.self_device_id;
   document.getElementById('plus-devices-off').hidden = r.on !== false;
   /* #3829: a pending request shows ONCE, as its card at the top of the app (#askcard), not again here.
      This list is the devices already allowed. */
@@ -42246,7 +42387,7 @@ document.getElementById('plus-devlist').addEventListener('click', async (e) => {
 setInterval(pollAsk, 5000);
 pollAsk();
 /* #743: paintPlus gained a recurring caller (tick(), below) on top of its
-   gesture-triggered ones (the switch, setup-complete, arrival), so two
+   gesture-triggered ones (the switch, arrival), so two
    calls can now race -- the same shape INSTR_EPOCH guards for the status
    poll (line 9458). A response from a call that is no longer the LATEST
    one dispatched is stale and must not overwrite a fresher paint, however
@@ -42264,11 +42405,10 @@ let PLUS_SI_LANDED = false;
 let PLUS_SI_REGISTERING = false;
 /* The owned address to retry after an automatic register failed (review: never a dead end). */
 let PLUS_SI_RETRY = '';
-/* The computer-name format, shared by the enrol flow's plus-confirm and the sign-in
-   wizard's register step so the two cannot drift (CLAUDE.md #5). It mirrors the engine's
-   own NAME_RULE; the engine validates too, so this is a fast local echo, not the source
-   of truth. The two callers differ only in whether an EMPTY name is allowed (enrol lets
-   the engine name it; signin-register requires one) -- that is deliberate and separate. */
+/* The computer-name format for the sign-in wizard's register step (signin-register requires a
+   name). It mirrors the engine's own NAME_RULE; the engine validates too, so this is a fast
+   local echo, not the source of truth. (The connected flow's enrol pair also used it until
+   #4698 removed that pair, which could never show.) */
 const PLUS_NAME_RULE = /^[a-z0-9-]{3,32}$/;
 /* #3796 addenda 5 and 6 (Josh typed "MacbookPro..." and was refused for capitals): the address name
    is cleaned as it is typed, as login.kosmosplus.com does (#3791): lowercase, spaces and underscores
@@ -42306,11 +42446,11 @@ function plusNameCount() {
   const n = typeof document !== 'undefined' && document.getElementById ? document.getElementById('plus-si-name-count') : null;
   if (el && n) n.textContent = el.value.length + '/32';
 }
-for (const id of ['plus-si-name', 'plus-name']) {
-  const el = typeof document !== 'undefined' && document.getElementById ? document.getElementById(id) : null;
+{
+  const el = typeof document !== 'undefined' && document.getElementById ? document.getElementById('plus-si-name') : null;
   if (el && el.addEventListener) el.addEventListener('input', () => {
     const c = plusNameClean(el.value); if (el.value !== c) el.value = c; plusNameCount();
-    const note = document.getElementById(id === 'plus-si-name' ? 'plus-si-name-suggested' : 'plus-name-suggested'); if (note) note.hidden = true;
+    const note = document.getElementById('plus-si-name-suggested'); if (note) note.hidden = true;
   });
 }
 /* #3796 addendum 8: the name step, one of two ways. With the account's address known, no field at all;
@@ -42442,7 +42582,7 @@ async function paintPlus() {
   if (typeof paintSwitch === 'function') paintSwitch('plus-switch', r.on === true);
   else if (sw) { sw.hidden = false; if (sw.setAttribute) sw.setAttribute('aria-checked', r.on === true ? 'true' : 'false'); }   // the page tests lift paintPlus alone
   { const lg = document.getElementById('plus-logo');
-    if (lg && lg.dataset && !lg.dataset.drawn && typeof kplusBarDrawMark === 'function') { try { kplusBarDrawMark(lg, 22); lg.dataset.drawn = '1'; } catch { /* the label still says Kosmos Plus */ } } }
+    if (lg && lg.dataset && !lg.dataset.drawn && typeof kplusBarDrawMark === 'function') { try { kplusBarDrawMark(lg, 22); lg.dataset.drawn = '1'; } catch { /* the label still says Kosmos+ */ } } }
   const st = document.getElementById('plus-status');
   const stat = r.status || {};
   const because = plusWords(stat.because || '');
@@ -42474,13 +42614,6 @@ async function paintPlus() {
      still coming up there is nothing to tell somebody to open, and telling
      them to open "is on its way." would be worse than saying nothing. */
   PLUS_ADDRESS = (stat.state === 'up' && stat.address) ? stat.address : '';
-  /* #1011: being connected supersedes a SETUP failure -- it cannot still be
-     true. A switch failure is left alone; it happens while connected and is
-     the one thing this rule must not eat. */
-  if (stat.state === 'up' && PLUS_MSG_KIND === 'setup') plusSay('');
-  /* The enrol steps show only when the switch is on and nothing is
-     enrolled yet: the state the engine calls waiting-for-the-sign-in. */
-  document.getElementById('plus-enrol').hidden = !(r.on && r.enrolled !== true);
   /* #567: the list shows once enrolled, on or off (off says so above it). */
   document.getElementById('plus-devices').hidden = r.enrolled !== true;
   /* #733 recovery: only an enrolled Mac can sign the reset, so the control
@@ -42503,14 +42636,6 @@ function plusWords(text) {
     ? 'the Plus connector is not installed on this computer yet'
     : String(text || '');
 }
-/* Codes arrive by paste, with the email's whitespace riding along; a
-   maxlength alone truncates BEFORE any trim can run, so the field
-   normalizes itself: digits only, six at most. */
-document.getElementById('plus-code').addEventListener('input', (e) => {
-  const clean = e.target.value.replace(/\D/g, '').slice(0, 6);
-  if (e.target.value !== clean) e.target.value = clean;
-});
-
 document.getElementById('plus-switch').addEventListener('click', async () => {
   const msg = document.getElementById('plus-msg');
   plusSay('');
@@ -42534,8 +42659,6 @@ document.getElementById('plus-switch').addEventListener('click', async () => {
    person). One place for the sentences so a test can pin them. */
 const PLUS_CODE_WORDS = {
   asking: (email) => 'Asking for a code for ' + email + '.',
-  sent: (email) => 'We sent a code to ' + email + '. It can take a minute to arrive; look in spam if it is not there. Nothing after a few minutes? Press Email me a code again.',
-  slow: (email) => 'The sign-in service has not answered in 15 seconds about ' + email + '. Nothing was sent that we know of. Check this computer is online and press Email me a code again.',
   refused: (why) => 'No code was sent: ' + why + '.',
   noEmail: 'Type the email first.',
 };
@@ -42562,56 +42685,6 @@ function plusCountdown(line, btn, why, secs) {
     paint();
   }, 1000);
 }
-document.getElementById('plus-send-code').addEventListener('click', async () => {
-  const msg = document.getElementById('plus-msg');
-  const sent = document.getElementById('plus-sent');
-  const btn = document.getElementById('plus-send-code');
-  msg.textContent = '';
-  const email = document.getElementById('plus-email').value.trim();
-  if (!email) { sent.hidden = false; sent.textContent = PLUS_CODE_WORDS.noEmail; return; }
-  sent.hidden = false; sent.textContent = PLUS_CODE_WORDS.asking(email);
-  btn.disabled = true;
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), PLUS_ASK_TIMEOUT_MS);
-  try {
-    const res = await fetch('/api/remote/setup-start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email }), signal: ctl.signal });
-    if (!res.ok) {
-      const why = plusWords(((await res.json().catch(() => null)) || {}).error || 'the sign-in service refused');
-      /* Too many asks is not a wrong code and not a broken service: the
-         sentence carries the seconds ("in 43 seconds"), so count them down
-         where the person is looking and give the button back at zero. */
-      const m = /in (\d+) seconds?/.exec(why);
-      if (m) { plusCountdown(sent, btn, why, Number(m[1])); return; }
-      sent.textContent = PLUS_CODE_WORDS.refused(why);
-      return;
-    }
-    await res.text().catch(() => '');
-    sent.textContent = PLUS_CODE_WORDS.sent(email);
-    document.getElementById('plus-code-row').hidden = false;
-    if (typeof plusNamePrefill === 'function') plusNamePrefill('plus-name', 'plus-name-suggested');   // #3842: the enrol flow's field starts with a suggestion too (typeof: page-test slices lack it)
-    document.getElementById('plus-code').focus();
-  } catch (err) {
-    sent.textContent = (err && err.name === 'AbortError') ? PLUS_CODE_WORDS.slow(email) : PLUS_CODE_WORDS.refused('this computer could not reach the sign-in service');
-  } finally { clearTimeout(timer); if (!PLUS_COUNTDOWN) btn.disabled = false; }
-});
-document.getElementById('plus-confirm').addEventListener('click', async () => {
-  const msg = document.getElementById('plus-msg');
-  plusSay('');
-  const code = document.getElementById('plus-code').value.replace(/\D/g, '');
-  const name = plusNameClean(document.getElementById('plus-name').value.trim());
-  /* The engine validates before spawning too; saying it here saves the
-     round trip, in the engine's own sentence so the two cannot drift. */
-  if (name && !PLUS_NAME_RULE.test(name)) {
-    plusSay('the name is 3 to 32 letters, digits or hyphens', 'setup');
-    return;
-  }
-  try {
-    const res = await fetch('/api/remote/setup-complete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, name }) });
-    if (!res.ok) { plusSay(plusWords(((await res.json().catch(() => null)) || {}).error || 'we could not finish the sign-up'), 'setup'); return; }
-  } catch { plusSay('we could not finish the sign-up', 'setup'); }
-  paintPlus();
-});
-
 /* I lost my phone (#733 recovery). The first click arms; the second asks
    the engine, which runs the Mac's own signed request. The sentences are
    the engine's when it refuses, and this page's when it worked, because
@@ -42698,7 +42771,7 @@ document.addEventListener('keydown', (e) => {
    sentence saying the address may still show there. That sentence is shown as it is: never "done" for a
    disconnect the account did not hear about. */
 const PLUS_FORGET_WORDS = {
-  done: 'This computer is removed from Kosmos Plus. Its address is free, and your devices can no longer reach it. Sign in to connect it again.',
+  done: 'This computer is removed from Kosmos+. Its address is free, and your devices can no longer reach it. Sign in to connect it again.',
   /* Not "still connected": a rare engine failure can come after the key is gone. Say only that it did not finish. */
   failed: (why) => 'Removing it did not finish: ' + why + '. Try again in a moment.',
 };
@@ -42809,9 +42882,8 @@ async function plusSiPost(path, body, timeoutMs) {
 }
 async function plusSiPostRaw(path, body, timeoutMs) {
   const waitMs = timeoutMs || PLUS_ASK_TIMEOUT_MS;
-  /* A timeout, like the enrol send's own (plus-send-code): a hung request must be
-     able to say it is waiting and can fail, not leave a disabled button forever.
-     PLUS_ASK_TIMEOUT_MS is the same 15s the enrol flow uses. */
+  /* A timeout (#729): a hung request must be able to say it is waiting and can fail,
+     not leave a disabled button forever. PLUS_ASK_TIMEOUT_MS is 15 s. */
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), waitMs);
   try {
@@ -42820,7 +42892,10 @@ async function plusSiPostRaw(path, body, timeoutMs) {
     if (!res.ok) return { ok: false, because: plusWords((data && data.error) || 'that did not work') };
     return { ok: true, data: data || {} };
   } catch (err) {
-    return { ok: false, because: (err && err.name === 'AbortError')
+    // `timeout` so no caller reads the waited seconds as a cooldown (kosmos#4698: the "Email me a code"
+    // step held its button and counted "has not answered in 14 seconds" down after a timeout).
+    const timeout = !!(err && err.name === 'AbortError');
+    return { ok: false, timeout, because: timeout
       ? ('the sign-in service has not answered in ' + Math.round(waitMs / 1000) + ' seconds; check this computer is online and try again')
       : 'this computer could not reach the sign-in service' };
   } finally { clearTimeout(timer); }
@@ -43335,7 +43410,7 @@ async function plusSiRequestCode(btn) {
   const r = await plusSiPost('/api/remote/signin-start', { email });
   if (r.stale) return;
   if (!r.ok) {
-    const m = /in (\d+) seconds?/.exec(r.because);
+    const m = !r.timeout && /in (\d+) seconds?/.exec(r.because);   // a timeout is not a cooldown
     if (m) { noNewCode(); plusCountdown(document.getElementById('plus-signin-msg'), btn, r.because, Number(m[1])); return; }
     plusSetBusy(btn, false);
     plusSiMsg(PLUS_CODE_WORDS.refused(r.because));
@@ -43442,8 +43517,7 @@ document.getElementById('plus-si-enrol-confirm-go').addEventListener('click', as
    address lives (its status line reads "Connected. Your address: ..." once the tunnel
    is up, and #1014's "on its way" wording before then). A separate done panel would
    be drawn and then immediately replaced by that same paint, so it could flash for
-   well under a round trip or not be seen at all. This mirrors the enrol flow's own
-   plus-confirm, which likewise ends by handing off to paintPlus(). */
+   well under a round trip or not be seen at all. */
 /* #3796 addendum 9: register THIS computer to `name`. Called by the button for a chosen name, and
    automatically for an account that already owns one (`owned` is then its full address, when known). */
 async function plusSiDoRegister(name, owned) {
@@ -43548,8 +43622,7 @@ document.getElementById('plus-si-done-go').addEventListener('click', () => {
    any box of this sign-in presses that step's own button, exactly as a click would. None of these boxes is
    in a <form>, so the browser does nothing on Enter by itself. A click, not a call to the handler, so the
    button's own rules still apply: a busy (disabled) or hidden button does nothing, and a code field's
-   click guard (a code already refused is not sent again) sees the press like any other. The enrol pair in
-   the connected flow (plus-email, plus-code, plus-name) gets the same. */
+   click guard (a code already refused is not sent again) sees the press like any other. */
 const PLUS_ENTER_GO = {
   'plus-signin-email': 'plus-signin-code',
   'plus-si-code-in': 'plus-si-code-go',
@@ -43557,9 +43630,6 @@ const PLUS_ENTER_GO = {
   'plus-si-phone': 'plus-si-phone-go',
   'plus-si-enrol-code': 'plus-si-enrol-confirm-go',
   'plus-si-name': 'plus-si-register-go',
-  'plus-email': 'plus-send-code',
-  'plus-code': 'plus-confirm',
-  'plus-name': 'plus-confirm',
 };
 for (const [inputId, goId] of Object.entries(PLUS_ENTER_GO)) {
   const inp = document.getElementById(inputId);
@@ -46478,13 +46548,17 @@ async function loadRoles(initialMode) {
   // Returning early on the second visit left the picker rendered from last
   // time with its old choice still marked, while `openCreate` had just
   // cleared it -- a screen showing a selection the page did not have.
-  if (ROLES && ROLES.length) { updateRecPill(); pickMode(mode); return; }
+  /* #4632: a menu without the downloaded catalogue (offline, or the download not done yet) is asked
+     for again on the next open; the board decides whether to try the network again. */
+  if (ROLES && ROLES.length && ROLES_COMPLETE) { updateRecPill(); pickMode(mode); return; }
   msg.textContent = 'Loading…';
   try {
-    const res = await fetch('/api/roles', { cache: 'no-store' });
+    // ?catalogue=1: opening the picker is what downloads the ready-made roles (#4632).
+    const res = await fetch('/api/roles?catalogue=1', { cache: 'no-store' });
     if (!res.ok) throw new Error('status ' + res.status);
     const data = await res.json();
     ROLES = (data && data.roles) || [];
+    ROLES_COMPLETE = !!(data && data.catalogue && data.catalogue.loaded);
     // Same payload, so the board and this form can never hold different titles.
     learnRoleTitles(ROLES);
     CREATE_MODELS = (data && data.models) || [];
@@ -53810,6 +53884,7 @@ function pjPaintParentSelect(p) {
 }
 
 function paintProjectSettings(p) {
+  pjsOwnReset(p && p.id);   // kosmos#4649: a code shown for one project never shows on another
   // #3134: showing the settings panel cancels any pending save auto-advance. A
   // save schedules a ~1s timer that returns to the project; if the person comes
   // BACK to settings within that window (the cog, a member change, any path that
@@ -54047,6 +54122,54 @@ async function pjsHookCopy(which) {
   if (said) said.textContent = ok ? (internet ? 'Copied the internet link.' : (document.getElementById('pjs-hook-public') ? 'Copied the link for this computer.' : 'Copied.')) : (internet ? 'Kosmos could not copy it. Select the internet link and copy it yourself.' : 'Kosmos could not copy it. Select the link and copy it yourself.');
 }
 document.getElementById('pjs-hook-add').addEventListener('click', pjsHookAdd);
+
+/* kosmos#4649: the "add your other computer" code for the project open in settings. On the other
+   computer it goes into Join a project, which shows it as shared by "your other computer". */
+const PJS_OWN = { projectId: null };
+function pjsOwnReset(projectId) {
+  PJS_OWN.projectId = projectId || null;
+  document.getElementById('pjs-own-row').hidden = true;
+  document.getElementById('pjs-own-code').value = '';
+  document.getElementById('pjs-own-msg').textContent = '';
+  document.getElementById('pjs-own-add').disabled = false;
+}
+async function pjsOwnAdd() {
+  const msg = document.getElementById('pjs-own-msg');
+  const btn = document.getElementById('pjs-own-add');
+  const forProject = PJS_OWN.projectId;
+  if (!forProject) return;
+  btn.disabled = true;
+  msg.textContent = 'Making a code…';
+  try {
+    const res = await fetch('/api/federation/own-code', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ project: forProject }),
+    });
+    const body = await res.json().catch(() => null);
+    if (PJS_OWN.projectId !== forProject) return;   // settings moved to another project meanwhile
+    if (!res.ok || !body || typeof body.code !== 'string') {
+      msg.textContent = (body && body.error) || 'Kosmos could not make a code just now. Try again in a moment.';
+      return;
+    }
+    document.getElementById('pjs-own-code').value = body.code;
+    document.getElementById('pjs-own-row').hidden = false;
+    msg.textContent = 'On your other computer, open Projects, Join a project, and paste this code.';
+  } catch {
+    if (PJS_OWN.projectId === forProject) msg.textContent = 'Kosmos could not make a code just now. Try again in a moment.';
+  } finally {
+    if (PJS_OWN.projectId === forProject) btn.disabled = false;
+  }
+}
+async function pjsOwnCopy() {
+  const code = document.getElementById('pjs-own-code');
+  const msg = document.getElementById('pjs-own-msg');
+  let ok = false;
+  try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(code.value); ok = true; } } catch { ok = false; }
+  if (!ok) { try { code.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
+  msg.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press Command C.';
+}
+document.getElementById('pjs-own-add').addEventListener('click', pjsOwnAdd);
+document.getElementById('pjs-own-copy').addEventListener('click', pjsOwnCopy);
 document.getElementById('pjs-hooks').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;
@@ -57797,6 +57920,10 @@ async function pjPostSend(attachment) {
     pjRoomAnnounce(line);
   };
   try {
+    /* #4639: at the press, as the DM does, not when the server answers: a fan-out can take
+       seconds, and a jump that late would pull back someone who scrolled up meanwhile. So a
+       send that then fails has still moved them; its sentence is beside this composer. */
+    jumpToOwnSend(document.getElementById('pj-room'), PJ_ROOM_QUERY);
     const replying = PJ_REPLY[sentProject] || null;   // #3745: the post this answers, if any
     PJ_REPLY_SENDING = replying ? { project: sentProject, id: replying.id } : null;
     const res = await fetch('/api/project/' + encodeURIComponent(sentProject) + '/room', {
@@ -60534,6 +60661,9 @@ function pjFedMessage(body, fallback) {
     'not-found': 'That code was not recognised. Check it and try again.',
     'self-join': 'That is your own project, so there is nothing to join.',
     'double-join': 'You are already on that project.',
+    'already_joined': 'This project is already on this computer.',   // kosmos#4649 own-account code
+    'self-shared': 'This project is shared with your other computers, so it cannot be shared with other people yet.',
+    'not-plus': 'Joining your other computer\'s project needs Kosmos Plus on this computer.',
   };
   return (reason && M[reason]) || fallback;
 }
@@ -60638,9 +60768,13 @@ async function pjVerifyCode() {
     document.getElementById('pj-join-desc').textContent = body.project_desc || 'No description.';
     // Who is on the other end: the owner's Kosmos+ name, set by Kosmos+ itself, so
     // unlike the name and description above the inviter cannot write it.
-    document.getElementById('pj-join-owner').textContent = body.owner_handle
-      ? body.owner_handle + '.kosmosplus.com'
-      : 'A Kosmos+ account with no name yet';
+    // kosmos#4649: an own-account code is shared by this person's other computer, which has no
+    // Kosmos+ address of its own to show.
+    document.getElementById('pj-join-owner').textContent = body.own === true
+      ? 'Your other computer'
+      : body.owner_handle
+        ? body.owner_handle + '.kosmosplus.com'
+        : 'A Kosmos+ account with no name yet';
     // A fresh verify starts with no agents added, and any picker left open by a prior verify is
     // re-hidden: show the "No agents on it yet." hint rather than leaving the box empty. Set it
     // directly (a fresh verify is always the empty state) so this success path stays self-contained
@@ -60735,7 +60869,7 @@ document.addEventListener('keydown', (e) => {
   if (document.activeElement === order[order.length - 1]) { e.preventDefault(); order[0].focus(); }
 });
 /* #3495 (Angel): the grayed Add-external buttons stay clickable; a non-Plus/not-live viewer gets
-   the shared Plus-gate modal ("must be signed in as a Kosmos Plus user") instead of minting an
+   the shared Plus-gate modal ("must be signed in as a Kosmos+ user") instead of minting an
    invite. A "show" viewer mints as before. */
 document.getElementById('pj-add-ext-person').addEventListener('click', (e) => { if (!fedShow()) { showPlusGate('connect', e.currentTarget); return; } pjMintInvite('person'); });
 document.getElementById('pj-add-ext-agent').addEventListener('click', (e) => { if (!fedShow()) { showPlusGate('connect', e.currentTarget); return; } pjMintInvite('agent'); });
@@ -67839,7 +67973,7 @@ function frChoiceInert(on) {
 
 /* #4356: show the first screen and resolve with the choice. Run agents, and Run agents here and
    connect, hide it and first run carries on. Connect leaves it up, buttons disabled, while the app
-   stops the board here and loads Kosmos Plus sign-in; if the app cannot be told, the buttons stay
+   stops the board here and loads Kosmos+ sign-in; if the app cannot be told, the buttons stay
    live rather than sit dead. */
 function frChoose() {
   const el = document.getElementById('fr-choice');

@@ -667,18 +667,18 @@ keep_in_outbox() {
   local _node _bf _said _rc=0
   _node="$(kosmos_engine_node)" || {
     say "Your Kosmos is not the one open right now, and we could not find node to keep this for later, so it was not kept. Send it again once your Kosmos is open."
-    _keep_piped   # #2909: a no-op unless a post/msg --stdin message is being kept
+    _keep_piped   # #2909: a no-op unless a post/msg/reply --stdin message is being kept
     exit 1
   }
   _bf="$(mktemp "${TMPDIR:-/tmp}/kosmos-outbox.XXXXXX")" || {
     say "Your Kosmos is not the one open right now, and we could not make a file to keep this in, so it was not kept. Send it again once your Kosmos is open."
-    _keep_piped   # #2909: a no-op unless a post/msg --stdin message is being kept
+    _keep_piped   # #2909: a no-op unless a post/msg/reply --stdin message is being kept
     exit 1
   }
   if ! { chmod 600 "$_bf" && printf '%s' "$2" > "$_bf"; }; then
     rm -f "$_bf"
     say "Your Kosmos is not the one open right now, and we could not write this down to keep it, so it was not kept. Send it again once your Kosmos is open."
-    _keep_piped   # #2909: a no-op unless a post/msg --stdin message is being kept
+    _keep_piped   # #2909: a no-op unless a post/msg/reply --stdin message is being kept
     exit 1
   fi
   _said="$("$_node" "$(kosmos_engine_module outbox).js" keep "$1" "$_bf" 2>&1)" || _rc=$?
@@ -1494,7 +1494,7 @@ cmd_msg() {
   esac
 }
 
-# ---- kosmos reply <text…> ---------------------------------------------------
+# ---- kosmos reply [--stdin] <text…> ------------------------------------------------
 # Answer the person, in the box on your own page.
 #
 # 🛑 THE COMMAND THAT DID NOT EXIST. `post` reaches a room and `msg` types into
@@ -1506,18 +1506,47 @@ cmd_msg() {
 # is exactly one person to answer, and the sender is taken from TMUX_PANE so an
 # agent can only ever write as itself.
 cmd_reply() {
-  local text body because
+  local text body because _a
+  # #4582: --stdin (leading) reads the reply from standard input, as msg and post do (#2909), so a
+  # formatted multi-line answer arrives with its backticks and $ as written. The shared
+  # _read_piped_message does the read; from_stdin arms _keep_piped, so every failure after the
+  # read keeps the piped reply in a private file (it may have no other copy).
+  local from_stdin=0 _orig="" _trimmed _keep
+  if [ "${1:-}" = "--stdin" ]; then from_stdin=1; shift; fi
   text="$*"
+  if [ "$from_stdin" = 1 ]; then
+    if [ $# -gt 0 ]; then
+      say "Give the reply on stdin OR as arguments, not both: kosmos reply --stdin < reply.md"
+      exit 2
+    fi
+    _read_piped_message kept "kosmos reply --stdin < reply.md"
+  else
+    # A --stdin after the words would send the literal word and silently drop the pipe, so it is
+    # refused. Same tradeoff as msg: a standalone unquoted `--stdin` word cannot be replied as text.
+    for _a in "$@"; do
+      if [ "$_a" = "--stdin" ]; then
+        say "--stdin must come first: kosmos reply --stdin < reply.md"
+        exit 2
+      fi
+    done
+  fi
   if [ -z "$text" ]; then
-    say "Usage: kosmos reply <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated)"
+    say "Usage: kosmos reply [--stdin] <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated; --stdin: read the reply from stdin, so backticks and \$ arrive as written)"
     exit 2
   fi
+  # With --stdin the pipe is read BEFORE this check on purpose (as in cmd_msg): a live pipe cannot
+  # be replayed, so with Kosmos down the reply is read and kept in a file.
   if ! healthy; then
-    say_not_up "this could not be kept"
+    say_not_up "this could not be kept"   # #4466
+    _keep_piped                           # #4582
     exit 1
   fi
   local esc_text esc_pane
-  esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
+  # #4582: LC_ALL=C and a checked pipeline, as cmd_msg: a piped file with bytes that are not UTF-8
+  # must not make BSD sed/tr abort, and a failure keeps a piped reply instead of dying.
+  if ! esc_text=$(printf '%s' "$text" | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g' | LC_ALL=C tr '\t\r' '  ' | LC_ALL=C sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g'); then
+    say "Nothing was kept: the reply could not be prepared for sending."; _keep_piped; exit 2
+  fi
   esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   # #1968: present the board token so an enforcing board keeps this reply. Without
   # it, a same-account `kosmos reply` carries only a pane, which the board now
@@ -1533,18 +1562,35 @@ cmd_reply() {
     *) _tok="$KOSMOS_AGENT_TOKEN" ;;
   esac
   local _data="{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}"
-  body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/reply" \
+  # #4582: refuse a body over the board's read limit with the real reason (the board would drop the
+  # connection, which reads as unreachable), and send it to curl on stdin, not argv, so a long piped
+  # reply meets the board's own 2000-character refusal instead of an argument-length failure.
+  if [ "$(printf '%s' "$_data" | LC_ALL=C wc -c | LC_ALL=C tr -d ' ')" -gt "$POST_BODY_MAX_BYTES" ]; then
+    say "Nothing was kept: that reply is too large to send to the board at all. Send a summary, or split it."
+    _keep_piped
+    exit 2
+  fi
+  # rc via `|| rc=$?` (as cmd_msg): a curl timeout (28) may come AFTER the board kept the reply, so
+  # it is a "maybe" (exit 3, do not re-send, nothing saved), as the Windows CLI already says.
+  local rc=0
+  body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/reply" \
     -H 'content-type: application/json' \
-    --data "$_data" 2>/dev/null) || {
-    say_unreached "keep that" "$?" write
+    --data-binary @- 2>/dev/null) || rc=$?
+  if [ "$rc" -eq 28 ]; then
+    say "Kosmos was slow to answer and we stopped waiting. Your answer may have been kept; check your conversation before sending it again."
+    exit 3
+  elif [ "$rc" -ne 0 ]; then
+    say_unreached "keep that" "$rc" write   # #4466: a cut reply (52/56) is busy too, not "is it running?"
+    case "$rc" in 18|52|56) _keep_piped maybe ;; *) _keep_piped ;; esac   # as cmd_msg
     exit 1
-  }
+  fi
   # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
   case "$body" in '{"wrongWorld":true'*) keep_in_outbox reply "$_data" ;; esac
   case "$body" in
     *'"error"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
       say "Kosmos refused that: ${because:-it did not say why}."
+      _keep_piped
       exit 1 ;;
     *'"kept":true'*)
       # ⚠️ "It is on their screen" is what this can claim and the LIMIT of it:
@@ -1561,6 +1607,7 @@ cmd_reply() {
     *)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
       say "That was not kept: ${because:-we could not tell why}."
+      _keep_piped
       exit 1 ;;
   esac
 }
@@ -1584,7 +1631,7 @@ require_valid_project_id() {
 }
 
 # #2909: a piped message may have no other copy (gh ... | kosmos post --stdin), so every
-# cmd_post / cmd_msg failure after the read keeps it in a private file and names the path. Reads
+# cmd_post / cmd_msg / cmd_reply failure after the read keeps it in a private file and names the path. Reads
 # the caller's from_stdin and text (bash dynamic scope); a no-op without --stdin.
 _keep_piped() {   # [maybe]: #4466, the board took the connection and cut it, so the message MAY have arrived
   [ "${from_stdin:-0}" = 1 ] || return 0
@@ -1604,9 +1651,9 @@ _keep_piped() {   # [maybe]: #4466, the board took the connection and cut it, so
 
 POST_BODY_MAX_BYTES=6291456   # #2909: the board's request-READ limit (server.js MAX_UPLOAD), past which it drops the connection; the room's own text cap is far lower and says so itself. Pinned by cli.post-stdin-2909.test.js
 # #2909: read a --stdin message into the caller's `text` (and `_orig`, the as-read copy), shared
-# by cmd_post and cmd_msg. Refuses (exit 2) a terminal, a pipe over the board's limit, and blank
+# by cmd_post, cmd_msg and cmd_reply (#4582). Refuses (exit 2) a terminal, a pipe over the board's limit, and blank
 # input; drops control characters and a leading BOM; trims the trailing CR/LF run in linear time.
-# Uses the caller's locals text/_orig/_trimmed/_keep by bash dynamic scope. $1 = posted|sent,
+# Uses the caller's locals text/_orig/_trimmed/_keep by bash dynamic scope. $1 = posted|sent|kept,
 # $2 = the usage example named in the refusals.
 _read_piped_message() {
   local _verb="$1" _usage="$2" _raw _rawn
@@ -3092,25 +3139,69 @@ cmd_project() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos project <create>"
+      say "Usage: kosmos project <list|show|create>"
+      say "  kosmos project list                                             every project: members, model families, tasks"
+      say "  kosmos project show <project-id>                                one project: folder, goal and done, tasks, each member's family and summary"
       say "  kosmos project create \"<name>\" <folder> [\"<description>\"]   make a new project (it shows on your board, tagged as made by you)"
       say "  <folder> is a path on this machine; the project's files live there."
       exit 2 ;;
+    list)
+      [ $# -eq 0 ] || { say "Usage: kosmos project list   (no arguments; for one project: kosmos project show <project-id>)"; exit 2; } ;;
+    show)
+      { [ -n "${1:-}" ] && [ $# -eq 1 ]; } || { say "Usage: kosmos project show <project-id>   (ids are in kosmos project list)"; exit 2; }
+      require_valid_project_id "$1"
+      # An all-dots id is a path segment curl would resolve to another route, so it names no project.
+      case "$1" in *[!.]*) ;; *) say "there is no project by that name"; exit 1 ;; esac ;;
     # Validate BEFORE the health check, the same order cmd_post / cmd_task use, so a
     # malformed call is named even when the board is stopped (not hidden behind
     # "not running").
     create)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos project create \"<name>\" <folder> [\"<description>\"]   (quote the name; folder is a path)"; exit 2; } ;;
     *)
-      say "Unknown: kosmos project $sub. Try: create"
+      say "Unknown: kosmos project $sub. Try: list | show | create"
       exit 2 ;;
   esac
   if ! healthy; then
-    say_not_up "a project cannot be created"
+    case "$sub" in   # #4466's say_not_up: a busy board is running, and must not be told to start
+      create) say_not_up "a project cannot be created" ;;
+      *) say_not_up "its projects cannot be read" ;;
+    esac
     exit 1
   fi
   local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert when empty
   case "$sub" in
+    list|show)
+      # #4581: read-only. The agent's own token too (#4491, hex only, as msg sends it), so the board can tell
+      # the agent from the person and an agent without the board token can still read.
+      local _tok="" _route rc=0 body because _node _mod
+      case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
+      if [ "$sub" = list ]; then _route="/api/projects/overview"; else _route="/api/project/$1/overview"; fi
+      body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 "$URL$_route" 2>/dev/null) || rc=$?
+      [ "$rc" -eq 0 ] || { say_unreached "read its projects" "$rc"; exit 1; }   # #4466: a timeout is a busy board, not a stopped one
+      case "$body" in '{"error":'*)
+        because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+        say "Kosmos refused that: ${because:-it did not say why}."; exit 1 ;;
+      esac
+      # Printed by engine/projectview.js, the same renderer the Windows command uses, so the words match.
+      # Raw JSON is the fallback when no node or module can be found.
+      _node="$(kosmos_engine_node)" || _node=""
+      _mod="$(kosmos_engine_module projectview)"
+      if [ -z "$_node" ]; then
+        # No node to render with: the raw answer, but only if it is JSON at all (round 4: a proxy's page exited 0 here).
+        case "$body" in '{'*) printf '%s\n' "$body"; exit 0 ;; *) say "Kosmos gave an answer we could not read, so nothing is shown."; exit 1 ;; esac
+      fi
+      # An answer that is not JSON (a proxy's error page, a cut-off body) is not a success (review round 1): exit 1.
+      if ! printf '%s' "$body" | "$_node" -e '
+        const v = require(process.argv[1]);
+        let d;
+        try { d = JSON.parse(require("fs").readFileSync(0, "utf8")); } catch { process.exit(3); }
+        process.stdout.write((process.argv[2] === "list" ? v.renderList(d) : v.renderShow(d)).join("\n") + "\n");
+      ' "$_mod" "$sub" 2>/dev/null; then
+        say "Kosmos gave an answer we could not read, so nothing is shown."
+        exit 1
+      fi
+      exit 0
+      ;;
     create)
       local name folder description esc_name esc_folder esc_desc esc_pane _desc_field _data body rc=0 because pid
       name="$1"; folder="$2"; description="${3:-}"
@@ -3202,7 +3293,9 @@ cmd_agent() {
   local body rc=0
   case "$sub" in
     roles)
-      body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/roles" 2>/dev/null) || rc=$?
+      # ?catalogue=1: listing the roles asks for the downloaded ready-made ones too, as the picker does (#4632).
+      # -m 25: the board may be downloading (up to 8 s, 16 s when it retries past the caches).
+      body=$(kosmos_curl "$_bt" "" -sS -m 25 "$URL/api/roles?catalogue=1" 2>/dev/null) || rc=$?
       if [ "$rc" -ne 0 ]; then say_unreached "list the roles" "$rc"; exit 1; fi
       if [ -z "$body" ]; then say "Kosmos gave an empty answer when asked for the roles. Try again in a minute."; exit 1; fi
       printf '%s' "$body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}for(const r of (j.roles||[]))if(r&&r.key)console.log(r.key+"  "+(r.label||""))})' \

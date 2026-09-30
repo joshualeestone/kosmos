@@ -583,7 +583,11 @@ function ensure(port) {
     if (!wanted) { stopChild(); return; }
     // Samples the tunnel's last failure (kosmos#4277). It also means a healthy board's
     // backoff is reset every tick (status() does that on `up`), not only when a page asks.
-    if (child) { status(); return; }
+    if (child) {
+      status();
+      if (selfPendingInSnapshot()) allowSelfQuietly();   // #4610, Josh's ruling: the retry, off the read path
+      return;
+    }
     if (restartTimer) return;
     // Not while a register is out (#3827): the tunnel writes the new key, id and
     // address first and fetches the certificate last, so a tunnel started in that
@@ -600,18 +604,25 @@ function ensure(port) {
    fed-room`). stdin and stdout are the interface (lines of JSON; see
    engine/fedseats.js); stderr joins the board's log like the tunnel's own. The
    same binary, relay, state dir and coordinator as the drive tunnel. */
-function spawnFedSeat(edgeId) {
+/* The connector arguments for a room seat. `target` is an edge id (a guest's link, or an
+   owner's active edge), or { own: <project_ref> } for a seat in this computer's OWN
+   account's room (kosmos#4649: `fed-room --own-project`, given instead of --edge). */
+function fedSeatArgs(target) {
+  const own = target && typeof target === 'object' && typeof target.own === 'string' ? target.own : null;
   const args = [
     'fed-room',
     '--relay', RELAY(),
     '--state-dir', STATE_DIR(),
     '--coordinator', COORDINATOR(),
-    '--edge', String(edgeId),
+    ...(own !== null ? ['--own-project', own] : ['--edge', String(target)]),
   ];
   if (process.env.AGENT_WORKFORCE_TUNNEL_CA) {
     args.push('--tunnel-ca', process.env.AGENT_WORKFORCE_TUNNEL_CA);
   }
-  return spawn(BIN(), args, connectorSpawnOptions({ stdio: ['pipe', 'pipe', 'inherit'] }));
+  return args;
+}
+function spawnFedSeat(target) {
+  return spawn(BIN(), fedSeatArgs(target), connectorSpawnOptions({ stdio: ['pipe', 'pipe', 'inherit'] }));
 }
 
 function startChild() {
@@ -757,8 +768,8 @@ function status() {
         address: null,
         /* #4308: say what repairs it, here and only here. The page shows this sentence as it is (paintPlus), so the
            repair instruction has one source. Only a person's own action (the switch among them) rewrites a damaged
-           file (see write()). "Kosmos Plus" is what the pane calls the switch. */
-        because: 'your remote-access settings could not be read. Turn Kosmos Plus on again to repair them',
+           file (see write()). "Kosmos+" is what the pane calls the switch. */
+        because: 'your remote-access settings could not be read. Turn Kosmos+ on again to repair them',
       };
     }
     if (!settings.on) return { state: 'off', address: null, because: 'the switch is off' };
@@ -1158,6 +1169,7 @@ async function setupComplete(code, name) {
   if (!result.ok) abandonChangedIdentity(before, addressBefore, startedAt);
   // A new identity: the previous account's cached standing does not carry over.
   if (result.ok && macIdHere() !== before) fedSetStanding('');
+  if (result.ok && macIdHere() !== before) forgetPendingSnapshot();   // #4610
   // kosmos#4277: the register's own start is not a supervisor relaunch, even if a restart timer fired
   // while it was out; a register that fails leaves the pending relaunch for the next tick.
   if (result.ok) { registerTakesOver(); ensure(localPort); }
@@ -1178,6 +1190,77 @@ async function setupComplete(code, name) {
 const DEVICE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const DEVICE_NAME = /^[^\n\r]{1,60}$/;
 function pendingFile() { return path.join(STATE_DIR(), 'pending.json'); }
+/* #4610 (Josh, 12:50, a brand-new account was shown older requests): a new identity does not inherit the old one's
+   pending snapshot. pending.json is the running tunnel's last answer for the OLD identity, and it stays until the new
+   tunnel's first poll rewrites it (up to 5s, and longer if that poll fails: a failed poll keeps the last file,
+   kosmos-relay devices.rs). Called at every place the identity changes (setupComplete, cancelledAfter,
+   signinRegister), after the old tunnel is stopped so it cannot rewrite it. A missing snapshot already reads as
+   nothing waiting (pendingDevices). */
+function forgetPendingSnapshot() {
+  try { fs.rmSync(pendingFile(), { force: true }); } catch { /* the next poll rewrites it */ }
+  resetSelfGrant();   // round 2: every identity change also starts the self-grant over (all four call sites)
+}
+/* #4610, Josh's ruling (2026-09-29 13:00): "This computer one, the Kosmos app, should get auto-approved instantaneously
+   behind the scenes and never display to the user." This Mac's own in-app sign-in is a device at the coordinator
+   (every session is one) and registering the Mac records no grant for it, so it waited for an Allow from the person
+   who had just signed in. It is granted here, through the same Allow the person's button uses (deviceAllow), and
+   never shown (pendingDevices leaves it out).
+   🔑 SCOPED TO THIS COMPUTER BY A VALUE ONLY THIS BOARD HOLDS: remote.json's device_id, which this board minted
+   itself for its own sign-in (signinStart) and never takes from a request, not a name or label a device sends, so a
+   remote device cannot claim it. Every other device still asks.
+   Retried from the supervisor's 15s tick (ensure) while the running tunnel's snapshot still lists it (a failed call,
+   a register still in flight when it first ran, or a Mac signed in before this change), at most once a minute and
+   never two at once within one identity (after an identity change the old call may still be finishing; its answer is
+   ignored by epoch). NOT from pendingDevices: every open board reads that every five seconds and it must never spawn. */
+let selfAllowAt = 0;
+let selfAllowing = false;
+/* Blind review round 1: once the grant for an id succeeds it is not asked again (a tunnel whose poll keeps failing
+   keeps the old snapshot listing it, which re-spawned the grant every minute forever), and a grant that fails is
+   logged once per id rather than retried in silence. Both reset on a new identity (signinRegister). */
+let selfGrantedId = '';
+let selfGrantedAt = 0;
+let selfFailLoggedId = '';
+/* Round 2: every identity change bumps this, and a grant's answer counts only if it still matches, so a grant started
+   for one account that lands after a re-sign-in cannot mark the next account's device as granted (device_id survives a
+   Forget by design). A reported success is re-checked after SELF_REGRANT_MS if the snapshot still lists the id. */
+let selfEpoch = 0;
+const SELF_REGRANT_MS = 10 * 60 * 1000;
+function resetSelfGrant() {
+  selfEpoch += 1;
+  selfAllowAt = 0; selfAllowing = false; selfGrantedId = ''; selfGrantedAt = 0; selfFailLoggedId = '';
+}
+const SELF_ALLOW_RETRY_MS = 60000;
+/* Whether the running tunnel's last snapshot still lists this Mac's own sign-in. A read of the file, never a spawn. */
+function selfPendingInSnapshot() {
+  const id = typeof read().device_id === 'string' ? read().device_id : '';
+  if (!id) return false;
+  try {
+    const raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8'));
+    return !!(raw && Array.isArray(raw.devices) && raw.devices.some((d) => d && String(d.device_id) === id));
+  } catch { return false; }
+}
+function allowSelfQuietly() {
+  const id = typeof read().device_id === 'string' ? read().device_id : '';
+  if (!id || selfAllowing || !enrolled()) return false;
+  if (selfGrantedId === id && Date.now() - selfGrantedAt < SELF_REGRANT_MS) return false;
+  if (Date.now() - selfAllowAt < SELF_ALLOW_RETRY_MS) return false;
+  const epoch = selfEpoch;
+  selfAllowing = true;
+  selfAllowAt = Date.now();
+  Promise.resolve()
+    .then(() => deviceAllow(id, thisComputerDeviceName()))
+    .then((r) => {
+      if (epoch !== selfEpoch) return;   // an identity change since this grant started: its answer is not ours
+      if (r && r.ok) { selfGrantedId = id; selfGrantedAt = Date.now(); return; }
+      if (selfFailLoggedId !== id) {
+        selfFailLoggedId = id;
+        process.stderr.write('kosmos+: could not approve this computer\'s own sign-in yet (' + String((r && r.because) || 'no answer') + '); retrying about once a minute\n');
+      }
+    })
+    .catch(() => null)
+    .finally(() => { if (epoch === selfEpoch) selfAllowing = false; });
+  return true;
+}
 /** What is waiting for this Mac's Allow. A missing snapshot is an empty
     list, not an error: the tunnel writes it only once it is up, and a
     board with Plus off has nothing waiting. `snapshot` says which. */
@@ -1187,8 +1270,14 @@ function pendingDevices() {
   let raw;
   try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { raw = null; }
   const list = raw && Array.isArray(raw.devices) ? raw.devices : [];
+  /* #4610 (Josh, 12:50: "This computer (Kosmos app)" asked him to approve it): this Mac's OWN in-app sign-in is a
+     device row at the coordinator (every session is one), and registering the Mac records no grant for it, so it
+     stays pending for good. It is never a request: the app's window loads the board on this computer, not through
+     Kosmos+. Its id is remote.json's device_id (the page used it only to relabel the row). Not listed, not counted. */
+  const self = typeof settings.device_id === 'string' ? settings.device_id : '';
   const devices = list
     .filter((d) => d && DEVICE_ID.test(String(d.device_id || '')))
+    .filter((d) => !self || String(d.device_id) !== self)
     .map((d) => ({
       device_id: String(d.device_id),
       name: typeof d.name === 'string' && d.name.trim() ? d.name.trim().slice(0, 60) : null,
@@ -1498,6 +1587,7 @@ const SIGNIN_CANCELLED = { ok: false, because: 'the sign-in was cancelled' };
 function abandonChangedIdentity(before, addressBefore, startedAt) {
   if (macIdHere() === before) return;
   stopChild();
+  forgetPendingSnapshot();   // #4610 round 1: a failed register that kept a new mac_id is a new identity too
   // The certificate belongs to the ADDRESS (the tunnel keeps it across a register
   // at the same address: setup.rs certificate_survives), so it is dropped only when
   // the address changed; then it is for a name this key no longer holds. And only
@@ -1524,7 +1614,7 @@ function cancelledAfter(result, before, addressBefore, startedAt) {
     stopChild();
     // Another identity now: the previous account's cached standing must not
     // carry over to it (the fed gate reads it).
-    if (macIdHere() !== before) fedSetStanding('');
+    if (macIdHere() !== before) { fedSetStanding(''); forgetPendingSnapshot(); }   // #4610
   }
   return SIGNIN_CANCELLED;
 }
@@ -1798,8 +1888,10 @@ const KEPT_HALF = (why) => ({ ok: false, because: 'an earlier sign-in on this co
 function explainStranded(result, half, name) {
   const stranded = half && half.stranded;
   // Only the same-account answer: another account's name ("that name is taken")
-  // or this account's own name rule is not this computer's doing.
-  if (!stranded || !result || result.ok || !/already in use by a Mac on this account/i.test(String(result.because || ''))) return result;
+  // or this account's own name rule is not this computer's doing. #4645: "a Mac" is
+  // the coordinator's wording today and "a computer" the wording it can move to once
+  // installs carry this reader; both are the same answer.
+  if (!stranded || !result || result.ok || !/already in use by a (?:Mac|computer) on this account/i.test(String(result.because || ''))) return result;
   // Replaced, not added to: the coordinator's sentence ("If that is this Mac, it
   // is already signed in / set up") is false here. The retire's reason went to
   // the log in clearHalfIdentity.
@@ -1911,7 +2003,11 @@ async function signinRegister(name) {
      Unless the person pressed that off while this register was out: that stands. */
   // A new identity: a tunnel still running the old one (or started on it) stops,
   // so ensure() below brings it up on the new key and certificate.
-  if (macIdHere() !== before) stopChild();
+  if (macIdHere() !== before) { stopChild(); forgetPendingSnapshot(); }   // #4610
+  /* #4610 (Josh's ruling): grant this Mac's own sign-in now. After this call returns, so the register's in-flight
+     flag (busy) is cleared, and a fresh identity may be granted at once (the retry window starts over). */
+  resetSelfGrant();
+  setImmediate(allowSelfQuietly);
   const switchedOn = offEpoch === offAt;
   if (switchedOn) turnOnAfterSignin();
   registerTakesOver();   // kosmos#4277: the register's start is not a relaunch
@@ -1929,7 +2025,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { COORDINATOR, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { COORDINATOR, fedSeatArgs, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,
@@ -1987,7 +2083,7 @@ module.exports = { COORDINATOR, thisComputerDeviceName, deviceNameFrom, lastJson
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); stopChild(); },
+  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,

@@ -190,7 +190,7 @@ const shown = (v) => v !== 'none' && v !== 'MISSING';
   check('#3495 the Join gate shows the JOIN copy', /must be logged in to access it/.test(gate.join.copy), gate.join.copy.slice(0, 90));
   check('#3495 selecting Join snaps the toggle back to Create (gated form never shown)', gate.revertedToCreate, 'create checked=' + gate.revertedToCreate);
   check('#3495 clicking a grayed Add-external button opens the Plus-gate modal', gate.connect.open, JSON.stringify({ open: gate.connect.open }));
-  check('#3495 the connect gate shows the CONNECT copy', /signed in as a Kosmos Plus user/.test(gate.connect.copy), gate.connect.copy.slice(0, 90));
+  check('#3495 the connect gate shows the CONNECT copy', /signed in as a Kosmos\+ user/.test(gate.connect.copy), gate.connect.copy.slice(0, 90));
   // ARM 8b: the way out is real. Open the Join gate through the handler, press Escape, and the
   // modal closes with focus back on the selected Create tab (the explicit-opener path).
   // The file:// boot has no agents, so first-run opens and makes the rest of the page inert; a
@@ -211,9 +211,9 @@ const shown = (v) => v !== 'none' && v !== 'MISSING';
   const esc = await page.evaluate(() => ({ closed: document.getElementById('plus-gate-modal').hidden, focus: document.activeElement && document.activeElement.id }));
   check('#3495 Escape closes the gate and returns focus to the Create tab', esc.closed && esc.focus === 'pj-mode-create', JSON.stringify(esc));
   const tip = await page.evaluate(() => document.getElementById('pj-add-ext-person').title);
-  check('#3495 a gated Add-external door says it needs Kosmos Plus before the click', /needs Kosmos Plus/.test(tip), tip);
+  check('#3495 a gated Add-external door says it needs Kosmos Plus before the click', /needs Kosmos\+/.test(tip), tip);
   check('#3495 the grayed Add-external AGENT button opens the same modal with the CONNECT copy',
-    gate.connectAgent.open && /signed in as a Kosmos Plus user/.test(gate.connectAgent.copy), JSON.stringify({ open: gate.connectAgent.open }));
+    gate.connectAgent.open && /signed in as a Kosmos\+ user/.test(gate.connectAgent.copy), JSON.stringify({ open: gate.connectAgent.open }));
 
   // ARM 9 (#3495): a MEMBER gated only because prod has not flipped gets the "soon" copy and no
   // Sign up button (telling a paying member to sign up is false). Control: a non-member on the
