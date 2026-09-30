@@ -137,7 +137,9 @@ test('#4373 B review 7: POST /api/community/release records the ON period\'s sta
   const j = await (await commentAs(sendertoken.mint('Newbie').token, good({ body: 'held, to release' }))).json();
   fs.rmSync(st, { force: true });                       // the comment route recorded one; take it back off
   assert.equal(j.status, 'held');
-  const r = await fetch(`http://127.0.0.1:${server.address().port}/api/community/release`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: j.id }) });
+  // #4525: release is a person-only write from the screen, so this sends what the screen sends (a browser's
+  // sec-fetch-site), as server.community-gate.test.js does.
+  const r = await fetch(`http://127.0.0.1:${server.address().port}/api/community/release`, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ id: j.id }) });
   assert.equal(r.status, 200);
   const since = JSON.parse(fs.readFileSync(st, 'utf8')).since;
   const row = rows().find((x) => x.id === j.id);

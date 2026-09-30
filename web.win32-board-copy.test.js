@@ -99,7 +99,7 @@ test('ONE comparison: the page compares against win32 in exactly one place', () 
 --------------------------------------------------------------------------- */
 
 const COPY_KEYS_IN_MARKUP = ['s3Lead', 's3SleepCaption', 's3SleepHow', 's3BatteryNote', 's7Body', 's7Tip',
-  'settingsRevealButton', 'settingsOpenKosmos', 'terminalTab', 'terminalBoxTitle', 'trustRestartHint', 'docsOpenFolder',
+  'settingsRevealButton', 'settingsOpenKosmos', 'terminalBoxTitle', 'trustRestartHint', 'docsOpenFolder',
   'updateOpenFolder', 'updateConfirmBody',
   'openaiSubHow',   // #3436: the OpenAI subscription explainer (device code on Windows)
   'openaiSubOpen'];   // 0.6.96: the OpenAI open-page link reads "again" on Windows, where Kosmos already opened it
@@ -168,8 +168,10 @@ test('BUG a11y (review round 1): the agent\'s Terminal section is NAMED what its
   // (applyPlatformCopy sets the span's innerHTML, leaving the icon intact), and the Advanced pill's
   // aria-controls gained d-sec-remove because Remove folded under it. The one-key win32 consistency
   // this test guards (the pill reads "Live output" on Windows, matching the section) is preserved.
-  assert.match(PAGE, /<button type="button" data-go="term" aria-controls="d-sec-term d-sec-remove">/, 'the Advanced pill lost its data-go / aria-controls (with the folded Remove section)');
-  assert.match(PAGE, /<span class="dnav-lab" data-win-copy="terminalTab">Advanced<\/span>/, 'the Advanced label span does not carry the terminalTab win32 copy key');
+  // #4550: the Advanced pill is gone (the Terminal section folds into AI Settings), so no pill label
+  // carries the key now; the section's own accessible name still reads it, and no stale pill may.
+  assert.doesNotMatch(PAGE, /<button type="button" data-go="term"/, 'an Advanced pill is back; #4550 folds Terminal into AI Settings');
+  assert.doesNotMatch(PAGE, /data-win-copy="terminalTab">Advanced</, 'a stale Advanced label still carries the terminalTab key');
   assert.match(PAGE, /<section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-win-aria-label="terminalTab" data-tied="1" hidden>/,
     'the Terminal section is not named from the same key as its tab');
   assert.match(page.lift(SCRIPT, 'applyPlatformCopy'),

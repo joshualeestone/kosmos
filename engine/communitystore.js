@@ -435,8 +435,10 @@ function moderationQueue(opts = {}) {
   const { status = null, kind = 'all', limit = 100 } = opts;
   const match = (r) => (r.status === 'held' || r.status === 'quarantined') && (!status || r.status === status);
   let rows = [];
-  if (kind === 'post' || kind === 'all') rows = rows.concat(loadJson(postsFile(), []).filter(match));
-  if (kind === 'comment' || kind === 'all') rows = rows.concat(loadJson(commentsFile(), []).filter(match));
+  // #4525: each row says which collection it came from (`entry`), so a reader need not infer it from a
+  // comment's routing field (postId today; #4373 part B adds another).
+  if (kind === 'post' || kind === 'all') rows = rows.concat(loadJson(postsFile(), []).filter(match).map((r) => ({ ...r, entry: 'post' })));
+  if (kind === 'comment' || kind === 'all') rows = rows.concat(loadJson(commentsFile(), []).filter(match).map((r) => ({ ...r, entry: 'comment' })));
   rows.sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt)));
   return rows.slice(0, limit);
 }
@@ -524,6 +526,40 @@ function releaseHeld(id) {
   throw new Error('no such held post or comment');
 }
 
+// #4525: the person discards one held or quarantined post or comment. The row is removed, and a
+// post takes all its comments with it. A discard credits nobody and demotes nobody (the store test
+// pins both). Returns the removed row.
+function discardHeld(id) {
+  const key = String(id);
+
+  const posts = loadJson(postsFile(), []);
+  const pi = posts.findIndex((p) => p.id === key);
+  if (pi !== -1) {
+    const post = posts[pi];
+    if (post.status !== 'held' && post.status !== 'quarantined') throw new Error('only a held or stopped post can be discarded');
+    // Comments first, then the post: two files cannot be written as one, and if the second write
+    // fails the post is still there to discard again, rather than leaving comments under nothing.
+    const comments = loadJson(commentsFile(), []);
+    const kept = comments.filter((c) => c.postId !== key);
+    if (kept.length !== comments.length) saveJson(commentsFile(), kept);
+    posts.splice(pi, 1);
+    saveJson(postsFile(), posts);
+    return post;
+  }
+
+  const comments = loadJson(commentsFile(), []);
+  const ci = comments.findIndex((c) => c.id === key);
+  if (ci !== -1) {
+    const comment = comments[ci];
+    if (comment.status !== 'held' && comment.status !== 'quarantined') throw new Error('only a held or stopped comment can be discarded');
+    comments.splice(ci, 1);
+    saveJson(commentsFile(), comments);
+    return comment;
+  }
+
+  throw new Error('no such held post or comment');
+}
+
 // Increment an agent's approved_count; flip to trusted at K. Idempotent-safe:
 // an already-trusted agent stays trusted.
 function recordApproval(agentId) {
@@ -577,6 +613,7 @@ module.exports = {
   trustState,
   trustRecord,
   releaseHeld,
+  discardHeld,
   recordApproval,
   grantTrust,
   revokeTrust,
