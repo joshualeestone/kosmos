@@ -118,3 +118,21 @@ row's name be edited before retry.
 - server tests: the three read routes; a catalogue that is not installed answers 503 with a plain reason, never
   a crash; the specs, POSTed to the real `/api/agents` in order on a sandboxed server, make a lead and reports
   whose profiles carry reportsTo = the lead and the project membership.
+
+## Merge of main's downloaded catalogue (#4632), 2026-09-30
+Main stopped shipping the catalogue (#4705): it is downloaded, signed, when it is asked for, and until then a
+board has no teams. This branch was written against a shipped catalogue, so after the merge five tests failed
+(the real roles and teams were simply not there).
+- DECIDED: the two reads the Team screen opens with (`GET /api/teams/seeded` and `/api/teams/seeded/<key>`)
+  ask the catalogue to download first (`teamseed.refresh`, which never rejects), then answer. `specs` does
+  not ask: it builds from what is held.
+- A board that holds no catalogue answers 503 with a sentence (`NOT_DOWNLOADED`), at all three routes. Before,
+  it would have answered 404 "there is no prebuilt team called ...", which blames the person's choice.
+- REJECTED: downloading at board start (#4632's rule is that it is fetched only when asked for).
+- Tests read the real catalogue through `test-support/catalogue-fixture` (the published file, re-signed
+  with a test key, in a sandboxed data root). Perturbed: the list answering without the download reds its
+  test; an empty catalogue read as held reds two.
+- WEAKEST PREMISE: the catalogue waits ten minutes between tries, failed ones included, so "try again a
+  little later" can mean up to ten minutes and the sentence does not say how long.
+- NOT RE-RUN here: the browser check render-teamcreate-4557.js. It injects its own fixture catalogue with no
+  `status`, which these changes read as held, and no page code changed in this merge.

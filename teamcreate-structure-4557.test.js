@@ -37,6 +37,9 @@ process.on('exit', () => {
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
+/* #4632: the roles a team's members are made from (and the real teams the last test reads) come from
+   the downloaded catalogue, so the published fixture is stored in this sandbox first. */
+require('./test-support/catalogue-fixture').install(SANDBOX);
 const create = require('./engine/create');
 const teamseed = require('./engine/teamseed');
 const projects = require('./engine/projects');

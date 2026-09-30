@@ -100,6 +100,41 @@ test('not installed: all three routes answer 503 with a sentence, and nothing cr
   } finally { teamseed.setCatalogue(CATALOGUE); }
 });
 
+test('#4632: opening the Team screen downloads first, then reads: list and detail wait for the refresh, specs does not ask', async () => {
+  let loaded = false;
+  let asked = 0;
+  // A catalogue that holds nothing until its refresh has finished, a tick later.
+  teamseed.setCatalogue({
+    ...CATALOGUE,
+    status: () => ({ loaded }),
+    refresh: () => new Promise((done) => setTimeout(() => { asked += 1; loaded = true; done(); }, 20)),
+  });
+  try {
+    const l = await call('GET', '/api/teams/seeded');
+    assert.equal(asked, 1, 'the list asked for the download');
+    assert.equal(l.status, 200, 'and answered from what the download brought, not from before it: ' + JSON.stringify(l.json));
+    assert.equal(l.json.teams.length, 1);
+    loaded = false;
+    const d = await call('GET', '/api/teams/seeded/marketing');
+    assert.equal(asked, 2, 'opening one team asked too');
+    assert.equal(d.status, 200, JSON.stringify(d.json));
+    const s = await call('POST', '/api/teams/seeded/marketing/specs', { names: { lead: 'Maya', content: 'Leo', social: 'Ana' } });
+    assert.equal(asked, 2, 'building the specs does not download');
+    assert.equal(s.status, 200, JSON.stringify(s.json));
+  } finally { teamseed.setCatalogue(CATALOGUE); }
+});
+
+test('#4632 not downloaded (offline): all three routes answer 503 with the sentence, never "no such team"', async () => {
+  teamseed.setCatalogue({ ...CATALOGUE, status: () => ({ loaded: false }), refresh: async () => {} });
+  try {
+    for (const [m, p, b] of [['GET', '/api/teams/seeded'], ['GET', '/api/teams/seeded/marketing'], ['POST', '/api/teams/seeded/marketing/specs', { names: {} }]]) {
+      const r = await call(m, p, b);
+      assert.equal(r.status, 503, p);
+      assert.equal(r.json.error, teamseed.NOT_DOWNLOADED, p);
+    }
+  } finally { teamseed.setCatalogue(CATALOGUE); }
+});
+
 test('list and detail read the catalogue; an unknown team is a 404', async () => {
   teamseed.setCatalogue(CATALOGUE);
   const l = await call('GET', '/api/teams/seeded');

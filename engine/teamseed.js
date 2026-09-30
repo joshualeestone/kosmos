@@ -10,7 +10,9 @@
  * can be retried alone. Nothing here writes anything.
  *
  * The catalogue is read through `catalogue()`, which is injectable (setCatalogue) for tests and
- * loads `./catalogue` lazily otherwise, so this module can land before the seed does.
+ * loads `./catalogue` lazily otherwise. Since #4632 the catalogue is DOWNLOADED, not shipped: a board
+ * that has not downloaded one has no teams, and `refresh()` is what the Team screen's routes call so
+ * that opening the screen is what downloads it.
  */
 const fs = require('node:fs');
 const create = require('./create');
@@ -40,9 +42,11 @@ function catalogue() {
 }
 
 const NOT_INSTALLED = 'the prebuilt teams are not installed in this version of Kosmos yet';
-/* #4557 (April, #4555 review): the catalogue is generated (catalogue-teams.js), so a bad build can make
-   it throw on load or on a call. That is "unavailable", like not installed, never a 500 that reads as a
-   bug in the page. */
+/* #4632: the board holds no catalogue (it is downloaded when the Team screen or the role picker opens,
+   and this computer was offline or the download was refused). */
+const NOT_DOWNLOADED = 'Kosmos has not downloaded the prebuilt teams to this computer yet. Check it is online and try again a little later';
+/* #4557 (April, #4555 review): a call into the catalogue can throw. That is "unavailable", like not
+   installed, never a 500 that reads as a bug in the page. */
 const BROKEN = 'the prebuilt teams could not be read in this version of Kosmos';
 
 function guarded(fn) {
@@ -67,10 +71,35 @@ function leadSlot(team) {
   return leads.length === 1 ? leads[0].slot : null;
 }
 
+/** Why there are no teams to read from `c`, or null. A catalogue that cannot say what it holds (a
+ *  test's fixture) is taken as holding what it answers. */
+function notHeld(c) {
+  if (!c) return NOT_INSTALLED;
+  if (typeof c.status !== 'function') return null;
+  const s = c.status();
+  return s && s.loaded ? null : NOT_DOWNLOADED;
+}
+
+/**
+ * Download the catalogue if it is due (the catalogue decides; it never asks more than once in a
+ * while). For the routes the Team screen opens with. Never rejects: a failure only means the
+ * screen is told there are no teams yet.
+ * @returns {Promise<void>}
+ */
+async function refresh(cat) {
+  try {
+    const c = cat === undefined ? catalogue() : cat;
+    if (c && typeof c.refresh === 'function') await c.refresh();
+  } catch (err) {
+    console.error('[teamseed] the catalogue refresh failed:', (err && err.message) || err);
+  }
+}
+
 /** For the Team dropdown: every seeded team, ordered by rank. */
 function list(cat) {
   const c = cat === undefined ? catalogue() : cat;
-  if (!c) return { ok: false, because: NOT_INSTALLED, unavailable: true };
+  const gone = notHeld(c);
+  if (gone) return { ok: false, because: gone, unavailable: true };
   const teams = (c.teams() || []).map((t) => ({
     key: t.key, label: t.label, blurb: t.blurb, kind: t.kind, rank: t.rank, count: membersOf(t).length,
   }));
@@ -81,7 +110,8 @@ function list(cat) {
 /** For the confirm screen: one team's members, lead first, with the suggested names. */
 function detail(key, cat) {
   const c = cat === undefined ? catalogue() : cat;
-  if (!c) return { ok: false, because: NOT_INSTALLED, unavailable: true };
+  const gone = notHeld(c);
+  if (gone) return { ok: false, because: gone, unavailable: true };
   const team = c.team(key);
   if (!team) return { ok: false, because: 'there is no prebuilt team called ' + JSON.stringify(String(key)), notFound: true };
   const lead = leadSlot(team);
@@ -119,7 +149,8 @@ function ordered(team) {
 function specs(req, cat, deps) {
   const c = cat === undefined ? catalogue() : cat;
   const taken = (deps && typeof deps.taken === 'function') ? deps.taken : takenDefault;
-  if (!c) return { ok: false, because: NOT_INSTALLED, unavailable: true };
+  const gone = notHeld(c);
+  if (gone) return { ok: false, because: gone, unavailable: true };
   const key = req && req.team;
   const team = c.team(key);
   if (!team) return { ok: false, because: 'there is no prebuilt team called ' + JSON.stringify(String(key)), notFound: true };
@@ -188,5 +219,5 @@ function specs(req, cat, deps) {
 
 module.exports = {
   list: guarded(list), detail: guarded(detail), specs: guarded(specs),
-  setCatalogue, catalogue, NOT_INSTALLED, BROKEN,
+  refresh, setCatalogue, catalogue, NOT_INSTALLED, NOT_DOWNLOADED, BROKEN,
 };

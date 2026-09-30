@@ -5,6 +5,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+/* #4632: the real catalogue is downloaded, not shipped. The one test below that reads it needs the
+   published fixture stored in a sandboxed data root, before anything from engine/ loads. */
+require('../test-support/catalogue-fixture').sandboxWithCatalogue('teamseed');
 const teamseed = require('./teamseed');
 
 function fixture() {
@@ -63,6 +66,31 @@ test('not installed: every entry point says so in words and never throws', () =>
     assert.equal(r.ok, false);
     assert.equal(r.because, teamseed.NOT_INSTALLED);
   }
+});
+
+test('#4632 not downloaded: a catalogue that holds nothing says so at every entry point; one that holds some is read', () => {
+  const held = { ...fixture(), status: () => ({ loaded: true }) };
+  const empty = { ...fixture(), status: () => ({ loaded: false }) };
+  for (const r of [teamseed.list(empty), teamseed.detail('marketing', empty), teamseed.specs({ team: 'marketing', names: {} }, empty)]) {
+    assert.equal(r.ok, false);
+    assert.equal(r.because, teamseed.NOT_DOWNLOADED);
+    assert.equal(r.unavailable, true, 'unavailable (503), never "no such team" (404)');
+  }
+  assert.equal(teamseed.list(held).ok, true, 'control: the same catalogue, holding a copy, lists');
+  assert.equal(teamseed.detail('marketing', held).ok, true);
+});
+
+test('#4632 refresh: asks the catalogue to download, and a failure there never rejects', async () => {
+  let asked = 0;
+  await teamseed.refresh({ refresh: async () => { asked += 1; } });
+  assert.equal(asked, 1);
+  const quiet = console.error; console.error = () => {};
+  try {
+    await teamseed.refresh({ refresh: async () => { throw new Error('offline'); } });
+    await teamseed.refresh({ refresh: () => { throw new Error('sync throw'); } });
+  } finally { console.error = quiet; }
+  await teamseed.refresh({});      // a catalogue with nothing to refresh (a test fixture)
+  await teamseed.refresh(null);    // not installed
 });
 
 test('detail: lead first, suggested names, and whether a portrait ships', () => {
