@@ -129,6 +129,23 @@ test('#4588 B heldForQuota: a paused agy card holds itself AND its idle agy coll
   } finally { b.restore(); }
 });
 
+test('#4588 B review 4: the brake AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF=1 makes heldForQuota hold nothing, which every automatic sender asks (the card still shows the pause)', () => {
+  const until = new Date(Date.now() + 25 * 60e3).toISOString();
+  const b = agyBoard({ agyholda: until });
+  try {
+    const now = Date.now();
+    agyquota.notePool(b.cards, now);
+    assert.equal(agyquota.heldForQuota(b.s.agyholda, b.cards, now), Date.parse(until), 'CONTROL: held without the brake');
+    assert.equal(agyquota.heldForQuota(b.s.agyholda, b.cards, now, undefined, { AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF: '1' }), null);
+    assert.equal(agyquota.heldForQuota(b.s.agyholda, b.cards, now, undefined, { AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF: '0' }), Date.parse(until), 'only "1" is the brake');
+    process.env.AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF = '1';
+    try {
+      assert.equal(agyquota.heldForQuota(b.s.agyholda, b.cards, now), null, 'the default env must reach the brake');
+    } finally { delete process.env.AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF; }
+    assert.equal(b.card('agyholda').quotaUntil, until, 'the brake does not change what the card shows');
+  } finally { b.restore(); }
+});
+
 test('#4588 B heldForQuota: a reset already past holds nothing; no paused agy card is null', () => {
   const until = new Date(Date.now() + 25 * 60e3).toISOString();
   const b = agyBoard({ agyholda: until });

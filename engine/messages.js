@@ -1960,7 +1960,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
       /* #4588 PR B: held on the shared Google quota, nothing typed. The post is kept for this member like a #4624
          hold (its id, marked when it names them), so it counts as placed for the sender and is told in one line by the
          idle flush, the next typed arrival here, or roomhold.flushReleased after the reset. Could not keep it: not
-         reached, as before. (With the brake on this branch is not reached: see typeInto below.) */
+         reached, as before. Only deliverAutomatic(Async) answers held: true, and under the room brake typeInto uses
+         chat.deliver(Async), which never does, so this branch is not reached then. */
       if (sent && sent.held === true) {
         roomhold.restore(name, projectId, heldIds);
         unspill(spilled[name]);

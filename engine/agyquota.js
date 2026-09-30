@@ -94,8 +94,12 @@ function notePool(roster, now, memo = POOL_MEMO) {
 }
 /* When an automatic line to `session` may be typed, in epoch ms, or null for now. Only an antigravity card is held: while
    the pool is paused, then until its own step after the reset (releaseAfterMs). The card is found by chat's own rule
-   (resolveCard), so the gate and the delivery always mean the same card. */
-function heldForQuota(session, roster, now, memo = POOL_MEMO) {
+   (resolveCard), so the gate and the delivery always mean the same card.
+   Brake (#4588 PR B review 4): AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF=1 holds nothing, for every automatic sender at once
+   (deliverAutomatic, the assigner, the recommender, autoretell all ask here). A misread reset up to MAX_POOL_MS ahead
+   would otherwise hold them all with no way out but the wait; the card still shows the pause either way. */
+function heldForQuota(session, roster, now, memo = POOL_MEMO, env = process.env) {
+  if (env && env.AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF === '1') return null;
   let card = null;
   try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
   if (!isOurAgy(card)) return null;

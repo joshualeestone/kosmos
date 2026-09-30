@@ -303,3 +303,13 @@ since this branch is stacked on it.
     must say "held until at least <time>"; noted for the room UI follow-up card.
   - A throw mid-loop leaves earlier members' holds with no logged row, and the next post can reuse the id.
     Pre-existing (#4624's putBack), made likelier by PR B marking ids as addressed. Follow-up card, not this PR.
+
+## Review round 4, 2026-09-30: 0 BLOCKER, 1 WARNING, 3 NIT
+- **WARNING FIXED.** The quota gate had no off switch of its own: a misread reset up to MAX_POOL_MS ahead held every
+  automatic sender to every agy agent, and ROOM_HOLD_OFF / AGY_QUOTA_RESUME_OFF did not reach it. Now
+  AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF=1 makes heldForQuota return null, which covers deliverAutomatic(Async), the
+  assigner, the recommender and autoretell at once (all ask heldForQuota). One arm; it reds with the line removed.
+- NITs: the finish() comment now states the mechanism (only deliverAutomatic answers held) rather than the brake.
+  One env (ROOM_HOLD_OFF) switching off both the #4624 hold and the quota hold for room posts is kept: "as before" is
+  what it says, and the new quota brake is the narrower tool. The async-path arm for the brake stays a decided NIT
+  (typeInto is shared).
