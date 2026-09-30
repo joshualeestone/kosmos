@@ -116,3 +116,9 @@ the same. Second: 3 hours is a judgement, not a measurement; it is one constant 
   reviewed defect) -> the failed-retry and ok:false tests red; ok:false treated as success
   -> the ok:false test red; a future sentAt blocking -> the clock-set-back test red; no
   interval -> six tests red, including both pre-existing dedup tests.
+
+## Review round 2 (blind, sonnet): 0 BLOCKER, 1 WARNING (decided, kept), 3 NIT
+- WARNING, DECIDED and kept: a permanently failing collector gets one POST per RESEND_MIN_MS (about 8 a day per install) instead of 1, because a failed send never records the hash. Kept: it is bounded (the "FAILED re-send" test pins one attempt per interval), the collector is ours, and an offline install reaches nothing anyway. A back-off would be one more mechanism to review for a cost of a few small requests. What would change my mind: the collector's logs showing repeat POSTs from installs that cannot reach it successfully.
+- NIT noted: if the post-success hash write itself fails (a full disk), the same report is re-sent every interval that day (bounded, as above).
+- NIT noted: a sender that resolves {status: 500} with no `ok` counts as success (a real fetch Response always has ok; mocks only).
+- NIT noted: no tests for a timeout, a new day, or setOn during an in-flight POST (all reasoned safe by the reviewer).
