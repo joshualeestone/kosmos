@@ -42,7 +42,7 @@ reaction bar already meets. Back is the one people use most.
 That an ::after tap area never covers a neighbour in states this check does not draw (a long project name pushing
 the cog, a member list longer than the sample). The neighbour arm checks every control within 40px in the sample,
 which now draws one task and one file (round 4: with empty lists it had nothing under a header to measure).
-Its neighbours are buttons, links, role=button, role=link (the parent-project crumb beside Back, 6px away) and member
+Its neighbours are buttons, links, fields, anything focusable, role=button, role=link (the parent-project crumb beside Back, 6px away) and member
 rows (.pj-member[data-agent], which open an agent); the probe draws one crumb and two members too (round 8). No field
 sits within 40px of these six today.
 Not checked by an arm: the one-screen touch header's extra 14px takes 14px off the task list's visible height. The
@@ -67,6 +67,9 @@ list scrolls (overflow-y: auto), so nothing is cut off, only one more scroll soo
 - The neighbour arm red on round 3's page (044f6aa73) with the seeded rows, WebKit: pj-doc 3% (phone), 5% (tablet
   tabs), tkcard 6% and pj-doc 6% (one-screen 1024 and 1180). Green on this head, Chromium and WebKit.
 - The phone arm now runs after the focus-turn arm puts back its forced display (round 4: it measured an altered page).
+- Round 10: an arm on a hover page (1180, tabs and one-screen, both engines) asserts none of the six has an area and
+  neither one-screen drawn change applies; red with the touch gate removed (all six listed), which every other arm
+  passed. The neighbour set widened to fields and focusable elements (clean in both engines).
 - Round 8 controls, WebKit: an overlay across + Add member's area's middle is red (888 hits of 1225); Back's area
   widened to 40px is red through the crumb link (32 px) in both tab arms. The one-screen rules sit under the same
   960px gate as the layout itself. The restore snapshot also compares every scrolled element, so a scroll the probe

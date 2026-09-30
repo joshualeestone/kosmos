@@ -198,7 +198,7 @@ function tapProbe4663(skip) {
   subjects = ['#pj-tasklist .tkcard', '#pj-docs .pj-doc', '#pj-crumb .pj-crumb-link', '#pj-one-agents .pj-member'].map((q) => [...document.querySelectorAll(q)].filter((e) => e.getBoundingClientRect().height > 0).length);
   for (const id of ids) {
     const b = document.getElementById(id); if (!b) continue; b.scrollIntoView({ block: 'center', inline: 'center' }); const r = b.getBoundingClientRect();
-    for (const n of document.querySelectorAll('button, a[href], [role="button"], [role="link"], .pj-member[data-agent]')) {
+    for (const n of document.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"]), [role="button"], [role="link"], .pj-member[data-agent]')) {
       if (n === b || b.contains(n) || n.contains(b)) continue;
       const q = n.getBoundingClientRect(); if (!q.width || !q.height) continue;
       if (!(q.right > r.left - 40 && q.left < r.right + 40 && q.bottom > r.top - 40 && q.top < r.bottom + 40)) continue;
@@ -1709,6 +1709,30 @@ function tapProbe4663(skip) {
       } finally {
         chk(consTapErrors.length === 0, `[tablet ${w} one-screen] no script errors on the page`, consTapErrors.join(' | '));
         await consTap.close();
+      }
+    }
+    // #4663 stays off a pointer that hovers (the Mac app is a WKWebView with a mouse or trackpad): no area on any of
+    // the six, and neither one-screen drawn change, in the tab layout and the one-screen layout alike (review round
+    // 10: with the touch gate removed every other arm still passed).
+    for (const cons of [false, true]) {
+      const hoverPage = await browser.newPage({ viewport: { width: 1180, height: 820 }, colorScheme: 'light' });
+      const hoverErrors = watchErrors(hoverPage);
+      try {
+        await hoverPage.addInitScript(() => { window.setInterval = () => 0; window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }); });
+        await hoverPage.goto(PAGE);
+        const hv = await hoverPage.evaluate((c) => {
+          const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
+          if (c) { document.documentElement.setAttribute('data-layout', 'consolidated'); document.body.classList.add('consolidated'); }
+          const ids = ['pj-back', 'pj-settings-link', 'pj-add-member', 'pj-newtask', 'pj-docs-all', 'pj-alltasks'];
+          const withArea = ids.filter((id) => { const b = document.getElementById(id); return !b || getComputedStyle(b, '::after').content !== 'none'; });
+          const f = document.getElementById('pj-tasks-field'), v = document.getElementById('pj-alltasks');
+          return { hoverNone: matchMedia('(hover: none)').matches, withArea, padTop: f ? getComputedStyle(f).paddingTop : 'missing', viewAllRight: v ? getComputedStyle(v).marginRight : 'missing' };
+        }, cons);
+        chk(!hv.hoverNone && hv.withArea.length === 0 && hv.padTop === '0px' && hv.viewAllRight === '0px',
+          `[hover 1180 ${cons ? 'one-screen' : 'tabs'}] #4663: with a mouse or trackpad none of the six has a tap area, and the tasks header and View All are as drawn`, JSON.stringify(hv));
+      } finally {
+        chk(hoverErrors.length === 0, `[hover 1180 ${cons ? 'one-screen' : 'tabs'}] no script errors on the page`, hoverErrors.join(' | '));
+        await hoverPage.close();
       }
     }
     // DARK, phone, touch: the open bar has its own ground against the dark room ground, so its
