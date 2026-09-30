@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: allowpoll-4640
-diff_hash: f2806af4510dbd3a9b5be26ed7c4ca01a0cf1718857d75330934a40cf82e6b8c
-validation: pending (full validation queued on Mortals for this head)
+diff_hash: 82fe3edb9d034b2036238c97fc427d32cfa060ef1485bf3cf15ce5bf17e7e50a
+validation: pending (re-validation queued on Agent1s after the machine.test.js fix)
 subdir_audit: passed
-timestamp: 2026-09-30T21:48:44Z
+timestamp: 2026-09-30T23:20:03Z
 iterations: 3
 converged: true
 ---
@@ -29,3 +29,6 @@ converged: true
 
 ### Tests
 engine/remote.test.js 132/132 (twice, alone; one run beside the other two files had a single #3827 timing red at 13 s under load 5.5, and it passed alone twice), remote-report 15/15, server 346/346, webhooks-1307 39/39; render-plus-panel-3829 118 PASS, render-plus-signin-3478 175 PASS.
+
+### After the full validation
+One real red (the this-Mac guard on the relay-refusal regex); fixed without spelling around the guard, both directions pinned.
