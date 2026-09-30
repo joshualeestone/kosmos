@@ -107,9 +107,10 @@ async function startThenEndTheJob(cli) {
     let said = '';
     job.stdout.on('data', (d) => { said += d; });
     job.stderr.on('data', (d) => { said += d; });
-    const code = await new Promise((r) => job.on('exit', (c) => r(c)));
+    const ex = await new Promise((r) => job.on('exit', (c, sig) => r({ code: c, signal: sig })));
     boardPid = readBoardPid(home);
-    assert.equal(code, 0, 'kosmos start must succeed in the sandbox: ' + said);
+    if (typeof ex.code !== 'number') throw new Error('kosmos start gave no exit code (signal ' + ex.signal + '): ' + said);
+    assert.equal(ex.code, 0, 'kosmos start must succeed in the sandbox: ' + said);
     assert.ok(boardPid > 1 && alive(boardPid), 'the pidfile names a live board: ' + boardPid);
     assert.ok(await answers(port), 'the board answers before the job ends');
 
