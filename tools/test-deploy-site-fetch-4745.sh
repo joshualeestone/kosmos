@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+# test-deploy-site-fetch-4745.sh - deploy-site.sh must never fetch onto an artifact's real name (#4745).
+#
+# On 2026-09-30 a stalled download (curl exit 18) made deploy-site.sh refuse, correctly, but it had
+# written over the good dist/kosmos-0.7.11-arm64.tar.gz in place and left a half file there under
+# the real name. The fix fetches to a temp beside the target, verifies it against the .sha256
+# sidecar, and only then renames it over the real name; a file that already matches is not fetched.
+#
+# This test EXTRACTS the helper block from tools/deploy-site.sh (between its ">>> site-fetch
+# helpers" and "<<< site-fetch helpers" markers) and runs it against a stub `curl` on PATH, in a
+# temp dir. It never contacts a real host and never touches a real site checkout.
+#
+# Arms:
+#   a  stub writes HALF the bytes and exits 18   -> refuses, original byte-identical, no temp left
+#   b  stub writes full bytes with the WRONG sha -> refuses, original byte-identical, no temp left
+#   c  CONTROL: stub writes the right bytes      -> file replaced, sha matches the sidecar
+#   d  local file already correct                -> the artifact URL is never requested
+#   e  one stalled attempt, then a good one      -> a retry, not a refusal
+#   f  the fetch carries a time limit            -> --max-time and --connect-timeout reach curl
+#
+#   bash tools/test-deploy-site-fetch-4745.sh
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+DEPLOY="$HERE/deploy-site.sh"
+T="$(mktemp -d "${TMPDIR:-/tmp}/deploy-fetch-4745.XXXXXXXX")"
+trap 'rm -rf "$T"' EXIT
+fail=0; npass=0
+pass() { printf 'PASS  %s\n' "$*"; npass=$((npass + 1)); }
+bad()  { printf 'FAIL  %s\n' "$*"; fail=1; }
+has()  { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
+sha_of() { shasum -a 256 "$1" | awk '{print $1}'; }
+
+# ---- extract the helper block; refuse loudly if it is not there (never a vacuous green) --------
+BLOCK="$T/fetch-block.sh"
+sed -n '/^# >>> site-fetch helpers (#4745)/,/^# <<< site-fetch helpers (#4745)/p' "$DEPLOY" > "$BLOCK"
+if grep -q '^fetch_verified() {' "$BLOCK" && grep -q '^fetch() {' "$BLOCK"; then
+  pass "extracted the site-fetch helper block from deploy-site.sh ($(wc -l < "$BLOCK" | tr -d ' ') lines)"
+else
+  bad "could not extract the site-fetch helper block from $DEPLOY (markers moved?)"; exit 1
+fi
+
+# ---- stub curl ---------------------------------------------------------------------------------
+# Serves $LIVE_DIR/<basename of URL>. Logs every URL and its flags to $CALLS.
+# STUB_MODE applies to non-.sha256 URLs only: good | half18 | wrongsha.
+# STUB_FAIL_FIRST=N makes the first N artifact requests behave as half18, then good.
+BIN="$T/bin"; mkdir -p "$BIN"
+cat > "$BIN/curl" <<'CURL'
+#!/bin/bash
+url=""; dest=""; all="$*"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) dest="$2"; shift 2;;
+    -H|--connect-timeout|--max-time|--speed-limit|--speed-time) shift 2;;
+    http://*|https://*) url="$1"; shift;;
+    *) shift;;
+  esac
+done
+printf '%s\t%s\n' "$url" "$all" >> "$CALLS"
+src="$LIVE_DIR/${url##*/}"
+[ -f "$src" ] || exit 22
+mode="${STUB_MODE:-good}"
+case "$url" in *.sha256) mode=good;; *)
+  if [ "${STUB_FAIL_FIRST:-0}" -gt 0 ]; then
+    n=$(grep -cv '\.sha256	' "$CALLS")
+    [ "$n" -le "$STUB_FAIL_FIRST" ] && mode=half18
+  fi;;
+esac
+case "$mode" in
+  good)     cp "$src" "$dest"; exit 0;;
+  half18)   sz=$(wc -c < "$src" | tr -d ' '); head -c $((sz / 2)) "$src" > "$dest"; exit 18;;
+  wrongsha) { cat "$src"; printf 'X'; } > "$dest"; exit 0;;
+esac
+exit 99
+CURL
+chmod +x "$BIN/curl"
+
+NAME=kosmos-0.7.11-arm64.tar.gz
+HOSTURL=https://fake.test
+# scenario: a LIVE dir serving NEW bytes + sidecar, a SITE dist holding OLD bytes + OLD sidecar.
+setup() {
+  rm -rf "$T/live" "$T/site"; mkdir -p "$T/live" "$T/site/dist"
+  head -c 200000 /dev/urandom > "$T/live/$NAME"
+  ( cd "$T/live" && shasum -a 256 "$NAME" > "$NAME.sha256" )
+  head -c 150000 /dev/urandom > "$T/site/dist/$NAME"
+  ( cd "$T/site/dist" && shasum -a 256 "$NAME" > "$NAME.sha256" )
+  cp "$T/site/dist/$NAME" "$T/orig"; cp "$T/site/dist/$NAME.sha256" "$T/orig.sha256"
+  : > "$T/calls"
+}
+run_fetch() {  # runs fetch_verified in a subshell under /bin/sh with set -eu, like deploy-site.sh; sets OUT RC
+  OUT=$(PATH="$BIN:$PATH" CALLS="$T/calls" LIVE_DIR="$T/live" \
+    sh -c 'set -eu; . "$1"; FETCH_RETRY_DELAY=0; fetch_verified "$2" "$3"' _ \
+    "$BLOCK" "$HOSTURL/dist/$NAME" "$T/site/dist/$NAME" 2>&1); RC=$?
+}
+no_temps() { [ -z "$(find "$T/site/dist" -name '.fetch-*' 2>/dev/null)" ]; }
+artifact_calls() { grep -c "^$HOSTURL/dist/$NAME	" "$T/calls"; }
+
+# ---- a: partial transfer, exit 18 ----------------------------------------------------------------
+setup; STUB_MODE=half18 run_fetch
+[ "$RC" -ne 0 ] && pass "a: a partial fetch (exit 18) refuses (rc=$RC)" || bad "a: a partial fetch did not refuse"
+has "$OUT" "could not fetch $HOSTURL/dist/$NAME -- refusing (a missing artifact would drop from the live site)" \
+  && pass "a: the original refusal message is kept" || bad "a: refusal message changed: $OUT"
+cmp -s "$T/orig" "$T/site/dist/$NAME" && pass "a: the original artifact is byte-identical after the refusal" \
+  || bad "a: the original artifact was changed ($(wc -c < "$T/site/dist/$NAME" | tr -d ' ') bytes, was $(wc -c < "$T/orig" | tr -d ' '))"
+cmp -s "$T/orig.sha256" "$T/site/dist/$NAME.sha256" && pass "a: the original sidecar is byte-identical (the pair is left whole)" \
+  || bad "a: the sidecar was replaced although the artifact was refused"
+no_temps && pass "a: no temp file is left in dist/" || bad "a: a temp file was left behind: $(ls -a "$T/site/dist")"
+[ "$(artifact_calls)" = 3 ] && pass "a: a stalled fetch is retried (3 attempts)" || bad "a: expected 3 artifact attempts, got $(artifact_calls)"
+
+# ---- b: full bytes, wrong sha ----------------------------------------------------------------------
+setup; STUB_MODE=wrongsha run_fetch
+[ "$RC" -ne 0 ] && has "$OUT" "sha mismatch" && pass "b: a wrong-sha fetch refuses with a sha mismatch (rc=$RC)" \
+  || bad "b: a wrong-sha fetch did not refuse on the sha (rc=$RC): $OUT"
+cmp -s "$T/orig" "$T/site/dist/$NAME" && pass "b: the original artifact is byte-identical after the refusal" \
+  || bad "b: the original artifact was replaced by unverified bytes"
+cmp -s "$T/orig.sha256" "$T/site/dist/$NAME.sha256" && pass "b: the original sidecar is byte-identical" \
+  || bad "b: the sidecar was replaced although the artifact was refused"
+no_temps && pass "b: no temp file is left in dist/" || bad "b: a temp file was left behind: $(ls -a "$T/site/dist")"
+
+# ---- c: CONTROL, the right bytes -------------------------------------------------------------------
+setup; STUB_MODE=good run_fetch
+[ "$RC" -eq 0 ] && pass "c: a good fetch succeeds" || bad "c: a good fetch failed (rc=$RC): $OUT"
+cmp -s "$T/live/$NAME" "$T/site/dist/$NAME" && pass "c: CONTROL the artifact was replaced with the served bytes" \
+  || bad "c: the artifact was NOT replaced (so a/b intact could be vacuous)"
+[ "$(sha_of "$T/site/dist/$NAME")" = "$(awk '{print $1}' "$T/live/$NAME.sha256")" ] \
+  && pass "c: the replaced artifact's sha matches the served sidecar" || bad "c: sha does not match the served sidecar"
+cmp -s "$T/live/$NAME.sha256" "$T/site/dist/$NAME.sha256" && pass "c: the sidecar was replaced with the served one" \
+  || bad "c: the sidecar was not replaced"
+no_temps && pass "c: no temp file is left in dist/" || bad "c: a temp file was left behind"
+
+# ---- d: already correct locally --------------------------------------------------------------------
+setup; cp "$T/live/$NAME" "$T/site/dist/$NAME"; STUB_MODE=half18 run_fetch
+[ "$RC" -eq 0 ] && pass "d: an already-correct local file passes without a fetch" || bad "d: failed (rc=$RC): $OUT"
+[ "$(artifact_calls)" = 0 ] && pass "d: the artifact URL was never requested" || bad "d: the artifact was fetched $(artifact_calls) time(s) although it was already correct"
+cmp -s "$T/live/$NAME" "$T/site/dist/$NAME" && pass "d: the local file is untouched and correct" || bad "d: the local file changed"
+
+# ---- e: one stall, then good: a retry, not a refusal -----------------------------------------------
+setup; STUB_MODE=good STUB_FAIL_FIRST=1 run_fetch
+[ "$RC" -eq 0 ] && cmp -s "$T/live/$NAME" "$T/site/dist/$NAME" && [ "$(artifact_calls)" = 2 ] \
+  && pass "e: one stalled attempt then a good one is retried and succeeds (2 attempts)" \
+  || bad "e: a single stall was not recovered by a retry (rc=$RC, attempts $(artifact_calls)): $OUT"
+
+# ---- f: the time limits reach curl -----------------------------------------------------------------
+line=$(grep "^$HOSTURL/dist/$NAME	" "$T/calls" | head -n 1)
+has "$line" "--max-time" && has "$line" "--connect-timeout" && has "$line" "--speed-time" \
+  && pass "f: the artifact fetch carries --max-time, --connect-timeout and --speed-time" || bad "f: time limits missing: $line"
+
+# ---- g: every artifact caller in deploy-site.sh uses the verified fetch --------------------------
+for a in '"$HOST/dist/$ART"' '"$HOST/dist/Kosmos.pkg"' '"$HOST/dist/tmux-arm64.tar.gz"' '"$HOST/dist/kosmos-arm64.tar.gz"'; do
+  if grep -qF "fetch_verified $a " "$DEPLOY"; then pass "g: deploy-site.sh fetches $a through fetch_verified"
+  else bad "g: deploy-site.sh does not fetch $a through fetch_verified"; fi
+done
+
+echo "test-deploy-site-fetch-4745: $npass passed, fail=$fail"
+[ "$fail" = 0 ] || exit 1
+exit 0
