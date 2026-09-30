@@ -695,6 +695,38 @@ function setClosed(projectId, n, closedAt) {
 }
 
 /**
+ * #4771: whether a task is on hold (waiting on the person, or deliberately parked). The Prompter never nudges an agent
+ * about it and the Assigner never hands it out (engine/agentnudge.js openParts, engine/assigner.js); it stays on its
+ * owner's list for everything else.
+ */
+function isOnHold(t) {
+  return Boolean(t && t.onHold === true);
+}
+
+/**
+ * #4771: put a task on hold, or take it off. Stored as `onHold: true` (absent when off, so every task written before
+ * this reads as not held) and recorded in the task's activity, the same no-op discipline as setDue.
+ */
+function setOnHold(projectId, n, onHold) {
+  if (typeof onHold !== 'boolean') throw new Error('onHold must be true or false');
+  let changed;
+  let didChange = false;
+  projects.mutate(projectId, (p) => {
+    const t = byNumber(p, n);
+    if (!t) throw new Error('there is no task by that number on this project');
+    didChange = isOnHold(t) !== onHold;
+    changed = { ...t };
+    if (onHold) changed.onHold = true; else delete changed.onHold;
+    return {
+      ...p,
+      tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
+    };
+  });
+  if (didChange) taskchat.record(projectId, changed.number, { kind: onHold ? 'hold-set' : 'hold-cleared' });
+  return changed;
+}
+
+/**
  * #768: set or clear a task's due date. `dueDate` is a YYYY-MM-DD string, or
  * null/'' to clear it. Validated whole-or-not-at-all BEFORE the write (a nonsense
  * date is refused, never stored), and records a lifecycle event so the change
@@ -971,6 +1003,8 @@ function allTasks(everyProject) {
         projectName: p.name,
         /* #3559: the Tasks view leaves archived projects' tasks out, as the rails tuck them away. */
         projectArchived: p.archived === true,
+        /* #4771: a paused project's tasks read as on hold on the Tasks view. */
+        projectPaused: p.paused === true,
         whoNames: whoOf(t),
         /* Named on the row rather than inferred by the screen: `progressOf`
            lives here, and a caller re-deriving "is it finished" from another
@@ -1028,6 +1062,8 @@ function taskState(task) {
   if (!task) return 'nobody';
   if (progressOf(task).closed) return 'closed';
   if (task.waitingOnPerson === true && whoOf(task).length > 0) return 'decision';
+  /* #4771: held by the person (the task, or its paused project): after a decision, which the person still acts on. */
+  if (isOnHold(task) || task.projectPaused === true) return 'held';
   if (typeof task.builtAt === 'string' && task.builtAt) return 'built';
   if (whoOf(task).length === 0) return 'nobody';
   return (task.claim && task.claim.claimed === true) ? 'working' : 'assigned';
@@ -1211,6 +1247,6 @@ function tasksTabShown() {
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
-  partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say,
+  partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent };

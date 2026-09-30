@@ -60,9 +60,11 @@ function openParts(session, projects) {
   const tasks = require('./tasks');
   const out = [];
   for (const p of Array.isArray(projects) ? projects : []) {
-    if (!p || p.archived === true) continue;
+    /* #4771: nothing in a paused project, and no task on hold, is the agent's work to be nudged about. */
+    if (!p || p.archived === true || require('./projects').isPaused(p)) continue;
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       const prog = tasks.progressOf(t);
+      if (tasks.isOnHold(t)) continue;
       if (prog.closed || (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(session))))) continue;
       if (require('./projects').isSwarmOff(p, session)) continue;
       for (const x of prog.parts) {

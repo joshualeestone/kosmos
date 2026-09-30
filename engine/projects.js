@@ -1080,6 +1080,8 @@ function describe(project, roster, all) {
     // the field existed must read as "not archived", never as undefined
     // leaking into a template. Same heal path the rest of the payload uses.
     archived: project.archived === true,
+    // #4771: paused (the automations skip it); a record written before the field reads as not paused.
+    paused: project.paused === true,
     // Gated on the healed flag AND the value: a hand-edited record carrying
     // a date beside archived:false must not publish an "archived at", and a
     // non-string or unparseable value beside archived:true must not become
@@ -2446,19 +2448,26 @@ function edit(id, fields = {}) {
   if (fields.archived !== undefined && typeof fields.archived !== 'boolean') {
     throw new Error('archived must be true or false');
   }
+  // #4771: a paused project: nothing in it is nudged by the Prompter or handed out by the Assigner.
+  if (fields.paused !== undefined && typeof fields.paused !== 'boolean') {
+    throw new Error('paused must be true or false');
+  }
   // #1994: parent validated (self/cycle/missing refused) BEFORE the write, like
   // every other carried field, so a body mixing parent with name or description
   // still applies whole or not at all. `undefined` = not carried; cleanParent
   // returns null (un-group) or a valid parent id.
   let parentWant;
   if (fields.parent !== undefined) parentWant = cleanParent(fields.parent, id);
-  if (!Object.keys(want).length && fields.archived === undefined && fields.parent === undefined) {
+  if (!Object.keys(want).length && fields.archived === undefined && fields.paused === undefined && fields.parent === undefined) {
     // A save that would move nothing is refused, not answered "saved": a
     // typo'd key reporting success is a save the person believes happened.
     throw new Error('nothing here we can change');
   }
   return mutate(id, (p) => {
     const next = { ...p, ...want };
+    if (fields.paused !== undefined) {
+      if (fields.paused) next.paused = true; else delete next.paused;   // absent = not paused, as every older record reads
+    }
     if (fields.archived !== undefined) {
       next.archived = fields.archived;
       // Archiving an already-archived project keeps its original date;
@@ -2516,6 +2525,13 @@ function cleanArchivedAt(value) {
  * as `swarmOff: [sessionName]`.
  */
 /* The one reading of the stored fact, for a caller that already holds the project record. */
+/* #4771: a paused project: the Prompter nudges nobody about its tasks and the Assigner hands none of them out. */
+function isPaused(record) {
+  return Boolean(record && record.paused === true);
+}
+function setPaused(id, want) {
+  return edit(id, { paused: want });
+}
 function isSwarmOff(record, name) {
   return Boolean(record && Array.isArray(record.swarmOff) && record.swarmOff.includes(String(name)));
 }
@@ -3237,7 +3253,7 @@ function toldOverride(verdict, sessionName, known) {
 }
 
 module.exports = {
-  joinTaskClaims, swarmOffIn, swarmOffSet, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
+  joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, setPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,

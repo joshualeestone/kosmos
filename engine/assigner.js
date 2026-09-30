@@ -91,7 +91,11 @@ function liveProjects(records) {
    it (a part added, put back, or given to somebody) drops the mark (tasks.writeParts), and it counts again. */
 function hasOpenWork(session, projects) {
   for (const p of projects) {
+    /* #4771: held work (a task on hold, or a paused project) does not keep an agent busy, so the agent can be given
+       real work; it stays on the agent's list. The same rule as agentnudge.openParts. */
+    if (require('./projects').isPaused(p)) continue;
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
+      if (tasks.isOnHold(t)) continue;
       const prog = tasks.progressOf(t);
       if (prog.closed || (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(session))))) continue;
       if (prog.parts.some((x) => x.who === session && !x.closedAt)) return true;
@@ -123,8 +127,10 @@ function pick(session, projects, taken) {
   const candidates = [];
   for (const p of projects) {
     if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
+    if (require('./projects').isPaused(p)) continue;   // #4771: nothing in a paused project is handed out
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (typeof t.number !== 'number') continue;
+      if (tasks.isOnHold(t)) continue;   // #4771: a task on hold is never handed out
       if (taken.has(p.id + '#' + t.number)) continue;
       /* #1307: a task a webhook added waits for a person to give it out. Anyone holding the link
          can write its words, so it is never typed into an agent's pane unseen. */
@@ -152,6 +158,9 @@ function emptyMemory() {
 function goalProject(session, projects, goals, asked, now) {
   for (const p of projects) {
     if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
+    /* #4771: a paused project is not asked about. (A task on hold still counts as open work here: the project is
+       not empty, the person parked it, so its goal is not put to an agent.) */
+    if (require('./projects').isPaused(p)) continue;
     const at = asked.get(p.id);
     if (typeof at === 'number' && now - at < GOAL_ASK_MS) continue;
     const goal = goals instanceof Map ? goals.get(p.id) : null;
