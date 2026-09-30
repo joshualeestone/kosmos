@@ -377,7 +377,14 @@ function foundCodex(roster) {
   if (status.sandboxIsInconsistent()) return { agents: [], unreadable: 0 };
 
   let files;
-  try { files = codexsession.rollouts(); } catch { return { agents: [], unreadable: 0 }; }
+  try {
+    /* #4592: unmanaged Codex sessions still live in the person's default home;
+       Kosmos-managed agents now write to one private runtime home each. Read
+       both bounded roots so reconnect/discovery does not lose the latter. */
+    const runtimeHomes = require('./codexruntime').homes();
+    files = [...codexsession.rollouts(), ...runtimeHomes.flatMap((home) => codexsession.rollouts(home))];
+    files = [...new Set(files)].sort((a, b) => path.basename(b).localeCompare(path.basename(a)));
+  } catch { return { agents: [], unreadable: 0 }; }
 
   for (const file of files) {
     const meta = codexsession.metaOf(file);

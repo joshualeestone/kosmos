@@ -654,6 +654,11 @@ if [ -z "$adopt" ]; then
   for _var in HOME KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME GEMINI_CLI_HOME GROK_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do
     [ "$RUNNER" = antigravity ] && [ "$_var" = CLAUDE_CONFIG_DIR ] && continue
     [ "$RUNNER" = muse ] && [ "$_var" = CLAUDE_CONFIG_DIR ] && continue
+    # #4592: a codex launch uses CODEX_HOME below as the SOURCE ACCOUNT, then
+    # hands the pane a separate Kosmos-owned runtime home. Forwarding the source
+    # here would put both homes in new-session's environment vector and make the
+    # winner depend on tmux's duplicate-key handling.
+    [ "$RUNNER" = codex ] && [ "$_var" = CODEX_HOME ] && continue
     # #3769: not even one this supervisor inherited from its own environment.
     if [ "$IS_SETUP_GUIDE" = 1 ]; then
       case "$_var" in CLOUDFLARE_API_TOKEN|GH_TOKEN) continue ;; esac
@@ -806,7 +811,82 @@ if [ -z "$adopt" ]; then
     # own default is $HOME/.codex anyway) and it defeats the leak on a board cold-started under a
     # stray CODEX_HOME. NOT the server-global (that was the #3432-v1 bug Pete + ICK caught).
     EFFECTIVE_CODEX_HOME="${AGENT_WORKFORCE_CODEX_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.codex}"
+  fi
+  if [ "$RUNNER" = codex ]; then
+    # #4592: EFFECTIVE_CODEX_HOME above is the selected ACCOUNT home. It may also
+    # be the person's Codex Desktop home, whose plugins and hooks must not enter
+    # an unattended agent. Give every agent a private, persistent runtime home
+    # and carry only the account credential into it.
+    #
+    # One derivation shared with the board's rollout reader. The installed
+    # supervisor has an engine-path pointer, so this works from both a checkout
+    # and the Application Support copy. No engine means no account-home fallback.
+    _codex_runtime_home=""
+    if [ -n "$_eng" ] && [ -n "${NODE_BIN:-}" ]; then
+      _codex_runtime_home="$("$NODE_BIN" -e '
+        try { process.stdout.write(require(process.argv[1]).forSession(process.argv[2])); }
+        catch (_) { process.exit(1); }
+      ' "$_eng/codexruntime.js" "$SESSION" 2>/dev/null || true)"
+    fi
+    if [ -z "$_codex_runtime_home" ]; then
+      # Measured with Codex 0.149.1: CODEX_HOME= is treated as unset and the
+      # runner falls back to ~/.codex, restoring every plugin and hook this
+      # isolation exists to keep out. Refuse before tmux instead of failing open.
+      say "$SESSION: Kosmos could not load its installed Codex helper. Reopen Kosmos to repair it; the agent was not started"
+      exit 1
+    fi
+    _codex_source_auth="$EFFECTIVE_CODEX_HOME/auth.json"
+    _codex_runtime_auth="$_codex_runtime_home/auth.json"
+
+    if [ -n "$_codex_runtime_home" ] && [ ! -L "$_codex_runtime_home" ] \
+      && mkdir -p "$_codex_runtime_home" 2>/dev/null && chmod 700 "$_codex_runtime_home" 2>/dev/null; then
+      # The trust entry is the one harmless part of account config an unattended
+      # launch needs. Write it with create.js's canonical TOML writer, never by
+      # copying the account config that may load plugins or hooks.
+      if ! "$NODE_BIN" -e '
+        try { require(process.argv[1]).trustCodexFolder(process.argv[2], process.argv[3], false); }
+        catch (_) { process.exit(1); }
+      ' "$_eng/create.js" "$WORKDIR" "$_codex_runtime_home" 2>/dev/null; then
+        say "$SESSION: could not trust its launch folder in the private Codex home"
+      fi
+
+      # Codex 0.149.1 refreshes file credentials by opening auth.json with
+      # truncate+write, not temp+rename. That preserves this symlink and writes
+      # the authoritative account file. Rebuild it on every launch so an account
+      # switch reaches an existing agent. A regular file here would be a forked
+      # credential, so remove it rather than accepting it.
+      _codex_runtime_physical="$(cd "$_codex_runtime_home" 2>/dev/null && pwd -P || true)"
+      _codex_source_physical="$(cd "$EFFECTIVE_CODEX_HOME" 2>/dev/null && pwd -P || true)"
+      if [ -n "$_codex_runtime_physical" ] && [ "$_codex_runtime_physical" = "$_codex_source_physical" ]; then
+        say "$SESSION: refused a private Codex home that resolves to the selected account home"
+      elif [ -e "$_codex_source_auth" ]; then
+        if [ -e "$_codex_runtime_auth" ] || [ -L "$_codex_runtime_auth" ]; then
+          rm -f -- "$_codex_runtime_auth" 2>/dev/null || true
+        fi
+        if ! ln -s "$_codex_source_auth" "$_codex_runtime_auth" 2>/dev/null; then
+          say "$SESSION: could not link the selected OpenAI sign-in into its private Codex home"
+        fi
+      else
+        rm -f -- "$_codex_runtime_auth" 2>/dev/null || true
+        say "$SESSION: the selected OpenAI account is not signed in; sign in through Kosmos account setup"
+      fi
+
+      # A fresh home has no update-notice dismissal. Seed only the first launch
+      # from the source account, then let this agent keep its own notice state.
+      if [ ! -e "$_codex_runtime_home/version.json" ] && [ -f "$EFFECTIVE_CODEX_HOME/version.json" ]; then
+        cp "$EFFECTIVE_CODEX_HOME/version.json" "$_codex_runtime_home/version.json" 2>/dev/null || true
+        chmod 600 "$_codex_runtime_home/version.json" 2>/dev/null || true
+      fi
+    else
+      # Fail closed on isolation. Codex may report that its home is unwritable,
+      # but it must never launch against a symlink to the person's plugin-bearing
+      # home or against a path whose ownership and mode Kosmos could not set.
+      say "$SESSION: could not prepare its private Codex home; the agent was not started"
+      exit 1
+    fi
+    EFFECTIVE_CODEX_HOME="$_codex_runtime_home"
     PANE_ENV+=(-e "CODEX_HOME=$EFFECTIVE_CODEX_HOME")
+    unset _codex_runtime_home _codex_source_auth _codex_runtime_auth _codex_runtime_physical _codex_source_physical
   fi
   # #3953: the codex, gemini and grok report bridges are node scripts their runner starts by name
   # (codex through the bridge's `#!/usr/bin/env node`, gemini and grok through a `node "<bridge>"`

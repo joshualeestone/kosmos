@@ -5239,7 +5239,14 @@ function readCodexSession(agentName) {
   let job;
   try { job = create.readJob(agentName); } catch { job = null; }
   if (!dir || !job || job.runner !== 'codex') return { found: false };
-  const home = job.configDir || create.defaultAgentCodexHome();
+  /* #4592: launched agents now write rollouts into a private runtime home, not
+     the selected account home. Fall back to the account home only until an
+     existing agent has been relaunched and its runtime directory exists. Once
+     it exists, an empty sessions tree is truthful: that launch has not turned. */
+  const runtimeHome = require('./codexruntime').forAgent(agentName);
+  const home = fs.existsSync(runtimeHome)
+    ? runtimeHome
+    : (job.configDir || create.defaultAgentCodexHome());
   let sess;
   try { sess = require('./codexsession').read(dir, home); }
   catch { return { found: false }; }

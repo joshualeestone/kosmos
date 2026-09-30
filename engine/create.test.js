@@ -1665,7 +1665,14 @@ test('the startup script, actually run, hands the pane its account and its board
        branch -- written into the expected SET, not filtered, for the same reason the
        token and renderer riders are: this assertion's value is that nothing
        UNEXPECTED reaches a pane. */
-    const expected = [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${codexDir}`, 'KOSMOS_PORT=16245',
+    // #4592: CODEX_HOME from the launch job remains the selected account SOURCE,
+    // but a codex pane receives its per-agent Kosmos runtime home. Claude still
+    // forwards the ambient CODEX_HOME unchanged, as this runner-neutral test has
+    // always asserted.
+    const paneCodexHome = (b.runner || 'claude') === 'codex'
+      ? nodePath.join(process.env.AGENT_WORKFORCE_DATA || nodePath.join(process.env.HOME, 'Library', 'Application Support'), 'Kosmos', 'codex-homes', 'probe')
+      : codexDir;
+    const expected = [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${paneCodexHome}`, 'KOSMOS_PORT=16245',
       `HOME=${process.env.HOME || ''}`,
       'KOSMOS_WORLD=',
       `AGENT_WORKFORCE_DATA=${process.env.AGENT_WORKFORCE_DATA || ''}`,
@@ -5760,6 +5767,10 @@ test('#1139: installSupervisor leaves an engine-path beside the supervisor, poin
     fs.existsSync(nodePath.join(dir, 'sendertoken.js')),
     `engine-path points at ${dir}, which has no sendertoken.js`,
   );
+  assert.ok(
+    fs.existsSync(nodePath.join(dir, 'codexruntime.js')),
+    `engine-path points at ${dir}, which has no codexruntime.js`,
+  );
 
   /* And it must not be the SUPPORT_DIR copy's own parent, which is the layout
      that had no engine at all. */
@@ -5875,7 +5886,10 @@ test('#1315: the SUPERVISOR dismisses the update notice, in the codex branch onl
 
   /* It must be inside the codex branch. The claude launch is below the `else`,
      and running a codex helper there would be wrong even if harmless. */
-  const codexBranch = sup.indexOf('if [ "$RUNNER" = codex ]');
+  // #4592 adds an earlier codex-only home-isolation branch. Anchor to the
+  // enclosing codex launch branch nearest the helper, not the first codex
+  // condition in the file.
+  const codexBranch = sup.lastIndexOf('if [ "$RUNNER" = codex ]', at);
   const elseBranch = sup.indexOf('else', codexBranch);
   assert.ok(codexBranch > 0 && elseBranch > codexBranch, 'the codex branch moved: this guard needs re-aiming');
   assert.ok(at > codexBranch && at < elseBranch,

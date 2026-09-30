@@ -25,10 +25,13 @@ bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 SB="$(mktemp -d)"
 DEFAULT_HOME="$SB/default-codex"   # where auth lives (defaultAgentCodexHome, via the test seam)
 LEAK_HOME="$SB/leaked-codex"       # the tmux server-global CODEX_HOME the pane would inherit -- WRONG
+DATA_PARENT="$SB/data"
+RUNTIME_HOME="$DATA_PARENT/Kosmos/codex-homes/codexleaktest"
 trap 'rm -rf "${SB:-}"' EXIT
 
 mkdir -p "$SB/bin" "$SB/work" "$DEFAULT_HOME" "$LEAK_HOME"
 cp bin/agent-supervisor.sh "$SB/bin/agent-supervisor.sh"
+printf '%s\n' "$PWD/engine" > "$SB/bin/engine-path"
 
 # Stub tmux: no live session, a server-global CODEX_HOME reporting the LEAK dir (to prove the fix
 # does not read it), and a new-session recorder.
@@ -54,17 +57,19 @@ if [ -f "$SB/new-session.args" ]; then bad "control: new-session args already ex
 # home pointed at DEFAULT_HOME (the seam), and the server-global leak set to a DIFFERENT dir.
 env -u CODEX_HOME -u CLAUDE_CONFIG_DIR \
   AGENT_WORKFORCE_CODEX_HOME="$DEFAULT_HOME" \
+  AGENT_WORKFORCE_DATA="$DATA_PARENT" \
   STUB_DIR="$SB" STUB_SERVER_CODEX_HOME="$LEAK_HOME" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
   bash "$SB/bin/agent-supervisor.sh" codexleaktest "$SB/work" /usr/bin/true "$SB/tmux" "$SB/start.log" "" codex > "$SB/out.log" 2>&1 || true
 
 ARGS="$SB/new-session.args"
 if [ -s "$ARGS" ]; then ok "the supervisor reached new-session (the codex launch)"; else bad "new-session never happened: $(tail -5 "$SB/out.log")"; fi
 
-# THE FIX: the pane reads the DEFAULT home (where auth lives), so codex is authenticated.
-if grep -qxF "CODEX_HOME=$DEFAULT_HOME" "$ARGS" 2>/dev/null; then
-  ok "#3430: the codex pane was pinned to the DEFAULT home (where auth.json lives)"
+# THE FIX: #4592 keeps the default home as the account source, but the pane reads
+# its isolated runtime home. It must still not inherit the leaked server value.
+if grep -qxF "CODEX_HOME=$RUNTIME_HOME" "$ARGS" 2>/dev/null; then
+  ok "#3430/#4592: the codex pane was pinned to its private runtime home"
 else
-  bad "the pane was not pinned to the default codex home: $(tr '\n' ' ' < "$ARGS" 2>/dev/null | head -c 300)"
+  bad "the pane was not pinned to its private runtime home: $(tr '\n' ' ' < "$ARGS" 2>/dev/null | head -c 300)"
 fi
 
 # DISCRIMINATING (this is the v1-bug guard): the pane must NOT read the leaked server-global home.
@@ -84,6 +89,7 @@ fi
 # DISCRIMINATING CONTROL: a CLAUDE agent must NOT get CODEX_HOME pinned by this block.
 env -u CODEX_HOME -u CLAUDE_CONFIG_DIR \
   AGENT_WORKFORCE_CODEX_HOME="$DEFAULT_HOME" \
+  AGENT_WORKFORCE_DATA="$DATA_PARENT" \
   STUB_DIR="$SB" STUB_SERVER_CODEX_HOME="$LEAK_HOME" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
   bash "$SB/bin/agent-supervisor.sh" claudeleaktest "$SB/work" /usr/bin/true "$SB/tmux" "$SB/start.log" > "$SB/out-claude.log" 2>&1 || true
 if grep -qE "^CODEX_HOME=" "$SB/new-session.args" 2>/dev/null; then
@@ -92,4 +98,8 @@ else
   ok "a claude agent does NOT get CODEX_HOME pinned (block is correctly codex-arm-only)"
 fi
 
-[ "$FAILS" -eq 0 ] && { echo "test-supervisor-codexhome-leak-3430: OK"; exit 0; } || { echo "test-supervisor-codexhome-leak-3430: $FAILS FAILED"; exit 1; }
+if [ "$FAILS" -ne 0 ]; then
+  echo "test-supervisor-codexhome-leak-3430: $FAILS FAILED"
+  exit 1
+fi
+echo "test-supervisor-codexhome-leak-3430: OK"
