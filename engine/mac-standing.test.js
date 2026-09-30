@@ -336,6 +336,45 @@ test('#4743: switching remote access off tells the coordinator at once, not at t
   }
 });
 
+test('#4743: a flip while a refresh is already out is told when that refresh ends', async () => {
+  enroll(true);
+  let release;
+  const slow = () => new Promise((r) => { release = () => r('good'); });
+  const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(cur, { standing_at: 0 })) + '\n');
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    const out = remote.refreshStandingIfStale({ ttlMs: 0, fetcher: slow });   // the poll's refresh, still out
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(remote.setOn(false).ok, true);                                // the flip, while it is out
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(fake.calls().length, 0, 'control: nothing is sent while the first refresh is out');
+    release(); await out;
+    await waitForFakeCalls(fake, 1, 5000);
+    const off = fake.calls().find((c) => fake.flag(c, '--path') === '/v1/mac/standing');
+    assert.ok(off, 'the flip made during a refresh was never told');
+    assert.deepEqual(JSON.parse(off.stdin), { remote: { on: false } });
+  } finally {
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+  }
+});
+
+test('#4743: saving the switch at the value it already has sends nothing', async () => {
+  enroll(false);
+  const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(cur, { standing_at: Date.now() })) + '\n');
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    assert.equal(remote.setOn(false).ok, true);
+    await new Promise((r) => setTimeout(r, 500));
+    assert.equal(fake.calls().length, 0, 'a save that changed nothing sent a standing question');
+  } finally {
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+  }
+});
+
 test('fetchStanding: the kosmos_plus bool shape maps too', async () => {
   enroll();
   assert.equal((await run('ok:{"kosmos_plus":true}', () => macStanding.fetchStanding())).value, 'good');

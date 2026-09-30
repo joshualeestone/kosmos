@@ -11,7 +11,8 @@ that computer (Renet Tilley's card).
 One bit; no other report fields go out while off (#4731 chose to send no report in that state). With the
 switch on: the full report as before, or `{"remote":{"on":true}}` when no report can be built (so a computer
 the coordinator marked off is cleared).
-`engine/remote.js` `setOn`: every saved flip asks the standing at once (off: the stamp is set back past the
+`engine/remote.js` `setOn`: every saved REAL flip (the value changed) asks the standing at once; a flip made
+while a refresh is already out is told when that refresh ends (review 3) (off: the stamp is set back past the
 off cadence so it is due). Without this the coordinator heard about an OFF flip up to 12 hours later, and the
 account page said "Answering now" all that time for a computer just switched off (review 2).
 
@@ -22,6 +23,8 @@ WITHOUT it stores the one-bit body as a report, replacing the last diagnosis (re
 this board half should reach users only after the coordinator half is deployed.
 
 ## Tests
+- `#4743: a flip while a refresh is already out is told when that refresh ends`, and `saving the switch at the
+  value it already has sends nothing`: each red with its guard removed.
 - `#4743: flipping the switch tells the coordinator at once`: after `setOn(false)` on a fresh stamp, one
   standing question with the off body arrives within seconds.
 `engine/mac-standing.test.js`: the #4731 off-arm test now asserts the body is exactly

@@ -271,6 +271,15 @@ const OFF_STANDING_TTL_MS = 12 * 60 * 60 * 1000;
    not after the whole 12 h, so one failed attempt cannot use up the slot and two cannot cross the one-day line. */
 const OFF_RETRY_MS = 30 * 60 * 1000;
 let standingRefreshInFlight = false;
+/* kosmos#4743: a switch flip that could not be told at once (a refresh was already out, carrying the old
+   state) is told when that refresh ends. */
+let flipPending = false;
+function askAfterFlip() {
+  const cur = read();
+  // Off: set the stamp back past the off cadence, or the refresh below would read as fresh.
+  if (cur.ok === true && cur.on !== true) write({ standing_at: Date.now() - OFF_STANDING_TTL_MS });
+  try { Promise.resolve(module.exports.refreshStandingIfStale({ ttlMs: 0 })).catch(() => {}); } catch { /* best-effort */ }
+}
 const FED_LIVE_TTL_MS = 60 * 1000;   // mirrors STANDING_TTL_MS; a launch flag changes rarely, but a lapse/rollback should still reach a board within ~one TTL
 let fedLiveRefreshInFlight = false;
 /* The isolated coordinator read: the CURRENT standing string, or null when it could
@@ -331,6 +340,7 @@ async function refreshStandingIfStale(opts) {
   // tick's TTL 0 included, until the clock caught up. The same guard as reportNotEnrolledIfDue.
   if (Math.abs(now - (s.standing_at || 0)) < due) return;   // still fresh
   standingRefreshInFlight = true;
+  flipPending = false;   // this refresh reads the switch as it is now (mac-standing reads it at send time)
   // The answer is about the identity on disk when it was asked: a Forget, or a
   // Forget and a new sign-in, while it was out means it is about one that is gone,
   // and it must not be written onto another (#3827).
@@ -346,7 +356,10 @@ async function refreshStandingIfStale(opts) {
       write({ standing_at: s.on === true ? Date.now() : Date.now() - (OFF_STANDING_TTL_MS - OFF_RETRY_MS) });
     }
   } catch { /* refresh is best-effort; a poll must never see this throw */ }
-  finally { standingRefreshInFlight = false; }
+  finally {
+    standingRefreshInFlight = false;
+    if (flipPending) { flipPending = false; askAfterFlip(); }
+  }
 }
 /* kosmos#4277: the one report a board sends while it believes it is NOT enrolled, when its
    switch is on and it still holds a key: a board in that state never asks for a relay
@@ -591,16 +604,16 @@ function setOn(on) {
   if (on) { const b = busy(); if (b) return b; }
   // Off during a register is an answer the register must respect: it would
   // otherwise switch Kosmos+ back on when it finishes (turnOnAfterSignin).
+  const was = read().on === true;
   const wrote = write({ on }, { repair: true });   // #4308: the person's switch repairs a damaged file
   if (!wrote.ok) return wrote;
   if (!on) offEpoch += 1;   // only an off that was saved counts
   ensure(localPort);
-  /* kosmos#4743: tell the coordinator about the flip now, not at the next cadence (up to
+  /* kosmos#4743: tell the coordinator about a real flip now, not at the next cadence (up to
      OFF_STANDING_TTL_MS when off), or the account page reads the old state for hours ("Answering
-     now" for a computer just switched off). Off: the stamp is set back past the off cadence so the
-     refresh is due. Best-effort and never awaited, like the poll's own refresh. */
-  if (!on) write({ standing_at: Date.now() - OFF_STANDING_TTL_MS });
-  try { Promise.resolve(module.exports.refreshStandingIfStale({ ttlMs: 0 })).catch(() => {}); } catch { /* best-effort */ }
+     now" for a computer just switched off). If a refresh is already out it carries the old state, so
+     the flip is told when it ends (flipPending). Best-effort and never awaited. */
+  if (was !== on) { flipPending = true; askAfterFlip(); }
   return { ok: true };
 }
 
