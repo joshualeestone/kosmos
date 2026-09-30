@@ -325,3 +325,36 @@ test('duplicate keys and a team without one lead and 4 or 5 reports are refused'
   // CONTROL: the untouched catalogue passes the same checks.
   assert.equal((await catalogue.refresh({ fetcher: server(signed(n + 1)).fetcher, force: true })).loaded, true);
 });
+
+test('a signed catalogue carrying a managed-block marker or a template marker is refused', async () => {
+  const { signed } = fresh();
+  const marks = [require('./messages').START, '{{TEAM}}'];
+  let n = 140;
+  for (const mark of marks) {
+    const d = JSON.parse(TEXT);
+    d.roles[0].instructions.push(mark);
+    const st = await catalogue.refresh({ fetcher: server(signed(n += 1, JSON.stringify(d, null, 2))).fetcher, force: true });
+    assert.match(st.error || '', /comment or template marker/, mark);
+  }
+  // CONTROL: {{NAME}}, which every role opens with, passes.
+  assert.equal((await catalogue.refresh({ fetcher: server(signed(n + 1)).fetcher, force: true })).loaded, true);
+});
+
+test('a test run that did not sandbox the data root never reads the stored catalogue', () => {
+  const { spawnSync } = require('node:child_process');
+  // A home of its own, with a stored copy planted where an unsandboxed run would look.
+  const home = fs.mkdtempSync(path.join(SANDBOX, 'home-'));
+  const root = path.join(home, 'Library', 'Application Support', 'Kosmos', 'catalogue');
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(path.join(root, 'catalogue.json'), '{"sig":"x","text":"planted"}');
+  const script = `process.stdout.write(JSON.stringify(require(${JSON.stringify(path.join(__dirname, 'catalogue.js'))}).status().error))`;
+  const run = (testContext) => {
+    const env = { ...process.env, HOME: home, AGENT_WORKFORCE_HOME: home };
+    delete env.AGENT_WORKFORCE_DATA;
+    if (testContext) env.NODE_TEST_CONTEXT = 'child-v8'; else delete env.NODE_TEST_CONTEXT;
+    return spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', env });
+  };
+  assert.equal(run(true).stdout, 'null', 'a test run read the stored copy it was not sandboxed for');
+  // CONTROL: outside a test run the same process reads (and refuses) the planted copy.
+  assert.match(run(false).stdout, /stored catalogue was not used/);
+});

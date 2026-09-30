@@ -38,7 +38,7 @@ const FORMAT = 2;
    holding no catalogue yet has nothing newer to compare a download with, so without this floor an
    old signed file served to it would be taken. Raise it at a release that should stop accepting
    older catalogues. */
-const MIN_SERIAL = 1790732878;   // the first catalogue published (kosmos-catalogue b2b4b36, 2026-09-30)
+const MIN_SERIAL = 1790732878;   // the first catalogue published (kosmos-catalogue b2b4b36, 2026-09-30 01:47 UTC)
 const MAX_BYTES = 8 * 1024 * 1024;
 const TIMEOUT_MS = 8000;
 // A picker opened twice in a minute downloads once. A failed try waits as long as a good one.
@@ -81,6 +81,12 @@ function shapeProblem(c) {
       return `role ${JSON.stringify(r && r.key)} is incomplete`;
     }
   }
+  /* Nothing in the text may read as something Kosmos acts on: an HTML comment (how Kosmos marks
+     the blocks it manages inside an instruction file, messages.START and END among them) or a
+     template marker other than {{NAME}} (the one create fills in). The catalogue repo's builder
+     refuses both; this keeps the signature from being the only defence. */
+  const blob = JSON.stringify([c.groups, c.roles, c.teams]);
+  if (blob.includes('<!--') || /\{\{(?!NAME\}\})/.test(blob)) return 'it carries a comment or template marker';
   const roleKeys = c.roles.map((r) => r.key);
   if (new Set(roleKeys).size !== roleKeys.length) return 'two roles share a key';
   const teamKeys = c.teams.map((t) => t && t.key);
@@ -122,6 +128,10 @@ function check(bytes, sig) {
 function load() {
   if (data !== undefined) return data;
   data = null;
+  /* A test run (node --test) that did not sandbox the data root never reads the stored copy: it
+     would be the operator's own, and the test's roles would depend on this machine. A test that
+     needs the catalogue sandboxes the root and stores the fixture (test-support/catalogue-fixture). */
+  if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_DATA) return data;
   let stored;
   try { stored = JSON.parse(fs.readFileSync(cacheFile(), 'utf8')); } catch (err) {
     if (!(err && err.code === 'ENOENT')) lastError = 'the stored catalogue could not be read';
