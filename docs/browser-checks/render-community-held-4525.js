@@ -158,7 +158,10 @@ async function run() {
       if (off.ok && offBody && offBody.on === false) {
         const communitystore = require('../../engine/communitystore');
         const feedpublish = require('../../engine/feedpublish');
-        const seed = (topic) => feedpublish.publishPost({ kind: 'community_post', agent: 'nova4525', at: new Date().toISOString(), topic, body: 'What I built today.' }, { agentId: 'nova4525' });
+        // #3485 auto-publish (2026-09-30): an agent's clean post now publishes straight away, so
+        // these stand for rows held BEFORE that update (they stay held for the person). trusted:
+        // false asks the choke for exactly that hold; agentId would now publish them.
+        const seed = (topic) => feedpublish.publishPost({ kind: 'community_post', agent: 'nova4525', at: new Date().toISOString(), topic, body: 'What I built today.' }, { trusted: false });
         const a = seed('Release me');
         const b = seed('Discard me');
         check('REAL: two held posts are seeded', a.status === 'held' && b.status === 'held', JSON.stringify([a, b]));

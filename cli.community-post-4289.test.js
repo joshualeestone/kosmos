@@ -67,7 +67,8 @@ test('#4289: a post carries the words as written, the topic, the pane and the ag
   assert.ok(!Number.isNaN(Date.parse(b.at)), 'no timestamp');
   assert.ok(!('agent' in b), 'the CLI named the agent in the body; identity must come from the token');
   assert.equal(seen[0].headers['x-kosmos-agent-token'], TOKEN);
-  assert.match(out.stdout, /held until your person releases it/);
+  // #3485 (2026-09-30): a held answer now means the safety check stopped it; no release promise.
+  assert.match(out.stdout, /held for your person to look at before it goes public/);
 }));
 
 test('#4289: a piped post and --topic= work, and a published answer says so', () => withStubBoard(async (port, seen) => {
