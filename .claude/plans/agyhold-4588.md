@@ -187,3 +187,13 @@ held needlessly until the reset: the safe direction, it costs only delay.
   while autoretellTick passes its own now (no difference in production).
 - Measured: engine/agyhold-4588.test.js 29/29; the targeted set 294/294. Mutations: any later pause extending
   (the late-pause test reds), and no extension at all (the held-back test reds).
+
+## Review iteration 10 (blind, sonnet)
+- (W) FIXED: a repeat pause of the same agent kept the first-seen time of its earlier pause (the guard only set it
+  once), so it could pass as a pause that began inside another agent's window and revive a closed stop. A new pause
+  after the old reset now records a fresh first-seen time; a correction of a reset still ahead keeps it.
+- (W) FIXED: the prune horizon came from the roster of whichever caller prunes; it is now a constant, 2 * MAX_AGE_MS
+  after the reset. A lingering entry holds nobody past its agent's step, and heldBackBy is gated by first-seen.
+- (N) LEFT: account-notify's not-delivered log while a manager is held; deliverAutomatic reads Date.now().
+- Measured: engine/agyhold-4588.test.js 30/30; the targeted set 295/295. Mutation: first-seen kept on a new pause
+  reds the repeat-pause test.
