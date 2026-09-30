@@ -115,6 +115,14 @@ const at = async (page, qs) => {
   await page.goto(page.url().split('?')[0] + qs, { waitUntil: 'load' });
   await page.waitForTimeout(900);
 };
+/* #4470: the new look, as the hidden switch (Settings > Advanced > Try the new look) turns it on: the page reads
+   localStorage 'kosmos-look' before paint. Set it, reload, and wait for the attribute the new look keys on. */
+const newLook = async (page) => {
+  await page.evaluate(() => localStorage.setItem('kosmos-look', 'new'));
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => document.documentElement.getAttribute('data-look') === 'new', null, { timeout: 8000 });
+  await page.waitForTimeout(900);
+};
 
 /* #4594: the consolidated view without writing it. The page reads its layout from GET /api/style (paintStyles, also
    on later polls), so a page-only applyLayout was undone mid-shot; saving it with PUT /api/style would change the
@@ -172,6 +180,19 @@ const SCREENS = [
   { name: 'nav-menu', owner: 'Raiden', phoneOnly: true, go: async (page) => {
     await page.click('#burger');
     await page.waitForSelector('#burger[aria-expanded="true"]', { timeout: 5000 });
+  } },
+  // #4470: the new look (the hidden switch), on the Agents page as a grid and as a list, and on the project room.
+  { name: 'nl-home', owner: 'Mona Lisa', go: async (page) => { await newLook(page); } },
+  { name: 'nl-agents-list', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
+    await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
+    await page.waitForSelector('button.vt[data-layout="list"][aria-pressed="true"][aria-label="Show agents as a list"]', { timeout: 5000 });
+  } },
+  { name: 'nl-project-room', owner: 'Mona Lisa', go: async (page, data) => {
+    await newLook(page);
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
   } },
   { name: 'agents-list', owner: 'Raiden', go: async (page) => {
     await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
