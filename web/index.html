@@ -5268,7 +5268,9 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      row, KEPT on a dangling/orphan row so a child of a gone parent still shows its
      "under X" -- the one place the tree indent cannot carry the relationship). */
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjfaces,
-  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjpill { display: none; }
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pjpill,
+  /* #4583: "Done not set" is status, so the titles-only rail leaves it out too (the list view keeps it). */
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row .pj-doneunset { display: none; }
   html[data-layout="consolidated"] body.consolidated :where(#pj-list) .pj-row .pc-t { display: none; }
   /* #867 (Josh, 2026-08-25 15:52, against the real consolidated-mock): each
      project row names its own agent count as a subtitle under the title
@@ -8050,6 +8052,9 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 .orgchart-list { margin: 0; padding-left: 1.4em; max-height: 18rem; overflow: auto;
   display: flex; flex-direction: column; gap: 4px; }
 .orgchart-list li { font: var(--text-callout) var(--font-ui); color: var(--label); }
+/* #4583: "Done not set" on a project's row: a small outlined tag in the row's secondary ink, readable, not an alarm. */
+.pj-doneunset { display: inline-block; align-self: flex-start; margin-top: 4px; padding: 1px 8px; border-radius: 100px;
+  border: 1px solid var(--border-strong); color: var(--label-2); font: var(--text-footnote, 600 .75rem/1.4 var(--font-ui)); }
 /* #4559: each previewed person can be put under someone else, and a line the reader was not sure of
    says why and waits for "Looks right" before Create is allowed. */
 .orgchart-list .oc-reports { display: inline-flex; align-items: center; gap: 6px; margin: 0 6px; white-space: nowrap; }
@@ -15607,6 +15612,19 @@ window.kosmosMeasureScrollbarWidth();
       <p class="ferr" id="pj-add-desc-err" aria-live="polite"></p>
     </div>
 
+    <!-- #4583 (#4580, the Five Families finding): what done looks like, asked here so a team does not
+         assemble before anyone knows what finished is. Skippable: left blank, the brief says "Not set yet",
+         the project shows "Done not set", and its Project Manager asks first. Same cap as the description. -->
+    <div class="field">
+      <span class="flabel">Done looks like</span>
+      <p class="fhint" id="pj-add-done-hint">Optional. How will everyone know this is finished? Up to 1000 characters. Left blank, the project shows Done not set, and agents you put on it now ask you first.</p>
+      <textarea class="tk-inp" id="pj-add-done" rows="2"
+                aria-label="What done looks like"
+                aria-describedby="pj-add-done-hint"
+                placeholder="The new lease is signed and filed."></textarea>
+      <p class="ferr" id="pj-add-done-err" aria-live="polite"></p>
+    </div>
+
     <!-- #2458 sub-projects: choose a parent project AT creation (optional; blank =
          top-level). Populated in openAddProject from the active projects, none
          preselected -- a project being born has no self or descendants, so none of
@@ -21135,7 +21153,7 @@ function paintRailPjNotice() {
   const rn = document.getElementById('alist-pj-notice');
   if (!rn) return;
   const op = (document.body.classList.contains('consolidated') && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
-  setIfChanged(rn, op ? pjNotice(op.agents || [], op.id) : '');
+  setIfChanged(rn, op ? pjCoordNotice(op) + pjNotice(op.agents || [], op.id) : '');
   const rs = document.getElementById('alist-pj-notice-said');
   if (rs && rs.dataset.pj && (!op || rs.dataset.pj !== String(op.id))) { rs.textContent = ''; rs.dataset.pj = ''; }
 }
@@ -50611,6 +50629,24 @@ function pjNoticeStill(r, projectId) {
   return PJ_NOTICE_TRIED.get(k) === r.because ? ' It still did not work.' : '';
 }
 
+/* #4583: the two-coordinator warning, shown after an add or a create that brought a second coordinator on (the
+   server says so in that answer), until it no longer holds (the project read's `coordinators` is null) or the
+   person dismisses it. Remembered for this tab only: a warning, never a refusal, and never a nag on every visit. */
+/* id -> the projects-read number current when the add or create answered. Review round 2: a repaint can run on a
+   read that STARTED before the add (coordinators still null), and that null says nothing about the add; only a
+   read started after it (a higher number, PJ_READ_SHOWN) can say the warning no longer holds. */
+const PJ_COORD_WARN = new Map();
+let PJ_READ_SEQ = 0;     // numbers each /api/projects read as it starts
+let PJ_READ_SHOWN = 0;   // the number of the read whose answer is in PROJECTS now
+function pjCoordNotice(p) {
+  const id = p && p.id;
+  if (!id || !PJ_COORD_WARN.has(String(id))) return '';
+  if (!p.coordinators) { if (PJ_READ_SHOWN > PJ_COORD_WARN.get(String(id))) PJ_COORD_WARN.delete(String(id)); return ''; }
+  return '<div class="pnotice pn-coord"><span class="haz" aria-hidden="true">!</span><div class="pn-b"><b>Two coordinators on this project.</b>'
+    + '<div class="pnrow"><span class="pnwhy">' + esc(pjSentence(p.coordinators) || String(p.coordinators)) + '</span>'
+    + '<button class="qopt" type="button" data-pn-coord-dismiss="' + esc(String(id)) + '">Dismiss</button></div></div></div>';
+}
+
 /** The whole notice: '' when every agent has the folder. */
 function pjNotice(roster, projectId) {
   const failing = (roster || []).filter((m) => m && m.told && m.told.state === 'could_not');
@@ -51699,6 +51735,9 @@ function projectCard(p, unreadable, depth, childCount) {
     + unreadBadge(p.id === PJ_CURRENT ? 0 : p.unread) + '</span>'
     + (pill.label ? '<span class="pjpill ' + pill.cls + '">' + pill.glyph + esc(pill.label) + '</span>' : '') + '</span>'
     + (p.description ? '<span class="pc-t">' + esc(p.description) + '</span>' : '')
+    /* #4583: the brief does not say what done looks like yet. Only a definite false shows it; null (no folder
+       to read) says nothing here, the folder warning below already speaks. */
+    + (p.doneSet === false ? '<span class="pj-doneunset">Done not set</span>' : '')
     + facesRow
     + parentChip
     + (bits.length ? '<span class="pj-who">' + esc(bits.join(', ')) + '</span>' : '')
@@ -51871,6 +51910,7 @@ async function loadProjects() {
   // it). Callers that branch on PJ_READ_FAILED right after awaiting need to
   // know the flag is their read's, not a predecessor's -- see pjAnswerFrom
   // (round 21).
+  const readNo = ++PJ_READ_SEQ;   // #4583: which read this is, for the coordinator warning
   try {
     const res = await fetch('/api/projects');
     reached = true;
@@ -51894,6 +51934,7 @@ async function loadProjects() {
       throw new Error(body.error || 'we cannot read your projects right now');
     }
     PROJECTS = body.projects || [];
+    PJ_READ_SHOWN = readNo;
     /* #2407: ring the bubble-pop if any project's unread rose since the last load.
        Placed on the fresh PROJECTS, before the first-load deep-link work below, and
        itself no-ops on the first load (it only baselines then). */
@@ -54824,7 +54865,7 @@ function paintOneProject() {
   paintRoomBusy(roster.map((a) => (a && a.sessionName) || a), p.id);
   /* #3923: an agent that could not be given the folder is said once, in the project notice
      above the list (Mona's design), not on its row: every member row passes suppressTold. */
-  const notice = pjNotice(roster, p.id);
+  const notice = pjCoordNotice(p) + pjNotice(roster, p.id);
   const noticeBox = document.getElementById('pj-one-notice');
   // The region is never hidden (see the CSS note): only its content comes and goes.
   setIfChanged(noticeBox, notice);
@@ -60489,10 +60530,12 @@ function openAddProject() {
   name.value = '';
   name.dataset.auto = '1';
   document.getElementById('pj-add-desc').value = ''; // #551: no leak between opens
+  document.getElementById('pj-add-done').value = ''; // #4583: nor between the done boxes
   document.getElementById('pj-add-msg').textContent = '';
   // #2606: clear the field-level errors so a reopened form is not pre-flagged.
   pjFieldOk('pj-name', 'pj-name-err');
   pjFieldOk('pj-add-desc', 'pj-add-desc-err');
+  pjFieldOk('pj-add-done', 'pj-add-done-err');   // #4583
   document.getElementById('pj-add-agent-row').hidden = true;
   document.getElementById('pj-chosen').textContent = 'No folder chosen yet.';
   // The advanced route starts closed on every arrival, so a person who opened
@@ -61063,6 +61106,7 @@ document.getElementById('pj-create').addEventListener('click', async () => {
   const msg = document.getElementById('pj-add-msg');
   const btn = document.getElementById('pj-create');
   pjFieldOk('pj-add-desc', 'pj-add-desc-err');
+  pjFieldOk('pj-add-done', 'pj-add-done-err');   // #4583
   pjFieldOk('pj-name', 'pj-name-err');
   // #2606, the create half of Josh's "this probably applies to creating a project
   // too": the commonest name refusal (empty) caught AT the field before the round
@@ -61081,6 +61125,14 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     pjFieldBad('pj-add-desc', 'pj-add-desc-err',
       'That description is longer than ' + PJ_DESC_MAX + ' characters. Shorten it and try again.');
     // Same pointer as the settings save, for the same reason. See there.
+    msg.textContent = 'Nothing added. There is something to fix above.';
+    return;
+  }
+  /* #4583 (review round 4): the done box, pre-checked the same way at the engine's cap (cleanDone, 1000 code points,
+     the same as the description), so a long paste is caught at the box before the round trip. */
+  if (pjDescTooLong(document.getElementById('pj-add-done').value)) {
+    pjFieldBad('pj-add-done', 'pj-add-done-err',
+      'What done looks like is longer than ' + PJ_DESC_MAX + ' characters. Shorten it and try again.');
     msg.textContent = 'Nothing added. There is something to fix above.';
     return;
   }
@@ -61111,6 +61163,9 @@ document.getElementById('pj-create').addEventListener('click', async () => {
         /* #551: absent when blank, same absent-not-null discipline as folder. */
         ...(document.getElementById('pj-add-desc').value.trim()
           ? { description: document.getElementById('pj-add-desc').value.trim() } : {}),
+        /* #4583: absent when blank, the same discipline; the engine then writes "Not set yet" in the brief. */
+        ...(document.getElementById('pj-add-done').value.trim()
+          ? { done: document.getElementById('pj-add-done').value.trim() } : {}),
         /* #2458: the chosen parent, absent when blank (top-level) -- same
            absent-not-null discipline as folder/description; the engine refuses a
            missing/non-string parent and blank means top-level, so sending nothing is
@@ -61131,6 +61186,7 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     // land the person INSIDE the new project. openProject also carries the
     // read-back-failure case (body.id set, body.project null) with its notice.
     const newProjectId = (body.project && body.project.id) || body.id;
+    if (body.coordinators && newProjectId) PJ_COORD_WARN.set(String(newProjectId), PJ_READ_SEQ);   // #4583
     openProject(newProjectId);
   } catch (err) {
     // Through pjSentence like every other engine `because` on this screen
@@ -61138,6 +61194,11 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     // one place still pasting a lowercase clause in as a whole sentence.
     if (err && err.message && /description/i.test(err.message)) {
       pjFieldBad('pj-add-desc', 'pj-add-desc-err', pjSentence(err.message) || String(err.message));
+      msg.textContent = 'Nothing added. There is something to fix above.';
+    } else if (err && err.message && /^(what done looks like has to be words|keep what done looks like to 1000 characters)$/i.test(err.message)) {
+      // #4583: cleanDone's two refusals, matched WHOLE (review round 5): a folder refusal can quote an existing
+      // project's name, and a project called "What done looks like..." must not send it to this box.
+      pjFieldBad('pj-add-done', 'pj-add-done-err', pjSentence(err.message) || String(err.message));
       msg.textContent = 'Nothing added. There is something to fix above.';
     } else if (err && err.message && /give this project a name|a name has to be words|name is longer than a project name|too many projects with that name/i.test(err.message)) {
       // #2606: route a project NAME-RULE refusal to the name field. Matched on the specific
@@ -61180,6 +61241,7 @@ async function addMemberToProject(who, msg) {
     const res = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/agent/' + encodeURIComponent(who), { method: 'POST' });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not change that project');
+    if (body.coordinators) PJ_COORD_WARN.set(String(PJ_CURRENT), PJ_READ_SEQ);   // #4583: shown in the project notice
     return true;
   } catch (err) {
     // Through pjSentence like every sibling on this screen (round 24): the
@@ -61283,6 +61345,16 @@ async function pjNoticeRetryClick(e) {
   }
 }
 document.getElementById('pj-one-notice').addEventListener('click', pjNoticeRetryClick);
+/* #4583: Dismiss on the two-coordinator warning, in either notice. */
+function pjCoordDismissClick(e) {
+  const btn = e.target && e.target.closest ? e.target.closest('[data-pn-coord-dismiss]') : null;
+  if (!btn) return;
+  PJ_COORD_WARN.delete(btn.dataset.pnCoordDismiss);
+  paintOneProject();
+  paintRailPjNotice();
+}
+document.getElementById('pj-one-notice').addEventListener('click', pjCoordDismissClick);
+{ const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjCoordDismissClick); }
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNoticeRetryClick); }
 document.getElementById('pj-one-add-go').addEventListener('click', async () => {
   // #2429 (Josh, 0.6.45): once the member is added there is nothing more to do in the

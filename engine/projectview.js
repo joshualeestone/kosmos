@@ -147,6 +147,7 @@ function overviewOf(p, roster, o) {
     description: p.description || '',
     goal: brief.goal,
     done: brief.done,
+    doneSection: brief.doneSection !== false,   // #4583: a brief with no Done section says so; unknown (absent) keeps the old words
     briefFound: brief.found === true,
     members,
     tasks: openTasks(p.tasks),
@@ -262,7 +263,8 @@ function renderShow(payload) {
        as Kosmos's own; the same rule as a webhook task's words (install/kosmos task list). */
     const quoted = (t) => '"' + one(t).replace(/["\u201C\u201D]/g, "'") + '"';
     out.push('Goal (as written in BRIEF.md): ' + (p.goal ? quoted(p.goal) : 'not filled in yet'));
-    out.push('Done looks like (as written in BRIEF.md): ' + (p.done ? quoted(p.done) : 'not filled in yet'));
+    out.push('Done looks like (as written in BRIEF.md): ' + (p.done ? quoted(p.done)
+      : (p.doneSection === false ? 'BRIEF.md has no Done section (a "## Done looks like" heading) to read' : 'not filled in yet')));
   }
   out.push('Tasks: ' + taskLine(p.tasks) + (p.tasks && p.tasks.total ? '. List them: kosmos task list ' + one(p.id) : ''));
   const members = Array.isArray(p.members) ? p.members : [];
