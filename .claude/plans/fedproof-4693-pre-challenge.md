@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: fedproof-4693
-diff_hash: e906bb5373ebd8a59e6b28c28c439f5b27b91144c6a360bd88e3399615b6aeb6
+diff_hash: b90b5c6c840895b7dac1cf2b52e5eadb64ccf0bffd31171f0332acdff55ef02e
 validation: pending (full validation queued on Mortals for this head)
 subdir_audit: passed
-timestamp: 2026-09-30T17:51:46Z
+timestamp: 2026-09-30T20:46:21Z
 iterations: 5
 converged: true
 ---
@@ -35,3 +35,6 @@ converged: true
 - The round 3 and 4 fixes for pid reuse and the stranger-process sweep were reviewed, not driven live.
 - The mutation batch was not re-run after rounds 3 to 5.
 - Deferred with reasons in the plan: the typed.log check drives only board A's wrapper; a seat that drops and returns between polls would not show; step 7a stays a NOTE until #4699 makes another account's refusal a check.
+
+### After the first full validation
+Mortals on 6497f2a0b: exactly one red, engine.runnable-not-directory.test.js (the harness added an unpinned executable check that a directory passes). Fixed with isRunnable; the guard passes 22/22. Re-validating on the new head.
