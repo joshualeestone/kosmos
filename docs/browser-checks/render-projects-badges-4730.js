@@ -1,7 +1,7 @@
 'use strict';
-// Browser-check-surface: pjpill pj-stripe pj-who
+// Browser-check-surface: pjpill pj-stripe
 // (#4730) the web/index.html tokens this check asserts: the project status pill, the list view's
-// alternating-row class and the removed "we cannot see" line; a rename must update this check.
+// alternating-row class; a rename must update this check. (The removed "we cannot see" line is asserted by its text.)
 /* #4730 (Josh, 2026-09-30 09:06): on the Projects views, a badge only when something is running
  * (no "Can't tell", no "Nothing running"), no "N we cannot see" line, and in the list view every
  * second row shaded "really really light" so the eye can follow it across.
@@ -71,7 +71,6 @@ function ok(name, cond, detail) {
       document.body.classList.toggle('pj-roadmap', view === 'list');
       paintProjects();
       document.activeElement && document.activeElement.blur && document.activeElement.blur();
-      window.__pjSummary = (document.getElementById('pj-rm-summary') || {}).textContent || '';
       return [...list.querySelectorAll('.pj-row[data-project]')].map((r) => {
         const pill = r.querySelector('.pjpill');
         const cs = getComputedStyle(r);
@@ -106,6 +105,7 @@ function ok(name, cond, detail) {
           document.body.classList.remove('pj-roadmap');
           return out;
         });
+        ok(`${t} grid with a stale list class: CONTROL the fold walk did mark rows here`, stale.marked === true, JSON.stringify(stale));
         ok(`${t} grid with a stale list class: still no stripe painted`, stale.bgs.length === 1, JSON.stringify(stale));
       } else {
         const vis = rows.filter((r) => r.shown);
@@ -142,7 +142,8 @@ function ok(name, cond, detail) {
         await page.hover(`#pj-list .pj-row[data-project="${rowsVis[1]}"]`);
         const after = await page.evaluate((id) => getComputedStyle(document.querySelector(`#pj-list .pj-row[data-project="${id}"]`)).backgroundColor, rowsVis[1]);
         await page.mouse.move(1, 1);
-        ok(`${t} list: hovering a shaded row still changes it`, before !== after, `${before} -> ${after}`);
+        const unshaded = await page.evaluate((id) => getComputedStyle(document.querySelector(`#pj-list .pj-row[data-project="${id}"]`)).backgroundColor, rowsVis[0]);
+        ok(`${t} list: hovering a shaded row still changes it, and not to an unshaded row's colour`, before !== after && after !== unshaded, `${before} -> ${after} (unshaded ${unshaded})`);
         ok(`${t} list: every shaded row paints the same shade`, new Set(vis.filter((r) => r.stripe).map((r) => r.bg)).size === 1,
           JSON.stringify([...new Set(vis.filter((r) => r.stripe).map((r) => r.bg))]));
       }
@@ -157,16 +158,12 @@ function ok(name, cond, detail) {
       JSON.stringify(vis.map((r) => r.id + ':' + r.stripe)));
     ok(`${t} list: a hidden row carries no stripe`, folded.filter((r) => !r.shown).every((r) => !r.stripe),
       JSON.stringify(folded.filter((r) => !r.shown).map((r) => r.id + ':' + r.stripe)));
-    // A blind roster: no project shows a badge, not even Working (it could not read it), and the list
-    // strip says once that it cannot see what is running. CONTROL: the same fixture read normally
-    // above showed Working.
+    // A blind roster: no project shows a badge, not even Working (it could not read it), and no
+    // "we cannot see" text anywhere on the view. CONTROL: the same fixture read normally showed Working.
     const blindRows = await paint('list', false, true);
     ok(`${t} list, blind roster: no badge at all, Working included`, blindRows.every((r) => r.pill === null), JSON.stringify(blindRows.map((r) => r.id + ':' + r.pill)));
-    const strip = await page.evaluate(() => window.__pjSummary);
-    ok(`${t} list, blind roster: the strip says it cannot see what is running`, /cannot see what is running/.test(strip), strip);
-    await paint('list', false, false);
-    const stripOk = await page.evaluate(() => window.__pjSummary);
-    ok(`${t} list: CONTROL the strip says nothing about seeing when the roster is read`, !/cannot see/.test(stripOk), stripOk);
+    const blindText = await page.evaluate(() => document.getElementById('panel-projects').innerText);
+    ok(`${t} list, blind roster: no "we cannot see" text on the Projects view`, !/we cannot see/i.test(blindText), (blindText.match(/.{0,40}we cannot see.{0,40}/i) || [''])[0]);
     // The theme really applied: dark and light must resolve different page grounds.
     grounds[theme] = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--k-bg').trim());
     await page.close();

@@ -51040,11 +51040,8 @@ function paintProjects() {
   { const sm = document.getElementById('pj-rm-summary');
     if (sm) {
       const projWord = active.length === 1 ? 'project' : 'projects';
-      /* #4730: with a blind roster no project shows a badge (Josh: "if we can't tell ... not display a
-         badge"), so the page says once, here, that it cannot see what is running, rather than per card. */
       const txt = active.length + ' ' + projWord
-        + (attnProjects ? ' · ' + attnProjects + ' need you' : '')
-        + (PJ_AGENTS_UNREADABLE && active.length ? ' · we cannot see what is running right now' : '');
+        + (attnProjects ? ' · ' + attnProjects + ' need you' : '');
       if (sm.textContent !== txt) sm.textContent = txt;
     } }
   /* #2863: the projects unread tally, the rollup of the per-project unread
@@ -51473,7 +51470,9 @@ function pjPillOf(p, unreadable) {
      display a badge here. Let's only display a badge if something is actually running." So
      "Can't tell" and "Nothing running" are gone from the Projects views, like "No agents yet"
      before them (#1303 E): an empty label and no pill. Issue (an agent needs you), Working and
-     Restarting stay, each a running agent. The project's own page still says who is unseen. */
+     Restarting stay, each a running agent. With the whole roster unreadable no card shows a badge
+     either, and the Projects views say nothing about it (his rule, applied literally): the Agents
+     page reports a failed read, and the project's own page still says who is unseen. */
   return { cls: '', glyph: '', label: '' };
 }
 
