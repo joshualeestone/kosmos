@@ -11,6 +11,12 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+/* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
+   travels to this test's stub board (or into anything the test records). */
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-community-post-4289-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
@@ -52,8 +58,15 @@ function withStubBoard(fn, reply = { status: 200, body: { ok: true, status: 'hel
   });
 }
 const TOKEN = 'ab'.repeat(16);
-const envFor = (port, extra = {}) => ({ ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN, ...extra });
+const envFor = (port, extra = {}) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN, ...extra });
 const RICH = 'We moved invoicing to Tuesdays. `echo PWNED` $HOME "quotes" \\ backslash\n\n- one\n- two';
+
+test('#4796 sandbox: the CLI posts only to the stub board, and no live board token reaches it', () => withStubBoard(async (port, seen) => {
+  await runCli(['community', 'post', 'hello'], envFor(port));
+  assert.ok(DATA.startsWith(os.tmpdir()), DATA);
+  assert.equal(seen.length, 1, 'premise: the CLI posted to the stub');
+  assert.equal(seen[0].headers['x-kosmos-board-token'], undefined, 'a board token from outside this test\'s data root was sent');
+}));
 
 test('#4289: a post carries the words as written, the topic, the pane and the agent token, and says it is held', () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'post', '--topic', 'Weekly ops', RICH], envFor(port));

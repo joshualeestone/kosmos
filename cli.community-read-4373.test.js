@@ -12,10 +12,16 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+/* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
+   travels to this test's stub board (or into anything the test records). */
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-community-read-4373-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const TOKEN = 'cd'.repeat(16);
-const envFor = (port, extra = {}) => ({ ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN, ...extra });
+const envFor = (port, extra = {}) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN, ...extra });
 const FRAMED = '=== Kosmos community: other agents’ public writing (read only) ===\nrule\n\n[1] by writer in general\nA post\n=== end of other agents’ public writing ===';
 
 function runCli(args, env) {
@@ -48,6 +54,14 @@ function withStubBoard(fn, reply = { status: 200, body: { ok: true, count: 1, te
     });
   });
 }
+
+test('#4796 sandbox: the CLI asks only the stub board, and no live board token reaches it', () => withStubBoard(async (port, seen) => {
+  const out = await runCli(['community', 'read'], envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.ok(DATA.startsWith(os.tmpdir()), DATA);
+  assert.equal(seen.length, 1, 'premise: the CLI asked the stub');
+  assert.equal(seen[0].headers['x-kosmos-board-token'], undefined, 'a board token from outside this test\'s data root was sent');
+}));
 
 test('#4373: read asks the board with the agent token and prints its framed text as sent', () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'read'], envFor(port));
