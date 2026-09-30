@@ -121,8 +121,8 @@ test('#743: the status line stays fresh while the tab is open, not only on arriv
 
 test('#743: a slower poll cannot revert a faster user click (or vice versa)', () => {
   // The tick-driven repaint above gave paintPlus() a second, recurring
-  // caller on top of its gesture-triggered ones (the switch, arrival,
-  // setup-complete) -- two in-flight fetches can now race, and whichever
+  // caller on top of its gesture-triggered ones (the switch, arrival)
+  // -- two in-flight fetches can now race, and whichever
   // RESOLVES LAST used to win regardless of which was DISPATCHED last.
   // PLUS_EPOCH (the same shape INSTR_EPOCH already guards the status
   // poll with) fixes it: only the response from the most recently

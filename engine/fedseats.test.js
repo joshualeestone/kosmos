@@ -121,6 +121,90 @@ test('the owner seat uses an active edge of its own project, and waits when ther
   assert.strictEqual(h.spawned.length, 0, 'no seat without an active edge');
 });
 
+test('#4649 an owner SHARED with its other computers sits in its own room even with no guest', async () => {
+  federation.recordLink('proj-os', { role: 'owner', ref: 'ref-os', selfShared: true });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-os');
+  assert.strictEqual(h.spawned.length, 1, 'an owner shared with its own computers must be seated');
+  assert.deepStrictEqual(h.spawned[0].edge, { own: 'ref-os' });
+  // With a guest's active edge it still takes the edge (the same room).
+  const h2 = harness({ edges: [{ id: 'edge-os', project_ref: 'ref-os', status: 'active' }] });
+  await fedseats.ensure('proj-os');
+  assert.strictEqual(h2.spawned[0].edge, 'edge-os');
+});
+
+test('#4649 an owner\'s OWN room refused for good stops seating it and says so once; the project is not ended', async () => {
+  federation.recordLink('proj-or', { role: 'owner', ref: 'ref-or', selfShared: true });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-or');
+  assert.strictEqual(h.spawned.length, 1);
+  h.spawned[0].emit('exit', 3);
+  await tick();
+  assert.strictEqual(fedseats.statusOf('proj-or'), 'waiting');
+  assert.strictEqual(h.notes.filter((n) => n.projectId === 'proj-or' && /other computers could not be connected/.test(n.text)).length, 1);
+  const link = federation.linkFor('proj-or');
+  assert.ok(!link.ended, 'the owner\'s project is not ended: a guest can still join it');
+  assert.ok(!Array.isArray(link.refused) || link.refused.length === 0, 'no fake edge is filed as refused');
+  assert.strictEqual(await fedseats.ensure('proj-or'), 'waiting');
+  assert.strictEqual(h.spawned.length, 1, 'the refused own room is not seated again this session');
+  // A post that stays local says why in own-room words, not "nobody outside has joined".
+  assert.strictEqual(fedseats.post('proj-or', { from: 'Josh', kind: 'person', text: 'hello' }), false);
+  const last = h.notes.filter((n) => n.projectId === 'proj-or').pop();
+  assert.match(last.text, /not connected to your other computers right now/);
+  // The person pressing "Add your other computer" again is an explicit ask: the own room is tried again.
+  fedseats.retryOwn('proj-or');
+  await fedseats.ensure('proj-or');
+  assert.strictEqual(h.spawned.length, 2, 'retried on an explicit ask');
+  assert.deepStrictEqual(h.spawned[1].edge, { own: 'ref-or' });
+});
+
+test('#4649 an owner\'s own room on a connector too old for it (exit 2) stops, and its guests are still seated', async () => {
+  federation.recordLink('proj-old', { role: 'owner', ref: 'ref-old', selfShared: true });
+  const h = harness({ edges: [] });
+  await fedseats.ensure('proj-old');
+  h.spawned[0].emit('exit', 2);
+  await tick();
+  assert.strictEqual(fedseats.statusOf('proj-old'), 'waiting', 'not ended: the project still takes guests');
+  assert.ok(h.notes.some((n) => n.projectId === 'proj-old' && /too old to connect this project to your other computers/.test(n.text)));
+  assert.ok(!federation.linkFor('proj-old').ended);
+  h.edges = [{ id: 'edge-old', project_ref: 'ref-old', status: 'active' }];
+  await fedseats.ensure('proj-old');
+  assert.strictEqual(h.spawned.length, 2);
+  assert.strictEqual(h.spawned[1].edge, 'edge-old', 'a guest\'s edge is seated after the own room stopped');
+});
+
+test('#4649 a self link on a connector too old for its own room (exit 2) waits, and is not ended', async () => {
+  federation.recordLink('proj-self2', { role: 'self', ref: 'ref-self2' });
+  const h = harness();
+  await fedseats.ensure('proj-self2');
+  h.spawned[0].emit('exit', 2);
+  await tick();
+  assert.strictEqual(fedseats.statusOf('proj-self2'), 'waiting');
+  assert.ok(h.notes.some((n) => n.projectId === 'proj-self2' && /too old to connect this project to your other computers/.test(n.text)));
+  assert.strictEqual(await fedseats.ensure('proj-self2'), 'waiting');
+  assert.strictEqual(h.spawned.length, 1);
+});
+
+test('#4649 a self link (another computer of the same account) sits in the account\'s own room', async () => {
+  federation.recordLink('proj-self', { role: 'self', ref: 'ref-self', project_name: 'Weekend' });
+  const h = harness();
+  await fedseats.ensure('proj-self');
+  assert.strictEqual(h.spawned.length, 1);
+  assert.deepStrictEqual(h.spawned[0].edge, { own: 'ref-self' });
+  assert.strictEqual(h.asked, 0, 'a self link needs no edge lookup');
+  // A refusal (exit 3) stops it for this session, says so, and does NOT end the project:
+  // the room is this account's own, so the next start tries again.
+  h.spawned[0].emit('exit', 3);
+  await tick();
+  const link = federation.linkFor('proj-self');
+  assert.ok(!link.ended, 'an own seat refused is not ended for good');
+  assert.ok(!Array.isArray(link.refused) || link.refused.length === 0, 'an own seat has no edge to refuse');
+  assert.strictEqual(fedseats.statusOf('proj-self'), 'waiting');
+  assert.ok(h.notes.some((n) => n.projectId === 'proj-self' && /could not be connected to your other computers/.test(n.text)));
+  assert.strictEqual(await fedseats.ensure('proj-self'), 'waiting');
+  assert.strictEqual(h.spawned.length, 1, 'not seated again this session');
+});
+
 test('nothing starts on a Mac that is not connected to Kosmos+, or for a project with no link', async () => {
   federation.recordLink('proj-n', { role: 'member', edge_id: 'edge-n' });
   let h = harness({ enrolled: false });

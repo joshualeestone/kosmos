@@ -372,7 +372,9 @@ test('a send to a CODEX pane waits at least the codex gap between the paste and 
   // A codex pane the way the supervisor records one: runner set, the
   // process is node, and the screen is codex's own prompt (status.test.js).
   withFleet([fleet.agent('pixel', { state: 'idle', runner: 'codex', command: 'node', screen: CODEX_IDLE })], (board) => {
-    const tmux = arm([ok(), ok()]);
+    /* #4589: a Codex send first reads the screen fresh; a blank read is refused as still starting, so the pane shows
+       codex's prompt (the capture), then the paste and the Enter answer ok. */
+    const tmux = arm([ok(CODEX_IDLE), ok(), ok()]);
     // The pause lands in the same call log as the keystrokes, so ORDER is
     // asserted, not just presence: paste, then the wait, then Enter.
     chat.setPauser((ms) => { tmux.calls.push(['<pause>', ms]); });
