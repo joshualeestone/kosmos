@@ -89,8 +89,11 @@ creates through the existing route.
   one; no launchd job leaked, checked). The check asserts the server's created count stays 0.
 
 ## Slice 3: portraits
-Once #4555's images exist, `avatar.image` is filled and slice 1's server path starts setting them. No code
-change is expected.
+Once #4555's images exist, `avatar.image` is filled and slice 1's server path starts setting them.
+NO LONGER TRUE AS WRITTEN (review 19, 2026-09-30): this said "no code change is expected", which held
+while the catalogue shipped inside Kosmos. It is downloaded now (#4632), so no image file ships and
+`tcPortrait` has nowhere to fetch one from. Follow-up kosmos#4720; nothing is wrong today because every
+catalogue member's `avatar.image` is unset.
 
 ## Rejected
 - **One POST for the whole team (today's `/api/team` shape):** no per-agent progress, a retry would resend
@@ -136,3 +139,32 @@ board has no teams. This branch was written against a shipped catalogue, so afte
   little later" can mean up to ten minutes and the sentence does not say how long.
 - NOT RE-RUN here: the browser check render-teamcreate-4557.js. It injects its own fixture catalogue with no
   `status`, which these changes read as held, and no page code changed in this merge.
+
+## Review 19 (opus, after the merge), what changed and what did not
+FIXED:
+- A board holding no catalogue now really tries on every open of the Team step (`refresh` forces when
+  nothing is held). Before, a failed try blocked the next for ten minutes, so "try again" after
+  reconnecting did nothing. A board that HOLDS a catalogue still leaves the pacing to the catalogue.
+- The not-downloaded sentence carries the catalogue's own reason, and a copy that was downloaded and
+  REFUSED (signature, format, serial) no longer says "check it is online".
+- Rows from another version of the team (a newer catalogue arrived between the screen opening and the
+  button) are refused as that, not as "give the X a name" for a seat that is not on screen.
+- The previous team's progress line no longer stays under the next team while it loads or fails to.
+- A portrait path from the catalogue is fetched only when it is a plain relative path.
+- A test through the REAL catalogue module: nothing held, the list read downloads the published files
+  (verified with the shipped key), and the three routes answer from them.
+- The comment that promised a general-purpose fallback role the code does not have is gone.
+DECIDED, NOT FIXED:
+- A team is made on the default account (no provider or account on a spec), as a single agent made with
+  nothing chosen is. A person with only a non-Anthropic plan sees each row say why. Follow-up kosmos#4719.
+- `defaultAgentFor` puts the org chart before the role text for EVERY project, so one reporting edge
+  outranks a "Project Manager" who reports to nobody and has no reports. Kept: the chart is a recorded
+  fact and the role text a guess (April's review, iteration 13), and the cost is one preselected entry the
+  person changes in a click. Weakest premise: that a partial chart says more than an explicit PM title.
+- Same seats, new title or role, after a catalogue swap: the member is made with the new one under a row
+  showing the old title. Not detected (only the seat set is compared).
+- After a run has STARTED, a swapped catalogue makes Try again refuse until the page is reloaded (the same
+  team always resumes). Rare: a publish, and a download trigger, inside one run.
+- The browser check still injects its own fixture (no `status`), so no check RENDERS the not-downloaded
+  503. The sentence is pinned at the routes, and the page shows any refusal's words as they come.
+- `openTeamCreate` has no caller in the product yet (the dropdown is #4556's). Unchanged.

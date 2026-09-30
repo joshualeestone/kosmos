@@ -203,3 +203,55 @@ test('the specs, made in order through the real POST /api/agents, give a team: r
   const proj = projects.readAll().find((x) => x.id === projectId);
   assert.deepEqual([...proj.agents].sort(), ['ana-reyes', 'leo-brand', 'maya-okafor']);
 });
+
+/* #4632, through the REAL engine/catalogue.js: nothing held, the list read downloads the published
+   files (served here, verified against the shipped PUBLIC_KEY with their own signature), and the three
+   routes then answer from them. The fixtures above stand in for the catalogue everywhere else in this
+   file, and a fixture to an agreed shape hid a defect on this card once already (iteration 14). Last in
+   the file: it stores a catalogue in the sandbox and merges its roles. */
+test('#4632 through the real catalogue: nothing held, the list downloads it, and a real team builds', async () => {
+  const http = require('node:http');
+  const catalogue = require('./engine/catalogue');
+  const published = path.join(__dirname, 'test-support', 'catalogue-published');
+  const hits = [];
+  const files = http.createServer((req, res) => {
+    const name = decodeURIComponent(new URL(req.url, 'http://x').pathname.replace(/^\//, ''));
+    hits.push(name);
+    if (name !== 'catalogue.json' && name !== 'catalogue.json.sig') { res.writeHead(404); res.end(); return; }
+    res.writeHead(200); res.end(fs.readFileSync(path.join(published, name)));
+  });
+  await new Promise((done) => files.listen(0, '127.0.0.1', done));
+  const before = process.env.KOSMOS_CATALOGUE_BASE;
+  process.env.KOSMOS_CATALOGUE_BASE = `http://127.0.0.1:${files.address().port}/`;
+  catalogue.useKeyForTest(null);   // the shipped key, and forget anything read before
+  teamseed.setCatalogue(null);     // the real module
+  try {
+    assert.equal(catalogue.status().loaded, false, 'control: this sandbox holds no catalogue');
+    const s0 = await call('POST', '/api/teams/seeded/marketing/specs', { names: {} });
+    assert.equal(s0.status, 503, 'specs does not download: with nothing held it says so');
+    assert.equal(hits.length, 0, 'and asked the network for nothing');
+    const l = await call('GET', '/api/teams/seeded');
+    assert.equal(l.status, 200, JSON.stringify(l.json));
+    assert.ok(hits.includes('catalogue.json') && hits.includes('catalogue.json.sig'), 'the list read downloaded both files: ' + hits.join());
+    assert.ok(l.json.teams.length >= 1, 'and lists the published teams');
+    assert.equal(catalogue.status().loaded, true);
+    const key = l.json.teams[0].key;
+    const d = await call('GET', '/api/teams/seeded/' + key);
+    assert.equal(d.status, 200, JSON.stringify(d.json));
+    assert.equal(d.json.members.filter((m) => m.reportsTo === null).length, 1, 'one lead');
+    const names = {};
+    for (const m of d.json.members) names[m.slot] = m.name;
+    const s = await call('POST', '/api/teams/seeded/' + key + '/specs', { names });
+    assert.equal(s.status, 200, JSON.stringify(s.json));
+    assert.equal(s.json.specs.length, d.json.members.length);
+    for (const x of s.json.specs) assert.ok(typeof x.spec.teamInstructions === 'string' && x.spec.teamInstructions.length > 0, x.slot + ' has its team section');
+    // A row from another version of the team is refused as such.
+    const c = await call('POST', '/api/teams/seeded/' + key + '/specs', { names: { ...names, 'no-such-seat': 'Zed' } });
+    assert.equal(c.status, 400);
+    assert.equal(c.json.error, teamseed.CHANGED);
+  } finally {
+    if (before === undefined) delete process.env.KOSMOS_CATALOGUE_BASE; else process.env.KOSMOS_CATALOGUE_BASE = before;
+    teamseed.setCatalogue(CATALOGUE);
+    await new Promise((done) => files.close(done));
+  }
+});

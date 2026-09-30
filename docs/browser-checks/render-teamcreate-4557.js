@@ -323,8 +323,9 @@ function chk(ok, label, extra) {
           await page.waitForTimeout(2500);
           await page.evaluate(() => openTeamCreate('household'));
           await settle(page, () => document.getElementById('tc-title').textContent !== 'Marketing Team');
-          const other = await page.evaluate(() => ({ msg: document.getElementById('tc-msg').textContent, title: document.getElementById('tc-title').textContent }));
+          const other = await page.evaluate(() => ({ msg: document.getElementById('tc-msg').textContent, title: document.getElementById('tc-title').textContent, note: document.getElementById('tc-note').textContent }));
           chk(!/still making/.test(other.msg) && other.title !== 'Marketing Team', `${E} an idle, unfinished team does not trap the page: another team replaces it`, JSON.stringify(other));
+          chk(other.note === '', `${E} the replaced team's progress line is gone (it stayed under the next team while that one loaded, or failed to)`, JSON.stringify(other.note));
           chk(errs.length === 0, `${E} no page errors (resume arm)`, errs.join(' | '));
           await page.close();
         }

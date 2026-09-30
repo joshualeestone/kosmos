@@ -46564,6 +46564,8 @@ async function openTeamCreate(key) {
   document.getElementById('tc-purpose').textContent = '';
   document.getElementById('tc-list').replaceChildren();
   document.getElementById('tc-go').hidden = true;
+  // The progress line is the previous team's: the load can take seconds now that it may download (#4632).
+  document.getElementById('tc-note').textContent = '';
   msg.hidden = true; msg.textContent = '';
   let body = null;
   try {
@@ -46907,8 +46909,11 @@ async function tcWatchLoop(gen) {
 /* A shipped portrait becomes the agent's avatar. It never costs the agent: a failure only says so on the row. */
 async function tcPortrait(name, image) {
   try {
-    const src = '/' + String(image).replace(/^web\//, '');
-    const img = await fetch(src);
+    // A path under this board only: the value comes from the downloaded catalogue, and a leading slash
+    // after the one added here would make it another host's address.
+    const rel = String(image).replace(/^web\//, '');
+    if (!/^[A-Za-z0-9][A-Za-z0-9/_.-]*$/.test(rel) || rel.includes('..')) return 'failed';
+    const img = await fetch('/' + rel);
     if (!img.ok) return 'failed';
     const blob = await img.blob();
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/avatar', { method: 'PUT', headers: { 'content-type': blob.type || 'image/webp' }, body: blob });

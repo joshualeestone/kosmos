@@ -80,10 +80,35 @@ test('#4632 not downloaded: a catalogue that holds nothing says so at every entr
   assert.equal(teamseed.detail('marketing', held).ok, true);
 });
 
+test('#4632 not downloaded: the sentence carries the catalogue\'s own reason, and a REFUSED copy is not blamed on being offline', () => {
+  const offline = { ...fixture(), status: () => ({ loaded: false, error: 'fetch failed' }) };
+  const refused = { ...fixture(), status: () => ({ loaded: false, error: 'the downloaded catalogue was refused: its signature does not verify' }) };
+  assert.equal(teamseed.list(offline).because, teamseed.NOT_DOWNLOADED + ' (fetch failed)');
+  const r = teamseed.list(refused);
+  assert.ok(r.because.startsWith(teamseed.REFUSED) && /signature/.test(r.because), r.because);
+  assert.doesNotMatch(r.because, /online/, 'being online would not help');
+  assert.equal(r.unavailable, true);
+});
+
+test('#4632 specs: rows from another version of the team are refused as such, not as a missing name', () => {
+  const names = { lead: 'Maya', content: 'Leo', social: 'Ana' };
+  assert.equal(teamseed.specs({ team: 'marketing', names: { ...names, design: 'Dee' } }, fixture()).because, teamseed.CHANGED, 'a seat this team does not have');
+  assert.equal(teamseed.specs({ team: 'marketing', names: { lead: 'Maya', content: 'Leo' } }, fixture()).because, teamseed.CHANGED, 'a seat the page never named');
+  // Controls: a BLANK name is still asked for by its title, and the full set builds.
+  assert.match(teamseed.specs({ team: 'marketing', names: { ...names, social: ' ' } }, fixture()).because, /give the Social Media Manager a name/);
+  assert.match(teamseed.specs({ team: 'marketing', names: {} }, fixture()).because, /give the .* a name/);
+  assert.equal(teamseed.specs({ team: 'marketing', names }, fixture(), { taken: () => false }).ok, true);
+});
+
 test('#4632 refresh: asks the catalogue to download, and a failure there never rejects', async () => {
   let asked = 0;
   await teamseed.refresh({ refresh: async () => { asked += 1; } });
   assert.equal(asked, 1);
+  // A board holding none really tries (force); one holding a copy leaves the pacing to the catalogue.
+  const how = [];
+  await teamseed.refresh({ status: () => ({ loaded: false }), refresh: async (o) => { how.push(o); } });
+  await teamseed.refresh({ status: () => ({ loaded: true }), refresh: async (o) => { how.push(o); } });
+  assert.deepEqual(how, [{ force: true }, { force: false }]);
   const quiet = console.error; console.error = () => {};
   try {
     await teamseed.refresh({ refresh: async () => { throw new Error('offline'); } });
@@ -142,9 +167,10 @@ test('specs: the portrait path rides along, null when the seed has none yet', ()
   assert.deepEqual(r.specs.map((s) => s.avatar.image), ['web/avatars/teams/m-lead.webp', null, null]);
 });
 
-test('specs refuses, naming the seat: a missing or blank name, a bad name, two seats with one name', () => {
+test('specs refuses, naming the seat: a blank name, a bad name, two seats with one name', () => {
   const cat = fixture();
-  let r = teamseed.specs({ team: 'marketing', names: { lead: 'Maya', content: 'Leo' } }, cat);
+  // A seat with NO entry at all is another matter (#4632: rows from another version of the team), below.
+  let r = teamseed.specs({ team: 'marketing', names: { lead: 'Maya', content: 'Leo', social: '' } }, cat);
   assert.equal(r.ok, false); assert.match(r.because, /Social Media Manager a name/);
   r = teamseed.specs({ team: 'marketing', names: { ...NAMES, content: '   ' } }, cat);
   assert.equal(r.ok, false); assert.match(r.because, /Content Writer a name/);

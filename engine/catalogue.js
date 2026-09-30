@@ -7,8 +7,8 @@
  * #4632: the catalogue no longer ships inside Kosmos. It is built and signed by the public repo
  * joshualeestone/kosmos-catalogue and published at installkosmos.com/catalogue/. Kosmos downloads
  * it only when it is asked for: the role picker (/api/roles?catalogue=1), `kosmos agent roles`, a
- * create for a role the board does not hold, and the Team screen (#4557: the seeded-team reads in
- * server.js, through engine/teamseed.js `refresh`). It keeps it
+ * create for a role the board does not hold, and the Team step's reads (#4557: `GET /api/teams/seeded`
+ * and `/api/teams/seeded/<key>` in server.js, through engine/teamseed.js `refresh`). It keeps it
  * in the data folder, and uses it only when its Ed25519 signature verifies against PUBLIC_KEY
  * below. Until the first download, and whenever the stored copy does not verify, there is no
  * catalogue: the picker shows the original roles and there are no teams.

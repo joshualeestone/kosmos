@@ -44,7 +44,13 @@ function catalogue() {
 const NOT_INSTALLED = 'the prebuilt teams are not installed in this version of Kosmos yet';
 /* #4632: the board holds no catalogue (it is downloaded when the Team screen or the role picker opens,
    and this computer was offline or the download was refused). */
-const NOT_DOWNLOADED = 'Kosmos has not downloaded the prebuilt teams to this computer yet. Check it is online and try again a little later';
+const NOT_DOWNLOADED = 'Kosmos has not downloaded the prebuilt teams to this computer yet. Check it is online and try again';
+/* The download worked and what came was refused (its signature, its format, a serial this version will
+   not take): being online does not help, so the sentence must not say it would. */
+const REFUSED = 'Kosmos downloaded the prebuilt teams but could not use them';
+/* A newer catalogue arrived between the screen opening and the button: the rows on screen are the old
+   team's seats. */
+const CHANGED = 'this prebuilt team was updated after this screen opened, so its seats no longer match. Go back and open the team again';
 /* #4557 (April, #4555 review): a call into the catalogue can throw. That is "unavailable", like not
    installed, never a 500 that reads as a bug in the page. */
 const BROKEN = 'the prebuilt teams could not be read in this version of Kosmos';
@@ -77,19 +83,25 @@ function notHeld(c) {
   if (!c) return NOT_INSTALLED;
   if (typeof c.status !== 'function') return null;
   const s = c.status();
-  return s && s.loaded ? null : NOT_DOWNLOADED;
+  if (s && s.loaded) return null;
+  // The catalogue's own reason rides along: "check it is online" alone would be wrong for a refused copy.
+  const why = s && typeof s.error === 'string' && s.error ? ' (' + s.error + ')' : '';
+  return (/refused/.test(why) ? REFUSED : NOT_DOWNLOADED) + why;
 }
 
 /**
- * Download the catalogue if it is due (the catalogue decides; it never asks more than once in a
- * while). For the routes the Team screen opens with. Never rejects: a failure only means the
- * screen is told there are no teams yet.
+ * Download the catalogue for the routes the Team screen opens with. A board that HOLDS one asks
+ * only when the catalogue says a check is due. A board that holds none asks every time: the person
+ * opened the screen to get the teams, and "try again" after reconnecting must really try.
+ * Never rejects: a failure only means the screen is told there are no teams yet.
  * @returns {Promise<void>}
  */
 async function refresh(cat) {
   try {
     const c = cat === undefined ? catalogue() : cat;
-    if (c && typeof c.refresh === 'function') await c.refresh();
+    if (!c || typeof c.refresh !== 'function') return;
+    const held = typeof c.status === 'function' && Boolean((c.status() || {}).loaded);
+    await c.refresh({ force: !held });
   } catch (err) {
     console.error('[teamseed] the catalogue refresh failed:', (err && err.message) || err);
   }
@@ -158,6 +170,13 @@ function specs(req, cat, deps) {
   if (!lead) return { ok: false, because: 'this prebuilt team has no single lead, so it cannot be made' };
 
   const given = (req && req.names && typeof req.names === 'object') ? req.names : {};
+  // The page sends one name per row it shows, blank or not. A seat it names that this team lacks, or
+  // (when it named any) a seat of this team it did not name, means its rows are another version's.
+  const slots = membersOf(team).map((m) => m.slot);
+  const named = Object.keys(given);
+  if (named.some((s) => !slots.includes(s)) || (named.length && slots.some((s) => !named.includes(s)))) {
+    return { ok: false, because: CHANGED };
+  }
   const names = {};
   const seen = new Map();
   const takenSeats = [];
@@ -203,9 +222,9 @@ function specs(req, cat, deps) {
     session: create.slugFor(names[m.slot]),   // the name the member's agent will have on this computer
     spec: {
       name: names[m.slot],
-      // #4557 (Josh): the SAME create path as a single agent. The catalogue's role when Kosmos has it,
-      // else the general-purpose one; the member's brief is layered INTO that role's standard
-      // instructions (teamInstructions), never sent as `instructions`, which would replace them.
+      // #4557 (Josh): the SAME create path as a single agent. The member's brief is layered INTO its
+      // role's standard instructions (teamInstructions), never sent as `instructions`, which would
+      // replace them.
       role: m.role,
       label: m.title,
       teamInstructions: briefs[m.slot],
@@ -219,5 +238,5 @@ function specs(req, cat, deps) {
 
 module.exports = {
   list: guarded(list), detail: guarded(detail), specs: guarded(specs),
-  refresh, setCatalogue, catalogue, NOT_INSTALLED, NOT_DOWNLOADED, BROKEN,
+  refresh, setCatalogue, catalogue, NOT_INSTALLED, NOT_DOWNLOADED, REFUSED, CHANGED, BROKEN,
 };
