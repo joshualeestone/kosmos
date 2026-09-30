@@ -337,10 +337,13 @@ function chk(ok, label, extra) {
           chk(posted.length === 1 && posted[0].name === 'Maya', `${E} with the lead refused, nothing is posted for the others`, JSON.stringify(posted.map((b) => b.name)));
           chk(r1[1].state === 'Waiting for the lead' && r1[2].state === 'Waiting for the lead' && !r1[1].retry, `${E} the others say they are waiting for the lead`, JSON.stringify(r1.map((r) => r.state)));
           chk(posted.every((b) => !('projects' in b)), `${E} No project sends no project`);
+          // #4719: nothing is made yet, so the Model menu is open again (a refused lead may be the account).
+          chk(!(await page.isDisabled('#tc-provider')), `${E} #4719 with the lead refused and nothing made, the Model menu is open again`);
           await page.click('#tc-list li[data-slot="lead"] .tc-retry');
           await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => s.textContent === 'Running'));
           const r2 = await rows(page);
           chk(posted.map((b) => b.name).join() === 'Maya,Maya,Leo,Ana' && r2.every((r) => r.state === 'Running'), `${E} Try again on the lead makes it, then the others`, JSON.stringify(posted.map((b) => b.name)));
+          chk(await page.isDisabled('#tc-provider'), `${E} #4719 once the lead is made, the Model menu is fixed`);
           chk(errs.length === 0, `${E} no page errors (lead arm)`, errs.join(' | '));
           await page.close();
         }
