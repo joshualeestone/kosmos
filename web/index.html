@@ -10138,9 +10138,16 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 /* #4080 (Josh's design): logo, switch, badge on top; the sign-in box; the bottom row. */
 #s-sec-plus .plus-logo { display: block; height: 22px; width: auto; }
 #s-sec-plus .plus-headrow .toggle { flex: 0 0 42px; }
-/* #4744: one line (Josh). Down to the desktop app's narrowest window (640 wide, the Windows launcher's floor) the
-   sentence and Copy sit on one line at this size; narrower than that, a phone, it may wrap rather than cut. */
+/* #4744: one line (Josh, "lets make sure this all fits on one line"). The Settings column caps this panel at 544px on
+   a desktop window, where the sentence at .9rem needs ~452px of the ~404 left beside Copy (measured). So the box
+   reaches into the panel's side padding, Copy is compact, and the sentence's size follows the box's width (container
+   units): .9rem where there is room, down to .75rem, on one line. Narrower than that (a phone) it wraps, never cuts. */
+#s-sec-plus .plus-chip { margin-left: -12px; margin-right: -12px; padding: 6px 6px 6px 12px; container-type: inline-size; }
+#s-sec-plus .plus-chip #plus-copy { padding: 6px 10px; }
 #s-sec-plus .plus-chip-say { flex: 1 1 auto; min-width: 0; font: 500 .9rem var(--font-ui); color: #E6EBF7; }
+@container (min-width: 380px) {
+  #s-sec-plus .plus-chip-say { white-space: nowrap; font-size: clamp(.75rem, calc((100cqw - 74px) / 33), .9rem); }
+}
 #s-sec-plus .plus-chip-say b { font-weight: 700; color: #fff; }
 #s-sec-plus .plus-foot { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.1); }
 #s-sec-plus .plus-remove-link, #s-sec-plus .plus-lost-link { background: none; border: 0; padding: 4px 0; font: 600 .95rem var(--font-ui); cursor: pointer; }
@@ -17128,7 +17135,7 @@ window.kosmosMeasureScrollbarWidth();
 
     <div id="plus-flow" hidden>
       <!-- #3829 (Josh, 16:54: "terribly worded and designed"; Mona Lisa's sketch on the card): status first,
-           View my account top right, the address in ONE chip with Copy and Open and one plain line under it,
+           View my account top right, the address in ONE chip (since #4744: Josh's sentence with Copy, no Open) and one plain line under it,
            and Pause (Turn off until #4079) a quiet control rather than the headline. Off, Turn on is the one primary action. -->
       <!-- #4080 (Josh's design, 22:22): the Kosmos+ logo at left, then the switch (the Settings/Automation
            toggle: on when this computer is reachable, off pauses it, PUT /api/remote on:false), then the
@@ -17144,10 +17151,10 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #4744 (Josh, 2026-09-30 11:23, Mac and Windows): the box says where OTHER devices reach this computer, in
            his words ("Access this computer from other devices at <bold>login.kosmosplus.com</bold>"), with Copy so the
            address can be sent to another device, all on one line. It replaced #4080's "Sign in at login.kosmosplus.com."
-           with Open, which read wrong on a computer that was already signed in. -->
+           with Open. -->
       <div class="plus-chip" id="plus-chip" hidden>
         <span class="plus-chip-say" id="plus-chip-say">Access this computer from other devices at <b>login.kosmosplus.com</b></span>
-        <button class="btn" type="button" id="plus-copy">Copy</button>
+        <button class="btn" type="button" id="plus-copy" aria-label="Copy the address">Copy</button>
         <span class="vh" id="plus-copy-status" aria-live="polite"></span>
       </div>
       <div class="setrow">
@@ -42537,13 +42544,23 @@ async function plusCopyAddress() {
   let ok = false;
   try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(PLUS_ACCOUNT_URL); ok = true; } } catch { ok = false; }
   if (!ok) {
+    // The file's other copy buttons fall back to execCommand; this copies the same full URL from a throwaway field.
+    try {
+      const t = document.createElement('textarea'); t.value = PLUS_ACCOUNT_URL; t.setAttribute('readonly', '');
+      t.style.position = 'fixed'; t.style.opacity = '0'; document.body.appendChild(t); t.select();
+      ok = !!(document.execCommand && document.execCommand('copy')); t.remove(); btn.focus();
+    } catch { ok = false; }
+  }
+  if (!ok) {
     const b = document.querySelector('#plus-chip-say b');
     try { const r = document.createRange(); r.selectNodeContents(b); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); } catch { /* nothing selectable */ }
   }
+  if (PLUS_COPY_TIMER) { clearTimeout(PLUS_COPY_TIMER); PLUS_COPY_TIMER = null; }
   btn.textContent = ok ? 'Copied' : 'Now copy it';
-  if (status) status.textContent = ok ? 'Address copied.' : 'Kosmos could not copy it. The address is selected: copy it from there.';
-  if (PLUS_COPY_TIMER) clearTimeout(PLUS_COPY_TIMER);
-  PLUS_COPY_TIMER = setTimeout(() => { PLUS_COPY_TIMER = null; btn.textContent = 'Copy'; if (status) status.textContent = ''; }, 2000);
+  // Cleared first, so a second press says it again (a live region that does not change is not re-read).
+  if (status) { status.textContent = ''; requestAnimationFrame(() => { status.textContent = ok ? 'Address copied.' : 'Kosmos could not copy it. The address is selected: copy it from there.'; }); }
+  // Copied goes back after 2 seconds; a failure stays until the next press, so there is time to act on it.
+  if (ok) PLUS_COPY_TIMER = setTimeout(() => { PLUS_COPY_TIMER = null; btn.textContent = 'Copy'; if (status) status.textContent = ''; }, 2000);
 }
 { const b = document.getElementById('plus-copy'); if (b) b.addEventListener('click', plusCopyAddress); }
 

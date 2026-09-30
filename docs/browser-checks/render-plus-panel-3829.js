@@ -5,7 +5,7 @@
  * worded and designed"; his 17:19 shots: "the phone is showing the code" for a Windows browser, and a
  * list row named just "device"; Mona Lisa's sketch on the card). Four states, each asserted and shot:
  *   off         -> the pill says Off, Turn on is the one primary action, no address chip;
- *   connected   -> a green Connected pill, the address in ONE chip with Copy and Open, one plain line,
+ *   connected   -> a green Connected pill, the box with Josh's sentence and Copy (#4744, no Open), one plain line,
  *                  the #4080 switch (it was Pause, before that Turn off), and View account pointing at the web account;
  *   one request -> a compact card: the device, when, one device-neutral sentence, then the code LARGE in
  *                  boxes directly above Allow / Deny (#3952); no Not now, no Not me; the request is NOT repeated in the devices list;
@@ -90,6 +90,10 @@ const STATES = {
           /* #4744: one line = the sentence's text sits on one line box, and Copy shares its row. */
           sayLines: (() => { const e = document.getElementById('plus-chip-say'); if (!e) return 0; const r = document.createRange(); r.selectNodeContents(e);
             return new Set([...r.getClientRects()].filter((x) => x.width > 0).map((x) => Math.round(x.top))).size; })(),
+          /* Room to spare beside the words (their own width against the box's): a nowrap line that ran under Copy would
+             still be "one line", so the spare is what proves it fits. */
+          saySpare: (() => { const e = document.getElementById('plus-chip-say'); if (!e) return -1; const r = document.createRange(); r.selectNodeContents(e);
+            return Math.round(e.clientWidth - Math.max(0, ...[...r.getClientRects()].map((x) => x.width))); })(),
           copySameRow: (() => { const a = document.getElementById('plus-chip-say'), c = document.getElementById('plus-copy'); if (!a || !c) return false;
             const ra = a.getBoundingClientRect(), rc = c.getBoundingClientRect(); return rc.left >= ra.right - 1 && Math.abs((ra.top + ra.height / 2) - (rc.top + rc.height / 2)) < 12; })(),
           bold: (document.querySelector('#plus-chip-say b') || {}).textContent || '', account: document.getElementById('plus-account').getAttribute('href'),
@@ -146,32 +150,34 @@ const STATES = {
         chk(v.chip && v.chipSay.trim() === 'Access this computer from other devices at login.kosmosplus.com' && v.bold === 'login.kosmosplus.com'
           && v.copyLabel.trim() === 'Copy' && v.noOpen, `${t} #4744: the box says where other devices reach this computer, the address bold, with Copy and no Open`,
           JSON.stringify({ chip: v.chip, say: v.chipSay, bold: v.bold, copy: v.copyLabel, noOpen: v.noOpen }));
-        chk(v.sayLines === 1 && v.copySameRow, `${t} #4744: the sentence is one line and Copy sits on the same row`, JSON.stringify({ lines: v.sayLines, sameRow: v.copySameRow }));
-        { // #4744: at the desktop app's narrowest window (640 wide, the Windows launcher's floor) it is still one line.
+        chk(v.sayLines === 1 && v.copySameRow && v.saySpare >= 10, `${t} #4744: the sentence is one line with at least 10px to spare, and Copy sits on the same row`, JSON.stringify({ lines: v.sayLines, sameRow: v.copySameRow, spare: v.saySpare }));
+        if (key === 'connected') { // #4744: at 640 and 600 wide (the Windows launcher's 640 window, less its frame and scrollbar) it is still one line.
           const vp = page.viewportSize();
-          await page.setViewportSize({ width: 640, height: vp.height }); await page.waitForTimeout(250);
-          const n = await page.evaluate(() => {
-            const a = document.getElementById('plus-chip-say'), c = document.getElementById('plus-copy');
-            const r = document.createRange(); r.selectNodeContents(a);
-            const lines = new Set([...r.getClientRects()].filter((x) => x.width > 0).map((x) => Math.round(x.top))).size;
-            const ra = a.getBoundingClientRect(), rc = c.getBoundingClientRect();
-            return { lines, sameRow: rc.left >= ra.right - 1 && Math.abs((ra.top + ra.height / 2) - (rc.top + rc.height / 2)) < 12, shown: ra.height > 0, vw: innerWidth };
-          });
+          for (const wide of [640, 600]) {
+            await page.setViewportSize({ width: wide, height: vp.height }); await page.waitForTimeout(250);
+            const n = await page.evaluate(() => {
+              const a = document.getElementById('plus-chip-say'), c = document.getElementById('plus-copy');
+              const r = document.createRange(); r.selectNodeContents(a); const rects = [...r.getClientRects()].filter((x) => x.width > 0);
+              const lines = new Set(rects.map((x) => Math.round(x.top))).size;
+              const ra = a.getBoundingClientRect(), rc = c.getBoundingClientRect();
+              return { lines, spare: Math.round(a.clientWidth - Math.max(0, ...rects.map((x) => x.width))), font: getComputedStyle(a).fontSize,
+                sameRow: rc.left >= ra.right - 1 && Math.abs((ra.top + ra.height / 2) - (rc.top + rc.height / 2)) < 12, shown: ra.height > 0 };
+            });
+            chk(n.shown && n.lines === 1 && n.sameRow && n.spare >= 10, `${t} #4744: at ${wide} wide the sentence is one line with room to spare and Copy beside it`, JSON.stringify(n));
+          }
           await page.setViewportSize(vp); await page.waitForTimeout(250);
-          chk(n.shown && n.lines === 1 && n.sameRow, `${t} #4744: at 640 wide the sentence is still one line with Copy beside it`, JSON.stringify(n));
         }
-        { // #4744: Copy puts the full https address on the clipboard (so it pastes as a link) and says Copied.
-          try { await page.context().grantPermissions(['clipboard-read', 'clipboard-write']); } catch { /* engine without clipboard permissions */ }
+        if (key === 'connected') { // #4744: Copy puts the full https address on the clipboard (so it pastes as a link) and says Copied.
+          await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+          // A sentinel first, so the read-back proves THIS press wrote the address (the clipboard outlives a page).
+          await page.evaluate(async () => { await navigator.clipboard.writeText('sentinel-4744'); });
           await page.click('#plus-copy');
           await page.waitForTimeout(150);
           const cp = await page.evaluate(async () => {
             let clip = null; try { clip = await navigator.clipboard.readText(); } catch { clip = null; }
             return { clip, label: document.getElementById('plus-copy').textContent, said: document.getElementById('plus-copy-status').textContent };
           });
-          // Chromium grants clipboard-read, so there the copied text MUST be read back; an engine that cannot read it
-          // is held to the label and the spoken line only.
-          const chromium = page.context().browser().browserType().name() === 'chromium';
-          chk(cp.label === 'Copied' && /copied/i.test(cp.said) && (chromium ? cp.clip === 'https://login.kosmosplus.com/' : (cp.clip === null || cp.clip === 'https://login.kosmosplus.com/')),
+          chk(cp.label === 'Copied' && /copied/i.test(cp.said) && cp.clip === 'https://login.kosmosplus.com/',
             `${t} #4744: Copy copies https://login.kosmosplus.com/ and says Copied (button and screen reader)`, JSON.stringify(cp));
           await page.waitForTimeout(2200);
           const back = await page.evaluate(() => document.getElementById('plus-copy').textContent);

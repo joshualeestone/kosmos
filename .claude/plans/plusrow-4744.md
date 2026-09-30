@@ -14,10 +14,12 @@ Checked in a browser; served in a build.
 - Copy copies the full https URL (he said "copy the URL"; it pastes as a link).
 - "Copied" for 2s, the app's existing copy pattern; the live region says it too.
 - Open is gone (his version has Copy only; View account stays in the bottom row).
-- One line is held down to 640 wide at .9rem; on a phone, narrower than any desktop window, it may wrap rather than
-  cut a word.
-- If the clipboard refuses, the address is selected on screen and the button says "Now copy it" (no Mac-only
-  keystroke named, since the row serves Windows too).
+- One line: measured, the Settings column caps the panel at 544px on a desktop window, where the sentence at .9rem
+  needs ~452px of ~404 beside Copy. So the box reaches into the panel's side padding, Copy is compact, and the
+  sentence's size follows the box's width (container units, .75rem to .9rem): 12.8px at 1024 and 1400, .9rem at 800,
+  one line from 600 up with ~7% to spare; a phone wraps rather than cuts a word.
+- If the clipboard refuses, execCommand copies the same URL (as the file's other copy buttons do); if that fails too,
+  the address is selected and the button says "Now copy it" until the next press (no Mac-only keystroke named).
 
 ## Weakest premise
 That 640 is the narrowest window that matters: it is the Windows launcher's minimum; no Mac minimum is set in this repo.
