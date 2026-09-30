@@ -267,11 +267,14 @@ function chk(ok, label, extra) {
           chk(posted.every((b) => !('projects' in b)), `${E} No project sends no project`);
           // #4719: nothing is made yet, so the Model menu is open again (a refused lead may be the account).
           chk(!(await page.isDisabled('#tc-provider')), `${E} #4719 with the lead refused and nothing made, the Model menu is open again`);
+          await page.selectOption('#tc-provider', 'openai');   // the person changes the choice before trying again
           await page.click('#tc-list li[data-slot="lead"] .tc-retry');
           await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => s.textContent === 'Running'));
           const r2 = await rows(page);
           chk(posted.map((b) => b.name).join() === 'Maya,Maya,Leo,Ana' && r2.every((r) => r.state === 'Running'), `${E} Try again on the lead makes it, then the others`, JSON.stringify(posted.map((b) => b.name)));
           chk(await page.isDisabled('#tc-provider'), `${E} #4719 once the lead is made, the Model menu is fixed`);
+          chk(posted.length === 4 && !('provider' in posted[0]) && posted.slice(1).every((b) => b.provider === 'openai'),
+            `${E} #4719 the choice changed after the refusal is what Try again and every later member are made on`, JSON.stringify(posted.map((b) => [b.name, b.provider || ''])));
           chk(errs.length === 0, `${E} no page errors (lead arm)`, errs.join(' | '));
           await page.close();
         }

@@ -30,6 +30,7 @@ function world({ stepHidden, options, selected, tc }) {
     acctProvider: (a) => a.provider,
     fillCreateAccounts: () => { fills += 1; },
     TC_PICKER: {},
+    tcChoiceFixed: () => Boolean(tc && tc.fixed),   // the page's one rule, stubbed: its own test is below
   };
   const start = SCRIPT.indexOf('function tcProviderDefault');
   const end = SCRIPT.indexOf('\n}\n', SCRIPT.indexOf('function tcProviderSettle')) + 3;
@@ -42,8 +43,8 @@ function world({ stepHidden, options, selected, tc }) {
 
 test('#4719 no open team step: settling does nothing (no refill, so no Muse read loop)', () => {
   for (const w of [
-    world({ stepHidden: true, options: [['anthropic', false], ['meta', true]], selected: 'meta', tc: { started: false } }),
-    world({ stepHidden: false, options: [], selected: '', tc: { started: false } }),
+    world({ stepHidden: true, options: [['anthropic', false], ['meta', true]], selected: 'meta', tc: { fixed: false } }),
+    world({ stepHidden: false, options: [], selected: '', tc: { fixed: false } }),
     world({ stepHidden: false, options: [['anthropic', false], ['meta', true]], selected: 'meta', tc: null }),
   ]) {
     w.ctx.settle();
@@ -51,18 +52,36 @@ test('#4719 no open team step: settling does nothing (no refill, so no Muse read
   }
 });
 
-test('#4719 a started team keeps its choice: settling does not touch it', () => {
-  const w = world({ stepHidden: false, options: [['anthropic', false], ['meta', true]], selected: 'meta', tc: { started: true } });
+test('#4719 a fixed choice is kept: settling does not touch it', () => {
+  const w = world({ stepHidden: false, options: [['anthropic', false], ['meta', true]], selected: 'meta', tc: { fixed: true } });
   w.ctx.settle();
   assert.equal(w.fills(), 0);
   assert.equal(w.sel.value, 'meta');
 });
 
 test('#4719 CONTROL: an open team step with an unusable choice goes back to the default, once', () => {
-  const w = world({ stepHidden: false, options: [['anthropic', false], ['meta', true]], selected: 'meta', tc: { started: false } });
+  const w = world({ stepHidden: false, options: [['anthropic', false], ['meta', true]], selected: 'meta', tc: { fixed: false } });
   w.ctx.settle();
   assert.equal(w.sel.value, 'anthropic');
   assert.equal(w.fills(), 1);
   w.ctx.settle();   // now usable: nothing more
   assert.equal(w.fills(), 1);
+});
+
+/* The ONE rule for when the team's provider and account are fixed (review round 7: the lock, the
+   remembered choice and the settle each had its own condition, and they disagreed between run paths). */
+test('#4719 the choice is fixed during a click or a run, and once any member exists or may exist', () => {
+  const start = SCRIPT.indexOf('function tcChoiceFixed');
+  const end = SCRIPT.indexOf('\n}\n', start) + 3;
+  assert.ok(start > 0 && end > start, 'tcChoiceFixed moved');
+  const ctx = {};
+  vm.runInNewContext('let TC = null;\n' + SCRIPT.slice(start, end) + '\nthis.fixed = (t) => { TC = t; return tcChoiceFixed(); };', ctx);
+  const rows = (...ms) => ms.map((m) => ({ state: 'waiting', made: null, maybeMade: null, ...m }));
+  assert.equal(ctx.fixed(null), false);
+  assert.equal(ctx.fixed({ members: rows({}, {}) }), false, 'before the first press');
+  assert.equal(ctx.fixed({ started: true, members: rows({ state: 'failed' }, {}) }), false, 'started, the lead refused, nothing made: still open');
+  assert.equal(ctx.fixed({ busy: true, members: rows({}) }), true, 'during the click');
+  assert.equal(ctx.fixed({ running: true, members: rows({}) }), true, 'during a Try again run');
+  assert.equal(ctx.fixed({ members: rows({ made: { name: 'a' } }) }), true, 'a member exists');
+  assert.equal(ctx.fixed({ members: rows({ maybeMade: 'a' }) }), true, 'a member may exist (its answer was lost)');
 });

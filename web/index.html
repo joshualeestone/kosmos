@@ -46681,7 +46681,7 @@ function tcProviderDefault() {
   return (!hasClaude && hasOpenai) ? 'openai' : 'anthropic';
 }
 /* After any repaint of the team menu: a selected option that is not usable here goes back to the default
-   (and the accounts follow), unless the team has started (its choice is fixed, TC.model). */
+   (and the accounts follow), unless the choice is fixed (tcChoiceFixed). */
 let TC_SETTLING = false;
 function tcProviderSettle() {
   const sel = document.getElementById('tc-provider');
@@ -46689,7 +46689,7 @@ function tcProviderSettle() {
   /* Only a team step that is open and filled: the Muse answer that calls this comes on every create-form
      paint, and an empty or unopened team menu is not a choice to correct (review round 4: treating it as
      one refilled it, which asked Muse again, which settled again, forever). */
-  if (!sel || !sel.options.length || !step || step.hidden || !TC || TC.started || TC.busy || TC_SETTLING) return;
+  if (!sel || !sel.options.length || !step || step.hidden || !TC || tcChoiceFixed() || TC_SETTLING) return;
   const cur = sel.options[sel.selectedIndex];
   if (!cur || cur.disabled) {
     TC_SETTLING = true;   // fillCreateAccounts asks Muse again; its answer must not re-enter here
@@ -46722,7 +46722,7 @@ async function tcFillProvider(gen) {
     if (stale()) return;
     if (!inTime) {
       read.then(() => {
-        if (stale() || TC_PROVIDER_TOUCHED || !TC || TC.started || TC.busy) return;
+        if (stale() || TC_PROVIDER_TOUCHED || !TC || tcChoiceFixed()) return;
         // The menus are refilled from the list that just landed (the accounts, and which providers are
         // usable); the provider itself changes only from the plain default the step started on, never
         // from a choice copied from the form.
@@ -46751,9 +46751,11 @@ async function tcFillProvider(gen) {
   tcProviderSettle();
   // What a late account list may replace: the plain default, never a choice copied from the form.
   TC_PROVIDER_START = copied === 'anthropic' ? sel.value : '\u0000';
-  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = false; }
+  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = tcChoiceFixed(); }
 }
-document.getElementById('tc-provider').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; fillCreateAccounts(TC_PICKER); });
+/* A change while the choice is open drops the remembered one, so the next run reads the menus again. */
+document.getElementById('tc-provider').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; if (TC && !tcChoiceFixed()) TC.model = null; fillCreateAccounts(TC_PICKER); });
+document.getElementById('tc-account').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; if (TC && !tcChoiceFixed()) TC.model = null; });
 
 /* A team is FINISHED when every member is made and seen running. Until then it is live and is resumed. */
 function tcFinished() {
@@ -46862,9 +46864,8 @@ function tcPaint() {
   go.textContent = 'Create ' + n + (n === 1 ? ' agent' : ' agents');
   go.disabled = Boolean(TC.busy);   // round 4: a resumed team still being started must not offer a dead button
   document.getElementById('tc-project').disabled = TC.started;
-  /* #4719: the choice is fixed once any member exists (its teammates must run on the same account). Until
-     then, even after a start whose lead was refused, it can be changed and Try again uses the new one. */
-  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = Boolean(TC.busy) || tcAnyMade(); }
+  /* #4719: ONE rule (tcChoiceFixed) for the lock, the remembered choice and the settle. */
+  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = tcChoiceFixed(); }
   /* Back is always allowed now (round 3): leaving no longer resets a live team, it only steps away. */
   document.getElementById('tc-back').disabled = false;
   const msgEl = document.getElementById('tc-msg');
@@ -46892,22 +46893,23 @@ function tcNames() {
   return names;
 }
 
-/* #4719: the provider and account for every member. Read off the menus until the team starts, then the
-   values fixed at the start (TC.model), so a retry makes the member on the same account as the rest. */
-function tcAnyMade() {
-  return Boolean(TC && Array.isArray(TC.members) && TC.members.some((m) => m && m.made));
+/* #4719: the provider and account for every member, and the ONE rule for when that choice is fixed:
+   while a click or a run is in progress, or once any member exists or may exist (a create whose answer
+   was lost). Its teammates must run on the same account, and a run must not change under itself. While
+   it is not fixed (before the first press, after a press refused before anything was made, after a run
+   whose lead was refused) the menus are open and the next run reads them. */
+function tcChoiceFixed() {
+  return Boolean(TC && (TC.busy || TC.running
+    || (Array.isArray(TC.members) && TC.members.some((m) => m && (m.made || m.maybeMade || m.state === 'made')))));
 }
 function tcModel() {
-  // Fixed once any member exists (its teammates run on the same account), and for the length of a run.
-  if (TC && TC.model && (tcAnyMade() || TC.busy)) return TC.model;
-  // Otherwise the menus decide (after a start whose lead was refused, they are open again), and what
-  // they say is kept for the run that follows.
+  if (TC && TC.model && tcChoiceFixed()) return TC.model;
   const p = document.getElementById('tc-provider');
   const a = document.getElementById('tc-account');
   const provider = p ? String(p.value || '') : '';
   const account = a ? String(a.value || '') : '';
   const m = { ...(provider ? { provider } : {}), ...(account ? { account } : {}) };
-  if (TC && TC.started) TC.model = m;
+  if (TC) TC.model = m;   // kept for the run that follows; dropped if a menu changes while still open
   return m;
 }
 async function tcSpecs(project, check) {
@@ -46934,7 +46936,7 @@ document.getElementById('tc-go').addEventListener('click', async () => {
   const msg = document.getElementById('tc-msg');
   go.disabled = true; msg.hidden = true; msg.textContent = '';
   TC.busy = true;   // live from the click: Back or a reopen now keeps it (the project may be being made)
-  TC.model = tcModel();   // #4719: the choice as it was at the click, fixed for the whole team
+  TC.model = null; tcModel();   // #4719: the choice as the menus show it at the click, kept for this run
   for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = true; }
   try {
     // Names first, with nothing made: a refused name, or one already taken on this computer, must not
@@ -46965,13 +46967,10 @@ document.getElementById('tc-go').addEventListener('click', async () => {
   } catch (err) {
     if (gen !== TC_GEN) return;
     go.disabled = false;
-    if (!TC.started) {   // #4719: nothing was made, so the choice is open again
-      TC.model = null;
-      for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = false; }
-    }
     msg.hidden = false; msg.textContent = (err && err.message) ? String(err.message) : 'Something went wrong. Try again.';
   } finally {
-    if (TC && gen === TC_GEN) TC.busy = false;
+    // #4719: repaint once the click is over, so the menus follow tcChoiceFixed (open again if nothing was made).
+    if (TC && gen === TC_GEN) { TC.busy = false; tcPaint(); }
   }
 });
 
