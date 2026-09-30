@@ -297,6 +297,7 @@ test('#4752 the own-folder check leaves the rules from before #4752 alone, and c
   const abs = (p) => '//' + p.replace(/^\/+/, '');
   assert.ok(deny.includes(`Read(${abs(data)}/**)`), 'the data folder rule (#3769) was dropped by the #4752 check');
   assert.ok(!deny.includes(`Read(${abs(path.join(base, 'linked'))}/**)`), 'the linked entry that holds the guide was named');
+  assert.ok(!deny.includes(`Read(${abs(path.join(base, 'linked'))})`), 'the linked entry\'s plain rule (no /**), which also takes in the guide, was named');
   assert.ok(deny.includes(`Read(${abs(path.join(base, 'board.token'))})`), 'CONTROL: the base rules were not written at all');
 });
 
@@ -332,4 +333,5 @@ test('#4752 a rule refused because it takes in the guide\'s folder stays out on 
     assert.equal(setupAssistant.guardGuideFolder(guide, 'guide', deps).ok, true);
   } finally { process.stderr.write = write; }
   assert.ok(!read().includes(rule), 'the rule written on the earlier start came back');
+  assert.ok(!read().includes(rule.replace(/\/\*\*\)$/, ')')), 'the linked entry\'s plain rule (no /**) came back');
 });
