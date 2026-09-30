@@ -163,10 +163,8 @@ function tapProbe4663(skip) {
     b.scrollIntoView({ block: 'center', inline: 'center' });
     const r = b.getBoundingClientRect(); if (!r.width || !r.height) { out.push({ id, error: 'not drawn' }); continue; }
     /* The tap area's real extent, whatever its shape (centred, or grown inward where a column clips it): every point
-       of a grid around the control that reaches it, and the box those points span. Points sit at pixel centres, so
-       the span counts whole pixels: a 35px area reads 35, not 36 (review round 6: sampling from a fractional start
-       overstated by up to 1px, and a 35px area passed). Off-screen points are not sampled, and the control is
-       mid-screen, so none is. */
+       of a grid around the control that reaches it, and the box those points span. Off-screen points are not
+       sampled, and the control is mid-screen, so none is. */
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
     const span = Math.max(r.width, r.height, 36) / 2 + 12;
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
@@ -175,8 +173,15 @@ function tapProbe4663(skip) {
         if (hit(x, y, b)) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
       }
     }
-    const w = x1 - x0 + 1, h = y1 - y0 + 1;
-    out.push({ id, drawn: Math.round(r.width) + 'x' + Math.round(r.height), tap: Math.round(w) + 'x' + Math.round(h), reach: w >= 36 && h >= 36 });
+    const w = x0 === Infinity ? 0 : x1 - x0 + 1, h = y0 === Infinity ? 0 : y1 - y0 + 1;
+    /* Two halves, because hit-testing cannot see below a pixel (both engines round the asked point to a whole pixel,
+       so a 36px area reads 36 or 37 by where it sits, and a 35px area can read 36: review round 7, measured). The
+       SIZE comes from the area's own used width and height, which is exact; the grid then proves the area is really
+       reachable across that size, not clipped, to within that 1px. */
+    const pa = getComputedStyle(b, '::after'); const aw = parseFloat(pa.width) || 0, ah = parseFloat(pa.height) || 0;
+    const size = pa.content !== 'none' ? Math.max(aw, r.width) : r.width, sizeH = pa.content !== 'none' ? Math.max(ah, r.height) : r.height;
+    out.push({ id, drawn: Math.round(r.width) + 'x' + Math.round(r.height), area: size.toFixed(1) + 'x' + sizeH.toFixed(1), tap: w + 'x' + h,
+      reach: size >= 36 && sizeH >= 36 && w >= size - 1 && h >= sizeH - 1 });
   }
   // The rows under the headers must be drawn, or the neighbour arm has no subject (counted, not assumed).
   subjects = ['#pj-tasklist .tkcard', '#pj-docs .pj-doc'].map((q) => [...document.querySelectorAll(q)].filter((e) => e.getBoundingClientRect().height > 0).length);
