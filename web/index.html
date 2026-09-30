@@ -7757,7 +7757,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 
 /* #3042 (Josh, 2026-09-14): while the agent is being made (the 'made' step), the
    "All agents" back button is removed so a person cannot accidentally leave
-   mid-creation. cstep() toggles the [hidden] attribute on the three steps, so a
+   mid-creation. cstep() shows one step at a time through the [hidden] attribute, so a
    visible #cstep-made means we are on the progress screen; :has() keys the removal
    off exactly that state, leaving the button on the role/name steps where leaving
    before submit is safe. The top tab bar stays as the way out, the same pattern as
