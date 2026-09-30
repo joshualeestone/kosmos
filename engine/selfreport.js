@@ -132,6 +132,15 @@ function isAutoPermissionWait(standing) {
     && standing.by === 'auto';
 }
 
+/* #4569 fix 4: { n, yours } when the value is a sane queue count on a working report, else undefined (not written). */
+function waitingOf(state, w) {
+  if (state !== 'working' || !w || typeof w !== 'object') return undefined;
+  const n = w.n; const yours = w.yours;
+  if (!Number.isSafeInteger(n) || n < 1 || n > 100000) return undefined;
+  if (!Number.isSafeInteger(yours) || yours < 0 || yours > n) return undefined;
+  return { n, yours };
+}
+
 function record(sessionName, entry) {
   let file;
   try { file = fileFor(sessionName); } catch {
@@ -261,6 +270,11 @@ function record(sessionName, entry) {
        says. A needs_you that names one lights that project alone; one that
        names none lights no project and is read on the Agents page. */
     project: capped(entry.project, CAPS.project),
+    /* #4569 fix 4: a busy Muse agent's queue, { n, yours } (whole numbers, yours <= n), on a working report only.
+       The Muse front sends it; any agent's own report could too, but it is checked here, the page builds its line
+       from these two numbers and fixed words only (no agent text reaches it), and it shows on the reporter's own
+       card alone, so a false one is no worse than a false "working". */
+    waiting: waitingOf(state, entry.waiting),
     /* #570: WHICH RUN of this agent said it. Two live runs of one agent used to
        interleave into this file with nothing marking two actors, so a pair of
        them disagreeing read as one agent changing its mind. The route fills
@@ -392,6 +406,7 @@ function read(sessionName) {
   return {
     found: true,
     state: latest.state,
+    waiting: waitingOf(latest.state, latest.waiting) || null,   // #4569 fix 4
     because: latest.because || null,
     on: latest.on || null,
     owner: latest.owner || null,
