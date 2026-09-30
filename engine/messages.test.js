@@ -3166,6 +3166,7 @@ test('#4786: work done BEFORE the person last spoke earns nothing after it; the 
       const now = Date.now();
       const ago = (min) => new Date(now - min * 60000).toISOString();
       fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+      fs.rmSync(messages.LOG, { force: true });   // each arm starts from an empty room: the two runs share one log
       fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
       const step = taskchat.taskChatFile('henderson-lease', 1);
       fs.mkdirSync(path.dirname(step), { recursive: true });
