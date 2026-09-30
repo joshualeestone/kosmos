@@ -113,6 +113,60 @@ function blueLead(rgb) { return rgb[2] - Math.max(rgb[0], rgb[1]); }
 
 const now = () => new Date().toISOString();
 
+/* #4663: runs in the page. Reveals the project page's six small controls the way an open project shows them (the
+   static page opens none), measures each one's tap area and its neighbours' centres, then puts every change back, so
+   later arms see the page as it was. A parent is only forced visible where it computes display:none, and only then. */
+function tapProbe4663() {
+  const ids = ['pj-back', 'pj-settings-link', 'pj-add-member', 'pj-newtask', 'pj-docs-all', 'pj-alltasks'];
+  // What the probe may change, read before and after: each control and its ancestors' hidden, inert and inline display.
+  const snap = () => ids.map((id) => { const out = []; for (let el = document.getElementById(id); el && el !== document.body; el = el.parentElement)
+    out.push([el.hidden, el.hasAttribute('inert'), el.style.display].join('/')); const b = document.getElementById(id); return out.join('>') + '|' + (b ? b.textContent : ''); }).join(';');
+  const start = snap();
+  const undo = [];
+  const set = (el, prop, val) => { const was = prop === 'hidden' ? el.hidden : prop === 'inert' ? el.hasAttribute('inert') : el.style[prop];
+    undo.push(() => { if (prop === 'hidden') el.hidden = was; else if (prop === 'inert') { if (was) el.setAttribute('inert', ''); else el.removeAttribute('inert'); } else el.style[prop] = was; });
+    if (prop === 'hidden') el.hidden = val; else if (prop === 'inert') el.removeAttribute('inert'); else el.style[prop] = val; };
+  for (const id of ids) {
+    const b = document.getElementById(id); if (!b) continue;
+    if (b.hidden) set(b, 'hidden', false);
+    if (id === 'pj-alltasks' && !b.textContent.trim()) { const was = b.textContent; undo.push(() => { b.textContent = was; }); b.textContent = 'View All'; }
+    for (let el = b; el && el !== document.body; el = el.parentElement) {
+      if (el.hidden) set(el, 'hidden', false);
+      if (el.hasAttribute('inert')) set(el, 'inert', false);
+      if (getComputedStyle(el).display === 'none') set(el, 'display', 'block');
+    }
+  }
+  const hit = (x, y, b) => { const t = document.elementFromPoint(x, y); return !!t && (t === b || b.contains(t)); };
+  const out = [];
+  for (const id of ids) {
+    const b = document.getElementById(id); if (!b) { out.push({ id, error: 'missing' }); continue; }
+    // In the middle of the screen, so every probe point is on screen: a point off screen proves nothing.
+    b.scrollIntoView({ block: 'center', inline: 'center' });
+    const r = b.getBoundingClientRect(); if (!r.width || !r.height) { out.push({ id, error: 'not drawn' }); continue; }
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const hw = Math.max(r.width, 36) / 2 - 1, hh = Math.max(r.height, 36) / 2 - 1;
+    const edges = [[cx - hw, cy], [cx + hw, cy], [cx, cy - hh], [cx, cy + hh]];
+    const onScreen = edges.filter(([x, y]) => x >= 0 && y >= 0 && x <= innerWidth && y <= innerHeight);
+    const missed = onScreen.filter(([x, y]) => !hit(x, y, b)).length;
+    out.push({ id, drawn: Math.round(r.width) + 'x' + Math.round(r.height), probed: onScreen.length, reach: onScreen.length >= 3 && missed === 0 });
+  }
+  const theirs = [];
+  for (const id of ids) {
+    const b = document.getElementById(id); if (!b) continue; b.scrollIntoView({ block: 'center', inline: 'center' }); const r = b.getBoundingClientRect();
+    for (const n of document.querySelectorAll('button, a[href], [role="button"]')) {
+      if (n === b || b.contains(n) || n.contains(b)) continue;
+      const q = n.getBoundingClientRect(); if (!q.width || !q.height) continue;
+      if (!(q.right > r.left - 40 && q.left < r.right + 40 && q.bottom > r.top - 40 && q.top < r.bottom + 40)) continue;
+      const x = q.left + q.width / 2, y = q.top + q.height / 2;
+      if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) continue;
+      const t = document.elementFromPoint(x, y);
+      if (t && ids.some((j) => { const o = document.getElementById(j); return o && o !== n && !n.contains(o) && (t === o || o.contains(t)); })) theirs.push((n.id || n.className || n.tagName) + ' taken by ' + (t.id || t.className));
+    }
+  }
+  for (const u of undo.reverse()) u();
+  return { out, theirs, restored: snap() === start, changed: undo.length };
+}
+
 (async () => {
   for (const engineName of ENGINES) {
   ENGINE = engineName;
@@ -737,46 +791,10 @@ const now = () => new Date().toISOString();
       await phonePage.evaluate(() => { const b = document.getElementById('pj-add-member'); if (b) b.blur(); });
       // #4663: on a touchscreen the project page's small controls (drawn 22 to 28px) take a tap across at least 36px
       // around their centre, and none of those areas steals a tap from a neighbouring control's own centre.
-      const taps = await phonePage.evaluate(() => {
-        const ids = ['pj-back', 'pj-settings-link', 'pj-add-member', 'pj-newtask', 'pj-docs-all', 'pj-alltasks'];
-        for (const id of ids) {
-          const b = document.getElementById(id); if (!b) continue; b.hidden = false; if (!b.textContent.trim() && id === 'pj-alltasks') b.textContent = 'View All';
-          for (let el = b; el && el !== document.body; el = el.parentElement) { el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
-        }
-        const hit = (x, y, b) => { const t = document.elementFromPoint(x, y); return !!t && (t === b || b.contains(t)); };
-        const out = [];
-        for (const id of ids) {
-          const b = document.getElementById(id); if (!b) { out.push({ id, error: 'missing' }); continue; }
-          // In the middle of the screen, so every probe point is on screen: a point off screen proves nothing (the
-          // first version of this arm counted one as reached, and Back and the cog passed on main unmeasured).
-          b.scrollIntoView({ block: 'center', inline: 'center' });
-          const r = b.getBoundingClientRect(); if (!r.width || !r.height) { out.push({ id, error: 'not drawn' }); continue; }
-          const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-          const hw = Math.max(r.width, 36) / 2 - 1, hh = Math.max(r.height, 36) / 2 - 1;
-          const edges = [[cx - hw, cy], [cx + hw, cy], [cx, cy - hh], [cx, cy + hh]];
-          const onScreen = edges.filter(([x, y]) => x >= 0 && y >= 0 && x <= innerWidth && y <= innerHeight);
-          const missed = onScreen.filter(([x, y]) => !hit(x, y, b)).length;
-          out.push({ id, drawn: Math.round(r.width) + 'x' + Math.round(r.height), probed: onScreen.length, reach: onScreen.length >= 3 && missed === 0 });
-        }
-        // Neighbours: every other button or link within 40px keeps its own centre.
-        const theirs = [];
-        for (const id of ids) {
-          const b = document.getElementById(id); if (!b) continue; const r = b.getBoundingClientRect();
-          for (const n of document.querySelectorAll('button, a[href], [role="button"]')) {
-            if (n === b || b.contains(n) || n.contains(b)) continue;
-            const q = n.getBoundingClientRect(); if (!q.width || !q.height) continue;
-            const near = q.right > r.left - 40 && q.left < r.right + 40 && q.bottom > r.top - 40 && q.top < r.bottom + 40;
-            if (!near) continue;
-            const x = q.left + q.width / 2, y = q.top + q.height / 2;
-            if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) continue;
-            const t = document.elementFromPoint(x, y);
-            if (t && ids.some((j) => { const o = document.getElementById(j); return o && o !== n && !n.contains(o) && (t === o || o.contains(t)); })) theirs.push((n.id || n.className || n.tagName) + ' taken by ' + (t.id || t.className));
-          }
-        }
-        return { out, theirs };
-      });
+      const taps = await phonePage.evaluate(tapProbe4663);
       chk(taps.out.length === 6 && taps.out.every((x) => !x.error && x.reach), `[phone] #4663: Back, settings, + Add member, + New task and both View All take a tap across at least 36px`, JSON.stringify(taps.out));
       chk(taps.theirs.length === 0, `[phone] #4663: no enlarged tap area takes a neighbouring control's own centre`, JSON.stringify(taps.theirs));
+      chk(taps.restored, `[phone] #4663: the probe left the page as it found it`, String(taps.restored));
       // The projects list's top row at 375 on a touchscreen (16px sort): Add Project, the sort and
       // the view toggle must not overlap and must stay inside the row. (The harness only flags
       // overflow past the panel; controls drawn over each other inside it pass that.)
@@ -1600,6 +1618,10 @@ const now = () => new Date().toISOString();
         `[tablet 1180/touch] at 16px every field stays inside its nearest container, one view at a time`, JSON.stringify(tablet));
     } finally {
       chk(tabletPageErrors.length === 0, '[tablet] no script errors on the page', tabletPageErrors.join(' | '));
+      // #4663 on a touchscreen tablet (the one-screen layout at 1180): the same six controls sit in other grid tracks.
+      const ttaps = await tabletPage.evaluate(tapProbe4663);
+      chk(ttaps.out.filter((x) => !x.error).length >= 4 && ttaps.out.every((x) => x.error || x.reach), `[tablet] #4663: the small project controls take a tap across at least 36px in the one-screen layout`, JSON.stringify(ttaps.out));
+      chk(ttaps.theirs.length === 0 && ttaps.restored, `[tablet] #4663: no enlarged tap area takes a neighbour's centre, and the probe left the page as it found it`, JSON.stringify({ theirs: ttaps.theirs, restored: ttaps.restored }));
       await tabletPage.close();
     }
     // DARK, phone, touch: the open bar has its own ground against the dark room ground, so its
