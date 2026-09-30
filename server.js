@@ -6328,6 +6328,32 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname === '/api/catalogue/portrait' && req.method === 'GET') {
+    /* #4720: a prebuilt team member's portrait, for the Team screen to set as the new agent's
+       picture. The catalogue is downloaded, so its portraits are too: the board fetches the one
+       file the signed catalogue names for this member, keeps it only when it is that exact image
+       (engine/catalogue.js portrait()), and the page reads it from here, never from another
+       address. Nothing in the request chooses what is downloaded: team and slot only pick among
+       the members the held catalogue lists. "No portrait" is a 404 with the reason; the page says
+       so on the member's row and the agent is made all the same. Like the other GETs that make
+       this computer fetch something, it refuses a request that came from another website. */
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
+    let q;
+    try { q = new URL(req.url, ROUTING_BASE).searchParams; } catch { q = new URLSearchParams(); }
+    const none = (because) => { if (!res.headersSent && !res.destroyed) sendJson(res, 404, { error: because }); };
+    catalogue.portrait(q.get('team'), q.get('slot')).then((r) => {
+      // Inside a promise handler: a throw here would be an unhandled rejection, so it is answered.
+      try {
+        if (res.destroyed || res.writableEnded) return;
+        if (!r.ok) { none(r.because); return; }
+        res.writeHead(200, { 'content-type': r.type, 'content-length': r.bytes.length, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+        res.end(r.bytes);
+      } catch { none('we could not read that portrait'); }
+    }, () => none('we could not read that portrait'));
+    return;
+  }
+
   // --- create an agent -----------------------------------------------------
   //
   // ⚠️ The most powerful route here, and the reasoning for shipping it on a
