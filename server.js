@@ -3803,7 +3803,8 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    for an admitted device and then presents the person's board token anyway (read from
    kosmos-relay crates/tunnel/src/proxy.rs, not this repo). #4491 slice 2 added react, whose handler identifies
    the caller from the token and refuses a non-member. POST /api/community/post is deliberately NOT here: it
-   writes to the public feed, so it keeps needing the person's credential as well as the agent's (#4491).
+   writes to the public feed, and alone an agent token would let an agent that cannot read the board token
+   (the sandboxed setup guide) publish (#4491).
    ⚠️ The gate checks the token STORE, not the roster: a removed agent is cut off by the revoke at
    removal. If that best-effort revoke failed and the agent's process is still alive, its token
    still passes here, exactly as it already does on the exempt report and reply routes.
@@ -3821,20 +3822,23 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    every write on the same path stay behind the board token, and the query (`?project=`, `?as=text`,
    `?catalogue=1`) is not part of it.
    WHO GAINS: an agent whose `kosmos` command can read the board token already makes these reads, and gains
-   nothing. The caller that DOES gain is one holding a valid token and no board token. A real one exists: a token
-   minted for an agent on another machine (POST /api/agent-token) is refused as a direct network peer
-   (remoteWriteGuard; none of these is in REMOTE_AGENT_ROUTES), but behind the person's own reverse proxy
-   (AGENT_WORKFORCE_ALLOWED_HOSTS) it arrives as a loopback peer and passes this gate. So the two reads that carry
-   people's work are narrowed IN THEIR HANDLERS for a caller that came through on its agent token alone
-   (agentTokenOnlyCaller): the room and the task list answer only for a project that agent is on, the task list
-   needs `?project=`, and its costly Tasks-view arm (`?view=tasks`) is the page's and is not served. (The #4581
-   project reads above stay open to every token: they carry counts, members and the brief, not the conversation
-   or the task text.) The roles list is the product's own text and is open to any valid token. A caller that
-   also presents the board token (every agent's CLI today, and the person) is untouched. The setup guide is NOT a
-   special case:
-   on Claude its Read deny rules stop its file tools, not the `kosmos` command's own read of the board token
-   (engine/setup-assistant.js says so; the measurement is in .claude/plans/agent-reads-4491.md), and a Codex,
-   Gemini or Grok guide has no deny file at all. */
+   nothing. The callers that DO gain hold a valid token and no board token, and two are real:
+     - the setup guide on a Mac: Claude Code's sandbox keeps its every subprocess, the `kosmos` command included,
+       from the board token (engine/setup-assistant.js guardGuideFolder, measured there);
+     - an agent on another machine (POST /api/agent-token): refused as a direct network peer (remoteWriteGuard;
+       none of these is in REMOTE_AGENT_ROUTES), but behind the person's own reverse proxy
+       (AGENT_WORKFORCE_ALLOWED_HOSTS) it arrives as a loopback peer and passes this gate.
+   So the two reads that carry people's work are narrowed IN THEIR HANDLERS for a caller that came through on its
+   agent token alone (agentTokenOnlyCaller): the room and the task list answer only for a project that agent is
+   on, the task list needs `?project=`, and its costly Tasks-view arm (`?view=tasks`) is the page's and is not
+   served. (The #4581 project reads above stay open to every token: they carry counts, members and the brief, not
+   the conversation or the task text.) The roles list is the product's own text and is open to any valid token:
+   it is what the guide picks from when it makes an agent (#4474). A caller that also presents the board token
+   (every other agent's CLI today, and the person) is untouched.
+   There is NO rule for the setup guide beyond that one: on a project the person put it on, it may already post
+   in that room and is sent the posts addressed to it, so it reads that room and those tasks like any member; off
+   it, nothing.
+   What it says stays masked for secrets either way (#3769). */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
   'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks']);   // overview: #4581, `kosmos project list`
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with

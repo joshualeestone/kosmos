@@ -4,8 +4,8 @@
  * #4491 slice 4: three READS an agent already makes every day with the board token (`kosmos agent roles`,
  * `kosmos task list`, `kosmos room`) are reachable with ONLY its own agent token. On that token alone the room
  * and the tasks answer only for a project the agent is on; a caller that also presents the board token (every
- * CLI today, and the person) is not narrowed. The setup guide is no exception (the plan,
- * .claude/plans/agent-reads-4491.md, says why and what was measured).
+ * CLI today, and the person) is not narrowed. The setup guide on a Mac is such a token-only caller (its sandbox
+ * keeps the board token from it) and is held to the same rule as any agent, with none of its own.
  *
  * Same harness as server.agent-token-gate-4491.test.js: the board boots fully sandboxed, then
  * enforcement is flipped on in memory, so no real store is touched.
@@ -222,22 +222,26 @@ test('only GET on exactly those paths: every other verb and neighbour stays behi
   }
 });
 
-test('TRIPWIRE: there is no setup-guide rule, so a marked guide reads them like any agent on the project (adding one is a decision)', async (t) => {
+test('the setup guide is held to the same rule as any agent: its own project\'s room and tasks, and no other', async (t) => {
   withProject(t, ['reader-agent', GUIDE]);
-  /* This cannot fail on today's gate, which never looks at the marker: it is here to go red the day someone adds a
-     guide rule, so that closing a read the guide makes today is decided and not a side effect. Measured red
-     against this branch's first version, which had such a rule. */
-  /* A REAL marked folder, not a stub: the folder the board would look in for this name, with the guide marker. */
+  /* A REAL marked folder, not a stub: the folder the board would look in for this name, with the guide marker. On a
+     Mac the guide is a real token-only caller (its sandbox keeps the board token from it), so this is its case. */
   const dir = path.dirname(instructions.fileFor(GUIDE));
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, setupAssistant.GUIDE_MARKER), GUIDE + '\n');
   t.after(() => fs.rmSync(path.join(dir, setupAssistant.GUIDE_MARKER), { force: true }));
   assert.equal(setupAssistant.isGuideFolder(GUIDE), true, 'control: the board does not see this agent as the guide, so the reads below prove nothing about it');
   assert.equal(setupAssistant.isGuideFolder('reader-agent'), false, 'control: every agent reads as the guide');
+  /* On a project the person put it on, it reads like any member (a guide-only refusal here is a decision to make
+     on purpose: measured red against this branch's first version, which had one). */
   for (const p of READS) {
     const r = await call('GET', p, asAgent(guideToken));
-    assert.equal(r.code, 200, `the setup guide's token was refused on ${p}: closing a read to it is a decision (it reads these today), not a side effect`);
+    assert.equal(r.code, 200, `the setup guide's token was refused on ${p}, a project it is on`);
   }
+  /* Off a project, nothing: the same 403s as any agent. */
+  assert.equal((await call('GET', '/api/project/other4491/room?as=text', asAgent(guideToken))).code, 403, 'the guide read the room of a project it is not on');
+  assert.equal((await call('GET', '/api/tasks?project=other4491', asAgent(guideToken))).code, 403, 'the guide read the tasks of a project it is not on');
+  assert.equal((await call('GET', '/api/tasks', asAgent(guideToken))).code, 403, 'the guide read the global task list');
 });
 
 test('a revoked token no longer reads', async (t) => {

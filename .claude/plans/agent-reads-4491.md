@@ -46,19 +46,16 @@ has to name the caller first.
   token-only caller. The day the CLIs drop it (a later slice), every agent becomes one, and `kosmos room <a
   project I am not on>` stops working for it. That is on purpose and written here so that slice decides it with
   open eyes (for example a PM agent that reads rooms it is not on would need a stated permission).
-- **The setup guide is NOT an exception (reversed in review round 1, on a measurement).** The first version closed
-  the room and the tasks to the guide's token, on the belief that the guide cannot read the board token. That
-  belief is written in install/kosmos (the #3769 reply comment) and engine/team.js, and contradicted by
-  engine/setup-assistant.js ("the `kosmos` command it runs reads the board token as its own process"). Measured
-  2026-09-30 on Claude Code 2.1.285, in a throwaway project with the same rule shape (`Read(//<folder>/**)`) and
-  `--dangerously-skip-permissions`: a direct `cat` of a file in the denied folder was refused (the control), and
-  a script that reads the same file ran and printed it. So the guide's `kosmos room` works today, the rule closed
-  nothing, and it would have become a change nobody decided at the slice where the CLIs drop the board token.
-  Removed. Whether the guide should be kept from rooms is a real question for that later slice, and a card now
-  carries the false comments (see the PR).
-- **What the measurement does not cover:** it used a stand-in script, not the real `kosmos` command inside a real
-  guide session, and only Claude. A Codex, Gemini or Grok guide has no deny file at all (setup-assistant.js says
-  so), so it reads the token more easily, not less.
+- **The setup guide: no rule of its own; the membership rule covers it (settled after round 6, see the correction
+  at the end).** On a Mac the guide IS a token-only caller: Claude Code's sandbox keeps every subprocess of it, the
+  `kosmos` command included, from the board token (`guardGuideFolder` in engine/setup-assistant.js, measured there,
+  and measured again by April on #4728 with the real guard). So this slice does give the guide something: the
+  roles list, and the room and tasks of a project it is on. Decided: that is right. A guide on a project may
+  already post in that room (slice 1) and is sent the posts addressed to it; reading that room is the same line
+  every other member gets. A guide that is on no project reads no room and no tasks. What it says stays masked
+  for secrets (#3769). The roles list is what it picks from when it makes an agent (#4474).
+  Rejected: closing the room and tasks to the guide outright (this branch's first version). It would make the
+  guide the only member of a project that cannot read the room it posts in.
 - **The board token is still sent.** Dropping it is a later slice, after every verb answers to the agent token
   and every agent has one.
 
@@ -76,7 +73,7 @@ has to name the caller first.
   and the Tasks view arm are not served on a token alone; the same agent WITH the board token reads all of it, and
   the board token alone still reads the global list and the Tasks view arm (controls); a token no project lists
   reads nothing but roles; an unreadable projects list is a 503 for the token-only caller and still a 200 for the
-  board token; 20 neighbours and other verbs stay closed; the setup-guide tripwire (a real marked folder); a
+  board token; 20 neighbours and other verbs stay closed; the setup guide (a real marked folder) reads its own project's room and tasks and is refused another's; a
   revoked token stops reading.
   Measured red, one mutation each: the helper never reporting a token-only caller; the room open to non-members;
   the tasks open to non-members; the global list served; the Tasks view arm served; the unreadable list failing
@@ -96,18 +93,19 @@ matter at the slice where the CLIs drop it.
 ## What would change this
 - Josh saying any agent may read any room: delete the two `agentTokenOnlyCaller` blocks (the pin in
   server.agent-token-sender-570.test.js counts them, so it is a deliberate edit).
-- Josh wanting the setup guide kept from rooms and tasks: that needs the board token kept from its `kosmos`
-  command first (it is not today, card #4728), then a guide rule. The first version of this branch has one.
+- Josh wanting the setup guide kept from rooms and tasks even on a project it is on: a guide rule at the gate (this
+  branch's first version has one, keyed on the guide's marked folder).
 
 ## Known limits added in round 3
 - The room's JSON arm marks reactions as `mine` for the viewer it assumes is the person (`reactionsFor(..., 'you')`).
   An agent reading that arm on its token sees the person's reactions marked `mine`. Both CLIs read the text arm,
   which has no such field.
-- The false "the guide cannot read the board token" comments in engine/team.js and install/kosmos are NOT fixed
-  here: card #4728 carries them, with the measurement.
+- (Withdrawn: an earlier version of this line called the "guide cannot read the board token" comments false. They
+  are true on a Mac. See the correction at the end.)
 
 ## Review round 1 (opus): 0 BLOCKER, 2 WARNING, 2 CONVENTION, 4 NIT
-- W the guide premise is contradicted inside the repo: MEASURED (above); the guide rule removed, comments corrected.
+- W the guide premise is contradicted inside the repo: measured, WRONGLY (see the correction at the end); the guide
+  rule was removed on it. The removal stands, for the reason now in Decisions.
 - W the guide rule was only tested against stubs, with a name no guide can have: the rule is gone; the one guide
   test left uses a real marked folder and a real name.
 - C "they write nothing and answer every caller alike" was false: the comment now names the catalogue download
@@ -163,4 +161,21 @@ matter at the slice where the CLIs drop it.
   (`?withArchived=` does nothing without it), and says why the #4581 project reads stay open while the room and
   tasks are narrowed (counts, members and the brief, not the conversation or the task text); "Finished looks
   like" 4 now carries its condition.
+
+## Correction after round 6: my round-1 measurement was of the wrong setup
+Round 1 asked whether the setup guide can read the board token. I measured a throwaway project that had the
+guide's Read deny rules and NOT the sandbox block `guardGuideFolder` also writes on a Mac. The script read the file,
+and I concluded the guide's `kosmos` command reads the board token. That was wrong for a Mac: April measured both
+arms with the real guard (deny rules only: the script reads the file, my result; deny rules plus the sandbox:
+"Operation not permitted"), and the code comment beside the sandbox block says the same. It is recorded on #4728.
+What this changed here, after the six rounds:
+- The route comment and this plan now say the guide on a Mac is a token-only caller and what it gains.
+- The two slice-2 comments I had rewritten (in server.js and server.agent-token-gate-4491.test.js) are back to
+  main's words; they were true.
+- The guide test is no longer a tripwire: it asserts the guide reads its own project's room and tasks and is
+  refused another project's and the global list.
+- NO rule changed. The round-3 membership rule already held the guide to its own projects; the first version's
+  guide rule stays out, now as a decision (above) and not on a false measurement.
+Rounds 1 and 2 reviewed the branch under the wrong premise, and rounds 3 to 6 reviewed a comment that stated it, so
+one more blind round follows on the corrected tree.
 
