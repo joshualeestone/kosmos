@@ -30,6 +30,8 @@ the arm passes every run, and each of those two cases has a mutant that goes red
 - Round 2: the arm now asserts the hold engaged (at least 2 held reads before Enter) and that the pair is on screen
   after it is shown. A route that stops consulting the hold, and a missing hold, each fail with "the hold engaged: 0"
   named first, not only a later timeout. 3 of 3 green with 17 checks.
+- Round 3: visibility is checked again just before Enter (the gap CI hit), the first held read must happen before the
+  pair is shown, and a missing code request skips the code step with a named FAIL instead of a 30s timeout.
 - Not reproduced on main without the deliberate repaint (6 alone, 12 under load): the natural race is rare here.
 
 ## Weakest premise
@@ -39,6 +41,7 @@ visibility would not be held by the frozen status read. None found: the pair's h
 
 ## Noted, not in scope
 For every /api/remote answer, paintPlus shows the connected flow only when enrolled is true, and the enrol pair only
-when enrolled is not true, so the pair may never show on a real board in this build (a reading, not measured on a
-live board). Posted on #4694 for the Plus owner (comment 5905625279). The arm shows the pair by hand and freezes
+when enrolled is not true, so the pair never shows on a real board in this build: certain from the code (the enrol
+write runs only after the early return for enrolled !== true, and nothing else writes plus-enrol); not seen on a live
+board. Posted on #4694 for the Plus owner (comment 5905625279). The arm shows the pair by hand and freezes
 repaints, so it tests the Enter handler only and cannot see this.

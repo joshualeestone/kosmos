@@ -65,7 +65,8 @@ async function openPlus(page, remote) {
     if (m === 'GET' || m === 'HEAD') {
       /* page.__holdRemote: once set, a status read never answers, so no later paintPlus (the 5s tick included)
          can repaint over a state the check set by hand (#4694). The hold ends only when the page closes, so never
-         await paintPlus() after setting it: it would never finish. */
+         await paintPlus() after setting it: it would never finish. It relies on paintPlus's read having no timeout
+         of its own; if one is ever added, the held read ends, state 1 repaints, and the arm fails (loudly). */
       if (page.__holdRemote) { page.__held = (page.__held || 0) + 1; return; }
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(remote) });
     }
@@ -218,6 +219,10 @@ async function openPlus(page, remote) {
       await page.evaluate(() => paintPlus());
       page.__holdRemote = true;
       await page.evaluate(() => { paintPlus(); });
+      // That paint's read must be the first held one, BEFORE the pair is shown (its place is what closes the gap).
+      for (let i = 0; i < 40 && (page.__held || 0) < 1; i++) await new Promise((r) => setTimeout(r, 50));
+      const heldBeforeShow = page.__held || 0;
+      chk(heldBeforeShow >= 1, 'a status read was held before the pair was shown', String(heldBeforeShow));
       await page.route('**/api/remote/setup-**', (route, rq) => {
         const req = rq || route.request();
         let body = null; try { body = JSON.parse(req.postData() || 'null'); } catch { body = null; }
@@ -232,8 +237,7 @@ async function openPlus(page, remote) {
           for (const id of ['plus-flow', 'plus-enrol']) { const e = document.getElementById(id); if (e) e.hidden = false; }
         });
       }
-      // Shown, and still shown: a failure here names the cause instead of a later fill timing out.
-      chk(await visible(page, '#plus-email'), 'the enrol pair is on screen for the Enter arm', '');
+      chk(await visible(page, '#plus-email'), 'the enrol pair is on screen after it is shown', '');
       await page.fill('#plus-email', 'josh@example.com');
       /* A repaint that STARTS here, between the fill and Enter, where CI's status tick landed. Its read is held, so it
          must not move anything; without the hold, Enter below sends nothing. Not awaited: it never finishes. (A paint
@@ -243,12 +247,17 @@ async function openPlus(page, remote) {
          matching the pane's status read, the hold does nothing and this says so, instead of the arm going back to
          racing the 5s tick. */
       for (let i = 0; i < 40 && (page.__held || 0) < 2; i++) await new Promise((r) => setTimeout(r, 50));   // the reads reach the route asynchronously
-      chk((page.__held || 0) >= 2, 'the pane\'s repaints were held (the hold engaged)', String(page.__held || 0));
+      chk((page.__held || 0) >= 2, 'status reads were held before and after the pair was shown (the hold engaged)', String(page.__held || 0));
+      // Still on screen at the moment Enter is pressed: the gap CI hit is after the fill, so it is checked here.
+      chk(await visible(page, '#plus-email'), 'the enrol pair is still on screen when Enter is pressed', '');
       await focusOn(page, 'plus-email');
       await page.keyboard.press('Enter');
       await page.waitForSelector('#plus-code-row', { state: 'visible', timeout: 5000 }).catch(() => {});
       const ss = posts.find((p) => p.step === 'setup-start');
       chk(!!ss && ss.body && ss.body.email === 'josh@example.com', 'Enter in the enrol pair\'s email box sends the code request', JSON.stringify(posts));
+      // No code request, no code row: the code step cannot run, so it is reported as skipped, not left to time out.
+      if (!ss) chk(false, 'the enrol pair\'s code step (skipped: no code request was sent)', '');
+      else {
       await quietly(page, 'plus-code', '444444');
       await page.fill('#plus-name', 'enter-pair');
       await focusOn(page, 'plus-code');
@@ -256,6 +265,7 @@ async function openPlus(page, remote) {
       await page.waitForTimeout(500);
       const sc = posts.find((p) => p.step === 'setup-complete');
       chk(!!sc && sc.body && sc.body.code === '444444' && sc.body.name === 'enter-pair', 'Enter in the enrol pair\'s code box confirms with the code and name', JSON.stringify(posts));
+      }
       chk(errs.length === 0, 'no page errors (enrol pair)', errs.join(' | '));
       await page.close();
     }
