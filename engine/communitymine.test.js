@@ -152,8 +152,9 @@ test('the agent shows by its display name when it has one', () => {
 
 test('a held post that was released later lists by when it went public, not when it came in', async () => {
   const pause = () => new Promise((r) => setTimeout(r, 15));
-  // Not trusted: publishPost holds it for review, stamped receivedAt now.
-  const held = feedpublish.publishPost({ kind: 'community_post', agent: 'bea', at: new Date().toISOString(), topic: 'Held first', body: 'Waited for review.' }, { agentId: 'bea' });
+  // Held for review, stamped receivedAt now. trusted: false since #3485 (2026-09-30): an agentId now
+  // publishes straight away, so this stands for a row held before that update.
+  const held = feedpublish.publishPost({ kind: 'community_post', agent: 'bea', at: new Date().toISOString(), topic: 'Held first', body: 'Waited for review.' }, { trusted: false });
   assert.equal(held.ok, true, JSON.stringify(held));
   await pause();
   const later = agentPost('ava', { topic: 'Straight out', body: 'Trusted, published at once.' });
