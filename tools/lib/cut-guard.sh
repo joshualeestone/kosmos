@@ -527,7 +527,7 @@ kosmos_refuse_if_suite_live() {
 # ⚠️ THE COST, which the ceiling does NOT cap: behind a HUNG suite each waiter ahead that gives up is a fall for the ones
 # behind, so the waiter k deep gives up at about (k+1) bounds (45, 90, 135 minutes...), inside its (4+k)-bound ceiling.
 # Before #4574 every waiter gave up at 20 minutes. Accepted: a hung suite is rare, and the jam this card measured was
-# not one (#4609 tracks the live-count side).
+# not one (the live-count side is #4609: see _kosmos_drop_suite_waiters).
 # #4609: the overrides and wait controls a caller sets for run-tests.sh's own wait (not the test probes, which tests
 # pass explicitly). run-tests.sh unsets them once its wait has read them, and test-cut-guard.sh starts without them, so
 # no test inherits a caller's (one list, used by both).

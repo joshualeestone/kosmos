@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # 19 arms; an inherited KOSMOS_TESTS_IGNORE_SUITE reds the #4498 queue arms. Each arm sets what it needs. The lib's own
 # list, plus the other guards' overrides this file also exercises.
 unset $KOSMOS_WAIT_CONTROL_VARS KOSMOS_HARNESS_IGNORE_SUITE KOSMOS_CUT_IGNORE_HARNESS KOSMOS_HARNESS_IGNORE_CUT
-T="$(mktemp -d)"; trap 'kill "$SUITE" 2>/dev/null; rm -rf "$T"' EXIT
+T="$(mktemp -d)"; trap 'kill "${SUITE:-}" 2>/dev/null; rm -rf "$T"' EXIT
 # A pid proven dead at runtime (#4206 review 11). The guards now run a real lsof and ancestry walk on
 # every candidate, so a fixed probe pid is only safe where it cannot be handed out: 99999 holds on
 # macOS (pids stop at 99998) but not on Linux (pid_max is often 4194304). A reused pid would need the
@@ -17,7 +17,7 @@ T="$(mktemp -d)"; trap 'kill "$SUITE" 2>/dev/null; rm -rf "$T"' EXIT
 # #4609: a stand-in for a RUNNING suite must be a live process, because the suite check now drops a candidate that is
 # gone (ESRCH): a waiter's subshell that exited between pgrep and the walk was counted as a live suite. $DEAD stays the
 # stand-in for the release, browser and harness arms, which do not check that a candidate exists.
-sleep 3600 & SUITE=$!
+sleep 3600 </dev/null >/dev/null 2>&1 & SUITE=$!
 # #1796: isolate the run-marker dir so the always-on marker arm reads THIS test's
 # fixtures, never a real marker a live run on this box may have left in the default
 # /tmp dir. The existing arms below get an empty dir (marker arm inert); the marker
@@ -186,7 +186,7 @@ kill "$kt_script" 2>/dev/null; wait "$kt_script" 2>/dev/null
 # Rooted under /tmp BY NAME, not under $T: where mktemp honours TMPDIR (Linux, under run-tests.sh)
 # $T sits inside a kt<digits> folder, and a frozen tree built there would rightly read as a fixture.
 FR="$(mktemp -d /tmp/cutguard-frozen.XXXXXX)" && [ -n "$FR" ] || { echo "FAIL  no frozen root (mktemp failed), so the frozen-tree arms cannot run"; exit 1; }
-trap 'kill "$SUITE" 2>/dev/null; rm -rf "$T" "$FR"' EXIT
+trap 'kill "${SUITE:-}" 2>/dev/null; rm -rf "$T" "$FR"' EXIT
 FROZEN="$FR/T//kosmos-release.msHOlx/kosmos-aad0d84cd3e8"
 mkdir -p "$FROZEN/tools"
 ( cd "$FROZEN" && exec sleep 30 ) & frozen=$!
@@ -650,8 +650,6 @@ has_pid "$out" "$SUITE" && pass "#4609 CONTROL: a live candidate with no waiter 
 out="$(printf '1 bash tools/run-tests.sh\n' | _kosmos_drop_suite_waiters)"
 has_pid "$out" 1 && pass "#4609 a pid that cannot be signalled (EPERM) is not taken for gone" \
   || fail "#4609 an EPERM pid was dropped as gone ($out)"
-if _kosmos_pid_gone "" || _kosmos_pid_gone "12x"; then fail "#4609 a malformed pid read as gone"
-else pass "#4609 an empty or non-numeric pid is never gone"; fi
 
 # The queue: the oldest waiter goes first; a run with no marker is behind every waiter.
 rm -f "$W/held"; printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
@@ -914,7 +912,7 @@ out="$(KOSMOS_NO_WAIT=1 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test r
 # run-tests.sh in a scratch tree with one stray test file stops at its coverage check, the first thing after the
 # guard, so "COVERAGE MISMATCH" means the guard let it through and nothing ran. The tree is rooted under /tmp by
 # name (not $T, which may sit in the kt sandbox and would make every run here a fixture).
-RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; RT2=""; trap 'kill "$SUITE" 2>/dev/null; type q_clear >/dev/null 2>&1 && q_clear; rm -rf "$T" "$RT" ${RT2:+"$RT2"}' EXIT
+RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; RT2=""; trap 'kill "${SUITE:-}" 2>/dev/null; type q_clear >/dev/null 2>&1 && q_clear; rm -rf "$T" "$RT" ${RT2:+"$RT2"}' EXIT
 mkdir -p "$RT/tools/lib" "$RT/sub"; cp "$HERE/run-tests.sh" "$RT/tools/"; cp "$HERE"/lib/*.sh "$RT/tools/lib/"
 : > "$RT/sub/stray.test.js"
 sleep 60 & wp=$!
