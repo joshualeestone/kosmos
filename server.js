@@ -861,6 +861,7 @@ function safeAvatarFor(name) {
   try { return store.avatarPath(name); } catch { return null; }
 }
 const roles = require('./engine/roles');
+const catalogue = require('./engine/catalogue'); // #4632: the downloaded roles and teams
 const commitments = require('./engine/commitments');
 const you = require('./engine/you');
 const policyEngine = require('./engine/policy');
@@ -900,6 +901,7 @@ const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISH
 const communitymine = require('./engine/communitymine'); // #4313: the owner's list of their agents' community posts, with Delete
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
 const communityswitch = require('./engine/communityswitch'); // #4288: the Kosmos Community switch, default ON; the gate #4287/#4289 read
+const communityindustry = require('./engine/communityindustry'); // #4375: the owner's industry on their agents' public profiles
 const createdbeacon = require('./engine/createdbeacon'); // #3038: install + agent-created beacon (Josh ruled it back in; #2623's removal was an agent's, not his)
 const guidestate = require('./engine/guidestate');
 /* #4350: keep ensureGuide's outcome (it used to be dropped in the sweep's .catch) and, when
@@ -1297,7 +1299,13 @@ function resolveAgentSender(req, body, roster, opts) {
        `new Function` extraction test, and any non-enforcing caller) leaves
        `opts` undefined, so the fallback works exactly as before. */
     if (opts && opts.denyPaneFallback) {
-      return { ok: false, because: opts.denyBecause || 'this board only accepts a report from the account that started it, or an agent with a token' };
+      const because = opts.denyBecause || 'this board only accepts a report from the account that started it, or an agent with a token';
+      /* #4606 (the #4602 finding, on the routes agents call most): a caller that sent NO credential at all was told only
+         whose board this is, and read it as "another machine's board". Say the token is missing first. A board token
+         that was sent and did not match keeps today's words exactly. No agent token came in a header or the body (that
+         is this branch), so "with this request" is exact here. The words change, never the refusal. */
+      const boardTokenSent = Boolean(boardauth.presentedToken(req, ROUTING_BASE));
+      return { ok: false, because: boardTokenSent ? because : 'no board token or agent token came with this request, and ' + because };
     }
     return messages.resolveSender(body && body.from_pane, roster);
   }
@@ -1460,8 +1468,7 @@ function whoamiFor(card, known, live) {
        this line to distrust every live read. */
     if (seen && seen.runner) return seen.runner;
     /* 🛑 POSITIVE EVIDENCE ONLY FROM THE MARKER, because `'claude'` from a card is
-       not a claim, it is a DEFAULT. `status.js` normalises the pane's
-       `@kosmos_runner` as `pane.runner === 'codex' ? 'codex' : 'claude'`, so an
+       not a claim, it is a DEFAULT: `status.js` reads an absent `@kosmos_runner` as claude, so an
        agent whose marker was never recorded is indistinguishable from one
        recorded as claude, and `bin/agent-supervisor.sh` says that failure is real
        in as many words: "could not record $SESSION's runner -- the board will
@@ -1554,6 +1561,7 @@ function whoamiFor(card, known, live) {
              with `configDir` falsy), and cheaper to close than to keep true. */
           name: seen.configDir ? openaiAccounts.readName(seen.configDir) : null,
           isDefault: isDefaultDir(seen.configDir),
+          keyTail: null,   // #4603
         },
         from: 'process',
       };
@@ -1578,7 +1586,7 @@ function whoamiFor(card, known, live) {
       const claudeDir = !seen.runner || seen.runner === 'claude';
       return {
         value: {
-          email: null, label: null, organization: null, dir: seen.configDir,
+          email: null, label: null, organization: null, dir: seen.configDir, keyTail: null,
           /* 🛑 #2811: THE LIVE READER MUST ANSWER THIS THE SAME WAY THE RECORD
              READER DOES. `accountForAgent` computes `readName(dir)`; without it
              here, the SAME named codex account read "Work" when the record
@@ -1603,7 +1611,7 @@ function whoamiFor(card, known, live) {
         /* 🛑 #2811: `rec.name` IS CARRIED. `accountForAgent` computes it on both its
            branches and this projection used to DROP it one function later, which is
            why a NAMED codex account was told "an account we cannot identify". */
-        ? { email: rec.email, label: rec.label, organization: rec.organization || null, dir: rec.dir, name: rec.name || null, isDefault: rec.isDefault }
+        ? { email: rec.email, label: rec.label, organization: rec.organization || null, dir: rec.dir, name: rec.name || null, isDefault: rec.isDefault, keyTail: rec.keyTail || null }
         : null,
       from: 'record',
     };
@@ -1719,18 +1727,18 @@ function whoamiFor(card, known, live) {
          the fallback and not the default is the wrong way round. */
       return { value: { id: rec.model, name: modelDisplayName(rec.model), confidence: rec.confidence }, from: 'record' };
     }
+    /* #4603: the card's own model for a non-Claude agent, only when the card's runner is the resolved runner, and
+       above the launch argument below, as the transcript is for Claude (server.whoami-grok-4603.test.js pins the provider-switch case). */
+    if (foreignRunner && card && card.runner === resolvedRunner && typeof card.model === 'string' && card.model) {
+      return { value: { id: card.model, name: modelDisplayName(card.model), confidence: CONFIDENCE.STRUCTURED }, from: 'session' };
+    }
     if (seen && seen.model) {
       /* ⚠️ NOT `structured`. That tier means "read from a file written for this
          purpose"; this is a process command line, and mislabelling provenance
          in a change about provenance would be the joke writing itself. */
       return { value: { id: seen.model, name: modelDisplayName(seen.model), confidence: CONFIDENCE.SCRAPED }, from: 'process' };
     }
-    /* 📌 `record` when NEITHER answered, and it is a compromise worth naming:
-       `source` means "who answered" everywhere else, and here nobody did. The
-       alternative is a third value, which every consumer would have to learn in
-       order to render the same "we cannot tell" sentence. Kept as `record`
-       because the record is the fallback and therefore the last reader
-       consulted; revisit if a caller ever needs to distinguish them. */
+    /* 📌 `record` when NEITHER answered: `source` means "who answered" everywhere else, and here nobody did. */
     return { value: null, from: 'record' };
   })();
 
@@ -1761,21 +1769,12 @@ function whoamiFor(card, known, live) {
    screen is Codex, so the two agree here and the map exists so a third runner
    cannot be spelled two ways in two places. */
 function runnerDisplayName(runner) {
-  /* 📌 THE FALLBACK RENDERS A THIRD RUNNER LOWERCASE ("this is a gemini
-     agent"), and that is left as-is deliberately rather than "fixed" with a
-     capitalise. `agentUnder` returns only `claude` or `codex`, and this is
-     reached only for a non-claude one.
-     ⚠️ THAT BOUND IS WEAKER THAN AN EARLIER VERSION OF THIS COMMENT CLAIMED, and
-     the change that weakened it is on this branch: `resolvedRunner` also takes
-     the plist's ninth argument VERBATIM, so an unexpected value can reach here
-     from a HAND-EDITED job. Not from the tmux marker, which `status.js` clamps
-     to codex-or-claude before a card ever carries it. Still not a product path, and a raw name is the honest
-     rendering of one. Whoever adds a third
+  /* 📌 AN UNMAPPED RUNNER RENDERS AS ITS RAW NAME, deliberately rather than "fixed" with a capitalise. Whoever adds a
      runner adds its real product name here, which is the point of the map; a
      speculative transform would quietly produce a WRONG name instead of an
      obviously unfinished one, and this file has already deleted one branch for
      describing behaviour the code could not produce. */
-  return runner === 'codex' ? 'Codex' : runner === 'antigravity' ? 'Antigravity' : runner === 'muse' ? 'Meta Muse' : String(runner); // #3568, #3939
+  return runner === 'codex' ? 'Codex' : runner === 'grok' ? 'Grok' : runner === 'gemini' ? 'Gemini' : runner === 'antigravity' ? 'Antigravity' : runner === 'muse' ? 'Meta Muse' : String(runner); // #3568, #3939, #4603
 }
 
 function sentenceForWhoami(account, model, runner) {
@@ -1794,8 +1793,9 @@ function sentenceForWhoami(account, model, runner) {
   const acct = account && account.name ? account.name
     : account && account.email ? account.email
       : account && account.label ? account.label
-        : account && account.dir ? 'an account we cannot identify (' + account.dir + ')'
-          : null;
+        : account && account.keyTail ? 'the API key ending in ' + account.keyTail   // #4603
+          : account && account.dir ? 'an account we cannot identify (' + account.dir + ')'
+            : null;
   const parts = [];
   /* 🛑 ONE FORM, NOT TWO, AND THE SECOND ONE WAS DEAD. This used to branch on
      the source so the reason would match the reader that failed. A reviewer
@@ -1979,6 +1979,7 @@ function accountForAgent(name, known) {
   if (found) {
     return {
       dir: found.dir, email: found.email, label: found.label,
+      keyTail: found.keyTail || null,   // #4603: an xAI/Google key account names itself by its last four
       /* #2225: the human-chosen account name (`.kosmos-name` sidecar), the same
          value the pickers/Settings row have shown since #2095. Read here off the
          dir so the board's `a.account` carries it and the agent-detail runs-on
@@ -2015,7 +2016,7 @@ function accountForAgent(name, known) {
      from whichever list matched, which is that list's own notion and correct for
      both providers. */
   return dir
-    ? { dir, email: null, label: null, name: openaiAccounts.readName(dir), organization: null, isDefault: foreign ? null : accounts.isDefaultDir(dir) }
+    ? { dir, email: null, label: null, name: openaiAccounts.readName(dir), organization: null, isDefault: foreign ? null : accounts.isDefaultDir(dir), keyTail: null }
     : null;
 }
 
@@ -3807,12 +3808,18 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    still passes here, exactly as it already does on the exempt report and reply routes.
    A token is only as private as its launch: #4497 moved it off tmux's command line (see
    supervisor.agent-token-argv-4497.test.js). */
-const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react']);
+/* #4581: the two project reads (list here, show in the patterns below) let an agent holding only its own token,
+   the sandboxed setup guide included, read every project's folder, members, roles, states and brief. Decided:
+   membership is not a boundary (GET /api/projects), and none of it is a credential. */
+const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
+  'GET /api/projects/overview']);   // #4581: `kosmos project list`, read with the agent's own token
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
    `[^/]+` for the project and `\d+` for the task, so no other task verb (close, reopen, parts) matches. Judged before
    the handler decodes the project, so an encoded `a%2Fb` passes here and then names no project (404). Each
    handler identifies the caller from the token and refuses an agent that is not on the project. */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built)$/];
+/* #4581: the second pattern is `kosmos project show <id>`, a READ: it writes nothing and answers the same for every
+   caller, so, unlike the task verbs, it has no caller to identify (as GET /api/projects/overview in the set above). */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built)$/, /^GET \/api\/project\/[^/]+\/overview$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a roster row (`paneless`, on the result or its card): its
@@ -6210,7 +6217,14 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pathname === '/api/roles' && (req.method === 'GET' || req.method === 'HEAD')) {
-    sendJson(res, 200, {
+    /* #4632: the ready-made roles beyond the built-in ones are downloaded, not shipped. The role
+       picker asks with ?catalogue=1 when it opens, and only then does the board fetch the
+       catalogue (engine/catalogue.js: at most once in ten minutes, kept only when its signature
+       verifies). Every other caller (the page's role titles at load, the model menu) answers from
+       what is already held, and never waits on the network. */
+    let wantCatalogue = false;
+    try { wantCatalogue = req.method === 'GET' && new URL(req.url, ROUTING_BASE).searchParams.get('catalogue') === '1'; } catch { wantCatalogue = false; }
+    const answer = () => sendJson(res, 200, {
       // The models an agent can be created on, from the engine's own list,
       // so the menu and the flag the job runs with cannot drift.
       /* ⚠️ `provider` TRAVELS WITH EACH ROW (#1026). The create screen reads
@@ -6250,7 +6264,17 @@ const server = http.createServer(async (req, res) => {
         // is exactly too late for the two roles that have one.
         caution: r.caution || null,
       })),
+      // What the board holds of the downloaded catalogue: whether any, which serial, and why the
+      // last download was not used. The picker reads `loaded` (to ask again on its next open).
+      catalogue: catalogue.status(),
     });
+    // refresh() never rejects; the second handler is for a bug in it, which must not hang the picker.
+    // answer() itself runs inside a promise handler there, so a throw in it is caught and answered
+    // rather than left as an unhandled rejection.
+    const answerSafely = () => {
+      try { answer(); } catch { if (!res.headersSent) sendJson(res, 500, { error: 'we could not list the roles' }); }
+    };
+    if (wantCatalogue) catalogue.refresh().then(answerSafely, answerSafely); else answer();
     return;
   }
 
@@ -6288,6 +6312,15 @@ const server = http.createServer(async (req, res) => {
           // No error code: the catch below answers in our own words whatever
           // this is, and a code nothing reads is a hint that something does.
           throw new Error('we could not read that request');
+        }
+
+        /* #4632: a ready-made role comes from the downloaded catalogue. When the key asked for is not
+           one this board holds (nobody has opened the picker yet, so nothing was downloaded), ask the
+           catalogue first, as the picker would. (This is the create form's route; agents and the CLIs
+           make agents through /api/team, which does the same.) At most once in ten minutes, never
+           throws; an unknown key is still refused below. */
+        if (create.roleKeyOf(body) && !roles.byKey(create.roleKeyOf(body))) {
+          await catalogue.refresh();
         }
 
         /**
@@ -6724,6 +6757,14 @@ const server = http.createServer(async (req, res) => {
               }
             }
           }
+        }
+
+        /* #4632: agents and both CLIs make agents here (`kosmos agent create`). A ready-made role
+           comes from the downloaded catalogue, so when a member names a role this board does not
+           hold, ask the catalogue first, as the picker would. After the caller is known; at most
+           once in ten minutes; never throws; an unknown key is still refused by createTeam. */
+        if (Array.isArray(members) && members.some((m) => m && typeof m === 'object' && create.roleKeyOf(m) && !roles.byKey(create.roleKeyOf(m)))) {
+          await catalogue.refresh();
         }
 
         /* #1279 GLOBAL per-creator active-agent cap: enforced INSIDE the
@@ -7668,6 +7709,38 @@ const server = http.createServer(async (req, res) => {
         const saved = communityswitch.setOn(body.on);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         sendJson(res, 200, communityBody());
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+  /* #4375: the owner's industry, shared on their agents' public Community profiles ("Works for ...").
+     Optional, from a FIXED list (engine/communityindustry.js), never free text. GET gives the list with
+     the setting so the page draws exactly the keys the board will accept; `ok:false` is an unreadable
+     setting, drawn as unknown, never as "not set". PUT { industry: <key>|null }. The send layer PATCHes
+     each registered agent when it differs from what that agent was last sent. */
+  const industryBody = () => {
+    const r = communityindustry.read();
+    let unreachable = 0;
+    try { unreachable = communitysend.industryUnreachable(); } catch { unreachable = null; }   // cannot tell: promise nothing
+    return { industry: r.industry, ok: r.ok, industries: communityindustry.INDUSTRIES, unreachable };
+  };
+  if (pathname === '/api/community-industry' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try { sendJson(res, 200, industryBody()); }
+    catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/community-industry' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!body || typeof body !== 'object' || !Object.prototype.hasOwnProperty.call(body, 'industry')) {
+          sendJson(res, 400, { error: 'that has to name an industry, or none' }); return;
+        }
+        const saved = communityindustry.set(body.industry);
+        if (!saved.ok) { sendJson(res, saved.store ? 500 : 400, { error: saved.because }); return; }
+        sendJson(res, 200, industryBody());
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
@@ -12554,7 +12627,15 @@ const server = http.createServer(async (req, res) => {
         const sender = resolveAgentSender(req, body, roster);
         if (!sender.ok) { sendJson(res, 200, { ok: false, because: sender.because }); return; }
         const who = sender.card.sessionName;
-        const known = (() => { try { return accounts.list(); } catch { return []; } })();
+        /* #4603: the xAI and Google account rows too, so a Grok or Gemini agent is not looked up in the Claude list
+           alone. (/api/status still passes the Claude list only.) */
+        const known = (() => {
+          const rows = [];
+          for (const lister of [() => accounts.list(), () => grokAccounts.list(), () => geminiAccounts.list()]) {
+            try { rows.push(...lister()); } catch { /* one unreadable store must not hide the others */ }
+          }
+          return rows;
+        })();
         /* The tmux session, taken from the roster row rather than rebuilt from
            the board name: `sessionName` is `angel` and the session is
            `angel-discord`, and a second place that knows that convention is a
@@ -14961,6 +15042,56 @@ const server = http.createServer(async (req, res) => {
   }
 
   /**
+   * #4581: what `kosmos project list` and `kosmos project show <id>` print (Josh's Five Families project:
+   * agents could not see what projects exist, who is on them, which model family each runs, or whether a
+   * member's summary is current). Built by engine/projectview.js from the same projects.list the page reads,
+   * so the CLI and the board describe one record. Read-only. Reachable with the agent's own token (#4491:
+   * AGENT_TOKEN_ROUTES / _PATTERNS) as well as the board token; membership is not a boundary (see above),
+   * so any agent may read any project.
+   * 🛑 Same rule as /api/projects: an unreadable projects file is an error, never an empty list.
+   */
+  if (pathname === '/api/projects/overview' && req.method === 'GET') {   // GET only: the agent-token gate admits GET, so a HEAD would disagree
+    const roster = safeRoster();
+    let listed;
+    try { listed = projects.list(roster); } catch (err) {
+      sendJson(res, 500, { error: String((err && err.message) || 'we cannot read your projects right now'), projectsUnreadable: true });
+      return;
+    }
+    /* A throw here would leave the request unanswered until the client gives up (measured: 300 s, when the
+       module failed to load), so it answers with a sentence instead. */
+    let rows;
+    try { rows = require('./engine/projectview').listOf(listed); } catch (err) {
+      sendJson(res, 500, { error: 'we could not put the project list together: ' + String((err && err.message) || err) });
+      return;
+    }
+    sendJson(res, 200, { projects: rows, agentsUnreadable: roster === null });
+    return;
+  }
+  {
+    const m = /^\/api\/project\/([^/]+)\/overview$/.exec(pathname);
+    if (m && req.method === 'GET') {
+      let id = '';
+      try { id = decodeURIComponent(m[1]); } catch { id = ''; }
+      const roster = safeRoster();
+      let listed;
+      try { listed = projects.list(roster); } catch (err) {
+        sendJson(res, 500, { error: String((err && err.message) || 'we cannot read your projects right now'), projectsUnreadable: true });
+        return;
+      }
+      /* Looked up EXACTLY (#2702/#3035): a garbled id names no project, never a different one. */
+      const found = listed.find((x) => x && x.id === id);
+      if (!found) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+      let view;
+      try { view = require('./engine/projectview').overviewOf(found, roster); } catch (err) {
+        sendJson(res, 500, { error: 'we could not put that project together: ' + String((err && err.message) || err) });
+        return;
+      }
+      sendJson(res, 200, { project: view, agentsUnreadable: roster === null });
+      return;
+    }
+  }
+
+  /**
    * Where a project of this name WOULD go, before anything is made.
    *
    * ⚠️ ONE derivation, and this route is why. The add screen has to show the
@@ -16090,6 +16221,56 @@ const server = http.createServer(async (req, res) => {
       .catch((err) => sendJson(res, 400, { error: (err && err.message) || 'we could not read that request' }));
     return;
   }
+  /* kosmos#4649: the "add your other computer" code for a project on this computer, for
+     ANOTHER computer of the same account to join its shared room. Screen-only like invite:
+     it marks the project shared with the person's other computers (its owner seat then
+     opens even with no guest). */
+  if (pathname === '/api/federation/own-code' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can share a project with their other computers.' }); return; }
+        // The coordinator seats an own room only for a Kosmos Plus account, so a code made
+        // without it could never connect, and its owner seat would retry for nothing.
+        let plus = false;
+        try { plus = remote.kosmosPlus() === true; } catch { plus = false; }
+        if (!plus) { sendJson(res, 403, { reason: 'not-plus', error: 'Adding your other computers needs Kosmos Plus on this computer.' }); return; }
+        let proj = null;
+        try { proj = typeof body.project === 'string' ? projects.get(body.project, safeRoster()) : null; } catch { proj = null; }
+        if (!proj) { sendJson(res, 404, { error: 'There is no such project on this computer.' }); return; }
+        // The engine reads and writes this computer's link and seal records; a failure there is
+        // ours, not the request's.
+        let refusal, code, wasShared;
+        try {
+          // A link left by an earlier project with this id (#3851's stamp) is not this project's:
+          // forget it first, so the code names a room this project will actually sit in.
+          if (federation.linkFor(proj.id) && !fedseats.linkFor(proj.id)) federation.forgetLink(proj.id);
+          refusal = federation.ownCodeRefusal(proj.id);
+          if (refusal === 'guest') { sendJson(res, 409, { reason: 'guest', error: 'This project was shared with you from someone else, so it cannot be added to your other computers from here.' }); return; }
+          if (refusal === 'sealed') { sendJson(res, 409, { reason: 'sealed', error: 'This project is sealed for the people you invited, so your other computers cannot join it yet.' }); return; }
+          const before = federation.linkFor(proj.id);
+          wasShared = !!(before && (before.selfShared === true || before.role === 'self'));   // a self link was told at join
+          code = federation.ownCode(proj.id, proj.name);
+        } catch {
+          sendJson(res, 500, { error: 'Kosmos could not read or save this project\'s sharing on this computer. Try again in a moment.' });
+          return;
+        }
+        if (!code) { sendJson(res, 409, { error: 'Kosmos could not make a code for this project.' }); return; }
+        // The first time: the owner's room now opens to the relay, so this side is told too.
+        if (!wasShared) {
+          try { messages.roomNote(proj.id, 'This project is now shared with your other computers. Messages in this room are not sealed end to end.'); } catch { /* the note is furniture */ }
+        }
+        // A press is an explicit ask: an own room refused earlier this session is tried again.
+        fedseats.retryOwn(proj.id);
+        fedseats.ensure(proj.id).catch(() => {});
+        sendJson(res, 200, { code });
+      })
+      .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
   if (pathname === '/api/federation/join' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {
@@ -16099,6 +16280,16 @@ const server = http.createServer(async (req, res) => {
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can invite or join an external project.' }); return; }
         const snap = federation.joinSnapshot(body.edge_id);
         if (!snap) { sendJson(res, 409, { error: 'Verify the code again before joining. Each code works once, so if it says it was already used, ask for a new one.' }); return; }
+        // A second Join of the same own code (the snapshot is forgotten only after the first
+        // finishes) would make a second project in the same room.
+        if (snap.own) {
+          let here;
+          try { here = federation.ownRefHere(snap.ref); } catch {
+            sendJson(res, 500, { error: 'Kosmos could not read which projects are shared on this computer. Try again in a moment.' });
+            return;
+          }
+          if (here) { sendJson(res, 409, { reason: 'already_joined', error: 'This project is already on this computer.' }); return; }
+        }
         const roster = safeRoster();
         const agents = Array.isArray(body.agents) ? body.agents.filter((a) => typeof a === 'string') : [];
         // The owner's words stay theirs: the name is only a starting point for a
@@ -16109,7 +16300,10 @@ const server = http.createServer(async (req, res) => {
         // Without its link the project is an ordinary local one that says nothing
         // of where it came from; take it back out rather than leave that behind.
         try {
-          federation.recordLink(made.id, { role: 'member', edge_id: snap.edge_id, owner_handle: snap.owner_handle,
+          /* kosmos#4649: a project from ANOTHER computer of this account is a `self` link:
+             its seat is the account's own room, nothing was redeemed, nothing is sealed. */
+          if (snap.own) federation.recordLink(made.id, { role: 'self', ref: snap.ref, project_name: snap.project_name, project_created: made.createdAt });
+          else federation.recordLink(made.id, { role: 'member', edge_id: snap.edge_id, owner_handle: snap.owner_handle,
             project_name: snap.project_name, project_desc: snap.project_desc, project_created: made.createdAt });
         } catch (err) {
           try { projects.remove(made.id); } catch { /* reported below either way */ }
@@ -16127,7 +16321,11 @@ const server = http.createServer(async (req, res) => {
             throw err;
           }
         }
-        if (!snap.seal_s) {
+        if (snap.own) {
+          try {
+            messages.roomNote(made.id, 'This project is shared with your other computers. Messages in this room are not sealed end to end.');
+          } catch { /* the note is furniture; the room exists regardless */ }
+        } else if (!snap.seal_s) {
           try {
             messages.roomNote(made.id, 'This shared room is not sealed end to end: the owner\'s computer runs an older Kosmos, so its messages travel readable to the relay. To seal it, ask the owner to update Kosmos and send a new code.');
           } catch { /* the note is furniture; the room exists regardless */ }
