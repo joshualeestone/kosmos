@@ -103,7 +103,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 -appl
           <div class="in">windowsbox<span style="margin-left:auto;color:var(--sky-2)">.kosmosplus.com</span></div>
           <p style="margin:8px 0 0">Each added computer is $19.99 a month. Charged at checkout; Kosmos never sees your card.</p>
           <div class="go">Continue to payment</div><div class="lnk">Not now</div></div></div>
-        <p class="cap">Then Stripe. No promo code on an added computer (your "no discount").</p></div>
+        <p class="cap">Then Stripe. No promo code on an added computer (your "no discount"). The price line is filled in from the server's address list (Kitty), not page copy.</p></div>
       <div class="sc"><p class="where"><b>3</b> Back on the website</p>
         <div class="web"><div class="card">
           <h3>Your new address is ready</h3>
@@ -115,7 +115,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 -appl
           <h3>Pick the address this computer will use.</h3>
           <span class="btn blue" style="margin-top:6px">windowsbox.kosmosplus.com</span>
           <p style="margin-top:6px">Each bought address with no computer on it is a button; pressing it connects this computer as that address.</p>
-          <p style="margin-top:10px">None bought? "Each computer on Kosmos+ has its own address, and this account has none waiting for this computer." <b>Buy an address</b> · <b>Check again</b></p>
+          <p style="margin-top:6px">An account made in the app, whose free first address is still unused, gets the usual name step here instead.</p>
+          <p style="margin-top:6px">None bought? "Each computer on Kosmos+ has its own address, and this account has none waiting for this computer." <b>Buy an address</b> · <b>Check again</b></p>
         </div></div></div>
     </div>
     <p class="rule"><b>Built by Kitty (the server, #4754) and Pete (the website and the app, #4756, PR #4767), behind a switch.</b> Everyone already on keeps working (your ruling "A"). The words in A are theirs.</p>
@@ -150,7 +151,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 -appl
         </div></div>
         <p class="cap">No separate "Connect them?" step on the website: this one yes connects them.</p></div>
     </div>
-    <p class="rule"><b>Our server never lets anyone in by itself.</b> The laptop's yes is pressed on the laptop; the server only carries the request. Someone with your email and card still cannot add a computer that a computer of yours has not allowed.</p>
+    <p class="rule"><b>Needs:</b> a join request the server carries between two of the account's computers (none today), the computers' trust in each other (step 7, new tunnel and identity work, Kitty's lane), and #4637's sheet on main. The app side is buildable as drawn (Pete). <b>Our server never lets anyone in by itself.</b> The laptop's yes is pressed on the laptop; the server only carries the request. Someone with your email and card still cannot add a computer that a computer of yours has not allowed.</p>
   </section>
 
   <!-- C -->
@@ -179,7 +180,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 -appl
           <p style="margin-top:6px">Remove, on any computer, removes it from all of them.</p>
         </div></div></div>
     </div>
-    <p class="rule"><b>Your computers vouch for each other directly</b>: the one you allowed it on tells the others, and each checks that the message comes from a computer it trusts (step 7). The server passes the message along and cannot write it.</p>
+    <p class="rule"><b>Needs B first</b> (the same trust between computers); the biggest of the three, and mostly server and tunnel work. The app side (the sheet, the Devices list, Remove everywhere) is straightforward after that (Pete). <b>Your computers vouch for each other directly</b>: the one you allowed it on tells the others, and each checks that the message comes from a computer it trusts (step 7). The server passes the message along and cannot write it.</p>
   </section>
 
   <div class="foot"><span>Part A: the words of the branches being built (relay addcomputer-4756, app #4767). Parts B and C: proposed. Names and codes are examples.</span><span>Mona Lisa, for kosmos#4754 · proposed, Josh can override</span></div>
