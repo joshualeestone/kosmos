@@ -57,7 +57,12 @@ function world(remote) {
   if (start < 0) start = SCRIPT.indexOf('async function paintDevices(');
   const end = SCRIPT.indexOf('/* The words of the code box');
   assert.ok(start > 0 && end > start, 'the plus panel script moved; re-anchor this test');
-  vm.runInNewContext(SCRIPT.slice(start, end), ctx);
+  /* #4637: paintDevices draws each device's icon with the kp helpers, which sit above this slice. Lifted by name when
+     the page has them (a pre-#4637 page, pointed at through PLUS_PAGE=, has none). */
+  const kp = SCRIPT.includes('function kpIcon(')
+    ? page.liftConst(SCRIPT, 'KP_KINDS') + '\n' + page.liftAll(SCRIPT, ['askKind', 'kpWords', 'kpIcon']) + '\n'
+    : '';
+  vm.runInNewContext(kp + SCRIPT.slice(start, end), ctx);
   return { ctx, el };
 }
 
