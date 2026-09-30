@@ -119,6 +119,8 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
           img: body('<img src=x onerror=alert(1)>', N),
           // url preserved
           url: body('see https://x.test/p now', N),
+          // #4627: a markdown link keeps its address in the room, visible and linked as the address.
+          mdLink: body('read [the brief](https://x.test/brief) first', N),
           // #2701: a GFM table renders as a real table, not literal piped text.
           table: body('| A | B |\n| :-- | --: |\n| a1 | b1 |', N),
           // #2701: heading LEVELS emit mdh1..mdh6, so `#` and `######` size apart.
@@ -152,6 +154,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       if (!/<script/i.test(r.script) && /&lt;script&gt;/.test(r.script) && /<strong>b<\/strong>/.test(r.script)) ok(t + ' script inert, bold still applies'); else bad(t + ' script inert', r.script);
       if (!/<img/i.test(r.img) && /&lt;img/.test(r.img)) ok(t + ' img onerror inert'); else bad(t + ' img onerror inert', r.img);
       if (/<a class="xlink" href="https:\/\/x\.test\/p"/.test(r.url)) ok(t + ' bare url autolink kept'); else bad(t + ' url autolink', r.url);
+      if (/the brief \(<a class="xlink" href="https:\/\/x\.test\/brief"[^>]*>https:\/\/x\.test\/brief<\/a>\)/.test(r.mdLink) && !/>the brief<\/a>/.test(r.mdLink)) ok(t + ' markdown link shows its address (#4627)'); else bad(t + ' markdown link shows its address (#4627)', r.mdLink);
 
       /* CONTROL: prove the room renderer can actually MANGLE if it were wrong,
          so the plain==esc arm is a real equality, not both sides broken alike. */
