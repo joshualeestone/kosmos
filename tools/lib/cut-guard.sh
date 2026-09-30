@@ -587,12 +587,27 @@ _kosmos_descends_from_suite_waiter() {
   done
   return 1
 }
+# _kosmos_pid_gone <pid>: 0 only when the kernel says the pid does not exist (ESRCH). A pid we may not signal (EPERM),
+# or a fork that failed so nothing was read, is NOT gone: it stays counted, the safe side.
+_kosmos_pid_gone() {
+  local err
+  case "$1" in ''|*[!0-9]*) return 1 ;; esac
+  kill -0 "$1" 2>/dev/null && return 1
+  err="$(LC_ALL=C kill -0 "$1" 2>&1)"
+  case "$err" in *'No such process'*) return 0 ;; esac
+  return 1
+}
 _kosmos_drop_suite_waiters() {
   local line pid
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     pid="${line%% *}"
     _kosmos_descends_from_suite_waiter "$pid" && continue
+    # #4609: a candidate that is gone runs no tests. A waiter's $( ) subshell lives for milliseconds, so it can be in
+    # pgrep's snapshot and exit before the walk above reads its parent; the walk then ends on an empty ppid and, without
+    # this, the dead subshell counted as a live suite. With a dozen waiters polling, one was in that window at almost
+    # every poll, so the front waiter never started (measured 2026-09-29: 14 waiters, 0 suites, a new pid each note).
+    _kosmos_pid_gone "$pid" && continue
     printf '%s\n' "$line"
   done
 }
