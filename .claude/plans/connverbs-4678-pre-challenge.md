@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: connverbs-4678
-diff_hash: 7fe57242518b46db11a241378f769b4fb789b20210aed866ab7d0fb34c99ef8c
+diff_hash: be89ed5501c2a8c08d776be755b843b446484288944998d871bd8294548a462d
 validation: targeted (tools/test-connector-verbs.sh 27/27, alone and under nice -n 20 on a loaded box; bash -n). It is run by npm run test:shell. No gated full-suite run: a single test script, and Liu Kang set light runs only (m3840). GitHub CI authoritative.
 subdir_audit: passed
 timestamp: 2026-09-30T02:49:24Z
@@ -24,11 +24,35 @@ PM conditions (Liu Kang, m3843): ONE rerun at most, only on the timeout sentence
 fail. A stand-in that really hangs every time goes red: shown for the good connector (3 FAIL), crash and exit 2 (3 FAIL),
 exit 142 and the bare probe (2 FAIL).
 
-- R1 (opus) 1B 2W 1C 3N: rerun arms depended on scheduling -> test-made marker cleared before the rerun; exact-one-rerun asserts; child arm reruns only on timeout; sleep 300 + took<30; ps-checked kill; anchored match; comments.
-- R2 (sonnet) 0B 1W 2N: plain child-hang arm 5 s bound; two comments no longer overclaim.
-- R3 (fable) 0B 1W 3N: two reason arms passed on a DOUBLE timeout -> each names its own reason; match on the check's framing; RETRY wording; ON_PURPOSE count.
-- R4 (opus) 0B 2W 2N: probe-direct arms (exit 142, bare set -e) get the same one rerun; kill -0 polls 5 s; INT/TERM trap; RETRY names the gate file.
-- R5 (sonnet) 0B 0W 2N, kept: (1) an interrupt mid-arm can leave a sleep 300 for 5 minutes (the library's perl has no INT handler; not this card); (2) the errexit "|| branch" arm cannot tell a right refusal from a wrong one (predates this change, not load-sensitive).
+#### Iteration 1 (opus) at 22f0d23bf: 1 BLOCKER, 2 WARNING, 1 CONVENTION, 3 NIT, all fixed at 2fb97756e
+- [BLOCKER] the new rerun arms depended on scheduling themselves (a marker the stand-in wrote, a 1 s bound on the rerun). Fixed: the test makes the marker, the stand-in hangs while it exists, it is cleared before the one rerun.
+- [WARNING] nothing checked a rerun happened, or only once. Fixed: exact-one-rerun assertions.
+- [WARNING] the child-hang arm reran on any missing pid. Fixed: only on the timeout sentence.
+- [CONVENTION] comments called the always-slow control "slow-first-run". Fixed.
+- [NIT] took<60 passed a bound armed far too long. Fixed: sleep 300 and took<30.
+- [NIT] leftover-child kill could double count and was not ps-checked. Fixed.
+- [NIT] the timeout match was not tied to the check's wording. Fixed.
+
+#### Iteration 2 (sonnet) at 2fb97756e: 0 BLOCKER, 1 WARNING, 2 NIT, fixed at eb0a67fd2
+- [WARNING] the plain child-hang arm kept a 2 s bound. Fixed: 5 s (HANG covers 2 s).
+- [NIT] "catches a bound armed ten times too long" overclaimed. Fixed.
+- [NIT] the card's report was worded as a measurement here. Fixed.
+
+#### Iteration 3 (fable) at eb0a67fd2: 0 BLOCKER, 1 WARNING, 3 NIT, fixed at 2c90f2c82
+- [WARNING] two reason arms passed on a DOUBLE timeout. Fixed: each names its own reason and rejects the timeout sentence.
+- [NIT] the match could be started by a connector's stderr. Fixed: the check's own framing.
+- [NIT] the RETRY line asserted a cause it cannot know. Fixed.
+- [NIT] the summary hard-coded 3 deliberate reruns. Fixed: ON_PURPOSE.
+
+#### Iteration 4 (opus) at 2c90f2c82: 0 BLOCKER, 2 WARNING, 2 NIT, fixed at e1fd21f9d
+- [WARNING] the exit-142 and bare set -e probe arms had no rerun. Fixed: same one rerun on the probe's whole timeout answer.
+- [WARNING] kill -0 ran moments after the group kill. Fixed: polls up to 5 s.
+- [NIT] no INT/TERM trap. Fixed.
+- [NIT] RETRY did not name the gate file. Fixed.
+
+#### Iteration 5 (sonnet) at e1fd21f9d: 0 BLOCKER, 0 WARNING, 0 CONVENTION, 2 NIT -> converged; both kept
+- [NIT] an interrupt mid-arm can leave a sleep 300 for 5 minutes (the library's perl has no INT handler). Kept: not this card.
+- [NIT] the errexit "|| branch" arm cannot tell a right refusal from a wrong one. Kept: predates this change, not load-sensitive.
 
 Controls shown red, each restored and cmp-checked: good connector hanging every time; no rerun; rerun that never clears the
 marker; two reruns; library bound 25x too long (hang arm 50 s); crash and exit 2 hanging on both tries; exit 142 and bare probe hanging.
