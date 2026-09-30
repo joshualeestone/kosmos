@@ -431,6 +431,7 @@ test('#4560: the log line says which request field a 400 names, from an allowlis
   assert.equal(lines.length, 1);
   assert.match(lines[0], /\[type invalid_request_error, param text\.format\]$/, lines[0]);
   assert.equal(keys.diagnosis({ error: { type: 'sk-' + KEY, param: KEY + ' x' } }), '', 'a key-shaped type or param is never logged');
+  assert.equal(keys.diagnosis({ error: { type: 'invalid_request_error', param: 'abcdef0123456789abcdef' } }), 'type invalid_request_error', 'a param that is not a field this reader sends is left out, whatever its shape');
   assert.ok(!lines[0].includes(KEY));
 });
 

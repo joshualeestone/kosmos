@@ -611,6 +611,12 @@ function currentReader() {
 let lastWhy = null;
 /* Why the reader just worked out is null, from that same derivation (no second look), or null. */
 function whyNoReader() { return lastWhy; }
+/* The reader and, when there is none, why, as ONE value from one look (what the route uses, so no state is shared
+   between two calls). */
+function readerAndWhy() {
+  const reader = currentReader();
+  return { reader, why: reader ? null : lastWhy };
+}
 const readerHere = (r) => Boolean(r === undefined ? currentReader() : r);
 /* The reader as an opaque id the page hands back with its consent (Claude, or a provider and a hash of the account
    folder, so no path reaches the page). A send whose reader no longer matches is refused: the person agreed to one
@@ -709,4 +715,4 @@ async function readWithModel(name, bytes, opts = {}) {
 }
 
 module.exports = {
-  whyNoReader, readerId, consentFor, setReaderForTest, readerProblem, currentReader, NO_MANAGER_COLUMN, NO_MODEL, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };
+  readerAndWhy, whyNoReader, readerId, consentFor, setReaderForTest, readerProblem, currentReader, NO_MANAGER_COLUMN, NO_MODEL, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };

@@ -165,8 +165,9 @@ const ORDER = ['openai', 'google', 'xai'];
    "Do not submit sensitive, confidential, or personal information to the Unpaid Services", an org chart names real
    employees, and a free key cannot be told from a paid one. Turning it on is this one line (and its request shape
    is kept and tested), if a paid key can be told apart or Josh rules otherwise. Turning it on also means revisiting
-   its request: it has no output cap yet, and its answer shape and `status` vocabulary are checked only against the
-   docs and the stub (see PROVIDERS.google). */
+   its request: it has no output cap yet, its answer shape and `status` vocabulary are checked only against the docs
+   and the stub (see PROVIDERS.google), and a bad key arrives as INVALID_ARGUMENT with the reason in `details`, which
+   refusal() does not read yet. */
 const ENABLED_DEFAULT = { openai: true, google: false, xai: true };
 let enabled = { ...ENABLED_DEFAULT };
 /** Tests only: which providers are on; null restores the ruling. */
@@ -269,13 +270,17 @@ function refusal(p, status, body) {
 }
 
 /* For the board log only, beside the person's sentence: the error's `type` (from a fixed list) and the request field
-   it names (`param`, identifier-shaped only), so one line tells "our request shape is stale" (a renamed or dropped
-   field) from "the file was bad". Neither can carry a key: one is from a list, the other a short identifier. */
+   it names (`param`, from the fields this reader sends), so one line tells "our request shape is stale" (a renamed or
+   dropped field) from "the file was bad". Neither can carry a key: both come from fixed lists. */
 const KNOWN_TYPES = new Set(['invalid_request_error', 'authentication_error', 'permission_error', 'not_found_error', 'rate_limit_error', 'server_error', 'api_error']);
+// The request fields this reader sends (and their inner parts): a `param` outside this list is not logged at all.
+const KNOWN_PARAMS = new Set(['model', 'input', 'store', 'max_output_tokens', 'text', 'text.format', 'text.format.schema',
+  'text.format.strict', 'text.format.name', 'response_format', 'response_format.schema', 'image_url', 'file_data',
+  'filename', 'detail', 'input[0]', 'input[0].content', 'input[0].content[0]', 'input[0].content[1]']);
 function diagnosis(body) {
   const err = body && typeof body === 'object' && body.error && typeof body.error === 'object' ? body.error : {};
   const type = typeof err.type === 'string' && KNOWN_TYPES.has(err.type) ? err.type : null;
-  const param = typeof err.param === 'string' && /^[a-z0-9_.[\]]{1,40}$/.test(err.param) ? err.param : null;
+  const param = typeof err.param === 'string' && KNOWN_PARAMS.has(err.param) ? err.param : null;
   return [type && 'type ' + type, param && 'param ' + param].filter(Boolean).join(', ');
 }
 
@@ -368,4 +373,4 @@ async function readOnce(reader, prompt, name, media, buf, signal) {
   return { ok: true, structured };
 }
 
-module.exports = { diagnosis, KNOWN_TYPES, pick, KNOWN_CODES, urlFrom, MAX_OUTPUT_TOKENS, offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };
+module.exports = { KNOWN_PARAMS, diagnosis, KNOWN_TYPES, pick, KNOWN_CODES, urlFrom, MAX_OUTPUT_TOKENS, offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };

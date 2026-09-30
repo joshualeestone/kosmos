@@ -6524,10 +6524,10 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         // #4560: who reads it is worked out ONCE for this request, and every answer below is about that reader.
-        const reader = orgchartfile.currentReader();
+        const { reader, why: noReaderWhy } = orgchartfile.readerAndWhy();
         if (!orgchartfile.modelAvailable(reader)) {
           // #4560 m3688: a connected provider that is switched off for this (Gemini) says why, instead of NO_MODEL.
-          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.whyNoReader() || orgchartfile.NO_MODEL] });
+          sendJson(res, 200, { unavailable: true, problems: [noReaderWhy || orgchartfile.NO_MODEL] });
           return;
         }
         const q = new URL(req.url, ROUTING_BASE).searchParams;
