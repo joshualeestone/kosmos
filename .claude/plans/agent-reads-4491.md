@@ -47,15 +47,22 @@ has to name the caller first.
   project I am not on>` stops working for it. That is on purpose and written here so that slice decides it with
   open eyes (for example a PM agent that reads rooms it is not on would need a stated permission).
 - **The setup guide: no rule of its own; the membership rule covers it (settled after round 6, see the correction
-  at the end).** On a Mac the guide IS a token-only caller: Claude Code's sandbox keeps every subprocess of it, the
-  `kosmos` command included, from the board token (`guardGuideFolder` in engine/setup-assistant.js, measured there,
-  and measured again by April on #4728 with the real guard). So this slice does give the guide something: the
-  roles list, and the room and tasks of a project it is on. Decided: that is right. A guide on a project may
-  already post in that room (slice 1) and is sent the posts addressed to it; reading that room is the same line
-  every other member gets. A guide that is on no project reads no room and no tasks. What it says stays masked
-  for secrets (#3769). The roles list is what it picks from when it makes an agent (#4474).
+  near the end; sharpened in round 7).** A Claude guide on a Mac IS a token-only caller: Claude Code's sandbox
+  keeps every subprocess of it, the `kosmos` command included, from the board token (`guardGuideFolder` in
+  engine/setup-assistant.js, measured there, and measured again by April on #4728 with the real guard). A Codex,
+  Gemini or Grok guide, or one off a Mac, has no sandbox and is not such a caller. So this slice gives the Mac
+  guide: the roles list (what it picks from when it makes an agent, #4474), and the room and tasks of a project it
+  is on. Decided: that is right.
+  - A member is already sent every post in its room as it is made (a request when named, marked as background
+    otherwise) and may post there. The room read adds only the history from before it joined, the posts that were
+    held, and the task list.
+  - The page leaves the guide out of every member list (#3739). It is on a project only if a process holding the
+    board token put it there, so in ordinary use it is on none and reads no room and no tasks.
+  - What it says is masked for secrets on replies, msg, post and the team purpose, and NOT on a task message, a
+    task-built note or a status report. That gap is on main already; filed as #4733. It is the reason the sentence
+    "what it says stays masked" was wrong as I first wrote it (round 7).
   Rejected: closing the room and tasks to the guide outright (this branch's first version). It would make the
-  guide the only member of a project that cannot read the room it posts in.
+  guide the only member of a project that cannot read the room it is sent and posts in.
 - **The board token is still sent.** Dropping it is a later slice, after every verb answers to the agent token
   and every agent has one.
 
@@ -178,4 +185,19 @@ What this changed here, after the six rounds:
   guide rule stays out, now as a decision (above) and not on a false measurement.
 Rounds 1 and 2 reviewed the branch under the wrong premise, and rounds 3 to 6 reviewed a comment that stated it, so
 one more blind round follows on the corrected tree.
+
+## Review round 7 (opus), on the corrected tree, the guide as its main question: 0 BLOCKER, 1 WARNING, 0 CONVENTION, 4 NIT
+- W "what it says stays masked for secrets either way" was false for three writes the guide's token reaches (task
+  message, the task-built note, the status report text): the comment and this plan now name the masked and the
+  unmasked channels; the gap is on main already and is filed as #4733 (not fixed here: this slice adds reads).
+- NIT "is sent the posts addressed to it" understated: every member is sent every post. Corrected; it supports the
+  decision better (the room read adds only history and held posts).
+- NIT "a project the person put it on": the page offers no way to; only a board-token process can. Said so.
+- NIT "the setup guide on a Mac" is a CLAUDE guide on a Mac. Said so.
+- NIT the guide test's marker is inert (no read consults it) and its 403s repeat the generic test: accepted, its
+  purpose is to go red if a guide-only rule is added; the test comment says that.
+- Asked directly and answered from the code: the guide can NOT put itself on a project, or create one with itself on
+  it, with its own token. POST /api/projects and the members route are in none of the agent-token sets; POST
+  /api/team makes agents and attaches nobody; post, react and the task verbs refuse a non-member and move no
+  membership. So the membership rule is a real limit for it.
 

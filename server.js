@@ -3823,8 +3823,9 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    `?catalogue=1`) is not part of it.
    WHO GAINS: an agent whose `kosmos` command can read the board token already makes these reads, and gains
    nothing. The callers that DO gain hold a valid token and no board token, and two are real:
-     - the setup guide on a Mac: Claude Code's sandbox keeps its every subprocess, the `kosmos` command included,
-       from the board token (engine/setup-assistant.js guardGuideFolder, measured there);
+     - a Claude setup guide on a Mac: Claude Code's sandbox keeps its every subprocess, the `kosmos` command
+       included, from the board token (engine/setup-assistant.js guardGuideFolder, measured there). A Codex,
+       Gemini or Grok guide, or one off a Mac, has no sandbox and is not such a caller;
      - an agent on another machine (POST /api/agent-token): refused as a direct network peer (remoteWriteGuard;
        none of these is in REMOTE_AGENT_ROUTES), but behind the person's own reverse proxy
        (AGENT_WORKFORCE_ALLOWED_HOSTS) it arrives as a loopback peer and passes this gate.
@@ -3835,10 +3836,14 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    the conversation or the task text.) The roles list is the product's own text and is open to any valid token:
    it is what the guide picks from when it makes an agent (#4474). A caller that also presents the board token
    (every other agent's CLI today, and the person) is untouched.
-   There is NO rule for the setup guide beyond that one: on a project the person put it on, it may already post
-   in that room and is sent the posts addressed to it, so it reads that room and those tasks like any member; off
-   it, nothing.
-   What it says stays masked for secrets either way (#3769). */
+   There is NO rule for the setup guide beyond that one. A member of a project is sent every post in its room
+   as it is made (engine/messages.js: a request when named, marked as background otherwise) and may post there,
+   so for a guide that is on a project the room read adds the history from before it joined and the posts that
+   were held, and the task list; off a project it reads neither. The page leaves the guide out of every member
+   list (#3739), so it is on a project only if a process holding the board token put it there.
+   What the guide then SAYS is masked for secrets on its replies, `kosmos msg`, `kosmos post` and the team purpose
+   (#3769), and NOT on a task message, a task-built note or a status report: that gap is on main already and is
+   #4733, not this slice's to close. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
   'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks']);   // overview: #4581, `kosmos project list`
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with

@@ -232,8 +232,10 @@ test('the setup guide is held to the same rule as any agent: its own project\'s 
   t.after(() => fs.rmSync(path.join(dir, setupAssistant.GUIDE_MARKER), { force: true }));
   assert.equal(setupAssistant.isGuideFolder(GUIDE), true, 'control: the board does not see this agent as the guide, so the reads below prove nothing about it');
   assert.equal(setupAssistant.isGuideFolder('reader-agent'), false, 'control: every agent reads as the guide');
-  /* On a project the person put it on, it reads like any member (a guide-only refusal here is a decision to make
-     on purpose: measured red against this branch's first version, which had one). */
+  /* On a project it has been put on (only a process holding the board token can: the page leaves the guide out of
+     every member list), it reads like any member. The marker changes nothing here, since no read consults it: this
+     is here to go red if a guide-only refusal is added, so that one is a decision made on purpose (measured red
+     against this branch's first version, which had one). */
   for (const p of READS) {
     const r = await call('GET', p, asAgent(guideToken));
     assert.equal(r.code, 200, `the setup guide's token was refused on ${p}, a project it is on`);
