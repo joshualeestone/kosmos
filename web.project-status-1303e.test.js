@@ -64,7 +64,6 @@ test('#4730: the Projects card draws no "we cannot see" line', () => {
   assert.doesNotMatch(body, /class="pj-who"/, 'the card emits the pj-who line again');
 });
 
-
 test('the row omits the pill element when there is no label', () => {
   /* An empty `<span class="pjpill">` would still take its margins and gaps, so
      the fix has to be in the builder and not only in the label. */
