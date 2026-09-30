@@ -56,7 +56,8 @@ test('#2662: a curl failure on `task add` is REPORTED, not a silent abort (set -
         // maybeMigrateLegacyStore(). The canonical `yarn test` runner exports this, but pin it
         // here too so a DIRECT `node --test` run cannot migrate a real ~/Library store (the
         // fleet-store hazard engine/store.js documents), since KOSMOS_HOME defaults to the repo.
-        const env = { ...process.env, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '%42', KOSMOS_NO_LEGACY_MIGRATION: '1' };
+        // #4796: a data root of its own, so `task add` reads no live board token.
+        const env = { ...process.env, AGENT_WORKFORCE_DATA: fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-task-2662-')), KOSMOS_PORT: String(server.address().port), TMUX_PANE: '%42', KOSMOS_NO_LEGACY_MIGRATION: '1' };
         const out = await runCli(['task', 'add', 'proj', 'a task worth adding'], env);
         assert.notEqual(out.stdout.trim(), '', 'a curl failure printed nothing -- the process aborted under set -e');
         // #4466: a cut reply (curl 52) now reads as a busy board ("we could not add that task"); either way it is REPORTED.

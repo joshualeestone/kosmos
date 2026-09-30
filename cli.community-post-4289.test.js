@@ -61,11 +61,21 @@ const TOKEN = 'ab'.repeat(16);
 const envFor = (port, extra = {}) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN, ...extra });
 const RICH = 'We moved invoicing to Tuesdays. `echo PWNED` $HOME "quotes" \\ backslash\n\n- one\n- two';
 
-test('#4796 sandbox: the CLI posts only to the stub board, and no live board token reaches it', () => withStubBoard(async (port, seen) => {
-  await runCli(['community', 'post', 'hello'], envFor(port));
-  assert.ok(DATA.startsWith(os.tmpdir()), DATA);
-  assert.equal(seen.length, 1, 'premise: the CLI posted to the stub');
+test('#4796 sandbox: the CLI posts only to the stub board with no board token from outside this test, and would send one it found', () => withStubBoard(async (port, seen) => {
+  const ARGS = ['community', 'post', 'hello'];
+  const out = await runCli(ARGS, envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(seen.length, 1, 'premise: the CLI asked the stub');
   assert.equal(seen[0].headers['x-kosmos-board-token'], undefined, 'a board token from outside this test\'s data root was sent');
+  // CONTROL: a data root holding a board token (a fake, planted here) does send it, so this test can see a leak.
+  const planted = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-4796-planted-'));
+  fs.mkdirSync(path.join(planted, 'Kosmos'), { recursive: true });
+  fs.writeFileSync(path.join(planted, 'Kosmos', 'board.token'), 'ab'.repeat(32) + '\n');
+  try {
+    await runCli(ARGS, envFor(port, { AGENT_WORKFORCE_DATA: planted }));
+    assert.equal(seen.length, 2, 'premise: the control asked the stub too');
+    assert.equal(seen[1].headers['x-kosmos-board-token'], 'ab'.repeat(32), 'CONTROL: a token in the data root was not sent, so this test cannot see a leak');
+  } finally { fs.rmSync(planted, { recursive: true, force: true }); }
 }));
 
 test('#4289: a post carries the words as written, the topic, the pane and the agent token, and says it is held', () => withStubBoard(async (port, seen) => {

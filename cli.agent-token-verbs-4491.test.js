@@ -19,6 +19,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+// #4796-sandbox: KOSMOS_HOME is a throwaway whose store module names the data root and holds a known board.token, so the CLI never reads the real one (checked by cli.sandbox-data-4796.test.js).
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const BOARD = 'boardtoken4491slice2';

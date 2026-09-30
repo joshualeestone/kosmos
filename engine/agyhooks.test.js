@@ -135,7 +135,8 @@ test('#4043: a board that never answers costs at most the bridge\'s own budget',
   const server = http.createServer(() => { /* never answer */ });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%slow-' + process.pid };
+  // #4796: a data root of its own, so the bridge reads no live board token.
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_PORT: String(port), TMUX_PANE: '%slow-' + process.pid };
   try { fs.rmSync(bridge.markerFile(env), { force: true }); } catch { /* none */ }
   const { spawn } = require('node:child_process');
   const start = Date.now();
@@ -217,7 +218,8 @@ test('#4043: agents without a pane never share one throttle marker', () => {
 function driveBridge(port, eventName, payload, pane) {
   const { spawn } = require('node:child_process');
   return new Promise((resolve, reject) => {
-    const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: pane };
+    // #4796: a data root of its own, so the bridge reads no live board token.
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_PORT: String(port), TMUX_PANE: pane };
     delete env.KOSMOS_AGENT_TOKEN;
     const child = spawn(process.execPath, [BRIDGE_FILE, eventName], { env, stdio: ['pipe', 'ignore', 'ignore'] });
     child.on('error', reject);
