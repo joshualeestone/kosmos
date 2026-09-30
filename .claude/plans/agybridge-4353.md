@@ -84,3 +84,8 @@ gone-folder test fails on the disk without the guard.
   existence check and then gets one "could not read" line per board start.
 - Reviewer models: sonnet, opus, fable.
 - Owed before the proof: the queued full suite on this head.
+
+## Full validation (13:08 CDT)
+Mortals full suite on this exact head 4c1aa0276: PASSED, hash 623668c19eb3, recorded 13:06:42 CDT
+(~/.cache/claude-validation-proofs/agybridge-4353.jsonl). main has moved 12 commits since; none touches this branch's
+files (checked by name), so the CI-starved rule's path B holds for it.
