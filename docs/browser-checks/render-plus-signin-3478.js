@@ -205,13 +205,21 @@ const visible = (page, sel) => page.evaluate((s) => {
       }
 
       // #3796 (Josh, 14:00): the email step's copy, a 75% field, and the card centred vertically.
-      // The card is centred in the room between the section's top and the window's bottom
-      // (less the 32px foot margin plusSiMeasure leaves), so the gap above equals the gap below.
+      // Josh, 2026-09-29 ("center that login vertically between the pill buttons"): with the nav beside
+      // the section, the card's middle is level with the pill column's middle (first pill's top to last
+      // pill's bottom). Below 56rem the nav stacks above, and the #3796 rule holds there: the card is
+      // centred in the room from the section's top to the window's foot (less plusSiMeasure's 32px).
       const centred = () => page.evaluate(() => {
+        const pills = [...document.querySelectorAll('#s-nav button')].filter((b) => b.getBoundingClientRect().height > 0);
+        const navMid = (pills[0].getBoundingClientRect().top + pills[pills.length - 1].getBoundingClientRect().bottom) / 2;
         const sec = document.getElementById('s-sec-plus').getBoundingClientRect();
         const c = document.getElementById('plus-state2').getBoundingClientRect();
-        return { above: Math.round(c.top - sec.top), below: Math.round(innerHeight - 32 - c.bottom) };
+        const stars = document.getElementById('plus-stars').getBoundingClientRect();
+        return { delta: Math.round((c.top + c.bottom) / 2 - navMid), cardTop: Math.round(c.top), navTop: Math.round(pills[0].getBoundingClientRect().top),
+          cardH: Math.round(c.height), navH: Math.round(pills[pills.length - 1].getBoundingClientRect().bottom - pills[0].getBoundingClientRect().top),
+          above: Math.round(c.top - sec.top), below: Math.round(innerHeight - 32 - c.bottom), starsFoot: Math.round(innerHeight - 32 - stars.bottom) };
       });
+      const onPills = (g) => Math.abs(g.delta) <= 3 && g.cardTop > g.navTop && Math.abs(g.starsFoot) <= 2;
       if (key === 'existing-2fa') {
         const e = await page.evaluate(() => {
           const card = document.getElementById('plus-state2'); const cs = getComputedStyle(card);
@@ -225,7 +233,34 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(e.gone, `[${key}] #3796 the "You have Kosmos+..." line is gone`);
         chk(e.ratio > 0.7 && e.ratio < 0.8, `[${key}] #3796 the email field is about 75% of the card`, e.ratio.toFixed(3));
         const g = await centred();
-        chk(g.above > 40 && Math.abs(g.above - g.below) <= 4, `[${key}] #3796 the email step's card is centred vertically`, JSON.stringify(g));
+        chk(onPills(g), `[${key}] 09-29 the email step's card is centred on the pill column, the star field still reaches the foot`, JSON.stringify(g));
+        const vp = page.viewportSize();
+        const themeWas = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
+        for (const [w, h] of [[1280, 720], [1440, 900]]) {
+          await page.setViewportSize({ width: w, height: h });
+          for (const theme of ['light', 'dark']) {
+            await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
+            await page.waitForTimeout(150);
+            const s = await centred();
+            chk(onPills(s), `[${key}] 09-29 the card is centred on the pill column at ${w}x${h} (${theme})`, JSON.stringify(s));
+          }
+        }
+        await page.evaluate((v) => { if (v === null) document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', v); }, themeWas);
+        // Narrow (nav stacked above): unchanged, the #3796 centring in the room below.
+        await page.setViewportSize({ width: 800, height: 900 });
+        await page.waitForTimeout(200);
+        const n = await centred();
+        chk(n.above > 40 && Math.abs(n.above - n.below) <= 4, `[${key}] #3796 with the nav stacked above (800px) the card is still centred in the room below`, JSON.stringify(n));
+        // A card taller than the pill column starts level with the column's top, and a short window scrolls to its foot.
+        await page.setViewportSize({ width: 1280, height: 400 });
+        await page.evaluate(() => { const p = document.createElement('p'); p.dataset.tallProbe = '1'; p.style.height = '600px'; document.getElementById('plus-si-email').appendChild(p); });
+        await page.waitForTimeout(200);
+        const t = await centred();
+        const foot = await page.evaluate(() => { const card = document.getElementById('plus-state2'); card.scrollIntoView({ block: 'end' }); const r = card.getBoundingClientRect(); return { bottom: Math.round(r.bottom), vh: innerHeight }; });
+        chk(t.cardH > t.navH && t.cardTop === t.navTop && foot.bottom <= foot.vh, `[${key}] 09-29 a card taller than the column starts at its top and scrolls into full view, never clipped`, JSON.stringify({ t, foot }));
+        await page.evaluate(() => { document.querySelector('p[data-tall-probe]').remove(); scrollTo(0, 0); });
+        await page.setViewportSize(vp);
+        await page.waitForTimeout(200);
       }
 
       // Step: email -> code.
@@ -346,7 +381,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(c.rsTag === 'A' && c.rsText === 'Send again', `[${key}] #3796 resend is a small "Send again" link`, c.rsTag + ' ' + c.rsText);
         chk(!c.labelShown, `[${key}] #3796 the "code from the email" label is for screen readers only`);
         const g = await centred();
-        chk(g.above > 40 && Math.abs(g.above - g.below) <= 4, `[${key}] #3796 the code step's card is centred vertically`, JSON.stringify(g));
+        chk(onPills(g), `[${key}] 09-29 the code step's card is centred on the pill column`, JSON.stringify(g));
       }
 
       // Step: email code -> the branch signin-verify chose. #3942: the sixth digit submits by itself,
@@ -980,7 +1015,8 @@ const visible = (page, sel) => page.evaluate((s) => {
         if (p === 'signin-verify') { route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'session', account_address: 'twin-mac.kosmosplus.com' }) }); return; }
         if (p === 'signin-register') {
           regTries += 1;
-          if (regTries === 1) { route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'the name twin-mac is already connected on another computer' }) }); return; }
+          // #4608: the first answer is held 1.5 s, so the connecting state can be read while it waits.
+          if (regTries === 1) { setTimeout(() => route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'the name twin-mac is already connected on another computer' }) }), 1500); return; }
           route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'registered', address: 'twin-mac', name: 'twin-mac', standing: 'active' }) }); return;
         }
         route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'code_sent' }) });
@@ -989,7 +1025,25 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.click('#plus-signin-code');
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
       await page.fill('#plus-si-code-in', '123456');   // #3942: auto-submits
+      /* #4608 (Josh, 2026-09-29 12:49): while this computer connects, the heading says "Signing in..." and the
+         app's ring loader turns beside the words. (No K animates in the card on main either: the k === 0 part is
+         a guard against one arriving, not evidence for this change.) */
+      await page.waitForSelector('#plus-si-owned', { state: 'visible', timeout: 5000 });
+      await page.waitForTimeout(300);
+      const during = await page.evaluate(() => {
+        const sp = document.getElementById('plus-si-spin');
+        const card = document.getElementById('plus-state2');
+        return { title: document.getElementById('plus-si-title').textContent,
+          spin: !!sp && !sp.hidden && sp.getClientRects().length > 0 && sp.classList.contains('spin-sweep'),
+          k: card ? card.querySelectorAll('canvas, .kspin, img[src*="kosmos-"]').length : -1 };
+      });
+      chk(during.title === 'Signing in...' && during.spin && during.k === 0,
+        `[${k}] #4608 while this computer connects: the heading says Signing in..., the ring loader turns, no K`, JSON.stringify(during));
       await page.waitForSelector('#plus-si-register-go', { state: 'visible', timeout: 5000 });
+      const siAfter = await page.evaluate(() => ({ title: document.getElementById('plus-si-title').textContent,
+        spin: !document.getElementById('plus-si-spin').hidden }));
+      chk(siAfter.title === 'Sign in to activate Kosmos+' && !siAfter.spin,
+        `[${k}] #4608 when the connect fails, the heading and the loader go back`, JSON.stringify(siAfter));
       const f = await page.evaluate(() => ({ lead: document.getElementById('plus-si-owned').textContent.trim(), btn: document.getElementById('plus-si-register-go').textContent.trim(), msg: document.getElementById('plus-signin-msg').textContent.trim() }));
       chk(/could not connect as twin-mac\.kosmosplus\.com/.test(f.lead) && f.btn === 'Try again' && /already connected/.test(f.msg), `[${k}] #3796 review: a failed automatic register says so and offers Try again`, JSON.stringify(f));
       await page.click('#plus-si-register-go');

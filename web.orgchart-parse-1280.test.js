@@ -37,14 +37,16 @@ const fns = new Function(`
   ${capLine[0]}
   ${grab('function orgchartSlug(')}
   ${grab('function parseOrgchart(')}
-  return { orgchartSlug, parseOrgchart, ORGCHART_NAME_MAX };
+  ${grab('function orgchartRows(')}
+  return { orgchartSlug, parseOrgchart, orgchartRows, ORGCHART_NAME_MAX };
 `)();
-const { orgchartSlug, parseOrgchart } = fns;
+const { orgchartSlug, parseOrgchart, orgchartRows } = fns;
 
 test('#1280: a title-only line becomes one member, named from the title, no person', () => {
   const rows = parseOrgchart('Marketing Lead', false);
   assert.equal(rows.length, 1);
-  assert.deepEqual(rows[0], { name: 'marketing-lead', role: 'own', label: 'Marketing Lead', person: '' });
+  // #4559 added the reporting fields; a pasted line reports to the person (null) and needs no look.
+  assert.deepEqual(rows[0], { name: 'marketing-lead', role: 'own', label: 'Marketing Lead', person: '', from: '', reportsTo: null, why: null, confirmed: false });
 });
 
 test('#1280: a comma line splits into name, title', () => {
@@ -117,4 +119,61 @@ test('#1280 CONTROL: the parse can actually FAIL its assertions (a wrong split i
   // bug), this tab line would mis-split and person would be the whole "Sarah\t..." run.
   const rows = parseOrgchart('Sarah\tSuccess Manager, EMEA', true);
   assert.notEqual(rows[0].person, 'Sarah\tSuccess Manager', 'a comma-always split would produce this');
+});
+
+test('#4559: file rows keep their reporting lines and reasons, re-pointed past a row with no title', () => {
+  const rows = orgchartRows([
+    { person: 'Avery Quill', title: 'Chief Executive', reportsTo: null, why: null },
+    { person: 'Nobody', title: '', reportsTo: null, why: null },   // skipped: no title
+    { person: 'Bo Linden', title: 'Head of Sales', reportsTo: 0, why: null },
+    { person: 'Cy Marsh', title: 'Sales Rep', reportsTo: 2, why: 'the line is unclear' },
+  ], false, 'file');
+  assert.deepEqual(rows.map((r) => [r.label, r.reportsTo, r.why, r.from, r.person]), [
+    ['Chief Executive', null, null, 'Avery Quill', ''],
+    ['Head of Sales', 0, null, 'Bo Linden', ''],
+    ['Sales Rep', 1, 'the line is unclear', 'Cy Marsh', ''],
+  ]);
+  assert.deepEqual(rows.map((r) => r.name), ['chief-executive', 'head-of-sales', 'sales-rep'], 'names off: agents are named for the title, not the person');
+  const named = orgchartRows([{ person: 'Avery Quill', title: 'Chief Executive', reportsTo: null }], true, 'file');
+  assert.equal(named[0].name, 'avery-quill');
+});
+
+test('#4559: the page and the engine agree on which files go to the model', () => {
+  const m = /const ORGCHART_MODEL_FILE = \/\\\.\(([^)]+)\)\$\/i;/.exec(PAGE);
+  assert.ok(m, 'ORGCHART_MODEL_FILE is gone from the page');
+  const exts = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'pdf', 'csv', 'xlsx', 'svg', 'pptx'];
+  const page = new RegExp('\\.(' + m[1] + ')$', 'i');
+  const { forModel } = require('./engine/orgchartfile');
+  for (const e of exts) assert.equal(page.test('x.' + e), forModel('x.' + e), '.' + e + ' is treated differently by the page and the engine');
+});
+
+test('#4559: the page refuses a file over the same size the board reads', () => {
+  const m = /const ORGCHART_MAX_BYTES = ([^;]+);/.exec(PAGE);
+  assert.ok(m, 'ORGCHART_MAX_BYTES is gone from the page');
+  const page = Function('return (' + m[1] + ')')();
+  assert.ok(Number.isInteger(page) && page > 0, 'CONTROL: read as a number: ' + page);
+  assert.equal(page, require('./engine/orgchartfile').MAX_BYTES);
+});
+
+test('#4559: the page refuses a chart past the same number of agents one create can make', () => {
+  const m = /const ORGCHART_TEAM_MAX = (\d+);/.exec(PAGE);
+  assert.ok(m, 'ORGCHART_TEAM_MAX is gone from the page');
+  assert.equal(Number(m[1]), require('./engine/team').MAX_TEAM_CAP);
+});
+
+test('#4559: the page asks before more than the usual team size, the same size the engine uses', () => {
+  const m = /const ORGCHART_TEAM_DEFAULT = (\d+);/.exec(PAGE);
+  assert.ok(m, 'ORGCHART_TEAM_DEFAULT is gone from the page');
+  assert.equal(Number(m[1]), require('./engine/team').DEFAULT_TEAM_CAP);
+});
+
+test('#4559: the page refuses a picture over the same size the board sends to the model', () => {
+  const m = /const ORGCHART_MAX_IMAGE_BYTES = ([^;]+);/.exec(PAGE);
+  assert.ok(m, 'ORGCHART_MAX_IMAGE_BYTES is gone from the page');
+  assert.equal(Function('return (' + m[1] + ')')(), require('./engine/orgchartfile').MAX_IMAGE_BYTES);
+  const img = /\/\\\.\(([^)]+)\)\$\/i\.test\(file\.name\) && file\.size > ORGCHART_MAX_IMAGE_BYTES/.exec(PAGE);
+  assert.ok(img, 'the picture test before the consent box is gone');
+  const { MODEL_TYPES } = require('./engine/orgchartfile');
+  const re = new RegExp('\\.(' + img[1] + ')$', 'i');
+  for (const [ext, t] of Object.entries(MODEL_TYPES)) assert.equal(re.test('x.' + ext), t.block === 'image', '.' + ext);
 });

@@ -3,6 +3,11 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib/cut-guard.sh"
+# #4609: this file tests the waits and the queue, so it starts from none of their controls, however it is run (under
+# run-tests.sh, which also drops them, or directly, as `yarn test:shell` does). An inherited KOSMOS_NO_WAIT alone reds
+# 19 arms; an inherited KOSMOS_TESTS_IGNORE_SUITE reds the #4498 queue arms. Each arm sets what it needs. The lib's own
+# list, plus the other guards' overrides this file also exercises.
+unset $KOSMOS_WAIT_CONTROL_VARS KOSMOS_HARNESS_IGNORE_SUITE KOSMOS_CUT_IGNORE_HARNESS KOSMOS_HARNESS_IGNORE_CUT
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 # A pid proven dead at runtime (#4206 review 11). The guards now run a real lsof and ancestry walk on
 # every candidate, so a fixed probe pid is only safe where it cannot be handed out: 99999 holds on
@@ -580,7 +585,7 @@ out="$(KOSMOS_WAIT_SLEEP=false kosmos_wait_until_clear "a test run" wcheck 2>&1)
 
 # A waiting suite is not a live suite. The stand-in waiter is a real process of ours, stopped by pid.
 sleep 60 & wp=$!
-printf '100 %s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
+printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n"\n' "$wp" > "$T/sprobe-waiter"; chmod +x "$T/sprobe-waiter"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-waiter" kosmos_refuse_if_suite_live "this test run" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#4498 a suite that is only waiting for the box does not count as running" \
@@ -591,7 +596,7 @@ out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=99
   || fail "#4498 CONTROL: an unmarked suite did not refuse (rc=$rc, $out)"
 # The right start time with the wrong command, so ONLY the command check can call it stale (Kano's review: with no
 # start time the start-time check caught it first, and removing the command check left this green).
-printf '100 %s\nnot its command\n%s\n' "$wp" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
+printf '100 %s\nnot its command\n%s\n%s\n' "$wp" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-waiter" kosmos_refuse_if_suite_live "this test run" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && [ ! -e "$W/markers/suitewait.$wp" ]; } && pass "#4498 a waiting marker whose pid now runs another command is stale: counted as running and removed" \
   || fail "#4498 a recycled-pid waiting marker was trusted (rc=$rc, $out)"
@@ -607,7 +612,7 @@ out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=99
 # Each level runs a second command, so no shell execs straight into its child.
 sh -c 'sh -c "sleep 60; :" & wait; :' & deep=$!
 sleep 1; mid="$(pgrep -P "$deep" | head -1)"; leaf="$(pgrep -P "$mid" 2>/dev/null | head -1)"
-printf '100 %s\n%s\n%s\n' "$deep" "$(ps -ww -o command= -p "$deep")" "$(_kosmos_pid_started "$deep")" > "$W/markers/suitewait.$deep"
+printf '100 %s\n%s\n%s\n%s\n' "$deep" "$(ps -ww -o command= -p "$deep")" "$(_kosmos_pid_started_local "$deep")" "$(_kosmos_pid_started "$deep")" > "$W/markers/suitewait.$deep"
 if [ -n "$leaf" ]; then
   out="$(printf '%s bash tools/run-tests.sh\n' "$leaf" | _kosmos_drop_suite_waiters)"
   [ -z "$out" ] && pass "#4498 a subshell two levels below a waiter is part of the waiter" \
@@ -622,7 +627,7 @@ for p in $leaf $mid $deep; do kill "$p" 2>/dev/null; done; wait "$deep" 2>/dev/n
 rm -f "$W/markers/suitewait.$deep"
 
 # The queue: the oldest waiter goes first; a run with no marker is behind every waiter.
-rm -f "$W/held"; printf '100 %s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
+rm -f "$W/held"; printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has_pid "$out" "$wp"; } && pass "#4498 a run that is not yet queued waits behind a queued suite" \
   || fail "#4498 an unqueued run jumped the queue (rc=$rc, $out)"
@@ -652,13 +657,222 @@ seen="$(sort -u "$W/seen" | grep -c .)"
   && pass "#4498 a harness that appears as the suite unqueues sends it back to waiting in its old place" \
   || fail "#4498 the second ask misbehaved (rc=$rc, calls=$(cat "$W/calls"), queue times seen=$seen, $out)"
 rm -f "$W/calls"
-out="$(WPASS_AFTER=99 KOSMOS_WAIT_MAX_S=30 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wcheck 2>&1)"; rc=$?
+# #4574: wsame refuses with the same words every call; the give-up arms use it so nothing in them varies but the queue.
+wsame() { local n; n=$(( $(cat "$W/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$W/calls"; [ "$n" -gt "${WPASS_AFTER:-0}" ] && return 0; echo "busy: stand-in run" >&2; return 1; }
+out="$(WPASS_AFTER=99 KOSMOS_WAIT_MAX_S=30 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && [ ! -e "$W/markers/suitewait.$$" ]; } && pass "#4498 a suite that gives up leaves the queue" \
   || fail "#4498 a suite that gave up left its marker (rc=$rc, $out)"
 
+# --- #4574: in the queue the bound counts from the last time a waiter AHEAD left ------------------
+# Three live stand-in waiters with earlier queue times sit ahead of this run. A waiter leaves the queue by removing its
+# marker (what a waiter that starts does), and the stand-in sleeper removes one on chosen calls. A fake clock
+# (KOSMOS_WAIT_NOW) moves by QSTEP per sleep, so the wall-clock arm of the bound is exercised as well as the sleep count.
+# q_ready <pid>: waits (up to 3 s) until <pid> has exec'd sleep. Until then ps shows the forking shell's command, and a
+# marker recording that reads as stale, which would silently shift every call count below: so a stand-in that never
+# gets there FAILS by name instead.
+q_ready() { local j; for j in $(seq 1 30); do case "$(ps -ww -o command= -p "$1")" in sleep*) return 0 ;; esac; sleep 0.1; done
+  fail "#4574 FIXTURE: stand-in waiter $1 never showed as sleep, so the arms after it cannot be trusted"; return 1; }
+q_ahead() { local i; : > "$W/ahead"; for i in $(seq 1 "${1:-3}"); do sleep 300 & echo "$!" >> "$W/ahead"
+  q_ready "$!"
+  printf '%s %s\n%s\n%s\n%s\n' "$((10 + i))" "$!" "$(ps -ww -o command= -p "$!")" "$(_kosmos_pid_started_local "$!")" "$(_kosmos_pid_started "$!")" > "$W/markers/suitewait.$!"; done; }
+q_clear() { local p; for p in $(cat "$W/ahead" 2>/dev/null); do rm -f "$W/markers/suitewait.$p"; kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; done; rm -f "$W/ahead" "$W/calls" "$W/clock" "$W/sleeps"; }
+qnow() { cat "$W/clock" 2>/dev/null || echo 0; }
+# Sleeps: advance the clock by QSTEP; on every QLEAVE-th sleep (0 = never) the first waiter still marked leaves.
+qsleep() { local n p; n=$(( $(cat "$W/sleeps" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$W/sleeps"
+  echo $(( $(qnow) + ${QSTEP:-30} )) > "$W/clock"
+  [ "${QLEAVE:-0}" -gt 0 ] && [ $((n % QLEAVE)) -eq 0 ] || return 0
+  for p in $(cat "$W/ahead"); do [ -e "$W/markers/suitewait.$p" ] && { rm -f "$W/markers/suitewait.$p"; return 0; }; done; }
+q_clear; q_ahead
+out="$(QLEAVE=2 WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_QUEUE_CEIL_S=100000 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+# 10 calls: 8 refusals, the clear one, and the #4498 second ask after leaving the queue; 240 s on a 60 s bound.
+{ [ "$rc" -eq 0 ] && [ "$(cat "$W/calls")" = 10 ] && [ ! -e "$W/markers/suitewait.$$" ]; } \
+  && pass "#4574 a queue that keeps moving is waited through past the bound (240 s on a 60 s bound), then the run starts" \
+  || fail "#4574 a moving queue gave up at the bound (rc=$rc, calls=$(cat "$W/calls"), $out)"
+q_clear; q_ahead
+out="$(QLEAVE=0 WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_QUEUE_CEIL_S=100000 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ] && has "$out" "since this run joined the queue or a waiter ahead last left it" && [ ! -e "$W/markers/suitewait.$$" ]; } \
+  && pass "#4574 CONTROL: a queue where nobody ahead leaves still gives up at the bound, and says how the bound is counted" \
+  || fail "#4574 a stuck queue was waited on past the bound (rc=$rc, calls=$(cat "$W/calls"), $out)"
+q_clear; q_ahead
+# The wall-clock arm: 100 s pass per sleep but only 30 s is counted asleep, so only the clock can reach a 60 s bound.
+out="$(QSTEP=100 QLEAVE=1 WPASS_AFTER=4 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_QUEUE_CEIL_S=100000 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && [ "$(cat "$W/calls")" = 6 ]; } \
+  && pass "#4574 the wall-clock arm restarts too: three waiters leaving 100 s apart keep a 60 s bound from firing" \
+  || fail "#4574 the wall clock gave up on a moving queue (rc=$rc, calls=$(cat "$W/calls"), $out)"
+q_clear; q_ahead
+out="$(QSTEP=100 QLEAVE=0 WPASS_AFTER=4 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_QUEUE_CEIL_S=100000 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 2 ]; } \
+  && pass "#4574 CONTROL: with nobody leaving, the wall clock alone ends the wait at the bound (one 100 s sleep)" \
+  || fail "#4574 the wall-clock arm did not fire (rc=$rc, calls=$(cat "$W/calls"), $out)"
+q_clear
+# A queued run whose own marker vanished (what a failed ps does) writes it again, with its old queue time.
+wmark() { local n; n=$(( $(cat "$W/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$W/calls"
+  sed -n '1p' "$W/markers/suitewait.$$" 2>/dev/null | cut -d' ' -f1 >> "$W/marks"
+  [ "$n" -gt 3 ] && return 0; echo "busy: stand-in run" >&2; return 1; }
+# Real one-second sleeps, as the #4498 second-ask arm uses: with no sleep every mark lands in the same second, and a
+# re-mark that took a NEW time would look the same as one that kept the old place.
+wlose() { sleep 1; [ "$(cat "$W/calls")" = 2 ] && rm -f "$W/markers/suitewait.$$"; return 0; }
+rm -f "$W/calls" "$W/marks"
+out="$(KOSMOS_WAIT_MAX_S=600 KOSMOS_WAIT_SLEEP=wlose kosmos_wait_until_clear "this test run" --suite-queue wmark 2>&1)"; rc=$?
+# Calls 2, 3 and 4 see the marker (3 because the loop re-marked it before asking), with ONE queue time throughout.
+{ [ "$rc" -eq 0 ] && [ "$(grep -c . "$W/marks")" -ge 3 ] && [ "$(sort -u "$W/marks" | grep -c .)" = 1 ]; } \
+  && pass "#4574 a queued run whose marker vanished writes it again with its old queue time" \
+  || fail "#4574 a lost marker was not restored in place (rc=$rc, marks=$(tr '\n' ' ' < "$W/marks"), $out)"
+rm -f "$W/calls" "$W/marks"
+qbad() { echo "not a time"; }
+rm -f "$W/calls"
+out="$(WPASS_AFTER=2 KOSMOS_WAIT_NOW=qbad KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && ! has "$out" "syntax error"; } && pass "#4574 a clock seam that prints no number falls back to the real clock" \
+  || fail "#4574 a non-numeric KOSMOS_WAIT_NOW broke the wait (rc=$rc, $out)"
+qfail() { return 3; }
+rm -f "$W/calls"
+# Called directly: the wait only calls it inside $( ), where bash (outside POSIX mode) does not inherit set -e, so a
+# wait-level arm could not see this. The helper's own contract is that it never fails.
+out="$( set -e; KOSMOS_WAIT_NOW=qfail _kosmos_wait_now; echo "survived" )"; rc=$?
+{ [ "$rc" -eq 0 ] && has "$out" "survived" && printf '%s\n' "$out" | head -1 | grep -Eq '^[0-9]+$'; } && pass "#4574 a clock seam that fails falls back to the real clock, even called under set -e" \
+  || fail "#4574 a failing KOSMOS_WAIT_NOW killed a set -e caller (rc=$rc, $out)"
+rm -f "$W/calls"
+# Churn BEHIND this run never restarts its bound: one waiter ahead that never leaves, and one waiter with a LATER queue
+# time whose marker comes and goes every call (arriving, then starting or giving up). Same as the stuck control: call 3.
+q_clear; q_ahead
+for p in $(sed -n '2,3p' "$W/ahead"); do rm -f "$W/markers/suitewait.$p"; done
+qb=$(sed -n '3p' "$W/ahead")
+qflip() { if [ -e "$W/markers/suitewait.$qb" ]; then rm -f "$W/markers/suitewait.$qb"
+  else printf '%s %s\n%s\n%s\n%s\n' "$(( $(date +%s) + 100000 ))" "$qb" "$(ps -ww -o command= -p "$qb")" "$(_kosmos_pid_started_local "$qb")" "$(_kosmos_pid_started "$qb")" > "$W/markers/suitewait.$qb"; fi; }
+out="$(WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=qflip kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ]; } \
+  && pass "#4574 a waiter behind this run coming and going does not restart its bound" \
+  || fail "#4574 churn behind this run restarted its bound (rc=$rc, calls=$(cat "$W/calls"), $out)"
+q_clear
+# The ceiling: a queue that is still moving (a waiter ahead leaves every 60 s) is still ended at the ceiling, so ending a
+# queued wait never rests on the restart heuristic. Control: the same queue with a high ceiling starts (the arm above).
+q_clear; q_ahead
+out="$(QLEAVE=2 WPASS_AFTER=8 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_QUEUE_CEIL_S=120 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 5 ] && has "$out" "ceiling" && [ ! -e "$W/markers/suitewait.$$" ]; } \
+  && pass "#4574 the queue's ceiling ends a wait even while the queue keeps moving" \
+  || fail "#4574 a moving queue outlived the ceiling (rc=$rc, calls=$(cat "$W/calls"), $out)"
+q_clear
+# The default ceiling scales with the queue at entry (four bounds plus one per waiter ahead), so a HEALTHY deep queue
+# is never ended by it: six waiters ahead leave every 60 s (360 s in all, past four 60 s bounds) and the run starts.
+q_clear; q_ahead 6
+out="$(unset KOSMOS_WAIT_QUEUE_CEIL_S; QLEAVE=2 WPASS_AFTER=12 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qsleep kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && [ "$(cat "$W/calls")" = 14 ]; } \
+  && pass "#4574 the default ceiling does not end a healthy deep queue (six ahead, 360 s on a 60 s bound)" \
+  || fail "#4574 the default ceiling ended a healthy deep queue (rc=$rc, calls=$(cat "$W/calls"), $out)"
+q_clear
+# ...but a restart signal that never settles (one waiter ahead whose marker comes and goes every call, forever) is
+# ended by it: (4 + 1 ahead at entry) x 60 s = 300 s.
+q_clear; q_ahead 1
+qa=$(sed -n '1p' "$W/ahead")
+qflap() { echo $(( $(qnow) + 30 )) > "$W/clock"
+  if [ -e "$W/markers/suitewait.$qa" ]; then rm -f "$W/markers/suitewait.$qa"
+  else printf '%s %s\n%s\n%s\n%s\n' 11 "$qa" "$(ps -ww -o command= -p "$qa")" "$(_kosmos_pid_started_local "$qa")" "$(_kosmos_pid_started "$qa")" > "$W/markers/suitewait.$qa"; fi; }
+out="$(unset KOSMOS_WAIT_QUEUE_CEIL_S; WPASS_AFTER=999 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_NOW=qnow KOSMOS_WAIT_SLEEP=qflap kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "ceiling (300s, four bounds plus one per waiter ahead"; } \
+  && pass "#4574 a restart signal that never settles is ended by the default ceiling, four bounds plus one per waiter ahead" \
+  || fail "#4574 the default ceiling did not end a flapping wait at (4+1) bounds (rc=$rc, calls=$(cat "$W/calls"), $(printf '%s' "$out" | tail -1))"
+q_clear
+# The start time a marker records does not depend on the reader's zone or locale, and a marker written the older way
+# (the writer's own zone and locale) still reads as live.
+sleep 300 & zp=$!
+q_ready "$zp"
+# The writer runs in Tokyo and the reader in Chicago. With the pin, both compute the same UTC form; without it (the
+# mutation) they print different local times and the live waiter reads as stale. Line 3 holds the Tokyo local form,
+# which a Chicago reader cannot match, so only line 4 can pass this.
+# The writer also uses a French locale where the box has one (macOS does), so the locale half of the pin is guarded too.
+printf '100 %s\n%s\n%s\n%s\n' "$zp" "$(ps -ww -o command= -p "$zp")" "$(TZ=Asia/Tokyo LC_ALL=fr_FR.UTF-8 _kosmos_pid_started_local "$zp")" "$(TZ=Asia/Tokyo LC_ALL=fr_FR.UTF-8 _kosmos_pid_started "$zp")" > "$W/markers/suitewait.$zp"
+( export TZ=America/Chicago LC_ALL=C; _kosmos_suite_waiter_live "$zp" ) && pass "#4574 a marker written in one time zone is live to a reader in another" \
+  || fail "#4574 a reader in another time zone called a live waiter stale"
+printf '100 %s\n%s\n%s\n' "$zp" "$(ps -ww -o command= -p "$zp")" "$(_kosmos_pid_started_local "$zp")" > "$W/markers/suitewait.$zp"
+_kosmos_suite_waiter_live "$zp" && pass "#4574 a marker written the older way (local start time) is still live" \
+  || fail "#4574 an older-format marker was called stale"
+printf '100 %s\n%s\nMon Jan  1 00:00:00 2001\n' "$zp" "$(ps -ww -o command= -p "$zp")" > "$W/markers/suitewait.$zp"
+{ ! _kosmos_suite_waiter_live "$zp" && [ ! -e "$W/markers/suitewait.$zp" ]; } && pass "#4574 CONTROL: a start time that matches neither form is still stale" \
+  || fail "#4574 a wrong start time was accepted"
+# ps that cannot say when the process started (an empty start time) is stale too, even on an older 3-line marker.
+printf '100 %s\n%s\n\n' "$zp" "$(ps -ww -o command= -p "$zp")" > "$W/markers/suitewait.$zp"
+( _kosmos_pid_started() { :; }; _kosmos_pid_started_local() { :; }; ! _kosmos_suite_waiter_live "$zp" ) \
+  && pass "#4574 an empty start time from ps reads as stale, not as a match for an empty line" \
+  || fail "#4574 an empty start time was taken for a live waiter"
+# A half-answering ps (the UTC reading empty, the local one fine and matching line 3) is stale too: -z "$want" alone
+# decides it, so this arm pins that term (review 20).
+printf '100 %s\n%s\n%s\n' "$zp" "$(ps -ww -o command= -p "$zp")" "$(_kosmos_pid_started_local "$zp")" > "$W/markers/suitewait.$zp"
+( _kosmos_pid_started() { :; }; ! _kosmos_suite_waiter_live "$zp" ) \
+  && pass "#4574 an empty UTC reading is stale even when the local one matches" \
+  || fail "#4574 a half-answering ps kept a marker live"
+rm -f "$W/markers/suitewait.$zp"
+kill "$zp" 2>/dev/null; wait "$zp" 2>/dev/null
+# What this lib writes, an older copy reads: line 3 is the writer's local form, the one an older reader compares.
+kosmos_mark_suite_waiting 500
+{ [ "$(sed -n '3p' "$W/markers/suitewait.$$")" = "$(_kosmos_pid_started_local "$$")" ] && [ "$(sed -n '4p' "$W/markers/suitewait.$$")" = "$(_kosmos_pid_started "$$")" ]; } \
+  && pass "#4574 a marker keeps the local start time on line 3 (older readers) and the UTC one on line 4" \
+  || fail "#4574 the marker's start-time lines are not local then UTC ($(sed -n '3,4p' "$W/markers/suitewait.$$" | tr '\n' '|'))"
+kosmos_unmark_suite_waiting
+# A marker half-written (its .tmp, before the mv) is not a waiter of its own (review 19).
+sleep 300 & zt=$!
+q_ready "$zt"
+# The shape that matters: the real marker AND its .tmp present at once (a re-mark in flight). Counted, the one waiter
+# would read as two, and the drop back to one as a fall.
+for mf in "$W/markers/suitewait.$zt" "$W/markers/suitewait.$zt.tmp.$zt"; do
+  printf '1 %s\n%s\n%s\n%s\n' "$zt" "$(ps -ww -o command= -p "$zt")" "$(_kosmos_pid_started_local "$zt")" "$(_kosmos_pid_started "$zt")" > "$mf"
+done
+[ "$(_kosmos_suite_waiters_ahead | grep -c .)" = 1 ] && pass "#4574 a waiter whose re-mark is in flight (marker + .tmp) counts once" \
+  || fail "#4574 a waiter with a .tmp beside its marker was counted more than once ($(_kosmos_suite_waiters_ahead | tr '\n' ' '))"
+rm -f "$W/markers/suitewait.$zt" "$W/markers/suitewait.$zt.tmp.$zt"; kill "$zt" 2>/dev/null; wait "$zt" 2>/dev/null
+# The .tmp filter reads the file NAME: a marker dir whose own path holds ".tmp." still counts its waiters (review 21).
+D21="$T/x.tmp.y/markers"; mkdir -p "$D21"
+sleep 300 & zd=$!
+q_ready "$zd"
+printf '1 %s\n%s\n%s\n%s\n' "$zd" "$(ps -ww -o command= -p "$zd")" "$(_kosmos_pid_started_local "$zd")" "$(_kosmos_pid_started "$zd")" > "$D21/suitewait.$zd"
+[ "$(KOSMOS_RUN_MARKER_DIR="$D21" _kosmos_suite_waiters_ahead | grep -c .)" = 1 ] && pass "#4574 a marker dir whose path holds .tmp. still counts its waiters" \
+  || fail "#4574 the .tmp filter skipped real markers because of the directory's name"
+kill "$zd" 2>/dev/null; wait "$zd" 2>/dev/null
+# A dead run's marker under THIS run's pid (a recycled pid) is cleared on entry, not taken as this run's place.
+rm -f "$W/calls"
+printf '1 %s\n%s\nMon Jan  1 00:00:00 2001\n' "$$" "$(ps -ww -o command= -p "$$")" > "$W/markers/suitewait.$$"
+out="$(WPASS_AFTER=0 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && [ ! -e "$W/markers/suitewait.$$" ]; } && pass "#4574 a dead run's marker under this run's pid is cleared on entry" \
+  || fail "#4574 a recycled-pid marker survived entry (rc=$rc, $out)"
+rm -f "$W/calls" "$W/markers/suitewait.$$"
+# A pass on which this run's own marker is gone (another reader's failed ps removed it during the check) takes no
+# count: the check deletes it on every even call, with one waiter ahead and one behind that never move. Counted, those
+# passes would include the waiter behind and every odd pass would read as a fall. After the one first-pass restart
+# (the first count is taken before this run is marked), the bound runs out at call 5.
+q_clear; q_ahead 2
+qbehind=$(sed -n '2p' "$W/ahead")
+printf '%s %s\n%s\n%s\n%s\n' "$(( $(date +%s) + 100000 ))" "$qbehind" "$(ps -ww -o command= -p "$qbehind")" "$(_kosmos_pid_started_local "$qbehind")" "$(_kosmos_pid_started "$qbehind")" > "$W/markers/suitewait.$qbehind"
+wsnatch() { local n; n=$(( $(cat "$W/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$W/calls"
+  [ $((n % 2)) -eq 0 ] && rm -f "$W/markers/suitewait.$$"; echo "busy: stand-in run" >&2; return 1; }
+out="$(KOSMOS_WAIT_QUEUE_CEIL_S=100000 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wsnatch 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 5 ] && has "$out" "since this run joined the queue or a waiter ahead last left it"; } \
+  && pass "#4574 a pass whose own marker was just removed takes no count, so waiters behind never restart the bound" \
+  || fail "#4574 a missing own marker let waiters behind restart the bound (rc=$rc, calls=$(cat "$W/calls"), $(printf '%s' "$out" | tail -1))"
+q_clear
+# A refusal whose words change every call (wcheck) is not the queue moving: a new pid in a message is no signal.
+out="$(WPASS_AFTER=10 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wcheck 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ]; } \
+  && pass "#4574 a refusal that only changes its wording does not restart the bound" \
+  || fail "#4574 a changing refusal was read as the queue moving (rc=$rc, calls=$(cat "$W/calls"), $out)"
+rm -f "$W/calls"
+out="$(WPASS_AFTER=10 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "a test run" wcheck 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 3 ]; } \
+  && pass "#4574 outside the queue the bound is unchanged" \
+  || fail "#4574 a non-queue wait was stretched (rc=$rc, calls=$(cat "$W/calls"), $out)"
+rm -f "$W/calls"
+out="$(unset KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S; WPASS_AFTER=999 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 91 ]; } \
+  && pass "#4574 the queue's default bound is 45 minutes (90 waits of 30 s), longer than a full suite (14 to 26 min measured)" \
+  || fail "#4574 the queue default bound is not 2700 s (rc=$rc, calls=$(cat "$W/calls"))"
+rm -f "$W/calls"
+out="$(unset KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S; WPASS_AFTER=999 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "a test run" wsame 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$W/calls")" = 41 ]; } \
+  && pass "#4574 CONTROL: outside the queue the default bound stays 20 minutes (40 waits)" \
+  || fail "#4574 the non-queue default bound moved (rc=$rc, calls=$(cat "$W/calls"))"
+rm -f "$W/calls"
+
 # The loop itself honours the queue: the box is clear, but an older suite is waiting, so this one waits.
 sleep 60 & wp=$!
-printf '100 %s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
+printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 rm -f "$W/calls"
 out="$(KOSMOS_NO_WAIT=1 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test run" --suite-queue wcheck 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "has been waiting for the box longer" && has_pid "$out" "$wp"; } \
@@ -673,11 +887,11 @@ out="$(KOSMOS_NO_WAIT=1 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test r
 # run-tests.sh in a scratch tree with one stray test file stops at its coverage check, the first thing after the
 # guard, so "COVERAGE MISMATCH" means the guard let it through and nothing ran. The tree is rooted under /tmp by
 # name (not $T, which may sit in the kt sandbox and would make every run here a fixture).
-RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; trap 'rm -rf "$T" "$RT"' EXIT
+RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; RT2=""; trap 'type q_clear >/dev/null 2>&1 && q_clear; rm -rf "$T" "$RT" ${RT2:+"$RT2"}' EXIT
 mkdir -p "$RT/tools/lib" "$RT/sub"; cp "$HERE/run-tests.sh" "$RT/tools/"; cp "$HERE"/lib/*.sh "$RT/tools/lib/"
 : > "$RT/sub/stray.test.js"
 sleep 60 & wp=$!
-printf '100 %s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
+printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 # The caller reads as a fixture (a node --test ancestor), except the stand-in pid $DEAD (see the wiring test below).
 printf '#!/bin/sh\n[ "$1" = '"$DEAD"' ] || printf "node --test tools.x.test.js\\n"\n' > "$T/ancestor-all"; chmod +x "$T/ancestor-all"
 rt_run() { (cd "$RT" && env KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
@@ -689,6 +903,31 @@ out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TESTS_IGNO
 { has "$out" "COVERAGE MISMATCH" && ! has "$out" "waiting for the box longer"; } \
   && pass "#4498 KOSMOS_TESTS_IGNORE_SUITE=1 runs past the queue too, as its message says" \
   || fail "#4498 the override still queued ($(printf '%s' "$out" | tail -2))"
+# #4609: the overrides are for THIS run's wait and are not handed to the tests it runs. A test that runs its own
+# run-tests.sh (the #4498 queue arms above) would otherwise inherit them and skip the queue it is testing. RT stops at
+# the coverage gate on purpose, so this uses a second copy with no stray test file: the gate passes (1 == 1) and the
+# run reaches its `node --test` line, where a stand-in node first on PATH reports what it inherited. KOSMOS_TEST_PART=node
+# keeps it from going on to the shell part. While it runs, this copy is a real, non-fixture run-tests.sh to other agents'
+# suite guards (like RT, but for a few seconds longer, through node and the gates after it): a poll landing then waits.
+RT2="$(mktemp -d /tmp/rt4609.XXXXXX)"; mkdir -p "$RT2/tools/lib" "$T/fakebin"
+cp "$HERE/run-tests.sh" "$RT2/tools/"; cp "$HERE"/lib/*.sh "$RT2/tools/lib/"
+: > "$RT2/one.test.js"   # one root test file: the gate's two counts agree (1 == 1) and the list is not empty
+# The stand-in node reports EVERY name in the lib's list, so the assertion follows the list (review 20).
+{ printf '#!/bin/sh\n'; for v in $KOSMOS_WAIT_CONTROL_VARS; do printf 'echo "SEEN %s=${%s:-unset}"\n' "$v" "$v"; done; printf 'exit 0\n'; } > "$T/fakebin/node"
+chmod +x "$T/fakebin/node"
+# Every other listed name set to 1, built here: a case pattern's ")" inside a nested $( ) ends the substitution on bash 3.2.
+_ovr=""; for v in $KOSMOS_WAIT_CONTROL_VARS; do [ "$v" = KOSMOS_NO_WAIT ] || [ "$v" = KOSMOS_WAIT_MAX_S ] || _ovr="$_ovr $v=1"; done
+out="$(cd "$RT2" && env KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
+  KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TEST_PART=node KOSMOS_TEST_PART_LOCAL=1 KOSMOS_SHELL_SHARD= \
+  $_ovr PATH="$T/fakebin:$PATH" bash tools/run-tests.sh 2>&1)"
+rm -rf "$RT2"
+# One list: run-tests.sh unsets the lib's list, not its own copy (review 19).
+grep -q '^unset ${KOSMOS_WAIT_CONTROL_VARS:-}$' "$HERE/run-tests.sh" && pass "#4609 run-tests.sh unsets the lib's one list of wait controls" \
+  || fail "#4609 run-tests.sh does not unset KOSMOS_WAIT_CONTROL_VARS"
+_seen_all=1; for v in $KOSMOS_WAIT_CONTROL_VARS; do has "$out" "SEEN $v=unset" || _seen_all=0; done
+{ [ "$_seen_all" = 1 ] && [ -n "$KOSMOS_WAIT_CONTROL_VARS" ]; } \
+  && pass "#4609 the queue overrides and wait controls are not inherited by the suite's own processes" \
+  || fail "#4609 a node the suite ran inherited an override, or never ran ($(printf '%s' "$out" | tail -6 | tr '\n' '|'))"
 out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all")"
 { has "$out" "COVERAGE MISMATCH" && ! has "$out" "waiting for the box longer"; } \
   && pass "#4498 a run-tests.sh inside a test does not queue behind a waiting suite" \
