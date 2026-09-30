@@ -23,6 +23,11 @@ const nodePath = require('node:path');
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 
+/* #4544: the click test takes its LAST from test-support/fleet (a real card), so the data roots are sandboxed. */
+const SANDBOX = fs.realpathSync(fs.mkdtempSync(nodePath.join(require('node:os').tmpdir(), 'prompter-nudges-')));
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+
 /* Brace-matched slice of a top-level page function, returned as SOURCE so one
    function can be spliced in as another's dependency (the web.memory-words pattern). */
 function extractSource(name) {
@@ -136,4 +141,62 @@ test('the Settings copy no longer promises an undeliverable nudge (#3508 restore
   // And it now tells the person a check-in appears -- the delivery this build adds.
   assert.match(PAGE, /shows a check-in/,
     'the Prompter hint does not mention the in-app check-in it now delivers');
+});
+
+/* #4544 (Josh): each name links to its agent. The render is called, not grepped, and the click
+   handler is extracted from the page and called with fake events. */
+test('#4544: each check-in name is a link to that agent (the ?tab=detail&agent= deep link), escaped', async () => {
+  const box = fakeBox();
+  const paint = makePaint(fakeDoc(box), okFetch({ ok: true, at: 'now', nudges: [{ session: 'amara-singh', from: 'working', to: 'idle' }, { session: 'a&b', from: null, to: 'idle' }] }));
+  await paint();
+  assert.match(box.innerHTML, /<a class="hb-nudge-go" href="\?tab=detail&amp;agent=amara-singh" data-hb-agent="amara-singh"><b>amara-singh<\/b><\/a>/);
+  assert.match(box.innerHTML, /href="\?tab=detail&amp;agent=a%26b" data-hb-agent="a&amp;b"/, 'the session must be URL-encoded in the link and escaped in the attribute');
+});
+
+function makeOpen(last, opened) {
+  const factory = new Function('LAST', 'openDetail', `${extractSource('prompterNudgeOpen')}; return prompterNudgeOpen;`);
+  return factory(last, (s) => opened.push(s));
+}
+function clickOn(session, extra = {}) {
+  let prevented = false;
+  const link = { getAttribute: (k) => (k === 'data-hb-agent' ? session : null) };
+  return { e: { button: 0, target: { closest: (sel) => (sel === 'a[data-hb-agent]' ? link : null) }, preventDefault: () => { prevented = true; }, ...extra }, prevented: () => prevented };
+}
+
+test('#4544: a plain click on a name opens that agent in place; control: the link is left alone otherwise', () => {
+  const fleet = require('./test-support/fleet');
+  const board = fleet.install([fleet.agent('amara-singh')], { strict: false });
+  try {
+    const who = board.agents.find((c) => (c.sessionName || '').startsWith('amara-singh')).sessionName;
+    const opened = [];
+    const open = makeOpen(board.agents, opened);
+    const plain = clickOn(who);
+    assert.equal(open(plain.e), true);
+    assert.equal(plain.prevented(), true, 'a plain click must not also follow the link');
+    assert.deepEqual(opened, [who]);
+    // A new-tab click, and an agent this page does not have, go to the link (nothing prevented).
+    for (const [label, c] of [['cmd-click', clickOn(who, { metaKey: true })], ['middle click', clickOn(who, { button: 1 })], ['not on this board', clickOn('gone-agent')]]) {
+      assert.equal(open(c.e), false, label + ' was taken over');
+      assert.equal(c.prevented(), false, label + ' prevented the link');
+    }
+    assert.deepEqual(opened, [who], 'only the plain click opened anything');
+    // A click outside any name does nothing.
+    assert.equal(open({ button: 0, target: { closest: () => null }, preventDefault: () => { throw new Error('prevented'); } }), false);
+  } finally { board.restore(); }
+});
+
+test('#4544: the click handler is attached to the check-in panel (delegated, so it survives each repaint)', () => {
+  assert.match(PAGE, /\{ const hbBox = document\.getElementById\('hb-nudges'\); if \(hbBox\) hbBox\.addEventListener\('click', prompterNudgeOpen\); \}/);
+  // The panel is static markup that comes before the script that attaches it.
+  assert.ok(PAGE.indexOf('id="hb-nudges"') > 0 && PAGE.indexOf('id="hb-nudges"') < PAGE.indexOf("hbBox.addEventListener('click', prompterNudgeOpen)"));
+});
+
+test('#4544: the Prompter hint says what it now does: only agents with tasks to finish, and a reminder to the agent', () => {
+  const at = PAGE.indexOf('<b>Check on your agents</b>');
+  assert.ok(at > 0, 'the Prompter row was not found');
+  const hint = PAGE.slice(at, PAGE.indexOf('</p>', at));
+  assert.match(hint, /still have tasks to finish/, 'the hint must say the list is only agents with tasks to finish');
+  // "can send": the reminder goes only where Kosmos is allowed to type to agents (live execution) and within the hour's cap.
+  assert.match(hint, /can remind the ones with tasks to pick their work back up/, 'the hint must say Kosmos messages the agent, without promising it always does or that every listed agent is messaged');
+  assert.doesNotMatch(hint, /checks which of your agents have stopped\. When one has/, 'the old every-stopped-agent wording is back');
 });

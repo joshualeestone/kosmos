@@ -122,6 +122,7 @@ function runSupervisorWithDoor({ runner, model, doorVar, doorValue, keyBasename 
   const tree = fs.mkdtempSync(nodePath.join(os.tmpdir(), `aw-sup-door-${runner}-`));
   fs.mkdirSync(nodePath.join(tree, 'bin'), { recursive: true });
   fs.mkdirSync(nodePath.join(tree, 'secrets', 'env'), { recursive: true });
+  fs.symlinkSync(nodePath.join(__dirname, 'engine'), nodePath.join(tree, 'engine'));
   const acct = nodePath.join(tree, 'acct');
   fs.mkdirSync(acct, { recursive: true });
   fs.symlinkSync(SUP, nodePath.join(tree, 'bin', 'agent-supervisor.sh'));
@@ -207,6 +208,7 @@ function runGrokWithAccount({ door, keyFile, authJson, authRaw, keyIsDir, defaul
     fs.mkdirSync(nodePath.join(tree, 'engine'), { recursive: true });
     fs.writeFileSync(nodePath.join(tree, 'engine', 'sendertoken.js'), 'module.exports = { mint: () => ({ ok: false }) };\n');
     fs.writeFileSync(nodePath.join(tree, 'engine', 'grokaccounts.js'), "throw new Error('broken on purpose');\n");
+    fs.writeFileSync(nodePath.join(tree, 'engine', 'tokendoors.js'), "module.exports.SPECS = [{ envVar: 'XAI_API_KEY' }];\n");
   } else if (!noEngine) fs.symlinkSync(nodePath.join(__dirname, 'engine'), nodePath.join(tree, 'engine'));
   if (door) fs.writeFileSync(nodePath.join(tree, 'secrets', 'env', 'XAI_API_KEY'), door);
   if (keyFile !== undefined) fs.writeFileSync(nodePath.join(acct, '.kosmos-grok-apikey'), keyFile, { mode: 0o600 });
@@ -304,10 +306,11 @@ test('grok: an UNREADABLE key file beside a sign-in describes nothing, so nothin
 });
 
 
-test('grok: with NO engine to ask, a sign-in keeps the door key AND says so (never a silent keep)', () => {
+test('grok: with NO engine to ask, a sign-in fails closed and says the door was refused', () => {
   const r = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, noEngine: true, withStderr: true });
-  assert.ok(kept(r.rec), 'the key is kept (the visible failure)');
+  assert.ok(!/XAI_API_KEY=/.test(r.rec), 'the unverified door key is not handed to the agent');
   assert.match(r.stderr, /auth\.json is there but this supervisor cannot reach the engine or node/, 'and the supervisor log says why');
+  assert.match(r.stderr, /XAI_API_KEY was not handed to the agent/, 'the fail-closed refusal names the omitted variable');
   // CONTROL: with the engine, the same fixture strips and says nothing.
   const c = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, withStderr: true });
   assert.ok(stripped(c.rec));
@@ -354,8 +357,8 @@ test('grok: no launch carries a --leader-socket (this PR does not change how gro
   }
 });
 
-test('grok: an engine that THROWS while classifying keeps the key and SAYS so (never a silent keep)', () => {
+test('grok: an engine that THROWS while classifying keeps an allowlisted key and SAYS so', () => {
   const r = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, brokenEngine: true, withStderr: true });
-  assert.ok(kept(r.rec), 'the key is kept when the account kind cannot be read');
+  assert.ok(kept(r.rec), 'the allowlisted key is kept when the account kind cannot be read');
   assert.match(r.stderr, /could not read what kind of account \S+ is \(broken on purpose\), so this agent keeps any XAI_API_KEY/);
 });

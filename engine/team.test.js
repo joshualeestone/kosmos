@@ -236,3 +236,12 @@ test('#1279: a malformed member is refused by shape and never reaches createAgen
   assert.ok(r.refused.every((x) => /must be a create spec object/.test(x.because)));
   assert.equal(deps.createAgent.calls.length, 1, 'only the well-formed member reached createAgent');
 });
+
+test('#4559: created keeps the order members were sent in, refused ones skipped (the org chart import pairs by it)', () => {
+  const r = createTeam({
+    creator: 'operator', purpose: 'Imported from an org chart',
+    members: [{ name: 'Chief' }, { name: 'Taken' }, { name: 'Sales' }, { name: 'Rep' }],
+  }, okDeps({ Taken: { outcome: 'refused', because: 'that name is taken' } }));
+  assert.deepEqual(r.created.map((c) => c.shownAs), ['Chief', 'Sales', 'Rep']);
+  assert.deepEqual(r.refused.map((c) => c.name), ['Taken']);
+});

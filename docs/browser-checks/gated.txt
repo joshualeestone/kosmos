@@ -40,6 +40,7 @@ render-chip-filters-3423
 render-claude-connect-choice-2433
 render-cluster-reorder-2929
 render-codex-account-picker-2811
+render-composer-caret-4585
 render-composer-reset
 render-composer-stroke
 render-conn-ask-4451
@@ -105,6 +106,7 @@ render-home-phone-718
 render-import-add-inplace-2419
 render-inline-field-errors-2606
 render-keyed-install-3713
+render-layer-gutter-4494
 render-long-title
 render-made-before
 render-member-ring-3991
@@ -117,6 +119,7 @@ render-msg-counter-3403
 render-muse-signin-3939
 render-nav-badges-3216
 render-needsyou-dealarm-2808
+render-newlook-4470
 render-no-conflict-3729
 render-no-left-bars-3692
 render-observed-consumers-1959
@@ -155,6 +158,7 @@ render-reactions-2255
 render-reassign-restart-2829
 render-reassign-update-3050
 render-reauth-reach-1918
+render-recommender-guards-4545
 render-recommender-live-3595
 render-remove-force-2651
 render-rename-4421

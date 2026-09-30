@@ -577,7 +577,7 @@ async function main() {
     /* Since agent-page-nav the box is hidden for EVERY agent until the
        Terminal section is arrived at, so the assertion has to be made from
        inside that section or it proves "not captured yet", not "untied". */
-    await page.click('#d-nav button[data-go="term"]');
+    await page.click('#d-nav button[data-go="model"]');
     await page.waitForTimeout(700);
     const rookWindow = await page.evaluate(() => ({
       boxHidden: document.getElementById('d-window-box').hidden,
