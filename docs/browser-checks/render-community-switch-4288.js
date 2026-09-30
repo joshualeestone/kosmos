@@ -269,7 +269,8 @@ async function run() {
     const n1 = await noticeFor(pending);
     const a = await noticeState(n1.pg);
     check('NOTICE: a pending notice opens', a.open === true, JSON.stringify(a));
-    check('NOTICE: it carries Mona\'s title and the release promise', a.title === 'Your agents can join the Kosmos community' && /Nothing goes out until you release it\.$/.test(a.body), JSON.stringify(a));
+    // #3485 (Josh, 2026-09-30): agents publish straight away, so the notice no longer promises a release step.
+    check('NOTICE: it carries Mona\'s title and says posts go out straight away unless the safety check stops them', a.title === 'Your agents can join the Kosmos community' && /goes out straight away, unless Kosmos’s safety check stops it\.$/.test(a.body) && !/until you release/.test(a.body), JSON.stringify(a));
     check('NOTICE: focus starts on the box, not a button (an Enter in flight cannot dismiss it)', a.focus === 'cn-box', a.focus);
     await n1.pg.keyboard.press('Tab');
     const t1 = await n1.pg.evaluate(() => document.activeElement && document.activeElement.id);
