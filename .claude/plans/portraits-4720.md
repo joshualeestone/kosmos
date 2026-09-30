@@ -46,10 +46,29 @@ Rejected:
 
 ## Gaps decided, not missed
 
-- **The route is a GET that can start a download**, so another page open in the same browser can
-  trigger it with an image tag. What it can cause is bounded: a fetch of a path the signed
-  catalogue names, at the catalogue's own address, at most once a minute per portrait while it
-  fails and never again once kept. It cannot read the answer.
+- **The route is a GET that can start a download.** Another website cannot reach it: `/api/`
+  needs the board token, the cookie is SameSite=Strict, and the route calls `crossSiteRead` like
+  the other GETs that make this computer fetch. What is left is a page on another local port.
+  What it can cause is bounded: a request for a path the signed catalogue names, at the
+  catalogue's address, at most two a minute per portrait while it fails (the plain ask and the
+  one past the caches), one when it succeeds, and none after that: kept on disk, or held in
+  memory when the disk refuses the save. It cannot read the answer.
+- **The download follows redirects**, as the catalogue's own download does. A host that serves
+  the catalogue address could send the board to another address; the answer is still refused
+  unless it is the named image, so this is a request the board makes blind, by someone who
+  already controls what the catalogue address serves. Not changed here, so the two downloads
+  behave alike.
+- **A portrait republished under the same file name while the board holds the older catalogue.**
+  File names are `avatars/<id>.webp`, not content-addressed. A board holding serial N asks, gets
+  the new image, asks once past the caches, gets it again, and refuses it: that member is made
+  with no picture until the board takes serial N+1 (the Team screen asks for the catalogue each
+  time it opens, at most once in ten minutes). The ask past the caches covers only the reverse
+  case. Not built: forcing a catalogue download in the middle of making a team would change the
+  team under the person. A wrong picture is never shown; a missing one costs a retry later.
+- **Two Kosmos processes sharing one data folder with different catalogues** would prune each
+  other's portraits. The cost is a second download.
+- **A crash between write and rename** leaves one `<sha>.webp.<pid>.tmp` (at most 512 KiB) that
+  nothing removes.
 - **Until `tcPortrait` changes, nothing calls the route.** The catalogue repo must not publish a
   portrait before a build carrying both halves is served (the card says the same).
 - **A Kosmos older than this change** that meets a catalogue with portraits shows "(portrait not
@@ -59,6 +78,20 @@ Rejected:
 - **No portrait is shown before the team is made.** The Team screen lists members by name today;
   showing faces in the list is its own change.
 
+## Review 1 (blind, opus): 0 blockers, 3 warnings, 7 nits
+
+Fixed: the prune's keep list had no test (a second member's kept portrait now must survive); a
+portrait whose save fails was downloaded on every ask (now held in memory, tested with a file
+where the folder should be); the failure and in-flight maps were keyed by hash alone, so two
+members sharing an image under two names shared one failure (now hash and name); the route
+lacked `crossSiteRead` and an answer for a throw inside its handler; each arm of the WebP test,
+the declared-size refusal, the minute's gap expiring and the response headers are now pinned.
+Two lines removed because nothing could pin them: the delete of a damaged kept file (the good
+copy replaces it on rename) and the 20-byte length check (the form check already fails anything
+shorter). Decided, not built: the three gaps added above. My first version of the first gap said
+another website could trigger the route with an image tag; that was wrong, and the reviewer
+showed why.
+
 ## Weakest premise
 
 That a person making a team is online at that moment. They are in practice (the Team screen just
@@ -66,11 +99,11 @@ downloaded the catalogue), and when they are not the agent is made without a pic
 
 ## Tests
 
-- `engine/catalogue.portrait-4720.test.js` (16): the happy path and its address, kept and not
+- `engine/catalogue.portrait-4720.test.js` (21; 23 guards removed one at a time, each red): the happy path and its address, kept and not
   asked again, wrong image refused after one ask past the caches, stale cache recovered, the
   minute's gap and `force`, not a WebP, over the cap with an at-the-cap control, nine bad paths
   and six bad hashes never fetched, a damaged kept file, pruning leaves a download under way
   alone, six asks one download, unknown team and member, a test run downloads nothing, the
   address follows `KOSMOS_CATALOGUE_BASE`.
-- `server.catalogue-portrait-4720.test.js` (5): through a real board against a real local web
+- `server.catalogue-portrait-4720.test.js` (6; the cross-site refusal and the no-store header each red when removed): through a real board against a real local web
   server standing in for the catalogue address.

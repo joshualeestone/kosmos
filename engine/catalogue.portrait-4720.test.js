@@ -281,10 +281,12 @@ test('each part of the WebP test is needed: a wrong size field, a wrong first ch
   const wrongChunk = Buffer.from(IMG); wrongChunk.write('EXIF', 12, 'latin1');
   const wrongForm = Buffer.from(IMG); wrongForm.write('WAVE', 8, 'latin1');
   const notRiff = Buffer.from(IMG); notRiff.write('RIFX', 0, 'latin1');
-  for (const [what, bytes] of Object.entries({ wrongSize, hidden, wrongChunk, wrongForm, notRiff, short: IMG.subarray(0, 12) })) {
+  // `tiny` is shorter than the size field itself: refused as not the image, not by an error reading it.
+  for (const [what, bytes] of Object.entries({ wrongSize, hidden, wrongChunk, wrongForm, notRiff, short: IMG.subarray(0, 12), tiny: Buffer.from('RIFF') })) {
     setup(PATH, sha256(bytes));
     const r = await catalogue.portrait('marketing', 'lead', { fetcher: server(bytes).fetcher });
     assert.equal(r.ok, false, `${what} was taken as a portrait`);
+    assert.match(r.because, /not the image the catalogue names/, what);
   }
 });
 

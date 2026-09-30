@@ -323,9 +323,11 @@ function team(key) {
 function portraitFile(sha) { return path.join(path.dirname(cacheFile()), 'portraits', `${sha}.webp`); }
 
 /** The same test the catalogue's builder applies before it publishes one: a RIFF container whose
- *  form is WEBP, whose size field accounts for the whole file, and whose first chunk is an image. */
+ *  form is WEBP, whose size field accounts for the whole file, and whose first chunk is an image.
+ *  (The builder also asks for 20 bytes first; here the form check already fails anything shorter
+ *  than 12, before the size field is read, and the chunk check anything shorter than 16.) */
 function isWebp(bytes) {
-  return bytes.length >= 20 && bytes.subarray(0, 4).toString('latin1') === 'RIFF' && bytes.subarray(8, 12).toString('latin1') === 'WEBP'
+  return bytes.subarray(0, 4).toString('latin1') === 'RIFF' && bytes.subarray(8, 12).toString('latin1') === 'WEBP'
     && bytes.readUInt32LE(4) + 8 === bytes.length && ['VP8 ', 'VP8L', 'VP8X'].includes(bytes.subarray(12, 16).toString('latin1'));
 }
 
