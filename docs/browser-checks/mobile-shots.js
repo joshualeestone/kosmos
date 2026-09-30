@@ -159,13 +159,73 @@ const SCREENS = [
      paints it. The email is example.com so the leak guard still judges it.
      ⚠️ noServiceWorker: the board's sw.js claims the page, and in WebKit a
      page.route never sees a controlled page's fetches (measured: the stub was
-     never hit and the card stayed hidden), so this screen's context blocks it. */
+     never hit and the card stayed hidden), so this screen's context blocks it.
+     #4524: since #3829's addendum the full card, with Allow, renders only on Settings > Kosmos Plus; every other view
+     shows one compact line linking there. So this screen opens that view. Plus is off on the throwaway board (no
+     connected panel), so the full card is the top card there; with a connected panel it sits above the panel
+     (#plus-asks). The wait accepts either, and fails unless an Allow button is rendered visible and is itself what sits
+     at its own centre point (below). */
   { name: 'allow-card', owner: 'Kano', noServiceWorker: true, go: async (page) => {
+    /* #4568: a device's match code is always two symbols, a dash, two symbols (kosmos-relay's match_code, e.g. K7-3M).
+       This stub said '482 913', a sign-in code's shape, and its seven boxes ran past the card (every phone size in the
+       #4561 shots; 24px at se, measured by the check below).
+       MSHOTS_COVER_CONTROL=spill puts that code back, so the fit check below can be seen to fail. */
+    const code = COVER_CONTROL === 'spill' ? '482 913' : 'K7-3M';
     const pending = { email: 'owner@example.com', snapshot: true, devices: [
-      { device_id: 'd-sample-0001', name: 'iPhone', code: '482 913', first_seen: Math.floor(Date.now() / 1000) - 40, denied_at: 0 }] };
+      { device_id: 'd-sample-0001', name: 'iPhone', code, first_seen: Math.floor(Date.now() / 1000) - 40, denied_at: 0 }] };
     await page.route('**/api/remote/pending', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pending) }));
-    await page.reload({ waitUntil: 'load' });
-    await page.waitForSelector('#askcard:not([hidden]) [data-ask="allow"]', { state: 'visible', timeout: 8000 });
+    await at(page, '?tab=settings&sec=plus');
+    const allow = '#askcard:not([hidden]) [data-ask="allow"], #plus-asks:not([hidden]) [data-ask="allow"]';
+    await page.waitForSelector(allow, { state: 'visible', timeout: 8000 });
+    // MSHOTS_COVER_CONTROL=overlay: a planted full-page layer, so the check below can be seen to fail.
+    if (COVER_CONTROL === 'overlay') {
+      await page.evaluate(() => { const d = document.createElement('div'); d.id = 'cover-control';
+        d.style.cssText = 'position:fixed;inset:0;z-index:2147483647'; document.body.appendChild(d); });
+    }
+    /* Visible is not seen (#4524: the Community notice covered the whole card and this wait passed). The
+       point at the first laid-out Allow button's centre must be that button (or inside it), so anything drawn
+       over it, or the button being outside the viewport, fails the shot. Polled for up to 3 s, so a repaint
+       between two reads is not a red. */
+    const whatIsAt = (sel) => {
+      const b = [...document.querySelectorAll(sel)].find((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
+      if (!b) return 'gone (no Allow button is laid out)';
+      const r = b.getBoundingClientRect();
+      const x = r.left + r.width / 2, y = r.top + r.height / 2;
+      if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return 'outside the viewport (its centre is at ' + Math.round(x) + ',' + Math.round(y) + ')';
+      const top = document.elementFromPoint(x, y);
+      if (top && b.contains(top)) return '';
+      const named = top && (top.id ? top : top.closest('[id]'));   // the nearest element with an id names the layer
+      return 'covered by ' + (named ? named.tagName.toLowerCase() + '#' + named.id : top ? top.tagName.toLowerCase() : 'nothing readable');
+    };
+    let hit = await page.evaluate(whatIsAt, allow);
+    for (const until = Date.now() + 3000; hit && Date.now() < until; hit = await page.evaluate(whatIsAt, allow)) {
+      await page.waitForTimeout(200);
+    }
+    if (hit) throw new Error('the Allow button is not seen: ' + hit);
+    /* #4568: every laid-out request card's (.askreq) code boxes must sit inside that card's padding. The page-level
+       overflow audit cannot see this: the row runs past the card, not past the page. */
+    const fits = (sel) => {
+      const laidOut = (e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+      const cards = [...new Set([...document.querySelectorAll(sel)].filter(laidOut).map((b) => b.closest('.askreq')))];
+      if (!cards.length || cards.includes(null)) return 'no .askreq card around a laid-out Allow button';
+      for (const card of cards) {
+        const cs = getComputedStyle(card), r = card.getBoundingClientRect();
+        const left = r.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft);
+        const right = r.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight);
+        const cells = [...card.querySelectorAll('.devcode-cell')];
+        if (!cells.length) return 'no code boxes in a request card';   // the stub's request always has a code
+        const over = cells.map((c) => { const b = c.getBoundingClientRect(); return Math.max(b.right - right, left - b.left); });
+        const out = over.filter((d) => d > 0.5);
+        if (out.length) return out.length + ' of ' + cells.length + ' code boxes leave the card, the farthest by ' + Math.round(Math.max(...out)) + 'px';
+      }
+      return '';
+    };
+    // Polled for up to 3 s, like the hit-test.
+    let spill = await page.evaluate(fits, allow);
+    for (const until = Date.now() + 3000; spill && Date.now() < until; spill = await page.evaluate(fits, allow)) {
+      await page.waitForTimeout(200);
+    }
+    if (spill) throw new Error('the code does not fit its card: ' + spill);
   } },
   // Sonya: settings.
   { name: 'settings', owner: 'Sonya', go: async (page) => {
@@ -187,8 +247,6 @@ const SCREENS = [
     if (put.status() !== 200) throw new Error('settings-recommender: could not turn the Recommender on (' + put.status() + ')');
     await at(page, '?tab=settings&sec=automation');
     await page.waitForSelector('#rec-guards-row', { state: 'visible', timeout: 5000 });
-    // The one-time community notice can open over Settings on a desktop; this screen is the block.
-    await page.waitForSelector('#cn-ok', { state: 'visible', timeout: 2500 }).then(() => page.click('#cn-ok')).catch(() => {});
     await page.evaluate(() => document.getElementById('rec-guards-row').closest('.dbox').scrollIntoView({ block: 'center' }));
     await page.mouse.move(1, 1);
     await page.waitForTimeout(300);
@@ -235,8 +293,18 @@ const SCREENS = [
   } },
   { name: 'agent-instructions', owner: 'unowned', go: async (page, data) => {
     await at(page, '?tab=detail&agent=' + data.chatAgent);
-    await page.locator('#d-nav button[data-go="instr"]').first().click({ timeout: 5000 });
+    await page.locator('#d-nav button[data-go="profile"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-instr', { state: 'visible', timeout: 5000 });
+    // #4550: Instructions is inside Profile now, below the profile block; the shot is of it.
+    await page.evaluate(() => document.getElementById('d-sec-instr').scrollIntoView({ block: 'start' }));
+    await page.waitForTimeout(200);
+  } },
+  // #4550: AI Settings (Runs on, Memory and Fresh start, the terminal, Remove).
+  { name: 'agent-ai-settings', owner: 'Mona Lisa', go: async (page, data) => {
+    await at(page, '?tab=detail&agent=' + data.chatAgent);
+    await page.locator('#d-nav button[data-go="model"]').first().click({ timeout: 5000 });
+    await page.waitForSelector('#d-sec-term', { state: 'visible', timeout: 5000 });
+    await page.mouse.move(1, 1);
   } },
   // Tasks is Mona Lisa and April's lane: shot and reported on #3559, not fixed here.
   { name: 'tasks', owner: 'Mona Lisa / April', go: async (page) => {
@@ -393,6 +461,15 @@ function seedFiles(roots) {
     store.writeProfile(a.claim, { displayName: a.name, role });
   }
   require(path.join(REPO, 'engine', 'firstrun')).complete();
+  /* #4524: first run done BEFORE the board starts makes the board's one-time step read this as an
+     existing install, which owes the one-time Community notice (#4288 part B). It then opened over the
+     run's first shot, card hidden, and the report said ok. Seen it here, as a person who has would have;
+     the board's step leaves an existing file alone. MSHOTS_COVER_CONTROL=cmnotice skips this, and the
+     cover check below must then fail that shot. */
+  if (COVER_CONTROL !== 'cmnotice') {
+    const seen = require(path.join(REPO, 'engine', 'communityswitch')).markNoticeSeen();
+    if (!seen.ok) throw new Error('the seed could not mark the Community notice seen: ' + seen.because);
+  }
   try { require(path.join(REPO, 'engine', 'tips')).set({ off: true }); } catch { /* tips optional */ }
   const chat = require(path.join(REPO, 'engine', 'chat'));
   const t0 = Date.now() - 3600e3;
@@ -586,6 +663,7 @@ async function preflight(base) {
    preflight must stop it), `page` puts an address in an agent's role (the page
    scan must stop it). The address is invented and not example.com. */
 const LEAK_CONTROL = process.env.MSHOTS_LEAK_CONTROL || '';
+const COVER_CONTROL = process.env.MSHOTS_COVER_CONTROL || '';
 const PLANTED_EMAIL = 'planted.leak@leak-control.test';
 const { hitsIn } = require('./lib-leak-guard.js');
 async function leaksOn(page) {
@@ -681,8 +759,20 @@ async function fitOf(page) {
 
 async function run() {
   const args = parseArgs(process.argv.slice(2));
+  // A control with a mistyped name would arm nothing and pass; refuse it instead.
+  if (COVER_CONTROL && !['cmnotice', 'overlay', 'spill'].includes(COVER_CONTROL)) {
+    throw new Error('MSHOTS_COVER_CONTROL must be cmnotice, overlay or spill, not ' + COVER_CONTROL);
+  }
   if (args.list) { for (const s of SCREENS) console.log(s.name.padEnd(20) + s.owner); return 0; }
   const screens = args.screens ? SCREENS.filter((s) => args.screens.includes(s.name)) : SCREENS;
+  // The overlay control is planted by allow-card only; on any other screen it would arm nothing and pass.
+  if ((COVER_CONTROL === 'overlay' || COVER_CONTROL === 'spill') && !screens.some((s) => s.name === 'allow-card')) {
+    throw new Error('MSHOTS_COVER_CONTROL=' + COVER_CONTROL + ' needs the allow-card screen');
+  }
+  // The long code fits at the desktop size (its 1.6rem cap), so spill with no phone size would arm nothing and pass.
+  if (COVER_CONTROL === 'spill' && args.sizes.every((sz) => SIZES[sz].desktop)) {
+    throw new Error('MSHOTS_COVER_CONTROL=spill needs a phone size');
+  }
   /* Nothing to shoot is not a pass: every requested screen is phone-only at the sizes asked for. Decided before
      any browser or board starts (tools.mobile-shots-desktop.test.js). */
   const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !(SIZES[sz].desktop && sc.phoneOnly)).length, 0);
@@ -699,6 +789,7 @@ async function run() {
   const rows = [];
   const skipped = [];   // phone-only screens at the desktop size: listed in both reports, never silently absent
   let overflowCount = 0, errors = 0;
+  let coverControlWaited = false;   // MSHOTS_COVER_CONTROL: the notice is waited for on the first shot only
   try {
     const ctxData = await seed(board.base, board.roots);
     await preflight(board.base);
@@ -748,6 +839,13 @@ async function run() {
                 if (await page.isVisible('#firstrun')) await page.keyboard.press('Escape');
                 await sc.go(page, ctxData);
                 await page.waitForTimeout(250);
+                /* The control's notice opens after a fetch; wait for it, so a slow boot cannot turn the control
+                   green. A notice that never opens times out quietly here, and the gate arm then fails loud. */
+                if (COVER_CONTROL === 'cmnotice' && !coverControlWaited) {
+                  // Once: the notice is recorded as seen when it opens, so no later shot would get it.
+                  coverControlWaited = true;
+                  await page.waitForSelector('#cmnotice', { timeout: 10000 }).catch(() => {});
+                }
                 const leaks = await leaksOn(page);
                 if (leaks.length) {
                   const err = new Error('LEAK GUARD: this screen shows real data (' + leaks.length + ' hits, e.g. '
@@ -766,6 +864,12 @@ async function run() {
                     + late[0] + '). Its shot is deleted. Stopping with no further shots.');
                   err.leak = true;
                   throw err;
+                }
+                /* #4524: the one-time Community notice sits over whatever the shot was for. Read after the shot,
+                   so it can also catch one opened just after it. A literal id, so bc-pr-select.js ties a change
+                   to its markup to this check. */
+                if (await page.evaluate(() => !!document.getElementById('cmnotice'))) {
+                  throw new Error('COVERED: #cmnotice is open over this screen (its shot is kept; the notice may have opened just after it)');
                 }
                 const ov = await overflowOf(page);
                 if (ov.containers.length || ov.worst) {

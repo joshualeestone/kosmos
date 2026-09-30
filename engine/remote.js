@@ -99,12 +99,32 @@ const STATUS_FILE = () => path.join(BASE, 'remote-status.json');
  * bare name (PATH) only when no bundled copy is present, which is the source
  * checkout: there the tunnel is not staged, so a developer sets the env var
  * or puts it on PATH, exactly as before. */
+/* kosmos#4597: the connector's FILE NAME is per platform. The Windows build is a PE
+ * `kosmos-tunnel.exe` (kosmos-relay tools/build-tunnel-release-windows.ps1), staged
+ * at app\bin\kosmos-tunnel.exe by tools/build-kosmos-windows.sh. Looking for the
+ * extensionless Mac name there found nothing, fell through to a bare name on a PATH
+ * that holds no connector, and the Plus pane said "the Plus connector is not
+ * installed on this computer yet" on every Windows install. */
+const connectorFile = (platform = process.platform) => (platform === 'win32' ? 'kosmos-tunnel.exe' : 'kosmos-tunnel');
+/* Where an installed app keeps its connector: `<app>/bin/<connectorFile>`, or null when
+ * it is not there. `appDir` is the folder holding engine/ (a parameter only so a test
+ * can lay out a Windows app in a temp dir and ask). */
+function bundledConnector(appDir = path.join(__dirname, '..'), platform = process.platform, exists = fs.existsSync) {
+  const bundled = path.join(appDir, 'bin', connectorFile(platform));
+  try { return exists(bundled) ? bundled : null; } catch { return null; }
+}
 const BIN = () => {
   if (process.env.AGENT_WORKFORCE_TUNNEL_BIN) return process.env.AGENT_WORKFORCE_TUNNEL_BIN;
-  const bundled = path.join(__dirname, '..', 'bin', 'kosmos-tunnel');
-  try { if (fs.existsSync(bundled)) return bundled; } catch { /* fall through to PATH */ }
-  return 'kosmos-tunnel';
+  return bundledConnector() || connectorFile();
 };
+/* kosmos#4597: the options every connector spawn carries. windowsHide: the Windows
+ * board runs with no console of its own (a hidden Scheduled Task), so a console
+ * program it starts gets a NEW console window unless told not to, and a person would
+ * see a black window flash up for every Plus verb and sit open for the running
+ * tunnel. It means nothing off Windows. No `shell` anywhere: the arguments go to
+ * CreateProcess as one quoted argv (paths with spaces included), never through
+ * cmd.exe, which would re-parse them. */
+const connectorSpawnOptions = (opts) => ({ ...opts, windowsHide: true });
 /* The production addresses are the defaults (#648): a bundle needs nothing
  * baked for a Mac to reach the real relay and coordinator. Precedence: env
  * (tests, self-host), then the relay saved in remote.json, then production. */
@@ -591,7 +611,7 @@ function spawnFedSeat(edgeId) {
   if (process.env.AGENT_WORKFORCE_TUNNEL_CA) {
     args.push('--tunnel-ca', process.env.AGENT_WORKFORCE_TUNNEL_CA);
   }
-  return spawn(BIN(), args, { stdio: ['pipe', 'pipe', 'inherit'] });
+  return spawn(BIN(), args, connectorSpawnOptions({ stdio: ['pipe', 'pipe', 'inherit'] }));
 }
 
 function startChild() {
@@ -631,7 +651,7 @@ function startChild() {
     const env = { ...process.env };
     delete env.KOSMOS_BOARD_TOKEN_FILE;   // never a stale one inherited from the launcher
     if (tokenFile) env.KOSMOS_BOARD_TOKEN_FILE = tokenFile;
-    spawned = spawn(BIN(), args, { stdio: ['ignore', 'ignore', 'inherit'], env });
+    spawned = spawn(BIN(), args, connectorSpawnOptions({ stdio: ['ignore', 'ignore', 'inherit'], env }));
   } catch (err) {
     restartBecause = 'the tunnel program could not be started: ' + (err && err.message);
     process.stderr.write('remote: ' + restartBecause + '\n');
@@ -808,7 +828,7 @@ function setupRun(args, stdin = null, timeoutMs = 0) {
       resolve(result);
     };
     try {
-      spawned = setupSpawn(BIN(), args, { stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
+      spawned = setupSpawn(BIN(), args, connectorSpawnOptions({ stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'] }));
     } catch (err) {
       finish({ ok: false, because: 'the tunnel program could not be started: ' + (err && err.message) });
       return;
@@ -1909,7 +1929,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { COORDINATOR, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,
@@ -1969,6 +1989,8 @@ module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondR
      nor a memoised device id leaks across cases. */
   resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
+  /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
+  bundledConnector,
   /* test seam: the live child's pid, or null. spawn() sets the handle
      synchronously, so a test can assert "nothing spawned" deterministically
      right after ensure() instead of waiting a fixed interval and hoping. */

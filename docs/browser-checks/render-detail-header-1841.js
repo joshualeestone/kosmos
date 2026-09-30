@@ -265,7 +265,7 @@ function chk(ok, label, extra) {
       const el = document.getElementById('d-instr-stale');
       const btn = el.querySelector('.instr-restart');
       const note = el.querySelector('.instr-restart-note');
-      const dot = document.querySelector('#d-nav button[data-go="instr"]');
+      const dot = document.querySelector('#d-nav button[data-go="profile"]');
       return {
         staleHidden: el.hidden, staleHtml: el.innerHTML,
         reportsHidden: document.getElementById('d-instr-reports').hidden,
@@ -296,7 +296,7 @@ function chk(ok, label, extra) {
       detailDots();
       const reports = document.getElementById('d-instr-reports');
       const btn = document.getElementById('d-instr-reports-go');
-      const dot = document.querySelector('#d-nav button[data-go="instr"]');
+      const dot = document.querySelector('#d-nav button[data-go="profile"]');
       return {
         reportsHidden: reports.hidden,
         reportsHtml: document.getElementById('d-instr-reports-text').innerHTML,
@@ -352,7 +352,7 @@ function chk(ok, label, extra) {
       const note = document.getElementById('d-doctrine-note');
       note.hidden = false;
       detailDots();
-      const dot = document.querySelector('#d-nav button[data-go="instr"]');
+      const dot = document.querySelector('#d-nav button[data-go="profile"]');
       const lit = !!(dot && dot.hasAttribute('data-dot'));
       note.hidden = true; detailDots();
       const off = !!(dot && dot.hasAttribute('data-dot'));
@@ -361,7 +361,7 @@ function chk(ok, label, extra) {
     chk(doctrineDot.lit === true, 'Part 1a: showing the doctrine prompt lights the Instructions tab dot', String(doctrineDot.lit));
     chk(doctrineDot.off === false, 'CONTROL: with nothing needing you, the Instructions dot is off', String(doctrineDot.off));
 
-    await page.click('#d-nav button[data-go="instr"]');
+    await page.click('#d-nav button[data-go="profile"]');
     await page.waitForTimeout(200);
     await page.screenshot({ path: path.join(OUT, 'detail-header-1841.png'), fullPage: false });
 

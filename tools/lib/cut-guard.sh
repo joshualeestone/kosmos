@@ -490,23 +490,52 @@ kosmos_refuse_if_suite_live() {
 # --- #4498: wait for a quiet box instead of refusing at once ------------------
 # The guards above refuse at once. On a busy Mac a suite is usually running, so a refusal sent the
 # agent round by hand, or to the override. kosmos_wait_until_clear asks a caller's check again every
-# KOSMOS_WAIT_EVERY_S (30) seconds for up to KOSMOS_WAIT_MAX_S (1200, 20 minutes), then refuses with
-# the check's own message. KOSMOS_NO_WAIT=1 asks once, as before. KOSMOS_WAIT_SLEEP is a test seam.
+# KOSMOS_WAIT_EVERY_S (30) seconds for up to KOSMOS_WAIT_MAX_S (1200, 20 minutes; in the suite queue 2700 s,
+# counted as the #4574 note below says), then refuses with the check's own message. KOSMOS_NO_WAIT=1 asks once, as
+# before. KOSMOS_WAIT_SLEEP and KOSMOS_WAIT_NOW are test seams.
 #
 # 🔑 THE SUITE QUEUE, because a waiting run-tests.sh is still a run-tests.sh process. Without it:
 #   1. two suites waiting on a third would each see the other as live, and both give up at the bound;
 #   2. two suites freed by the same finish would start together, the overlap this exists to stop.
-# So a waiting suite writes suitewait.<pid> (line 1 "<epoch> <pid>", line 2 its command, the same
-# recycled-pid check as the run markers), the suite check skips a waiter (and its direct subshells),
+# So a waiting suite writes suitewait.<pid> (line 1 "<epoch> <pid>", line 2 its command, line 3 its start time in
+# the writer's local form and, since #4574, line 4 the same in UTC and the C locale; the same recycled-pid check as the
+# run markers), the suite check skips a waiter (and its direct subshells),
 # and only the OLDEST waiter may go. When it goes it drops its marker and asks once more: a harness
 # that started in the moment it was still marked (it skipped this waiter) is seen by that second ask,
 # and the suite goes back to waiting in its old place. A harness process exists before it asks, so
 # one of the two always sees the other.
 # KNOWN RESIDUAL: a harness jumps the queue (a waiting suite yields to any test-install, even one
 # that arrived later), so a suite behind a long harness can reach its bound. That is the safe side.
+#
+# #4574: the queue's bound. A full suite takes 14 to 26 minutes, so a bound on the TOTAL wait gave up on every waiter
+# second in line or later. In the queue the bound (default 2700 s) runs from the last time a waiter AHEAD of this run
+# left (the count from _kosmos_suite_waiters_ahead fell): a queue that keeps moving is waited through, and the waiter at
+# the front gives up when no waiter ahead has left for the whole bound. The bound covers EVERY blocker run-tests.sh
+# waits on in the queue, a release claim and an install harness as well as a suite, so a queued suite now waits up to
+# 45 minutes behind those too (20 before); all three are long runs, and a claim or a harness that outlives the bound
+# still ends the wait. A harness or a suite's own subshells are not waiters, so they never restart it. A rise (a waiter
+# re-marked by the second ask) only arms the next fall, so each restart needs a waiter ahead to leave or to read as gone
+# for one pass: one briefly unmarked by its second ask, one whose marker a failed ps removed until it writes it again
+# (the loop re-marks a run whose own marker vanished), or one an OLDER copy of this lib in another zone keeps deleting
+# (review 19; see _kosmos_suite_waiter_live). So the restart is a heuristic, not proof the queue moved. A
+# waiter is in its second ask only when its own check had just passed (the box was clear), so that false fall needs a
+# harness to take the box in that moment; the failed-ps one needs a ps to fail. A fall and such a re-mark in the same
+# poll net to zero and restart nothing, which errs toward giving up. A waiter BEHIND this run never counts,
+# so churn behind it cannot restart its bound. A hard ceiling (KOSMOS_WAIT_QUEUE_CEIL_S; by default four bounds plus
+# one per live waiter at entry) ends a FLAPPING wait whatever the heuristic says; a healthy deep queue normally stays
+# inside it (an entry count a failed ps made too low shrinks it: the safe side, it gives up sooner).
+# ⚠️ THE COST, which the ceiling does NOT cap: behind a HUNG suite each waiter ahead that gives up is a fall for the ones
+# behind, so the waiter k deep gives up at about (k+1) bounds (45, 90, 135 minutes...), inside its (4+k)-bound ceiling.
+# Before #4574 every waiter gave up at 20 minutes. Accepted: a hung suite is rare, and the jam this card measured was
+# not one (#4609 tracks the live-count side).
+# #4609: the overrides and wait controls a caller sets for run-tests.sh's own wait (not the test probes, which tests
+# pass explicitly). run-tests.sh unsets them once its wait has read them, and test-cut-guard.sh starts without them, so
+# no test inherits a caller's (one list, used by both).
+KOSMOS_WAIT_CONTROL_VARS="KOSMOS_TESTS_IGNORE_SUITE KOSMOS_TESTS_IGNORE_HARNESS KOSMOS_IGNORE_MACHINE_CLAIM KOSMOS_NO_WAIT KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S KOSMOS_WAIT_QUEUE_CEIL_S KOSMOS_WAIT_NOW KOSMOS_WAIT_SLEEP"
 _kosmos_suite_waiter_file() { printf '%s/suitewait.%s' "$(_kosmos_marker_dir)" "$1"; }
 
-# _kosmos_suite_waiter_live <pid>: 0 when <pid> holds a verified waiting marker (alive, same command).
+# _kosmos_suite_waiter_live <pid>: 0 when <pid> holds a verified waiting marker (alive, same command, and a matching
+# start time: line 4 against the UTC form or line 3 against the local form; see below).
 # Unlinks a marker it can prove stale, as _kosmos_marker_other_live does.
 _kosmos_suite_waiter_live() {
   local pid="$1" f stored live
@@ -518,15 +547,33 @@ _kosmos_suite_waiter_live() {
   # match alone would let a new suite that inherited a dead waiter's pid read as "only waiting" and be skipped, the
   # unsafe side. A start time cannot repeat on a recycled pid.
   stored="$(sed -n '2p' "$f" 2>/dev/null)"; live="$(ps -ww -o command= -p "$pid" 2>/dev/null)"
-  if [ -z "$stored" ] || [ "$stored" != "$live" ] \
-     || [ "$(sed -n '3p' "$f" 2>/dev/null)" != "$(_kosmos_pid_started "$pid")" ]; then
+  # #4574: line 4 holds the start time in UTC and the C locale, so readers in different zones or locales agree. Line 3
+  # keeps the writer's local form, which is all an older copy of this lib (another worktree, side by side) compares:
+  # it matches only when that older reader runs in the writer's zone and locale. A reader elsewhere deletes the marker
+  # (counting the waiter as a running suite, the safe side), and since this run re-marks a vanished marker each pass,
+  # the two can alternate: a third source of false falls for the waiters behind, bounded by the ceiling (the #4574
+  # note).
+  local began utc want loc
+  began="$(sed -n '3p' "$f" 2>/dev/null)"; utc="$(sed -n '4p' "$f" 2>/dev/null)"
+  want="$(_kosmos_pid_started "$pid")"; loc="$(_kosmos_pid_started_local "$pid")"
+  # Live only when the command matches AND a start time matches: line 4 against the UTC form, or line 3 against the
+  # local form. An empty reading (ps could not say) matches nothing, so it is stale: the safe side. An empty UTC reading
+  # is stale even when the local one matches (the -z "$want" term below), so a ps that half-answers never keeps a marker.
+  local same_start=0
+  if [ -n "$want" ] && [ "$utc" = "$want" ]; then same_start=1
+  elif [ -n "$loc" ] && [ "$began" = "$loc" ]; then same_start=1
+  fi
+  if [ -z "$stored" ] || [ "$stored" != "$live" ] || [ -z "$want" ] || [ "$same_start" != 1 ]; then
     rm -f "$f" 2>/dev/null; return 1
   fi
   return 0
 }
-# A process's start time as ps prints it (the same on macOS and Linux procps); empty when ps cannot say, which
+# A process's start time: _kosmos_pid_started in UTC and the C locale (line 4, the same for every reader),
+# _kosmos_pid_started_local as ps prints it for the caller (line 3, what an older copy compares). Both come from ps
+# (the same on macOS and Linux procps) and are empty when ps cannot say, which
 # then matches nothing recorded, so the marker is treated as stale (counted as a live suite: the safe side).
-_kosmos_pid_started() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' | sed 's/^ //; s/ $//'; }
+_kosmos_pid_started() { TZ=UTC LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' | sed 's/^ //; s/ $//'; }
+_kosmos_pid_started_local() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' | sed 's/^ //; s/ $//'; }
 
 # Drops `pid command` lines that are a waiter or descend from one: a waiter's check forks $( ) subshells several
 # levels deep, each showing `bash tools/run-tests.sh` (review 1). The walk is bounded, like
@@ -556,32 +603,56 @@ _kosmos_drop_suite_waiters() {
 kosmos_mark_suite_waiting() {
   local ts="${1:-$(date +%s)}" dir
   dir="$(_kosmos_marker_dir)"; mkdir -p "$dir" 2>/dev/null || return 0
-  printf '%s %s\n%s\n%s\n' "$ts" "$$" "$(ps -ww -o command= -p "$$" 2>/dev/null)" "$(_kosmos_pid_started "$$")" > "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null \
+  printf '%s %s\n%s\n%s\n%s\n' "$ts" "$$" "$(ps -ww -o command= -p "$$" 2>/dev/null)" "$(_kosmos_pid_started_local "$$")" "$(_kosmos_pid_started "$$")" > "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null \
     && mv -f "$(_kosmos_suite_waiter_file "$$").tmp.$$" "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null
   return 0
 }
-kosmos_unmark_suite_waiting() { rm -f "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null; return 0; }
+kosmos_unmark_suite_waiting() { rm -f "$(_kosmos_suite_waiter_file "$$")" "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null; return 0; }
 
-# kosmos_refuse_if_earlier_suite_waiter <what>: refuses while another suite has waited longer
-# (earlier epoch, then lower pid). A caller with no marker of its own is behind every waiter.
-kosmos_refuse_if_earlier_suite_waiter() {
-  local what="${1:-this run}" dir f pid mine_ts mine_pid ts wpid
+# _kosmos_suite_waiters_ahead: the pids of the live waiters ahead of this run in the suite queue, one per line (all of
+# them before this run holds a marker). The refusal below and the #4574 bound both read this, so they agree on "ahead".
+_kosmos_suite_waiters_ahead() {
+  local dir f pid mine_ts mine_pid ts
   dir="$(_kosmos_marker_dir)"; [ -d "$dir" ] || return 0
-  read -r mine_ts mine_pid 2>/dev/null < "$(_kosmos_suite_waiter_file "$$")" || { mine_ts=""; mine_pid=""; }
+  # A caller that already read this run's queue time passes it (the bound, review 23), so there is no gap between a
+  # check that the marker exists and this read; otherwise it is read here.
+  if [ $# -ge 2 ]; then mine_ts="$1"; mine_pid="$2"
+  else read -r mine_ts mine_pid 2>/dev/null < "$(_kosmos_suite_waiter_file "$$")" || { mine_ts=""; mine_pid=""; }
+  fi
   for f in "$dir"/suitewait.*; do
     [ -e "$f" ] || continue
+    case "${f##*/}" in *.tmp.*) continue ;; esac   # a marker half-written (before its mv) is not a waiter; the NAME only, so a marker dir whose path holds ".tmp." still counts
     pid="${f##*.}"
     case "$pid" in ''|*[!0-9]*) continue ;; esac
     [ "$pid" = "$$" ] && continue
     _kosmos_suite_waiter_live "$pid" || continue
-    read -r ts wpid 2>/dev/null < "$f" || continue
+    read -r ts _ 2>/dev/null < "$f" || continue
     case "$ts" in ''|*[!0-9]*) continue ;; esac
     if [ -z "$mine_ts" ] || [ "$ts" -lt "$mine_ts" ] || { [ "$ts" -eq "$mine_ts" ] && [ "$pid" -lt "$mine_pid" ]; }; then
-      echo "another test suite (tools/run-tests.sh, pid $pid) has been waiting for the box longer than $what; it goes first." >&2
-      return 1
+      echo "$pid"
     fi
   done
   return 0
+}
+
+# kosmos_refuse_if_earlier_suite_waiter <what>: refuses while another suite has waited longer
+# (earlier epoch, then lower pid). A caller with no marker of its own is behind every waiter. Since #4574 it walks every
+# marker (the shared helper) rather than stopping at the first: a few ps calls a marker, once or twice a 30 s poll.
+kosmos_refuse_if_earlier_suite_waiter() {
+  local what="${1:-this run}" pid
+  # A read loop, not `head -1`: closing the pipe early could print "Broken pipe" into this refusal's own message.
+  pid="$(_kosmos_suite_waiters_ahead | { read -r p || true; printf '%s' "$p"; cat >/dev/null; })" || true
+  [ -n "$pid" ] || return 0
+  echo "another test suite (tools/run-tests.sh, pid $pid) has been waiting for the box longer than $what; it goes first." >&2
+  return 1
+}
+
+# The wait's clock. KOSMOS_WAIT_NOW (a command printing epoch seconds) is a test seam, like KOSMOS_WAIT_SLEEP. The
+# fallback is per call, so a seam must answer for the whole wait (one that stops mid-wait mixes two clocks: tests only).
+# A seam that prints anything but a number falls back to the real clock.
+_kosmos_wait_now() {
+  local t=""; [ -n "${KOSMOS_WAIT_NOW:-}" ] && { t="$("$KOSMOS_WAIT_NOW" 2>/dev/null)" || t=""; }
+  case "$t" in ''|*[!0-9]*) date +%s ;; *) printf '%s\n' "$t" ;; esac
 }
 
 # kosmos_wait_until_clear <what> [--suite-queue] <check> [args...]: run <check> (a function or
@@ -590,12 +661,28 @@ kosmos_refuse_if_earlier_suite_waiter() {
 kosmos_wait_until_clear() {
   local what="$1"; shift
   local queue=0; [ "${1:-}" = --suite-queue ] && { queue=1; shift; }
-  local every="${KOSMOS_WAIT_EVERY_S:-30}" max="${KOSMOS_WAIT_MAX_S:-1200}" sleeper="${KOSMOS_WAIT_SLEEP:-sleep}"
-  local waited=0 said=0 err ts="" start next_note=300
-  start="$(date +%s)"
+  # #4574: in the suite queue the bound is 2700 s and counts from the last time a waiter ahead left (the queue note).
+  local dflt=1200; [ "$queue" = 1 ] && dflt=2700
+  local every="${KOSMOS_WAIT_EVERY_S:-30}" max="${KOSMOS_WAIT_MAX_S:-$dflt}" sleeper="${KOSMOS_WAIT_SLEEP:-sleep}"
+  local ceil="${KOSMOS_WAIT_QUEUE_CEIL_S:-}" over=0
+  local waited=0 said=0 err ts="" start next_note=300 ahead prev="" wblk=0 bstart
+  start="$(_kosmos_wait_now)"; bstart="$start"
+  # A marker under this run's pid left by a dead run (a recycled pid) would make this run read as already queued, with
+  # that run's old place: the liveness check removes it (its start time is not this run's).
+  [ "$queue" = 1 ] && { _kosmos_suite_waiter_live "$$" || true; }
   case "$every" in ''|*[!0-9]*|0) every=30 ;; esac
-  case "$max" in ''|*[!0-9]*) max=1200 ;; esac
+  case "$max" in ''|*[!0-9]*) max="$dflt" ;; esac
+  # #4574: a hard ceiling on a queued wait, so ending it never rests on the restart heuristic. By default it is four
+  # bounds PLUS one per live waiter at entry (the first pass, before this run is marked, counts them all): a waiter k deep waits about k suites, well
+  # inside it, so it ends a hung or flapping wait and normally leaves a healthy deep queue alone (a first count a failed
+  # ps made too low shrinks it, the safe side). KOSMOS_WAIT_QUEUE_CEIL_S sets it
+  # outright (0 gives up on the first pass, as KOSMOS_WAIT_MAX_S=0 does).
+  local ceil_auto=0
+  case "$ceil" in ''|*[!0-9]*) ceil=$((max * 4)); ceil_auto=1 ;; esac
   while :; do
+    # #4574: a queued run whose own marker vanished (a failed ps reads it as stale and removes it) writes it again with its
+    # old queue time. Unmarked, it would count every waiter as ahead and the others would count it as a running suite.
+    if [ "$queue" = 1 ] && [ -n "$ts" ] && [ ! -e "$(_kosmos_suite_waiter_file "$$")" ]; then kosmos_mark_suite_waiting "$ts"; fi
     if err="$("$@" 2>&1)" && { [ "$queue" = 0 ] || kosmos_refuse_if_earlier_suite_waiter "$what" 2>/dev/null; }; then
       if [ "$queue" = 1 ] && [ -n "$ts" ]; then
         kosmos_unmark_suite_waiting
@@ -612,24 +699,65 @@ kosmos_wait_until_clear() {
       if [ "$queue" = 1 ]; then err="$(kosmos_refuse_if_earlier_suite_waiter "$what" 2>&1)"
       else err="the box is busy (the check refused without saying why)."; fi
     fi
-    # The bound is the longer of the time slept and the wall clock, so slow checks cannot stretch it (review 1).
-    if [ "${KOSMOS_NO_WAIT:-0}" = 1 ] || [ "$waited" -ge "$max" ] || [ $(( $(date +%s) - start )) -ge "$max" ]; then
+    # #4574: in the queue, one fewer waiter ahead is the queue moving, so the bound starts again.
+    if [ "$queue" = 1 ]; then
+      # Before this run holds a marker (the first pass) every live waiter counts as ahead, so a waiter that marked in the
+      # same second behind this one can read as a fall on the second pass: one early restart, harmless.
+      # Once queued, a pass on which this run's own marker is missing (another reader's failed ps removed it during the
+      # check) takes no count: without its queue time every waiter, those behind included, would count as ahead, and
+      # the next pass would read the drop back as a fall.
+      # Its own queue time is read ONCE, here, and handed to the helper: empty means the marker is gone this pass.
+      local own_ts="" own_pid=""
+      [ -n "$ts" ] && { read -r own_ts own_pid 2>/dev/null < "$(_kosmos_suite_waiter_file "$$")" || own_ts=""; }
+      if [ -z "$ts" ] || [ -n "$own_ts" ]; then
+        if [ -n "$ts" ]; then ahead="$(_kosmos_suite_waiters_ahead "$own_ts" "$own_pid" | grep -c .)" || true
+        else ahead="$(_kosmos_suite_waiters_ahead | grep -c .)" || true; fi
+        ahead="${ahead:-0}"
+        [ -z "$prev" ] && [ "$ceil_auto" = 1 ] && ceil=$((max * (4 + ahead)))
+        if [ -n "$prev" ] && [ "$ahead" -lt "$prev" ]; then wblk=0; bstart="$(_kosmos_wait_now)"; fi
+        prev="$ahead"
+      fi
+    else
+      wblk="$waited"
+    fi
+    # The bound is reached by the time slept or the wall clock, whichever gets there first, so slow checks cannot
+    # stretch it (review 1).
+    over=0
+    if [ "$queue" = 1 ] && { [ "$waited" -ge "$ceil" ] || [ $(( $(_kosmos_wait_now) - start )) -ge "$ceil" ]; }; then over=1; fi
+    if [ "${KOSMOS_NO_WAIT:-0}" = 1 ] || [ "$over" = 1 ] || [ "$wblk" -ge "$max" ] || [ $(( $(_kosmos_wait_now) - bstart )) -ge "$max" ]; then
       [ "$queue" = 1 ] && kosmos_unmark_suite_waiting
       printf '%s\n' "$err" >&2
-      [ "$waited" -gt 0 ] && echo "gave up after waiting ${waited}s (the bound is KOSMOS_WAIT_MAX_S=$max); run it again later." >&2
+      if [ "$waited" -gt 0 ] && [ "$over" = 1 ]; then
+        if [ "$ceil_auto" = 1 ]; then
+          echo "gave up after waiting ${waited}s: the queue's ceiling (${ceil}s, four bounds plus one per waiter ahead when it joined; KOSMOS_WAIT_QUEUE_CEIL_S sets it) ends any queued wait; run it again later." >&2
+        else
+          echo "gave up after waiting ${waited}s: the queue's ceiling (KOSMOS_WAIT_QUEUE_CEIL_S=$ceil) ends any queued wait; run it again later." >&2
+        fi
+      elif [ "$waited" -gt 0 ] && [ "$queue" = 1 ]; then
+        local since=$(( $(_kosmos_wait_now) - bstart )); [ "$wblk" -gt "$since" ] && since="$wblk"
+        echo "gave up after waiting ${waited}s in all, ${since}s since this run joined the queue or a waiter ahead last left it (the bound, KOSMOS_WAIT_MAX_S=$max); run it again later." >&2
+      elif [ "$waited" -gt 0 ]; then
+        echo "gave up after waiting ${waited}s (the bound is KOSMOS_WAIT_MAX_S=$max); run it again later." >&2
+      fi
       return 1
     fi
+    # ts is a queue position, compared with other runs' positions, so it takes the real clock, not the wait's seam.
     if [ "$queue" = 1 ] && [ -z "$ts" ]; then ts="$(date +%s)"; kosmos_mark_suite_waiting "$ts"; fi
     if [ "$said" = 0 ]; then
       printf '%s\n' "$err" >&2
-      echo "waiting for it: asking again every ${every}s for up to ${max}s (KOSMOS_NO_WAIT=1 refuses at once instead)." >&2
+      if [ "$queue" = 1 ]; then
+        local how="KOSMOS_WAIT_QUEUE_CEIL_S"; [ "$ceil_auto" = 1 ] && how="four bounds plus one per waiter ahead when it joined"
+        echo "waiting for it: asking again every ${every}s; the bound (${max}s) counts from when this run joined the queue or a waiter ahead last left it, and ${ceil}s (${how}) ends any queued wait (KOSMOS_NO_WAIT=1 refuses at once instead)." >&2
+      else
+        echo "waiting for it: asking again every ${every}s for up to ${max}s (KOSMOS_NO_WAIT=1 refuses at once instead)." >&2
+      fi
       said=1
     elif [ "$waited" -ge "$next_note" ]; then
       echo "still waiting (${waited}s so far): $(printf '%s' "$err" | head -1 | cut -c1-160)" >&2
       next_note=$((next_note + 300))
     fi
     "$sleeper" "$every"
-    waited=$((waited + every))
+    waited=$((waited + every)); wblk=$((wblk + every))
   done
 }
 

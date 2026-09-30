@@ -115,8 +115,10 @@ const SURFACES = [
      under the 'model' (Model and Memory) surface and skills under 'instr' (Instructions), both
      revealed with it, so their controls' contrast is measured on those surfaces. #3500 folded
      'remove' the same way: Remove no longer has a pill of its own, it reveals under the 'term'
-     (Advanced) surface, so its control's contrast is measured there -- not a separate surface. */
-  ...['talk', 'model', 'instr', 'profile', 'term'].map((sec) => ['agent panel: ' + sec, 'SECTION:' + sec]),
+     (Advanced) surface, so its control's contrast is measured there -- not a separate surface.
+     #4550: THREE surfaces now. Profile reveals profile + instr + skills, AI Settings ('model') reveals
+     model + memory + term + remove, so each folded control is measured on the surface it now opens under. */
+  ...['talk', 'model', 'profile'].map((sec) => ['agent panel: ' + sec, 'SECTION:' + sec]),
   ['projects', 'PROJECTS'],
   // #2054: 'talking' deleted, its block folded into 'automation' -- sweep the section
   // that now holds those controls (same components already covered in sibling sections).

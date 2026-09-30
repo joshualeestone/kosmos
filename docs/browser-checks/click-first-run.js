@@ -30,12 +30,15 @@ const { paneCount } = require('./lib-firstrun-steps.js');
    free port (#633/#708). The literal stays as the hand-run fallback. */
 const BASE = process.env.KOSMOS_URL || 'http://127.0.0.1:4399';
 const FLAG = process.argv[2];   // the sandboxed first-run.json
-// The About-you record lives at the DATA root (the flag's grandparent, per
-// engine/you.js's BASE), and it is first-run state: left behind by an earlier
-// run it prefills the About-you step and arms the gate, so the "Continue waits"
+// The About-you record is first-run state: left behind by an earlier run it
+// prefills the About-you step and arms the gate, so the "Continue waits"
 // assertions would measure the leftover, not the gate. Cleared everywhere the
-// flag is cleared.
-const YOU = path.join(path.dirname(path.dirname(FLAG)), 'you.json');
+// flag is cleared. It sits BESIDE the flag: since #1848 engine/you.js writes
+// through store.ROOT, the same directory as first-run.json. #4563: this used to
+// be the flag's grandparent, so fresh() deleted a file that never existed and a
+// run_one retry always opened About-you already answered. Section 1 asserts its
+// walk wrote this path.
+const YOU = path.join(path.dirname(FLAG), 'you.json');
 
 const fails = [];
 const ok = (cond, what) => { if (!cond) fails.push(what); console.log(`${cond ? '  ok  ' : ' FAIL '} ${what}`); };
@@ -98,6 +101,14 @@ async function mockGatesUncheckable(page) {
   }
 }
 
+/* #4563: under load the overlay can come up after networkidle plus a fixed
+   wait (837ms, measured locally under an 8x CPU throttle), so a step that acts on it at once (an instant read, an
+   Escape) races it. Every caller here expects the overlay, so wait for it,
+   bounded; a timeout is swallowed and the caller's own assertion then fails. */
+async function waitOverlay(page) {
+  await page.waitForSelector('#firstrun', { state: 'visible', timeout: 10000 }).catch(() => {});
+}
+
 async function fresh(browser, opts = {}) {
   fs.rmSync(FLAG, { force: true });
   fs.rmSync(YOU, { force: true });
@@ -109,6 +120,7 @@ async function fresh(browser, opts = {}) {
   if (opts.route) await page.route(...opts.route);
   await page.goto(`${BASE}/${opts.query || ''}`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(500);
+  await waitOverlay(page);
   return { ctx, page };
 }
 
@@ -298,6 +310,10 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     // so this restates the line above rather than checking it independently; kept
     // for the two-line report this check has always printed.
     ok(flag && flag.completedAt, 'and the flag has a timestamp in it');
+    // #4563: the About-you answers landed at YOU, the path fresh() clears. If the
+    // board ever writes them elsewhere, fresh() stops clearing them and a retry
+    // opens About-you pre-answered; this is what says so.
+    ok(fs.existsSync(YOU), 'the About-you answers were saved where fresh() clears them');
     await ctx.close();
   }
 
@@ -496,6 +512,7 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     await page.route('**/api/first-run', (r) => r.fulfill({ json: { done: false, fleetKnown: true, fleetCount: 0, fleetNames: [], path: 'create', subscription: { state: 'connected', plan: 'Claude Max', because: '' } } }));
     await page.goto(BASE + '/', { waitUntil: 'networkidle' });
     await page.waitForTimeout(400);
+    // No waitOverlay here: advanceToAnchor waits for a usable control before it clicks.
     await advanceToAnchor(page, '#fr-you');
     await page.fill('#fr-you-name', 'Josh');      // About you gates Continue
     await page.fill('#fr-you-do', 'Testing');
@@ -529,6 +546,7 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     await page.route('**/api/first-run/complete', () => {});
     await page.goto(BASE + '/', { waitUntil: 'networkidle' });
     await page.waitForTimeout(400);
+    await waitOverlay(page);
     await page.keyboard.press('Escape');
     await page.waitForTimeout(10000);            // past the 8s abort
     ok(await page.locator('#fr-forgot').isVisible(), 'a hung POST turned into a message, not a trap');

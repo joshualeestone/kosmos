@@ -743,6 +743,33 @@ const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopba
    bare `require('./server')` in a unit test must not touch the real store. The
    dispatch closure below reads this holder; start() populates it. */
 const boardAuthState = { on: false, token: null };
+/* #4602 (#4580 item 13, the Meta agent's finding): the board-token refusal says what is actually wrong. A request
+   that presented NO credential at all (no board token by cookie, header or query; no agent token) was told "this
+   board belongs to the account that started it", the same words as a token that was sent and is another account's,
+   and was read as "this is another machine's board". It now says the token is missing and how one is sent. The
+   account clause stays in both, word for word: it is still true, and it is the phrase the gate's tests (and anyone
+   else reading this refusal) recognise. `tail` is a caller's extra way in, e.g. an agent token on POST /api/team.
+   Scope: a caller that is not a browser (the audience that asked); a browser keeps the old sentence, see below.
+   The wording is chosen from what the CALLER sent (its own headers, cookie, query), never from server state, and
+   both sentences refuse, so a client-controlled header here changes words only, never access. */
+function boardTokenRefusal(req, tail) {
+  const account = 'this board belongs to the account that started it; open it with `kosmos open`' + (tail || '');
+  const sent = Boolean(boardauth.presentedToken(req, ROUTING_BASE))
+    || Boolean(req && req.headers && req.headers['x-kosmos-agent-token']);
+  /* A BROWSER keeps today's sentence exactly: the page shows this error to a PERSON (the org-chart import, Settings),
+     for whom "open it with `kosmos open`" is the right advice and "use a kosmos command" is not. Current browsers
+     send Sec-Fetch-Site (a header a page cannot remove); curl sends none. An older browser that sends no Sec-Fetch-*
+     gets the other sentence, which is still accurate. Sec-Fetch-Mode is NOT the test: Node's own fetch (the Windows
+     CLI's) sends `sec-fetch-mode: cors` by itself (measured), and no Site. */
+  const browser = Boolean(req && req.headers && req.headers['sec-fetch-site']);
+  if (sent || browser) return account;
+  /* Said as "in the request's headers": an agent token in a JSON body is honoured by some handlers but read after
+     this gate, so the gate cannot claim none came. Kept short and without its own "refused", because both CLIs
+     print it inside "Kosmos refused that request: ...". The advice holds for Kosmos's own commands too: they
+     send the token only when they can read this board's token file, so that condition is said. */
+  return 'no board token or agent token came in this request\u2019s headers, and ' + account
+    + '. A `kosmos` command sends the token for you when it can read this board\u2019s token file';
+}
 /* #3055: the board-token check for the BROWSER dispatch gate. The board token
    proves SAME-ACCOUNT ownership (#1946), and every world's `board.token` is a
    mode-600 file in a mode-700 dir readable only by this account -- so ANY of this
@@ -824,6 +851,7 @@ const setupAssistant = require('./engine/setup-assistant'); // #3034: the once-e
    seam so tests never open a window. */
 const terminal = require('./engine/terminal');
 const team = require('./engine/team'); // #1279: the authoring seam calls createTeam (engine core merged in #2247)
+const orgchartfile = require('./engine/orgchartfile'); // #4559: an org chart FILE into the New Agent preview
 const agentfile = require('./engine/agentfile');
 const register = require('./engine/register');
 /* ⚠️ For the not-running rows only. `engine/status.js` reads the same store for
@@ -891,6 +919,7 @@ const recordGuideOutcome = guidestate.makeRecorder({
   setTimer: createdbeacon.underTest() ? () => null : setTimeout,
 });
 const heartbeat = require('./engine/heartbeat');
+const agentnudge = require('./engine/agentnudge'); // #4544: the Prompter's nudge to the AGENT (an idle agent that still has open work)
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
 const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
@@ -919,6 +948,7 @@ const dmfiles = require('./engine/dmfiles');          // #3614: where an agent s
 const doctrine = require('./engine/doctrine');
 const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
+const accountComputers = require('./engine/account-computers'); // kosmos#4648
 const phonenotify = require('./engine/phonenotify');
 const styles = require('./engine/styles');
 const tips = require('./engine/tips');
@@ -3037,7 +3067,7 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
      is treated as absent: never block a legit reply over a stale id. The person's
      room route refuses one instead (#3745, see its plan); a retention change must
      revisit both. A proactive post (no in_reply_to) is unchanged. */
-  const citedId = String(inReplyTo == null ? '' : inReplyTo).trim();
+  const citedId = messages.messageIdOf(inReplyTo);   // #4631: '530' and 'message 530' name m530 too
   let answeredProject = null;   // outside the block: the which-room ask below keys on it (round 3)
   if (citedId) {
     try {
@@ -3789,6 +3819,43 @@ function sameAgentName(a, b, byKey) {
   const ka = key(a);
   return ka !== null && ka === key(b);
 }
+/* #4540: one plain sentence from a task message's `delivered` list, for the CLIs to print (the Mac CLI is bash 3.2
+   with no JSON parser and reads it with sed, as it reads `error`), so neither says an assignee was told when it was
+   not. No double quote, backslash or control character (JSON would escape one with a backslash), so that read cannot be cut short and prints as sent. `assigned` is how many are on the task; the
+   sender is already off `delivered`. */
+function taskMessageSummary(delivered, assigned) {
+  const plain = (x) => String(x == null ? '' : x).toWellFormed().replace(/["\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
+  const list = Array.isArray(delivered) ? delivered : [];
+  if (!assigned) return 'Nobody is assigned to it, so no agent was told.';
+  if (!list.length) return 'Nobody else is assigned to it, so no agent was told.';
+  /* One outcome per agent, the worst winning (not told, then may have been told, then told), so an agent listed twice
+     never gets two sentences that contradict each other. A name that cleans to nothing is still said. */
+  const rank = (st) => (st === chat.DELIVERY.COULD_NOT ? 2 : st === chat.DELIVERY.PLACED ? 0 : 1);
+  const byName = new Map();
+  for (const d of list) {
+    if (!d) continue;
+    const who = plain(d.agent) || 'an agent';
+    const had = byName.get(who);
+    if (!had || rank(d.state) > rank(had.state)) byName.set(who, { ...d, who });
+  }
+  const one = [...byName.values()];
+  const names = (state) => one.filter((d) => d.state === state).map((d) => d.who);
+  const told = names(chat.DELIVERY.PLACED);
+  /* Only a delivery the board knows failed is "not told"; one it did not hear back from (unconfirmed, or no state
+     at all) may have landed, so it is never claimed either way. */
+  const maybe = one.filter((d) => d.state !== chat.DELIVERY.PLACED && d.state !== chat.DELIVERY.COULD_NOT).map((d) => d.who);
+  const not = one.filter((d) => d.state === chat.DELIVERY.COULD_NOT);
+  const parts = [];
+  if (told.length) parts.push('Told ' + told.join(', ') + '.');
+  if (maybe.length) parts.push(maybe.join(', ') + ' may have been told (Kosmos could not confirm it).');
+  /* Each line names the agent: chat's reasons do not (only the route's own do, and they start with the name). */
+  for (const d of not) {
+    const who = d.who;
+    const why = plain(d.because).replace(/\.$/, '');
+    parts.push('Not told: ' + (!why ? who + ' could not be reached' : (why.startsWith(who + ' ') ? why : who + ' (' + why + ')')) + '.');
+  }
+  return parts.join(' ');
+}
 /* A caller whose token resolved without a roster row (`paneless`, on the result or its card): its name is the key. */
 function panelessCaller(tokenSender) {
   return !!(tokenSender && (tokenSender.paneless || (tokenSender.card && tokenSender.card.paneless)));
@@ -3831,7 +3898,8 @@ const PUBLIC_WORLD_ROUTES = new Set(['GET /api/worlds/names', 'HEAD /api/worlds/
 // the same low-sensitivity-public-read exemption as PUBLIC_WORLD_ROUTES, kept as
 // its own set because the reason differs (a public product surface, not the
 // post-switch lockout fix). The community MODERATION routes (GET
-// /api/community/moderation, POST /api/community/release) are deliberately NOT
+// /api/community/moderation, POST /api/community/release, #4525's POST
+// /api/community/discard) are deliberately NOT
 // here: they expose held/quarantined content + findings and stay board-token
 // gated as the moderator surface.
 const PUBLIC_COMMUNITY_ROUTES = new Set([
@@ -4134,7 +4202,7 @@ const server = http.createServer(async (req, res) => {
     // token never pays for the token-store scan.
     const exemptAgentToken = () => agentTokenRoute(`${req.method} ${pathname}`) && agentTokenOk(req);
     if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !boardTokenOk(req) && !exemptAgentToken()) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
-      sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`' });
+      sendJson(res, 403, { error: boardTokenRefusal(req, '') });
       return;
     }
   }
@@ -4210,11 +4278,44 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 400, { error: 'release requires an id' });
           return;
         }
+        /* #4525: releasing is how an agent climbs the trust ladder, and an agent's own CLI can read
+           the board token, so the board token alone would let an agent release its own posts. This
+           is the screen check the other person-only Settings writes use: it refuses an agent token
+           and wants a browser's headers. A speed bump, not a wall (an agent can forge headers); the
+           real fix is #4491 (keep the board token out of agents' reach), where this route is noted. */
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can release this, from Settings' }); return; }
         try {
           sendJson(res, 200, { released: communitysite.release(body.id) });
         } catch (e) {
-          // unknown id / non-held (e.g. quarantined) row -> 400 with the reason
+          // unknown id / non-held (e.g. quarantined) row -> 400 with the reason. #4525: a failure that
+          // carries a system code (the store's file write failed) is not the request's fault and its
+          // message can name a file path: a 500 in plain words instead.
+          if (e && e.code) { sendJson(res, 500, { error: 'we could not save that just now; try again' }); return; }
           sendJson(res, 400, { error: e && e.message ? e.message : 'could not release' });
+        }
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  // #4525: discard a held or quarantined post/comment, the other half of the person's
+  // "Waiting for you" list, board-token gated above exactly like release.
+  if (pathname === '/api/community/discard' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || !body.id) {
+          sendJson(res, 400, { error: 'discard requires an id' });
+          return;
+        }
+        // The same screen check as release: an agent must not discard another agent's post or a stopped one.
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can discard this, from Settings' }); return; }
+        try {
+          sendJson(res, 200, { discarded: communitysite.discard(body.id) });
+        } catch (e) {
+          if (e && e.code) { sendJson(res, 500, { error: 'we could not save that just now; try again' }); return; }   // as release, above
+          sendJson(res, 400, { error: e && e.message ? e.message : 'could not discard' });
         }
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
@@ -6416,6 +6517,68 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #4559: an org chart FILE for the New Agent org chart preview. The raw file is the body and its name
+     rides `x-orgchart-name` (the attachment upload's shape). A CSV or XLSX is read here on the Mac. A
+     picture or PDF is read by the person's own Claude with every tool off (engine/orgchartfile.js), and
+     only when the request says `?consent=1`: the first answer for one is `{ needsConsent, provider }`,
+     so the page can say who reads it before anything leaves the Mac (Liu Kang's condition 1). Nothing
+     is stored. Board-token gated like every /api route, and the consent send also wants the screen
+     (isViaScreen). That is a cooperative guard, not a wall: an agent that reads the board token can also send a
+     browser's headers (engine/team.js says the same of the operator path); #4491 is the real fix. The CSV/XLSX
+     parse is synchronous; its worst cases are bounded by engine/orgchartfile.test.js, not here. */
+  if (pathname === '/api/orgchart/read' && req.method === 'POST') {
+    readBody(req, orgchartfile.MAX_BYTES + 1)
+      .then(async (bytes) => {
+        let name = '';
+        try { name = decodeURIComponent(String(req.headers['x-orgchart-name'] || '')); } catch { name = String(req.headers['x-orgchart-name'] || ''); }
+        name = name.slice(0, 200);
+        if (!name) { sendJson(res, 400, { error: 'name the file (x-orgchart-name)' }); return; }
+        if (!orgchartfile.forModel(name)) {
+          const got = orgchartfile.readLocal(name, bytes);
+          if (got.unsupported) {
+            sendJson(res, 400, { error: 'That kind of file is not one we can read. Upload a picture (PNG or JPG), a PDF, a CSV or an Excel file (.xlsx).' });
+            return;
+          }
+          sendJson(res, 200, { source: 'file', rows: got.rows, problems: got.problems });
+          return;
+        }
+        if (!orgchartfile.modelAvailable()) {
+          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
+          return;
+        }
+        const q = new URL(req.url, ROUTING_BASE).searchParams;
+        if (q.get('consent') !== '1') { sendJson(res, 200, { needsConsent: true, provider: orgchartfile.providerLabel() }); return; }
+        if (!isViaScreen(req, null)) { sendJson(res, 403, { error: 'only you can send a file to your AI provider, from the New Agent screen' }); return; }
+        // The consented send carries the file; an empty one would spend a request on nothing.
+        if (!bytes.length) { sendJson(res, 400, { error: 'That file is empty. Choose it again.' }); return; }
+        /* A read the person stops (or a page they leave) closes this response early: that aborts the model call,
+           so claude stops using their plan instead of running on to its timeout. */
+        const stop = new AbortController();
+        res.on('close', () => { if (!res.writableEnded) stop.abort(); });
+        if (res.destroyed) return;   // gone while the upload arrived: 'close' already fired, so nothing is read
+        const got = await orgchartfile.readWithModel(name, bytes, { signal: stop.signal });
+        if (stop.signal.aborted) return;
+        if (got.unavailable) {
+          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
+          return;
+        }
+        sendJson(res, 200, { source: 'model', provider: orgchartfile.providerLabel(), rows: got.rows, problems: got.problems });
+      })
+      .catch((err) => {
+        /* readBody rejects an oversized body (it then drops the connection, so this answer often never arrives) and
+           a person who left mid-upload (nothing to answer); anything else is our failure, logged, not the file's. */
+        if (res.headersSent || res.destroyed || req.aborted) return;
+        const big = /too large/.test(String((err && err.message) || ''));
+        if (!big) console.error('[orgchart] read failed: ' + String((err && err.message) || err).slice(0, 200));
+        try {
+          sendJson(res, big ? 413 : 500, { error: big
+            ? 'That file is larger than ' + Math.round(orgchartfile.MAX_BYTES / 1048576) + ' MB. Export just the people, or type the list.'
+            : 'We could not read that file. Try again, or export it as CSV.' });
+        } catch { /* socket gone */ }
+      });
+    return;
+  }
+
   /**
    * --- a PM agent (or the operator) builds a TEAM for a stated purpose (#1279)
    * -----------------------------------------------------------------------
@@ -6529,7 +6692,7 @@ const server = http.createServer(async (req, res) => {
           // is required (computed only here -- it is never read on the agent path).
           const hasBoardToken = boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
           if (boardAuthState.on && !hasBoardToken) {
-            sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`, or present an agent token' });
+            sendJson(res, 403, { error: boardTokenRefusal(req, ', or present an agent token') });
             return;
           }
           effectiveCreator = body.creator;
@@ -7968,6 +8131,16 @@ const server = http.createServer(async (req, res) => {
     catch { sendJson(res, 500, { error: 'we could not read what is waiting' }); }
     return;
   }
+  /* kosmos#4648 (weekend goal #4647): the computers on this board's Kosmos+ account, for the
+     top-left menu's "Your computers". Signed through the tunnel and each online state measured
+     (engine/account-computers.js). Always 200: { ok: false, because } when there is no list
+     (not signed in, an old connector or coordinator), and the page hides the section. */
+  if (pathname === '/api/remote/computers' && (req.method === 'GET' || req.method === 'HEAD')) {
+    accountComputers.fetchComputers()
+      .then((r) => sendJson(res, 200, r))
+      .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read your computers' }));
+    return;
+  }
   if (pathname === '/api/remote/devices' && (req.method === 'GET' || req.method === 'HEAD')) {
     remote.devicesList()
       .then((list) => {
@@ -8462,6 +8635,9 @@ const server = http.createServer(async (req, res) => {
           /* A dead verdict from the ChatGPT check that is NEWER than the agent's success wins: the person pressed Check
              now and was told it is not connected, and an older success must not paint over that (review round 6). */
           if (a.connection && a.connection.state === 'none' && codexsigninlive.deadIsNewer(a.dir, obs.at)) return base;
+          /* #4538: the same for a dead answer that has left the check's 30s cache: without this, an agent's older success
+             re-greened the row (badge, and now state) between two checks that each said dead. */
+          if (isChatgpt && codexsigninlive.deadAfter(a.dir, obs.at)) return base;
           const v = observed.verdict({
             checkLiveState: a.connection && a.connection.state,
             observedOutcome: obs.outcome,
@@ -8475,8 +8651,20 @@ const server = http.createServer(async (req, res) => {
           /* From base.connection, which carries liveCheckPending: a green row whose own check is still running must
              still be read again, so a newer dead answer can reach it (review round 9). */
           /* #4139: which outcome made it green, so a check green does not claim an agent's request. */
+          const from = obs === checkObs ? 'check' : 'agent';
+          /* #4538: a ChatGPT sign-in whose badge is green from a fresh recorded answer is connected, and its row says so.
+             #4064 made the badge outlast the check's 30s cache but left the state on that cache, so a read after 30s
+             carried "unknown, we could not reach ChatGPT" beside "working" (the screen draws from the badge; the API row,
+             which agents and people read, contradicted itself). Only an `unknown` state is lifted: a green older than the
+             last dead answer never reaches here (deadIsNewer, deadAfter and the refused guard above), whether that answer
+             is still in the check's cache or not. liveCheckPending is kept, so a newer dead answer from the check now
+             running still reaches the row (review round 9). */
+          const lift = isChatgpt && base.connection && base.connection.state === 'unknown';
           return { ...base, connection: { ...(base.connection || a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
-            observedFrom: obs === checkObs ? 'check' : 'agent' } };
+            observedFrom: from,
+            ...(lift ? { state: 'connected', because: from === 'check'
+              ? 'this sign-in reached ChatGPT when Kosmos last checked it, so it is working'
+              : 'a Codex agent on this sign-in reached ChatGPT recently, so it is working' } : {}) } };
         });
         /* #3296 observability follow-on: the GOOGLE/Gemini observed-overlay badge, the
            exact sibling of the OpenAI overlay above and positive-only for the same reason
@@ -8625,12 +8813,22 @@ const server = http.createServer(async (req, res) => {
         let museSub = [];
         try {
           const muse = require('./engine/musestatus');
-          if (muse.enabled() && muse.installed().installed && muse.signedIn().signedIn) {
-            museSub = [{
+          /* #4569 (Josh, 10:47): green once Kosmos has SEEN it work (its own sign-in, or a completed turn), amber
+             when only Muse's own record says signed in, and a red Not connected when Meta refused the last turn
+             (it used to vanish, which read as never set up). */
+          if (muse.enabled() && muse.installed().installed) {
+            const row = (connection) => [{
               provider: 'meta', providerName: 'Meta', dir: null, label: null, name: null, isDefault: false,
-              email: null, authMode: 'muse', keyTail: null,
-              connection: { state: 'connected', checkedLive: false, badge: 'signed_in_unverified' },
+              email: null, authMode: 'muse', keyTail: null, connection,
             }];
+            if (muse.signedIn().signedIn) {
+              const seen = muse.lastSeenWorking();
+              museSub = row(seen
+                ? { state: 'connected', checkedLive: false, badge: 'working', observedFrom: seen.from, observedAgeMs: Math.max(0, Date.now() - seen.at) }
+                : { state: 'connected', checkedLive: false, badge: 'signed_in_unverified' });
+            } else if (muse.refused()) {
+              museSub = row({ state: 'none', checkedLive: false, badge: 'rejected' });
+            }
           }
         } catch { museSub = []; }
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...museSub] });
@@ -15479,6 +15677,12 @@ const server = http.createServer(async (req, res) => {
                 ...(Array.isArray(m.attachments) ? { attachments: m.attachments } : {}),
                 // #3745: the post this one answers (the page finds it in these rows, or says it is gone).
                 ...(typeof m.replyTo === 'string' ? { replyTo: m.replyTo } : {}),
+                /* #4642: who this post really addressed, as recorded when it was sent (#185), so the page
+                   paints blue from what happened and not from today's rule and roster. Always an array on
+                   a post row, [] for none: the engine leaves the field off when nobody was addressed. A
+                   row written before #185 recorded it (08-24) also reads [], and its @names show plain,
+                   the safe direction (measured: 0 such rows among 221 posts on a real board, 09-29). */
+                mentioned: Array.isArray(m.mentioned) ? m.mentioned : [],
                 ...(reactions.length ? { reactions } : {}) };
             })()
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
@@ -15638,6 +15842,7 @@ const server = http.createServer(async (req, res) => {
         let replyTo = null;
         // '' is refused (400), unlike the agent route's in_reply_to '': the page never sends it, so one here is a bad client.
         if (body.reply_to !== undefined && body.reply_to !== null) {
+          if (typeof body.reply_to === 'string') body.reply_to = messages.messageIdOf(body.reply_to);   // #4631
           if (typeof body.reply_to !== 'string' || !/^m\d+$/.test(body.reply_to)) { sendJson(res, 400, { error: 'that is not a message we can reply to' }); return; }
           let inRoom = null;
           try { inRoom = messages.projectOfPost(body.reply_to); } catch {
@@ -15713,7 +15918,7 @@ const server = http.createServer(async (req, res) => {
         if (!out.ok) { sendJson(res, 400, out); return; }
         /* The fresh reactions for this post, from the operator's viewpoint. */
         let reactions = [];
-        try { reactions = messages.reactionsFor(postId, messages.record().rows, 'you'); } catch { reactions = []; }
+        try { reactions = messages.reactionsFor(out.of, messages.record().rows, 'you'); } catch { reactions = []; }   // #4631: the canonical id (the route takes '530' too)
         sendJson(res, 200, { ok: true, op: out.op, emoji: out.emoji, of: out.of, reactions });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
@@ -16706,7 +16911,7 @@ const server = http.createServer(async (req, res) => {
           delivered.push({ agent: one, state: outcome && outcome.state, because: outcome && outcome.because });
         }
         if (!viaScreen) taskMessageValveRecord();
-        sendJson(res, 200, { ok: true, delivered });
+        sendJson(res, 200, { ok: true, delivered, summary: taskMessageSummary(delivered, named.length) });
       } catch (err) {
         const msg = String((err && err.message) || '');
         // A failed append is a server-side (disk/IO) condition, not a bad request,
@@ -18186,6 +18391,8 @@ function start(port = PORT) {
          nudge sweep; a missed tick is a missed nudge and the status/room surfaces
          still show the truth. */
       let heartbeatPrev = new Map();
+      const AGENT_NUDGE_BOOK = new Map();   // #4544: session -> this stall's nudge entry
+      const AGENT_NUDGE_SENT = [];          // #4544: when each nudge went, for the board-wide hour
       const HEARTBEAT_OFF_POLL_MS = Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) > 0
         ? Number(process.env.AGENT_WORKFORCE_HEARTBEAT_POLL_MS) : 60 * 1000; // the env is the test seam only
       const heartbeatTick = () => {
@@ -18200,7 +18407,7 @@ function start(port = PORT) {
           heartbeatPrev = outcome.next;
           /* #3508: deliver the check-in nudges IN-APP. #2623 deleted the phone
              seam (engine/notify.js) as telemetry (Josh, 2026-09-09, "invasion of
-             privacy"); this writes the current pending set to a LOCAL 0600 store
+             privacy"); this writes the current pending set (#4544: narrowed by agentnudge.realStalls) to a LOCAL 0600 store
              the web UI reads through /api/prompter-nudges. Nothing leaves the Mac,
              so it is not the telemetry Josh removed and needs no opt-out. The
              store REPLACES the set each tick, so a resolved stall clears itself.
@@ -18218,9 +18425,21 @@ function start(port = PORT) {
              (roster is null by choice, and [] correctly clears the store). Skip
              only the on-but-unreadable case -- policy single-sourced + unit-tested
              in engine/prompternudge.js shouldWrite(). */
-          if (prompternudge.shouldWrite(setting.on, roster)) {
-            try { prompternudge.write(outcome.toAsk); } catch { /* best-effort */ }
-          }
+          /* #4544: the person's list (real stalls only, Josh) and the AGENT's nudge (an idle agent that
+             still holds an open task is sent one short nudge per stall). engine/agentnudge.js prompterTick
+             is the whole of it, gates included, so they are tested there. Inert before the live-execution
+             opt-in and under the brake AGENT_WORKFORCE_AGENT_NUDGE_OFF=1. */
+          agentnudge.prompterTick({
+            setting, roster, outcome,
+            readProjects: () => projects.readAll(),
+            shouldWrite: prompternudge.shouldWrite, write: (list) => prompternudge.write(list),
+            allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
+            readLimit: () => limits.read(), limitDefaults: limits.DEFAULTS,
+            book: AGENT_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, now: Date.now(),
+            deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+            DELIVERY: chat.DELIVERY,
+            log: (r) => process.stdout.write(`agent-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
+          });
         } catch { /* best-effort, like the nudge sweep */ }
         const delay = setting.on ? setting.intervalMinutes * 60 * 1000 : HEARTBEAT_OFF_POLL_MS;
         const t = setTimeout(heartbeatTick, delay);
@@ -18693,6 +18912,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test
   calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test
   HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
