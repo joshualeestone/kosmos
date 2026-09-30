@@ -162,7 +162,12 @@ test('a request that came from another website is refused before the board fetch
   assert.equal(await ask({ 'sec-fetch-site': 'cross-site' }), 403);
   assert.equal(await ask({ 'sec-fetch-site': 'same-site' }), 403);
   assert.equal(await ask({ referer: 'https://example.com/page' }), 403);
+  // A refusal that came AFTER the download started would answer 403 just as fast, with the
+  // download still on its way to the stand-in site. Give it time to land before looking: without
+  // this wait the assertion below caught that ordering only about four runs in five (review 4).
+  await new Promise((done) => setTimeout(done, 400));
   assert.equal(asked.length, before, 'the board fetched for a request from another website');
+  assert.equal(fs.existsSync(catalogue.portraitFile(sha256(EMAIL))), false, 'the board kept a portrait it fetched for another website');
   // The control: the same request from the board's own page is answered, and only now is it fetched.
   assert.equal(await ask({ 'sec-fetch-site': 'same-origin', referer: `${base}/` }), 200);
   assert.deepEqual(asked.slice(before), ['/catalogue/avatars/marketing-email.webp']);

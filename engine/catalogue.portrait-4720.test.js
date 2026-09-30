@@ -344,9 +344,9 @@ test('two members sharing one image under two names: one name failing does not a
     calls.push(url);
     return url.includes('marketing-content.webp') ? new Response(IMG, { status: 200 }) : new Response('nope', { status: 404 });
   };
-  const lead = await catalogue.portrait('marketing', 'lead', { fetcher });
+  // Asked at the same moment, so the one must not join the other's download either.
+  const [lead, content] = await Promise.all([catalogue.portrait('marketing', 'lead', { fetcher }), catalogue.portrait('marketing', 'content', { fetcher })]);
   assert.equal(lead.ok, false);
-  const content = await catalogue.portrait('marketing', 'content', { fetcher });
   assert.equal(content.ok, true, `the content writer was answered with the lead's failure: ${content.because}`);
   assert.ok(calls.some((u) => u.endsWith('/avatars/marketing-content.webp')), 'the content writer address was never asked');
   // And once one name has delivered the image, the other member has it too: it is the same image.
@@ -393,4 +393,29 @@ test('a download that succeeds clears the earlier failure: a kept portrait lost 
   const r = await catalogue.portrait('marketing', 'lead', { fetcher: again.fetcher });
   assert.equal(r.ok, true, `answered with the failure from before the success: ${r.because}`);
   assert.equal(again.calls.length, 1);
+});
+
+test('the ask past the caches has the same cap as the first', async () => {
+  const big = webp('big again', catalogue.PORTRAIT_MAX_BYTES);
+  setup(PATH, sha256(big));
+  // A stale cache answers first with a small wrong image; the ask past it brings the oversized one.
+  const { fetcher, calls } = server(webp('the old one'), big);
+  const r = await catalogue.portrait('marketing', 'lead', { fetcher });
+  assert.equal(calls.length, 2);
+  assert.equal(r.ok, false);
+  assert.match(r.because, /larger than/);
+});
+
+test('a save that fails at the last step leaves no half-written file behind, and the portrait is still used', async () => {
+  setup(PATH, sha256(IMG));
+  // A folder where the kept file should go: the write beside it succeeds and the rename fails.
+  const file = catalogue.portraitFile(sha256(IMG));
+  fs.mkdirSync(file, { recursive: true });
+  const { fetcher, calls } = server(IMG);
+  const r = await catalogue.portrait('marketing', 'lead', { fetcher });
+  assert.equal(r.ok, true, r.because);
+  assert.equal(fs.statSync(file).isDirectory(), true, 'the precondition: the rename could not have succeeded');
+  assert.deepEqual(fs.readdirSync(path.dirname(file)).filter((f) => f.endsWith('.tmp')), [], 'a half-written file was left behind');
+  assert.equal((await catalogue.portrait('marketing', 'lead', { fetcher })).ok, true);
+  assert.equal(calls.length, 1, 'held in memory, so not downloaded again');
 });

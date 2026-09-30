@@ -408,7 +408,6 @@ async function portrait(teamKey, slot, opts = {}) {
         fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.writeFileSync(tmp, bytes);
         fs.renameSync(tmp, file);
-        portraitUnsaved.delete(sha);
       } catch {
         try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ }
         portraitUnsaved.set(sha, bytes);

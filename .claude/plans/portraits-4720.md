@@ -49,13 +49,20 @@ Rejected:
 - **The route is a GET that can start a download.** Another website cannot reach it: `/api/`
   needs the board token, the cookie is SameSite=Strict, and the route calls `crossSiteRead` like
   the other GETs that make this computer fetch (it accepts only `same-origin` and `none`, so a
-  page on another local port, which is `same-site`, is refused too). What is left is a client
-  that sends no Sec-Fetch-Site and a loopback Referer, or a program on this computer, on a board
-  that does not enforce the token.
+  page on another local port, which is `same-site`, is refused too). What is left, on a board that does not
+  enforce the token: a request carrying neither header at all (`crossSiteRead` lets that
+  through, as it says itself), one with no Sec-Fetch-Site and a loopback Referer, or a program
+  on this computer.
   What it can cause is bounded: a request for a path the signed catalogue names, at the
   catalogue's address, at most two a minute per portrait while it fails (the plain ask and the
   one past the caches), one when it succeeds, and none after that: kept on disk, or held in
-  memory when the disk refuses the save. It cannot read the answer.
+  memory when the disk refuses the save. A page that is not the board's cannot read the bytes;
+  an image tag could tell a picture from an error, and its size. The pictures are public.
+- **The route can answer late.** Each of the two asks may take the full 8 s timeout, so a slow
+  catalogue address can hold one answer for about 16 s (measured by review 4: 8.0 s for one
+  stalled ask). The agent is already made by then, so nothing is lost, but **`tcPortrait` must
+  not wait for one member's portrait before starting the next**: six members in a row would be a
+  minute and a half of nothing. That is a requirement on the #4709 follow-up line.
 - **The download follows redirects**, as the catalogue's own download does. A host that serves
   the catalogue address could send the board to another address; the answer is still refused
   unless it is the named image, so this is a request the board makes blind, by someone who
@@ -128,6 +135,20 @@ showed why.
   kept copy is read without a size check (the folder is the person's own data folder; a check
   there is a guard no test could turn red). Redirects: as review 2.
 
+## Review 4 (blind, opus): 0 blockers, 1 warning, 5 nits
+
+- W: my fix for review 3's warning was itself weak. The "refused before the board fetches" test
+  raced the download it was meant to catch: with the refusal moved after the download started,
+  the reviewer saw it pass 6 runs in 30. So "can now fail on ordering" was true about four times
+  in five. It now waits for a stray download to land and also checks nothing was kept; I ran the
+  same mutation 30 times after the change (result in the proof).
+- N, taken: the cap on the ask past the caches is pinned; the two-names test asks both at once,
+  so the in-flight map's key is pinned as well as the failure map's; the clean-up of a
+  half-written file is pinned with a save that fails at the rename; one line that could never
+  run (dropping the in-memory copy after a save that cannot be reached while it is held) is
+  removed; the first gap names the whole residual; the late answer is a recorded gap with a
+  requirement on the follow-up.
+
 ## Weakest premise
 
 That a person making a team is online at that moment. They are in practice (the Team screen just
@@ -135,7 +156,7 @@ downloaded the catalogue), and when they are not the agent is made without a pic
 
 ## Tests
 
-- `engine/catalogue.portrait-4720.test.js` (25; see review 2 for what removing a guard does and does not turn red): the happy path and its address, kept and not
+- `engine/catalogue.portrait-4720.test.js` (27; see review 2 for what removing a guard does and does not turn red): the happy path and its address, kept and not
   asked again, wrong image refused after one ask past the caches, stale cache recovered, the
   minute's gap and `force`, not a WebP, over the cap with an at-the-cap control, nine bad paths
   and six bad hashes never fetched, a damaged kept file, pruning leaves a download under way
