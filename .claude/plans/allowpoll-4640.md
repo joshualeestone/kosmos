@@ -125,3 +125,22 @@ kept through the retry (reds), prefix kept in the sentence (2 reds), report row 
   failure, or a new child; fails toward the old wording). NIT noted: if the tunnel process exits after the refusal
   rather than retrying in-process, the pill could alternate with "Connecting" (not confirmed which it does).
 - NIT noted: POST /api/remote/signin-allowed-done has no cross-site guard; it only drops the watch token.
+
+## Rebased onto main after #4677 landed (2026-09-30)
+
+- Old head 22b1476b66bdb6b258d96e20f4fc8842471e6c73 (stacked on secondmac-4638). New base origin/main 844b2372a
+  (#4638, landed as one squash via #4677).
+- Kept the 20 allowpoll-4640 / #4640 commits (cherry-picked in order, one empty-by-design commit kept with
+  --allow-empty). Dropped the 7 secondmac-4638 / #4638 commits and the 7 merge commits; the two merges of
+  secondmac-4638 into this branch had no manual resolutions (remerge-diff empty), so nothing of ours lived in them.
+- Conflicts: engine/remote.js resetForTests (every commit that touched it): kept main's resetSelfGrant() and this
+  branch's allow-watch reset together. web/index.html: main's rewritten PLUS_NAME_RULE comment kept, PLUS_SI_WATCH
+  declaration added above it; plusSiDoRegister kept main's try/catch with siRestore (#4608) and sends this
+  branch's awaitAllow payload inside it. server.js hookPublicLink: main's "Kosmos+" wording (#4629) kept, the
+  waiting-allow line added and reworded to "Kosmos+".
+- Tests after the rebase: remote 133/133, remote-report 15/15, server 346/346, webhooks-1307 39/39,
+  engine.reachable 1/1, reason-grep 5/5 (EXPECTED_SITES unchanged, measured by the test itself), indexed 1/1,
+  selectors 4/4, browser-checks-wired 11/11. Browser checks: render-plus-panel-3829 105 PASS,
+  render-plus-second-computer-4638 31 PASS, render-plus-signin-3478 175 PASS, render-plus-signin-enter-0929 12 PASS,
+  render-plus-stars-3778 18 PASS, 0 FAIL in each. Full suite not run; the challenge-loop proof is stale after
+  the rebase and must be regenerated before any PR.
