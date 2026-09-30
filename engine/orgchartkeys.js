@@ -193,14 +193,23 @@ const KEEPS = {
    the privacy center (privacy.claude.com, "How long do you store my data?": "in a de-identified format for up to 5
    years", flagged chats "inputs and outputs for up to 2 years"). No "even though Kosmos asks": the Claude read sends
    no such request to Anthropic (--no-session-persistence only stops the local transcript).
-   Said as each plan's own case, because the training setting is a Free/Pro/Max setting. "De-identified" is said as
+   Said as each plan's own case, because the training setting is a Free/Pro/Max setting; the setting is described as
+   the pages do ("allow us to use your chats ... to improve Claude", "Model Improvement in your Privacy Settings"), not
+   by a toggle label they never print. A Claude account known to run on an API key (#2420, `apiKey` on its row) gets
+   CLAUDE_API_KEEPS, its own case ("Commercial users (Team, Enterprise, and API): Standard: 30-day"). "De-identified" is said as
    "with details that identify you removed", not as anonymous or unlinked: the source promises no more than that.
    Left out, on purpose: the classifier SCORES kept up to 7 years for flagged content (scores, not what was sent), and
    Enterprise zero data retention (Kosmos cannot see it; saying 30 days there overstates, the safe direction). */
-const CLAUDE_KEEPS = 'On a Free, Pro or Max plan, Anthropic keeps what you send for 30 days, or, if "Help improve Claude" is on '
-  + 'in your Claude privacy settings, for up to 5 years, with details that identify you removed, to train its models. '
-  + 'On a Team or Enterprise plan, it keeps it for 30 days. Anything its safety systems flag can be kept for up to 2 years.';
-const keeps = (reader) => (reader && reader.kind === 'claude' ? CLAUDE_KEEPS : (reader && KEEPS[reader.provider]) || null);
+const CLAUDE_KEEPS = 'On a Free, Pro or Max plan, Anthropic keeps what you send for 30 days. If you have allowed Anthropic to use '
+  + 'your chats to improve Claude (in your Claude privacy settings), it keeps it for up to 5 years to train its models, with details '
+  + 'that identify you removed. On a Team or Enterprise plan, or an Anthropic API account, Anthropic keeps it for 30 days. '
+  + 'Anything its safety systems flag can be kept for up to 2 years.';
+const CLAUDE_API_KEEPS = 'On an Anthropic API key, Anthropic keeps what you send for 30 days. '
+  + 'Anything its safety systems flag can be kept for up to 2 years.';
+const keeps = (reader) => {
+  if (reader && reader.kind === 'claude') return reader.apiKey === true ? CLAUDE_API_KEEPS : CLAUDE_KEEPS;
+  return (reader && KEEPS[reader.provider]) || null;
+};
 
 /* What a provider cannot read, said as what to do instead. */
 function cannotRead(provider, media) {
@@ -393,4 +402,4 @@ async function readOnce(reader, prompt, name, media, buf, signal) {
   return { ok: true, structured };
 }
 
-module.exports = { CLAUDE_KEEPS, KNOWN_PARAMS, diagnosis, KNOWN_TYPES, pick, KNOWN_CODES, urlFrom, MAX_OUTPUT_TOKENS, offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };
+module.exports = { CLAUDE_KEEPS, CLAUDE_API_KEEPS, KNOWN_PARAMS, diagnosis, KNOWN_TYPES, pick, KNOWN_CODES, urlFrom, MAX_OUTPUT_TOKENS, offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };

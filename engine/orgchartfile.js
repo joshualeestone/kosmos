@@ -600,7 +600,9 @@ function currentReader() {
     // The account too, so the consent's reader id pins the Claude account the box names, not just "Claude".
     let acct = null;
     try { acct = readAccount(); } catch { acct = null; }
-    return { kind: 'claude', dir: acct ? acct.dir : null };
+    // Whether it runs on a pasted API key (#2420): the consent then says it is billed to that key, and that key's
+    // retention (#4660).
+    return { kind: 'claude', dir: acct ? acct.dir : null, apiKey: Boolean(acct && acct.apiKey === true) };
   }
   let got = { reader: null, offWhy: null };
   try { got = require('./orgchartkeys').pick(); } catch { got = { reader: null, offWhy: null }; }
@@ -635,7 +637,8 @@ function readerId(r) {
    own line, #4660). */
 function consentFor(r) {
   const keys = require('./orgchartkeys');
-  return { provider: providerLabel(r), reader: readerId(r), uses: r && r.kind === 'key' ? 'billed to your ' + keys.PROVIDERS[r.provider].name + ' key' : 'using your plan', keeps: keys.keeps(r) };
+  return { provider: providerLabel(r), reader: readerId(r), uses: r && r.kind === 'key' ? 'billed to your ' + keys.PROVIDERS[r.provider].name + ' key'
+    : (r && r.kind === 'claude' && r.apiKey === true ? 'billed to your Anthropic API key' : 'using your plan'), keeps: keys.keeps(r) };
 }
 let availability = readerHere;
 /* `reader`, when the caller has already worked it out, so one request asks once (a second look can disagree). */

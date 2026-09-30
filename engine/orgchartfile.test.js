@@ -453,6 +453,23 @@ test('#4559: common HR headers for the manager column are recognised (Supervisor
   assert.equal(byId.rows[1].reportsTo, 0, JSON.stringify(byId));
 });
 
+test('#4660: the Claude reader carries whether its account runs on an API key (the consent line depends on it)', (t) => {
+  const accounts = require('./accounts');
+  const runners = require('./runners');
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  delete process.env.CLAUDE_CONFIG_DIR;
+  t.mock.method(runners, 'resolveBin', () => ({ present: true, bin: 'claude' }));
+  let row = { dir: '/tmp/x-claude', isDefault: true, email: null, apiKey: true };
+  t.mock.method(accounts, 'list', () => [row]);
+  try {
+    assert.deepEqual(o.currentReader(), { kind: 'claude', dir: '/tmp/x-claude', apiKey: true });
+    assert.equal(o.consentFor(o.currentReader()).uses, 'billed to your Anthropic API key');
+    row = { dir: '/tmp/x-claude', isDefault: true, email: 'a@b.c', apiKey: false };
+    assert.deepEqual(o.currentReader(), { kind: 'claude', dir: '/tmp/x-claude', apiKey: false }, 'CONTROL: a subscription row');
+    assert.equal(o.consentFor(o.currentReader()).uses, 'using your plan');
+  } finally { if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = saved; }
+});
+
 test('#4559: a row on a loop that also shares its name keeps both notes', () => {
   // Managers by id, so the loop E1 <-> E2 resolves even though two rows are called Bo Linden.
   const r = o.tableToPeople([['Employee ID', 'Name', 'Title', 'Manager ID'], ['E1', 'Avery Quill', 'Chief Executive', 'E2'], ['E2', 'Bo Linden', 'Head of Sales', 'E1'], ['E3', 'Bo Linden', 'Head of Product', '']]);

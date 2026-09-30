@@ -71,6 +71,9 @@ const EXPECT_REPORTS = [
   'Head of Sales (Bo Linden)', 'Head of Sales (Bo Linden)', 'Head of Operations (Dev Mariner)',
 ];
 
+/* A Claude consent answer as the board sends one: the engine's own keeps sentence, not a copy (#4660). The reader
+   id and `uses` are left out, as before, so these arms send exactly what they did. */
+const CLAUDE_ASK = { needsConsent: true, provider: 'Anthropic (Claude)', keeps: require('../../engine/orgchartkeys').CLAUDE_KEEPS };
 const PICTURE_ROWS = [
   { person: 'Avery Quill', title: 'Chief Executive', reportsTo: null, why: null },
   { person: 'Bo Linden', title: 'Head of Sales', reportsTo: 0, why: null },
@@ -129,7 +132,7 @@ async function run() {
       await p3.route('**/api/orgchart/read*', (r) => {
         const consent = new URL(r.request().url()).searchParams.get('consent') === '1';
         reads.push({ consent, name: decodeURIComponent(r.request().headers()['x-orgchart-name'] || ''), bytes: (r.request().postDataBuffer() || Buffer.alloc(0)).length });
-        r.fulfill({ status: 200, json: consent ? { source: 'model', provider: 'Anthropic (Claude)', rows: PICTURE_ROWS, problems: [] } : { needsConsent: true, provider: 'Anthropic (Claude)', keeps: require('../../engine/orgchartkeys').CLAUDE_KEEPS } });
+        r.fulfill({ status: 200, json: consent ? { source: 'model', provider: 'Anthropic (Claude)', rows: PICTURE_ROWS, problems: [] } : CLAUDE_ASK });
       });
       await openPanel(p3);
       if (!(await p3.$('#orgchart-file-btn'))) { check('PICTURE: the panel offers a file', false); await p3.close(); continue; }
@@ -185,7 +188,7 @@ async function run() {
     let aborted = false;
     await pst.route('**/api/orgchart/read*', async (r) => {
       const consent = new URL(r.request().url()).searchParams.get('consent') === '1';
-      if (!consent) return r.fulfill({ status: 200, json: { needsConsent: true, provider: 'Anthropic (Claude)' } });
+      if (!consent) return r.fulfill({ status: 200, json: CLAUDE_ASK });
       await new Promise((ok) => setTimeout(ok, 3000));   // a read that takes a while
       try { await r.fulfill({ status: 200, json: { source: 'model', provider: 'Anthropic (Claude)', rows: PICTURE_ROWS, problems: [] } }); } catch { aborted = true; }
     });
@@ -211,7 +214,7 @@ async function run() {
     let pvAborted = false;
     await ppv.route('**/api/orgchart/read*', async (r) => {
       const consent = new URL(r.request().url()).searchParams.get('consent') === '1';
-      if (!consent) return r.fulfill({ status: 200, json: { needsConsent: true, provider: 'Anthropic (Claude)' } });
+      if (!consent) return r.fulfill({ status: 200, json: CLAUDE_ASK });
       await new Promise((ok) => setTimeout(ok, 3000));
       try { await r.fulfill({ status: 200, json: { source: 'model', provider: 'Anthropic (Claude)', rows: PICTURE_ROWS, problems: [] } }); } catch { /* aborted */ }
     });
@@ -240,7 +243,7 @@ async function run() {
     await pcr.route('**/api/team', (r) => { const body = JSON.parse(r.request().postData() || '{}'); r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } }); });
     await pcr.route('**/api/orgchart/read*', async (r) => {
       const consent = new URL(r.request().url()).searchParams.get('consent') === '1';
-      if (!consent) return r.fulfill({ status: 200, json: { needsConsent: true, provider: 'Anthropic (Claude)' } });
+      if (!consent) return r.fulfill({ status: 200, json: CLAUDE_ASK });
       await new Promise((ok) => setTimeout(ok, 3000));
       try { await r.fulfill({ status: 200, json: { source: 'model', provider: 'Anthropic (Claude)', rows: PICTURE_ROWS, problems: [] } }); } catch { /* aborted */ }
     });
@@ -324,7 +327,7 @@ async function run() {
 
     // LEAVE: leaving the panel with a picture waiting for Read it disarms it; coming back shows no consent box.
     const pl = await page();
-    await pl.route('**/api/orgchart/read*', (r) => r.fulfill({ status: 200, json: { needsConsent: true, provider: 'Anthropic (Claude)' } }));
+    await pl.route('**/api/orgchart/read*', (r) => r.fulfill({ status: 200, json: CLAUDE_ASK }));
     await openPanel(pl);
     if (await pl.$('#orgchart-file-btn')) {
       await pl.setInputFiles('#orgchart-file', path.join(FIX, 'chart.png'));
@@ -446,7 +449,7 @@ async function run() {
       await pa.waitForFunction(() => /This list has 51 people/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 8000 }).catch(() => {});
       const mn = await readPreview(pa);
       // BIG PICTURE: a picture over what the model takes is refused before the consent box, so a yes cannot end in a refusal.
-      await pa.route('**/api/orgchart/read*', (r) => { reads += 1; r.fulfill({ status: 200, json: { needsConsent: true, provider: 'Anthropic (Claude)' } }); });
+      await pa.route('**/api/orgchart/read*', (r) => { reads += 1; r.fulfill({ status: 200, json: CLAUDE_ASK }); });
       const beforePic = reads;
       await pa.setInputFiles('#orgchart-file', { name: 'big.png', mimeType: 'image/png', buffer: Buffer.alloc(6 * 1024 * 1024, 0x41) });
       await pa.waitForTimeout(300);
