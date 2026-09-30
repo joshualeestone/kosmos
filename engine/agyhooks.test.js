@@ -267,6 +267,62 @@ test('#4043: what the board actually receives: the route, state, text, auto and 
   assert.equal(seen[3].body.text, 'The turn ended with an error: quota exceeded');
 });
 
+/* #4491: which credentials the bridge presents. The agent's own token always, when it has a well-formed one; the
+   person's board token only when this process can read one. An agy agent that cannot read the board token still
+   reports, as itself: POST /api/report takes the agent's token (server.js REMOTE_AGENT_ROUTES). */
+test('#4491: the bridge presents the agent\'s token, and the board token only when it can read one', async () => {
+  const http = require('node:http');
+  const { spawn } = require('node:child_process');
+  const store = require('./store');
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => { body += d; });
+    req.on('end', () => {
+      seen.push({ headers: req.headers, body: JSON.parse(body) });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"recorded":true}');
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  const panes = [];
+  /* One Stop per call (an idle is never held by the throttle), each as its own pane, with the env under test. */
+  const stop = (extra) => new Promise((resolve, reject) => {
+    const pane = '%tok-' + process.pid + '-' + panes.length;
+    panes.push(pane);
+    const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: pane, ...extra };
+    const child = spawn(process.execPath, [BRIDGE_FILE, 'Stop'], { env, stdio: ['pipe', 'ignore', 'ignore'] });
+    child.on('error', reject);
+    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error('bridge exited ' + code))));
+    child.stdin.end(JSON.stringify({ fullyIdle: true }));
+  });
+  const tok = 'ab12'.repeat(16);
+  const none = path.join(SB, 'no-board-token');       // a data folder the board never wrote a token into
+  const held = path.join(SB, 'with-board-token');
+  fs.mkdirSync(none, { recursive: true });
+  fs.mkdirSync(path.join(held, store.APP), { recursive: true });
+  fs.writeFileSync(path.join(held, store.APP, 'board.token'), 'abc123boardtoken');
+  try {
+    await stop({ KOSMOS_AGENT_TOKEN: tok, AGENT_WORKFORCE_DATA: none });
+    await stop({ KOSMOS_AGENT_TOKEN: tok, AGENT_WORKFORCE_DATA: held });
+    for (const bad of ['', 'not-hex', 'ABCDEF', 'deadbeef warning: x']) await stop({ KOSMOS_AGENT_TOKEN: bad, AGENT_WORKFORCE_DATA: none });
+  } finally {
+    server.closeAllConnections(); server.close();
+    for (const pane of panes) { try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: String(port), TMUX_PANE: pane }), { force: true }); } catch { /* none */ } }
+  }
+  assert.equal(seen.length, 6, 'a report was lost: every Stop must reach the board, with or without a board token');
+  assert.equal(seen[0].headers['x-kosmos-agent-token'], tok, 'the agent\'s token did not reach the board');
+  assert.equal(seen[0].headers['x-kosmos-board-token'], undefined, 'no token file, so no board-token header may be sent');
+  assert.equal(seen[0].body.state, 'idle', 'with no board token to read, the report itself changed');
+  /* CONTROL: the same run where the board did write a token presents it, so the absence above is the missing
+     file and not a bridge that never reads one. */
+  assert.equal(seen[1].headers['x-kosmos-board-token'], 'abc123boardtoken', 'the board token did not reach the board');
+  assert.equal(seen[1].headers['x-kosmos-agent-token'], tok);
+  /* No token, or one that is not plain hex, is never presented: the route would refuse it rather than fall back
+     to the pane (the other three bridges' rule). */
+  for (const s of seen.slice(2)) assert.equal(s.headers['x-kosmos-agent-token'], undefined, 'a missing or malformed token was presented');
+});
 /* The merge of main into #4588 put `waiting` (#4569) and `until` (#4588) on one buildBody call: each must reach the
    board in its own field. Dropping either one at the send site reds this test or the next. */
 test('#4569 + #4588: the real bridge carries a Muse queue count to the board as waiting, with no until', async () => {
