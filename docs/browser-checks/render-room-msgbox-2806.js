@@ -169,8 +169,16 @@ function tapProbe4663(skip) {
       if (!(q.right > r.left - 40 && q.left < r.right + 40 && q.bottom > r.top - 40 && q.top < r.bottom + 40)) continue;
       const x = q.left + q.width / 2, y = q.top + q.height / 2;
       if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) continue;
-      const t = document.elementFromPoint(x, y);
-      if (t && ids.some((j) => { const o = document.getElementById(j); return o && o !== n && !n.contains(o) && (t === o || o.contains(t)); })) theirs.push((n.id || n.className || n.tagName) + ' taken by ' + (t.id || t.className));
+      /* Every pixel of the neighbour's drawn box, not only its centre: an area can cover a neighbour's edge (review
+         round 3 found 18% of View All answering as + New task) while its centre stays its own. */
+      let taken = 0, total = 0, by = '';
+      for (let yy = Math.ceil(q.top); yy < q.bottom; yy += 1) for (let xx = Math.ceil(q.left); xx < q.right; xx += 1) {
+        if (xx < 0 || yy < 0 || xx >= innerWidth || yy >= innerHeight) continue; total += 1;
+        const t = document.elementFromPoint(xx, yy);
+        const o = t && ids.map((j) => document.getElementById(j)).find((o2) => o2 && o2 !== n && !n.contains(o2) && (t === o2 || o2.contains(t)));
+        if (o) { taken += 1; by = o.id; }
+      }
+      if (total && taken / total > 0.01) theirs.push((n.id || n.className || n.tagName) + ': ' + Math.round(100 * taken / total) + '% answers as ' + by);
     }
   }
   for (const u of undo.reverse()) u();
@@ -806,7 +814,7 @@ function tapProbe4663(skip) {
       // around their centre, and none of those areas steals a tap from a neighbouring control's own centre.
       const taps = await phonePage.evaluate(tapProbe4663);
       chk(taps.out.length === 6 && taps.out.every((x) => !x.error && x.reach), `[phone] #4663: Back, settings, + Add member, + New task and both View All take a tap across at least 36px`, JSON.stringify(taps.out));
-      chk(taps.theirs.length === 0, `[phone] #4663: no enlarged tap area takes a neighbouring control's own centre`, JSON.stringify(taps.theirs));
+      chk(taps.theirs.length === 0, `[phone] #4663: no enlarged tap area takes any part of a neighbouring control`, JSON.stringify(taps.theirs));
       chk(taps.restored, `[phone] #4663: the probe left the page as it found it`, String(taps.restored));
       // The projects list's top row at 375 on a touchscreen (16px sort): Add Project, the sort and
       // the view toggle must not overlap and must stay inside the row. (The harness only flags
@@ -1632,7 +1640,7 @@ function tapProbe4663(skip) {
       // #4663 on a touchscreen tablet in the TAB layout (the static page's own layout at 1180).
       const ttaps = await tabletPage.evaluate(tapProbe4663);
       chk(ttaps.out.length === 6 && ttaps.out.every((x) => !x.error && x.reach), `[tablet 1180/touch tabs] #4663: all six small project controls take a tap across at least 36px`, JSON.stringify(ttaps.out));
-      chk(ttaps.theirs.length === 0 && ttaps.restored, `[tablet 1180/touch tabs] #4663: no enlarged tap area takes a neighbour's centre, and the probe left the page as it found it`, JSON.stringify({ theirs: ttaps.theirs, restored: ttaps.restored }));
+      chk(ttaps.theirs.length === 0 && ttaps.restored, `[tablet 1180/touch tabs] #4663: no enlarged tap area takes any part of a neighbour, and the probe left the page as it found it`, JSON.stringify({ theirs: ttaps.theirs, restored: ttaps.restored }));
     } finally {
       chk(tabletPageErrors.length === 0, '[tablet] no script errors on the page', tabletPageErrors.join(' | '));
       await tabletPage.close();
@@ -1651,7 +1659,7 @@ function tapProbe4663(skip) {
         const layout = await consTap.evaluate(() => document.documentElement.getAttribute('data-layout') + '/' + document.body.classList.contains('consolidated'));
         const ctaps = await consTap.evaluate(tapProbe4663, ['pj-back']);
         chk(layout === 'consolidated/true' && ctaps.out.length === 5 && ctaps.out.every((x) => !x.error && x.reach), `[tablet ${w}/touch one-screen] #4663: the five small project controls it shows take a tap across at least 36px`, JSON.stringify({ layout, out: ctaps.out }));
-        chk(ctaps.theirs.length === 0 && ctaps.restored, `[tablet ${w}/touch one-screen] #4663: no enlarged tap area takes a neighbour's centre, and the probe left the page as it found it`, JSON.stringify({ theirs: ctaps.theirs, restored: ctaps.restored }));
+        chk(ctaps.theirs.length === 0 && ctaps.restored, `[tablet ${w}/touch one-screen] #4663: no enlarged tap area takes any part of a neighbour, and the probe left the page as it found it`, JSON.stringify({ theirs: ctaps.theirs, restored: ctaps.restored }));
       } finally {
         chk(consTapErrors.length === 0, `[tablet ${w} one-screen] no script errors on the page`, consTapErrors.join(' | '));
         await consTap.close();
