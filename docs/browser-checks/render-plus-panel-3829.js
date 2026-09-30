@@ -158,12 +158,14 @@ const STATES = {
               const r = document.createRange(); r.selectNodeContents(e); const rs = [...r.getClientRects()].filter((x) => x.width > 0);
               const right = Math.max(...rs.map((x) => x.right));
               const chip = document.getElementById('plus-chip').getBoundingClientRect();
-              return { inScreen: chip.left >= 0 && chip.right <= innerWidth + 0.5, shown: e.getBoundingClientRect().height > 0, lines: (rs.some((x) => Math.abs(x.top - rs[0].top) > 4) ? 2 : 1), font: getComputedStyle(e).fontSize,
+              // #4744 (review 9): the box reaches 12px into the panel's padding, so it must stay inside the panel too.
+              const pane = document.getElementById('s-sec-plus').getBoundingClientRect();
+              return { inScreen: chip.left >= 0 && chip.right <= innerWidth + 0.5, inPane: chip.left >= pane.left - 0.5 && chip.right <= pane.right + 0.5, shown: e.getBoundingClientRect().height > 0, lines: (rs.some((x) => Math.abs(x.top - rs[0].top) > 4) ? 2 : 1), font: getComputedStyle(e).fontSize,
                 spare: Math.round(e.getBoundingClientRect().right - right), clear: Math.round(c.getBoundingClientRect().left - right) };
             });
-            if (wide >= 600) chk(n.shown && n.inScreen && n.lines === 1 && n.spare >= 10 && n.clear >= 18 && parseFloat(n.font) >= 12, `${t} #4744: at ${wide} wide the sentence is one line at 12px or more, 10px+ inside its box and before Copy`, JSON.stringify(n));
+            if (wide >= 600) chk(n.shown && n.inScreen && n.inPane && n.lines === 1 && n.spare >= 10 && n.clear >= 18 && parseFloat(n.font) >= 12, `${t} #4744: at ${wide} wide the sentence is one line at 12px or more, 10px+ inside its box and before Copy`, JSON.stringify(n));
             // A phone: it may wrap (the address may break), but nothing runs past its box or under Copy.
-            else chk(n.shown && n.inScreen && n.lines >= 2 && parseFloat(n.font) >= 12 && n.spare >= 0 && n.clear >= 0, `${t} #4744: at ${wide} wide (narrower than the one-line box) the box stays on screen and the sentence wraps inside it, clear of Copy`, JSON.stringify(n));
+            else chk(n.shown && n.inScreen && n.inPane && n.lines >= 2 && parseFloat(n.font) >= 12 && n.spare >= 0 && n.clear >= 0, `${t} #4744: at ${wide} wide (narrower than the one-line box) the box stays on screen and inside its panel, and the sentence wraps inside it, clear of Copy`, JSON.stringify(n));
           }
           await page.setViewportSize(vp); await page.waitForTimeout(250);
         }

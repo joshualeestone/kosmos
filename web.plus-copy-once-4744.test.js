@@ -5,7 +5,8 @@
  * not copy" after the address was copied.
  *
  *   node --test web.plus-copy-once-4744.test.js
- *   PLUS_PAGE=<main's web/index.html> node --test web.plus-copy-once-4744.test.js   (must fail there)
+ *   PLUS_PAGE=<web/index.html at 747aa169d> node --test web.plus-copy-once-4744.test.js   (the handler before the
+ *   guard: both tests fail there, measured 0/2)
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
