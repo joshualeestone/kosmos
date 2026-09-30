@@ -282,8 +282,9 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
       try { const v = ask(item.session, askText(item)); state = (v && v.state) || null; held = Boolean(v && v.held === true); } catch { state = null; }
     }
     if (held) {
-      /* #4588 PR B: held on the shared Google quota, nothing typed. Not a failure: the charge comes back off the hour and
-         the ask is due again after ASK_RETRY_MS, with no failure counted toward the day-long wait. */
+      /* #4588 PR B: held on the shared Google quota, nothing typed. A backstop: step() already skips a held agent, so this
+         runs only if the hold starts between step() and the ask. Not a failure: the charge comes back off the hour and the
+         ask is due again after ASK_RETRY_MS, with no failure counted toward the day-long wait. */
       const i = out.next.askLog.findIndex((e) => e.at === now && e.session === item.session && e.projectId === item.projectId);
       if (i !== -1) out.next.askLog.splice(i, 1);
       out.next.asked.set(item.projectId, now - GOAL_ASK_MS + ASK_RETRY_MS);

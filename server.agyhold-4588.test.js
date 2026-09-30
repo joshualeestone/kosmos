@@ -109,6 +109,13 @@ test('#4588 B givePart CONTROL: the same give with the pool open (or a person\'s
 const SRC = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
 /* Comments out, strings kept: a small scanner, so a `//` inside a string or template is not taken for a comment
    and a comment naming chat.deliverAutomatic cannot satisfy a pin. */
+/* After this text, does a `/` start a regex (an operand is expected) rather than divide? */
+function regexCanStart(before) {
+  const t = before.replace(/\s+$/, '');
+  if (!t) return true;
+  if (/(^|[^\w$])(return|typeof|case|in|of|delete|void|throw|new|else|do)$/.test(t)) return true;
+  return /[(,=:[!&|?{};+\-*%<>~^]$/.test(t);
+}
 function stripComments(src) {
   let out = '';
   let i = 0;
@@ -125,6 +132,19 @@ function stripComments(src) {
     }
     if (c === '/' && d === '*') { const e = src.indexOf('*/', i + 2); i = e === -1 ? src.length : e + 2; out += ' '; continue; }
     if (c === '/' && d === '/') { const e = src.indexOf('\n', i); i = e === -1 ? src.length : e; continue; }
+    /* A regex literal: a `/` where an operand is expected. Without this, a quote inside a regex (server.js has many)
+       flips the scanner into a string for the rest of the file and every later comment survives (measured: from
+       line 3914 on, before this). Consumed to its closing `/`, through escapes and [...] classes. */
+    if (c === '/' && regexCanStart(out)) {
+      let j = i + 1; let cls = false;
+      while (j < src.length && src[j] !== '\n') {
+        const k = src[j];
+        if (k === '\\') { j += 2; continue; }
+        if (k === '[') cls = true; else if (k === ']') cls = false; else if (k === '/' && !cls) break;
+        j += 1;
+      }
+      out += src.slice(i, j + 1); i = j + 1; continue;
+    }
     if (c === '\'' || c === '"' || c === '`') quote = c;
     out += c;
     i += 1;
@@ -132,6 +152,18 @@ function stripComments(src) {
   return out;
 }
 const CODE = stripComments(SRC);
+
+test('pin fixture: the scanner stays in step over ALL of server.js (no pure // comment line survives); CONTROL: a quote in a regex no longer desyncs it', () => {
+  const survivors = [];
+  for (const [n, line] of SRC.split('\n').entries()) {
+    const m = line.match(/^\s*\/\/ (.{24,48})/);
+    if (m && CODE.includes(m[1])) survivors.push(n + 1);
+  }
+  assert.deepEqual(survivors, [], 'the comment stripper lost step; comments survive from line ' + survivors[0]);
+  const s = stripComments("const r = /['\"]/g; /* chat.deliverAutomatic( */ x(); // chat.deliverAutomatic(\nchat.deliver(1);");
+  assert.equal(s.includes('deliverAutomatic'), false, 'a regex holding quotes flipped the scanner into a string');
+  assert.ok(s.includes("/['\"]/g") && s.includes('chat.deliver(1)'));
+});
 
 test('pin fixture: stripComments removes a comment mention and keeps a call and a string', () => {
   const s = stripComments("a(); /* chat.deliverAutomatic( */ b(); // chat.deliverAutomatic(\nconst u = 'http://x'; chat.deliver(1);");
@@ -157,7 +189,6 @@ function windowAfter(anchor) {
 
 const AUTOMATIC = [
   ['autohandoff', 'lastBand: autohandoffBands,', /deliver:\s*\(session, textToSend\)\s*=>\s*\{\s*try\s*\{\s*return chat\.deliverAutomatic\(session, textToSend, roster,/],
-  ['connlost-heal', 'book: CONNLOST_BOOK,', /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliverAutomatic\(session, text, r,/],
   ['firstreply-nudge', 'book: FIRSTREPLY_BOOK,', /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliverAutomatic\(session, text, r,/],
   ['account-notify', 'accountNotify.sweepOnce({', /deliver:\s*\(session, text\)\s*=>\s*chat\.deliverAutomatic\(session, text, cards,/],
   ['recommender', 'recommender.runOnce({', /deliver:\s*\(session, text\)\s*=>\s*chat\.deliverAutomatic\(session, text, roster,/],
@@ -172,6 +203,12 @@ for (const [name, anchor, re] of AUTOMATIC) {
     assert.equal(/chat\.deliver\(/.test(w), false, name + ': a plain chat.deliver( call is still in the closure');
   });
 }
+
+test('#4588 B pin: the connlost-heal timer stays on chat.deliver (it counts a try before delivering, and an agy card never reads connection_lost)', () => {
+  const w = windowAfter('book: CONNLOST_BOOK,');
+  assert.match(w, /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliver\(session, text, r,/);
+  assert.equal(/deliverAutomatic/.test(w), false, 'a hold would spend connlost-heal\'s counted tries');
+});
 
 test('#4588 B pin: the agy-quota-resume sweep stays on chat.deliver (it is the line that ends the hold)', () => {
   const w = windowAfter('book: AGY_QUOTA_BOOK,');

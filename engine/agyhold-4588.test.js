@@ -546,3 +546,58 @@ test('#4588 B heldForQuota finds the card by chat\'s own rule (resolveCard), so 
   assert.notEqual(agyquota.heldForQuota('caseagy', roster, now, { resetAt: null }), null, 'a lower-cased name slipped past the gate');
   assert.equal(agyquota.heldForQuota('nosuchagent', roster, now, { resetAt: null }), null, 'CONTROL');
 });
+
+/* ---- review iteration 2: per-agent release, a memory that corrects and is bounded, one predicate for the resume ---- */
+
+test('#4588 B release is per agent, one stagger apart (by session name), not all at the tail\'s end; CONTROL: the last one ends with the tail', () => {
+  const memo = { resetAt: null };
+  const reset = Date.parse('2026-09-28T22:11:54.000Z');
+  const roster = [
+    { sessionName: 'rel-a', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(reset).toISOString() },
+    { sessionName: 'rel-b', runner: 'antigravity', state: 'idle' },
+    { sessionName: 'rel-c', runner: 'antigravity', state: 'idle' },
+  ];
+  agyquota.heldForQuota('rel-a', roster, reset - 1, memo);
+  const after = roster.map((c) => ({ ...c, state: 'idle', quotaUntil: null }));
+  const at = (name) => agyquota.heldForQuota(name, after, reset + 1, memo);
+  assert.deepEqual(['rel-a', 'rel-b', 'rel-c'].map(at), [1, 2, 3].map((k) => reset + agyquota.GRACE_MS + agyquota.STAGGER_MS * k));
+  assert.equal(agyquota.heldForQuota('rel-a', after, reset + agyquota.GRACE_MS + agyquota.STAGGER_MS, memo), null, 'rel-a is free at its own slot');
+  assert.notEqual(agyquota.heldForQuota('rel-c', after, reset + agyquota.GRACE_MS + agyquota.STAGGER_MS, memo), null, 'rel-c is still held then');
+  assert.equal(at('rel-c'), reset + agyquota.releaseTailMs(after), 'CONTROL: the last agent ends with the whole tail');
+});
+
+test('#4588 B memory: a card that corrects its reset lowers it; a reset over MAX_POOL_MS ahead is not believed; CONTROL: a sane one is', () => {
+  const now = Date.parse('2026-09-28T20:00:00.000Z');
+  const memo = { resetAt: null };
+  const card = (until) => [{ sessionName: 'mem-a', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(until).toISOString() }];
+  agyquota.heldForQuota('mem-a', card(now + 5 * 3600e3), now, memo);
+  assert.equal(memo.resetAt, now + 5 * 3600e3);
+  agyquota.heldForQuota('mem-a', card(now + 30 * 60e3), now, memo);
+  assert.equal(memo.resetAt, now + 30 * 60e3, 'a corrected (earlier) reset did not lower the memory');
+  const far = { resetAt: null };
+  assert.equal(agyquota.heldForQuota('mem-a', card(now + agyquota.MAX_POOL_MS + 60e3), now, far), null, 'a reset beyond MAX_POOL_MS held the pool');
+  assert.equal(far.resetAt, null);
+  assert.notEqual(agyquota.heldForQuota('mem-a', card(now + agyquota.MAX_POOL_MS - 60e3), now, { resetAt: null }), null, 'CONTROL: a week-long pause is held');
+});
+
+test('#4588 B resume and senders agree: a card that stops showing its pause before the reset still holds the resume; CONTROL: resumed after the reset', () => {
+  const RESET = '2026-09-28T22:11:54.000Z';
+  const AT = Date.parse(RESET);
+  const memo = { resetAt: null };
+  const report = { found: true, state: 'idle', by: 'auto', until: RESET, because: status.QUOTA_REPORT_PREFIX + ' Google said: ...' };
+  const b = (quotaUntil, state) => ({ sessionName: 'agr-b', name: 'B', runner: 'antigravity', state, quotaUntil });
+  const a = { sessionName: 'agr-a', name: 'A', runner: 'antigravity', state: 'idle' };
+  const later = AT + 3600e3;
+  const sent = [];
+  const run = (roster, now) => agyquota.sweepOnce({ roster, book: new Map(), now, memo, readReport: (s) => (s === 'agr-a' ? report : { found: false }),
+    deliver: (s) => { sent.push(s); return { state: DELIVERY.PLACED }; }, DELIVERY });
+  run([a, b(new Date(later).toISOString(), 'rate_limited')], AT + agyquota.GRACE_MS + 1); // the board sees B paused until `later`
+  // B's screen changed: it no longer shows the pause, but the pool is still empty until `later`.
+  const r = run([a, b(null, 'working')], AT + agyquota.GRACE_MS + 2);
+  assert.equal(r.skipped, 'the shared pool is still paused');
+  assert.notEqual(agyquota.heldForQuota('agr-a', [a, b(null, 'working')], AT + agyquota.GRACE_MS + 2, memo), null, 'the senders agree');
+  assert.deepEqual(sent, [], 'agr-a was resumed into a pool still empty until B\'s reset');
+  const ok = agyquota.sweepOnce({ roster: [a, b(null, 'working')], book: new Map(), now: later + 1, memo, readReport: () => ({ ...report, until: new Date(later - agyquota.GRACE_MS - 1).toISOString() }),
+    deliver: (s) => { sent.push(s); return { state: DELIVERY.PLACED }; }, DELIVERY });
+  assert.equal(ok.skipped, undefined, 'CONTROL: after the remembered reset the resume runs');
+});
