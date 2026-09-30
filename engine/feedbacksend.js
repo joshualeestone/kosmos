@@ -41,6 +41,7 @@
  */
 
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const os = require('node:os');
 const path = require('node:path');
 const store = require('./store');
@@ -60,6 +61,16 @@ const DEFAULT_ENDPOINT = 'https://installkosmos.com/api/feedback';
  * server-side. Bump this whenever the disclosure copy changes.
  */
 const CONSENT_VERSION = '2026-09-05';
+
+/**
+ * kosmos#4766: the shortest gap between two sends of the SAME day's report. A
+ * report that changed after it was sent is sent again, but no sooner than this
+ * after the previous send. Three hours: the board sweeps hourly, so this caps a
+ * day at about eight POSTs even for an agent that rewrites its report every few
+ * minutes (never a POST storm), while a same-day write-up (a slowness report, the
+ * #4415 case) still leaves the machine the same working day instead of never.
+ */
+const RESEND_MIN_MS = 3 * 60 * 60 * 1000;
 
 let sender = null;   // tests inject; production uses global fetch
 const endpoint = () => process.env.AGENT_WORKFORCE_FEEDBACK_URL || DEFAULT_ENDPOINT;
@@ -85,16 +96,31 @@ function read() {
   try { parsed = JSON.parse(raw); } catch { return { on: false, sent: null, ok: false }; }
   if (!parsed || typeof parsed !== 'object') return { on: false, sent: null, ok: false };
   // `sent` is the date key (YYYY-MM-DD) of the last report the board actually
-  // sent, the once-per-day dedup marker. A non-string is treated as never-sent.
-  return { on: parsed.on === true, sent: typeof parsed.sent === 'string' ? parsed.sent : null, ok: true };
+  // sent. A non-string is treated as never-sent. kosmos#4766: `sentHash` (a
+  // sha256 of that report's body) and `sentAt` (epoch ms) say WHAT was sent and
+  // WHEN, so a report that changed later in the same day can be sent again. An
+  // old file carries only `sent`: both read as null, meaning "sent that day,
+  // content and time unknown", which sendDailyOnce resolves with at most one
+  // extra send.
+  const sent = typeof parsed.sent === 'string' ? parsed.sent : null;
+  return {
+    on: parsed.on === true,
+    sent,
+    sentHash: sent && typeof parsed.sentHash === 'string' ? parsed.sentHash : null,
+    sentAt: sent && Number.isFinite(parsed.sentAt) ? parsed.sentAt : null,
+    ok: true,
+  };
 }
 
 function write(patch) {
   const cur = read();
-  // Preserve BOTH fields across a partial write: setOn must not wipe the `sent`
-  // dedup marker, and markSent must not flip `on`. JSON.stringify drops an
-  // undefined/null `sent` cleanly, so a never-sent file stays {on:...}.
-  const next = { on: cur.on, ...(cur.sent ? { sent: cur.sent } : {}), ...patch };
+  // Preserve every field across a partial write: setOn must not wipe the `sent`
+  // dedup marker (with its hash and time), and markSent must not flip `on`. A
+  // null field is dropped, so a never-sent file stays {on:...}.
+  const next = { on: cur.on };
+  for (const k of ['sent', 'sentHash', 'sentAt']) if (cur[k] != null) next[k] = cur[k];
+  Object.assign(next, patch);
+  for (const k of Object.keys(next)) if (next[k] == null) delete next[k];
   delete next.ok;
   try {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
@@ -397,20 +423,40 @@ function maybeSend(date) {
   } catch { /* nothing here may reach the caller */ }
 }
 
+/** sha256 of a report body: what the `sentHash` marker compares. The RAW body
+ *  (frontmatter stripped, not scrubbed): the header's generated_at changes on
+ *  every rewrite even when the words do not, and scrub() output changes when an
+ *  agent or project is added, neither of which is a new report. */
+function bodyHash(body) {
+  return crypto.createHash('sha256').update(String(body)).digest('hex');
+}
+
 /**
- * The board-sweep entry point: send a day's report AT MOST ONCE, even though the
- * board calls this on a repeating timer. The short-lived `kosmos feedback` CLI
- * cannot fire-and-forget a send (it exits), so the long-lived board owns the
- * trigger (#2037 PR-C1). Dedup lives here, not in maybeSend, so the direct/test
- * callers of maybeSend keep their unguarded semantics.
+ * The board-sweep entry point, called on a repeating timer (hourly). Sends a
+ * day's report once, and AGAIN when it changed after it was sent (kosmos#4766),
+ * but never sooner than RESEND_MIN_MS after the previous send. The short-lived
+ * `kosmos feedback` CLI cannot fire-and-forget a send (it exits), so the
+ * long-lived board owns the trigger (#2037 PR-C1). Dedup lives here, not in
+ * maybeSend, so the direct/test callers of maybeSend keep their unguarded
+ * semantics.
+ *
+ *   same day, same body            -> no POST, ever
+ *   same day, body changed         -> POST once RESEND_MIN_MS has passed
+ *   a new day                      -> POST (as before)
+ *   old file (`sent` date only)    -> the content is unknown, so one POST, which
+ *                                     records the hash; then as above
+ *
+ * The collector keeps one record per install per day and REPLACES it on a
+ * same-day re-send (chaoskosmos-site api/_feedbackcore.js), so a re-send updates
+ * the day's report rather than adding a second one.
  *
  * 🛑 MARK-SENT BEFORE THE POST, ON PURPOSE. The send is fire-and-forget, so a
  * failed POST cannot be observed here anyway; marking sent up front means a
- * down collector does not make the sweep re-POST every hour for the rest of the
- * day. It is a best-effort DAILY report - a missed day is lost, next day's
- * sends. Returns nothing (like maybeSend), so no caller can wait on it.
+ * down collector does not make the sweep re-POST every hour. It is a
+ * best-effort DAILY report. Returns nothing (like maybeSend), so no caller can
+ * wait on it. `now` (epoch ms) is the test seam for the clock.
  */
-function sendDailyOnce(date) {
+function sendDailyOnce(date, now) {
   try {
     // Same guard maybeSend applies, but EARLIER so a test run does not even
     // record a `sent` marker for a send that the underTest guard will block.
@@ -418,22 +464,33 @@ function sendDailyOnce(date) {
     // exercising the real path and must be allowed to mark + send.
     if (!sender && underTest()) return;
     const d = date || feedback.today();
+    const t = Number.isFinite(now) ? now : Date.now();
     const st = read();                    // one read for both gates, atomic within the tick
     if (!st.on) return;                   // opt-in gate (default ON; the person opts out in Settings)
-    if (st.sent === d) return;            // already sent today
-    if (feedback.read(d) == null) return; // no report for that day, nothing to mark or send
+    const body = feedback.readBody(d);
+    if (body == null) return;             // no report for that day, nothing to mark or send
+    const h = bodyHash(body);
+    if (st.sent === d) {
+      if (st.sentHash === h) return;      // sent today, and nothing changed since
+      // Changed (or an old marker with unknown content): wait out the interval.
+      // An unknown time, or one in the future (a clock set back), counts as
+      // elapsed: the send it allows records a real time, so it happens once.
+      const age = st.sentAt == null ? Infinity : t - st.sentAt;
+      if (age >= 0 && age < RESEND_MIN_MS) return;
+    }
     // Mark first, and only send if the mark PERSISTED. If the setting-file write
     // fails (disk full/permission) we do NOT send: an unrecorded send would make
-    // every hourly sweep re-POST the same day's report to the collector forever,
-    // which is the exact failure this once-per-day guard exists to prevent. A
-    // missed day (favouring not-sending) is the safe direction for a best-effort
-    // daily report.
-    if (!markSent(d).ok) return;
+    // every hourly sweep re-POST the same report to the collector forever,
+    // which is the exact failure this guard exists to prevent. A missed send
+    // (favouring not-sending) is the safe direction for a best-effort report.
+    if (!markSent(d, h, t).ok) return;
     maybeSend(d);
   } catch { /* nothing here may reach the caller */ }
 }
 
-function markSent(date) { return write({ sent: date }); }
+function markSent(date, hash, at) {
+  return write({ sent: date, sentHash: hash || null, sentAt: Number.isFinite(at) ? at : null });
+}
 
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }

@@ -18656,7 +18656,8 @@ function start(port = PORT) {
       /* #2037 PR-C1: the daily product-feedback send sweep. The long-lived board
          owns the trigger because the short-lived `kosmos feedback` CLI cannot
          fire-and-forget a send (it exits). sendDailyOnce is opt-in-gated (default
-         ON, opt out in Settings) and dedups per day via a `sent` marker, so the
+         ON, opt out in Settings) and dedups via a `sent` marker: once per day, plus
+         a re-send when the report changed, at most every 3 hours (#4766), so the
          exact cadence is not critical; hourly keeps it cheap. Sibling to the
          sweeps above: its own timer, unref'd so it never holds the process open,
          best-effort. It sends nothing when the person has opted out, and nothing

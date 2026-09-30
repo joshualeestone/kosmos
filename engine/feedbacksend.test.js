@@ -300,6 +300,100 @@ test('sendDailyOnce does NOT send if the sent-marker write fails (no all-day re-
   }
 });
 
+/* kosmos#4766: a report that CHANGED after it was sent is sent again, at most
+   once per RESEND_MIN_MS (3 hours). Before this, the day was marked sent on the
+   first send and anything added later that day never left the machine. The
+   clock is the second argument, so no test sleeps. */
+const H = 60 * 60 * 1000;
+const T0 = Date.parse('2026-09-30T13:49:00Z');
+function capture() {
+  const bodies = [];
+  feedbacksend.setSender((url, init) => { bodies.push(JSON.parse(init.body).body); return Promise.resolve(); });
+  return bodies;
+}
+
+test('#4766: a report changed after it was sent is sent again once the interval has passed, with the new line', () => {
+  feedback.write('first finding', { date: '2026-09-30' });
+  const bodies = capture();
+  feedbacksend.sendDailyOnce('2026-09-30', T0);
+  assert.equal(bodies.length, 1, 'setup: the first send did not happen');
+  feedback.write('first finding\nthe board is slow after lunch', { date: '2026-09-30' });
+  feedbacksend.sendDailyOnce('2026-09-30', T0 + 3 * H + 1);
+  assert.equal(bodies.length, 2, 'the changed report was not sent again (the #4766 loss)');
+  assert.match(bodies[1], /the board is slow after lunch/, 'the re-send did not carry the new line');
+  assert.equal(feedbacksend.read().sentAt, T0 + 3 * H + 1, 'the re-send did not record when it was sent');
+});
+
+test('#4766 CONTROL: an unchanged report is never sent twice in a day, however long the gap', () => {
+  feedback.write('first finding', { date: '2026-09-30' });
+  const bodies = capture();
+  feedbacksend.sendDailyOnce('2026-09-30', T0);
+  // A rewrite with the SAME words: the header's generated_at changes, the report does not.
+  feedback.write('first finding', { date: '2026-09-30' });
+  feedbacksend.sendDailyOnce('2026-09-30', T0 + 3 * H + 1);
+  feedbacksend.sendDailyOnce('2026-09-30', T0 + 9 * H);
+  assert.equal(bodies.length, 1, 'an unchanged report was POSTed again');
+});
+
+test('#4766 CONTROL: a change inside the interval is not sent yet, and is sent once it passes', () => {
+  feedback.write('first finding', { date: '2026-09-30' });
+  const bodies = capture();
+  feedbacksend.sendDailyOnce('2026-09-30', T0);
+  feedback.write('first finding\nmore', { date: '2026-09-30' });
+  feedbacksend.sendDailyOnce('2026-09-30', T0 + 1 * H);
+  feedbacksend.sendDailyOnce('2026-09-30', T0 + 3 * H - 1);
+  assert.equal(bodies.length, 1, 'a change was re-sent inside the interval (POST storm risk)');
+  feedbacksend.sendDailyOnce('2026-09-30', T0 + 3 * H);
+  assert.equal(bodies.length, 2, 'the change was not sent once the interval passed');
+  feedbacksend.sendDailyOnce('2026-09-30', T0 + 4 * H);
+  assert.equal(bodies.length, 2, 'the same changed report was sent a third time');
+});
+
+test('#4766: a re-send whose marker cannot be written does not POST (the no-re-POST-forever safety)', () => {
+  feedback.write('first finding', { date: '2026-09-30' });
+  const bodies = capture();
+  feedbacksend.sendDailyOnce('2026-09-30', T0);
+  feedback.write('first finding\nmore', { date: '2026-09-30' });
+  const tmpBlock = feedbacksend.FILE + '.tmp';
+  fs.mkdirSync(tmpBlock, { recursive: true }); // the atomic write's temp path is now a directory
+  try {
+    assert.equal(feedbacksend.markSent('2026-09-30', 'x', T0).ok, false, 'setup: the write did not fail, so this proves nothing');
+    feedbacksend.sendDailyOnce('2026-09-30', T0 + 3 * H + 1);
+    assert.equal(bodies.length, 1, 'a re-send went out although its marker could not be recorded');
+  } finally {
+    fs.rmSync(tmpBlock, { recursive: true, force: true });
+  }
+});
+
+test('#4766: an old settings file whose `sent` is a bare date is migrated with at most one extra send', () => {
+  feedback.write('first finding', { date: '2026-09-30' });
+  fs.mkdirSync(nodePath.dirname(feedbacksend.FILE), { recursive: true });
+  fs.writeFileSync(feedbacksend.FILE, JSON.stringify({ on: true, sent: '2026-09-30' }) + '\n');
+  const r = feedbacksend.read();
+  assert.deepEqual([r.on, r.sent, r.sentHash, r.sentAt, r.ok], [true, '2026-09-30', null, null, true], 'the old file did not read as sent-today-content-unknown');
+  const bodies = capture();
+  feedbacksend.sendDailyOnce('2026-09-30', T0);
+  feedbacksend.sendDailyOnce('2026-09-30', T0 + 1 * H);
+  feedbacksend.sendDailyOnce('2026-09-30', T0 + 5 * H);
+  assert.equal(bodies.length, 1, 'an old-format marker produced more than one extra send (or none)');
+  const after = JSON.parse(fs.readFileSync(feedbacksend.FILE, 'utf8'));
+  assert.equal(after.sent, '2026-09-30');
+  assert.equal(typeof after.sentHash, 'string', 'the migration did not record what was sent');
+  assert.equal(after.on, true, 'the migration flipped the opt-in');
+});
+
+test('#4766: setOn keeps the hash and time of the last send', () => {
+  feedback.write('first finding', { date: '2026-09-30' });
+  capture();
+  feedbacksend.sendDailyOnce('2026-09-30', T0);
+  const before = feedbacksend.read();
+  feedbacksend.setOn(false);
+  feedbacksend.setOn(true);
+  const after = feedbacksend.read();
+  assert.deepEqual([after.sent, after.sentHash, after.sentAt], [before.sent, before.sentHash, before.sentAt], 'toggling the switch lost what was sent');
+  assert.ok(before.sentHash, 'setup: no hash was recorded, so this proves nothing');
+});
+
 /* ─────────────────────────────────────────────────────────────────────────
    #2037 (revision): scrub redacts this install's identifying names as a
    BACKSTOP to the author prompt's own rule. Agent names, project names and the
