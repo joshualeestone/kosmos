@@ -70,7 +70,7 @@ What it adds is how a Windows program presents itself (win32-launcher-native):
   CompanyName is still left out. The certificate's subject is now known
   (Kosmos Agent Manager, Inc.), but setting `AssemblyCompany` is a source change,
   so it means a rebuild and a re-sign; it is a follow-up of its own. The version is the **launcher's** own (`LauncherVersion`, currently
-  7.0.0.0), not the app's. This binary is copied unchanged into every release, so
+  8.0.0.0), not the app's. This binary is copied unchanged into every release, so
   an app version stamped into it would be wrong from the next release on.
 
 ## Kosmos's own window (#1118)
@@ -132,6 +132,31 @@ package, pinned by version and sha256. `runtime\` is a folder the updater and th
 carry whole. The WebView2 Runtime itself is part of Windows 11 and is kept up to date by Windows;
 Kosmos never ships it. An open window does not block an update: Windows lets the updater rename
 a running exe and a folder holding a loaded DLL (measured on the box).
+
+## Runs agents, or connects to them (#4381, the Windows half of #4356)
+
+**Off on main.** `FirstRunChoice` in `KosmosLauncher.cs` is the release switch, the twin of the
+Mac's `kosmosFirstRunChoice`. Off, the mode file is never read and every computer runs agents
+exactly as before. It turns on with #4382, once a connect computer can update itself.
+
+With it on, the choice is one word in `%LOCALAPPDATA%\Kosmos\mode` (`run`, `connect` or `both`),
+read with the Mac's rules byte for byte: no file is `unset`, anything else (a `\r\n` ending, a byte
+order mark, a read error) is `unreadable` and asks again. Only `Kosmos.exe` writes it.
+
+- The window adds `?mode=unset`, `?mode=unreadable` or `?mode=both` to the board's address; the
+  page (`frChoiceBridge`, `chrome.webview`) shows the first screen and posts `{ kosmosMode }` back,
+  heard only from the board's own page and only while the window is asking.
+- **Connect**: the badge stops, `Kosmos\board` is switched off (`/Change /DISABLE`; measured: a
+  disabled task refuses `/Run` and starts nothing), the board is ended with its tree, then the
+  window loads https://login.kosmosplus.com/. Every later launch starts only the window, never
+  `server.js` or `open-board.js`, and repeats the stop. The window keeps to Kosmos Plus (the Mac's
+  connect link rules) and says so when Kosmos Plus does not answer.
+- **The way back** is the window's system menu (right-click the title bar, or Alt+Space): "Run
+  agents on this computer", shown only on a connect computer. It writes `run`, switches the task
+  back on and opens `Kosmos.exe` again.
+- **Updates** (`engine/win32apply.js`): H7, H8, the resumers and the post-exit restart start no
+  board unless the mode file is absent or reads `run` or `both`.
+- A launch that sets `PORT` never touches the logon task, which serves another port.
 
 ## What it does as an installer (win32-installer-native)
 

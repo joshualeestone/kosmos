@@ -16,9 +16,10 @@
  * out after it has. So this asserts BOTH halves, off the card AND on the last
  * step, because either one alone passes in the state that caused the incident.
  *
- * ⚠️ IT IS A PATTERN, NOT A STRING. Nine of the twenty-eight roles carry a
- * limit, so the last step is checked against a SECOND role as well: a paint
- * hardcoded to the project manager would satisfy a one-role check completely.
+ * ⚠️ IT IS A PATTERN, NOT A STRING. Many roles carry a limit (fewer than half;
+ * create.test.js holds that), so the last step is checked against a SECOND role
+ * as well: a paint hardcoded to the project manager would satisfy a one-role
+ * check completely.
  *
  * Headless is fine here and that is a claim, not a default: everything below is
  * visible text plus the vertical order of two elements, which is layout. It

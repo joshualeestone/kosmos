@@ -824,6 +824,7 @@ const setupAssistant = require('./engine/setup-assistant'); // #3034: the once-e
    seam so tests never open a window. */
 const terminal = require('./engine/terminal');
 const team = require('./engine/team'); // #1279: the authoring seam calls createTeam (engine core merged in #2247)
+const orgchartfile = require('./engine/orgchartfile'); // #4559: an org chart FILE into the New Agent preview
 const agentfile = require('./engine/agentfile');
 const register = require('./engine/register');
 /* ⚠️ For the not-running rows only. `engine/status.js` reads the same store for
@@ -6492,6 +6493,68 @@ const server = http.createServer(async (req, res) => {
       // green because nothing exercised it. A route's error path needs a test as
       // much as its happy path does.
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #4559: an org chart FILE for the New Agent org chart preview. The raw file is the body and its name
+     rides `x-orgchart-name` (the attachment upload's shape). A CSV or XLSX is read here on the Mac. A
+     picture or PDF is read by the person's own Claude with every tool off (engine/orgchartfile.js), and
+     only when the request says `?consent=1`: the first answer for one is `{ needsConsent, provider }`,
+     so the page can say who reads it before anything leaves the Mac (Liu Kang's condition 1). Nothing
+     is stored. Board-token gated like every /api route, and the consent send also wants the screen
+     (isViaScreen). That is a cooperative guard, not a wall: an agent that reads the board token can also send a
+     browser's headers (engine/team.js says the same of the operator path); #4491 is the real fix. The CSV/XLSX
+     parse is synchronous; its worst cases are bounded by engine/orgchartfile.test.js, not here. */
+  if (pathname === '/api/orgchart/read' && req.method === 'POST') {
+    readBody(req, orgchartfile.MAX_BYTES + 1)
+      .then(async (bytes) => {
+        let name = '';
+        try { name = decodeURIComponent(String(req.headers['x-orgchart-name'] || '')); } catch { name = String(req.headers['x-orgchart-name'] || ''); }
+        name = name.slice(0, 200);
+        if (!name) { sendJson(res, 400, { error: 'name the file (x-orgchart-name)' }); return; }
+        if (!orgchartfile.forModel(name)) {
+          const got = orgchartfile.readLocal(name, bytes);
+          if (got.unsupported) {
+            sendJson(res, 400, { error: 'That kind of file is not one we can read. Upload a picture (PNG or JPG), a PDF, a CSV or an Excel file (.xlsx).' });
+            return;
+          }
+          sendJson(res, 200, { source: 'file', rows: got.rows, problems: got.problems });
+          return;
+        }
+        if (!orgchartfile.modelAvailable()) {
+          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
+          return;
+        }
+        const q = new URL(req.url, ROUTING_BASE).searchParams;
+        if (q.get('consent') !== '1') { sendJson(res, 200, { needsConsent: true, provider: orgchartfile.providerLabel() }); return; }
+        if (!isViaScreen(req, null)) { sendJson(res, 403, { error: 'only you can send a file to your AI provider, from the New Agent screen' }); return; }
+        // The consented send carries the file; an empty one would spend a request on nothing.
+        if (!bytes.length) { sendJson(res, 400, { error: 'That file is empty. Choose it again.' }); return; }
+        /* A read the person stops (or a page they leave) closes this response early: that aborts the model call,
+           so claude stops using their plan instead of running on to its timeout. */
+        const stop = new AbortController();
+        res.on('close', () => { if (!res.writableEnded) stop.abort(); });
+        if (res.destroyed) return;   // gone while the upload arrived: 'close' already fired, so nothing is read
+        const got = await orgchartfile.readWithModel(name, bytes, { signal: stop.signal });
+        if (stop.signal.aborted) return;
+        if (got.unavailable) {
+          sendJson(res, 200, { unavailable: true, problems: [orgchartfile.NO_MODEL] });
+          return;
+        }
+        sendJson(res, 200, { source: 'model', provider: orgchartfile.providerLabel(), rows: got.rows, problems: got.problems });
+      })
+      .catch((err) => {
+        /* readBody rejects an oversized body (it then drops the connection, so this answer often never arrives) and
+           a person who left mid-upload (nothing to answer); anything else is our failure, logged, not the file's. */
+        if (res.headersSent || res.destroyed || req.aborted) return;
+        const big = /too large/.test(String((err && err.message) || ''));
+        if (!big) console.error('[orgchart] read failed: ' + String((err && err.message) || err).slice(0, 200));
+        try {
+          sendJson(res, big ? 413 : 500, { error: big
+            ? 'That file is larger than ' + Math.round(orgchartfile.MAX_BYTES / 1048576) + ' MB. Export just the people, or type the list.'
+            : 'We could not read that file. Try again, or export it as CSV.' });
+        } catch { /* socket gone */ }
+      });
     return;
   }
 
@@ -15575,6 +15638,12 @@ const server = http.createServer(async (req, res) => {
                 ...(Array.isArray(m.attachments) ? { attachments: m.attachments } : {}),
                 // #3745: the post this one answers (the page finds it in these rows, or says it is gone).
                 ...(typeof m.replyTo === 'string' ? { replyTo: m.replyTo } : {}),
+                /* #4642: who this post really addressed, as recorded when it was sent (#185), so the page
+                   paints blue from what happened and not from today's rule and roster. Always an array on
+                   a post row, [] for none: the engine leaves the field off when nobody was addressed. A
+                   row written before #185 recorded it (08-24) also reads [], and its @names show plain,
+                   the safe direction (measured: 0 such rows among 221 posts on a real board, 09-29). */
+                mentioned: Array.isArray(m.mentioned) ? m.mentioned : [],
                 ...(reactions.length ? { reactions } : {}) };
             })()
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
