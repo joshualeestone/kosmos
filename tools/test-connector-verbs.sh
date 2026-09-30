@@ -6,7 +6,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . tools/lib/connector-verbs.sh
 FAILS=0; PASSES=0; RETRIES=0; ON_PURPOSE=0; ok(){ echo "PASS  $1"; PASSES=$((PASSES+1)); }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
-T="$(mktemp -d "${TMPDIR:-/tmp}/connector-verbs.XXXXXX")"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/connector-verbs.XXXXXX")"; trap 'rm -rf "$T"' EXIT; trap 'exit 130' INT TERM
 
 # Stand-in connectors: one that knows mac-request, one that answers like a pre-#103 build.
 NEW="$T/new-tunnel"; printf '#!/bin/sh\n[ "$1" = mac-request ] && [ "$2" = --help ] && exit 0\nexit 3\n' > "$NEW"; chmod +x "$NEW"
@@ -32,10 +32,14 @@ TIMEOUT_RE="for '?mac-request'? [(]it did not answer within [0-9]+ seconds[)](, 
 verbs_try() {
   connector_verbs_check "$1" "$2" 2>"$T/err"; VRC=$?
   [ "$(wc -l < "$T/err" | tr -d ' ')" = 1 ] && grep -Eq "$TIMEOUT_RE" "$T/err" || return 0
-  RETRIES=$((RETRIES + 1)); echo "RETRY $(basename "$1"): timed out once; running it once more"
+  RETRIES=$((RETRIES + 1)); echo "RETRY $(basename "$1") with $(basename "$2"): timed out once; running it once more"
   [ -n "${VERBS_RERUN_CLEARS:-}" ] && rm -f "$VERBS_RERUN_CLEARS"
   CONNECTOR_PROBE_SECONDS="${VERBS_RERUN_SECONDS:-${CONNECTOR_PROBE_SECONDS:-}}" connector_verbs_check "$1" "$2" 2>"$T/err"; VRC=$?
 }
+# The same one rerun for the arms that call the probe directly: only when its WHOLE answer is the probe's
+# own timeout line. Those arms still require their own answer ("exited 142", "old"), so a second timeout
+# fails them.
+PROBE_TIMEOUT_RE='^unknown: it did not answer within [0-9]+ seconds$'
 
 verbs_try "$NEW" "$OPEN"; [ "$VRC" = 0 ] && [ ! -s "$T/err" ] && ok "gate open, connector knows mac-request: goes on silently" || bad "a good connector with the gate open was refused or noisy: $(cat "$T/err")"
 verbs_try "$NEW" "$SHUT"; [ "$VRC" = 0 ] && [ ! -s "$T/err" ] && ok "gate closed, connector knows mac-request: goes on silently" || bad "a good connector with the gate closed was refused or noisy: $(cat "$T/err")"
@@ -72,7 +76,12 @@ for v in 0 00 -3 abc 2.5 ""; do [ "$(CONNECTOR_PROBE_SECONDS="$v" connector_prob
 [ "$(CONNECTOR_PROBE_SECONDS=7 connector_probe_seconds)" = 7 ] && [ "$(unset CONNECTOR_PROBE_SECONDS; connector_probe_seconds)" = 20 ] && ok "the bound: 0, 00, negative, junk and empty fall back to 20; a positive whole number is kept" || bad "the bound sanitiser is wrong"
 # A connector that exits 142 by itself is not reported as a timeout.
 E142="$T/exit142-tunnel"; printf '#!/bin/sh\nexit 142\n' > "$E142"; chmod +x "$E142"
-case "$(connector_mac_request_probe "$E142")" in *"exited 142"*) ok "a connector's own exit 142 is not read as a timeout" ;; *) bad "exit 142 misread: $(connector_mac_request_probe "$E142")" ;; esac
+p142="$(connector_mac_request_probe "$E142")"
+if printf '%s\n' "$p142" | grep -Eqx "$PROBE_TIMEOUT_RE"; then
+  RETRIES=$((RETRIES + 1)); echo "RETRY exit142-tunnel (probe): timed out once; running it once more"
+  p142="$(connector_mac_request_probe "$E142")"
+fi
+case "$p142" in *"exited 142"*) ok "a connector's own exit 142 is not read as a timeout" ;; *) bad "exit 142 misread: $p142" ;; esac
 
 # A connector whose CHILD hangs (no exec): the bound must kill the whole group, not only the shell.
 # #4678: the proof needs the child to EXIST before the bound fires. On a busy box the bound can fire before
@@ -82,7 +91,7 @@ case "$(connector_mac_request_probe "$E142")" in *"exited 142"*) ok "a connector
 # "could not tell", a failure, never a pass. Only the pid the stand-in wrote is signalled, and only after ps
 # shows it is that stand-in's sleep.
 child_hang_arm() {  # child_hang_arm <stand-in> <label> <bound seconds> [a file to remove before the rerun]
-  local stand="$1" label="$2" b="$3" clears="${4:-}" i=1 start took pid
+  local stand="$1" label="$2" b="$3" clears="${4:-}" i=1 start took pid n
   while :; do
     rm -f "$T/kid.pid"
     start=$(date +%s); CONNECTOR_PROBE_SECONDS="$b" connector_verbs_check "$stand" "$OPEN" 2>"$T/err"; took=$(( $(date +%s) - start ))
@@ -95,6 +104,9 @@ child_hang_arm() {  # child_hang_arm <stand-in> <label> <bound seconds> [a file 
   done
   [ "$took" -lt 30 ] && grep -q "did not answer within $b seconds" "$T/err" && ok "$label: a connector whose child hangs is also cut off (${took}s), naming the time limit" || bad "$label: a hanging child was not bounded (${took}s): $(cat "$T/err")"
   pid="$(cat "$T/kid.pid")"
+  # The group was SIGKILLed, but perl waits only for the stand-in's shell, so the killed sleep can still be
+  # exiting for a moment on a busy box. Up to 5 s for it to go; a real leak is a sleep 300, still there.
+  n=0; while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
   if kill -0 "$pid" 2>/dev/null; then
     bad "$label: the hung connector's child outlived the bound"
     /bin/ps -o command= -p "$pid" 2>/dev/null | grep -q '^sleep 300' && kill "$pid" 2>/dev/null
@@ -138,7 +150,13 @@ if bash -c 'set -euo pipefail; . tools/lib/connector-verbs.sh; connector_verbs_c
 # The probe called directly as a bare statement under set -e: a failing connector must still
 # print its verdict and let the caller go on. (Through connector_verbs_check the probe runs
 # inside $( ), where bash suspends errexit, so only a direct call can show this.)
-if bash -c 'set -euo pipefail; . tools/lib/connector-verbs.sh; connector_mac_request_probe "$1"; echo REACHED' _ "$OLD" >"$T/out" 2>/dev/null && grep -qx old "$T/out" && grep -q REACHED "$T/out"; then ok "the probe called bare under set -e reports 'old' and the caller goes on"; else bad "the probe aborted a bare set -e caller: $(cat "$T/out")"; fi
+bare_probe() { bash -c 'set -euo pipefail; . tools/lib/connector-verbs.sh; connector_mac_request_probe "$1"; echo REACHED' _ "$OLD" >"$T/out" 2>/dev/null; }
+bare_probe; bprc=$?
+if head -1 "$T/out" | grep -Eqx "$PROBE_TIMEOUT_RE"; then
+  RETRIES=$((RETRIES + 1)); echo "RETRY old-tunnel (bare probe under set -e): timed out once; running it once more"
+  bare_probe; bprc=$?
+fi
+if [ "$bprc" = 0 ] && grep -qx old "$T/out" && grep -q REACHED "$T/out"; then ok "the probe called bare under set -e reports 'old' and the caller goes on"; else bad "the probe aborted a bare set -e caller: $(cat "$T/out")"; fi
 connector_verbs_check "$T/no-such-tunnel" "$OPEN" 2>"$T/err" && bad "a missing connector was accepted" || { grep -q "there is no file at" "$T/err" && ok "a missing connector is named as missing, not as not executable" || bad "wrong reason for a missing connector: $(cat "$T/err")"; }
 
 # The gate-closed rule rests on which features need mac-request: an old connector breaks nothing
