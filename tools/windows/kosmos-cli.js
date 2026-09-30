@@ -539,7 +539,8 @@ async function verbWhoami(ctx) {
 async function verbRoom(ctx, args) {
   const project = args[0];
   if (!project) { ctx.err(USAGE.room); return 2; }
-  const r = await ctx.call('GET', '/api/project/' + projectSlug(project) + '/room?as=text', undefined, { agent: false });
+  // #4491 slice 4: the agent's own token rides too (the default), as on the Mac, so the read works without the board token.
+  const r = await ctx.call('GET', '/api/project/' + projectSlug(project) + '/room?as=text');
   if (!r.reached) return ctx.unreachable('read that room');
   ctx.out(String(r.text || '').replace(/\n$/, ''));
   return r.status >= 400 ? 1 : 0;
@@ -563,7 +564,7 @@ async function roomReopen(ctx, args) {
 async function taskList(ctx, args) {
   const project = args[0];
   if (!project) { ctx.err('Usage: kosmos task list <project-id>'); return 2; }
-  const r = await ctx.call('GET', '/api/tasks?project=' + projectSlug(project), undefined, { agent: false });
+  const r = await ctx.call('GET', '/api/tasks?project=' + projectSlug(project));   // #4491 slice 4: with the agent's own token
   if (!r.reached) return ctx.unreachable('list tasks');
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1; }
   const tasks = (r.json && Array.isArray(r.json.tasks)) ? r.json.tasks : null;
@@ -770,7 +771,7 @@ async function agentCreate(ctx, args) {
 async function agentRoles(ctx) {
   // ?catalogue=1: listing the roles asks for the downloaded ready-made ones too, as the picker does (#4632).
   // 25 s: the board may be downloading (up to 8 s, 16 s when it retries past the caches).
-  const r = await ctx.call('GET', '/api/roles?catalogue=1', undefined, { agent: false, timeoutMs: 25000 });
+  const r = await ctx.call('GET', '/api/roles?catalogue=1', undefined, { timeoutMs: 25000 });   // #4491 slice 4: with the agent's own token
   if (!r.reached) return ctx.unreachable('list the roles');
   const roles = r.json && Array.isArray(r.json.roles) ? r.json.roles : null;
   if (!roles) { ctx.err('Kosmos gave an answer we could not read when listing the roles.'); return 1; }
@@ -783,7 +784,7 @@ async function agentRoleDraft(ctx, args) {
   if (args && args[0] === '--to' && !to) { ctx.err('Usage: kosmos agent role-draft [--to <file>]'); return 2; }
   // A role is reused by its file, so an existing one is never replaced (a second role with the same short name).
   if (to && ctx.fileExists(to)) { ctx.err(to + ' already exists, and it may hold another role. Pick another name, or move it first.'); return 2; }
-  const r = await ctx.call('GET', '/api/roles', undefined, { agent: false });
+  const r = await ctx.call('GET', '/api/roles');   // #4491 slice 4: with the agent's own token
   if (!r.reached) return ctx.unreachable('get the role text');
   const text = r.json && r.json.own && typeof r.json.own.instructions === 'string' ? r.json.own.instructions : '';
   if (!text) { ctx.err('Kosmos gave an answer we could not read when getting the role text.'); return 1; }
