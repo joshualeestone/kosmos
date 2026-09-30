@@ -631,10 +631,11 @@ function readerId(r) {
   // it is not a secret (its inputs are guessable and the key's last four are shown on the account row anyway).
   return r.provider + ':' + hash(String(r.dir || '') + '\u0000' + String(r.keyTail || ''));
 }
-/* What the consent box says about who reads it: the provider, how it is paid for, and what it keeps (#4560). */
+/* What the consent box says about who reads it: the provider, how it is paid for, and what it keeps (#4560; Claude's
+   own line, #4660). */
 function consentFor(r) {
   const keys = require('./orgchartkeys');
-  return { provider: providerLabel(r), reader: readerId(r), uses: r && r.kind === 'key' ? 'billed to your ' + keys.PROVIDERS[r.provider].name + ' key' : 'using your plan', keeps: r && r.kind === 'key' ? keys.keeps(r) : null };
+  return { provider: providerLabel(r), reader: readerId(r), uses: r && r.kind === 'key' ? 'billed to your ' + keys.PROVIDERS[r.provider].name + ' key' : 'using your plan', keeps: keys.keeps(r) };
 }
 let availability = readerHere;
 /* `reader`, when the caller has already worked it out, so one request asks once (a second look can disagree). */

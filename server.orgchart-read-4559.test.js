@@ -124,14 +124,16 @@ test('#4559: a picture is NOT sent without consent: the first answer names the p
   orgchartfile.setModelAvailable(() => true);
   orgchartfile.setModelRunner(async (line) => { sent.push(line); return { ok: true, structured: { people: [] } }; });
   const r = await send('chart.png', fs.readFileSync(path.join(FIX, 'chart.png')), { headers: SCREEN });
-  assert.deepEqual(r.json, { needsConsent: true, provider: 'Anthropic (Claude)', reader: 'claude', uses: 'using your plan', keeps: null });
+  assert.deepEqual(r.json, { needsConsent: true, provider: 'Anthropic (Claude)', reader: 'claude', uses: 'using your plan', keeps: require('./engine/orgchartkeys').CLAUDE_KEEPS });
+  // #4660: the Claude line says what Anthropic keeps, both cases of the setting Kosmos cannot read, from the sources on the card.
+  assert.match(r.json.keeps, /^Anthropic keeps what you send for 30 days\. If "Help improve Claude" is on .* up to 5 years.* Team or Enterprise plan it is 30 days.* flag can be kept for up to 2 years\.$/);
   assert.equal(sent.length, 0, 'the file went to the model before the person said yes');
 });
 
 test('#4559: the consent question needs no file: an empty body is answered with the provider', async () => {
   orgchartfile.setModelAvailable(() => true);
   const r = await send('chart.pdf', Buffer.alloc(0), { headers: SCREEN });
-  assert.deepEqual(r.json, { needsConsent: true, provider: 'Anthropic (Claude)', reader: 'claude', uses: 'using your plan', keeps: null });
+  assert.deepEqual(r.json, { needsConsent: true, provider: 'Anthropic (Claude)', reader: 'claude', uses: 'using your plan', keeps: require('./engine/orgchartkeys').CLAUDE_KEEPS });
 });
 
 test('#4559: with consent but not from the screen (the board token alone), the file is refused, not sent', async () => {

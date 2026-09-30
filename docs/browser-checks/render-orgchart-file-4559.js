@@ -129,7 +129,7 @@ async function run() {
       await p3.route('**/api/orgchart/read*', (r) => {
         const consent = new URL(r.request().url()).searchParams.get('consent') === '1';
         reads.push({ consent, name: decodeURIComponent(r.request().headers()['x-orgchart-name'] || ''), bytes: (r.request().postDataBuffer() || Buffer.alloc(0)).length });
-        r.fulfill({ status: 200, json: consent ? { source: 'model', provider: 'Anthropic (Claude)', rows: PICTURE_ROWS, problems: [] } : { needsConsent: true, provider: 'Anthropic (Claude)' } });
+        r.fulfill({ status: 200, json: consent ? { source: 'model', provider: 'Anthropic (Claude)', rows: PICTURE_ROWS, problems: [] } : { needsConsent: true, provider: 'Anthropic (Claude)', keeps: require('../../engine/orgchartkeys').CLAUDE_KEEPS } });
       });
       await openPanel(p3);
       if (!(await p3.$('#orgchart-file-btn'))) { check('PICTURE: the panel offers a file', false); await p3.close(); continue; }
@@ -139,6 +139,8 @@ async function run() {
       const a = await readPreview(p3);
       if (scheme === 'light') {
         check('PICTURE: before anything is read, the box names the provider and says why it asks', /read by your own AI provider, Anthropic \(Claude\)/.test(a.consent) && /names the people on your chart/.test(a.consent), a.consent);
+        // #4660: the engine's own sentence (not a copy) reaches the page, after the no-copy line.
+        check('PICTURE: the Claude consent says what Anthropic keeps, both cases of the training setting', a.consent.endsWith('Kosmos keeps no copy. ' + require('../../engine/orgchartkeys').CLAUDE_KEEPS), a.consent);
         check('PICTURE: the first request carried no consent and no file (it only asks who would read it)', reads.length === 1 && reads[0].consent === false && reads[0].bytes === 0, JSON.stringify(reads));
         check('PICTURE: Read it has focus', await p3.evaluate(() => document.activeElement && document.activeElement.id) === 'orgchart-consent-go');
         await p3.click('#orgchart-consent-no');

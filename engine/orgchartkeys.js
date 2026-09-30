@@ -185,7 +185,18 @@ const KEEPS = {
   google: 'Google keeps what you send for 55 days to check for misuse, even though Kosmos asks it not to store it, and its staff may read what it flags. On a free Gemini key, Google also uses it to improve its products, and people may read it.',
   xai: 'xAI keeps what you send for 30 days in case of abuse, even though Kosmos asks it not to store it. It does not train on it.',
 };
-const keeps = (reader) => (reader && KEEPS[reader.provider]) || null;
+/* #4660: what Anthropic keeps when Claude reads the file on the person's own plan. It depends on the account's
+   "Help improve Claude" setting, which Kosmos cannot read, so both cases are said. Sources, quoted on #4660
+   (issuecomment-5901775669): Claude Code's data-usage page (code.claude.com/docs/en/data-usage: "Users who don't
+   allow data use for model improvement: 30-day retention period", "Users who allow data use for model improvement:
+   5-year retention period", "Commercial users (Team, Enterprise, and API): Standard: 30-day retention period") and
+   the privacy center (privacy.claude.com, "How long do you store my data?": "in a de-identified format for up to 5
+   years", flagged chats "inputs and outputs for up to 2 years"). No "even though Kosmos asks": the Claude read sends
+   no such request to Anthropic (--no-session-persistence only stops the local transcript). */
+const CLAUDE_KEEPS = 'Anthropic keeps what you send for 30 days. If "Help improve Claude" is on in your Claude privacy settings, '
+  + 'it may keep it for up to 5 years, separated from your account, to train its models (on a Team or Enterprise plan it is 30 days). '
+  + 'Anything its safety systems flag can be kept for up to 2 years.';
+const keeps = (reader) => (reader && reader.kind === 'claude' ? CLAUDE_KEEPS : (reader && KEEPS[reader.provider]) || null);
 
 /* What a provider cannot read, said as what to do instead. */
 function cannotRead(provider, media) {
@@ -378,4 +389,4 @@ async function readOnce(reader, prompt, name, media, buf, signal) {
   return { ok: true, structured };
 }
 
-module.exports = { KNOWN_PARAMS, diagnosis, KNOWN_TYPES, pick, KNOWN_CODES, urlFrom, MAX_OUTPUT_TOKENS, offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };
+module.exports = { CLAUDE_KEEPS, KNOWN_PARAMS, diagnosis, KNOWN_TYPES, pick, KNOWN_CODES, urlFrom, MAX_OUTPUT_TOKENS, offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };
