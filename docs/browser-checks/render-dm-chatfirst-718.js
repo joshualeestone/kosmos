@@ -123,7 +123,9 @@ function navGeo() {
     }
   }
   /* Every label and status word inside its own button, and no label ellipsised: a word wider than its column is
-     clipped or spills rather than breaking, which the per-character measure above cannot see. */
+     clipped or spills rather than breaking, which the per-character measure above cannot see. A label (overflow:
+     hidden, a block) cannot leave its button, so for labels the clip test (scrollWidth) is what catches it; the
+     status word (.swpill, inline-flex, not clipped) is caught by the rect test. */
   const spill = [];
   for (const b of bs) {
     const br = b.getBoundingClientRect();
@@ -599,6 +601,13 @@ function measure() {
           return { hoverNone: matchMedia('(hover: none)').matches, search: px(document.getElementById('d-talk-search')), say: px(document.getElementById('d-say')),
             row: hh(document.getElementById('d-talk-search-wrap')), field: hh(document.getElementById('d-talk-search')) };
         });
+        // #4661: a short sideways phone narrower than 56rem gets the same compact section row: one row, whole,
+        // unscrolled, no word cut, clipped or out of its button.
+        if (touch && w < 896 && h <= 480) {
+          const lg = await page.evaluate(navGeo);
+          chk(lg.oneRow && lg.whole && !lg.scrolls && lg.cut.length === 0 && lg.spill.length === 0 && lg.h <= 52,
+            `${t} #4661: sideways, the section row is one 44px row, whole, no word cut or clipped`, JSON.stringify(lg));
+        }
         if (touch) {
           chk(f.hoverNone && f.search === '16px' && f.say === '16px', `${t} the search box and the text box are 16px on a touchscreen past the phone width (iOS does not zoom)`, JSON.stringify(f));
           // A short sideways phone narrower than 56rem gets the chat-first layout, where the search row steps

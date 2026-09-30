@@ -50,4 +50,6 @@ it reads as too small, the next step is icon-only for Profile and AI Settings wi
   containment measure added in round 2). Red on origin/main (scrolls); red with overflow-wrap: anywhere put back
   (cuts in Direct Message, AI Settings, Swarm Settings); red on the equal-columns grid (words out of their buttons
   by 1 to 6px at 320). Chromium and WebKit.
+- The same check's landscape loop measures the row on a sideways phone narrower than 56rem (667x375, 852x393): one
+  44px row, whole, nothing cut. A GUARD: main's old scroller also fit at those widths, so it cannot be red on main.
 - render-dm-sideways-3969, render-swarm-ui-3564, render-agent-nav: unchanged and green.
