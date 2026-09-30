@@ -2190,7 +2190,7 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,

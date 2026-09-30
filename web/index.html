@@ -44072,7 +44072,9 @@ async function plusSiSession(data, again, keep) {
      is unused names this computer as before, free: no in_use row is marked first_free (engine/remote.js). A typed name is not a pick: "that name
      is taken" keeps the name step. Only a refusal saying the address must be bought (the slot went meanwhile) goes
      to the list. */
-  const firstFree = !PLUS_SI_NOT_FREE && !own && !b.this_name && !b.addresses.some((r) => r.state === 'in_use' && r.first_free === true);
+  // Any row marked first_free (in use, or free because its computer was retired) means the free address already
+  // exists: the list offers it, rather than a name step that could make another.
+  const firstFree = !PLUS_SI_NOT_FREE && !own && !b.this_name && !b.addresses.some((r) => r.first_free === true);
   if (firstFree) { if (again && !keep) plusSiMsg(''); PLUS_SI_FIRST_FREE = true; plusSiAsBefore(data); return; }
   plusSiBoughtPick(b);
 }

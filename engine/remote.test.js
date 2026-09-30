@@ -3045,6 +3045,21 @@ test('#4756 review: first_free reaches the page, from the server field when sent
   } finally { delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES; remote.resetForTests(); }
 });
 
+test('#4756 review: two callers of the same sign-in share one read of the list; the next call after it ends reads again', async () => {
+  process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES = '1';
+  try {
+    await signedIn();
+    fs.writeFileSync(ADDR_ANSWER, JSON.stringify(BOUGHT));
+    const before = addressesArgv().length;
+    const [one, two] = await Promise.all([remote.signinAddresses(), remote.signinAddresses()]);
+    assert.equal(one.ok && two.ok, true, JSON.stringify([one, two]));
+    assert.deepEqual(one, two, 'the second caller got a different answer from the shared read');
+    assert.equal(addressesArgv().length - before, 1, 'two callers of one sign-in each ran the binary');
+    await remote.signinAddresses();
+    assert.equal(addressesArgv().length - before, 2, 'control: a call after the shared read ended did not read again');
+  } finally { delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES; remote.resetForTests(); }
+});
+
 test('#4756 review: the switch read, the list read and the close grace together leave a second of the page timeout', () => {
   const page = fs.readFileSync(require('node:path').join(__dirname, '..', 'web', 'index.html'), 'utf8');
   const m = /const PLUS_ASK_TIMEOUT_MS = (\d+);/.exec(page);

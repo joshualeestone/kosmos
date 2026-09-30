@@ -78,6 +78,9 @@ const SCENARIOS = {
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] },
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'in_use', { first_free: true }), row('spare', 'free')] },
   ], auto: null },
+  // An app-made account whose free first address exists unused (its computer was retired): the list offers it, and no
+  // name step could make another.
+  'app-first-free-retired': { account: '', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'free', { first_free: true })] }], auto: null },
   // A typed name taken by someone else keeps the name step, as before: a typed name is not a pick from the list.
   'app-free-typed-taken': { account: '', refuse: 'mymac', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] }], auto: null },
   // Check again that finds the switch now off takes the step as before, not a list that can never work.
@@ -388,6 +391,11 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(asked === 2, `[${key}] the re-read ran`, String(asked));
         chk(regs.length === 1, `[${key}] only the one register was sent`, JSON.stringify(regs));
         chk(await visible(page, '#plus-si-bought-list button[data-bought="spare"]'), `[${key}] and it ends on the list`);
+      } else if (key === 'app-first-free-retired') {
+        await page.waitForSelector('#plus-si-bought-list button[data-bought="mine"]', { state: 'visible', timeout: 8000 }).catch(() => {});
+        chk(await visible(page, '#plus-si-bought-list button[data-bought="mine"]'), `[${key}] the existing free first address is offered`);
+        chk(!(await visible(page, '#plus-si-name-field')), `[${key}] and no name step could make another`);
+        chk(regs.length === 0, `[${key}] nothing is registered until it is picked`, JSON.stringify(regs));
       } else if (key === 'app-free-typed-taken') {
         await typeName(page, key);
         await page.waitForFunction(() => /that name is taken/.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});
