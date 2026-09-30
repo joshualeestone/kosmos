@@ -177,3 +177,11 @@ kept through the retry (reds), prefix kept in the sentence (2 reds), report row 
   the revert already took 4638's emit sites out, and this merge adds none). Browser checks via the light queue:
   render-plus-panel-3829 118 PASS / 0 FAIL, render-plus-signin-3478 175 PASS / 0 FAIL. Full suite not run; the
   challenge-loop proof is stale and must be regenerated before a PR.
+
+## Full validation 9ba643041 (Mortals, 18:03): 13037 tests, 1 red, and it was real
+engine/machine.test.js "no live sentence in the other speaking files says 'this Mac'" counted the literal in this
+branch's ALLOW_WAIT_LINE regex. The regex parses the relay's line and shows only the reason sentence to a person, but
+the guard counts live code, and it is right to: the relay's own text will follow the rename. FIXED by not matching the
+device word (`refused this \S+:`), with an arm that a "refused this computer:" line parses and a CONTROL that a line
+without "this <device>:" does not. Both arms, and the guard, red with the old regex. Rejected: spelling the literal
+around the guard ("this [M]ac"), which would pass it without making it true.

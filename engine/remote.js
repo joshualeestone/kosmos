@@ -183,7 +183,10 @@ let localPort = null;
    added writes the same line with no `, code ...`, so that spelling is matched on the coordinator's
    sentence AND the 403 on the ticket path together. A reworded sentence there reads as an ordinary
    refusal again (fails toward today's behaviour, never toward hiding a real fault). */
-const ALLOW_WAIT_LINE = /^Kosmos\+ refused this Mac: (.+) \(HTTP (\d{3}) on (\S+?)(?:, code ([A-Za-z0-9_]+))?\)\.?$/;
+/* The device word is not matched: the relay's line names the device ("this Mac" today), and nothing here shows that
+   word to a person (only the reason sentence after the colon is read). Matching any word also keeps this working when
+   the relay's own text moves to "this computer", as every speaking file here has (machine.test.js guards that). */
+const ALLOW_WAIT_LINE = /^Kosmos\+ refused this \S+: (.+) \(HTTP (\d{3}) on (\S+?)(?:, code ([A-Za-z0-9_]+))?\)\.?$/;
 const ALLOW_WAIT_SENTENCE = 'this computer is not allowed yet; allow it from your other computer first';
 function allowWaitSentence(line) {
   if (typeof line !== 'string') return null;
