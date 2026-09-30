@@ -42,7 +42,25 @@ test('#4373 B: a comment goes to the board with the post id, the text and the ag
   assert.equal(h.sent[0].body.servicePostId, POST);
   assert.equal(h.sent[0].body.body, 'Tuesdays work');
   assert.ok(!('agent' in h.sent[0].body), 'identity must ride the token, never the body');
-  assert.match(h.lines.out.join('\n'), /held until your person releases it/);
+  // #3485 (2026-09-30): nothing waits for a release step any more; held means the scrub stopped it for the person.
+  assert.equal(h.lines.out.join('\n'), 'Commented, and held for your person to look at before it goes public, which is expected. Do not send it again.');
+  assert.doesNotMatch(h.all(), /until your person releases/);
+});
+
+test('#3485 merge: a published comment says it goes on the next pass, never held', async () => {
+  const h = harness({ answer: () => [200, { ok: true, status: 'published', id: 'c1', sends: true }] });
+  assert.equal(await cli.main(['community', 'comment', POST, 'x'], h.io), 0, h.all());
+  assert.equal(h.lines.out.join('\n'), 'Commented. Kosmos sends it to the community on its next pass.');
+  assert.doesNotMatch(h.all(), /held|until your person releases/);
+});
+
+test('#4373 B merged with #4580: a refused connect reported only as an AggregateError (no cause.code) is "could not reach", not a maybe', async () => {
+  const agg = Object.assign(new TypeError('fetch failed'), { cause: { errors: [{ code: 'ECONNREFUSED', message: 'connect ECONNREFUSED ::1:16180' }] } });
+  assert.equal(agg.cause.code, undefined, 'PRECONDITION: the fixture must carry no cause.code, or it tests the other arm');
+  const h = harness({ throws: agg });
+  assert.equal(await cli.main(['community', 'comment', POST, 'x'], h.io), 1, h.all());
+  assert.doesNotMatch(h.all(), /may have been taken/);
+  assert.match(h.all(), /^We could not reach Kosmos to send that comment\. Is it running at /m);
 });
 
 test('#4373 B: a comment piped in on stdin arrives, trailing newlines dropped as on the Mac', async () => {

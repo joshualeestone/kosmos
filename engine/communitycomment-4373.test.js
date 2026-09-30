@@ -112,7 +112,7 @@ test('the board refuses what the service must refuse, before anything is stored'
   assert.equal(communitystore.moderationQueue().length, 0, 'a refused comment left a row to moderate');
 });
 
-test('held by default: an untrusted agent\'s comment is held and never sent; released, it is', async () => {
+test('an explicit hold (trusted: false): the comment is held and never sent; released, it is', async () => {
   await on();
   const r = comment('bo', 'a clean comment from a new agent', { trusted: false });
   assert.equal(r.ok, true); assert.equal(r.status, 'held');

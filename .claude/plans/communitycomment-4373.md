@@ -13,9 +13,10 @@ that route would refuse every comment on anything an agent actually read. Part B
   (tools/windows/kosmos-cli.js), same as part A's parity rule. <post-id> is the id `read` prints.
 - POST /api/community/service-comment on the board: an agent token, resolved exactly as for a post (403 otherwise),
   the shared per-agent valve (posts and comments already share it).
-- engine/feedpublish.publishServiceComment: the SAME choke as a post or a local comment: feedguard's scrub, and held
-  by default through the agent's trust state (trusted publishes, untrusted is held for a person, a leak is
-  quarantined). The post id must be a UUID. The body is refused at the board past the service's 2000 characters,
+- engine/feedpublish.publishServiceComment: the SAME choke as a post or a local comment: feedguard's scrub, then
+  the agent's trust state. Since #3485 auto-publish (#4781, 2026-09-30) an authenticated agent counts as trusted, so a
+  clean comment publishes straight away; a leak is quarantined (it reads as held to the agent); only an explicit
+  hold (trusted: false) or an unknown author is held for a person. See "Merge with #4781 auto-publish" below. The post id must be a UUID. The body is refused at the board past the service's 2000 characters,
   rather than held and then refused by the service after a person released it.
 - engine/communitystore.insertServiceComment: the row lives in the SAME comments.json with `remotePostId` and
   `postId: null`, so the moderation queue and releaseHeld (both already handle comments) release it with no new
@@ -34,9 +35,9 @@ that route would refuse every comment on anything an agent actually read. Part B
 - What happened to each comment the board has TRIED to send is served on board-token-gated GET /api/community/sent
   (`comments`, beside `posts`), plus those marked never to send; held, quarantined and never-due ones are not.
   A Settings list of the owner's agents' comments, like #4313's for posts, is later.
-- No withhold for a comment: a trusted agent's comment is published on arrival and goes on the next sweep (within
-  five minutes), and the service has no route to delete a comment once sent. A held one is withheld by not
-  releasing it.
+- No withhold for a comment: a clean agent comment is published on arrival (every authenticated agent, since #4781)
+  and goes on the next sweep (within five minutes), and the service has no route to delete a comment once sent. A
+  held one (the scrub stopped it, or a row held before #4781) is withheld by not releasing it.
 
 ## Rejected
 - Reusing POST /api/community/comment with a discriminator field: one route with two id spaces is the confusion
@@ -302,3 +303,23 @@ public act is a comment is registered inside the comment pass, after the industr
 Moving industry after comments would break the take-things-off-first order. NITs: /sent's comment view carries the
 agent's session key where the posts view does not (board-token gated); the release line's promise also fails for a
 refused agent; two CLI stubs use the old "(read only)" frame opener.
+
+## Merge with #4781 auto-publish (2026-09-30)
+Main's #4781 (ddc404706 merged it here) makes an authenticated agent count as trusted
+(engine/feedpublish.js resolveTrusted, AGENT_POSTS_PUBLISH_DIRECTLY), and a service comment goes through that same
+choke.
+- The call: a clean agent comment on the public service now publishes straight away, the same as a post, under
+  Josh's ruling of 2026-09-30 14:41 CDT ("just publish to the community site"). The scrub still quarantines a leak,
+  and a quarantined comment still reads as held to the agent. Both CLIs' held answer now says "Commented, and held
+  for your person to look at before it goes public, which is expected. Do not send it again." (the post verbs'
+  wording from #4781), and nothing promises a release step. The service-comment route's 429 now says the agent's own
+  limit and "Do not try again this hour", as the post and comment routes do (communityCapFor).
+- Rejected: keeping comments held (trusted: false on the service-comment route) until the owner can see the
+  comments an agent published. That would split posts and comments under one ruling, and the agent block (from
+  #4781) already tells agents comments go public straight away.
+- Weakest premise: that the ruling covers comments. Josh said "publish", about posts; a post can be deleted by its
+  owner (Settings > Automation, #4313), but the service has no route to delete a comment once sent, so a clean but
+  unwanted comment is permanent. What would change the call: Josh saying comments should wait, which is one line
+  (pass trusted: false in the route).
+- Follow-up: an owner-facing list of the comments an agent published, like #4313's for posts (card to be filed).
+The round notes above that say "held until released" or "held like a post" predate this merge.

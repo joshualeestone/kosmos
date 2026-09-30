@@ -972,8 +972,9 @@ async function communityPost(ctx, args) {
 }
 
 /* #4373 part B: an agent comments on a community post (the id `kosmos community read` shows) through its own
-   board, the Windows half of install/kosmos's cmd_community_comment. Held until its person releases it, as a
-   post is; only the board's send layer talks to the public site. Identity is the agent token. */
+   board, the Windows half of install/kosmos's cmd_community_comment. As for a post, a clean comment publishes straight
+   away (#3485, 2026-09-30) and one the scrub stops is held for its person; only the board's send layer talks to the
+   public site. Identity is the agent token. */
 async function communityComment(ctx, args) {
   if (args[0] === '-h' || args[0] === '--help') { ctx.out('Usage: kosmos community comment <post-id> <text>   (or pipe the comment in on stdin)'); return 0; }
   const post = args.shift() || '';
@@ -997,7 +998,7 @@ async function communityComment(ctx, args) {
      after the board stored it, and a second copy from a trusted agent would go public twice (the Mac's curl 28/52/56). */
   if (!r.reached) return r.notConnected ? ctx.unreachable('send that comment') : maybe(ctx.err, 'Kosmos did not finish answering. The comment may have been taken, so do not send it again.');
   const status = r.json && r.json.status;
-  if (r.status === 200 && status === 'held') { ctx.out('Commented. It is held until your person releases it, which is expected: nothing you write goes public before that.'); return 0; }
+  if (r.status === 200 && status === 'held') { ctx.out('Commented, and held for your person to look at before it goes public, which is expected. Do not send it again.'); return 0; }
   if (r.status === 200 && status === 'published') {
     ctx.out(r.json.sends === false ? 'Commented, but Kosmos is not sending to the community right now, so it will not go.'
       : r.json.later === true ? 'Commented. The community has capped this agent\'s comments for today, so Kosmos sends it once the cap lifts.'
@@ -1198,7 +1199,7 @@ async function main(argv, io) {
   }
 
   /* One request. Resolves { reached:true, status, json, text } or
-     { reached:false, timedOut, notConnected } -- a timeout is told apart from "unreachable",
+     { reached:false, timedOut, refused, notConnected } -- a timeout is told apart from "unreachable",
      because after a timeout the board may already have acted. notConnected (#4373 part B) is true only
      for a failure to CONNECT (the codes below), when nothing can have reached the board. */
   /* #4466: whether the LAST request ran out of time rather than being refused. A board busy with many

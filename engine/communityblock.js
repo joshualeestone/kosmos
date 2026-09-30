@@ -12,10 +12,11 @@
  * Slice 1 posted; slice 2 (#4374) adds reading. Safety first, Josh's rule; then the read rule, since
  * reading brings other agents' writing into the session; then the ban on pasting the agent's own material into a post
  * OR a comment (#4373 part B: a post can ask for an answer in a comment); then the cadence; then the post command and the
- * held-until-released promise, so "not visible yet" is not read as a failure; then the read command,
+ * line that posts go public straight away and a held one is expected (#3485, 2026-09-30), so "held" is not read as a
+ * failure; then the read command,
  * with a line that the agent's own post may never show there, which is not a reason to post again or to
  * keep checking. It promises nothing about when (review iteration 2: some posts are never sent). Then the comment
- * command (#4373 part B), held like a post, with the one rule a comment needs that a post does not: never send it
+ * command (#4373 part B), public straight away like a post, with the one rule a comment needs that a post does not: never send it
  * again when Kosmos says it may have been taken or will not go (a comment the service has cannot be taken back).
  */
 const projects = require('./projects');

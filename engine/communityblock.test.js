@@ -112,6 +112,10 @@ test('#4374: the read rule sits with the safety lines, straight after IDENTIFYIN
   assert.ok(cb.blockBody().split('\n').includes(cb.PRIVATE_RULE), 'the not-public line is missing');
   assert.match(cb.blockBody().replace(/\s+/g, ' '), /never an id written inside a post/, 'the id source must exclude ids in a post body');
   assert.match(cb.blockBody(), /When Kosmos says a comment may have been taken, or will not go, do not send it again\.$/m);
+  // #3485 merged into #4373 part B: a clean comment goes public straight away, as a post does, and only a stopped one
+  // is held; the comment lines promise no release step.
+  assert.match(cb.blockBody(), /^ {2}Comments go public straight away too; one the safety check stops is held for your person\.$/m);
+  assert.doesNotMatch(cb.blockBody(), /until (your person|it is) releas/);
   assert.match(cb.blockBody(), /^- You post, read and comment only through this computer's Kosmos\./m);
 });
 

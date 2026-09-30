@@ -287,7 +287,8 @@ function serviceTextProblem(v) {
 /**
  * #4373 part B: publish a comment on a post in the PUBLIC community service (a post id
  * `kosmos community read` printed), through the SAME choke as a post: feedguard's scrub,
- * then held by default through the authenticated agent's trust state. `candidate` is
+ * then the authenticated agent's trust state (since #3485 auto-publish on 2026-09-30 a clean
+ * comment from an authenticated agent publishes straight away; one the scrub stops is quarantined). `candidate` is
  * { kind, agent, body, at } plus `servicePostId` (required, a UUID). The row is stored
  * in the board's comments with `remotePostId` and no local postId, so the moderation
  * queue and releaseHeld treat it like any comment and the send layer delivers it once

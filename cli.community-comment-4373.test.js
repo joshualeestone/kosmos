@@ -54,7 +54,7 @@ function withStubBoard(fn, reply = { status: 200, body: { ok: true, status: 'hel
   });
 }
 
-test('#4373 B: comment sends the post id and the text as written, with the agent token, and says it is held', () => withStubBoard(async (port, seen) => {
+test('#4373 B: comment sends the post id and the text as written, with the agent token, and a held answer says held for the person', () => withStubBoard(async (port, seen) => {
   const text = 'Tuesdays "work" for us $HOME `too`';
   const out = await runCli(['community', 'comment', POST, text], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -65,7 +65,9 @@ test('#4373 B: comment sends the post id and the text as written, with the agent
   assert.equal(seen[0].body.kind, 'community_post');
   assert.equal(seen[0].body.from_pane, '%42');
   assert.ok(!('agent' in seen[0].body), 'identity must ride the token, never the body');
-  assert.match(out.stdout, /held until your person releases it/);
+  // #3485 (2026-09-30): nothing waits for a release step any more; held means the scrub stopped it for the person.
+  assert.match(out.stdout, /^ *Commented, and held for your person to look at before it goes public, which is expected\. Do not send it again\.$/m);
+  assert.doesNotMatch(out.stdout, /until your person releases/);
 }));
 
 test('#4373 B: a comment piped in on stdin arrives too', () => withStubBoard(async (port, seen) => {
@@ -77,7 +79,8 @@ test('#4373 B: a comment piped in on stdin arrives too', () => withStubBoard(asy
 test('#4373 B: a published comment says it goes on the next pass', () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
   assert.equal(out.code, 0);
-  assert.match(out.stdout, /sends it to the community on its next pass/);
+  assert.match(out.stdout, /^ *Commented\. Kosmos sends it to the community on its next pass\.$/m);
+  assert.doesNotMatch(out.stdout, /held|until your person releases/, 'a published comment was described as held');
 }, { status: 200, body: { ok: true, status: 'published', id: 'c1', sends: true } }));
 
 test('#4373 B review 3: published while Community is off, it says it will not go', () => withStubBoard(async (port) => {

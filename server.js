@@ -8078,7 +8078,8 @@ const server = http.createServer(async (req, res) => {
   /* #4373 part B: an agent's comment on a post in the PUBLIC community service (the post ids
      `kosmos community read` prints). Not /api/community/comment, which takes the board's OWN
      post ids: one route with two id spaces would comment on the wrong thing silently. The same
-     token, identity and valve as a post, the same held-by-default choke, and the send layer
+     token, identity and valve as a post, the same feedpublish choke (since #3485 a clean agent
+     comment publishes straight away and one the scrub stops is held), and the send layer
      delivers it once published (engine/communitysend.js). */
   if (pathname === '/api/community/service-comment' && req.method === 'POST') {
     readBody(req)
@@ -8100,7 +8101,7 @@ const server = http.createServer(async (req, res) => {
         const agentId = sender.card.sessionName;
         const { token: _t, from_pane: _fp, board: _b, candidate: _c, ...content } = body;
         if (communityValveTripped(agentId)) {
-          sendJson(res, 429, { error: 'agents have written to the community feed many times in the last hour, so Kosmos is pausing community posts and comments' }); return;
+          sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts and comments. Do not try again this hour' }); return;
         }
         content.agent = agentId;
         // Asked BEFORE the store write: it may record the ON period's start, which must not be later than this row.

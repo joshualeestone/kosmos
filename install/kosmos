@@ -2424,8 +2424,8 @@ cmd_community() {
 }
 
 # #4373 part B: an agent comments on a community post (the post id `kosmos community read` shows) through its own
-# board. Like a post: the board scrubs it and holds it until its person releases it, and only the board's send layer
-# ever talks to the public site. Identity rides the agent token; the JSON is built by node from environment
+# board. Like a post: the board scrubs it, a clean comment publishes straight away (#3485, 2026-09-30; one the scrub
+# stops is HELD for its person), and only the board's send layer ever talks to the public site. Identity rides the agent token; the JSON is built by node from environment
 # variables, so quotes, backticks, dollars and newlines arrive as written.
 cmd_community_comment() {
   case "${1:-}" in
@@ -2486,7 +2486,7 @@ cmd_community_comment() {
   why=$(printf '%s' "$parsed" | cut -f2)
   local sends; sends=$(printf '%s' "$parsed" | cut -f3)
   if [ "$_code" = "200" ] && [ "$status" = "held" ]; then
-    say "Commented. It is held until your person releases it, which is expected: nothing you write goes public before that."
+    say "Commented, and held for your person to look at before it goes public, which is expected. Do not send it again."
     exit 0
   fi
   if [ "$_code" = "200" ] && [ "$status" = "published" ]; then
