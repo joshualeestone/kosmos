@@ -334,11 +334,24 @@ const AGENTS_LOOK = `(() => {
         `${tag} On, Agents page: the idle card has no border, the working card keeps its stroke`, JSON.stringify(agOn));
       chk(agOn.tile === 'rgba(0, 0, 0, 0)', `${tag} On, Agents page: the Agents tile has no box`, JSON.stringify(agOn));
       chk(agOn.radius === '24px', `${tag} On, Agents page: the idle card has the project page's 24px corners`, agOn.radius);
-      /* An inert tile stays boxless under the pointer (a box would say "click me"). */
-      await page.hover('#st-agents');
-      const tileHover = await page.evaluate(() => getComputedStyle(document.getElementById('st-agents').closest('.stat')).borderTopColor);
-      chk(tileHover === 'rgba(0, 0, 0, 0)', `${tag} On, Agents page: hovering the Agents tile shows no box`, tileHover);
-      await page.mouse.move(0, 0);
+      /* The Messages filter is a control: at rest it keeps the soft grey ground (its "you can press this", which a
+         touch screen needs), and hovering it does not change its width (nothing in the row jumps). Shown by hand for
+         the read, since the fixture has no unread messages, then hidden again. */
+      const dm = await page.evaluate(() => {
+        const t = document.getElementById('st-dm-tile'); if (!t) return { found: false };
+        const was = t.hidden; t.hidden = false;
+        const r = t.getBoundingClientRect(), cs = getComputedStyle(t);
+        return { found: true, was, bg: cs.backgroundColor, border: cs.borderTopColor, w: Math.round(r.width) };
+      });
+      let dmHoverW = null;
+      if (dm.found) {
+        await page.hover('#st-dm-tile');
+        dmHoverW = await page.evaluate(() => Math.round(document.getElementById('st-dm-tile').getBoundingClientRect().width));
+        await page.mouse.move(0, 0);
+        await page.evaluate((was) => { document.getElementById('st-dm-tile').hidden = was; }, dm.was);
+      }
+      chk(dm.found && dm.bg === GREY_OF[theme] && dm.border === 'rgba(0, 0, 0, 0)' && dmHoverW === dm.w,
+        `${tag} On, Agents page: the Messages filter rests on the grey ground and keeps its width under the pointer`, JSON.stringify({ ...dm, dmHoverW }));
       /* Board notices, drawn by hand into the grid for the read and removed after: an empty-slot note has no border,
          a could-not-read note (.boardfail) keeps a solid, visible one. */
       const notes = await page.evaluate(() => {

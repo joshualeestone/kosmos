@@ -9845,10 +9845,13 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    🔑 The state rules stand (Josh, 2026-08-21: "state owns the ground and the stroke"): Working keeps its green
    stroke, Issue its red, Question its blue, the could-not-read card its dash; only the plain card loses its border.
    🔑 The alert tiles (Issue, No project) keep their red outline, and a pressed or hovered tile keeps today's gold
-   (the Messages and alert filters), so a filter that is on still looks on. The inert tiles (Agents, Working, Idle)
-   never show a box, not even on hover, since a box would say "click me" on a tile that does nothing. */
+   (the Messages and alert filters), so a filter that is on still looks on. The tiles while inert (Agents, Working,
+   Idle) never show a box, not even on hover, since a box would say "click me" on a tile that does nothing. The
+   Messages filter DOES something, so at rest it keeps a soft grey ground (no border) as its "you can press this",
+   which a touch screen needs since it has no hover; its padding does not change with state, so it never jumps. */
 :root[data-look="new"] body:not(.consolidated) #boardbar .stats .stat:not(.alert):not([role="button"]) { border-color: transparent; background: transparent; padding-inline: 10px; }
-:root[data-look="new"] body:not(.consolidated) #boardbar .stats #st-dm-tile:not([aria-pressed="true"]):not(:hover) { border-color: transparent; background: transparent; padding-inline: 10px; }
+:root[data-look="new"] body:not(.consolidated) #boardbar .stats #st-dm-tile { padding-inline: 14px; }
+:root[data-look="new"] body:not(.consolidated) #boardbar .stats #st-dm-tile:not([aria-pressed="true"]):not(:hover) { border-color: transparent; background: var(--nl-grey); }
 /* New agent: a round grey button (40px, the new look's grey) with the words beside it on one line; the control
    stays 44px tall, the tap floor. */
 :root[data-look="new"] body:not(.consolidated) #new-agent { border: 0; background: transparent; padding: 0; gap: 12px; min-height: 44px; }
