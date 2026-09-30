@@ -144,3 +144,28 @@ Next: the full validation once #4574 is on main (the queue override would otherw
 - render-talk-goldencard-2519.test.js: the recorded card lacked the new quotaUntil key. FIXED with the sanctioned
   tool (node tools/capture-agent-card.js), which added exactly one key, "quotaUntil": null.
 - Then main (d30a0c13a, the #4609 queue fix) merged in and re-queued with no override.
+- Main merged (6accc3917); full validation PASSED on it (2026-09-30).
+
+## Review iteration 7 (blind, opus), after the test rewrite and the main merge
+- (W) FIXED f09873dc5: nothing tested the seam carrying the reset from the hook to the board (main() passing
+  mapped.until to buildBody). agyhooks.test.js drives the real bridge against a stub /api/report: a quota Stop posts a
+  strict ISO until at the reset with the QUOTA_REPORT_PREFIX sentence; an ordinary error posts none. Red with
+  mapped.until dropped.
+- (W) FIXED f09873dc5: the reset-time format was written three times and the copies differed (status.js abs, the
+  others signed). One rule, engine/quotawords.js (abs: a days-old past reset gets its day), used by status.js and
+  accountproblem.js; the page keeps a copy and web.agyquota-4588.test.js compares the two from -72 h to +72 h. Red
+  with the page on the signed rule. Two tests had a fixed reset date gone stale that passed only because the signed
+  rule never gave a past time its day; they now use a reset 30 minutes out.
+- NITs left: the 55 s spacing is board-wide, not per Google account (the safe side); 'unknown' in NUDGE_OVER is
+  unreachable for a quota-paused card; paneless cards omit quotaUntil rather than null; one long header line in
+  agyquota.js; the review-4 "at rest" note above was overtaken by review 5.
+
+## Review iteration 8 (blind, sonnet): CONVERGED (no NEW finding)
+- clock skew of the hook host: duplicate of the standing deferral (iterations 1 and 6).
+- in-memory resume book repeats after a restart: duplicate of the standing deferral (iterations 3 and 5).
+- DEFERRED: the quota branch applies only over an UNKNOWN or IDLE screen, and no test pins that agy's screen is
+  never read. By design (review 2): a question, work or a lost connection read off a screen outranks this report, so
+  if agy's screen is ever read, the screen winning is the intended behaviour, not a silent loss.
+NITs: word-form resets ("1 hour 5 minutes") read as none; agyquota.js requires status.js for two constants; the page's
+day suffix can flip between renders at the 20 h line; the server wiring pin is a source match.
+Next: the final validation on this HEAD, then proof and PR.
