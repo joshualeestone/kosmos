@@ -948,7 +948,7 @@ out="$(KOSMOS_NO_WAIT=1 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test r
 # run-tests.sh in a scratch tree with one stray test file stops at its coverage check, the first thing after the
 # guard, so "COVERAGE MISMATCH" means the guard let it through and nothing ran. The tree is rooted under /tmp by
 # name (not $T, which may sit in the kt sandbox and would make every run here a fixture).
-RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; RT2=""; trap 'kill "${SUITE:-}" 2>/dev/null; type q_clear >/dev/null 2>&1 && q_clear; rm -rf "$T" "$RT" ${RT2:+"$RT2"}' EXIT
+RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; RT2=""; RP_LIVE=""; trap 'kill "${SUITE:-}" ${RP_LIVE:-} 2>/dev/null; type q_clear >/dev/null 2>&1 && q_clear; rm -rf "$T" "$RT" ${RT2:+"$RT2"}' EXIT
 mkdir -p "$RT/tools/lib" "$RT/sub"; cp "$HERE/run-tests.sh" "$RT/tools/"; cp "$HERE"/lib/*.sh "$RT/tools/lib/"
 : > "$RT/sub/stray.test.js"
 sleep 60 & wp=$!
@@ -998,12 +998,14 @@ _rt_marker_class() {   # <tree>: start its run-tests.sh queued behind a waiter, 
   printf '100 %s\n%s\n%s\n%s\n' "$wq" "$(ps -ww -o command= -p "$wq")" "$(_kosmos_pid_started_local "$wq")" "$(_kosmos_pid_started "$wq")" > "$(_kosmos_marker_dir)/suitewait.$wq"
   (cd "$tree" && exec env KOSMOS_QUEUE_CLASS=light KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
     KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= bash tools/run-tests.sh) >/dev/null 2>&1 &
-  rp=$!
+  rp=$!; RP_LIVE="$rp $wq"   # stopped by the EXIT trap too, if this test is interrupted before the cleanup below
   for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
     [ -s "$(_kosmos_marker_dir)/suitewait.$rp" ] && { cls="$(sed -n '5p' "$(_kosmos_marker_dir)/suitewait.$rp")" || cls=""; break; }
     sleep 0.5
   done
-  pkill -P "$rp" 2>/dev/null; kill "$rp" "$wq" 2>/dev/null; wait "$rp" "$wq" 2>/dev/null
+  # The run first, so its wait loop cannot start a new sleep after its children are stopped (round 3); then any child
+  # still there, by its parent pid.
+  kill "$rp" "$wq" 2>/dev/null; pkill -P "$rp" 2>/dev/null; wait "$rp" "$wq" 2>/dev/null; RP_LIVE=""
   rm -f "$(_kosmos_marker_dir)/suitewait.$rp" "$(_kosmos_marker_dir)/suitewait.$wq"
   printf '%s' "${cls:-none}"
 }

@@ -44,3 +44,10 @@ Mutation (constant rank) reds the light arm and the starve control.
 - NITs taken: the class reads are guarded (`|| cls=""`), and a non-numeric own queue time is treated as none.
 - NIT noted: two waiters can pass the first ask at once across a rank flip at the starve line (or an old-lib waiter
   beside a new one); the existing unmark-then-second-ask keeps the box exclusive, worst case one 30 s retry each.
+
+## Review round 3 (blind, sonnet, 2026-09-30 11:29): 0 BLOCKER, 2 WARNING (fixed, test hygiene only), 4 NIT
+- The new arm stopped its child's children before the child, so the child's wait loop could start a new sleep
+  (an orphan of up to 30 s); it now stops the run first. And an interrupted test left that run waiting: its pids are
+  now in the EXIT trap. The reviewer verified the arm cannot false-pass (it reads only its own pid's marker, a timeout
+  reads "none" and fails both arms) and that it writes only to the test's sandbox marker dir, not the shared queue.
+  139/139 after the fix. Product code unchanged since round 2.
