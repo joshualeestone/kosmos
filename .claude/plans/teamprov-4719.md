@@ -29,3 +29,15 @@ teamcreate-ui-4557 (PR #4709, not yet on main); rebased onto main once #4709 mer
   all web tests + wiring 2234/2234.
 - Browser check render-teamcreate-4557 gains the #4719 arm (an OpenAI-only board makes the team in one
   press, every member on OpenAI and that account); it runs in PR CI.
+
+## Review iteration 1 (changes)
+- Meta Muse is offered on the team step (paintMuseOption treats tc-provider as a creating select), and
+  a choice copied from the form that is not usable here falls back after the paint, not before.
+- tcFillProvider takes the open's generation and does nothing if another team was opened while its
+  account read was out.
+- A failed account read sets CREATE_ACCOUNTS_FAILED, so Gemini and Grok say they could not check.
+- The choice is fixed at the click (TC.model) and the menus disabled then; a click that is refused
+  before anything is made (a name) opens them again. The refusal arm of the browser check pins that.
+- Not changed (NITs, recorded): the team menus do not refresh if the account list changes after the
+  step opened (a removed account is refused per member, visibly); the #3081 saved last-used provider
+  is not applied on the team step (it starts from the form's current value, changeable).
