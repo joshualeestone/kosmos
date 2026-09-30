@@ -193,8 +193,8 @@ async function fetchBytes(doFetch, url, stop) {
 function refresh(opts = {}) {
   if (inflight) return inflight;
   // The same condition load() honours: a test run with no sandboxed data root neither reads nor
-  // writes the operator's stored copy, and does not download.
-  if (!opts.fetcher && process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_DATA) return Promise.resolve(status());
+  // writes the operator's stored copy, and does not download, whatever fetcher it passes.
+  if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_DATA) return Promise.resolve(status());
   if (!opts.force && Date.now() - lastTry < MIN_GAP_MS) return Promise.resolve(status());
   lastTry = Date.now();
   inflight = (async () => {

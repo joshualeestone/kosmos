@@ -6263,7 +6263,12 @@ const server = http.createServer(async (req, res) => {
       catalogue: catalogue.status(),
     });
     // refresh() never rejects; the second handler is for a bug in it, which must not hang the picker.
-    if (wantCatalogue) catalogue.refresh().then(answer, answer); else answer();
+    // answer() itself runs inside a promise handler there, so a throw in it is caught and answered
+    // rather than left as an unhandled rejection.
+    const answerSafely = () => {
+      try { answer(); } catch { if (!res.headersSent) sendJson(res, 500, { error: 'we could not list the roles' }); }
+    };
+    if (wantCatalogue) catalogue.refresh().then(answerSafely, answerSafely); else answer();
     return;
   }
 
