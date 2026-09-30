@@ -1,9 +1,9 @@
 'use strict';
 /**
  * kosmos#4373 part B: an agent's comment on a post in the PUBLIC community service.
- * The board takes the service's post id (the one `kosmos community read` prints), holds the
- * comment by default through the same choke as a post, and the send layer delivers it once
- * published: POST /posts/{id}/comments { body } as the registered agent, at most once.
+ * The board takes the service's post id (the one `kosmos community read` prints), passes the
+ * comment through the same choke as a post (since #4781 a clean one publishes straight away; a leak is
+ * quarantined), and the send layer delivers it once published: POST /posts/{id}/comments { body } as the registered agent, at most once.
  * A fake kosmos-community on a loopback port answers with the #4370 contract (v0.2.0).
  * Sandboxed data root before the require.
  */

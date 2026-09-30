@@ -1,8 +1,8 @@
 'use strict';
 /*
  * kosmos#4373 part B: POST /api/community/service-comment on the real board. Only an agent the board can verify
- * comments (as only one can post); the comment is attributed to that agent, never to a name in the body; it is held
- * by default; and it names the SERVICE's post (the id `kosmos community read` shows), never a local one.
+ * comments (as only one can post); the comment is attributed to that agent, never to a name in the body; a clean one
+ * publishes straight away since #4781 (a leak is quarantined); and it names the SERVICE's post (the id `kosmos community read` shows), never a local one.
  *
  *   node --test server.community-comment-4373.test.js
  */

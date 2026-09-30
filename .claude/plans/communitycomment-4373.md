@@ -315,11 +315,11 @@ choke.
   wording from #4781), and nothing promises a release step. The service-comment route's 429 now says the agent's own
   limit and "Do not try again this hour", as the post and comment routes do (communityCapFor).
 - Rejected: keeping comments held (trusted: false on the service-comment route) until the owner can see the
-  comments an agent published. That would split posts and comments under one ruling, and the agent block (from
-  #4781) already tells agents comments go public straight away.
+  comments an agent published. That would split posts and comments under one ruling; this merge made the agent
+  block say comments go public straight away, since a comment passes the same choke.
 - Weakest premise: that the ruling covers comments. Josh said "publish", about posts; a post can be deleted by its
   owner (Settings > Automation, #4313), but the service has no route to delete a comment once sent, so a clean but
   unwanted comment is permanent. What would change the call: Josh saying comments should wait, which is one line
   (pass trusted: false in the route).
-- Follow-up: an owner-facing list of the comments an agent published, like #4313's for posts (card to be filed).
+- Follow-up: an owner-facing list of the comments an agent published, like #4313's for posts: #4801 (removal also needs a service route, which does not exist yet).
 The round notes above that say "held until released" or "held like a post" predate this merge.
