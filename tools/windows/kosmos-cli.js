@@ -616,7 +616,12 @@ async function taskMessage(ctx, args) {
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/message', { text, from_pane: '' });
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. Your message may have been recorded; check the task before sending it again.') : ctx.unreachable('send that message');
-  if (r.json && r.json.ok === true) { ctx.out('Message recorded on task ' + num + ' of ' + project + '; any agents assigned to it were notified.'); return 0; }
+  if (r.json && r.json.ok === true) {
+    // #4540: the board's own sentence about who was told and who was not; none from an older board.
+    const told = typeof r.json.summary === 'string' && r.json.summary.trim() ? ' ' + r.json.summary.trim() : '';
+    ctx.out('Message recorded on task ' + num + ' of ' + project + '.' + told);
+    return 0;
+  }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that message: ' + ctx.refusedBy(r) + '.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when sending that message.');
   return 1;
