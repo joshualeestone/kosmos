@@ -1660,14 +1660,15 @@ function isCodexHookEvidence(evidence) {
    other footers: at the end of the last rows joined, with its own heading above, so the words in tool output do not
    count. codexHookReview does not return this screen (there is no question on it). */
 const CODEX_HOOK_TRUSTED_FOOTER_END = /Pressentertoviewhooks;esctoclose$/;
-const CODEX_HOOK_TABLE_HEADING = /^\s*Lifecycle hooks from config and enabled plugins\.\s*$/;
 function codexHookTrustedTable(paneText) {
   const rows = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
   while (rows.length && !rows[rows.length - 1]) rows.pop();
   if (!rows.length) return false;
   const tail = rows.slice(-CODEX_HOOK_ROWS);
   if (!CODEX_HOOK_TRUSTED_FOOTER_END.test(tail.slice(-3).join('').replace(/\s+/g, ''))) return false;
-  if (!tail.slice(0, -1).some((r) => CODEX_HOOK_TABLE_HEADING.test(r))) return false;
+  /* Wrap-tolerant, like the footers (review round 7: on a narrow pane the heading wraps and a one-row match missed
+     the list, so a Trust read as failed and the open list went unguarded). */
+  if (!/Lifecyclehooksfromconfigandenabledplugins\./.test(tail.slice(0, -1).join('').replace(/\s+/g, ''))) return false;
   /* At least one ACTIVE hook (review round 3): the same viewer with nothing active is Codex's plain /hooks list, and
      "their hooks are trusted" would be untrue there. Rows: "Event  Installed  Active  Description". */
   return tail.some((r) => { const m = /^\s*[A-Za-z]+\s+(\d+)\s+(\d+)\s+\S/.exec(r); return !!m && Number(m[2]) > 0; });
@@ -1720,24 +1721,35 @@ function codexHookSummary(paneText) {
     }
     if (events.length) count = events.reduce((n, e) => n + e.count, 0);
   } else if (seen.screen === 'hook') {
-    const ev = rows.map((r) => /^\s*Event\s{2,}(\S+)\s*$/.exec(r)).filter(Boolean).pop();
-    /* Its own "N hooks need review" line: the whole set, not only this page's hook (review round 5). */
-    const w = rows.map((r) => /^\s*(?:⚠\s*)?(\d+) hooks? needs? review before (?:it|they) can run\.\s*$/.exec(r)).filter(Boolean).pop();
-    if (w) count = Number(w[1]);
+    /* The page's own block: from its last "[!] Hook N" row (or its "... hooks" heading) to the end, over the whole
+       screen, so a long command cannot push its fields out of view (review round 7). Its "N hooks need review" line
+       counts only THIS event's hooks (measured: the table said 2, this page 1), so no total is claimed from here. */
+    let start = -1;
+    all.forEach((r, i) => { if (CODEX_HOOK_ONE_ROW.test(r)) start = i; });
+    if (start > 2) start -= 3;   // the event heading and its warning sit just above the hook row
+    const block = start >= 0 ? all.slice(start) : rows;
+    const ev = block.map((r) => /^\s*Event\s{2,}(\S+)\s*$/.exec(r)).filter(Boolean).pop();
     if (ev) events.push({ event: ev[1], count: 1 });
     let si = -1;
-    rows.forEach((r, i) => { if (/^\s*Source\s{2,}\S/.test(r)) si = i; });
+    block.forEach((r, i) => { if (/^\s*Source\s{2,}\S/.test(r)) si = i; });
     if (si >= 0) {
       /* The source can wrap onto the next row (the captured screen does), which carries no label. */
-      const first = rows[si].replace(/^\s*Source\s+/, '');
-      const next = rows[si + 1] && /^\s{8,}\S/.test(rows[si + 1]) && !/^\s*[A-Z][a-z]+\s{2,}/.test(rows[si + 1]) ? rows[si + 1].trim() : '';
+      const first = block[si].replace(/^\s*Source\s+/, '');
+      const next = block[si + 1] && /^\s{8,}\S/.test(block[si + 1]) && !/^\s*[A-Z][a-z]+\s{2,}/.test(block[si + 1]) ? block[si + 1].trim() : '';
       /* One line, capped: it is shown beside the Trust button, and it is text from the screen, not ours. */
       source = (first + (next && !/[\/\-]$/.test(first) ? ' ' : '') + next).replace(/\s+/g, ' ').trim().slice(0, 160) || null;
     }
     /* Round 6: the one page that shows what the hook RUNS. Capped and one line, like the source. */
     let ci = -1;
-    rows.forEach((r, i) => { if (/^\s*Command\s{2,}\S/.test(r)) ci = i; });
-    if (ci >= 0) command = rows[ci].replace(/^\s*Command\s+/, '').replace(/\s+/g, ' ').trim().slice(0, 160) || null;
+    block.forEach((r, i) => { if (/^\s*Command\s{2,}\S/.test(r)) ci = i; });
+    if (ci >= 0) {
+      /* Its wrapped rows too (no label, deeper indent), up to the next labelled row; cut at 160 with an ellipsis so a
+         shortened command never reads as the whole of it (review round 7). */
+      const parts = [block[ci].replace(/^\s*Command\s+/, '')];
+      for (let j = ci + 1; j < block.length && /^\s{8,}\S/.test(block[j]) && !/^\s*[A-Z][a-z]+\s{2,}\S/.test(block[j]); j += 1) parts.push(block[j].trim());
+      const whole = parts.join(' ').replace(/\s+/g, ' ').trim();
+      command = whole ? (whole.length > 160 ? whole.slice(0, 159) + '\u2026' : whole) : null;
+    }
   }
   return { screen: seen.screen, count, events, source, command };
 }

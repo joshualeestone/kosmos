@@ -40941,7 +40941,7 @@ async function answerCodexHooksFromBox(choice) {
          Codex does next). */
       msg.textContent = (res.ok && r.ok)
         ? (choice === 'trust' ? 'Done. Its screen is no longer asking about hooks.'
-          : (choice === 'close' ? 'Done. The list is closed.' : 'Done. It is carrying on without the hooks.'))
+          : (choice === 'close' ? 'Done. The list is closed.' : 'Done. Its screen is no longer asking about hooks, and they were not trusted.'))
         : (r.because || r.error || 'We could not answer it. Look at its window.');
       /* The box hides on the next poll once the question is gone, so a success is also said where it stays a moment. */
       if (res.ok && r.ok && typeof msgToast === 'function') msgToast(msg.textContent);

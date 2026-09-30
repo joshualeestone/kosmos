@@ -1249,9 +1249,9 @@ async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card,
   const t = paneTarget(card);
   const wait = (ms) => (pauser ? Promise.resolve(pauser(ms)) : (runner ? Promise.resolve() : new Promise((r) => setTimeout(r, ms))));
   const look = () => {
-    /* The pane is checked again on every read (review round 5): a pane that stopped being this agent's, or went into
-       copy mode, between keys takes no more keys. */
-    if (!addressable(sessionName, roster).ok) return { unseen: true };
+    /* The pane is asked again on every read (review rounds 5 and 7: a fresh tmux probe, the one the message path uses
+       just before typing): a pane that stopped being this agent's, or went into copy mode, takes no more keys. */
+    if (!verifyAtSend(card).ok) return { unseen: true };
     const view = viewport(sessionName, roster);
     const text = view && typeof view.text === 'string' ? view.text : null;
     if (text === null) return { unseen: true };

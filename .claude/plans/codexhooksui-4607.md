@@ -60,6 +60,10 @@ shows it, capped, and it is part of the must-match check). The page says so, war
 comes from the agent's own project folder, and makes Continue the main button. The single-hook page opened from the
 TRUSTED list (Enter there) was never captured, so it is not recognised: the board shows nothing while Codex waits on it.
 
+On the MENU the must-match check can compare only the screen and the count: a different set of hooks with the same
+count passes it, because the menu names none (review round 7). The table and hook pages carry events, source and
+command, which are compared.
+
 ## Weakest premise
 That 0.149.1's screens and keys hold for the Codex the person runs. A newer Codex (0.159.2 exists) may word the
 dialog differently; then codexHookReview reads nothing, the card shows no buttons, and nothing is pressed (fails

