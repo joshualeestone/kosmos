@@ -43137,6 +43137,9 @@ function plusSiClear() {
   if (typeof PLUS_SI_LANDED !== 'undefined') PLUS_SI_LANDED = false;
   if (typeof PLUS_SI_REGISTERING !== 'undefined') PLUS_SI_REGISTERING = false;
   if (typeof PLUS_SI_RETRY !== 'undefined') PLUS_SI_RETRY = '';
+  /* kosmos#4756: the bought-address list belongs to the sign-in that read it. */
+  if (typeof PLUS_SI_SESSION !== 'undefined') { PLUS_SI_SESSION = null; PLUS_SI_BOUGHT_LAST = null; PLUS_SI_PICKED = false; }
+  const bought = document.getElementById('plus-si-bought'); if (bought) bought.hidden = true;
 }
 function plusSiEnter(e) {
   if (e) e.preventDefault();
@@ -43662,18 +43665,36 @@ async function plusSiSession(data, again) {
   PLUS_SI_PICKED = false;
   const bought = document.getElementById('plus-si-bought');
   const recheck = document.getElementById('plus-si-bought-recheck');
-  if (!again && bought) bought.hidden = true;
+  const lead = document.getElementById('plus-si-owned-lead');
+  const spin = document.getElementById('plus-si-spin');
   if (recheck) recheck.disabled = true;
+  if (!again) {
+    /* The read takes a moment (the coordinator's switch, then the list). The step it came from must not stay
+       live meanwhile, where its spent code could be sent again: the register step shows at once, saying so. */
+    if (bought) bought.hidden = true;
+    plusSiRegisterMode('');
+    const field = document.getElementById('plus-si-name-field'); if (field) field.hidden = true;
+    const go = document.getElementById('plus-si-register-go'); if (go) go.hidden = true;
+    plusSiShow('plus-si-register');
+    const owned = document.getElementById('plus-si-owned'); if (owned) owned.hidden = false;
+    if (lead) lead.textContent = 'Checking your Kosmos+ addresses';
+    document.getElementById('plus-si-owned-addr').textContent = '';
+    if (spin) spin.hidden = false;
+  }
   const epoch = PLUS_SI_EPOCH, seq = ++PLUS_SI_BOUGHT_SEQ;
   const got = await plusSiBoughtRead();
   if (epoch !== PLUS_SI_EPOCH || seq !== PLUS_SI_BOUGHT_SEQ) return;   // signed out, or a newer read
   if (recheck) recheck.disabled = false;
+  if (spin) spin.hidden = true;
+  if (lead) lead.textContent = 'Connecting this computer as';
   const b = got.list || null;
   if (again && !b) {
+    if (/start again from the email/i.test(String(got.because || ''))) { plusSiFail(got.because); return; }
     if (PLUS_SI_BOUGHT_LAST) plusSiBoughtPick(PLUS_SI_BOUGHT_LAST);
     plusSiMsg(got.because || 'That did not work. Check again in a moment.');
     return;
   }
+  if (bought) bought.hidden = true;   // plusSiBoughtPick shows it again; every other way on is without it
   const own = /^([a-z0-9-]{3,32})\./.exec(String(data.account_address || ''));
   const ownRow = b && own ? b.addresses.filter((r) => r.name === own[1])[0] : null;
   /* As before: no list, an account with no address yet (the name step, which the coordinator rules on), the

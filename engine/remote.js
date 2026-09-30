@@ -1969,7 +1969,7 @@ async function signinAddresses(opts) {
   } catch {
     return { ok: false, because: 'Kosmos+ could not be reached to list your addresses' };
   }
-  if (!res.ok) return { ok: false, because: (body && typeof body.error === 'string' && body.error) || 'Kosmos+ could not list your addresses' };
+  if (!res.ok) return { ok: false, because: (body && typeof body.error === 'string' && body.error.slice(0, 300)) || 'Kosmos+ could not list your addresses' };
   const rows = (body && Array.isArray(body.addresses) ? body.addresses : [])
     .filter((r) => r && NAME_RULE.test(String(r.name)) && BOUGHT_STATES.has(r.state)
       && typeof r.address === 'string' && /^[a-z0-9-]{3,32}\.[a-z0-9.-]{3,253}$/.test(r.address) && r.address.split('.')[0] === r.name)

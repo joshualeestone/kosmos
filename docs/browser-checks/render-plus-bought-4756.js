@@ -63,6 +63,12 @@ const SCENARIOS = {
   'no-address': { account: '', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] }], auto: null },
   // Check again that cannot reach the service stays on the panel and says so; it never falls back to the account's address.
   'recheck-fails': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] }, null], auto: null },
+  // The read is slow: the code step is gone at once (its spent code cannot be sent again) and the step says it is checking.
+  'slow-read': { delay: 2500, lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
+  // A re-read after the sign-in has ended goes to the Start over panel, not a list that can no longer work.
+  'recheck-expired': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] }, { error: 'your sign-in has ended; start again from the email' }], auto: null },
+  // A re-read that finds the account's own address free again takes the step as before, with the list gone.
+  'recheck-now-free': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] }, { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'free')] }], auto: null },
   // A pick refused (another computer took it first) returns to the list with the reason, not Try again on the same address.
   'pick-refused': { refuse: 'spare', lists: [
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] },
@@ -112,7 +118,9 @@ const visible = (page, sel) => page.evaluate((s) => {
         if (p === '/api/remote/signin-verify') return json(200, { ok: true, stage: 'session', account_address: sc.account === undefined ? 'first.kosmosplus.com' : sc.account });
         if (p === '/api/remote/signin-addresses') {
           const ans = sc.lists[Math.min(asked, sc.lists.length - 1)]; asked += 1;
-          return ans ? json(200, ans) : json(400, { error: 'Kosmos+ could not be reached to list your addresses' });
+          const answer = () => (!ans ? json(400, { error: 'Kosmos+ could not be reached to list your addresses' }) : ans.error ? json(400, ans) : json(200, ans));
+          if (sc.delay) { setTimeout(answer, sc.delay); return; }
+          return answer();
         }
         if (p === '/api/remote/signin-register') {
           const b = req.postDataJSON(); regs.push(b.name);
@@ -128,6 +136,13 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.click('#plus-signin-code');
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
       await page.fill('#plus-si-code-in', '123456');   // six digits submit by themselves (#3942)
+      if (sc.delay) {
+        await page.waitForTimeout(700);
+        chk(!(await visible(page, '#plus-si-code')), `[${key}] the code step is gone while the list is read`);
+        chk(/Checking your Kosmos\+ addresses/.test(await page.textContent('#plus-si-owned')), `[${key}] the step says it is checking`, await page.textContent('#plus-si-owned'));
+        chk(await visible(page, '#plus-si-spin'), `[${key}] with the ring loader`);
+        await page.waitForTimeout(sc.delay);
+      }
       await page.waitForFunction(() => { const r = document.getElementById('plus-si-register'); const d = document.getElementById('plus-si-done'); return (r && !r.hidden) || (d && !d.hidden); }, null, { timeout: 8000 }).catch(() => {});
       await page.waitForTimeout(600);
       chk(asked >= 1, `[${key}] the session step asked for the account's addresses`);
@@ -161,7 +176,21 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(!(await visible(page, '#plus-si-bought-none')), `[${key}] the none panel goes`);
         chk(regs.length === 0, `[${key}] nothing registered without a pick`);
       }
-      else if (key === 'no-address') {
+      else if (key === 'slow-read') {
+        chk(await visible(page, '#plus-si-bought-list button[data-bought="spare"]'), `[${key}] then the list`);
+        chk(!(await visible(page, '#plus-si-spin')), `[${key}] and the loader stops`);
+        chk(!/Checking/.test(await page.textContent('#plus-si-owned')) || !(await visible(page, '#plus-si-owned')), `[${key}] and the checking line is gone`);
+      } else if (key === 'recheck-expired') {
+        await page.click('#plus-si-bought-recheck');
+        await page.waitForSelector('#plus-si-expired', { state: 'visible', timeout: 8000 }).catch(() => {});
+        chk(await visible(page, '#plus-si-expired'), `[${key}] an ended sign-in goes to Start over`);
+        chk(!(await visible(page, '#plus-si-bought')), `[${key}] not a list that can no longer work`);
+      } else if (key === 'recheck-now-free') {
+        await page.click('#plus-si-bought-recheck');
+        await page.waitForFunction(() => { const d = document.getElementById('plus-si-done'); return d && !d.hidden; }, null, { timeout: 8000 }).catch(() => {});
+        chk(regs.length === 1 && regs[0] === 'first', `[${key}] registers to the account's own address, as before`, JSON.stringify(regs));
+        chk(!(await visible(page, '#plus-si-bought')), `[${key}] with the list hidden`);
+      } else if (key === 'no-address') {
         chk(await visible(page, '#plus-si-name-field'), `[${key}] the name step shows, as before`);
         chk(!(await visible(page, '#plus-si-bought')), `[${key}] no bought-address panel`);
         chk(regs.length === 0, `[${key}] nothing registered by itself`, JSON.stringify(regs));
