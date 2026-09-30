@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: enroldead-4698
-diff_hash: a16ccc1d3f1d760ff5599c43a87ef409eb523dd7df9a6e81e9d758047ae72caa
+diff_hash: f2dc2411827f9f3497679c3f9755d6838cfdc501cdd153a3442dd45f5b8d1de0
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-30T07:25:13Z
+timestamp: 2026-09-30T08:00:17Z
 iterations: 4
 converged: true
 ---
@@ -36,6 +36,10 @@ converged: true
 
 ### Also in this branch (found by the moved test, before the loop)
 - The wizard read a timeout ("has not answered in 15 seconds") as a cooldown, holding the button and counting the sentence down. Fixed; the test fails with the fix removed.
+
+### After the loop: PR CI's first run (fixed in 7c32e13)
+- suite (node): 0 test failures; the browser-check surface gate flagged two unrelated checks on the token 'msg': per-check trailers.
+- browser-checks: render-plus-blue-1615 and render-plus-signin-3478 counted on the removed fields by selector; updated to the pane as it is (7 wizard inputs, no white field).
 
 ### Validation
 - All web.*.test.js files plus tools.browser-checks-wired: 2204 of 2204 after the last code change.
