@@ -62,7 +62,7 @@
  * SAFETY: processes are only ever signalled by exact pid, and only pids this run
  * started while they are live, their descendants (walked only while the parent is live,
  * then re-checked by command line), or a process that runs one of this run's binaries
- * (or a sandbox script) AND names this run's sandbox. Never a process-group, user-wide
+ * (or a shell running a sandbox script) AND names this run's sandbox. Never a process-group, user-wide
  * or name-pattern kill. SIGINT, SIGTERM, SIGHUP and SIGQUIT all tear down.
  *
  * Helper names carry a `fedproof` prefix where a plain name (cleanup, readLog...) could
@@ -78,7 +78,9 @@ const { spawn, execFileSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, '..');
 // This Mac's external SSD; on any other machine FEDPROOF_BIN_DIR must be set.
-const BIN_DIR = process.env.FEDPROOF_BIN_DIR || '/Volumes/BigLobsterStorage/targets/renet-4693/debug';
+// Absolute: the services run with cwd SANDBOX and the boards with cwd REPO, and the orphan
+// sweep compares command lines against these exact paths.
+const BIN_DIR = path.resolve(process.env.FEDPROOF_BIN_DIR || '/Volumes/BigLobsterStorage/targets/renet-4693/debug');
 const BIN = {
   coordinator: path.join(BIN_DIR, 'kosmos-coordinator'),
   relay: path.join(BIN_DIR, 'kosmos-relay'),
@@ -230,7 +232,9 @@ function ownedAlive() {
   // script inside the sandbox. A stranger that merely mentions the path (tail -f of a log, an
   // editor, a grep) runs something else and is never matched.
   const ours = [...Object.values(BIN), process.execPath];
-  const runsOurs = (cmd) => cmd.startsWith(SANDBOX) || ours.some((b) => cmd === b || cmd.startsWith(b + ' '));
+  // A sandbox script shows in ps as '/bin/sh <sandbox>/...', so an interpreter then the sandbox counts too.
+  const runsOurs = (cmd) => cmd.startsWith(SANDBOX) || /^\/bin\/(ba|z)?sh /.test(cmd) && cmd.includes(' ' + SANDBOX)
+    || ours.some((b) => cmd === b || cmd.startsWith(b + ' '));
   for (const r of table) if (r.pid !== process.pid && r.cmd.includes(SANDBOX) && runsOurs(r.cmd)) pids.add(r.pid);
   return [...pids].filter((p) => p !== process.pid && alive(p));
 }
@@ -772,6 +776,8 @@ async function fedproofFinish(code) {
     + Math.round((Date.now() - T0) / 1000) + ' s)');
   process.exit(code === 0 && !failed ? 0 : 1);
 }
+// A closed terminal (SIGHUP) makes stdout writes fail; that must not feed the error handler below.
+for (const st of [process.stdout, process.stderr]) st.on('error', () => { /* terminal gone */ });
 // Anything thrown outside main's own try (an event handler, a stray rejection) still tears down.
 for (const ev of ['uncaughtException', 'unhandledRejection']) process.on(ev, (err) => {
   console.log('FAIL  harness error (' + ev + '): ' + (err && err.message ? err.message : err));

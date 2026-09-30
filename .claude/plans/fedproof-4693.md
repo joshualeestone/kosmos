@@ -124,3 +124,19 @@ Blind sonnet review of 72790bc7b: no BLOCKER, 4 WARNINGs, 2 NITs.
   the same function, and B's own-post typed.log control exercises B's at runtime.
 - NIT2 (deferred): the step 6 "no disconnect" check reads net membership, so a flap between polls
   would net out. It proves "up now"; a flap is not the property this card asks about.
+
+## Review iteration 4
+
+Blind sonnet review of be0be253c: no BLOCKER, 1 WARNING, 4 NITs.
+- W1 (fixed): a relative FEDPROOF_BIN_DIR resolved differently for services (cwd SANDBOX) and
+  boards (cwd REPO), and the orphan sweep could never match a seat. BIN_DIR is now path.resolve'd.
+- NIT (fixed): the "sandbox script" sweep clause could not match, since a script shows in ps as
+  `/bin/sh <sandbox>/...`; an interpreter followed by the sandbox path now counts.
+- NIT (fixed): after SIGHUP, stdout writes can fail with EPIPE/EIO and feed the error handler;
+  stdout/stderr errors are now swallowed.
+- NIT (deferred): the remembered-descendant map is refreshed only at teardown, so a board that
+  dies mid-run leaves seats only the command-line sweep catches. It does catch them (seat argv is
+  the run's tunnel binary plus a sandbox --state-dir); no other descendant kind exists today.
+- NIT (deferred, documented here): the `exit` last-resort handler signals only started pids, not
+  seats; a hard exit that skips the async cleanup can leave seats, which the next run's leftover
+  check reports.
