@@ -2798,8 +2798,8 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     # so the bare substitution killed the run silently at "pausing" (found
     # by the harness's update pass going from green to a log that just
     # stops). The good case must never be the fatal one.
-    # #4651: an lsof that FAILS is not an lsof that found nothing (#4651 plan). stderr is folded into the one
-    # reading, so the pids, any error text and the exit come from the same call. -w keeps warnings out.
+    # #4651: an lsof that FAILS is not an lsof that found nothing. stderr is folded into the one reading, so the
+    # pids, any error text and the exit come from the same call. -w keeps warnings out.
     _tries=0; _pids=""; _lsofbad=""
     while [ "$_tries" -lt 10 ]; do
       _lsofrc=0
@@ -2812,7 +2812,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
       _tries=$((_tries + 1)); sleep 1
     done
     # Not recorded in #2055's update-abort streak: the board shows that streak as "Kosmos was busy, quit and
-    # reopen it", which is not the remedy for either stop below.
+    # reopen it", which is not the remedy for the stops below (#4675).
     if [ -z "$_pids" ] && [ -n "$_lsofbad" ]; then
       _lsofsaid="$(printf '%s\n' "$_lsofout" | sed -n '/./{p;q;}')"
       die "This shell could not check whether Kosmos is still running on port $PORT (the port check failed${_lsofsaid:+: $_lsofsaid}), so the update stopped before replacing any files. If you ran the install line in an agent's shell or another sandboxed tool, paste it into a normal Terminal window instead. If this already is a normal Terminal, run 'kosmos stop' and paste the install line again; if this message comes back, the port check itself is failing on this computer, so please send us this message."
@@ -2822,11 +2822,10 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
       # #4651: read the probe again now, after the wait, rather than trusting the one taken before it.
       _pauserc=0
       curl -fsS -m 2 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null || _pauserc=$?
-      # Codes where curl DID connect (an answer, an HTTP error, a timeout, an empty or cut reply) keep the pid advice
-      # below. Any other failure (refused, or curl killed by a signal) gets both remedies.
+      # curl exits 0, 22, 28, 52 and 56 keep the pid advice below; any other curl exit gets both remedies.
       case "$_pauserc" in
         0|22|28|52|56) ;;
-        *) die "Something is still holding port $PORT (pid $_pids), and this shell cannot connect to it, so the update stopped before replacing any files. If you ran the install line in an agent's shell or another sandboxed tool, this is most likely your Kosmos, still running: paste the install line into a normal Terminal window instead. If this already is a normal Terminal, quit the app with pid $_pids, then paste the install line again." ;;
+        *) die "Something is still holding port $PORT (pid $_pids), and this shell's check of it failed, so the update stopped before replacing any files. If you ran the install line in an agent's shell or another sandboxed tool, paste it into a normal Terminal window instead. If this already is a normal Terminal, quit the app with pid $_pids, then paste the install line again." ;;
       esac
       die "A process is still holding port $PORT after the pause (pid $_pids). Quit it (or run 'kill $_pids'), then paste the install line again."
     fi
