@@ -10417,21 +10417,38 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      Profile's to explain; here the state stays, smaller. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .detail-meta .dmeta-note { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .detail-state { font-size: .8125rem; margin: 0; }
+  /* #4661: one row the page's width, every button whole. It was a sideways-scrolling row, and with nothing to
+     show it scrolled, "AI Settings" was cut mid-word at 393 and 375 wide, so the row read as broken. Equal
+     shares, icon above a small label, no scrolling. A label breaks only between words, so on a narrow phone
+     or with larger text the row grows by a second label line rather than cutting a word. */
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed {
-    flex: none;
-    flex-direction: row; flex-wrap: nowrap; gap: 6px; overflow-x: auto; scrollbar-width: none;
-    margin: 0 -2px; padding: 4px 32px 4px 2px; scroll-snap-type: x proximity; overscroll-behavior-x: contain;
-    /* The same "there is more" cue as the phone Settings row (#s-nav). */
-    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
-    mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed::-webkit-scrollbar { display: none; }
+    flex: none; display: flex; flex-direction: row; flex-wrap: wrap; column-gap: 4px; row-gap: 6px; margin: 0; padding: 4px 0; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack { display: contents; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button,
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button.dnav-dm {
-    flex: none; width: auto; min-height: 44px; flex-direction: row; gap: 6px; scroll-snap-align: center;
-    padding: 0 14px; border-radius: 22px; font-size: .875rem; }
+    /* Equal shares of the row, never narrower than the button's longest word: when four cannot fit (a swarm's,
+       at large text on the narrowest phones) the row wraps to a second line rather than cut or spill a word. */
+    flex: 1 1 0; width: auto; min-width: min-content; min-height: 44px; flex-direction: column; gap: 2px;
+    /* 2px sides and a 4px column gap leave "Direct Message" (92px) about 95px at 375 wide with three buttons, even
+       when the row is 15px narrower (as on CI, likely a classic scrollbar). With 4px sides and a 6px gap that column
+       was 90 there and it wrapped. */
+    /* 12px corners, as the base boxed button (#3500): the label runs close to the sides, and a tighter curve keeps
+       its ends clear of the corners. */
+    padding: 4px 2px; border-radius: 12px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-lab,
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack .dnav-lab { font-size: .875rem; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack .dnav-lab {
+    font-size: .75rem; line-height: 1.2; white-space: normal; overflow-wrap: normal; word-break: normal; text-wrap: balance; }
+  /* A swarm's fourth button carries its status word under its label: with the icon too, every button in the row
+     grew to three lines. With four buttons the icons go, and the words (and the status) stay. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed:has(#d-nav-swarm:not([hidden])) .dnav-ico { display: none; }
+  /* Its status is the word; the colour dot beside it only repeats it, and cost the word 13px of a narrow column. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-swarm .swpill i { display: none; }
+  /* "Paused (limit)" is two words: it may wrap between them, rather than widen its button until the row wraps. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-swarm .swpill { white-space: normal; text-align: center; }
+  /* With the icons gone the label starts at the top, where the needs-you dot sits: on a button showing the dot, the
+     dot moves into the corner and the label starts below it. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed:has(#d-nav-swarm:not([hidden])) button[data-dot] { padding-top: 13px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed:has(#d-nav-swarm:not([hidden])) button .dot { top: 3px; right: 3px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-ico svg { width: 18px; height: 18px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button .dot { top: 6px; right: 6px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-swarm .swpill { padding: 0; border: 0; background: none; }   /* the word stays: colour alone fails WCAG 1.4.1 */
