@@ -13046,7 +13046,10 @@ const server = http.createServer(async (req, res) => {
           project: typeof body.project === 'string' ? said(body.project) : undefined,
           because: said(body.text),
           waiting: body.waiting,   // #4569 fix 4: selfreport keeps it only on a sane working report
-          final: body.final,       // #4612: a Muse turn's answer; selfreport keeps it only on a sane idle or working report
+          /* #4612: a Muse turn's answer; selfreport keeps it only on a sane idle or working report. #4733: its text
+             is the guide's words too, so it is masked like the fields below (anything else is dropped there). */
+          final: body.final && typeof body.final === 'object' && typeof body.final.text === 'string'
+            ? { ...body.final, text: said(body.final.text) } : body.final,
           on: said(body.on),
           owner: said(body.owner),
           until: said(body.until),

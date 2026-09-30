@@ -148,6 +148,22 @@ test('#4733 the guide\'s status report is recorded masked in every field kept as
   }
 });
 
+test('#4733 the guide\'s turn answer (#4612 final) is recorded masked; another agent\'s is kept as sent', async () => {
+  const body = { state: 'idle', final: { text: `Done. The key you gave me is ${KEY}`, startedAt: new Date().toISOString() } };
+
+  const g = await post('/api/report', body, GUIDE);
+  assert.equal(g.status, 200, JSON.stringify(g.json));
+  assert.equal(g.json.recorded, true, JSON.stringify(g.json));
+  const gr = selfreport.read(GUIDE);
+  assert.ok(gr.final && typeof gr.final.text === 'string', 'premise: the answer was kept at all: ' + JSON.stringify(gr));
+  assert.equal(gr.final.text, `Done. The key you gave me is ${MASK}`);
+  assert.ok(!JSON.stringify(gr).includes(KEY), 'the key reached the guide\'s stored answer: ' + JSON.stringify(gr));
+
+  const o = await post('/api/report', body, OTHER);
+  assert.equal(o.status, 200, JSON.stringify(o.json));
+  assert.equal(selfreport.read(OTHER).final.text, body.final.text, 'CONTROL: another agent\'s answer was changed');
+});
+
 test('#4733 a report field that is not a string is made text and masked for the guide (the store would make text of it unmasked)', async () => {
   const body = { state: 'needs_you', text: [`the key is ${KEY}`], on: [KEY], owner: [`holder ${KEY}`], until: [`after ${KEY}`], project: [KEY] };
 
