@@ -5,7 +5,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 . tools/lib/connector-verbs.sh
-FAILS=0; PASSES=0; ok(){ echo "PASS  $1"; PASSES=$((PASSES+1)); }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
+FAILS=0; PASSES=0; RETRIES=0; ok(){ echo "PASS  $1"; PASSES=$((PASSES+1)); }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 T="$(mktemp -d "${TMPDIR:-/tmp}/connector-verbs.XXXXXX")"; trap 'rm -rf "$T"' EXIT
 
 # Stand-in connectors: one that knows mac-request, one that answers like a pre-#103 build.
@@ -14,12 +14,27 @@ OLD="$T/old-tunnel"; printf '#!/bin/sh\necho "error: unrecognized subcommand '"'
 OPEN="$T/open.js"; printf "const x = 1;\nconst PHONE_APP_CAN_RECEIVE = true;\nlet available = PHONE_APP_CAN_RECEIVE;\n" > "$OPEN"
 SHUT="$T/shut.js"; printf "const PHONE_APP_CAN_RECEIVE = false;\n" > "$SHUT"
 
-connector_verbs_check "$NEW" "$OPEN" 2>"$T/err" && [ ! -s "$T/err" ] && ok "gate open, connector knows mac-request: goes on silently" || bad "a good connector with the gate open was refused or noisy: $(cat "$T/err")"
-connector_verbs_check "$NEW" "$SHUT" 2>"$T/err" && [ ! -s "$T/err" ] && ok "gate closed, connector knows mac-request: goes on silently" || bad "a good connector with the gate closed was refused or noisy: $(cat "$T/err")"
+# #4678: the arms below test which REASON the check gives, on stand-ins that answer at once. If the only
+# outcome is the probe's own timeout sentence, the box never ran the stand-in within the bound (measured on
+# a loaded box: a stand-in that exits at once reached the 20 s bound), which says nothing about the reason.
+# Run it again then, and only then: any other outcome is judged on the first try, so a wrong reason or a
+# noisy line can never be retried away. ONE rerun at most (Liu Kang, m3843), printed and counted: two
+# timeouts in a row are judged as a timeout, so a stand-in that really hangs still fails its arm.
+# Sets VRC (the check's status) and leaves its stderr in $T/err.
+verbs_try() {
+  connector_verbs_check "$1" "$2" 2>"$T/err"; VRC=$?
+  [ "$(wc -l < "$T/err" | tr -d ' ')" = 1 ] && grep -q "(it did not answer within [0-9]* seconds)" "$T/err" || return 0
+  RETRIES=$((RETRIES + 1)); echo "RETRY $(basename "$1"): timed out once (the box did not run it within the bound); running it once more"
+  connector_verbs_check "$1" "$2" 2>"$T/err"; VRC=$?
+}
 
-connector_verbs_check "$OLD" "$OPEN" 2>"$T/err" && bad "gate open with an old connector was NOT refused" || { grep -q "does not know 'mac-request'" "$T/err" && grep -q "build-tunnel-release.sh" "$T/err" && ok "gate open, old connector: refused, naming the verb and the rebuild" || bad "wrong refusal for an old connector: $(cat "$T/err")"; }
+verbs_try "$NEW" "$OPEN"; [ "$VRC" = 0 ] && [ ! -s "$T/err" ] && ok "gate open, connector knows mac-request: goes on silently" || bad "a good connector with the gate open was refused or noisy: $(cat "$T/err")"
+verbs_try "$NEW" "$SHUT"; [ "$VRC" = 0 ] && [ ! -s "$T/err" ] && ok "gate closed, connector knows mac-request: goes on silently" || bad "a good connector with the gate closed was refused or noisy: $(cat "$T/err")"
 
-if connector_verbs_check "$OLD" "$SHUT" 2>"$T/err"; then
+verbs_try "$OLD" "$OPEN"; [ "$VRC" = 0 ] && bad "gate open with an old connector was NOT refused" || { grep -q "does not know 'mac-request'" "$T/err" && grep -q "build-tunnel-release.sh" "$T/err" && ok "gate open, old connector: refused, naming the verb and the rebuild" || bad "wrong refusal for an old connector: $(cat "$T/err")"; }
+
+verbs_try "$OLD" "$SHUT"
+if [ "$VRC" = 0 ]; then
   n="$(wc -l < "$T/err" | tr -d ' ')"
   [ "$n" = 1 ] && grep -q "predates mac-request, so the Plus standing refresh and update announce stay unsigned-broken as before (#3626)" "$T/err" && ok "gate closed, old connector: goes on with exactly one line saying what stays inactive" || bad "the closed-gate note is not one calm line ($n lines): $(cat "$T/err")"
 else bad "gate closed with an old connector was refused; it must only note it"; fi
@@ -31,15 +46,17 @@ connector_verbs_check "$NEW" "$T/nowhere.js" 2>"$T/err" && bad "a missing gate f
 
 # A connector that cannot be run is not evidence it is old: its own reason, never "rebuild the relay".
 NOX="$T/noexec-tunnel"; cp "$NEW" "$NOX"; chmod -x "$NOX"
-connector_verbs_check "$NOX" "$OPEN" 2>"$T/err" && bad "gate open, a non-executable connector was accepted" || { grep -q "could not check" "$T/err" && grep -q "not executable" "$T/err" && ! grep -q "build-tunnel-release" "$T/err" && ok "gate open, a non-executable connector refuses as unrunnable, not as old" || bad "wrong reason for a non-executable connector: $(cat "$T/err")"; }
+verbs_try "$NOX" "$OPEN"; [ "$VRC" = 0 ] && bad "gate open, a non-executable connector was accepted" || { grep -q "could not check" "$T/err" && grep -q "not executable" "$T/err" && ! grep -q "build-tunnel-release" "$T/err" && ok "gate open, a non-executable connector refuses as unrunnable, not as old" || bad "wrong reason for a non-executable connector: $(cat "$T/err")"; }
 CRASH="$T/crash-tunnel"; printf '#!/bin/sh\necho "Segmentation fault" >&2\nexit 139\n' > "$CRASH"; chmod +x "$CRASH"
-connector_verbs_check "$CRASH" "$OPEN" 2>"$T/err" && bad "gate open, a crashing connector was accepted" || { grep -q "exited 139" "$T/err" && ! grep -q "does not know" "$T/err" && ok "gate open, a crash refuses naming its exit, not as old" || bad "wrong reason for a crash: $(cat "$T/err")"; }
-if connector_verbs_check "$CRASH" "$SHUT" 2>"$T/err"; then [ "$(wc -l < "$T/err" | tr -d ' ')" = 1 ] && grep -q "could not check" "$T/err" && grep -q "stay unsigned-broken as before" "$T/err" && ok "gate closed, a crash is one line and the build goes on" || bad "closed-gate crash note wrong: $(cat "$T/err")"; else bad "gate closed, a crashing connector was refused"; fi
+verbs_try "$CRASH" "$OPEN"; [ "$VRC" = 0 ] && bad "gate open, a crashing connector was accepted" || { grep -q "exited 139" "$T/err" && ! grep -q "does not know" "$T/err" && ok "gate open, a crash refuses naming its exit, not as old" || bad "wrong reason for a crash: $(cat "$T/err")"; }
+verbs_try "$CRASH" "$SHUT"; if [ "$VRC" = 0 ]; then [ "$(wc -l < "$T/err" | tr -d ' ')" = 1 ] && grep -q "could not check" "$T/err" && grep -q "stay unsigned-broken as before" "$T/err" && ok "gate closed, a crash is one line and the build goes on" || bad "closed-gate crash note wrong: $(cat "$T/err")"; else bad "gate closed, a crashing connector was refused"; fi
 EXIT2="$T/other-exit2"; printf '#!/bin/sh\necho "error: the argument --coordinator is required" >&2\nexit 2\n' > "$EXIT2"; chmod +x "$EXIT2"
-connector_verbs_check "$EXIT2" "$OPEN" 2>"$T/err" && bad "an exit 2 without unrecognized subcommand was accepted" || { grep -q "could not check" "$T/err" && ok "exit 2 for another reason is not read as old" || bad "exit 2 misread: $(cat "$T/err")"; }
+verbs_try "$EXIT2" "$OPEN"; [ "$VRC" = 0 ] && bad "an exit 2 without unrecognized subcommand was accepted" || { grep -q "could not check" "$T/err" && ok "exit 2 for another reason is not read as old" || bad "exit 2 misread: $(cat "$T/err")"; }
 HANG="$T/hang-tunnel"; printf '#!/bin/sh\nexec sleep 60\n' > "$HANG"; chmod +x "$HANG"
 start=$(date +%s); CONNECTOR_PROBE_SECONDS=2 connector_verbs_check "$HANG" "$OPEN" 2>"$T/err"; took=$(( $(date +%s) - start ))
-[ "$took" -lt 10 ] && grep -q "could not check" "$T/err" && ok "a hanging connector is cut off by the bound (${took}s) and refused as unrunnable" || bad "a hang was not bounded (${took}s): $(cat "$T/err")"
+# #4678: bounded means it returned before the stand-in's own 60 s sleep ended, with the timeout named. The
+# old "under 10 s" was a guess at the box's speed, and a busy box broke it without the bound failing.
+[ "$took" -lt 60 ] && grep -q "could not check" "$T/err" && grep -q "did not answer within 2 seconds" "$T/err" && ok "a hanging connector is cut off by the bound (${took}s) and refused as unrunnable" || bad "a hang was not bounded (${took}s): $(cat "$T/err")"
 # A bound of 0 or junk must not switch the bound off (perl's alarm 0 means "no alarm").
 for v in 0 00 -3 abc 2.5 ""; do [ "$(CONNECTOR_PROBE_SECONDS="$v" connector_probe_seconds)" = 20 ] || bad "CONNECTOR_PROBE_SECONDS='$v' was not replaced by 20"; done
 [ "$(CONNECTOR_PROBE_SECONDS=7 connector_probe_seconds)" = 7 ] && [ "$(unset CONNECTOR_PROBE_SECONDS; connector_probe_seconds)" = 20 ] && ok "the bound: 0, 00, negative, junk and empty fall back to 20; a positive whole number is kept" || bad "the bound sanitiser is wrong"
@@ -48,12 +65,38 @@ E142="$T/exit142-tunnel"; printf '#!/bin/sh\nexit 142\n' > "$E142"; chmod +x "$E
 case "$(connector_mac_request_probe "$E142")" in *"exited 142"*) ok "a connector's own exit 142 is not read as a timeout" ;; *) bad "exit 142 misread: $(connector_mac_request_probe "$E142")" ;; esac
 
 # A connector whose CHILD hangs (no exec): the bound must kill the whole group, not only the shell.
+# #4678: the proof needs the child to EXIST before the bound fires. On a busy box the 2 s bound can fire
+# before the stand-in has even forked, and then nothing was tested. So the arm runs once more (ONE rerun,
+# printed and counted) if the stand-in did not record its child, and is judged only once it has; not
+# recorded twice is "could not tell", a failure, never a pass.
+# Only the exact pid the stand-in wrote is ever signalled.
+child_hang_arm() {  # child_hang_arm <stand-in> <label>
+  local stand="$1" label="$2" i=1 start took
+  while :; do
+    rm -f "$T/kid.pid"
+    start=$(date +%s); CONNECTOR_PROBE_SECONDS=2 connector_verbs_check "$stand" "$OPEN" 2>"$T/err"; took=$(( $(date +%s) - start ))
+    [ -s "$T/kid.pid" ] && break
+    [ "$i" -ge 2 ] && { bad "$label: could not tell: the stand-in did not record its child before the 2 s bound, twice (a busy box), so the bound was not tested"; return; }
+    RETRIES=$((RETRIES + 1)); echo "RETRY $label: the stand-in did not record its child before the bound; running it once more"
+    i=$((i + 1))
+  done
+  [ "$took" -lt 60 ] && grep -q "did not answer within 2 seconds" "$T/err" && ok "$label: a connector whose child hangs is also cut off (${took}s), naming the time limit" || bad "$label: a hanging child was not bounded (${took}s): $(cat "$T/err")"
+  kill -0 "$(cat "$T/kid.pid")" 2>/dev/null && { bad "$label: the hung connector's child outlived the bound"; kill "$(cat "$T/kid.pid")" 2>/dev/null; } || ok "$label: the timed-out connector's child process is gone too"
+}
 KID="$T/child-hang-tunnel"; printf '#!/bin/sh\nsleep 60 &\necho $! > "%s"\nwait\n' "$T/kid.pid" > "$KID"; chmod +x "$KID"
-start=$(date +%s); CONNECTOR_PROBE_SECONDS=2 connector_verbs_check "$KID" "$OPEN" 2>"$T/err"; took=$(( $(date +%s) - start ))
-[ "$took" -lt 10 ] && grep -q "did not answer within 2 seconds" "$T/err" && ok "a connector whose child hangs is also cut off (${took}s), naming the time limit" || bad "a hanging child was not bounded (${took}s): $(cat "$T/err")"
-if [ -s "$T/kid.pid" ]; then
-  kill -0 "$(cat "$T/kid.pid")" 2>/dev/null && { bad "the hung connector's child outlived the bound"; kill "$(cat "$T/kid.pid")" 2>/dev/null; } || ok "the timed-out connector's child process is gone too"
-else bad "the child-hang stand-in never recorded its child (the check above proved nothing)"; fi
+child_hang_arm "$KID" "child hang"
+
+# #4678, the rerun itself: stand-ins that are slow only on their FIRST run (a marker file), so the rerun
+# path is exercised on any box (each adds one to the RETRY count below), and a control that is slow every
+# time is still judged as a timeout after its one rerun.
+SLOWCRASH="$T/slow-once-crash"; printf '#!/bin/sh\n[ -e "%s" ] || { : > "%s"; sleep 4; }\necho "Segmentation fault" >&2\nexit 139\n' "$T/sc.once" "$T/sc.once" > "$SLOWCRASH"; chmod +x "$SLOWCRASH"
+CONNECTOR_PROBE_SECONDS=1 verbs_try "$SLOWCRASH" "$OPEN"
+[ "$VRC" != 0 ] && grep -q "exited 139" "$T/err" && ok "a stand-in the box did not run within the bound once is tried again and judged on its real answer" || bad "a first-run timeout was judged as the reason: $(cat "$T/err")"
+ALWAYS="$T/always-slow"; printf '#!/bin/sh\nexec sleep 60\n' > "$ALWAYS"; chmod +x "$ALWAYS"
+CONNECTOR_PROBE_SECONDS=1 verbs_try "$ALWAYS" "$OPEN"
+[ "$VRC" != 0 ] && grep -q "did not answer within 1 seconds" "$T/err" && ok "CONTROL: a stand-in that times out every try still refuses, naming the timeout" || bad "an always-timing-out stand-in was not refused as a timeout: $(cat "$T/err")"
+SLOWKID="$T/slow-once-child-hang"; printf '#!/bin/sh\n[ -e "%s" ] || { : > "%s"; sleep 4; }\nsleep 60 &\necho $! > "%s"\nwait\n' "$T/sk.once" "$T/sk.once" "$T/kid.pid" > "$SLOWKID"; chmod +x "$SLOWKID"
+child_hang_arm "$SLOWKID" "child hang, slow first run"
 printf "// const PHONE_APP_CAN_RECEIVE = true;\nconst PHONE_APP_CAN_RECEIVE = false;\n" > "$T/commented.js"
 [ "$(connector_gate_value "$T/commented.js")" = false ] && ok "a commented-out line is not read as the gate" || bad "a commented-out declaration was read as the gate"
 
@@ -88,6 +131,7 @@ R="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"
 if [ -x "$R" ]; then
   echo "NOTE  the connector at $R: $(connector_mac_request_probe "$R")"
 else echo "NOTE  no connector at $R on this machine; the integration line did not run"; fi
-EXPECTED=22
+EXPECTED=26
 [ "$PASSES" -eq "$EXPECTED" ] || bad "expected $EXPECTED passing checks, saw $PASSES (a check was skipped, or one was added without updating EXPECTED)"
-echo "connector-verbs: $PASSES passed, $FAILS failures"; [ "$FAILS" -eq 0 ]
+# The slow-first-run stand-ins above always rerun (3 of them, the control included); anything more was the box.
+echo "connector-verbs: $PASSES passed, $FAILS failures, $RETRIES arm(s) rerun once after a timeout (3 are the deliberate slow-first-run stand-ins)"; [ "$FAILS" -eq 0 ]
