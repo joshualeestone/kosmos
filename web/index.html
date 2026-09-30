@@ -1643,6 +1643,19 @@ html.tip-dimming[data-tip-ground]:not([data-layout="consolidated"]) { background
    Only where scrollbars take width (data-scrollbar-classic, set by kosmosMeasureScrollbarWidth): an overlay-scrollbar
    Mac has no gutter to fix, and there a white canvas would only flash above the header on a rubber-band bounce. */
 html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):has(> body > #panel-tasks:not([hidden])) { background: var(--k-surface); }
+/* #4542: the same gutter on Settings > Kosmos Plus. body.plus-active paints its navy as a radial-gradient IMAGE and sets
+   its tokens on the body, so the canvas has no colour of its own and the #1309 gutter painted a pure white 15px strip
+   the full height of a navy page (measured 255,255,255 beside 12,21,41). The canvas takes the gradient's OUTER stop,
+   so the strip reads as the gradient's own edge. This is a second copy of that colour: web.plus-gutter-4542.test.js
+   pins it to the body.plus-active gradient's last stop, so the two cannot drift. Rejected: dropping the gutter on
+   Plus (a 15px jump into the section, what #1309 prevents), and moving the Plus tokens to the root (the largest
+   change, for the same pixels). Same guards as #4216 above: classic scrollbars only, not the consolidated layout, not
+   while the tour dims. A root with a colour of its own no longer lets the body's gradient paint the canvas, so the body
+   fills at least the window (as tip-dimming's does, above): a Plus page shorter than a tall window keeps its gradient to
+   the bottom instead of a flat band under it. Specificity (0,4,2): any future root rule for a dialog over Plus (#4506
+   is still open) must outrank it. */
+html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):has(> body.plus-active) { background-color: #0b1428; }
+html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):has(> body.plus-active) > body { min-height: 100vh; }
 html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .tipcard .tip-dots { display: flex; gap: 5px; }
 .tipcard .tip-dots i { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--k-ink-2) 35%, transparent); }
@@ -1917,6 +1930,18 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 button.worldsw-row { border: 0; background: none; text-align: left; width: 100%; cursor: pointer; }
 button.worldsw-row:hover { background: var(--k-sunk); }
 button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+/* kosmos#4648: another computer is a link row (it opens that computer's address in the
+   browser), styled as the Kosmos rows are; the state word sits at the row's end. */
+a.worldsw-row { text-decoration: none; cursor: pointer; }
+.worldsw-row-off .worldsw-rowname { color: var(--k-ink-2); }
+/* New Kosmos rounds its bottom corners as the menu's last element; with Your computers below it,
+   it is not the last, so its hover is square (kosmos#4648 review). */
+.worldsw-new:has(+ .worldsw-computers:not([hidden])) { border-radius: 0; }
+a.worldsw-row:hover { background: var(--k-sunk); }
+a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+.worldsw-computers { margin-top: 4px; padding-top: 4px; border-top: 0.5px solid var(--separator); }
+.worldsw-sec { padding: 4px 8px 2px; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
+.worldsw-state { flex: none; margin-left: auto; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
 /* #2238: the honest post-switch status banner. A world's roots load only on board
    boot, so switching needs a board restart; this banner says so (no auto-restart). */
 /* #1704 PR3: the switch dialog's pause/keep choice. A fieldset, so its UA chrome goes. */
@@ -2314,7 +2339,15 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   0%, 100% { transform: translateY(0); opacity: .45; }
   50%      { transform: translateY(-4px); opacity: 1; }
 }
-@media (prefers-reduced-motion: reduce) { .act i { animation: none; } }
+/* #4591 (Josh 2026-09-29 11:47, Mac app: "his animate green dots are not animating"). With Reduce Motion on,
+   the dots used to stop dead (animation: none), three level full-green dots that read as frozen, which is
+   what his screenshot shows. Reduce Motion asks for no movement, and a fade is not movement: so there they
+   still fade in turn, slower, with no translate, and Working keeps looking live. */
+@keyframes work-fade {
+  0%, 100% { opacity: .35; }
+  50%      { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) { .act i { animation: work-fade 1.6s ease-in-out infinite; } }
 .rest { width: 10px; height: 2.5px; border-radius: 2px; background: #b8bcc2; flex: 0 0 10px; }
 .pause { display: inline-flex; gap: 2.5px; }
 .pause i { width: 2.5px; height: 10px; border-radius: 1px; background: var(--k-ink-2); }
@@ -2466,8 +2499,8 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    animation, per the same rule the DM busy-line follows). They are decorative
    (aria-hidden), so the meaning rides in the text label, which sits in
    --k-ink-2 -- the same muted ink the .atask/.amodel/.ltask/.lmodel lines
-   already use on this ground, so it clears AA. `.act` is already
-   reduced-motion-safe. font-weight 400 so it does not inherit .lstate's 600. */
+   already use on this ground, so it clears AA. `.act` fades, and does not
+   move, under reduced motion (#4591). font-weight 400 so it does not inherit .lstate's 600. */
 .alsowork { display: inline-flex; align-items: center; gap: 6px;
             font-size: .8125rem; font-weight: 400; color: var(--k-ink-2); }
 .acard .alsowork { align-self: center; margin-top: 6px; }
@@ -7208,8 +7241,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dfiles-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .dfiles-head .dlab { margin: 0; }
 .dfiles .pj-docs { margin-top: 8px; }
-/* #3757: View All sits at the right of the Files header, as on the project page's header. */
-.dfiles-head .pj-viewall { display: inline; width: auto; }
+/* #3757: View All sits at the right of the Files header, as on the project page's header.
+   #4570 (Josh, 2026-09-29 10:46): at the project page's size too, the small link size its Files and
+   Tasks doors use, not the inherited body size (it read as a second heading beside FILES). */
+.dfiles-head .pj-viewall { display: inline; width: auto; font-size: var(--consolidated-link-size); }
 .dfiles-screen-head { margin-bottom: 4px; }
 #d-sec-files #d-filesall-msg:empty { display: none; }   /* no empty band between the title and the first row */
 #d-files-back { align-self: flex-start; }
@@ -10563,6 +10598,17 @@ window.kosmosMeasureScrollbarWidth();
         <button class="worldsw-new" id="worldsw-new" type="button">
           <span class="worldsw-plus" aria-hidden="true">+</span> New Kosmos
         </button>
+        <!-- kosmos#4648 (weekend goal #4647): the other computers on this Kosmos+ account.
+             Filled by computersFetch/computersRender when the menu opens; hidden unless the
+             board is signed in to Kosmos+ and the account has another computer. Each other
+             computer is a link that opens its own address in the person's browser, so this
+             window stays this computer and coming back is one click. On a connect-only Mac and
+             on the phone the app opens a person's own computer IN its window instead (#4356), so
+             there the way back is that computer's own menu. -->
+        <div class="worldsw-computers" id="worldsw-computers" hidden>
+          <div class="worldsw-sec" id="worldsw-computers-h">Your computers</div>
+          <div class="worldsw-list" id="worldsw-computers-list" role="group" aria-labelledby="worldsw-computers-h"></div>
+        </div>
       </div>
     </div>
     <!-- ⚠️ THE UPDATE NOTICE SITS BESIDE THE MARK, Josh 2026-08-17: "make
@@ -25752,6 +25798,87 @@ function worldswOpen() {
   if (!menu || !btn || !menu.hidden) return;
   menu.hidden = false;
   btn.setAttribute('aria-expanded', 'true');
+  computersFetch().catch(() => {});   // kosmos#4648: the other computers, read fresh on each open
+}
+/* kosmos#4648 (weekend goal #4647): "Your computers" in this menu. The board reads the
+   computers on its Kosmos+ account through the tunnel and measures which are online
+   (engine/account-computers.js); /api/remote/computers answers { ok: false } when there is
+   no list, and the section stays hidden. Rows are built from textContent, never markup.
+   An address is used only if it is a plain DNS name, so nothing in the answer can become a
+   different URL. The monotonic counter keeps a slow read from an EARLIER open from
+   repainting over a newer one. */
+/* 🛑 The same rule the board applies (engine/account-computers.js validAddress): an address is
+   used only as `<label>.<domain>`, one plain label under the computers' domain the board sends
+   (derived from the Kosmos+ sign-in host), no punycode lookalike. Anything else is dropped, so an
+   answer can never put a link to another host, a LAN address included, in this menu. */
+function computerAddressOk(a, domain) {
+  if (typeof a !== 'string' || typeof domain !== 'string' || !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) return false;
+  const suffix = '.' + domain;
+  if (!a.endsWith(suffix)) return false;
+  const label = a.slice(0, -suffix.length);
+  return label.length >= 1 && label.length <= 63 && /^[a-z0-9-]+$/.test(label)
+    && !label.startsWith('-') && !label.endsWith('-') && !label.startsWith('xn--');
+}
+let COMPUTERS_GEN = 0;
+async function computersFetch() {
+  const gen = ++COMPUTERS_GEN;
+  /* Hide last time's list until THIS read lands: a state word from an earlier open ("Online")
+     must never be shown as current (a probe can take seconds). */
+  const box = document.getElementById('worldsw-computers');
+  const list = document.getElementById('worldsw-computers-list');
+  if (box) box.hidden = true;
+  if (list) list.textContent = '';
+  let data = null;
+  try {
+    const res = await fetch('/api/remote/computers', { cache: 'no-store' });
+    if (res.ok) data = await res.json();
+  } catch { data = null; }
+  if (gen !== COMPUTERS_GEN) return;
+  computersRender(data);
+}
+function computersRender(data) {
+  const box = document.getElementById('worldsw-computers');
+  const list = document.getElementById('worldsw-computers-list');
+  if (!box || !list) return;
+  const rows = (data && data.ok === true && Array.isArray(data.computers))
+    ? data.computers.filter((c) => c && typeof c.name === 'string' && c.name && computerAddressOk(c.address, data.domain))
+    : [];
+  // Only this computer (or nothing): there is nowhere else to go, so the section stays hidden.
+  if (rows.length < 2) { list.textContent = ''; box.hidden = true; return; }
+  list.textContent = '';
+  for (const c of rows) {
+    /* Only an ONLINE computer is a link. An offline one would open a browser error page (the
+       relay closes a computer that is not connected at the TLS handshake, and HSTS keeps it https),
+       and an updating one is restarting; each is a plain row that says so instead. */
+    const opens = c.this !== true && c.online === true && c.updating !== true;
+    const row = document.createElement(opens ? 'a' : 'div');
+    row.className = (opens || c.this === true) ? 'worldsw-row' : 'worldsw-row worldsw-row-off';
+    const check = document.createElement('span');
+    check.className = 'worldsw-check';
+    check.setAttribute('aria-hidden', 'true');
+    check.textContent = '✓';
+    const nm = document.createElement('span');
+    nm.className = 'worldsw-rowname';
+    nm.textContent = c.name;
+    const st = document.createElement('span');
+    st.className = 'worldsw-state';
+    if (c.this === true) {
+      row.setAttribute('aria-current', 'true');
+      st.textContent = 'This computer';
+    } else {
+      const state = c.updating === true ? 'Updating' : (c.online === true ? 'Online' : 'Not connected');
+      st.textContent = state;
+      if (opens) {
+        row.href = 'https://' + c.address + '/';
+        row.target = '_blank';
+        row.rel = 'noopener noreferrer';
+        row.setAttribute('aria-label', 'Open ' + c.name + ', ' + state.toLowerCase());
+      }
+    }
+    row.append(check, nm, st);
+    list.appendChild(row);
+  }
+  box.hidden = false;
 }
 function worldswToggle() {
   const menu = document.getElementById('worldsw-menu');

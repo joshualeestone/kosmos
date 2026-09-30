@@ -43,6 +43,7 @@ render-codex-account-picker-2811
 render-composer-caret-4585
 render-composer-reset
 render-composer-stroke
+render-computers-4648
 render-conn-ask-4451
 render-conn-top-3708
 render-connect-win32-install-570
@@ -143,6 +144,7 @@ render-pjsettings
 render-plus-bar-3837
 render-plus-blue-1615
 render-plus-gate-1615
+render-plus-gutter-4542
 render-plus-panel-3829
 render-plus-signin-3478
 render-plus-signin-enter-0929

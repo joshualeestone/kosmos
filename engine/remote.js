@@ -1955,7 +1955,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { fetchFederationLive, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { COORDINATOR, fetchFederationLive, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,
