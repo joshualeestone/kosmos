@@ -85,14 +85,16 @@ function readBriefText(folder) {
 }
 /* #4581: the brief's "Done looks like" section, as `kosmos project show` prints it. Any `## Done...` heading
    (the seeded "Done looks like", or a person's own "Done when" / "Done"). A section still holding a seeded
-   prompt is not an answer: the stub's prompts are one italic line ending "Replace this line." (both of them,
-   projects.briefStubContent), and the RULE is matched, not one spelling, so a reworded prompt stays a prompt. */
+   prompt is not an answer: the stub's prompts are one italic line ending "Replace this line." (the done one, since
+   #4583, after a bold "Not set yet."; projects.briefStubContent), and the RULE is matched, not one spelling, so a
+   reworded prompt stays a prompt. */
 const DONE_HEADING = /^##\s+done\b.*$/i;
 const THEMATIC_BREAK = /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/;
 /* #4583: a done left blank is seeded as "**Not set yet.** " before that same italic prompt, so the prompt may carry
-   that one bold prefix and still be a prompt (else `kosmos project show` printed the placeholder as the done). */
-const SEEDED_PROMPT = /^(?:\*\*Not set yet\.\*\* )?_[^_]*Replace this line\.?_$/;
-function sectionFrom(text, heading) {
+   that one bold prefix and still be a prompt (else `kosmos project show` printed the placeholder as the done). The bold
+   words left on their own (the italic line deleted) are not an answer either. */
+const SEEDED_PROMPT = /^(?:\*\*Not set yet\.\*\*(?: _[^_]*Replace this line\.?_)?|_[^_]*Replace this line\.?_)$/;
+function sectionFrom(text, heading, dropLines) {
   if (typeof text !== 'string' || !text) return null;
   const lines = text.split(/\r?\n/);
   const at = lines.findIndex((l) => heading.test(l.trim()));
@@ -101,14 +103,24 @@ function sectionFrom(text, heading) {
   for (const l of lines.slice(at + 1)) {
     // A horizontal rule ends it too: the seeded stub puts Kosmos's own footer after one, under Done.
     if (NEXT_SECTION.test(l) || THEMATIC_BREAK.test(l)) break;
-    body.push(l);
+    // #4583 review: a seeded placeholder left above or below a person's own words is dropped, whole lines only
+    // (projects.placeholderLine's rule), so what is printed is what they wrote.
+    if (!(dropLines && dropLines.includes(l.trim()))) body.push(l);
   }
   const words = body.join('\n').replace(/<!--[\s\S]*?-->/g, '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim().replace(/\s+/g, ' ');
   if (!words || SEEDED_PROMPT.test(words)) return null;
   const chars = Array.from(words);
   return chars.length > GOAL_MAX ? chars.slice(0, GOAL_MAX - 1).join('').trimEnd() + '\u2026' : words;
 }
-function doneFrom(text) { return sectionFrom(text, DONE_HEADING); }
+function doneFrom(text) { return sectionFrom(text, DONE_HEADING, projects.BRIEF_DONE_PLACEHOLDERS); }
+/* #4583 review: THE one rule for "does this brief say what done looks like", so the board's "Done not set" badge, the
+   one-time room note and `kosmos project show` cannot disagree. A brief with no Done section at all (a person's own)
+   reads as set, as before; one with a Done section is set only when doneFrom finds words in it. */
+function doneSetFrom(text) {
+  if (typeof text !== 'string') return null;
+  if (!text.split(/\r?\n/).some((l) => DONE_HEADING.test(l.trim()))) return true;
+  return doneFrom(text) !== null;
+}
 /* Goal and done in one read: { goal, done, found } where `found` says whether a readable brief was there at all
    (so "no brief" and "a brief with both left blank" are said apart). */
 function readBrief(folder) {
@@ -116,4 +128,4 @@ function readBrief(folder) {
   if (text === null) return { goal: null, done: null, found: false };
   return { goal: goalFrom(text), done: doneFrom(text), found: true };
 }
-module.exports = { goalFrom, readGoal, doneFrom, readBrief, MAX_BYTES, GOAL_MAX };
+module.exports = { goalFrom, readGoal, doneFrom, doneSetFrom, readBrief, MAX_BYTES, GOAL_MAX };

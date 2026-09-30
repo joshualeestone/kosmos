@@ -1135,7 +1135,7 @@ function describe(project, roster, all) {
     doneSet: (() => {
       if (typeof project.folder !== 'string' || !project.folder || !path.isAbsolute(project.folder)) return null;
       const got = readBriefSafely(project.folder);   // a brief Kosmos will not read (symlink, too big) says nothing either
-      return got.text === null ? null : placeholderLine(got.text) === null;
+      return got.text === null ? null : require('./brief').doneSetFrom(got.text);   // the one rule, shared with kosmos project show
     })(),
     /* #4583: the two-coordinator warning as it stands now (null when there is not more than one). The page shows
        it only after an add or a create that brought it on, and drops it once this is null. */
@@ -2078,7 +2078,7 @@ function doneIsPending(folder) {
     const got = readBriefSafely(folder);
     if (got.missing) return true;
     if (got.text === null) return false;
-    return placeholderLine(got.text) !== null;
+    return require('./brief').doneSetFrom(got.text) === false;   // the one rule (brief.js; required here, not at the top: brief.js requires this file)
   } catch { return false; }
 }
 

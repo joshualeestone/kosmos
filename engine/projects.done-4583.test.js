@@ -69,6 +69,17 @@ test('#4583: done left blank writes the "Not set yet" placeholder, and the read 
   assert.equal(projects.get(made.id, []).doneSet, false);
 });
 
+test('#4583 review: a person who writes done under the placeholder, leaving it in, has set done (badge, note and show agree)', () => {
+  reset();
+  const dir = folder('under');
+  const made = projects.create({ name: 'Lease', folder: dir, description: 'Renew the lease' });
+  const file = path.join(dir, projects.BRIEF_STUB_FILENAME);
+  fs.writeFileSync(file, brief(dir).replace(projects.BRIEF_DONE_PLACEHOLDER, projects.BRIEF_DONE_PLACEHOLDER + '\n\nThe lease is signed.'));
+  assert.equal(projects.doneIsPending(dir), false, 'the room note still asks');
+  assert.equal(projects.get(made.id, []).doneSet, true, 'the board still badges it');
+  assert.equal(require('./brief').readBrief(dir).done, 'The lease is signed.', 'show prints the placeholder');
+});
+
 test('#4583: a brief written before #4583 (the old placeholder) is still read as done not set', () => {
   const dir = folder('old');
   fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME),
