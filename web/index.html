@@ -16814,6 +16814,17 @@ window.kosmosMeasureScrollbarWidth();
          Decorative -> aria-hidden. -->
     <canvas id="plus-stars" aria-hidden="true"></canvas>
 
+    <!-- #3829 addendum (Josh, 20:00): on Settings > Kosmos Plus the device requests sit directly ABOVE the
+         panel, at its width, in the settings column. Elsewhere the top card is only a compact notice linking here.
+         #4610 (Josh, 12:50): here in every Plus state, including right after sign-in, never across the top. They
+         sit FIRST in the section, before state 1 and state 2: after them, a waiting request rendered below the whole
+         sign-in wizard, off screen (mobile-shots allow-card, Allow at y=985 on desktop). States 1 and 2 are hidden
+         while the connected panel shows, so there this is still directly above #plus-flow. -->
+    <div class="plus-asks" id="plus-asks" role="status" aria-live="polite" hidden>
+      <p class="setname" id="plus-asks-title">Asking to use this Kosmos</p>
+      <div id="plus-ask-rows"></div>
+    </div>
+
     <!-- #1615, design/plus-flow.html section 5: this pane is THREE states, not one.
          Today's single state described a signup that does not happen here, which is
          kosmos#1115's finding restated as a design decision.
@@ -17094,12 +17105,6 @@ window.kosmosMeasureScrollbarWidth();
       <p class="plus-si-small plus-si-foot"><a id="plus-si-cancel" class="plus-signin-link" href="#">Cancel</a></p>
     </div>
 
-    <!-- #3829 addendum (Josh, 20:00): on Settings > Kosmos Plus the device requests sit directly ABOVE the
-         panel, at its width, in the settings column. Elsewhere the top card is only a compact notice linking here. -->
-    <div class="plus-asks" id="plus-asks" role="status" aria-live="polite" hidden>
-      <p class="setname" id="plus-asks-title">Asking to use this Kosmos</p>
-      <div id="plus-ask-rows"></div>
-    </div>
     <div id="plus-flow" hidden>
       <!-- #3829 (Josh, 16:54: "terribly worded and designed"; Mona Lisa's sketch on the card): status first,
            View my account top right, the address in ONE chip with Copy and Open and one plain line under it,
@@ -42086,16 +42091,16 @@ paintStyles(true);
    it asked, never by anything that identifies it; the time keeps ticking
    while shown; the two buttons keep their colours whatever the history,
    because swapping the gold one on a re-ask is itself a mis-tap hazard. */
-const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, self: '' };
+const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null };
 /* #3829: "Not now" is gone (a waiting request stays on screen until Allow or Deny; an old one fades). A
    session flag an older build left behind must not keep hiding the card, so it is cleared, never read. */
 try { sessionStorage.removeItem('ask-later'); } catch { /* no storage: nothing to clear */ }
 /* #3829 (Josh's shots: a list row named just "device"): a request with no name reads "Unknown device",
    never the bare noun. The name comes from the device's own sign-in ("Windows browser", "iPhone"). */
 function askKind(d) {
-  /* #3829 follow-up (ICK): this computer's own in-app sign-in has no name; it is this computer, not an unknown
-     device. "computer", not "Mac": Kosmos runs on Windows too, and engine/machine.test.js holds the page to it. */
-  if (d && ASK.self && d.device_id === ASK.self) return 'This computer (Kosmos app)';
+  /* #4610 (Josh's ruling, 2026-09-29 13:00): this computer's own in-app sign-in is granted by the board and never
+     reaches the page, so #3829's relabel of that row (matched by its device id) is gone. A request with no name is
+     "Unknown device". */
   return d && typeof d.name === 'string' && d.name ? d.name : 'Unknown device';
 }
 /* The request card's icon, from the kind: a phone, a tablet, or a computer (a browser, or unknown). */
@@ -42158,7 +42163,6 @@ async function pollAsk() {
   if (!r || !Array.isArray(r.devices)) return;   /* a blip keeps the last paint; nothing is invented */
   ASK.devices = r.devices;
   ASK.email = r.email || '';
-  if (typeof r.self_device_id === 'string') ASK.self = r.self_device_id;
   /* A finished row leaves once the tunnel stops listing the device (allowed
      ids are excluded from pending; a deny drops the row at the coordinator),
      and an allowed row leaves on its own after a few seconds regardless. */
@@ -42181,10 +42185,13 @@ function paintAsk() {
      other view the top card is one compact line linking there. */
   const onPlus = typeof plusOnScreen === 'function' && plusOnScreen();
   const panel = document.getElementById('plus-asks');
-  /* Review (#3829): "above the panel" only exists while the connected panel (#plus-flow) is showing. In the
-     not-enrolled or sign-in states there is no panel to sit above, so the full cards stay in the top card. */
-  const flow = document.getElementById('plus-flow');
-  const inPanel = onPlus && !!panel && !!flow && !flow.hidden;
+  /* #4610 (Josh, 12:50, a new Kosmos+ account in the Mac app): "these should have rendered in the same spot as the
+     login and not above everything". On Kosmos Plus the requests always render in the Plus section (#plus-asks), in
+     every state it is in: signing in, signed in, connected. This reverses the #3829 review rule that kept them in the
+     top card unless the connected panel (#plus-flow) was showing, which is how, right after sign-in (the "You're
+     signed in" card, #plus-flow hidden), they spread across the top of the whole window above the sidebars. The top
+     card stays the compact "N devices are asking" notice on every other view. */
+  const inPanel = onPlus && !!panel;
   if (panel) panel.hidden = !(inPanel && anything);
   const hide = !anything || inPanel || (!onPlus && !live.length);
   card.hidden = hide;
@@ -42312,7 +42319,6 @@ async function paintDevices() {
   if (!r || !Array.isArray(r.allowed)) { msg.textContent = plusWords((r && r.error) || 'we could not read the devices'); return; }
   msg.textContent = '';
   ASK.allowed = r.allowed;
-  if (typeof r.self_device_id === 'string') ASK.self = r.self_device_id;
   document.getElementById('plus-devices-off').hidden = r.on !== false;
   /* #3829: a pending request shows ONCE, as its card at the top of the app (#askcard), not again here.
      This list is the devices already allowed. */
