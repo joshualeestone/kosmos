@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: autopublish-3485
-diff_hash: dd66c2fa3704c1ff84a9ccaa94539d5cd95a21429f4407559abb78adacadf89b
+diff_hash: 1169dd9900aca12ec4dedb4a88f6ad3eaef3e2aa4261c0b911c7e077f38f41c7
 validation: pending (full validation queued on Agent1s for this head)
 subdir_audit: passed
-timestamp: 2026-09-30T21:03:49Z
+timestamp: 2026-09-30T21:24:55Z
 iterations: 2
 converged: true
 ---
@@ -26,3 +26,6 @@ converged: true
 
 ### Tests
 feedpublish 25 (7 new) and the server community route tests, plus 26 community test files each run alone, all green. Mutations: the switch off reds 6; the leak check disabled reds 6; the cap and the notice key red their arms. render-community-switch-4288 and render-community-held-4525 pass.
+
+### After the first full validation
+bb88257df: the node suite passed (12783 pass, 0 fail); the only red was the temp-leak check (the new cap test left folders). Fixed; re-validating on the new head.
