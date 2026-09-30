@@ -38,7 +38,11 @@ after the one before (a setImmediate between starts), without waiting for it to 
    after it were never tried; now they are. A throw there is a broken promise in the typing path (chat.deliverAsync
    reports its failures as verdicts, not throws), so this is rare. What it costs, as before but now for every member
    rather than only the earlier ones: on a failure the post is not recorded (finishDeliveries is skipped), yet the
-   members who were typed at got an envelope naming its id, and the next post will reuse that id.
+   members who were typed at got an envelope naming its id, and the next post will reuse that id. And (rebase review)
+   the sender is told the post failed, so a retry reaches those members a second time: nothing in the log or the
+   in-flight map matches it. Main had this for the members before the failure; it now covers every member. Accepted
+   because the failure is a throw in the typing path (rare, above); reporting a partly delivered post as kept is a
+   change to main's #4622 contract and belongs in its own card.
 3. One member per turn, not all in the same tick (review 1). Starting all at once ran every member's synchronous tmux
    calls as one block: measured on 20 members, the board went 599 ms without answering anything else (the old loop:
    42 ms; now: 72 ms), while the post itself took the same time either way.
@@ -75,6 +79,16 @@ Bench after the round (20 members): 0.98 s, longest stall 72 ms. 364 of 364 acro
    now 200 ms (the starts are 1 to 5 ms apart) and the wording says so.
 The reviewer ran the fan-out file 8 times in a row and 12 in parallel with no failure, and three mutants (all in one
 tick; the old loop; the catch removed), each failing the test that pins it.
+
+## Rebase onto main (0.7.14 era), 2026-09-30
+One conflict in engine/messages.js: main (#4622, 2c14908fe) wrapped async delivery as `pending` and records it with
+trackInFlight so a duplicate in flight is folded. Resolved by keeping main's wrapper with the fan-out inside it. A blind
+review of the resolution: no blocker; `pending` is registered in the same tick, before the first setImmediate gap, so a
+duplicate arriving during the gaps is folded and resolves only after every member settles; nothing lost from either
+side; 126/126 in the fan-out and messages files. Should-fix raised about the branch itself (the failure-then-retry
+duplicate above), recorded in decision 2. Nit not taken: a test for a duplicate arriving mid-gap (it needs an agent
+sender harness this file lacks; the ordering is structural and traced by the reviewer). After the rebase: 460/460
+across engine/messages*, chat* and roomhold* tests; the no-name-refs test 4/4.
 
 ## Not done
 - Nothing measured on a real room with real agents (a real post would type into them).
