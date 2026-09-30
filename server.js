@@ -15735,7 +15735,7 @@ const server = http.createServer(async (req, res) => {
         if (body.archived !== undefined) fields.archived = body.archived;
         /* #4771: paused, carried like archived (a boolean, validated by the engine): the Prompter and the Assigner skip
            a paused project's tasks, and the members' instructions mark them, so a pause re-tells the members (below). */
-        if (body.paused !== undefined) fields.paused = body.paused;
+        if (body.paused !== undefined) { fields.paused = body.paused; fields.viaScreen = isViaScreen(req, body); }
         /* #1994: parent is a carried field like the rest -- the engine's edit
            validates it (self-parent, a missing parent, and cycles are refused)
            before its single write, so a body mixing parent with name or
@@ -16865,7 +16865,9 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #4771: put a task on hold, or take it off. Body { onHold: true | false }. The Prompter never nudges an agent about a
-     task on hold and the Assigner never hands it out; tasks.setOnHold validates and records it in the task's activity. */
+     task on hold and the Assigner never hands it out; tasks.setOnHold validates and records it in the task's activity.
+     The person's own hold is lifted only from the screen (isViaScreen). That is ADVISORY, as on /built: a local process
+     that sends a page's headers is taken at its word. The real boundary is the agent-token work of #4491. */
   const taskHold = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/hold$/);
   if (taskHold && req.method === 'POST') {
     const id = decodeSegment(taskHold[1]);

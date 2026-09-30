@@ -192,3 +192,22 @@ test('#4771 review: the person\'s own hold is lifted only on the screen; an agen
     assert.equal(tasks.isOnHold(stored()), false, 'control: an agent could not lift an agent\'s hold');
   } finally { w.restore(); }
 });
+
+test('#4771 review: the person\'s own pause is resumed only on the screen; an agent\'s pause, by anyone', () => {
+  const w = world('pausemine' + seq, false);
+  try {
+    const rec = () => projects.readAll().find((p) => p.id === w.pid);
+    projects.setPaused(w.pid, true, { viaScreen: true });
+    assert.equal(rec().pausedByPerson, true);
+    assert.throws(() => projects.setPaused(w.pid, false), (e) => e.status === 403 && /only they can resume it, on the screen/.test(e.message));
+    assert.equal(projects.isPaused(rec()), true, 'a refused resume still resumed the project');
+    projects.setPaused(w.pid, false, { viaScreen: true });
+    assert.equal(projects.isPaused(rec()), false, 'the person could not resume their own pause');
+    assert.equal('pausedByPerson' in rec(), false, 'resuming left the person mark behind');
+    // Control: an agent's pause, which anyone can lift.
+    projects.setPaused(w.pid, true);
+    assert.equal('pausedByPerson' in rec(), false, 'an agent\'s pause was stored as the person\'s');
+    projects.setPaused(w.pid, false);
+    assert.equal(projects.isPaused(rec()), false, 'control: an agent could not lift an agent\'s pause');
+  } finally { w.restore(); }
+});

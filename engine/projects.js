@@ -2466,7 +2466,17 @@ function edit(id, fields = {}) {
   return mutate(id, (p) => {
     const next = { ...p, ...want };
     if (fields.paused !== undefined) {
-      if (fields.paused) next.paused = true; else delete next.paused;   // absent = not paused, as every older record reads
+      /* The person's own pause (made on the screen) is lifted only on the screen, as a task hold is (tasks.setOnHold):
+         a resume brings every task back in front of the Prompter and the Assigner. fields.viaScreen is not stored. */
+      if (!fields.paused && p.paused === true && p.pausedByPerson === true && fields.viaScreen !== true) {
+        const refused = new Error('the person paused this project, so only they can resume it, on the screen');
+        refused.status = 403;
+        throw refused;
+      }
+      if (fields.paused) {
+        if (p.paused !== true) { if (fields.viaScreen === true) next.pausedByPerson = true; else delete next.pausedByPerson; }
+        next.paused = true;
+      } else { delete next.paused; delete next.pausedByPerson; }   // absent = not paused, as every older record reads
     }
     if (fields.archived !== undefined) {
       next.archived = fields.archived;
@@ -2522,8 +2532,8 @@ function cleanArchivedAt(value) {
 function isPaused(record) {
   return Boolean(record && record.paused === true);
 }
-function setPaused(id, want) {
-  return edit(id, { paused: want });
+function setPaused(id, want, { viaScreen = false } = {}) {
+  return edit(id, { paused: want, viaScreen });
 }
 
 /**

@@ -15557,7 +15557,8 @@ window.kosmosMeasureScrollbarWidth();
     </div>
 
     <!-- The one rule Josh kept (#762): "Archive and Remove are kind of below
-         Saving All the Actual Changes above it." -->
+         Saving All the Actual Changes above it." #4771's Pause sits here too: like
+         Archive it acts at once, not through Save, and it is undone the same way. -->
     <div class="field pjs-rule-above">
       <!-- #4771: pause. Nothing in a paused project is nudged or handed out; resuming brings its tasks back. -->
       <span class="flabel" id="pj-one-pause-label">Pause this project</span>
@@ -61885,10 +61886,6 @@ document.getElementById('pj-one-remove-go').addEventListener('click', async () =
   }
 });
 
-// Archiving from the detail view. No confirmation on purpose: unlike removal
-// (which drops the membership list and cannot be undone by re-adding the
-// folder), archiving keeps everything and Restore is one click away in the
-// disclosure this returns you to.
 /* #4771: pause or resume the open project, from its state as last read. */
 document.getElementById('pj-one-pause').addEventListener('click', async () => {
   const p = pjById(PJ_CURRENT);
@@ -61911,6 +61908,10 @@ document.getElementById('pj-one-pause').addEventListener('click', async () => {
     btn.disabled = false;
   }
 });
+// Archiving from the detail view. No confirmation on purpose: unlike removal
+// (which drops the membership list and cannot be undone by re-adding the
+// folder), archiving keeps everything and Restore is one click away in the
+// disclosure this returns you to.
 
 document.getElementById('pj-one-archive').addEventListener('click', async () => {
   const p = pjById(PJ_CURRENT);

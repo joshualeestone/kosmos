@@ -16071,5 +16071,12 @@ test('#4771: a task is put on hold and taken off through its route; a project is
     synced.length = 0;
     await put({ paused: false });
     assert.deepEqual(synced.sort(), ['ada', 'max'], 'a resume did not re-tell the project\'s members');
+    // The person's pause (from the page) is resumed only from the page.
+    const screenPut = (body) => req('/api/project/' + encodeURIComponent(p.id), { method: 'PUT', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify(body) });
+    assert.equal((await screenPut({ paused: true })).status, 200);
+    const agentResume = await put({ paused: false });
+    assert.equal(agentResume.status, 403, agentResume.body);
+    assert.equal(projects.isPaused(projects.readAll().find((x) => x.id === p.id)), true, 'a refused resume still resumed');
+    assert.equal((await screenPut({ paused: false })).status, 200, 'the person could not resume their own pause');
   } finally { projects.syncAgent = realSync; }
 });
