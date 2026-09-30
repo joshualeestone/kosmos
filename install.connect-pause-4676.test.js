@@ -216,12 +216,16 @@ function runLater({ mode, foreign, boardOurs = 'no', part }) {
 test('#4676: the later blocks were extracted from the shipped file', () => {
   assert.ok(FUNCS && START && LAST && SUMMARY, 'an extraction failed, so the arms below measured nothing');
   assert.match(START, /kosmos" start --force/);
-  assert.match(SUMMARY, /another Kosmos on this computer is using port/);
+  assert.match(SUMMARY, /another Kosmos on this computer was using port/);
+  // Pinned as text (the block sits inside launchd registration the harness does not run): when the login
+  // job cannot be written, a computer whose board is off for another install's board is not told the icon
+  // starts it.
+  assert.match(SETUP, /^\s*\[ "\$_kosmos_mode_word" = connect \] \|\| _kosmos_off_for_foreign \|\| info "Opening the Kosmos icon starts it/m);
 });
 
 test('#4676: the start step, chosen to run after the pause left another board: nothing started, the marker written, and why', async () => {
   const r = await runLater({ mode: 'run', foreign: true, part: 'start' });
-  assert.match(r.out, /STEP: Another Kosmos is using port 47671, so this computer's board was not started\. Quit that one, then run 'kosmos start'/, r.out);
+  assert.match(r.out, /STEP: Another Kosmos was using port 47671 when this update started, so this computer's board was not started\. Quit that one, then run 'kosmos start'/, r.out);
   assert.equal(r.calls, '', 'no kosmos start against the other board');
   assert.equal(r.marker, true, 'board.stopped keeps launchd and the watchdog off the port');
 });
@@ -238,7 +242,7 @@ test('#4676 CONTROLS: the start step keeps its connect and unreadable words, and
 
 test('#4676: the summary, chosen to run while the other board held the port, says so and what to do', async () => {
   const r = await runLater({ mode: 'run', foreign: true, part: 'summary' });
-  assert.match(r.out, /Kosmos is installed, but its board was not started: another Kosmos on this computer is using port 47671\./, r.out);
+  assert.match(r.out, /Kosmos is installed, but its board was not started: another Kosmos on this computer was using port 47671 when this update started\./, r.out);
   assert.match(r.out, /Quit that one, then run 'kosmos start'\./, r.out);
   assert.equal(r.marker, true);
 });

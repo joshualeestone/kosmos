@@ -2709,10 +2709,11 @@ _kosmos_mode_keeps_board_off() {
 _kosmos_board_decide
 # #4676: set when the pause left ANOTHER install's board on the port (a connect computer, below). The
 # gone-by-port wait then waits only on a listener of ours, and every later start or restart point in this
-# run declines to act on that port, however the choice reads by then.
+# run declines to act on that port, however the choice reads by then (the one exception: a board of OURS
+# found up at the last reading, on a computer chosen to run, is treated as running).
 # ⚠️ THIS RUN ONLY. A computer chosen to run during the update is left with board.stopped while the other
 # board holds the port; the next start (the app's, or 'kosmos start') meets that board as any start does,
-# including the #3079 reclaim of a busy same-user Kosmos. Follow-up card, not this one.
+# including the #3079 reclaim of a busy same-user Kosmos. That is #4679, not this card.
 _kosmos_pause_left_foreign=no
 if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
   if _kosmos_mode_keeps_board_off; then info "making sure Kosmos is paused for the update"; else info "pausing Kosmos for the update"; fi
@@ -3825,7 +3826,7 @@ if [ "$_kosmos_board_off" = yes ]; then
   if [ "$_kosmos_mode_word" = connect ]; then
     step "This computer connects to agents on another computer, so Kosmos is not started here."
   elif _kosmos_off_for_foreign; then
-    step "Another Kosmos is using port $PORT, so this computer's board was not started. Quit that one, then run 'kosmos start'; or run the install line again with KOSMOS_PORT set to a free number."
+    step "Another Kosmos was using port $PORT when this update started, so this computer's board was not started. Quit that one, then run 'kosmos start'; or run the install line again with KOSMOS_PORT set to a free number."
   else
     step "This computer's setup choice could not be read, so Kosmos is not started here. The Kosmos app will ask again when you open it."
   fi
@@ -4352,7 +4353,7 @@ elif [ "$_kosmos_board_off" = "yes" ]; then
     printf '  Open the Kosmos app from your Applications folder.\n\n'
   elif _kosmos_off_for_foreign; then
     # #4676: chosen to run during this update, but another install's board held the port.
-    printf '\n  Kosmos is installed, but its board was not started: another Kosmos on this computer is using port %s.\n' "$PORT"
+    printf '\n  Kosmos is installed, but its board was not started: another Kosmos on this computer was using port %s when this update started.\n' "$PORT"
     printf "  Quit that one, then run 'kosmos start'. Or run the install line again with KOSMOS_PORT set to a free number.\n\n"
   else
     printf '\n  Kosmos is installed. No board was started, because this computer'"'"'s setup choice could not be read.\n'
