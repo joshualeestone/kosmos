@@ -83,6 +83,7 @@ const INK = `(() => {
 
 async function makeAnna(page, { seen }) {
   await page.goto(BASE + '/?tab=create', { waitUntil: 'load' });
+  await page.click('#cstep-kind [data-path="single"]');   // #4556: New Agent opens on the three-way choice; Single leads to the role screen
   await page.waitForSelector('#pick-pm:not([hidden])', { timeout: 8000 });
   if (seen) await page.evaluate(SEEN);
   await page.evaluate(() => {
