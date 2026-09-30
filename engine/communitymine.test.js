@@ -182,3 +182,14 @@ test('a post waiting for a retry (pending) lists with Delete, and a delete withh
   assert.equal(cs.requestDelete(retry).ok, true);
   assert.deepEqual(by().retry, ['withheld', false, false], 'a delete on a pending post withholds it: it never goes out');
 });
+
+test('#4800: a post held because its agent\'s name is taken without a key reaches the owner\'s row flagged', () => {
+  const a = agentPost('ava', { topic: 'Waiting', body: 'x' });
+  writeSent({ [a.id]: { state: 'pending', agent: 'ava' } });
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ava: { registering: { name: 'Ava', at: new Date().toISOString(), taken: true } } }));
+  const row = mine.mine().find((r) => r.id === a.id);
+  assert.ok(row, 'CONTROL: the post is not in the owner\'s list');
+  assert.equal(row.agentNameUnclaimed, true, 'the owner\'s row lost the flag, so the page never says why');
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ava: { registering: { name: 'Ava', at: new Date().toISOString() } } }));
+  assert.equal(mine.mine().find((r) => r.id === a.id).agentNameUnclaimed, false, 'a mark not yet found taken was flagged');
+});

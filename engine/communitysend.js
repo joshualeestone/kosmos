@@ -335,9 +335,10 @@ const registerRetryAt = new Map();   // agentKey -> ms; a 429 on register waits,
    - 404 (no active agent has it): register again, reusing a generated handle (a nameless agent got a new random
      one each call) or the agent's display name as it is now (a deactivated holder keeps its name, so that register
      409s and the loop takes a suffix, as before);
-   - 200, made after our try began (less a clock margin): very likely ours with no key. Register nothing: the agent
+   - 200, made within a clock margin either side of our try: very likely ours with no key. Register nothing: the agent
      does not post until the name is free again (asked hourly), the log says so once, and its posts show
-     agentNameUnclaimed. Made well before our try: somebody else's; drop the mark and register as before (suffix);
+     agentNameUnclaimed. Made well before or well after our try: somebody else's; drop the mark and register as
+     before (suffix);
    - anything else (no answer, a 5xx): wait for the next sweep.
    The mark is cleared only by an answer that proves nothing was made, a 4xx. A 5xx (a gateway can answer 504 after
    the service committed) or a 2xx without a usable body (request() returns the status even when the body never
@@ -366,7 +367,12 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
        before, where the 409 takes a suffix. The margin allows for our clock and the service's to disagree. */
     const madeAt = look.status === 200 && look.json ? Date.parse(look.json.registered_at) : NaN;
     const triedAt = Date.parse(mark.at);
-    if (look.status === 200 && Number.isFinite(madeAt) && Number.isFinite(triedAt) && madeAt < triedAt - REGISTER_CLOCK_SKEW_MS) {
+    // Review 5: nor is one made well AFTER it. A lost POST commits within seconds of the try (the client gives up at
+    // timeoutMs), so an account made later is somebody's who took the name while ours sat unanswered (a week off, a
+    // sleeping Mac, a run of 5xx lookups). Only an account made within the margin either side is taken as ours.
+    const notOurs = Number.isFinite(madeAt) && Number.isFinite(triedAt)
+      && (madeAt < triedAt - REGISTER_CLOCK_SKEW_MS || madeAt > triedAt + REGISTER_CLOCK_SKEW_MS);
+    if (look.status === 200 && notOurs) {
       delete keys[agentKey];
       saveJson(keysFile(), keys);
     } else if (look.status === 200) {

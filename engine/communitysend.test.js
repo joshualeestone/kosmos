@@ -1101,3 +1101,17 @@ test('#4800 review 4: a mark holding a half character (from before this rule) is
   assert.equal(cs.statuses()[r2.id].state, 'sent', 'the agent with the broken mark never registered');
   assert.deepEqual(registers().map((x) => x.body.name), ['Ivo', 'Ivo Two']);
 });
+
+test('#4800 review 5: an account made well AFTER our lost try (the name taken while ours sat unanswered) is not ours', async () => {
+  await on();
+  store.writeProfile('kit', { displayName: 'Kit' });
+  const r = agentPost('kit', { topic: 't', body: 'b' });
+  loseRegister('before');
+  await cs.sweep();
+  // Somebody else registers the name an hour after our try (stamped an hour ahead, as a later sweep would see it).
+  be.st.agents.set('q', { id: 'q', name: 'Kit', key: 'k', token: 't', active: true, registeredAt: new Date(Date.now() + 3600 * 1000).toISOString() });
+  await cs.sweep();
+  assert.equal(lookups().length, 1, 'CONTROL: the name was not looked up');
+  assert.match(registers().map((x) => x.body.name).at(-1), /^Kit-[0-9a-f]{4}$/, 'a later account was taken for ours and the agent held');
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+});
