@@ -74,3 +74,13 @@ the plist argument, the bundled node, ensureHooks's signature, the call site's d
   out of code comments.
 - NITs not taken: a trailing `//` comment would be read by the scan (the pinned list turns that red); a
   regular FILE at the launch path passes the existence check (the writer then refuses it).
+
+## Review iteration 3 (fable): no BLOCKER, WARNING or CONVENTION. Converged.
+The reviewer traced the wiring test's real calls through create.js and confirmed they only read, inside the
+test's sandbox (plist under AGENT_WORKFORCE_LAUNCH, profile under AGENT_WORKFORCE_DATA), and that the
+gone-folder test fails on the disk without the guard.
+- NITs not taken: `job` does not ask launchd (only `names` does), so it could be run for real in the test
+  too; a trailing `//` comment would be read by the scan; a regular file at the launch path passes the
+  existence check and then gets one "could not read" line per board start.
+- Reviewer models: sonnet, opus, fable.
+- Owed before the proof: the queued full suite on this head.
