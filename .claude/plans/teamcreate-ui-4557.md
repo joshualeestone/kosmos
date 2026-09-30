@@ -285,3 +285,40 @@ Owed before the proof file: the queued browser check with its control tree, and 
   create.js and fails when the two differ. `create.nameHeld` stays.
 - Review 26's convergence was on 0d578ec96. This fix is a code change after it, so one more blind round
   and the full suite are owed on the new head.
+
+## Review 27 (opus), on 90332aac7: no BLOCKER, 3 WARNINGs, 2 NITs. Round 26's "converged" did not hold.
+All three warnings are about what the step does NOT do that the single create does. Twenty-six rounds
+compared the step with itself; this one compared it with its sibling.
+- W FIXED: the page could reload itself in the middle of a run. The automatic stale-page reload (#3955) and
+  the Mac window's restart after an update (#4347) both ask `updateNothingToLose()`, which knew the single
+  create's flags and nothing of the team. It now holds while a team has anything in flight (the click being
+  worked on, members being made, the board being watched, a picture going up), and ONLY then: a finished
+  team, or one stopped on a failed row, does not hold the reload for the rest of the tab.
+  REJECTED: holding while a row waits for Try again. That is the person's to press, possibly never.
+  WEAKEST PREMISE: that losing a stopped team's Try again to a reload is acceptable. Review 21 accepted
+  "no resume after a reload" because a reload mid-run was rare; with this fix it is no longer the
+  product's own doing while anything is in flight.
+  Test: web.reload-toast.test.js, five states with a control each way, and that the four flags are the
+  ones the step sets.
+- W FIXED: the step ended on "Your team is ready" and a Back button. The single create ends on the
+  invitation to say hello and one button straight to the agent (Josh, 2026-08-22: "Unless I go say hello
+  to them, they don't start", and his ruling against sending people to find the agent). The team step now
+  ends the same way: the sentence, and "Say Hello to <the lead>", which opens the lead.
+  DECIDED: the sentence says "each of them ... starting with <lead>". REJECTED: "say hello to <lead> to
+  start your team", because nothing here shows that greeting the lead wakes the others.
+  WEAKEST PREMISE: that one button to the lead is the right single step for five agents. NOT MEASURED:
+  whether a team member really stays idle until greeted; that is Josh's observation of single agents.
+- W FIXED: team members got no picture at all. The single create always uploads one (the person's file, or
+  the generated mark); the team path uploaded only a catalogue portrait, and all 112 members of the 21
+  published teams carry none. Each member now gets the generated mark for its name when the team ships no
+  portrait. The line above that says "nothing is wrong today" (the #4720 paragraph) was wrong about this.
+  The row's "(portrait not set)" is "(picture not set)", since it now covers both.
+- NIT taken: a name typed between the click and the start of the run was made without being checked free,
+  and trusted as checked (review 25's adoption rule rests on that). The name boxes lock from the click.
+- Browser check: four new arms (names locked while the pre-check is out; no Say Hello before ready; the
+  ending's sentence, button and width; a PNG picture per member, once each; Say Hello opens the lead and
+  leaves no team behind). NOT RUN YET. Every arm now answers the picture PUT itself (the members are not
+  real agents), so the earlier arms need this run as much as the new ones do.
+- The full suite queued on Mortals for 90332aac7 was stopped before it started (it would have measured a
+  head that no longer exists). A new one is owed on this head, and another blind round after it.
+

@@ -14177,6 +14177,7 @@ window.kosmosMeasureScrollbarWidth();
     <p class="rolehelp" id="tc-note" role="status" aria-live="polite"></p>
     <div class="importrow">
       <button class="btn uprime" type="button" id="tc-go"></button>
+      <button class="btn uprime" type="button" id="tc-hello" hidden></button>
       <button class="btn" type="button" id="tc-back">Back</button>
     </div>
     <p class="rolelimit" id="tc-msg" role="status" aria-live="polite" hidden></p>
@@ -19924,6 +19925,10 @@ function updateNothingToLose() {
     typeof RST_BUSY !== 'undefined' && RST_BUSY,
     // Round 13: a new agent still being watched for (its photo and project tell come after), or a photo waiting.
     typeof WATCHING_AGENTS !== 'undefined' && WATCHING_AGENTS > 0, typeof PENDING_AVATAR !== 'undefined' && !!PENDING_AVATAR,
+    /* #4557: a team being made (its names being checked, its members being created, the board being
+       watched for them, a picture going up). A reload here would leave half a team and no way to go on.
+       Only while something is in flight: a finished or a stopped team holds nothing. */
+    typeof TC !== 'undefined' && !!TC && !!(TC.busy || TC.running || TC.watching || TC.uploading > 0),
     typeof ATTACH_UPLOADING !== 'undefined' && ATTACH_UPLOADING > 0];   // round 9: a file still going up
   if (busy.some(Boolean)) return false;
   const drafted = (m) => !!m && Object.values(m).some((v) => (typeof v === 'string' ? v : (v && v.text) || '').trim());
@@ -46596,7 +46601,7 @@ let IMPORT_GEN = 0;
    nothing) and the page MAKES each one through POST /api/agents, one request per agent, so every agent
    gets a single agent's full birth and a failed one is retried alone without redoing the rest.
    The lead is made first: the others report to it by name, so they wait until it exists. */
-let TC = null;       // { key, team, leadSlot, members:[{slot,title,name,firstName,state,why,made,seen,portrait,renamedFrom,warn,together,stale,maybeMade}], newProjectName, newProjectBase, newProjectNext, project, started, busy, running, again, watching, watchUntil, paintedSig }
+let TC = null;       // { key, team, leadSlot, members:[{slot,title,name,firstName,state,why,made,seen,portrait,renamedFrom,warn,together,stale,maybeMade}], newProjectName, newProjectBase, newProjectNext, project, started, busy, running, again, watching, watchUntil, uploading, paintedSig }
 let TC_GEN = 0;      // bumped when the step is left or reopened, so a late answer cannot paint over it
 
 async function openTeamCreate(key) {
@@ -46699,7 +46704,7 @@ function tcPaint() {
   const hadCaret = (had && hadKind === 'name' && typeof had.selectionStart === 'number') ? had.selectionStart : null;
   /* Round 3: the watcher repaints every 2s. Rebuilding unchanged rows moved focus to a new element each
      time (a screen reader re-announced it; an IME composition was lost), so only a change rebuilds. */
-  const sig = JSON.stringify([TC.started, TC.members.map((m) => [m.state, m.why, m.seen, m.portrait, m.renamedFrom || '', (m.warn || []).join('|')])]);
+  const sig = JSON.stringify([TC.started, Boolean(TC.busy), TC.members.map((m) => [m.state, m.why, m.seen, m.portrait, m.renamedFrom || '', (m.warn || []).join('|')])]);
   if (sig !== TC.paintedSig || !list.children.length) {
   TC.paintedSig = sig;
   list.replaceChildren(...TC.members.map((m, i) => {
@@ -46714,14 +46719,16 @@ function tcPaint() {
     input.setAttribute('aria-label', 'Name for the ' + m.title);
     /* Round 2: once the run starts only a FAILED row's name can change. A name edited on a waiting row
        would be shown while the agent is made from the spec read at the start of the pass. */
-    input.disabled = TC.started ? m.state !== 'failed' : false;
+    /* Review 27: nor from the click until the run starts. The names are checked free at the click, and
+       a name typed after that check would be made, and trusted as checked, without ever being checked. */
+    input.disabled = TC.started ? m.state !== 'failed' : Boolean(TC.busy);
     input.addEventListener('input', () => { m.name = input.value; });
     const st = document.createElement('span'); st.className = 'tc-state ' + m.state;
     /* Round 1: "Made" said more than create's answer means (the job was accepted, not that the agent is
        up). It is "Made, starting" until the board can see it, the same evidence the single create waits for. */
     const made = m.seen === 'running' ? 'Running' : (m.seen === 'unseen' ? 'Made, not seen running yet' : 'Made, starting…');
     st.textContent = ({ ready: '', waiting: 'Waiting', held: 'Waiting for the lead', creating: 'Making…',
-      made: made + (m.portrait === 'failed' ? ' (portrait not set)' : ''), failed: 'Not made' })[m.state] || '';
+      made: made + (m.portrait === 'failed' ? ' (picture not set)' : ''), failed: 'Not made' })[m.state] || '';
     row.append(seat, input, st);
     if (m.renamedFrom) {
       const note = document.createElement('p'); note.className = 'tc-why';
@@ -46732,7 +46739,7 @@ function tcPaint() {
     /* Round 3: what create reported as not done (its non-fatal steps, a project it could not add) is said
        on the row, as the single create says it, never folded into "Running". */
     for (const w of (m.warn || [])) { const p = document.createElement('p'); p.className = 'tc-why'; p.textContent = w; row.append(p); }
-    if (m.state === 'made' && m.seen === 'unseen' && m.made && (m.made.image || (m.made.projects || []).some((pr) => pr && pr.added))) {
+    if (m.state === 'made' && m.seen === 'unseen' && m.made) {   // every member has a picture to set (review 27)
       const p = document.createElement('p'); p.className = 'tc-why';
       p.textContent = 'Its picture and project are set once it is seen running. Open this team again to check.';
       row.append(p);
@@ -46781,13 +46788,34 @@ function tcPaint() {
       + (TC.team && TC.team.caution ? ' ' + TC.team.caution : '');
   } else if (runningN === n) {
     const warned = TC.members.filter((m) => (m.warn || []).length).length;
+    /* Review 27: the single create ends on the invitation to say hello and one button straight to the
+       agent (Josh, 2026-08-22: "Unless I go say hello to them, they don't start"; and no sending people
+       off to find the agent). A team ended on a sentence and Back. Same invitation, same place to go:
+       the lead, who the others report to. It says "each", because nothing here shows that greeting the
+       lead wakes the rest. */
+    const leadName = tcLeadShown();
     note = 'Your team is ready. ' + (n === 1 ? 'It is' : 'They are') + ' running on your board.'
-      + (warned ? ' ' + warned + (warned === 1 ? ' of them has' : ' of them have') + ' something to look at, on its row.' : '');
+      + (warned ? ' ' + warned + (warned === 1 ? ' of them has' : ' of them have') + ' something to look at, on its row.' : '')
+      + (n === 1 ? ' Say “hello” to ' + (leadName || 'it') + ' to activate it on Kosmos.'
+        : ' Say “hello” to each of them to activate it on Kosmos' + (leadName ? ', starting with ' + leadName + '.' : '.'));
   } else {
     note = madeN + ' of ' + n + ' made' + (runningN ? ', ' + runningN + ' running' : '') + (failedN ? ', ' + failedN + ' not made' : '') + '.';
   }
   const noteEl = document.getElementById('tc-note');
   if (noteEl.textContent !== note) noteEl.textContent = note;
+  // Only once the board has SEEN every member running: there is somebody to say hello to.
+  const hello = document.getElementById('tc-hello');
+  const leadShown = tcFinished() ? tcLeadShown() : '';
+  hello.hidden = !leadShown;
+  if (leadShown) hello.textContent = 'Say Hello to ' + leadShown;
+}
+/* The lead as the list marks it ("leads the team"), and the name it was made under. */
+function tcLead() {
+  return (TC && (TC.members.find((m) => m.slot === TC.leadSlot) || TC.members[0])) || null;
+}
+function tcLeadShown() {
+  const lead = tcLead();
+  return (lead && lead.made && (lead.made.shownAs || lead.made.name)) || '';
 }
 
 /* What to say for a caught error: a fetch that never reached the board throws the browser's own words
@@ -46821,6 +46849,15 @@ document.getElementById('tc-back').addEventListener('click', () => {
   TC_GEN += 1; TC = null; cstep('role');
 });
 
+/* Straight to the lead, the way the single create's Say Hello goes straight to its agent (openDetail). */
+document.getElementById('tc-hello').addEventListener('click', () => {
+  const lead = tcFinished() ? tcLead() : null;
+  if (!lead || !lead.made || !lead.made.name) return;
+  const who = lead.made.name;
+  TC_GEN += 1; TC = null;   // the team is finished: nothing is left to resume
+  openDetail(who);
+});
+
 document.getElementById('tc-go').addEventListener('click', async () => {
   if (!TC || TC.started || TC.busy) return;
   const gen = TC_GEN;
@@ -46828,6 +46865,7 @@ document.getElementById('tc-go').addEventListener('click', async () => {
   const msg = document.getElementById('tc-msg');
   go.disabled = true; msg.hidden = true; msg.textContent = '';
   TC.busy = true;   // live from the click: Back or a reopen now keeps it (the project may be being made)
+  tcPaint();        // the name boxes lock here (review 27)
   try {
     // Names first, with nothing made: a refused name, or one already taken on this computer, must not
     // leave an empty project or half a team behind.
@@ -46872,7 +46910,7 @@ document.getElementById('tc-go').addEventListener('click', async () => {
     go.disabled = false;
     msg.hidden = false; msg.textContent = tcSay(err, 'Something went wrong. Try again.');
   } finally {
-    if (TC && gen === TC_GEN) TC.busy = false;
+    if (TC && gen === TC_GEN) { TC.busy = false; tcPaint(); }
   }
 });
 
@@ -47000,7 +47038,12 @@ async function tcWatchLoop(gen) {
       const found = agents.find((a) => a.sessionName === m.made.name);
       if (!boardCanSeeIt(found)) continue;
       m.seen = 'running';
-      if (m.made.image) tcPortrait(m.made.name, m.made.image).then((r) => { m.portrait = r; if (r === 'set') tick(); tcPaint(); });
+      /* Review 27: every member gets a picture, as every single agent does: the catalogue's portrait
+         when the team ships one, otherwise the generated mark for its name. */
+      const team = TC;
+      team.uploading = (team.uploading || 0) + 1;
+      tcPortrait(m.made.name, m.made.image, m.made.shownAs).then((r) => { m.portrait = r; if (r === 'set') tick(); })
+        .finally(() => { team.uploading -= 1; tcPaint(); });
       for (const pr of (m.made.projects || [])) {
         if (!pr || !pr.added) continue;
         fetch('/api/project/' + encodeURIComponent(pr.id) + '/agent/' + encodeURIComponent(m.made.name), {
@@ -47015,17 +47058,29 @@ async function tcWatchLoop(gen) {
   tcPaint();
 }
 
-/* A shipped portrait becomes the agent's avatar. It never costs the agent: a failure only says so on the row. */
-async function tcPortrait(name, image) {
+/* A shipped portrait becomes the agent's avatar; with none, the generated mark for its name does (the
+   one the single create uses). It never costs the agent: a failure only says so on the row. */
+async function tcPortrait(name, image, shown) {
   try {
-    // A path under this board only: the value comes from the downloaded catalogue, and a leading slash
-    // after the one added here would make it another host's address.
-    const rel = String(image).replace(/^web\//, '');
-    if (!/^[A-Za-z0-9][A-Za-z0-9/_.-]*$/.test(rel) || rel.includes('..')) return 'failed';
-    const src = '/' + rel;
-    const img = await fetch(src);
-    if (!img.ok) return 'failed';
-    const blob = await img.blob();
+    let blob = null;
+    if (image) {
+      // A path under this board only: the value comes from the downloaded catalogue, and a leading slash
+      // after the one added here would make it another host's address.
+      const rel = String(image).replace(/^web\//, '');
+      if (!/^[A-Za-z0-9][A-Za-z0-9/_.-]*$/.test(rel) || rel.includes('..')) return 'failed';
+      const src = '/' + rel;
+      const img = await fetch(src);
+      if (!img.ok) return 'failed';
+      blob = await img.blob();
+    } else {
+      const seed = String(shown || name || '').trim();
+      if (!seed) return 'failed';
+      const cv = document.createElement('canvas');
+      cv.width = 144; cv.height = 144;
+      dotGlyph(cv, seed[0].toUpperCase(), markFamFor(seed), seed);
+      blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
+      if (!blob) return 'failed';
+    }
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/avatar', { method: 'PUT', headers: { 'content-type': blob.type || 'image/webp' }, body: blob });
     return res.ok ? 'set' : 'failed';
   } catch { return 'failed'; }

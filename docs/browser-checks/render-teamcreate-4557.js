@@ -1,4 +1,4 @@
-// Browser-check-surface: cstep-team tc-title tc-purpose tc-list tc-project tc-note tc-go tc-back tc-msg
+// Browser-check-surface: cstep-team tc-title tc-purpose tc-list tc-project tc-note tc-go tc-hello tc-back tc-msg
 'use strict';
 /**
  * A whole prebuilt team in one go (#4557, umbrella #4554, Josh 2026-09-29 09:06), on a real board.
@@ -115,8 +115,16 @@ function chk(ok, label, extra) {
           const made = [];
           const specsFail = { n: 0 };   // how many of the RUN's spec reads fail (the names pre-check never does)
           const specsMangle = { slot: null, reads: 0 };   // a slot whose spec comes back under another name than was sent
+          const checkHold = { p: null };   // the names pre-check held until the arm releases it (review 27)
+          const pictures = [];             // every picture PUT: { name, type }. The members here are not real agents, so it is answered here.
+          await page.route('**/api/agent/*/avatar', async (r) => {
+            if (r.request().method() !== 'PUT') return r.continue();
+            pictures.push({ name: decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]), type: r.request().headers()['content-type'] || '' });
+            return r.fulfill({ status: 200, json: { ok: true } });
+          });
           await page.route('**/api/teams/seeded/*/specs', async (r) => {
             const b = JSON.parse(r.request().postData() || '{}');
+            if (b.check && checkHold.p) { const held = checkHold.p; checkHold.p = null; await held; }
             if (!b.check && specsFail.n > 0) { specsFail.n -= 1; return r.fulfill({ status: 503, json: { error: 'Kosmos could not prepare the team' } }); }
             if (!b.check && specsMangle.slot) {
               specsMangle.reads += 1;
@@ -163,7 +171,7 @@ function chk(ok, label, extra) {
           });
           await page.goto(URL, { waitUntil: 'networkidle' });
           await clearFirstRun(page);
-          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate };
+          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures };
         };
         const rows = (page) => page.evaluate(() => [...document.querySelectorAll('#tc-list li')].map((li) => ({
           slot: li.dataset.slot,
@@ -178,10 +186,11 @@ function chk(ok, label, extra) {
 
         /* --- the step, the happy path with one failure and its retry --------------------------- */
         {
-          const { page, errs, posted, script } = await newPage(1280);
+          const { page, errs, posted, script, checkHold, pictures } = await newPage(1280);
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           const view = await page.evaluate(() => ({
+            hello: !document.getElementById('tc-hello').hidden,
             shown: !document.getElementById('cstep-team').hidden && document.getElementById('cstep-role').hidden,
             title: document.getElementById('tc-title').textContent,
             purpose: document.getElementById('tc-purpose').textContent,
@@ -205,9 +214,18 @@ function chk(ok, label, extra) {
           await page.fill('#tc-list li[data-slot="lead"] .tc-name', 'Maya Okafor');
           script.Leo = 'an agent called Leo already exists';
           const projectsBefore = projects.readAll().length;
+          /* Review 27: from the click until the run starts the names cannot be changed (they are being
+             checked free, and a name typed after the check would be made unchecked). The pre-check is
+             held so the arm looks while it is still out. */
+          let releaseCheck; checkHold.p = new Promise((res) => { releaseCheck = res; });
           await page.click('#tc-go');
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-name')].every((i) => i.disabled));
+          const locked = await rows(page);
+          chk(locked.length === 3 && locked.every((r) => !r.editable) && posted.length === 0, `${E} from the click until the run starts, no name can be changed`, JSON.stringify(locked.map((r) => r.editable)) + ' posted=' + posted.length);
+          releaseCheck();
           await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => /Running|Not made/.test(s.textContent)));
           const r1 = await rows(page);
+          chk(!view.hello && await page.isHidden('#tc-hello'), `${E} no Say Hello before the team is made, nor while a member is not made`, String(view.hello));
           const made = projects.readAll().filter((p) => p.name === wantName);
           chk(projects.readAll().length === projectsBefore + 1 && made.length === 1, `${E} pressing the button made the project, for real`, String(projects.readAll().length - projectsBefore));
           const pid = made[0] && made[0].id;
@@ -230,7 +248,24 @@ function chk(ok, label, extra) {
           chk(r2.every((r) => r.state === 'Running') && /Your team is ready/.test(await page.textContent('#tc-note')), `${E} all running, and the step says the team is ready`, JSON.stringify(r2.map((r) => r.state)));
           chk(/still know it as Leo\b/.test(r2[1].why), `${E} a member renamed on Try again says its made teammates still know the old name`, r2[1].why);
           chk(await page.evaluate(() => document.getElementById('tc-note').getAttribute('aria-live') === 'polite'), `${E} the step's progress line is a polite live region`);
+          /* Review 27: the step ends the way the single create does: the invitation, and one button that
+             goes straight to the agent (the lead). And every member got a picture: this team ships no
+             portraits, so each is the generated mark, a PNG. */
+          const end = await page.evaluate(() => ({ note: document.getElementById('tc-note').textContent, hello: document.getElementById('tc-hello').textContent,
+            shown: !document.getElementById('tc-hello').hidden, wide: document.documentElement.scrollWidth > innerWidth }));
+          chk(end.shown && end.hello === 'Say Hello to Maya Okafor' && /Say “hello” to each of them to activate it on Kosmos, starting with Maya Okafor\.$/.test(end.note) && !end.wide,
+            `${E} a ready team invites a hello and offers one button, to the lead by its name`, JSON.stringify(end));
+          await settle(page, () => TC && !(TC.uploading > 0));
+          chk(pictures.map((x) => x.name).sort().join() === 'ana,leo-two,maya-okafor' && pictures.every((x) => /^image\/png/.test(x.type)),
+            `${E} every member made got a picture (the generated mark), once each`, JSON.stringify(pictures));
+          chk(r2.every((r) => !/not set/.test(r.state)), `${E} and no row says its picture was not set`, JSON.stringify(r2.map((r) => r.state)));
           chk(errs.length === 0, `${E} no page errors`, errs.join(' | '));
+          const went = await page.evaluate(() => {
+            window.openDetail = (who) => { window.__tcOpened = who; };
+            document.getElementById('tc-hello').click();
+            return { opened: window.__tcOpened || null, team: TC === null };
+          });
+          chk(went.opened === 'maya-okafor' && went.team, `${E} Say Hello goes straight to the lead and leaves no team behind to resume`, JSON.stringify(went));
           await page.close();
         }
 
