@@ -2992,13 +2992,46 @@ test('#4756: live, the list is read through the tunnel binary with the session o
       assert.ok(!argv.join(' ').includes('kst1.session-owned'), 'the session token was on argv');
       assert.equal(seen.filter((x) => x.url !== '/v1/meta').length, 0, 'the list was fetched directly, not through the binary');
       assert.deepEqual(r.data.addresses, [
-        { name: 'first', address: 'first.kosmos.invalid', state: 'in_use' },
-        { name: 'spare', address: 'spare.kosmos.invalid', state: 'free' },
-        { name: 'paying', address: 'paying.kosmos.invalid', state: 'pending' },
+        { name: 'first', address: 'first.kosmos.invalid', state: 'in_use', first_free: false },
+        { name: 'spare', address: 'spare.kosmos.invalid', state: 'free', first_free: false },
+        { name: 'paying', address: 'paying.kosmos.invalid', state: 'pending', first_free: false },
       ], 'a row with a bad name, a mismatched address or an unknown state was passed through');
       assert.equal(r.data.buy_url, '', 'a buy link that is not https was passed to the page');
     });
   } finally { remote.resetForTests(); }
+});
+
+test('#4756 review: first_free reaches the page, from the server field when sent, else only from bought_at null and grandfathered false', async () => {
+  process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES = '1';
+  const r = (name, extra) => Object.assign({ name, address: name + '.kosmos.invalid', state: 'in_use' }, extra);
+  try {
+    await signedIn();
+    fs.writeFileSync(ADDR_ANSWER, JSON.stringify({ addresses: [
+      r('unbought', { bought_at: null, grandfathered: false }),
+      r('bought', { bought_at: 1790000000, grandfathered: false }),
+      r('kept', { bought_at: null, grandfathered: true }),
+      r('halfsaid', { bought_at: null }),
+      r('unsaid', {}),
+      r('serveryes', { bought_at: 1790000000, grandfathered: false, first_free: true }),
+      r('serverno', { bought_at: null, grandfathered: false, first_free: false }),
+      r('serverodd', { bought_at: 1790000000, grandfathered: false, first_free: 'yes' }),
+    ] }));
+    await withMetaServer({ bought_addresses: false }, async () => {
+      const got = await remote.signinAddresses();
+      assert.equal(got.ok, true, got.because);
+      const seen = Object.fromEntries(got.data.addresses.map((x) => [x.name, x.first_free]));
+      assert.deepEqual(seen, { unbought: true, bought: false, kept: false, halfsaid: false, unsaid: false, serveryes: true, serverno: false, serverodd: false });
+      assert.equal(got.data.addresses.some((x) => 'bought_at' in x || 'grandfathered' in x), false, 'the raw fields were passed through beside first_free');
+    });
+  } finally { delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES; remote.resetForTests(); }
+});
+
+test('#4756 review: the switch read, the list read and the close grace together fit inside the page timeout', () => {
+  const page = fs.readFileSync(require('node:path').join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  const m = /const PLUS_ASK_TIMEOUT_MS = (\d+);/.exec(page);
+  assert.ok(m, 'PLUS_ASK_TIMEOUT_MS not found in web/index.html');
+  assert.ok(remote.ADDR_META_MS + remote.ADDR_READ_MS + remote.SETUP_CLOSE_GRACE_MS < Number(m[1]),
+    remote.ADDR_META_MS + ' + ' + remote.ADDR_READ_MS + ' + ' + remote.SETUP_CLOSE_GRACE_MS + ' is not under ' + m[1]);
 });
 
 test('#4756: AGENT_WORKFORCE_BOUGHT_ADDRESSES=1 turns it on without the coordinator; a refusal keeps its sentence; a list that is not a list gives no rows', async () => {

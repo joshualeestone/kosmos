@@ -1962,9 +1962,10 @@ function turnOnAfterSignin() {
    Answers { live:false } with the switch off (the wizard is exactly as before), else the rows in their own
    shapes only, the website's buy link (https only), and this computer's own name if it is set up. */
 const BOUGHT_STATES = new Set(['in_use', 'free', 'pending']);
-// Inside the page's 15 s (PLUS_ASK_TIMEOUT_MS), and past the binary's own 10 s deadline for the read, so neither
-// timer cuts off a read that would have worked.
-const ADDR_META_MS = 3000, ADDR_READ_MS = 11000;
+// The switch read, the list read and setupRun's close grace after the binary exits, together, stay inside the page's
+// PLUS_ASK_TIMEOUT_MS (engine/remote.test.js asserts the sum against web/index.html). The list read is past the
+// binary's own 10 s deadline, so the binary's own error normally arrives first.
+const ADDR_META_MS = 2000, ADDR_READ_MS = 10500;
 let addressesInFlight = null;   // { token, run }: one read at a time per sign-in; a second caller of the SAME one shares it
 async function signinAddresses(opts) {
   const token = signinSession && typeof signinSession.token === 'string' ? signinSession.token : null;
@@ -2002,7 +2003,12 @@ async function signinAddressesOnce(opts) {
   const rows = (body && Array.isArray(body.addresses) ? body.addresses : [])
     .filter((x) => x && NAME_RULE.test(String(x.name)) && BOUGHT_STATES.has(x.state)
       && typeof x.address === 'string' && /^[a-z0-9-]{3,32}\.[a-z0-9.-]{3,253}$/.test(x.address) && x.address.split('.')[0] === x.name)
-    .map((x) => ({ name: x.name, address: x.address, state: x.state }));
+    /* first_free: this row is the account's free first address (neither bought nor grandfathered). The server's own
+       first_free wins when it sends one; else only a row that SAYS bought_at null and grandfathered false counts. A row
+       missing either field is not counted, so the page tries the name step and the coordinator's 402 not-bought is the
+       gate, rather than telling someone to buy the address their subscription pays for. */
+    .map((x) => ({ name: x.name, address: x.address, state: x.state,
+      first_free: typeof x.first_free === 'boolean' ? x.first_free : (x.bought_at === null && x.grandfathered === false) }));
   const buy = body && typeof body.buy_url === 'string' && /^https:\/\/[^\s"'<>]+$/.test(body.buy_url) ? body.buy_url : '';
   const here = enrolled() ? String(address() || '').split('.')[0] : '';
   return { ok: true, because: null, data: { live: true, addresses: rows, buy_url: buy, this_name: NAME_RULE.test(here) ? here : '' } };
@@ -2121,7 +2127,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,

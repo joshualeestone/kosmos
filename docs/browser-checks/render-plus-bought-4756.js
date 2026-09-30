@@ -63,14 +63,14 @@ const SCENARIOS = {
   // with the subscription, so its first computer names one as before (the name step, not the way to buy one).
   'no-address': { account: '', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] }], auto: null },
   // The same beside computers that are all on BOUGHT addresses (a lost only computer replaced): still free, name step.
-  'app-free-beside-bought': { account: '', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('spare', 'in_use', { bought_at: 1759250000 })] }], auto: null },
+  'app-free-beside-bought': { account: '', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('spare', 'in_use', { first_free: false })] }], auto: null },
   // An app-made account whose free first address is in use (a live computer on a name it has not bought): a purchase.
-  'app-slot-used': { account: '', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'in_use', { bought_at: null, grandfathered: false }), row('spare', 'free')] }], auto: null },
+  'app-slot-used': { account: '', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'in_use', { first_free: true }), row('spare', 'free')] }], auto: null },
   // The slot is taken between the read and the register: the 402 goes to the list rather than keeping a name step
   // where no name can work.
   'app-free-then-taken': { account: '', notbought: 'mymac', lists: [
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] },
-    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'in_use', { bought_at: null, grandfathered: false }), row('spare', 'free')] },
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('mine', 'in_use', { first_free: true }), row('spare', 'free')] },
   ], auto: null },
   // A typed name taken by someone else keeps the name step, as before: a typed name is not a pick from the list.
   'app-free-typed-taken': { account: '', refuse: 'mymac', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] }], auto: null },
