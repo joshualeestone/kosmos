@@ -46717,7 +46717,7 @@ function fetchRoles() {
   }
   return ROLES_FETCH;
 }
-async function loadRoles(initialMode) {
+async function loadRoles(initialMode, opening) {
   const gen = ++ROLES_GEN;
   // #1652 / #4556: the mode the role screen opens on. The callers: openCreate ('pm', or 'import' for the first-run
   // "look in my Documents/Downloads" link, so the panel opens straight on import and populateFoundImports runs the
@@ -46737,8 +46737,10 @@ async function loadRoles(initialMode) {
     updateRecPill(); paintPathOptions(); pickMode(mode);
   };
   /* #4632: a menu without the downloaded catalogue (offline, or the download not done yet) is asked
-     for again on the next open; the board decides whether to try the network again. */
-  if (ROLES && ROLES.length && ROLES_COMPLETE) { paint(); return; }
+     for again on the next OPEN (openCreate and the ?tab=create boot pass `opening`); the board decides whether to
+     try the network again. A path choice paints the menu already held: it does not ask again, and being the newest
+     caller it is not painted over by the open's answer when that lands. */
+  if (ROLES && ROLES.length && (ROLES_COMPLETE || !opening)) { paint(); return; }
   msg.textContent = 'Loading…';
   try {
     await fetchRoles();
@@ -48389,7 +48391,7 @@ function openCreate(initialMode) {
   // loadRoles' async pickMode so it is not reset to 'pm'. #4556: every other caller starts on the three-way
   // choice; the roles still load now, so Single and Swarm open at once, and the chosen path re-applies its own
   // default (chooseCreatePath).
-  loadRoles(initialMode === 'import' ? 'import' : 'pm');
+  loadRoles(initialMode === 'import' ? 'import' : 'pm', true);
   /* #3877: the created-agent checkbox (#create-tell, restored by #3038, checked by default)
      is deliberately NOT reset on open: it carries the person's choice for the session, and
      the one-click found-agent add reads the same box. (This used to say the box was
@@ -68284,7 +68286,7 @@ if (BOOT_TAB === 'settings' && PARAMS.get('sec')) settingsOpen(PARAMS.get('sec')
 // menu. Without this it renders an empty role list and a dead Continue —
 // exactly the failure the instruction editor had when it shipped enabled and
 // empty on its own deep link.
-if (BOOT_TAB === 'create') loadRoles();
+if (BOOT_TAB === 'create') loadRoles(undefined, true);
 /* 🔑 THE BOARD NEEDS THE CATALOGUE TOO, and until now only the create form
    ever fetched it. An agent card reads its role out of the agent's own
    instruction file as prose, so "project manager" is what is on disk and what
