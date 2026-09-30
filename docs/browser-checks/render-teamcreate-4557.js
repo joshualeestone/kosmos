@@ -119,7 +119,8 @@ function chk(ok, label, extra) {
           const pictures = [];             // every picture PUT: { name, type }. The members here are not real agents, so it is answered here.
           await page.route('**/api/agent/*/avatar', async (r) => {
             if (r.request().method() !== 'PUT') return r.continue();
-            pictures.push({ name: decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]), type: r.request().headers()['content-type'] || '' });
+            // `URL` in this file is the board's address (a string), so the agent's name is cut from the path by hand.
+            pictures.push({ name: decodeURIComponent(r.request().url().split('/api/agent/')[1].split('/')[0]), type: r.request().headers()['content-type'] || '' });
             return r.fulfill({ status: 200, json: { ok: true } });
           });
           await page.route('**/api/teams/seeded/*/specs', async (r) => {
