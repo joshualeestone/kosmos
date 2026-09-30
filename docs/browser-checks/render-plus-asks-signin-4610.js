@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-asks askcard plus-ask-rows plus-state2 plus-si-done plus-flow
+// Browser-check-surface: plus-asks askcard plus-ask-rows plus-state1 plus-state2 plus-si-done plus-flow
 // (#2518) the tokens this check asserts: where Kosmos+ device requests render on the Plus screen right after sign-in.
 /* #4610 (Josh, 2026-09-29 12:50, a brand-new Kosmos+ account in the Mac app): "these should have rendered in the same
  * spot as the login and not above everything". Right after sign-in the Plus screen shows the sign-in wizard's "You're
@@ -92,12 +92,14 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
         document.getElementById('plus-state2').hidden = true;
         document.getElementById('plus-flow').hidden = true;
         paintAsk();
+        /* State 1 must really be laid out, or a hidden pane would lift the Allow into view for the wrong reason. */
+        const s1h = Math.round(document.getElementById('plus-state1').getBoundingClientRect().height);
         const b = document.querySelector('#plus-ask-rows [data-ask="allow"]');
-        if (!b || document.getElementById('plus-asks').hidden) return { shown: false };
+        if (!b || document.getElementById('plus-asks').hidden) return { shown: false, s1h };
         const r = b.getBoundingClientRect(), y = Math.round(r.top + r.height / 2);
-        return { shown: true, y, vh: innerHeight };
+        return { shown: true, y, vh: innerHeight, s1h };
       });
-      chk(s1.shown && s1.y > 0 && s1.y < s1.vh, '[' + W + '] #4610 before sign-in too (state 1) the first Allow is on screen without scrolling', JSON.stringify(s1));
+      chk(s1.shown && s1.s1h > 0 && s1.y > 0 && s1.y < s1.vh, '[' + W + '] #4610 before sign-in too (state 1) the first Allow is on screen without scrolling', JSON.stringify(s1));
 
       /* CONTROL: on any other view the top card is the compact notice, as before. */
       await page.evaluate(async () => { showTab('agents'); paintAsk(); });
