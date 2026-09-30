@@ -25,7 +25,6 @@ const path = require('node:path');
 const { spawn, execFileSync } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
-const FIX = 'set -m\n';
 
 async function freePort() {
   const s = net.createServer();
@@ -119,8 +118,8 @@ async function startThenEndTheJob(cli) {
     const left = groupMembers(pgid, home);
     for (const pid of left) assert.ok(pid !== process.pid && pid !== process.ppid, 'refusing to signal the test itself: ' + pid);
     for (const pid of left) { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
-    // A killed board is dead within the wait; a surviving one is still alive at its end.
-    const gone = await goneWithin(boardPid, 2000);
+    // A killed board is dead within the wait (launchd reaps it at once); a surviving one is still alive at its end.
+    const gone = await goneWithin(boardPid, 1000);
     return { inGroup: left.includes(boardPid), alive: !gone, answers: await answers(port) };
   } finally {
     // Also when the start failed after launching node: never leave a stub board bound to a port.
@@ -141,9 +140,14 @@ test('#4669 CONTROL: without the fix, ending the job takes the board down (the h
   const src = fs.readFileSync(CLI, 'utf8');
   const lines = src.split('\n');
   const launch = lines.findIndex((l) => /nohup "\$NODE" "\$APP"/.test(l));
-  assert.ok(launch > 0 && lines[launch - 1].trim() === FIX.trim() && lines[launch + 1].trim() === 'set +m',
-    'the nohup launch is wrapped in set -m / set +m');
-  lines.splice(launch + 1, 1); lines.splice(launch - 1, 1);
+  assert.ok(launch > 0, 'the nohup launch line is in the CLI');
+  // Drop every `set -m` / `set +m` line near the launch (a comment between them must not matter), and
+  // require exactly two, so the copy is the CLI minus the fix and nothing else.
+  let removed = 0;
+  for (let i = Math.min(lines.length - 1, launch + 4); i >= Math.max(0, launch - 4); i--) {
+    if (/^\s*set [-+]m\s*$/.test(lines[i])) { lines.splice(i, 1); removed++; }
+  }
+  assert.equal(removed, 2, 'the nohup launch is wrapped in set -m / set +m');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4669-cli-'));
   const old = path.join(dir, 'kosmos');
   fs.writeFileSync(old, lines.join('\n'), { mode: 0o755 });
