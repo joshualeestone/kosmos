@@ -457,12 +457,17 @@ function chk(ok, label, extra) {
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           await page.fill('#tc-list li[data-slot="social"] .tc-name', 'maya');
           const before = projects.readAll().length;
+          /* #4719: the menus lock at the click; catch that before the refusal reopens them, so the
+             "open again" assertion below says something. */
+          await page.evaluate(() => { window.__tcLockSeen = false; const e = document.getElementById('tc-provider');
+            new MutationObserver(() => { if (e.disabled) window.__tcLockSeen = true; }).observe(e, { attributes: true, attributeFilter: ['disabled'] }); });
           await page.click('#tc-go');
           await settle(page, () => !document.getElementById('tc-msg').hidden);
           const msg = await page.textContent('#tc-msg');
           chk(/same name/.test(msg) && posted.length === 0 && projects.readAll().length === before,
             `${E} two seats with one name are refused before any project or agent is made`, msg + ' | posted ' + posted.length);
           chk(!(await page.isDisabled('#tc-go')) && !(await page.isHidden('#tc-go')), `${E} and the button is back to try again`);
+          chk(await page.evaluate(() => window.__tcLockSeen === true), `${E} #4719 the Model menu locked at the click`);
           chk(!(await page.isDisabled('#tc-provider')), `${E} #4719 and the Model menu is open again (nothing was made)`);
           chk(errs.length === 0, `${E} no page errors (refusal arm)`, errs.join(' | '));
           await page.close();
