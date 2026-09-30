@@ -289,3 +289,35 @@ test('the removed-list words here are the words create.js says for the same name
   assert.ok(src.includes('${shown}' + teamseed.REMOVED_WORDS + 'pick a different name.'),
     'create.js no longer says "<name>' + teamseed.REMOVED_WORDS + 'pick a different name."');
 });
+
+/* #4719: the team step's one provider and account choice rides every member's spec, the way the
+   single-agent form sends it: provider only when it is not the default, account only when chosen. */
+test('#4719 a provider and account chosen for the team are on every member\'s spec', () => {
+  const r = teamseed.specs({ team: 'marketing', names: NAMES, provider: ' OpenAI ', account: ' /acct/openai-2 ' }, fixture());
+  assert.equal(r.ok, true);
+  assert.ok(r.specs.length > 1, 'premise: the team has more than one member');
+  for (const s of r.specs) {
+    assert.equal(s.spec.provider, 'openai', s.slot);
+    assert.equal(s.spec.account, '/acct/openai-2', s.slot);
+  }
+});
+
+test('#4719 nothing chosen (or Anthropic, the default) sends no provider, like the single-agent form', () => {
+  for (const req of [{}, { provider: 'anthropic' }, { provider: '', account: '  ' }]) {
+    const r = teamseed.specs({ team: 'marketing', names: NAMES, ...req }, fixture());
+    assert.equal(r.ok, true);
+    for (const s of r.specs) {
+      assert.equal('provider' in s.spec, false, JSON.stringify(req));
+      assert.equal('account' in s.spec, false, JSON.stringify(req));
+    }
+  }
+  // CONTROL: Anthropic with an account chosen carries the account alone.
+  const a = teamseed.specs({ team: 'marketing', names: NAMES, provider: 'anthropic', account: '/acct/claude-2' }, fixture());
+  assert.deepEqual(a.specs.map((s) => [s.spec.provider, s.spec.account]), a.specs.map(() => [undefined, '/acct/claude-2']));
+});
+
+test('#4719 a provider that is not a plain name is refused before anything is made', () => {
+  const r = teamseed.specs({ team: 'marketing', names: NAMES, provider: 'openai; rm -rf /' }, fixture());
+  assert.equal(r.ok, false);
+  assert.match(r.because, /not one Kosmos knows/);
+});
