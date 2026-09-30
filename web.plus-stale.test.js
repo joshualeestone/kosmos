@@ -123,7 +123,7 @@ test('#1012: it can only hide further, never reveal on an unenrolled Mac', async
 
 test('#1014, superseded by #4080: with no phone yet, the address instruction is not shown (the address is off the pane)', async () => {
   /* #4080 (Josh, 22:07: hide the address; 22:22 design): the pane no longer shows the machine's address, and the
-     box at the top already says where to go ("Sign in at login.kosmosplus.com." with Open). An instruction naming
+     box at the top already says where to go ("Access this computer from other devices at login.kosmosplus.com" with Copy, #4744). An instruction naming
      the address would put it back. #1014's point, say what to DO, is now carried by that box. */
   const w = world(connected([]));
   await paint(w);
@@ -152,4 +152,39 @@ test('#1014: connected with no address yet is not an instruction to open "is on 
   const w = world(r);
   await paint(w);
   assert.equal(w.el('plus-next').hidden, true, 'it would have told them to open a sentence');
+});
+
+/* #4744: a Copy failure's note under the box stays through the 5s repaint while connected, and goes (with its
+   flag) once the box does, so a later reconnect never shows a stale sentence under the box. */
+test('#4744: the copy-failure note survives a connected repaint and is cleared by a disconnect, not stuck after reconnect', async () => {
+  const r = connected([]);
+  const w = world(r);
+  const st = w.el('plus-status');
+  st.dataset = { copyFail: '1' };
+  st.textContent = 'Kosmos could not copy it. The address is selected: copy it from there.';
+  // Count writes: a live region rewritten with the same words is read again, so a standing note must be left alone.
+  let text = st.textContent, writes = 0;
+  Object.defineProperty(st, 'textContent', { get: () => text, set: (v) => { writes += 1; text = v; }, configurable: true });
+  await paint(w);
+  assert.match(st.textContent, /could not copy it/, 'a connected repaint wiped the copy-failure note');
+  assert.equal(writes, 0, 'a connected repaint rewrote the standing note (a screen reader reads it again every poll)');
+  r.status = { state: 'down', because: 'the connection dropped' };
+  await paint(w);
+  assert.equal(st.dataset.copyFail, undefined, 'the failure flag outlived the box');
+  assert.doesNotMatch(st.textContent, /could not copy it/, 'the note stayed while the box was gone');
+  r.status = { state: 'up', address: 'josh.plus.installkosmos.com' };
+  await paint(w);
+  assert.equal(st.textContent, '', 'after a reconnect the line under the box is not empty (#4080)');
+});
+
+test('#4744: a copy-failure note does not survive the panel being hidden (e.g. an early return), so a reconnect is clean', async () => {
+  const r = connected([]);
+  const w = world(r);
+  const st = w.el('plus-status');
+  st.dataset = { copyFail: '1' };
+  st.textContent = 'Kosmos could not copy it. The address is selected: copy it from there.';
+  w.el('plus-flow').hidden = true;   // the flow was hidden by an earlier paint that returned before the status line
+  await paint(w);
+  assert.equal(st.dataset.copyFail, undefined, 'the failure flag survived the panel being hidden');
+  assert.equal(st.textContent, '', 'after reconnecting, the line under the box is not empty (#4080)');
 });

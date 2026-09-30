@@ -27,6 +27,19 @@ test('control: the same run plus one screen that is not phone-only passes the ch
   assert.match(r.stdout, /planned 1 screen\(s\)/);
 });
 
+/* #4594: the mirror, desktopOnly. The consolidated screens exist only at the desktop size. */
+test('every requested screen desktop-only at a phone size: exit 2, before a browser starts', () => {
+  const r = run(['--sizes', 'se', '--screens', 'cons-agents', '--themes', 'light', '--engines', 'chromium']);
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /no shot would be taken: every requested screen is skipped/);
+});
+
+test('control: the same desktop-only screen at the desktop size is planned', () => {
+  const r = run(['--sizes', 'desktop', '--screens', 'cons-agents', '--themes', 'light', '--engines', 'chromium']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /planned 1 screen\(s\)/);
+});
+
 /* kosmos#4524: a mistyped cover control would arm nothing and pass, so it is refused before the plan. The correctly
  * spelled name is the control, showing the refusal is about the name. */
 test('a mistyped MSHOTS_COVER_CONTROL is refused with exit 2, before a browser starts', () => {

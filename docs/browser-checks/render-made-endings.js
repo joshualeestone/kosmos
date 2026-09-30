@@ -69,6 +69,7 @@ const MADE = {
   });
 
   await page.goto(BASE + '/?tab=create', { waitUntil: 'networkidle' });
+  await page.click('#cstep-kind [data-path="single"]');   // #4556: New Agent opens on the three-way choice; Single leads to the role screen
   await page.waitForSelector('#pick-pm:not([hidden])', { timeout: 10000 });
   await page.evaluate(() => {
     document.getElementById('pick-pm').click();

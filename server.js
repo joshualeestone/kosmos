@@ -16461,9 +16461,14 @@ const server = http.createServer(async (req, res) => {
           refusal = federation.ownCodeRefusal(proj.id);
           if (refusal === 'guest') { sendJson(res, 409, { reason: 'guest', error: 'This project was shared with you from someone else, so it cannot be added to your other computers from here.' }); return; }
           if (refusal === 'sealed') { sendJson(res, 409, { reason: 'sealed', error: 'This project is sealed for the people you invited, so your other computers cannot join it yet.' }); return; }
+          // kosmos#4699: the code names this computer, so the one it is pasted on can check it is on
+          // the same account. A computer with no Kosmos+ address has no name to give.
+          let from = null;
+          try { from = federation.ownFromOf(remote.address()); } catch { from = null; }
+          if (!from) { sendJson(res, 409, { reason: 'no-address', error: 'This computer has no Kosmos+ address yet, so it cannot make a code for your other computers. Sign in to Kosmos+ in Settings on this computer first.' }); return; }
           const before = federation.linkFor(proj.id);
           wasShared = !!(before && (before.selfShared === true || before.role === 'self'));   // a self link was told at join
-          code = federation.ownCode(proj.id, proj.name);
+          code = federation.ownCode(proj.id, proj.name, from);
         } catch {
           sendJson(res, 500, { error: 'Kosmos could not read or save this project\'s sharing on this computer. Try again in a moment.' });
           return;
@@ -18284,14 +18289,15 @@ function federateOut(projectId, delivery, operator) {
     // The record cannot say whether this room is shared, but a seat running for
     // it can: that room is, and its post must not stay here without a word.
     if (fedseats.statusOf(projectId)) {
-      messages.roomNote(projectId, 'That post stayed on this computer: the shared-project record cannot be read right now, so nothing is sent to the external project until it can.');
+      messages.roomNote(projectId, 'That post stayed on this computer: the shared-project record cannot be read right now, so nothing is sent from this room until it can.');
     }
     return;
   }
   if (!link) return;
   const text = typeof delivery.text === 'string' ? delivery.text : '';
   if (!text.trim()) {
-    messages.roomNote(projectId, 'That post stayed on this computer: attachments are not sent to the external project, only words.');
+    // kosmos#4699: an own room's far side is the person's other computers, not "the external project".
+    messages.roomNote(projectId, 'That post stayed on this computer: attachments are not sent to ' + fedseats.farSide(projectId) + ', only words.');
     return;
   }
   let from;
@@ -18323,7 +18329,7 @@ function federateOut(projectId, delivery, operator) {
       const row = messages.record().rows.find((m) => m && m.id === delivery.id);
       hadFiles = !!(row && (row.attachment || (Array.isArray(row.attachments) && row.attachments.length)));
     } catch { hadFiles = false; }
-    if (hadFiles) messages.roomNote(projectId, 'The words went to the external project; the attached file stayed on this computer.');
+    if (hadFiles) messages.roomNote(projectId, 'The words went to ' + fedseats.farSide(projectId) + '; the attached file stayed on this computer.');
   }
 }
 

@@ -23,7 +23,7 @@
  *
  * Run: see the README in this directory (same shape as render-found-undo.js).
  *
- * // Browser-check-surface: pick-orgchart orgchartpick orgchart-text orgchart-usenames orgchart-preview orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-edit orgchart-msg orgchart-undo orgchart-undo-go orgchart-undo-keep
+ * // Browser-check-surface: team-orgchart-open cstep-team orgchartpick orgchart-text orgchart-usenames orgchart-preview orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-edit orgchart-msg orgchart-undo orgchart-undo-go orgchart-undo-keep
  */
 'use strict';
 
@@ -86,28 +86,24 @@ function check(name, pass, detail) {
   await page.route('**/api/removed', (r) => r.fulfill({ status: 200,
     json: { agents: [...removedNow].map((name) => ({ name, shownAs: name, removedAt: '2026-09-27T00:00:00Z', stopped: true })) } }));
 
-  /* /?tab=create is the deep link that opens the create panel and loads the
-     role menu (web/index.html: BOOT_TAB === 'create' -> loadRoles()). The fifth
-     option is gated on OWN_ROLE, which the real /api/roles serves. */
+  /* /?tab=create is the deep link that opens the create panel. #4556: New Agent opens on the three-way choice,
+     and the org chart lives on the Team screen, behind its own "Upload an org chart" button. */
   await page.goto(BASE + '/?tab=create', { waitUntil: 'networkidle' });
-  await page.waitForSelector('#pick-orgchart', { state: 'visible', timeout: 10000 });
+  await page.click('#cstep-kind [data-path="team"]');
+  await page.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 10000 });
 
-  check('the fifth option (Upload an org chart) is offered',
-    await page.isVisible('#pick-orgchart'));
+  check('the Team screen offers Upload an org chart',
+    await page.isVisible('#team-orgchart-open'));
 
-  // Choose it by clicking the LABEL, the way a person does: the native radio is
-  // opacity:0 / pointer-events:none (.pick2 > input[type=radio]), so a direct
-  // input click is intercepted by the fieldset. Clicking the label checks the
-  // radio and fires the change that pickMode('orgchart') listens for -- which
-  // reveals the panel and hides the shared Continue (the panel has its own button).
-  await page.click('#pick-orgchart');
+  await page.click('#team-orgchart-open');
   await page.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
   const opened = await page.evaluate(() => ({
     panel: !document.getElementById('orgchartpick').hidden,
-    nextHidden: document.getElementById('role-next').hidden,
+    onTeam: !document.getElementById('cstep-team').hidden,
+    expanded: document.getElementById('team-orgchart-open').getAttribute('aria-expanded'),
   }));
-  check('choosing it reveals the paste panel and hides the shared Continue',
-    opened.panel && opened.nextHidden, JSON.stringify(opened));
+  check('choosing it reveals the paste panel on the Team screen',
+    opened.panel && opened.onTeam && opened.expanded === 'true', JSON.stringify(opened));
 
   // ---- Empty paste: Preview on a blank box explains, and does not open --------
   await page.click('#orgchart-preview');
@@ -403,8 +399,10 @@ function check(name, pass, detail) {
   await page.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
   removalDelayMs = 800;
   await page.click('#orgchart-undo-go');
-  await page.click('#pick-own');
-  await page.click('#pick-orgchart');
+  // Leave the Team screen and come back (#4556: Back, then Team, then Upload an org chart).
+  await page.click('#create-path-back');
+  await page.click('#cstep-kind [data-path="team"]');
+  await page.click('#team-orgchart-open');
   await page.waitForTimeout(1500);
   removalDelayMs = 0;
   const superseded = await page.evaluate(() => ({

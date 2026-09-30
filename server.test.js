@@ -3293,7 +3293,9 @@ test('the suggested default role is the project manager, by name and not by posi
   // 'import'. The DEFAULT is still 'pm', pinned by the ternary's else, and
   // pickMode(mode) arms it. Both halves are asserted so that neither a changed
   // default (the mutation this test exists to stop) nor a dropped pickMode passes.
-  assert.match(script, /const mode = initialMode === 'import' \? 'import' : 'pm';/,
+  // #4556: the Swarm path opens on the role menu ('list'), so 'list' passes through too; every other value still
+  // falls to 'pm', the default this pins.
+  assert.match(script, /const mode = initialMode === 'import' \|\| initialMode === 'list' \? initialMode : 'pm';/,
     'the create-form default mode is no longer pinned to pm; a changed default '
     + 'silently changes what mode the form opens on');
   assert.match(script, /pickMode\(mode\)/,

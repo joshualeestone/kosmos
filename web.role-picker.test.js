@@ -14,7 +14,7 @@ const SCRIPT = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
 
 test('the rows carry a check mark and keep their radio for the keyboard; the description sits beside every row', () => {
   const body = PAGE.replace(/<!--[\s\S]*?-->/g, '');
-  assert.match(body, /<h2>What should this agent do\?<\/h2>\s*<p class="dhint"[^>]*>You can change any of this later\.<\/p>/);
+  assert.match(body, /<h2 id="cstep-role-title" tabindex="-1">What should this agent do\?<\/h2>\s*<p class="dhint"[^>]*>You can change any of this later\.<\/p>/);
   for (const id of ['pick-pm', 'pick-list', 'pick-own']) {
     const at = body.indexOf('id="' + id + '"');
     const row = body.slice(at, body.indexOf('</label>', at));
@@ -63,7 +63,7 @@ test('a role\'s limit is said on step one, under the dropdown, the moment it is 
   assert.equal(run('ea', true, 'It never sends anything.').hidden, true, 'the line shows while the dropdown is closed');
   assert.equal(run('own', false, 'x').hidden, true, 'describe-it-yourself has no limit to say');
   assert.match(SCRIPT, /PICKED = document\.getElementById\('rolesel'\)\.value;\n  paintPickLimit\(\);/);
-  assert.match(SCRIPT, /getElementById\('role-next'\)\.disabled = importing \|\| orgcharting;\n  paintPickLimit\(\);\n\}/);
+  assert.match(SCRIPT, /getElementById\('role-next'\)\.disabled = importing;\n  paintPickLimit\(\);\n\}/);   // #4556: the org chart moved to the Team screen
 });
 
 test('the fourth option imports an agent from a file: its own panel, the shared Continue hidden, a client-side read into the textarea, and a parse-only post', () => {
@@ -100,12 +100,12 @@ test('the fourth option imports an agent from a file: its own panel, the shared 
   assert.match(body, /<button class="btn uprime" type="button" id="import-load">/);
   // Gated exactly like `own` (both use the own role key), so it never offers a
   // path whose create would refuse.
-  assert.match(SCRIPT, /getElementById\('pick-import'\)\.hidden = !OWN_ROLE;/);
+  assert.match(SCRIPT, /getElementById\('pick-import'\)\.hidden = !OWN_ROLE \|\| swarmPath;/);   // #4556: and never for a swarm
   // pickMode routes 'import' to its own panel and takes the shared Continue out
   // of the flow -- the panel's own button is the advance.
   assert.match(SCRIPT, /const importing = mode === 'import';/);
   assert.match(SCRIPT, /getElementById\('importpick'\)\.hidden = !importing;/);
-  assert.match(SCRIPT, /getElementById\('role-next'\)\.hidden = importing \|\| orgcharting;/);
+  assert.match(SCRIPT, /getElementById\('role-next'\)\.hidden = importing;/);
   // Import PARSES then reuses the one create path: it reads the file client-side,
   // posts it to the parse endpoint, and a refusal is shown rather than advanced past.
   assert.match(SCRIPT, /readAsText\(f\)/);
