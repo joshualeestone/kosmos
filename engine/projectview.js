@@ -1,0 +1,282 @@
+'use strict';
+/* #4581 (Josh's Five Families project, #4580 items 2 and 7; four of five model families asked for it):
+ * `kosmos project list` and `kosmos project show <id>`, so an agent can see what projects exist, who is on
+ * them, which model family each member runs, the folder, the open tasks, the brief's goal and "done", and
+ * whether each member's running summary is current. Before this, only `kosmos project create` existed, and
+ * agents checked each other's summary files by looking in each other's folders.
+ *
+ * ONE module for both CLIs: the board builds the payload here (overviewOf / listOf, from the same
+ * projects.list the page reads), and install/kosmos and tools/windows/kosmos-cli.js both print it with
+ * renderList / renderShow, so the Mac and Windows words cannot drift.
+ *
+ * Read-only. Membership is an organising fact, never a boundary (server.js, GET /api/projects), so any
+ * agent may read any project; nothing here grants or checks an access level.
+ */
+const fs = require('node:fs');
+const path = require('node:path');
+
+/* The rhythm the roles ask for (engine/roles.js SUMMARY_RHYTHM): a summary file every four hours while
+   working, as summaries/YYYY-MM-DD-HH.md in the agent's own folder. */
+const SUMMARY_RHYTHM_HOURS = 4;
+const SUMMARY_NAME = /^\d{4}-\d{2}-\d{2}-\d{2}\.md$/;
+/* How many of the newest-NAMED summaries are checked (round 2: the whole folder was sorted and up to 5000 files were
+   stat'ed per member per request, on the single-threaded board). The names are dated, so the newest file is among the
+   newest names unless an old one was rewritten later, which this reports by its write time anyway. */
+const SUMMARY_SCAN_MAX = 20;
+/* How far ahead of this computer's clock a write time may be before it is not believed. */
+const FUTURE_SLACK_MINUTES = 5;
+
+/**
+ * How current an agent's running summary is: the newest summaries/YYYY-MM-DD-HH.md in its folder, by the
+ * time it was last written. Never throws.
+ * @returns {{ state: 'current'|'stale'|'future'|'none'|'nofolder'|'unreadable', file: string|null, at: string|null, ageMinutes: number|null }}
+ *   current: written within the four-hour rhythm; stale: longer ago (an agent that has been idle is not
+ *   expected to write, so stale is a fact to read, not a fault); none: no summaries yet; unreadable: we
+ *   could not look (the reader must not take that as none).
+ */
+function summaryFreshness(folder, nowMs) {
+  const none = { state: 'none', file: null, at: null, ageMinutes: null };
+  /* No usable folder at all (none recorded, or not absolute) is "we do not know where it is" (round 4), not "we
+     could not look". */
+  if (typeof folder !== 'string' || !folder || !path.isAbsolute(folder)) return { ...none, state: 'nofolder' };
+  /* Blind review round 1: "we do not know where this agent's folder is" is not "it wrote no summaries", and the PM
+     role raises a missing summary as a finding, so the two are said apart. The agent's own folder missing is
+     `nofolder`; only a folder that exists with no summaries/ in it is `none`. */
+  /* Round 3: something at the path that is not a plain folder (a symlink, a file) is there and not read: unreadable. */
+  try { if (!fs.lstatSync(folder).isDirectory()) return { ...none, state: 'unreadable' }; }
+  catch (e) { return { ...none, state: (e && e.code === 'ENOENT') ? 'nofolder' : 'unreadable' }; }
+  const dir = path.join(folder, 'summaries');
+  let names;
+  try {
+    const st = fs.lstatSync(dir);
+    /* A symlink or a file where summaries/ should be: not read (it is not the agent's own folder), and so
+       `unreadable`, never `none`: something is there and we did not look (round 1). */
+    if (!st.isDirectory()) return { ...none, state: 'unreadable' };
+    names = fs.readdirSync(dir);
+  } catch (e) {
+    return (e && e.code === 'ENOENT') ? none : { ...none, state: 'unreadable' };
+  }
+  let best = null;
+  let future = null;   // round 4: a future-dated file must not hide a real current one
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  /* Only summary-shaped names, newest name first, so the cap never drops the newest file of a big folder. */
+  /* Round 3: the cap counts real files, not names (20 newest-named symlinks or folders used to hide older real
+     summaries), with a hard bound on how many entries are checked at all. */
+  const candidates = names.filter((n) => SUMMARY_NAME.test(n)).sort().reverse();
+  let files = 0;
+  const bound = SUMMARY_SCAN_MAX * 10;
+  let checked = 0;
+  for (let i = 0; i < candidates.length && i < bound && files < SUMMARY_SCAN_MAX; i += 1) {
+    checked = i + 1;
+    const name = candidates[i];
+    let st;
+    try { st = fs.lstatSync(path.join(dir, name)); } catch { continue; }
+    if (!st.isFile()) continue;
+    files += 1;
+    if (Math.round((now - st.mtimeMs) / 60000) < -FUTURE_SLACK_MINUTES) { if (!future) future = { name, ms: st.mtimeMs }; continue; }
+    if (!best || st.mtimeMs > best.ms) best = { name, ms: st.mtimeMs };
+  }
+  /* A write time well ahead of now (clock skew, a restored copy, a touch) is not evidence of a current summary. It is
+     reported as its own state only when there is no believable file (round 4: one future-dated file used to hide a real
+     current summary). */
+  /* Round 5: stopped at the bound with no file found and more names left: we did not look at all of them. */
+  if (!best && !future && checked >= bound && candidates.length > bound) return { ...none, state: 'unreadable' };
+  if (!best && future) return { state: 'future', file: 'summaries/' + future.name, at: new Date(future.ms).toISOString(), ageMinutes: null };
+  if (!best) return none;
+  const raw = Math.round((now - best.ms) / 60000);
+  const ageMinutes = Math.max(0, raw);
+  return {
+    state: ageMinutes <= SUMMARY_RHYTHM_HOURS * 60 ? 'current' : 'stale',
+    file: 'summaries/' + best.name,
+    at: new Date(best.ms).toISOString(),
+    ageMinutes,
+  };
+}
+
+/* The model family a person reads, from the runner the board recorded for the member. The one
+   runner -> provider -> vendor map is create.js's; "Claude" is the product word for Anthropic, as the
+   families themselves were named (Claude, GPT via OpenAI, Gemini, Grok, Meta Muse). Null when the board
+   could not tie a program to the member. */
+function familyOf(runner) {
+  if (typeof runner !== 'string' || !runner) return null;
+  const create = require('./create');
+  const provider = create.runnerProvider(runner);
+  return provider === 'anthropic' ? 'Claude' : create.providerLabel(provider);
+}
+
+function openTasks(tasks) {
+  const list = Array.isArray(tasks) ? tasks : [];
+  const open = list.filter((t) => t && !(t.progress && t.progress.closed));
+  return { total: list.length, open: open.length, built: open.filter((t) => t.builtAt).length };
+}
+
+/**
+ * The payload for one project, from a projects.list() entry (already described against the roster).
+ * @param {object} p      one element of projects.list(roster)
+ * @param {Array} roster  the cards the list was described against (for each member's model)
+ * @param {{ now?: number, folderOf?: (sessionName: string) => string|null, readBrief?: (folder: string) => object }} [o]
+ */
+function overviewOf(p, roster, o) {
+  const opts = o || {};
+  const folderOf = opts.folderOf || ((name) => { try { return require('./create').workerDir(name); } catch { return null; } });
+  const readBrief = opts.readBrief || require('./brief').readBrief;
+  const cards = Array.isArray(roster) ? roster : [];
+  const brief = readBrief(p.folder) || { goal: null, done: null, found: false };
+  const members = (p.agents || []).map((m) => {
+    const card = m.tied ? cards.find((c) => c && c.sessionName === m.sessionName) : null;
+    return {
+      name: m.name,
+      sessionName: m.sessionName,
+      role: m.role || null,
+      state: m.present && m.tied ? m.state : 'unknown',
+      present: Boolean(m.present),
+      family: m.tied ? familyOf(m.runner) : null,
+      model: (card && (card.modelName || card.model)) || null,
+      /* Only for a member tied to its pane (round 1): a stranger's pane holding the name must not have a folder
+         derived from that name reported as this member's summary. */
+      /* Round 2: only a live pane that is NOT this member (a stranger holding the name) is kept off its folder. A
+         member that is not running is still this member, and its last summary is exactly what a PM checks. */
+      summary: (m.present && !m.tied) ? { state: 'nofolder', file: null, at: null, ageMinutes: null } : summaryFreshness(folderOf(m.sessionName), opts.now),
+    };
+  });
+  return {
+    id: p.id,
+    name: p.name,
+    folder: p.folder || null,
+    archived: p.archived === true,
+    description: p.description || '',
+    goal: brief.goal,
+    done: brief.done,
+    briefFound: brief.found === true,
+    members,
+    tasks: openTasks(p.tasks),
+  };
+}
+
+/** The payload for the list: one short row per project. */
+function listOf(described) {
+  return (Array.isArray(described) ? described : []).map((p) => {
+    const members = p.agents || [];
+    const families = [...new Set(members.filter((m) => m.tied).map((m) => familyOf(m.runner)).filter(Boolean))];
+    return {
+      id: p.id,
+      name: p.name,
+      archived: p.archived === true,
+      folder: p.folder || null,
+      members: members.length,
+      families,
+      /* Members waiting on the person at all, whichever project their question is about: the project's own
+         summary.needsYou counts only questions tied to this project, and an agent whose question is not tied
+         to any is still waiting (measured: a Codex member asking read 0 there). */
+      needsYou: members.filter((m) => m.present && m.tied && m.state === 'needs_you').length,
+      tasks: openTasks(p.tasks),
+    };
+  });
+}
+
+/* Text from a person or a file, printed on one line: control characters and line breaks become spaces,
+   so a name or a brief can never print a line of its own. */
+function one(v) {
+  return String(v == null ? '' : v)
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
+    /* Round 3: only the invisibles that can hide or reorder text go: bidi overrides, isolates and marks, the
+       zero-width space and BOM, word joiners, and the Unicode tag block (read by a model, invisible to a person),
+       except inside an emoji flag sequence, where tags ARE the flag. The zero-width joiner and non-joiner stay:
+       family emoji and Persian and Indic spellings need them, and they reorder or hide nothing. */
+    /* Round 4: a flag is the black-flag mark and 4 to 6 lowercase or digit tags then the terminator (gbeng, gbsct,
+       usca); an unbounded run was itself a hidden channel. Also gone: the variation-selector supplement, the
+       deprecated format controls, interlinear annotation marks, and the Hangul fillers (they print as blank). */
+    .replace(/(\u{1F3F4}[\u{E0030}-\u{E0039}\u{E0061}-\u{E007A}]{4,6}\u{E007F})|[\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]|[\u200b\u200e\u200f\u202a-\u202e\u2060-\u206f\u061c\u00ad\ufeff\ufff9-\ufffb\u115f\u1160\u3164\uffa0]/gu, (m, flag) => flag || '')
+    /* Round 5: joiners and variation selectors are legitimate one or two at a time (a family emoji, a Persian word,
+       a flag's VS16 then ZWJ), and a covert channel in runs (zero-width steganography), so a run of three or more
+       goes. */
+    .replace(/[\u200c\u200d\ufe00-\ufe0f]{3,}/g, '')
+    .replace(/\s+/g, ' ').trim();
+}
+/* A folder path is printed exactly, not tidied (round 3: collapsing spaces or dropping joiners printed a different,
+   non-existent path, and a path is the one value an agent acts on). Only what would break the line or hide or reorder
+   text is replaced, by a visible "?", so the reader can see the path is not shown as it is. */
+function pathText(v) {
+  return String(v == null ? '' : v)
+    /* Round 5: the same carriers the name filter drops (soft hyphen, deprecated format controls, interlinear marks,
+       Hangul fillers, the variation-selector supplement, runs of joiners), each shown as "?" rather than removed. */
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b\u200e\u200f\u202a-\u202e\u2060-\u206f\u061c\u00ad\ufeff\ufff9-\ufffb\u115f\u1160\u3164\uffa0]|[\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]|[\u200c\u200d\ufe00-\ufe0f]{3,}/gu, '?');
+}
+function ago(minutes) {
+  if (minutes == null) return '';
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return minutes + ' min ago';
+  const h = Math.floor(minutes / 60);
+  if (h < 48) return h + 'h ' + (minutes % 60) + 'm ago';
+  return Math.floor(h / 24) + ' days ago';
+}
+function taskLine(t) {
+  /* Numbers only (round 4): a board answer's counts can never print text of their own. */
+  const n = (x) => Math.max(0, Math.floor(Number(x) || 0));
+  if (!t || !n(t.total)) return 'no tasks yet';
+  return n(t.open) + ' open' + (n(t.built) ? ' (' + n(t.built) + ' built)' : '') + ', ' + (n(t.total) - n(t.open)) + ' done';
+}
+
+/** `kosmos project list`, as lines of text. */
+/* An answer that is not this shape is not "no projects": it is an answer we cannot read (round 2: an older board or a
+   proxy's JSON error read as "No projects yet", exit 0). Both CLIs treat a throw here as unreadable and exit 1. */
+function renderList(payload) {
+  if (!payload || !Array.isArray(payload.projects)) throw new Error('not a project list');
+  const rows = payload.projects;
+  if (!rows.length) return ['No projects yet. Make one: kosmos project create "<name>" <folder>'];
+  const out = [];
+  for (const r of rows) {
+    const fam = r.families && r.families.length ? r.families.map(one).join(', ') : 'no family we can tell';
+    out.push(one(r.id) + '  ' + one(r.name) + (r.archived ? '  [archived]' : '')
+      + '  | ' + (Number(r.members) || 0) + (Number(r.members) === 1 ? ' member' : ' members') + ' (' + fam + ')'
+      + '  | tasks: ' + taskLine(r.tasks)
+      + (Number(r.needsYou) > 0 ? '  | ' + Number(r.needsYou) + ' waiting on the person' : ''));   // numbers only (round 4)
+  }
+  out.push('Details: kosmos project show <id>');
+  if (payload && payload.agentsUnreadable) out.push('(We could not read the agents on this computer just now, so members are listed without their state.)');
+  return out;
+}
+
+const SUMMARY_WORDS = {
+  current: (s) => 'current (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
+  stale: (s) => 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
+  none: () => 'none yet',
+  nofolder: () => 'we do not know where its folder is',
+  future: (s) => 'dated in the future (' + one(s.file) + '), so we cannot tell how current it is',
+  unreadable: () => 'we could not look',
+};
+
+/** `kosmos project show <id>`, as lines of text. */
+function renderShow(payload) {
+  const p = payload && payload.project;
+  if (!p || typeof p !== 'object' || typeof p.id !== 'string') throw new Error('not a project');
+  const out = [];
+  out.push(one(p.name) + '  (id: ' + one(p.id) + ')' + (p.archived ? '  [archived]' : ''));
+  out.push('Folder: ' + (p.folder ? pathText(p.folder) : 'none recorded'));
+  /* The brief is a file anyone on the project can edit, so its words are quoted as written there, never
+     presented as an instruction (the Assigner quotes the goal the same way, engine/assigner.js). */
+  if (!p.briefFound) {
+    out.push('Brief: there is no readable BRIEF.md in the folder, so no goal or "done" is written down.');
+  } else {
+    /* Double quotes inside become single (round 1), so the brief's words cannot close the quotation early and read
+       as Kosmos's own; the same rule as a webhook task's words (install/kosmos task list). */
+    const quoted = (t) => '"' + one(t).replace(/["\u201C\u201D]/g, "'") + '"';
+    out.push('Goal (as written in BRIEF.md): ' + (p.goal ? quoted(p.goal) : 'not filled in yet'));
+    out.push('Done looks like (as written in BRIEF.md): ' + (p.done ? quoted(p.done) : 'not filled in yet'));
+  }
+  out.push('Tasks: ' + taskLine(p.tasks) + (p.tasks && p.tasks.total ? '. List them: kosmos task list ' + one(p.id) : ''));
+  const members = Array.isArray(p.members) ? p.members : [];
+  out.push('Members (' + members.length + '):' + (payload.agentsUnreadable ? '  (we could not read the agents on this computer just now, so their state is unknown)' : ''));
+  if (!members.length) out.push('  nobody yet');
+  for (const m of members) {
+    const fam = m.family ? one(m.family) + (m.model ? ', ' + one(m.model) : '') : 'family unknown';
+    const sum = (SUMMARY_WORDS[m.summary && m.summary.state] || SUMMARY_WORDS.unreadable)(m.summary || {});
+    /* Round 2: when the board could not read its agents, "not running" would be a claim nobody checked. */
+    const where = payload.agentsUnreadable ? 'state unknown' : (m.present ? one(m.state).replace(/_/g, ' ') : 'not running');
+    out.push('  ' + one(m.name) + (m.role ? ', ' + one(m.role) : '') + '  | ' + fam + '  | ' + where
+      + '  | summary: ' + sum);
+  }
+  return out;
+}
+
+module.exports = { summaryFreshness, familyOf, overviewOf, listOf, renderList, renderShow, SUMMARY_RHYTHM_HOURS };

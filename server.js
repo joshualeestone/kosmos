@@ -3801,12 +3801,18 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    still passes here, exactly as it already does on the exempt report and reply routes.
    A token is only as private as its launch: #4497 moved it off tmux's command line (see
    supervisor.agent-token-argv-4497.test.js). */
-const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react']);
+/* #4581: the two project reads (list here, show in the patterns below) let an agent holding only its own token,
+   the sandboxed setup guide included, read every project's folder, members, roles, states and brief. Decided:
+   membership is not a boundary (GET /api/projects), and none of it is a credential. */
+const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
+  'GET /api/projects/overview']);   // #4581: `kosmos project list`, read with the agent's own token
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
    `[^/]+` for the project and `\d+` for the task, so no other task verb (close, reopen, parts) matches. Judged before
    the handler decodes the project, so an encoded `a%2Fb` passes here and then names no project (404). Each
    handler identifies the caller from the token and refuses an agent that is not on the project. */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built)$/];
+/* #4581: the second pattern is `kosmos project show <id>`, a READ: it writes nothing and answers the same for every
+   caller, so, unlike the task verbs, it has no caller to identify (as GET /api/projects/overview in the set above). */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built)$/, /^GET \/api\/project\/[^/]+\/overview$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a roster row (`paneless`, on the result or its card): its
@@ -14992,6 +14998,56 @@ const server = http.createServer(async (req, res) => {
       });
     }
     return;
+  }
+
+  /**
+   * #4581: what `kosmos project list` and `kosmos project show <id>` print (Josh's Five Families project:
+   * agents could not see what projects exist, who is on them, which model family each runs, or whether a
+   * member's summary is current). Built by engine/projectview.js from the same projects.list the page reads,
+   * so the CLI and the board describe one record. Read-only. Reachable with the agent's own token (#4491:
+   * AGENT_TOKEN_ROUTES / _PATTERNS) as well as the board token; membership is not a boundary (see above),
+   * so any agent may read any project.
+   * 🛑 Same rule as /api/projects: an unreadable projects file is an error, never an empty list.
+   */
+  if (pathname === '/api/projects/overview' && req.method === 'GET') {   // GET only: the agent-token gate admits GET, so a HEAD would disagree
+    const roster = safeRoster();
+    let listed;
+    try { listed = projects.list(roster); } catch (err) {
+      sendJson(res, 500, { error: String((err && err.message) || 'we cannot read your projects right now'), projectsUnreadable: true });
+      return;
+    }
+    /* A throw here would leave the request unanswered until the client gives up (measured: 300 s, when the
+       module failed to load), so it answers with a sentence instead. */
+    let rows;
+    try { rows = require('./engine/projectview').listOf(listed); } catch (err) {
+      sendJson(res, 500, { error: 'we could not put the project list together: ' + String((err && err.message) || err) });
+      return;
+    }
+    sendJson(res, 200, { projects: rows, agentsUnreadable: roster === null });
+    return;
+  }
+  {
+    const m = /^\/api\/project\/([^/]+)\/overview$/.exec(pathname);
+    if (m && req.method === 'GET') {
+      let id = '';
+      try { id = decodeURIComponent(m[1]); } catch { id = ''; }
+      const roster = safeRoster();
+      let listed;
+      try { listed = projects.list(roster); } catch (err) {
+        sendJson(res, 500, { error: String((err && err.message) || 'we cannot read your projects right now'), projectsUnreadable: true });
+        return;
+      }
+      /* Looked up EXACTLY (#2702/#3035): a garbled id names no project, never a different one. */
+      const found = listed.find((x) => x && x.id === id);
+      if (!found) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+      let view;
+      try { view = require('./engine/projectview').overviewOf(found, roster); } catch (err) {
+        sendJson(res, 500, { error: 'we could not put that project together: ' + String((err && err.message) || err) });
+        return;
+      }
+      sendJson(res, 200, { project: view, agentsUnreadable: roster === null });
+      return;
+    }
   }
 
   /**
