@@ -23405,7 +23405,7 @@ let MUSE_CREATE_ASKING = null;
 function paintMuseOption(sel, current) {
   const opt = sel && sel.options ? Array.from(sel.options).find((o) => o.value === 'meta') : null;
   if (!opt) return;
-  const creating = sel.id === 'create-provider';
+  const creating = sel.id === 'create-provider' || sel.id === 'tc-provider';   // #4719: the team step makes agents too
   const on = current === 'meta' || (creating && !!MUSE_CREATE && MUSE_CREATE.ready === true);
   opt.disabled = !on;
   if (on || !creating || !MUSE_CREATE || !MUSE_CREATE.on) delete opt.dataset.off;
@@ -46685,17 +46685,18 @@ async function openTeamCreate(key) {
   try { await loadProjects(); } catch { /* the menu still offers a new project or none */ }
   if (gen !== TC_GEN) return;
   tcFillProjects();
-  await tcFillProvider();
+  await tcFillProvider(gen);
   if (gen !== TC_GEN) return;
   tcPaint();
 }
 
 /* #4719: the team's provider menu is the single-agent form's own list (copied, so the two cannot drift),
    starting on the form's current choice, and its account menu is filled by the same rules. */
-async function tcFillProvider() {
+async function tcFillProvider(gen) {
   const from = document.getElementById('create-provider');
   const sel = document.getElementById('tc-provider');
   if (!from || !sel) return;
+  const stale = () => gen !== undefined && gen !== TC_GEN;   // another team was opened while this one read
   /* The team step can be opened without the create form (openTeamCreate from the Team path), so the
      account list may not be read yet; read it the way the form does. Without it every member would go to
      Claude, which is the failure #4719 exists for. */
@@ -46703,16 +46704,21 @@ async function tcFillProvider() {
     try {
       const r = await fetch('/api/accounts', { cache: 'no-store' });
       if (r.ok) { CREATE_ACCOUNTS = ((await r.json()) || {}).accounts || []; CREATE_ACCOUNTS_KNOWN = true; CREATE_ACCOUNTS_FAILED = false; }
-    } catch { /* unknown: the menus say so the way the form's do */ }
+      else CREATE_ACCOUNTS_FAILED = true;
+    } catch { CREATE_ACCOUNTS_FAILED = true; /* the menus say they could not check, as the form's do */ }
+    if (stale()) return;
   }
   sel.innerHTML = from.innerHTML;
   sel.value = from.value;
-  if (sel.selectedIndex < 0 || (sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].disabled)) sel.value = 'anthropic';
   /* The form's own default: OpenAI when it is the one usable provider (createPickGone's rule). */
   const hasClaude = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'anthropic');
   const hasOpenai = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'openai');
   if (sel.value === 'anthropic' && !hasClaude && hasOpenai) sel.value = 'openai';
   fillCreateAccounts(TC_PICKER);
+  /* After the paint, which is what decides which options are usable here: a choice copied from the form
+     that is not usable on this step goes back to the default, and the accounts follow it. */
+  const cur = sel.options[sel.selectedIndex];
+  if (!cur || cur.disabled) { sel.value = (!hasClaude && hasOpenai) ? 'openai' : 'anthropic'; fillCreateAccounts(TC_PICKER); }
 }
 document.getElementById('tc-provider').addEventListener('change', () => fillCreateAccounts(TC_PICKER));
 
@@ -46937,6 +46943,8 @@ document.getElementById('tc-go').addEventListener('click', async () => {
   const msg = document.getElementById('tc-msg');
   go.disabled = true; msg.hidden = true; msg.textContent = '';
   TC.busy = true;   // live from the click: Back or a reopen now keeps it (the project may be being made)
+  TC.model = tcModel();   // #4719: the choice as it was at the click, fixed for the whole team
+  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = true; }
   tcPaint();        // the name boxes lock here (review 27)
   try {
     // Names first, with nothing made: a refused name, or one already taken on this computer, must not
@@ -46973,7 +46981,6 @@ document.getElementById('tc-go').addEventListener('click', async () => {
       project = choice.slice(3);
     }
     TC.project = project;
-    TC.model = tcModel();   // #4719: fixed for the whole team, retries included
     TC.started = true;
     for (const m of TC.members) { m.state = 'waiting'; m.firstName = m.name.trim(); }
     tcPaint();
@@ -46981,6 +46988,10 @@ document.getElementById('tc-go').addEventListener('click', async () => {
   } catch (err) {
     if (gen !== TC_GEN) return;
     go.disabled = false;
+    if (!TC.started) {   // #4719: nothing was made, so the choice is open again
+      TC.model = null;
+      for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = false; }
+    }
     msg.hidden = false; msg.textContent = tcSay(err, 'Something went wrong. Try again.');
   } finally {
     if (TC && gen === TC_GEN) { TC.busy = false; tcPaint(); }
