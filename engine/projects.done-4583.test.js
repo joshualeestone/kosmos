@@ -27,6 +27,18 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const projects = require('./projects');
 const store = require('./store');
+const fleet = require('../test-support/fleet');
+
+/* Real board cards from test-support/fleet (fixture-discipline: never a hand-built card). Each spec is a name, or
+   [name, { displayName, role }] for a card whose pane is tied to a name and carries a live role. The fleet is
+   restored before this returns, so no test leaves the pane seams installed. The board orders its cards itself, so the
+   warning's names are asserted as a set, never as the order a test happened to list them in. */
+const bothHave = (text, a, b) => typeof text === 'string'
+  && (text.startsWith(a + ' and ' + b + ' both have') || text.startsWith(b + ' and ' + a + ' both have'));
+function cards(...specs) {
+  const f = fleet.install(specs.map((x) => (Array.isArray(x) ? fleet.agent(x[0], x[1]) : fleet.agent(x))), { strict: false });
+  try { return f.agents.slice(); } finally { f.restore(); }
+}
 
 let seq = 0;
 function folder(sub) {
@@ -99,21 +111,21 @@ function withProfiles(roles, fn) {
 
 test('#4583: two coordinators warn, naming both and the split; one coordinator, or none, does not (control)', () => {
   withProfiles({ pm1: ['Project Manager', 'Ada'], pm2: ['Project Manager', 'Bo'], dev: 'Developer' }, () => {
-    const two = projects.coordinatorWarning({ agents: [{ sessionName: 'pm1', name: 'Stranger' }, { sessionName: 'pm2' }, { sessionName: 'dev' }] }, null);
-    assert.ok(two && two.startsWith('Ada and Bo both have a coordinating role'), two);
+    const two = projects.coordinatorWarning({ agents: cards(['pm1', { displayName: 'Stranger' }], 'pm2', 'dev') }, null);
+    assert.ok(bothHave(two, 'Ada', 'Bo') && two.includes('both have a coordinating role'), two);
     assert.ok(!two.includes('Stranger'), 'a saved role was paired with the read\'s card name, which an untied pane supplies: ' + two);
     assert.ok(two.includes('one owns the brief (BRIEF.md) and the other owns the task queue'), two);
-    assert.equal(projects.coordinatorWarning({ agents: [{ sessionName: 'pm1' }, { sessionName: 'dev' }] }, null), null);
+    assert.equal(projects.coordinatorWarning({ agents: cards('pm1', 'dev') }, null), null);
     assert.equal(projects.coordinatorWarning({ agents: [] }, null), null);
   });
 });
 
 test('#4583: a live role is used before the saved profile; the joiner filter warns only when a coordinator joined', () => {
   withProfiles({ pm1: 'Project Manager', dev: 'Developer' }, () => {
-    const agents = [{ sessionName: 'pm1', name: 'Ada' }, { sessionName: 'dev', name: 'Cy', role: 'Project Manager' }];
+    const agents = cards(['pm1', { displayName: 'Ada' }], ['dev', { displayName: 'Cy', role: 'Project Manager' }]);
     assert.ok(projects.coordinatorWarning({ agents }, null), 'the live role (Project Manager) was not read');
     assert.ok(projects.coordinatorWarning({ agents }, 'dev'), 'a coordinator joining must warn');
-    const withDev = [...agents, { sessionName: 'ed', name: 'Ed', role: 'Designer' }];
+    const withDev = cards(['pm1', { displayName: 'Ada' }], ['dev', { displayName: 'Cy', role: 'Project Manager' }], ['ed', { displayName: 'Ed', role: 'Designer' }]);
     assert.equal(projects.coordinatorWarning({ agents: withDev }, 'ed'), null, 'a non-coordinator joining must not re-warn');
   });
 });
@@ -131,17 +143,19 @@ test('#4583: the project read carries the current warning from saved roles (memb
 
 test('#4583 round 1: only a role that coordinates the PROJECT counts, not any "Manager" or "Lead"', () => {
   withProfiles({ mk: 'Marketing Manager', sm: 'Social Media Manager', tl: 'Tech Lead', ld: 'Lead Developer', rc: 'Recruiting Coordinator', pm: 'Project Manager', pg: 'Program Manager (PM)' }, () => {
-    const warn = (...names) => projects.coordinatorWarning({ agents: names.map((n) => ({ sessionName: n })) }, null);
+    const warn = (...names) => projects.coordinatorWarning({ agents: cards(...names) }, null);
     assert.equal(warn('mk', 'sm'), null, 'two marketing roles are not two project coordinators');
     assert.equal(warn('tl', 'ld', 'rc'), null, 'leads and a recruiting coordinator are not project coordinators');
     assert.ok(warn('pm', 'pg'), 'CONTROL: a Project Manager and a Program Manager are');
-    assert.ok(warn('pm', 'pg', 'mk').startsWith('pm and pg both have'), warn('pm', 'pg', 'mk'));
+    assert.ok(bothHave(warn('pm', 'pg', 'mk'), 'pm', 'pg'), warn('pm', 'pg', 'mk'));
   });
 });
 
 test('#4583 round 1: three coordinators read "all have"', () => {
   withProfiles({ a: 'Project Manager', b: 'Project Manager', c: 'Project Lead' }, () => {
-    assert.ok(projects.coordinatorWarning({ agents: [{ sessionName: 'a' }, { sessionName: 'b' }, { sessionName: 'c' }] }, null).startsWith('a, b and c all have'));
+    const three = projects.coordinatorWarning({ agents: cards('a', 'b', 'c') }, null);
+    const m = /^(\w+), (\w+) and (\w+) all have/.exec(three || '');
+    assert.deepEqual(m && [m[1], m[2], m[3]].sort(), ['a', 'b', 'c'], three);
   });
 });
 
