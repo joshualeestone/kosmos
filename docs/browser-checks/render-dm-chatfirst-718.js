@@ -117,8 +117,19 @@ function navGeo() {
       }
     }
   }
+  /* Every label and status word inside its own button, and no label ellipsised: a word wider than its column is
+     clipped or spills rather than breaking, which the per-character measure above cannot see. */
+  const spill = [];
+  for (const b of bs) {
+    const br = b.getBoundingClientRect();
+    for (const el of b.querySelectorAll('.dnav-lab, .swpill')) {
+      const r = el.getBoundingClientRect(); if (!r.width) continue;
+      if (r.left < br.left - 0.5 || r.right > br.right + 0.5) spill.push(el.textContent.trim().slice(0, 20) + ' out of its button by ' + Math.round(Math.max(br.left - r.left, r.right - br.right)) + 'px');
+      if (el.classList.contains('dnav-lab') && el.scrollWidth > el.clientWidth + 1) spill.push(el.textContent.trim().slice(0, 20) + ' clipped');
+    }
+  }
   return { n: bs.length, oneRow: rs.length > 0 && rs.every((r) => Math.abs(r.top - rs[0].top) < 1),
-    whole: rs.every((r) => r.left >= -0.5 && r.right <= vw + 0.5), cut,
+    whole: rs.every((r) => r.left >= -0.5 && r.right <= vw + 0.5), cut, spill,
     scrolls: nav.scrollWidth > nav.clientWidth + 1, h: Math.round(Math.max(...rs.map((r) => r.height))),
     threadH: document.getElementById('d-dmthread').clientHeight };
 }
@@ -181,7 +192,7 @@ function measure() {
         const g = await page.evaluate(navGeo);
         chk(g.oneRow && g.n >= 3, `${t} the section tabs are one row`, `oneRow=${g.oneRow} n=${g.n}`);
         chk(g.whole && !g.scrolls, `${t} #4661: every section tab is whole on screen, and the row does not scroll`, `whole=${g.whole} scrolls=${g.scrolls}`);
-        chk(g.cut.length === 0, `${t} #4661: no label is broken inside a word`, JSON.stringify(g.cut));
+        chk(g.cut.length === 0 && g.spill.length === 0, `${t} #4661: no label is broken inside a word, clipped, or outside its button`, JSON.stringify({ cut: g.cut, spill: g.spill }));
         chk(g.h >= 44 && g.h <= 52, `${t} #4661: at 375 and wider, with default text, the row keeps its one-line 44px height`, `h=${g.h}`);
         chk(!(m.label && m.label.w > 2 && m.label.h > 2) && m.labelDisplay !== 'none' && m.labelText.length > 0, `${t} the caption that repeats the agent's name is not shown but kept for screen readers`, JSON.stringify({ label: m.label, display: m.labelDisplay, text: m.labelText }));
         chk(m.visibleVar === m.vh + 'px', `${t} the page's visualViewport listener writes the visible height`, `var=${m.visibleVar} vh=${m.vh}`);
@@ -450,16 +461,17 @@ function measure() {
         }
         const t = `[${eng} ${w}x${h}${scale !== 1 ? ' text ' + Math.round(scale * 100) + '%' : ''}]`;
         const g = await page.evaluate(navGeo);
-        chk(g.oneRow && g.whole && !g.scrolls && g.cut.length === 0, `${t} #4661: every section tab is whole, unscrolled, and no label is broken inside a word`, JSON.stringify(g));
+        chk(g.oneRow && g.whole && !g.scrolls && g.cut.length === 0 && g.spill.length === 0, `${t} #4661: every section tab is whole, unscrolled, and no label is broken inside a word, clipped, or outside its button`, JSON.stringify(g));
         chk(g.h <= Math.round(72 * scale), `${t} #4661: the row is at most two label lines tall`, `h=${g.h}`);
         chk(g.threadH >= 60, `${t} #4661: the conversation keeps room to read`, `threadH=${g.threadH}`);
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
         await page.close();
       }
       // A swarm agent (#3564) on the phone chat: the cluster fits the 40px slot, and Stop now is on
-      // screen without scrolling the header.
-      {
-        const page = await browser.newPage({ viewport: { width: 375, height: 667 } });
+      // screen without scrolling the header. #4661: at 320 wide too, the narrowest phone, where the four-button row
+      // is tightest.
+      for (const [sww, swh] of [[375, 667], [320, 568]]) {
+        const page = await browser.newPage({ viewport: { width: sww, height: swh } });
         const serrs = []; page.on('pageerror', (e) => serrs.push(e.message));
         await page.addInitScript(() => {
           const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -471,7 +483,7 @@ function measure() {
         await page.evaluate(() => paintTalk('april', 'April'));
         await page.waitForSelector('#d-dmthread .msg');
         await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-        const t = `[${eng} 375x667 swarm]`;
+        const t = `[${eng} ${sww}x${swh} swarm]`;
         const sw = await page.evaluate(() => {
           const R = (e) => e && e.getBoundingClientRect();
           const c = R(document.querySelector('#d-swarm .swc')); const slot = R(document.querySelector('.dhead .detail-av'));
@@ -488,14 +500,18 @@ function measure() {
         chk(!sw.inHeader && sw.boxShown && sw.inStrip && sw.boxTop >= 0 && sw.boxBottom <= sw.vh, `${t} no swarm control in the header; Swarm Settings is a pill in the section strip, on screen (#4433)`, JSON.stringify(sw));
         chk(sw.threadH >= 60, `${t} the thread keeps room to read`, `threadH=${sw.threadH}`);
         const sg = await page.evaluate(navGeo);
-        chk(sg.n === 4 && sg.oneRow && sg.whole && !sg.scrolls && sg.cut.length === 0, `${t} #4661: the four buttons (a swarm's too) are one row, whole, unscrolled, no word cut`, JSON.stringify(sg));
+        chk(sg.n === 4 && sg.oneRow && sg.whole && !sg.scrolls && sg.cut.length === 0 && sg.spill.length === 0, `${t} #4661: the four buttons (a swarm's too) are one row, whole, unscrolled, no word cut`, JSON.stringify(sg));
         chk(sg.h <= 60, `${t} #4661: the swarm row stays at most two text lines tall (the icons give way to its status word)`, `h=${sg.h}`);
         // The same row with larger text (browser text size or page zoom): where the words were once broken mid-word
         // ("Messa / ge"). Checked per character, so a between-words wrap passes and a split word does not.
-        await page.evaluate(() => { document.documentElement.style.fontSize = '24px'; });
-        await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-        const sg2 = await page.evaluate(navGeo);
-        chk(sg2.whole && !sg2.scrolls && sg2.cut.length === 0, `${t} #4661: at 150% text the swarm row is whole and no word is broken`, JSON.stringify(sg2));
+        for (const pct of [130, 150]) {
+          await page.evaluate((px) => { document.documentElement.style.fontSize = px + 'px'; }, 16 * pct / 100);
+          await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+          const sg2 = await page.evaluate(navGeo);
+          // Here four buttons may need two lines (a word wider than a quarter of the screen): wrapped is fine,
+          // cut, clipped or spilling is not.
+          chk(sg2.whole && !sg2.scrolls && sg2.cut.length === 0 && sg2.spill.length === 0, `${t} #4661: at ${pct}% text every swarm-row button is whole, no word broken, clipped or outside its button (the row may wrap)`, JSON.stringify(sg2));
+        }
         await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
         const swn = await page.evaluate(() => {
           const show = (id, text) => { const e = document.getElementById(id); e.hidden = false; if (text) e.textContent = text; };
