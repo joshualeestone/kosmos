@@ -8,6 +8,14 @@
 # (feedback-triage.freshSince), and posts a SHORT summary to #admin with a link to /admin's Reports inbox
 # (feedback-triage.adminSummary). It opens no card and changes no report (#2246: a person decides).
 #
+# ECHO'S RESULT (#4415 wording): the agent that triages the reports (Echo) runs this once a day AFTER triaging them and
+# filing or commenting on cards, with FEEDBACK_DIGEST_MESSAGE_FILE naming a file that holds its own result. Then THAT
+# text is posted, verbatim, instead of the automatic summary (cut at a line break to fit one Discord message, and it
+# says so when cut). The pull, the card list and the triage are skipped (Echo already did that work); the lock, the
+# watermark (moves on a 200 only), at-least-once delivery, the token handling and the dry run are the same.
+# The variable set to an empty value, a missing or unreadable file, or an empty one REFUSES (exit 2): falling back to
+# the automatic text would tell #admin nothing was triaged on a day it was.
+#
 # WHY ONLY SINCE THE LAST POST: over all time the store held 39 reports and about 105 candidates (measured
 # 2026-09-28); a digest of all of them every day would be the same wall each morning. A day's worth is a handful.
 #
@@ -24,6 +32,7 @@
 #   FEEDBACK_DIGEST_PULL_DIR  read reports from this folder instead of pulling from the store
 #   FEEDBACK_DIGEST_CARDS_CMD prints the open card titles, one per line (default: gh issue list)
 #   FEEDBACK_DIGEST_POST_CMD  called with <payload.json>; prints the HTTP status (default: curl to Discord)
+# INPUT (not a seam): FEEDBACK_DIGEST_MESSAGE_FILE, Echo's result, above.
 set -u
 ENGINE="${KOSMOS_ENGINE:-$HOME/.local/share/kosmos/app/engine}"
 NODE="${KOSMOS_NODE:-$HOME/.local/share/kosmos/runtime/bin/node}"
@@ -34,6 +43,15 @@ ADMIN_URL="${FEEDBACK_DIGEST_ADMIN_URL:-https://installkosmos.com/admin}"
 DRY="${FEEDBACK_DIGEST_DRY_RUN:-}"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') feedback-digest: $*"; }
+# ${VAR+x}: SET, even to empty, counts. An empty value is a wiring mistake, and it refuses like a missing file.
+MSG_FILE=""
+if [ -n "${FEEDBACK_DIGEST_MESSAGE_FILE+x}" ]; then
+  MSG_FILE="$FEEDBACK_DIGEST_MESSAGE_FILE"
+  if [ -z "$MSG_FILE" ] || [ ! -f "$MSG_FILE" ] || [ ! -r "$MSG_FILE" ] || ! grep -q '[^[:space:]]' "$MSG_FILE" 2>/dev/null; then
+    log "REFUSED: FEEDBACK_DIGEST_MESSAGE_FILE is set but '${MSG_FILE}' is missing, unreadable or empty; nothing posted, the watermark stays"
+    exit 2
+  fi
+fi
 mkdir -p "$STATE" && chmod 700 "$STATE" || { log "FAILED: no state folder $STATE"; exit 2; }
 WORK="$(mktemp -d)" || { log "FAILED: no temp folder"; exit 2; }
 # One run at a time (review 3: a launchd run and a manual one both posted). The lock holds its owner's pid.
@@ -72,7 +90,9 @@ case "$since" in ''|*[!0-9]*) since=0 ;; esac
 # First run: the last day only, not the whole history.
 [ "$since" -eq 0 ] && since=$(( $(date +%s) - 86400 ))
 
-if [ -n "${FEEDBACK_DIGEST_CARDS_CMD:-}" ]; then
+if [ -n "$MSG_FILE" ]; then
+  : # Echo's result: no card list, pull or triage needed (below).
+elif [ -n "${FEEDBACK_DIGEST_CARDS_CMD:-}" ]; then
   $FEEDBACK_DIGEST_CARDS_CMD > "$WORK/cards" || { log "FAILED: could not read the open cards"; exit 2; }
 else
   # Review 4: bounded (no `timeout` on macOS; perl's alarm), so a hung gh cannot hold the lock for good.
@@ -82,7 +102,7 @@ fi
 
 # A list as long as gh's limit is a ceiling, not a total: cards past it would not match, and reports about them would
 # be posted as new. Refuse rather than post a digest that under-matches. (Checked on either source of the list.)
-[ "$(wc -l < "$WORK/cards" | tr -d ' ')" -ge 2000 ] && { log "FAILED: the open card list hit its 2000 limit; raise it"; exit 2; }
+[ -z "$MSG_FILE" ] && [ "$(wc -l < "$WORK/cards" | tr -d ' ')" -ge 2000 ] && { log "FAILED: the open card list hit its 2000 limit; raise it"; exit 2; }
 
 cat > "$WORK/digest.js" <<'JS'
 const [engine, pullDir, dir, since, adminUrl, cardsFile, runStart] = process.argv.slice(2);
@@ -100,15 +120,38 @@ const fs = require('fs'), path = require('path');
   process.stdout.write(t.adminSummary(t.freshSince(files, since, runStart), fs.readFileSync(cardsFile, 'utf8'), adminUrl));
 })().catch((e) => { console.error(String(e && e.message)); process.exit(3); });
 JS
+# Echo's result, bounded to one Discord message (2000 characters; counted in UTF-16 units, which is never fewer than
+# Discord's count). Cut at the last line break that fits, with a line saying so; a single line longer than the limit is
+# cut mid-line. Written to a file and handed to jq as-is, so the post is the file's text byte for byte when it fits.
+cat > "$WORK/bound.js" <<'JS'
+const fs = require('fs');
+const [src, dst] = process.argv.slice(2);
+const MAX = 2000, NOTE = '\n[cut here to fit one Discord message]';
+const text = fs.readFileSync(src, 'utf8');
+if (text.length <= MAX) { fs.writeFileSync(dst, text); process.exit(0); }
+let head = text.slice(0, MAX - NOTE.length);
+const nl = head.lastIndexOf('\n');
+if (nl > 0) head = head.slice(0, nl);
+fs.writeFileSync(dst, head + NOTE);
+process.stderr.write('cut from ' + text.length + ' to ' + (head.length + NOTE.length) + ' characters\n');
+JS
 mkdir -p "$WORK/pulled"
-summary="$("$NODE" "$WORK/digest.js" "$ENGINE" "${FEEDBACK_DIGEST_PULL_DIR:-}" "$WORK/pulled" "$since" "$ADMIN_URL" "$WORK/cards" "$RUN_START")" \
-  || { log "FAILED: pull or triage (see above)"; exit 2; }
+if [ -n "$MSG_FILE" ]; then
+  "$NODE" "$WORK/bound.js" "$MSG_FILE" "$WORK/message" 2> "$WORK/bound.err" \
+    || { log "FAILED: could not read the message file $MSG_FILE"; exit 2; }
+  [ -s "$WORK/bound.err" ] && log "the message file was longer than one Discord message: $(cat "$WORK/bound.err")"
+  summary="(Echo's result, $MSG_FILE)"
+else
+  summary="$("$NODE" "$WORK/digest.js" "$ENGINE" "${FEEDBACK_DIGEST_PULL_DIR:-}" "$WORK/pulled" "$since" "$ADMIN_URL" "$WORK/cards" "$RUN_START")" \
+    || { log "FAILED: pull or triage (see above)"; exit 2; }
+  printf '%s' "$summary" > "$WORK/message"
+fi
 
 # date -r <epoch> is macOS (BSD) date; this job runs on the fleet's Macs.
 if [ -z "$summary" ]; then log "no new reports since $(date -r "$since" '+%Y-%m-%d %H:%M'); nothing posted"; exit 0; fi
-if [ -n "$DRY" ]; then log "DRY RUN, would post:"; printf '%s\n' "$summary"; exit 0; fi
+if [ -n "$DRY" ]; then log "DRY RUN, would post:"; cat "$WORK/message"; echo; exit 0; fi
 
-printf '%s' "$summary" | jq -Rs '{content: ., allowed_mentions: {parse: []}}' > "$WORK/payload" \
+jq -Rs '{content: ., allowed_mentions: {parse: []}}' < "$WORK/message" > "$WORK/payload" \
   || { log "FAILED: could not build the message"; exit 2; }
 if [ -n "${FEEDBACK_DIGEST_POST_CMD:-}" ]; then
   code=$($FEEDBACK_DIGEST_POST_CMD "$WORK/payload")

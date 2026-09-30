@@ -60,7 +60,12 @@ content="$(jq -r .content "$T/posted.json")"
 printf '%s' "$content" | grep -q '^Daily reports: 1 new since the last digest' || fail "wrong count line: $content"
 printf '%s' "$content" | grep -q 'room scroll jumps' || fail "the new report's candidate is missing: $content"
 printf '%s' "$content" | grep -q 'export button' && fail "an OLD report reached the post: $content"
-printf '%s' "$content" | grep -q 'https://example.test/admin (Reports). No card was opened.' || fail "no inbox link: $content"
+printf '%s' "$content" | grep -q 'Where they live: https://example.test/admin (Reports)' || fail "no inbox link: $content"
+# #4415 wording: the default text reports status and asks Josh for nothing (he read the old line as a task for him).
+printf '%s' "$content" | grep -q '^Daily reports: 1 new since the last digest. Not yet triaged into cards.$' || fail "the default text does not say they are untriaged: $content"
+for bad in 'mark them triaged' 'No card was opened' 'Read them all'; do
+  printf '%s' "$content" | grep -qi "$bad" && fail "the default text still says '$bad': $content"
+done
 [ "$(jq -c '.allowed_mentions.parse' "$T/posted.json")" = '[]' ] || fail "the post can mention people"
 w=$(cat "$T/state/last-posted"); [ "$w" -ge "$((now - 1))" ] || fail "the watermark did not move after a 200 ($w < $now)"
 # Review 3: the watermark is the run's START, not the time of the post: a report arriving while the run pulls or posts
@@ -156,4 +161,48 @@ printf '#!/bin/bash\nfor i in $(seq 1 2000); do echo "#$i card $i"; done\n' > "$
 if FEEDBACK_DIGEST_CARDS_CMD="$T/cards2000.sh" run >/dev/null 2>&1; then fail "a card list at its limit was trusted"; fi
 [ ! -f "$T/posted.json" ] || fail "posted with a truncated card list"
 
-echo "PASS: feedback-digest-daily (nothing new, posted, mid-post arrival once, unwritable watermark, lock races, future watermark, failed post, dry run, no cards, card list at its limit)"
+# 7. #4415 wording: Echo's own result, FEEDBACK_DIGEST_MESSAGE_FILE, is posted VERBATIM instead of the automatic text.
+# The card list is made unreadable on purpose: with a message file the run must not need it (nor the pull).
+unset FEEDBACK_DIGEST_DRY_RUN
+echo "$((now - 3600))" > "$T/state/last-posted"; rm -f "$T/posted.json"; echo 200 > "$T/code"
+printf 'Reports read: 3 from 2 installs.\nCards filed: 1\n- #9001 Room scroll jumps to the top.\nHeld back: 1, `a` *quoted* <@123> line.\n\n' > "$T/echo.txt"
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" FEEDBACK_DIGEST_CARDS_CMD=false run 2>&1)" || fail "a message-file run failed: $out"
+jq -j .content "$T/posted.json" > "$T/posted.txt" || fail "no post for a message file"
+cmp -s "$T/posted.txt" "$T/echo.txt" || fail "the message file was not posted verbatim: $(cat "$T/posted.txt")"
+[ "$(jq -c '.allowed_mentions.parse' "$T/posted.json")" = '[]' ] || fail "a message-file post can mention people"
+w=$(cat "$T/state/last-posted"); [ "$w" -ge "$((now - 1))" ] || fail "the watermark did not move after a 200 with a message file"
+# ...and on a failed post the watermark stays.
+echo "$((now - 3600))" > "$T/state/last-posted"; echo 500 > "$T/code"
+if FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run >/dev/null 2>&1; then fail "a 500 with a message file exited zero"; fi
+[ "$(cat "$T/state/last-posted")" = "$((now - 3600))" ] || fail "the watermark moved on a failed message-file post"
+echo 200 > "$T/code"
+
+# 8. The variable set with no usable file REFUSES: non-zero, a clear line, nothing posted, the watermark still.
+: > "$T/empty.txt"; printf ' \n\t\n' > "$T/blank.txt"
+for f in "$T/empty.txt" "$T/blank.txt" "$T/no-such-file.txt" ""; do
+  rm -f "$T/posted.json"
+  if out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$f" run 2>&1)"; then fail "a message file '$f' that cannot be posted exited zero: $out"; fi
+  printf '%s' "$out" | grep -q 'REFUSED: FEEDBACK_DIGEST_MESSAGE_FILE is set' || fail "no clear refusal for '$f': $out"
+  [ ! -f "$T/posted.json" ] || fail "a message file '$f' that cannot be posted fell back to a post"
+  [ "$(cat "$T/state/last-posted")" = "$((now - 3600))" ] || fail "the watermark moved on a refused run ('$f')"
+done
+
+# 9. A message longer than one Discord message is cut at a line break, and says so.
+: > "$T/long.txt"; for i in $(seq 1 120); do printf 'Line %03d: a card that was filed today, one line each.\n' "$i" >> "$T/long.txt"; done
+rm -f "$T/posted.json"
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/long.txt" run 2>&1)" || fail "a long message file failed: $out"
+printf '%s' "$out" | grep -q 'longer than one Discord message' || fail "a cut was not logged: $out"
+c="$(jq -j .content "$T/posted.json")"
+n=$(printf '%s' "$c" | "$NODE_BIN" -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(s.length))')
+[ "$n" -le 2000 ] || fail "the cut message is $n characters, over Discord's 2000"
+[ "$n" -ge 1800 ] || fail "the cut threw away far more than it needed ($n characters)"
+printf '%s' "$c" | tail -1 | grep -qx '\[cut here to fit one Discord message\]' || fail "the cut does not say so: $(printf '%s' "$c" | tail -2)"
+printf '%s\n' "$c" | sed '$d' | while IFS= read -r l; do grep -qxF "$l" "$T/long.txt" || { echo "PARTIAL: $l"; }; done | grep -q PARTIAL && fail "the cut split a line"
+
+# 10. A dry run with a message file prints it and posts nothing.
+rm -f "$T/posted.json"
+out="$(FEEDBACK_DIGEST_DRY_RUN=1 FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run)" || fail "a message-file dry run failed"
+printf '%s' "$out" | grep -q '#9001 Room scroll jumps' || fail "the dry run did not print the message file: $out"
+[ ! -f "$T/posted.json" ] || fail "a message-file dry run posted"
+
+echo "PASS: feedback-digest-daily (message file verbatim, refusals, cut at a line break, message-file dry run, nothing new, posted, mid-post arrival once, unwritable watermark, lock races, future watermark, failed post, dry run, no cards, card list at its limit)"
