@@ -3,8 +3,9 @@
 /**
  * #4491 slice 5: `kosmos task add` and `kosmos task close` answer to the agent's own token. The board names the
  * caller from it (task add also from its pane; task close reads no body, so from the token only) and an identified
- * agent adds and closes tasks only in a project it is on, the line task message and task built already draw. A
- * caller nobody can name (the page, the person's terminal) is as before.
+ * agent adds and closes tasks only in a project it is on, the line task message and task built already draw, with
+ * one exception: a project a process made that still lists nobody (what `kosmos project create` makes). A caller
+ * nobody can name (the page, the person's terminal) is as before.
  *
  * Same harness as server.agent-token-gate-4491.test.js: the board boots fully sandboxed, then enforcement is
  * flipped on in memory, so no real store is touched. The task engine's writes are stubbed, so nothing is written.
@@ -63,14 +64,14 @@ const asAgent = (t) => ({ 'x-kosmos-agent-token': t });
 const withBoard = (h = {}) => ({ 'x-kosmos-board-token': BOARD, ...h });
 
 /* A fleet of two (mara is on p4491, otto is not), the project record, and the task engine's writes recorded, not made. */
-function world(t, { members = ['mara'], unreadable = () => false, extra = [] } = {}) {
+function world(t, { members = ['mara'], unreadable = () => false, extra = [], origin = { via: 'screen', by: null } } = {}) {
   const board = fleet.install([...extra, fleet.agent('mara', { state: 'idle' }), fleet.agent('otto', { state: 'idle' })]);
   const real = { readAll: projectsEngine.readAll, create: tasksEngine.create, close: tasksEngine.close, reopen: tasksEngine.reopen };
   const made = [];
   const acts = [];
   projectsEngine.readAll = () => {
     if (unreadable()) { const e = new Error('unreadable'); e.code = 'UNREADABLE'; throw e; }
-    return [{ id: 'p4491', name: 'p4491', agents: members, tasks: [] }];
+    return [{ id: 'p4491', name: 'p4491', agents: members, tasks: [], made: origin }];
   };
   tasksEngine.create = (id, fields) => { made.push({ id, by: fields.made.by, via: fields.made.via, sentence: fields.sentence }); return { number: made.length, sentence: fields.sentence, who: null }; };
   tasksEngine.close = (id, n) => { acts.push(['close', id, String(n)]); return { number: Number(n), state: 'closed' }; };
@@ -248,13 +249,54 @@ test('task close: when the projects cannot be read, a token is refused (503) and
   assert.deepEqual(w.acts, [['close', 'p4491', '1']]);
 });
 
-test('a project with no members (what `kosmos project create` makes) takes tasks from any identified agent, as before', async (t) => {
+test('a project a process made that still lists nobody (what `kosmos project create` makes) takes tasks from an identified agent, as before', async (t) => {
   /* The agent instructions say: make a project, then hand it work. The CLI makes it with nobody on it. */
-  const w = world(t, { members: [] });
+  const w = world(t, { members: [], origin: { via: 'process', by: null } });
   const add = await call('POST', '/api/project/p4491/tasks', { headers: asAgent(w.otto), body: { sentence: 'first task on my new project' } });
   assert.equal(add.code, 200, 'the maker of a memberless project could not hand it work: ' + add.code + ' ' + add.text.slice(0, 160));
-  assert.equal((await call('POST', '/api/project/p4491/task/1/close', { headers: asAgent(w.otto) })).code, 200);
-  assert.deepEqual([w.made.map((m) => m.by), w.acts], [['otto'], [['close', 'p4491', '1']]]);
+  /* Any task there, not only its own: a stated consequence (the plan's "Who gains"). */
+  assert.equal((await call('POST', '/api/project/p4491/task/7/close', { headers: asAgent(w.otto) })).code, 200);
+  assert.deepEqual([w.made.map((m) => m.by), w.acts], [['otto'], [['close', 'p4491', '7']]]);
+});
+
+test('a project with no members that the PERSON made or emptied, or whose member list is not a list, is not opened', async (t) => {
+  let agents = [];
+  let made = { via: 'screen', by: null };
+  const w = world(t);
+  const realAll = projectsEngine.readAll;
+  projectsEngine.readAll = () => [{ id: 'p4491', name: 'p4491', agents, tasks: [], made }];
+  try {
+    const tryBoth = async (why) => {
+      assert.equal((await call('POST', '/api/project/p4491/tasks', { headers: asAgent(w.otto), body: { sentence: 'x' } })).code, 403, 'task add opened: ' + why);
+      assert.equal((await call('POST', '/api/project/p4491/task/1/close', { headers: asAgent(w.otto) })).code, 403, 'task close opened: ' + why);
+    };
+    await tryBoth('a project the person made with nobody ticked, or emptied by removing its last member');
+    made = null;
+    await tryBoth('an old record with no `made`');
+    made = { via: 'kosmos', by: null };
+    await tryBoth('a project Kosmos made itself');
+    made = { via: 'process', by: null };
+    for (const shape of [undefined, null, 'mara', { 0: 'mara' }]) { agents = shape; await tryBoth('a process-made project whose agents is ' + JSON.stringify(shape)); }
+    agents = ['mara'];
+    await tryBoth('a process-made project that has a member now');
+    assert.deepEqual([w.made, w.acts], [[], []]);
+    /* CONTROL: the same process-made project with an empty list IS open, so the 403s above are each their own reason. */
+    agents = [];
+    assert.equal((await call('POST', '/api/project/p4491/tasks', { headers: asAgent(w.otto), body: { sentence: 'x' } })).code, 200);
+  } finally { projectsEngine.readAll = realAll; }
+});
+
+test('a project id stored twice, one copy empty and process-made, the other with members the agent is not on: refused', async (t) => {
+  const w = world(t);
+  const realAll = projectsEngine.readAll;
+  projectsEngine.readAll = () => [
+    { id: 'p4491', name: 'one', agents: [], tasks: [], made: { via: 'process', by: null } },
+    { id: 'p4491', name: 'two', agents: ['mara'], tasks: [], made: { via: 'screen', by: null } },
+  ];
+  try {
+    assert.equal((await call('POST', '/api/project/p4491/tasks', { headers: asAgent(w.otto), body: { sentence: 'x' } })).code, 403);
+    assert.equal((await call('POST', '/api/project/p4491/tasks', { headers: asAgent(w.mara), body: { sentence: 'x' } })).code, 200, 'control: a member of the staffed copy adds');
+  } finally { projectsEngine.readAll = realAll; }
 });
 
 test('task close: a member closes with only its own token; a non-member is refused and nothing is closed', async (t) => {

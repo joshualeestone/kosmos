@@ -6,7 +6,8 @@ that branch until it merges; then rebased onto main.
 ## Finished looks like
 1. `POST /api/project/<p>/tasks` (`kosmos task add`) and `POST /api/project/<p>/task/<n>/close` (`kosmos task
    close`) pass the board-token gate for a loopback caller presenting only a valid agent token in the header.
-2. Both handlers name the caller and an identified agent adds and closes tasks only in a project it is on. Task
+2. Both handlers name the caller and an identified agent adds and closes tasks only in a project it is on, with
+   one exception: a project a process made that still lists nobody (what `kosmos project create` makes). Task
    add names it from the token, else from the pane. Task close reads no body, so it names it from the token ONLY.
    A task added by an agent is recorded as added by it.
 3. Both CLIs send the agent's own token on those two verbs, plain hex only, and still send the board token.
@@ -50,17 +51,28 @@ may an agent put on a new project) and `kosmos room reopen` (it clears the loop-
   add` away from a person's own tmux window on a tmux hiccup).
 - **Who gains, for these writes.** A caller that holds only its own token (a Claude setup guide on a Mac; an agent
   behind the person's reverse proxy) can now add a task, with an assignee, and close one, in a project it is on.
+  In a process-made project that still lists nobody it can add a task (no assignee is possible there) and close
+  any task.
   Adding a task with an assignee tells that agent and spends the shared runaway budget, as it does for every
   agent. Such a caller cannot put itself on a project (slice 4's plan has the routes).
-- **A project with no members is not narrowed (added in review round 5).** `kosmos project create` makes a
-  project with nobody on it, not even its maker, and every agent's working rules say "You can make a project
-  yourself ... Once it exists you post to it and hand it work the same way as any other project". With the
-  membership rule as first written, an agent that made a project could no longer add its first task to it, and
-  could not put itself on it either. So a project that lists no agents takes tasks from any identified agent, as
-  it did before this slice. Nobody is on such a project to be spoken for, and a task there can have no assignee.
-  The real repair belongs to the next slice (project create names its maker and puts it on the project); until
-  then the "post to it" half of that instruction is already untrue on main for the same reason (a room refuses a
-  non-member), which is noted on the card for that slice.
+- **One exception: a project a process made that still lists nobody (round 5, narrowed in round 6).** `kosmos
+  project create` makes a project with nobody on it, not even its maker, and every agent's working rules say "You
+  can make a project yourself ... Once it exists you post to it and hand it work the same way as any other
+  project". With the membership rule as first written, an agent that made a project could no longer add its first
+  task to it, and could not put itself on it either. So a project whose record says a process made it
+  (`made.via === 'process'`) and whose member list is an empty list takes tasks from any identified agent, as it
+  did before this slice. Round 5's first form of this ("any project with no members") was too wide: it also
+  opened a project the person made with nobody ticked, one emptied by removing its last member, and any record
+  whose member list was not a list. None of those is opened now. `made` is an advisory record, used here only to
+  keep a prescribed workflow working and never to let a caller into a project that has members.
+  What it allows there, stated: an identified agent (on a token alone, or with the board token) adds tasks and
+  closes ANY task in such a project, including one the person added. A task there can have no assignee.
+  What stays inconsistent until the next slice: on that same project the agent cannot, on its token alone, read
+  the task list or the room, message a task or mark it built (those check membership and have no such exception).
+  With the board token its CLI still sends, all of that works as it does today. The real repair is for project
+  create to name its maker and put it on the project. The "post to it" half of that instruction is already untrue
+  on main for the same reason (engine/messages.js refuses a post from an agent the project does not list: "you
+  are not on that project, so this room is not yours to post into"; read, not run).
 - **Task close reads no body.** The token comes from the header only, and the roster is read only when a token is
   presented, so the page's and the terminal's close cost what they cost before.
 - **Reopen shares the handler and so the rule, but not the gate.** `reopen` is not in the pattern: it stays behind
@@ -84,17 +96,17 @@ may an agent put on a new project) and `kosmos room reopen` (it clears the loop-
   lists ("Ghost"); the label shows the key.
 
 ## Weakest premise
-That no real workflow has an agent adding or closing tasks on a project that HAS members and that it is not on. A
-lead agent that files tasks for other teams' projects would now be refused until it is put on them. (The first
-version of this premise had no "that has members", and round 5 showed the product's own instructions contradict
-it: an agent is told to make a project and hand it work.)
+That no real workflow has an agent adding or closing tasks on a project that has members and that it is not on. A
+lead agent that files tasks for other teams' projects would now be refused until it is put on them. (Round 5
+showed the first, wider form of this premise was contradicted by the product's own instructions for a project an
+agent makes; that case is the exception above.)
 
 ## What would change this
 - Josh saying an agent may add tasks anywhere: drop `notOnProjectRefusal` from the task-add handler (one line);
   the token still names who added it.
 
 ## Tests
-- `server.agent-writes-4491.test.js` (new, 18; rounds 1, 3 and 5 added six): the gate refuses both writes bare and with an unissued token; a
+- `server.agent-writes-4491.test.js` (new, 20; rounds 1, 3, 5 and 6 added eight): the gate refuses both writes bare and with an unissued token; a
   member adds on its token alone and the task is recorded as added by it; a non-member is refused with and without
   the board token and nothing reaches the task engine; the body cannot name another agent; a pane names its agent
   (through resolveSender) and a non-member pane is refused, while a pane nobody holds, no pane, and the page are as
@@ -106,8 +118,10 @@ it: an agent is told to make a project and hand it work.)
   A roster pane not tied to our agent names nobody (red with the `isNamedOurs` test removed). A token resolver that
   throws is a 503 on both writes and the board keeps answering (with the catch removed the test file hangs and
   fails). An unreadable projects list is a 503 on close too.
-  A project with no members takes a task from, and lets it be closed by, an agent that is on no list (red with the
-  memberless clause removed).
+  A process-made project that lists nobody takes a task from an agent on no list and lets it close any task
+  there. The same project is NOT opened when the person made it, when it has no `made` record, when Kosmos made
+  it, when its member list is not a list, or once it has a member. A doubled id with one such copy and one
+  staffed copy refuses a non-member of the staffed one. Each measured red (see round 6).
   Measured red, one mutation each: no membership rule; the gate left closed; a bad token swapped for the pane; the
   close handler naming nobody; an unreadable list failing open; everyone counted a member; the page held to a pane
   it sent; the adder not recorded.
@@ -170,4 +184,14 @@ it: an agent is told to make a project and hand it work.)
   declared); the refusal verb is built from the route's verb (two verbs today).
 - Its four attempts to break the rule from the code all failed (another project; another author; a store and
   answer that disagree; a throw or hang in close).
+
+## Review round 6 (sonnet): 0 BLOCKER, 1 WARNING, 2 CONVENTION, 2 NIT
+- W "any project with no members" also opened a project emptied by removing its last member, and a member list
+  that is not a list: narrowed to a process-made project whose list is an empty list. Five shapes tested closed,
+  with the open one as the control in the same test.
+- C "Finished looks like" 2 and the test header did not mention the exception; "Who gains" did not either: all
+  three say it now.
+- NITs: the test now closes a task the agent did not add (the widest thing the exception allows); "the post half
+  is already untrue on main" is marked as read from engine/messages.js, not run.
+- The reviewer's consistency finding is recorded above as what stays inconsistent until the next slice.
 
