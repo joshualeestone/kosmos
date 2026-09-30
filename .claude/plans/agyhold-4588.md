@@ -11,7 +11,8 @@ Card: #4588. Stacked on PR A (branch agyquota-4588, not yet merged). Design and 
 - Callers: the unanswered sweep (messages.js), auto-handoff, first-reply nudge, account notice,
   recommender, assigner ask, agent nudge (server.js closures), auto-retell (`retellMember(..., { automatic: true })`
   through `speakOfMembership`). PR A's resume sweep stays on `deliver`.
-- A hold spends no one-shot budget: first-reply and agent nudge keep their try; the unanswered sweep writes no row;
+- A hold spends no one-shot budget that a delivery could have used (a STOPPED agent's retell line is refused with or
+  without a hold, as before this branch): first-reply and agent nudge keep their try; the unanswered sweep writes no row;
   the assigner refunds its ask charge with no failure counted; the recommender does not convene a held stuck agent.
 - The assigner does not pick a held agent (its idle clock is kept); `givePart` in assigner mode refuses a held agent
   before assigning, as a backstop.
@@ -159,3 +160,17 @@ held needlessly until the reset: the safe direction, it costs only delay.
   counts only ours (PR A's code, not changed here).
 - Measured: engine/agyhold-4588.test.js 28/28; the targeted set 293/293. Mutations: the resume age ignoring the pool
   (1 red), held peers asked (2 red), the peer filter reintroduced (1 red: the wording test).
+
+## Review iteration 8 (blind, sonnet)
+- (W) DEFERRED, measured: the release slot and prune horizon come from the roster each caller passes, so a subset
+  roster would shift them. Every gated sender passes safeRoster() cards (measured in server.js: the unanswered sweep,
+  auto-handoff, first-reply, account notice, recommender, assigner, agent nudge, and the auto-retell's board()), so
+  they all see the same full cards. A future sender with a thinner roster would get later or earlier steps (delay
+  only) and, without quotaUntil, no hold.
+- (W) DEFERRED: a STOPPED agy agent is ready() for the auto-retell before the hold check, so its one retell is spent
+  and the listed line comes back COULD_NOT. A stopped pane refuses that line with or without a hold, exactly as before
+  this branch, and the instructions write it needs happens either way. The plan's "no one-shot budget" line is
+  narrowed to say so.
+- (N) LEFT: a held fresh recommender item's hourly charge counts inside that one step before its refund (transient);
+  other suites could leak POOL_MEMO only with antigravity cards carrying quotaUntil (none do); the resume waits for
+  the whole pool, bounded by MAX_POOL_MS (the PR description will say so).
