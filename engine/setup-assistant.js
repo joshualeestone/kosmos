@@ -304,6 +304,8 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
   }
   return { rules, entryBase };
 }
+/* A folder's real path when it can be read, else the path as given. */
+function realOr(p) { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } }
 /* A path as a Claude Code rule spells an absolute one: two slashes, then the path without its leading slashes. */
 function ruleAbs(p) { return '//' + String(p).replace(/^\/+/, ''); }
 /* #4752: is `rule` one this code writes for a single entry directly in `base` (either form), for a name
@@ -374,7 +376,19 @@ function guardGuideFolder(dir, agentName, deps = {}) {
        behind for ever. Only a rule this code could have written for one entry is dropped (wasEntryRule); any
        other rule stays, a person's own rule for the registry or for a name this code leaves alone included. */
     const kept = fresh.entryBase ? had.filter((r) => fresh.rules.includes(r) || !wasEntryRule(r, fresh.entryBase)) : had;
-    const deny = [...new Set([...kept, ...fresh.rules])];
+    /* #4752: never a rule that takes in the guide's own folder. An older folder or a linked entry a person made
+       can resolve to an ancestor of it; the sandbox follows links, so such a rule would cut the guide off from its
+       own instructions. Dropped, and said. */
+    const own = realOr(dir);
+    const safe = fresh.rules.filter((r) => {
+      const m = /^Read\(\/\/([^*?]*?)(\/\*\*)?\)$/.exec(r);
+      if (!m) return true;
+      const target = realOr('/' + m[1]);
+      if (own !== target && !own.startsWith(target.endsWith(path.sep) ? target : target + path.sep)) return true;
+      process.stderr.write(`#4752: a rule that would take in the guide's own folder was left out: ${r}\n`);
+      return false;
+    });
+    const deny = [...new Set([...kept, ...safe])];
     const next = { ...cur, permissions: { ...perms, deny } };
     /* Sandboxed Bash (Ice Cream Kitty's review): the deny rules above bind Claude Code's own tools, and
        a shell command such as `node -e readFileSync('.env')` or `grep -r` is a subprocess they do not

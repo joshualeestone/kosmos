@@ -24,6 +24,8 @@ const { execFileSync } = require('node:child_process');
 const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-guide-deny-4752-')));
 process.env.AGENT_WORKFORCE_HOME = path.join(SANDBOX, 'home');
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+for (const [k, d] of [['AGENT_WORKFORCE_WORKERS', 'workers'], ['AGENT_WORKFORCE_PROJECTS', 'projects'], ['AGENT_WORKFORCE_LAUNCH', 'launch']]) process.env[k] = path.join(SANDBOX, d);
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 fs.mkdirSync(process.env.AGENT_WORKFORCE_HOME, { recursive: true });
 
 const setupAssistant = require('./setup-assistant');
@@ -252,4 +254,24 @@ test('#4752 the older folder is worked out for the home the rules were asked abo
   const abs = (p) => '//' + p.replace(/^\/+/, '');
   assert.notEqual(out.want, out.ambient, 'CONTROL: the two homes give the same folder, so this arm proves nothing');
   assert.ok(out.rules.includes(`Read(${abs(out.want)}/**)`), 'the older folder of the home asked about is not denied');
+});
+
+test('#4752 a rule that would take in the guide\'s own folder (an older folder that is a link to its parent) is left out, and said', () => {
+  const home = path.join(SANDBOX, 'own-home');
+  const guide = path.join(home, 'workers', 'guide');
+  fs.mkdirSync(guide, { recursive: true });
+  const link = path.join(SANDBOX, 'AgentWorkforce-link');
+  fs.symlinkSync(path.join(home, 'workers'), link);
+  const said = [];
+  const write = process.stderr.write;
+  process.stderr.write = (s, ...rest) => { if (String(s).startsWith('#4752')) { said.push(String(s)); return true; } return write.call(process.stderr, s, ...rest); };
+  let deny;
+  try {
+    assert.equal(setupAssistant.guardGuideFolder(guide, 'guide', { dataRoot: path.join(SANDBOX, 'data-own'), worldsBase: null, legacyRoots: [link] }).ok, true);
+    deny = JSON.parse(fs.readFileSync(path.join(guide, '.claude', 'settings.json'), 'utf8')).permissions.deny;
+  } finally { process.stderr.write = write; }
+  const bad = `Read(//${link.replace(/^\/+/, '')}/**)`;
+  assert.ok(!deny.includes(bad), 'the rule that covers the guide\'s own folder was written');
+  assert.equal(said.length, 1, 'leaving it out was not said');
+  assert.ok(deny.includes(`Read(//${path.join(SANDBOX, 'data-own').replace(/^\/+/, '')}/**)`), 'CONTROL: the ordinary data folder rule is gone');
 });
