@@ -213,6 +213,9 @@ function markGuideFolder(agentName) {
  *     a Claude guide anywhere else     not refused: no sandbox is written there (not measured)
  *     a Codex, Gemini or Grok guide    not refused: its runner does not read that settings file (not measured)
  *   Even in the first row the refusal reaches only the paths these rules name.
+ * - #4752: the other folders a board token can sit in are denied too: the older data folder, and, for a guide
+ *   in a named world, the default world's board.token and every world's store. Not the worlds' base whole: a
+ *   named world's agents, the guide included, live under it.
  */
 /* The same home accounts.js and create.js use (a named world or a test sets it). */
 function kosmosHome() { return process.env.AGENT_WORKFORCE_HOME || require('os').homedir(); }
