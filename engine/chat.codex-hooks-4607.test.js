@@ -349,7 +349,7 @@ test('#4607 round 4: an answer that says nothing about what was shown presses no
 /* Review round 5: only measured steps. */
 test('#4607 round 5: Trust from one hook\'s page only goes back to the full list, and asks again', () => withCodex(HOOK, async (board) => {
   const t = arm([HOOK, HOOK, TABLE]);
-  const r = await chat.answerCodexHooks('sam', 'trust', board.agents, SHOWN);
+  const r = await chat.answerCodexHooks('sam', 'list', board.agents, SHOWN);
   assert.equal(r.ok, false);
   assert.equal(r.reread, true);
   assert.match(r.because, /full list of hooks is showing now/);
@@ -372,7 +372,7 @@ test('#4607 round 5: Close that reaches a menu presses nothing there', () => wit
 }));
 
 test('#4607 round 5: the refusal sentences say the PERSON answers it, for an agent to pass on', () => {
-  for (const s of [status.CODEX_HOOK_DIALOG_SENTENCE, status.CODEX_HOOK_LIST_SENTENCE]) assert.match(s, /The person (answers|closes) it on its agent page/);
+  for (const s of [status.CODEX_HOOK_DIALOG_SENTENCE, status.CODEX_HOOK_LIST_SENTENCE]) assert.match(s, /on its agent page in Kosmos .* by the person/);   // round 15: reads right for the person and for an agent
 });
 
 /* Review round 7. */
@@ -504,3 +504,31 @@ test('#4607 round 14: a failure before any trusting key does not say so', () => 
   assert.deepEqual(t.keys(), ['Escape']);
   assert.doesNotMatch(r.because, /Trust may/);
 }));
+
+/* Review round 15. */
+test('#4607 round 15: Trust on one hook\'s page is refused before any key; a dropped Escape on the list is not called Trust', async () => {
+  await withCodex(HOOK, async (board) => {
+    const t = arm([HOOK]);
+    const r = await chat.answerCodexHooks('sam', 'trust', board.agents, SHOWN);
+    assert.equal(r.ok, false);
+    assert.deepEqual(t.keys(), []);
+  });
+  await withCodex(HOOK, async (board) => {
+    const t = arm([HOOK, HOOK, HOOK]);   // the Escape was dropped
+    const r = await chat.answerCodexHooks('sam', 'list', board.agents, SHOWN);
+    assert.equal(r.ok, false);
+    assert.deepEqual(t.keys(), ['Escape']);
+    assert.doesNotMatch(r.because, /Trust/);
+  });
+});
+
+test('#4607 round 15: each exact-shape guard is load-bearing', () => {
+  const extraRow = MENU.replace('  Press enter to confirm or esc to go back', '  4. Something else\n  Press enter to confirm or esc to go back');
+  const newSandboxLine = MENU.replace('Hooks can run outside the sandbox after you trust them.', 'Hooks may do anything.');
+  assert.deepEqual(status.codexHookMenuKeys(extraRow), { trust: null, skip: null }, 'a row between the options and the footer');
+  assert.deepEqual(status.codexHookMenuKeys(newSandboxLine), { trust: null, skip: null }, 'a changed sandbox line');
+  const noHeader = '  2 hooks need review before they can run.\n  some output\n\n  Press t to trust all; enter to review hooks; esc to close';
+  assert.equal(status.codexHookScreenExact(noHeader, 'table'), false, 'a table footer and warning with no header');
+  assert.deepEqual(status.codexHookMenuKeys(MENU), { trust: '2', skip: '3' }, 'CONTROL');
+  assert.equal(status.codexHookScreenExact(TABLE, 'table'), true, 'CONTROL');
+});

@@ -1228,7 +1228,7 @@ function sameCodexHooks(a, b) {
 async function answerCodexHooks(sessionName, choice, roster, seen) {
   const keys = [];
   const no = (because) => ({ ok: false, because, keys });
-  if (choice !== 'trust' && choice !== 'skip' && choice !== 'close') return no('choose to trust the hooks, to continue without them, or to close the list');
+  if (!['trust', 'skip', 'close', 'list'].includes(choice)) return no('choose to trust the hooks, to continue without them, or to close the list');
   const allowed = addressable(sessionName, roster);
   if (!allowed.ok) return no(allowed.because);
   /* Locked on the PANE the name resolved to, not the name as typed (review round 2: a case-folded spelling reaches the
@@ -1247,7 +1247,10 @@ async function answerCodexHooks(sessionName, choice, roster, seen) {
 /* ⚠️ Only the FIRST key is checked against what the person was shown (sameCodexHooks); after it, Trust takes at
    most "t" then Escape. A new Trust step added here must re-check what was shown before its key. */
 const CODEX_HOOK_STEPS = {
-  trust: { menu: ['digit', 'gone'], table: ['t', 'trusted'], trusted: ['Escape', 'gone'], hook: ['Escape', 'table'] },
+  trust: { menu: ['digit', 'gone'], table: ['t', 'trusted'], trusted: ['Escape', 'gone'] },
+  /* From one hook's page: back to the full list, then stop so the person reads it (review round 15: its own choice,
+     so it is never logged or worded as a Trust). */
+  list: { hook: ['Escape', 'table'] },
   skip: { menu: ['digit', 'gone'], table: ['Escape', 'gone'], hook: ['Escape', 'table'] },
   close: { trusted: ['Escape', 'gone'] },
 };
@@ -1276,14 +1279,16 @@ async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card,
   /* After a key that trusts, any later failure says so (review round 14): "nothing more was pressed" alone would read
      as though Trust did nothing, and trusting is the one choice that is hard to take back. */
   let trustPressed = false;
-  const noAfter = (m) => no(trustPressed ? `${m}. Trust may already have taken effect` : m);
+  let readFirst = null;
+  const noAfter = (m) => Object.assign(no(trustPressed ? `${m}. Trust may already have taken effect` : m), { screen: readFirst });
   const steps = CODEX_HOOK_STEPS[choice];
   let now = look();
-  const readFirst = now.screen || null;
+  readFirst = now.screen || null;
   if (now.unseen) return no('we could not see its screen just now, so nothing was pressed');
   if (now.screen === 'gone' || now.screen === 'blank') return no('the hook question is not on its screen now, so nothing was pressed');
   if (now.screen === 'trusted' && choice !== 'close') return no('its hooks are already trusted and their list is still open; close the list');
   if (now.screen !== 'trusted' && choice === 'close') return no('there is no open hook list to close on its screen now, so nothing was pressed');
+  if (now.screen === 'hook' && choice === 'trust') return no('this page names one hook; show the full list first, then choose');
   let first = true;
   for (let n = 0; n < 4; n += 1) {
     const step = steps[now.screen];
@@ -1314,14 +1319,15 @@ async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card,
     if (after.screen !== step[1]) {
       if (after.screen === now.screen) {
         /* A slow redraw is not proof the key failed (review round 11): after a Trust key it may still have landed. */
-        if (choice === 'trust') return no('we pressed Trust and its screen has not changed yet, so it may still take effect; check again in a moment');
+        if (trustPressed && now.screen === 'trusted') return noAfter('its hooks are trusted and their list is still open; close the list');
+        if (trustPressed) return Object.assign(no('we pressed Trust and its screen has not changed yet, so it may still take effect; check again in a moment'), { screen: readFirst });
         return noAfter('its screen did not change after we answered; open its Terminal tab to see it');
       }
       return noAfter('its screen went somewhere we have not measured, so nothing more was pressed; open its Terminal tab to see it');
     }
     if (after.screen === 'gone') return { ok: true, choice, keys, screen: readFirst };
     /* Trust from one hook's page: the full list is up now; the person chooses again with every hook in view. */
-    if (choice === 'trust' && now.screen === 'hook') return { ok: false, keys, because: 'the full list of hooks is showing now; read it and choose again', reread: true };
+    if (choice === 'list') return { ok: false, keys, because: 'the full list of hooks is showing now; read it and choose again', reread: true, screen: readFirst };
     now = after;
   }
   return noAfter('its screen is still asking after four keys, so we stopped; open its Terminal tab to see it');

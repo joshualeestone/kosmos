@@ -117,9 +117,10 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
       };
     }, { id, answer });
 
+    await paint({ ...base, codexHooks: HOOK });   // round 15: from the hook page's own paint, not leftover state
     /* From one hook's page the button shows the full list: the route answers reread (review round 11). */
     const rr = await press('d-qask-codex-trust', { status: 200, body: { ok: false, choice: 'trust', reread: true, because: 'the full list of hooks is showing now; read it and choose again' } });
-    chk(rr.sent && JSON.parse(rr.sent.body || '{}').seen && JSON.parse(rr.sent.body).seen.screen === 'hook' && /full list of hooks is showing now/.test(rr.msg),
+    chk(rr.sent && JSON.parse(rr.sent.body || '{}').choice === 'list' && JSON.parse(rr.sent.body).seen.screen === 'hook' && /full list of hooks is showing now/.test(rr.msg),
       `${t} on one hook's page the button asks for the full list and says so`, JSON.stringify(rr));
     /* Trust itself is pressed from the TABLE (review round 11: it used to be clicked with the hook page's summary). */
     await paint({ ...base, codexHooks: TABLE });

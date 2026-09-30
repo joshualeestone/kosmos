@@ -1641,10 +1641,10 @@ function codexHookReview(paneText) {
    characters: rendered through textContent and as JSON. */
 const CODEX_HOOK_DIALOG_SENTENCE = 'it is waiting on a Codex hook approval: Codex found hooks it has not been told to trust '
   + '(often from the Codex desktop app\u2019s plugins) and will not start until someone answers. Typing cannot answer it, '
-  + 'so nothing was typed. The person answers it on its agent page in Kosmos; ask them to, then send this again.';
+  + 'so nothing was typed. It is answered on its agent page in Kosmos (the box above the conversation), by the person; then send this again.';
 /* #4607 (review round 3): the trusted-but-open list. Its hooks are trusted already; Codex waits for the list to close. */
 const CODEX_HOOK_LIST_SENTENCE = 'its Codex hook list is open on its screen, so nothing was typed: Codex waits for it to be '
-  + 'closed. The person closes it on its agent page in Kosmos; ask them to, then send this again.';
+  + 'closed. It is closed on its agent page in Kosmos (the box above the conversation), by the person; then send this again.';
 /* True when a card's evidence is this dialog's. Only the Codex hook branch of classify writes these rows as
    needs_you evidence. Unlike isTrustDialogEvidence, NO production code keys on it (round 4): the delivery floor
    reads the screen fresh. Its callers are the tests that pin what the card shows. */

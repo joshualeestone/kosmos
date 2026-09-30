@@ -90,6 +90,10 @@ Round 12: the trusted list needs its measured shape too (header, only event rows
 a decision leaves a server log line (agent, choice, screen, ok, keys). The writable-by-the-agent warning shows only
 where Codex names a source ("Project config"), i.e. on one hook's page.
 
+Round 15: "Show the full list" is its own choice ('list'), never logged or worded as Trust; Trust on one hook's page is
+refused. Not covered (predates #4607): the PROJECT room shows the generic "waiting on an answer" for this dialog with
+no pointer to the agent page, where the only answer is.
+
 ## Weakest premise
 That 0.149.1's screens and keys hold for the Codex the person runs. A newer Codex (0.159.2 exists) may word the
 dialog differently; then codexHookReview reads nothing, the card shows no buttons, and nothing is pressed (fails

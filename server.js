@@ -6104,10 +6104,10 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         const choice = body.choice;
-        if (choice !== 'trust' && choice !== 'skip' && choice !== 'close') { sendJson(res, 400, { ok: false, because: 'choose to trust the hooks, to continue without them, or to close the list' }); return; }
+        if (!['trust', 'skip', 'close', 'list'].includes(choice)) { sendJson(res, 400, { ok: false, because: 'choose to trust the hooks, to continue without them, or to close the list' }); return; }
         let r;
         try { r = await chat.answerCodexHooks(name, choice, safeRoster(), body.seen); }
-        catch { sendJson(res, 500, { ok: false, because: 'something went wrong answering it; nothing more was pressed' }); return; }
+        catch { process.stdout.write(`codex-hooks: ${JSON.stringify(name)} choice=${JSON.stringify(choice)} threw\n`); sendJson(res, 500, { ok: false, because: 'something went wrong answering it; nothing more was pressed' }); return; }
         /* A record of the decision (review round 12): trusting writes to the account's Codex settings. */
         /* Values JSON-quoted (a %0A in the name must not write a line of its own); the screen is the one the engine
            READ, not the one the caller said it saw. */
@@ -13811,7 +13811,7 @@ const server = http.createServer(async (req, res) => {
        is not a prompt the person types into, #4589), so the page is told what the screen says instead: which screen,
        how many hooks, their events and source where shown. The page answers through POST .../codex-hooks, never the
        composer. From the same fresh capture as the question; null for everything else. */
-    const codexHooks = (asking && card && card.runner === 'codex' && view && typeof view.text === 'string')
+    const codexHooks = (asking && card && card.runner === 'codex' && card.reachedByChannel !== true && view && typeof view.text === 'string')
       ? codexHookSummary(view.text) : null;
     /**
      * ⚠️ PRESENCE IS THE SEND GATE'S OWN ANSWER, not a second derivation of it.

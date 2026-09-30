@@ -34053,7 +34053,7 @@ async function paintTalk(sessionName, agentName) {
   const qCodex = document.getElementById('d-qask-codex');
   if (qCodex) qCodex.hidden = true;
   /* A line left from an earlier answer goes with the question it answered (review round 1). */
-  if (!(body.asking && body.codexHooks)) { const m = document.getElementById('d-qask-codex-msg'); if (m) m.textContent = ''; }
+  if (!(body.asking && body.codexHooks)) { const m = document.getElementById('d-qask-codex-msg'); if (m) m.textContent = ''; window.__codexHooksShown = null; }
   if (body.answerNote) {
     /* #2129 folder-trust recovery: the ONLY state that still shows this box. The
        trust-dialog question is itself an ordinary thread bubble now (engine
@@ -40934,7 +40934,8 @@ async function answerCodexHooksFromBox(choice) {
   const buttons = ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close'].map((id) => document.getElementById(id));
   const msg = document.getElementById('d-qask-codex-msg');
   buttons.forEach((b) => { b.disabled = true; });
-  const opening = choice === 'trust' && document.getElementById('d-qask-codex-trust').textContent === 'Show the full list';
+  if (choice === 'trust' && document.getElementById('d-qask-codex-trust').textContent === 'Show the full list') choice = 'list';
+  const opening = choice === 'list';
   msg.textContent = opening ? 'Opening the full list\u2026' : (choice === 'trust' ? 'Trusting the hooks\u2026' : (choice === 'close' ? 'Closing the list\u2026' : 'Continuing without the hooks\u2026'));
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/codex-hooks',
