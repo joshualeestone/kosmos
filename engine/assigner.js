@@ -326,6 +326,7 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
     for (const p of liveProjects(records)) {
       if (!(Array.isArray(p.agents) && p.agents.some((m) => idle.has(m)))) continue;
       if ((Array.isArray(p.tasks) ? p.tasks : []).some(blocksGoalAsk)) continue;
+      if (require('./projects').isPaused(p)) continue;   // #4771: goalProject skips it, so its goal is not read
       try { const g = readGoal(p); if (typeof g === 'string' && g) goals.set(p.id, g); } catch { /* no goal */ }
     }
   }

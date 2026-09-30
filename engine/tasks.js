@@ -304,16 +304,18 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
     delete changed.who;
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
-  if (heldDropped) taskchat.record(projectId, changed.number, { kind: 'hold-cleared', via: 'close' });
   /* The history says why the mark went (review round 1); a close says so itself. The caller records it after its
      own event (part-added, part-reopened), so the history reads cause then effect (review round 2). Carried on the
      returned task, not in module state (review round 3), so nothing can leak to another task's write. */
   if (droppedForWork) DROPPED_FOR_WORK.add(changed);
+  if (heldDropped) HELD_DROPPED.add(changed);   // #4771: the hold a close dropped, recorded the same way, after the close
   return changed;
 }
 const DROPPED_FOR_WORK = new WeakSet();
+const HELD_DROPPED = new WeakSet();
 function recordDroppedForWork(projectId, n, task) {
   if (task && DROPPED_FOR_WORK.has(task)) taskchat.record(projectId, Number(n), { kind: 'unbuilt', reason: 'new work' });
+  if (task && HELD_DROPPED.has(task)) taskchat.record(projectId, Number(n), { kind: 'hold-cleared', via: 'close' });
 }
 
 function nextPartId(parts) {

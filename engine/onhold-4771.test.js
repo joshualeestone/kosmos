@@ -264,3 +264,19 @@ test('#4771 review: the instructions say "the person parked it" only for the per
   assert.doesNotMatch(line('AgentPaused', 1), /the person/, 'an agent\'s pause named the person');
   assert.match(line('AgentPaused', 1), /\[on hold:/);
 });
+
+test('#4771 review: closing a held task\'s last part records the close before the hold it dropped (cause, then effect)', () => {
+  const w = world('holdpart' + seq, true);
+  try {
+    tasks.setOnHold(w.pid, w.n, true);
+    const t = tasks.byNumber(projects.readAll().find((p) => p.id === w.pid), w.n);
+    const part = tasks.partsOf(t)[0];
+    const r = tasks.setPartClosed(w.pid, w.n, part.id, new Date().toISOString());
+    assert.equal(r.ok, true, r.because);
+    assert.equal(tasks.isOnHold(tasks.byNumber(projects.readAll().find((p) => p.id === w.pid), w.n)), false, 'the hold outlived the last part closing');
+    const kinds = taskchat.read(w.pid, w.n).map((e) => e.kind + (e.via ? ':' + e.via : ''));
+    const closedAt = kinds.lastIndexOf('closed');
+    const droppedAt = kinds.lastIndexOf('hold-cleared:close');
+    assert.ok(closedAt >= 0 && droppedAt > closedAt, 'the dropped hold was recorded before the close that caused it: ' + JSON.stringify(kinds));
+  } finally { w.restore(); }
+});
