@@ -178,7 +178,7 @@ test('#4733 a guide report with no on or owner still records them as absent', as
 test('#4733 a report the guide made before the mask is not written again as it was when a post carries it onto a project', async () => {
   /* A working report as an older build stored it: straight into the store, key and all. */
   for (const who of [GUIDE, OTHER]) {
-    const kept = selfreport.record(who, { state: 'working', because: `using ${KEY}`, on: `the ${KEY} step` });
+    const kept = selfreport.record(who, { state: 'working', because: `using ${KEY}`, on: `the ${KEY} step`, owner: `holder of ${KEY}`, until: `after ${KEY}` });
     assert.equal(kept.recorded, true, JSON.stringify(kept));
     assert.equal(selfreport.read(who).because, `using ${KEY}`, 'CONTROL: the old report was not stored with the key');
   }
@@ -190,7 +190,29 @@ test('#4733 a report the guide made before the mask is not written again as it w
   assert.equal(gr.project, projectId, 'CONTROL: the post did not carry the report onto the project, so nothing was written again');
   assert.equal(gr.because, `using ${MASK}`);
   assert.equal(gr.on, `the ${MASK} step`);
+  assert.equal(gr.owner, `holder of ${MASK}`);
+  assert.equal(gr.until, `after ${MASK}`);
   const or = selfreport.read(OTHER);
   assert.equal(or.project, projectId, 'CONTROL: the other agent\'s report was not carried either');
   assert.equal(or.because, `using ${KEY}`, 'CONTROL: another agent\'s carried report was changed');
+  assert.equal(or.owner, `holder of ${KEY}`, 'CONTROL: another agent\'s carried report was changed');
+});
+
+test('#4733 the mask runs before the store cuts a long report, and keeps its paragraph break', async () => {
+  /* The key starts 20 characters before the 1000-character cap, so a cut made BEFORE the mask would leave its
+     first 20 characters in the store, no longer shaped like a key. */
+  const lead = 'Step one is done.\n' + 'x'.repeat(980 - 'Step one is done.\n'.length);
+  const body = { state: 'working', text: lead + KEY + ' and then the rest' };
+  assert.equal(lead.length, 980, 'CONTROL: the lead is not the length this test needs');
+
+  const g = await post('/api/report', body, GUIDE);
+  assert.equal(g.json.recorded, true, JSON.stringify(g.json));
+  const gr = selfreport.read(GUIDE);
+  assert.ok(gr.because.startsWith('Step one is done.\nxxx'), 'the paragraph break was lost: ' + gr.because.slice(0, 30));
+  assert.ok(gr.because.includes(MASK), 'the mask is not in the stored report');
+  assert.ok(!gr.because.includes(KEY.slice(0, 12)), 'part of the key was left in the stored report');
+
+  const o = await post('/api/report', body, OTHER);
+  assert.equal(o.json.recorded, true, JSON.stringify(o.json));
+  assert.ok(selfreport.read(OTHER).because.endsWith(KEY.slice(0, 20)), 'CONTROL: the store did not cut another agent\'s report inside the key, so the arm above proved nothing about the cut');
 });

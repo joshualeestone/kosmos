@@ -2985,12 +2985,13 @@ function guideMasked(who, text) {
   return out.text;
 }
 
-/* #4733: one free-text field of the setup guide's status report, masked. selfreport makes text of whatever it is
-   handed (String(value)), so a value that is not a string is made text here first; left as it came, it would be
-   stored unmasked. An absent value, and anyone else's, passes as it came. */
-function guideMaskedField(who, value) {
-  if (value === null || value === undefined || !isSetupGuide(who)) return value;
-  return guideMasked(who, typeof value === 'string' ? value : String(value));
+/* #4733: the masker for the free-text fields of ONE agent's status report. selfreport makes text of whatever it is
+   handed (String(value)), so the setup guide's value that is not a string is made text here first; left as it
+   came, it would be stored unmasked. An absent value, and every value of any other agent, passes as it came.
+   Who is asked once per report, not once per field: the report route runs on every hook heartbeat. */
+function reportFieldMasker(who) {
+  if (!isSetupGuide(who)) return (value) => value;
+  return (value) => (value === null || value === undefined ? value : guideMasked(who, typeof value === 'string' ? value : String(value)));
 }
 
 /* #3769: rows as read, for a route that serves stored rows: any row the setup guide wrote is masked
@@ -13038,17 +13039,18 @@ const server = http.createServer(async (req, res) => {
           const prior = selfreport.read(who);
           wasNeedsYou = !!(prior && prior.found === true && prior.state === 'needs_you');
         } catch { /* unknown reads as a change */ }
+        /* #4733: the setup guide's words are masked in each field selfreport stores as text; any other agent's
+           pass as they came. Before the store caps them, so a cut can never leave part of a key behind. */
+        const said = reportFieldMasker(who);
         const kept = selfreport.record(who, {
           state: body.state,
-          /* #4733: the setup guide's words are masked in each field selfreport stores as text (guideMaskedField);
-             any other agent's pass as they came. */
-          project: typeof body.project === 'string' ? guideMaskedField(who, body.project) : undefined,
-          because: guideMaskedField(who, body.text),
+          project: typeof body.project === 'string' ? said(body.project) : undefined,
+          because: said(body.text),
           waiting: body.waiting,   // #4569 fix 4: selfreport keeps it only on a sane working report
           final: body.final,       // #4612: a Muse turn's answer; selfreport keeps it only on a sane idle or working report
-          on: guideMaskedField(who, body.on),
-          owner: guideMaskedField(who, body.owner),
-          until: guideMaskedField(who, body.until),
+          on: said(body.on),
+          owner: said(body.owner),
+          until: said(body.until),
           /* #570: which RUN said it, when the sender came from a launch token.
              The pane arm resolves no instance and leaves this undefined. */
           instance: sender.instance,
@@ -13691,6 +13693,7 @@ const server = http.createServer(async (req, res) => {
                   projectId = pj && pj.id;
                 } catch { projectId = null; }
                 if (projectId) {
+                  const carried = reportFieldMasker(who);
                   /* Carry the poster's existing working CONTENT through unchanged
                      (because/on/owner/until) -- only the project is being added, and
                      selfreport.read reads those from the single latest line, so
@@ -13699,8 +13702,8 @@ const server = http.createServer(async (req, res) => {
                   selfreport.record(who, {
                     state: 'working', project: projectId,
                     /* #4733: masked for the setup guide, so a report it made before the mask is not written again as it was. */
-                    because: guideMaskedField(who, current.because), on: guideMaskedField(who, current.on),
-                    owner: guideMaskedField(who, current.owner), until: guideMaskedField(who, current.until),
+                    because: carried(current.because), on: carried(current.on),
+                    owner: carried(current.owner), until: carried(current.until),
                     instance: poster.instance, auto: true,
                   });
                 }
