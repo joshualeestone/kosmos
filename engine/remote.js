@@ -1196,6 +1196,11 @@ function pendingDevices() {
       code: typeof d.code === 'string' ? d.code : '',
       /* When this Mac last said no to this id, or 0: the re-ask sentence. */
       denied_at: Number(settings.denied[String(d.device_id)]) || 0,
+      /* #4702: the computer this sign-in registered, when the coordinator says so (after #4665 a new computer is
+         held until its registering sign-in is allowed, so Allow also frees it). A name the person chose; null when
+         absent, which is every request today until the coordinator sends it. */
+      registers_computer: typeof d.registers_computer === 'string' && d.registers_computer.trim()
+        ? d.registers_computer.trim().slice(0, 60) : null,
     }));
   return { devices, snapshot: raw !== null, email: settings.email || '' };
 }

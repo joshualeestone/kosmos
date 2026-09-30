@@ -49,7 +49,9 @@ const STATES = {
   one: { remote: { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'up', address: ADDR } },
     pending: [{ device_id: 'd-win', name: 'Windows browser', code: 'VR-D6', first_seen: now() - 120 }] },
   two: { remote: { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'up', address: ADDR } },
-    pending: [{ device_id: 'd-old', name: 'iPhone', code: 'W6-M4', first_seen: now() - 3 * 3600 }, { device_id: 'd-anon', code: 'K2-PQ', first_seen: now() - 60 }] },
+    /* #4702: d-old registered a computer, so allowing it frees that computer; the name carries markup, so the check
+       also proves it is shown as text, never parsed. */
+    pending: [{ device_id: 'd-old', name: 'iPhone', code: 'W6-M4', first_seen: now() - 3 * 3600, registers_computer: 'Kitchen <b>Mac</b>' }, { device_id: 'd-anon', code: 'K2-PQ', first_seen: now() - 60 }] },
 };
 
 (async () => {
@@ -210,6 +212,7 @@ const STATES = {
       if (key === 'one') {
         chk(v.cardShown && v.reqs === 1, `${t} one request is one card`, String(v.reqs));
         chk(/Windows browser/.test(v.cardText) && !/phone/i.test(v.cardText), `${t} a Windows browser is never called a phone`, v.cardText);
+        chk(!/also lets the computer/.test(v.cardText), `${t} #4702 CONTROL: a sign-in that registered no computer says nothing about one`, v.cardText);
         chk(/Allow only if this code is showing on the device in your hand\./.test(v.cardText) && /\bAllow\b/.test(v.cardText) && /\bDeny\b/.test(v.cardText) && !/Not now|Not me/.test(v.cardText), `${t} one sentence, Allow / Deny, no Not now or Not me`, v.cardText);
         chk(v.codes.length === 1 && v.codes[0].t === 'VR-D6' && v.codes[0].label === 'V R, D 6' && v.codes[0].cells === 4 && v.codes[0].h >= 30 && v.codes[0].inside && v.codes[0].nextIsActs && v.codes[0].contrast.ratio >= 4.5, `${t} the code is shown large, one box per character, inside its card (#3952)`, JSON.stringify(v.codes));
         chk(v.listPending === 0, `${t} the request is not repeated in the devices list`, String(v.listPending));
@@ -267,6 +270,8 @@ const STATES = {
       if (key === 'two') {
         chk(v.reqs === 2 && v.stale === 1, `${t} two cards, the one older than an hour faded`, JSON.stringify({ reqs: v.reqs, stale: v.stale }));
         chk(/Unknown device/.test(v.cardText) && !/\bdevice\b[^s]*\bis asking/.test(v.cardText), `${t} an unnamed request reads "Unknown device"`, v.cardText);
+        const frees = (v.cardText.match(/Allowing this also lets the computer Kitchen <b>Mac<\/b> allow devices\./g) || []).length;
+        chk(frees === 1, `${t} #4702 the request that registered a computer says Allow also frees it, once, the name shown as text`, v.cardText);
       }
       chk(!v.listNames.some((n) => n === 'device') && v.listNames.includes('Unknown device'), `${t} an unnamed devices-list row reads "Unknown device", never just "device"`, JSON.stringify(v.listNames));
       chk(v.listNames.includes('This computer (Kosmos app)'), `${t} this Mac's own sign-in row reads "This computer (Kosmos app)" (ICK's finding)`, JSON.stringify(v.listNames));

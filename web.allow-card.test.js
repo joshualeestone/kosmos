@@ -48,6 +48,16 @@ test('#3829 each request is a compact card: kind, when, the code, one device-neu
   assert.match(card, /data-ask="deny"[^>]*>Deny<\/button>/);
 });
 
+test('#4702 the ask says when Allow also frees a computer, escaped, on the ask only (not on Allowed or Denied)', () => {
+  const at = JS.indexOf("'<div class=\"askreq'");
+  const card = JS.slice(at, JS.indexOf("</div></div>';", at));
+  assert.match(JS, /const frees = typeof d\.registers_computer === 'string' && d\.registers_computer\s*\? ' Allowing this also lets the computer ' \+ askEsc\(d\.registers_computer\) \+ ' allow devices\.' : '';/);
+  assert.match(card, /'<p class="asksay">' \+ say \+ frees \+ again/, 'the sentence is not in the ask card');
+  const from = JS.indexOf("if (e && e.state === 'allowed')");
+  const done = JS.slice(from, JS.indexOf('const stale', from));   // the Allowed and Denied branches only
+  assert.ok(done.length > 100 && !/frees/.test(done), 'the Allowed / Denied lines mention it (they are after the decision)');
+});
+
 test('#3829 an unnamed request is "Unknown device", never the bare noun', () => {
   assert.match(JS, /return d && typeof d\.name === 'string' && d\.name \? d\.name : 'Unknown device';/);
   // ICK's finding: this computer's own in-app sign-in (no name) is "This computer (Kosmos app)", matched by its own device id.
