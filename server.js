@@ -15868,7 +15868,11 @@ const server = http.createServer(async (req, res) => {
            engine/defaults.js), and until now the project listed nobody, so its own maker could not post in its
            room. Added to whatever members the request names; the page's request is never touched (no maker). */
         const makerName = paneCard && typeof paneCard.sessionName === 'string' && paneCard.sessionName ? paneCard.sessionName : null;
-        const members = makerName ? [...(Array.isArray(body.agents) ? body.agents : []), makerName] : body.agents;
+        /* Never the setup guide: the page keeps it out of every list of agents (#3739), and a member is sent every
+           post in its room. A project it makes records it as the maker and lists only the members its request
+           names (none, from the CLI). */
+        const makerMember = makerName && !isSetupGuide(makerName) ? makerName : null;
+        const members = makerMember ? [...(Array.isArray(body.agents) ? body.agents : []), makerMember] : body.agents;
         const made = projects.create({ name: body.name, folder: body.folder, agents: members, roster, description: body.description, done: body.done,
           // #2458: the parent chosen on the create page (blank/absent = top-level).
           // The engine validates it through the same cleanParent the edit route
@@ -15941,7 +15945,11 @@ const server = http.createServer(async (req, res) => {
             const verdict = projects.syncAgent(a, roster);
             // Agents put on a project at its creation are usually already
             // running; the pane line is what tells them now (#141).
-            const said = await projects.speakOfMembershipAsync(a, made, 'joined', roster);
+            /* Slice 5b: not the maker. It made the project a moment ago and the CLI has just told it so; a line
+               typed into its own pane for every project it makes would also sit outside the member valve (create
+               records no member change), so a looping agent could type into itself as fast as it can create. Its
+               instructions are still synced above, which is what makes the membership real for it. */
+            const said = a === makerMember ? null : await projects.speakOfMembershipAsync(a, made, 'joined', roster);
             return { agent: a, ...verdict, said };
           }));
         } catch (err) {
@@ -15957,16 +15965,21 @@ const server = http.createServer(async (req, res) => {
         // AFTER `told`, best-effort (roomNote swallows its own errors): furniture, exactly like
         // WELCOME_ROOM_NOTE, and a note we could not post is never a reason to fail the create.
         try {
+          /* Slice 5b: the maker alone is nobody to coordinate with (it would be told to ask the person for the
+             goal, or for what done looks like, of a project it just made, or to hold): the two asking notes need
+             a member other than the maker. The note that a typed done was not written is a fact, not an ask, so
+             it still goes to a maker alone. */
+          const hasOthers = made.agents.some((a) => a !== makerMember);
           /* #4583 review rounds 5-8: a done typed on the form that is not what BRIEF.md's Done section now holds, for ANY
              reason (the person's own Done section, or a brief Kosmos could not read or write), is quoted to the team
              with its true reason, and the team is then never also told to ask the person for done. */
           const typedDone = projects.cleanDone(body.done);
           const doneLost = !!typedDone && !projects.doneWrittenIn(made.folder, typedDone);
-          if (made.agents.length > 0 && projects.briefIsPending(made.folder)) {
+          if (hasOthers && projects.briefIsPending(made.folder)) {
             // #4583: ask for done too only when it is not set; a done typed on the form is never asked for again.
             const note = (projects.doneIsPending(made.folder) && !doneLost) ? projects.BRIEF_AND_DONE_PENDING_NOTE : projects.BRIEF_PENDING_NOTE;
             messages.roomNote(made.id, note, { audience: messages.NOTE_AUDIENCE_AGENTS });   // agents read it; the person's room does not
-          } else if (made.agents.length > 0 && projects.doneIsPending(made.folder) && !doneLost) {
+          } else if (hasOthers && projects.doneIsPending(made.folder) && !doneLost) {
             // #4583: a goal but no "done looks like": the same one-asks note, for done.
             messages.roomNote(made.id, projects.DONE_PENDING_NOTE, { audience: messages.NOTE_AUDIENCE_AGENTS });
           }

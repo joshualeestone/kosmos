@@ -32,6 +32,7 @@ const sendertoken = require('./engine/sendertoken');
 const fleet = require('./test-support/fleet');
 const projectsEngine = require('./engine/projects');
 const messagesEngine = require('./engine/messages');
+const setupAssistant = require('./engine/setup-assistant');
 
 const BOARD = 'BOARDTOKEN_test_4491_projects_0123456789abcdef';
 const GATE_REFUSAL = /this board belongs to the account that started it/;
@@ -98,9 +99,50 @@ test('a maker named by its pane is on the project too; members the request names
   const byPane = await make('Made From A Pane', withBoard(), { from_pane: '%8' });
   assert.equal(byPane.r.code, 200, byPane.r.text.slice(0, 200));
   assert.deepEqual([stored(byPane.id).agents, stored(byPane.id).made.by], [['mara'], 'mara']);
-  const withOthers = await make('Made With Others', withBoard({ 'x-kosmos-agent-token': mara }), { agents: ['otto', 'mara'] });
+  const withOthers = await make('Made With Others', withBoard({ 'x-kosmos-agent-token': mara }), { agents: ['otto'] });
   assert.equal(withOthers.r.code, 200, withOthers.r.text.slice(0, 200));
-  assert.deepEqual(stored(withOthers.id).agents, ['otto', 'mara'], 'the named members were dropped, or the maker was listed twice');
+  assert.deepEqual(stored(withOthers.id).agents, ['otto', 'mara'], 'the named member was dropped, or the maker was not added after it');
+  const named = await make('Made Naming Itself', withBoard({ 'x-kosmos-agent-token': mara }), { agents: ['mara', 'otto'] });
+  assert.deepEqual(stored(named.id).agents, ['mara', 'otto'], 'a maker that named itself was listed twice');
+});
+
+test('the maker is not typed at and not told to ask for a brief; a member it names is', async (t) => {
+  /* What telling a member costs: a line typed into its pane, and the agents-only "no brief yet" note in the room. */
+  const real = { speak: projectsEngine.speakOfMembershipAsync, note: messagesEngine.roomNote };
+  const spoken = [];
+  const notes = [];
+  projectsEngine.speakOfMembershipAsync = async (agent) => { spoken.push(agent); return { state: 'placed' }; };
+  messagesEngine.roomNote = (id, text) => { notes.push(id); return { ok: true }; };
+  t.after(() => { projectsEngine.speakOfMembershipAsync = real.speak; messagesEngine.roomNote = real.note; });
+  const alone = await make('Maker Alone', withBoard({ 'x-kosmos-agent-token': mara }));
+  assert.equal(alone.r.code, 200, alone.r.text.slice(0, 200));
+  assert.deepEqual(stored(alone.id).agents, ['mara']);
+  assert.deepEqual([spoken, notes], [[], []], 'a maker alone on its new project was typed at, or told to ask what the goal is');
+  /* Its instructions are still synced: the answer carries its verdict, with nothing said. */
+  const told = JSON.parse(alone.r.text).told;
+  assert.equal(told.length, 1);
+  assert.deepEqual([told[0].agent, told[0].said], ['mara', null]);
+  /* CONTROL: a member the maker names IS told, and then there is somebody to coordinate with, so the note goes. */
+  const withOtto = await make('Maker And Otto', withBoard({ 'x-kosmos-agent-token': mara }), { agents: ['otto'] });
+  assert.equal(withOtto.r.code, 200, withOtto.r.text.slice(0, 200));
+  assert.deepEqual([spoken, notes], [['otto'], [withOtto.id]], 'the named member was not told, or the maker was');
+  /* And the page is as before: everyone it ticks is told, and the note goes for any staffed project with no brief. */
+  const page = await make('Page Staffed', withBoard({ 'sec-fetch-site': 'same-origin', origin: base }), { agents: ['mara'] });
+  assert.deepEqual([spoken.slice(1), notes.slice(1)], [['mara'], [page.id]], 'the page\'s create stopped telling a member, or stopped posting the note');
+});
+
+test('the setup guide is recorded as the maker of a project it makes, and is NOT put on it', async (t) => {
+  const was = { isGuideFolder: setupAssistant.isGuideFolder, guideName: setupAssistant.guideName };
+  setupAssistant.guideName = () => 'otto';
+  setupAssistant.isGuideFolder = (n) => n === 'otto';
+  t.after(() => { setupAssistant.isGuideFolder = was.isGuideFolder; setupAssistant.guideName = was.guideName; });
+  const otto = sendertoken.mint('otto').token;
+  const g = await make('Made By The Guide', withBoard({ 'x-kosmos-agent-token': otto }));
+  assert.equal(g.r.code, 200, g.r.text.slice(0, 200));
+  assert.deepEqual([stored(g.id).agents, stored(g.id).made.by], [[], 'otto'], 'the guide was put on a project');
+  /* CONTROL: another agent on the same board, same moment, is put on its project. */
+  const m = await make('Made Beside The Guide', withBoard({ 'x-kosmos-agent-token': mara }));
+  assert.deepEqual(stored(m.id).agents, ['mara']);
 });
 
 test('a caller nobody can name makes a project with exactly the members it asked for, as before', async () => {
