@@ -3026,12 +3026,12 @@ test('#4756 review: first_free reaches the page, from the server field when sent
   } finally { delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES; remote.resetForTests(); }
 });
 
-test('#4756 review: the switch read, the list read and the close grace together fit inside the page timeout', () => {
+test('#4756 review: the switch read, the list read and the close grace together leave a second of the page timeout', () => {
   const page = fs.readFileSync(require('node:path').join(__dirname, '..', 'web', 'index.html'), 'utf8');
   const m = /const PLUS_ASK_TIMEOUT_MS = (\d+);/.exec(page);
   assert.ok(m, 'PLUS_ASK_TIMEOUT_MS not found in web/index.html');
-  assert.ok(remote.ADDR_META_MS + remote.ADDR_READ_MS + remote.SETUP_CLOSE_GRACE_MS < Number(m[1]),
-    remote.ADDR_META_MS + ' + ' + remote.ADDR_READ_MS + ' + ' + remote.SETUP_CLOSE_GRACE_MS + ' is not under ' + m[1]);
+  assert.ok(remote.ADDR_META_MS + remote.ADDR_READ_MS + remote.SETUP_CLOSE_GRACE_MS + 1000 <= Number(m[1]),
+    remote.ADDR_META_MS + ' + ' + remote.ADDR_READ_MS + ' + ' + remote.SETUP_CLOSE_GRACE_MS + ' leaves under a second of ' + m[1]);
 });
 
 test('#4756: AGENT_WORKFORCE_BOUGHT_ADDRESSES=1 turns it on without the coordinator; a refusal keeps its sentence; a list that is not a list gives no rows', async () => {

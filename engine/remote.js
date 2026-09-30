@@ -1962,10 +1962,9 @@ function turnOnAfterSignin() {
    Answers { live:false } with the switch off (the wizard is exactly as before), else the rows in their own
    shapes only, the website's buy link (https only), and this computer's own name if it is set up. */
 const BOUGHT_STATES = new Set(['in_use', 'free', 'pending']);
-// The switch read, the list read and setupRun's close grace after the binary exits, together, stay inside the page's
-// PLUS_ASK_TIMEOUT_MS (engine/remote.test.js asserts the sum against web/index.html). The list read is past the
-// binary's own 10 s deadline, so the binary's own error normally arrives first.
-const ADDR_META_MS = 2000, ADDR_READ_MS = 10500;
+// The switch read, the list read and setupRun's close grace after the binary exits, together, leave at least a second
+// of the page's PLUS_ASK_TIMEOUT_MS (engine/remote.test.js asserts it against web/index.html).
+const ADDR_META_MS = 1500, ADDR_READ_MS = 10200;
 let addressesInFlight = null;   // { token, run }: one read at a time per sign-in; a second caller of the SAME one shares it
 async function signinAddresses(opts) {
   const token = signinSession && typeof signinSession.token === 'string' ? signinSession.token : null;
