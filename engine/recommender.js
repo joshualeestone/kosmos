@@ -220,13 +220,25 @@ function playbookText(item, setting) {
  * the playbook naming the peers who were reached. On a retry: the playbook only.
  * @returns {{next: object, acted: Array<object>}}
  */
-function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIVERY }) {
+function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIVERY, heldUntil }) {
   const out = step({ prev, roster, setting, members, now });
   const acted = [];
   const send = (session, text) => {
     try { const v = deliver(session, text); return (v && v.state) || null; } catch { return null; }
   };
   for (const item of out.toConvene) {
+    /* #4588 PR B: a stuck agent held on its machine's shared Google quota is not convened yet: no note, no asks, no
+       playbook, no attempt counted, and a fresh item gives its hourly charge back. It is convened after the reset. */
+    let held = null;
+    if (typeof heldUntil === 'function') { try { held = heldUntil(item.session); } catch { held = null; } }
+    if (held !== null && held !== undefined) {
+      if (!item.retry) {
+        const i = out.next.log.findIndex((e) => e.at === now && e.session === item.session);
+        if (i !== -1) out.next.log.splice(i, 1);
+      }
+      acted.push({ session: item.session, name: item.name, project: item.project, retry: item.retry, noteLanded: null, asked: [], verdict: 'held' });
+      continue;
+    }
     let asked = item.asked || [];
     let noteLanded = null;
     if (!item.retry) {

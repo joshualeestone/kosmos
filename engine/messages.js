@@ -2268,7 +2268,9 @@ function sweepUnanswered(roster, now) {
         if (!card || !card.target) continue;
         const line = '[the room has not seen an answer to ' + postId
           + '; to answer, run: kosmos post --in-reply-to ' + postId + ' ' + projectId + ']';
-        const sent = chat.deliver(name, line, roster);
+        const sent = chat.deliverAutomatic(name, line, roster);
+        /* #4588 PR B: held on the shared Google quota, nothing typed. No row, so the pair's one nudge is still unspent. */
+        if (sent && sent.held === true) continue;
         appendLog({ kind: 'nudge', post: postId, to: name, project: projectId,
           at: new Date().toISOString(), outcome: sent.state });
         nudged.push({ post: postId, to: name, outcome: sent.state });

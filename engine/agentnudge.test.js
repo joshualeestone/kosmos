@@ -353,7 +353,8 @@ test('server.js: the Prompter tick hands everything after heartbeat.step to prom
   assert.equal((body.match(/agentnudge\.prompterTick\(/g) || []).length, 1, 'the tick must call prompterTick once');
   assert.equal((body.match(/heartbeat\.step\(/g) || []).length, 1, 'fixture: the slice is the Prompter tick');
   // The one delivery is the one prompterTick is given; a second would type outside its gates.
-  assert.equal((body.match(/\bdeliver\(/g) || []).length, 1, 'a delivery outside prompterTick');
+  // #4588 PR B: the timer delivers through chat.deliverAutomatic, which is the same one delivery.
+  assert.equal((body.match(/\bdeliver(?:Automatic)?\(/g) || []).length, 1, 'a delivery outside prompterTick');
   assert.equal((body.match(/prompternudge\.write\(/g) || []).length, 1, 'the person\'s list must be written only through prompterTick\'s write');
 });
 

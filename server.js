@@ -445,6 +445,13 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     const v = tasks.partValve();
     if (v.refused) return { ok: false, status: 429, because: v.because, retryAfterSecs: v.retryAfterSecs };
   }
+  /* #4588 PR B: the assigner does not give a part to an agent held on its machine's shared Google quota. Refused here,
+     before the part is assigned, so a held agent is not given work and taken off it again every tick. */
+  if (assigner) {
+    let heldUntil = null;
+    try { heldUntil = require('./engine/agyquota').heldForQuota(who, roster, Date.now()); } catch { heldUntil = null; }
+    if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " is held until " + new Date(heldUntil).toISOString() + ": its Google account's shared quota is out" };
+  }
   const made = assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
   const out = tasks.assignPart(projectId, n, partId, who, made);
   if (!out.ok) return { ok: false, status: 400, because: out.because };
@@ -1054,7 +1061,7 @@ const RETELL_RECENT = [];
    writes the verdict and types the "listed" line for each project it newly wrote. It calls
    `projects.syncAgent` and `projects.speakOfMembership` through the module, never a local
    binding, so the tests that stub them reach both callers. */
-function retellMember(name, id, roster) {
+function retellMember(name, id, roster, { automatic = false } = {}) {
   let told;
   try {
     told = projects.syncAgent(name, roster);
@@ -1085,7 +1092,7 @@ function retellMember(name, id, roster) {
     try { proj = pid === id ? retold : projects.get(pid, roster); } catch { proj = null; }
     const on = !!(proj && (proj.agents || []).some((a) => a && (a.sessionName || a) === name));
     if (!on) continue;
-    const one = projects.speakOfMembership(name, proj, 'listed', roster);
+    const one = projects.speakOfMembership(name, proj, 'listed', roster, { automatic });
     if (pid === id) said = one; else alsoSaid[pid] = one;
   }
   return { project: retold, told, said, alsoSaid };
@@ -1125,7 +1132,7 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
         const st = projects.toldOverride(instructions.staleness(name, undefined, card.session), name, all);
         return !!(st && st.state === instructions.STALENESS.CURRENT);
       },
-      retell: (name, id) => retellMember(name, id, board()),
+      retell: (name, id) => retellMember(name, id, board(), { automatic: true }),
       log: (r) => process.stdout.write(`autoretell: ${r.name} on ${r.id} -> ${r.state}${r.because ? ' (' + r.because + ')' : ''}\n`),
     });
   } catch { return []; /* best-effort; the notice's Try again still works */ }
@@ -18475,7 +18482,7 @@ function start(port = PORT) {
             roster,
             lastBand: autohandoffBands,
             deliver: (session, textToSend) => {
-              try { return chat.deliver(session, textToSend, roster, undefined, undefined); }
+              try { return chat.deliverAutomatic(session, textToSend, roster, undefined, undefined); }
               catch { return { state: chat.DELIVERY.COULD_NOT }; }
             },
             pathFor: (session) => autohandoffSweep.handoffPathFor(store, session),
@@ -18549,7 +18556,7 @@ function start(port = PORT) {
         roster: () => safeRoster(),
         book: CONNLOST_BOOK,
         probe: () => connlostHeal.probeApi(),
-        deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+        deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
         DELIVERY: chat.DELIVERY,
         log: (r) => process.stdout.write(`connlost-heal: ${r.name} (${r.session}) ${r.act}${r.act === 'nudge' ? ' delivery=' + (r.delivery || '?') : ''} - ${r.because}\n`),
       });
@@ -18570,7 +18577,7 @@ function start(port = PORT) {
         allowed: () => liveExecution.liveExecutionAllowed(),
         roster: () => safeRoster(),
         book: FIRSTREPLY_BOOK,
-        deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+        deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
         DELIVERY: chat.DELIVERY,
         log: (r) => process.stdout.write(`firstreply-nudge: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}\n`),
       });
@@ -18630,7 +18637,7 @@ function start(port = PORT) {
               roleOf: (s) => profile(s).role,
               projectsOf: (s) => projects.readAll().filter((p) => p && p.archived !== true && (p.agents || []).includes(s)).map((p) => p.agents || []),
             },
-            deliver: (session, text) => chat.deliver(session, text, cards, undefined, undefined),
+            deliver: (session, text) => chat.deliverAutomatic(session, text, cards, undefined, undefined),
             DELIVERY: chat.DELIVERY,
             log: (r) => process.stdout.write(`account-notify: ${r.session} ${r.act}${r.manager ? ' manager=' + r.manager : ''}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
           });
@@ -18656,11 +18663,14 @@ function start(port = PORT) {
           const out = recommender.runOnce({
             prev: recommenderPrev, roster, setting, members, now: Date.now(),
             roomNote: (projectId, text, opts) => messages.roomNote(projectId, text, opts),   // #4423: the note's facts too
-            deliver: (session, text) => chat.deliver(session, text, roster, undefined, undefined),
+            deliver: (session, text) => chat.deliverAutomatic(session, text, roster, undefined, undefined),
             DELIVERY: chat.DELIVERY,
+            heldUntil: (session) => agyQuota.heldForQuota(session, roster, Date.now()),
           });
           recommenderPrev = out.next;
-          for (const a of out.acted) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: ${a.retry ? 'retry' : 'note ' + (a.noteLanded ? 'written' : 'NOT written') + ', asked [' + a.asked.join(', ') + ']'}, playbook ${a.verdict || 'threw'}\n`);
+          for (const a of out.acted) process.stdout.write(a.verdict === 'held'
+            ? `recommender: ${a.name} (${a.session}) on ${a.project}: held on the shared Google quota, not convened yet\n`
+            : `recommender: ${a.name} (${a.session}) on ${a.project}: ${a.retry ? 'retry' : 'note ' + (a.noteLanded ? 'written' : 'NOT written') + ', asked [' + a.asked.join(', ') + ']'}, playbook ${a.verdict || 'threw'}\n`);
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) : 60 * 1000); // the env is the test seam only
       if (recommenderSweep && typeof recommenderSweep.unref === 'function') recommenderSweep.unref();
@@ -18684,7 +18694,7 @@ function start(port = PORT) {
             readCommitment: (session) => commitments.read(session),
             readGoal: (project) => brief.readGoal(project && project.folder),
             give: (projectId, n, partId, who, roster) => givePart(projectId, n, partId, who, { assigner: true, roster }),
-            ask: (session, text, roster) => chat.deliver(session, text, roster),
+            ask: (session, text, roster) => chat.deliverAutomatic(session, text, roster),
             DELIVERY: chat.DELIVERY,
           });
           assignerPrev = out.next;
@@ -18891,7 +18901,7 @@ function start(port = PORT) {
             allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
             readLimit: () => limits.read(), limitDefaults: limits.DEFAULTS,
             book: AGENT_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, now: Date.now(),
-            deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+            deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
             DELIVERY: chat.DELIVERY,
             log: (r) => process.stdout.write(`agent-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
           });

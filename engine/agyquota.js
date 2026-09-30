@@ -38,6 +38,26 @@ const LAST = Symbol('lastNudgeAt');
 function pausedUntil(report) {
   return status.quotaResetOf(report);
 }
+/* #4588 PR B: Antigravity sign-in is machine-wide, so every antigravity agent here draws on one Google account's quota.
+   While any of them is inside its pause (a card's quotaUntil still ahead of now), that pool is empty for all of them.
+   Returns the latest such reset in epoch ms, or null when no antigravity card is paused. */
+function poolHeldUntil(roster, now) {
+  let until = null;
+  for (const c of Array.isArray(roster) ? roster : []) {
+    if (!c || c.runner !== 'antigravity' || typeof c.quotaUntil !== 'string') continue;
+    const at = Date.parse(c.quotaUntil);
+    if (Number.isFinite(at) && at > now && (until === null || at > until)) until = at;
+  }
+  return until;
+}
+/* The reset an automatic line to `session` waits for, or null when it may be typed now: only an antigravity card is
+   held, and only while the pool is paused. A card missing from the roster is not held (the delivery refuses it anyway). */
+function heldForQuota(session, roster, now) {
+  const card = (Array.isArray(roster) ? roster : []).find((c) => c && c.sessionName === session);
+  if (!card || card.runner !== 'antigravity') return null;
+  return poolHeldUntil(roster, now);
+}
+
 /* The card states a nudge may be typed over: never a question (a typed line could answer it), work, or a lost
    connection, which the board's screen reading ranks above the quota report (review 3). */
 const NUDGE_OVER = Object.freeze(['idle', 'unknown', 'rate_limited']);
@@ -124,4 +144,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, plan, sweepOnce, resumeEnabled, makeTick };
+module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, poolHeldUntil, heldForQuota, plan, sweepOnce, resumeEnabled, makeTick };
