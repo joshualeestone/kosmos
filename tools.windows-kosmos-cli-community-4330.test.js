@@ -49,7 +49,8 @@ test('#4330: a post carries the words as written, the topic, the pane and both t
   assert.equal(h.sent[0].headers['x-kosmos-agent-token'], TOKEN);
   assert.equal(h.sent[0].headers['x-kosmos-board-token'], 'board-tok');
   assert.equal(h.sent[0].headers['content-type'], 'application/json');
-  assert.match(h.lines.out.join('\n'), /held until your person releases it/);
+  // #3485 (2026-09-30): a held answer now means the safety check stopped it; no release promise.
+  assert.match(h.lines.out.join('\n'), /held for your person to look at before it goes public/);
 });
 
 test('#4330: a piped post and --topic= work, no pane means no from_pane, and a published answer says so', async () => {

@@ -1,4 +1,4 @@
-// Browser-check-surface: cstep-team tc-title tc-purpose tc-list tc-project tc-note tc-tell tc-tell-say tc-go tc-hello tc-back tc-msg
+// Browser-check-surface: cstep-teammake tc-title tc-purpose tc-list tc-project tc-note tc-tell tc-tell-say tc-go tc-hello tc-back tc-msg
 'use strict';
 /**
  * A whole prebuilt team in one go (#4557, umbrella #4554, Josh 2026-09-29 09:06), on a real board.
@@ -192,7 +192,7 @@ function chk(ok, label, extra) {
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           const view = await page.evaluate(() => ({
             hello: !(document.getElementById('tc-hello') || { hidden: true }).hidden,
-            shown: !document.getElementById('cstep-team').hidden && document.getElementById('cstep-role').hidden,
+            shown: !document.getElementById('cstep-teammake').hidden && document.getElementById('cstep-role').hidden,
             title: document.getElementById('tc-title').textContent,
             purpose: document.getElementById('tc-purpose').textContent,
             go: document.getElementById('tc-go').textContent,
@@ -385,13 +385,14 @@ function chk(ok, label, extra) {
           chk(/still making/.test(busy.msg) && busy.title === 'Marketing Team', `${E} picking another team while one is IN FLIGHT keeps this one and says why`, JSON.stringify(busy));
           // Back mid-run steps away; the run goes on.
           await page.click('#tc-back');
-          const away = await page.evaluate(() => document.getElementById('cstep-team').hidden);
+          // Back lands on the Team path's pick screen (#4556's cstep-team), where this step is opened from.
+          const away = await page.evaluate(() => document.getElementById('cstep-teammake').hidden && !document.getElementById('cstep-team').hidden);
           await page.waitForTimeout(2200);
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => /Running/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || ''));
           const back = await rows(page);
           chk(away && back[1].state === 'Not made' && back[1].retry && back[2].state === 'Running' && back[0].state === 'Running',
-            `${E} Back mid-run steps away, and reopening the team shows the same rows: Leo still with Try again, Ana made meanwhile`, JSON.stringify(back.map((r) => r.state)));
+            `${E} Back mid-run returns to the Team screen, and reopening the team shows the same rows: Leo still with Try again, Ana made meanwhile`, JSON.stringify(back.map((r) => r.state)));
           chk(projects.readAll().length === before + 1 && posted.map((b) => b.name).join() === 'Maya,Leo,Ana',
             `${E} nothing was made twice: one project, each member posted once`, (projects.readAll().length - before) + ' ' + JSON.stringify(posted.map((b) => b.name)));
           // Round 5: now nothing is in flight (Leo waits on a Try again the person may never press). Another

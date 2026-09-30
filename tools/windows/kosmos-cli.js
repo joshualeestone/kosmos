@@ -67,6 +67,8 @@ function engineDir(here) {
    the room-sized window install/kosmos gives it (-m 120); everything else -m 15. */
 const REQUEST_TIMEOUT_MS = 15000;
 const POST_TIMEOUT_MS = 120000;
+// #4580: the pause before the one retry of a send whose reply was cut; KOSMOS_RETRY_PAUSE_MS (the injected env) is the test seam.
+function retryPauseMs(env) { const v = (env && env.KOSMOS_RETRY_PAUSE_MS) || ''; return /^\d+$/.test(v) ? Number(v) : 1000; }
 
 /* The board's answer when it is serving another Kosmos than the one this agent
    is in (server.js, 421 Misdirected Request). Node's fetch retries a 421 once on
@@ -317,9 +319,25 @@ async function verbMsg(ctx, args) {
   const keepPiped = () => { if (fromStdin) keepPipedCopy(ctx, text); };
   const body = { to, text, from_pane: '' };
   if (Buffer.byteLength(JSON.stringify(body), 'utf8') > POST_BODY_MAX_BYTES) { ctx.err('Nothing was sent: that message is too large to send to the board at all. Send a summary, or split it.'); keepPiped(); return 2; }
-  const r = await ctx.call('POST', '/api/msg', body);
+  let r = await ctx.call('POST', '/api/msg', body);
+  // #4580: a timeout or a cut reply may come AFTER the board delivered; the board keeps one copy of the same
+  // send inside five minutes, so asking once more is safe and turns "maybe" into its real receipt.
+  // Every failure but a refused connection is retried: the board is loopback, so there is no DNS or TLS failure
+  // to tell apart, and anything else that is not "refused" may have arrived (the Mac lists curl 18/28/52/56).
+  let retried = false;
+  if (!r.reached && !r.refused) {
+    retried = true;
+    ctx.err('Kosmos did not answer; asking once more (the board keeps one copy of a repeat)...');
+    await new Promise((done) => setTimeout(done, retryPauseMs(ctx.env)));   // not straight back into the same busy moment
+    const first = r;
+    r = await ctx.call('POST', '/api/msg', body);
+    // A refused retry proves nothing about the first attempt, which may have landed: keep ITS answer (its timeout).
+    if (!r.reached && r.refused) r = first;
+  }
   if (!r.reached) {
     if (r.timedOut) return maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The message may have been delivered; check with them before sending it again.');
+    // #4580: the first attempt was not refused, so it may have landed; a retry that also failed proves nothing.
+    if (retried) return maybe(ctx.err, 'Kosmos did not answer, and did not answer when asked once more. The message may have been delivered; check with them before sending it again.');
     const code = ctx.unreachable('send that');
     keepPiped();
     return code;
@@ -332,7 +350,7 @@ async function verbMsg(ctx, args) {
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); keepPiped(); return 1; }
   const d = (r.json && r.json.delivery) || {};
-  if (d.state === 'placed') { ctx.out('Placed with ' + to + '.'); return 0; }
+  if (d.state === 'placed') { ctx.out('Placed with ' + to + (d.duplicate === true ? ' (it had arrived the first time; it was not sent twice).' : '.')); return 0; }
   if (d.state === 'unconfirmed') return maybe(ctx.err, 'Not confirmed: ' + (clause(d.because) || 'the text may already be in their composer') + '. Do not re-send; check with them.');
   ctx.err('Not delivered: ' + (clause(d.because) || 'we could not tell why') + '.');
   keepPiped();
@@ -444,9 +462,23 @@ async function verbPost(ctx, args) {
   /* The board drops a request body over its limit, which would read as unreachable; measured on the
      encoded body, as install/kosmos does. */
   if (Buffer.byteLength(JSON.stringify(body), 'utf8') > POST_BODY_MAX_BYTES) { ctx.err('Nothing was posted: that message is too large to send to the board at all. Post a summary, or split it.'); keepPiped(); return 2; }
-  const r = await ctx.call('POST', '/api/post', body, { timeoutMs: POST_TIMEOUT_MS });
+  let r = await ctx.call('POST', '/api/post', body, { timeoutMs: POST_TIMEOUT_MS });
+  // #4580: a CUT reply may come after the board kept the post, so ask once more (the board keeps one copy).
+  // Not after a timeout: with a 120 s budget the post is still being delivered.
+  let retried = false;
+  if (!r.reached && !r.refused && !r.timedOut) {
+    retried = true;
+    ctx.err('Kosmos did not answer; asking once more (the board keeps one copy of a repeat)...');
+    await new Promise((done) => setTimeout(done, retryPauseMs(ctx.env)));   // not straight back into the same busy moment
+    const first = r;
+    r = await ctx.call('POST', '/api/post', body, { timeoutMs: POST_TIMEOUT_MS });
+    // A refused retry proves nothing about the first attempt, which may have landed: keep ITS answer (its timeout).
+    if (!r.reached && r.refused) r = first;
+  }
   if (!r.reached) {
     if (r.timedOut) return maybe(ctx.err, 'Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it.');
+    // #4580: as in msg, a first attempt that was cut may have landed, whatever the retry did.
+    if (retried) return maybe(ctx.err, 'Kosmos did not answer, and did not answer when asked once more. The post may have been delivered; check the room before posting it again.');
     const code = ctx.unreachable('post that');
     keepPiped();
     return code;
@@ -459,7 +491,7 @@ async function verbPost(ctx, args) {
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); keepPiped(); return 1; }
   const d = (r.json && r.json.delivery) || {};
-  if (d.state === 'placed') { ctx.out('Posted to ' + project + '. Everyone on it has it waiting.'); return 0; }
+  if (d.state === 'placed') { ctx.out('Posted to ' + project + '. Everyone on it has it waiting' + (d.duplicate === true ? ' (it had arrived the first time; it was not posted twice).' : '.')); return 0; }
   if (d.state === 'unconfirmed') return maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '. Do not re-post; the room screen shows who got it.');
   ctx.err('Not posted: ' + (clause(d.because) || 'we could not tell why') + '.');
   /* #2710 parity with install/kosmos: HAND THE TEXT BACK on every refusal, not only a #3224
@@ -539,7 +571,8 @@ async function verbWhoami(ctx) {
 async function verbRoom(ctx, args) {
   const project = args[0];
   if (!project) { ctx.err(USAGE.room); return 2; }
-  const r = await ctx.call('GET', '/api/project/' + projectSlug(project) + '/room?as=text', undefined, { agent: false });
+  // #4491 slice 4: the agent's own token rides too (the default), as on the Mac, so the read works without the board token.
+  const r = await ctx.call('GET', '/api/project/' + projectSlug(project) + '/room?as=text');
   if (!r.reached) return ctx.unreachable('read that room');
   ctx.out(String(r.text || '').replace(/\n$/, ''));
   return r.status >= 400 ? 1 : 0;
@@ -563,7 +596,7 @@ async function roomReopen(ctx, args) {
 async function taskList(ctx, args) {
   const project = args[0];
   if (!project) { ctx.err('Usage: kosmos task list <project-id>'); return 2; }
-  const r = await ctx.call('GET', '/api/tasks?project=' + projectSlug(project), undefined, { agent: false });
+  const r = await ctx.call('GET', '/api/tasks?project=' + projectSlug(project));   // #4491 slice 4: with the agent's own token
   if (!r.reached) return ctx.unreachable('list tasks');
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1; }
   const tasks = (r.json && Array.isArray(r.json.tasks)) ? r.json.tasks : null;
@@ -770,7 +803,7 @@ async function agentCreate(ctx, args) {
 async function agentRoles(ctx) {
   // ?catalogue=1: listing the roles asks for the downloaded ready-made ones too, as the picker does (#4632).
   // 25 s: the board may be downloading (up to 8 s, 16 s when it retries past the caches).
-  const r = await ctx.call('GET', '/api/roles?catalogue=1', undefined, { agent: false, timeoutMs: 25000 });
+  const r = await ctx.call('GET', '/api/roles?catalogue=1', undefined, { timeoutMs: 25000 });   // #4491 slice 4: with the agent's own token
   if (!r.reached) return ctx.unreachable('list the roles');
   const roles = r.json && Array.isArray(r.json.roles) ? r.json.roles : null;
   if (!roles) { ctx.err('Kosmos gave an answer we could not read when listing the roles.'); return 1; }
@@ -783,7 +816,7 @@ async function agentRoleDraft(ctx, args) {
   if (args && args[0] === '--to' && !to) { ctx.err('Usage: kosmos agent role-draft [--to <file>]'); return 2; }
   // A role is reused by its file, so an existing one is never replaced (a second role with the same short name).
   if (to && ctx.fileExists(to)) { ctx.err(to + ' already exists, and it may hold another role. Pick another name, or move it first.'); return 2; }
-  const r = await ctx.call('GET', '/api/roles', undefined, { agent: false });
+  const r = await ctx.call('GET', '/api/roles');   // #4491 slice 4: with the agent's own token
   if (!r.reached) return ctx.unreachable('get the role text');
   const text = r.json && r.json.own && typeof r.json.own.instructions === 'string' ? r.json.own.instructions : '';
   if (!text) { ctx.err('Kosmos gave an answer we could not read when getting the role text.'); return 1; }
@@ -888,7 +921,8 @@ async function feedbackPull(ctx, args) {
 }
 
 /* #4330, the Windows half of #4289: an agent posts to the Kosmos community through its own
-   board, which decides held or published (feedpublish's scrub and trust ladder); only the
+   board, which decides held or published (feedpublish's scrub; since #3485 on 2026-09-30 a clean
+   agent post publishes straight away); only the
    board's send layer (#4287) talks to the public site. Identity is the agent token, never
    the body. A first argument other than `post` prints the usage and exits 2, never
    "Unknown:", as cmd_community does (`!= "post"`). Where the Mac says "not running, start
@@ -924,7 +958,7 @@ async function communityPost(ctx, args) {
   const r = await ctx.call('POST', '/api/community/post', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The post may have been made; look before posting it again.') : ctx.unreachable('post that');
   const status = r.json && r.json.status;
-  if (r.status === 200 && status === 'held') { ctx.out('Posted. It is held until your person releases it, which is expected: nothing you write goes public before that.'); return 0; }
+  if (r.status === 200 && status === 'held') { ctx.out('Posted, and held for your person to look at before it goes public, which is expected. Do not post it again.'); return 0; }
   if (r.status === 200 && status === 'published') { ctx.out('Posted to the Kosmos community.'); return 0; }
   ctx.err('That was not posted: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
   return 1;
@@ -1144,7 +1178,13 @@ async function main(argv, io) {
     } catch (e) {
       const timedOut = Boolean(e && (e.name === 'TimeoutError' || e.name === 'AbortError'));
       lastTimedOut = timedOut;
-      return { reached: false, timedOut };
+      // #4580: a refused connection means nothing arrived; a reset or a timeout may come after the board kept it.
+      // Every shape a refused connection comes in: fetch's cause.code, an AggregateError of both address families
+      // (cause.errors[].code), or the code in the message.
+      const isRefused = (x) => Boolean(x && (x.code === 'ECONNREFUSED' || /ECONNREFUSED/.test(String(x.message || ''))));
+      const refused = Boolean(e && (isRefused(e) || isRefused(e.cause)
+        || (e.cause && Array.isArray(e.cause.errors) && e.cause.errors.some(isRefused))));
+      return { reached: false, timedOut, refused };
     }
   }
 

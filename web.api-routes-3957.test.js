@@ -47,7 +47,9 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
 const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
 
 /* Deliberate exceptions, each with its reason. An entry is a claim someone can check. */
-const SERVED_ELSEWHERE = {};
+const SERVED_ELSEWHERE = {
+  /* #4557 removed '/api/teams/seeded' (#4556's entry): the board serves the seeded teams catalogue now. */
+};
 
 /* Known page calls spread across the script, read on every run (see the main test). */
 const CANARIES = ['/api/accounts', '/api/federation/invite', '/api/federation/join', '/api/remote/devices/x', '/api/update/rollback'];
@@ -470,6 +472,14 @@ test('#3957: every /api path the page fetches is served by a board route', () =>
   assert.equal(board.prefixes.length, 0, 'a board startsWith(\'/api/...\') prefix appeared: ' + board.prefixes.join(', ') + '; check it is a real route family, then raise this with a reason');
   assert.ok(unread <= UNREAD_CEILING, `fetches whose URL is not a literal grew to ${unread} (ceiling ${UNREAD_CEILING}); make the new one's URL a literal, or raise the ceiling with a reason`);
   assert.ok(unreadable.length <= UNREADABLE_CEILING, `fetches with a variable tail grew to ${unreadable.length} (ceiling ${UNREADABLE_CEILING}): ${unreadable.join(', ')}`);
+});
+
+test('#4556 review round 3: no SERVED_ELSEWHERE entry is a route the board serves now (so an entry cannot outlive its route)', () => {
+  const board = baseBoard();
+  const nowServed = Object.keys(SERVED_ELSEWHERE).filter((p) => served(p, board));
+  assert.deepEqual(nowServed, [], 'the board serves these now: remove their SERVED_ELSEWHERE entries');
+  // CONTROL: the check can see a served path (a route every board has).
+  assert.equal(served('/api/accounts', board), true, 'CONTROL: /api/accounts read as not served, so this test could never fail');
 });
 
 test('#3957: every SERVED_ELSEWHERE entry is still called by the page, so the list cannot rot', () => {

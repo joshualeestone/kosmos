@@ -151,9 +151,29 @@ function readStdin() {
   });
 }
 
+/* #4588: Google's per-account quota, which every agy agent signed in to one account shares. Measured text (a user's
+   0.7.07 board, agy on Google AI Ultra):
+     API error: RESOURCE_EXHAUSTED (code 429): Individual quota reached. ... Resets in 24m54s.
+   quotaResetMs returns the wait in ms when the error is that quota AND names a reset, else null. Hours, minutes and
+   seconds are each optional, but at least one must be present. */
+function quotaResetMs(error) {
+  const e = typeof error === 'string' ? error : '';
+  // The account's quota, not any RESOURCE_EXHAUSTED: Google's per-minute limit also says "Quota exceeded for metric
+  // ... per minute", so the guard is the measured phrase "quota reached" (reviews 4 and 5).
+  if (!/RESOURCE_EXHAUSTED/.test(e) || !/quota reached/i.test(e)) return null;
+  // `m(?!s)`: the minutes of "Resets in 5m", never the m of a "500ms" (review 1). Days are read too (review 5): the
+  // weekly window may print as "3d4h" (unmeasured; the measured form is "24m54s").
+  const m = /Resets in\s*(?:(\d+)\s*d)?\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m(?!s))?\s*(?:(\d+)\s*s)?/i.exec(e);
+  if (!m || (m[1] === undefined && m[2] === undefined && m[3] === undefined && m[4] === undefined)) return null;
+  const ms = ((Number(m[1]) || 0) * 86400 + (Number(m[2]) || 0) * 3600 + (Number(m[3]) || 0) * 60 + (Number(m[4]) || 0)) * 1000;
+  return ms > 0 ? ms : null;
+}
+
 /* The pure event -> report translation, exported for tests. `eventName` is argv[2]; `payload` the
-   parsed stdin (may be null: the event name alone is enough). Returns { state, text } or null. */
-function reportFor(eventName, payload) {
+   parsed stdin (may be null: the event name alone is enough). Returns { state, text } or null, with `waiting`
+   (#4569) and `final` (#4612) when the Muse front's payload carries them; a quota stop (#4588) adds `until`, the
+   reset as an ISO time counted from `nowMs`. */
+function reportFor(eventName, payload, nowMs) {
   if (eventName === LAUNCH_EVENT) return { state: 'idle', text: '' };   // #4417: up, and no turn has started
   const state = STATE_FOR_EVENT[eventName];
   if (!state) return null; // an event we did not hook is ignored, never guessed at
@@ -176,22 +196,46 @@ function reportFor(eventName, payload) {
   /* #4569 fix 4: the Muse front (engine/musefront.js) runs this bridge too, and puts its queue in `kosmosWaiting`
      ({ n, yours }) on a working report. agy's own payloads never carry it. The board checks it (selfreport). */
   const w = payload && typeof payload === 'object' ? payload.kosmosWaiting : null;
+  /* #4612: the Muse front's answer to the person's DM ({ text, startedAt }): on the Stop that ends the DM's turn, or
+     on the working reports of the turns queued behind it, so it does not wait for the queue to drain. agy's own
+     payloads never carry it. */
+  const f = payload && typeof payload === 'object' ? payload.kosmosFinal : null;
+  const final = (state === 'idle' || state === 'working') && f && typeof f === 'object' && typeof f.text === 'string' && f.text.trim() && typeof f.startedAt === 'string'
+    ? { text: Array.from(f.text).slice(0, 4000).join(''), startedAt: f.startedAt } : undefined;   // characters
   if (state === 'working' && w && typeof w === 'object' && Number.isSafeInteger(w.n) && Number.isSafeInteger(w.yours)) {
-    return { state, text, waiting: { n: w.n, yours: w.yours } };
+    return final ? { state, text, waiting: { n: w.n, yours: w.yours }, final } : { state, text, waiting: { n: w.n, yours: w.yours } };
   }
   if (state === 'idle' && payload && typeof payload === 'object') {
     /* A Stop with an error is still the end of the turn; say so on the card rather than hide it. */
     if (typeof payload.error === 'string' && payload.error.trim()) text = 'The turn ended with an error: ' + payload.error.trim();
+    /* #4588: still idle (the loop has ended, and an automatic blocked would outlive the resume, #2456), but the reset
+       travels in `until` so the board can show the pause and resume the agent after it. */
+    const wait = quotaResetMs(payload.error);
+    if (wait !== null) {
+      const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+      return {
+        state,
+        /* Google's own words are kept for whoever reads the record; the board says its own sentence instead
+           (status.js quotaPauseUntil's branch), and promises nothing about a resume that may be switched off. */
+        // The first sentence is status.js QUOTA_REPORT_PREFIX, which the board keys on: keep them identical.
+        text: "Paused: this Google account's shared Antigravity quota ran out. Google said: " + payload.error.trim(),
+        until: new Date(now + wait).toISOString(),
+        /* #4612: a Muse answer on the same Stop still reaches the DM; the quota does not swallow it. */
+        ...(final ? { final } : {}),
+      };
+    }
   }
-  return { state, text };
+  return final ? { state, text, final } : { state, text };
 }
 
 /* The /api/report body. `auto: true` is the field the correctness argument rests on (a turn ending
-   must not erase a blocked the agent filed deliberately, #1456); asserted by the test. */
-function buildBody(state, text, env, waiting) {
+   must not erase a blocked the agent filed deliberately, #1456); asserted by the test.
+   `final` (#4612) is the 5th argument and `until` (#4588, a quota reset) the 6th. */
+function buildBody(state, text, env, waiting, final, until) {
   const e = env || process.env;
-  const body = { state, text, on: '', owner: '', until: '', auto: true, from_pane: e.TMUX_PANE || '' };
+  const body = { state, text, on: '', owner: '', until: until || '', auto: true, from_pane: e.TMUX_PANE || '' };
   if (waiting) body.waiting = waiting;   // #4569 fix 4
+  if (final) body.final = final;         // #4612
   return body;
 }
 
@@ -240,9 +284,10 @@ async function main() {
   let payload = null;
   try { payload = JSON.parse(raw || ''); } catch { /* the event name alone still reports */ }
   if (eventName === 'PreToolUse') answer(answerFor(eventName, payload));
-  const mapped = reportFor(eventName, payload);
+  const mapped = reportFor(eventName, payload, Date.now());
   if (!mapped) return;
-  const waitKey = mapped.waiting ? mapped.waiting.n + '/' + mapped.waiting.yours : '';
+  // #4612: a working report that newly carries an answer is not a repeat, so the answer is part of the key.
+  const waitKey = (mapped.waiting ? mapped.waiting.n + '/' + mapped.waiting.yours : '') + (mapped.final ? ' answer ' + mapped.final.startedAt : '');
   if (!shouldSend(mapped.state, Date.now(), process.env, waitKey)) return;
 
   const port = Number(process.env.KOSMOS_PORT) || 16180;
@@ -262,7 +307,7 @@ async function main() {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   await fetch(`http://127.0.0.1:${port}/api/report`, {
-    method: 'POST', headers, body: JSON.stringify(buildBody(mapped.state, mapped.text, process.env, mapped.waiting)), signal: controller.signal,
+    method: 'POST', headers, body: JSON.stringify(buildBody(mapped.state, mapped.text, process.env, mapped.waiting, mapped.final, mapped.until)), signal: controller.signal,
   }).catch(() => { /* a missed report must never become a failed turn */ })
     .finally(() => clearTimeout(timer));
 }
@@ -276,4 +321,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { STATE_FOR_EVENT, LAUNCH_EVENT, ASK_TOOL, ALLOW, ASK, answerFor, throttleKey, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, reportFor, buildBody, engineDir };
+module.exports = { STATE_FOR_EVENT, LAUNCH_EVENT, ASK_TOOL, ALLOW, ASK, answerFor, throttleKey, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, quotaResetMs, reportFor, buildBody, engineDir };

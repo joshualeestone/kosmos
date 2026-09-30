@@ -57,6 +57,21 @@ test('an agent resolves by the token it was handed at launch, with no pane id an
   } finally { board.restore(); }
 });
 
+test('#4738: a stranger session whose name cannot be keyed, ahead of the agent in the roster, does not break its token', () => {
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.stranger('!!')]);
+  try {
+    const minted = sendertoken.mint('mara');
+    assert.equal(minted.ok, true);
+    // The board sorts its roster, and "!!" sorts before letters: put it first as the board would.
+    const roster = [...board.roster].sort((a, b) => (a.sessionName === '!!' ? -1 : b.sessionName === '!!' ? 1 : 0));
+    assert.equal(roster[0].sessionName, '!!', 'CONTROL: the unkeyable row is really ahead of the agent');
+    assert.throws(() => require('./store').safeKey('!!'), /invalid agent name/, 'CONTROL: the name really cannot be keyed');
+    const who = sendertoken.resolve(minted.token, roster);
+    assert.equal(who.ok, true, 'the agent\'s token failed because of a stranger\'s session name: ' + JSON.stringify(who));
+    assert.equal(who.card.sessionName, 'mara');
+  } finally { board.restore(); }
+});
+
 test('the body still cannot name the sender: an unissued token is refused, not believed', () => {
   const board = fleet.install([fleet.agent('renet-windows', { state: 'idle' })]);
   try {

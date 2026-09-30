@@ -1641,14 +1641,179 @@ function codexHookReview(paneText) {
    characters: rendered through textContent and as JSON. */
 const CODEX_HOOK_DIALOG_SENTENCE = 'it is waiting on a Codex hook approval: Codex found hooks it has not been told to trust '
   + '(often from the Codex desktop app\u2019s plugins) and will not start until someone answers. Typing cannot answer it, '
-  + 'so nothing was typed. Choose in its terminal whether to trust them, then send this again.';
+  + 'so nothing was typed. It is answered on its agent page in Kosmos (the box above the conversation), by the person; then send this again.';
+/* #4607 (review round 3): the trusted-but-open list. Its hooks are trusted already; Codex waits for the list to close. */
+const CODEX_HOOK_LIST_SENTENCE = 'its Codex hook list is open on its screen, so nothing was typed: Codex waits for it to be '
+  + 'closed. It is closed on its agent page in Kosmos (the box above the conversation), by the person; then send this again.';
 /* True when a card's evidence is this dialog's. Only the Codex hook branch of classify writes these rows as
    needs_you evidence. Unlike isTrustDialogEvidence, NO production code keys on it (round 4): the delivery floor
    reads the screen fresh. Its callers are the tests that pin what the card shows. */
 function isCodexHookEvidence(evidence) {
   return typeof evidence === 'string'
     && (CODEX_HOOK_MENU_TITLE.test(evidence) || CODEX_HOOK_TABLE_WARNING.test(evidence) || CODEX_HOOK_TABLE_FOOTER.test(evidence)
-      || /^Press t to trust; esc to go back$/.test(evidence));
+      || /^Press t to trust; esc to go back$/.test(evidence) || evidence === 'Press enter to view hooks; esc to close');
+}
+
+/* #4607: the table AFTER "t" trusted every hook (measured 2026-09-30 on a live pane, Codex 0.149.1,
+   test-support/codex-screens/hook-review-table-trusted-0.149.1.txt): the Review column is gone and the footer is
+   "Press enter to view hooks; esc to close". Nothing is left to trust; Esc closes it to the prompt. Matched like the
+   other footers: at the end of the last rows joined, with its own heading above, so the words in tool output do not
+   count. codexHookReview does not return this screen (there is no question on it). */
+const CODEX_HOOK_TRUSTED_FOOTER_END = /Pressentertoviewhooks;esctoclose$/;
+function codexHookTrustedTable(paneText) {
+  const rows = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
+  while (rows.length && !rows[rows.length - 1]) rows.pop();
+  if (!rows.length) return false;
+  const tail = rows.slice(-CODEX_HOOK_ROWS);
+  if (!CODEX_HOOK_TRUSTED_FOOTER_END.test(tail.slice(-3).join('').replace(/\s+/g, ''))) return false;
+  /* Wrap-tolerant, like the footers (review round 7: on a narrow pane the heading wraps and a one-row match missed
+     the list, so a Trust read as failed and the open list went unguarded). */
+  if (!/Lifecyclehooksfromconfigandenabledplugins\./.test(tail.slice(0, -1).join('').replace(/\s+/g, ''))) return false;
+  /* The measured shape (review round 12: a loose match let four printed lines read as this list, draw an Escape, and
+     refuse messages): its "Event  Installed  Active  Description" header below the heading, then ONLY event rows up
+     to the footer, at least five of them (0.149.1 draws eleven), and at least one ACTIVE hook (review round 3: the
+     same viewer with nothing active is Codex's plain /hooks list, where "trusted" would be untrue). */
+  const head = tail.findIndex((r) => /^\s*Event\s+Installed\s+Active\s+Description\s*$/.test(r));
+  if (head < 0) return false;
+  const body = tail.slice(head + 1).filter((r) => r.trim());
+  const footerRows = body.length - body.findIndex((r) => /Press/.test(r));
+  const events = body.slice(0, body.length - Math.max(footerRows, 1));
+  const EVENT_ROW = /^\s*[A-Za-z]+\s+(\d+)\s+(\d+)\s+\S/;
+  if (events.length < 5 || !events.every((r) => EVENT_ROW.test(r))) return false;
+  return events.some((r) => Number(EVENT_ROW.exec(r)[2]) > 0);
+}
+/* #4607 (review round 1): the menu key is the number Codex prints beside the exact option, never its position (a
+   Codex that reorders the menu would otherwise get "Trust all" when the person chose to continue without). Rows are
+   read from the menu's own block, the last rows of the screen, as "› 1. Review hooks" / "2. Trust all and continue" /
+   "3. Continue without trusting (hooks won't run)". Returns { trust, skip }, each a digit or null. */
+const CODEX_HOOK_MENU_TRUST = /^\s*(?:›\s*)?(\d)\.\s+Trust all and continue\s*$/;
+const CODEX_HOOK_MENU_SKIP = /^\s*(?:›\s*)?(\d)\.\s+Continue without trusting\b.*$/;
+function codexHookMenuKeys(paneText) {
+  if (!codexHookReview(paneText) || codexHookReview(paneText).screen !== 'menu') return { trust: null, skip: null };
+  const rows = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
+  while (rows.length && !rows[rows.length - 1]) rows.pop();
+  /* Only the menu's OWN rows: after its last "Hooks need review" title (review round 3: an option row echoed in the
+     transcript above could otherwise supply a digit when Codex rewords both of its own). */
+  let from = -1;
+  rows.forEach((r, i) => { if (CODEX_HOOK_MENU_TITLE.test(r)) from = i; });
+  if (from < 0) return { trust: null, skip: null };
+  /* The EXACT measured block, and nothing else (review round 9: a "Hooks need review" line and option rows written by
+     an agent, above another popup with the same footer, read as the menu, and Trust pressed "2" there). From the
+     title to the end, blank rows aside: the count, the sandbox line, "1. Review hooks", the Trust and Continue rows
+     (either order), then only the footer (which may wrap). Any other row between them returns no digit. */
+  const block = rows.slice(from + 1).filter((r) => r.trim());
+  if (block.length < 6) return { trust: null, skip: null };
+  if (!CODEX_HOOK_MENU_COUNT.test(block[0])) return { trust: null, skip: null };
+  if (!/^\s*Hooks can run outside the sandbox after you trust them\.\s*$/.test(block[1])) return { trust: null, skip: null };
+  if (!/^\s*(?:›\s*)?1\.\s+Review hooks\s*$/.test(block[2])) return { trust: null, skip: null };
+  const pair = [block[3], block[4]];
+  const t = pair.map((r) => CODEX_HOOK_MENU_TRUST.exec(r)).filter(Boolean);
+  const k = pair.map((r) => CODEX_HOOK_MENU_SKIP.exec(r)).filter(Boolean);
+  if (t.length !== 1 || k.length !== 1) return { trust: null, skip: null };
+  if (block.slice(5).join('').replace(/\s+/g, '') !== 'Pressentertoconfirmoresctogoback') return { trust: null, skip: null };
+  const trust = t[0][1];
+  const skip = k[0][1];
+  return { trust, skip: skip !== trust ? skip : null };
+}
+/* #4607 (review round 10): the EXACT measured shape of the table and of one hook's page, required before a key is
+   pressed on either (codexHookReview stays loose on purpose: for #4589's floor a false positive only refuses typing,
+   which is safe; for a key it would press "t" on a bare footer an agent printed). Table: its "N hooks need review"
+   warning, the "Event  Installed  Active  Review" header below it, at least one row with a hook to review, and the
+   footer last. Hook page: its warning, a "[!] Hook N" row below it, and its footer last. Not every row between those
+   anchors is checked: what makes it safe is that Codex's own footer must be the LAST rows, which agent text printed
+   above a live Codex screen cannot be. */
+function codexHookScreenExact(paneText, screen) {
+  const rows = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
+  while (rows.length && !rows[rows.length - 1]) rows.pop();
+  const last3 = rows.slice(-3).join('').replace(/\s+/g, '');
+  const lastIdx = (re) => { let k = -1; rows.forEach((r, i) => { if (re.test(r)) k = i; }); return k; };
+  const warn = lastIdx(CODEX_HOOK_TABLE_WARNING);
+  if (warn < 0) return false;
+  if (screen === 'table') {
+    if (!CODEX_HOOK_TABLE_FOOTER_END.test(last3)) return false;
+    const head = rows.findIndex((r, i) => i > warn && /^\s*Event\s+Installed\s+Active\s+Review\b/.test(r));
+    if (head < 0) return false;
+    return rows.slice(head + 1).some((r) => { const m = CODEX_HOOK_TABLE_ROW.exec(r); return !!m && Number(m[4]) > 0; });
+  }
+  if (screen === 'hook') {
+    if (!CODEX_HOOK_ONE_FOOTER_END.test(last3)) return false;
+    return rows.some((r, i) => i > warn && CODEX_HOOK_ONE_ROW.test(r));
+  }
+  return false;
+}
+
+/* #4607: what the card shows beside its two buttons. From the MENU, the count ("2 hooks are new or changed."); from
+   the TABLE, the events with hooks to review (the Review column); from one HOOK, its event and source. Only what the
+   screen says: null fields when it does not say them. */
+const CODEX_HOOK_MENU_COUNT = /^\s*(\d+) hooks? (?:is|are) new or changed\.\s*$/;
+const CODEX_HOOK_TABLE_ROW = /^\s*([A-Za-z]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+\S.*$/;
+function codexHookSummary(paneText) {
+  const seen = codexHookReview(paneText);
+  if (!seen) return codexHookTrustedTable(paneText) ? { screen: 'trusted', count: null, events: [], source: null, command: null } : null;
+  /* Only the dialog's own rows, the last on the screen, and the LAST match (review round 2: an earlier count, event or
+     source in scrollback or echoed by the agent must not be shown as this dialog's). */
+  const all = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
+  while (all.length && !all[all.length - 1]) all.pop();
+  const rows = all.slice(-CODEX_HOOK_ROWS);
+  let count = null;
+  const events = [];
+  let source = null;
+  let command = null;
+  if (seen.screen === 'menu') {
+    const m = rows.map((r) => CODEX_HOOK_MENU_COUNT.exec(r)).filter(Boolean).pop();
+    if (m) count = Number(m[1]);
+  } else if (seen.screen === 'table') {
+    /* Only the table's own rows: after its "Event  Installed  Active  Review" header (review round 9: a transcript
+       row of the same shape above it added a made-up event). */
+    let head = -1;
+    rows.forEach((r, i) => { if (/^\s*Event\s+Installed\s+Active\s+Review\b/.test(r)) head = i; });
+    for (const r of head >= 0 ? rows.slice(head + 1) : []) {
+      const m = CODEX_HOOK_TABLE_ROW.exec(r);
+      if (m && Number(m[4]) > 0) events.push({ event: m[1], count: Number(m[4]) });
+    }
+    if (events.length) count = events.reduce((n, e) => n + e.count, 0);
+  } else if (seen.screen === 'hook') {
+    /* The page's own block: from its last "[!] Hook N" row (or its "... hooks" heading) to the end, over the whole
+       screen, so a long command cannot push its fields out of view (review round 7). Its "N hooks need review" line
+       counts only THIS event's hooks (measured: the table said 2, this page 1), so no total is claimed from here. */
+    /* The page's own block starts at its "<Event> hooks" heading, found by searching UP from the first "[!] Hook N"
+       row (review round 13: a fixed offset missed the heading and warning once an event had three or more hooks). */
+    /* Within the dialog's own rows only (review round 14: a "[!] Hook 1" row printed higher up must not start it). */
+    const floor = Math.max(0, all.length - 2 * CODEX_HOOK_ROWS);
+    const firstHook = all.findIndex((r, i) => i >= floor && CODEX_HOOK_ONE_ROW.test(r));
+    let start = firstHook;
+    for (let i = firstHook - 1; i >= 0 && i >= firstHook - 12; i -= 1) { if (/^\s*[A-Za-z]+ hooks\s*$/.test(all[i])) { start = i; break; } }
+    const block = start >= 0 ? all.slice(start) : rows;
+    const ev = block.map((r) => /^\s*Event\s{2,}(\S+)\s*$/.exec(r)).filter(Boolean).pop();
+    /* This event's own hook count, from its page's warning (round 13: it was always 1). */
+    const evWarn = block.map((r) => /^\s*(?:⚠\s*)?(\d+) hooks? needs? review before (?:it|they) can run\.\s*$/.exec(r)).filter(Boolean)[0];
+    if (ev) events.push({ event: ev[1], count: evWarn ? Number(evWarn[1]) : 1 });
+    let si = -1;
+    block.forEach((r, i) => { if (/^\s*Source\s{2,}\S/.test(r)) si = i; });
+    if (si >= 0) {
+      /* The source can wrap onto the next row (the captured screen does), which carries no label. */
+      const first = block[si].replace(/^\s*Source\s+/, '');
+      const next = block[si + 1] && /^\s{8,}\S/.test(block[si + 1]) && !/^\s*[A-Z][a-z]+\s{2,}/.test(block[si + 1]) ? block[si + 1].trim() : '';
+      /* One line, capped: it is shown beside the Trust button, and it is text from the screen, not ours. */
+      source = (first + (next && !/[\/\-]$/.test(first) ? ' ' : '') + next).replace(/\s+/g, ' ').trim().slice(0, 160) || null;
+    }
+    /* Round 6: the one page that shows what the hook RUNS. Capped and one line, like the source. */
+    let ci = -1;
+    block.forEach((r, i) => { if (/^\s*Command\s{2,}\S/.test(r)) ci = i; });
+    /* A page for an event with more than one hook shows only the selected hook's command (review round 11), so no
+       command is claimed for the event then. */
+    const pageWarn = block.map((r) => CODEX_HOOK_TABLE_WARNING.exec(r) && /(\d+) hooks? need/.exec(r)).filter(Boolean).pop();
+    if (pageWarn && Number(pageWarn[1]) > 1) ci = -1;
+    if (ci >= 0) {
+      /* Its wrapped rows too (no label, deeper indent), up to the next labelled row; cut at 160 with an ellipsis so a
+         shortened command never reads as the whole of it (review round 7). */
+      const parts = [block[ci].replace(/^\s*Command\s+/, '')];
+      for (let j = ci + 1; j < block.length && /^\s{8,}\S/.test(block[j]) && !/^\s*[A-Z][a-z]+\s{2,}\S/.test(block[j]); j += 1) parts.push(block[j].trim());
+      const whole = parts.join(' ').replace(/\s+/g, ' ').trim();
+      command = whole ? (whole.length > 160 ? whole.slice(0, 159) + '\u2026' : whole) : null;
+    }
+  }
+  return { screen: seen.screen, count, events, source, command };
 }
 
 /* #4004: Gemini CLI (0.61.0, measured 2026-09-26 against a fake 429 in a real tmux pane) on a daily quota.
@@ -3761,6 +3926,11 @@ function classify(pane, paneText) {
     const hooks = codexHookReview(paneText);
     if (hooks) {
       return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'it is waiting on a Codex hook approval', evidence: hooks.evidence };
+    }
+    /* #4607 (review round 1): the hooks are trusted but their list is still open (a dropped Escape after "t"). Codex
+       waits there for Escape, so the card says so and offers Close, instead of reading as idle. */
+    if (codexHookTrustedTable(paneText)) {
+      return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'its Codex hooks are trusted and their list is still open', evidence: 'Press enter to view hooks; esc to close' };
     }
     const codexTail = paneText.split('\n').slice(-25).join('\n');
     if (CODEX_NEEDS_YOU_MARKERS.some((re) => re.test(codexTail))) {
@@ -6394,6 +6564,27 @@ function saidWords(reported, nowMs) {
   return '';
 }
 
+/* #4588: Google's shared Antigravity quota. bin/agy-report-bridge.js reports it as an AUTOMATIC idle (the loop has
+   ended) whose `because` starts with QUOTA_REPORT_PREFIX and whose `until` is the reset as a strict ISO time. All three
+   are required (review 3): any agent's hook can pass an `until` through, and Date.parse reads "5" as a date, so the
+   bridge's own sentence is what makes it this. quotaResetOf returns the reset in epoch ms for such a report,
+   quotaPauseUntil only while it is still ahead of nowMs. QUOTA_RESUME_WINDOW_MS is how long after the reset the resume
+   sweep (engine/agyquota.js) acts and the card says the quota reset, one constant for both. */
+const QUOTA_REPORT_PREFIX = "Paused: this Google account's shared Antigravity quota ran out.";
+const QUOTA_RESUME_WINDOW_MS = 6 * 60 * 60 * 1000;
+function quotaResetOf(reported) {
+  if (!reported || reported.found !== true || reported.state !== 'idle' || reported.by !== 'auto') return null;
+  if (typeof reported.because !== 'string' || !reported.because.startsWith(QUOTA_REPORT_PREFIX)) return null;
+  if (typeof reported.until !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(reported.until)) return null;
+  const at = Date.parse(reported.until);
+  return Number.isFinite(at) ? at : null;
+}
+function quotaPauseUntil(reported, nowMs) {
+  const at = quotaResetOf(reported);
+  if (at === null) return null;
+  return at > (Number.isFinite(nowMs) ? nowMs : Date.now()) ? at : null;
+}
+
 function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity) {
   /* #1930: a live-HEALTHY account means a scraped auth_failed is STALE, whether or not the
      agent has reported. Handle it HERE, above the no-report early return below, so a
@@ -6582,6 +6773,25 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
   // Rule 2, the other direction: it said goodbye and is visibly still here.
   if (reported.state === 'stopped') {
     return { ...scraped, reported: false, conflict: 'it reported stopping, but it is still running' };
+  }
+  /* #4588: paused on the account's shared Google quota until its reset (see quotaPauseUntil). The existing
+     rate_limited state, which the board already shows as Paused; the resume sweep (engine/agyquota.js) types a
+     carry-on line into the agent after the reset, and its next automatic working clears this. */
+  /* Kosmos's own sentences, never the report's text (Google's raw error, and a relative "Resets in" that goes stale,
+     #215): the detail header quotes `because`. */
+  /* Only over a screen that says nothing (agy's is never read, so always for agy): a question, work or a lost
+     connection read off a screen outranks this report (review 2). */
+  const quotaAt = (scraped.state === STATE.UNKNOWN || scraped.state === STATE.IDLE) ? quotaResetOf(reported) : null;
+  if (quotaAt !== null) {
+    const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+    const hhmm = require('./quotawords').quotaResetWords(quotaAt, now);
+    if (quotaPauseUntil(reported, now) !== null) {
+      return { state: STATE.RATE_LIMITED, confidence: CONFIDENCE.STRUCTURED, because: "its Google account's shared Antigravity quota ran out; it resets at " + hhmm, evidence: null, reported: true, conflict: null, quotaUntil: new Date(quotaAt).toISOString() };
+    }
+    /* Past the reset, while this is still its latest report: its turn was cut off and nothing has started it again
+       (the resume may be switched off, have given up, or not have landed). Said as such, never "nothing is needed"
+       (review 5), and never the report's own text. */
+    return { state: STATE.IDLE, confidence: CONFIDENCE.STRUCTURED, because: 'its turn stopped when its Google quota ran out and has not picked up again (the quota reset at ' + hhmm + ')', reported: true, conflict: null };
   }
   // Rule 3b (#886): a DEAD TOKEN or a RATE LIMIT read off the screen stands
   // over ANY report. Once the token is rejected no hook fires, so the
@@ -7684,6 +7894,9 @@ function snapshot() {
       quotaDaily: status.quotaDaily === true,   // #4004 round 8: only Gemini's daily line promises the midnight reset
       /* #4004: whose own words set a limit reading ('codex' / 'gemini'), so the wording keys on a field, not a sentence. */
       limitFrom: typeof status.limitFrom === 'string' ? status.limitFrom : null,
+      /* #4588: the reset an agy agent is paused until (its account's shared Google quota), an ISO time, else null.
+         Pane cards only: panelessCard carries neither this nor a runner, and an agy agent always has a pane. */
+      quotaUntil: typeof status.quotaUntil === 'string' ? status.quotaUntil : null,
       because: status.because,
       /* #2019: present while state === 'restarting' -- {cause, startedAt}
          for the deliberate disruption in flight -- and (#4006) on the needs_you of a
@@ -8062,7 +8275,7 @@ module.exports = {
   setPaneSource, setPaneCapture, setCreatedSource, tmuxSaidNoServer, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
+  reconcileReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
   freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an
@@ -8090,8 +8303,10 @@ module.exports = {
   isTrustDialogEvidence,
   TRUST_DIALOG_SENTENCE,
   codexHookReview, // #4589
+  codexHookTrustedTable, codexHookSummary, codexHookMenuKeys, codexHookScreenExact, // #4607
   isCodexHookEvidence,
   CODEX_HOOK_DIALOG_SENTENCE,
+  CODEX_HOOK_LIST_SENTENCE, // #4607
   CODEX_STARTING_SENTENCE,
   CODEX_UNSEEN_SENTENCE,
   SELECTOR_GLYPHS,

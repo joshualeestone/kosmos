@@ -83,6 +83,14 @@ const chk = (ok, label, extra) => {
     const m = await page.evaluate((id) => {
       const row = document.querySelector('[data-project="' + id + '"]');
       if (!row) return { missing: true };
+      /* #4730: a pill shows only while something runs, and this fixture's agents are idle, so the
+         page's own pill markup ("Working") is put in the row's header for this read. The arms below
+         measure where the layout places a pill, which does not depend on which state it names. */
+      if (row && !row.querySelector('.pjpill')) {
+        const h = row.querySelector('.pjcard-h');
+        if (h) { const pill = document.createElement('span'); pill.className = 'pjpill';
+          pill.innerHTML = '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>Working'; h.appendChild(pill); }
+      }
       /* 🛑 THE TEXT'S BOX, VIA A RANGE, NOT THE ELEMENT'S. The status pill carries
          a glyph and is therefore TALLER than the count beside it, so comparing
          element mids reports two baseline-aligned lines as misaligned. "Same
@@ -181,6 +189,14 @@ const chk = (ok, label, extra) => {
     const tab = await page.evaluate((id) => {
       const row = document.querySelector('[data-project="' + id + '"]');
       if (!row) return null;
+      /* #4730: a pill shows only while something runs, and this fixture's agents are idle, so the
+         page's own pill markup ("Working") is put in the row's header for this read. The arms below
+         measure where the layout places a pill, which does not depend on which state it names. */
+      if (row && !row.querySelector('.pjpill')) {
+        const h = row.querySelector('.pjcard-h');
+        if (h) { const pill = document.createElement('span'); pill.className = 'pjpill';
+          pill.innerHTML = '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>Working'; h.appendChild(pill); }
+      }
       const t = row.querySelector('.pjcard-h b');
       const pill = row.querySelector('.pjpill');
       if (!t || !pill) return { missing: true };

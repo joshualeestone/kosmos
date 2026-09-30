@@ -47,6 +47,8 @@ function check(name, pass, detail) {
   await page.waitForTimeout(600);
   const atLoad = rolesRequests.slice();
   await page.goto(BASE + '/?tab=create', { waitUntil: 'load' });
+  // #4556: New Agent opens on the Single / Team / Swarm choice; the role picker is the Single path's screen.
+  await page.click('#cstep-kind [data-path="single"]');
   await page.waitForSelector('#pick-pm:not([hidden])', { timeout: 15000 });
   // The picker's list, which the menu fills from /api/roles?catalogue=1.
   const hasList = await page.evaluate(() => { const b = document.getElementById('pick-list'); if (b) b.click(); return !!b; });

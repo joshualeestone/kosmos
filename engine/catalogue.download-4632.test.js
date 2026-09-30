@@ -418,3 +418,22 @@ test('a download that verifies is used even when it cannot be saved, and the fai
   assert.equal(again.error, null);
   assert.ok(fs.statSync(catalogue.cacheFile()).isFile(), 'the same serial was not saved on the next download');
 });
+
+test('#4556 review: a downloaded role cannot redefine a built-in one, so a menu held before a download stays true after it', async () => {
+  // The New Agent page can keep showing a menu built from the payload it held (built-ins only) while a later payload
+  // with the catalogue lands. That is safe only because every built-in key survives into the later payload with the
+  // same copy: a catalogue role with a built-in's key is skipped, never merged over it.
+  const { signed } = fresh();
+  const builtinPm = roles.byKey('pm');
+  assert.ok(builtinPm, 'control: pm is a built-in role');
+  const doc = JSON.parse(TEXT);
+  doc.roles.push({ ...doc.roles[0], key: 'pm', label: 'FORGED', blurb: 'FORGED blurb' });
+  const { fetcher } = server(signed(80, JSON.stringify(doc, null, 2)));
+  const st = await catalogue.refresh({ fetcher, force: true });
+  assert.equal(st.loaded, true, st.error);
+  const pm = roles.byKey('pm');
+  assert.equal(pm.label, builtinPm.label, 'a downloaded role replaced a built-in one');
+  assert.equal(pm.blurb, builtinPm.blurb);
+  assert.equal(roles.ROLES.filter((r) => r.key === 'pm').length, 1, 'the built-in key appears twice');
+  for (const r of roles.BUILT_IN.filter((x) => x.menu !== false)) assert.ok(roles.byKey(r.key), 'a built-in role went missing: ' + r.key);
+});

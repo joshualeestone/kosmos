@@ -45,3 +45,67 @@ test('#4466 Windows CONTROL: a refused connection still asks whether Kosmos is r
   assert.equal(await cli.main(['room', 'proj'], h.io), 1);
   assert.match(h.err(), /^We could not reach Kosmos to read that room\. Is it running at http:\/\/127\.0\.0\.1:16180\?$/);
 });
+
+/* #4580: a send whose reply is cut may have been kept by the board; the CLI asks ONCE more (the board keeps one
+   copy of the same send inside five minutes) and reports the receipt instead of a failure. */
+function sequence(steps) {
+  const lines = { out: [], err: [] };
+  let calls = 0;
+  const io = {
+    env: { TMUX_PANE: '%42', KOSMOS_RETRY_PAUSE_MS: '0' },
+    url: 'http://127.0.0.1:16180',
+    out: (s) => lines.out.push(s),
+    err: (s) => lines.err.push(s),
+    readStdin: async () => ({ text: '', ended: true }),
+    hook: { agentToken: () => 'ab'.repeat(16), readBoardToken: () => 'board-tok', resolveUrl: () => 'http://127.0.0.1:16180' },
+    fetch: async () => { const s = steps[Math.min(calls, steps.length - 1)]; calls++; if (s instanceof Error) throw s; return { status: 200, text: async () => s }; },
+  };
+  return { io, out: () => lines.out.join('\n'), err: () => lines.err.join('\n'), calls: () => calls };
+}
+const reset = () => Object.assign(new Error('fetch failed'), { name: 'TypeError', cause: { code: 'ECONNRESET' } });
+const refusedErr = () => Object.assign(new Error('fetch failed'), { name: 'TypeError', cause: { code: 'ECONNREFUSED' } });
+const kept = '{"delivery":{"state":"placed","because":null,"id":"m1","duplicate":true}}';
+
+test('#4580 Windows: a msg whose reply is cut is asked once more, and the receipt says it arrived', async () => {
+  const h = sequence([reset(), kept]);
+  assert.equal(await cli.main(['msg', 'mara', 'the lease is signed'], h.io), 0, h.err());
+  assert.match(h.out(), /^Placed with mara \(it had arrived the first time; it was not sent twice\)\.$/);
+  assert.match(h.err(), /asking once more/, 'the retry says so, on the captured stderr');
+  assert.equal(h.calls(), 2);
+});
+
+test('#4580 Windows: a post whose reply is cut is asked once more too', async () => {
+  const h = sequence([reset(), kept]);
+  assert.equal(await cli.main(['post', 'proj', 'draft is in the folder'], h.io), 0, h.err());
+  assert.match(h.out(), /it was not posted twice/);
+  assert.equal(h.calls(), 2);
+});
+
+test('#4580 Windows CONTROL: a refused connection is not retried (nothing arrived), and a post timeout is not retried', async () => {
+  const r = sequence([refusedErr(), kept]);
+  assert.notEqual(await cli.main(['msg', 'mara', 'hi'], r.io), 0);
+  assert.equal(r.calls(), 1, 'a refused send is not asked again');
+  const t = sequence([Object.assign(new Error('aborted'), { name: 'TimeoutError' }), kept]);
+  assert.notEqual(await cli.main(['post', 'proj', 'hi'], t.io), 0);
+  assert.equal(t.calls(), 1, 'a post that timed out is still being delivered: no second ask');
+});
+
+test('#4580 Windows: a timed-out msg whose retry is REFUSED keeps "may have been delivered" (the first may have landed)', async () => {
+  const h = sequence([Object.assign(new Error('aborted'), { name: 'TimeoutError' }), refusedErr()]);
+  assert.notEqual(await cli.main(['msg', 'mara', 'signed'], h.io), 0);
+  assert.equal(h.calls(), 2);
+  assert.match(h.err(), /may have been delivered/, h.err());
+  assert.doesNotMatch(h.err(), /Is it running/);
+});
+
+test('#4580 Windows: a RESET first attempt then a failed retry (refused, or reset again) keeps "may have been delivered"', async () => {
+  for (const [label, second] of [['refused', refusedErr()], ['reset', reset()]]) {
+    for (const verb of [['msg', 'mara', 'signed'], ['post', 'proj', 'signed']]) {
+      const h = sequence([reset(), second]);
+      assert.equal(await cli.main(verb, h.io), 3, verb[0] + ' ' + label + ': ' + h.err());
+      assert.equal(h.calls(), 2);
+      assert.match(h.err(), /may have been delivered/, verb[0] + ' ' + label);
+      assert.doesNotMatch(h.err(), /Is it running/, verb[0] + ' ' + label);
+    }
+  }
+});

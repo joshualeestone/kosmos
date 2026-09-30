@@ -289,6 +289,7 @@ function seed() {
     await pg.waitForTimeout(700);
     await pg.click('#new-agent');
     await pg.waitForTimeout(400);
+    await pg.click('#cstep-kind [data-path="single"]');   // #4556: New Agent opens on the three-way choice; Single leads to the role screen
     await pg.click('#pick-pm');
     await pg.click('#role-next');
     await pg.waitForTimeout(700);

@@ -1,4 +1,4 @@
-// Browser-check-surface: orgmap create-kind create-swarm create-swarm-max create-swarm-cap create-swarm-cap-sub create-swarm-warn d-swarm d-swarm-panel d-swarm-stop d-nav-swarm d-sec-swarm d-swarm-states swcard d-swarm-confirm d-swarm-keep d-swarm-tolimit d-swarm-none d-swarm-max d-swarm-cap d-swarm-cap-sub d-swarm-why swmini swc
+// Browser-check-surface: orgmap create-kind nak-swarm cstep-kind create-swarm create-swarm-max create-swarm-cap create-swarm-cap-sub create-swarm-warn d-swarm d-swarm-panel d-swarm-stop d-nav-swarm d-sec-swarm d-swarm-states swcard d-swarm-confirm d-swarm-keep d-swarm-tolimit d-swarm-none d-swarm-max d-swarm-cap d-swarm-cap-sub d-swarm-why swmini swc
 'use strict';
 
 /**
@@ -170,20 +170,24 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(200); }
       await page.evaluate(() => { applyLayout('tabs', true); showTab('agents'); });
     };
-    const openForm = async () => page.evaluate(() => {
+    /* #4556: the kind comes from New Agent's first screen now (Single or Swarm). This sets the path the way
+       chooseCreatePath does, without its async role load, and goes straight to step 2. */
+    const openForm = async (path = 'single') => page.evaluate((p) => {
       openCreate(); PICKED = 'own';
-      document.getElementById('cstep-role').hidden = true; document.getElementById('cstep-name').hidden = false;
+      CREATE_PATH = p;
+      document.querySelector('input[name="create-kind"][value="' + (p === 'swarm' ? 'swarm' : 'agent') + '"]').checked = true;
+      cstep('name');
       document.getElementById('create-name').value = 'Research crew';
       document.getElementById('create-label').value = 'Researcher';   // 'own' needs a role before it sends
       swarmCreatePaint();
-    });
+    }, path);
 
     // S1: no engine. New agent offers no Swarm choice and no card is a cluster (control: S2).
     await boot();
     chk(await waitFor(page, () => LAST_AT > 0, null, 8000), 'S1 precondition: the board has answered at least once');
     await openForm();
-    const s1 = await page.evaluate(() => ({ kind: document.getElementById('create-kind').hidden, clusters: document.querySelectorAll('.swc').length, flag: SWARMS_ON }));
-    chk(s1.kind === true && s1.flag === false, 'S1 without the engine, New agent offers no Swarm choice', JSON.stringify(s1));
+    const s1 = await page.evaluate(() => ({ kind: document.getElementById('create-kind').hidden, swarmChoice: !document.getElementById('nak-swarm').hidden, clusters: document.querySelectorAll('.swc').length, flag: SWARMS_ON }));
+    chk(s1.kind === true && s1.swarmChoice === false && s1.flag === false, 'S1 without the engine, New agent offers no Swarm choice (first screen or step 2)', JSON.stringify(s1));
     await page.evaluate(() => showTab('agents'));
     await page.waitForTimeout(300);
     chk(await page.evaluate(() => !document.querySelector('#grid .agauge clipPath[id^="swc-"]')), 'S1 and no card is drawn as a cluster');
@@ -194,8 +198,14 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     await boot();
     chk(await waitFor(page, () => SWARMS_ON === true, null, 8000), 'S2 precondition: the board says the engine can run a swarm');
     await openForm();
-    chk(await page.evaluate(() => !document.getElementById('create-kind').hidden && document.getElementById('create-swarm').hidden), 'S2 the Agent / Swarm choice shows, Agent first and chosen');
-    await page.click('label.ctype-opt:has(input[value="swarm"])');
+    /* #4556: no Agent / Swarm selector on step 2 any more. The first screen offers Swarm; the Single path's step 2
+       shows neither card, and the Swarm path's shows the Swarm card alone, as its preview. */
+    chk(await page.evaluate(() => !document.getElementById('nak-swarm').hidden && document.getElementById('create-kind').hidden && document.getElementById('create-swarm').hidden),
+      'S2 the first screen offers Swarm; the Single path shows no Agent / Swarm selector and no swarm settings');
+    await openForm('swarm');
+    chk(await page.evaluate(() => { const box = document.getElementById('create-kind'); const agent = box.querySelector('input[value="agent"]').closest('label');
+      return !box.hidden && agent.hidden && getComputedStyle(agent).display === 'none'; }),
+      'S2 the Swarm path shows the Swarm card alone (its preview), never the Agent card');
     const s2 = await page.evaluate(() => {
       const sel = document.getElementById('create-provider');
       const others = [...sel.options].filter((o) => o.value !== 'anthropic');
@@ -229,8 +239,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       'S2b typing a name puts the identity mark on the Agent tile and every Swarm circle', JSON.stringify({ a: named2.agentImg.slice(0, 60), n: named2.swarmImgs.length }));
     // S2c (#3946 review round 2): the form opened AGAIN starts empty. openCreate clears the name without an input
     // event and used to leave the last agent's mark on both tiles.
-    await openForm();
-    await page.click('label.ctype-opt:has(input[value="swarm"])');
+    await openForm('swarm');
     const again2 = await tiles();
     chk(again2.agentImg === 'none' && again2.swarmImgs.every((x) => !x || !/data:/.test(x)),
       'S2c a reopened form shows empty tiles, not the last agent\'s mark', JSON.stringify({ a: again2.agentImg.slice(0, 60), s: again2.swarmImgs.map((x) => String(x).slice(0, 30)) }));
@@ -302,8 +311,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     // low default (3%), and the request carries the % and the tokens it is worth today.
     calibrated = true;
     await page.evaluate(() => loadCreateExtras());
-    await openForm();
-    await page.click('label.ctype-opt:has(input[value="swarm"])');
+    await openForm('swarm');
     const s33 = await waitFor(page, () => !document.getElementById('create-swarm-cap-sub').hidden, null, 8000)
       && await page.evaluate(() => ({ v: document.getElementById('create-swarm-cap-v').textContent,
         aria: document.getElementById('create-swarm-cap').getAttribute('aria-valuetext'),

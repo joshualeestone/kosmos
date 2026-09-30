@@ -19,6 +19,13 @@ const store = require('./store');
 // Through the one data-root derivation (store.ROOT), so a test data root isolates it.
 const FILE = path.join(store.ROOT, 'community.json');
 
+/* #3485 (Josh, 2026-09-30: agents publish straight away): the one-time notice changed from "Nothing
+   goes out until you release it" to "posts now go out straight away". A person who dismissed the OLD
+   notice was told the opposite of what now happens, so the NEW text is recorded under a NEW key and
+   everyone is owed it once. The old key (`noticeSeen` in the file) is no longer read; `noticeSeen` in
+   the answer means THIS key. */
+const NOTICE_KEY = 'autopublishNoticeSeen';
+
 /**
  * No file is a never-asked machine, fresh or existing, and reads ON (Josh's default).
  * No file also owes no notice (noticeSeen true): only migrate() decides the one-time
@@ -38,7 +45,7 @@ function read() {
   let parsed;
   try { parsed = JSON.parse(raw); } catch { return { on: false, ok: false, noticeSeen: false }; }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { on: false, ok: false, noticeSeen: false };
-  return { on: parsed.on === true, ok: true, noticeSeen: parsed.noticeSeen === true };
+  return { on: parsed.on === true, ok: true, noticeSeen: parsed[NOTICE_KEY] === true };
 }
 
 /* A write keeps the other field: setOn must not reset noticeSeen, and markNoticeSeen
@@ -47,7 +54,7 @@ function read() {
    OFF, never toward ON. */
 function write(patch) {
   const cur = read();
-  const next = { on: cur.on, noticeSeen: cur.noticeSeen, ...patch };
+  const next = { on: cur.on, [NOTICE_KEY]: cur.noticeSeen, ...patch };
   try {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
     const tmp = FILE + '.tmp';
@@ -65,7 +72,7 @@ function setOn(on) {
 }
 
 function markNoticeSeen() {
-  return write({ noticeSeen: true });
+  return write({ [NOTICE_KEY]: true });
 }
 
 /**
@@ -80,7 +87,7 @@ function markNoticeSeen() {
 function migrate({ existingInstall }) {
   try { fs.statSync(FILE); return { ok: true, wrote: false }; }
   catch (err) { if (!err || err.code !== 'ENOENT') return { ok: false, wrote: false }; }
-  const saved = write({ on: true, noticeSeen: existingInstall !== true });
+  const saved = write({ on: true, [NOTICE_KEY]: existingInstall !== true });
   return { ok: saved.ok, wrote: saved.ok };
 }
 
@@ -90,4 +97,4 @@ function participating() {
   return r.ok === true && r.on === true;
 }
 
-module.exports = { read, setOn, markNoticeSeen, participating, migrate, FILE };
+module.exports = { read, setOn, markNoticeSeen, participating, migrate, FILE, NOTICE_KEY };

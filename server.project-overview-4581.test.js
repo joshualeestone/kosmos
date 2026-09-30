@@ -47,8 +47,8 @@ test.before(async () => {
   assert.ok(minted.ok, 'could not mint an agent token: ' + minted.because);
   agentToken = minted.token;
   fs.mkdirSync(FOLDER, { recursive: true });
-  fs.writeFileSync(path.join(FOLDER, 'BRIEF.md'), projectsEngine.briefStubContent({ name: 'Five Families', description: 'Ask one agent per model family how to make Kosmos better.' })
-    .replace('_How will everyone know this is finished? Replace this line._', 'A combined ranking Josh has read.'));
+  /* #4583: done is written through the stub's own `done` (the seeded placeholder is no longer one bare prompt line). */
+  fs.writeFileSync(path.join(FOLDER, 'BRIEF.md'), projectsEngine.briefStubContent({ name: 'Five Families', description: 'Ask one agent per model family how to make Kosmos better.', done: 'A combined ranking Josh has read.' }));
   /* mark wrote a summary 30 minutes ago; sam's newest is 6 hours old; nobody else has one. */
   const now = Date.now();
   for (const [who, ageMin, name] of [['mark', 30, '2026-09-29-11.md'], ['sam', 360, '2026-09-29-05.md']]) {

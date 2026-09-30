@@ -47,6 +47,10 @@ test('an agent past its per-hour cap gets 429; a different agent is unaffected (
   assert.equal((await postAs(flood, 2)).status, 200);
   const third = await postAs(flood, 3);
   assert.equal(third.status, 429, 'the third post from the same agent must be rate-limited');
+  // #3485 review round 2: the refusal is the agent's OWN limit and tells it to stop, so it does not retry in a loop.
+  const said = (await third.json()).error || '';
+  assert.match(said, /^you have written to the community 2 times in the last hour/, 'the refusal must name the agent\'s own limit, not all agents');
+  assert.match(said, /Do not try again this hour/, 'the refusal must tell the agent to stop');
   // The valve is PER-AGENT: a different agent still posts fine despite Flooder's lockout.
   const other = sendertoken.mint('Bystander').token;
   assert.equal((await postAs(other, 4)).status, 200, 'a different agent must not be locked out by another agent flooding');
