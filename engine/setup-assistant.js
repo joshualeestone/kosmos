@@ -200,11 +200,19 @@ function markGuideFolder(agentName) {
  * --dangerously-skip-permissions, as every Kosmos agent is. Its own folder, not the account's
  * settings.json, because an account is shared by every agent on it.
  * - Read covers Claude Code's file tools; the Bash rules stop the commands that print secrets by name.
- *   A shell can still reach a file some other way, which is why the first layer (its instructions,
+ *   Where guardGuideFolder writes no sandbox, a shell can still reach a file some other way, and
+ *   everywhere the rules reach only the paths they name, which is why the first layer (its instructions,
  *   roles.GUIDE_SECRET_LINES) and the third (engine/secretmask.js on everything it says) exist.
- * - Claude only: a Codex, Gemini or Grok guide has no such file, and relies on the other two layers.
+ * - Claude only: the file is written for every guide (create.js does not look at the provider), but
+ *   only Claude Code reads it, so a Codex, Gemini or Grok guide relies on the other two layers.
  * - Kosmos's own data folder is denied whole: the guide's instructions and page file live in its
- *   worker folder, and the `kosmos` command it runs reads the board token as its own process.
+ *   worker folder. The `kosmos` command the guide runs reads board.token in that folder as its own
+ *   process, and whether that read is refused differs by guide (#4728):
+ *     a Claude guide on macOS          refused, by the sandbox guardGuideFolder adds (measured, with a
+ *                                      stand-in for the command)
+ *     a Claude guide anywhere else     not refused: no sandbox is written there (not measured)
+ *     a Codex, Gemini or Grok guide    not refused: its runner does not read that settings file (not measured)
+ *   Even in the first row the refusal reaches only the paths these rules name.
  */
 /* The same home accounts.js and create.js use (a named world or a test sets it). */
 function kosmosHome() { return process.env.AGENT_WORKFORCE_HOME || require('os').homedir(); }

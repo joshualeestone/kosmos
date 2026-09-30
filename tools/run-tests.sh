@@ -201,6 +201,9 @@ BEFORE="$(seen_before)"
 # (release.sh sources the same lib UNguarded and under set -e, deliberately: there,
 # a lib it cannot load SHOULD abort the cut. Here the safe direction is to run.)
 . "$REPO/tools/lib/cut-guard.sh" 2>/dev/null || true
+# #4609 review: a full suite queues HEAVY whatever it inherited. A KOSMOS_QUEUE_CLASS=light exported in a shell, or
+# inherited from a light queue turn, would otherwise let it jump the light lane and hold the box 15 to 20 minutes.
+KOSMOS_QUEUE_CLASS=heavy
 # #4498 (Kano's review, Liu Kang m3015): the claim is asked INSIDE _rt_box_clear below, on every poll, not once
 # here. Asked once, a suite already waiting when a cut claimed the box could start inside the cut. Now a claim is a
 # reason to wait, and the wait names the release; at the wait's bound the run refuses with that message.

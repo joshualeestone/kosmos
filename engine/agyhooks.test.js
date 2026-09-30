@@ -329,6 +329,48 @@ test('#4588 (review 7): the real bridge carries a quota Stop\'s reset to the boa
   assert.equal(plain.until, '', 'CONTROL: an ordinary error carries no reset');
 });
 
+/* The merge of main's #4618 into #4588 put `final` (#4612, a Muse agent's answer to a DM) and `until` (#4588, the
+   quota reset) on one buildBody call and one Stop. A Muse Stop that carries an answer AND a quota error must post both:
+   the answer so the DM shows it, the reset so the card shows the pause. Swapping the two arguments at the send, dropping
+   either, or a quota branch that returns without the answer each reds this test. */
+test('#4612 + #4588: the real bridge posts a Muse answer and a quota reset from one Stop, each in its own field', async () => {
+  const http = require('node:http');
+  const status = require('./status');
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => { body += d; });
+    req.on('end', () => {
+      seen.push(JSON.parse(body));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"recorded":true}');
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  const pane = '%final-' + process.pid;
+  const answer = { text: 'Here is the summary you asked for.', startedAt: '2026-09-30T17:00:00.000Z' };
+  try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: String(port), TMUX_PANE: pane }), { force: true }); } catch { /* none */ }
+  const before = Date.now();
+  try {
+    await driveBridge(port, 'Stop', { fullyIdle: true, kosmosFinal: answer, error: 'API error: RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 24m54s.' }, pane);
+    await driveBridge(port, 'Stop', { fullyIdle: true, kosmosFinal: answer }, pane);   // CONTROL: an answer, no quota
+  } finally {
+    server.closeAllConnections(); server.close();
+    try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: String(port), TMUX_PANE: pane }), { force: true }); } catch { /* none */ }
+  }
+  assert.equal(seen.length, 2);
+  const [both, plain] = seen;
+  assert.equal(both.state, 'idle');
+  assert.deepEqual(both.final, answer, 'the quota stop swallowed the Muse answer: ' + JSON.stringify(both));
+  assert.match(both.until, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, 'the reset did not reach the board: ' + JSON.stringify(both));
+  const wait = Date.parse(both.until) - before;
+  assert.ok(wait >= (24 * 60 + 54) * 1000 && wait < (24 * 60 + 54) * 1000 + 60000, 'until is not the reset: ' + both.until);
+  assert.ok(both.text.startsWith(status.QUOTA_REPORT_PREFIX), both.text);
+  assert.deepEqual(plain.final, answer, 'CONTROL: an answer alone still reaches the board');
+  assert.equal(plain.until, '', 'CONTROL: an answer is never sent as a reset time');
+});
+
 test('#4043: the ask_question hooks are written only for an agy that handles them (1.1.9+); older or unknown gets working/idle only', () => {
   for (const [out, safe] of [['1.2.11', true], ['agy 1.1.9\n', true], ['1.1.10', true], ['2.0.0', true],
     ['1.1.8', false], ['1.0.16', false], ['0.9.99', false], ['', false], [undefined, false], ['not a version', false]]) {
@@ -578,10 +620,15 @@ test('#4588: a quota stop is still idle, and carries the reset time in until', (
 });
 
 test('#4588: the report body sends until only when there is one', () => {
-  // The fifth argument: the fourth is #4569's `waiting`, and a quota stop never carries one.
-  const b = bridge.buildBody('idle', 'x', {}, undefined, '2026-09-28T22:11:54.000Z');
+  // The sixth argument: the fourth is #4569's `waiting` and the fifth #4612's `final`; a quota stop carries no waiting.
+  const b = bridge.buildBody('idle', 'x', {}, undefined, undefined, '2026-09-28T22:11:54.000Z');
   assert.equal(b.until, '2026-09-28T22:11:54.000Z');
   assert.equal('waiting' in b, false, 'the reset was taken for a queue count');
+  assert.equal('final' in b, false, 'the reset was taken for an answer');
+  // CONTROL (#4612 kept): an answer in the fifth place still travels as final, and alone it sets no until.
+  const f = bridge.buildBody('idle', '', {}, null, { text: 'done', startedAt: '2026-09-29T17:00:00.000Z' });
+  assert.deepEqual(f.final, { text: 'done', startedAt: '2026-09-29T17:00:00.000Z' });
+  assert.equal(f.until, '');
   assert.equal(bridge.buildBody('idle', 'x', {}).until, '');
   // CONTROL (#4569 kept): a queue count still travels, and alone it sets no until.
   const w = bridge.buildBody('working', '', {}, { n: 3, yours: 1 });

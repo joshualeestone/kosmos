@@ -181,3 +181,25 @@ test('#4569 fix 4: a working report\'s queue count ({ n, yours }) goes through t
     } finally { sendertoken.revoke(WHO); }
   });
 });
+
+test('#4612: an idle or working report\'s turn answer ({ text, startedAt }) goes through the route and reads back; a needs_you one\'s is not kept', async () => {
+  boardAuthState.on = false;
+  await withLeo(async () => {
+    const tok = sendertoken.mint(WHO).token;
+    try {
+      const at = new Date().toISOString();
+      const wrote = await post('/api/report', { headers: { 'x-kosmos-agent-token': tok }, body: { state: 'idle', auto: true, final: { text: 'All done.', startedAt: at } } });
+      assert.equal(wrote.json.recorded, true, wrote.text);
+      const back = await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } });
+      assert.deepEqual(back.json.report.final, { text: 'All done.', startedAt: at }, 'the route dropped the answer: ' + back.text);
+      // #4612 review: a working report's answer goes through too (a turn queued behind the DM carries it).
+      const at2 = new Date(Date.now() + 1000).toISOString();
+      await post('/api/report', { headers: { 'x-kosmos-agent-token': tok }, body: { state: 'working', auto: true, final: { text: 'Queued answer.', startedAt: at2 } } });
+      assert.deepEqual((await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } })).json.report.final, { text: 'Queued answer.', startedAt: at2 });
+      // A needs_you report's answer is not kept; the carried answer stands.
+      const ny = await post('/api/report', { headers: { 'x-kosmos-agent-token': tok }, body: { state: 'needs_you', text: 'which file?', final: { text: 'x', startedAt: at } } });
+      assert.equal(ny.json.recorded, true, 'CONTROL: the needs_you report was not recorded, so this proves nothing: ' + ny.text);
+      assert.deepEqual((await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } })).json.report.final, { text: 'Queued answer.', startedAt: at2 });
+    } finally { sendertoken.revoke(WHO); }
+  });
+});
