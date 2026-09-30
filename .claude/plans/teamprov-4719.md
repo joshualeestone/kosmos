@@ -1,0 +1,31 @@
+# teamprov-4719: one provider and account for the whole prebuilt team
+
+Card kosmos#4719 (found by #4557's blind review; the call is on the card). Built on
+teamcreate-ui-4557 (PR #4709, not yet on main); rebased onto main once #4709 merges.
+
+## What changes
+- engine/teamseed.js `specs`: optional `provider` and `account`, carried by every member's spec the
+  way the single-agent form sends them (provider only when not Anthropic, account only when chosen).
+  A provider that is not a plain lowercase name is refused before anything is made. POST /api/agents
+  still checks both, per member, so a bad account is refused with a reason on that member's row.
+- server.js: the specs route passes them through.
+- web/index.html: the team step has a Model menu and an account menu (the account row only at two or
+  more accounts, #2097). fillCreateAccounts takes the element ids (the create form's by default), so
+  both screens are filled by the same rules; the provider list is copied from the create form's own
+  select, so they cannot drift; the Gemini-subscription and Meta Muse repaint loops include it. The
+  team step reads the account list itself when the create form has not (openTeamCreate can be reached
+  directly), and applies the form's default (OpenAI when it is the one usable provider). The choice is
+  fixed when the team starts (TC.model) so a Try again makes the member on the same account, and the
+  menus are disabled from then on.
+
+## Calls
+- One choice for the whole team, not per member (the card's call; per-member is a second card).
+- Reuse, not a copy, of the create form's picker logic.
+- Weakest premise: that the create form's current provider is the right starting point when both
+  providers are usable; it follows the form's own default rule, which is what the person already sees.
+
+## Measured
+- engine/teamseed.test.js 20/20 (3 new), teamcreate-structure 14/14, server.teamseed-4557 6/6,
+  all web tests + wiring 2234/2234.
+- Browser check render-teamcreate-4557 gains the #4719 arm (an OpenAI-only board makes the team in one
+  press, every member on OpenAI and that account); it runs in PR CI.

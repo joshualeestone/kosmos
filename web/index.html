@@ -14418,6 +14418,11 @@ window.kosmosMeasureScrollbarWidth();
     <ol class="tc-list" id="tc-list" aria-labelledby="tc-title"></ol>
     <label class="flabel" for="tc-project">Project</label>
     <select id="tc-project"></select>
+    <!-- #4719: ONE provider and account for the whole team, the same choice the single-agent form offers
+         (fillCreateAccounts fills both; the account row shows only at two or more accounts, #2097). -->
+    <label class="flabel" for="tc-provider">Model <span class="flabel-soft">(for every agent in the team; you can change each later)</span></label>
+    <div class="frow"><select id="tc-provider"></select></div>
+    <div class="frow" id="tc-account-row" hidden><select id="tc-account" aria-label="Account"></select></div>
     <p class="rolehelp" id="tc-note" role="status" aria-live="polite"></p>
     <!-- Review 27: the team step obeyed the single create's "Let Kosmos know" box, which is on another
          step and cannot be seen from here. This is that same choice, shown where it is used (kept equal
@@ -23693,7 +23698,7 @@ function agyAsk() {
     .catch(() => { /* stays null: "Checking", never a confident not-installed */ })
     .finally(() => {
       AGY_ASKING = null;
-      for (const id of ['d-provider', 'create-provider']) {
+      for (const id of ['d-provider', 'create-provider', 'tc-provider']) {   // #4719: the team step's too
         const sel = document.getElementById(id);
         const cur = id === 'd-provider' && typeof CURRENT !== 'undefined' && CURRENT ? providerOf(CURRENT) : '';
         paintAgyOption(sel, cur);
@@ -23743,7 +23748,7 @@ function museCreateAsk() {
     .catch(() => { /* kept as it was: never a confident answer from a failed read */ })
     .finally(() => {
       MUSE_CREATE_ASKING = null;
-      for (const id of ['d-provider', 'create-provider']) {
+      for (const id of ['d-provider', 'create-provider', 'tc-provider']) {   // #4719: the team step's too
         const sel = document.getElementById(id);
         const cur = id === 'd-provider' && typeof CURRENT !== 'undefined' && CURRENT ? providerOf(CURRENT) : '';
         paintMuseOption(sel, cur);
@@ -47057,10 +47062,13 @@ function createPickGone(known) {
     why.hidden = false;
   }
 }
-function fillCreateAccounts() {
-  const asel = document.getElementById('create-account');
+/* #4719: the team step fills its own pair with the same rules (TC_PICKER); the create form's is the default. */
+const TC_PICKER = { prov: 'tc-provider', acct: 'tc-account', row: 'tc-account-row' };
+function fillCreateAccounts(given) {
+  const ids = given || { prov: 'create-provider', acct: 'create-account', row: 'create-account-row' };
+  const asel = document.getElementById(ids.acct);
   if (!asel) return;
-  const provSel = document.getElementById('create-provider');
+  const provSel = document.getElementById(ids.prov);
   /* #3566: Gemini and Grok are offered only once an account for them is connected. */
   paintKeyedProviderOptions(provSel, CREATE_ACCOUNTS, CREATE_ACCOUNTS_KNOWN, '', CREATE_ACCOUNTS_FAILED);
   paintAgyOption(provSel, ''); agyAsk();   // #3568
@@ -47072,7 +47080,7 @@ function fillCreateAccounts() {
   if (provSel.value === 'antigravity' || provSel.value === 'meta') {
     asel.innerHTML = '<option value="" selected></option>';
     asel.value = '';
-    const arow = document.getElementById('create-account-row');
+    const arow = document.getElementById(ids.row);
     if (arow) arow.hidden = true;
     return;
   }
@@ -47140,7 +47148,7 @@ function fillCreateAccounts() {
      account is still the select's value, so create uses it; the placeholder-only
      case (usable.length 0) also has no choice and stays hidden. Mirrors the
      #2098 create-model-row hide pattern. */
-  const arow = document.getElementById('create-account-row');
+  const arow = document.getElementById(ids.row);
   if (arow) arow.hidden = usable.length < 2;
 }
 /* #1834: the provider's UI side effects -- disable the model picker for OpenAI,
@@ -47590,8 +47598,36 @@ async function openTeamCreate(key) {
   try { await loadProjects(); } catch { /* the menu still offers a new project or none */ }
   if (gen !== TC_GEN) return;
   tcFillProjects();
+  await tcFillProvider();
+  if (gen !== TC_GEN) return;
   tcPaint();
 }
+
+/* #4719: the team's provider menu is the single-agent form's own list (copied, so the two cannot drift),
+   starting on the form's current choice, and its account menu is filled by the same rules. */
+async function tcFillProvider() {
+  const from = document.getElementById('create-provider');
+  const sel = document.getElementById('tc-provider');
+  if (!from || !sel) return;
+  /* The team step can be opened without the create form (openTeamCreate from the Team path), so the
+     account list may not be read yet; read it the way the form does. Without it every member would go to
+     Claude, which is the failure #4719 exists for. */
+  if (!CREATE_ACCOUNTS_KNOWN) {
+    try {
+      const r = await fetch('/api/accounts', { cache: 'no-store' });
+      if (r.ok) { CREATE_ACCOUNTS = ((await r.json()) || {}).accounts || []; CREATE_ACCOUNTS_KNOWN = true; CREATE_ACCOUNTS_FAILED = false; }
+    } catch { /* unknown: the menus say so the way the form's do */ }
+  }
+  sel.innerHTML = from.innerHTML;
+  sel.value = from.value;
+  if (sel.selectedIndex < 0 || (sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].disabled)) sel.value = 'anthropic';
+  /* The form's own default: OpenAI when it is the one usable provider (createPickGone's rule). */
+  const hasClaude = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'anthropic');
+  const hasOpenai = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'openai');
+  if (sel.value === 'anthropic' && !hasClaude && hasOpenai) sel.value = 'openai';
+  fillCreateAccounts(TC_PICKER);
+}
+document.getElementById('tc-provider').addEventListener('change', () => fillCreateAccounts(TC_PICKER));
 
 /* A team is FINISHED when every member is made and seen running. Until then it is live and is resumed. */
 function tcFinished() {
@@ -47717,6 +47753,7 @@ function tcPaint() {
   tell.checked = tellBox ? tellBox.checked === true : true;
   tell.disabled = Boolean(TC.started || TC.busy);
   document.getElementById('tc-tell-say').textContent = n === 1 ? 'Let Kosmos know an agent was created' : 'Let Kosmos know these agents were created';
+  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = TC.started || Boolean(TC.busy); }
   /* Back is always allowed now (round 3): leaving no longer resets a live team, it only steps away. */
   document.getElementById('tc-back').disabled = false;
   const msgEl = document.getElementById('tc-msg');
@@ -47774,10 +47811,20 @@ function tcNames() {
   return names;
 }
 
+/* #4719: the provider and account for every member. Read off the menus until the team starts, then the
+   values fixed at the start (TC.model), so a retry makes the member on the same account as the rest. */
+function tcModel() {
+  if (TC && TC.model) return TC.model;
+  const p = document.getElementById('tc-provider');
+  const a = document.getElementById('tc-account');
+  const provider = p ? String(p.value || '') : '';
+  const account = a ? String(a.value || '') : '';
+  return { ...(provider ? { provider } : {}), ...(account ? { account } : {}) };
+}
 async function tcSpecs(project, check) {
   const res = await fetch('/api/teams/seeded/' + encodeURIComponent(TC.key) + '/specs', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ names: tcNames(), project: project || null, ...(check ? { check: true } : {}) }),
+    body: JSON.stringify({ names: tcNames(), project: project || null, ...tcModel(), ...(check ? { check: true } : {}) }),
   });
   const body = await res.json().catch(() => null);
   if (!res.ok || !body || !Array.isArray(body.specs)) throw new Error((body && body.error) || 'Kosmos could not prepare the team');
@@ -47849,6 +47896,7 @@ document.getElementById('tc-go').addEventListener('click', async () => {
       project = choice.slice(3);
     }
     TC.project = project;
+    TC.model = tcModel();   // #4719: fixed for the whole team, retries included
     TC.started = true;
     for (const m of TC.members) { m.state = 'waiting'; m.firstName = m.name.trim(); }
     tcPaint();

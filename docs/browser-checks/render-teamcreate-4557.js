@@ -1,4 +1,4 @@
-// Browser-check-surface: cstep-teammake tc-title tc-purpose tc-list tc-project tc-note tc-tell tc-tell-say tc-go tc-hello tc-back tc-msg
+// Browser-check-surface: cstep-teammake tc-title tc-purpose tc-list tc-project tc-provider tc-account tc-account-row tc-note tc-tell tc-tell-say tc-go tc-hello tc-back tc-msg
 'use strict';
 /**
  * A whole prebuilt team in one go (#4557, umbrella #4554, Josh 2026-09-29 09:06), on a real board.
@@ -25,6 +25,9 @@
  *    project); another team waits only while one is in flight, and replaces an idle unfinished one (round
  *    5: never a false "still making"); a step create reports as not done is said
  *    on its row;
+ *  - #4719: a person whose only account is OpenAI (the account list read by the team step itself, not
+ *    left over from the create form) gets the team on OpenAI and that account, with no account menu for
+ *    one account, and every member is made on it in one press; the choice is fixed once it starts;
  *  - 390 wide with no sideways scroll, chromium and webkit, no page errors.
  *
  * POST /api/agents is INTERCEPTED with a scripted outcome per name, so nothing here makes a real agent or
@@ -184,6 +187,30 @@ function chk(ok, label, extra) {
           retry: !!li.querySelector('.tc-retry'),
         })));
         const settle = (page, pred) => page.waitForFunction(pred, null, { timeout: 8000 }).catch(() => null);
+
+        /* --- #4719: a person whose only plan is OpenAI makes the whole team in one press ----------- */
+        {
+          const { page, errs, posted } = await newPage(1280);
+          const OA = { provider: 'openai', dir: '/acct/openai-only', email: 'me@example.com', isDefault: true, state: 'connected' };
+          await page.route('**/api/accounts*', (r) => r.fulfill({ status: 200, json: { accounts: [OA] } }));
+          // As if the create form had never been opened: the team step reads the accounts itself.
+          await page.evaluate(() => { CREATE_ACCOUNTS = []; CREATE_ACCOUNTS_KNOWN = false; });
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          const pick = await page.evaluate(() => ({ provider: document.getElementById('tc-provider').value, account: document.getElementById('tc-account').value,
+            rowHidden: document.getElementById('tc-account-row').hidden }));
+          chk(pick.provider === 'openai' && pick.account === '/acct/openai-only', `${E} #4719 with only an OpenAI account, the team step is on OpenAI and that account`, JSON.stringify(pick));
+          chk(pick.rowHidden === true, `${E} #4719 one account: no account menu (#2097)`, JSON.stringify(pick));
+          await page.click('#tc-go');
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((e) => e.textContent === 'Running'));
+          const r1 = await rows(page);
+          chk(posted.length === 3 && posted.every((b) => b.provider === 'openai' && b.account === '/acct/openai-only'),
+            `${E} #4719 every member is made on OpenAI with that account, in one press`, JSON.stringify(posted.map((b) => [b.name, b.provider, b.account])));
+          chk(r1.every((r) => r.state === 'Running'), `${E} #4719 the whole team is running`, JSON.stringify(r1.map((r) => r.state)));
+          chk(await page.evaluate(() => document.getElementById('tc-provider').disabled), `${E} #4719 the choice is fixed once the team starts`);
+          chk(errs.length === 0, `${E} no page errors (#4719 arm)`, errs.join(' | '));
+          await page.context().close();
+        }
 
         /* --- the step, the happy path with one failure and its retry --------------------------- */
         {
