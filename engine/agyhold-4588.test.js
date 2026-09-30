@@ -48,6 +48,27 @@ require('../test-support/data-root-sandbox').assertSandboxedDataRoot(SANDBOX, [s
 
 test.after(() => { try { fleet.restore(); } catch { /* best effort */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
+/* Real cards from the real producer (fleet + status.snapshot()), never hand-built (fixture-discipline.test.js), as
+   engine/agyquota-4588.test.js builds them. Built once; each test spreads the real card it needs and overrides only
+   its scenario's fields (state, quotaUntil, isNamedOurs, name, target). The sessionName always comes from the card. */
+const AGY_SPEC = { state: 'unknown', runner: 'antigravity', command: 'agy', screen: '' };
+const AGY_NAMES = ['agypoolpaused', 'res-a', 'res-b', 'CaseAgy', 'mem-a', 'agr-a', 'agr-b', 'mb-a', 'mb-b', 'rs-a', 'rs-b', 'rs-c',
+  'far-a', 'far-b', 'own-a', 'strange-b', 'late-a', 'late-b', 'hb-y', 'rp-a'];
+const CLAUDE_NAMES = ['rs-x', 'agyholdmara'];
+const CARDS = (() => {
+  const board = fleet.install(AGY_NAMES.map((s) => fleet.agent(s, AGY_SPEC)).concat(CLAUDE_NAMES.map((s) => fleet.agent(s, { state: 'idle' }))));
+  try { return status.snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
+})();
+const realCard = (s) => { const c = CARDS.find((x) => x.sessionName === s); assert.ok(c, 'fixture: no real card for ' + s); return { ...c }; };
+
+test('#4588 B fixture: every name the tests use has a real card, with the runner its scenario assumes', () => {
+  for (const s of AGY_NAMES) assert.equal(realCard(s).runner, 'antigravity', s);
+  for (const s of CLAUDE_NAMES) assert.equal(realCard(s).runner, 'claude', s);
+  // The case-insensitivity test below needs a mixed-case sessionName; the real producer keeps the case.
+  assert.equal(realCard('CaseAgy').sessionName, 'CaseAgy');
+  assert.equal(CARDS.find((c) => c.sessionName === 'caseagy'), undefined, 'fixture: the lower-cased name must not be a card of its own');
+});
+
 test('sandbox: the store root is inside this process\'s temp dir, not the live Kosmos data', () => {
   const root = path.resolve(store.ROOT);
   assert.ok(root.startsWith(path.resolve(os.tmpdir()) + path.sep), root);
@@ -280,7 +301,7 @@ test('#4588 B assigner step: an agy agent held on the pool is neither asked nor 
     const at = T0 + assigner.IDLE_MS;
     // The same idle card, now an Antigravity agent; a second agy card's pause is what empties the machine's pool.
     const asAgy = w.cards.map((c) => (c.sessionName === w.session ? { ...c, runner: 'antigravity' } : c));
-    const paused = { sessionName: 'agypoolpaused', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(at + 20 * 60e3).toISOString() };
+    const paused = { ...realCard('agypoolpaused'), state: 'rate_limited', quotaUntil: new Date(at + 20 * 60e3).toISOString() };
     const run = (cards) => {
       assigner.tick({ prev: undefined, now: T0, DELIVERY, readSetting: () => ON, readRoster: () => cards, readRecords: () => projects.readAll(),
         readCommitment: (s) => commitments.read(s), readGoal: (p) => brief.readGoal(p.folder), give: () => ({ ok: true }), ask: () => ({ state: DELIVERY.PLACED }) });
@@ -450,8 +471,8 @@ const nudgeRows = () => messages.record().rows.filter((m) => m.kind === 'nudge')
 test('#4588 B sweepUnanswered: a held nudge writes no row, so the pair\'s one nudge is still unspent; CONTROL: a plain result writes one', () => {
   assert.ok(path.resolve(messages.LOG).startsWith(path.resolve(SANDBOX) + path.sep), 'the message log must be in the sandbox: ' + messages.LOG);
   const to = 'agyholdmara';
-  // A hand-built roster row: the stub below answers for chat, so nothing reads it past `target`.
-  const roster = [{ sessionName: to, target: 'kt-agyhold-nonexistent:9.9' }];
+  // A real card, pointed at a pane that does not exist: the stub below answers for chat, so nothing reads it past `target`.
+  const roster = [{ ...realCard(to), target: 'kt-agyhold-nonexistent:9.9' }];
   messages.setUnansweredAfterForTests(0);
   try {
     seedUnanswered(to);
@@ -508,8 +529,8 @@ test('#4588 B resume: nobody is resumed while ANY antigravity card is still insi
   const report = { found: true, state: 'idle', by: 'auto', until: RESET, because: status.QUOTA_REPORT_PREFIX + ' Google said: ...' };
   const now = AT + agyquota.GRACE_MS + 1;
   const sent = [];
-  const base = [{ sessionName: 'res-a', name: 'A', runner: 'antigravity', state: 'idle' }];
-  const other = { sessionName: 'res-b', name: 'B', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(now + 60 * 60e3).toISOString() };
+  const base = [{ ...realCard('res-a'), name: 'A', state: 'idle' }];
+  const other = { ...realCard('res-b'), name: 'B', state: 'rate_limited', quotaUntil: new Date(now + 60 * 60e3).toISOString() };
   const run = (roster) => agyquota.sweepOnce({ roster, book: new Map(), now, memo: agyquota.newPoolMemo(), readReport: (s) => (s === 'res-a' ? report : { found: false }),
     deliver: (s) => { sent.push(s); return { state: DELIVERY.PLACED }; }, DELIVERY });
   const held = run(base.concat([other]));
@@ -523,7 +544,7 @@ test('#4588 B resume: nobody is resumed while ANY antigravity card is still insi
 test('#4588 B heldForQuota finds the card by chat\'s own rule (resolveCard), so a differently cased name is still held; CONTROL: an unknown name is not', () => {
   const now = Date.now();
   const roster = [
-    { sessionName: 'CaseAgy', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(now + 60e3).toISOString(), isNamedOurs: true },
+    { ...realCard('CaseAgy'), state: 'rate_limited', quotaUntil: new Date(now + 60e3).toISOString(), isNamedOurs: true },
   ];
   assert.equal(chat.resolveCard(roster, 'caseagy').sessionName, 'CaseAgy', 'fixture: resolveCard is case-insensitive');
   assert.notEqual(agyquota.heldForQuota('caseagy', roster, now, agyquota.newPoolMemo()), null, 'a lower-cased name slipped past the gate');
@@ -536,7 +557,7 @@ test('#4588 B heldForQuota finds the card by chat\'s own rule (resolveCard), so 
 test('#4588 B memory: a card that corrects its reset lowers it; a reset over MAX_POOL_MS ahead is not believed; CONTROL: a sane one is', () => {
   const now = Date.parse('2026-09-28T20:00:00.000Z');
   const memo = agyquota.newPoolMemo();
-  const card = (until) => [{ sessionName: 'mem-a', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(until).toISOString() }];
+  const card = (until) => [{ ...realCard('mem-a'), state: 'rate_limited', quotaUntil: new Date(until).toISOString() }];
   agyquota.heldForQuota('mem-a', card(now + 5 * 3600e3), now, memo);
   assert.equal(memoReset(memo), now + 5 * 3600e3);
   agyquota.heldForQuota('mem-a', card(now + 30 * 60e3), now, memo);
@@ -552,8 +573,8 @@ test('#4588 B resume and senders agree: a card that stops showing its pause befo
   const AT = Date.parse(RESET);
   const memo = agyquota.newPoolMemo();
   const report = { found: true, state: 'idle', by: 'auto', until: RESET, because: status.QUOTA_REPORT_PREFIX + ' Google said: ...' };
-  const b = (quotaUntil, state) => ({ sessionName: 'agr-b', name: 'B', runner: 'antigravity', state, quotaUntil });
-  const a = { sessionName: 'agr-a', name: 'A', runner: 'antigravity', state: 'idle' };
+  const b = (quotaUntil, state) => ({ ...realCard('agr-b'), name: 'B', state, quotaUntil });
+  const a = { ...realCard('agr-a'), name: 'A', state: 'idle' };
   const later = AT + 3600e3;
   const sent = [];
   const run = (roster, now) => agyquota.sweepOnce({ roster, book: new Map(), now, memo, readReport: (s) => (s === 'agr-a' ? report : { found: false }),
@@ -578,7 +599,7 @@ test('#4588 B memory by session: a later card that STOPS showing its pause still
   const now = Date.parse('2026-09-28T20:00:00.000Z');
   const A = now + 30 * 60e3; const B = now + 60 * 60e3;
   const memo = agyquota.newPoolMemo();
-  const card = (s, until, state) => ({ sessionName: s, runner: 'antigravity', state, quotaUntil: until === null ? null : new Date(until).toISOString() });
+  const card = (s, until, state) => ({ ...realCard(s), state, quotaUntil: until === null ? null : new Date(until).toISOString() });
   agyquota.notePool([card('mb-a', A, 'rate_limited'), card('mb-b', B, 'rate_limited')], now, memo);
   // B's screen changed (a question is up, no turn has run): it no longer shows the pause. A still does.
   assert.equal(pausedFor([card('mb-a', A, 'rate_limited'), card('mb-b', null, 'needs_you')], now + 60e3, memo), B,
@@ -592,8 +613,8 @@ test('#4588 B memory by session: a later card that STOPS showing its pause still
 /* ---- review iteration 5: a per-agent release that waits on nothing, a pool that can be seen serving, held peers left out ---- */
 
 const RS = Date.parse('2026-09-28T22:11:54.000Z');
-const rsRoster = (paused) => ['rs-a', 'rs-b', 'rs-c'].map((s) => ({ sessionName: s, name: s, runner: 'antigravity', state: s === paused ? 'rate_limited' : 'idle',
-  quotaUntil: s === paused ? new Date(RS).toISOString() : null })).concat([{ sessionName: 'rs-x', runner: 'claude', state: 'idle' }]);
+const rsRoster = (paused) => ['rs-a', 'rs-b', 'rs-c'].map((s) => ({ ...realCard(s), name: s, state: s === paused ? 'rate_limited' : 'idle',
+  quotaUntil: s === paused ? new Date(RS).toISOString() : null })).concat([{ ...realCard('rs-x'), state: 'idle' }]);
 
 test('#4588 B release: after the reset agent i (by name) comes back at reset + GRACE_MS + (i+1) * SLOT_MS; CONTROL: a claude card is never held', () => {
   const memo = agyquota.newPoolMemo();
@@ -619,8 +640,8 @@ test('#4588 B an agent whose report says a reset 30 days away holds nobody (the 
   const now = Date.parse('2026-09-28T20:00:00.000Z');
   const memo = agyquota.newPoolMemo();
   const roster = [
-    { sessionName: 'far-a', runner: 'antigravity', state: 'idle' },
-    { sessionName: 'far-b', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(now + 30 * 24 * 3600e3).toISOString() },
+    { ...realCard('far-a'), state: 'idle' },
+    { ...realCard('far-b'), state: 'rate_limited', quotaUntil: new Date(now + 30 * 24 * 3600e3).toISOString() },
   ];
   assert.equal(agyquota.heldForQuota('far-a', roster, now, memo), null, 'a 30-day reset held the pool');
   assert.equal(agyquota.heldForQuota('far-a', [roster[0], { ...roster[1], quotaUntil: new Date(now + 3600e3).toISOString() }], now, memo), now + 3600e3, 'CONTROL');
@@ -644,8 +665,8 @@ test('#4588 B the first resumed agent reading WORKING does not release everyone:
 test('#4588 B a pane on this machine that is not ours (isNamedOurs false) is not in the pool; CONTROL: the same card as ours is', () => {
   const now = Date.parse('2026-09-28T20:00:00.000Z');
   const until = now + 3600e3;
-  const ours = { sessionName: 'own-a', runner: 'antigravity', state: 'idle', isNamedOurs: true };
-  const stranger = { sessionName: 'strange-b', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(until).toISOString(), isNamedOurs: false };
+  const ours = { ...realCard('own-a'), state: 'idle', isNamedOurs: true };
+  const stranger = { ...realCard('strange-b'), state: 'rate_limited', quotaUntil: new Date(until).toISOString(), isNamedOurs: false };
   assert.equal(agyquota.heldForQuota('own-a', [ours, stranger], now, agyquota.newPoolMemo()), null, 'a stranger\'s pause held our agent');
   assert.equal(agyquota.heldForQuota('own-a', [ours, { ...stranger, isNamedOurs: true }], now, agyquota.newPoolMemo()), until, 'CONTROL');
 });
@@ -676,8 +697,8 @@ test('#4588 B an agent whose own reset is over six hours before the pool\'s is s
   const memo = agyquota.newPoolMemo();
   const reportA = { found: true, state: 'idle', by: 'auto', until: new Date(A).toISOString(), because: status.QUOTA_REPORT_PREFIX + ' Google said: ...' };
   const cards = (bPaused) => [
-    { sessionName: 'late-a', name: 'A', runner: 'antigravity', state: 'idle' },
-    { sessionName: 'late-b', name: 'B', runner: 'antigravity', state: bPaused ? 'rate_limited' : 'idle', quotaUntil: bPaused ? new Date(B).toISOString() : null },
+    { ...realCard('late-a'), name: 'A', state: 'idle' },
+    { ...realCard('late-b'), name: 'B', state: bPaused ? 'rate_limited' : 'idle', quotaUntil: bPaused ? new Date(B).toISOString() : null },
   ];
   const sent = [];
   const book = new Map();
@@ -718,7 +739,7 @@ test('#4588 B a pool pause that BEGAN after an agent\'s six hours had closed doe
   const X = Date.parse('2026-09-26T10:00:00.000Z');             // X's own reset, 50 h before the sweep below
   const Yreset = X + 50 * 3600e3;
   const report = { found: true, state: 'idle', by: 'auto', until: new Date(X).toISOString(), because: status.QUOTA_REPORT_PREFIX + ' Google said: ...' };
-  const cardY = (paused) => ({ sessionName: 'hb-y', runner: 'antigravity', state: paused ? 'rate_limited' : 'idle', quotaUntil: paused ? new Date(Yreset).toISOString() : null });
+  const cardY = (paused) => ({ ...realCard('hb-y'), state: paused ? 'rate_limited' : 'idle', quotaUntil: paused ? new Date(Yreset).toISOString() : null });
   const late = agyquota.newPoolMemo();
   agyquota.notePool([cardY(true)], Yreset - 10 * 60e3, late);     // Y's pause first seen 10 min before its reset: long after X's window
   assert.equal(agyquota.heldBackBy(X, late), null, 'a pause seen 50 h after X\'s reset was counted as holding X back');
@@ -733,7 +754,7 @@ test('#4588 B a pool pause that BEGAN after an agent\'s six hours had closed doe
 
 test('#4588 B the SAME agent pausing again after its old reset records a fresh first-seen time; CONTROL: a correction of a reset still ahead keeps it', () => {
   const t = Date.parse('2026-09-28T10:00:00.000Z');
-  const card = (until) => [{ sessionName: 'rp-a', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(until).toISOString() }];
+  const card = (until) => [{ ...realCard('rp-a'), state: 'rate_limited', quotaUntil: new Date(until).toISOString() }];
   const memo = agyquota.newPoolMemo();
   agyquota.notePool(card(t + 3600e3), t, memo);                       // pause 1, reset at t+1h
   agyquota.notePool(card(t + 30 * 60e3), t + 10 * 60e3, memo);        // CONTROL: corrected while still ahead

@@ -42,15 +42,35 @@ test('sandbox: the store root is inside this process\'s temp dir', () => {
   assert.ok(path.resolve(store.ROOT).startsWith(path.resolve(os.tmpdir()) + path.sep), store.ROOT);
 });
 
-/* Hand-built rows in the shape the board card carries (sessionName, runner, quotaUntil, state), as
-   engine/agyquota-4588.test.js builds them. No isNamedOurs: deliver() refuses them before any keystroke. */
+/* Real cards from the real producer (fleet + status.snapshot()), never hand-built (fixture-discipline.test.js), as
+   engine/agyquota-4588.test.js builds them. They are built with the spy above already in place, so status.js and chat.js
+   hold only the spy; the one refused tmux probe the snapshot makes while building them is cleared below, and every
+   test resets SPAWNED before it measures. Each test spreads a real card and overrides only its scenario's fields.
+   isNamedOurs is set back to undefined: the pool still counts the card (only isNamedOurs === false leaves it), and
+   deliver() refuses a card that is not isNamedOurs === true before any keystroke, as it refused the rows this replaced.
+   The targets point at panes that do not exist, so even past that refusal nothing real could be typed into. */
+const fleet = require('../test-support/fleet');
+const status = require('./status');
+const AGY_SPEC = { state: 'unknown', runner: 'antigravity', command: 'agy', screen: '' };
+const CARDS = (() => {
+  const board = fleet.install([fleet.agent('agy-paused', AGY_SPEC), fleet.agent('agy-idle', AGY_SPEC), fleet.agent('claude-idle', { state: 'idle' })]);
+  try { return status.snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
+})();
+SPAWNED.length = 0;
+const realCard = (s) => { const c = CARDS.find((x) => x.sessionName === s); assert.ok(c, 'fixture: no real card for ' + s); return { ...c }; };
 function roster(quotaUntil) {
   return [
-    { sessionName: 'agy-paused', name: 'A', runner: 'antigravity', state: 'rate_limited', quotaUntil, target: 'kt-agyhold-none:9.9' },
-    { sessionName: 'agy-idle', name: 'B', runner: 'antigravity', state: 'idle', quotaUntil: null, target: 'kt-agyhold-none:9.8' },
-    { sessionName: 'claude-idle', name: 'C', runner: 'claude', state: 'idle', quotaUntil: null, target: 'kt-agyhold-none:9.7' },
+    { ...realCard('agy-paused'), name: 'A', state: 'rate_limited', quotaUntil, isNamedOurs: undefined, target: 'kt-agyhold-none:9.9' },
+    { ...realCard('agy-idle'), name: 'B', state: 'idle', quotaUntil: null, isNamedOurs: undefined, target: 'kt-agyhold-none:9.8' },
+    { ...realCard('claude-idle'), name: 'C', state: 'idle', quotaUntil: null, isNamedOurs: undefined, target: 'kt-agyhold-none:9.7' },
   ];
 }
+
+test('#4588 B fixture: the real cards carry the runners the tests assume, and none reads as ours', () => {
+  const r = roster(null);
+  assert.deepEqual(r.map((c) => [c.sessionName, c.runner]), [['agy-paused', 'antigravity'], ['agy-idle', 'antigravity'], ['claude-idle', 'claude']]);
+  assert.equal(r.some((c) => c.isNamedOurs === true), false, 'fixture: a card reads as ours, so deliver() could reach the keystroke');
+});
 
 test('#4588 B deliverAutomatic: a held agy target (the paused one AND its idle colleague) is COULD_NOT, held, with the reset, and nothing is run', () => {
   const until = new Date(Date.now() + 30 * 60e3).toISOString();
