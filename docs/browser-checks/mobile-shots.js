@@ -48,8 +48,11 @@
  * `phoneOnly: true` if the screen exists only at a phone width (the desktop size skips it), and
  * `desktopOnly: true` if it exists only at a desktop width (the phone sizes skip it; the consolidated
  * view, for one, starts at 960px).
- * `go` must not write to the board's server store (a PUT, a saved setting): one board serves every
- * screen of a run, so the write would change every screen shot after it.
+ * One board serves every screen of a run, so a `go` that writes to the board's server store (a PUT, a
+ * saved setting) must undo it in `after` (settings-recommender does, #4545), or it changes every screen
+ * shot after it; the consolidated screens stub the READ instead (kosmos#4594).
+ * `after: async (page, data) => {}` runs after the shot, whatever happened: it puts back what `go` changed,
+ * and it may also check the shot (a throw there turns the row into an ERROR, as consAgentsStill does).
  * `go` starts on a freshly loaded board at the size and theme (data has
  * `projectId`, and `chatAgent` / `askAgent`: use those, never a literal agent id,
  * so the screen works under --data store too); leave the page showing the screen. Keep names short and unique
@@ -135,15 +138,16 @@ async function openConsAgents(page) {
     return !!(p && !p.hidden && p.getClientRects().length && sw && sw.getClientRects().length);
   });
   await page.waitForTimeout(1500);   // let the board's own boot navigation happen first
+  let last = null;
   for (let tries = 0; tries < 6; tries++) {
     try {
       await page.click('#tabs .tab[data-tab="agents"]', { timeout: 5000 });
       await page.waitForSelector('#panel-cons-agents .cons-agents-lay', { state: 'visible', timeout: 5000 });
-    } catch { continue; }   // taken back before it showed: try again
+    } catch (e) { last = e; continue; }   // taken back before it showed (or never there): try again
     await page.waitForTimeout(1500);
     if (await shown()) return;
   }
-  throw new Error('cons-agents: the board kept closing the Agents view');
+  throw new Error('cons-agents: the Agents view did not stay open' + (last ? ' (last: ' + String(last.message || last).split('\n')[0] + ')' : ''));
 }
 /* Run AFTER the shot (the SCREENS `after` hook): the Agents view and its switch must still have been on
    screen, with the expected segment chosen, or the row is an error rather than a green shot of something else. */
