@@ -236,6 +236,11 @@ async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver,
       /* Review round 6: a member nothing can type into (stopped, no agent process, no target) is skipped, so its ids
          wait for the next typed arrival instead of a COULD_NOT, and a room-hold log line, every minute. */
       if (require('./chat').addressable(name, roster).ok !== true) continue;
+      /* #4797: while the shared Google quota still holds this member, a try is refused and its ids put back: the held
+         file rewritten twice and a COULD_NOT log line, every minute of the pause, with nothing told. Skip it until the
+         hold lifts; its ids wait untouched. The same gate flushOnIdle's delivery applies, so nothing reachable after
+         the reset is skipped. */
+      if (require('./agyquota').heldForQuota(name, roster, now) != null) continue;
       for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env })) out.push({ name, ...d });
     } catch { /* the posts stay held for the next minute */ }
   }

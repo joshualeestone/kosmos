@@ -303,8 +303,13 @@ test('#4588 B retry (flushReleased): with no idle report, posts held on the quot
 
     let tmux = arm();
     const r1 = rosterOf(board, AHEAD());
+    const heldFile = roomhold.fileFor('mara');
+    const stamp = Math.floor(fs.statSync(heldFile).mtimeMs / 1000) * 1000 - 60000;   // whole seconds: utimes rounds
+    fs.utimesSync(heldFile, new Date(stamp), new Date(stamp));   // a minute back, so a rewrite is visible
     const whileHeld = await roomhold.flushReleased(r1, releasedDeps(r1, Date.now()));
-    assert.deepEqual(whileHeld.map((d) => d.state), [chat.DELIVERY.COULD_NOT]);
+    // #4797: while the quota holds her, she is not tried at all: no result (so no log line), her file not rewritten.
+    assert.deepEqual(whileHeld, [], 'the retry tried a member the quota still holds');
+    assert.equal(fs.statSync(heldFile).mtimeMs, stamp, 'the held file was rewritten while nothing could be told');
     assert.deepEqual(typedTo(tmux, 'mara'), [], 'the retry typed while the pool is held');
     assert.deepEqual(roomhold.heldIn('mara', PROJECT), [roomhold.addressedId(sent.id)]);
 

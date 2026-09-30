@@ -18816,7 +18816,12 @@ function start(port = PORT) {
             deliver: chat.deliverAutomaticAsync, DELIVERY: chat.DELIVERY, env: process.env,
             shownOf: (id) => { const p = projects.get(id, r); return p ? p.name : null; },
           }).then((done) => {
-            for (const d of done) process.stdout.write(`room-hold: ${d.name} told of ${d.n} held post(s) in ${d.projectId} after the quota hold, delivery=${d.state}\n`);
+            /* #4797: say "told" only when something was; a refused try keeps its ids for the next minute. */
+            for (const d of done) {
+              process.stdout.write(d.state === chat.DELIVERY.COULD_NOT
+                ? `room-hold: ${d.name} could not yet be told of ${d.n} held post(s) in ${d.projectId}; kept for the next try\n`
+                : `room-hold: ${d.name} told of ${d.n} held post(s) in ${d.projectId} after the quota hold, delivery=${d.state}\n`);
+            }
           }).catch(() => { /* the posts stay held for the next minute */ });
         } catch { /* the posts stay held for the next minute */ }
       }, 60 * 1000);
