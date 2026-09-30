@@ -174,7 +174,8 @@ async function listLook(page) {
     const idle = rows.find((r) => !['working', 'attn', 'unk', 'off'].some((c) => r.classList.contains(c)));
     if (!idle) return { found: false, why: 'no plain row', rows: rows.length };
     const cs = getComputedStyle(idle);
-    return { found: true, border: cs.borderTopColor, radius: cs.borderTopLeftRadius, ground: cs.backgroundImage !== 'none' || cs.backgroundColor !== 'rgba(0, 0, 0, 0)' };
+    const nm = idle.querySelector('.lname');
+    return { found: true, border: cs.borderTopColor, radius: cs.borderTopLeftRadius, ground: cs.backgroundImage !== 'none' || cs.backgroundColor !== 'rgba(0, 0, 0, 0)', nameAlign: nm ? getComputedStyle(nm).textAlign : 'absent' };
   });
   const rest = await read();
   let hover = null;
@@ -433,8 +434,8 @@ const AGENTS_LOOK = `(() => {
       chk(pressed.found && pressed.bg !== 'rgba(0, 0, 0, 0)' && pressed.border !== 'rgba(0, 0, 0, 0)',
         `${tag} On, Agents page: a pressed Messages filter still shows its pressed ground and border`, JSON.stringify(pressed));
       const listOn = await listLook(page);
-      chk(listOn.found && listOn.border === 'rgba(0, 0, 0, 0)' && listOn.radius === '16px' && listOn.ground,
-        `${tag} On, Agents list: a plain row keeps its grey ground, loses its border and takes 16px corners`, JSON.stringify(listOn));
+      chk(listOn.found && listOn.border === 'rgba(0, 0, 0, 0)' && listOn.radius === '16px' && listOn.ground && ['left', 'start'].includes(listOn.nameAlign),
+        `${tag} On, Agents list: a plain row keeps its grey ground, loses its border, takes 16px corners, and its name sits left`, JSON.stringify(listOn));
       chk(listOn.found && listOn.hover && listOn.hover !== 'rgba(0, 0, 0, 0)',
         `${tag} On, Agents list: a row under the pointer shows its border (a sign it opens)`, JSON.stringify(listOn));
 

@@ -9889,6 +9889,9 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    which is the state. */
 :root[data-look="new"] body:not(.consolidated) #alist .lrow { border-radius: 16px; }
 :root[data-look="new"] body:not(.consolidated) #alist .lrow:not(.attn):not(.unk):not(:hover) { border-color: transparent; }
+/* A name long enough to wrap took a centred alignment from further up the page, so its second line sat in the
+   middle of a left-aligned column (seen with a two-word surname). Today's look has the same; this page sets it. */
+:root[data-look="new"] body:not(.consolidated) #alist .lname { text-align: left; }
 /* ===== GENERATED: forced dark theme. Do not edit by hand. ===== */
 /* Written by tools/sync-forced-theme.js from the prefers-color-scheme
    blocks above. Edit those; run the tool; commit both. */
