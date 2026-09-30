@@ -168,6 +168,39 @@ test('task add: when the projects cannot be read, an identified agent is refused
   assert.equal(w.made.length, 1, 'the blind add reached the task engine');
 });
 
+test('when the running agents cannot be read: a token is refused (503), a pane or nobody is as before', async (t) => {
+  const w = world(t);
+  const blind = fleet.blind();   // tmux could not be asked: the roster is unreadable, not empty
+  t.after(() => blind.restore());
+  const add = await call('POST', '/api/project/p4491/tasks', { headers: asAgent(w.mara), body: { sentence: 'unchecked' } });
+  assert.equal(add.code, 503, 'a token nobody could check added a task: ' + add.code + ' ' + add.text.slice(0, 120));
+  assert.match(JSON.parse(add.text).error, /could not check which agents are running, so the task was not added/);
+  const close = await call('POST', '/api/project/p4491/task/1/close', { headers: asAgent(w.mara) });
+  assert.equal(close.code, 503, 'a token nobody could check closed a task: ' + close.code);
+  assert.match(JSON.parse(close.text).error, /so the task was not closed/);
+  assert.deepEqual([w.made, w.acts], [[], []]);
+  /* No token: exactly as before this slice. A pane names nobody, the task is added unnamed; a close reads no roster. */
+  const pane = await call('POST', '/api/project/p4491/tasks', { headers: withBoard(), body: { sentence: 'from a tmux window', from_pane: '%3' } });
+  assert.equal(pane.code, 200, 'the person\'s terminal lost task add to an unreadable roster: ' + pane.code + ' ' + pane.text.slice(0, 120));
+  assert.equal((await call('POST', '/api/project/p4491/task/2/close', { headers: withBoard() })).code, 200);
+  assert.deepEqual([w.made.map((m) => m.by), w.acts], [[null], [['close', 'p4491', '2']]]);
+});
+
+test('a live agent with no roster row (a Windows agent) is matched to the project by the token store\'s key', async (t) => {
+  const liveness = require('./engine/liveness');
+  const realAlive = liveness.alive;
+  liveness.alive = (key) => (key === 'ghost' ? true : realAlive(key));
+  t.after(() => { liveness.alive = realAlive; });
+  const w = world(t, { members: ['Ghost'] });   // stored as written; the token store keys it "ghost"
+  const ghost = sendertoken.mint('ghost').token;
+  const add = await call('POST', '/api/project/p4491/tasks', { headers: asAgent(ghost), body: { sentence: 'from Windows' } });
+  assert.equal(add.code, 200, 'a paneless member could not add: ' + add.code + ' ' + add.text.slice(0, 160));
+  assert.equal((await call('POST', '/api/project/p4491/task/1/close', { headers: asAgent(ghost) })).code, 200, 'a paneless member could not close');
+  assert.deepEqual([w.made.map((m) => m.by), w.acts], [['ghost'], [['close', 'p4491', '1']]]);
+  /* CONTROL: mara has a roster row, so she is matched by exact name, and "Ghost" is not her. */
+  assert.equal((await call('POST', '/api/project/p4491/tasks', { headers: asAgent(w.mara), body: { sentence: 'not on it' } })).code, 403);
+});
+
 test('task close: a member closes with only its own token; a non-member is refused and nothing is closed', async (t) => {
   const w = world(t);
   const member = await call('POST', '/api/project/p4491/task/3/close', { headers: asAgent(w.mara) });

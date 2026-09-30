@@ -3848,7 +3848,7 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
   'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks']);   // overview: #4581, `kosmos project list`
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
-   `[^/]+` for the project and `\d+` for the task, so no other task verb (close, reopen, parts) matches. Judged before
+   `[^/]+` for the project and `\d+` for the task, so no other task verb (reopen, due, parts) matches (close joined in slice 5). Judged before
    the handler decodes the project, so an encoded `a%2Fb` passes here and then names no project (404). Each
    handler identifies the caller from the token and refuses an agent that is not on the project. */
 /* #4581: the second pattern is `kosmos project show <id>`, a READ: it writes nothing and answers the same for every
@@ -3926,8 +3926,11 @@ function processCaller(req, body, roster, viaScreen, notDone) {
   if (roster === null && presentedAgentToken(req, body)) return { refusal: couldNot };
   const tokenSender = senderFromAgentToken(req, body, roster);
   if (tokenSender && !tokenSender.ok) return { refusal: [403, tokenSender.because] };
-  const fromPane = body && typeof body.from_pane === 'string' ? body.from_pane : '';
-  if (roster === null && fromPane) return { refusal: couldNot };
+  /* A pane with a roster nobody could read names nobody, and the write goes on unnamed, as these two routes
+     always did (task message and task built answer 503 there, a slice-3 choice; here it would be a new refusal
+     for a person typing `kosmos task add` in a tmux window). A TOKEN with an unreadable roster is refused above:
+     it cannot be checked, and a credential nobody could check is not waved through. */
+  const fromPane = roster !== null && body && typeof body.from_pane === 'string' ? body.from_pane : '';
   /* The pane, as task message reads it: a pane that IS a roster target (session:w.p) and is tied to our agent is
      that card; otherwise ask resolveSender. */
   const targetCard = !tokenSender && fromPane ? (roster || []).find((c) => c && c.target === fromPane && c.isNamedOurs === true) || null : null;

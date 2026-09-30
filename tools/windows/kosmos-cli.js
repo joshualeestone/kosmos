@@ -683,7 +683,8 @@ async function taskBuilt(ctx, args) {
 
 /* kosmos#3388, as install/kosmos cmd_project create: make a project from one
    command. A board write, so it presents the board token, not the agent token
-   ({agent:false}, like task add/close); from_pane is empty because a Windows
+   ({agent:false}; task add and task close present the agent token since #4491
+   slice 5, this one not yet); from_pane is empty because a Windows
    agent has no tmux pane and the board tags it as a process caller. The success
    answer carries the id ({project,told,id,...}); an answer with neither an error
    nor an id is not a create. */

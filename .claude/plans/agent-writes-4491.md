@@ -33,6 +33,19 @@ may an agent put on a new project) and `kosmos room reopen` (it clears the loop-
   leaving these two open to any agent. The task verbs would then disagree (message and built refuse a
   non-member since slice 3), and a task carries an assignee, so adding one is closer to commanding than to
   reading.
+- **Two smaller changes to what works today, both from sending the token (named in review round 1):**
+  (1) A token the board cannot resolve is refused (403), where before the CLI sent none and the write went
+  through: an agent whose session is no longer tied to its name, one the person hid by removing it, a child
+  process carrying a token from an earlier run. This is what msg, post and task message already do (a bad
+  credential is never swapped for a weaker one). (2) A token cannot be checked when the running agents cannot be
+  read (tmux not answering): 503, "we could not check which agents are running, so the task was not added".
+  A caller with NO token is untouched by both: a pane with an unreadable roster names nobody and the task is
+  added unnamed, as before (rejected: answering 503 there as task message does, which would take `kosmos task
+  add` away from a person's own tmux window on a tmux hiccup).
+- **Who gains, for these writes.** A caller that holds only its own token (a Claude setup guide on a Mac; an agent
+  behind the person's reverse proxy) can now add a task, with an assignee, and close one, in a project it is on.
+  Adding a task with an assignee tells that agent and spends the shared runaway budget, as it does for every
+  agent. Such a caller cannot put itself on a project (slice 4's plan has the routes).
 - **Task close reads no body.** The token comes from the header only, and the roster is read only when a token is
   presented, so the page's and the terminal's close cost what they cost before.
 - **Reopen shares the handler and so the rule, but not the gate.** `reopen` is not in the pattern: it stays behind
@@ -54,23 +67,36 @@ tasks for other teams' projects would now be refused until it is put on them.
   the token still names who added it.
 
 ## Tests
-- `server.agent-writes-4491.test.js` (new, 12): the gate refuses both writes bare and with an unissued token; a
+- `server.agent-writes-4491.test.js` (new, 14; the last two listed were added in round 1): the gate refuses both writes bare and with an unissued token; a
   member adds on its token alone and the task is recorded as added by it; a non-member is refused with and without
   the board token and nothing reaches the task engine; the body cannot name another agent; a pane names its agent
   (through resolveSender) and a non-member pane is refused, while a pane nobody holds, no pane, and the page are as
   before; a token the board cannot resolve is refused and never swapped for a pane; an unreadable projects list is
   a 503; a member closes and a non-member does not; a tokenless close is as before; reopen stays behind the board
   token and holds an identified non-member out; 13 neighbours stay closed; a revoked token does neither.
+  An unreadable roster: a token is a 503 on both writes and nothing is written, while a pane and a tokenless close
+  are as before. A live agent with no roster row is matched by key on both writes.
   Measured red, one mutation each: no membership rule; the gate left closed; a bad token swapped for the pane; the
   close handler naming nobody; an unreadable list failing open; everyone counted a member; the page held to a pane
   it sent; the adder not recorded.
 - `server.test.js` (existing, unchanged): "a task records who added it and how" pins that a pane which IS a roster
   target still names its agent. My first version of the helper dropped that arm and this test caught it.
-- `cli.agent-token-verbs-4491.test.js` (4 new): `kosmos task add` and `kosmos task close` present a valid token and
+- `cli.agent-token-verbs-4491.test.js` (6 new; two print the board's refusal and exit 1): `kosmos task add` and `kosmos task close` present a valid token and
   still the board token, and forward nothing for a junk or absent one. Red against slice 4's CLI (2 tests).
 - `tools.windows-kosmos-cli-writes-4491.test.js` (new, 6): the same on Windows, plus the board's refusal printed
   with exit 1 for an agent that is not on the project. Red against slice 4's CLI (2 tests).
 - Pins updated on purpose: the pattern pin in server.agent-token-sender-570.test.js; the slice-3 gate test (close
   now opens, reopen does not); the slice-4 neighbours list; tools.windows-kosmos-cli-570 (task add presents the
   token); the slice-4 Windows control verb is now project create.
+
+## Review round 1 (opus): 0 BLOCKER, 2 WARNING, 2 CONVENTION, 4 NIT
+- W an unreadable roster newly refused a PANE caller (the person's terminal in tmux got 503 where it got 200):
+  reversed. A pane with an unreadable roster names nobody and the write goes on, as before. A token there is still
+  a 503, now declared above and tested on both writes.
+- W a token that no longer resolves loses add and close, undeclared: declared above (it is the msg and post rule).
+- C the slice-3 pattern comment still listed close as excluded; the Windows project-create comment still said task
+  add and close pass no agent token: both corrected.
+- NITs: the Mac CLI's printing of the refusal is tested (exit 1, the board's sentence); a paneless member by key is
+  tested on both writes; "who gains" is stated. Not taken: passing the roster through to tellEveryoneOn to save a
+  second read on a token close (a small cost on one path; it would change a shared helper's signature).
 
