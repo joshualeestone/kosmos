@@ -235,7 +235,7 @@ _kg_text() { # what the guard reads
     # A to-do list's items are words about work, not work (jq never reads them either).
     if printf '%s' "$INPUT" | LC_ALL=C grep -Eq '"todos"[[:space:]]*:'; then _drop="$_drop|content|activeForm"; fi
     _raw="$(printf '%s' "$INPUT" | LC_ALL=C sed -E "s/\"($_drop)\"[[:space:]]*:[[:space:]]*$_s//g" 2>/dev/null)" || _raw="$INPUT"
-    if [ -x /usr/bin/perl ] && [ -z "${KOSMOS_REPORT_HOOK_NO_PERL:-}" ]; then   # the switch: tests drive the awk fallback
+    if [ -f /usr/bin/perl ] && [ -x /usr/bin/perl ] && [ -z "${KOSMOS_REPORT_HOOK_NO_PERL:-}" ]; then   # the switch: tests drive the awk fallback
       printf '%s' "$_raw" | /usr/bin/perl -pe 's/\\\\/\x01/g; s/\\n/\n/g; s/\\r/\r/g; s/\\t/\t/g; s/\\"/"/g; s/\x01/\\/g' 2>/dev/null \
         && return
     fi
