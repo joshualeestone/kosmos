@@ -31,3 +31,14 @@ reached its session, and no verb could read it; the only recovery was asking the
 ## Weakest premise
 That the nudge is the notice the report saw. The report does not say which notice it was; the verb helps
 whichever it was, as long as the message was stored (every DM is).
+
+## Review 1 (sonnet, blind, on 18457d028), 17:04 CDT: no BLOCKER, 6 WARNINGs, all fixed
+- `kosmos inbox --help` on the Mac re-dispatched bare and PRINTED THE MESSAGES: now its own help arm.
+- The setup guide's thread is masked like the thread route (guideMaskedRows, every row).
+- Kosmos's own notice (`kosmos: true`) is left out, not printed as "you:" (the kind filter was dead).
+- A message's further lines are indented, so typed text cannot pass for another row.
+- Attachments, menu choices and undelivered messages are said.
+- Plan and comment say a BOARD-token holder can name any pane (no new reach: the thread route already
+  serves every thread to the board token).
+- Also: --limit 0 refused on both CLIs; the enforcing test asserts the route's words.
+Not taken: a test of the guide mask (it is the thread route's own helper; a guide fixture is heavy).

@@ -68,3 +68,18 @@ test('#4784: a refusal from the board exits non-zero with the board\'s words', (
   assert.equal(out.code, 1, out.stdout + out.stderr);
   assert.match(out.stdout, /own agent token/);
 }, { status: 403, text: 'this board only shows an agent its messages with its own agent token; run `kosmos inbox` as that agent\n' }));
+
+test('#4784 review 1: --help prints the usage and reads nothing', () => withStubBoard(async (port, seen) => {
+  for (const flag of ['--help', '-h']) {
+    const out = await runCli(['inbox', flag], envFor(port));
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /kosmos inbox \[--limit N\]/);
+  }
+  assert.equal(seen.length, 0, '--help read the person\'s messages');
+}));
+
+test('#4784 review 1: --limit 0 is refused before any request', () => withStubBoard(async (port, seen) => {
+  const out = await runCli(['inbox', '--limit=0'], envFor(port));
+  assert.equal(out.code, 2, out.stdout + out.stderr);
+  assert.equal(seen.length, 0);
+}));

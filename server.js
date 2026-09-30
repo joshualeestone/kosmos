@@ -12887,7 +12887,10 @@ const server = http.createServer(async (req, res) => {
        restart) with no way to read it but asking the person to send it again. The board keeps every DM
        (chat DIRECT, stored even when delivery failed), so this reads it back. ONLY the caller's own thread:
        the caller is resolved exactly as GET /api/report resolves it (token first, then pane; a bare pane is
-       refused on an enforcing board), and there is no agent parameter, so no agent can read another's. */
+       refused on an enforcing board), and there is no agent parameter, so an agent holding only its own token
+       reads only its own thread. A caller holding the BOARD token (the person, or an agent whose CLI can read
+       it) can name any pane and so any agent: that is no new reach, since GET /api/agent/<name>/thread already
+       serves every thread to the board token. */
     let asText = false;
     let fromPane = null;
     let limit = 10;
@@ -12915,19 +12918,46 @@ const server = http.createServer(async (req, res) => {
       let thread;
       try { thread = chat.readThread(chat.DIRECT, sender.card.sessionName); }
       catch { fail(503, 'we cannot read your conversation with the person on this computer right now'); return; }
-      const rows = (thread && Array.isArray(thread.messages) ? thread.messages : [])
-        .filter((m) => m && typeof m.text === 'string' && m.kind !== 'question' && m.kind !== 'kosmos')
-        .slice(-limit)
-        .map((m) => ({
+      /* Review 1 of #4784:
+         - Kosmos's own words stored in the agent's name (the daily-limit notice, `kosmos: true`) are not the
+           agent's, so they are left out rather than printed as "you:".
+         - The setup guide's thread is masked as the thread route masks it (#3769), every row: a key the person
+           pasted to it is not shown back, here either.
+         - An attachment and a menu choice are said, and a message of the person's that never reached the
+           agent is marked: that is the message this verb most often exists to recover. */
+      const kept = (thread && Array.isArray(thread.messages) ? thread.messages : [])
+        .filter((m) => m && m.kosmos !== true && (typeof m.text === 'string' || m.attachment || m.attachments))
+        .slice(-limit);
+      const masked = guideMaskedRows(kept, isSetupGuide(sender.card.sessionName) ? true : null);
+      const rows = masked.map((m) => {
+        const person = !(typeof m.from === 'string' && m.from);
+        const files = (Array.isArray(m.attachments) ? m.attachments : (m.attachment ? [m.attachment] : []))
+          .map((a) => (a && typeof a.name === 'string' ? a.name : 'a file'));
+        return {
           at: typeof m.at === 'string' ? m.at : null,
-          from: typeof m.from === 'string' && m.from ? 'you' : 'person',
-          text: m.text,
-        }));
+          from: person ? 'person' : 'you',
+          text: typeof m.text === 'string' ? m.text : '',
+          attachments: files,
+          chose: person && m.wire != null,
+          reached: !person || !m.delivery || m.delivery.state === chat.DELIVERY.PLACED,
+        };
+      });
       if (!asText) { sendJson(res, 200, { ok: true, messages: rows }); return; }
       res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
       if (!rows.length) { res.end('No messages between you and the person yet.\n'); return; }
-      const lines = rows.map((r) => (r.at ? r.at.replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '')
-        + (r.from === 'person' ? 'the person: ' : 'you: ') + r.text);
+      /* One row per message; a message's own further lines are INDENTED, so text a person typed can never read
+         as another row ("<time> you: ...") in the agent's context. */
+      const lines = rows.map((r) => {
+        const head = (r.at ? r.at.replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '')
+          + (r.from === 'person' ? 'the person: ' : 'you: ');
+        const notes = [];
+        if (r.chose) notes.push('[chose this from a menu]');
+        if (r.attachments.length) notes.push('[attached: ' + r.attachments.join(', ') + ']');
+        if (!r.reached) notes.push('[this did not reach you]');
+        const body = r.text.split(/\r?\n/);
+        const first = [body[0], ...notes].filter(Boolean).join(' ');
+        return [head + first, ...body.slice(1).map((l) => '    ' + l)].join('\n');
+      });
       res.end(lines.join('\n') + '\n');
     } catch (err) {
       fail(500, 'Kosmos could not read your messages just now');

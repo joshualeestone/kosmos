@@ -580,7 +580,7 @@ async function verbInbox(ctx, args) {
     ctx.err(USAGE.inbox);
     return 2;
   }
-  if (limit && !/^\d+$/.test(limit)) { ctx.err('--limit takes a whole number.'); return 2; }
+  if (limit && !/^[1-9]\d*$/.test(limit)) { ctx.err('--limit takes a whole number from 1 to 50.'); return 2; }
   const r = await ctx.call('GET', '/api/inbox?as=text&limit=' + limit + '&from_pane=');
   if (!r.reached) return ctx.unreachable('read your messages');
   ctx.out(String(r.text || '').replace(/\n$/, ''));

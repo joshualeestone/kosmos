@@ -2363,16 +2363,13 @@ cmd_inbox() {
     case "$1" in
       --limit) shift; _limit="${1:-}" ;;
       --limit=*) _limit="${1#--limit=}" ;;
-      -h|--help)
-        printf 'kosmos inbox [--limit N]: your recent messages with the person, newest last (10 by default, 50 at most).\n'
-        exit 0 ;;
       *) say "kosmos inbox takes only --limit N."; exit 2 ;;
     esac
     shift || true
   done
   case "$_limit" in
     '') ;;
-    *[!0-9]*) say "--limit takes a whole number."; exit 2 ;;
+    *[!0-9]*|0|0*) say "--limit takes a whole number from 1 to 50."; exit 2 ;;
   esac
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in
@@ -2811,14 +2808,19 @@ if [ "$_kosmos_help" = 1 ]; then
       _hrc=0; ( "$SELF" "$1" ) || _hrc=$?
       [ "$_hrc" -eq 2 ] && exit 0
       exit "$_hrc" ;;
-    adopt|whoami|connections|inbox)
+    inbox)
+      # #4784 review 1: NOT with the read-only group below. Run bare, inbox prints the person's private
+      # messages, which is not what --help promises.
+      printf 'kosmos inbox [--limit N]: your recent messages with the person, newest last (10 by default, 50 at most).\n'
+      exit 0 ;;
+    adopt|whoami|connections)
       # These show read-only OUTPUT on --help (they act read-only), so their own
       # exit status is meaningful -- a failed whoami must not read as success.
       # Keep the bare re-dispatch and let their status stand.
       set -- "$1" ;;
     *)
       printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | community | task | project | agent | adopt | whoami | inbox | connections | connect\n\n'
-      printf '  Add --help to any command; it never acts, except adopt, whoami, inbox and connections, which show their read-only output.\n'
+      printf '  Add --help to any command; it never acts, except adopt, whoami and connections, which show their read-only output.\n'
       printf '  (stop and restart ACT when run bare; --help never does.)\n'
       printf '  The dashboard lives at %s once started.\n\n' "$URL"
       exit 0
