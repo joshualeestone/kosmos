@@ -64,6 +64,7 @@ test('computerDomain: one label under the sign-in host\'s parent, as the native 
   assert.equal(ac.computerDomain('https://login.kosmos.test/'), 'kosmos.test');
   assert.equal(ac.computerDomain('https://coord.example'), null, 'two labels: no parent to trust');
   assert.equal(ac.computerDomain('not a url'), null);
+  assert.equal(ac.computerDomain('http://127.0.0.1:8787'), null, 'an IP address has dots and no domain');
 });
 
 test('validAddress: exactly one plain label under the computers\' domain; any other host, a LAN address, a scheme, a path or punycode is refused', () => {

@@ -26,6 +26,9 @@ const fedseal = require('./fedseal');
 const FILE = 'federation.json';
 const MAC_INVITE = '/v1/mac/federation/invite';
 const MAC_VERIFY = '/v1/mac/federation/verify';
+// kosmos#4648's route, shared with the switcher's reader so a rename cannot split them (#4699).
+const computers = require('./account-computers');
+const MAC_ACCOUNT_COMPUTERS = computers.ROUTE;
 
 function file() {
   return path.join(store.ROOT, FILE);
@@ -166,7 +169,8 @@ function nameOk(v) {
 }
 
 /* kosmos#4649: a code that lets ANOTHER computer of the same account join this project's
-   shared room. It carries only the project's ref and name, and needs no secret: a seat in
+   shared room. It carries the project's ref and name and the name of the computer that made it
+   (kosmos#4699), and needs no secret: a seat in
    an own room is only ever minted for the caller's OWN account, so this code pasted on
    someone else's computer opens that account's own (empty) room, never this one. */
 const OWN_PREFIX = 'kosmos-own:';
@@ -175,6 +179,18 @@ const OWN_CODE_MAX = 1024;
    code is written by whoever made it, so it must look like a ref this board mints (a UUID):
    letters, digits, _ and -, never starting with -. */
 const OWN_REF_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+/* kosmos#4699: an own code names the computer that made it (`from`, its Kosmos+ name: the first
+   label of its address), so the computer it is pasted on can check that name against the computers
+   of ITS OWN account. Without it, a code pasted on another account's computer was accepted: that
+   computer got a project sitting alone in its own account's room, under a note saying it was shared.
+   A name, not a secret: a code gets pasted around, and the name is already that computer's public
+   address. */
+const OWN_FROM_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
+/** The Kosmos+ name of the computer at `address` (its first label), or null. */
+function ownFromOf(address) {
+  const label = typeof address === 'string' ? address.trim().toLowerCase().split('.')[0] : '';
+  return OWN_FROM_RE.test(label) ? label : null;
+}
 /* The key an own-account join is held under between verify and join (never an edge id,
    which the coordinator mints as 32 hex characters). */
 const OWN_KEY_PREFIX = 'own:';
@@ -189,7 +205,9 @@ function ownCodeRefusal(projectId) {
   if (link.role === 'owner' && refOk(link.ref) && fedseal.isSealedRef(link.ref)) return 'sealed';
   return null;
 }
-function ownCode(projectId, projectName) {
+function ownCode(projectId, projectName, from) {
+  // Before anything is recorded: a code that cannot name its maker is never made.
+  if (typeof from !== 'string' || !OWN_FROM_RE.test(from)) return null;
   if (ownCodeRefusal(projectId)) return null;
   const link = linkFor(projectId);
   let ref = link && (link.role === 'owner' || link.role === 'self') && OWN_REF_RE.test(String(link.ref)) ? link.ref : null;
@@ -204,7 +222,7 @@ function ownCode(projectId, projectName) {
   }
   // parseOwnCode refuses a code over OWN_CODE_MAX; the name is cut, by whole characters, to fit.
   let chars = Array.from(String(projectName || '').slice(0, NAME_MAX));
-  const make = () => OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref, name: chars.join('') }), 'utf8').toString('base64url');
+  const make = () => OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref, from, name: chars.join('') }), 'utf8').toString('base64url');
   let code = make();
   while (code.length > OWN_CODE_MAX && chars.length > 1) { chars = chars.slice(0, Math.floor(chars.length / 2)); code = make(); }
   return code;
@@ -218,15 +236,78 @@ function selfSharedRef(ref) {
 function ownRefHere(ref) {
   return Object.values(links()).some((l) => l && (l.role === 'self' || l.role === 'owner') && l.ref === ref);
 }
-/** The {ref, name} an own-account code carries, or null for anything else. */
+/** The {ref, name, from} an own-account code carries, or null for anything else. `from` is null for a
+    code made before #4699, which named no computer; verify refuses those. The format number did not
+    change when `from` was added: a Kosmos that predates it reads a newer code as it always read codes
+    (it ignores `from`), where a new number would have made it answer "that code was not recognised". */
 function parseOwnCode(text) {
   const t = typeof text === 'string' ? text.trim() : '';
   if (!t.startsWith(OWN_PREFIX) || t.length > OWN_CODE_MAX) return null;
   let o;
   try { o = JSON.parse(Buffer.from(t.slice(OWN_PREFIX.length), 'base64url').toString('utf8')); } catch { return null; }
   if (!o || o.v !== 1 || typeof o.ref !== 'string' || !OWN_REF_RE.test(o.ref) || typeof o.name !== 'string') return null;
+  // A maker that is there but is not a name is a broken code; one that is absent is an older code.
+  if (o.from !== undefined && (typeof o.from !== 'string' || !OWN_FROM_RE.test(o.from))) return null;
   const name = o.name.trim().slice(0, NAME_MAX);
-  return name ? { ref: o.ref, name } : null;
+  return name ? { ref: o.ref, name, from: o.from === undefined ? null : o.from } : null;
+}
+
+/* Why ownAccountNames could not answer when the Kosmos+ this computer is signed in to has an address
+   computers cannot sit under (a localhost, an IP, a two-label host: a developer's or a test service).
+   Asking again cannot change that, so uncheckedRefusal gives it its own sentence. */
+const NO_COMPUTER_DOMAIN = 'the Kosmos+ address is not one computers can live under';
+
+/** The Kosmos+ names of the computers on THIS computer's account, asked of the coordinator through
+    the tunnel (signed with this computer's key, so it can only be this account's list). Never throws. */
+async function ownAccountNames(remote) {
+  let r;
+  try { r = await remote.macRequest('POST', MAC_ACCOUNT_COMPUTERS, {}); } catch (err) { return { ok: false, because: String((err && err.message) || 'Kosmos+ did not answer') }; }
+  if (!r || !r.ok) return { ok: false, because: (r && r.because) || 'Kosmos+ did not answer' };
+  const rows = r.data && Array.isArray(r.data.computers) ? r.data.computers : null;
+  if (!rows) return { ok: false, because: 'the Kosmos+ answer carried no computers' };
+  /* Which rows count as this account's computers is account-computers.js's rule (one label under the
+     computers' domain), the rule the "Your computers" menu uses: a row that menu would drop must not
+     make a code pass here. The name compared is the first label of that address, the same derivation
+     the maker used for `from` (a row's `name` is a separate field and need not be spelled alike). */
+  let domain = null;
+  try { domain = computers.computerDomain(remote.COORDINATOR()); } catch { domain = null; }
+  if (!domain) return { ok: false, because: NO_COMPUTER_DOMAIN };
+  const names = rows.filter((c) => c && computers.validAddress(c.address, domain)).map((c) => ownFromOf(c.address)).filter(Boolean);
+  // This computer's own row is always in a real answer, so a list with no readable name is a list that
+  // could not be read, not an account with no computers: "could not check", never "another account".
+  if (!names.length) return { ok: false, because: 'the Kosmos+ answer named no computer' };
+  return { ok: true, names };
+}
+
+/* kosmos#4699: why an own code could not be checked, in words the person can act on. Every sentence
+   returned is written here: the raw cause (a path from a spawn failure, the tunnel's route and status,
+   the coordinator's own words) goes to the log and never to the screen. */
+function uncheckedRefusal(because) {
+  // The tunnel prints its failure as `Error: ...`, and macRequest hands that line on as it came: strip
+  // it, or the anchored match below never sees a real refusal (only a hand-written one in a test).
+  const b = (typeof because === 'string' ? because : '').trim().replace(/^Error:\s*/, '');
+  if (/not connected to Kosmos\+/.test(b)) {
+    // "Not connected" is not signed in to Kosmos+ here (the same state fedseats' note names).
+    return { status: 409, body: { reason: 'no-remote', error: 'Sign in to Kosmos+ again in Settings on this computer, then paste the code again.' } };
+  }
+  /* The one refusal with a way forward is recognised by the coordinator's CODE, which the tunnel prints
+     inside the brackets, never by its sentence: this computer is itself still waiting to be allowed on
+     the account (kosmos#4681). Any other refusal ("unknown mac", a clock skew) is not something the
+     person can act on, so it gets the general sentence and the detail stays in the log. */
+  // "Mac" or "computer": the connector's prefix is per platform (fedseats' MAC_LEVEL_REFUSAL, #4645).
+  if (/^Kosmos\+ refused this (?:Mac|computer): .*\(HTTP \d+ on [^)]*, code own_lineage\)$/.test(b)) {
+    return { status: 409, body: { reason: 'unchecked', error: 'This computer has not been allowed on your Kosmos+ account yet, so Kosmos cannot check this code. Kosmos on one of your other computers shows that this computer is asking: press Allow there, then paste the code again.' } };
+  }
+  // No computer of this Kosmos+ has an address to be named by, so no own code can ever be checked here.
+  if (b === NO_COMPUTER_DOMAIN) {
+    return { status: 409, body: { reason: 'unchecked', error: 'This computer is signed in to a Kosmos+ service that gives computers no address, so Kosmos cannot check that this code is from one of your computers. The project cannot be added here.' } };
+  }
+  // A connector older than the route can never sign it: trying again cannot help, updating can.
+  if (/does not sign/.test(b)) {
+    return { status: 409, body: { reason: 'unchecked', error: 'Kosmos on this computer is too old to check this code. Update Kosmos on this computer, then paste the code again.' } };
+  }
+  if (b) console.error('#4699: an own code could not be checked: ' + b.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 300));
+  return { status: 502, body: { reason: 'unchecked', error: 'Kosmos could not check that this code is from one of your computers. Try again in a moment.' } };
 }
 
 /** Mint an invite for a project the person is creating or owns. */
@@ -295,7 +376,22 @@ async function verify(remote, body) {
     let here;
     try { here = ownRefHere(own.ref); } catch { return { status: 500, body: { error: 'Kosmos could not read which projects are shared on this computer. Try again in a moment.' } }; }
     if (here) return { status: 409, body: { reason: 'already_joined', error: 'This project is already on this computer.' } };
+    /* kosmos#4699: only a code made on one of THIS account's computers. The own room a seat opens is
+       always the caller's own account's, so another account's code leaked nothing, but it made a
+       project that sat alone under a note saying it was shared. */
+    if (!own.from) {
+      return { status: 409, body: { reason: 'old-code', error: 'This code was made by an older Kosmos. Update Kosmos on the computer that has the project, then make a new code there.' } };
+    }
     const key = OWN_KEY_PREFIX + own.ref;
+    const mine = await ownAccountNames(remote);
+    /* A check that could not be made says nothing about the code, so it leaves an earlier accepted
+       check of the same room alone (another tab's join may be waiting on it; it expires by itself). */
+    if (!mine.ok) return uncheckedRefusal(mine.because);
+    if (!mine.names.includes(own.from)) {
+      // The account said no: an earlier accepted check of the same room is forgotten, nothing is left to join with.
+      verified.delete(key);
+      return { status: 409, body: { reason: 'other-account', error: 'This code is from a computer that is not on this Kosmos+ account, so the project cannot be added here. Check that both computers are signed in to the same Kosmos+ account, then make a new code on the computer that has the project.' } };
+    }
     const snap = { edge_id: key, own: true, project_name: externalName(own.name, NAME_MAX), project_desc: null, owner_handle: 'your other computer' };
     verified.delete(key);
     verified.set(key, Object.assign({ at: Date.now(), ref: own.ref }, snap));
@@ -354,7 +450,7 @@ function forgetSnapshot(edgeId) {
 }
 
 module.exports = {
-  ownCode, ownCodeRefusal, ownRefHere, parseOwnCode, OWN_PREFIX,
+  ownCode, ownCodeRefusal, ownRefHere, parseOwnCode, ownFromOf, OWN_PREFIX,
   FILE, MAC_INVITE, MAC_VERIFY,
   invite, verify, joinSnapshot, forgetSnapshot, linkFor, recordLink, forgetLink, readLinks, reasonFor, refOk,
   SNAPSHOT_TTL_MS, SNAPSHOT_MAX, NAME_MAX, DESC_MAX, HANDLE_MAX,

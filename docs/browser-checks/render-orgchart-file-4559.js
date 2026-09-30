@@ -1,4 +1,4 @@
-// Browser-check-surface: orgchartpick orgchart-read-stop orgchart-edit orgchart-file-btn orgchart-file orgchart-file-note orgchart-consent orgchart-consent-say orgchart-consent-go orgchart-consent-no orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-msg orgchart-usenames
+// Browser-check-surface: team-orgchart-open cstep-team orgchartpick orgchart-read-stop orgchart-edit orgchart-file-btn orgchart-file orgchart-file-note orgchart-consent orgchart-consent-say orgchart-consent-go orgchart-consent-no orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-msg orgchart-usenames
 'use strict';
 
 /*
@@ -38,9 +38,12 @@ function check(name, pass, detail) {
 }
 
 async function openPanel(pg) {
+  /* #4556: New Agent opens on the three-way choice, and the org chart lives on the Team screen, behind its own
+     "Upload an org chart" button. */
   await pg.goto(BASE + '/?tab=create', { waitUntil: 'networkidle' });
-  await pg.waitForSelector('#pick-orgchart', { state: 'visible', timeout: 10000 });
-  await pg.click('#pick-orgchart');
+  await pg.click('#cstep-kind [data-path="team"]');
+  await pg.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 10000 });
+  await pg.click('#team-orgchart-open');
   await pg.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
 }
 
@@ -204,6 +207,63 @@ async function run() {
     } else check('STOP: the panel offers a file', false);
     await pst.close();
 
+    /* #4556: closing the panel after a create keeps the result and its Undo (only the file flow ends on close; the
+       full reset is on reopening, as it was when the org chart was chosen again on main). */
+    {
+      const pk = await page();
+      await pk.route('**/api/team', (r) => {
+        const body = JSON.parse(r.request().postData() || '{}');
+        r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } });
+      });
+      await openPanel(pk);
+      if (await pk.$('#orgchart-file-btn')) {
+        await pk.setInputFiles('#orgchart-file', path.join(FIX, 'people.csv'));
+        await pk.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 10000 });
+        await pk.click('#orgchart-create');
+        await pk.waitForFunction(() => /Created 7 agents/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 8000 });
+        await pk.click('#team-orgchart-open');   // close the panel
+        await pk.waitForSelector('#orgchartpick', { state: 'hidden', timeout: 5000 });
+        const kept = await pk.evaluate(() => ({ created: ORGCHART_CREATED.length, undoShown: !document.getElementById('orgchart-undo').hidden, count: document.getElementById('orgchart-count').textContent }));
+        check('CLOSE AFTER CREATE: closing the panel keeps the created team and its Undo', kept.created === 7 && kept.undoShown && /Created 7 agents/.test(kept.count), JSON.stringify(kept));
+      } else check('CLOSE AFTER CREATE: the panel offers a file', false);
+      await pk.close();
+    }
+
+    /* #4556: leaving the Team screen (Back) or closing the org chart panel while a picture is being read ends the
+       read, so its model call stops too; reopening shows no consent box left armed. */
+    for (const how of ['back', 'close']) {
+      const pl2 = await page();
+      let leftAborted = false;
+      await pl2.route('**/api/orgchart/read*', async (r) => {
+        const consent = new URL(r.request().url()).searchParams.get('consent') === '1';
+        if (!consent) return r.fulfill({ status: 200, json: { needsConsent: true, provider: 'Anthropic (Claude)' } });
+        await new Promise((ok) => setTimeout(ok, 3000));   // a read that takes a while
+        await r.fulfill({ status: 200, json: { source: 'model', provider: 'Anthropic (Claude)', rows: PICTURE_ROWS, problems: [] } }).catch(() => {});
+      });
+      // An aborted fetch is reported by Playwright as a failed request (a fulfill after the abort does not throw).
+      pl2.on('requestfailed', (q) => { if (/\/api\/orgchart\/read/.test(q.url()) && /consent=1/.test(q.url())) leftAborted = true; });
+      await openPanel(pl2);
+      if (await pl2.$('#orgchart-file-btn')) {
+        await pl2.setInputFiles('#orgchart-file', path.join(FIX, 'chart.png'));
+        await pl2.waitForSelector('#orgchart-consent:not([hidden])', { timeout: 8000 });
+        await pl2.click('#orgchart-consent-go');
+        await pl2.waitForSelector('#orgchart-read-stop:not([hidden])', { timeout: 5000 }).catch(() => {});
+        if (how === 'back') await pl2.click('#create-path-back');
+        else await pl2.click('#team-orgchart-open');
+        await pl2.waitForTimeout(3500);   // past the held read's own answer
+        let consentOnReopen = null;
+        if (how === 'back') {
+          await pl2.click('#cstep-kind [data-path="team"]');
+          await pl2.click('#team-orgchart-open');
+        } else await pl2.click('#team-orgchart-open');
+        await pl2.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
+        consentOnReopen = await pl2.evaluate(() => !document.getElementById('orgchart-consent').hidden);
+        check('LEAVE MID-READ (' + how + '): leaving ends the picture read in flight, and reopening shows no consent box',
+          leftAborted && !consentOnReopen, JSON.stringify({ leftAborted, consentOnReopen }));
+      } else check('LEAVE MID-READ (' + how + '): the panel offers a file', false);
+      await pl2.close();
+    }
+
     // PREVIEW: pressing Preview while a picture is being read ends that read too, and its late answer paints nothing.
     const ppv = await page();
     let pvAborted = false;
@@ -327,8 +387,10 @@ async function run() {
     if (await pl.$('#orgchart-file-btn')) {
       await pl.setInputFiles('#orgchart-file', path.join(FIX, 'chart.png'));
       await pl.waitForSelector('#orgchart-consent:not([hidden])', { timeout: 8000 });
-      await pl.click('#pick-pm');
-      await pl.click('#pick-orgchart');
+      // #4556: the panel is closed and reopened with the Team screen's own "Upload an org chart" button.
+      await pl.click('#team-orgchart-open');
+      await pl.waitForSelector('#orgchartpick', { state: 'hidden', timeout: 8000 });
+      await pl.click('#team-orgchart-open');
       await pl.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
       const lv = await readPreview(pl);
       check('LEAVE: leaving the panel disarms a picture waiting for Read it', !lv.consent, JSON.stringify(lv.consent));
@@ -429,7 +491,7 @@ async function run() {
       await plc.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
       await plc.click('#orgchart-create');
       await plc.waitForTimeout(300);
-      await plc.click('#pick-pm');   // leave the panel mid-create
+      await plc.click('#create-path-back');   // leave the panel mid-create (#4556: Back to the three-way choice)
       await plc.waitForTimeout(2500);   // past the create's answer
       const sortedL = putsL.slice().sort();
       check('LEAVE DURING CREATE: the reporting-line fix-up still lands after the person left the panel',

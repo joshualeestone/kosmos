@@ -87,6 +87,8 @@ const {
      reported question from the board's generic "asking" and not offer the
      placeholder as the question the person should answer. */
   ASKING_GENERIC,
+  /* #4607: what a Codex agent's "Hooks need review" screen says, for the thread's two buttons. */
+  codexHookSummary,
 } = require('./engine/status');
 const removal = require('./engine/remove');
 const worldstarts = require('./engine/worldstarts'); // #1704 PR3: pause/resume a Kosmos's agents across a switch
@@ -6136,6 +6138,46 @@ const server = http.createServer(async (req, res) => {
     const ok = stopped.ok === true && helped.ok === true;
     sendJson(res, 200, { ok: true, stopped: ok,
       because: ok ? null : (stopped.ok ? helped.because : stopped.because), swarm: next });
+    return;
+  }
+  /* #4607: the PERSON answers Codex's "Hooks need review" from the board: { choice: 'trust' | 'skip' | 'close' | 'list' }. Trusting lets
+     the hooks run outside the sandbox, and #4589's floor keeps every message path from answering it, so this route
+     is the person's only: not an agent-token route (AGENT_TOKEN_ROUTES), and refused when the caller presents an agent
+     token or is not a browser page (isViaScreen, checked after the body is read so a token in the body counts).
+     ADVISORY, as for the board's other person-only routes: a local process holding the board token can send a
+     browser's headers, and an agent's own CLI can read the board token today (#4491, open: keep it out of agents'
+     reach). What that leaves, stated: a local agent that takes the board token and forges those headers could trust
+     another Codex agent's hooks. An agent with an unsandboxed shell gains nothing by it (it could write Codex's own
+     config, ~/.codex/config.toml [hooks.state], directly). An agent that can read the token and reach the board but
+     cannot write outside its folder WOULD gain it: Codex's default sandbox denies network, so that needs a loosened
+     sandbox, but the gap is real and #4491 is what closes it (the gate then refuses agents, with no change here). The answer itself is chat.answerCodexHooks:
+     the screen is read again before every key. */
+  const codexHooks = pathname.match(/^\/api\/agent\/([^/]+)\/codex-hooks$/);
+  if (codexHooks && req.method === 'POST') {
+    const name = decodeSegment(codexHooks[1]);
+    if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    readBody(req, 4096)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
+        if (!isViaScreen(req, body)) {
+          /* Refusals are logged too (review round 13): they are the attempts the residual is about. */
+          process.stdout.write(`codex-hooks: refused ${JSON.stringify(name)} (not the person's page)\n`);
+          sendJson(res, 403, { ok: false, because: 'only you can answer this, from the board' });
+          return;
+        }
+        const choice = body.choice;
+        if (!['trust', 'skip', 'close', 'list'].includes(choice)) { sendJson(res, 400, { ok: false, because: 'choose to trust the hooks, to continue without them, or to close the list' }); return; }
+        let r;
+        try { r = await chat.answerCodexHooks(name, choice, safeRoster(), body.seen); }
+        catch { process.stdout.write(`codex-hooks: ${JSON.stringify(name)} choice=${JSON.stringify(choice)} threw\n`); sendJson(res, 500, { ok: false, because: 'something went wrong answering it; nothing more was pressed' }); return; }
+        /* A record of the decision (review round 12): trusting writes to the account's Codex settings. */
+        /* Values JSON-quoted (a %0A in the name must not write a line of its own); the screen is the one the engine
+           READ, not the one the caller said it saw. */
+        process.stdout.write(`codex-hooks: ${JSON.stringify(name)} choice=${JSON.stringify(choice)} read=${JSON.stringify(r.screen || null)} ok=${r.ok === true} keys=${JSON.stringify(r.keys || [])}${r.ok ? '' : ' because=' + JSON.stringify(r.because)}\n`);
+        sendJson(res, 200, { ok: r.ok === true, choice, because: r.ok ? null : r.because, reread: r.reread === true });
+      })
+      .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
     return;
   }
   /* #3564: a swarm's settings (the contract on #3564): { maxHelpers?, dailyTokenLimit?, active? }.
@@ -13910,6 +13952,12 @@ const server = http.createServer(async (req, res) => {
     // the agent's own words with no on-screen numbers, so it never draws
     // buttons (optionsIn would refuse the prose anyway; this states the intent).
     const options = (asking && question && !question.reported) ? chat.optionsIn(question.text) : null;
+    /* #4607: a Codex agent stopped on its "Hooks need review" dialog. questionIn finds no question there (the dialog
+       is not a prompt the person types into, #4589), so the page is told what the screen says instead: which screen,
+       how many hooks, their events and source where shown. The page answers through POST .../codex-hooks, never the
+       composer. From the same fresh capture as the question; null for everything else. */
+    const codexHooks = (asking && card && card.runner === 'codex' && card.reachedByChannel !== true && view && typeof view.text === 'string')
+      ? codexHookSummary(view.text) : null;
     /**
      * ⚠️ PRESENCE IS THE SEND GATE'S OWN ANSWER, not a second derivation of it.
      * The first version of this route asked whether a tied card existed, which
@@ -14053,6 +14101,7 @@ const server = http.createServer(async (req, res) => {
       /* #3769: a question read off the guide's screen is its words too. */
       question: guideThread && question && typeof question.text === 'string' ? { ...question, text: guideMasked(guideName, question.text) } : question,
       questionBecause,
+      codexHooks, // #4607
       /* #1629: the page draws a composer under a question, and for the trust
          dialog that invites the one keystroke that ends the session. The
          route says so up front, in the same sentence the send refusal uses,
@@ -16410,9 +16459,14 @@ const server = http.createServer(async (req, res) => {
           refusal = federation.ownCodeRefusal(proj.id);
           if (refusal === 'guest') { sendJson(res, 409, { reason: 'guest', error: 'This project was shared with you from someone else, so it cannot be added to your other computers from here.' }); return; }
           if (refusal === 'sealed') { sendJson(res, 409, { reason: 'sealed', error: 'This project is sealed for the people you invited, so your other computers cannot join it yet.' }); return; }
+          // kosmos#4699: the code names this computer, so the one it is pasted on can check it is on
+          // the same account. A computer with no Kosmos+ address has no name to give.
+          let from = null;
+          try { from = federation.ownFromOf(remote.address()); } catch { from = null; }
+          if (!from) { sendJson(res, 409, { reason: 'no-address', error: 'This computer has no Kosmos+ address yet, so it cannot make a code for your other computers. Sign in to Kosmos+ in Settings on this computer first.' }); return; }
           const before = federation.linkFor(proj.id);
           wasShared = !!(before && (before.selfShared === true || before.role === 'self'));   // a self link was told at join
-          code = federation.ownCode(proj.id, proj.name);
+          code = federation.ownCode(proj.id, proj.name, from);
         } catch {
           sendJson(res, 500, { error: 'Kosmos could not read or save this project\'s sharing on this computer. Try again in a moment.' });
           return;
@@ -18207,14 +18261,15 @@ function federateOut(projectId, delivery, operator) {
     // The record cannot say whether this room is shared, but a seat running for
     // it can: that room is, and its post must not stay here without a word.
     if (fedseats.statusOf(projectId)) {
-      messages.roomNote(projectId, 'That post stayed on this computer: the shared-project record cannot be read right now, so nothing is sent to the external project until it can.');
+      messages.roomNote(projectId, 'That post stayed on this computer: the shared-project record cannot be read right now, so nothing is sent from this room until it can.');
     }
     return;
   }
   if (!link) return;
   const text = typeof delivery.text === 'string' ? delivery.text : '';
   if (!text.trim()) {
-    messages.roomNote(projectId, 'That post stayed on this computer: attachments are not sent to the external project, only words.');
+    // kosmos#4699: an own room's far side is the person's other computers, not "the external project".
+    messages.roomNote(projectId, 'That post stayed on this computer: attachments are not sent to ' + fedseats.farSide(projectId) + ', only words.');
     return;
   }
   let from;
@@ -18246,7 +18301,7 @@ function federateOut(projectId, delivery, operator) {
       const row = messages.record().rows.find((m) => m && m.id === delivery.id);
       hadFiles = !!(row && (row.attachment || (Array.isArray(row.attachments) && row.attachments.length)));
     } catch { hadFiles = false; }
-    if (hadFiles) messages.roomNote(projectId, 'The words went to the external project; the attached file stayed on this computer.');
+    if (hadFiles) messages.roomNote(projectId, 'The words went to ' + fedseats.farSide(projectId) + '; the attached file stayed on this computer.');
   }
 }
 
