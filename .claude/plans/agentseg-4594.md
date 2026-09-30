@@ -13,7 +13,8 @@ convention as those: its own block with the shared values, not a shared selector
 ## Change
 - CSS: `.cons-agents-lay` becomes the track; its buttons are segments with a separator between them.
 - Semantics: `role=radiogroup` of `role=radio` with `aria-checked` (was `aria-pressed`), one tab stop on the
-  checked segment (the first when none is, e.g. a saved 'list'), Left/Right/Up/Down move, choose and wrap.
+  checked segment (the first when none is, e.g. a saved 'list'), Left/Right/Up/Down move, choose and wrap,
+  Home/End go to the first/last (a key landing on the chosen segment only moves focus).
   `consLaySync()` keeps state, tab stop and BOARD_LAYOUT together.
 - Only in the consolidated view (>= 960px), so there is no phone form of this switch.
 

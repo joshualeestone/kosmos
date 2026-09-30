@@ -3860,7 +3860,7 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons
 .cons-agents-lay button { border: 0; background: none; color: var(--label-2); font: 600 13px var(--font-ui);
   height: 30px; padding: 0 12px; cursor: pointer; white-space: nowrap; }
 .cons-agents-lay button + button { border-left: 0.5px solid var(--separator); }
-.cons-agents-lay button:hover { color: var(--label); }
+.cons-agents-lay button:hover:not([aria-checked="true"]) { color: var(--label); }
 .cons-agents-lay button[aria-checked="true"] { background: var(--gold-bright); color: #14161a; }
 .cons-agents-lay button:focus-visible { outline: 2px solid var(--label); outline-offset: -3px; }
 .cons-agents-lay button[aria-checked="true"]:focus-visible { outline-color: #14161a; }
@@ -41379,7 +41379,7 @@ function placeAgentsPanel(consolidated) {
         const to = e.key === 'Home' ? all[0] : e.key === 'End' ? all[all.length - 1]
           : all[(i + ((e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : all.length - 1)) % all.length];
         e.preventDefault();
-        pick(to);
+        if (to.getAttribute('aria-checked') !== 'true') pick(to);   // the chosen one again: focus only, no repaint
         to.focus();
       });
       consLaySync();   // right from the build, whatever BOARD_LAYOUT already is
