@@ -227,3 +227,17 @@ Run because a merge of main came after review 3. It found three real things the 
 - The reviewer read the relay side too (the coordinator's handler, the tunnel's refusal line on both
   unmerged branches) and found the matcher agrees with that source.
 
+
+## Review 10 (sonnet; opus failed three times on a server error): nothing at WARNING or above, 2 NITs
+Two rounds in a row (9 fable, 10 sonnet) with no defect in the code. Read only, no tests run by the reviewer.
+- NIT not taken: the old-code check runs before the account check, so a code from before this change made on
+  ANOTHER account reads "made by an older Kosmos" first. The advice still works: the remade code is then
+  checked against the account.
+- NIT not taken: the maker's name is read from its address file without checking it against this Kosmos+
+  service's domain. After a change of service it could name an old enrolment; the joining side then refuses
+  it as other-account, which fails safe.
+
+## Validation on 0ee3ee8fc
+- Browser check: passed 12:44 CDT, 44 PASS / 0 FAIL.
+- Full suite on Mortals: PASSED 13:39 CDT, hash 88c34fc740a8 (~/.cache/ick-validation/mortals-4699.log).
+- The commits after 0ee3ee8fc are this plan and the proof only (carries under D1).
