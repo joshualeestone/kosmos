@@ -2043,7 +2043,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
        starting every member in the same tick would run all their pastes as one block with the board answering
        nothing else, and, their waits ending together, all their Enters as a second block (review 1). A
        setImmediate between starts lets the board answer other requests between members, and the waits still
-       overlap because each start is only one member's tmux calls after the last. A synchronous throw from
+       overlap because each start is only one member's tmux calls after the last. The Enters are spread only as
+       far as the starts were: waits that come due together still end in one turn (review 2 measured two or
+       three members' Enters per turn on 20 members), which is short of one block of all of them. A synchronous throw from
        deliverOne is caught and becomes that member's failure, so it too waits for the others. */
     const pending = (async () => {
       const runs = [];

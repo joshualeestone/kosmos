@@ -7,7 +7,8 @@
  * waits: the person's post came back after 0.31 s for 1 member, 3.06 s for 10 and 6.11 s for 20, because each
  * member's wait (250 ms at least) ran after the last one finished. The page shows the post only once this
  * returns, so that was the wait after Enter. These tests pin the overlap and what the person is told when one
- * member fails, without timing anything: the pauser counts how many waits are open at once.
+ * member fails. The first counts how many waits are open at once inside a 200 ms wait, which the members'
+ * starts (a few milliseconds apart) fall well within; the rest count, and time nothing.
  *
  *   node --test engine/messages.fanout-4765.test.js
  */
@@ -78,7 +79,7 @@ test('#4765: every member\'s paste-to-Enter wait is open at the same time, and e
     chat.setPauser(async () => {
       open += 1;
       most = Math.max(most, open);
-      await new Promise((r) => setTimeout(r, 20));
+      await new Promise((r) => setTimeout(r, 200));
       open -= 1;
     });
     const d = await post(roster, 'one line for the whole room');

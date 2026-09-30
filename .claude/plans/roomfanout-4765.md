@@ -47,7 +47,8 @@ example an agent reading the room and seeing a colleague's copy arrive first). E
 envelope; only the gaps overlap.
 
 ## Tests
-- engine/messages.fanout-4765.test.js (new): every member's wait is open at the same time (counted, not timed), all
+- engine/messages.fanout-4765.test.js (new): every member's wait is open at the same time (counted inside a 200 ms
+  wait, which the starts fall well within), all
   placed, the pastes go in in the members' order; and when one member fails, the others are still reached and the
   failure is reported only after all have finished. Both tests FAIL against the old loop (1 open at once; the failure
   reported before the others were reached).
@@ -66,6 +67,14 @@ envelope; only the gaps overlap.
 Tests added: one member starts per turn (counted with a setImmediate chain, not timed), and the throw-at-once case.
 Both fail against the reviewed commit, which started all members in one tick.
 Bench after the round (20 members): 0.98 s, longest stall 72 ms. 364 of 364 across the room-post and delivery tests.
+
+## Review round 2 (a second blind reviewer, whole branch): no blocker, no should-fix, two nits taken. CONVERGED.
+1. The comment implied the per-turn start also spreads the Enters; it spreads them only as far as the starts:
+   waits due together still end in one turn (2 or 3 members' Enters per turn on 20, measured by the reviewer).
+2. "Counted, not timed" overstated the first test, which relies on the starts landing inside the wait; the wait is
+   now 200 ms (the starts are 1 to 5 ms apart) and the wording says so.
+The reviewer ran the fan-out file 8 times in a row and 12 in parallel with no failure, and three mutants (all in one
+tick; the old loop; the catch removed), each failing the test that pins it.
 
 ## Not done
 - Nothing measured on a real room with real agents (a real post would type into them).
