@@ -6089,7 +6089,7 @@ const server = http.createServer(async (req, res) => {
       because: ok ? null : (stopped.ok ? helped.because : stopped.because), swarm: next });
     return;
   }
-  /* #4607: the PERSON answers Codex's "Hooks need review" from the board: { choice: 'trust' | 'skip' }. Trusting lets
+  /* #4607: the PERSON answers Codex's "Hooks need review" from the board: { choice: 'trust' | 'skip' | 'close' | 'list' }. Trusting lets
      the hooks run outside the sandbox, and #4589's floor keeps every message path from answering it, so this route
      is the person's only: not an agent-token route (AGENT_TOKEN_ROUTES), and refused when the caller presents an agent
      token or is not a browser page (isViaScreen, checked after the body is read so a token in the body counts).

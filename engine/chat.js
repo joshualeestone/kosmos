@@ -1210,7 +1210,7 @@ function sameCodexHooks(a, b) {
 }
 /**
  * #4607: the PERSON answers Codex's "Hooks need review" from the board: choice 'trust' (every hook it lists),
- * 'skip' (continue without trusting; the hooks do not run) or 'close' (the trusted list left open). The only caller is the owner-only route; no message path
+ * 'skip' (continue without trusting; the hooks do not run) 'close' (the trusted list left open) or 'list' (from one hook's page, back to the full list). The only caller is the owner-only route; no message path
  * reaches it, and #4589's floor (codexScreenRefusal, in deliverWithGap and keysAllowed) is unchanged for every other
  * key. So this checks what keysAllowed checks EXCEPT that floor: this is the one place the dialog may be answered.
  *
@@ -1242,8 +1242,8 @@ async function answerCodexHooks(sessionName, choice, roster, seen) {
    `key` is pressed on `screen` and the next read must be `next` ('gone' = no hook screen and not blank). Any other
    step stops, so no key is ever pressed on a screen reached by a step nobody measured (a Trust that landed on a new
    menu pressed "2" there before). 'digit' is the number beside the chosen option on that menu, read then.
-   Trust from ONE hook's page only goes back to the full table and stops: that page names one hook, "t" trusts them
-   all, so the person reads the whole list first. */
+   From ONE hook's page the only step is 'list' (back to the full table, then stop): that page names one hook and
+   "t" trusts them all, so the person reads the whole list first; Trust there is refused before any key. */
 /* ⚠️ Only the FIRST key is checked against what the person was shown (sameCodexHooks); after it, Trust takes at
    most "t" then Escape. A new Trust step added here must re-check what was shown before its key. */
 const CODEX_HOOK_STEPS = {

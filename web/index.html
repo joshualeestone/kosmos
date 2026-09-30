@@ -34071,6 +34071,8 @@ async function paintTalk(sessionName, agentName) {
       const seq = (window.__codexHoldSeq = (window.__codexHoldSeq || 0) + 1);
       window.__codexHoldUntil = Date.now() + 1200;
       const hold = ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close'].map((id) => document.getElementById(id));
+      /* A focused button would drop keyboard focus to the page when disabled (round 18): hand it to the box first. */
+      if (hold.includes(document.activeElement)) { const box = document.getElementById('d-talk-box'); if (box) box.focus(); }
       hold.forEach((b) => { b.disabled = true; });
       setTimeout(() => { if (window.__codexHoldSeq === seq && !window.__codexAnswering) hold.forEach((b) => { b.disabled = false; }); }, 1200);
     }
