@@ -8,13 +8,19 @@ Card: #4588. Stacked on PR A (branch agyquota-4588, not yet merged). Design and 
   machine-wide, so while any antigravity card's `quotaUntil` is ahead of now, every antigravity card is held.
 - engine/chat.js `deliverAutomatic`: for timers only. Held: `COULD_NOT` with `held: true` and `heldUntil`, nothing
   typed. Otherwise it is `deliver`. A person's own message uses `deliver` and is never held.
-- Callers: the unanswered sweep (messages.js), auto-handoff, connection heal, first-reply nudge, account notice,
+- Callers: the unanswered sweep (messages.js), auto-handoff, first-reply nudge, account notice,
   recommender, assigner ask, agent nudge (server.js closures), auto-retell (`retellMember(..., { automatic: true })`
   through `speakOfMembership`). PR A's resume sweep stays on `deliver`.
 - A hold spends no one-shot budget: first-reply and agent nudge keep their try; the unanswered sweep writes no row;
   the assigner refunds its ask charge with no failure counted; the recommender does not convene a held stuck agent.
 - The assigner does not pick a held agent (its idle clock is kept); `givePart` in assigner mode refuses a held agent
   before assigning, as a backstop.
+
+- The schedule (as of review 3): each agy agent's last-seen reset is remembered by session (a card that shows a new
+  reset corrects only itself; an entry is dropped once served; resets over 8 days ahead are not believed). The pool is
+  paused until the latest of them. After it (R), the resume owns the first slots, R + GRACE_MS + k * STAGGER_MS, and
+  waits the grace after R even for an agent whose own reset came earlier; the held senders come back one agent per
+  slot after that, R + GRACE_MS + (n + i) * STAGGER_MS, i by session name.
 
 ## Rejected
 - A check inside `chat.deliver`: it cannot tell a person from a timer.
@@ -29,10 +35,11 @@ held needlessly until the reset: the safe direction, it costs only delay.
 ## Decided, not missed
 - A held recommender peer is not asked for that item, like any unreachable peer.
 - The outbox drain replays an agent's own saved message and is not held, like a live send.
-- Connection heal is routed through the gate for uniformity; an agy card never reads connection_lost.
+- Connection heal stays on chat.deliver: it counts a try before delivering, and an agy card never reads connection_lost.
 
 ## Measured
-- engine/agyhold-4588.test.js 16/16, engine/agyhold-deliver-4588.test.js 4/4, server.agyhold-4588.test.js 15/15.
+- First build: engine/agyhold-4588.test.js 16/16, engine/agyhold-deliver-4588.test.js 4/4, server.agyhold-4588.test.js 15/15
+  (the review iterations below add to these and give the current counts).
 - With the existing files of the touched modules: 244 run, 1 red (PR A's resume-timer pin anchored on the FIRST
   require of engine/agyquota, which givePart's new require now precedes; re-anchored on `const agyQuota = require`).
   The agentnudge Prompter-tick pin counted `deliver(`; it now counts `deliverAutomatic(` too.

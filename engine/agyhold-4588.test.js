@@ -23,7 +23,7 @@ process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 
 const test = require('node:test');
 // agyquota remembers the latest pool reset it has seen (the release tail); each test starts with none.
-test.beforeEach(() => { require('./agyquota').POOL_MEMO.resetAt = null; });
+test.beforeEach(() => { require('./agyquota').POOL_MEMO.bySession.clear(); });
 const assert = require('node:assert/strict');
 
 const store = require('./store');
@@ -294,7 +294,7 @@ test('#4588 B assigner step: an agy agent held on the pool is neither asked nor 
     const held = run(asAgy.concat([paused]));
     assert.deepEqual(held.asks, [], 'a held agent was asked');
     assert.equal(held.out.next.askLog.length, 0, 'a held agent was charged');
-    agyquota.POOL_MEMO.resetAt = null; // the held run above recorded the pool's reset (its release tail)
+    agyquota.POOL_MEMO.bySession.clear(); // the held run above recorded the pool's reset (its release)
     const ctl = run(asAgy);
     assert.deepEqual(ctl.asks, [w.session], 'CONTROL: the unheld agy agent was not asked, so the arm above proves nothing');
   } finally { w.restore(); }
@@ -496,10 +496,12 @@ test('#4588 B speakOfMembership: { automatic: true } uses deliverAutomatic; the 
   } finally { chat.deliver = real.d; chat.deliverAutomatic = real.a; }
 });
 
+const memoReset = (m) => (m.bySession.size ? Math.max(...m.bySession.values()) : null);
+
 /* ---- review iteration 1: the release tail, one pool for the resume, and chat's own card rule ---- */
 
 test('#4588 B release tail: held through the pool reset and then the resume\'s grace plus one stagger per agy agent; CONTROL: free after it', () => {
-  const memo = { resetAt: null };
+  const memo = agyquota.newPoolMemo();
   const reset = Date.parse('2026-09-28T22:11:54.000Z');
   const paused = [
     { sessionName: 'tail-a', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(reset).toISOString() },
@@ -507,16 +509,16 @@ test('#4588 B release tail: held through the pool reset and then the resume\'s g
     { sessionName: 'tail-x', runner: 'claude', state: 'idle' },
   ];
   assert.equal(agyquota.heldForQuota('tail-b', paused, reset - 1000, memo), reset, 'held while the pool is paused');
-  assert.equal(memo.resetAt, reset, 'the reset is remembered');
+  assert.equal(memoReset(memo), reset, 'the reset is remembered');
   // After the reset the card no longer carries quotaUntil (status.js emits it only before the reset).
   const after = paused.map((c) => (c.sessionName === 'tail-a' ? { ...c, state: 'idle', quotaUntil: null } : c));
-  const tail = agyquota.GRACE_MS + agyquota.STAGGER_MS * 2; // two antigravity cards
+  const tail = agyquota.GRACE_MS + agyquota.STAGGER_MS * 3; // two antigravity cards: the resume's two slots, then tail-a, then tail-b
   assert.equal(agyquota.releaseTailMs(after), tail);
   assert.equal(agyquota.heldForQuota('tail-b', after, reset + 1000, memo), reset + tail, 'held inside the tail');
   assert.equal(agyquota.heldForQuota('tail-b', after, reset + tail - 1, memo), reset + tail, 'held until the tail ends');
   assert.equal(agyquota.heldForQuota('tail-b', after, reset + tail, memo), null, 'CONTROL: free once the tail has passed');
   assert.equal(agyquota.heldForQuota('tail-x', after, reset + 1000, memo), null, 'CONTROL: a claude card is never held by the tail');
-  assert.equal(agyquota.heldForQuota('tail-b', after, reset + 1000, { resetAt: null }), null, 'CONTROL: with no reset remembered there is no tail');
+  assert.equal(agyquota.heldForQuota('tail-b', after, reset + 1000, agyquota.newPoolMemo()), null, 'CONTROL: with no reset remembered there is no tail');
 });
 
 test('#4588 B resume: nobody is resumed while ANY antigravity card is still inside its pause; CONTROL: resumed once the pool is open', () => {
@@ -527,7 +529,7 @@ test('#4588 B resume: nobody is resumed while ANY antigravity card is still insi
   const sent = [];
   const base = [{ sessionName: 'res-a', name: 'A', runner: 'antigravity', state: 'idle' }];
   const other = { sessionName: 'res-b', name: 'B', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(now + 60 * 60e3).toISOString() };
-  const run = (roster) => agyquota.sweepOnce({ roster, book: new Map(), now, memo: { resetAt: null }, readReport: (s) => (s === 'res-a' ? report : { found: false }),
+  const run = (roster) => agyquota.sweepOnce({ roster, book: new Map(), now, memo: agyquota.newPoolMemo(), readReport: (s) => (s === 'res-a' ? report : { found: false }),
     deliver: (s) => { sent.push(s); return { state: DELIVERY.PLACED }; }, DELIVERY });
   const held = run(base.concat([other]));
   assert.equal(held.skipped, 'the shared pool is still paused');
@@ -543,14 +545,14 @@ test('#4588 B heldForQuota finds the card by chat\'s own rule (resolveCard), so 
     { sessionName: 'CaseAgy', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(now + 60e3).toISOString(), isNamedOurs: true },
   ];
   assert.equal(chat.resolveCard(roster, 'caseagy').sessionName, 'CaseAgy', 'fixture: resolveCard is case-insensitive');
-  assert.notEqual(agyquota.heldForQuota('caseagy', roster, now, { resetAt: null }), null, 'a lower-cased name slipped past the gate');
-  assert.equal(agyquota.heldForQuota('nosuchagent', roster, now, { resetAt: null }), null, 'CONTROL');
+  assert.notEqual(agyquota.heldForQuota('caseagy', roster, now, agyquota.newPoolMemo()), null, 'a lower-cased name slipped past the gate');
+  assert.equal(agyquota.heldForQuota('nosuchagent', roster, now, agyquota.newPoolMemo()), null, 'CONTROL');
 });
 
 /* ---- review iteration 2: per-agent release, a memory that corrects and is bounded, one predicate for the resume ---- */
 
 test('#4588 B release is per agent, one stagger apart (by session name), not all at the tail\'s end; CONTROL: the last one ends with the tail', () => {
-  const memo = { resetAt: null };
+  const memo = agyquota.newPoolMemo();
   const reset = Date.parse('2026-09-28T22:11:54.000Z');
   const roster = [
     { sessionName: 'rel-a', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(reset).toISOString() },
@@ -560,30 +562,32 @@ test('#4588 B release is per agent, one stagger apart (by session name), not all
   agyquota.heldForQuota('rel-a', roster, reset - 1, memo);
   const after = roster.map((c) => ({ ...c, state: 'idle', quotaUntil: null }));
   const at = (name) => agyquota.heldForQuota(name, after, reset + 1, memo);
-  assert.deepEqual(['rel-a', 'rel-b', 'rel-c'].map(at), [1, 2, 3].map((k) => reset + agyquota.GRACE_MS + agyquota.STAGGER_MS * k));
-  assert.equal(agyquota.heldForQuota('rel-a', after, reset + agyquota.GRACE_MS + agyquota.STAGGER_MS, memo), null, 'rel-a is free at its own slot');
-  assert.notEqual(agyquota.heldForQuota('rel-c', after, reset + agyquota.GRACE_MS + agyquota.STAGGER_MS, memo), null, 'rel-c is still held then');
+  // Three agents: the resume owns slots 0 to 2, the senders come back at slots 3, 4 and 5.
+  assert.deepEqual(['rel-a', 'rel-b', 'rel-c'].map(at), [3, 4, 5].map((k) => reset + agyquota.GRACE_MS + agyquota.STAGGER_MS * k));
+  assert.equal(agyquota.heldForQuota('rel-a', after, reset + agyquota.GRACE_MS + agyquota.STAGGER_MS * 3, memo), null, 'rel-a is free at its own slot');
+  assert.notEqual(agyquota.heldForQuota('rel-a', after, reset + agyquota.GRACE_MS + agyquota.STAGGER_MS * 3 - 1, memo), null, 'rel-a is held through every resume slot');
+  assert.notEqual(agyquota.heldForQuota('rel-c', after, reset + agyquota.GRACE_MS + agyquota.STAGGER_MS * 3, memo), null, 'rel-c is still held then');
   assert.equal(at('rel-c'), reset + agyquota.releaseTailMs(after), 'CONTROL: the last agent ends with the whole tail');
 });
 
 test('#4588 B memory: a card that corrects its reset lowers it; a reset over MAX_POOL_MS ahead is not believed; CONTROL: a sane one is', () => {
   const now = Date.parse('2026-09-28T20:00:00.000Z');
-  const memo = { resetAt: null };
+  const memo = agyquota.newPoolMemo();
   const card = (until) => [{ sessionName: 'mem-a', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(until).toISOString() }];
   agyquota.heldForQuota('mem-a', card(now + 5 * 3600e3), now, memo);
-  assert.equal(memo.resetAt, now + 5 * 3600e3);
+  assert.equal(memoReset(memo), now + 5 * 3600e3);
   agyquota.heldForQuota('mem-a', card(now + 30 * 60e3), now, memo);
-  assert.equal(memo.resetAt, now + 30 * 60e3, 'a corrected (earlier) reset did not lower the memory');
-  const far = { resetAt: null };
+  assert.equal(memoReset(memo), now + 30 * 60e3, 'a corrected (earlier) reset did not lower the memory');
+  const far = agyquota.newPoolMemo();
   assert.equal(agyquota.heldForQuota('mem-a', card(now + agyquota.MAX_POOL_MS + 60e3), now, far), null, 'a reset beyond MAX_POOL_MS held the pool');
-  assert.equal(far.resetAt, null);
-  assert.notEqual(agyquota.heldForQuota('mem-a', card(now + agyquota.MAX_POOL_MS - 60e3), now, { resetAt: null }), null, 'CONTROL: a week-long pause is held');
+  assert.equal(far.bySession.size, 0);
+  assert.notEqual(agyquota.heldForQuota('mem-a', card(now + agyquota.MAX_POOL_MS - 60e3), now, agyquota.newPoolMemo()), null, 'CONTROL: a week-long pause is held');
 });
 
 test('#4588 B resume and senders agree: a card that stops showing its pause before the reset still holds the resume; CONTROL: resumed after the reset', () => {
   const RESET = '2026-09-28T22:11:54.000Z';
   const AT = Date.parse(RESET);
-  const memo = { resetAt: null };
+  const memo = agyquota.newPoolMemo();
   const report = { found: true, state: 'idle', by: 'auto', until: RESET, because: status.QUOTA_REPORT_PREFIX + ' Google said: ...' };
   const b = (quotaUntil, state) => ({ sessionName: 'agr-b', name: 'B', runner: 'antigravity', state, quotaUntil });
   const a = { sessionName: 'agr-a', name: 'A', runner: 'antigravity', state: 'idle' };
@@ -597,7 +601,40 @@ test('#4588 B resume and senders agree: a card that stops showing its pause befo
   assert.equal(r.skipped, 'the shared pool is still paused');
   assert.notEqual(agyquota.heldForQuota('agr-a', [a, b(null, 'working')], AT + agyquota.GRACE_MS + 2, memo), null, 'the senders agree');
   assert.deepEqual(sent, [], 'agr-a was resumed into a pool still empty until B\'s reset');
-  const ok = agyquota.sweepOnce({ roster: [a, b(null, 'working')], book: new Map(), now: later + 1, memo, readReport: () => ({ ...report, until: new Date(later - agyquota.GRACE_MS - 1).toISOString() }),
+  const early = agyquota.sweepOnce({ roster: [a, b(null, 'working')], book: new Map(), now: later + 1, memo, readReport: () => report,
+    deliver: (s) => { sent.push(s); return { state: DELIVERY.PLACED }; }, DELIVERY });
+  assert.equal(early.skipped, 'the shared pool has just refilled', 'an agent whose own reset came earlier still waits the grace after the pool refills');
+  const ok = agyquota.sweepOnce({ roster: [a, b(null, 'working')], book: new Map(), now: later + agyquota.GRACE_MS, memo, readReport: () => ({ ...report, until: new Date(later - agyquota.GRACE_MS - 1).toISOString() }),
     deliver: (s) => { sent.push(s); return { state: DELIVERY.PLACED }; }, DELIVERY });
   assert.equal(ok.skipped, undefined, 'CONTROL: after the remembered reset the resume runs');
+});
+
+/* ---- review iteration 3: a disappearance is not a correction; the resume and the senders never share a slot ---- */
+
+test('#4588 B memory by session: a later card that STOPS showing its pause still holds the pool to its reset; CONTROL: one that CORRECTS its reset moves it', () => {
+  const now = Date.parse('2026-09-28T20:00:00.000Z');
+  const A = now + 30 * 60e3; const B = now + 60 * 60e3;
+  const memo = agyquota.newPoolMemo();
+  const card = (s, until, state) => ({ sessionName: s, runner: 'antigravity', state, quotaUntil: until === null ? null : new Date(until).toISOString() });
+  agyquota.notePool([card('mb-a', A, 'rate_limited'), card('mb-b', B, 'rate_limited')], now, memo);
+  // B's screen changed (a person typed to it): it no longer shows the pause. A still does.
+  assert.equal(agyquota.poolPausedUntil([card('mb-a', A, 'rate_limited'), card('mb-b', null, 'working')], now + 60e3, memo), B,
+    'the pool reopened at A\'s reset although B\'s pause stands');
+  const fixMemo = agyquota.newPoolMemo();
+  agyquota.notePool([card('mb-a', A, 'rate_limited'), card('mb-b', B, 'rate_limited')], now, fixMemo);
+  assert.equal(agyquota.poolPausedUntil([card('mb-a', A, 'rate_limited'), card('mb-b', now + 40 * 60e3, 'rate_limited')], now + 60e3, fixMemo), now + 40 * 60e3,
+    'CONTROL: B corrected its own reset, and the pool follows it');
+});
+
+test('#4588 B the held senders come back only after every resume slot; the resume waits the grace after the POOL refills', () => {
+  const reset = Date.parse('2026-09-28T22:11:54.000Z');
+  const memo = agyquota.newPoolMemo();
+  const roster = ['sl-a', 'sl-b'].map((s, i) => ({ sessionName: s, runner: 'antigravity', state: i ? 'idle' : 'rate_limited', quotaUntil: i ? null : new Date(reset).toISOString() }));
+  agyquota.notePool(roster, reset - 1, memo);
+  const after = roster.map((c) => ({ ...c, quotaUntil: null, state: 'idle' }));
+  const lastResumeSlot = reset + agyquota.GRACE_MS + agyquota.STAGGER_MS * (after.length - 1);
+  for (const s of ['sl-a', 'sl-b']) {
+    assert.notEqual(agyquota.heldForQuota(s, after, lastResumeSlot, memo), null, s + ' could get a timer line in the resume\'s last slot');
+  }
+  assert.equal(agyquota.heldForQuota('sl-a', after, lastResumeSlot + agyquota.STAGGER_MS, memo), null, 'CONTROL: sl-a comes back in the first slot after the resume');
 });

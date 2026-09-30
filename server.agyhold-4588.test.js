@@ -26,7 +26,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 
 const test = require('node:test');
 // agyquota remembers the latest pool reset it has seen (the release tail); each test starts with none.
-test.beforeEach(() => { require('./engine/agyquota').POOL_MEMO.resetAt = null; });
+test.beforeEach(() => { require('./engine/agyquota').POOL_MEMO.bySession.clear(); });
 const assert = require('node:assert/strict');
 
 const store = require('./engine/store');
@@ -245,7 +245,7 @@ test('#4588 B pin: givePart checks heldForQuota inside its assigner branch BEFOR
   const fnAt = CODE.indexOf('function givePart(');
   assert.notEqual(fnAt, -1);
   const body = CODE.slice(fnAt, CODE.indexOf('\nfunction ', fnAt + 1));
-  const held = body.search(/heldForQuota\(who, roster, Date\.now\(\)\)/);
+  const held = body.search(/heldForQuota\(who, roster \|\| safeRoster\(\), Date\.now\(\)\)/);
   const assign = body.indexOf('tasks.assignPart(');
   assert.notEqual(held, -1, 'givePart no longer checks heldForQuota');
   assert.notEqual(assign, -1);

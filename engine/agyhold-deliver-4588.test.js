@@ -29,7 +29,7 @@ for (const k of ['execFileSync', 'execSync', 'spawnSync', 'execFile', 'exec', 's
 
 const test = require('node:test');
 // agyquota remembers the latest pool reset it has seen (the release tail); each test starts with none.
-test.beforeEach(() => { require('./agyquota').POOL_MEMO.resetAt = null; });
+test.beforeEach(() => { require('./agyquota').POOL_MEMO.bySession.clear(); });
 const assert = require('node:assert/strict');
 const store = require('./store');
 const chat = require('./chat');

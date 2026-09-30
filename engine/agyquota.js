@@ -52,52 +52,60 @@ function poolHeldUntil(roster, now) {
   }
   return until;
 }
-/* The latest pool reset this board has seen. A card stops carrying quotaUntil once its reset passes, so without this
-   the hold would lift the instant the pool refilled and every held sender would fire at every agent in the same minute,
-   ahead of the one-at-a-time resume below. In memory only: a board restart forgets it, and the release tail is then lost
-   for that one reset. */
-const POOL_MEMO = { resetAt: null };
-function notePool(roster, now, memo = POOL_MEMO) {
-  const until = poolHeldUntil(roster, now);
-  // The cards that still show a pause say when the pool refills: a card that corrected its reset lowers it.
-  if (until !== null) memo.resetAt = until;
-  return until;
+/* Each antigravity agent's last-seen reset, by session. A card stops carrying quotaUntil once its reset passes, and can
+   stop showing its pause before then (its screen changed), while the pool is still empty; so the board remembers.
+   A card that shows a new reset corrects only its own entry; an entry is dropped once its release has been served.
+   In memory only: a board restart forgets it, and the release after that one reset is then lost. */
+const POOL_MEMO = { bySession: new Map() };
+function newPoolMemo() { return { bySession: new Map() }; }
+function agyCount(roster) {
+  return (Array.isArray(roster) ? roster : []).filter((c) => c && c.runner === 'antigravity').length;
 }
-/* Paused, from what the board can see now or remembers: a card can stop showing its pause before the reset (its
-   screen changed), and the pool is still empty until then. The resume sweep and the senders both ask this. */
-function poolPausedUntil(roster, now, memo = POOL_MEMO) {
-  const until = notePool(roster, now, memo);
-  if (until !== null) return until;
-  return memo.resetAt !== null && now < memo.resetAt ? memo.resetAt : null;
-}
-/* After the pool's reset, automatic senders stay held while the resume below works through the agents: its grace, then
-   one stagger step per antigravity agent on the board. */
+/* After the pool's reset R the resume below owns the first slots (R + GRACE_MS + k * STAGGER_MS, one per agent), then the
+   held senders come back one agent per slot after them. releaseTailMs is where the last agent's senders are released. */
 function releaseTailMs(roster) {
-  const n = (Array.isArray(roster) ? roster : []).filter((c) => c && c.runner === 'antigravity').length;
-  return GRACE_MS + STAGGER_MS * Math.max(1, n);
+  const n = Math.max(1, agyCount(roster));
+  return GRACE_MS + STAGGER_MS * (2 * n - 1);
 }
-/* One agent's own release after the reset: its grace, then one stagger step per antigravity agent before it (by
-   session name), so the held senders come back one agent at a time, not all in the tail's last minute. */
 function releaseOffsetMs(card, roster) {
   const names = (Array.isArray(roster) ? roster : []).filter((c) => c && c.runner === 'antigravity' && c.sessionName)
     .map((c) => String(c.sessionName)).sort();
+  const n = Math.max(1, names.length);
   const i = names.indexOf(String(card.sessionName));
-  return GRACE_MS + STAGGER_MS * ((i === -1 ? names.length : i) + 1);
+  return GRACE_MS + STAGGER_MS * (n + (i === -1 ? n - 1 : i));
+}
+/* Records what the cards show now and returns the pool's reset (the latest remembered), or null when none is pending. */
+function notePool(roster, now, memo = POOL_MEMO) {
+  const cap = now + MAX_POOL_MS;
+  for (const c of Array.isArray(roster) ? roster : []) {
+    if (!c || c.runner !== 'antigravity' || !c.sessionName || typeof c.quotaUntil !== 'string') continue;
+    const at = Date.parse(c.quotaUntil);
+    if (Number.isFinite(at) && at > now && at <= cap) memo.bySession.set(String(c.sessionName), at);
+  }
+  const tail = releaseTailMs(roster);
+  let reset = null;
+  for (const [k, at] of memo.bySession) {
+    if (now >= at + tail) { memo.bySession.delete(k); continue; }
+    if (reset === null || at > reset) reset = at;
+  }
+  return reset;
+}
+/* The pool is paused until this reset (the resume sweep and the senders both ask it), or null when it is open. */
+function poolPausedUntil(roster, now, memo = POOL_MEMO) {
+  const reset = notePool(roster, now, memo);
+  return reset !== null && now < reset ? reset : null;
 }
 /* When an automatic line to `session` may be typed, in epoch ms, or null for now: only an antigravity card is held,
-   while the pool is paused and through the release tail after it. The card is found by chat's own rule
+   while the pool is paused and until its own slot after the resume. The card is found by chat's own rule
    (resolveCard), so the gate and the delivery always mean the same card. */
 function heldForQuota(session, roster, now, memo = POOL_MEMO) {
   let card = null;
   try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
   if (!card || card.runner !== 'antigravity') return null;
-  const until = poolPausedUntil(roster, now, memo);
-  if (until !== null) return until;
-  if (memo.resetAt !== null) {
-    const releaseAt = memo.resetAt + releaseOffsetMs(card, roster);
-    if (now < releaseAt) return releaseAt;
-  }
-  return null;
+  const reset = notePool(roster, now, memo);
+  if (reset === null) return null;
+  const releaseAt = reset + releaseOffsetMs(card, roster);
+  return now < releaseAt ? (now < reset ? reset : releaseAt) : null;
 }
 
 /* The card states a nudge may be typed over: never a question (a typed line could answer it), work, or a lost
@@ -136,7 +144,10 @@ function sweepOnce(o) {
     const log = typeof o.log === 'function' ? o.log : null;
     /* #4588 PR B: one pool. While any antigravity card is still inside its pause, a resume into another one would spend
        a turn against the same empty pool, so nobody is resumed until the latest reset has passed. */
-    if (poolPausedUntil(o.roster, now, o.memo || POOL_MEMO) !== null) return { results, skipped: 'the shared pool is still paused' };
+    const poolReset = notePool(o.roster, now, o.memo || POOL_MEMO);
+    if (poolReset !== null && now < poolReset) return { results, skipped: 'the shared pool is still paused' };
+    // An agent whose own reset came earlier still waits the grace after the POOL refills.
+    if (poolReset !== null && now < poolReset + GRACE_MS) return { results, skipped: 'the shared pool has just refilled' };
     const last = book.get(LAST);
     if (Number.isFinite(last) && now - last < STAGGER_MS) return { results, skipped: 'spacing resumes out' };
     const due = [];
@@ -189,4 +200,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, poolHeldUntil, notePool, poolPausedUntil, releaseTailMs, releaseOffsetMs, heldForQuota, POOL_MEMO, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };
+module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, poolHeldUntil, notePool, poolPausedUntil, releaseTailMs, releaseOffsetMs, heldForQuota, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };

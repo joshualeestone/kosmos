@@ -449,7 +449,7 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
      before the part is assigned, so a held agent is not given work and taken off it again every tick. */
   if (assigner) {
     let heldUntil = null;
-    try { heldUntil = require('./engine/agyquota').heldForQuota(who, roster, Date.now()); } catch { heldUntil = null; }
+    try { heldUntil = require('./engine/agyquota').heldForQuota(who, roster || safeRoster(), Date.now()); } catch { heldUntil = null; }
     if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " is held until " + new Date(heldUntil).toISOString() + ": its Google account's shared quota is out" };
   }
   const made = assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
@@ -18661,7 +18661,7 @@ function start(port = PORT) {
          safeRoster(), never paneRoster(): it needs stateReportedBy/stateProject and full cards
          for chat.deliver. Own ~1-min timer, unref'd, best-effort. */
       let recommenderPrev;
-      const recommenderHeldLogged = new Set();
+      let recommenderHeldLogged = new Set();
       const recommenderSweep = setInterval(() => {
         if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
         try {
@@ -18676,17 +18676,18 @@ function start(port = PORT) {
             heldUntil: (session) => agyQuota.heldForQuota(session, roster, Date.now()),
           });
           recommenderPrev = out.next;
+          // #4588 PR B: a held item is logged when it becomes held, not every minute it stays held; the set is this tick's.
+          const heldNow = new Set();
           for (const a of out.acted) {
-            // #4588 PR B: a held item is logged once per pause, not every minute it stays held.
-            const heldKey = a.session + ' ' + a.project;
             if (a.verdict === 'held') {
+              const heldKey = a.session + ' ' + a.project;
+              heldNow.add(heldKey);
               if (!recommenderHeldLogged.has(heldKey)) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: held on the shared Google quota, not convened yet\n`);
-              recommenderHeldLogged.add(heldKey);
               continue;
             }
-            recommenderHeldLogged.delete(heldKey);
             process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: ${a.retry ? 'retry' : 'note ' + (a.noteLanded ? 'written' : 'NOT written') + ', asked [' + a.asked.join(', ') + ']'}, playbook ${a.verdict || 'threw'}\n`);
           }
+          recommenderHeldLogged = heldNow;
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) : 60 * 1000); // the env is the test seam only
       if (recommenderSweep && typeof recommenderSweep.unref === 'function') recommenderSweep.unref();
