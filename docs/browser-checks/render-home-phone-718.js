@@ -13,12 +13,16 @@
  *   - the page is no wider than the screen, in both layouts;
  * and at desktop width (1280) the button keeps its old height (the same with any min-height
  * taken away). The tab layout only: the consolidated layout does not show #restart-wrap.
+ * #4662, at the same phone sizes: the Agents Sort dropdown is at least 16px (iOS zooms into a
+ * smaller field), and every .sortctl select in the page plus one built by agentSortControlHtml
+ * (how the one-screen layout builds its own) is at least 16px; at 1280 the Sort stays under 16px.
  *
  * Controls, measured: on main's page the button arm reds at every phone size in both
  * engines (34px) and the rest stay green (they pin the reason the names are left alone). With
  * the board's click handler opening an agent only from its name, both tap arms red at all
  * four sizes. With the button rule not limited to phone width, the desktop arm reds (44px
- * drawn, 34 with no min-height).
+ * drawn, 34 with no min-height). #4662: on main's page the 16px arms red at every phone size
+ * (13px); with the touchscreen rule applied everywhere, the desktop CONTROL reds (16px).
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -139,10 +143,9 @@ function emptySpot(page, sel) {
             chk(bh >= 44, `${tag} "Set them to start at login" is at least 44px tall`, `${bh}px`);
           }
           // #4662: iOS zooms into a focused field under 16px and does not zoom back; the Sort dropdown was 13px.
-          const sort = await page.evaluate(() => { const e = document.getElementById('agent-sort'); if (!e) return null;
-            const r = e.getBoundingClientRect(); return { px: parseFloat(getComputedStyle(e).fontSize), h: Math.round(r.height) }; });
+          const sort = await page.evaluate(() => { const e = document.getElementById('agent-sort');
+            return e ? { px: parseFloat(getComputedStyle(e).fontSize) } : null; });
           chk(!!sort && sort.px >= 16, `${tag} #4662: the Sort dropdown is at least 16px, so focusing it does not zoom an iPhone`, JSON.stringify(sort));
-          chk(!!sort && sort.h <= 40, `${tag} #4662: the Sort dropdown keeps its compact box`, JSON.stringify(sort));
           // Every sort dropdown, including the one-screen layout's (built by the same function, so one is made here
           // to measure): the first version of this fix covered #agent-sort alone and missed #agent-sort-cons.
           const sorts = await page.evaluate(() => {
@@ -152,8 +155,8 @@ function emptySpot(page, sel) {
             if (made) made.remove();
             return out;
           });
-          chk(sorts.length >= 2 && sorts.some((x) => x.id === 'agent-sort-probe') && sorts.every((x) => x.px >= 16),
-            `${tag} #4662: every sort dropdown (one-screen layout's too) is at least 16px`, JSON.stringify(sorts));
+          chk(['agent-sort', 'agent-sort-probe'].every((id) => sorts.some((x) => x.id === id)) && sorts.every((x) => x.px >= 16),
+            `${tag} #4662: every .sortctl select in the page, and one built as the one-screen layout builds its own, is at least 16px`, JSON.stringify(sorts));
           for (const [layout, sel, what] of [['grid', '#grid .acard[data-agent="ada"]', 'card'], ['list', '#alist .lrow[data-agent="ada"]', 'row']]) {
             await home(page, URL, layout);
             const pageW = await page.evaluate(() => document.documentElement.scrollWidth);

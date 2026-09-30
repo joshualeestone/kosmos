@@ -12,7 +12,7 @@ project page's fields are already 16px on a touchscreen (#718's one field rule);
 mobile-shots' field audit flagged it on home, agents-list and nav-menu at 375 and 393.
 
 ## Decisions
-- `@media (hover: none) { .sortctl select { font-size: 16px; line-height: 1.2; } }`, next to .sortctl's own rules.
+- `@media (hover: none) { .sortctl select { font-size: 16px; } }` (the box is a fixed 32px), next to .sortctl's own rules.
   Touchscreen-only, the same condition the project page's field rule uses, so a desktop is untouched.
 - Every .sortctl select, not #agent-sort alone: the one-screen layout builds its own sorts (#agent-sort-cons via
   agentSortControlHtml, and #pj-full-sort outside the project page's field rule), and an id-only rule missed both
@@ -24,5 +24,11 @@ That every sort dropdown is a .sortctl select. The check sweeps them, and builds
 layout does, so a new sort built another way would still need adding to the sweep.
 
 ## Checks
-- render-home-phone-718: three arms per phone size (every .sortctl select, including one built by agentSortControlHtml, at least 16px); (at least 16px; box at most 40px, measured 32) and a desktop CONTROL
-  (still under 16px). Red on origin/main (13px), green here, Chromium and WebKit at 375, 393, 412 and 430.
+- render-home-phone-718, per phone size (375, 393, 412, 430; Chromium and WebKit): #agent-sort is at least 16px;
+  every .sortctl select in the page, plus one built by agentSortControlHtml, is at least 16px. At 1280 a CONTROL:
+  still under 16px. Red on origin/main (13px). #pj-full-sort is not built by this check; it is the same markup.
+- Not asserted, by construction: the box. Its height is a fixed 32px, and its width is auto (sized to the widest
+  option), with the 28px chevron gutter as padding outside that, so 16px text cannot reach the chevron. An arm
+  measuring either could not fail (review round 2 found the first such arm; a text-fit arm measured 110 in 111 for
+  the same reason), so neither is kept.
+- render-agent-sort-4428: unchanged, green.
