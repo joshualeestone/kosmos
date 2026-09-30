@@ -3109,7 +3109,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .snav button:hover { color: var(--k-ink); }
 /* #3505 (Josh, 2026-09-23): size the SETTINGS nav pills to their longest label rather than
    stretching to the full nav column, which read as cluttered full-width blocks ("Advanced" as
-   wide as "Kosmos Plus"). .snav is a flex column, so width:max-content shrinks #s-nav to its
+   wide as "Kosmos+"). .snav is a flex column, so width:max-content shrinks #s-nav to its
    widest button and the width:100% buttons all match that one width: uniform, left-aligned, no
    longer full-column. Scoped to #s-nav (the Settings nav), NOT the shared .snav: the
    agent-detail nav #d-nav is #3500's separate redesign and must not change here. This id rule
@@ -6377,7 +6377,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    the message area (.thread in the tab view; the merged .pj3 > .pjmid panel in the
    consolidated view, where #980 leaves .thread transparent) PLUS the sticky .composer,
    which #3267 already tied to that ground in lockstep, so both layouts black the composer too.
-   Two scoping guards, both deliberate. (1) body:not(.plus-active): the Kosmos Plus paid
+   Two scoping guards, both deliberate. (1) body:not(.plus-active): the Kosmos+ paid
    theme (body.plus-active, line ~7903) is a whole-app navy reskin via body-level TOKEN
    override; a hard-coded #000/#fff here would beat its inherited tokens and turn its navy
    dialogue black on a dark-OS machine, so Plus is excluded and keeps its own design (leave
@@ -6785,7 +6785,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    agent-message backgrounds should not vary message-to-message ("we determined we
    were only going to have one fixed color for the background message color for
    agent messages"). Every agent bubble now resolves to the flat --agent-msg base
-   set above (still per-theme, still the translucent --k-sunk on the Kosmos Plus
+   set above (still per-theme, still the translucent --k-sunk on the Kosmos+
    tab), and the data-am attribute is no longer emitted in dmRow / pjRoomRow. */
 /* #2067 / #2239: restricted-markdown treatments, on the surfaces that render
    them -- the talk thread (.dm-b) and the project message list (.pj-msg-text),
@@ -9969,7 +9969,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 @media (prefers-reduced-motion: reduce) { #boot-cover .boot-spin { animation: none; } }
 
 /* ================= Kosmos Plus — whole-app blue reskin (#1615) =================
-   Mona Lisa's decision (2026-09-06): while the Kosmos Plus tab is on screen the
+   Mona Lisa's decision (2026-09-06): while the Kosmos+ tab is on screen the
    WHOLE app takes the "first step" blue ground (nav + sidebar + content), for a
    premium feel unlike anywhere else in the app. Scoped to `body.plus-active`,
    toggled by syncPlusChrome() on section/tab change — and torn down on leave, so
@@ -10735,7 +10735,7 @@ window.kosmosMeasureScrollbarWidth();
       </button>
       <div class="userpop-menu" id="userpop-menu" hidden>
         <!-- #3360: Kosmos+ promo at the top. Logged-out shows "Log in to Kosmos+" (deep-links
-             to Settings > Kosmos Plus, the real sign-in surface -- sign-up itself happens on
+             to Settings > Kosmos+, the real sign-in surface -- sign-up itself happens on
              the site). A member in good standing sees the member line below instead
              (plusMember() reads data-fed-member). syncUserpopPlus() shows exactly one of the two. -->
         <button class="userpop-item userpop-plus" id="userpop-plus" type="button">
@@ -11964,7 +11964,7 @@ window.kosmosMeasureScrollbarWidth();
      (fed-gate state, when to gate) lives in fedGateMode; this modal only shows the prompt. -->
 <div class="rm-back" id="plus-gate-modal" hidden>
   <div class="rm-box" role="dialog" aria-modal="true" aria-labelledby="plus-gate-t" aria-describedby="plus-gate-msg">
-    <h2 class="rm-title" id="plus-gate-t">Kosmos Plus</h2>
+    <h2 class="rm-title" id="plus-gate-t">Kosmos+</h2>
     <p class="rm-small" id="plus-gate-msg"></p>
     <div class="rm-acts">
       <button class="btn" type="button" id="plus-gate-close">Not now</button>
@@ -15837,7 +15837,7 @@ window.kosmosMeasureScrollbarWidth();
     <button type="button" data-go="automation" aria-controls="s-sec-automation">Automation</button>
     <button type="button" data-go="usage" aria-controls="s-sec-usage">Token Usage</button>
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
-    <button type="button" data-go="plus" aria-controls="s-sec-plus"><span>Kosmos Plus</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
+    <button type="button" data-go="plus" aria-controls="s-sec-plus"><span>Kosmos+</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
     <button type="button" data-go="advanced" aria-controls="s-sec-advanced">Advanced</button>
   </nav>
   <div class="dsecs">
@@ -16800,11 +16800,11 @@ window.kosmosMeasureScrollbarWidth();
        tab starts working without a rebuild. No domain appears anywhere in
        this section on purpose: the address arrives from the service, and
        the name Josh has ruled durable is "Plus", not any hostname. -->
-  <section class="dsec" id="s-sec-plus" data-sec="plus" tabindex="-1" aria-label="Kosmos Plus" hidden>
+  <section class="dsec" id="s-sec-plus" data-sec="plus" tabindex="-1" aria-label="Kosmos+" hidden>
     <!-- #3151 (Josh, 2026-09-15): the top "Kosmos Plus" heading and the
          "Use your Kosmos from anywhere." subcopy are deleted so the
          "Already have Kosmos+? Sign in" bar reflows to the top. The section
-         keeps aria-label="Kosmos Plus", so its accessible name is unchanged. -->
+         keeps aria-label="Kosmos+", so its accessible name is unchanged. -->
 
     <!-- #1615 blue reskin: the ambient star field behind the whole pane. It sits
          OUTSIDE #plus-state1 on purpose (web.plus-tab.test.js scopes its
@@ -17006,7 +17006,7 @@ window.kosmosMeasureScrollbarWidth();
              reset from a computer already connected to Kosmos+ (#733's "I lost my phone"); there is
              no support path or server unlock by design (docs/second-factor.md in kosmos-relay). -->
         <p class="plus-si-small"><a id="plus-si-second-help" class="plus-signin-link" href="#" role="button" aria-expanded="false" aria-controls="plus-si-second-recover">Can't get a code?</a></p>
-        <p class="plus-si-small" id="plus-si-second-recover" hidden>Open Kosmos on a computer that is already connected to Kosmos+, go to Settings, Kosmos Plus, and choose “Lost your phone?”. That resets this step, and nobody else can.</p>
+        <p class="plus-si-small" id="plus-si-second-recover" hidden>Open Kosmos on a computer that is already connected to Kosmos+, go to Settings, Kosmos+, and choose “Lost your phone?”. That resets this step, and nobody else can.</p>
       </div>
 
       <!-- Set up a second factor (signin-enrol): reached only when the account has
@@ -17087,7 +17087,7 @@ window.kosmosMeasureScrollbarWidth();
            Done hands over to the connected flow. -->
       <!-- #3796 addendum 10 (Josh's ruling, 17:28): the landing is the heading and ONE line. No address,
            no Copy, no tiles: another device signs in at the website, and this computer then asks to allow
-           it (the approval lives in Settings > Kosmos Plus). -->
+           it (the approval lives in Settings > Kosmos+). -->
       <div id="plus-si-done" hidden>
         <p class="plus-si-lead" id="plus-si-done-line">To use Kosmos on another device, sign in at login.kosmosplus.com.</p>
         <div class="frow"><button class="btn uprime" type="button" id="plus-si-done-go">Done</button></div>
@@ -17115,9 +17115,9 @@ window.kosmosMeasureScrollbarWidth();
            shows the setting (on = remote access wanted); the badge says whether it is connected. The logo is drawn
            from the Kosmos+ dot data the app already ships (kplusBarDrawMark, also the remote-access bar's mark). -->
       <div class="plus-headrow">
-        <canvas class="plus-logo" id="plus-logo" role="img" aria-label="Kosmos Plus"></canvas>
+        <canvas class="plus-logo" id="plus-logo" role="img" aria-label="Kosmos+"></canvas>
         <span class="plus-sp"></span>
-        <button class="toggle" type="button" id="plus-switch" role="switch" aria-label="Let your devices reach this computer through Kosmos Plus" hidden><i></i></button>
+        <button class="toggle" type="button" id="plus-switch" role="switch" aria-label="Let your devices reach this computer through Kosmos+" hidden><i></i></button>
         <span class="plus-pill" id="plus-pill" data-state="off">Off</span>
       </div>
       <!-- #4080 (Josh, 22:09: "lets put this ... in that box that the current URL is in"): the box holds the way
@@ -17182,7 +17182,7 @@ window.kosmosMeasureScrollbarWidth();
         <a class="plus-signin-link" id="plus-account" href="#" target="_blank" rel="noreferrer noopener">View account</a>
       </div>
       <div id="plus-forget-ask" hidden>
-        <p class="fhint" id="plus-forget-sure">This computer leaves your Kosmos Plus account and its address is freed. Your devices will no longer reach it. You can connect it again later by signing in.</p>
+        <p class="fhint" id="plus-forget-sure">This computer leaves your Kosmos+ account and its address is freed. Your devices will no longer reach it. You can connect it again later by signing in.</p>
         <div class="frow">
           <button class="btn danger-btn" type="button" id="plus-forget-yes">Remove</button>
           <button class="btn" type="button" id="plus-forget-no">Cancel</button>
@@ -17194,7 +17194,7 @@ window.kosmosMeasureScrollbarWidth();
 <!-- #4080: "Lost your phone?" opens this, in place of the essay that sat on the Kosmos Plus pane (Josh, 22:06:
        "all of this probably doesnt belong on that page"). The reset keeps its ids and its two-step arm (#733).
        The words are shortened; "always" is kept, per Josh's 2026-08-29 ruling that the second step ALWAYS happens.
-       It sits INSIDE the Kosmos Plus section, not as a direct child of <body>: the consolidated grid reserves 39 rows
+       It sits INSIDE the Kosmos+ section, not as a direct child of <body>: the consolidated grid reserves 39 rows
        for body's children (web.consolidated-980.test.js) and main already has 39. The section's own child rule would
        make it position:relative, so a rule restores the fixed overlay (#s-sec-plus > #plus-lost-modal; review round 3). -->
   <div class="rm-back" id="plus-lost-modal" hidden>
@@ -32027,7 +32027,7 @@ function fedGateStamp(data) {
     const b = document.getElementById(id);
     if (b) b.title = mode === 'show'
       ? 'Invite ' + who + " outside your Kosmos to this project's messages"
-      : 'Inviting ' + who + ' from outside your Kosmos needs Kosmos Plus';
+      : 'Inviting ' + who + ' from outside your Kosmos needs Kosmos+';
   }
 }
 /* The plus-gate modal's Sign up button routes into the in-app Kosmos Plus section --
@@ -32042,9 +32042,9 @@ function fedPlusSignupGo() {
    absent, so a caller (the fedGateMode gate behaviour, Angel's half) is always safe to call it. The
    gate DECISION (when a viewer is gated) lives in fedGateMode; this only PRESENTS the prompt. */
 const PLUS_GATE_COPY = {
-  join: "It's a Kosmos Plus feature and you must be logged in to access it.",
-  connect: 'To connect external people or agents, you must be signed in as a Kosmos Plus user.',
-  soon: 'This is coming to Kosmos Plus soon. You are already a member, so there is nothing to do.',
+  join: "It's a Kosmos+ feature and you must be logged in to access it.",
+  connect: 'To connect external people or agents, you must be signed in as a Kosmos+ user.',
+  soon: 'This is coming to Kosmos+ soon. You are already a member, so there is nothing to do.',
 };
 /* The element that opened the gate, so closing returns the keyboard to it. The caller passes it
    EXPLICITLY: WebKit (the production WKWebView) does not focus a <button> on click, so
@@ -42580,7 +42580,7 @@ async function paintPlus() {
   if (typeof paintSwitch === 'function') paintSwitch('plus-switch', r.on === true);
   else if (sw) { sw.hidden = false; if (sw.setAttribute) sw.setAttribute('aria-checked', r.on === true ? 'true' : 'false'); }   // the page tests lift paintPlus alone
   { const lg = document.getElementById('plus-logo');
-    if (lg && lg.dataset && !lg.dataset.drawn && typeof kplusBarDrawMark === 'function') { try { kplusBarDrawMark(lg, 22); lg.dataset.drawn = '1'; } catch { /* the label still says Kosmos Plus */ } } }
+    if (lg && lg.dataset && !lg.dataset.drawn && typeof kplusBarDrawMark === 'function') { try { kplusBarDrawMark(lg, 22); lg.dataset.drawn = '1'; } catch { /* the label still says Kosmos+ */ } } }
   const st = document.getElementById('plus-status');
   const stat = r.status || {};
   const because = plusWords(stat.because || '');
@@ -42769,7 +42769,7 @@ document.addEventListener('keydown', (e) => {
    sentence saying the address may still show there. That sentence is shown as it is: never "done" for a
    disconnect the account did not hear about. */
 const PLUS_FORGET_WORDS = {
-  done: 'This computer is removed from Kosmos Plus. Its address is free, and your devices can no longer reach it. Sign in to connect it again.',
+  done: 'This computer is removed from Kosmos+. Its address is free, and your devices can no longer reach it. Sign in to connect it again.',
   /* Not "still connected": a rare engine failure can come after the key is gone. Say only that it did not finish. */
   failed: (why) => 'Removing it did not finish: ' + why + '. Try again in a moment.',
 };
@@ -60867,7 +60867,7 @@ document.addEventListener('keydown', (e) => {
   if (document.activeElement === order[order.length - 1]) { e.preventDefault(); order[0].focus(); }
 });
 /* #3495 (Angel): the grayed Add-external buttons stay clickable; a non-Plus/not-live viewer gets
-   the shared Plus-gate modal ("must be signed in as a Kosmos Plus user") instead of minting an
+   the shared Plus-gate modal ("must be signed in as a Kosmos+ user") instead of minting an
    invite. A "show" viewer mints as before. */
 document.getElementById('pj-add-ext-person').addEventListener('click', (e) => { if (!fedShow()) { showPlusGate('connect', e.currentTarget); return; } pjMintInvite('person'); });
 document.getElementById('pj-add-ext-agent').addEventListener('click', (e) => { if (!fedShow()) { showPlusGate('connect', e.currentTarget); return; } pjMintInvite('agent'); });
@@ -67971,7 +67971,7 @@ function frChoiceInert(on) {
 
 /* #4356: show the first screen and resolve with the choice. Run agents, and Run agents here and
    connect, hide it and first run carries on. Connect leaves it up, buttons disabled, while the app
-   stops the board here and loads Kosmos Plus sign-in; if the app cannot be told, the buttons stay
+   stops the board here and loads Kosmos+ sign-in; if the app cannot be told, the buttons stay
    live rather than sit dead. */
 function frChoose() {
   const el = document.getElementById('fr-choice');

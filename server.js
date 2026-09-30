@@ -1141,7 +1141,7 @@ const webhooks = require('./engine/webhooks');
 const HOOK_BODY_MAX = 16 * 1024;
 const HOOK_RATE = { perMinute: 30, perProjectHour: 120, openMax: 200, bodyMs: 10000, seen: new Map(), byProject: new Map() };
 /* #4419: the internet link for a webhook, shown beside the local one in the same answer (the secret
-   exists only there). Only when Kosmos Plus is up AND the running connector says it admits hooks;
+   exists only there). Only when Kosmos+ is up AND the running connector says it admits hooks;
    otherwise publicWhy says, in words for the page, why there is none. The address must be a dotted
    host name whose last label is letters, so an IP literal or anything with a path never lands in a link. */
 const HOOK_HOST_RE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
@@ -1153,21 +1153,21 @@ function hookPublicLink(id, secret) {
   try { const set = remote.read(); on = set.on === true; settingsOk = set.ok !== false; } catch { on = false; settingsOk = false; }
   try { signedIn = remote.enrolled() === true; } catch { signedIn = false; }
   const why = (w) => ({ publicUrl: null, publicWhy: HOOK_LOCAL_ONLY + w });
-  if (!settingsOk) return why('Kosmos could not read the Kosmos Plus settings just now, so there is no internet link this time.');
-  if (!on) return why('Kosmos Plus can also give a link that works from the internet.');
-  if (!signedIn) return why('Finish signing in to Kosmos Plus in Settings to also get a link that works from the internet.');
+  if (!settingsOk) return why('Kosmos could not read the Kosmos+ settings just now, so there is no internet link this time.');
+  if (!on) return why('Kosmos+ can also give a link that works from the internet.');
+  if (!signedIn) return why('Finish signing in to Kosmos+ in Settings to also get a link that works from the internet.');
   if (!st || st.state !== 'up') {
     return why(st && (st.state === 'connecting' || st.state === 'restarting')
-      ? 'Kosmos Plus is still connecting; make a new webhook once it is connected to also get a link that works from the internet.'
-      : 'Kosmos Plus is not connected right now, so there is no internet link this time.');
+      ? 'Kosmos+ is still connecting; make a new webhook once it is connected to also get a link that works from the internet.'
+      : 'Kosmos+ is not connected right now, so there is no internet link this time.');
   }
-  if (st.admitsHooks !== true) return why('This computer\'s Kosmos Plus connection does not take webhooks from the internet.');
+  if (st.admitsHooks !== true) return why('This computer\'s Kosmos+ connection does not take webhooks from the internet.');
   // The link carries the secret, so its host must be THIS computer's enrolled Kosmos Plus name, not just any host name
   // a status file happens to hold (a stale or damaged file must never send the secret to someone else's host).
   let enrolledName = '';
   try { enrolledName = String(remote.address() || '').toLowerCase(); } catch { enrolledName = ''; }
   if (HOOK_HOST_RE.test(String(st.address || '')) && enrolledName && String(st.address).toLowerCase() !== enrolledName) {
-    return why('This computer\'s Kosmos Plus name changed since it connected, so there is no internet link this time.');
+    return why('This computer\'s Kosmos+ name changed since it connected, so there is no internet link this time.');
   }
   if (!HOOK_HOST_RE.test(String(st.address || '')) || String(st.address).toLowerCase() !== enrolledName) return why('Kosmos could not read this computer\'s internet address, so there is no internet link this time.');
   return { publicUrl: 'https://' + String(st.address).toLowerCase() + '/hooks/' + id + '/' + secret, publicWhy: null };
