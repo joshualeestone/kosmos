@@ -13871,9 +13871,10 @@ const server = http.createServer(async (req, res) => {
        if it was written in THIS pause (chat.noticeStands). store.readProfile answers {} when it cannot read, and
        a non-swarm reads as running: the line then comes back rather than being hidden. */
     const owes = chat.dmOwes(messages, name, require('./engine/swarm').pauseOf(store.readProfile(name)));
-    /* #4612: a Muse agent that answered in its own window but never ran kosmos reply. Its idle report carries the
-       turn's answer; when the person's latest message is still owed and that turn began after the message arrived,
-       the page shows the answer instead of "Nothing back yet". Read-only, and only ever about THIS agent's report. */
+    /* #4612: a Muse agent that answered in its own window but never ran kosmos reply. Its reports carry the answer,
+       dated by when its DM reached the agent; when the person's latest message is still owed and the answer is not
+       dated before it, the page shows the answer instead of "Nothing back yet". Read-only, and only ever about THIS
+       agent's report. */
     if (owes && owes.state === 'owes') {
       try {
         const rep = selfreport.read(name);

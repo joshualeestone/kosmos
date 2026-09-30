@@ -11,7 +11,7 @@ said in its own window:" and the answer, in a bounded, line-preserving block. It
 turn ends: on the working reports of the turns queued behind it, or on the idle report when nothing is queued.
 
 ## Decisions
-- Carried like #4611's count: musefront sends the turn's answer and start time with its idle report
+- Carried like #4611's count: musefront sends the turn's answer, dated by when its DM arrived, with its reports
   (`kosmosFinal` -> bridge -> `final` on POST /api/report -> selfreport keeps it on an idle or working report, cleaned and
   capped at 4000 characters). selfreport.read carries the run's latest answer across later reports. The thread route
   attaches it as `owes.unsent` only when the thread owes a reply and the answer's turn began at or after the owed
@@ -43,7 +43,7 @@ message), asserted by server.dm-owes-4340.test.js with the newer DM's own empty 
 
 ## Tests
 engine/musefront.test.js (answer on idle, control failed turn; reporter payload; bridge Stop only, agy unchanged),
-engine/selfreport.waiting-4569.test.js (kept, cleaned, capped; working / blank / bad time / none not kept),
+engine/selfreport.waiting-4569.test.js (kept on idle or working, cleaned, capped; needs_you / blank / bad time / none not kept),
 server.dm-owes-4340.test.js (shown only for a later turn; still shown while a room turn runs and after it ends; not for a newer DM; not once replied; control no report),
 web.dm-unsent-4612.test.js (line and escaped text at once; control: the old line and grace unchanged),
 server.report-readback-2709.test.js (the route's pass-through; an idle or working report's answer is kept, a needs_you one's is not), and the
@@ -54,3 +54,4 @@ turns; every operatorDirect form) and engine/selfreport.waiting-4569.test.js (ca
 - The answer no longer waits for the queue to drain: it rides on the working reports of the turns queued behind the DM (bridge, selfreport and the throttle key accept it there). An idle report between turns was tried first and rejected: it breaks #4569's rule that idle comes only once nothing is waiting, and it blanks the queue line.
 - The route's check is the only guard against an older answer under a newer DM; a server test now covers the newer DM's own empty turn.
 - The answer is dated by when its DM reached the front, not by its turn's start: a DM queued behind a newer one would otherwise pass as that one's answer (a stop note, which has no receipt time there, keeps its turn's start).
+- Each queued copy of a DM keeps its own arrival time (the same words can be sent twice), and a stop's note is dated by that stop's arrival. The answer rides on one working report, not every beat, so it does not fill the report tail selfreport reads.
