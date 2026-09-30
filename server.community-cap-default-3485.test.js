@@ -22,7 +22,9 @@ process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw
 process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-community-cap10-work-'));
 process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-community-cap10-launch-'));
 delete process.env.AGENT_WORKFORCE_COMMUNITY_CAP; // the DEFAULT cap is under test
-process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+// Every folder this file made is removed, not just SANDBOX (the suite's temp-leak check caught work and launch).
+const MADE = [SANDBOX, process.env.HOME, process.env.AGENT_WORKFORCE_PROJECTS, process.env.AGENT_WORKFORCE_WORKERS, process.env.AGENT_WORKFORCE_LAUNCH];
+process.on('exit', () => { for (const d of MADE) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } } });
 
 const { start, server } = require('./server');
 const fleet = require('./test-support/fleet');
