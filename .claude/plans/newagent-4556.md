@@ -77,4 +77,5 @@ and at phone width.
 ## After main's #4632 (the ready-made roles download when the picker opens)
 - The one shared roles request carries `?catalogue=1`. Only opening New Agent (and the `?tab=create` boot) asks again for an incomplete catalogue; a path choice paints the menu already held.
 - An open's refetch that fails keeps the menu already held (offline is when the catalogue is incomplete).
-- Accepted: if the open's answer lands after the person has chosen a path, the newly downloaded roles are not shown on that visit (the picker is not repainted under a choice in progress); they appear on Back or the next open.
+- Accepted: if the open's answer lands after the person has chosen a path (Single, Team or Swarm each become the newest caller), the newly downloaded roles are not shown on that visit (the picker is not repainted under a choice in progress); once the answer has landed they appear on Back or the next open.
+- Not changed here, main's behaviour: on the first-run import link the open itself lands on the role screen, so its late answer can still repaint under a choice made there (follow-up card).

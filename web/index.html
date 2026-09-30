@@ -46563,7 +46563,8 @@ function chooseCreatePath(path) {
     cstep('team'); loadSeededTeams(); document.getElementById('cstep-team-title').focus();
     // The org chart needs the roles' own entry: load them if there are none (a failed load is retried here),
     // otherwise repaint the Team options from what is there.
-    if (!(ROLES && ROLES.length)) loadRoles('pm'); else paintPathOptions();
+    // ROLES_GEN moves either way, so Team is the newest caller too and an open's late answer does not paint under it.
+    if (!(ROLES && ROLES.length)) loadRoles('pm'); else { ROLES_GEN += 1; paintPathOptions(); }
     return;
   }
   document.getElementById('cstep-role-title').textContent = path === 'swarm' ? 'What should this swarm do?' : 'What should this agent do?';
@@ -46745,7 +46746,7 @@ async function loadRoles(initialMode, opening) {
   try {
     await fetchRoles();
   } catch (err) {
-    if (gen !== ROLES_GEN) return;   // #4556: a newer call owns the screen and paints the same answer
+    if (gen !== ROLES_GEN) return;   // #4556: a newer call owns the screen
     /* An open's refetch for an incomplete catalogue that fails (offline is when it is incomplete) keeps the menu
        already held: it is still the copy agents are created from. */
     if (opening && ROLES && ROLES.length) { paint(); return; }
@@ -46753,8 +46754,8 @@ async function loadRoles(initialMode, opening) {
     // choosing has to be the copy the agent is actually created from, and a
     // local copy of the menu is exactly how those two drift apart.
     ROLES = null;
-    // And the pane-2 caches: a reopened panel whose fetch failed must not
-    // proceed on the previous load's own-entry or models (the drift the
+    // And the pane-2 caches: with no menu held (the branch above), a panel whose fetch failed must not
+    // proceed on an earlier load's own-entry or models (the drift the
     // no-hardcoded-list rule exists for, arriving through a stale cache).
     OWN_ROLE = null;
     CREATE_MODELS = [];

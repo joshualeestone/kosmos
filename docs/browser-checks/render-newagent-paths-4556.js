@@ -361,11 +361,16 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
         const singleBuilt = await page.evaluate(() => !document.getElementById('pick-pm').hidden && document.getElementById('roles-msg').textContent === '');
         // The next open's refetch FAILS (offline): the menu already held stays usable, with no error.
         ROLES_FAIL = true;
+        const hitsFail = ROLES_HITS;
         await page.evaluate(() => { openCreate(); });
         await page.waitForTimeout(400);
+        const failAsked = ROLES_HITS - hitsFail;   // the open did ask (and was refused)
+        // Read BEFORE the path click: the click paints by itself, so only this shows the failed open painted.
+        const msgBefore = await page.evaluate(() => document.getElementById('roles-msg').textContent);
         await page.click('#cstep-kind [data-path="single"]');
         await page.waitForTimeout(300);
         const keptOnFail = await page.evaluate(() => ({ pm: !document.getElementById('pick-pm').hidden, msg: document.getElementById('roles-msg').textContent, next: !document.getElementById('role-next').disabled, held: !!(ROLES && ROLES.length) }));
+        keptOnFail.failAsked = failAsked; keptOnFail.msgBefore = msgBefore;
         ROLES_FAIL = false;
         CATALOGUE_LOADED = true;
         await page.evaluate(() => { openCreate(); });   // this load brings the catalogue
@@ -378,7 +383,7 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
           againIncomplete === 1 && /[?&]catalogue=1(&|$)/.test(asked) && onPath === 0 && singleBuilt && againComplete === 0,
           JSON.stringify({ againIncomplete, asked, onPath, singleBuilt, againComplete }));
         ok(t + ' K13 an open whose refetch fails keeps the menu already held (no error, Continue still works)',
-          keptOnFail.held && keptOnFail.pm && keptOnFail.msg === '' && keptOnFail.next, JSON.stringify(keptOnFail));
+          keptOnFail.failAsked === 1 && keptOnFail.msgBefore === '' && keptOnFail.held && keptOnFail.pm && keptOnFail.msg === '' && keptOnFail.next, JSON.stringify(keptOnFail));
       } finally { CATALOGUE_LOADED = true; ROLES_FAIL = false; }
 
       // K10: the roles cannot be read. The Team screen says why there is no org chart, and choosing Team again retries.
