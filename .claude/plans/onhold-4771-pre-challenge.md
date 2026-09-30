@@ -2,17 +2,17 @@
 pre_challenge: true
 method: challenge-loop
 branch: onhold-4771
-diff_hash: 4971098033430f84a6915e03ac6aa8b6d2886ccf7f7f13b5d10959890eed7e74
-validation: focused per round (engine/onhold-4771, assigner, agentnudge, projects, tasks, tasks.built-3951, both CLI suites, server.test.js #4771, render-onhold-4771.js and render-tasks-view-3559.js browser checks, both browser-check gates); static set on the main-merged tree 2613/2613; the FULL suite runs on Mortals on this head after this commit, result in the PR
+diff_hash: 8a71a8af1eb8edf7397cd7a2f26f4f026ad977920e664f6d63995618de7ee792
+validation: the first full suite (Mortals, c93c1ade8) failed on one pin (the CLI parity guard's task subcommands), fixed in d00e9e112 and reviewed in iteration 15; focused per round (engine/onhold-4771, assigner, agentnudge, projects, tasks, tasks.built-3951, both CLI suites, server.test.js #4771, render-onhold-4771.js and render-tasks-view-3559.js browser checks, both browser-check gates); static set on the main-merged tree 2613/2613; the FULL suite runs on Mortals on this head after this commit, result in the PR
 subdir_audit: not run (the diff changes no subdirectory CLAUDE.md)
-timestamp: 2026-09-30T21:40:06Z
-iterations: 14
+timestamp: 2026-09-30T23:10:02Z
+iterations: 15
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 14 (reviewer model alternated: opus on odd rounds, sonnet on even)
+**Iterations:** 15 (reviewer model alternated: opus on odd rounds, sonnet on even)
 **Converged:** Yes, at iteration 14 (NITs only)
 **Total findings:** 0 BLOCKERs, 25 WARNINGs acted on or deferred as distinct (repeats counted once), 1 CONVENTION deferred, about 30 NITs
 **Fixed:** 19 | **Deferred:** 7 distinct | **Asked (awaiting user):** 0
@@ -121,6 +121,18 @@ final merge of 2 main commits left the branch's 1150 changed lines identical (co
 #### Iteration 14
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 3 NITs
+**Converged**: no new actionable findings.
+
+#### Iteration 15 (after the full suite)
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 4 NITs
+**Self-generated:** 0
+The Mortals suite failed on one pin: tools.windows-kosmos-cli-verbs-parity.test.js's own control lists the Mac
+CLI's task subcommands, and this branch adds hold and unhold (d00e9e112). This round reviewed that change.
+- [NIT] engine/assigner.js:7: the module header still describes the old busy rule
+- [NIT] engine/projects.js:2481: a pause leaves no activity record (the plan names naming the agent as a follow-up)
+- [NIT] install/kosmos:3053: CLI holds send the board token only, as close does
+- [NIT] web/index.html:53732: a refusal message can stay under a task that closes
 **Converged**: no new actionable findings.
 
 ### Final Ledger
