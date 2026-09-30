@@ -54,7 +54,7 @@ teamcreate-ui-4557 (PR #4709, not yet on main); rebased onto main once #4709 mer
 ## Review iteration 3 (changes)
 - A read of /api/accounts slower than the 5 s wait is no longer abandoned (on an OpenAI-only machine it
   left the team on Claude): when it lands, the untouched menu gets the default again, unless the team
-  started. Browser arm: a 6.5 s answer moves the menu from Claude to OpenAI and its account.
+  started. Browser arm: a late answer (8 s) moves the menu from Claude to OpenAI and its account.
 - A Muse answer that disables Meta settles the team menu too (tcProviderSettle), so a Meta pick that is
   no longer allowed goes back to the default before anything is sent.
 - The Swarm-undo comment says it is defensive (openCreate resets the Kind first).
@@ -86,3 +86,14 @@ teamcreate-ui-4557 (PR #4709, not yet on main); rebased onto main once #4709 mer
   something is made, and the next run uses what they say. The lead-refused browser arm pins both halves.
 - The menus are disabled during the up-to-5 s account wait (they held the last team's options).
 - The Google-subscription (Antigravity) answer settles the team menu too, as the Muse answer does.
+
+## Review iteration 7 (changes): one rule instead of several conditions
+- Two MAJORs in iteration 6's logic: after a first start whose lead was refused the menus stayed locked
+  (the click handler cleared busy without repainting), and a Try again run did not count as a run, so a
+  menu changed mid-run could split the team or show a provider the team is not on.
+- Cause: the lock, the remembered choice and the settle each had its own condition. Now ONE rule,
+  tcChoiceFixed(): during a click (busy) or a run (running), or once any member exists or may exist
+  (made, maybeMade). The lock, tcModel, the settle and the late read all use it; a menu change while
+  the choice is open drops the remembered one; the click handler repaints when it ends.
+- Tests: the rule's own unit test (7 cases); the lead-refused browser arm now changes the menu after
+  the refusal and asserts the retry and every later member are made on the new choice.
