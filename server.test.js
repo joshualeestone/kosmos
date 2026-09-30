@@ -11492,6 +11492,15 @@ test('the Plus state route says configured through the production default, and t
   }
 });
 
+test('kosmos#4648: /api/remote/computers is served, and when no signed list can be read it answers 200 { ok: false } with a reason, never a list (the not-signed-in gate itself is pinned in engine/account-computers.test.js)', async () => {
+  const r = await req('/api/remote/computers');
+  assert.equal(r.status, 200, 'the page hides the section on { ok: false }; an error status would read as broken');
+  const body = JSON.parse(r.body);
+  assert.equal(body.ok, false, 'a board with Plus off listed computers: ' + r.body);
+  assert.equal(body.computers, undefined, r.body);
+  assert.match(body.because, /\w/, 'no reason given');
+});
+
 test('the Allow seam (#567): pending is honest-empty off the switch, and the verbs refuse a bad id in words', async () => {
   const pending = JSON.parse((await req('/api/remote/pending')).body);
   assert.deepEqual(pending.devices, [], 'a board with Plus off has something waiting');
