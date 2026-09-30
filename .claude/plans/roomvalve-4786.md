@@ -9,7 +9,9 @@ moving is held exactly as before; and no amount of cheap task activity can keep 
 
 ## The change
 - engine/taskchat.js: progressTimes(projectId, now), every first-time forward step in that project's task
-  histories, oldest first, clamped to now. Counted: created, part-added, a task's first 'closed', a part's first
+  histories, oldest first. A row dated after now is skipped (clamped, it would count in every later window, past
+  the person's reset); a task file last written before the count began is not read (it can hold no step since; where
+  mtime lags, a step is skipped, which is stricter, never more lenient). Counted: created, part-added, a task's first 'closed', a part's first
   'part-closed', a task's first 'built', an 'assigned' to someone who has never held that part (the task's first
   holder holds part 1; an added part's first holder is who it was added for). Not counted: said, reopened,
   part-reopened, unbuilt, due and parent changes, taking someone off, and any repeat of a counted step.
@@ -25,8 +27,8 @@ moving is held exactly as before; and no amount of cheap task activity can keep 
 2. Only first-time steps count (review round 1: A to B to A handoffs and close/reopen/close were free resets).
 3. Task files are read only when the room is already over its cap AND the limit is on (with it off the room is
    never held, so the allowance could only suppress the told-only notice, and a busy room would re-read its task
-   files on every post). A held agent that keeps retrying pays one read of this project's task files per refused
-   post.
+   files on every post). Each post over the cap (refused, or let through on the allowance) lists the task-chats
+   folder and reads every file of this project written since the count began.
 WEAKEST PREMISE: the size of the allowance. A quarter of the cap per step, at most double, is a judgement: a busy
 real pipeline may still be held at twice the cap, and a loop that makes tasks gets up to twice the cap before it is
 held. A "step" is a counted ROW, not a click: closing a task's last open part writes both 'part-closed' and 'closed',
@@ -36,8 +38,9 @@ Also: a webhook-made task counts as a step (it is still a real new task); a same
 directly can add steps, but only up to the same bound.
 
 ## Tests
-- engine/taskchat.progress-4786.test.js (12): each counted and uncounted kind; first-time rules for close, part
-  close, built and handoffs; per-part holders; partless legacy rows are part 1; the future-date clamp; other
+- engine/taskchat.progress-4786.test.js (13): each counted and uncounted kind; first-time rules for close, part
+  close, built and handoffs; per-part holders; partless legacy rows are part 1; future rows skipped and a row at exactly now kept; files untouched since
+  the count began not read (with a control); other
   projects; a real pipeline through engine/tasks (close a part, hand the next on) and the loop shape through the
   same functions; through engine/tasks, a task's maker holds part 1.
 - engine/messages.test.js #4786 (3): (a) held with no work (control); old work, talk and another project's work earn
@@ -45,9 +48,10 @@ directly can add steps, but only up to the same bound.
   more cap, then held (arrivals counted from the log, no divisibility assumption). (b) a step before the person's
   last post earns nothing after it; the same step after does (control arm). (c) with the limit off, a step does not
   suppress the told-only notice.
-- Mutants, each failing a test: repeat close, repeat assign, no seed, wrong seed, no clamp, no cap, no window
+- Mutants, each failing a test: repeat close, repeat assign, no seed, wrong seed, future row clamped instead of skipped, no mtime skip, mtime
+  skip at equality, no cap, no window
   filter, no credit, full-cap credit, countFrom replaced by the window start, no legacy part-1 mapping, no limit-on
-  gate. The seven test files touching the valve or taskchat: 190/190.
+  gate. The seven test files touching the valve or taskchat: 191/191.
   One equivalent mutant (dropping the early kind filter) cannot fail: other kinds already count as nothing.
 
 ## Review
@@ -56,3 +60,7 @@ and 2 should-fix (holder seeding; tests off the real path and no re-trip), taken
 the limit off), taken; nits taken: before/after-the-person test, divisibility, maker holds part 1 through the
 engine, partless rows. Not taken: the held notice's wording (copy; unchanged for loops). Round 4: 2 should-fix
 (untested limit-off gate; stale plan), taken; nit on rows vs clicks recorded above.
+Round 5: no blocker, no should-fix (converged); nits taken: future rows skipped not clamped, files untouched since
+the count began not read, cost comment corrected, test comment. Round 6 (that commit only): plan brought current;
+nits taken: a failed stat skips one file not the rest, the mtime premise and its strict-only failure written down,
+a row at exactly now tested.

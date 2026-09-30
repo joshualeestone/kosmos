@@ -83,6 +83,8 @@ test('#4786: handing a part to someone new counts; handing it back does not', ()
 test('#4786: a row dated in the future is skipped, so it cannot earn room in every later window', () => {
   const id = project([{ m: 1, kind: 'created' }, { m: 60 * 24 * 365, kind: 'closed' }]);
   assert.deepEqual(taskchat.progressTimes(id, NOW), [M(1)]);
+  const atNow = project([{ m: 1, kind: 'created' }, { m: 60, kind: 'closed' }]);
+  assert.deepEqual(taskchat.progressTimes(atNow, NOW), [M(1), NOW], 'a row dated exactly now was skipped');
 });
 
 test('#4786: a task file last written before `since` is not read; one written since is', () => {

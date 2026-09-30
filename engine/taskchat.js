@@ -203,9 +203,14 @@ function progressTimes(projectId, now = Date.now(), since = 0) {
     for (const name of fs.readdirSync(taskChatsDir())) {
       if (!name.startsWith(prefix) || !name.endsWith('.jsonl')) continue;
       const n = Number(name.slice(prefix.length, -'.jsonl'.length));
+      /* record() stamps `at` and then appends, so a file's mtime is at or after its newest row. Where that fails (a
+         filesystem that rounds mtime down, the clock stepping back, a restore keeping old mtimes) a real step is
+         skipped: stricter, never more lenient. A file that cannot be stat'ed is skipped alone, not the rest. */
       if (since > 0) {
         const file = taskChatFile(projectId, n);
-        if (!file || fs.statSync(file).mtimeMs < since) continue;
+        let mtime = 0;
+        try { mtime = file ? fs.statSync(file).mtimeMs : 0; } catch { mtime = 0; }
+        if (mtime < since) continue;
       }
       const seen = new Set();          // 'closed', 'built', 'part-closed:<id>' already counted once
       const held = new Map();          // partId -> everyone who has held it
