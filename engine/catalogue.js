@@ -1,36 +1,197 @@
 'use strict';
 /**
- * #4555 (#4554 parts 1-2): the seeded catalogue of ready-made ROLES beyond the
- * original set in engine/roles.js, and of prebuilt TEAMS (a lead plus 4 or 5
- * reports) a person can create in one go (#4557).
+ * #4555 (#4554 parts 1-2): the catalogue of ready-made ROLES beyond the original set in
+ * engine/roles.js, and of prebuilt TEAMS (a lead plus 4 or 5 reports) a person can create in one
+ * go (#4557).
  *
- * The data is two generated modules beside this one, catalogue-roles.js and
- * catalogue-teams.js (`module.exports = <JSON>;`, .js because the builds ship
- * engine/*.js only), made by tools/catalogue/build.js from
- * tools/catalogue/*-source.js. Edit the source and rebuild;
- * engine/catalogue.test.js fails when the data and its source disagree.
+ * #4632: the catalogue no longer ships inside Kosmos. It is built and signed by the public repo
+ * joshualeestone/kosmos-catalogue and published at installkosmos.com/catalogue/. Kosmos downloads
+ * it only when someone opens the role picker or the Team screen (`refresh()`, called by those
+ * routes), keeps it in the data folder, and uses it only when its Ed25519 signature verifies
+ * against PUBLIC_KEY below. Until the first download, and whenever the stored copy does not
+ * verify, there is no catalogue: the picker shows the original roles and there are no teams.
  *
- * This module is the one reader of those files: roles.js merges `rawRoles()` into
- * ROLES (so the picker, the roles route and `kosmos agent roles` see them), and
- * team creation reads `teams()` and `memberInstructions()`. Nothing else reads
- * the data modules.
+ * This module is the one reader of the stored copy: roles.js merges `rawRoles()` into ROLES (and
+ * again through `remerge()` after a download), and team creation reads `teams()` and
+ * `memberInstructions()`.
  *
- * It must not require ./roles at load: roles.js requires this module while it
- * builds ROLES. `memberInstructions` requires it lazily, when roles is complete.
- *
- * The data is loaded on first use, and a missing or broken data module THROWS from
- * the accessor that loads it. roles.js catches that for the roles; a caller of
- * teams(), team(), memberProblem() or memberInstructions() handles it itself.
+ * It must not require ./roles at load: roles.js requires this module while it builds ROLES.
  */
+const crypto = require('node:crypto');
+const fs = require('node:fs');
 const path = require('node:path');
 
-const ROLES_FILE = path.join(__dirname, 'catalogue-roles.js');
-const TEAMS_FILE = path.join(__dirname, 'catalogue-teams.js');
+/* The Ed25519 public key of joshualeestone/kosmos-catalogue (its signing-key.pub.pem). Changing
+   the key there needs a Kosmos release carrying the new one here. */
+const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAoy3YOmcplAgwXyGfYvnrLDgxYwAAeJCkp6wNhywGHqI=
+-----END PUBLIC KEY-----
+`;
+const DEFAULT_BASE = 'https://installkosmos.com/catalogue/';
+// The published file's format (kosmos-catalogue build.js `version`).
+const FORMAT = 2;
+/* The oldest catalogue this version accepts: the serial published when it was released. A copy
+   holding no catalogue yet has nothing newer to compare a download with, so without this floor an
+   old signed file served to it would be taken. Raise it at a release that should stop accepting
+   older catalogues. */
+const MIN_SERIAL = 1;
+const MAX_BYTES = 8 * 1024 * 1024;
+const TIMEOUT_MS = 8000;
+// A picker opened twice in a minute downloads once. A failed try waits as long as a good one.
+const MIN_GAP_MS = 10 * 60 * 1000;
 
-let rolesData = null;
-let teamsData = null;
-function readRoles() { if (!rolesData) rolesData = require(ROLES_FILE); return rolesData; }
-function readTeams() { if (!teamsData) teamsData = require(TEAMS_FILE); return teamsData; }
+/** Where the catalogue is downloaded from. KOSMOS_CATALOGUE_BASE is a test seam, like
+ *  KOSMOS_RELEASE_BASE: whatever it names must still carry a signature PUBLIC_KEY accepts. */
+function base() {
+  const b = process.env.KOSMOS_CATALOGUE_BASE || DEFAULT_BASE;
+  return b.endsWith('/') ? b : b + '/';
+}
+
+/** The stored copy: `{ sig, text }`, the signature and the exact text it covers, in one file so
+ *  one rename replaces both. Lazily, so the data root is resolved when it is first needed. */
+function cacheFile() { return path.join(require('./store').ROOT, 'catalogue', 'catalogue.json'); }
+
+let key = PUBLIC_KEY;
+let data;            // undefined: not read yet; null: none usable; else the parsed catalogue
+let lastTry = 0;
+let lastError = null;
+let inflight = null;
+
+/** Tests sign with their own key pair. In-process only: nothing outside this process can reach it. */
+function useKeyForTest(pem) { key = pem || PUBLIC_KEY; data = undefined; lastTry = 0; lastError = null; }
+
+const KEY_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const isText = (v) => typeof v === 'string' && v.length > 0;
+
+/** Why a parsed catalogue is not one this version can use, or null. Signed data is trusted for
+ *  its origin, not for being the shape this version reads (a newer format, a builder bug). */
+function shapeProblem(c) {
+  if (!c || typeof c !== 'object') return 'it is not an object';
+  if (c.version !== FORMAT) return `format version ${JSON.stringify(c.version)} is not one this version reads`;
+  if (!Number.isInteger(c.serial) || c.serial < MIN_SERIAL) return `its serial ${JSON.stringify(c.serial)} is older than this version of Kosmos (${MIN_SERIAL})`;
+  if (!Array.isArray(c.groups) || !c.groups.every(isText)) return 'groups is not a list of names';
+  if (!Array.isArray(c.roles) || !Array.isArray(c.teams)) return 'roles or teams is not a list';
+  for (const r of c.roles) {
+    if (!r || !KEY_RE.test(String(r.key)) || !isText(r.label) || !isText(r.blurb) || !isText(r.firstAction) || !isText(r.group)
+      || !Array.isArray(r.instructions) || !r.instructions.every((l) => typeof l === 'string')) {
+      return `role ${JSON.stringify(r && r.key)} is incomplete`;
+    }
+  }
+  for (const t of c.teams) {
+    if (!t || !KEY_RE.test(String(t.key)) || !isText(t.label) || !t.project || !isText(t.project.goal) || !Array.isArray(t.members)) {
+      return `team ${JSON.stringify(t && t.key)} is incomplete`;
+    }
+    for (const m of t.members) {
+      if (!m || !isText(m.slot) || !isText(m.role) || !isText(m.title) || !isText(m.name) || !Array.isArray(m.focus)
+        || !(m.reportsTo === null || m.reportsTo === 'lead')) {
+        return `a member of team ${t.key} is incomplete`;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Check a downloaded or stored catalogue: the signature over its exact bytes, then its shape.
+ * @returns {{ok: true, catalogue: object} | {ok: false, because: string}}
+ */
+function check(bytes, sig) {
+  let good = false;
+  try { good = crypto.verify(null, bytes, crypto.createPublicKey(key), Buffer.from(String(sig).trim(), 'base64')); } catch { good = false; }
+  if (!good) return { ok: false, because: 'its signature does not verify' };
+  let c;
+  try { c = JSON.parse(bytes.toString('utf8')); } catch { return { ok: false, because: 'it is not JSON' }; }
+  const problem = shapeProblem(c);
+  return problem ? { ok: false, because: problem } : { ok: true, catalogue: c };
+}
+
+/** The stored catalogue, checked, or null. Read once; `refresh()` replaces it. */
+function load() {
+  if (data !== undefined) return data;
+  data = null;
+  let stored;
+  try { stored = JSON.parse(fs.readFileSync(cacheFile(), 'utf8')); } catch (err) {
+    if (!(err && err.code === 'ENOENT')) lastError = 'the stored catalogue could not be read';
+    return data;
+  }
+  const r = stored && typeof stored.text === 'string' ? check(Buffer.from(stored.text, 'utf8'), stored.sig) : { ok: false, because: 'it is not in the stored shape' };
+  if (r.ok) data = r.catalogue;
+  else {
+    lastError = `the stored catalogue was not used: ${r.because}`;
+    process.stderr.write(`kosmos: ${lastError}\n`);
+  }
+  return data;
+}
+
+function readRoles() { const c = load(); return c ? c : { groups: [], roles: [] }; }
+function readTeams() { const c = load(); return c ? c : { teams: [] }; }
+
+async function fetchBytes(doFetch, url) {
+  const res = await doFetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS), cache: 'no-store' });
+  if (!res.ok) throw new Error(`${url} answered ${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length > MAX_BYTES) throw new Error(`${url} is larger than ${MAX_BYTES} bytes`);
+  return buf;
+}
+
+/**
+ * Download the catalogue when it is due (never more than once per MIN_GAP_MS unless `force`),
+ * check it, and keep it when it verifies and is not older than the one already held. Never
+ * throws: a failure leaves the stored catalogue as it was and is reported by `status()`.
+ * @param {{force?: boolean, fetcher?: Function}} [opts]
+ * @returns {Promise<object>} status()
+ */
+function refresh(opts = {}) {
+  if (inflight) return inflight;
+  if (!opts.force && Date.now() - lastTry < MIN_GAP_MS) return Promise.resolve(status());
+  lastTry = Date.now();
+  inflight = (async () => {
+    try {
+      const doFetch = opts.fetcher || fetch;
+      const download = (query) => Promise.all([
+        fetchBytes(doFetch, base() + 'catalogue.json' + query),
+        fetchBytes(doFetch, base() + 'catalogue.json.sig' + query),
+      ]);
+      let [bytes, sig] = await download('');
+      let r = check(bytes, sig.toString('utf8'));
+      /* Just after a publish, a cache on the way can hold the new file with the old signature, or
+         the reverse: it reads as a bad signature. Ask once more past the caches before refusing. */
+      if (!r.ok && /signature/.test(r.because)) {
+        [bytes, sig] = await download(`?fresh=${Date.now()}`);
+        r = check(bytes, sig.toString('utf8'));
+      }
+      if (!r.ok) throw new Error(`the downloaded catalogue was refused: ${r.because}`);
+      const held = load();
+      if (held && r.catalogue.serial < held.serial) {
+        throw new Error(`the downloaded catalogue is older than the one held (${r.catalogue.serial} < ${held.serial})`);
+      }
+      const text = bytes.toString('utf8');
+      // Stored as text: a copy that does not survive the round trip byte for byte fails its
+      // signature on the next read, which leaves no catalogue rather than a changed one.
+      const file = cacheFile();
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const tmp = `${file}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify({ sig: sig.toString('utf8').trim(), text }));
+      fs.renameSync(tmp, file);
+      const changed = !held || held.serial !== r.catalogue.serial;
+      data = r.catalogue;
+      lastError = null;
+      if (changed) require('./roles').remerge();
+    } catch (err) {
+      lastError = (err && err.message) || String(err);
+    } finally {
+      inflight = null;
+    }
+    return status();
+  })();
+  return inflight;
+}
+
+/** What the board holds, for the routes that serve the picker and the Team screen. */
+function status() {
+  const c = load();
+  return { loaded: !!c, serial: c ? c.serial : null, roles: c ? c.roles.length : 0, teams: c ? c.teams.length : 0, error: lastError };
+}
 
 /** The menu order of role groups, first to last. */
 function groupOrder() { return readRoles().groups.slice(); }
@@ -174,4 +335,4 @@ function memberInstructions(teamKey, slot, names) {
   return require('./projects').spliceBlock(text, messages.blockBody(), messages.START, messages.END);
 }
 
-module.exports = { ROLES_FILE, TEAMS_FILE, groupOrder, rawRoles, teams, team, leadOf, memberInstructions, memberProblem };
+module.exports = { PUBLIC_KEY, FORMAT, MIN_SERIAL, cacheFile, check, refresh, status, useKeyForTest, groupOrder, rawRoles, teams, team, leadOf, memberInstructions, memberProblem };

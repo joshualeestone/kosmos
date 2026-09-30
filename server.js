@@ -861,6 +861,7 @@ function safeAvatarFor(name) {
   try { return store.avatarPath(name); } catch { return null; }
 }
 const roles = require('./engine/roles');
+const catalogue = require('./engine/catalogue'); // #4632: the downloaded roles and teams
 const commitments = require('./engine/commitments');
 const you = require('./engine/you');
 const policyEngine = require('./engine/policy');
@@ -6210,7 +6211,14 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pathname === '/api/roles' && (req.method === 'GET' || req.method === 'HEAD')) {
-    sendJson(res, 200, {
+    /* #4632: the ready-made roles beyond the built-in ones are downloaded, not shipped. The role
+       picker asks with ?catalogue=1 when it opens, and only then does the board fetch the
+       catalogue (engine/catalogue.js: at most once in ten minutes, kept only when its signature
+       verifies). Every other caller (the page's role titles at load, the model menu) answers from
+       what is already held, and never waits on the network. */
+    let wantCatalogue = false;
+    try { wantCatalogue = req.method === 'GET' && new URL(req.url, ROUTING_BASE).searchParams.get('catalogue') === '1'; } catch { wantCatalogue = false; }
+    const answer = () => sendJson(res, 200, {
       // The models an agent can be created on, from the engine's own list,
       // so the menu and the flag the job runs with cannot drift.
       /* ⚠️ `provider` TRAVELS WITH EACH ROW (#1026). The create screen reads
@@ -6250,7 +6258,12 @@ const server = http.createServer(async (req, res) => {
         // is exactly too late for the two roles that have one.
         caution: r.caution || null,
       })),
+      // What the board holds of the downloaded catalogue: whether any, which serial, and why the
+      // last download was not used, so the picker can say it is showing the built-in roles only.
+      catalogue: catalogue.status(),
     });
+    // refresh() never rejects; the second handler is for a bug in it, which must not hang the picker.
+    if (wantCatalogue) catalogue.refresh().then(answer, answer); else answer();
     return;
   }
 
