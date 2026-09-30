@@ -106,3 +106,14 @@ None.
 ### Strengths
 - The rule is Josh's, verbatim, and the check has a control that fails on main's page.
 - The list stripe is measured composited on the ground in both themes, not read from source.
+
+### Changes after convergence (2026-09-30 12:50 CDT)
+
+- **Merged origin/main a67b04cd3** (after the #4638 revert) in 20235efda. Main's commits since the
+  validated base touch five of this PR's files, so this is path C.
+- **One conflict, hand-resolved:** `EXPECTED_SITES` in browser-checks-reason-grep.test.js (main 221,
+  this branch 216 on main's 215) -> **222**, with the note appended. The reason-grep test measures it:
+  5/0 at 222, and 4/1 at 221 (control).
+- **Focused tests on the merged tree (20235efda, tree 3c02c2909):** web.* 2200/0, server.test.js 346/0,
+  browser-checks-reason-grep 5/0, surface gate 0.
+- The full validation stays the one on 303440f09 (12542/0); path C replaces a second run.
