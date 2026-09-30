@@ -11,12 +11,12 @@ My design pass on PR #4722 (card comment, 2026-09-30 09:3x) made three findings.
 On the create-project form (`web/index.html`, the `#pj-add-done` field):
 
 1. Label: "Done looks like" -> **"What does done look like?"**. The aria-label becomes the same question (it read "What done looks like"), so a screen reader and the page say one thing.
-2. Hint: "Optional. How will everyone know this is finished? Up to 1000 characters. Left blank, the project shows Done not set, and agents you put on it now ask you first." -> **"Optional. Skip it and the team will ask you."** The question moved into the label; the row tag's name is Kosmos's machinery, not the person's; the length cap is said by the error line when it is exceeded.
+2. Hint: "Optional. How will everyone know this is finished? Up to 1000 characters. Left blank, the project shows Done not set, and agents you put on it now ask you first." -> **"Optional. Skip it and the agents you put on it will ask you."** (review round 1: "the team" promised a question from a group that may not exist; the room note only fires once the project is staffed) The question moved into the label; the row tag's name is Kosmos's machinery, not the person's; the length cap is said by the error line when it is exceeded.
 
 Not changed, deliberately:
 - The brief's `## Done looks like` heading and every engine string (a different surface, a file the person may edit, parsed by `engine/brief.js`).
 - The "Done not set" row tag.
-- The over-length error ("What done looks like is longer than ... characters"), which names the field in the old wording. Left as is: it still reads correctly as a noun phrase, and the change is kept to the two findings the card records.
+- The engine's refusals ("What done looks like has to be words.", "Keep what done looks like to 1000 characters"). The page routes them to the done box by matching that exact text (web/index.html, the /^(what done looks like has to be words|...)$/i test), so renaming them is a paired engine+page change in the build owner's code, not a copy edit. The page's own over-length check now says "That answer is longer than N characters", like its description sibling ("That description is longer than ...").
 
 ## Guard
 

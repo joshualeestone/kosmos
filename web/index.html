@@ -15618,7 +15618,7 @@ window.kosmosMeasureScrollbarWidth();
          the project shows "Done not set", and its Project Manager asks first. Same cap as the description. -->
     <div class="field">
       <span class="flabel">What does done look like?</span>
-      <p class="fhint" id="pj-add-done-hint">Optional. Skip it and the team will ask you.</p>
+      <p class="fhint" id="pj-add-done-hint">Optional. Skip it and the agents you put on it will ask you.</p>
       <textarea class="tk-inp" id="pj-add-done" rows="2"
                 aria-label="What does done look like?"
                 aria-describedby="pj-add-done-hint"
@@ -61208,7 +61208,7 @@ document.getElementById('pj-create').addEventListener('click', async () => {
      the same as the description), so a long paste is caught at the box before the round trip. */
   if (pjDescTooLong(document.getElementById('pj-add-done').value)) {
     pjFieldBad('pj-add-done', 'pj-add-done-err',
-      'What done looks like is longer than ' + PJ_DESC_MAX + ' characters. Shorten it and try again.');
+      'That answer is longer than ' + PJ_DESC_MAX + ' characters. Shorten it and try again.');
     msg.textContent = 'Nothing added. There is something to fix above.';
     return;
   }

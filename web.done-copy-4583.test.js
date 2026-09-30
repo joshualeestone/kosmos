@@ -1,7 +1,6 @@
 'use strict';
 // #4583 follow-up (Mona Lisa's design pass): the create form's done field asks a question, and its hint says
-// what happens if you skip it, not how Kosmos records it. Keyed to the problem, not to one spelling of the fix:
-// the label and aria-label must be the same question, and the hint must not name the row tag or the length cap
+// what happens if you skip it, not how Kosmos records it. The hint must not name the row tag or the length cap
 // (the length is said by the error line, when it matters).
 
 const test = require('node:test');
@@ -33,5 +32,5 @@ test('#4583: the done hint says what skipping does, and does not explain Kosmos\
   assert.ok(hint, 'the done field has no hint');
   assert.match(hint, /^Optional\./);
   assert.doesNotMatch(hint, /Done not set/i, 'the hint names the row tag again');
-  assert.doesNotMatch(hint, /\d+ characters/i, 'the hint names the length cap again');
+  assert.doesNotMatch(hint, /\bchar/i, 'the hint names the length cap again');
 });
