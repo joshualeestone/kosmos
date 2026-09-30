@@ -3,6 +3,8 @@
  * project notice until it no longer holds or the person dismisses it.
  *
  * Drives the SHIPPED page against a real server (sandboxed roots):
+ *  0. On the form: the label's words and the box's aria-label are both "What does done look like?", and the hint
+ *     is shown and names neither "Done not set" nor a length.
  *  1. Create with done left blank: the POST carries no `done` key; the row shows "Done not set".
  *  2. Create with done typed: the POST carries it; the row shows no badge (control for 1).
  *  3. Coordinators (the page's own rules; the server's are in server.projects.test.js): the add answer and the
