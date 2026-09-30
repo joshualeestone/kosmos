@@ -75,6 +75,11 @@ desktop. /design-shots owes the rest.
    allowed.
 6. Not changed, disclosed: in the one-screen layout the row's hover ring is drawn with the box's background, so the
    layer tints it about 10% green at the pulse's peak. Cosmetic.
+   Measured after: WebKit (the Mac app's engine, WKWebView, on a 2x screen) keeps the 1.5px border and the layer sits
+   exactly on it. Chromium rounds the pill's border to 1px even at 2x while the layer's offset stays 1.5px, so in a
+   Chromium browser (the browser, Windows, Kosmos+ remote) the ring can sit up to half a pixel out at the breath's
+   peak. Accepted; the check is exact for WebKit and within half a pixel for Chromium, and runs at 2x (at 1x both
+   engines round 1.5px to 1px, and a 1px ring could not be told from 1.5px: a mutant with the old 1px ring passed).
 7. Taken: render-working-pulse-3956 now asserts the pill's layer covers its whole border, the pill rests at the
    breath's low point in light and dark, and with reduced motion the pill is its old static self with no layer.
 

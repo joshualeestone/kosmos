@@ -112,7 +112,9 @@ async function placeSiblings(page) {
       const browser = await engine.launch({ headless: process.env.HEADED === '0' });
       try {
         /* --- motion allowed --- */
-        const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, reducedMotion: 'no-preference' });
+        /* 2x (a Retina Mac): at 1x the browser rounds the pill's 1.5px border to 1px, where a 1px and a 1.5px ring
+           cannot be told apart and the pill-ring assertion below would pass either way (measured, #4765 review 1). */
+        const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 2, reducedMotion: 'no-preference' });
         const page = await ctx.newPage();
         await page.goto(URL);
         await page.waitForSelector('.acard.working', { timeout: 20000 });
@@ -136,7 +138,12 @@ async function placeSiblings(page) {
           const cs = getComputedStyle(el), b = getComputedStyle(el, '::before');
           return { bw: cs.borderTopWidth, layerBw: b.borderTopWidth, layerTop: b.top, border: cs.borderTopColor, bg: cs.backgroundColor };
         });
-        chk(pill.layerBw === pill.bw && parseFloat(pill.layerTop) === -parseFloat(pill.bw), `${engineName}: the breath layer covers the pill's whole border`, JSON.stringify(pill));
+        /* WebKit (what the Mac app renders with, on a 2x screen) keeps the pill's 1.5px border, and the layer must sit
+           exactly on it. Chromium rounds that border to 1px even at 2x (measured), while the layer's offset stays
+           1.5px, so there the ring can sit up to half a pixel out: allowed, and said so on #4765. */
+        const exact = engineName === 'webkit';
+        chk(pill.layerBw === pill.bw && (exact ? pill.bw === '1.5px' && parseFloat(pill.layerTop) === -1.5 : Math.abs(parseFloat(pill.layerTop) + parseFloat(pill.bw)) <= 0.5),
+          `${engineName}: the breath layer covers the pill's whole border (at 2x${exact ? ', exactly' : ', within half a pixel'})`, JSON.stringify(pill));
         chk(pill.border === 'rgba(47, 125, 90, 0.38)' && pill.bg === 'rgba(47, 125, 90, 0.07)', `${engineName}: at rest the pill shows the breath's low point`, JSON.stringify(pill));
 
         /* Sampled across one full cycle: the ground must swing, gently. */
