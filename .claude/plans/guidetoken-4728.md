@@ -43,10 +43,12 @@ Codex, Gemini or Grok guide has no such file" is also not what the code does, an
 - `engine/team.js`, above `vetAgentMember`: the guide rule is a cooperative guard; the one measured exception
   (the Mac Claude guide cannot read the data folder) is named, not called a boundary. Points at that comment.
 - `install/kosmos`, the reply verb (#3769), and the header of `cli.reply-token-3769.test.js`: the same scope.
-- NOT touched: `server.js` and `server.agent-token-gate-4491.test.js` (Angel's #4491 slice 4 branch rewrites
-  those comments; told her by message and on the card that her new wording needs the same correction), and the
-  lines of `install/kosmos` her branch changes (2560 and below; mine is at 1557). Angel has since corrected
-  her branch (ecbc14b3c). Until it lands, main keeps "(the sandboxed setup guide)" in those two files.
+- NOT touched: `server.js` (the comment above the agent-token routes) and
+  `server.agent-token-gate-4491.test.js`, which both say "an agent that cannot read the board token (the
+  sandboxed setup guide)". Decided, review round 2: that sentence is true as written. It names an agent that
+  cannot read the token, and one exists (the measured row); the rule it explains (the public feed needs the
+  board token as well) does not depend on how many guides are sandboxed. Both sit beside lines Angel's open
+  #4491 slice 4 branch changes, so an edit there buys a conflict for no correction.
 - No rule changes: `fromGuide` and `vetAgentMember` stay as they are.
 
 ## Decisions
