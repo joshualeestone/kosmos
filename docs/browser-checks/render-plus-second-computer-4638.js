@@ -163,7 +163,7 @@ const seen = (page, id) => page.evaluate((i) => { const e = document.getElementB
       const st = await state(pg);
       const line = await pg.evaluate(() => document.getElementById('plus-si-done-line').textContent);
       ok('#4640 denied: it says so, drops the code, keeps Done, and stops asking', /said no to letting this one in/.test(st.lead) && !st.code && st.done && st.landed && n === 1 && asked.n === 1, JSON.stringify({ ...st, n, after: asked.n }));
-      ok('#4640 denied: the landing no longer says it is connected, and points at the control that asks again', line === 'PizzaRama was not let in.' && /To ask again, press Done, choose Remove this computer, then sign in again/.test(st.lead), JSON.stringify({ line, lead: st.lead }));
+      ok('#4640 denied: the landing still says where this computer is connected (a no is about the OTHER computer), and points at the control that asks again', /^PizzaRama is connected to Kosmos\+ as /.test(line) && /said no to letting this one in to it\. To ask again, press Done, choose Remove this computer, then sign in again/.test(st.lead), JSON.stringify({ line, lead: st.lead }));
       const live = await pg.evaluate(() => document.getElementById('plus-si-match-lead').getAttribute('aria-live'));
       ok('#4640 the changing line is announced (aria-live)', live === 'polite', String(live));
       await pg.close();

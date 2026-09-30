@@ -14,8 +14,9 @@ today's behaviour (the code and a Done button).
   resetForTests.
 - server.js: GET /api/remote/signin-allowed -> { ok, device_status } or { ok: false, stop }.
 - web/index.html: plusSiSecondDone starts a 4 s poll (plusSiWatchAllow). acked: "Allowed. <computer> is in.",
-  then after 1.5 s the Done button's own handler. denied: "Your other computer said no to letting this one in.",
-  stop asking. plusSiClear and Done stop the poll.
+  then after 3 s the Done button's own handler. denied: "Your other computer said no to letting this one in to it."
+  with how to ask again, and stop asking; the "connected as" line stays, since this computer IS on Kosmos+.
+  plusSiClear and Done stop the poll. (Current state; the review notes below record how it got here.)
 
 ## Decisions
 - Reuse the register session (the coordinator answers it after register; pinned in kosmos-relay
@@ -34,7 +35,8 @@ and "For more information" last, so the engine matches the whole stderr (review 
 match could never fire).
 
 ## Review changes (iterations 1 and 2)
-- The window is enforced by an unref'd timer; Done posts signin-cancel so the engine drops the token.
+- The window is enforced by an unref'd timer; Done tells the engine to drop the token (signin-cancel at first,
+  signin-allowed-done from iteration 7).
 - 401 is final. An old answer never tells a new watch to stop. Denied says "<computer> was not let in." and how
   to ask again (a denied device's next sign-in is a fresh knock, kosmos-relay db.rs upsert_device).
 - register's already-set-up shortcut keeps the watch too (a retry after a no).
@@ -57,6 +59,9 @@ match could never fire).
   4, 8, 16, then 30 s at most, instead of asking every 4 s for the whole window; the unanswered path keeps its cadence
   and cap. "Allowed" shows for 3 s before moving on (time to read it, and for aria-live to announce it). The 401
   match is anchored on the tunnel's own "Error: Kosmos+ said no (401)" line.
+- Iteration 9: a no does NOT unregister this computer (it stays on Kosmos+ at its address; the no is about reaching
+  the other computer), so the denied landing keeps the "connected as" line and says "in to it", instead of
+  "<computer> was not let in", which was false.
 - Inherited, not mine: browser-checks-reason-grep.test.js reds on the base (209 emit sites, expected 208) because
   #4638 added one; Pete owns the bump, and this branch rebases after it.
 - Iteration 6: the denied line starts "press Done" (Remove this computer is on the Kosmos Plus pane Done leads to,

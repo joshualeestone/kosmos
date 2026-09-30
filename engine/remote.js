@@ -1688,6 +1688,7 @@ async function signinAllowStatus() {
   }
   if (allowWatchInFlight && allowWatchInFlight.w === w) return allowWatchInFlight.p;
   const p = (async () => {
+    // Bounds, innermost first: the tunnel's own request deadline (10 s), this child (20 s), the page's fetch (25 s).
     const r = parseSaid(await setupRun(['signin', 'status', '--coordinator', COORDINATOR()], w.token, 20000));
     // The watch this answer is about has ended (Sign out, a new sign-in, Forget, the window). If a NEW watch
     // exists, its page must ask again rather than be told to stop by an old answer.

@@ -43744,14 +43744,14 @@ function plusSiAllowed() {
     document.getElementById('plus-si-done-go').click();
   }, PLUS_SI_ALLOWED_SHOW_MS);
 }
-/* Denied: this computer is registered but not let in. Remove this computer retires its address, so the next sign-in
+/* Denied: this computer stays registered and on Kosmos+ at its own address (the done line stays true); the no is
+   about reaching the OTHER computer. Remove this computer retires its address, so the next sign-in
    is a second computer again (the account lists live addresses only, kosmos-relay db.rs macs_for_account) and a fresh
    request (a denied device's next sign-in goes back to pending, db.rs upsert_device). */
 function plusSiRefused() {
   const sec = PLUS_SI_SECOND;
-  document.getElementById('plus-si-done-line').textContent = (sec.computer || 'This computer') + ' was not let in.';
   // With several other computers, which one answered is not known here (#4638's own "one of your other computers").
-  document.getElementById('plus-si-match-lead').textContent = (sec.several ? 'One of your other computers' : 'Your other computer') + ' said no to letting this one in. To ask again, press Done, choose Remove this computer, then sign in again.';
+  document.getElementById('plus-si-match-lead').textContent = (sec.several ? 'One of your other computers' : 'Your other computer') + ' said no to letting this one in to it. To ask again, press Done, choose Remove this computer, then sign in again.';
   document.getElementById('plus-si-match-code').hidden = true;
 }
 
