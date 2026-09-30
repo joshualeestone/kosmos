@@ -220,7 +220,7 @@ function markGuideFolder(agentName) {
 /* The same home accounts.js and create.js use (a named world or a test sets it). */
 function kosmosHome() { return process.env.AGENT_WORKFORCE_HOME || require('os').homedir(); }
 /* `worldsBase` and `legacyRoots` are for tests: left out, both are worked out from this process (as `dataRoot`'s
-   default is), and production passes none of the three. `home` reaches the older folder of this world; the
+   default is), and production passes none of these. `home` reaches the older folder of this world; the
    worlds' base comes from the environment the process was started with (`preWorldEnv`), whatever `home` says. */
 function guideDenyRules(opts = {}) { return guideDenyRulesFor(opts).rules; }
 /* The rules, and the default world's store they name entry by entry (null when none is), so guardGuideFolder
@@ -319,16 +319,15 @@ function wasEntryRule(rule, base) {
   return baseEntryToName(name, worlds.WORLDS_SUBDIR, path.basename(worlds.registryPath(base)), require('./boardauth').TOKEN_FILE);
 }
 /* #4752: whether an entry directly in the worlds' base gets a rule of its own. Not the worlds folder or its
-   registry (the guide's own folder is under the first), nor the token (it has its own rule). Not a dot-named
+   registry (the guide's own folder is under the first), nor the token (it has its own rule), nor a dot-named
    temporary file (`.<name>.<process id>...tmp`) or the registry's lock: the `.board.token.*` and `.*.tmp`
-   pattern rules cover those dot-named temporary files, the lock holds nothing, and naming them one by one would add a rule per leftover that never goes away (earlier rules are
-   kept on every rewrite). Not a name with a character the rule syntax reads as a pattern or a bracket
-   (`* ? [ ] ( ) { } !` or a backslash): such a rule would deny more than the entry or not parse, so the name is
-   left readable; Kosmos makes none. */
+   pattern rules cover those files, and the lock holds nothing. Not a name the rule syntax would misread (one
+   of `* ? [ ] ( ) { } !`, a backslash, or a space at either end): its rule could deny more than the entry or
+   not parse, so the name is left readable; Kosmos makes none. */
 function baseEntryToName(name, worldsDir, registry, tokenFile) {
   if (name === worldsDir || name === registry || name === tokenFile) return false;   // the token has its own rule, always
   if (name.startsWith(`.${tokenFile}.`) || name === require('./worlds').registryLockName() || /^\..*\.tmp$/.test(name)) return false;
-  return !/[*?[\](){}!\\]/.test(name);
+  return !/[*?[\](){}!\\]/.test(name) && name === name.trim();
 }
 /* #4752: the worlds' base (the default world's data folder), as it was before any world was applied to this
    process; null when it cannot be worked out. */

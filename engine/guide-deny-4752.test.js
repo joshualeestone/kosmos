@@ -159,13 +159,13 @@ test('#4752 the base\'s own passing files are not named one by one, a name the r
   const base = path.join(SANDBOX, 'base-odd');
   fs.mkdirSync(path.join(base, 'worlds'), { recursive: true });
   fs.mkdirSync(path.join(base, '.worlds.json.lock'));
-  for (const f of ['.worlds.json.4242.tmp', '.board.token.4242.tmp', '.world-boot-attempts.json.4242.tmp', 'notes (1).txt', 'a*b', 'My Notes.txt']) fs.writeFileSync(path.join(base, f), 'x');
+  for (const f of ['.worlds.json.4242.tmp', '.board.token.4242.tmp', '.world-boot-attempts.json.4242.tmp', 'notes (1).txt', 'a*b', 'My Notes.txt', 'trailing ']) fs.writeFileSync(path.join(base, f), 'x');
   fs.mkdirSync(path.join(SANDBOX, 'elsewhere'), { recursive: true });
   fs.symlinkSync(path.join(SANDBOX, 'elsewhere'), path.join(base, 'linked'));
   const abs = (p) => '//' + p.replace(/^\/+/, '');
   const rules = setupAssistant.guideDenyRules({ dataRoot: path.join(base, 'worlds', 'w1', store.APP), worldsBase: base, legacyRoots: [] });
   const named = rules.filter((r) => r.startsWith(`Read(${abs(base)}/`));
-  for (const skipped of ['.worlds.json.lock', '.worlds.json.4242.tmp', '.board.token.4242.tmp', '.world-boot-attempts.json.4242.tmp', 'notes (1).txt', 'a*b']) {
+  for (const skipped of ['.worlds.json.lock', '.worlds.json.4242.tmp', '.board.token.4242.tmp', '.world-boot-attempts.json.4242.tmp', 'notes (1).txt', 'a*b', 'trailing ']) {
     assert.ok(!named.some((r) => r.includes(skipped)), 'named one by one: ' + skipped);
   }
   assert.ok(named.includes(`Read(${abs(path.join(base, 'My Notes.txt'))})`), 'a name with a space was not named');
