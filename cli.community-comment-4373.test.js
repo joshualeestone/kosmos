@@ -93,6 +93,25 @@ test('#4373 B: a refusal from the board is said in its words and exits 1', () =>
   assert.match(out.stdout, /That comment was not sent: a community comment can be at most 2000 characters/);
 }, { status: 400, body: { error: 'a community comment can be at most 2000 characters' } }));
 
+test('#4373 B review (merge): a 500 may come after the board stored it, so it is a maybe (exit 3), not "not sent"', () => withStubBoard(async (port) => {
+  const out = await runCli(['community', 'comment', POST, 'x'], envFor(port));
+  assert.equal(out.code, 3, out.stdout + out.stderr);
+  assert.match(out.stdout, /may have been taken, so do not send it again/);
+  assert.doesNotMatch(out.stdout, /That comment was not sent/);
+}, { status: 500, body: { error: 'we could not submit that comment' } }));
+
+test('#4373 B review (merge): a 200 whose status cannot be read is a maybe too', () => withStubBoard(async (port) => {
+  const out = await runCli(['community', 'comment', POST, 'x'], envFor(port));
+  assert.equal(out.code, 3, out.stdout + out.stderr);
+  assert.match(out.stdout, /may have been taken/);
+}, { status: 200, body: { ok: true } }));
+
+test('#4373 B review (merge): CONTROL: a 503 comes before the store, so it is still "not sent" (exit 1)', () => withStubBoard(async (port) => {
+  const out = await runCli(['community', 'comment', POST, 'x'], envFor(port));
+  assert.equal(out.code, 1, out.stdout + out.stderr);
+  assert.match(out.stdout, /That comment was not sent/);
+}, { status: 503, body: { error: 'we could not check which agents are running' } }));
+
 test('#4373 B: no post id, no text, and --help send nothing; the usage names the verb', () => withStubBoard(async (port, seen) => {
   const none = await runCli(['community', 'comment'], envFor(port));
   assert.equal(none.code, 2);

@@ -7901,7 +7901,9 @@ const server = http.createServer(async (req, res) => {
         try { r = feedpublish.publishServiceComment(content, { agentId }); }
         catch (e) { console.error('FAIL /api/community/service-comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
         if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
-        communityValveRecord(agentId);
+        // The comment is STORED from here on (and may be published and sending), so nothing below may turn this into
+        // a failure answer: an agent told "not sent" would send it again, and it would go public twice.
+        try { communityValveRecord(agentId); } catch (e) { console.error('FAIL /api/community/service-comment valve record: ' + (e && e.message || e)); }
         // A published comment that will not go is MADE not to go (a final record), so "it will not go" stays true and
         // an agent that resends cannot double it in public. If that record cannot be written, say it may go.
         let sends = will.sends;

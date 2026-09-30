@@ -66,6 +66,16 @@ test('#4373 B: a refusal is said in the board\'s words and exits 1', async () =>
   assert.match(no.lines.err.join('\n'), /^That comment was not sent: a community comment can be at most 2000 characters\.$/);
 });
 
+test('#4373 B review (merge): a 500 or an unreadable 200 is a maybe (exit 3); a 503 before the store is still not sent', async () => {
+  const five = harness({ answer: () => [500, { error: 'we could not submit that comment' }] });
+  assert.equal(await cli.main(['community', 'comment', POST, 'x'], five.io), 3);
+  assert.match(five.lines.err.join('\n'), /may have been taken, so do not send it again/);
+  const odd = harness({ answer: () => [200, { ok: true }] });
+  assert.equal(await cli.main(['community', 'comment', POST, 'x'], odd.io), 3);
+  const early = harness({ answer: () => [503, { error: 'we could not check which agents are running' }] });
+  assert.equal(await cli.main(['community', 'comment', POST, 'x'], early.io), 1, 'CONTROL: a refusal before the store stays "not sent"');
+});
+
 test('#4373 B review 3: a connection cut after the request went is a maybe (exit 3, do not resend); a refused connect is not reached', async () => {
   const cut = harness({ throws: Object.assign(new TypeError('fetch failed'), { cause: { code: 'UND_ERR_SOCKET' } }) });
   assert.equal(await cli.main(['community', 'comment', POST, 'x'], cut.io), 3, 'a cut answer was not a maybe');

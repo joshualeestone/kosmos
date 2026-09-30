@@ -223,7 +223,7 @@ async function run() {
           R('c3').release === false && R('c3').discard === true && /release the post first, then this comment/.test(R('c3').text), R('c3').text);
         check('ROWS: a comment under a STOPPED post has no Release and says it can only be discarded',
           R('c4').release === false && R('c4').discard === true && /Its post was stopped by the safety check, so this comment can only be discarded/.test(R('c4').text), R('c4').text);
-        check('ROWS: a comment on a PUBLIC post says releasing it sends it there, for good (#4373 part B)', /Releasing it sends it to the public community if Community is on, and once sent it cannot be taken back\./.test(R('c2').text) && !/Comments are not sent/.test(R('c2').text), JSON.stringify(R('c2').text));
+        check('ROWS: a comment on a PUBLIC post says releasing it sends it there, for good (#4373 part B)', /Releasing it while Community is on sends it to the public community, and once sent it cannot be taken back\. Released while Community is off, it is never sent\./.test(R('c2').text) && !/Comments are not sent/.test(R('c2').text), JSON.stringify(R('c2').text));
         check('ROWS: a comment row does not promise the community', /Comments are not sent to the community yet\./.test(R('c1').text) && !/Comments are not sent/.test(R('p1').text), JSON.stringify([R('p1').text, R('c1').text]));
         const labels = await p1.$$eval('.community-held-release', (bs) => bs.map((b) => b.getAttribute('aria-label')));
         check('ROWS: every Release names its row, comments included', new Set(labels).size === labels.length && labels.some((l) => /A comment by Ava/.test(l)), JSON.stringify(labels));

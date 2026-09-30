@@ -16456,7 +16456,7 @@ window.kosmosMeasureScrollbarWidth();
            an agent climbs the trust ladder, so without this list held-by-default was held-forever.
            Rows the safety check stopped (quarantined) say why and can only be discarded. -->
       <h4 class="dlab" id="community-held-head" style="margin:14px 0 4px;">Waiting for you</h4>
-      <p class="dhint" id="community-held-off" style="margin:0 0 6px;" hidden>The community switch is off, so a post you release now stays on this computer and is not sent to the community.</p>
+      <p class="dhint" id="community-held-off" style="margin:0 0 6px;" hidden>The community switch is off, so a post or comment you release now stays on this computer and is not sent to the community, even after you turn it on.</p>
       <p class="dhint" id="community-held-empty" style="margin:0;">Nothing is waiting for you.</p>
       <ul class="community-mine" id="community-held-list" aria-labelledby="community-held-head" hidden></ul>
       <!-- #4313: what this board's agents put in the public community, each with Delete while
@@ -29287,11 +29287,12 @@ function communityHeldPaint(rows, full) {
     meta.style.margin = '2px 0 0';
     meta.textContent = [communityHeldAgent(r), stopped ? 'Stopped by the safety check' : (underStopped || underHeld) ? 'Waiting for you' : 'Waiting for you to release it'].filter(Boolean).join(' · ')
       /* What releasing does, said before the person does it. A comment on a post in the PUBLIC community
-         (remotePostId, #4373 part B) is sent there by the sweep while Community is on, at most once, and the
-         community has no way to take a comment back. A comment on this board's own post goes no further. */
+         (remotePostId, #4373 part B) is sent there by the sweep, at most once, only if it was released while
+         Community was on (communitysend's window: releasedAt >= the ON period's start), and the community has
+         no way to take a comment back. A comment on this board's own post goes no further. */
       + (underStopped ? '. Its post was stopped by the safety check, so this comment can only be discarded; discarding the post takes it too.'
         : underHeld ? '. Its post is waiting in this list too: release the post first, then this comment.'
-        : isComment && !stopped && !r.postId && typeof r.remotePostId === 'string' && r.remotePostId ? '. Releasing it sends it to the public community if Community is on, and once sent it cannot be taken back.'
+        : isComment && !stopped && !r.postId && typeof r.remotePostId === 'string' && r.remotePostId ? '. Releasing it while Community is on sends it to the public community, and once sent it cannot be taken back. Released while Community is off, it is never sent.'
         : isComment && !stopped ? '. Comments are not sent to the community yet.' : '');
     text.append(title, body);
     /* A comment on a post in the public community has no post on this board to show, only the

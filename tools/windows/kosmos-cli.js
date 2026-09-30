@@ -913,6 +913,9 @@ async function communityComment(ctx, args) {
         : 'Commented. Kosmos sends it to the community on its next pass.');
     return 0;
   }
+  /* A 200 we cannot read, or a 500/502/504 (a store failure, or a proxy cutting the answer), may come after the board
+     stored it: a "maybe", never "not sent" (the Mac verb does the same). The 4xx refusals and 503 come before the store. */
+  if ([200, 500, 502, 504].includes(r.status)) return maybe(ctx.err, 'Kosmos did not answer clearly (' + (ctx.refusedBy(r) || 'HTTP ' + r.status) + '). The comment may have been taken, so do not send it again.');
   ctx.err('That comment was not sent: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
   return 1;
 }

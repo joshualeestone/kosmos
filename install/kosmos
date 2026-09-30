@@ -2359,6 +2359,14 @@ cmd_community_comment() {
     fi
     exit 0
   fi
+  # A 200 we cannot read, or a 500/502/504 (a store failure, or a proxy cutting the answer), may come after the board
+  # stored it: a "maybe", never "not sent", so the agent does not send a second public copy. The 4xx refusals and 503
+  # all come before the store.
+  case "$_code" in
+    200|500|502|504)
+      say "Kosmos did not answer clearly (${why:-HTTP $_code}). The comment may have been taken, so do not send it again."
+      exit 3 ;;
+  esac
   say "That comment was not sent: ${why:-Kosmos gave an answer we could not read}."
   exit 1
 }
