@@ -117,9 +117,15 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
       };
     }, { id, answer });
 
+    /* From one hook's page the button shows the full list: the route answers reread (review round 11). */
+    const rr = await press('d-qask-codex-trust', { status: 200, body: { ok: false, choice: 'trust', reread: true, because: 'the full list of hooks is showing now; read it and choose again' } });
+    chk(rr.sent && JSON.parse(rr.sent.body || '{}').seen && JSON.parse(rr.sent.body).seen.screen === 'hook' && /full list of hooks is showing now/.test(rr.msg),
+      `${t} on one hook's page the button asks for the full list and says so`, JSON.stringify(rr));
+    /* Trust itself is pressed from the TABLE (review round 11: it used to be clicked with the hook page's summary). */
+    await paint({ ...base, codexHooks: TABLE });
     const tr = await press('d-qask-codex-trust', { status: 200, body: { ok: true, choice: 'trust', because: null } });
     chk(tr.sent && tr.sent.url === '/api/agent/sam%20doe/codex-hooks' && tr.sent.method === 'POST' && JSON.parse(tr.sent.body || '{}').choice === 'trust'
-      && JSON.parse(tr.sent.body || '{}').seen && JSON.parse(tr.sent.body).seen.screen === 'hook',
+      && JSON.parse(tr.sent.body || '{}').seen && JSON.parse(tr.sent.body).seen.screen === 'table',
       `${t} Trust POSTs { choice: 'trust' } to the encoded codex-hooks route`, JSON.stringify(tr.sent));
     chk(/Done\. Its screen is no longer asking about hooks\./.test(tr.msg) && !/should now be trusted/.test(tr.msg) && tr.enabled, `${t} Trust shows the done line, buttons enabled again`, tr.msg);
     const sk = await press('d-qask-codex-skip', { status: 200, body: { ok: false, choice: 'skip', because: 'the hook question is not on its screen now, so nothing was pressed' } });

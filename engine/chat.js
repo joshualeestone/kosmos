@@ -1227,7 +1227,7 @@ function sameCodexHooks(a, b) {
 async function answerCodexHooks(sessionName, choice, roster, seen) {
   const keys = [];
   const no = (because) => ({ ok: false, because, keys });
-  if (choice !== 'trust' && choice !== 'skip' && choice !== 'close') return no('choose to trust the hooks or to continue without them');
+  if (choice !== 'trust' && choice !== 'skip' && choice !== 'close') return no('choose to trust the hooks, to continue without them, or to close the list');
   const allowed = addressable(sessionName, roster);
   if (!allowed.ok) return no(allowed.because);
   /* Locked on the PANE the name resolved to, not the name as typed (review round 2: a case-folded spelling reaches the
@@ -1281,39 +1281,43 @@ async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card,
   let first = true;
   for (let n = 0; n < 4; n += 1) {
     const step = steps[now.screen];
-    if (!step) return no('its screen went somewhere we have not measured, so nothing more was pressed; look at its window');
+    if (!step) return no('its screen went somewhere we have not measured, so nothing more was pressed; open its Terminal tab to see it');
     /* Read again immediately before the key: it must still be this screen, and on the FIRST key it must be the dialog
        the person was shown (review round 4, checked on this same read, round 5). */
     const before = look();
-    if (before.unseen || before.screen !== now.screen) return no('its screen changed before we could answer, so nothing more was pressed; look at its window');
+    if (before.unseen || before.screen !== now.screen) return no('its screen changed before we could answer, so nothing more was pressed; open its Terminal tab to see it');
     if (first && !sameCodexHooks(seen, status.codexHookSummary(before.text))) return no('its hook question changed since you read it, so nothing was pressed; read it again and choose');
     /* The table and one hook's page must have their exact measured shape before any key (review round 10: a bare
        table footer printed by an agent read as the table, and Trust pressed "t" there). */
     if ((now.screen === 'table' || now.screen === 'hook') && !status.codexHookScreenExact(before.text, now.screen)) {
-      return no('the hook question on its screen is not the one we know, so nothing was pressed; look at its window');
+      return no('the hook question on its screen is not the one we know, so nothing was pressed; open its Terminal tab to see it');
     }
     let key = step[0];
     if (key === 'digit') {
       const mk = status.codexHookMenuKeys(before.text);
       key = choice === 'trust' ? mk.trust : mk.skip;
-      if (!key) return no('the hook question on its screen does not show that choice the way we know it, so nothing was pressed; look at its window');
+      if (!key) return no('the hook question on its screen does not show that choice the way we know it, so nothing was pressed; open its Terminal tab to see it');
     }
-    if (!press(key)) return no('we could not press the key; look at its window');
+    if (!press(key)) return no('we could not press the key; open its Terminal tab to see it');
     first = false;
     await wait(CODEX_HOOK_SETTLE_MS);
     const after = look();
-    if (after.unseen) return no('we answered, and then could not see its screen to check it; look at its window');
-    if (after.screen === 'blank') return no('we answered, and its screen was blank when we checked; look at its window');
+    if (after.unseen) return no('we answered, and then could not see its screen to check it; open its Terminal tab to see it');
+    if (after.screen === 'blank') return no('we answered, and its screen was blank when we checked; open its Terminal tab to see it');
     if (after.screen !== step[1]) {
-      if (after.screen === now.screen) return no('its screen did not change after we answered; look at its window');
-      return no('its screen went somewhere we have not measured, so nothing more was pressed; look at its window');
+      if (after.screen === now.screen) {
+        /* A slow redraw is not proof the key failed (review round 11): after a Trust key it may still have landed. */
+        if (choice === 'trust') return no('we pressed Trust and its screen has not changed yet, so it may still take effect; check again in a moment');
+        return no('its screen did not change after we answered; open its Terminal tab to see it');
+      }
+      return no('its screen went somewhere we have not measured, so nothing more was pressed; open its Terminal tab to see it');
     }
     if (after.screen === 'gone') return { ok: true, choice, keys };
     /* Trust from one hook's page: the full list is up now; the person chooses again with every hook in view. */
     if (choice === 'trust' && now.screen === 'hook') return { ok: false, keys, because: 'the full list of hooks is showing now; read it and choose again', reread: true };
     now = after;
   }
-  return no('its screen is still asking after four keys, so we stopped; look at its window');
+  return no('its screen is still asking after four keys, so we stopped; open its Terminal tab to see it');
 }
 
 /* #3564: what a paused swarm still accepts. */

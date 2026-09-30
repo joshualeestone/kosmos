@@ -1710,7 +1710,9 @@ function codexHookMenuKeys(paneText) {
    pressed on either (codexHookReview stays loose on purpose: for #4589's floor a false positive only refuses typing,
    which is safe; for a key it would press "t" on a bare footer an agent printed). Table: its "N hooks need review"
    warning, the "Event  Installed  Active  Review" header below it, at least one row with a hook to review, and the
-   footer last. Hook page: its warning, a "[!] Hook N" row below it, and its footer last. */
+   footer last. Hook page: its warning, a "[!] Hook N" row below it, and its footer last. Not every row between those
+   anchors is checked: what makes it safe is that Codex's own footer must be the LAST rows, which agent text printed
+   above a live Codex screen cannot be. */
 function codexHookScreenExact(paneText, screen) {
   const rows = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
   while (rows.length && !rows[rows.length - 1]) rows.pop();
@@ -1783,6 +1785,10 @@ function codexHookSummary(paneText) {
     /* Round 6: the one page that shows what the hook RUNS. Capped and one line, like the source. */
     let ci = -1;
     block.forEach((r, i) => { if (/^\s*Command\s{2,}\S/.test(r)) ci = i; });
+    /* A page for an event with more than one hook shows only the selected hook's command (review round 11), so no
+       command is claimed for the event then. */
+    const pageWarn = block.map((r) => CODEX_HOOK_TABLE_WARNING.exec(r) && /(\d+) hooks? need/.exec(r)).filter(Boolean).pop();
+    if (pageWarn && Number(pageWarn[1]) > 1) ci = -1;
     if (ci >= 0) {
       /* Its wrapped rows too (no label, deeper indent), up to the next labelled row; cut at 160 with an ellipsis so a
          shortened command never reads as the whole of it (review round 7). */

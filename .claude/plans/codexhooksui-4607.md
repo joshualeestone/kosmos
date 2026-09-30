@@ -80,6 +80,12 @@ Round 10: before any key on the TABLE or one HOOK page, the screen must have its
 a hook to review, footer last; or warning, a "[!] Hook N" row, footer last). codexHookReview stays loose on purpose:
 for #4589's message floor a false positive only refuses typing.
 
+Round 11: the menu's footer is Codex's generic popup hint (its binary builds it from shared pieces, and it has a
+user-question popup). The exact-block check means only a popup whose OWN rows are exactly the hook menu's gives a
+digit; one that let an agent write those rows right above that footer would get "2", which answers the agent's own
+question (no hook is trusted). Unmeasured; stated. Trust writes to the account's Codex settings, so it applies to every
+Codex agent on that account (the page says so).
+
 ## Weakest premise
 That 0.149.1's screens and keys hold for the Codex the person runs. A newer Codex (0.159.2 exists) may word the
 dialog differently; then codexHookReview reads nothing, the card shows no buttons, and nothing is pressed (fails

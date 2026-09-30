@@ -95,7 +95,7 @@ test('#4607 a process with the board token and no browser headers is refused', a
 test('#4607 CONTROL: the person\'s page reaches the handler (a bad choice is a 400, a real one is answered)', async () => {
   const bad = await call(PAGE(), { choice: '2' });
   assert.equal(bad.code, 400, bad.text);
-  assert.match(bad.text, /trust the hooks or to continue without them/);
+  assert.match(bad.text, /trust the hooks, to continue without them, or to close the list/);
   // No such Codex agent on this sandboxed board: answered, not pressed, and not refused as not the person.
   const real = await call(PAGE(), { choice: 'trust' });
   assert.equal(real.code, 200, real.text);
