@@ -24,8 +24,8 @@ function script(name, body) {
 }
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 /* #4656: `ms` counts from when the child has been spawned, not from before the spawn: a saturated box can take
-   seconds to spawn a shell, and that time is the box's, not the probe's. (A spawn that fails outright answers
-   inside runBounded, so there the clock never restarts.) */
+   seconds to spawn a shell, and that time is the box's, not the probe's. (Only a spawn that THROWS answers inside
+   runBounded, before the clock restarts; a missing binary answers later, through the child's error event.) */
 const run = (bin, args, opts) => new Promise((resolve) => {
   let t0 = Date.now();
   let child = null;
@@ -34,16 +34,23 @@ const run = (bin, args, opts) => new Promise((resolve) => {
   if (!answered) t0 = Date.now();
 });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+/* #4656: wait until `pid` is gone, for as long as a saturated box could need, and answer whether it went. A fixed
+   wait passed on an idle box and failed a correct kill on a busy one. */
+async function gone(pid, ms = 30000) {
+  for (const end = Date.now() + ms; Date.now() < end; await wait(100)) if (!alive(pid)) return true;
+  return !alive(pid);
+}
 
 test('#4326 a child that IGNORES SIGTERM is answered at the timeout and then SIGKILLed', async () => {
   const stub = script('stubborn.sh', "trap '' TERM\nwhile :; do sleep 1; done");
   const r = await run(stub, [], { timeoutMs: 400, graceMs: 300 });
   try {
     assert.equal(r.code, -1, 'a timed-out probe must answer -1 (not connected), as execFile did');
-    assert.ok(r.ms >= 350 && r.ms < 2000, `the answer must come at the timeout, not before or long after: ${r.ms} ms`);
+    // #4656: "not before" is the claim (350 ms); the upper bound only has to tell "at the timeout" from "never",
+    // with room for a stalled event loop.
+    assert.ok(r.ms >= 350 && r.ms < 400 + 5000, `the answer must come at the timeout, not before or long after: ${r.ms} ms`);
     assert.ok(r.pid > 0, 'no child pid (premise)');
-    await wait(1500);   // past the grace: SIGKILL has gone
-    assert.equal(alive(r.pid), false, 'the SIGTERM-ignoring child outlived timeout + grace (the #4326 orphan)');
+    assert.equal(await gone(r.pid), true, 'the SIGTERM-ignoring child outlived timeout + grace (the #4326 orphan)');
   } finally {
     // If the fix regresses, the stub loops forever and its open pipes would keep THIS test
     // process alive: the test would hang and leak the very orphan it guards against (a
@@ -66,11 +73,11 @@ test('#4326 the probe dies WITH the board: it stays in the board\'s process grou
      setInterval(() => {}, 1000);`], { detached: true, stdio: 'ignore' });
   let probe = 0;
   try {
-    for (let i = 0; i < 50 && !probe; i += 1) { await wait(100); try { probe = Number(fs.readFileSync(pidFile, 'utf8')); } catch { probe = 0; } }
+    // #4656: up to 30 s for the board to start its probe (a node start plus a require), not 5.
+    for (let i = 0; i < 300 && !probe; i += 1) { await wait(100); try { probe = Number(fs.readFileSync(pidFile, 'utf8')); } catch { probe = 0; } }
     assert.ok(probe > 0 && alive(probe), 'the board never started its probe (premise)');
     process.kill(-board.pid, 'SIGKILL');   // the board's whole group, as launchd reaps a job
-    await wait(500);
-    assert.equal(alive(probe), false, 'the probe outlived its board: it is not in the board\'s process group (detached?)');
+    assert.equal(await gone(probe), true, 'the probe outlived its board: it is not in the board\'s process group (detached?)');
   } finally {
     for (const target of [-board.pid, board.pid, probe]) { if (target) { try { process.kill(target, 'SIGKILL'); } catch { /* gone */ } } }
   }
@@ -99,15 +106,17 @@ const runSeen = (bin, opts) => new Promise((resolve) => {
   const child = runBounded(bin, [], opts, (code, text) => resolve({ code, text, first: seen[0] }));
   if (child) for (const name of ['stdout', 'stderr']) child[name].on('data', () => { if (!seen.includes(name)) seen.push(name); });
 });
-/* Runs `bin` until the stream `want` was SEEN to arrive first (at most 5 tries), checking the answer on every try. */
+/* Runs `bin` until the stream `want` was SEEN to arrive first (at most 20 tries), checking the answer on every try. */
 async function answerWhenFirst(bin, want) {
   let r = null;
-  for (let tries = 0; tries < 5 && !(r && r.first === want); tries += 1) {
+  // 20 tries (about 0.2 s each): a child stalled across its 0.2 s sleep hands both writes over in one poll, in
+  // libuv's order, so a few tries in a row can miss on a saturated box (review 2).
+  for (let tries = 0; tries < 20 && !(r && r.first === want); tries += 1) {
     r = await runSeen(bin, { timeoutMs: NOT_A_SPEED_TEST });
     assert.equal(r.code, 0);
     assert.equal(r.text, 'octo\nwarning\n', 'stdout must come before stderr in the answer (first to arrive: ' + r.first + ')');
   }
-  assert.equal(r.first, want, 'PREMISE: in 5 runs ' + want + ' never arrived first, so that order was never tested');
+  assert.equal(r.first, want, 'PREMISE: in 20 runs ' + want + ' never arrived first, so that order was never tested');
 }
 
 test('#4326 the answer is stdout THEN stderr, as execFile gave it, whatever order they arrive in', async () => {
@@ -142,5 +151,6 @@ test('#4326 a probe that floods past 1 MB is stopped at once, as execFile\'s max
 test('#4326 a binary that cannot be spawned answers -1 once, never hangs', async () => {
   const r = await run(path.join(DIR, 'does-not-exist'), [], { timeoutMs: NOT_A_SPEED_TEST });
   assert.equal(r.code, -1);
-  assert.ok(r.ms < NOT_A_SPEED_TEST / 3, `a spawn failure must answer at once, not at the timeout: ${r.ms} ms`);
+  // A regression net, not a speed check: only an answer that waits for the timeout (a hang) fails it.
+  assert.ok(r.ms < NOT_A_SPEED_TEST / 3, `a spawn failure must answer, not wait for the timeout: ${r.ms} ms`);
 });
