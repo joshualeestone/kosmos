@@ -355,19 +355,24 @@ const AGENTS_LOOK = `(() => {
       /* The Messages filter is a control: at rest it keeps the soft grey ground (its "you can press this", which a
          touch screen needs), and hovering it does not change its width (nothing in the row jumps). Shown by hand for
          the read, since the fixture has no unread messages, then hidden again. */
-      const dm = await page.evaluate(() => {
-        const t = document.getElementById('st-dm-tile'); if (!t) return { found: false };
-        const was = t.hidden; t.hidden = false;
-        const r = t.getBoundingClientRect(), cs = getComputedStyle(t);
-        return { found: true, was, bg: cs.backgroundColor, border: cs.borderTopColor, w: Math.round(r.width) };
-      });
-      let dmHoverW = null;
-      if (dm.found) {
-        await page.hover('#st-dm-tile');
-        dmHoverW = await page.evaluate(() => Math.round(document.getElementById('st-dm-tile').getBoundingClientRect().width));
+      /* The page's 5-second poll re-hides this tile (no unread messages), so it can land between steps: each attempt
+         shows the tile, moves the pointer onto it and reads it at once, and a read that finds it hidden again tries
+         once more rather than waiting on a hidden element. */
+      const dmWas = await page.evaluate(() => { const t = document.getElementById('st-dm-tile'); return t ? t.hidden : null; });
+      let dm = { found: dmWas !== null }, dmHoverW = null;
+      for (let attempt = 0; dm.found && attempt < 3 && dmHoverW === null; attempt++) {
+        dm = await page.evaluate(() => {
+          const t = document.getElementById('st-dm-tile'); t.hidden = false;
+          const r = t.getBoundingClientRect(), cs = getComputedStyle(t);
+          return { found: true, bg: cs.backgroundColor, border: cs.borderTopColor, w: Math.round(r.width), x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        });
+        await page.mouse.move(dm.x, dm.y);
+        const under = await page.evaluate(() => { const t = document.getElementById('st-dm-tile');
+          return t.hidden ? null : { w: Math.round(t.getBoundingClientRect().width), hovered: t.matches(':hover') }; });
+        if (under && under.hovered) dmHoverW = under.w;
         await page.mouse.move(0, 0);
-        await page.evaluate((was) => { document.getElementById('st-dm-tile').hidden = was; }, dm.was);
       }
+      if (dm.found) await page.evaluate((was) => { document.getElementById('st-dm-tile').hidden = was; }, dmWas);
       chk(dm.found && dm.bg === GREY_OF[theme] && dm.border === 'rgba(0, 0, 0, 0)' && dmHoverW === dm.w,
         `${tag} On, Agents page: the Messages filter rests on the grey ground and keeps its width under the pointer`, JSON.stringify({ ...dm, dmHoverW }));
       /* Board notices, drawn by hand into the grid for the read and removed after: an empty-slot note has no border,
@@ -455,5 +460,5 @@ const AGENTS_LOOK = `(() => {
     for (const d of ROOTS) fs.rmSync(d, { recursive: true, force: true });
   }
   console.log(`\n${ran - fail.length}/${ran} passed`);
-  process.exit(fail.length || ran < 90 ? 1 : 0);   // a full run makes about 100; a skipped pass must fail
+  process.exit(fail.length || ran < 130 ? 1 : 0);   // a full run makes about 140 (three passes); a skipped pass must fail
 })();

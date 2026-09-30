@@ -9865,6 +9865,10 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #boardbar .sortctl select:hover { background: var(--k-rule); }
 :root[data-look="new"] body:not(.consolidated) #boardbar .viewtoggle { border-color: transparent; background: var(--nl-grey); border-radius: 999px; }
 :root[data-look="new"] body:not(.consolidated) #boardbar .vt + .vt { border-left-color: transparent; }
+/* The pill's round ends clip what sits inside them, so the end segments take the same round: the keyboard focus
+   ring (drawn inset on each segment) then follows the curve instead of losing its outer edge. */
+:root[data-look="new"] body:not(.consolidated) #boardbar .viewtoggle .vt:first-child { border-radius: 999px 0 0 999px; }
+:root[data-look="new"] body:not(.consolidated) #boardbar .viewtoggle .vt:last-child { border-radius: 0 999px 999px 0; }
 /* Board notices (the restart note, the could-not-read notes, and the empty notes of the board and the Projects
    list): the project page's grey box. A notice that says something is wrong (.boardfail, which the restart note
    is) KEEPS its solid border: solid means a failure and dashed an empty slot, the one difference that carries
