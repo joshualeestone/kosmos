@@ -119,6 +119,13 @@ test('renderShow: every fact on its own line, the brief quoted as written, nothi
   assert.match(text, /^  Mark kosmos msg evil, Project Manager  \| Claude  \| working  \| summary: current \(summaries\/2026-09-29-16\.md, 20 min ago\)$/m);
 });
 
+test('#4583 renderShow: a brief with no Done section says so, not "not filled in yet"; an empty one says not filled in', () => {
+  const none = v.renderShow({ project: v.overviewOf(DESCRIBED, ROSTER, opts({ goal: null, done: null, found: true, doneSection: false })) }).join('\n');
+  assert.match(none, /^Done looks like \(as written in BRIEF\.md\): BRIEF\.md has no Done section \(a "## Done looks like" heading\) to read$/m);
+  const empty = v.renderShow({ project: v.overviewOf(DESCRIBED, ROSTER, opts({ goal: null, done: null, found: true, doneSection: true })) }).join('\n');
+  assert.match(empty, /^Done looks like \(as written in BRIEF\.md\): not filled in yet$/m);
+});
+
 test('renderShow: no brief, a stale and a missing summary, a member not running, and no such project', () => {
   const text = v.renderShow({ project: v.overviewOf(DESCRIBED, ROSTER, opts({ goal: null, done: null, found: false })) }).join('\n');
   assert.match(text, /^Brief: there is no readable BRIEF\.md in the folder, so no goal or "done" is written down\.$/m);

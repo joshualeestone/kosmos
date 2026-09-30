@@ -43,6 +43,17 @@ const MAX_BYTES = 8 * 1024 * 1024;
 const TIMEOUT_MS = 8000;
 // A picker opened twice in a minute downloads once. A failed try waits as long as a good one.
 const MIN_GAP_MS = 10 * 60 * 1000;
+/* #4720: a team member's portrait is published beside the catalogue (avatars/<id>.webp) and named
+   in it with its sha256, so the signature that covers the catalogue covers the image too. The cap
+   is the catalogue builder's own (kosmos-catalogue build.js MAX_PORTRAIT_BYTES): a larger file is
+   never published, so one that arrives larger is not the portrait. */
+const PORTRAIT_MAX_BYTES = 512 * 1024;
+// The only path a portrait may have: the builder's avatars/<team>-<slot>.webp, and what the site
+// passes through (chaoskosmos-site vercel.json). Nothing here can name another folder or address.
+const PORTRAIT_RE = /^avatars\/[a-z0-9]+(-[a-z0-9]+)*\.webp$/;
+// A portrait that failed to download is not asked for again for a minute: the Team screen asks
+// once per member made, and a retry of a failed member must not become a stream of requests.
+const PORTRAIT_GAP_MS = 60 * 1000;
 
 /** Where the catalogue is downloaded from. KOSMOS_CATALOGUE_BASE is a test seam, like
  *  KOSMOS_RELEASE_BASE: whatever it names must still carry a signature PUBLIC_KEY accepts. */
@@ -60,9 +71,19 @@ let data;            // undefined: not read yet; null: none usable; else the par
 let lastTry = 0;
 let lastError = null;
 let inflight = null;
+// Keyed by the hash AND the file name: two members may share one image under two names, and one
+// name failing must not answer for the other.
+const portraitFailed = new Map();     // "<sha256> <image>" -> { at, because }: the last failed download
+const portraitInflight = new Map();   // "<sha256> <image>" -> the download under way
+/* A portrait that verified but could not be saved (a full or read-only disk; on Windows, a file
+   held open) is held here instead, so it is downloaded once and not on every ask. One entry per
+   portrait, each at most PORTRAIT_MAX_BYTES. An entry the catalogue no longer names is dropped the
+   next time a portrait is downloaded (prunePortraits), not before: until then it is only unused,
+   since portrait() serves nothing the held catalogue does not name. */
+const portraitUnsaved = new Map();    // sha256 -> bytes
 
 /** Tests sign with their own key pair. In-process only: nothing outside this process can reach it. */
-function useKeyForTest(pem) { key = pem || PUBLIC_KEY; data = undefined; lastTry = 0; lastError = null; }
+function useKeyForTest(pem) { key = pem || PUBLIC_KEY; data = undefined; lastTry = 0; lastError = null; portraitFailed.clear(); portraitUnsaved.clear(); portraitInflight.clear(); }
 
 const KEY_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const isText = (v) => typeof v === 'string' && v.length > 0;
@@ -161,20 +182,20 @@ function storedSerial() {
 function readRoles() { const c = load(); return c ? c : { groups: [], roles: [] }; }
 function readTeams() { const c = load(); return c ? c : { teams: [] }; }
 
-/** The body of url, refused as soon as it is known to exceed MAX_BYTES: by its Content-Length
+/** The body of url, refused as soon as it is known to exceed `max` bytes: by its Content-Length
  *  before reading, and by a running count while reading, so an oversized answer is never held. */
-async function fetchBytes(doFetch, url, stop) {
+async function fetchBytes(doFetch, url, stop, max = MAX_BYTES) {
   const signal = stop ? AbortSignal.any([AbortSignal.timeout(TIMEOUT_MS), stop]) : AbortSignal.timeout(TIMEOUT_MS);
   const res = await doFetch(url, { signal, cache: 'no-store' });
   if (!res.ok) throw new Error(`${url} answered ${res.status}`);
-  const tooBig = () => new Error(`${url} is larger than ${MAX_BYTES} bytes`);
-  if (Number(res.headers.get('content-length')) > MAX_BYTES) throw tooBig();
+  const tooBig = () => new Error(`${url} is larger than ${max} bytes`);
+  if (Number(res.headers.get('content-length')) > max) throw tooBig();
   if (!res.body) return Buffer.alloc(0);
   const chunks = [];
   let total = 0;
   for await (const chunk of res.body) {
     total += chunk.length;
-    if (total > MAX_BYTES) {
+    if (total > max) {
       try { await res.body.cancel(); } catch { /* already closed */ }
       throw tooBig();
     }
@@ -299,6 +320,113 @@ function team(key) {
   return t ? structuredClone(t) : null;
 }
 
+/** Where a downloaded portrait is kept: under its own sha256, so a stored file can only ever be
+ *  the image that hash names, and a portrait that changes never reads as the old one. */
+function portraitFile(sha) { return path.join(path.dirname(cacheFile()), 'portraits', `${sha}.webp`); }
+
+/** The same test the catalogue's builder applies before it publishes one: a RIFF container whose
+ *  form is WEBP, whose size field accounts for the whole file, and whose first chunk is an image.
+ *  The 20 bytes are the builder's floor: a 16-byte file can carry all three marks and no image. */
+function isWebp(bytes) {
+  return bytes.length >= 20 && bytes.subarray(0, 4).toString('latin1') === 'RIFF' && bytes.subarray(8, 12).toString('latin1') === 'WEBP'
+    && bytes.readUInt32LE(4) + 8 === bytes.length && ['VP8 ', 'VP8L', 'VP8X'].includes(bytes.subarray(12, 16).toString('latin1'));
+}
+
+/** Whether bytes are the portrait the catalogue names: its hash, and an image of the one kind published. */
+function isPortrait(bytes, sha) {
+  return crypto.createHash('sha256').update(bytes).digest('hex') === sha && isWebp(bytes);
+}
+
+/** Remove stored portraits the held catalogue no longer names (a portrait replaced, a team removed). */
+function prunePortraits(keep) {
+  const named = new Set([keep]);
+  for (const t of readTeams().teams) for (const m of t.members) if (m.avatar && typeof m.avatar.imageSha256 === 'string') named.add(m.avatar.imageSha256);
+  for (const sha of portraitUnsaved.keys()) if (!named.has(sha)) portraitUnsaved.delete(sha);
+  const dir = path.dirname(portraitFile(keep));
+  let files = [];
+  try { files = fs.readdirSync(dir); } catch { return; }
+  for (const f of files) {
+    // Only a finished portrait is a candidate: a download being written beside it is left alone.
+    if (!/^[0-9a-f]{64}\.webp$/.test(f) || named.has(f.slice(0, 64))) continue;
+    try { fs.rmSync(path.join(dir, f), { force: true }); } catch { /* it is only a stale copy */ }
+  }
+}
+
+/**
+ * #4720: the portrait of one member of one prebuilt team, from the catalogue the board holds. It
+ * is downloaded from beside the catalogue the first time it is asked for, used only when it is
+ * exactly the image the signed catalogue names (its sha256) and is a WebP image, and kept in the
+ * data folder so a second team made from the same seed does not download it again. It does not
+ * download the catalogue: a team is only ever made from one the board already holds.
+ *
+ * Never throws. A portrait is decoration: every failure is an answer the caller can show, and
+ * none of them stops the agent being made.
+ * @param {string} teamKey
+ * @param {string} slot
+ * @param {{fetcher?: Function, force?: boolean}} [opts]
+ * @returns {Promise<{ok: true, bytes: Buffer, type: string} | {ok: false, because: string}>}
+ */
+async function portrait(teamKey, slot, opts = {}) {
+  const no = (because) => ({ ok: false, because });
+  const t = readTeams().teams.find((x) => x.key === String(teamKey || ''));
+  if (!t) return no(`there is no prebuilt team called ${JSON.stringify(String(teamKey))}`);
+  const m = t.members.find((x) => x.slot === slot);
+  if (!m) return no(`the ${t.label} has no member ${JSON.stringify(String(slot))}`);
+  const a = m.avatar;
+  if (!a || a.image === null || a.image === undefined) return no(`the ${m.title} of the ${t.label} has no portrait yet`);
+  const sha = a.imageSha256;
+  if (typeof a.image !== 'string' || !PORTRAIT_RE.test(a.image) || typeof sha !== 'string' || !/^[0-9a-f]{64}$/.test(sha)) {
+    return no(`the catalogue names a portrait for the ${m.title} of the ${t.label} that this version cannot use`);
+  }
+  const yes = (bytes) => ({ ok: true, bytes, type: 'image/webp' });
+  const file = portraitFile(sha);
+  try {
+    const kept = fs.readFileSync(file);
+    if (isPortrait(kept, sha)) return yes(kept);
+    // Damaged on disk: it is downloaded again, and the good copy replaces it.
+  } catch { /* not kept yet */ }
+  if (portraitUnsaved.has(sha)) return yes(portraitUnsaved.get(sha));
+  // As for refresh(): no test run downloads from installkosmos.com unless it names the address or
+  // hands in its own fetcher (#4253).
+  if (process.env.NODE_TEST_CONTEXT && !opts.fetcher && !process.env.KOSMOS_CATALOGUE_BASE) return no('a test run does not download portraits');
+  const id = `${sha} ${a.image}`;
+  const failed = portraitFailed.get(id);
+  if (failed && !opts.force && Date.now() - failed.at < PORTRAIT_GAP_MS) return no(failed.because);
+  if (portraitInflight.has(id)) return portraitInflight.get(id);
+  const run = (async () => {
+    try {
+      const doFetch = opts.fetcher || fetch;
+      let bytes = await fetchBytes(doFetch, base() + a.image, undefined, PORTRAIT_MAX_BYTES);
+      /* Just after a publish a cache on the way can still hold the image the last catalogue named
+         under this same file name. Ask once more past the caches before refusing, as refresh() does. */
+      if (!isPortrait(bytes, sha)) bytes = await fetchBytes(doFetch, `${base()}${a.image}?fresh=${Date.now()}`, undefined, PORTRAIT_MAX_BYTES);
+      if (!isPortrait(bytes, sha)) throw new Error(`the downloaded portrait ${a.image} was refused: it is not the image the catalogue names`);
+      // A portrait that verified is used even when saving it fails: it is held in memory instead,
+      // so this process does not download it again.
+      const tmp = `${file}.${process.pid}.tmp`;
+      try {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(tmp, bytes);
+        fs.renameSync(tmp, file);
+      } catch {
+        try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ }
+        portraitUnsaved.set(sha, bytes);
+      }
+      prunePortraits(sha);
+      portraitFailed.delete(id);
+      return yes(bytes);
+    } catch (err) {
+      const because = (err && err.message) || String(err);
+      portraitFailed.set(id, { at: Date.now(), because });
+      return no(because);
+    } finally {
+      portraitInflight.delete(id);
+    }
+  })();
+  portraitInflight.set(id, run);
+  return run;
+}
+
 /** The one member whose reportsTo is null. */
 function leadOf(t) { return t.members.find((m) => m.reportsTo === null) || null; }
 
@@ -417,4 +545,4 @@ function memberInstructions(teamKey, slot, names) {
   return require('./projects').spliceBlock(text, messages.blockBody(), messages.START, messages.END);
 }
 
-module.exports = { PUBLIC_KEY, FORMAT, MIN_SERIAL, cacheFile, check, refresh, status, useKeyForTest, groupOrder, rawRoles, teams, team, leadOf, memberInstructions, memberProblem };
+module.exports = { PUBLIC_KEY, FORMAT, MIN_SERIAL, PORTRAIT_MAX_BYTES, cacheFile, portraitFile, check, refresh, status, useKeyForTest, groupOrder, rawRoles, teams, team, leadOf, memberInstructions, memberProblem, portrait };

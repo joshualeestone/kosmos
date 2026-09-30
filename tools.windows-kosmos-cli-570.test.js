@@ -376,10 +376,10 @@ test('whoami prints the BOARD\'s sentence, verbatim', async () => {
   assert.equal(r.calls[0].headers['x-kosmos-agent-token'], AGENT);
 });
 
-test('room and task sanitize the project id the way install/kosmos does, and present no agent token', async () => {
+test('room and task sanitize the project id the way install/kosmos does; the reads present the agent token (#4491 slice 4), the task writes do not', async () => {
   const room = await run(['room', 'proj/../x y'], () => ({ body: 'room text\n' }));
   assert.equal(room.calls[0].route, '/api/project/proj..xy/room?as=text');
-  assert.equal(room.calls[0].headers['x-kosmos-agent-token'], undefined);
+  assert.equal(room.calls[0].headers['x-kosmos-agent-token'], AGENT, 'the room read answers to the agent\'s own token since #4491 slice 4');
   const list = await run(['task', 'list', 'p1'], () => ({ body: { tasks: [{ number: 1, sentence: 'ship it', isClosed: false, whoNames: ['leo'] }] } }));
   assert.equal(list.calls[0].route, '/api/tasks?project=p1');
   assert.equal(list.out, '[1] ship it (leo)');
