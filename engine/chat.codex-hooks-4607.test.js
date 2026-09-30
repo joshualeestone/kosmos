@@ -80,12 +80,13 @@ test('#4607 status: the trusted table is recognised, and only it', () => {
 });
 
 test('#4607 status: what the card shows, from each screen', () => {
-  assert.deepEqual(status.codexHookSummary(MENU), { screen: 'menu', count: 2, events: [], source: null });
-  assert.deepEqual(status.codexHookSummary(TABLE), { screen: 'table', count: 2, events: [{ event: 'SubagentStop', count: 1 }, { event: 'Stop', count: 1 }], source: null });
+  assert.deepEqual(status.codexHookSummary(MENU), { screen: 'menu', count: 2, events: [], source: null, command: null });
+  assert.deepEqual(status.codexHookSummary(TABLE), { screen: 'table', count: 2, events: [{ event: 'SubagentStop', count: 1 }, { event: 'Stop', count: 1 }], source: null, command: null });
   const hook = status.codexHookSummary(HOOK);
   assert.equal(hook.screen, 'hook');
   assert.deepEqual(hook.events, [{ event: 'SubagentStop', count: 1 }]);
   assert.equal(hook.source, 'Project config - /Users/you/projects/newsletter/.codex/hooks.json');
+  assert.equal(hook.command, 'true', 'the hook page shows what it runs');
   assert.equal(status.codexHookSummary(IDLE), null);
 });
 
@@ -235,7 +236,7 @@ test('#4607 round 1: a second answer while one is in flight is refused, and pres
 }));
 
 test('#4607 round 1: the trusted-but-open list takes only Close', async () => {
-  assert.deepEqual(status.codexHookSummary(TRUSTED), { screen: 'trusted', count: null, events: [], source: null });
+  assert.deepEqual(status.codexHookSummary(TRUSTED), { screen: 'trusted', count: null, events: [], source: null, command: null });
   await withCodex(TRUSTED, async (board) => {
     const t = arm([TRUSTED, TRUSTED, IDLE]);
     const r = await chat.answerCodexHooks('sam', 'close', board.agents, SHOWN);

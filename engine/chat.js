@@ -1215,7 +1215,7 @@ const CODEX_HOOK_BUSY = new Set();
 function sameCodexHooks(a, b) {
   const norm = (h) => (h && typeof h === 'object')
     ? JSON.stringify({ screen: h.screen || null, count: typeof h.count === 'number' ? h.count : null,
-      events: Array.isArray(h.events) ? h.events.map((e) => `${e && e.event}:${e && e.count}`) : [], source: h.source || null })
+      events: Array.isArray(h.events) ? h.events.map((e) => `${e && e.event}:${e && e.count}`) : [], source: h.source || null, command: h.command || null })
     : null;
   return norm(a) !== null && norm(a) === norm(b);
 }

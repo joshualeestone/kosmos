@@ -11131,6 +11131,7 @@ window.kosmosMeasureScrollbarWidth();
         <div id="d-qask-codex" hidden>
           <p class="fhint" id="d-qask-codex-what" style="margin:4px 0 8px;"></p>
           <p class="fhint" id="d-qask-codex-source" hidden style="margin:0 0 8px;">Where Codex says it comes from: <code id="d-qask-codex-source-text"></code></p>
+          <p class="fhint" id="d-qask-codex-command" hidden style="margin:0 0 8px;">What it runs: <code id="d-qask-codex-command-text"></code></p>
           <div class="frow" style="gap:8px;flex-wrap:wrap;">
             <button class="btn" id="d-qask-codex-skip" type="button">Continue without them</button>
             <button class="btn btn-quiet" id="d-qask-codex-trust" type="button">Trust all of them</button>
@@ -34072,6 +34073,9 @@ async function paintTalk(sessionName, agentName) {
     const srcRow = document.getElementById('d-qask-codex-source');
     document.getElementById('d-qask-codex-source-text').textContent = h.source && !listOpen ? String(h.source).slice(0, 160) : '';
     srcRow.hidden = !(h.source && !listOpen);
+    const cmdRow = document.getElementById('d-qask-codex-command');
+    document.getElementById('d-qask-codex-command-text').textContent = h.command && !listOpen ? String(h.command).slice(0, 160) : '';
+    cmdRow.hidden = !(h.command && !listOpen);
     const n = typeof h.count === 'number' && h.count > 0 ? h.count : null;
     const events = Array.isArray(h.events) ? h.events.map((e) => e && e.event).filter(Boolean) : [];
     /* The trusted-but-open list (a dropped Escape after trusting): only Close. Otherwise the two choices, and the
@@ -34090,7 +34094,7 @@ async function paintTalk(sessionName, agentName) {
         + '.'
         /* Review round 3: say what the screen does NOT tell, rather than let a count read as enough to trust on. */
         + (events.length || h.source ? '' : ' Its screen does not name them or say what they run.')
-        + (/project/i.test(String(h.source || '')) ? ' This one is in a project folder, which the agent can write to, so the agent could have written it.' : '')
+        + (/^Project config\b/i.test(String(h.source || '')) ? ' Codex says this one is in a project\u2019s own settings, which the agent can write to, so the agent could have written it.' : '')
         + ' Trusting covers every hook Codex lists, and trusted hooks run outside the sandbox. If you are not sure, continue without them.';
     }
     qCodex.hidden = false;
@@ -40939,6 +40943,8 @@ async function answerCodexHooksFromBox(choice) {
         ? (choice === 'trust' ? 'Done. Its screen is no longer asking about hooks.'
           : (choice === 'close' ? 'Done. The list is closed.' : 'Done. It is carrying on without the hooks.'))
         : (r.because || r.error || 'We could not answer it. Look at its window.');
+      /* The box hides on the next poll once the question is gone, so a success is also said where it stays a moment. */
+      if (res.ok && r.ok && typeof msgToast === 'function') msgToast(msg.textContent);
     }
   } catch {
     if (CURRENT && CURRENT.sessionName === forAgent) msg.textContent = 'We could not reach Kosmos to answer it.';

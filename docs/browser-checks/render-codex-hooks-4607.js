@@ -32,7 +32,7 @@ catch {
 const PAGE = 'file://' + nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 const ENGINES = (process.env.ENGINES || 'chromium,webkit').split(',').map((s) => s.trim()).filter(Boolean);
 const TABLE = { screen: 'table', count: 2, events: [{ event: 'SubagentStop', count: 1 }, { event: 'Stop', count: 1 }], source: null };
-const HOOK = { screen: 'hook', count: null, events: [{ event: 'Stop', count: 1 }], source: 'Project config - ~/projects/newsletter/.codex/hooks.json' };
+const HOOK = { screen: 'hook', count: null, events: [{ event: 'Stop', count: 1 }], source: 'Project config - ~/projects/newsletter/.codex/hooks.json', command: 'true' };
 
 const fail = [];
 let passes = 0;
@@ -69,6 +69,7 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
         label: (document.getElementById('d-qask-lab') || {}).textContent || '',
         what: (document.getElementById('d-qask-codex-what') || {}).textContent || '',
         source: (() => { const r = document.getElementById('d-qask-codex-source'); return r && !r.hidden ? document.getElementById('d-qask-codex-source-text').textContent : null; })(),
+        command: (() => { const r = document.getElementById('d-qask-codex-command'); return r && !r.hidden ? document.getElementById('d-qask-codex-command-text').textContent : null; })(),
         shown: ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close'].filter((id) => { const b = document.getElementById(id); return b && !b.hidden; }),
       };
     }, thread);
@@ -88,7 +89,8 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
     chk(open.box && open.codex && JSON.stringify(open.shown) === JSON.stringify(['d-qask-codex-close']) && /hooks are trusted, and their list is still open/.test(open.label),
       `${t} the trusted-but-open list offers only Close`, JSON.stringify(open));
     const h = await paint({ ...base, codexHooks: HOOK });
-    chk(/agent could have written it/.test(h.what), `${t} a project-folder hook is flagged as writable by the agent`, h.what);
+    chk(/agent could have written it/.test(h.what), `${t} a project-settings hook is flagged as writable by the agent`, h.what);
+    chk(h.command === 'true' && a.command === null, `${t} what a hook runs is shown as its own literal, only when the screen shows it`, JSON.stringify({ h: h.command, a: a.command }));
     chk(/Codex found hooks it has not been told to trust \(Stop\)\./.test(h.what) && h.source === HOOK.source,
       `${t} from one hook's page: no count it did not show, the event, and the source as a literal of its own`, JSON.stringify(h));
     const none = await paint({ ...base, codexHooks: null });

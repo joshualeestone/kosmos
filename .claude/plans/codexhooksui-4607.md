@@ -55,7 +55,8 @@ itself). A sandboxed agent that can read the token and reach the board but not w
 it; Codex's default sandbox denies network, so that needs a loosened sandbox. #4491 closes it at the gate.
 
 Also not covered (review round 3), stated: from the MENU (the screen Codex opens on) the board can show only a count:
-Codex names no hook and no command there, and no screen ever shows the command. The page says so, warns when a hook
+Codex names no hook and no command there; the TABLE names events only; only one HOOK page shows a command (the page
+shows it, capped, and it is part of the must-match check). The page says so, warns when a hook
 comes from the agent's own project folder, and makes Continue the main button. The single-hook page opened from the
 TRUSTED list (Enter there) was never captured, so it is not recognised: the board shows nothing while Codex waits on it.
 

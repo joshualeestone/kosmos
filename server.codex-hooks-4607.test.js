@@ -126,7 +126,7 @@ test('#4607 the thread tells the page what the hook dialog says, and the person\
     const thread = await fetch(base + '/api/agent/sam/thread', { headers: PAGE(), signal: AbortSignal.timeout(10000) });
     const body = await thread.json();
     assert.equal(thread.status, 200, JSON.stringify(body).slice(0, 200));
-    assert.deepEqual(body.codexHooks, { screen: 'menu', count: 2, events: [], source: null });
+    assert.deepEqual(body.codexHooks, { screen: 'menu', count: 2, events: [], source: null, command: null });
     const keys = scriptedCodex([MENU, MENU, IDLE_SCREEN]);
     const r = await call(PAGE(), { choice: 'trust', seen: body.codexHooks });   // what the page painted
     assert.equal(r.code, 200, r.text);

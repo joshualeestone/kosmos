@@ -1700,7 +1700,7 @@ const CODEX_HOOK_MENU_COUNT = /^\s*(\d+) hooks? (?:is|are) new or changed\.\s*$/
 const CODEX_HOOK_TABLE_ROW = /^\s*([A-Za-z]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+\S.*$/;
 function codexHookSummary(paneText) {
   const seen = codexHookReview(paneText);
-  if (!seen) return codexHookTrustedTable(paneText) ? { screen: 'trusted', count: null, events: [], source: null } : null;
+  if (!seen) return codexHookTrustedTable(paneText) ? { screen: 'trusted', count: null, events: [], source: null, command: null } : null;
   /* Only the dialog's own rows, the last on the screen, and the LAST match (review round 2: an earlier count, event or
      source in scrollback or echoed by the agent must not be shown as this dialog's). */
   const all = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
@@ -1709,6 +1709,7 @@ function codexHookSummary(paneText) {
   let count = null;
   const events = [];
   let source = null;
+  let command = null;
   if (seen.screen === 'menu') {
     const m = rows.map((r) => CODEX_HOOK_MENU_COUNT.exec(r)).filter(Boolean).pop();
     if (m) count = Number(m[1]);
@@ -1733,8 +1734,12 @@ function codexHookSummary(paneText) {
       /* One line, capped: it is shown beside the Trust button, and it is text from the screen, not ours. */
       source = (first + (next && !/[\/\-]$/.test(first) ? ' ' : '') + next).replace(/\s+/g, ' ').trim().slice(0, 160) || null;
     }
+    /* Round 6: the one page that shows what the hook RUNS. Capped and one line, like the source. */
+    let ci = -1;
+    rows.forEach((r, i) => { if (/^\s*Command\s{2,}\S/.test(r)) ci = i; });
+    if (ci >= 0) command = rows[ci].replace(/^\s*Command\s+/, '').replace(/\s+/g, ' ').trim().slice(0, 160) || null;
   }
-  return { screen: seen.screen, count, events, source };
+  return { screen: seen.screen, count, events, source, command };
 }
 
 /* #4004: Gemini CLI (0.61.0, measured 2026-09-26 against a fake 429 in a real tmux pane) on a daily quota.
