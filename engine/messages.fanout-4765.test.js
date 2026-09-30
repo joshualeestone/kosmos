@@ -31,7 +31,7 @@ const fleet = require('../test-support/fleet');
 
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
-const MEMBERS = ['ava', 'ben', 'cy', 'dee', 'eli', 'fay'];
+const MEMBERS = ['ava', 'bix', 'cy', 'dee', 'eli', 'fay'];
 
 /** A scripted tmux that answers every call as healthy and records the calls in order. */
 function arm() {
