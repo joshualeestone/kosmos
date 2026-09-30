@@ -600,18 +600,25 @@ function ensure(port) {
    fed-room`). stdin and stdout are the interface (lines of JSON; see
    engine/fedseats.js); stderr joins the board's log like the tunnel's own. The
    same binary, relay, state dir and coordinator as the drive tunnel. */
-function spawnFedSeat(edgeId) {
+/* The connector arguments for a room seat. `target` is an edge id (a guest's link, or an
+   owner's active edge), or { own: <project_ref> } for a seat in this computer's OWN
+   account's room (kosmos#4649: `fed-room --own-project`, given instead of --edge). */
+function fedSeatArgs(target) {
+  const own = target && typeof target === 'object' && typeof target.own === 'string' ? target.own : null;
   const args = [
     'fed-room',
     '--relay', RELAY(),
     '--state-dir', STATE_DIR(),
     '--coordinator', COORDINATOR(),
-    '--edge', String(edgeId),
+    ...(own !== null ? ['--own-project', own] : ['--edge', String(target)]),
   ];
   if (process.env.AGENT_WORKFORCE_TUNNEL_CA) {
     args.push('--tunnel-ca', process.env.AGENT_WORKFORCE_TUNNEL_CA);
   }
-  return spawn(BIN(), args, connectorSpawnOptions({ stdio: ['pipe', 'pipe', 'inherit'] }));
+  return args;
+}
+function spawnFedSeat(target) {
+  return spawn(BIN(), fedSeatArgs(target), connectorSpawnOptions({ stdio: ['pipe', 'pipe', 'inherit'] }));
 }
 
 function startChild() {
@@ -1929,7 +1936,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { COORDINATOR, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { COORDINATOR, fedSeatArgs, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,
