@@ -10143,10 +10143,13 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
    reaches into the panel's side padding, Copy is compact, and the sentence's size follows the box's width (container
    units): .9rem where there is room, down to .75rem, on one line. Narrower than that (a phone) it wraps, never cuts. */
 #s-sec-plus .plus-chip { margin-left: -12px; margin-right: -12px; padding: 6px 6px 6px 12px; container-type: inline-size; }
-#s-sec-plus .plus-chip #plus-copy { padding: 6px 10px; }
+/* A fixed width that fits both "Copy" and "Copied", so pressing it never takes room from the sentence. */
+#s-sec-plus .plus-chip #plus-copy { padding: 6px 0; width: 72px; text-align: center; }
 #s-sec-plus .plus-chip-say { flex: 1 1 auto; min-width: 0; font: 500 .9rem var(--font-ui); color: #E6EBF7; }
-@container (min-width: 380px) {
-  #s-sec-plus .plus-chip-say { white-space: nowrap; font-size: clamp(.75rem, calc((100cqw - 74px) / 33), .9rem); }
+/* 80px = Copy (72) and the gap (8); /34 leaves ~8% for a wider system font (Segoe UI on Windows). The one-line rule
+   starts only where the .75rem floor itself fits (31.4 x 12px + 8% + 80 ~ 490); below that the sentence wraps. */
+@container (min-width: 490px) {
+  #s-sec-plus .plus-chip-say { white-space: nowrap; font-size: clamp(.75rem, calc((100cqw - 80px) / 34), .9rem); }
 }
 #s-sec-plus .plus-chip-say b { font-weight: 700; color: #fff; }
 #s-sec-plus .plus-foot { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.1); }
@@ -42537,30 +42540,39 @@ const PLUS_ACCOUNT_URL = 'https://login.kosmosplus.com/';
    The app's copy -> "Copied" pattern: the button says it for 2s and the live region says it for a screen reader.
    If the clipboard is refused, the address is selected on screen so the person can copy it themselves. */
 let PLUS_COPY_TIMER = null;
+function plusCopyFallback() {
+  // Synchronous, so it runs inside the press itself (a browser can drop the press's permission across an await).
+  const t = document.createElement('textarea'); t.value = PLUS_ACCOUNT_URL; t.setAttribute('readonly', '');
+  t.style.position = 'fixed'; t.style.opacity = '0';
+  let ok = false;
+  try { document.body.appendChild(t); t.select(); ok = !!(document.execCommand && document.execCommand('copy')); }
+  catch { ok = false; }
+  finally { t.remove(); const b = document.getElementById('plus-copy'); if (b) b.focus(); }
+  return ok;
+}
 async function plusCopyAddress() {
   const btn = document.getElementById('plus-copy');
   const status = document.getElementById('plus-copy-status');
+  const note = document.getElementById('plus-status');
   if (!btn) return;
-  let ok = false;
-  try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(PLUS_ACCOUNT_URL); ok = true; } } catch { ok = false; }
+  let ok = plusCopyFallback();
   if (!ok) {
-    // The file's other copy buttons fall back to execCommand; this copies the same full URL from a throwaway field.
-    try {
-      const t = document.createElement('textarea'); t.value = PLUS_ACCOUNT_URL; t.setAttribute('readonly', '');
-      t.style.position = 'fixed'; t.style.opacity = '0'; document.body.appendChild(t); t.select();
-      ok = !!(document.execCommand && document.execCommand('copy')); t.remove(); btn.focus();
-    } catch { ok = false; }
-  }
-  if (!ok) {
-    const b = document.querySelector('#plus-chip-say b');
-    try { const r = document.createRange(); r.selectNodeContents(b); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); } catch { /* nothing selectable */ }
+    try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(PLUS_ACCOUNT_URL); ok = true; } } catch { ok = false; }
   }
   if (PLUS_COPY_TIMER) { clearTimeout(PLUS_COPY_TIMER); PLUS_COPY_TIMER = null; }
-  btn.textContent = ok ? 'Copied' : 'Now copy it';
-  // Cleared first, so a second press says it again (a live region that does not change is not re-read).
-  if (status) { status.textContent = ''; requestAnimationFrame(() => { status.textContent = ok ? 'Address copied.' : 'Kosmos could not copy it. The address is selected: copy it from there.'; }); }
-  // Copied goes back after 2 seconds; a failure stays until the next press, so there is time to act on it.
-  if (ok) PLUS_COPY_TIMER = setTimeout(() => { PLUS_COPY_TIMER = null; btn.textContent = 'Copy'; if (status) status.textContent = ''; }, 2000);
+  if (ok) {
+    btn.textContent = 'Copied';
+    if (note && note.dataset.copyFail) { note.textContent = ''; delete note.dataset.copyFail; }
+    // Cleared first and set a moment later, so a second press is spoken again.
+    if (status) { status.textContent = ''; setTimeout(() => { if (btn.textContent === 'Copied') status.textContent = 'Address copied.'; }, 30); }
+    PLUS_COPY_TIMER = setTimeout(() => { PLUS_COPY_TIMER = null; btn.textContent = 'Copy'; if (status) status.textContent = ''; }, 2000);
+    return;
+  }
+  // Could not copy: the address is selected, and the line under the box (a live region) says so until the next press.
+  const b = document.querySelector('#plus-chip-say b');
+  try { const r = document.createRange(); r.selectNodeContents(b); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); } catch { /* nothing selectable */ }
+  btn.textContent = 'Copy';
+  if (note) { note.textContent = 'Kosmos could not copy it. The address is selected: copy it from there.'; note.dataset.copyFail = '1'; }
 }
 { const b = document.getElementById('plus-copy'); if (b) b.addEventListener('click', plusCopyAddress); }
 
@@ -42675,7 +42687,7 @@ async function paintPlus() {
   /* Josh's 17:30 ruling (the #3796 landing's line): one way in on another device, the website. */
   /* #4080: connected, the sentence lives in the box above, so the line under it is empty. */
   st.textContent = up
-    ? ''
+    ? (st.dataset && st.dataset.copyFail ? st.textContent : '')
     : (stat.state === 'up' ? 'Connected. Your address is on its way.'
       : (because ? because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.') : ''));
   /* #1014: only a real address earns an instruction. While the tunnel is
