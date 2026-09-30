@@ -1098,6 +1098,26 @@ const VERBS = Object.keys(VERB_HANDLERS);
 const SUBCOMMANDS = Object.fromEntries(Object.entries(SUBCOMMAND_HANDLERS).map(([verb, subs]) => [verb, Object.keys(subs)]));
 
 const BANNER = 'Usage: kosmos <' + VERBS.join('|') + '> ...   (this is the Windows agent command; the board itself runs from Kosmos.exe)';
+/* #4785: one line per command saying what it does; the names alone left people guessing. The words are the Mac's
+   (install/kosmos kosmos_command_list), and cli.help-lines-4785.test.js holds the two to the same sentence for
+   every verb they share, and every verb here to having one. */
+const DESCRIBE = {
+  msg: 'send a message to one agent',
+  reply: 'answer the person in your conversation with them',
+  post: 'post in a project room',
+  react: 'react to a post in a project room',
+  report: 'say what you are doing: working, blocked, waiting on someone',
+  whoami: 'say which agent you are and which account you are on',
+  room: 'read a project room',
+  task: "list, add, close or message a project's tasks",
+  project: 'list, show or create projects',
+  agent: 'make an agent, or list the roles one can have',
+  feedback: 'write or read the daily feedback report',
+  community: 'post to or read the Kosmos community',
+  connections: 'list the outside services connected in Settings',
+  connect: 'connect an outside service with its token',
+};
+const COMMAND_LIST = VERBS.map((v) => '  kosmos ' + v.padEnd(13) + DESCRIBE[v]).join('\n');
 
 /**
  * Run one command. `io` carries every seam: env, fetch, out/err writers, the
@@ -1118,10 +1138,13 @@ async function main(argv, io) {
     /* `kosmos`, `kosmos --help`, `kosmos help`: the list, and nothing is sent. */
     if (HELP_FLAGS.has(verb) || verb === 'help' || asksForHelp) {
       out(BANNER);
+      out(COMMAND_LIST);
       out('Add --help to any command to see how to use it; --help never sends anything.');
       return 0;
     }
+    if (verb) err('Unknown: kosmos ' + verb);
     err(BANNER);
+    err(COMMAND_LIST);
     return 2;
   }
   /* #1674: BEFORE any handler, so a verb added to the table later is covered
@@ -1237,7 +1260,7 @@ function clause(s) { return s ? String(s).replace(/[.\s]+$/, '') : ''; }
 /* A "maybe" is exit 3, never 1: 1 invites the retry that duplicates the send. */
 function maybe(err, sentence) { err(sentence); return 3; }
 
-module.exports = { main, argvFrom, readStandardInput, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
+module.exports = { main, argvFrom, DESCRIBE, readStandardInput, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
   taskList, // #1307: the task list's rendering (the webhook mark), for cli.task-webhook-1307.test.js
 };
 
