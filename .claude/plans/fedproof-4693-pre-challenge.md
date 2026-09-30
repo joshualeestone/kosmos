@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: fedproof-4693
 diff_hash: b90b5c6c840895b7dac1cf2b52e5eadb64ccf0bffd31171f0332acdff55ef02e
-validation: pending (full validation queued on Mortals for this head)
+validation: passed (Mortals, 542847807, 17:41 CDT)
 subdir_audit: passed
 timestamp: 2026-09-30T20:46:21Z
 iterations: 5
