@@ -358,3 +358,15 @@ test('a test run that did not sandbox the data root never reads the stored catal
   // CONTROL: outside a test run the same process reads (and refuses) the planted copy.
   assert.match(run(false).stdout, /stored catalogue was not used/);
 });
+
+test('a serial far in the future is refused, so one publishing mistake cannot lock boards out', async () => {
+  const { privateKey, signed } = fresh();
+  // A millisecond timestamp where seconds belong.
+  const body = TEXT.replace(/"serial": \d+/, '"serial": 1790733661000');
+  const sig = crypto.sign(null, Buffer.from(body), privateKey).toString('base64');
+  const st = await catalogue.refresh({ fetcher: server({ body, sig }).fetcher, force: true });
+  assert.equal(st.loaded, false);
+  assert.match(st.error || '', /later than tomorrow/);
+  // CONTROL: a serial of now passes the same check.
+  assert.equal((await catalogue.refresh({ fetcher: server(signed(150)).fetcher, force: true })).loaded, true);
+});

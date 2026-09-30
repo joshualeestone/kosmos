@@ -20,7 +20,7 @@ const path = require('node:path');
 
 // One copy of the catalogue: the published file the browser harness also serves (with its own
 // signature there); tests re-sign it with their own key and set their own serial.
-const FIXTURE = path.join(__dirname, 'catalogue-published', 'catalogue.json');
+const FIXTURE = path.join(__dirname, 'catalogue-published', 'catalogue.json');   // serial 1790733661 as published
 
 /** Sign `text` with a fresh key pair and store it as the catalogue; returns the private key so a
  *  test can sign variants of its own. */

@@ -73,6 +73,9 @@ function shapeProblem(c) {
   if (!c || typeof c !== 'object') return 'it is not an object';
   if (c.version !== FORMAT) return `format version ${JSON.stringify(c.version)} is not one this version reads`;
   if (!Number.isInteger(c.serial) || c.serial < MIN_SERIAL) return `its serial ${JSON.stringify(c.serial)} is older than this version of Kosmos (${MIN_SERIAL})`;
+  // The serial is the publish time in seconds. One far in the future (a millisecond timestamp, a typo)
+  // would make every board refuse every later catalogue for good, so it is refused here instead.
+  if (c.serial > Math.floor(Date.now() / 1000) + 86400) return `its serial ${c.serial} is later than tomorrow`;
   if (!Array.isArray(c.groups) || !c.groups.every(isText)) return 'groups is not a list of names';
   if (!Array.isArray(c.roles) || !Array.isArray(c.teams)) return 'roles or teams is not a list';
   for (const r of c.roles) {
@@ -189,6 +192,9 @@ async function fetchBytes(doFetch, url, stop) {
  */
 function refresh(opts = {}) {
   if (inflight) return inflight;
+  // The same condition load() honours: a test run with no sandboxed data root neither reads nor
+  // writes the operator's stored copy, and does not download.
+  if (!opts.fetcher && process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_DATA) return Promise.resolve(status());
   if (!opts.force && Date.now() - lastTry < MIN_GAP_MS) return Promise.resolve(status());
   lastTry = Date.now();
   inflight = (async () => {
