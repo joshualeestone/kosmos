@@ -861,6 +861,7 @@ function safeAvatarFor(name) {
   try { return store.avatarPath(name); } catch { return null; }
 }
 const roles = require('./engine/roles');
+const catalogue = require('./engine/catalogue'); // #4632: the downloaded roles and teams
 const commitments = require('./engine/commitments');
 const you = require('./engine/you');
 const policyEngine = require('./engine/policy');
@@ -1298,7 +1299,13 @@ function resolveAgentSender(req, body, roster, opts) {
        `new Function` extraction test, and any non-enforcing caller) leaves
        `opts` undefined, so the fallback works exactly as before. */
     if (opts && opts.denyPaneFallback) {
-      return { ok: false, because: opts.denyBecause || 'this board only accepts a report from the account that started it, or an agent with a token' };
+      const because = opts.denyBecause || 'this board only accepts a report from the account that started it, or an agent with a token';
+      /* #4606 (the #4602 finding, on the routes agents call most): a caller that sent NO credential at all was told only
+         whose board this is, and read it as "another machine's board". Say the token is missing first. A board token
+         that was sent and did not match keeps today's words exactly. No agent token came in a header or the body (that
+         is this branch), so "with this request" is exact here. The words change, never the refusal. */
+      const boardTokenSent = Boolean(boardauth.presentedToken(req, ROUTING_BASE));
+      return { ok: false, because: boardTokenSent ? because : 'no board token or agent token came with this request, and ' + because };
     }
     return messages.resolveSender(body && body.from_pane, roster);
   }
@@ -6210,7 +6217,14 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pathname === '/api/roles' && (req.method === 'GET' || req.method === 'HEAD')) {
-    sendJson(res, 200, {
+    /* #4632: the ready-made roles beyond the built-in ones are downloaded, not shipped. The role
+       picker asks with ?catalogue=1 when it opens, and only then does the board fetch the
+       catalogue (engine/catalogue.js: at most once in ten minutes, kept only when its signature
+       verifies). Every other caller (the page's role titles at load, the model menu) answers from
+       what is already held, and never waits on the network. */
+    let wantCatalogue = false;
+    try { wantCatalogue = req.method === 'GET' && new URL(req.url, ROUTING_BASE).searchParams.get('catalogue') === '1'; } catch { wantCatalogue = false; }
+    const answer = () => sendJson(res, 200, {
       // The models an agent can be created on, from the engine's own list,
       // so the menu and the flag the job runs with cannot drift.
       /* ⚠️ `provider` TRAVELS WITH EACH ROW (#1026). The create screen reads
@@ -6250,7 +6264,17 @@ const server = http.createServer(async (req, res) => {
         // is exactly too late for the two roles that have one.
         caution: r.caution || null,
       })),
+      // What the board holds of the downloaded catalogue: whether any, which serial, and why the
+      // last download was not used. The picker reads `loaded` (to ask again on its next open).
+      catalogue: catalogue.status(),
     });
+    // refresh() never rejects; the second handler is for a bug in it, which must not hang the picker.
+    // answer() itself runs inside a promise handler there, so a throw in it is caught and answered
+    // rather than left as an unhandled rejection.
+    const answerSafely = () => {
+      try { answer(); } catch { if (!res.headersSent) sendJson(res, 500, { error: 'we could not list the roles' }); }
+    };
+    if (wantCatalogue) catalogue.refresh().then(answerSafely, answerSafely); else answer();
     return;
   }
 
@@ -6288,6 +6312,15 @@ const server = http.createServer(async (req, res) => {
           // No error code: the catch below answers in our own words whatever
           // this is, and a code nothing reads is a hint that something does.
           throw new Error('we could not read that request');
+        }
+
+        /* #4632: a ready-made role comes from the downloaded catalogue. When the key asked for is not
+           one this board holds (nobody has opened the picker yet, so nothing was downloaded), ask the
+           catalogue first, as the picker would. (This is the create form's route; agents and the CLIs
+           make agents through /api/team, which does the same.) At most once in ten minutes, never
+           throws; an unknown key is still refused below. */
+        if (create.roleKeyOf(body) && !roles.byKey(create.roleKeyOf(body))) {
+          await catalogue.refresh();
         }
 
         /**
@@ -6724,6 +6757,14 @@ const server = http.createServer(async (req, res) => {
               }
             }
           }
+        }
+
+        /* #4632: agents and both CLIs make agents here (`kosmos agent create`). A ready-made role
+           comes from the downloaded catalogue, so when a member names a role this board does not
+           hold, ask the catalogue first, as the picker would. After the caller is known; at most
+           once in ten minutes; never throws; an unknown key is still refused by createTeam. */
+        if (Array.isArray(members) && members.some((m) => m && typeof m === 'object' && create.roleKeyOf(m) && !roles.byKey(create.roleKeyOf(m)))) {
+          await catalogue.refresh();
         }
 
         /* #1279 GLOBAL per-creator active-agent cap: enforced INSIDE the
@@ -16173,6 +16214,56 @@ const server = http.createServer(async (req, res) => {
       .catch((err) => sendJson(res, 400, { error: (err && err.message) || 'we could not read that request' }));
     return;
   }
+  /* kosmos#4649: the "add your other computer" code for a project on this computer, for
+     ANOTHER computer of the same account to join its shared room. Screen-only like invite:
+     it marks the project shared with the person's other computers (its owner seat then
+     opens even with no guest). */
+  if (pathname === '/api/federation/own-code' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can share a project with their other computers.' }); return; }
+        // The coordinator seats an own room only for a Kosmos Plus account, so a code made
+        // without it could never connect, and its owner seat would retry for nothing.
+        let plus = false;
+        try { plus = remote.kosmosPlus() === true; } catch { plus = false; }
+        if (!plus) { sendJson(res, 403, { reason: 'not-plus', error: 'Adding your other computers needs Kosmos Plus on this computer.' }); return; }
+        let proj = null;
+        try { proj = typeof body.project === 'string' ? projects.get(body.project, safeRoster()) : null; } catch { proj = null; }
+        if (!proj) { sendJson(res, 404, { error: 'There is no such project on this computer.' }); return; }
+        // The engine reads and writes this computer's link and seal records; a failure there is
+        // ours, not the request's.
+        let refusal, code, wasShared;
+        try {
+          // A link left by an earlier project with this id (#3851's stamp) is not this project's:
+          // forget it first, so the code names a room this project will actually sit in.
+          if (federation.linkFor(proj.id) && !fedseats.linkFor(proj.id)) federation.forgetLink(proj.id);
+          refusal = federation.ownCodeRefusal(proj.id);
+          if (refusal === 'guest') { sendJson(res, 409, { reason: 'guest', error: 'This project was shared with you from someone else, so it cannot be added to your other computers from here.' }); return; }
+          if (refusal === 'sealed') { sendJson(res, 409, { reason: 'sealed', error: 'This project is sealed for the people you invited, so your other computers cannot join it yet.' }); return; }
+          const before = federation.linkFor(proj.id);
+          wasShared = !!(before && (before.selfShared === true || before.role === 'self'));   // a self link was told at join
+          code = federation.ownCode(proj.id, proj.name);
+        } catch {
+          sendJson(res, 500, { error: 'Kosmos could not read or save this project\'s sharing on this computer. Try again in a moment.' });
+          return;
+        }
+        if (!code) { sendJson(res, 409, { error: 'Kosmos could not make a code for this project.' }); return; }
+        // The first time: the owner's room now opens to the relay, so this side is told too.
+        if (!wasShared) {
+          try { messages.roomNote(proj.id, 'This project is now shared with your other computers. Messages in this room are not sealed end to end.'); } catch { /* the note is furniture */ }
+        }
+        // A press is an explicit ask: an own room refused earlier this session is tried again.
+        fedseats.retryOwn(proj.id);
+        fedseats.ensure(proj.id).catch(() => {});
+        sendJson(res, 200, { code });
+      })
+      .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
   if (pathname === '/api/federation/join' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {
@@ -16182,6 +16273,16 @@ const server = http.createServer(async (req, res) => {
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can invite or join an external project.' }); return; }
         const snap = federation.joinSnapshot(body.edge_id);
         if (!snap) { sendJson(res, 409, { error: 'Verify the code again before joining. Each code works once, so if it says it was already used, ask for a new one.' }); return; }
+        // A second Join of the same own code (the snapshot is forgotten only after the first
+        // finishes) would make a second project in the same room.
+        if (snap.own) {
+          let here;
+          try { here = federation.ownRefHere(snap.ref); } catch {
+            sendJson(res, 500, { error: 'Kosmos could not read which projects are shared on this computer. Try again in a moment.' });
+            return;
+          }
+          if (here) { sendJson(res, 409, { reason: 'already_joined', error: 'This project is already on this computer.' }); return; }
+        }
         const roster = safeRoster();
         const agents = Array.isArray(body.agents) ? body.agents.filter((a) => typeof a === 'string') : [];
         // The owner's words stay theirs: the name is only a starting point for a
@@ -16192,7 +16293,10 @@ const server = http.createServer(async (req, res) => {
         // Without its link the project is an ordinary local one that says nothing
         // of where it came from; take it back out rather than leave that behind.
         try {
-          federation.recordLink(made.id, { role: 'member', edge_id: snap.edge_id, owner_handle: snap.owner_handle,
+          /* kosmos#4649: a project from ANOTHER computer of this account is a `self` link:
+             its seat is the account's own room, nothing was redeemed, nothing is sealed. */
+          if (snap.own) federation.recordLink(made.id, { role: 'self', ref: snap.ref, project_name: snap.project_name, project_created: made.createdAt });
+          else federation.recordLink(made.id, { role: 'member', edge_id: snap.edge_id, owner_handle: snap.owner_handle,
             project_name: snap.project_name, project_desc: snap.project_desc, project_created: made.createdAt });
         } catch (err) {
           try { projects.remove(made.id); } catch { /* reported below either way */ }
@@ -16210,7 +16314,11 @@ const server = http.createServer(async (req, res) => {
             throw err;
           }
         }
-        if (!snap.seal_s) {
+        if (snap.own) {
+          try {
+            messages.roomNote(made.id, 'This project is shared with your other computers. Messages in this room are not sealed end to end.');
+          } catch { /* the note is furniture; the room exists regardless */ }
+        } else if (!snap.seal_s) {
           try {
             messages.roomNote(made.id, 'This shared room is not sealed end to end: the owner\'s computer runs an older Kosmos, so its messages travel readable to the relay. To seal it, ask the owner to update Kosmos and send a new code.');
           } catch { /* the note is furniture; the room exists regardless */ }
