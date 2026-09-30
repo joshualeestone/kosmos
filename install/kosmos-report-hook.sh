@@ -202,9 +202,10 @@ json_field() { # $1 jq path, $2 sed key fallback
 # code, args, content, new_string, new_source, edits[].new_string), for ANY tool;
 # the written content of a .md or .markdown file is not checked (a document is not
 # run; a .txt can be run with sh, so it is), but a runnable field always is.
-# Without jq, the whole input except old_string, with its JSON escapes decoded
-# (wider: a mention in any field can be refused, a description or a subagent's
-# prompt included; \uXXXX escapes are not decoded; over 256 KB it is read raw).
+# Without jq (most installs), the whole input minus old_string, description and
+# prompt (and, for a .md file, the written content), escapes decoded by perl:
+# wider than jq (a mention in another field can be refused; \uXXXX escapes are
+# not decoded). A hook timeout fails open: the call runs.
 # The operator can turn it off for an agent by starting it with
 # KOSMOS_KILL_GUARD=off; an agent cannot change its own hook's environment.
 # Not guarded at all: Windows agents (the node hook, engine/kosmos-report-hook.js)
@@ -219,14 +220,23 @@ _kg_text() { # what the guard reads
                                    ($t.edits | arrays | .[] | objects | .new_string) ] end)
       | map(strings) | join("\n")' 2>/dev/null
   else
-    # No jq: the whole input minus every "old_string" (text being REPLACED is not written, so an agent
-    # can repair a dangerous line), with its JSON string escapes decoded (\\ first, via a placeholder,
-    # then \n \r \t \"), so a multi-line command reads as lines here exactly as it does with jq.
-    # ⚠️ awk's gsub is quadratic on one long line (a 1.4 MB escape-heavy Write took 3.3 s, and the hook
-    # has a 15 s timeout), so an input over 256 KB is matched raw instead: linear, and a multi-line
-    # command in it can then read as one line (wider, never narrower for a kill).
-    local _raw
-    _raw="$(printf '%s' "$INPUT" | sed -E 's/"old_string"[[:space:]]*:[[:space:]]*"([^"\\]|\\.)*"//g' 2>/dev/null)" || _raw="$INPUT"
+    # No jq (most installs: a clean Mac has none). The same fields as the jq branch, near enough: the
+    # whole input minus the string values of "old_string" (text being REPLACED is not written, so an agent
+    # can repair a dangerous line), "description" and "prompt" (words about a call, not the call), and,
+    # for a .md/.markdown file_path, "content" and "new_string" too. Then its JSON string escapes are
+    # decoded (\\ first, via a placeholder, then \n \r \t \"), so a multi-line command reads as lines here
+    # exactly as it does with jq. Both steps are linear: /usr/bin/perl (every Mac ships it). awk's gsub
+    # is quadratic on one long line (a 1.4 MB Write took 3.3 s against the hook's 15 s timeout), so awk
+    # is only the fallback where perl is missing, and then for inputs under 256 KB; above that, raw.
+    local _s='"([^"\\]|\\.)*"' _drop='old_string|description|prompt' _raw
+    if printf '%s' "$INPUT" | grep -Eq '"(file_path|notebook_path)"[[:space:]]*:[[:space:]]*"[^"]*\.(md|markdown)"'; then
+      _drop="$_drop|content|new_string"
+    fi
+    _raw="$(printf '%s' "$INPUT" | sed -E "s/\"($_drop)\"[[:space:]]*:[[:space:]]*$_s//g" 2>/dev/null)" || _raw="$INPUT"
+    if [ -x /usr/bin/perl ] && [ -z "${KOSMOS_REPORT_HOOK_NO_PERL:-}" ]; then   # the switch: tests drive the awk fallback
+      printf '%s' "$_raw" | /usr/bin/perl -pe 's/\\\\/\x01/g; s/\\n/\n/g; s/\\r/\r/g; s/\\t/\t/g; s/\\"/"/g; s/\x01/\\/g' 2>/dev/null \
+        && return
+    fi
     if [ "${#_raw}" -gt 262144 ]; then printf '%s' "$_raw"; return; fi
     printf '%s' "$_raw" | awk '{ gsub(/\\\\/, "\001"); gsub(/\\n/, "\n"); gsub(/\\r/, "\r"); gsub(/\\t/, "\t");
                                  gsub(/\\"/, "\""); gsub(/\001/, "\\"); print }' 2>/dev/null

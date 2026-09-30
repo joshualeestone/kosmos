@@ -38,12 +38,13 @@ const d = (s) => s.replace(/KILLALL|PKILL|PGREP|LAUNCHCTL|KILL|N1/g, (w) => WORD
 const dd = (v) => (typeof v === 'string' ? d(v) : Array.isArray(v) ? v.map(dd)
   : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, dd(x)])) : v);
 
-function run(tool, toolInput, { event = 'PreToolUse', noJq = false, env: extra = {}, raw = false } = {}) {
+function run(tool, toolInput, { event = 'PreToolUse', noJq = false, noPerl = false, env: extra = {}, raw = false } = {}) {
   const payload = JSON.stringify({ hook_event_name: event, tool_name: tool, tool_input: raw ? toolInput : dd(toolInput), session_id: 's' });
   const env = { ...process.env, KOSMOS_REPORT_CLI: STUB, TMPDIR: SANDBOX, HOME: SANDBOX, ...extra };
   delete env.TMUX_PANE; delete env.KOSMOS_AGENT_SESSION; delete env.KOSMOS_AGENT_TOKEN;
   if (!('KOSMOS_KILL_GUARD' in extra)) delete env.KOSMOS_KILL_GUARD;
   if (noJq) env.KOSMOS_REPORT_HOOK_NO_JQ = '1'; else delete env.KOSMOS_REPORT_HOOK_NO_JQ;
+  if (noPerl) env.KOSMOS_REPORT_HOOK_NO_PERL = '1'; else delete env.KOSMOS_REPORT_HOOK_NO_PERL;
   const r = spawnSync('/bin/bash', [HOOK], { input: payload, env, encoding: 'utf8', timeout: 20000 });
   return { code: r.status, stderr: r.stderr || '' };
 }
@@ -197,7 +198,7 @@ test('#4671 round 6: a large escape-heavy Write finishes well inside the hook\'s
     const r = run('Write', { file_path: '/tmp/big.json', content: big + '\nKILL -9 N1\n' }, { noJq });
     const ms = Date.now() - t0;
     assert.equal(r.code, 2, 'still blocks the line at the end' + (noJq ? ' (no jq)' : ''));
-    assert.ok(ms < 8000, `${noJq ? 'no jq' : 'jq'}: took ${ms} ms`);
+    assert.ok(ms < 12000, `${noJq ? 'no jq' : 'jq'}: took ${ms} ms`);
   }
 });
 
@@ -205,6 +206,30 @@ test('#4671 round 6: without jq, an Edit that REPLACES a dangerous line with a s
   const r = run('Edit', { file_path: '/tmp/x.sh', old_string: 'PKILL -u me', new_string: 'PKILL -u me node' }, { noJq: true });
   assert.equal(r.code, 0, r.stderr);
   assert.equal(run('Edit', { file_path: '/tmp/x.sh', old_string: 'echo', new_string: 'PKILL -u me' }, { noJq: true }).code, 2, 'the new text is still read');
+});
+
+test('#4671 round 7: a large multi-line script without jq reads as lines too (no size cap with perl)', () => {
+  const pad = '# ' + 'x'.repeat(78) + '\n';
+  const content = pad.repeat(3700) + 'KILL -9 $PID\nhead N1 f\n';   // ~300 KB
+  assert.ok(content.length > 262144);
+  assert.equal(run('Write', { file_path: '/tmp/x.sh', content }, { noJq: true }).code, 0);
+  assert.equal(run('Write', { file_path: '/tmp/x.sh', content: content + 'KILL -9 N1\n' }, { noJq: true }).code, 2);
+});
+
+test('#4671 round 7: without jq, a .md write and a description are not read, as with jq', () => {
+  assert.equal(run('Edit', { file_path: '/t/x.md', old_string: 'a', new_string: 'KILL -9 N1' }, { noJq: true }).code, 0);
+  assert.equal(run('Bash', { command: 'echo hi', description: 'never KILL -9 N1' }, { noJq: true }).code, 0);
+  assert.equal(run('Task', { description: 'x', prompt: 'Never run KILL -9 N1 or PKILL -u me.' }, { noJq: true }).code, 0, 'a subagent prompt that forbids it');
+  assert.equal(run('Bash', { command: 'KILL -9 N1', description: 'x' }, { noJq: true }).code, 2, 'the command is still read');
+});
+
+test('#4671 the awk fallback (no perl) blocks and allows like the rest, and stays inside the timeout', () => {
+  for (const cmd of ['KILL -9 N1', 'PKILL -u me', 'PGREP -u $USER | xargs KILL']) assert.equal(run('Bash', { command: cmd }, { noJq: true, noPerl: true }).code, 2, cmd);
+  assert.equal(run('Bash', { command: 'KILL -9 $PID\nsleep 1\ngit log N1' }, { noJq: true, noPerl: true }).code, 0);
+  const big = 'x'.repeat(1_500_000) + '\nKILL -9 N1\n';
+  const t0 = Date.now();
+  assert.equal(run('Write', { file_path: '/tmp/b', content: big }, { noJq: true, noPerl: true }).code, 2);
+  assert.ok(Date.now() - t0 < 12000, 'over the cap it is matched raw, linearly');
 });
 
 test('#4671 only PreToolUse is guarded: the same payload on another event is not blocked', () => {

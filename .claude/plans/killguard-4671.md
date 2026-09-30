@@ -7,7 +7,8 @@ A guard in install/kosmos-report-hook.sh, the hook Kosmos already wires (matcher
 agent's settings. On PreToolUse it reads, with jq, only what runs or is written (tool_input command,
 script, code, args, content, new_string, new_source, edits[].new_string) for ANY tool; a Write/Edit to a
 .md/.markdown file is skipped (a .txt is checked: it can be run with sh). Without jq it reads the whole
-input minus old_string, with its JSON escapes decoded by awk under 256 KB (awk gsub is quadratic) and raw above. On a literal shape that stops every
+input minus old_string, description and prompt (and a .md file's written content), with its JSON escapes
+decoded by /usr/bin/perl (linear); awk is only the fallback where perl is missing (under 256 KB; raw above). On a literal shape that stops every
 process the person owns it prints the reason and exits 2, which blocks that one call:
 - a shell kill whose target is minus one (quoted, via xargs, or a here-string too);
 - code signalling minus one (node, Python, C, Ruby, Perl, argv arrays);
@@ -31,9 +32,10 @@ test. Windows agents (the node hook) and Codex/Gemini/Grok agents are not guarde
 ## Tests
 report-hook-killguard-4671.test.js drives the real hook, every Bash case with and without jq; the cases are
 written with uppercase placeholders so the test file never holds a literal shape (an agent editing it is
-not refused, and a test writes the hook itself and this test through the guard). 264/264; with the guard
-disabled 170 fail and 94 pass (the controls, plus the arms that assert no block). Hook suites 334/334.
-Reviews: round 1 (1 blocker, 6 warnings), round 2 (3 blockers, 5 warnings), round 3 (1 blocker, 2 warnings, 7 nits), round 4 (2 blockers, 6 warnings), round 5 (2 blockers, both on the no-jq path), round 6 (1 blocker: a quadratic decode; 2 warnings) addressed.
+not refused, and a test writes the hook itself and this test through the guard). 267/267; with the guard
+disabled 173 fail and 94 pass (the controls, plus the arms that assert no block). Hook suites 334/334.
+Reviews: round 1 (1 blocker, 6 warnings), round 2 (3 blockers, 5 warnings), round 3 (1 blocker, 2 warnings, 7 nits), round 4 (2 blockers, 6 warnings), round 5 (2 blockers, both on the no-jq path), round 6 (1 blocker: a quadratic decode; 2 warnings) addressed. Round 7: no blocker (converged by the rule
+below); its 2 warnings taken (a linear perl decode, the jq field choices mirrored without jq).
 Round 5 root cause: without jq the guard read raw JSON, where a newline is two characters; the no-jq path
 now decodes the JSON escapes with awk, so both paths read real lines.
 
