@@ -216,13 +216,13 @@ function measure() {
         chk(g.whole && !g.scrolls, `${t} #4661: every section tab is whole on screen, and the row does not scroll`, `whole=${g.whole} scrolls=${g.scrolls}`);
         chk(g.cut.length === 0 && g.spill.length === 0, `${t} #4661: no label is broken inside a word, clipped, or outside its button`, JSON.stringify({ cut: g.cut, spill: g.spill }));
         chk(g.h >= 44 && g.h <= 52, `${t} #4661: at 375 and wider, with default text, the row keeps its one-line 44px height`, `h=${g.h} ${JSON.stringify(g.labels)}`);
-        chk(g.labels.filter((l) => !l.pill).length >= 3 && g.labels.filter((l) => !l.pill).every((l) => typeof l.spare === 'number' && l.spare >= 2), `${t} #4661: every label is measured on one line, each with at least 2px to spare in its column (a slightly wider font does not wrap it)`, JSON.stringify(g.labels));
-        // 2px: CI measured "Direct Message" 92px wide (its shrink-wrapped label at 393, run 36704478874), about 1-2px
-        // wider than this Mac's font. It is enforced on CI's font too, on purpose: there it should leave ~3.3px at 375
-        // (computed from that 92, not yet measured at 375), and a runner font more than ~1.3px wider fails here, as a
-        // spare problem, before it wraps. rowW in the detail says whether the
-        // font or the row changed. A swarm's status word (a shrink-wrapped pill) is skipped. Only this arm asserts
-        // spare: the swarm row, the sideways arm and the 320/larger-text arms do not.
+        // 2px spare: CI measured "Direct Message" 92px wide (its shrink-wrapped label at 393, run 36704478874). Enforced
+        // on CI's font too, on purpose: there it should leave ~3.3px at 375 (computed from that 92, not yet measured at
+        // 375), so a runner font more than ~1.3px wider fails here, as a spare problem, before it wraps. rowW in the
+        // detail says whether the font or the row changed. A swarm's status word (a shrink-wrapped pill) is skipped.
+        const words = g.labels.filter((l) => !l.pill);
+        chk(words.length >= 3 && words.every((l) => typeof l.spare === 'number'), `${t} #4661: every label is measured, on one line`, JSON.stringify(g.labels));
+        chk(words.every((l) => typeof l.spare !== 'number' || l.spare >= 2), `${t} #4661: every one-line label has at least 2px to spare in its column (a slightly wider font does not wrap it)`, JSON.stringify(g.labels));
         chk(!(m.label && m.label.w > 2 && m.label.h > 2) && m.labelDisplay !== 'none' && m.labelText.length > 0, `${t} the caption that repeats the agent's name is not shown but kept for screen readers`, JSON.stringify({ label: m.label, display: m.labelDisplay, text: m.labelText }));
         chk(m.visibleVar === m.vh + 'px', `${t} the page's visualViewport listener writes the visible height`, `var=${m.visibleVar} vh=${m.vh}`);
         chk(m.boxMinH === '0px', `${t} the phone rules win over the 56rem talk-fill block (talk box min-height 0)`, m.boxMinH);
