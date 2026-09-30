@@ -43660,7 +43660,7 @@ async function plusSiBoughtRead() {
     return { because: 'this computer could not reach the sign-in service' };
   } finally { clearTimeout(timer); }
 }
-async function plusSiSession(data, again) {
+async function plusSiSession(data, again, keep) {
   PLUS_SI_SESSION = data;
   PLUS_SI_PICKED = false;
   const bought = document.getElementById('plus-si-bought');
@@ -43668,6 +43668,8 @@ async function plusSiSession(data, again) {
   const lead = document.getElementById('plus-si-owned-lead');
   const spin = document.getElementById('plus-si-spin');
   if (recheck) recheck.disabled = true;
+  /* No pick while a re-read is out: the answer would redraw the list over a register already running. */
+  if (again) document.querySelectorAll('#plus-si-bought-list button').forEach((x) => { x.disabled = true; });
   if (!again) {
     /* The read takes a moment (the coordinator's switch, then the list). The step it came from must not stay
        live meanwhile, where its spent code could be sent again: the register step shows at once, saying so. */
@@ -43691,7 +43693,8 @@ async function plusSiSession(data, again) {
   if (again && !b) {
     if (/start again from the email/i.test(String(got.because || ''))) { plusSiFail(got.because); return; }
     if (PLUS_SI_BOUGHT_LAST) plusSiBoughtPick(PLUS_SI_BOUGHT_LAST);
-    plusSiMsg(got.because || 'That did not work. Check again in a moment.');
+    const why = got.because || 'That did not work. Check again in a moment.';
+    plusSiMsg(keep ? keep + '. ' + why : why);   // a refused pick's reason is not overwritten
     return;
   }
   if (bought) bought.hidden = true;   // plusSiBoughtPick shows it again; every other way on is without it
@@ -43729,6 +43732,7 @@ function plusSiBoughtPick(b) {
     btn.textContent = row.address;
     btn.setAttribute('data-bought', row.name);
     btn.addEventListener('click', () => {
+      PLUS_SI_BOUGHT_SEQ += 1;   // a read still out is not answered over this pick
       document.getElementById('plus-si-bought').hidden = true;
       plusSiMsg('');
       plusSiRegisterMode(row.address);
@@ -43810,8 +43814,10 @@ async function plusSiDoRegister(name, owned) {
      first) goes back to the list with the reason, rather than offering Try again on the same address. */
   if (!r.ok && PLUS_SI_PICKED && PLUS_SI_SESSION && !/start again from the email/i.test(String(r.because || ''))) {
     PLUS_SI_PICKED = false;
+    const o = document.getElementById('plus-si-owned'); if (o) o.hidden = true;
+    if (PLUS_SI_BOUGHT_LAST) PLUS_SI_BOUGHT_LAST = Object.assign({}, PLUS_SI_BOUGHT_LAST, { addresses: PLUS_SI_BOUGHT_LAST.addresses.filter((x) => x.name !== name) });
     plusSiMsg(r.because);
-    plusSiSession(PLUS_SI_SESSION, true);
+    plusSiSession(PLUS_SI_SESSION, true, r.because);
     return;
   }
   if (!r.ok && owned && !/start again from the email/i.test(String(r.because || ''))) {

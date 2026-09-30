@@ -69,6 +69,10 @@ const SCENARIOS = {
   'recheck-expired': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] }, { error: 'your sign-in has ended; start again from the email' }], auto: null },
   // A re-read that finds the account's own address free again takes the step as before, with the list gone.
   'recheck-now-free': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] }, { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'free')] }], auto: null },
+  // A refused pick whose re-read also fails keeps the refusal, and never re-offers the refused address.
+  'pick-refused-reread-fails': { refuse: 'spare', lists: [
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] }, null,
+  ], auto: null },
   // A pick refused (another computer took it first) returns to the list with the reason, not Try again on the same address.
   'pick-refused': { refuse: 'spare', lists: [
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] },
@@ -190,6 +194,15 @@ const visible = (page, sel) => page.evaluate((s) => {
         await page.waitForFunction(() => { const d = document.getElementById('plus-si-done'); return d && !d.hidden; }, null, { timeout: 8000 }).catch(() => {});
         chk(regs.length === 1 && regs[0] === 'first', `[${key}] registers to the account's own address, as before`, JSON.stringify(regs));
         chk(!(await visible(page, '#plus-si-bought')), `[${key}] with the list hidden`);
+      } else if (key === 'pick-refused-reread-fails') {
+        await page.click('#plus-si-bought-list button[data-bought="spare"]');
+        await page.waitForFunction(() => /could not be reached/.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+        const msg = await page.textContent('#plus-signin-msg');
+        chk(/already connected on another computer/.test(msg) && /could not be reached/.test(msg), `[${key}] both the refusal and the failed read are said`, msg);
+        const btns = await page.$$eval('#plus-si-bought-list button', (b) => b.map((x) => x.getAttribute('data-bought')));
+        chk(JSON.stringify(btns) === JSON.stringify(['other']), `[${key}] the refused address is not offered again`, JSON.stringify(btns));
+        chk(!(await visible(page, '#plus-si-owned')), `[${key}] no "Connecting this computer as" line left beside it`);
+        chk(regs.length === 1, `[${key}] nothing else was registered`, JSON.stringify(regs));
       } else if (key === 'no-address') {
         chk(await visible(page, '#plus-si-name-field'), `[${key}] the name step shows, as before`);
         chk(!(await visible(page, '#plus-si-bought')), `[${key}] no bought-address panel`);

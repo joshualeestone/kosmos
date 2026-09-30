@@ -1945,9 +1945,10 @@ function turnOnAfterSignin() {
    says bought addresses are live (/v1/meta bought_addresses, or AGENT_WORKFORCE_BOUGHT_ADDRESSES=1 to test),
    a computer signs in to an address the account has BOUGHT and never makes one, so the wizard needs the
    account's addresses at the session step, before register. Read with the session this sign-in holds
-   (the coordinator's GET /v1/account/addresses, contract on kosmos#4754), a plain HTTPS read like
-   fetchFederationLive: it only decides what the step OFFERS, and register_mac refuses an address not
-   bought whatever this says. The token is sent only to COORDINATOR() and redirects are refused.
+   (the coordinator's GET /v1/account/addresses, contract on kosmos#4754), over plain HTTPS rather than the
+   tunnel binary: it only decides what the step OFFERS, and register_mac refuses an address not bought
+   whatever this says. It carries the session token, so the token goes only to COORDINATOR(), redirects
+   are refused, and only a JSON answer is read.
    Answers { live:false } with the switch off (the wizard is exactly as before), else the rows in their
    own shapes only, the website's buy link (https only), and this computer's own name if it is set up. */
 const BOUGHT_STATES = new Set(['in_use', 'free', 'pending']);
@@ -1956,12 +1957,14 @@ async function signinAddresses(opts) {
   const get = typeof opts.fetch === 'function' ? opts.fetch : fetch;
   // No session, no call at all (not even /v1/meta): there is nothing to list without one.
   if (!signinSession || typeof signinSession.token !== 'string') return { ok: false, because: 'finish the code steps first' };
+  const token = signinSession.token;   // taken now: a Sign out during the switch read below must not throw here
   const live = process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES === '1' || (await fetchMetaFlag('bought_addresses', { fetch: get, timeoutMs: opts.timeoutMs })) === true;
   if (!live) return { ok: true, because: null, data: { live: false } };
+  if (!signinSession || signinSession.token !== token) return { ok: false, because: 'the sign-in ended; start again from the email' };
   let res, body;
   try {
     res = await get(String(COORDINATOR()).replace(/\/+$/, '') + '/v1/account/addresses', {
-      headers: { authorization: 'Bearer ' + signinSession.token },
+      headers: { authorization: 'Bearer ' + token },
       signal: AbortSignal.timeout(opts.timeoutMs || FED_LIVE_TIMEOUT_MS), redirect: 'error' });
     // Only the coordinator's own JSON: a page from anything in between is not read, so its words are never shown.
     if (!/^application\/json\b/i.test(String((res.headers && res.headers.get && res.headers.get('content-type')) || ''))) throw new Error('not json');

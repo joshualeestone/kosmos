@@ -14,7 +14,8 @@ hold ends by itself after 31 minutes) change nothing this branch relies on.
   account's first computer, and a computer signing in again to its own address, register as before; any other
   computer picks one of the account's FREE bought addresses (no name field), or, with none, is told so and sent
   to the website with Check again.
-- docs/browser-checks/render-plus-bought-4756.js (gated): six scenarios; the control (main's page) fails.
+- docs/browser-checks/render-plus-bought-4756.js (gated): one scenario per path of the session step (the list is in
+  the file); the control (main's page) fails it.
 
 ## Decided
 - Fail open to the old step, not closed: the coordinator refuses an address not bought whatever this page shows
