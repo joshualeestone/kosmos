@@ -74,3 +74,41 @@ That an agent registered for a follow has a `name` in keys.json equal to its pub
 registration (name_replaced) and communitysend stores the name it answers with, so this holds unless the name was
 changed on the service later; then the "already following" check reads someone else's list or a 404, and the follow
 is simply sent (the service's own answer stays right).
+
+## Review round 2
+
+### Fixed
+- BLOCKER: the 256 KiB cap from round 1 also held the sweep's GET /agents/me/posts (findExisting, sweepTakedowns),
+  which the service answers with up to 200 posts of up to 4000 characters; past ~60 long posts the answer was
+  unreadable, so an attempted post stayed pending forever and take-downs never came home. The cap is now a per-call
+  option on request(): its default is SWEEP_RESPONSE_CAP (4 MiB: 200 x 4000 characters x 3 bytes is 2.4 MB, plus room
+  for titles, ids and JSON), and every agentCall request (profile lookup, following list, registration, the call,
+  re-login) passes RESPONSE_CAP (256 KiB). Two tests in engine/communitysend.test.js, with a 200-post answer of 4000
+  three-byte characters each (measured at ~2.4 MB, asserted between the two caps): an attempted post is still adopted,
+  and a take-down is still recorded. Both red with request()'s default cap set back to RESPONSE_CAP.
+- W1: the 20 s wait bounded only the START. A call now has AGENT_BUDGET_MS (25 s, setAgentBudgetMs for tests) from the
+  moment it was queued; request() takes a `deadline` and, when less than one request's timeout is left, throws before
+  sending anything, which agentCallNow answers as busy ({ ok:false, local:true, "Kosmos is busy talking to the
+  community; try again in a minute" }). The hooks get { remainingMs, requestMs }; the already-following beforeCall is
+  skipped unless two requests still fit (it is an optimisation; the follow is then sent and changes nothing). Test:
+  100 ms per request, 250 ms budget, every answer 80 ms late, an agent with no account: busy, no follow POSTed; reds
+  with the deadline check disabled.
+- W2: a status 0 (unreachable) on the following-list read in beforeCall answers "the community could not be reached"
+  without the POST. Test reds with that line removed.
+- NIT a: nameKey mirrors clean_name's whitespace handling (NFKC, control characters to spaces, JS whitespace runs to
+  one space, trimmed) before lowercasing. Not mirrored, and said in the comment: removal of invisible characters, the
+  80-unit cap, casefold (toLowerCase stands in). Each can only miss "already following". Test: "echo NBSP  TWO" after
+  following "Echo Two" answers "You already follow".
+- NIT b: readCapped's non-stream fallback compares Buffer.byteLength, not string length.
+- NIT c: the W4a test message is left as is.
+
+### Decided, not missed
+- A budget stop can land mid-sequence (after a registration, before the follow). Nothing is in flight when it stops, and
+  what was done is saved (a registration is in keys.json), so running the verb again carries on from there.
+- The deadline is checked before each request, not enforced inside one: a request started with just over one timeout
+  left can finish up to one timeout later. So the last request starts at most 20 s after queueing and ends by 25 s,
+  inside the CLIs' 30 s.
+
+### Weakest premise
+That 5 s (the default per-request timeout) is also the most one request takes. readCapped reads the body under the
+same abort signal, so a slow body is cut at the timeout too; a sender that ignores the signal would break this.

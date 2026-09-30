@@ -25,14 +25,15 @@ const cr = require('./communityread');
 const cf = require('./communityfollow');
 
 function backend() {
-  const st = { agents: new Map(), follows: new Set(), seen: [], feed: [], mode: {}, n: 0, registerDelayMs: 0, hang: null, big: false };
+  const st = { agents: new Map(), follows: new Set(), seen: [], feed: [], mode: {}, n: 0, registerDelayMs: 0, hang: null, big: false, slowMs: 0 };
   const server = http.createServer((req, res) => {
     let raw = '';
     req.on('data', (d) => { raw += d; });
     req.on('end', () => {
       const body = raw ? JSON.parse(raw) : undefined;
       st.seen.push({ method: req.method, url: req.url, auth: req.headers.authorization || null });
-      const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(obj === undefined ? '' : JSON.stringify(obj)); };
+      const sendNow = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(obj === undefined ? '' : JSON.stringify(obj)); };
+      const send = (code, obj) => (st.slowMs ? setTimeout(() => sendNow(code, obj), st.slowMs) : sendNow(code, obj));   // review 2: every answer late
       if (st.hang && st.hang(req)) return undefined;                  // a service that never answers
       const known = (n) => ['quill', 'Echo Two'].includes(n) || [...st.agents.values()].some((a) => a.name === n);
       // The public routes (no bearer): an agent's profile and its following list.
@@ -92,7 +93,8 @@ cs.setSender((url, init) => fetch(url, init));
 const keysFile = () => cs._paths.keysFile();
 function fresh() {
   fs.rmSync(path.dirname(keysFile()), { recursive: true, force: true }); fs.rmSync(cs._paths.dir(), { recursive: true, force: true });
-  SWITCH = true; cf._resetRate(); cs.setTimeoutMs(5000); cs.setAgentWaitMs(null);
+  SWITCH = true; cf._resetRate(); cs.setTimeoutMs(5000); cs.setAgentWaitMs(null); cs.setAgentBudgetMs(null);
+  cs.setSender((url, init) => fetch(url, init));
 }
 const follows = (st) => [...st.follows].sort();
 const registers = (st) => st.seen.filter((s) => s.url === '/agents/register').length;
@@ -355,5 +357,51 @@ test('#4774 read --following: an unreadable feed is an upstream failure, not an 
     const r = await cf.readFollowing('mara');
     assert.equal(r.ok, false);
     assert.equal(r.upstream, true);
+  } finally { await b.close(); }
+});
+
+/* #4774 review 2 (W1): the 20 s wait bounds only the START; the whole call has AGENT_BUDGET_MS from queue time, and a
+   request that would not fit in what is left is never started. Timings scaled down: 100 ms per request, 250 ms budget,
+   every answer 80 ms late. lena has no account, so her follow needs the profile lookup, a registration and the POST:
+   the POST would start with under 100 ms left. */
+test('#4774 review 2 (W1): a call needing more requests than its budget allows answers busy and does not POST', async () => {
+  fresh(); const b = await backend();
+  try {
+    cs.setTimeoutMs(100);
+    cs.setAgentBudgetMs(250);
+    b.st.slowMs = 80;
+    const r = await cf.follow('lena', 'quill');
+    assert.deepEqual(r, { ok: false, upstream: false, because: 'Kosmos is busy talking to the community; try again in a minute' });
+    assert.equal(b.st.seen.filter((x) => x.method === 'POST' && /\/follow$/.test(x.url)).length, 0, 'the follow was POSTed past the budget');
+    assert.ok(b.st.seen.some((x) => x.url === '/agents/by-name/quill'), 'control: the call did start (the lookup went out)');
+    cs.setAgentBudgetMs(null);
+    cs.setTimeoutMs(5000);
+    const control = await cf.follow('noor', 'quill');
+    assert.deepEqual(control, { ok: true, text: 'You now follow quill.' }, 'control: the same follow with the full budget');
+  } finally { await b.close(); }
+});
+
+/* #4774 review 2 (W2): the already-following check reads a public page; if the service cannot be reached there, that is
+   the answer, not "not following" followed by a POST that waits out another timeout. */
+test('#4774 review 2 (W2): an unreachable service in the already-following check answers unreached and sends no follow', async () => {
+  fresh(); const b = await backend();
+  try {
+    await cf.follow('mara', 'quill');
+    cs.setSender((url, init) => (/\/following\?/.test(url) ? Promise.reject(new Error('down')) : fetch(url, init)));
+    const r = await cf.follow('mara', 'Echo Two');
+    assert.deepEqual(r, { ok: false, upstream: true, because: 'the community could not be reached' });
+    assert.equal(b.st.seen.filter((x) => x.method === 'POST' && x.url === '/agents/by-name/Echo%20Two/follow').length, 0, 'the follow was POSTed after an unreachable check');
+    cs.setSender((url, init) => fetch(url, init));
+    assert.equal((await cf.follow('mara', 'Echo Two')).text, 'You now follow Echo Two.', 'control: reachable, it follows');
+  } finally { await b.close(); }
+});
+
+/* #4774 review 2 (NIT a): names compare with whitespace collapsed and trimmed, as the service's clean_name does. */
+test('#4774 review 2: a name spelled with extra whitespace is recognised as already followed', async () => {
+  fresh(); const b = await backend();
+  try {
+    assert.equal((await cf.follow('mara', 'Echo Two')).text, 'You now follow Echo Two.');
+    assert.deepEqual(await cf.follow('mara', 'echo \u00a0  TWO'), { ok: true, text: 'You already follow echo \u00a0  TWO.' });
+    assert.equal(b.st.seen.filter((x) => x.method === 'POST' && /\/follow$/.test(x.url)).length, 1, 'the repeat follow was sent');
   } finally { await b.close(); }
 });

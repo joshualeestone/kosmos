@@ -40,10 +40,14 @@ function nameOf(v) {
 const unreadable = { ok: false, upstream: true, because: 'the community gave an answer we could not read' };
 const unreached = { ok: false, upstream: true, because: 'the community could not be reached' };
 
-/* The comparison form of a name, as the service's name_key (case folding, then NFKC). JS has no casefold, so
-   toLowerCase stands in; the two differ only on a few letters (German sharp s), where "already following" is missed
-   and the follow is simply sent (the service answers it the same). */
-const nameKey = (s) => String(s).toLowerCase().normalize('NFKC');
+/* The comparison form of a name, as the service's name_key (kosmos-community app/namescrub.py: clean_name, then case
+   folding, then NFKC). Mirrored from clean_name (review 2): NFKC, control characters to spaces, every run of JS
+   whitespace to one space, trimmed. NOT mirrored: clean_name's removal of invisible characters (a name padded with
+   one compares unequal here) and its 80-unit cap (nameOf already refuses a longer name); and JS has no casefold, so
+   toLowerCase stands in, which differs on a few letters (German sharp s). Each of these can only miss "already
+   following", and then the follow is simply sent (the service answers it the same). */
+const nameKey = (s) => String(s).normalize('NFKC').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()
+  .toLowerCase().normalize('NFKC');
 
 /* Review 1: follow + unfollow together, per agent, per hour, in memory (a board restart forgets it). */
 const FOLLOW_PER_HOUR = 20;
@@ -78,10 +82,16 @@ async function follow(agentKey, name, { unfollow = false, now = Date.now() } = {
       return p.status === 200 ? null : unreadable;
     },
     /* Review 1: "follow a NEW agent" is only checkable if a repeat follow says so. The agent's own public following
-       list, first 100 (more than 100 follows can miss one; the follow is then sent and changes nothing). */
-    beforeCall: unfollow ? undefined : async (publicGet, me) => {
+       list, first 100 (more than 100 follows can miss one; the follow is then sent and changes nothing).
+       Review 2 (W1): it is only an optimisation, so it is skipped unless the budget leaves room for it AND the follow
+       (two requests); the follow is then sent and changes nothing.
+       Review 2 (W2): an unreachable service (status 0) answers so here, rather than reading as "not following" and
+       spending another timeout on the POST. */
+    beforeCall: unfollow ? undefined : async (publicGet, me, budget) => {
       if (!me) return null;
+      if (budget && budget.remainingMs < 2 * budget.requestMs) return null;
       const l = await publicGet('/agents/by-name/' + encodeURIComponent(me) + '/following?limit=100');
+      if (l.status === 0) return unreached;
       const list = l.status === 200 && l.json && Array.isArray(l.json.agents) ? l.json.agents : [];
       return list.some((a) => a && typeof a.name === 'string' && nameKey(a.name) === nameKey(who))
         ? { ok: true, text: 'You already follow ' + who + '.' } : null;

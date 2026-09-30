@@ -211,11 +211,18 @@ function endpointAllowed() {
   } catch { return false; }
 }
 
-/* #4774 review 1: the service's answer is read up to this many bytes (engine/communityread.js reads with the same
-   function and the same cap; it lives here because communityread already requires this module). */
+/* #4774 review 1: the service's answer is read up to a cap, never whole. RESPONSE_CAP is the cap for what an agent
+   asks for (agentCall: its feed, a following list, a profile, a follow), and engine/communityread.js reads with the
+   same function and the same cap; it lives here because communityread already requires this module.
+   Review 2 (BLOCKER): the sweep's own reads are bigger. GET /agents/me/posts answers up to 200 posts with bodies of up
+   to 4000 characters (kosmos-community app/routers/agents.py my_posts, app/schemas.py PostIn), which is past 256 KiB
+   for an agent with ~60 long posts; there a capped answer would leave an attempted post pending forever and never
+   bring a take-down home. So request()'s default is SWEEP_RESPONSE_CAP: 200 x 4000 characters x 3 UTF-8 bytes is
+   2.4 MB, and 4 MiB leaves room for titles, ids and JSON around it. */
 const RESPONSE_CAP = 256 * 1024;
+const SWEEP_RESPONSE_CAP = 4 * 1024 * 1024;
 async function readCapped(r, cap) {
-  if (!r.body || typeof r.body.getReader !== 'function') { const t = await r.text(); if (t.length > cap) throw new Error('too big'); return t; }
+  if (!r.body || typeof r.body.getReader !== 'function') { const t = await r.text(); if (Buffer.byteLength(t, 'utf8') > cap) throw new Error('too big'); return t; }
   const reader = r.body.getReader();
   const parts = [];
   let n = 0;
@@ -229,7 +236,12 @@ async function readCapped(r, cap) {
   return Buffer.concat(parts.map((u) => Buffer.from(u))).toString('utf8');
 }
 
-async function request(method, pathname, { token, body } = {}) {
+/* #4774 review 2 (W1): thrown by request() when a caller's `deadline` leaves less than one request's timeout, BEFORE
+   anything is sent. Only agentCallNow passes a deadline, and it turns this into its busy answer. */
+class OverBudget extends Error {}
+
+async function request(method, pathname, { token, body, cap = SWEEP_RESPONSE_CAP, deadline = null } = {}) {
+  if (deadline != null && deadline - Date.now() < timeoutMs) throw new OverBudget('over budget');
   const post = sender || ((url, init) => fetch(url, init));
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
@@ -245,7 +257,7 @@ async function request(method, pathname, { token, body } = {}) {
     let json = null;
     /* #4774 review 1: read through a cap, never whole: a huge or endless answer must not sit in the board's memory.
        Past the cap the answer is unreadable (json null), exactly as an answer that does not parse. */
-    try { json = JSON.parse(await readCapped(res, RESPONSE_CAP)); } catch { json = null; }
+    try { json = JSON.parse(await readCapped(res, cap)); } catch { json = null; }
     // Seconds only: this backend sends seconds, and an HTTP-date falls back to the default wait.
     const retry = res.headers && typeof res.headers.get === 'function' ? Number(res.headers.get('retry-after')) : NaN;
     return { status: res.status, json, retryAfter: Number.isFinite(retry) ? retry : null };
@@ -270,13 +282,13 @@ function refusalReasons(json) {
 }
 
 const registerRetryAt = new Map();   // agentKey -> ms; a 429 on register waits, in memory
-async function ensureRegistered(agentKey, keys, now) {
+async function ensureRegistered(agentKey, keys, now, ctx = {}) {
   if (keys[agentKey] && keys[agentKey].apiKey) return keys[agentKey];
   if ((registerRetryAt.get(agentKey) || 0) > now) return null;
   const reg = registration(agentKey);
   const base = reg.name;
   for (let i = 0; i < 3; i++) {
-    const r = await request('POST', '/agents/register', { body: reg });
+    const r = await request('POST', '/agents/register', { ...ctx, body: reg });
     if (r.status === 201 && r.json && typeof r.json.api_key === 'string' && typeof r.json.token === 'string') {
       keys[agentKey] = {
         remoteId: String(r.json.agent_id || ''), name: String(r.json.name || reg.name),
@@ -293,15 +305,15 @@ async function ensureRegistered(agentKey, keys, now) {
 }
 
 // A request as the agent, re-logging in once if the token has expired.
-async function asAgent(agentKey, keys, method, pathname, body) {
+async function asAgent(agentKey, keys, method, pathname, body, ctx = {}) {
   const k = keys[agentKey];
-  let r = await request(method, pathname, { token: k.token, body });
+  let r = await request(method, pathname, { ...ctx, token: k.token, body });
   if (r.status !== 401) return r;
-  const login = await request('POST', '/agents/login', { body: { name: k.name, api_key: k.apiKey } });
+  const login = await request('POST', '/agents/login', { ...ctx, body: { name: k.name, api_key: k.apiKey } });
   if (login.status === 200 && login.json && typeof login.json.token === 'string') {
     k.token = login.json.token;
     saveJson(keysFile(), keys);
-    r = await request(method, pathname, { token: k.token, body });
+    r = await request(method, pathname, { ...ctx, token: k.token, body });
     return r;
   }
   if (login.status === 401) {
@@ -617,6 +629,12 @@ function exclusive(fn) {
    agent is told to try again, which is safe for follow, unfollow and a read.) */
 const AGENT_WAIT_MS = 20000;
 let agentWaitMs = AGENT_WAIT_MS;
+/* #4774 review 2 (W1): the wait above bounds only the START. A started call can make several requests (a profile
+   lookup, up to 3 registrations, the following list, the call, a re-login and the call again), each up to timeoutMs,
+   and both CLIs give up at 30 s. So the whole call, from the moment it was queued, has AGENT_BUDGET_MS: before each
+   request, if less than one request's timeout is left, it stops and answers busy without starting that request. */
+const AGENT_BUDGET_MS = 25000;
+let agentBudgetMs = AGENT_BUDGET_MS;
 const agentsInCall = new Set();
 const busy = () => ({ ok: false, local: true, because: 'Kosmos is busy talking to the community; try again in a minute' });
 
@@ -630,13 +648,17 @@ const busy = () => ({ ok: false, local: true, because: 'Kosmos is busy talking t
  *                               busy) rather than the service failing
  * `register: false` answers { ok: true, status: 0, unregistered: true } for an agent with no community account
  * rather than creating one (reading its own Following feed is no reason to make a public profile).
- * `beforeRegister(publicGet)` runs only for an agent about to be registered, and `beforeCall(publicGet, myName)` just
- * before the request; either returns null to go on, or a value that is handed back as `answered`. `publicGet(path)`
- * is a GET with NO bearer, so the hooks can read public pages but never hold a key.
+ * `beforeRegister(publicGet, budget)` runs only for an agent about to be registered, and
+ * `beforeCall(publicGet, myName, budget)` just before the request; either returns null to go on, or a value that is
+ * handed back as `answered`. `publicGet(path)` is a GET with NO bearer, so the hooks can read public pages but never
+ * hold a key. `budget` is { remainingMs, requestMs }: the time left of AGENT_BUDGET_MS when the hook is called, and one
+ * request's timeout, so a hook doing optional work can skip it when the time is short.
+ * Review 2 (BLOCKER): every answer here is read up to RESPONSE_CAP (256 KiB), not the sweep's larger default.
  */
 function agentCall(agentKey, method, pathname, opts = {}) {
   if (agentsInCall.has(agentKey)) return Promise.resolve(busy());
   agentsInCall.add(agentKey);
+  const deadline = Date.now() + agentBudgetMs;         // review 2 (W1): measured from queue time
   return new Promise((resolve) => {
     let started = false;
     let gaveUp = false;
@@ -651,17 +673,26 @@ function agentCall(agentKey, method, pathname, opts = {}) {
       if (gaveUp) return null;                        // answered busy already: it never runs later
       started = true;
       clearTimeout(timer);
-      return agentCallNow(agentKey, method, pathname, opts);
+      return agentCallNow(agentKey, method, pathname, { ...opts, deadline });
     }).then(done, () => done({ ok: false, because: 'the community could not be reached' }));
   });
 }
 
-async function agentCallNow(agentKey, method, pathname, { register = true, beforeRegister, beforeCall } = {}) {
+async function agentCallNow(agentKey, method, pathname, opts = {}) {
+  try { return await agentCallSteps(agentKey, method, pathname, opts); } catch (e) {
+    if (e instanceof OverBudget) return busy();      // review 2 (W1): nothing was started past the budget
+    throw e;
+  }
+}
+
+async function agentCallSteps(agentKey, method, pathname, { register = true, beforeRegister, beforeCall, deadline = null } = {}) {
   const local = (because) => ({ ok: false, local: true, because });
+  const ctx = { cap: RESPONSE_CAP, deadline };
+  const budget = () => ({ remainingMs: deadline == null ? Infinity : deadline - Date.now(), requestMs: timeoutMs });
   if (!switchOn()) return local('the Kosmos community is switched off on this board');
   if (!endpointAllowed()) return local('the community address is not https, so nothing is sent to it');
   if (!sender && underTest()) return local('no network in tests');
-  const publicGet = async (p) => { const r = await request('GET', p); return { status: r.status, json: r.json }; };
+  const publicGet = async (p) => { const r = await request('GET', p, ctx); return { status: r.status, json: r.json }; };
   const keys = loadJson(keysFile());
   if (!keys) return local('this board\'s community keys cannot be read, so it cannot act as the agent');
   const k = keys[agentKey];
@@ -669,18 +700,18 @@ async function agentCallNow(agentKey, method, pathname, { register = true, befor
   if (!(k && k.apiKey)) {
     if (!register) return { ok: true, status: 0, json: null, unregistered: true };
     if (beforeRegister) {
-      const a = await beforeRegister(publicGet);
+      const a = await beforeRegister(publicGet, budget());
       if (a != null) return { ok: true, answered: a };
     }
-    if (!(await ensureRegistered(agentKey, keys, Date.now()))) {
+    if (!(await ensureRegistered(agentKey, keys, Date.now(), ctx))) {
       return { ok: false, because: 'the community could not register this agent just now; try again later' };
     }
   }
   if (beforeCall) {
-    const a = await beforeCall(publicGet, String(keys[agentKey].name || ''));
+    const a = await beforeCall(publicGet, String(keys[agentKey].name || ''), budget());
     if (a != null) return { ok: true, answered: a };
   }
-  const r = await asAgent(agentKey, keys, method, pathname);
+  const r = await asAgent(agentKey, keys, method, pathname, undefined, ctx);
   if (r.status === 0) return { ok: false, because: 'the community could not be reached' };
   if (keys[agentKey] && keys[agentKey].refused) return local('the community switched off this agent\'s account');
   return { ok: true, status: r.status, json: r.json };
@@ -760,9 +791,11 @@ function setSender(f) { sender = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
 function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
+function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
   switchOn, industryUnreachable, sweep, agentCall, requestDelete, statuses, payload, titleFor, registration, underTest,
-  setSender, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, readCapped, RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
+  setSender, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
+  RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
   _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile },
 };
