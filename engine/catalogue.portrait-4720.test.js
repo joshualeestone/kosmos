@@ -383,3 +383,14 @@ test('a portrait held in memory is dropped once the catalogue no longer names it
   const r = await catalogue.portrait('marketing', 'lead', { fetcher: down.fetcher, force: true });
   assert.equal(r.ok, false, 'a portrait the catalogue had stopped naming was still held');
 });
+
+test('a download that succeeds clears the earlier failure: a kept portrait lost within the minute is fetched again', async () => {
+  setup(PATH, sha256(IMG));
+  assert.equal((await catalogue.portrait('marketing', 'lead', { fetcher: server(new Error('network down')).fetcher })).ok, false);
+  assert.equal((await catalogue.portrait('marketing', 'lead', { fetcher: server(IMG).fetcher, force: true })).ok, true);
+  fs.rmSync(catalogue.portraitFile(sha256(IMG)));
+  const again = server(IMG);
+  const r = await catalogue.portrait('marketing', 'lead', { fetcher: again.fetcher });
+  assert.equal(r.ok, true, `answered with the failure from before the success: ${r.because}`);
+  assert.equal(again.calls.length, 1);
+});

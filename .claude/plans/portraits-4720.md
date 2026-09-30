@@ -86,11 +86,32 @@ where the folder should be); the failure and in-flight maps were keyed by hash a
 members sharing an image under two names shared one failure (now hash and name); the route
 lacked `crossSiteRead` and an answer for a throw inside its handler; each arm of the WebP test,
 the declared-size refusal, the minute's gap expiring and the response headers are now pinned.
-Two lines removed because nothing could pin them: the delete of a damaged kept file (the good
-copy replaces it on rename) and the 20-byte length check (the form check already fails anything
-shorter). Decided, not built: the three gaps added above. My first version of the first gap said
+One line removed because nothing could pin it: the delete of a damaged kept file (the good copy
+replaces it on rename). I also removed the 20-byte length check as redundant; that was WRONG (see
+review 2). Decided, not built: the three gaps added above. My first version of the first gap said
 another website could trigger the route with an image tag; that was wrong, and the reviewer
 showed why.
+
+## Review 2 (blind, sonnet): 0 blockers, 3 warnings, 3 nits
+
+- W: **my claim that the 20-byte check was redundant was false.** A 16-byte file can carry every
+  mark the WebP test reads and no image; the reviewer ran every length from 0 to 24 and nine were
+  accepted. The floor is back and a 16-byte case is in the test. (The hash still had to match the
+  signed catalogue, so nothing could have been served that the catalogue did not name.)
+- W: two guards had no test: the prune keeping the portrait just saved when the catalogue is
+  replaced while it downloads, and the prune dropping a held-in-memory portrait the catalogue no
+  longer names. Both are pinned now, through a real republish (`refresh` with a newer serial).
+- W: **"23 guards removed one at a time, each red" overstated it.** What is true now: 27 single
+  removals in `engine/catalogue.js` each turn a test red, and 2 in the route. These stay green
+  and are left as they are, stated: in the route's handler, the early return when the response
+  is already gone, the catch around the answer, and the headers-sent check in its 404 (each
+  defends against a state I could not produce in a test).
+- N, taken: the 404 body is `{ error }` like the rest of the board, not a second shape; the cap
+  is pinned as the literal 524288; the comment on the in-memory hold says when an entry is
+  really dropped.
+- N, decided and left: redirects are still followed (see the gap above). What would change my
+  mind: a measurement, once a real portrait is published, that the live address never redirects;
+  then both downloads should refuse redirects together.
 
 ## Weakest premise
 
@@ -99,7 +120,7 @@ downloaded the catalogue), and when they are not the agent is made without a pic
 
 ## Tests
 
-- `engine/catalogue.portrait-4720.test.js` (21; 23 guards removed one at a time, each red): the happy path and its address, kept and not
+- `engine/catalogue.portrait-4720.test.js` (25; see review 2 for what removing a guard does and does not turn red): the happy path and its address, kept and not
   asked again, wrong image refused after one ask past the caches, stale cache recovered, the
   minute's gap and `force`, not a WebP, over the cap with an at-the-cap control, nine bad paths
   and six bad hashes never fetched, a damaged kept file, pruning leaves a download under way
