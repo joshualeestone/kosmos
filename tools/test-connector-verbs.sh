@@ -15,8 +15,9 @@ OPEN="$T/open.js"; printf "const x = 1;\nconst PHONE_APP_CAN_RECEIVE = true;\nle
 SHUT="$T/shut.js"; printf "const PHONE_APP_CAN_RECEIVE = false;\n" > "$SHUT"
 
 # #4678: the arms below test which REASON the check gives, on stand-ins that answer at once. If the only
-# outcome is the probe's own timeout sentence, the box never ran the stand-in within the bound (measured on
-# a loaded box: a stand-in that exits at once reached the 20 s bound), which says nothing about the reason.
+# outcome is the probe's own timeout sentence, the box never ran the stand-in within the bound (reported on
+# #4678 from a loaded box, not reproduced here: a stand-in that exits at once reached the 20 s bound), which
+# says nothing about the reason.
 # Run it again then, and only then: any other outcome is judged on the first try, so a wrong reason or a
 # noisy line can never be retried away. ONE rerun at most (Liu Kang, m3843), printed and counted: two
 # timeouts in a row are judged as a timeout, so a stand-in that really hangs still fails its arm.
@@ -61,7 +62,7 @@ HANG="$T/hang-tunnel"; printf '#!/bin/sh\nexec sleep 300\n' > "$HANG"; chmod +x 
 start=$(date +%s); CONNECTOR_PROBE_SECONDS=2 connector_verbs_check "$HANG" "$OPEN" 2>"$T/err"; took=$(( $(date +%s) - start ))
 # #4678: bounded means it returned well before the stand-in's own 300 s sleep, with the 2 s timeout named.
 # The limit is 30 s, not the old 10: 10 was a guess at the box's speed that a busy box broke without the
-# bound failing, while 30 still catches a bound armed ten times too long.
+# bound failing, while 30 still catches a 2 s bound armed about fifteen times too long.
 [ "$took" -lt 30 ] && grep -q "could not check" "$T/err" && grep -q "did not answer within 2 seconds" "$T/err" && ok "a hanging connector is cut off by the bound (${took}s) and refused as unrunnable" || bad "a hang was not bounded (${took}s): $(cat "$T/err")"
 # A bound of 0 or junk must not switch the bound off (perl's alarm 0 means "no alarm").
 for v in 0 00 -3 abc 2.5 ""; do [ "$(CONNECTOR_PROBE_SECONDS="$v" connector_probe_seconds)" = 20 ] || bad "CONNECTOR_PROBE_SECONDS='$v' was not replaced by 20"; done
@@ -97,7 +98,9 @@ child_hang_arm() {  # child_hang_arm <stand-in> <label> <bound seconds> [a file 
   else ok "$label: the timed-out connector's child process is gone too"; fi
 }
 KID="$T/child-hang-tunnel"; printf '#!/bin/sh\nsleep 300 &\necho $! > "%s"\nwait\n' "$T/kid.pid" > "$KID"; chmod +x "$KID"
-child_hang_arm "$KID" "child hang" 2
+# A 5 s bound: this arm only needs the child to EXIST before the bound fires (the HANG arm above covers the
+# 2 s bound itself), so it gets room a busy box's scheduling needs.
+child_hang_arm "$KID" "child hang" 5
 
 # #4678, the rerun itself. Each stand-in hangs while a marker file the TEST made exists, and the test removes
 # it before the rerun, so the first try times out and the second answers whatever the box's speed (a marker
