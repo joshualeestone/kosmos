@@ -46913,7 +46913,8 @@ async function tcPortrait(name, image) {
     // after the one added here would make it another host's address.
     const rel = String(image).replace(/^web\//, '');
     if (!/^[A-Za-z0-9][A-Za-z0-9/_.-]*$/.test(rel) || rel.includes('..')) return 'failed';
-    const img = await fetch('/' + rel);
+    const src = '/' + rel;
+    const img = await fetch(src);
     if (!img.ok) return 'failed';
     const blob = await img.blob();
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/avatar', { method: 'PUT', headers: { 'content-type': blob.type || 'image/webp' }, body: blob });
