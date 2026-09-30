@@ -3955,8 +3955,8 @@ function processCaller(req, body, roster, viaScreen, notDone) {
    [status, sentence] to refuse with, or null. An unreadable projects list refuses (503): a member that cannot be
    checked is not let through. A project nobody stored is left to the handler's own 404.
    ONE exception: a project a PROCESS made that lists nobody (`made.via === 'process'`, `agents: []`). That is
-   what `kosmos project create` makes (it lists nobody, not even its maker; run by an agent or by the person in a
-   terminal, the record is the same), and every agent's working rules say "once it exists you ... hand it work
+   what `kosmos project create` makes (it lists nobody, not even its maker, whose name goes in the record of who
+   made it and not on the member list; run by an agent or by the person in a terminal, the record is the same), and every agent's working rules say "once it exists you ... hand it work
    the same way as any other project" (engine/defaults.js, "Making a project"): refusing the maker its own new
    project would break the one workflow the product prescribes. A task there can have no assignee (an assignee
    must be a member). A project made ON THE PAGE is not that, with nobody ticked or emptied later: nobody

@@ -111,7 +111,7 @@ agent makes; that case is the exception above.)
   the token still names who added it.
 
 ## Tests
-- `server.agent-writes-4491.test.js` (new, 20; rounds 1, 3, 5 and 6 added eight): the gate refuses both writes bare and with an unissued token; a
+- `server.agent-writes-4491.test.js` (new, 20): the gate refuses both writes bare and with an unissued token; a
   member adds on its token alone and the task is recorded as added by it; a non-member is refused with and without
   the board token and nothing reaches the task engine; the body cannot name another agent; a pane names its agent
   (through resolveSender) and a non-member pane is refused, while a pane nobody holds, no pane, and the page are as
@@ -211,4 +211,9 @@ agent makes; that case is the exception above.)
   the task's.
 - Confirmed by the reviewer from the code: the helper cannot throw for any stored shape; `via` is derived by the
   route, never taken from the body; a caller with only an agent token cannot make or empty a project.
+
+## Review round 8 (sonnet), a sentence-by-sentence truth pass: 0 BLOCKER, 0 WARNING, 0 CONVENTION, 2 NIT. CONVERGED
+- NITs, both wording, both taken: the comment says the maker's name goes in the made-by record and not on the
+  member list (the instructions say "with your name on it"); a clause about which round added which test is gone.
+  No code changed after this round's review.
 
