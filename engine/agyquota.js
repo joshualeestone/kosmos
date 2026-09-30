@@ -103,7 +103,8 @@ function quotaHoldOff(env) {
    Brake (quotaHoldOff): holds nothing, for every heldForQuota caller at once (deliverAutomatic(Async) and every timer
    and room post sent through it, the assigner, the recommender, and server.js's own checks), AND lifts the resume
    sweep's pool gate (sweepOnce), so PR A's per-agent resume timing is back. A misread reset up to MAX_POOL_MS ahead
-   would otherwise hold them all with no way out but the wait; the card still shows the pause either way. */
+   would otherwise hold them all with no way out but the wait; the card still shows the pause either way. It restores
+   only resumes still inside their own six hours (heldBackBy is not applied under it), not ones that already aged out. */
 function heldForQuota(session, roster, now, memo = POOL_MEMO, env = process.env) {
   if (quotaHoldOff(env)) return null;
   let card = null;

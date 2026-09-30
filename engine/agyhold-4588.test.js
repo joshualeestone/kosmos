@@ -565,6 +565,29 @@ test('#4588 B review 5: the brake also lifts the resume sweep\'s pool gate, so a
   assert.deepEqual(seen, ['brk-a'], 'makeTick passes its env into the sweep');
 });
 
+test('#4588 B review 6 (NIT b): the brake passes heldBackUntil null, so an agent whose own reset is more than six hours old and was held back by a pool pause first seen inside its window is left alone; CONTROL: without the brake it is resumed', () => {
+  const X = Date.parse('2026-09-28T02:00:00.000Z');                 // brk-a's own reset
+  const Yreset = X + 7 * 3600e3;                                    // the pool's reset, after brk-a's six hours closed
+  const now = Yreset + agyquota.GRACE_MS + 60e3;                    // the pool is open again
+  const report = { found: true, state: 'idle', by: 'auto', until: new Date(X).toISOString(), because: status.QUOTA_REPORT_PREFIX + ' Google said: ...' };
+  const roster = [{ ...realCard('brk-a'), name: 'A', state: 'idle' }, { ...realCard('brk-b'), name: 'B', state: 'idle', quotaUntil: null }];
+  const run = (env) => {
+    const memo = agyquota.newPoolMemo();
+    // brk-b's pause first seen 1 h after brk-a's reset: inside brk-a's window, so it held brk-a back.
+    agyquota.notePool([{ ...realCard('brk-b'), state: 'rate_limited', quotaUntil: new Date(Yreset).toISOString() }], X + 3600e3, memo);
+    assert.equal(agyquota.heldBackBy(X, memo), Yreset, 'fixture: the pool pause does not count as holding brk-a back');
+    const sent = [];
+    const r = agyquota.sweepOnce({ roster, book: new Map(), now, memo, env, readReport: (s) => (s === 'brk-a' ? report : { found: false }),
+      deliver: (s) => { sent.push(s); return { state: DELIVERY.PLACED }; }, DELIVERY });
+    return { r, sent };
+  };
+  const off = run({});
+  assert.deepEqual(off.sent, ['brk-a'], 'CONTROL: without the brake the held-back agent is resumed from the pool\'s reset');
+  const on = run({ AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF: '1' });
+  assert.deepEqual(on.sent, [], 'under the brake an agent past its own six hours was resumed (heldBackUntil was not null)');
+  assert.equal(on.r.skipped, undefined, 'the brake arm never reached the per-agent plan');
+});
+
 /* ---- review iteration 1: the release tail, one pool for the resume, and chat's own card rule ---- */
 
 

@@ -1700,6 +1700,10 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
  * keep the try for after the reset. A person's own message goes through deliver() and is never held.
  */
 function quotaHeldVerdict(sessionName, roster) {
+  // Review round 6: only a pane we could type into is HELD. A stopped or untypeable member (no agent process, no
+  // target, not ours) is refused by deliver/deliverAsync with its real reason, exactly as without the quota gate, so
+  // the room never logs a post as held for a pane nothing can reach, and the sender is not told PLACED.
+  if (addressable(sessionName, roster).ok !== true) return null;
   let until = null;
   try { until = require('./agyquota').heldForQuota(sessionName, roster, Date.now()); } catch { until = null; }
   if (until === null) return null;

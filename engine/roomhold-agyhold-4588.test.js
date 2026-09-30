@@ -336,6 +336,89 @@ test('#4588 B retry CONTROL: a working agy member, and a non-agy member holding 
   });
 });
 
+/* Review round 6: the quota gate holds only a member the board can type into (chat.addressable). mara STOPPED is her
+   pane with no Antigravity in it: a shell that would run typed text, so nothing can be typed now or after the reset. */
+const AGY_STOPPED = { ...AGY, state: 'stopped', command: '-zsh' };
+/* Between a test's two arms: the stored reports, holds and log of the first arm would make the fleet check misread the second. */
+function fresh() {
+  chat.resetForTests();
+  messages.resetForTests();
+  poolReset();
+  for (const d of [messages.LOG, roomhold.dir(), selfreport.DIR]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* fresh */ } }
+}
+function room3Stopped() {
+  return [fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', AGY_STOPPED), fleet.agent('april', { state: 'idle' })];
+}
+
+test('#4588 B review 6: during a pool pause a colleague post to a room with a STOPPED agy member is COULD_NOT for her, with no heldUntil and nothing kept; CONTROL: a reachable paused member stays HELD', () => {
+  withFleet(room3Stopped(), (board) => {
+    report('mara', 'idle');
+    report('april', 'idle');
+    armSender('leo-discord');
+    const tmux = arm();
+    const r = rosterOf(board, AHEAD());
+    assert.notEqual(agyquota.heldForQuota('mara', r, Date.now()), null, 'fixture: the pool is not paused for mara');
+    assert.equal(chat.addressable('mara', r).ok, false, 'fixture: the stopped mara is addressable');
+    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara @april clause 4?' }, r, MEMBERS);
+    assert.equal(sent.outcomes.mara, chat.DELIVERY.COULD_NOT, 'a stopped member was held as if she could be told later');
+    assert.equal(sent.heldUntil && sent.heldUntil.mara, undefined, 'a stopped member was given a heldUntil');
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [], 'ids were kept for a pane nothing can type into');
+    assert.deepEqual(typedTo(tmux, 'mara'), []);
+    assert.equal(sent.outcomes.april, chat.DELIVERY.PLACED, 'CONTROL: the claude member is typed');
+  });
+  fresh();
+  withFleet(room3(), (board) => {
+    report('mara', 'idle');
+    armSender('leo-discord');
+    arm();
+    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara clause 4?' }, rosterOf(board, AHEAD()), MEMBERS);
+    assert.equal(sent.outcomes.mara, roomhold.HELD, 'CONTROL: a reachable paused agy member is no longer held');
+  });
+});
+
+test('#4588 B review 6: a post whose ONLY recipient is a STOPPED agy member is refused during a pool pause (no id, not in the room log); CONTROL: reachable, it is kept', () => {
+  withFleet(room3Stopped(), (board) => {
+    report('mara', 'idle');
+    armSender('leo-discord');
+    const tmux = arm();
+    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara only you' }, rosterOf(board, AHEAD()), ['leo', 'mara']);
+    assert.ok(!sent.id, 'a post that reached nobody was given an id: ' + JSON.stringify(sent.outcomes || {}));
+    assert.equal(messages.readLog().some((m) => m && m.kind === 'post' && m.project === PROJECT), false, 'the refused post is in the room log');
+    assert.equal(sent.state, chat.DELIVERY.COULD_NOT);
+    assert.deepEqual(typedTo(tmux, 'mara'), []);
+  });
+  fresh();
+  withFleet(room3(), (board) => {
+    report('mara', 'idle');
+    armSender('leo-discord');
+    arm();
+    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara only you' }, rosterOf(board, AHEAD()), ['leo', 'mara']);
+    assert.ok(sent.id, 'CONTROL: a post held for a reachable member was refused');
+    assert.ok(messages.readLog().some((m) => m && m.id === sent.id));
+  });
+});
+
+test('#4588 B review 6: flushReleased skips a STOPPED agy member holding posts (no try, no log line, ids kept); CONTROL: reachable, it is told', async () => {
+  await withFleetAsync(room3Stopped(), async (board) => {
+    report('mara', 'idle');
+    assert.equal(roomhold.hold('mara', PROJECT, 'm900003'), true);
+    const tmux = arm();
+    const r = rosterOf(board, null);
+    assert.deepEqual(await roomhold.flushReleased(r, releasedDeps(r, Date.now())), [], 'a stopped member was retried (a COULD_NOT and a log line every minute)');
+    assert.deepEqual(tmux.pastedSends(), []);
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), ['m900003'], 'the ids were dropped');
+  });
+  fresh();
+  await withFleetAsync(room3(), async (board) => {
+    report('mara', 'idle');
+    assert.equal(roomhold.hold('mara', PROJECT, 'm900004'), true);
+    arm();
+    const r = rosterOf(board, null);
+    const done = await roomhold.flushReleased(r, releasedDeps(r, Date.now()));
+    assert.deepEqual(done.map((d) => [d.name, d.state]), [['mara', chat.DELIVERY.PLACED]], 'CONTROL: a reachable member was not told');
+  });
+});
+
 test('#4588 B clause: without an addressed id the #4624 line is byte-unchanged', () => {
   assert.equal(roomhold.clauseFor('p1', 'P one', ['m1']),
     '[While you were working, 1 room post not addressed to you arrived in project P one (m1). Nothing is asked of you; read them with: kosmos room p1]');

@@ -28,7 +28,8 @@
  * So a runner that does not report is never held, and a report that went stale falls back to typing.
  *
  * Brake: AGENT_WORKFORCE_ROOM_HOLD_OFF=1 types every post as before, including past the #4588 quota gate for room
- * posts (engine/messages.js typeInto).
+ * posts (engine/messages.js typeInto). Posts held before the brake is turned on are told only by the next typed
+ * arrival (the idle flush and flushReleased are off under it).
  *
  * Held only for a member the board can type into right now (chat.addressable), so a post to a dead or
  * missing pane is still refused as before rather than kept for someone who cannot hear it. Never held:
@@ -232,6 +233,9 @@ async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver,
       const name = String(card.sessionName);
       if (!heldProjects(name).length) continue;
       if (workingNow(readReport, name, now, decayMs)) continue;
+      /* Review round 6: a member nothing can type into (stopped, no agent process, no target) is skipped, so its ids
+         wait for the next typed arrival instead of a COULD_NOT, and a room-hold log line, every minute. */
+      if (require('./chat').addressable(name, roster).ok !== true) continue;
       for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env })) out.push({ name, ...d });
     } catch { /* the posts stay held for the next minute */ }
   }

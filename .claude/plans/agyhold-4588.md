@@ -330,3 +330,32 @@ since this branch is stacked on it.
   checks) AND the resume sweep's pool gate.
 - Weakest premise: that the brake should lift the resume's pool gate too, not only the holds. A misread pool reset is
   the case the brake exists for, and under it the resume falls back to exactly PR A, which shipped on its own.
+
+## Review round 6, 2026-09-30: WARNING fixed, 3 NITs fixed
+- **WARNING FIXED.** quotaHeldVerdict held any antigravity card (isOurAgy) without asking chat.addressable, so a
+  STOPPED or untypeable Gemini member (no agent process in its pane, no target, not ours) had its room post HELD:
+  outcome HELD, reached += 1, the post logged, the sender told PLACED with a heldUntil, though nothing could ever be
+  typed. After the release flushReleased then got COULD_NOT and logged it every minute. Now quotaHeldVerdict returns
+  null unless addressable(sessionName, roster).ok === true, so deliver/deliverAsync refuse with the real reason, as the
+  #4624 hold and roomhold.js's header promise. flushReleased also skips a member chat.addressable refuses (a lazy
+  require of chat, the same one agyquota uses; no new dep, server.js unchanged), so its ids wait for the next typed
+  arrival instead of a COULD_NOT and a log line every minute.
+  Arms: engine/roomhold-agyhold-4588.test.js (a room with a stopped agy member: COULD_NOT, no heldUntil, nothing kept;
+  a post whose only recipient is that member is refused, no id, not in the log; flushReleased skips her, ids kept;
+  each with a reachable-member CONTROL that stays HELD / kept / told) and engine/agyhold-deliver-4588.test.js
+  (deliverAutomatic and deliverAutomaticAsync on a real stopped card: COULD_NOT with "no Antigravity running", no held
+  field, no process; CONTROL: a reachable agy member in the same roster is held). The existing held arm there now marks
+  the agy cards as ours (heldRoster), since a card that is not ours is no longer held.
+  Red with only the addressable line removed from quotaHeldVerdict: 2 fails in the room file, 1 in the deliver file.
+  Red with only the flushReleased skip removed: 1 fail.
+- **NIT (a) FIXED.** The brake comment in agyquota.js now says it restores only resumes still inside their own six
+  hours (heldBackBy is not applied under it), not ones that already aged out.
+- **NIT (b) FIXED by a test, claim kept.** New arm in engine/agyhold-4588.test.js: an agent whose own reset is 7 h
+  before the pool's reset, held back by a pool pause first seen 1 h after its reset. Without the brake it is resumed
+  (heldBackBy extends its window, the CONTROL); under the brake it is left alone (heldBackUntil null). Reds with
+  sweepOnce passing heldBackBy under the brake.
+- **NIT (c) FIXED.** roomhold.js's brake note now says posts held before the room brake is turned on are told only by
+  the next typed arrival.
+- Weakest premise: addressable is read off the same roster snapshot the gate reads, so a pane that stops between the
+  snapshot and the keystroke is still refused by deliver's own later checks, not by this gate. That is the pre-quota
+  behaviour, not a new gap.

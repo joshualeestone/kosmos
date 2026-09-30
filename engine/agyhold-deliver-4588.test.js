@@ -53,7 +53,8 @@ const fleet = require('../test-support/fleet');
 const status = require('./status');
 const AGY_SPEC = { state: 'unknown', runner: 'antigravity', command: 'agy', screen: '' };
 const CARDS = (() => {
-  const board = fleet.install([fleet.agent('agy-paused', AGY_SPEC), fleet.agent('agy-idle', AGY_SPEC), fleet.agent('claude-idle', { state: 'idle' })]);
+  const board = fleet.install([fleet.agent('agy-paused', AGY_SPEC), fleet.agent('agy-idle', AGY_SPEC), fleet.agent('claude-idle', { state: 'idle' }),
+    fleet.agent('agy-stopped', { ...AGY_SPEC, state: 'stopped', command: '-zsh' })]);
   try { return status.snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
 })();
 SPAWNED.length = 0;
@@ -66,6 +67,13 @@ function roster(quotaUntil) {
   ];
 }
 
+/* Review round 6: the gate holds only a pane chat.addressable would type into, so the held arms need the agy cards as
+   ours (isNamedOurs true, as the snapshot built them). A held verdict returns before deliver(), and the spy above still
+   refuses any process, so nothing can be typed. */
+function heldRoster(quotaUntil) {
+  return roster(quotaUntil).map((c) => (c.runner === 'antigravity' ? { ...c, isNamedOurs: true } : c));
+}
+
 test('#4588 B fixture: the real cards carry the runners the tests assume, and none reads as ours', () => {
   const r = roster(null);
   assert.deepEqual(r.map((c) => [c.sessionName, c.runner]), [['agy-paused', 'antigravity'], ['agy-idle', 'antigravity'], ['claude-idle', 'claude']]);
@@ -76,7 +84,7 @@ test('#4588 B deliverAutomatic: a held agy target (the paused one AND its idle c
   const until = new Date(Date.now() + 30 * 60e3).toISOString();
   for (const target of ['agy-paused', 'agy-idle']) {
     SPAWNED.length = 0;
-    const v = chat.deliverAutomatic(target, 'carry on', roster(until));
+    const v = chat.deliverAutomatic(target, 'carry on', heldRoster(until));
     assert.equal(v.state, DELIVERY.COULD_NOT, target);
     assert.equal(v.held, true, target + ': only the new held branch sets held');
     assert.equal(v.heldUntil, until, target);
@@ -106,5 +114,26 @@ test('#4588 B deliverAutomatic vs deliver: the person\'s own path (deliver) is n
   SPAWNED.length = 0;
   const v = chat.deliver('agy-idle', 'a person wrote this', roster(until));
   assert.equal('held' in v, false, 'deliver() held a person\'s message');
+  assert.deepEqual(SPAWNED, []);
+});
+
+test('#4588 B review 6: a STOPPED agy member (no Antigravity in its pane) is not held during a pool pause; it is refused with its real reason, and nothing is run. CONTROL: a reachable one is held', async () => {
+  const until = new Date(Date.now() + 30 * 60e3).toISOString();
+  const stopped = { ...realCard('agy-stopped'), name: 'S', state: 'stopped', quotaUntil: null, target: 'kt-agyhold-none:9.6' };
+  assert.equal(stopped.isNamedOurs, true, 'fixture: the stopped card must be ours, so only its pane makes it untypeable');
+  assert.equal(stopped.isAgentPane, false, 'fixture: the stopped card has an agent in its pane');
+  const r = [...heldRoster(until), stopped];
+  for (const [how, call] of [['sync', () => chat.deliverAutomatic('agy-stopped', 'carry on', r)], ['async', () => chat.deliverAutomaticAsync('agy-stopped', 'carry on', r)]]) {
+    SPAWNED.length = 0;
+    const v = await call();
+    assert.equal(v.state, DELIVERY.COULD_NOT, how);
+    assert.equal('held' in v, false, how + ': a stopped pane was held for the quota, as if it could be typed after the reset');
+    assert.equal('heldUntil' in v, false, how);
+    assert.match(v.because, /no Antigravity running/, how + ': not refused with its real reason');
+    assert.deepEqual(SPAWNED, [], how + ': a refused line started a process');
+  }
+  SPAWNED.length = 0;
+  const control = chat.deliverAutomatic('agy-idle', 'carry on', r);
+  assert.equal(control.held, true, 'CONTROL: a reachable agy member in the same roster is held');
   assert.deepEqual(SPAWNED, []);
 });
