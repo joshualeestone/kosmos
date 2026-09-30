@@ -16,10 +16,18 @@
 # requires), at-least-once delivery, the token handling and the dry run are the same.
 # The variable set to an empty value, a missing or unreadable file, or an empty one REFUSES (exit 2): falling back to
 # the automatic text would tell #admin nothing was triaged on a day it was. A held lock in this mode exits 3 (not
-# posted), since the run that holds it will not post Echo's text, and a failed post (Discord's error, a timeout, no bot
-# token, or a broken environment: no state or temp folder, node or jq failing, named in the log line) exits 4. Both
-# mean: run it again. A post that went out but whose watermark could not be written exits 5: do NOT run it again (it
-# would post twice). The watermark never moves backwards in this mode.
+# posted), since the run that holds it will not post Echo's text, and a failed post (Discord's error, no bot token, or
+# a broken environment: no state or temp folder, no lock, node or jq failing, named in the log line) exits 4. Both
+# mean: run it again. The watermark never moves backwards in this mode.
+# Exit codes in this mode (Echo is its only caller):
+#   0  posted, or this pull's result was ALREADY posted (FEEDBACK_DIGEST_WATERMARK equals the last one posted, kept in
+#      $STATE/last-message-wm: a rerun of the same pull posts nothing)
+#   2  a refusal, nothing posted: fix the file or the watermark
+#   3  the lock is held by a run for ANOTHER pull (or the automatic path): not posted, run it again
+#   4  not posted (Discord's error, no bot token, a broken environment): run it again
+#   5  posted, but the watermark was not recorded: do NOT run it again (it would post twice)
+#   6  the lock is held by a run posting THIS SAME pull (its $LOCK/wm equals ours): do NOT run it again, check #admin
+#   7  Discord did not answer (curl printed 000 or nothing): the post MAY have gone out, check #admin before running again
 #
 # WHY ONLY SINCE THE LAST POST: over all time the store held 39 reports and about 105 candidates (measured
 # 2026-09-28); a digest of all of them every day would be the same wall each morning. A day's worth is a handful.
@@ -29,9 +37,10 @@
 # release carries it, a launchd job runs this daily.
 #
 # The bot token never reaches argv: curl reads the Authorization header from a mode-600 temp file (the #1655
-# pattern). Any failure is logged and exits non-zero, and last-posted moves only on a 200. Delivery is AT LEAST
-# ONCE: if Discord takes the post but its answer is lost (a timeout), the watermark stays and the same digest can be
-# posted again next run. That is the chosen side: a repeat is noticed, a lost digest is not.
+# pattern). Any failure is logged and exits non-zero, and last-posted moves only on a 200. Delivery on the automatic
+# path is AT LEAST ONCE: if Discord takes the post but its answer is lost (a timeout), the watermark stays and the
+# same digest can be posted again next run. That is the chosen side: a repeat is noticed, a lost digest is not. In
+# message-file mode a timeout is its own exit (7) rather than "run it again", because a person can look at #admin.
 #
 # SEAMS (tools/test-feedback-digest-daily.sh drives every arm with no network and no token):
 #   FEEDBACK_DIGEST_PULL_DIR  read reports from this folder instead of pulling from the store
@@ -92,10 +101,17 @@ post_failed() {   # <what failed> <the automatic path's tail>
 }
 # Review (warning 2): a run that steps aside for another one leaves Echo's message UNPOSTED, so in message-file mode it
 # is a failure (exit 3), not a quiet success. The automatic path keeps exit 0: the other run posts the same summary.
+# Review 4 (W1): a holder in message-file mode records its pull's WM in $LOCK/wm. If it is OUR pull, the holder is
+# posting this same text, so running again would post it twice: exit 6, not 3.
 step_aside() {
   log "$1; this one does nothing"
   rm -rf "$WORK"
-  if [ -n "$MSG_FILE" ]; then log "FAILED: the digest was NOT posted (another run holds the lock); run it again"; exit 3; fi
+  if [ -n "$MSG_FILE" ]; then
+    if [ "$(cat "$LOCK/wm" 2>/dev/null)" = "$WM" ]; then
+      log "another run is posting this same result; do NOT run it again, check #admin"; exit 6
+    fi
+    log "FAILED: the digest was NOT posted (another run holds the lock); run it again"; exit 3
+  fi
   exit 0
 }
 mkdir -p "$STATE" && chmod 700 "$STATE" || post_failed "no state folder $STATE" ""
@@ -105,8 +121,17 @@ WORK="$(mktemp -d)" || post_failed "no temp folder" ""
 # pid counts for an hour only (a real run takes about a minute, and a pid can be reused); a stale lock is taken over
 # by RENAMING it away, which only one run can win; and a run removes the lock only if it is still its own.
 LOCK="$STATE/lock"
-take_lock() { mkdir "$LOCK" 2>/dev/null && echo $$ > "$LOCK/pid"; }
-if ! take_lock; then
+# Review 4 (W1): the wm is written BEFORE the pid, so a lock that shows a pid already shows its pull.
+take_lock() { mkdir "$LOCK" 2>/dev/null && { [ -z "$MSG_FILE" ] || echo "$WM" > "$LOCK/wm"; } && echo $$ > "$LOCK/pid"; }
+got_lock=""
+take_lock && got_lock=1
+# Review 4 (nit a): a failed mkdir with no lock there is not a held lock. Try once more (its holder may have just let
+# go); still no lock directory means mkdir itself failed, which is a broken environment, never "another run".
+if [ -z "$got_lock" ] && [ ! -d "$LOCK" ]; then
+  take_lock && got_lock=1
+  [ -n "$got_lock" ] || [ -d "$LOCK" ] || post_failed "could not create the lock in $STATE" ""
+fi
+if [ -z "$got_lock" ]; then
   holder=$(cat "$LOCK/pid" 2>/dev/null)
   age=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || date +%s) ))
   if { [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null && [ "$age" -lt 3600 ]; } || { [ -z "$holder" ] && [ "$age" -lt 60 ]; }; then
@@ -121,6 +146,13 @@ if ! take_lock; then
   log "took over a stale lock (${holder:-no pid}, ${age}s old)"
 fi
 trap 'rm -rf "$WORK"; [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT
+# Review 4 (W1): the idempotency key. A rerun of a pull already posted (Echo retrying after a held lock, or by mistake)
+# posts nothing: the text is in #admin, so it is success. Read under the lock, so two runs of one pull cannot both pass
+# it. A dry run posts nothing anyway and still prints the text.
+if [ -n "$MSG_FILE" ] && [ -z "$DRY" ] && [ -f "$STATE/last-message-wm" ]; then
+  last_mwm=""; read -r last_mwm < "$STATE/last-message-wm"
+  if [ "$last_mwm" = "$WM" ]; then log "this pull's result was already posted; nothing to do"; exit 0; fi
+fi
 
 # The watermark this run writes on success: its START, before the pull, so a report that arrives while the run is
 # pulling and posting is not older than the next watermark and skipped for good.
@@ -228,6 +260,12 @@ else
     --data-binary @"$WORK/payload" "https://discord.com/api/v10/channels/$CHANNEL/messages")
 fi
 if [ "$code" = 200 ]; then
+  # Review 4 (W1): the key first, written beside and renamed like last-posted, so a rerun of this pull posts nothing
+  # even when last-posted cannot be written below.
+  if [ -n "$MSG_FILE" ] && ! { printf '%s\n' "$WM" > "$STATE/last-message-wm.tmp" && mv -f "$STATE/last-message-wm.tmp" "$STATE/last-message-wm"; }; then
+    log "POSTED, but this pull's key was not recorded in $STATE/last-message-wm; do NOT run it again (it would post twice)"
+    exit 5
+  fi
   # Review 3: written beside and renamed into place, and checked. An unwritable state file used to log "posted" and
   # exit 0 while every later run re-posted everything since the stale watermark.
   NEW_WM="$RUN_START"
@@ -255,5 +293,11 @@ if [ "$code" = 200 ]; then
     exit 5
   fi
   log "FAILED: posted, but could not record it in $STATE/last-posted; the next run will post these again"; exit 2
+fi
+# Review 4 (W2): curl -m prints 000 (or nothing) when Discord did not answer in time, and Discord may have taken the
+# post before that. In message-file mode "run it again" could post twice, so it is its own exit, 7: look at #admin
+# first. The automatic path keeps at-least-once (the header): its next run retries.
+if [ -n "$MSG_FILE" ] && { [ -z "$code" ] || [ "$code" = 000 ]; }; then
+  log "Discord did not answer; the digest MAY have been posted: check #admin before running again"; exit 7
 fi
 post_failed "Discord answered '$code'" "; will try again next run"
