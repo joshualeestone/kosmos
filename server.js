@@ -3814,7 +3814,7 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    membership is not a boundary (GET /api/projects), and none of it is a credential. */
 /* #4491 slice 4: three more READS an agent already makes with the board token every day (`kosmos agent roles`,
    `kosmos task list`, `kosmos room`), now reachable with its own token, so the CLIs can stop reading the person's
-   credential (a later slice). They change no project, task or message, and there is no caller to identify. Two of
+   credential (a later slice). They change no project, task or message. Two of
    them can make the board fetch something: `?catalogue=1` on the roles read downloads the role catalogue (at most
    once in ten minutes, signature checked), and the room's JSON arm warms link previews for the posts it returns
    (engine/unfurl.js, with its own private-address rule). GET only: the key is `METHOD pathname`, so HEAD and
@@ -15234,9 +15234,11 @@ const server = http.createServer(async (req, res) => {
     const tokenOnly = agentTokenOnlyCaller(req);
     if (tokenOnly !== null) {
       if (!projectScope) { sendJson(res, 403, { error: 'say which project: an agent reads the tasks of a project it is on' }); return; }
-      const stored = (everyProject || []).find((x) => x && x.id === projectScope) || null;
-      if (!stored) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
-      if (!tokenOnly || !projectHasAgent(stored, tokenOnly, true)) {
+      /* Every stored project with that id (the list below filters by id, so a registry holding the id twice must
+         list the agent on each one). */
+      const stored = (everyProject || []).filter((x) => x && x.id === projectScope);
+      if (!stored.length) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+      if (!tokenOnly || !stored.every((x) => projectHasAgent(x, tokenOnly, true))) {
         sendJson(res, 403, { error: 'that agent is not on this project, so it cannot read its tasks' });
         return;
       }
@@ -15834,9 +15836,9 @@ const server = http.createServer(async (req, res) => {
     let roomRefusal = null;
     try {
       const everyProject = projects.readAll();
-      const stored = everyProject.find((p) => p && p.id === id) || null;
-      projectKnown = !!stored;
-      if (tokenOnly !== null && stored && (!tokenOnly || !projectHasAgent(stored, tokenOnly, true))) {
+      const stored = everyProject.filter((p) => p && p.id === id);   // every one with that id, as the task read does
+      projectKnown = stored.length > 0;
+      if (tokenOnly !== null && stored.length && (!tokenOnly || !stored.every((p) => projectHasAgent(p, tokenOnly, true)))) {
         roomRefusal = [403, 'that agent is not on this project, so it cannot read its room'];
       }
     } catch {

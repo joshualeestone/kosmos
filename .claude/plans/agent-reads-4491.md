@@ -18,8 +18,9 @@ project reads (#4692), all on main.
 Step 3 of Option C is "both CLIs stop reading board.token". That can only happen once every verb an agent uses
 answers to the agent's own token. After slices 1 to 3 and #4581 the remaining agent verbs were: three reads (this
 slice) and four writes (task add, task close, project create, room reopen), plus connections and community, which
-have their own rules. The reads need no caller to identify, so they are the smallest next step. The writes are
-slice 5: each handler has to name the caller first.
+have their own rules. The reads change nothing on the board, so they are the smallest next step (two of them
+do name the caller, to narrow what a token-only caller gets: see Decisions). The writes are slice 5: each handler
+has to name the caller first.
 
 ## Decisions
 - **Exact keys, GET only.** The gate key is `METHOD pathname`. HEAD, every write on the same paths, and every
@@ -64,10 +65,11 @@ slice 5: each handler has to name the caller first.
 - The roles read with `?catalogue=1` and the room's JSON arm can each make the board fetch something (the role
   catalogue; link previews for the posts returned). Neither is new reach: every agent already causes both through
   the board token its CLI sends. The route comment names both.
-- `GET /api/tasks` with no `?project=` answers the global set. An ordinary agent could already read it.
+- `GET /api/tasks` with no `?project=` answers the global set to a caller with the board token, as before. A
+  token-only caller gets a 403 ("say which project").
 
 ## Tests
-- `server.agent-reads-4491.test.js` (new, 7): the gate refuses each read bare and with an unissued token; the
+- `server.agent-reads-4491.test.js` (new, 10; the three added in round 5 are listed there): the gate refuses each read bare and with an unissued token; the
   three reads answer a token-only agent on its own project (text and JSON arms of the room, both 200); a
   non-member is refused the room (both arms, the text arm as a bare sentence) and the tasks; the global task list
   and the Tasks view arm are not served on a token alone; the same agent WITH the board token reads all of it, and
@@ -128,7 +130,8 @@ matter at the slice where the CLIs drop it.
   (Decisions, above). Seven mutations measured red.
 - C the comment at POST /api/agent-token ("the name does nothing until it is live") was made false: reworded to
   say what a minted token can read at once.
-- NITs: the Tasks view parameters are now refused to a token-only caller rather than merely named; the room's
+- NITs: the Tasks view parameters are now IGNORED for a token-only caller (it gets the plain list, 200) rather than
+  merely named; the room's
   JSON arm is asserted 200 with rows; the `mine` marking is a stated limit; #4728 is named for the stale
   comments; the pin's failure message and the CLI test's messages say the right verb; `kosmos agent roles` is
   asserted to send `catalogue=1`.
@@ -140,4 +143,17 @@ matter at the slice where the CLIs drop it.
 - NIT an unreadable projects list is a 503 on the room and a 500 on the task list for a token-only caller: both
   closed; left as they are (the 500 is the task read's existing answer for every caller) and now tested.
 - NIT the thrower in the unreadable-list test leaned on another helper's undo: it has its own now.
+
+## Review round 5 (opus): 0 BLOCKER, 1 WARNING, 2 CONVENTION, 2 NIT
+- W two decisions in the helper had no test that could fail: ADDED. (1) A valid agent token with a WRONG board
+  token (header, cookie, empty header) is still narrowed; measured red when the helper treats any presented board
+  token as the person's. (2) Membership by key: a project listing "Reader.Agent" admits the token kept under
+  "readeragent"; measured red with an exact comparison.
+- C the round-4 comment about t.after order was false (node:test runs them in registration order) and left the
+  thrower installed: replaced by try/finally.
+- C "there is no caller to identify" was left over from before round 3: removed from the route comment, and the two
+  plan lines that said the same are corrected.
+- NIT the plan said the Tasks view parameters are refused; they are ignored: corrected.
+- NIT membership was checked on the first project with the id while the list filters by id: both reads now require
+  the agent on EVERY stored project with that id; tested with a doubled id, measured red with "any".
 

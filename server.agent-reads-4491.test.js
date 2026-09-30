@@ -155,14 +155,56 @@ test('a token for a name no project lists reads no room and no tasks; a projects
      token keeps the room's old fail-open read. */
   const stubbed = projectsEngine.readAll;
   projectsEngine.readAll = () => { throw new Error('unreadable'); };
-  t.after(() => { projectsEngine.readAll = stubbed; });   // its own undo, run before withProject's (last registered, first run)
-  const blind = await call('GET', '/api/project/p4491/room?as=text', asAgent(agentToken));
-  assert.equal(blind.code, 503, 'an unreadable projects list let a token-only read through: ' + blind.code);
-  assert.equal((await call('GET', '/api/project/p4491/room?as=text', { headers: { 'x-kosmos-board-token': BOARD } })).code, 200, 'the board token lost the room\'s fail-open read');
-  /* The task list reads the projects before anything else, so it answers its own 500 for every caller. Closed, not open. */
-  const blindTasks = await call('GET', '/api/tasks?project=p4491', asAgent(agentToken));
-  assert.equal(blindTasks.code, 500, 'an unreadable projects list did not stop the token-only task read: ' + blindTasks.code);
-  assert.doesNotMatch(blindTasks.text, /read me/);
+  try {
+    const blind = await call('GET', '/api/project/p4491/room?as=text', asAgent(agentToken));
+    assert.equal(blind.code, 503, 'an unreadable projects list let a token-only read through: ' + blind.code);
+    assert.equal((await call('GET', '/api/project/p4491/room?as=text', { headers: { 'x-kosmos-board-token': BOARD } })).code, 200, 'the board token lost the room\'s fail-open read');
+    /* The task list reads the projects before anything else, so it answers its own 500 for every caller. Closed, not open. */
+    const blindTasks = await call('GET', '/api/tasks?project=p4491', asAgent(agentToken));
+    assert.equal(blindTasks.code, 500, 'an unreadable projects list did not stop the token-only task read: ' + blindTasks.code);
+    assert.doesNotMatch(blindTasks.text, /read me/);
+  } finally { projectsEngine.readAll = stubbed; }   // back to withProject's list, which its own t.after then undoes
+});
+
+test('a board token that is WRONG does not lift the narrowing: the caller still came through on its agent token', async (t) => {
+  withProject(t);
+  for (const junk of [{ 'x-kosmos-board-token': 'not-the-board-token' }, { cookie: 'kosmos_board=not-the-board-token' }, { 'x-kosmos-board-token': '' }]) {
+    const h = { headers: { 'x-kosmos-agent-token': agentToken, ...junk } };
+    const label = JSON.stringify(junk);
+    assert.equal((await call('GET', '/api/project/other4491/room?as=text', h)).code, 403, 'a wrong board token opened another project\'s room: ' + label);
+    assert.equal((await call('GET', '/api/tasks?project=other4491', h)).code, 403, 'a wrong board token opened another project\'s tasks: ' + label);
+    assert.equal((await call('GET', '/api/tasks', h)).code, 403, 'a wrong board token opened the global task list: ' + label);
+    assert.equal((await call('GET', '/api/project/p4491/room?as=text', h)).code, 200, 'control: the agent lost its own room: ' + label);
+  }
+  /* And without the agent token, a wrong board token is nobody at all. */
+  assert.ok(refusedAtGate(await call('GET', '/api/project/p4491/room?as=text', { headers: { 'x-kosmos-board-token': 'not-the-board-token' } })));
+});
+
+test('membership is by the token store\'s key: a project that lists the name as written admits its token', async (t) => {
+  /* A stored name that is not its own key ("Reader.Agent" is kept under "readeragent"). An exact comparison of the
+     key against the stored name would refuse the agent its own project. */
+  const dotted = sendertoken.mint('Reader.Agent');
+  assert.ok(dotted.ok);
+  t.after(() => sendertoken.revoke('Reader.Agent'));
+  assert.equal(sendertoken.resolveName(dotted.token).key, 'readeragent', 'control: the store does not key this name as assumed, so the case below is not the by-key case');
+  withProject(t, ['Reader.Agent']);
+  assert.equal((await call('GET', '/api/project/p4491/room?as=text', asAgent(dotted.token))).code, 200, 'an agent was refused the room of a project that lists it');
+  assert.equal((await call('GET', '/api/tasks?project=p4491', asAgent(dotted.token))).code, 200, 'an agent was refused the tasks of a project that lists it');
+  assert.equal((await call('GET', '/api/project/other4491/room?as=text', asAgent(dotted.token))).code, 403, 'control: by-key matching admitted it to a project that does not list it');
+  assert.equal((await call('GET', '/api/project/p4491/room?as=text', asAgent(agentToken))).code, 403, 'control: reader-agent is not on p4491 in this test, so it must be refused');
+});
+
+test('a project id stored twice: the agent must be on every one of them', async (t) => {
+  const realAll = projectsEngine.readAll;
+  projectsEngine.readAll = () => [
+    { id: 'dup4491', name: 'one', agents: ['reader-agent'], tasks: [{ number: 1, sentence: 'mine', state: 'open' }] },
+    { id: 'dup4491', name: 'two', agents: ['someone-else'], tasks: [{ number: 1, sentence: 'theirs', state: 'open' }] },
+  ];
+  t.after(() => { projectsEngine.readAll = realAll; });
+  const tasks = await call('GET', '/api/tasks?project=dup4491', asAgent(agentToken));
+  assert.equal(tasks.code, 403, 'a doubled id served the other project\'s tasks: ' + tasks.text.slice(0, 120));
+  assert.doesNotMatch(tasks.text, /theirs/);
+  assert.equal((await call('GET', '/api/project/dup4491/room?as=text', asAgent(agentToken))).code, 403);
 });
 
 test('only GET on exactly those paths: every other verb and neighbour stays behind the board token', async () => {
