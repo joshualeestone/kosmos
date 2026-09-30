@@ -19,10 +19,11 @@ dialog gone or changed) presses nothing. NOT claimed: that no local agent can ev
 - HOOK (footer "Press t to trust; esc to go back"): Esc returns to the TABLE.
 - A key sent the instant a screen draws is dropped (measured twice: a `2` before the menu drew, a `t` as the table
   drew). So each step re-reads, lets the screen settle, and confirms the expected screen before the next key.
-- Real ~/.codex is shared by every Codex agent on a box: trusting writes there, which is why only the person may do it.
+- Real ~/.codex is shared by every Codex agent on a box: trusting writes there, which is why the route is for the
+  person (within the limits stated under Residual).
 
 ## Design (as said on the card at 13:10, with the measured keys)
-- engine/chat.js `answerCodexHooks(session, choice, roster)`, choice `trust` | `skip`, following
+- engine/chat.js `answerCodexHooks(session, choice, roster)`, choice `trust` | `skip` | `close` (the open list only), following
   `answerGeminiQuotaStop`: a fresh `status.capturePane` read immediately before each key; act only on a screen
   `status.codexHookReview` recognises; then confirm the screen changed as measured.
   - trust: MENU -> the digit beside "Trust all and continue". TABLE -> `t`, confirm the "view hooks" footer, then Esc.
