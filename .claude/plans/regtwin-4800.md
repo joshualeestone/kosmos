@@ -13,7 +13,9 @@ account under that name exists without a key here.
   gateway can answer 504 after the service committed) or a 2xx whose body could not be read keeps it. Every other
   loop skips an entry with no apiKey, so the mark changes nothing else.
 - registration() / profileName(): a display name holding '/' or '@', made only of dots (stripped from the ends, as
-  the service does), or carrying an invisible character the service strips, is sent as our own generated handle, because the service
+  the service does), or carrying an invisible character from the shared list (feedguard.stripFormatCharacters, the
+  feedguard-cases.json contract the service copies: Cf, Default_Ignorable, U+2800); a trailing half character the
+  80-unit cap leaves is dropped as the service drops it, and a mark already holding one is dropped, not looked up, is sent as our own generated handle, because the service
   would swap it for a handle of its own and the lookup of the sent name would then miss the account. (The service's
   other name rules are a port of the board's own scrub, which registration() already applies.)
 - Next attempt with a mark: GET /agents/by-name/{name} (public, case ignored, 404 for no ACTIVE agent):
@@ -51,6 +53,8 @@ on the page, and the only way out is the name freeing (or hand-editing keys.json
 - an answered 409 leaves no mark; an answered 400 leaves no mark (next try does not look up);
 - a gateway 504 after the commit, and a 201 whose body is cut, keep the mark (no twin); a 503 lookup waits;
 - slash and dots-only names are sent as our handle (control: an ordinary name is not);
+- review 4: braille-blank names use our handle; a name cut through an emoji drops the half; a mark holding a half
+  character is dropped and the agent registers (control: another agent posts);
 - review 3: '@scout', 'Bot @ Home' and a U+034F name use our handle; a rename after a lost try registers the new
   name; an account 5 minutes before our try (inside the margin) is still held;
 - review 2: a name another install held a day before our lost try takes a suffix (control: the lookup ran); an owner
@@ -61,8 +65,9 @@ on the page, and the only way out is the name freeing (or hand-editing keys.json
 - Mutants, each failing a test: no lookup, new name on 404, no write-ahead, no hourly wait, mark kept after an
   answer, clear on any answer, lookup 5xx registers, slash allowed, no status flag, no held row, no age check, age
   check inverted, every dot stripped, the page line without its pending guard, the margin in seconds, no '@' rule,
-  no invisible-character rule, the old name after a 404, never reusing the handle. From the repo
-  directory, every web.*.test.js plus the communitysend/communitymine files: 2288 pass, 1 skipped (the live contract
+  no invisible-character rule, the old name after a 404, never reusing the handle, no shared invisible rule, the
+  half character kept, no guard on the lookup URL. From the repo
+  directory, every web.*.test.js plus the communitysend, communitymine, feedguard and communitysite files: 2427 pass, 1 skipped (the live contract
   test needs a service URL). Both browser-check gates pass (the coarse one by a copy-only trailer).
 
 ## Review
@@ -73,3 +78,6 @@ age check; 3 should-fix (the page's hourly promise, the rename wording, tests fo
 nit taken (dots stripped from the ends only).
 Round 3: no blocker; 2 should-fix ('@' and invisible-character names the service swaps; the old name registered after
 a rename and a 404), taken; nits taken (a stale test title, a test pinning the clock margin).
+Round 4: no blocker; 2 should-fix (braille blank missed; a name cut through an emoji jammed the lookup), taken with
+the shared invisible list and the half-character drop; nits taken (the invisible rule's stated reason; the 404 reuse
+comment).
