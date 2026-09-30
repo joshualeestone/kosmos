@@ -264,3 +264,10 @@ NITs NOT TAKEN: the unreachable not-installed branch and `memberInstructions`' l
 ships untested until #4720 gives it something to fetch; the idle-replaced arm is witnessed by a 404;
 webkit's expected project name depends on chromium's arms (it fails closed); an unfinished same team can
 only be abandoned by a reload; three different figures for a brief's size; lowercase server sentences.
+
+## Review 26 (sonnet): converged
+No new BLOCKER, WARNING or CONVENTION. Its one WARNING (a board holding no catalogue asks the network on
+every open of the step) is the decision recorded under review 23 and earlier. NITs: the idle-replaced arm
+is witnessed by a 404 (listed under review 25); a CSS comment says "the three steps"; the brief's size cap
+is measured before trimming.
+Owed before the proof file: the queued browser check with its control tree, and one full suite on this head.
