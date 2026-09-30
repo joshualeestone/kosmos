@@ -129,7 +129,7 @@ function navGeo() {
         const rects = [...rg.getClientRects()].map((r) => r.width);
         const bcs = getComputedStyle(b);
         const col = b.getBoundingClientRect().width - parseFloat(bcs.borderLeftWidth) - parseFloat(bcs.borderRightWidth) - parseFloat(bcs.paddingLeft) - parseFloat(bcs.paddingRight);
-        labels.push({ text: el.textContent.trim().slice(0, 24), lines: tops.length, w: Math.round(el.getBoundingClientRect().width), btnW: Math.round(b.getBoundingClientRect().width),
+        labels.push({ text: el.textContent.trim().slice(0, 24), pill: el.classList.contains('swpill'), rowW: Math.round(nav.getBoundingClientRect().width), lines: tops.length, w: Math.round(el.getBoundingClientRect().width), btnW: Math.round(b.getBoundingClientRect().width),
           spare: tops.length === 1 && rects.length ? Math.round((col - Math.max(...rects)) * 10) / 10 : null });
       }
     }
@@ -216,9 +216,11 @@ function measure() {
         chk(g.whole && !g.scrolls, `${t} #4661: every section tab is whole on screen, and the row does not scroll`, `whole=${g.whole} scrolls=${g.scrolls}`);
         chk(g.cut.length === 0 && g.spill.length === 0, `${t} #4661: no label is broken inside a word, clipped, or outside its button`, JSON.stringify({ cut: g.cut, spill: g.spill }));
         chk(g.h >= 44 && g.h <= 52, `${t} #4661: at 375 and wider, with default text, the row keeps its one-line 44px height`, `h=${g.h} ${JSON.stringify(g.labels)}`);
-        chk(g.labels.every((l) => l.spare === null || l.spare >= 2), `${t} #4661: every one-line label has at least 2px to spare in its column (a slightly wider font does not wrap it)`, JSON.stringify(g.labels));
-        // 2px: CI's font measured "Direct Message" about 1-2px wider than this Mac's (92 against ~90.5). Kept to this
-        // three-button row: a swarm's status word is a shrink-wrapped pill, and the 320/larger-text arms may wrap.
+        chk(g.labels.every((l) => l.pill || l.spare === null || l.spare >= 2), `${t} #4661: every one-line label has at least 2px to spare in its column (a slightly wider font does not wrap it)`, JSON.stringify(g.labels));
+        // 2px: CI's font measured "Direct Message" about 1-2px wider than this Mac's (92 against ~90.5). It is enforced
+        // on CI's font too, on purpose: there it leaves ~3.3px at 375, and a runner font 1.4px wider fails here, as a
+        // spare problem, before it wraps. rowW in the detail says whether the font or the row changed. A swarm's
+        // status word (a shrink-wrapped pill) is skipped, and the 320/larger-text arms do not assert this.
         chk(!(m.label && m.label.w > 2 && m.label.h > 2) && m.labelDisplay !== 'none' && m.labelText.length > 0, `${t} the caption that repeats the agent's name is not shown but kept for screen readers`, JSON.stringify({ label: m.label, display: m.labelDisplay, text: m.labelText }));
         chk(m.visibleVar === m.vh + 'px', `${t} the page's visualViewport listener writes the visible height`, `var=${m.visibleVar} vh=${m.vh}`);
         chk(m.boxMinH === '0px', `${t} the phone rules win over the 56rem talk-fill block (talk box min-height 0)`, m.boxMinH);
