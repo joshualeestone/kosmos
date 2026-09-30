@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: connectpause-4676
-diff_hash: 15a58b6ba57a0e1816ef7f253f8d38c011d18ddfc79df5b5168cd39248c01aa6
+diff_hash: cbfbdd6f40213cf398f9c932fb1ef4ba5d35d7cb4caff69588ab40f91ce420dd
 validation: targeted (install.connect-pause-4676.test.js 13/13; the setup.sh-reading light tests; sh -n; the two test-install.sh greps that name this block). No gated full-suite or test-install run: Liu Kang's "light runs only" for #4676 (m3810). GitHub CI authoritative.
 subdir_audit: passed
 timestamp: 2026-09-30T02:14:37Z
