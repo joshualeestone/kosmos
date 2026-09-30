@@ -94,6 +94,11 @@ function ok(name, cond, detail) {
         // show raw [text](url) markup (the http-only fast path used to leak it).
         mdLinkRel: pj('[the docs](docs/help.md)'),
         mdLinkMail: pj('[email me](mailto:x@y.test)'),
+        // #4627: the address now reaches an href, so a quote in it must not open an attribute.
+        // No space in the address, so it IS linked and the quote reaches the href (a spaced one is never linked).
+        mdLinkQuote: pj('[go](https://x.test/"onmouseover="alert)'),
+        // Inline code inside the address must come back as code, never as a raw placeholder.
+        mdLinkCode: pj('[go](mailto:`x`)'),
         fenceNoLink: pj('```\nhttps://x.test\n```'),
         headingHtml: pj('# <b>hi</b>'),
         // #2701: tables render, and heading LEVELS emit distinct mdh1..mdh6.
@@ -157,11 +162,16 @@ function ok(name, cond, detail) {
     ok(t + ' bold+script inert', !/<script/i.test(r.boldScript) && /<strong>&lt;script&gt;/.test(r.boldScript), r.boldScript);
     ok(t + ' url quote cannot break attr', !/onmouseover="alert/.test(r.urlQuote) && /&quot;/.test(r.urlQuote), r.urlQuote);
     ok(t + ' no javascript: link', !/href="javascript:/.test(r.jsLink), r.jsLink);
-    ok(t + ' md link text only, not anchored', /click here/.test(r.mdLink) && !/href="https:\/\/evil\.test"/.test(r.mdLink), r.mdLink);
-    ok(t + ' md link (relative) stripped to text', r.mdLinkRel === 'the docs', r.mdLinkRel);
-    ok(t + ' md link (relative) no raw markup', !/\]\(/.test(r.mdLinkRel) && !r.mdLinkRel.includes('docs/help.md'), r.mdLinkRel);
-    ok(t + ' md link (mailto) stripped to text', r.mdLinkMail === 'email me', r.mdLinkMail);
-    ok(t + ' md link (mailto) no raw markup', !/\]\(/.test(r.mdLinkMail) && !r.mdLinkMail.includes('mailto:'), r.mdLinkMail);
+    /* #4627: the label never hides where it goes. A web address is shown in full after the label and
+       linked as the address itself; the label is never an anchor. */
+    ok(t + ' md link shows its address, linked as the address', /^click here \(<a class="xlink" href="https:\/\/evil\.test" target="_blank" rel="noreferrer noopener">https:\/\/evil\.test<\/a>\)$/.test(r.mdLink), r.mdLink);
+    ok(t + ' md link label is never the anchor', !/>click here<\/a>/.test(r.mdLink), r.mdLink);
+    ok(t + ' md link (relative) keeps its address as text', r.mdLinkRel === 'the docs (docs/help.md)', r.mdLinkRel);
+    ok(t + ' md link (relative) not linked, no raw markup', !/href=/.test(r.mdLinkRel) && !/\]\(/.test(r.mdLinkRel), r.mdLinkRel);
+    ok(t + ' md link (mailto) keeps its address as text', r.mdLinkMail === 'email me (mailto:x@y.test)', r.mdLinkMail);
+    ok(t + ' md link quote cannot break attr', /<a class="xlink" href="https:\/\/x\.test\/&quot;onmouseover=&quot;/.test(r.mdLinkQuote) && !/<a [^>]*\sonmouseover=/.test(r.mdLinkQuote), r.mdLinkQuote);
+    ok(t + ' md link with code in its address leaks no placeholder', !r.mdLinkCode.includes('\uFFFC') && /<code class="mdc">x<\/code>/.test(r.mdLinkCode), r.mdLinkCode);
+    ok(t + ' md link (mailto) not linked, no raw markup', !/href=/.test(r.mdLinkMail) && !/\]\(/.test(r.mdLinkMail), r.mdLinkMail);
     ok(t + ' fenced code not linkified', !/<a class="xlink"/.test(r.fenceNoLink), r.fenceNoLink);
     ok(t + ' heading html inert', /<span class="mdh mdh1">&lt;b&gt;hi&lt;\/b&gt;<\/span>/.test(r.headingHtml), r.headingHtml);
     ok(t + ' bare url autolink kept', /<a class="xlink" href="https:\/\/x\.test\/p"/.test(r.url), r.url);

@@ -52,7 +52,7 @@ const INBOUND_ROWS_PER_DAY = 2000;
 const MAX_POST_LINE = 16 * 1024;
 /* The connector's final refusals that are about this Mac or its account, not
    the connection (kosmos-relay fedroom.rs FINAL_REFUSALS). */
-const MAC_LEVEL_REFUSAL = /unknown mac|this mac was retired|account gone|not set up for kosmos\+/i;
+const MAC_LEVEL_REFUSAL = /unknown mac|this (?:mac|computer) was retired|account gone|not set up for kosmos\+/i;   // #4645: either wording of the retired answer
 /* How long a seat refused for a Mac-level reason waits before trying again. */
 const MAC_RETRY_MS = 5 * 60 * 1000;
 /* The longest stdout line kept while waiting for its newline. The connector
@@ -139,7 +139,7 @@ function onEvent(projectId, line) {
       // Said once until the seat connects again, not on every slow retry.
       if (!s.macNoted) {
         s.macNoted = true;
-        say(projectId, 'This computer is not connected to Kosmos+ right now (' + s.ended + '). Sign in to Kosmos+ again in Settings, Kosmos Plus, and this shared project comes back.');
+        say(projectId, 'This computer is not connected to Kosmos+ right now (' + s.ended + '). Sign in to Kosmos+ again in Settings, Kosmos+, and this shared project comes back.');
       }
       return;
     }
@@ -290,7 +290,9 @@ function spawnFor(projectId, edge) {
   if (child.stdin && typeof child.stdin.on === 'function') child.stdin.on('error', () => {});
   // The same for a stream error on stdout: unlistened, it would crash the board.
   if (child.stdout && typeof child.stdout.on === 'function') child.stdout.on('error', () => {});
-  s.edge = edge;
+  // Only a real edge id is kept as the seat's edge (it is what a refusal adds to the
+  // refused set); an own-room seat has none.
+  s.edge = typeof edge === 'string' ? edge : null;
   setStatus(projectId, 'connecting');
   let buf = '';
   child.stdout.setEncoding && child.stdout.setEncoding('utf8');
@@ -341,7 +343,24 @@ function spawnFor(projectId, edge) {
     const link = code === 3 ? safeLink(projectId) : null;
     // An unreadable link record is not an ending: restart like any other exit.
     if (code === 3 && link) {
+      /* A computer joined by own code: its room is its own account's, so a refusal there is
+         not the end of someone else's invitation. Stop for this session, say so, and try
+         again at the next start rather than ending the project. */
+      if (link.role === 'self') {
+        cur.ownRefused = true;
+        say(projectId, 'This project could not be connected to your other computers. Kosmos will try again the next time it starts.');
+        setStatus(projectId, 'waiting');
+        return;
+      }
       if (link.role === 'owner') {
+        /* The owner's OWN room (no edge) refused for good: stop seating it this session,
+           and say so once, instead of retrying into the same refusal. */
+        if (!cur.edge) {
+          cur.ownRefused = true;
+          say(projectId, 'Your other computers could not be connected to this project. Kosmos will try again the next time it starts.');
+          setStatus(projectId, 'waiting');
+          return;
+        }
         if (!cur.refused) cur.refused = new Set();
         if (cur.edge) cur.refused.add(cur.edge);
         // Kept on the link, so a restart does not try the refused edge again.
@@ -358,6 +377,15 @@ function spawnFor(projectId, edge) {
     // 2 is a usage error: this computer's connector does not know the verb.
     // Restarting cannot fix that; updating Kosmos does.
     if (code === 2) {
+      /* An owner's OWN room (no edge) on a connector too old for --own-project: the project
+         keeps waiting for guests on its edges; only its own room stops for this session. */
+      const l2 = safeLink(projectId);
+      if (l2 && ((l2.role === 'owner' && !cur.edge) || l2.role === 'self')) {
+        cur.ownRefused = true;
+        say(projectId, 'This computer\'s Kosmos connector is too old to connect this project to your other computers. Update Kosmos and it will connect.');
+        setStatus(projectId, 'waiting');
+        return;
+      }
       say(projectId, 'This computer cannot join the external project yet: its Kosmos connector is too old. Update Kosmos and it will connect.');
       setStatus(projectId, 'ended');
       return;
@@ -653,6 +681,12 @@ async function ensure(projectId, edges) {
     if (link.role === 'owner' && !s.refused && Array.isArray(link.refused)) s.refused = new Set(link.refused);
     let edge;
     if (link.role === 'member') edge = link.edge_id;
+    /* kosmos#4649: another computer of the SAME account (a `self` link) sits in the
+       account's own room: `fed-room --own-project`, no edge. */
+    else if (link.role === 'self') {
+      if (s.ownRefused) { setStatus(projectId, 'waiting'); return 'waiting'; }
+      edge = { own: link.ref };
+    }
     else {
       const got = await ownerEdge(link, s.refused, edges);
       if (got.failed) {
@@ -664,8 +698,13 @@ async function ensure(projectId, edges) {
         setStatus(projectId, 'reconnecting');
         return 'reconnecting';
       }
-      if (got.none) { setStatus(projectId, 'waiting'); return 'waiting'; }
-      edge = got.edge;
+      /* kosmos#4649: an owner the person has shared with their OTHER computers (an own
+         code was made: `selfShared`) sits in its own room even with no guest, so those
+         computers have it to talk to; the room is the one an edge would open. An owner
+         never shared that way keeps waiting for a guest, as before, so a post there
+         still says nobody has joined instead of going to an empty room. */
+      if (got.none && (!link.selfShared || s.ownRefused)) { setStatus(projectId, 'waiting'); return 'waiting'; }
+      edge = got.none ? { own: link.ref } : got.edge;
     }
     if (s.stopped || s.child) return s.status;
     spawnFor(projectId, edge);
@@ -699,6 +738,12 @@ function stop(projectId) {
   if (s.timer) clearTimeout(s.timer);
   if (s.child) letGo(s.child);
   seats.delete(projectId);
+}
+
+/** Try an own room refused earlier this session again, on the person's explicit ask. */
+function retryOwn(projectId) {
+  const s = seats.get(projectId);
+  if (s && s.ownRefused) s.ownRefused = false;
 }
 
 /** Seat every linked project (called at boot and after a join or a link). */
@@ -744,6 +789,10 @@ function post(projectId, { from, kind, text }) {
     if (!safeLink(projectId)) return false;
     if (s && s.status === 'ended') {
       say(projectId, 'That message stayed on this computer: the connection to the external project has ended.');
+      return false;
+    }
+    if (s && s.status === 'waiting' && s.ownRefused) {
+      say(projectId, 'That message stayed on this computer: this project is not connected to your other computers right now.');
       return false;
     }
     if (s && s.status === 'waiting') {
@@ -800,4 +849,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { rotateForRevoked, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };
+module.exports = { retryOwn, rotateForRevoked, roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };

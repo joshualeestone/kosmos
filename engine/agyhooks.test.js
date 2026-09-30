@@ -265,6 +265,36 @@ test('#4043: what the board actually receives: the route, state, text, auto and 
   assert.equal(seen[3].body.text, 'The turn ended with an error: quota exceeded');
 });
 
+/* The merge of main into #4588 put `waiting` (#4569) and `until` (#4588) on one buildBody call: each must reach the
+   board in its own field. Dropping either one at the send site reds this test or the next. */
+test('#4569 + #4588: the real bridge carries a Muse queue count to the board as waiting, with no until', async () => {
+  const http = require('node:http');
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => { body += d; });
+    req.on('end', () => {
+      seen.push(JSON.parse(body));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"recorded":true}');
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  const pane = '%wait-' + process.pid;
+  try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: String(port), TMUX_PANE: pane }), { force: true }); } catch { /* none */ }
+  try {
+    await driveBridge(port, 'PreInvocation', { kosmosWaiting: { n: 4, yours: 1 } }, pane);
+  } finally {
+    server.closeAllConnections(); server.close();
+    try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: String(port), TMUX_PANE: pane }), { force: true }); } catch { /* none */ }
+  }
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].state, 'working');
+  assert.deepEqual(seen[0].waiting, { n: 4, yours: 1 }, 'the queue count did not reach the board');
+  assert.equal(seen[0].until, '', 'a queue count must not travel as a reset time');
+});
+
 test('#4588 (review 7): the real bridge carries a quota Stop\'s reset to the board as a strict ISO until', async () => {
   const http = require('node:http');
   const status = require('./status');
@@ -548,8 +578,15 @@ test('#4588: a quota stop is still idle, and carries the reset time in until', (
 });
 
 test('#4588: the report body sends until only when there is one', () => {
-  assert.equal(bridge.buildBody('idle', 'x', {}, '2026-09-28T22:11:54.000Z').until, '2026-09-28T22:11:54.000Z');
+  // The fifth argument: the fourth is #4569's `waiting`, and a quota stop never carries one.
+  const b = bridge.buildBody('idle', 'x', {}, undefined, '2026-09-28T22:11:54.000Z');
+  assert.equal(b.until, '2026-09-28T22:11:54.000Z');
+  assert.equal('waiting' in b, false, 'the reset was taken for a queue count');
   assert.equal(bridge.buildBody('idle', 'x', {}).until, '');
+  // CONTROL (#4569 kept): a queue count still travels, and alone it sets no until.
+  const w = bridge.buildBody('working', '', {}, { n: 3, yours: 1 });
+  assert.deepEqual(w.waiting, { n: 3, yours: 1 });
+  assert.equal(w.until, '');
 });
 
 test('#4588: the bridge writes the exact sentence the board keys on (status.QUOTA_REPORT_PREFIX)', () => {

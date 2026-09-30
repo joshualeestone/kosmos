@@ -88,14 +88,14 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
       /* #3724: the meaning colours, as the navy look paints them (read off body, where plus-active sets them). */
       const meaning = () => ['--pj-mention', '--gold-edge', '--ok', '--danger', '--warn-ink'].map((t) => getComputedStyle(document.body).getPropertyValue(t).trim().toLowerCase()).join(',');
       const enterMeaning = meaning();
-      /* The white fields (the enrol flow's, #plus-flow) keep the light red for their error border (coral fails on
-         white). #3796: the sign-in wizard's fields (#plus-state2) are the site's DARK field, where the coral is the
-         readable one; each is read off its own kind, so neither can stand in for the other. */
+      /* #3796: the sign-in wizard's fields (#plus-state2) are the site's DARK field, where the coral is the
+         readable error border. (The white fields this also read, the connected flow's enrol pair in #plus-flow,
+         were removed in #4698: they could never show. No white field is left in the pane.) */
       const painted = (f) => {   /* the PAINTED error border, not just the token: mark it bad, read, unmark */
         if (!f) return 'no field';
         f.classList.add('bad'); const v = getComputedStyle(f).borderTopColor; f.classList.remove('bad'); return v;
       };
-      const fieldDanger = painted(document.querySelector('#plus-flow .tk-inp:not(select)'));
+      const whiteFields = document.querySelectorAll('#plus-flow .tk-inp:not(select)').length;
       const darkFieldDanger = painted(document.querySelector('#plus-state2 .tk-inp:not(select)'));
       const toastTone = () => { const t = document.createElement('div'); t.className = 'utoast'; document.body.appendChild(t); const v = getComputedStyle(t).getPropertyValue('--utone').trim().toLowerCase(); t.remove(); return v; };
       const enterToast = toastTone();
@@ -137,7 +137,7 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
       const offTabBg = bg();
       const offTabBgImg = bgImg();
 
-      return { enterMeaning, leaveMeaning, fieldDanger, darkFieldDanger, enterToast, leaveToast,
+      return { enterMeaning, leaveMeaning, whiteFields, darkFieldDanger, enterToast, leaveToast,
         enterActive, enterBg, enterBgImg, enterNavBg, mounted, starsSized, markSized,
         leaveActive, leaveBg, leaveBgImg, leaveNavBg, leaveMounted,
         reEnterActive, offTabActive, offTabBg, offTabBgImg,
@@ -162,7 +162,8 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
     if (r.leaveActive) problems.push(label + ': plus-active LEAKED to another Settings section');
     /* #3724: navy pins the meaning colours to the dark look's, whatever the Mac's mode. CONTROL: off Plus in light
        mode they are the light ones again, so this read can tell the two apart. */
-    if (r.fieldDanger !== 'rgb(179, 38, 30)') problems.push(label + ': a white Kosmos+ field marked bad did not paint the light red border (got ' + r.fieldDanger + ')');
+    // #4698: no white field is left in the pane; one coming back needs its error border checked here again.
+    if (r.whiteFields !== 0) problems.push(label + ': a white field is back in #plus-flow (' + r.whiteFields + '); check its error border (light red, not coral)');
     if (r.darkFieldDanger !== 'rgb(232, 112, 94)') problems.push(label + ': #3796 a dark sign-in wizard field marked bad did not paint the coral border (got ' + r.darkFieldDanger + ')');
     if (r.enterToast !== '#ff8c82') problems.push(label + ': on Plus the update toast is not the navy-readable red (got ' + r.enterToast + ')');
     if (opts.scheme === 'light' && r.leaveToast !== '#b3261e') problems.push(label + ': CONTROL: off Plus in light mode the toast red is not the light one (got ' + r.leaveToast + ')');

@@ -110,19 +110,22 @@ function markerFile(env, ppid) {
 
 /* Whether this report should be sent: always for a change of state, and for a repeated `working`
    only once THROTTLE_MS has passed. Records what it lets through. Never throws; on any doubt, send. */
-function shouldSend(state, nowMs, env) {
+function shouldSend(state, nowMs, env, key) {
   const fs = require('node:fs');
   const path = require('node:path');
   const file = markerFile(env);
   let last = null;
   try {
-    const [s, t] = fs.readFileSync(file, 'utf8').trim().split(' ');
-    last = { state: s, at: Number(t) };
+    const raw = fs.readFileSync(file, 'utf8').trim();
+    const [s, t] = raw.split(' ');
+    // #4569 fix 4: what follows the time (the waiting count), so a new count is not held back as a repeat (older markers have none).
+    last = { state: s, at: Number(t), key: raw.split(' ').slice(2).join(' ') };
   } catch { /* no marker yet */ }
-  if (last && state === 'working' && last.state === 'working' && Number.isFinite(last.at) && nowMs - last.at < THROTTLE_MS) return false;
+  const said = String(key || '').replace(/\s+/g, ' ').trim();
+  if (last && state === 'working' && last.state === 'working' && last.key === said && Number.isFinite(last.at) && nowMs - last.at < THROTTLE_MS) return false;
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, state + ' ' + nowMs);
+    fs.writeFileSync(file, state + ' ' + nowMs + (said ? ' ' + said : ''));
   } catch { /* a marker we cannot write only costs a duplicate report */ }
   return true;
 }
@@ -189,6 +192,12 @@ function reportFor(eventName, payload, nowMs) {
     return { state, text: '' };
   }
   let text = '';
+  /* #4569 fix 4: the Muse front (engine/musefront.js) runs this bridge too, and puts its queue in `kosmosWaiting`
+     ({ n, yours }) on a working report. agy's own payloads never carry it. The board checks it (selfreport). */
+  const w = payload && typeof payload === 'object' ? payload.kosmosWaiting : null;
+  if (state === 'working' && w && typeof w === 'object' && Number.isSafeInteger(w.n) && Number.isSafeInteger(w.yours)) {
+    return { state, text, waiting: { n: w.n, yours: w.yours } };
+  }
   if (state === 'idle' && payload && typeof payload === 'object') {
     /* A Stop with an error is still the end of the turn; say so on the card rather than hide it. */
     if (typeof payload.error === 'string' && payload.error.trim()) text = 'The turn ended with an error: ' + payload.error.trim();
@@ -212,9 +221,11 @@ function reportFor(eventName, payload, nowMs) {
 
 /* The /api/report body. `auto: true` is the field the correctness argument rests on (a turn ending
    must not erase a blocked the agent filed deliberately, #1456); asserted by the test. */
-function buildBody(state, text, env, until) {
+function buildBody(state, text, env, waiting, until) {
   const e = env || process.env;
-  return { state, text, on: '', owner: '', until: until || '', auto: true, from_pane: e.TMUX_PANE || '' };
+  const body = { state, text, on: '', owner: '', until: until || '', auto: true, from_pane: e.TMUX_PANE || '' };
+  if (waiting) body.waiting = waiting;   // #4569 fix 4
+  return body;
 }
 
 /* Where the engine is, for the board token and the world header: beside this file in a checkout
@@ -264,7 +275,8 @@ async function main() {
   if (eventName === 'PreToolUse') answer(answerFor(eventName, payload));
   const mapped = reportFor(eventName, payload, Date.now());
   if (!mapped) return;
-  if (!shouldSend(mapped.state, Date.now(), process.env)) return;
+  const waitKey = mapped.waiting ? mapped.waiting.n + '/' + mapped.waiting.yours : '';
+  if (!shouldSend(mapped.state, Date.now(), process.env, waitKey)) return;
 
   const port = Number(process.env.KOSMOS_PORT) || 16180;
   const headers = { 'content-type': 'application/json' };
@@ -283,7 +295,7 @@ async function main() {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   await fetch(`http://127.0.0.1:${port}/api/report`, {
-    method: 'POST', headers, body: JSON.stringify(buildBody(mapped.state, mapped.text, process.env, mapped.until)), signal: controller.signal,
+    method: 'POST', headers, body: JSON.stringify(buildBody(mapped.state, mapped.text, process.env, mapped.waiting, mapped.until)), signal: controller.signal,
   }).catch(() => { /* a missed report must never become a failed turn */ })
     .finally(() => clearTimeout(timer));
 }
