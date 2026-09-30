@@ -216,7 +216,7 @@ function markGuideFolder(agentName) {
  */
 /* The same home accounts.js and create.js use (a named world or a test sets it). */
 function kosmosHome() { return process.env.AGENT_WORKFORCE_HOME || require('os').homedir(); }
-function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT } = {}) {
+function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase, legacyRoots } = {}) {
   const abs = (p) => '//' + String(p).replace(/^\/+/, '');
   const rules = [
     'Read(~/.ssh/**)', 'Read(~/.aws/**)', 'Read(~/.config/**)', 'Read(~/.gnupg/**)', 'Read(~/.kube/**)',
@@ -244,7 +244,38 @@ function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT } = {}) {
     rules.push(`Read(${abs(path.join(home, '.claude.json'))})`);
   }
   if (dataRoot) rules.push(`Read(${abs(dataRoot)}/**)`);
+  /* #4752: a board token can also sit in the older data folder and in another world's. `dataRoot` above is this
+     guide's own world only, so those are named too. Not the worlds' base whole: a named world's agents, the guide
+     included, live under it (<base>/worlds/<id>/workers), and a rule on the base would cut the guide off from
+     its own instructions. */
+  const same = (a, b) => !!a && !!b && path.resolve(a) === path.resolve(b);
+  for (const old of (legacyRoots !== undefined ? legacyRoots : guideLegacyRoots())) {
+    if (old && !same(old, dataRoot)) rules.push(`Read(${abs(old)}/**)`);
+  }
+  const base = worldsBase !== undefined ? worldsBase : guideWorldsBase();
+  if (base && !same(base, dataRoot)) {
+    rules.push(`Read(${abs(path.join(base, path.basename(require('./boardauth').tokenPath())))})`);   // the default world's token
+    const worldsDir = path.dirname(require('./worlds').worldBaseDir(base, { id: 'x' }));
+    for (const leaf of [store.APP, store.LEGACY_APP]) rules.push(`Read(${abs(worldsDir)}/*/${leaf}/**)`);   // every named world's store
+  }
   return rules;
+}
+/* #4752: the worlds' base (the default world's data folder), as it was before any world was applied to this
+   process; null when it cannot be worked out. */
+function guideWorldsBase() {
+  try { const worlds = require('./worlds'); return worlds.baseRoot(worlds.preWorldEnv(process.env)); } catch { return null; }
+}
+/* #4752: the older data folder (store.LEGACY_APP), for this world and for the default world. */
+function guideLegacyRoots() {
+  const out = [];
+  try {
+    const worlds = require('./worlds');
+    for (const env of [process.env, worlds.preWorldEnv(process.env)]) {
+      const root = store.dataRootFor(process.platform, env.AGENT_WORKFORCE_HOME || require('os').homedir(), env, store.LEGACY_APP);
+      if (root && !out.includes(root)) out.push(root);
+    }
+  } catch { /* the rules above still stand */ }
+  return out;
 }
 
 /*
