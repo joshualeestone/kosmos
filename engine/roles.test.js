@@ -116,7 +116,7 @@ test('#1279: a Project Manager can build the team, after confirming in one line;
 
 test('#4474: when no role fits, the PM writes one from the default text, after the same confirmation; the guide does not', () => {
   const roles = require('./roles');
-  // The guide is sandboxed away from secrets; a role it wrote would steer an unsandboxed agent (the server refuses it).
+  // The guide is kept away from secrets (#3769); a role it wrote would steer an agent without those guards (the server refuses it).
   assert.doesNotMatch(roles.instructionsFor('setup', 'X').replace(/\s+/g, ' '), /role-draft|--new-role/, 'the guide was taught to write roles');
   {
     const key = 'pm';

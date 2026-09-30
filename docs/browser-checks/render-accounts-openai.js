@@ -363,6 +363,7 @@ let failed = 0;
 
   // Create form: OpenAI provider -> account menu offers the new account
   await p.goto(BASE + '/?tab=create', { waitUntil: 'load' });
+  await p.click('#cstep-kind [data-path="single"]');   // #4556: New Agent opens on the three-way choice; Single leads to the role screen
   await p.waitForSelector('#pick-pm:not([hidden])', { timeout: 8000 });
   await p.evaluate(() => { document.getElementById('pick-pm').click(); document.getElementById('role-next').click(); });
   await p.waitForTimeout(700);

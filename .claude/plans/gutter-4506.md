@@ -1,0 +1,188 @@
+# gutter-4506: dialog and boot-cover gutter strip (kosmos#4506)
+
+## Problem
+On a machine with classic scrollbars the tab layout reserves a 15px gutter on `<html>` (#1309). A fixed full-window
+layer cannot paint it, so a strip of page showed beside every dialog (`.rm-back`, 0.72 dark wash) and beside
+`#boot-cover`. #4494 (PR #4512) fixed the same shape for the first-run wizard and the update overlay.
+
+## Measured before building (scratch harness, #4494's method, 1280x800, 15px custom scrollbar)
+| look | approach | gutter px | page px beside | board moves |
+|---|---|---|---|---|
+| light | as-is | 250,249,247 | 82,83,86 | 0 |
+| light | drop gutter | 82,83,86 | 82,83,86 | 15px |
+| light | tour-dim canvas | 82,84,86 | 82,83,86 | 0 |
+| dark | as-is | 12,13,15 | 15,18,21 | 0 |
+| dark | tour-dim canvas | 16,18,21 | 15,18,21 | 0 |
+| navy (Plus), light OS | tour-dim canvas | 82,84,86 | 15,20,28 | 0 |
+| navy (Plus), any | as-is, NO dialog | 255,255,255 | 12,21,41 | - |
+
+Boot cover: dropping the gutter matched exactly in light, dark and navy; the 15px happens behind an opaque cover.
+
+## Decision
+- `.rm-back`: the tour-dim route Angel suggested (#3737): while a dialog is up the canvas is one colour,
+  `color-mix(in srgb, rgb(17, 20, 24) 72%, var(--k-bg))`; on Tasks (canvas is `--k-surface`, #4216) the mix is over
+  the surface. Rejected: dropping the gutter (15px reflow behind a see-through wash on every dialog open).
+- `#boot-cover`: #4494's rule (no gutter, no scroll while up). Rejected: the canvas route, because the cover's ground
+  is `--bg`, which the Plus section sets on the body where the root cannot read it (measured 250 vs 19,33,64).
+- Scope (iteration 3, corrected in 7): on a Mac with classic scrollbars the fix reaches the gutter only where it is
+  reserved but EMPTY (a page that does not scroll; a scrolling page shows the system's track). On Windows the page draws
+  a thumb-only scrollbar with a transparent track, so there the fix reaches scrolling pages too. The harness scrollbar has no track, so its gutter
+  arms stand in for the non-scrolling case. Reasoned, not measured on real hardware.
+- Weakest premise: the harness sets `data-scrollbar-classic` itself (the product's measurement reads 0 under a custom
+  scrollbar that cannot scroll while measuring). A real classic Mac sets it by measurement.
+- Known residual, not fixed here: navy Plus section. The gutter is white there even with no dialog (separate
+  pre-existing defect, to be filed); beside a dialog it becomes grey rather than white.
+
+## Built
+- `web/index.html`: four rules (dialog canvas, dialog body min-height, Tasks dialog canvas, boot cover).
+- `docs/browser-checks/render-dialog-gutter-4506.js`, gated, README row; reason-grep counts 208->211, 126->128 (on main after #4512; first measured 205->208, 124->126).
+
+## Verified
+- Check (first cut): 30 pass on the branch; on unmodified main red on the dialog (light, dark) and boot-cover arms.
+- Perturbation per site on a scratch copy: removing the dialog rule reds the Agents dialog arms; removing the Tasks
+  rule reds dark Tasks; removing the boot rule reds the four boot arms. A fourth edit (a mask on the #4216 rule) was
+  green when removed, so it was dead and is not shipped.
+
+## Challenge loop
+
+### Iteration 1 (opus)
+- BLOCKER, fixed: giving <html> a background stopped the body's background spreading to the window, so on a short
+  page the canvas below the body showed dimmed twice (light 82 vs 35, measured by the reviewer and reproduced).
+  Fix: the tour's own `> body { min-height: 100vh }` while a dialog is up. New short-page arm in the check (1200px
+  window, no spacer); red without the min-height rule (82,83,86 vs 35,37,41), green with it. Dark's band is ~1 unit,
+  so light is the arm that catches it.
+- WARNING, fixed: the dialog rules now apply only under `[data-scrollbar-classic]`, like #4216, so an overlay-scrollbar
+  Mac (no gutter to fix) keeps today's canvas exactly.
+- WARNING, deferred (known residual): a dialog over the tour's dim, or two stacked dialogs, double-dims the page while
+  the gutter gets the single mix, so a lighter strip remains there. Rare, and closer than today's bright strip; CSS
+  cannot count stacked layers.
+- NIT, taken: ignore a shown .rm-back inside a hidden section (`:not([hidden] *)`), so a Plus dialog left open while
+  the section is hidden cannot dim the canvas with nothing on screen.
+- NIT, fixed: the check's comment said dark's strip is "about 6 per channel"; it is 3 to 6.
+- The CSS comment about the navy residual moved to #4542 (filed 07:36, the navy Plus white gutter) and this plan.
+
+### Iteration 2 (sonnet)
+- WARNING, duplicate of iteration 1's deferred tour/stacked residual: skipped.
+- WARNING, checked: WebKit acceptance of `:has(.rm-back:not([hidden]):not([hidden] *))`. Playwright WebKit 26.5 accepts
+  the selector and color-mix and applies all three rules (probe in scratch). The Mac floor (13.5, Safari 16.5) is
+  reasoned from support dates only (:has 15.4, color-mix 16.2), not measured.
+- CONVENTION, fixed: the "30 pass" count is now marked as the first cut's.
+- NIT, fixed: the README row lists the short-page arm.
+- NIT, fixed: new arms for a dialog shown inside a hidden section and for a machine without the classic-scrollbar mark,
+  each with a control that the same dialog does change the canvas when it should.
+
+### Iteration 3 (opus)
+- WARNING, fixed by scoping: the harness's trackless scrollbar shows canvas on a scrolling page, which a real classic
+  scrollbar would not (its track is painted there). Claims in the check header, README row and plan now say the
+  gutter arms stand in for a page that does not scroll.
+- WARNING, fixed: the hidden-section control used `m.closest('[hidden]')`, which returns the modal itself (it carries
+  `hidden`), so it could not fail. Now `m.parentElement.closest('[hidden]')`, asserted to be `s-sec-plus` or
+  `panel-settings`.
+- CONVENTION, fixed: the header said the navy residual was "noted beside the rule", which my iteration-1 edit had made
+  false; it now points to #4542.
+- NIT, taken in part: surface token `plus-lost-modal` added; `scrollbar-classic` was refused by the surface-map test (no functional occurrence as a token), so not added.
+- NIT, recorded for #4542: the tour's `tipDimmedGround` reads `--k-bg` off the body and is the ready route for navy.
+- NIT, known: whichever of this PR and #4512 merges second re-measures the reason-grep counts.
+- Validation note: per-iteration validation (6g) was pre-empted twice by another agent's full suite holding the
+  shared test ports (the helper waits up to 20 minutes); the full validation runs as the closing gate (6j).
+
+### Iteration 4 (sonnet)
+- WARNING, fixed: the dialog rules now skip Talk (`:not(:has(> body > #panel-detail:not([hidden]) #d-sec-talk:not([hidden])))`),
+  mirroring the tour's Talk exemption: Talk reserves no gutter where scrollbars are measured, and at phone width its
+  page must stay exactly the visible height. Reasoned from the tour's rule; the check has no Talk arm yet.
+- WARNING, fixed: the dialog rules skip `.tip-dimming`, so the tour owns the canvas while it dims (as #4216 does),
+  which keeps the tour's navy-correct canvas. The double-dim residual under tour plus dialog is unchanged.
+- NITs (root :has cost, Chromium-only check): consistent with the existing #4216/#4494 rules; stated honestly.
+
+## Paused 07:56 CDT for kosmos#4544 (Splinter, priority)
+Next when resumed: run the check, commit, run 6g validation (it queues behind other agents' suites for up to 20 min),
+then iteration 5 on opus. ITER_COMMITS so far: 9d9e71fe 1c59f686 bfbaf8c4 (plus this pause commit).
+Open question to settle on resume: a Talk arm and a tour-plus-dialog arm in the check.
+
+### Iteration 5 (opus), resumed after #4544 converged
+- WARNING fixed: the Talk exclusion covered every width, but Talk drops its gutter only above 56rem, so 40 to 56rem
+  kept the bright strip; and my comment said Talk "reserves no gutter where measured", false there. Now the canvas
+  rules apply on Talk too (the canvas shows only in a gutter), and only the body min-height skips Talk (its page must
+  keep the visible height). Comment says only that.
+- WARNING fixed: the Talk and tour exclusions had no arm (breaking either stayed green). New arms: a dialog over the
+  tour keeps the tour's canvas (control: the tour canvas is in place); on Talk a dialog leaves the body's height and
+  still dims the canvas (control: off Talk the dialog does set the height).
+- NIT fixed: the header says the dark pixel arms are weak (a wrong mix or missing min-height reds only light).
+- NIT fixed: references to #4494's harness name PR #4512, since that check is not on main yet.
+- NIT duplicate: dialog over the tour double-dims the page (recorded in iteration 1).
+- NIT noted: the branch is behind main; the reason-grep counts get re-measured when main is merged before the PR.
+
+## Main merged again, 09:14 CDT (from date): #4512 (#4494) landed as 7584512d
+- Conflict only in browser-checks-reason-grep.test.js (both branches raised the counts from 205/124). Took main's
+  file and re-measured on the merged tree: 208 -> 211 sites, 126 -> 128 catch sites (+3/+2, this check's own).
+- On the merged tree: render-dialog-gutter-4506 52 passed, render-layer-gutter-4494 13 passed (the two sets of
+  rules do not interfere). The check's header now names render-layer-gutter-4494's harness plainly (it is on main).
+- The #4506 validation run was stopped while still queued (it would have certified the pre-merge base).
+
+### Final validation and iteration 7 (opus)
+- Validation ran (11,915 tests, 0 failures) but the browser-check surface gate (#2518) refused: 8 checks whose tokens
+  the new CSS names (d-sec-talk, panel-tasks, boot-cover, tip-dimming). Ran all 8 on this branch: all pass
+  (render-boot-no-flash against a sandboxed board booted from this tree).
+- BLOCKER (iteration 7) fixed: my first per-check trailers named the checks without `.js`, and the gate matches the
+  basename WITH `.js`, so none counted. The reviewer proved it with a control through the gate's message seam. New
+  trailers carry `.js`.
+- CONVENTION fixed: the scope note said a real classic-scrollbar machine shows the system's track on a scrolling page;
+  on Windows the page's own scrollbar has a transparent track, so the fix reaches scrolling pages there. Corrected in the
+  check header, README and plan.
+- NITs fixed: stale counts and rule count here; the Talk arm's header says it pins the selector, not the phone layout.
+- NIT noted: the Talk min-height skip applies at every width (the tour's is phone-only); between 40 and 56rem Talk's page
+  is taller than the window, so it is harmless.
+
+## CI red on PR #4579, and the re-run loop (12:20 CDT onward)
+CI browser-checks (run 36597171409, macos-latest, real 15px scrollbars) failed render-plus-bar-3837 P2: the Kosmos+
+bar 15px past the page. Cause: the boot cover drops the gutter; the bar is fitted under it, and its re-fit waited on a
+content-box ResizeObserver of the header, whose content box does not change when the gutter comes back (#3497 moves
+the padding with it). Main passes the same check nightly on the same runners, so it was this branch.
+
+Fixed across four blind rounds (opus, sonnet, opus, sonnet):
+- The Kosmos+ bar observes both of the header's boxes (the gutter moves the border box; a new --scrollbar-width moves
+  only the padding). P8 in render-plus-bar-3837, both arms, each red without its observer.
+- The org chart (orgWatchWidth) and the project room's @mention mirror (pjMentionWatchWidth) watch their own boxes;
+  new gated check render-gutter-return-4506 (G1, G2), each arm red without its watcher. G1 holds the board's status
+  poll while it runs: every ~5s tick repaints the chart, so without the hold a tick could pass the arm with no
+  watcher (iteration 5). With the hold the no-watcher mutant reds 5 runs of 5. The same fact bounds the org defect:
+  without the watcher the chart was wrong for up to one poll, not for good.
+
+Checked and left, with the reason (not measured, reasoned from the code):
+- fitDetailName: runs on open, section change and resize. Talk's gutter rule applies as the section shows, so its fit
+  follows it; the boot cover is the only new route, and a name fitted 15px wide falls back to the CSS ellipsis. A
+  ResizeObserver on text it resizes risks a re-fit loop for a transient already bounded.
+- frSyncSwitchOverlays and the first-run star field: they live inside the first-run wizard, which drops the gutter
+  when it opens, so they are fitted after the drop and are gone when it comes back.
+- The emoji picker, the reaction bar and the tour card: transient, positioned when they open.
+- Two dialogs open at once dim the page twice while the gutter is dimmed once. The dialogs are modal; rare.
+
+Weakest premises, added:
+- G2 drops the gutter with the two root properties every overlay sets, not through a real overlay in a room (opening
+  a room lifts the boot cover itself). It proves the watcher follows the composer's width, not that a particular
+  overlay reaches a room.
+- browser-checks-reason-grep's site counts were measured against this branch's base; re-measure after the next merge.
+
+## Org repaint loop (18:00 CDT onward, blind review after the CI loop)
+- Found (opus): in the consolidated Agents view #panel-cons-agents scrolls on its own and reserved no gutter; with a
+  big fleet the chart's height follows its width, so the pane's scrollbar coming and going fed the org width watcher
+  every frame (97 to 143 repaints/s at 924 to 936 tall, 60 agents, 1280 wide). Fixed: scrollbar-gutter: stable on
+  the pane. G3 (file:// pages, one per height: a served board opens Getting started and a resize routes to it).
+- Found (sonnet): Safari before 18.2 ignores scrollbar-gutter (the Mac floor is WebKit 13.5), so the loop could come
+  back there, in either layout. Fixed in the watcher itself: flips back to the width painted one step before (within
+  a scrollbar's width, within 500ms) are counted; one is a real return (G1), the second is skipped. G3b overrides
+  the pane gutter to auto: 35 to 141 repaints/s without the guard, 0 with it.
+- Cost, stated: on a classic-scrollbar machine the consolidated Agents pane always reserves 15px, so a card grid that
+  does not scroll shows a 15px strip at the right and can drop a column 15px sooner. Cosmetic; no check measures it.
+- Not measured: a real Safari before 18.2 (G3b models it by overriding the property; the guard is engine-independent).
+- Converged: rounds 3 (opus) and 4 (sonnet) found nothing above MINOR on the guard. Residuals ACCEPTED, with reasons:
+  - A real width change of 15px or less back and forth within 500ms (a wiggled window edge; a cover up, down, up)
+    trips the second-flip skip: the chart rests up to 15px narrow (it FITS; nothing loops) until the next resize or
+    the ~5s poll. Bounded and cosmetic.
+  - Below about 47% page zoom a 15px scrollbar exceeds the 32px bound, so on an engine without scrollbar-gutter
+    (Safari before 18.2) the loop could return in the band of heights. Would change: a report from such a user;
+    the fix is comparing to the measured gutter instead of a constant.
+  - On such an engine, every ~5s poll repaints wide and the guard settles it in about 3 more paints (G3b: 4 paints,
+    fits). The poll's direct paintOrg does not update ORG_FLIP_FROM; setting it there would remove the wobble.
+  - The flip state machine is exercised only by the gated browser check (G3b), not by a unit test.
+  - The Agents pane's reserved 15px gutter differs from the Tasks and Projects panes beside it (stated above).

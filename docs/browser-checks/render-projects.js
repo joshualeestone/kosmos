@@ -899,6 +899,19 @@ async function main() {
       // #3276: '.pc-t' (the description) removed -- it is on no board view now (#861 grid,
       // #3276 roadmap), so the missing-selector guard would fail on it. Its contrast lives
       // with the single-project view.
+      /* #4730: a project shows a pill only while something runs, and nothing runs in this sandbox, so
+         a real pill (the page's own markup for "Working") is put on the first card for the read and
+         taken off after it, the same way the needs-you variant below is measured. */
+      const injectedPill = (() => {
+        if (document.querySelector('#pj-list .pjpill')) return null;
+        const h = document.querySelector('#pj-list .pjcard-h');
+        if (!h) return null;
+        const pill = document.createElement('span');
+        pill.className = 'pjpill';
+        pill.innerHTML = '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>Working';
+        h.appendChild(pill);
+        return pill;
+      })();
       for (const sel of ['#panel-projects .pj-warn',
                          '#pj-list .pjcard-h b', '#pj-list .pjpill', /* #747: the folder chip is gone */
                          '#pj-list .pjcount', '#pj-list .pjfaces .lav',
@@ -923,25 +936,9 @@ async function main() {
           pill.classList.remove('attn');
         }
       }
-      // The blind-spot sentence (.pj-who), same synthetic treatment: every
-      // member in this sandbox is seen, so the sentence is not on screen to
-      // measure -- and it is the one line this branch pinned to a FIXED ink
-      // for dark-mode survival, so leaving it unmeasured is the exact
-      // narration-outruns-the-check gap. Real card, real class, removed
-      // after the read.
-      {
-        const row = document.querySelector('#pj-list .pj-row');
-        if (!row) { out.push({ sel: '#pj-list .pj-who (injected)', missing: true }); }
-        else {
-          const who = document.createElement('span');
-          who.className = 'pj-who';
-          who.textContent = '1 we cannot see';
-          row.appendChild(who);
-          const cs = getComputedStyle(who);
-          out.push({ sel: '#pj-list .pj-who (injected)', fg: cs.color, bg: bgOf(who), size: parseFloat(cs.fontSize), weight: cs.fontWeight });
-          who.remove();
-        }
-      }
+      /* #4730: the blind-spot sentence (.pj-who, "N we cannot see") is no longer drawn on the
+         Projects views (Josh, 2026-09-30), so there is no text left to measure. */
+      if (injectedPill) injectedPill.remove();
       return out;
     });
     await page.click('[data-project="reedhandover"]');

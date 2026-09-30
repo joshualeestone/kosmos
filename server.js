@@ -87,6 +87,8 @@ const {
      reported question from the board's generic "asking" and not offer the
      placeholder as the question the person should answer. */
   ASKING_GENERIC,
+  /* #4607: what a Codex agent's "Hooks need review" screen says, for the thread's two buttons. */
+  codexHookSummary,
 } = require('./engine/status');
 const removal = require('./engine/remove');
 const worldstarts = require('./engine/worldstarts'); // #1704 PR3: pause/resume a Kosmos's agents across a switch
@@ -3803,15 +3805,15 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    for an admitted device and then presents the person's board token anyway (read from
    kosmos-relay crates/tunnel/src/proxy.rs, not this repo). #4491 slice 2 added react, whose handler identifies
    the caller from the token and refuses a non-member. POST /api/community/post is deliberately NOT here: it
-   writes to the public feed, and alone an agent token would let an agent that cannot read the board token
-   (the sandboxed setup guide) publish (#4491).
+   writes to the public feed, so it keeps needing the person's credential as well as the agent's (#4491).
    ⚠️ The gate checks the token STORE, not the roster: a removed agent is cut off by the revoke at
    removal. If that best-effort revoke failed and the agent's process is still alive, its token
    still passes here, exactly as it already does on the exempt report and reply routes.
    A token is only as private as its launch: #4497 moved it off tmux's command line (see
    supervisor.agent-token-argv-4497.test.js). */
 /* #4581: the two project reads (list here, show in the patterns below) let an agent holding only its own token,
-   the sandboxed setup guide included, read every project's folder, members, roles, states and brief. Decided:
+   the setup guide included (see the #4728 rows above guideDenyRules in engine/setup-assistant.js), read every
+   project's folder, members, roles, states and brief. Decided:
    membership is not a boundary (GET /api/projects), and none of it is a credential. */
 /* #4491 slice 4: three more READS an agent already makes with the board token every day (`kosmos agent roles`,
    `kosmos task list`, `kosmos room`), now reachable with its own token, so the CLIs can stop reading the person's
@@ -6138,6 +6140,46 @@ const server = http.createServer(async (req, res) => {
       because: ok ? null : (stopped.ok ? helped.because : stopped.because), swarm: next });
     return;
   }
+  /* #4607: the PERSON answers Codex's "Hooks need review" from the board: { choice: 'trust' | 'skip' | 'close' | 'list' }. Trusting lets
+     the hooks run outside the sandbox, and #4589's floor keeps every message path from answering it, so this route
+     is the person's only: not an agent-token route (AGENT_TOKEN_ROUTES), and refused when the caller presents an agent
+     token or is not a browser page (isViaScreen, checked after the body is read so a token in the body counts).
+     ADVISORY, as for the board's other person-only routes: a local process holding the board token can send a
+     browser's headers, and an agent's own CLI can read the board token today (#4491, open: keep it out of agents'
+     reach). What that leaves, stated: a local agent that takes the board token and forges those headers could trust
+     another Codex agent's hooks. An agent with an unsandboxed shell gains nothing by it (it could write Codex's own
+     config, ~/.codex/config.toml [hooks.state], directly). An agent that can read the token and reach the board but
+     cannot write outside its folder WOULD gain it: Codex's default sandbox denies network, so that needs a loosened
+     sandbox, but the gap is real and #4491 is what closes it (the gate then refuses agents, with no change here). The answer itself is chat.answerCodexHooks:
+     the screen is read again before every key. */
+  const codexHooks = pathname.match(/^\/api\/agent\/([^/]+)\/codex-hooks$/);
+  if (codexHooks && req.method === 'POST') {
+    const name = decodeSegment(codexHooks[1]);
+    if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    readBody(req, 4096)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
+        if (!isViaScreen(req, body)) {
+          /* Refusals are logged too (review round 13): they are the attempts the residual is about. */
+          process.stdout.write(`codex-hooks: refused ${JSON.stringify(name)} (not the person's page)\n`);
+          sendJson(res, 403, { ok: false, because: 'only you can answer this, from the board' });
+          return;
+        }
+        const choice = body.choice;
+        if (!['trust', 'skip', 'close', 'list'].includes(choice)) { sendJson(res, 400, { ok: false, because: 'choose to trust the hooks, to continue without them, or to close the list' }); return; }
+        let r;
+        try { r = await chat.answerCodexHooks(name, choice, safeRoster(), body.seen); }
+        catch { process.stdout.write(`codex-hooks: ${JSON.stringify(name)} choice=${JSON.stringify(choice)} threw\n`); sendJson(res, 500, { ok: false, because: 'something went wrong answering it; nothing more was pressed' }); return; }
+        /* A record of the decision (review round 12): trusting writes to the account's Codex settings. */
+        /* Values JSON-quoted (a %0A in the name must not write a line of its own); the screen is the one the engine
+           READ, not the one the caller said it saw. */
+        process.stdout.write(`codex-hooks: ${JSON.stringify(name)} choice=${JSON.stringify(choice)} read=${JSON.stringify(r.screen || null)} ok=${r.ok === true} keys=${JSON.stringify(r.keys || [])}${r.ok ? '' : ' because=' + JSON.stringify(r.because)}\n`);
+        sendJson(res, 200, { ok: r.ok === true, choice, because: r.ok ? null : r.because, reread: r.reread === true });
+      })
+      .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
+    return;
+  }
   /* #3564: a swarm's settings (the contract on #3564): { maxHelpers?, dailyTokenLimit?, active? }.
      Only a swarm has them. A new helper count is written into the lead's instructions. */
   const swarmSet = pathname.match(/^\/api\/agent\/([^/]+)\/swarm$/);
@@ -6325,6 +6367,32 @@ const server = http.createServer(async (req, res) => {
       try { answer(); } catch { if (!res.headersSent) sendJson(res, 500, { error: 'we could not list the roles' }); }
     };
     if (wantCatalogue) catalogue.refresh().then(answerSafely, answerSafely); else answer();
+    return;
+  }
+
+  if (pathname === '/api/catalogue/portrait' && req.method === 'GET') {
+    /* #4720: a prebuilt team member's portrait, for the Team screen to set as the new agent's
+       picture. The catalogue is downloaded, so its portraits are too: the board fetches the one
+       file the signed catalogue names for this member, keeps it only when it is that exact image
+       (engine/catalogue.js portrait()), and the page reads it from here, never from another
+       address. Nothing in the request chooses what is downloaded: team and slot only pick among
+       the members the held catalogue lists. "No portrait" is a 404 with the reason; the page says
+       so on the member's row and the agent is made all the same. Like the other GETs that make
+       this computer fetch something, it refuses a request that came from another website. */
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
+    let q;
+    try { q = new URL(req.url, ROUTING_BASE).searchParams; } catch { q = new URLSearchParams(); }
+    const none = (because) => { if (!res.headersSent && !res.destroyed) sendJson(res, 404, { error: because }); };
+    catalogue.portrait(q.get('team'), q.get('slot')).then((r) => {
+      // Inside a promise handler: a throw here would be an unhandled rejection, so it is answered.
+      try {
+        if (res.destroyed || res.writableEnded) return;
+        if (!r.ok) { none(r.because); return; }
+        res.writeHead(200, { 'content-type': r.type, 'content-length': r.bytes.length, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+        res.end(r.bytes);
+      } catch { none('we could not read that portrait'); }
+    }, () => none('we could not read that portrait'));
     return;
   }
 
@@ -12967,6 +13035,7 @@ const server = http.createServer(async (req, res) => {
           project: typeof body.project === 'string' ? body.project : undefined,
           because: body.text,
           waiting: body.waiting,   // #4569 fix 4: selfreport keeps it only on a sane working report
+          final: body.final,       // #4612: a Muse turn's answer; selfreport keeps it only on a sane idle or working report
           on: body.on,
           owner: body.owner,
           until: body.until,
@@ -13883,6 +13952,12 @@ const server = http.createServer(async (req, res) => {
     // the agent's own words with no on-screen numbers, so it never draws
     // buttons (optionsIn would refuse the prose anyway; this states the intent).
     const options = (asking && question && !question.reported) ? chat.optionsIn(question.text) : null;
+    /* #4607: a Codex agent stopped on its "Hooks need review" dialog. questionIn finds no question there (the dialog
+       is not a prompt the person types into, #4589), so the page is told what the screen says instead: which screen,
+       how many hooks, their events and source where shown. The page answers through POST .../codex-hooks, never the
+       composer. From the same fresh capture as the question; null for everything else. */
+    const codexHooks = (asking && card && card.runner === 'codex' && card.reachedByChannel !== true && view && typeof view.text === 'string')
+      ? codexHookSummary(view.text) : null;
     /**
      * ⚠️ PRESENCE IS THE SEND GATE'S OWN ANSWER, not a second derivation of it.
      * The first version of this route asked whether a tied card existed, which
@@ -13922,6 +13997,20 @@ const server = http.createServer(async (req, res) => {
        if it was written in THIS pause (chat.noticeStands). store.readProfile answers {} when it cannot read, and
        a non-swarm reads as running: the line then comes back rather than being hidden. */
     const owes = chat.dmOwes(messages, name, require('./engine/swarm').pauseOf(store.readProfile(name)));
+    /* #4612: a Muse agent that answered in its own window but never ran kosmos reply. Its reports carry the answer,
+       dated by when its DM reached the agent; when the person's latest message is still owed and the answer is not
+       dated before it, the page shows the answer instead of "Nothing back yet". Read-only, and only ever about THIS
+       agent's report. */
+    if (owes && owes.state === 'owes') {
+      try {
+        const rep = selfreport.read(name);
+        const heard = Date.parse(owes.lastHeardAt || '');
+        // Any latest state: the turn that answered is over, and a room turn running now does not unsay it (round 3).
+        if (rep && rep.found && rep.final && Number.isFinite(heard) && Date.parse(rep.final.startedAt) >= heard) {
+          owes.unsent = { text: rep.final.text };
+        }
+      } catch { /* no report: the line stays "Nothing back yet" */ }
+    }
     const TAIL = 200;
     const olderCount = Array.isArray(messages) && messages.length > TAIL
       ? messages.length - TAIL : 0;
@@ -14012,6 +14101,7 @@ const server = http.createServer(async (req, res) => {
       /* #3769: a question read off the guide's screen is its words too. */
       question: guideThread && question && typeof question.text === 'string' ? { ...question, text: guideMasked(guideName, question.text) } : question,
       questionBecause,
+      codexHooks, // #4607
       /* #1629: the page draws a composer under a question, and for the trust
          dialog that invites the one keystroke that ends the session. The
          route says so up front, in the same sentence the send refusal uses,
@@ -15452,7 +15542,7 @@ const server = http.createServer(async (req, res) => {
             sendJson(res, 429, { error: refusal.because, retry_after_secs: refusal.retryAfterSecs }); return;
           }
         }
-        const made = projects.create({ name: body.name, folder: body.folder, agents: body.agents, roster, description: body.description,
+        const made = projects.create({ name: body.name, folder: body.folder, agents: body.agents, roster, description: body.description, done: body.done,
           // #2458: the parent chosen on the create page (blank/absent = top-level).
           // The engine validates it through the same cleanParent the edit route
           // uses (a missing parent or a non-string is refused), so a bad parent is
@@ -15540,15 +15630,30 @@ const server = http.createServer(async (req, res) => {
         // AFTER `told`, best-effort (roomNote swallows its own errors): furniture, exactly like
         // WELCOME_ROOM_NOTE, and a note we could not post is never a reason to fail the create.
         try {
+          /* #4583 review rounds 5-8: a done typed on the form that is not what BRIEF.md's Done section now holds, for ANY
+             reason (the person's own Done section, or a brief Kosmos could not read or write), is quoted to the team
+             with its true reason, and the team is then never also told to ask the person for done. */
+          const typedDone = projects.cleanDone(body.done);
+          const doneLost = !!typedDone && !projects.doneWrittenIn(made.folder, typedDone);
           if (made.agents.length > 0 && projects.briefIsPending(made.folder)) {
-            messages.roomNote(made.id, projects.BRIEF_PENDING_NOTE, { audience: messages.NOTE_AUDIENCE_AGENTS });   // agents read it; the person's room does not
+            // #4583: ask for done too only when it is not set; a done typed on the form is never asked for again.
+            const note = (projects.doneIsPending(made.folder) && !doneLost) ? projects.BRIEF_AND_DONE_PENDING_NOTE : projects.BRIEF_PENDING_NOTE;
+            messages.roomNote(made.id, note, { audience: messages.NOTE_AUDIENCE_AGENTS });   // agents read it; the person's room does not
+          } else if (made.agents.length > 0 && projects.doneIsPending(made.folder) && !doneLost) {
+            // #4583: a goal but no "done looks like": the same one-asks note, for done.
+            messages.roomNote(made.id, projects.DONE_PENDING_NOTE, { audience: messages.NOTE_AUDIENCE_AGENTS });
+          }
+          if (made.agents.length > 0 && doneLost) {
+            messages.roomNote(made.id, projects.doneNotWrittenNote(typedDone, projects.doneHeadingIsOwn(made.folder)), { audience: messages.NOTE_AUDIENCE_AGENTS });
           }
         } catch { /* the note is furniture; the project exists regardless */ }
         // The owner's seat waits for a first edge (someone has joined); try now.
         if (federationLinked) fedseats.ensure(made.id).catch(() => {});
         let project = null;
         try { project = projects.get(made.id, roster); } catch { project = null; }
-        sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null, federationLinked });
+        // #4583: made with two coordinators already on it: the same warning as adding the second one.
+        const coordinators = project ? projects.coordinatorWarning(project, null) : null;
+        sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null, federationLinked, ...(coordinators ? { coordinators } : {}) });
       })
       .catch((err) => sendJson(res, (err && err.code === 'UNREADABLE') ? 500 : 400,
         { error: String((err && err.message) || 'we could not read that request') }));
@@ -17413,7 +17518,9 @@ const server = http.createServer(async (req, res) => {
     if (moved && project) {
       said = await projects.speakOfMembershipAsync(name, project, req.method === 'POST' ? 'joined' : 'left', roster);
     }
-    sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null });
+    // #4583: a second coordinator joining is warned about, never refused.
+    const coordinators = (req.method === 'POST' && moved && project) ? projects.coordinatorWarning(project, name) : null;
+    sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null, ...(coordinators ? { coordinators } : {}) });
     return;
   }
 
