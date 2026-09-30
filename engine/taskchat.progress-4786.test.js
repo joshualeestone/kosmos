@@ -129,3 +129,19 @@ test('#4786: the real pipeline, through engine/tasks: finish a part, close it, h
   assert.equal(taskchat.progressTimes(p.id).length, afterLoop, 'handing part 2 back to mara counted again');
   assert.equal(afterLoop, 5, 'only leo getting part 2 for the first time should have counted in the loop');
 });
+
+test('#4786: through engine/tasks, a task made for leo has leo holding part 1, so giving part 1 back to leo is not new', () => {
+  const p = projects.create({ name: 'Held ' + Math.random().toString(36).slice(2), agents: ['leo', 'mara'] });
+  const made = tasks.create(p.id, { sentence: 'Write it', who: 'leo' });
+  const part1 = tasks.partsOf(made)[0];
+  assert.equal(tasks.assignPart(p.id, made.number, part1.id, 'mara').ok, true);
+  const afterMara = taskchat.progressTimes(p.id).length;
+  assert.equal(afterMara, 2, 'made + handed to mara should be two steps');
+  assert.equal(tasks.assignPart(p.id, made.number, part1.id, 'leo').ok, true);
+  assert.equal(taskchat.progressTimes(p.id).length, afterMara, 'giving part 1 back to the task\'s maker counted as new');
+});
+
+test('#4786: a row from before parts (no partId) is the task\'s one part', () => {
+  const id = project([{ m: 1, kind: 'created', who: 'leo' }, { m: 2, kind: 'assigned', who: 'mara' }, { m: 3, kind: 'assigned', who: 'leo' }]);
+  assert.deepEqual(taskchat.progressTimes(id, NOW), [M(1), M(2)]);
+});

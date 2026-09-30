@@ -1768,9 +1768,12 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      all of it together at most one more cap. It never moves countFrom: only the person resets the count, so the
      note above ("agents cannot reset it") still holds. Rejected (review rounds 1-2): progress as a full reset, which
      one cheap task creation per budget would have turned into no valve at all. The worst a loop that also makes
-     tasks can do is run to twice the cap. The task files are read only when the room is already over its cap. */
+     tasks can do is run to twice the cap. The task files are read only when the room is already over its cap and
+     the limit is on (with it off the room is never held, so the allowance could only suppress the notice row; a
+     busy room with the limit off would otherwise re-read its task files on every post). A held agent that keeps
+     retrying pays one read of this project's task files per refused post. */
   let allowed = lim.roomArrivalsPerWindow;
-  if (operator !== true && arrivals + charged > allowed) {
+  if (lim.on && operator !== true && arrivals + charged > allowed) {
     const steps = require('./taskchat').progressTimes(projectId, now).filter((t) => t >= countFrom).length;
     allowed += Math.min(lim.roomArrivalsPerWindow, steps * Math.ceil(lim.roomArrivalsPerWindow / ROOM_PROGRESS_STEPS));
   }

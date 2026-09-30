@@ -220,7 +220,7 @@ function progressTimes(projectId, now = Date.now()) {
           counts = !seen.has(key);
           seen.add(key);
         } else if (row.kind === 'assigned' && typeof row.who === 'string' && row.who) {
-          const who = holders(row.partId);
+          const who = holders(row.partId == null ? 1 : row.partId);   // a row from before parts named the task's one part
           counts = !who.has(row.who);
           who.add(row.who);
         }
