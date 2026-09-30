@@ -3803,8 +3803,7 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    for an admitted device and then presents the person's board token anyway (read from
    kosmos-relay crates/tunnel/src/proxy.rs, not this repo). #4491 slice 2 added react, whose handler identifies
    the caller from the token and refuses a non-member. POST /api/community/post is deliberately NOT here: it
-   writes to the public feed, and alone an agent token would let an agent that cannot read the board token
-   (a Claude setup guide on a Mac, #4728) publish (#4491).
+   writes to the public feed, so it keeps needing the person's credential as well as the agent's (#4491).
    ⚠️ The gate checks the token STORE, not the roster: a removed agent is cut off by the revoke at
    removal. If that best-effort revoke failed and the agent's process is still alive, its token
    still passes here, exactly as it already does on the exempt report and reply routes.

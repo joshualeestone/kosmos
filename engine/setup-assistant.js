@@ -200,7 +200,8 @@ function markGuideFolder(agentName) {
  * --dangerously-skip-permissions, as every Kosmos agent is. Its own folder, not the account's
  * settings.json, because an account is shared by every agent on it.
  * - Read covers Claude Code's file tools; the Bash rules stop the commands that print secrets by name.
- *   A shell can still reach a file some other way, which is why the first layer (its instructions,
+ *   Where guardGuideFolder writes no sandbox, a shell can still reach a file some other way, and
+ *   everywhere the rules reach only the paths they name, which is why the first layer (its instructions,
  *   roles.GUIDE_SECRET_LINES) and the third (engine/secretmask.js on everything it says) exist.
  * - Claude only: the file is written for every guide (create.js does not look at the provider), but
  *   only Claude Code reads it, so a Codex, Gemini or Grok guide relies on the other two layers.

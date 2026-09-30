@@ -1554,9 +1554,9 @@ cmd_reply() {
   # Inert (omitted) when empty -- a non-enforcing board writes no token file.
   local _bt; _bt="$(board_token || true)"
   # #3769: the agent's own token too, as `whoami` and `report` present it (hex only). A Claude setup
-  # guide on a Mac runs sandboxed with Kosmos's data folder denied, so this command cannot read the
-  # board token there (#4728 measured that case only); its agent token is what keeps its
-  # reply on an enforcing board. Omitted when empty, as before.
+  # guide on a Mac runs sandboxed with Kosmos's data folder denied (guardGuideFolder in
+  # engine/setup-assistant.js), and board_token above reads only that folder; its agent token is
+  # what keeps its reply on an enforcing board. Omitted when empty, as before.
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in
     ''|*[!0-9a-f]*) ;;
