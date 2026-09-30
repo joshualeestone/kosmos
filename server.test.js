@@ -15986,8 +15986,18 @@ test('#4632: only the picker\'s ?catalogue=1, and a create for a role not held, 
     assert.equal(asked, 2, 'a create for a catalogue role not held did not ask the catalogue');
     assert.ok(roles.byKey('cmo'), 'the downloaded role is not there for the create');
     asked = 0;
-    await postJson('/api/agents', { role: 'pm' });
-    assert.equal(asked, 0, 'CONTROL: a create for a built-in role asks nothing');
+    await postJson('/api/agents', { role: ' pm ' });
+    assert.equal(asked, 0, 'CONTROL: a create for a built-in role asks nothing (its key read trimmed, as create reads it)');
+
+    // /api/team: how agents and both CLIs make agents (`kosmos agent create`). Refused here for
+    // lack of credentials or a name, after the download.
+    reset();
+    await postJson('/api/team', { purpose: 'x', members: [{ name: 'Nova', role: 'cmo' }] });
+    assert.equal(asked, 2, 'a team create naming a catalogue role not held did not ask the catalogue');
+    asked = 0;
+    reset();
+    await postJson('/api/team', { purpose: 'x', members: [{ name: 'Nova', role: 'pm' }] });
+    assert.equal(asked, 0, 'CONTROL: a team create with built-in roles asks nothing');
   } finally {
     if (was === undefined) delete process.env.KOSMOS_CATALOGUE_BASE; else process.env.KOSMOS_CATALOGUE_BASE = was;
     try { fs.rmSync(catalogue.cacheFile(), { force: true }); } catch { /* none */ }

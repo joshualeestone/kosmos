@@ -6305,9 +6305,9 @@ const server = http.createServer(async (req, res) => {
 
         /* #4632: a ready-made role comes from the downloaded catalogue. When the key asked for is not
            one this board holds (nobody has opened the picker yet, so nothing was downloaded), ask the
-           catalogue first, as the picker would, so an agent or the CLI can make any role the picker
-           offers. At most once in ten minutes, never throws; an unknown key is still refused below. */
-        if (typeof body.role === 'string' && body.role && !roles.byKey(body.role)) {
+           catalogue first, as the picker would. (This is the create form's route; agents and the CLIs
+           make agents through /api/team, which does the same.) At most once in ten minutes, never throws; an unknown key is still refused below. */
+        if (create.roleKeyOf(body) && !roles.byKey(create.roleKeyOf(body))) {
           await catalogue.refresh();
         }
 
@@ -6745,6 +6745,14 @@ const server = http.createServer(async (req, res) => {
               }
             }
           }
+        }
+
+        /* #4632: agents and both CLIs make agents here (`kosmos agent create`). A ready-made role
+           comes from the downloaded catalogue, so when a member names a role this board does not
+           hold, ask the catalogue first, as the picker would. After the caller is known; at most
+           once in ten minutes; never throws; an unknown key is still refused by createTeam. */
+        if (Array.isArray(members) && members.some((m) => m && typeof m === 'object' && create.roleKeyOf(m) && !roles.byKey(create.roleKeyOf(m)))) {
+          await catalogue.refresh();
         }
 
         /* #1279 GLOBAL per-creator active-agent cap: enforced INSIDE the

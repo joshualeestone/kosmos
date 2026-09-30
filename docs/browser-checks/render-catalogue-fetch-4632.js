@@ -13,6 +13,10 @@
  * signature from a local port and points every board at it (KOSMOS_CATALOGUE_BASE), so this needs
  * no network and the board verifies the real signature with its real key.
  *
+ * On the harness's shared board earlier checks have already opened the picker, so check 1 (the
+ * picker's own request carries ?catalogue=1) is the one that carries the claim; checks 3 to 5 show
+ * the downloaded roles reach the board and the page, whichever open fetched them.
+ *
  * Headless is fine here: everything below is requests, JSON and visible text.
  *
  * Run: see the README in this directory.

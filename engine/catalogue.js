@@ -7,9 +7,10 @@
  * #4632: the catalogue no longer ships inside Kosmos. It is built and signed by the public repo
  * joshualeestone/kosmos-catalogue and published at installkosmos.com/catalogue/. Kosmos downloads
  * it only when it is asked for: the role picker (/api/roles?catalogue=1), `kosmos agent roles`, a
- * create for a role the board does not hold, and, once #4557 lands, the Team screen. It keeps it in the
- * data folder, and uses it only when its Ed25519 signature verifies against PUBLIC_KEY below. Until the first download, and whenever the stored copy does not
- * verify, there is no catalogue: the picker shows the original roles and there are no teams.
+ * create for a role the board does not hold, and, once #4557 lands, the Team screen. It keeps it
+ * in the data folder, and uses it only when its Ed25519 signature verifies against PUBLIC_KEY
+ * below. Until the first download, and whenever the stored copy does not verify, there is no
+ * catalogue: the picker shows the original roles and there are no teams.
  *
  * This module is the one reader of the stored copy: roles.js merges `rawRoles()` into ROLES (and
  * again through `remerge()` after a download), and team creation reads `teams()` and
@@ -108,7 +109,9 @@ function check(bytes, sig) {
   return problem ? { ok: false, because: problem } : { ok: true, catalogue: c };
 }
 
-/** The stored catalogue, checked, or null. Read once; `refresh()` replaces it. */
+/** The stored catalogue, checked, or null. Read once; `refresh()` replaces it. When the stored copy
+ *  is unreadable or no longer verifies, the next download is held only to MIN_SERIAL, not to the
+ *  serial last held (which lived in that copy): acceptable, since it takes local damage first. */
 function load() {
   if (data !== undefined) return data;
   data = null;
@@ -201,7 +204,9 @@ function refresh(opts = {}) {
       if (held && r.catalogue.serial < held.serial) {
         throw new Error(`the downloaded catalogue is older than the one held (${r.catalogue.serial} < ${held.serial})`);
       }
-      const changed = !held || held.serial !== r.catalogue.serial;
+      // A different file under the serial already held is a publisher error, but it is still what was
+      // signed: take it whole (memory, ROLES and the stored copy) rather than half.
+      const changed = !held || held.serial !== r.catalogue.serial || JSON.stringify(held) !== JSON.stringify(r.catalogue);
       // The same serial is written again only when the stored copy is gone or no longer verifies
       // (a disk cleanup, say), so what is held in memory survives a restart.
       if (changed || storedSerial() !== r.catalogue.serial) {

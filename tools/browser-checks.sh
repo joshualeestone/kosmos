@@ -820,12 +820,12 @@ free_port() {
 }
 pick_ports() {
   local picked=() p n
-  while [ "${#picked[@]}" -lt 19 ]; do
+  while [ "${#picked[@]}" -lt 20 ]; do
     p="$(free_port)"
     for n in ${picked[@]+"${picked[@]}"}; do [ "$n" = "$p" ] && p=""; done
     [ -n "$p" ] && picked+=("$p")
   done
-  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"; P14="${picked[13]}"; P15="${picked[14]}"; P16="${picked[15]}"; P17="${picked[16]}"; P18="${picked[17]}"; P19="${picked[18]}"
+  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"; P14="${picked[13]}"; P15="${picked[14]}"; P16="${picked[15]}"; P17="${picked[16]}"; P18="${picked[17]}"; P19="${picked[18]}"; P_CAT="${picked[19]}"
 }
 pick_ports
 log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13 $P14 $P15 $P16 $P17 $P18 $P19 (chosen by the OS, #633)"
@@ -835,7 +835,6 @@ log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13
 # catalogue repo's key, test-support/catalogue-published/), so no board asks installkosmos.com
 # (#4253) and every picker sees the same catalogue whatever the network does. Only the two file
 # names are served; anything else is a 404.
-P_CAT="$(free_port)"
 node -e '
   const http = require("node:http"), fs = require("node:fs"), path = require("node:path");
   const dir = path.join(process.cwd(), "test-support", "catalogue-published");
@@ -844,8 +843,12 @@ node -e '
     if (!["catalogue.json", "catalogue.json.sig"].includes(name)) { r.writeHead(404); r.end(); return; }
     r.writeHead(200); r.end(fs.readFileSync(path.join(dir, name)));
   }).listen(Number(process.argv[1]), "127.0.0.1");
-' "$P_CAT" > /dev/null 2>&1 &
+' "$P_CAT" > "$RUN_DIR/catalogue-server.log" 2>&1 &
 SERVER_PIDS+=("$!")
+# Up before any board boots: a server that lost its port would otherwise read as a missing catalogue.
+for _i in $(seq 1 40); do curl -fsS -o /dev/null "http://127.0.0.1:$P_CAT/catalogue.json" 2>/dev/null && break; sleep 0.25; done
+curl -fsS -o /dev/null "http://127.0.0.1:$P_CAT/catalogue.json" 2>/dev/null \
+  || log "the local catalogue server on $P_CAT did not answer (see $RUN_DIR/catalogue-server.log): picker checks will see no catalogue"
 export KOSMOS_CATALOGUE_BASE="http://127.0.0.1:$P_CAT/"
 log "catalogue for every board: $KOSMOS_CATALOGUE_BASE (the published files, served locally)"
 

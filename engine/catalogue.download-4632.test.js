@@ -20,6 +20,9 @@ process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'support');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
+// These tests hand refresh() their own fetcher; one asserts the default address, so the harness's
+// dead-port pin (tools/run-tests.sh) is taken off here.
+delete process.env.KOSMOS_CATALOGUE_BASE;
 const catalogue = require('./catalogue');
 const roles = require('./roles');
 const { FIXTURE } = require('../test-support/catalogue-fixture');
