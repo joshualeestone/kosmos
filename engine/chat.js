@@ -1238,6 +1238,8 @@ async function answerCodexHooks(sessionName, choice, roster, seen) {
    menu pressed "2" there before). 'digit' is the number beside the chosen option on that menu, read then.
    Trust from ONE hook's page only goes back to the full table and stops: that page names one hook, "t" trusts them
    all, so the person reads the whole list first. */
+/* ⚠️ Only the FIRST key is checked against what the person was shown (sameCodexHooks); after it, Trust takes at
+   most "t" then Escape. A new Trust step added here must re-check what was shown before its key. */
 const CODEX_HOOK_STEPS = {
   trust: { menu: ['digit', 'gone'], table: ['t', 'trusted'], trusted: ['Escape', 'gone'], hook: ['Escape', 'table'] },
   skip: { menu: ['digit', 'gone'], table: ['Escape', 'gone'], hook: ['Escape', 'table'] },

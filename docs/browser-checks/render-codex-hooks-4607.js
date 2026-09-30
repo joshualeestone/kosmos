@@ -71,6 +71,7 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
         source: (() => { const r = document.getElementById('d-qask-codex-source'); return r && !r.hidden ? document.getElementById('d-qask-codex-source-text').textContent : null; })(),
         command: (() => { const r = document.getElementById('d-qask-codex-command'); return r && !r.hidden ? document.getElementById('d-qask-codex-command-text').textContent : null; })(),
         shown: ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close'].filter((id) => { const b = document.getElementById(id); return b && !b.hidden; }),
+        trustLabel: (document.getElementById('d-qask-codex-trust') || {}).textContent || '',
       };
     }, thread);
 
@@ -90,6 +91,7 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
       `${t} the trusted-but-open list offers only Close`, JSON.stringify(open));
     const h = await paint({ ...base, codexHooks: HOOK });
     chk(/agent could have written it/.test(h.what), `${t} a project-settings hook is flagged as writable by the agent`, h.what);
+    chk(h.trustLabel === 'Show the full list' && a.trustLabel === 'Trust all of them', `${t} on one hook's page the button says it shows the full list`, JSON.stringify({ h: h.trustLabel, a: a.trustLabel }));
     chk(h.command === 'true' && a.command === null, `${t} what a hook runs is shown as its own literal, only when the screen shows it`, JSON.stringify({ h: h.command, a: a.command }));
     chk(/Codex found hooks it has not been told to trust \(Stop\)\./.test(h.what) && h.source === HOOK.source,
       `${t} from one hook's page: no count it did not show, the event, and the source as a literal of its own`, JSON.stringify(h));

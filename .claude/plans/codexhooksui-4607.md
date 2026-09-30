@@ -64,6 +64,12 @@ On the MENU the must-match check can compare only the screen and the count: a di
 count passes it, because the menu names none (review round 7). The table and hook pages carry events, source and
 command, which are compared.
 
+"Done" is reported when the next screen is not a hook screen and not blank, which includes another dialog (Codex's
+update menu, say): nothing more is pressed, and the card shows whatever that screen is (review round 8). A trusted
+list that shows no ACTIVE hook (a hook that is disabled or fails to load) is not recognised: after "t" the answer
+stops with "went somewhere we have not measured", no Escape is sent, and the board shows nothing while the list is
+open. Measured neither way; stated.
+
 ## Weakest premise
 That 0.149.1's screens and keys hold for the Codex the person runs. A newer Codex (0.159.2 exists) may word the
 dialog differently; then codexHookReview reads nothing, the card shows no buttons, and nothing is pressed (fails

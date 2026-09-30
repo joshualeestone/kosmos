@@ -34081,6 +34081,9 @@ async function paintTalk(sessionName, agentName) {
     /* The trusted-but-open list (a dropped Escape after trusting): only Close. Otherwise the two choices, and the
        summary says Trust covers every hook Codex lists (from one hook's page the screen names only that one). */
     document.getElementById('d-qask-codex-trust').hidden = listOpen;
+    /* From one hook's page Trust only goes back to the full list (it names one hook; Codex trusts them all), so the
+       button says what it does there (review round 8). */
+    document.getElementById('d-qask-codex-trust').textContent = h.screen === 'hook' ? 'Show the full list' : 'Trust all of them';
     document.getElementById('d-qask-codex-skip').hidden = listOpen;
     document.getElementById('d-qask-codex-close').hidden = !listOpen;
     if (listOpen) {
