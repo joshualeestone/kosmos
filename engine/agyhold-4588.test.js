@@ -619,20 +619,28 @@ test('#4588 B an agent whose report says a reset 30 days away holds nobody (the 
   assert.equal(agyquota.heldForQuota('far-a', [roster[0], { ...roster[1], quotaUntil: new Date(now + 3600e3).toISOString() }], now, memo), now + 3600e3, 'CONTROL');
 });
 
-test('#4588 B an antigravity card seen WORKING clears the memory (the pool is serving turns); CONTROL: a working claude card does not', () => {
-  const now = Date.parse('2026-09-28T20:00:00.000Z');
-  const until = now + 5 * 3600e3;
-  const paused = [
-    { sessionName: 'wk-a', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(until).toISOString() },
-    { sessionName: 'wk-b', runner: 'antigravity', state: 'idle' },
-    { sessionName: 'wk-x', runner: 'claude', state: 'working' },
-  ];
+test('#4588 B the first resumed agent reading WORKING does not release everyone: the stagger stands; nor does a working card during the pause', () => {
   const memo = agyquota.newPoolMemo();
-  assert.equal(agyquota.heldForQuota('wk-b', paused, now, memo), until, 'fixture: held');
-  const claudeWorks = paused.map((c) => (c.sessionName === 'wk-a' ? { ...c, state: 'idle', quotaUntil: null } : c));
-  assert.equal(agyquota.heldForQuota('wk-b', claudeWorks, now + 60e3, memo), until, 'CONTROL: a working claude card says nothing about the Google pool');
-  const agyWorks = claudeWorks.map((c) => (c.sessionName === 'wk-a' ? { ...c, state: 'working' } : c));
-  assert.equal(agyquota.heldForQuota('wk-b', agyWorks, now + 120e3, memo), null, 'an agy agent is running turns, yet the pool stayed held');
+  agyquota.notePool(rsRoster('rs-a'), RS - 1, memo);
+  const resumed = rsRoster(null).map((c) => (c.sessionName === 'rs-a' ? { ...c, state: 'working' } : c));
+  const at = RS + agyquota.GRACE_MS + agyquota.SLOT_MS + 1; // rs-a's step has passed; rs-b and rs-c have not
+  assert.notEqual(agyquota.heldForQuota('rs-b', resumed, at, memo), null, 'rs-a working released rs-b early');
+  assert.notEqual(agyquota.heldForQuota('rs-c', resumed, at, memo), null, 'rs-a working released rs-c early');
+  const during = agyquota.newPoolMemo();
+  const until = RS + 3600e3;
+  const pausedB = rsRoster(null).map((c) => (c.sessionName === 'rs-b' ? { ...c, state: 'rate_limited', quotaUntil: new Date(until).toISOString() } : c));
+  agyquota.notePool(pausedB, RS, during);
+  const bQuiet = rsRoster(null).map((c) => (c.sessionName === 'rs-a' ? { ...c, state: 'working' } : c)); // B no longer shows it; A has a turn in flight
+  assert.equal(agyquota.heldForQuota('rs-c', bQuiet, RS + 60e3, during), until, 'a working card during the pause dropped the remembered reset');
+});
+
+test('#4588 B a pane on this machine that is not ours (isNamedOurs false) is not in the pool; CONTROL: the same card as ours is', () => {
+  const now = Date.parse('2026-09-28T20:00:00.000Z');
+  const until = now + 3600e3;
+  const ours = { sessionName: 'own-a', runner: 'antigravity', state: 'idle', isNamedOurs: true };
+  const stranger = { sessionName: 'strange-b', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(until).toISOString(), isNamedOurs: false };
+  assert.equal(agyquota.heldForQuota('own-a', [ours, stranger], now, agyquota.newPoolMemo()), null, 'a stranger\'s pause held our agent');
+  assert.equal(agyquota.heldForQuota('own-a', [ours, { ...stranger, isNamedOurs: true }], now, agyquota.newPoolMemo()), until, 'CONTROL');
 });
 
 test('#4588 B recommender: a held PEER is left out of the asks but the item convenes; CONTROL: an unheld peer is asked', () => {

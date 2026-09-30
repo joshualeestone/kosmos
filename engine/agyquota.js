@@ -40,7 +40,8 @@ function pausedUntil(report) {
 }
 /* #4588 PR B: Antigravity sign-in is machine-wide, so every antigravity agent here draws on one Google account's quota.
    While any of them is inside its pause (a card's quotaUntil still ahead of now), that pool is empty for all of them.
-   Returns the latest such reset in epoch ms, or null when no antigravity card is paused. */
+   Returns the latest such reset in epoch ms, or null when no antigravity card is paused. The stateless reading of what
+   the cards show right now (tests use it); the gate uses notePool below, which also remembers. */
 const MAX_POOL_MS = 8 * 24 * 3600 * 1000;
 function poolHeldUntil(roster, now) {
   let until = null;
@@ -54,15 +55,18 @@ function poolHeldUntil(roster, now) {
 }
 /* Each antigravity agent's last-seen reset, by session. A card stops carrying quotaUntil once its reset passes, and can
    stop showing its pause before then (its screen changed), while the pool is still empty; so the board remembers.
-   A card that shows a new reset corrects only its own entry; an entry is dropped once its release has passed. Any
-   antigravity card seen working clears it all: the pool is serving turns (a refused one records a new pause).
+   A card that shows a new reset corrects only its own entry; an entry is dropped once its release has passed. Nothing
+   releases it early: a card reading working is no proof the pool refilled (a resumed agent, an in-flight turn), so a
+   hold lasts to its recorded reset, bounded by MAX_POOL_MS.
    In memory only: a board restart forgets it, and the release after that one reset is then lost. */
 const POOL_MEMO = { bySession: new Map() };
 function newPoolMemo() { return { bySession: new Map() }; }
 /* One release step: the resume timer's period (60 s) or its stagger, whichever is longer. */
 const SLOT_MS = Math.max(STAGGER_MS, 60 * 1000);
+/* Our antigravity panes: a pane on this machine that is not ours (isNamedOurs false) is not in our pool or order. */
+const isOurAgy = (c) => Boolean(c && c.runner === 'antigravity' && c.isNamedOurs !== false);
 function agyNames(roster) {
-  return (Array.isArray(roster) ? roster : []).filter((c) => c && c.runner === 'antigravity' && c.sessionName)
+  return (Array.isArray(roster) ? roster : []).filter((c) => isOurAgy(c) && c.sessionName)
     .map((c) => String(c.sessionName)).sort();
 }
 /* After the pool's reset R, agent i (by session name) is released at R + GRACE_MS + (i + 1) * SLOT_MS: one agent per step,
@@ -76,10 +80,9 @@ function releaseAfterMs(card, roster) {
 /* Records what the cards show now and returns the pool's reset (the latest remembered), or null when none is pending. */
 function notePool(roster, now, memo = POOL_MEMO) {
   const cards = Array.isArray(roster) ? roster : [];
-  if (cards.some((c) => c && c.runner === 'antigravity' && c.state === 'working')) memo.bySession.clear();
   const cap = now + MAX_POOL_MS;
   for (const c of cards) {
-    if (!c || c.runner !== 'antigravity' || !c.sessionName || typeof c.quotaUntil !== 'string') continue;
+    if (!isOurAgy(c) || !c.sessionName || typeof c.quotaUntil !== 'string') continue;
     const at = Date.parse(c.quotaUntil);
     if (Number.isFinite(at) && at > now && at <= cap) memo.bySession.set(String(c.sessionName), at);
   }
@@ -102,7 +105,7 @@ function poolPausedUntil(roster, now, memo = POOL_MEMO) {
 function heldForQuota(session, roster, now, memo = POOL_MEMO) {
   let card = null;
   try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
-  if (!card || card.runner !== 'antigravity') return null;
+  if (!isOurAgy(card)) return null;
   const reset = notePool(roster, now, memo);
   if (reset === null) return null;
   if (now < reset) return reset;

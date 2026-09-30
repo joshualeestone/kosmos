@@ -232,9 +232,10 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
        held on the quota is left out of this convening's asks (nothing typed into it), as any unreachable peer is; the
        item is not held for it, so a stuck agent on another runner is not kept waiting for a Google pause. */
     const isHeld = (s) => { if (typeof heldUntil !== 'function') return false; try { const h = heldUntil(s); return h !== null && h !== undefined; } catch { return false; } };
-    const held = isHeld(item.session) ? true : null;
-    if (!item.retry && held === null && Array.isArray(item.peers)) item.peers = item.peers.filter((p) => !(p && isHeld(p.session)));
-    if (held !== null && held !== undefined) {
+    const held = isHeld(item.session);
+    // A new array for this convening only: step()'s own peers list is not touched.
+    if (!item.retry && !held && Array.isArray(item.peers)) item.peers = item.peers.filter((p) => !(p && isHeld(p.session)));
+    if (held) {
       if (!item.retry) {
         const i = out.next.log.findIndex((e) => e.at === now && e.session === item.session);
         if (i !== -1) out.next.log.splice(i, 1);
