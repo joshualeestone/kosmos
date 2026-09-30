@@ -921,6 +921,7 @@ const recordGuideOutcome = guidestate.makeRecorder({
   setTimer: createdbeacon.underTest() ? () => null : setTimeout,
 });
 const heartbeat = require('./engine/heartbeat');
+const roomhold = require('./engine/roomhold'); // #4624: a colleague's un-addressed room post is held while the member works
 const agentnudge = require('./engine/agentnudge'); // #4544: the Prompter's nudge to the AGENT (an idle agent that still has open work)
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
@@ -12959,6 +12960,20 @@ const server = http.createServer(async (req, res) => {
            ages out. One bounded file per agent, no leak. */
         if (body.state === 'working') {
           try { activity.record(who, 'working', 1, kept.recorded === true ? kept.at : undefined); } catch { /* the report stands; the marker is best-effort */ }
+        }
+        /* #4624: the turn ended, so room posts held for this agent while it worked are told to it now, one
+           line per room (engine/roomhold.js). On the report the agent SENT, recorded or not: an automatic
+           idle refused over a standing needs_you still means the turn is over. After the answer, so the
+           hook never waits on a pane. */
+        if (body.state === 'idle') {
+          setImmediate(() => {
+            roomhold.flushOnIdle(who, {
+              deliver: chat.deliverAsync, roster, DELIVERY: chat.DELIVERY, env: process.env,
+              shownOf: (id) => { const p = projects.get(id, roster); return p ? p.name : null; },
+            }).then((done) => {
+              for (const d of done) process.stdout.write(`room-hold: ${who} told of ${d.n} held post(s) in ${d.projectId} delivery=${d.state}\n`);
+            }).catch(() => { /* best-effort: the posts are in the room, and the next typed arrival carries the line */ });
+          });
         }
         /* 🛑 THE BEAT, AND WITHOUT IT NOTHING ELSE ON THIS ROUTE REACHES A
            PANELESS AGENT (#1502). `liveness.seen` had ZERO production callers
