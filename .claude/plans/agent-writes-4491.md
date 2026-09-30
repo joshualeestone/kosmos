@@ -52,3 +52,25 @@ tasks for other teams' projects would now be refused until it is put on them.
 ## What would change this
 - Josh saying an agent may add tasks anywhere: drop `notOnProjectRefusal` from the task-add handler (one line);
   the token still names who added it.
+
+## Tests
+- `server.agent-writes-4491.test.js` (new, 12): the gate refuses both writes bare and with an unissued token; a
+  member adds on its token alone and the task is recorded as added by it; a non-member is refused with and without
+  the board token and nothing reaches the task engine; the body cannot name another agent; a pane names its agent
+  (through resolveSender) and a non-member pane is refused, while a pane nobody holds, no pane, and the page are as
+  before; a token the board cannot resolve is refused and never swapped for a pane; an unreadable projects list is
+  a 503; a member closes and a non-member does not; a tokenless close is as before; reopen stays behind the board
+  token and holds an identified non-member out; 13 neighbours stay closed; a revoked token does neither.
+  Measured red, one mutation each: no membership rule; the gate left closed; a bad token swapped for the pane; the
+  close handler naming nobody; an unreadable list failing open; everyone counted a member; the page held to a pane
+  it sent; the adder not recorded.
+- `server.test.js` (existing, unchanged): "a task records who added it and how" pins that a pane which IS a roster
+  target still names its agent. My first version of the helper dropped that arm and this test caught it.
+- `cli.agent-token-verbs-4491.test.js` (4 new): `kosmos task add` and `kosmos task close` present a valid token and
+  still the board token, and forward nothing for a junk or absent one. Red against slice 4's CLI (2 tests).
+- `tools.windows-kosmos-cli-writes-4491.test.js` (new, 6): the same on Windows, plus the board's refusal printed
+  with exit 1 for an agent that is not on the project. Red against slice 4's CLI (2 tests).
+- Pins updated on purpose: the pattern pin in server.agent-token-sender-570.test.js; the slice-3 gate test (close
+  now opens, reopen does not); the slice-4 neighbours list; tools.windows-kosmos-cli-570 (task add presents the
+  token); the slice-4 Windows control verb is now project create.
+
