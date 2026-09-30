@@ -5941,17 +5941,22 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
 /* #4663 (Mona Lisa's phone audit): on a touchscreen the project page's small controls (Back, the settings cog,
    + Add member, + New task and the two View All links, drawn 22 to 28px) take a thumb-sized tap: an invisible
-   area centred on each, at least the room's --room-tap (36px). Nothing drawn moves or grows. */
+   area on each, at least the room's --room-tap (36px). Back, the cog and + Add member have room all round, so
+   theirs is centred. The two View All links and + New task sit a few px above the first file or task, so theirs
+   grows up and sideways only, never below the control's own bottom edge (review round 4: a centred area took the
+   top 3 to 6% of the first file row and the first task card). Two drawn changes, both one-screen touch only, both
+   below: the tasks header gains 14px above it, and its View All steps 8px left. */
 @media (hover: none) {
   #pj-back, #pj-settings-link, #pj-add-member, #pj-newtask, #pj-docs-all, #pj-alltasks { position: relative; }
   :is(#pj-back, #pj-settings-link, #pj-add-member, #pj-newtask, #pj-docs-all, #pj-alltasks)::after {
     content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
     width: max(100%, 36px); height: max(100%, 36px); }
-  /* In the one-screen layout + New task and the tasks View All sit at the top (+ New task also at the right) of a
-     column that clips (overflow: hidden, for its scroller), so a centred area lost its top and right. Theirs grow
-     inward instead: down from the top, and left from + New task's right edge. */
-  html[data-layout="consolidated"] body.consolidated #pj-alltasks::after { top: 0; transform: translateX(-50%); }
-  html[data-layout="consolidated"] body.consolidated #pj-newtask::after { top: 0; left: auto; right: 0; transform: none; }
+  :is(#pj-newtask, #pj-docs-all, #pj-alltasks)::after { top: auto; bottom: 0; transform: translateX(-50%); }
+  /* In the one-screen layout the tasks header sits at the very top of a column that clips (overflow: hidden, for
+     its scroller), so an area growing up had no room: the header gains 14px above it on touch, which the areas of
+     + New task and View All grow into. + New task sits at the column's right edge, so its area grows left. */
+  html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field { padding-top: 14px; }
+  html[data-layout="consolidated"] body.consolidated #pj-newtask::after { left: auto; right: 0; transform: none; }
   /* + New task's area reaches 14px left of its drawn edge, 6px more than the 8px gap to View All: View All steps 8px
      left here (6px, plus 2px so sub-pixel layout cannot close the gap) so no part of it answers as New task. */
   html[data-layout="consolidated"] body.consolidated .pj3 #pj-tasks-field > #pj-alltasks { margin-right: 8px; }
