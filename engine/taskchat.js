@@ -177,4 +177,31 @@ function read(projectId, number) {
   return out;
 }
 
-module.exports = { record, read, taskChatsDir, taskChatFile };
+/* #4786: the newest time a project's tasks MOVED: a task created, given to someone, built, closed, or a part
+   added or closed. Talk ('said') and going backwards (reopened, part-reopened, unbuilt) do not count. The room's
+   back-and-forth valve treats this as the room landing, the way a person's post already is, so a pipeline handing
+   work along is not held while a loop that only talks still is. 0 when there is none or nothing can be read (never
+   throws). Reads only this project's task files; the valve calls it only when a room is over its cap. */
+const PROGRESS_KINDS = new Set(['created', 'assigned', 'built', 'part-added', 'part-closed', 'closed']);
+function lastProgressAt(projectId) {
+  try {
+    const k = keyOf(projectId);
+    if (!k) return 0;
+    const prefix = `${k}.task-`;
+    let newest = 0;
+    for (const name of fs.readdirSync(taskChatsDir())) {
+      if (!name.startsWith(prefix) || !name.endsWith('.jsonl')) continue;
+      const n = Number(name.slice(prefix.length, -'.jsonl'.length));
+      for (const row of read(projectId, n)) {
+        if (!PROGRESS_KINDS.has(row.kind)) continue;
+        const t = Date.parse(row.at);
+        if (Number.isFinite(t) && t > newest) newest = t;
+      }
+    }
+    return newest;
+  } catch {
+    return 0;
+  }
+}
+
+module.exports = { record, read, taskChatsDir, taskChatFile, lastProgressAt, PROGRESS_KINDS };

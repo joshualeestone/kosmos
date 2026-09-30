@@ -3102,3 +3102,33 @@ test('#4580: an outside party speaking in a federated room (an external row) bre
     assert.notEqual(again.id, first.id);
   });
 });
+
+test('#4786: work moving in the project is a landing, so a handoff pipeline is not held; talk and another room\'s work are not', () => {
+  const taskchat = require('./taskchat');
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+    for (let i = 0; i < ROOM_BUDGET / 2; i += 1) {
+      fs.appendFileSync(messages.LOG, JSON.stringify({
+        kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease',
+        from: MEMBERS[i % 3], to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]),
+        text: 'handing it on ' + i, at: new Date(now - 60000).toISOString(), outcomes: {},
+      }) + '\n');
+    }
+    const post = () => { chat.resetForTests(); armSender('leo-discord'); arm([]);
+      return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'next step' }, board.agents, MEMBERS); };
+    // CONTROL: over its budget with no work moving, the room is held (the loop the valve exists for).
+    assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'the room was not held to begin with, so nothing below proves anything');
+    // Talk on a task is not progress.
+    assert.equal(taskchat.record('henderson-lease', 1, { kind: 'said', text: 'still on it' }), true);
+    assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'a task message released the room: talk counted as work');
+    // Work moving in ANOTHER project does not release this room.
+    assert.equal(taskchat.record('quarter-close', 1, { kind: 'closed' }), true);
+    assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'another project\'s task closing released this room');
+    // A task closed HERE is the room landing: the next post goes through.
+    assert.equal(taskchat.record('henderson-lease', 2, { kind: 'closed' }), true);
+    assert.equal(post().state, chat.DELIVERY.PLACED, 'a task closed in this project did not count as the room landing');
+    fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+  });
+});

@@ -1711,7 +1711,19 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     const at2 = Date.parse(m.at);
     return Number.isFinite(at2) && at2 > mark ? at2 : mark;
   }, 0);
-  const countFrom = Math.max(windowFrom, lastOperatorAt);
+  /* #4786: WORK MOVING IS A LANDING TOO. A pipeline of agents handing tasks along fills the budget as fast as a
+     loop does, and was held until the person stepped in (daily feedback, 2026-09-30). So the budget also counts
+     only from the newest time this project's tasks moved (engine/taskchat.js lastProgressAt: created, given,
+     built, closed, parts added or closed; not talk, not going backwards). A room that only talks still trips.
+     Read only when the room would otherwise be over its cap. */
+  const baseCountFrom = Math.max(windowFrom, lastOperatorAt);
+  const countFrom = (() => {
+    const over = log.reduce((n, m) => (m && m.kind === 'post' && !m.operator && m.project === projectId
+      && Date.parse(m.at) >= baseCountFrom ? n + (Array.isArray(m.to) ? m.to.length : 0) : n), 0) + recipients.length;
+    if (operator === true || over <= lim.roomArrivalsPerWindow) return baseCountFrom;
+    const moved = require('./taskchat').lastProgressAt(projectId);
+    return Math.max(baseCountFrom, moved);
+  })();
   // !m.operator: operator posts do not count toward the cap, and the
   // operator is never refused by it (the recorded decision above). The
   // sum is ARRIVALS (each post costs its recipient count), and this
