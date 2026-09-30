@@ -12,7 +12,7 @@ its room notes.
 
 ## Change
 - An own code names the computer that made it: `from`, that computer's Kosmos+ name (the first label of
-  its address). The code's format is `v: 2`.
+  its address). The code's format number stays `v: 1` (review 4): an older Kosmos ignores `from` and reads the code as before.
 - Verify accepts an own code only when `from` is one of THIS computer's account's computers. It asks the
   coordinator through the tunnel (`POST /v1/mac/account-computers`, signed with this computer's key, so it
   can only be this account's list). Refusals, each with a sentence and a reason:
@@ -54,7 +54,7 @@ account (it says both). A code is made to be pasted within minutes, so this shou
   this computer's name.
 - docs/browser-checks/render-owncode-4649.js: the code names its maker; a code from a computer not on the
   account shows the refusal's words on the join screen.
-- engine fedseats tests: unchanged and green (113).
+- engine fedseats tests: green, with one test added for the far-side wording.
 
 ## Review 1 (sonnet)
 FIXED:
