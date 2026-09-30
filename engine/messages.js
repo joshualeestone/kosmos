@@ -479,6 +479,7 @@ function resetForTests() {
      inode/size/mtime invalidation cannot see; production never does that
      (the product only appends), and tests reset. */
   READ_CACHE = null;
+  IN_FLIGHT_SENDS.clear();   // #4580: a held send in one test must not fold a later test's send
 }
 
 function tmuxBin() {
@@ -938,6 +939,88 @@ function filteredText(from, text) {
   try { return senderTextFilter(from, text); } catch { return text; }
 }
 
+/* #4580 / #4466: THE SAME SEND, TWICE, IS ONE MESSAGE. A send can land on the board and still reach its
+   sender as a failure (the reply timed out, or was cut, on a busy board), and the sender re-sends: four of
+   five model families filled rooms with copies that way. The sender cannot tell a lost send from a slow
+   one, so the board does: a send identical to one the SAME sender made to the SAME place in the last
+   SEND_DEDUP_WINDOW_MS, with nothing said in between, is not sent again, and gets the first one's receipt with
+   duplicate: true. Only agents' sends (a person's post is never folded). The trade: an agent that MEANS to send
+   the same text twice into a silent conversation inside the window gets one copy. */
+// Five minutes, comfortably past a room post's own 120 s budget: a row is stamped when its send STARTED, so a slow
+// fan-out that finished at 110 s must still be inside the window when the agent re-runs the command. The quiet-since
+// rule below, not the window, is what keeps a real second answer from being folded.
+const SEND_DEDUP_WINDOW_MS = 5 * 60 * 1000;
+/* The log row is written only when a send FINISHES, and on a busy board the fan-out can outlast the
+   sender's timeout, which is exactly when the retry arrives. So a send still in flight is remembered
+   too: the same send arriving meanwhile waits for the first one's receipt instead of sending again.
+   Keyed by sender, place and text; cleared when the first finishes, either way. */
+const IN_FLIGHT_SENDS = new Map();
+// A twin still in flight, unless it has been in flight longer than the window (a delivery that never settles must
+// not hold every identical retry forever).
+function inFlightTwin(key) {
+  const pending = IN_FLIGHT_SENDS.get(key);
+  if (!pending) return null;
+  if (Date.now() - (pending.startedAt || 0) > SEND_DEDUP_WINDOW_MS) { IN_FLIGHT_SENDS.delete(key); return null; }
+  return pending;
+}
+function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0000' + place + '\u0000' + text; }
+/* One rule for a post's summary state, used by a fresh post and by its folded twin: every recipient placed
+   (or nobody to deliver to) is placed; anything else is unconfirmed.
+   #4624: a held post is kept and its member will be told, so it counts as placed for the sender, and so does
+   the folded retry of one (it reports the first copy's outcomes). */
+function aggregateState(outcomes) {
+  const states = Object.values(outcomes || {});
+  return states.every((v) => v === chat.DELIVERY.PLACED || v === roomhold.HELD) ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
+}
+/* A retry follows its first copy with nothing new in that conversation; a real second answer usually comes after
+   the other side spoke, or after the sender said something else ("yes", "wait", "yes" is a change of mind). So a
+   match is folded only while the conversation has been QUIET since it: no row at all, from anyone, in the same pair
+   or room, after the matched one. */
+function quietSince(log, matched, inConversation) {
+  // A row counts as "since" if it is later in the log OR started after the match: rows are appended when a
+  // send finishes, so on a busy board a reply that started later can sit BEFORE the match. Either one breaks the
+  // quiet, which errs toward sending (a real answer is never lost to the fold).
+  const i = log.lastIndexOf(matched);
+  const t0 = Date.parse(matched.at);
+  for (let j = 0; j < log.length; j++) {
+    const r = log[j];
+    if (!r || r === matched || !inConversation(r)) continue;
+    // Strictly later start: rows stamped in the same millisecond are ordered by the log, not by the clock.
+    if (j > i || (Number.isFinite(t0) && Date.parse(r.at) > t0)) return false;
+  }
+  return true;
+}
+// Only a send that went out (placed, or may have: unconfirmed) has a twin. A first copy that could not be sent
+// hands its refusal to the retry as it is, never marked duplicate: nothing went out to be a duplicate of.
+function asDuplicate(result) {
+  if (!result || typeof result !== 'object') return result;
+  return result.state === chat.DELIVERY.PLACED || result.state === chat.DELIVERY.UNCONFIRMED ? { ...result, duplicate: true } : result;
+}
+// The log keeps a send's state but not the words of its "unconfirmed"; a folded twin says what it knows.
+const FOLDED_UNCONFIRMED = 'this was sent a moment ago and was not confirmed then; it may already be there, so it was not sent again';
+function trackInFlight(key, pending) {
+  pending.startedAt = Date.now();
+  IN_FLIGHT_SENDS.set(key, pending);
+  const clear = () => { if (IN_FLIGHT_SENDS.get(key) === pending) IN_FLIGHT_SENDS.delete(key); };
+  pending.then(clear, clear);
+  return pending;
+}
+function recentSameSend(log, atIso, isSame) {
+  const now = Date.parse(atIso);
+  if (!Number.isFinite(now)) return null;
+  for (let i = log.length - 1; i >= 0; i--) {
+    const r = log[i];
+    if (!r || typeof r.at !== 'string') continue;
+    const t = Date.parse(r.at);
+    if (!Number.isFinite(t)) continue;
+    // Rows are appended when a send FINISHES but carry the time it STARTED, so on a busy board they are out of
+    // order: skip an old row, never stop at it (the valves already walk the whole log per send).
+    if (t < now - SEND_DEDUP_WINDOW_MS) continue;
+    if (isSame(r)) return r;
+  }
+  return null;
+}
+
 function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster, deliverToPane) {
   const at = new Date().toISOString();
   /* #570: a route that already resolved the sender from an AGENT TOKEN passes it
@@ -1051,6 +1134,18 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     replyTo = wanted;
   }
 
+  /* #4580: the same send again (sender, recipient, text and the message it answers) is folded into the first,
+     BEFORE the pair valve: a retry must never be refused at the cap its own first copy reached. Only agents reach
+     this function (the sender is always an agent's card: /api/msg and the outbox drain), so no person guard is
+     needed here, unlike the post path. */
+  const cleaned = chat.cleanMessage(text);
+  const sameMsg = recentSameSend(log, at, (r) => r.kind === 'message' && r.from === from && r.to === toName && r.text === cleaned && (r.in_reply_to || null) === replyTo);
+  if (sameMsg && quietSince(log, sameMsg, (r) => r.kind === 'message' && ((r.from === toName && r.to === from) || (r.from === from && r.to === toName)))) return { state: sameMsg.state, because: sameMsg.state === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: sameMsg.id, at: sameMsg.at, duplicate: true };
+  const msgKey = sendKey('message', from, toName + '\u0000' + (replyTo || ''), cleaned);
+  // Only the async path waits on an in-flight twin: a synchronous caller (send) expects a receipt, not a promise.
+  const msgTwin = deliverToPane !== chat.deliver ? inFlightTwin(msgKey) : null;
+  if (msgTwin) return msgTwin.then(asDuplicate);
+
   /* THE VALVE, split per the person's control (limits.js): crossing the
      budget ALWAYS logs the tell, once per pair per window (the counter
      is not configurable); the setting decides only whether this send is
@@ -1105,7 +1200,6 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   /* The envelope: one line (a newline in the pane is a submit), sender and
      reply pointer first so the recipient reads WHO before WHAT. Past
      SPILL_AT the pane gets the head and a path instead of the wall. */
-  const cleaned = chat.cleanMessage(text);
   let body = cleaned;
   let spillFile = null;
   if (cleaned.length > SPILL_AT) {
@@ -1141,7 +1235,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     return { state: sent.state, because: sent.because || null, id, at };
   };
   const sent = deliverToPane(toName, envelope, roster);
-  return sent && typeof sent.then === 'function' ? sent.then(finish) : finish(sent);
+  return sent && typeof sent.then === 'function' ? trackInFlight(msgKey, sent.then(finish)) : finish(sent);
 }
 
 function send(input, roster) {
@@ -1499,6 +1593,33 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      and this is a question to the agent, not a refusal of the room. No double quotes
      or backticks in the sentence: the bash CLI reads `because` with a sed that stops
      at the first quote. */
+  /* #4580: the fold runs BEFORE the which-room ask below: a retry of a post that was already delivered must not be
+     held back to ask which room it meant, which would read as "not posted". */
+  const rec = record();
+  const log = rec.rows;
+  /* #3745: the post this one answers, when it names a post IN THIS ROOM (the routes check first and
+     refuse otherwise; here a stray id simply records nothing rather than pointing at another room). */
+  const answered = (typeof replyTo === 'string' && /^m\d+$/.test(replyTo))
+    ? (log.find((r) => r && r.kind === 'post' && r.id === replyTo && r.project === projectId) || null)
+    : null;
+  /* #4580: the same post again (sender, room, text and the post it answers) is folded into the first, before the
+     room valve. The answered post is part of it: "yes" to two different questions is two answers. The flags
+     (--new, reply_expected) are NOT: a retry re-sends the same command, so a copy that differs only in a flag is
+     the same post again, and the first one's flags stand. */
+  const answeredId = answered ? answered.id : null;
+  const postKey = sendKey('post', from, projectId + '\u0000' + (answeredId || ''), stored);
+  if (operator !== true) {
+    const samePost = recentSameSend(log, at, (r) => r.kind === 'post' && r.from === from && r.project === projectId && r.text === stored && r.operator !== true && (r.replyTo || null) === answeredId);
+    // An outside party's reply in a federated room is an 'external' row: it breaks the quiet like any post.
+    if (samePost && quietSince(log, samePost, (r) => (r.kind === 'post' || r.kind === 'external') && r.project === projectId)) {
+      const foldedState = aggregateState(samePost.outcomes);
+      return { state: foldedState, because: foldedState === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: samePost.id, at: samePost.at, outcomes: samePost.outcomes || null, from, text: stored, duplicate: true };
+    }
+    // Only the async path waits on an in-flight twin: a synchronous caller (sendPost) expects a receipt.
+    const inFlight = asynchronousDelivery ? inFlightTwin(postKey) : null;
+    if (inFlight) return inFlight.then(asDuplicate);
+  }
+
   if (askWhichRoom === true && operator !== true) {
     /* The rooms the agent can still post in: a question from a room it was removed
        from, or one that is gone, must not send it to a command that is refused. */
@@ -1528,14 +1649,6 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
       };
     }
   }
-
-  const rec = record();
-  const log = rec.rows;
-  /* #3745: the post this one answers, when it names a post IN THIS ROOM (the routes check first and
-     refuse otherwise; here a stray id simply records nothing rather than pointing at another room). */
-  const answered = (typeof replyTo === 'string' && /^m\d+$/.test(replyTo))
-    ? (log.find((r) => r && r.kind === 'post' && r.id === replyTo && r.project === projectId) || null)
-    : null;
 
   /* THE ROOM VALVE, before the fan-out: counted across the WHOLE thread
      regardless of which AGENT sent each post. ⚠️ A decision made now for
@@ -1909,20 +2022,18 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   /* The aggregate state is a SUMMARY, not the receipt: the receipt
      sentence must be built from `outcomes` per recipient (a post to
      three that reaches two must never render as sent). */
-  const states = Object.values(outcomes);
-  /* #4624: a held post is kept and its member will be told, so it counts as placed for the sender. */
-  const state = states.every((v) => v === chat.DELIVERY.PLACED || v === roomhold.HELD)
-    ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
+  const state = aggregateState(outcomes);
   // `text` is the form the room stored, so a federated room can send out
   // exactly what this room shows (#3311).
     return { state, because: null, id, at, outcomes, from, text: stored };
   };
 
   if (asynchronousDelivery) {
-    return (async () => {
+    const pending = (async () => {
       for (const name of recipients) await deliverOne(name);
       return finishDeliveries();
     })();
+    return operator === true ? pending : trackInFlight(postKey, pending);
   }
   for (const name of recipients) deliverOne(name);
   return finishDeliveries();
@@ -2548,6 +2659,10 @@ function projectOfPost(id) {
 }
 
 module.exports = {
+  SEND_DEDUP_WINDOW_MS,
+  // #4580: test seams, so a test can hold a delivery open and send the same thing again meanwhile.
+  _sendWithDelivery: sendWithDelivery,
+  _sendPostWithDelivery: sendPostWithDelivery,
   setSenderTextFilter, filteredText, // #3769
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   projectOfPost, owedElsewhere,
