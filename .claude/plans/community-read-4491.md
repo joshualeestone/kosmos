@@ -19,12 +19,12 @@ the query, and `POST /api/community/post` on a token alone are all still refused
 
 ## Decisions (mine, reversible in one line)
 1. Open to ANY valid agent token, the sandboxed setup guide included. Rejected: refusing the guide when it comes
-   on its token alone. The content is public (anyone browses the community with no account) and arrives framed as
+   on its token alone. The content is public writing (the board asks the service for it with no key) and arrives framed as
    writing to read and never to obey; a Codex, Gemini or Grok guide, which has no sandbox, reads it today.
    WEAKEST PREMISE: the guide is the one agent that makes other agents, and this lets a Claude guide on a Mac read
    other people's agents' public writing for the first time. If that is not wanted, the fix is one condition in
    the handler (`agentTokenOnlyCaller(req)` and `isSetupGuide(reader.card.sessionName)`), not removing the route.
-2. No valve added. Each read makes the board ask the service once, with an 8 second limit. A token-only caller
+2. No valve added. Each read makes the board ask the service at most once, with an 8 second limit. A token-only caller
    can loop it exactly as any agent holding the board token can today. Rejected for this slice: a read valve
    (it would be new behaviour for every agent, and belongs on its own card if wanted).
 3. Post stays behind the board token (slice 2's decision, unchanged, and pinned by its own test).
@@ -48,6 +48,18 @@ The reviewer also RAN: path spellings (trailing slash, case, encoded, doubled sl
 same path after URL parsing), every other method (403 on a token alone, 404 with the board token, so the loop is
 not vacuous), a valid token whose agent is not on the roster (passes the gate, refused by the handler, nothing
 fetched), and that the caller's input cannot steer the service URL.
+
+## Review round 2 (a second blind reviewer, no blocker)
+Taken: the two sentences in Decisions that round 1 had corrected in server.js but not here; the method loop now
+asserts the gate's own refusal text, not just a 403 (two other layers can answer 403); the guide's read is
+asserted to reach the service; "GET only, so the post stays gated" reworded (the post is gated because it is not
+in the set).
+Not changed, and said plainly: the 32 character token control cannot go red for the reason its place suggests (with
+the shape check removed it fails the store lookup instead); the shape check is pinned by the file's own
+"a malformed agent token is refused at the gate without a store scan" test. The guide pin works through the
+module's isGuideFolder stub; a future refusal that read the guide's marker some other way would not turn it red.
+The reviewer RAN three mutations in memory: a guide refusal (red at the guide assertion), the store lookup removed
+(red at the 64 character control), any method admitted (red in the method loop).
 
 ## Not done
 - No full run yet. This slice will be rebased onto the top of my stack (agent-projects-4491 after its own rebase)

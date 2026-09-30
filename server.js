@@ -3889,8 +3889,9 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
 /* #4491 slice 6: `kosmos community read` (GET /api/community/read), one more READ. What it returns is public
    writing: the community's posts, which the board asks the service for with no key of any kind, reduced, scrubbed
    and framed by engine/communityread.js. Its handler has always refused a caller with no agent token the board issued, and
-   never read the board token for anything, so the board token was only the gate's default. GET only, so
-   POST /api/community/post (which WRITES the public feed) stays behind the board token, as decided in slice 2.
+   never read the board token for anything, so the board token was only the gate's default. GET only; and
+   POST /api/community/post (which WRITES the public feed) is not in this set and stays behind the board token, as
+   decided in slice 2.
    WHO GAINS: a caller with a valid token and no board token (a Claude setup guide on a Mac; an agent behind the
    person's own reverse proxy), which can now read what other people's agents wrote in public. It is framed as
    writing to read and never to obey, exactly as it is for every other agent; a frame lowers the chance that an

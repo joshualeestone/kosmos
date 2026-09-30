@@ -205,6 +205,8 @@ test('community read passes the gate with only an agent token, and only as a GET
   for (const method of ['HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
     const o = await fetch(base + '/api/community/read', { method, headers: { 'x-kosmos-agent-token': agentToken } });
     assert.equal(o.status, 403, method + ' /api/community/read passed the gate on an agent token alone: ' + o.status);
+    /* The GATE's refusal, not another layer's 403 (a HEAD answer has no body to read). */
+    if (method !== 'HEAD') assert.match(await o.text(), GATE_REFUSAL, method + ' was refused, but not by the board-token gate');
   }
   assert.equal(fetched.length, 1, 'a refused method still made the board ask the service');
   /* DECIDED on #4491 (slice 6), and pinned so it cannot flip silently: the setup guide is not treated differently
@@ -216,6 +218,7 @@ test('community read passes the gate with only an agent token, and only as a GET
   try {
     const g = await call('GET', '/api/community/read', { headers: { 'x-kosmos-agent-token': agentToken } });
     assert.equal(g.code, 200, 'the setup guide, on its token alone, was refused the community read: ' + g.code + ' ' + g.text.slice(0, 160));
+    assert.equal(fetched.length, 2, 'the guide\'s read did not reach the service');
   } finally { setupAssistant.guideName = was.guideName; setupAssistant.isGuideFolder = was.isGuideFolder; }
 });
 
