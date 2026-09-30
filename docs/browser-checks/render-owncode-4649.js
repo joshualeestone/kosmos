@@ -12,6 +12,9 @@
  *  - a code shown for one project never shows in another project's settings;
  *  - on the joining computer, Verify shows the code as shared by "Your other computer", never as
  *    a Kosmos+ address (an own code's owner_handle is not a name to append .kosmosplus.com to);
+ *  - kosmos#4699: a code made on a computer that is not on this account is refused, and the page says
+ *    so in words ("not on this Kosmos+ account"), on a join screen that was offering a project a
+ *    moment before: the sentence is visible, and that project is no longer offered;
  *  - 390 wide with no sideways scroll, chromium and webkit, no page errors.
  *
  *   HEADED=0 node docs/browser-checks/render-owncode-4649.js
@@ -38,6 +41,13 @@ const projects = require('../../engine/projects');
 const federation = require('../../engine/federation');
 const remote = require('../../engine/remote');
 remote.kosmosPlus = () => true;   // the own-code route needs Kosmos Plus; the page gate is stubbed the same way below
+remote.address = () => 'study.kosmos.test';   // kosmos#4699: a code names the computer that made it, so the route needs this one's address
+remote.COORDINATOR = () => 'https://login.kosmos.test';   // the account's computers are trusted only under the coordinator's domain
+// kosmos#4699: Verify checks a code's maker against this account's computers. The coordinator's
+// answer is stubbed: this account has "study" (this board) and "laptop".
+remote.macRequest = async (method, route) => (route === '/v1/mac/account-computers'
+  ? { ok: true, data: { computers: [{ name: 'study', address: 'study.kosmos.test', this: true }, { name: 'laptop', address: 'laptop.kosmos.test', this: false }] } }
+  : { ok: false, because: 'unexpected route ' + route });
 
 const fail = [];
 function chk(ok, label, extra) {
@@ -91,7 +101,7 @@ function chk(ok, label, extra) {
           const got = await page.evaluate(() => ({ code: document.getElementById('pjs-own-code').value, row: !document.getElementById('pjs-own-row').hidden, msg: document.getElementById('pjs-own-msg').textContent }));
           const parsed = federation.parseOwnCode(got.code);
           const link = federation.linkFor(a.id);
-          chk(parsed && link && parsed.ref === link.ref && parsed.name === a.name, `${E} the code names THIS project's room`, JSON.stringify({ parsed, link }));
+          chk(parsed && link && parsed.ref === link.ref && parsed.name === a.name && parsed.from === 'study', `${E} the code names THIS project's room and the computer that made it`, JSON.stringify({ parsed, link }));
           chk(link && link.role === 'owner' && link.selfShared === true, `${E} the project is marked shared with the person's other computers`, JSON.stringify(link));
           chk(got.row && /Join a project/.test(got.msg), `${E} the code and how to use it are shown`, got.msg);
           await open(b.id);
@@ -99,13 +109,33 @@ function chk(ok, label, extra) {
           chk(other.code === '' && !other.row, `${E} another project's settings do not show the first one's code`, JSON.stringify(other));
           // The joining side: an own code for a room NOT on this board (this board's own code would
           // be refused as already here), verified through the real /api/federation/verify.
-          const foreign = federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: 'bc-laptop-' + engineName + width, name: 'From the laptop' }), 'utf8').toString('base64url');
+          const ownCodeFrom = (from) => federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: 'bc-' + from + '-' + engineName + width, name: 'From the ' + from, from }), 'utf8').toString('base64url');
+          // An accepted code FIRST, so the refusal after it is measured on a screen that is showing a
+          // project to join: the refusal has something to take away.
+          const foreign = ownCodeFrom('laptop');
           const owner = await page.evaluate(async (c) => {
+            openAddProject();
+            pjSetAddMode('join');
             document.getElementById('pj-join-code').value = c;
             await pjVerifyCode();
-            return { owner: document.getElementById('pj-join-owner').textContent, err: document.getElementById('pj-join-err').textContent };
+            return { owner: document.getElementById('pj-join-owner').textContent, err: document.getElementById('pj-join-err').textContent,
+              offered: !document.getElementById('pj-join-result').hidden };
           }, foreign);
-          chk(owner.owner === 'Your other computer', `${E} Verify of an own code says it is shared by your other computer, with no .kosmosplus.com`, JSON.stringify(owner));
+          chk(owner.owner === 'Your other computer' && owner.offered, `${E} Verify of an own code says it is shared by your other computer, with no .kosmosplus.com`, JSON.stringify(owner));
+          // kosmos#4699: a code made on a computer that is NOT on this account is refused, in words.
+          // On the JOIN SCREEN itself, open: the sentence must be visible there and fit the width, and
+          // the project the screen was offering a moment ago is no longer offered.
+          const stranger = await page.evaluate(async (c) => {
+            document.getElementById('pj-join-code').value = c;
+            await pjVerifyCode();
+            const e = document.getElementById('pj-join-err');
+            const r = e.getBoundingClientRect();
+            return { offered: !document.getElementById('pj-join-result').hidden, err: e.textContent,
+              shown: r.width > 0 && r.height > 0 && getComputedStyle(e).visibility !== 'hidden',
+              wide: document.documentElement.scrollWidth > innerWidth };
+          }, ownCodeFrom('elsewhere'));
+          chk(/not on this Kosmos\+ account/.test(stranger.err) && !stranger.offered, `${E} a code from a computer that is not on this account is refused, says so, and offers no project to join`, JSON.stringify(stranger));
+          chk(stranger.shown && !stranger.wide, `${E} the refusal is visible on the open join screen and does not push the page sideways`, JSON.stringify(stranger));
           const wide = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
           chk(!wide, `${E} no sideways scroll`);
           chk(errs.length === 0, `${E} no page errors`, errs.join(' | '));

@@ -61354,6 +61354,10 @@ function pjFedMessage(body, fallback) {
   // and overloading it as an error key here is a needless ambiguity. Unknown reasons fall through
   // to the caller's safe fallback.
   const reason = body && (body.reason || body.error);
+  // kosmos#4699: "could not check" has several causes with different ways forward (not allowed yet, a
+  // Kosmos too old, try again). The board picks the sentence (federation.js uncheckedRefusal, which
+  // writes every one of them itself), so it is shown as given.
+  if (reason === 'unchecked' && typeof body.error === 'string' && body.error) return body.error;
   const M = {
     'already-used': 'That code has already been used. Ask for a fresh one.',
     'expired': 'That code has expired. Ask for a fresh one.',
@@ -61364,6 +61368,10 @@ function pjFedMessage(body, fallback) {
     'already_joined': 'This project is already on this computer.',   // kosmos#4649 own-account code
     'self-shared': 'This project is shared with your other computers, so it cannot be shared with other people yet.',
     'not-plus': 'Joining your other computer\'s project needs Kosmos Plus on this computer.',
+    // kosmos#4699: an own code names the computer that made it, and only this account's computers count.
+    'other-account': 'This code is from a computer that is not on this Kosmos+ account, so the project cannot be added here. Check that both computers are signed in to the same Kosmos+ account, then make a new code on the computer that has the project.',
+    'no-remote': 'Sign in to Kosmos+ again in Settings on this computer, then paste the code again.',
+    'old-code': 'This code was made by an older Kosmos. Update Kosmos on the computer that has the project, then make a new code there.',
   };
   return (reason && M[reason]) || fallback;
 }
