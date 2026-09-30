@@ -53,7 +53,7 @@ test.after(() => { try { fleet.restore(); } catch { /* best effort */ } fs.rmSyn
    its scenario's fields (state, quotaUntil, isNamedOurs, name, target). The sessionName always comes from the card. */
 const AGY_SPEC = { state: 'unknown', runner: 'antigravity', command: 'agy', screen: '' };
 const AGY_NAMES = ['agypoolpaused', 'res-a', 'res-b', 'CaseAgy', 'mem-a', 'agr-a', 'agr-b', 'mb-a', 'mb-b', 'rs-a', 'rs-b', 'rs-c',
-  'far-a', 'far-b', 'own-a', 'strange-b', 'late-a', 'late-b', 'hb-y', 'rp-a'];
+  'far-a', 'far-b', 'own-a', 'strange-b', 'late-a', 'late-b', 'hb-y', 'rp-a', 'brk-a', 'brk-b'];
 const CLAUDE_NAMES = ['rs-x', 'agyholdmara'];
 const CARDS = (() => {
   const board = fleet.install(AGY_NAMES.map((s) => fleet.agent(s, AGY_SPEC)).concat(CLAUDE_NAMES.map((s) => fleet.agent(s, { state: 'idle' }))));
@@ -536,6 +536,34 @@ test('#4588 B speakOfMembership: { automatic: true } uses deliverAutomatic; the 
 
 const pausedFor = (r, n, m) => { const x = agyquota.notePool(r, n, m); return x !== null && n < x ? x : null; };
 const memoReset = (m) => (m.bySession.size ? Math.max(...m.bySession.values()) : null);
+
+test('#4588 B review 5: the brake also lifts the resume sweep\'s pool gate, so a 7-days-ahead pool memory cannot stop an agent whose own reset passed; CONTROL: without it the agent is skipped', () => {
+  const now = Date.parse('2026-09-28T12:00:00.000Z');
+  const own = now - 60e3 - agyquota.GRACE_MS;
+  const report = { found: true, state: 'idle', by: 'auto', until: new Date(own).toISOString(), because: status.QUOTA_REPORT_PREFIX + ' Google said: ...' };
+  const roster = [
+    { ...realCard('brk-a'), name: 'A', state: 'idle' },
+    { ...realCard('brk-b'), name: 'B', state: 'rate_limited', quotaUntil: new Date(now + 7 * 24 * 3600e3).toISOString() },
+  ];
+  const run = (env) => {
+    const sent = [];
+    const r = agyquota.sweepOnce({ roster, book: new Map(), now, memo: agyquota.newPoolMemo(), env, readReport: (s) => (s === 'brk-a' ? report : { found: false }),
+      deliver: (s) => { sent.push(s); return { state: DELIVERY.PLACED }; }, DELIVERY });
+    return { r, sent };
+  };
+  const off = run({});
+  assert.equal(off.r.skipped, 'the shared pool is still paused', 'CONTROL: without the brake the 7-day pool memory skips brk-a');
+  assert.deepEqual(off.sent, []);
+  const on = run({ AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF: '1' });
+  assert.deepEqual(on.sent, ['brk-a'], 'under the brake brk-a is resumed on its own reset');
+  assert.equal(on.r.results[0].act, 'nudge');
+  assert.equal(agyquota.quotaHoldOff({ AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF: '0' }), false, 'only "1" is the brake');
+  const seen = [];
+  const tick = agyquota.makeTick({ allowed: () => true, env: { AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF: '1' }, roster: () => roster, book: new Map(), now: () => now,
+    readReport: (s) => (s === 'brk-a' ? report : { found: false }), deliver: (s) => { seen.push(s); return { state: DELIVERY.PLACED }; }, DELIVERY });
+  tick();
+  assert.deepEqual(seen, ['brk-a'], 'makeTick passes its env into the sweep');
+});
 
 /* ---- review iteration 1: the release tail, one pool for the resume, and chat's own card rule ---- */
 

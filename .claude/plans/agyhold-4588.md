@@ -313,3 +313,20 @@ since this branch is stacked on it.
   One env (ROOM_HOLD_OFF) switching off both the #4624 hold and the quota hold for room posts is kept: "as before" is
   what it says, and the new quota brake is the narrower tool. The async-path arm for the brake stays a decided NIT
   (typeInto is shared).
+
+## Review round 5, 2026-09-30: WARNING fixed, NIT fixed
+- **WARNING FIXED.** Round 4's brake stopped at heldForQuota and did not reach the resume sweep's own pool gate: sweepOnce
+  still returned "the shared pool is still paused" off notePool, plan() still took heldBackBy's heldBackUntil, and
+  makeTick never passed its env in. So under the brake a pool memory 7 days ahead still blocked an agy agent whose own
+  reset had passed, and its PR A resume was lost. Now one helper, quotaHoldOff(env) (exported), is read by both
+  heldForQuota and sweepOnce so they cannot drift; makeTick passes deps.env (default process.env) into sweepOnce, and
+  the server's tick names env: process.env. Under the brake sweepOnce skips both pool-paused returns and passes
+  heldBackUntil null, restoring PR A's per-agent timing; notePool still runs so the memory stays current.
+  One arm (7-days-ahead pool memory plus an agent whose own reset passed a minute and the grace ago): resumed under the
+  brake, skipped without it (the CONTROL), and makeTick's env reaches the sweep. It reds by name with the sweepOnce
+  brake check removed.
+- **NIT FIXED.** The brake comment above heldForQuota listed too few senders; it now says it covers every heldForQuota
+  caller (deliverAutomatic(Async) and everything sent through it, the assigner, the recommender, server.js's own
+  checks) AND the resume sweep's pool gate.
+- Weakest premise: that the brake should lift the resume's pool gate too, not only the holds. A misread pool reset is
+  the case the brake exists for, and under it the resume falls back to exactly PR A, which shipped on its own.

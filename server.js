@@ -18613,6 +18613,7 @@ function start(port = PORT) {
       const AGY_QUOTA_BOOK = new Map();
       const agyQuotaTick = agyQuota.makeTick({
         allowed: () => liveExecution.liveExecutionAllowed(),
+        env: process.env, // both brakes: AGY_QUOTA_RESUME_OFF, and AGY_QUOTA_HOLD_OFF for the pool gate (#4588 B review 5)
         roster: () => safeRoster(),
         book: AGY_QUOTA_BOOK,
         deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),

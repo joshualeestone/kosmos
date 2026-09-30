@@ -92,14 +92,20 @@ function notePool(roster, now, memo = POOL_MEMO) {
   }
   return reset;
 }
+/* The quota-hold brake (#4588 PR B reviews 4 and 5): AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF=1. One rule, read by heldForQuota
+   and by the resume sweep's pool gate (sweepOnce), so the two cannot drift. Only "1" is the brake. */
+function quotaHoldOff(env) {
+  return Boolean(env && env.AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF === '1');
+}
 /* When an automatic line to `session` may be typed, in epoch ms, or null for now. Only an antigravity card is held: while
    the pool is paused, then until its own step after the reset (releaseAfterMs). The card is found by chat's own rule
    (resolveCard), so the gate and the delivery always mean the same card.
-   Brake (#4588 PR B review 4): AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF=1 holds nothing, for every automatic sender at once
-   (deliverAutomatic, the assigner, the recommender, autoretell all ask here). A misread reset up to MAX_POOL_MS ahead
+   Brake (quotaHoldOff): holds nothing, for every heldForQuota caller at once (deliverAutomatic(Async) and every timer
+   and room post sent through it, the assigner, the recommender, and server.js's own checks), AND lifts the resume
+   sweep's pool gate (sweepOnce), so PR A's per-agent resume timing is back. A misread reset up to MAX_POOL_MS ahead
    would otherwise hold them all with no way out but the wait; the card still shows the pause either way. */
 function heldForQuota(session, roster, now, memo = POOL_MEMO, env = process.env) {
-  if (env && env.AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF === '1') return null;
+  if (quotaHoldOff(env)) return null;
   let card = null;
   try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
   if (!isOurAgy(card)) return null;
@@ -149,9 +155,9 @@ function plan(report, entry, now, heldBackUntil) {
 }
 
 /*
- * One sweep. o = { roster, book (Map), now, memo (the pool memory; POOL_MEMO by default), readReport (session) =>
- * selfreport.read shape, deliver (session, text, roster) => result, DELIVERY, log }. Nudges at most one agent. Returns
- * { results }. Never throws.
+ * One sweep. o = { roster, book (Map), now, memo (the pool memory; POOL_MEMO by default), env (process.env by default),
+ * readReport (session) => selfreport.read shape, deliver (session, text, roster) => result, DELIVERY, log }. Nudges at
+ * most one agent. Returns { results }. Never throws.
  */
 function sweepOnce(o) {
   const results = [];
@@ -163,10 +169,13 @@ function sweepOnce(o) {
     const log = typeof o.log === 'function' ? o.log : null;
     /* #4588 PR B: one pool. While any antigravity card is still inside its pause, a resume into another one would spend
        a turn against the same empty pool, so nobody is resumed until the latest reset has passed. */
+    /* Under the quota-hold brake (quotaHoldOff) the pool gate is lifted: each agent is resumed on its own reset, PR A's
+       timing, so a misread pool reset cannot stop every resume (review 5). The memory is still kept current. */
+    const holdOff = quotaHoldOff(o.env === undefined ? process.env : o.env);
     const poolReset = notePool(o.roster, now, o.memo || POOL_MEMO);
-    if (poolReset !== null && now < poolReset) return { results, skipped: 'the shared pool is still paused' };
+    if (!holdOff && poolReset !== null && now < poolReset) return { results, skipped: 'the shared pool is still paused' };
     // An agent whose own reset came earlier still waits the grace after the POOL refills.
-    if (poolReset !== null && now < poolReset + GRACE_MS) return { results, skipped: 'the shared pool has just refilled' };
+    if (!holdOff && poolReset !== null && now < poolReset + GRACE_MS) return { results, skipped: 'the shared pool has just refilled' };
     const last = book.get(LAST);
     if (Number.isFinite(last) && now - last < STAGGER_MS) return { results, skipped: 'spacing resumes out' };
     const due = [];
@@ -177,7 +186,7 @@ function sweepOnce(o) {
       let report = null;
       try { report = read(session); } catch { report = null; }
       const entry = book.get(session);
-      const p = plan(report, entry, now, heldBackBy(pausedUntil(report), o.memo || POOL_MEMO));
+      const p = plan(report, entry, now, holdOff ? null : heldBackBy(pausedUntil(report), o.memo || POOL_MEMO));
       if (p.act === 'nudge') due.push({ card, session, report, entry, because: p.because, at: pausedUntil(report) });
     }
     if (!due.length) return { results };
@@ -207,16 +216,16 @@ function resumeEnabled(allowed, env) {
   return allowed === true && (env || process.env).AGENT_WORKFORCE_AGY_QUOTA_RESUME_OFF !== '1';
 }
 
-/* The server's per-tick wrapper. deps = { allowed, env, roster, readReport?, deliver, DELIVERY, log, book, now? }. */
+/* The server's per-tick wrapper. deps = { allowed, env (process.env by default; also reaches the pool gate), roster, readReport?, deliver, DELIVERY, log, book, now? }. */
 function makeTick(deps) {
   return function tick() {
     try {
       if (!resumeEnabled(deps.allowed() === true, deps.env)) return null;
       const roster = deps.roster();
       if (!Array.isArray(roster)) return null;
-      return sweepOnce({ roster, book: deps.book, now: deps.now ? deps.now() : Date.now(), readReport: deps.readReport, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log });
+      return sweepOnce({ roster, book: deps.book, now: deps.now ? deps.now() : Date.now(), env: deps.env || process.env, readReport: deps.readReport, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log });
     } catch { return null; }
   };
 }
 
-module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, notePool, heldBackBy, releaseAfterMs, SLOT_MS, heldForQuota, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };
+module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, notePool, heldBackBy, releaseAfterMs, SLOT_MS, heldForQuota, quotaHoldOff, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };
