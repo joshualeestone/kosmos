@@ -53,6 +53,8 @@ remote.macRequest = async (method, route, body) => {
   return { ok: false, because: 'unexpected route ' + route };
 };
 remote.address = () => 'attic.kosmos.test';
+// The account's computers are trusted only under the coordinator's own domain (account-computers.js).
+remote.COORDINATOR = () => 'https://login.kosmos.test';
 const ownCodeOf = (ref, name, from) => federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref, name, from: from || 'study' })).toString('base64url');
 
 let base;

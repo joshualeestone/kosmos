@@ -259,18 +259,24 @@ async function ownAccountNames(remote) {
   if (!r || !r.ok) return { ok: false, because: (r && r.because) || 'Kosmos+ did not answer' };
   const rows = r.data && Array.isArray(r.data.computers) ? r.data.computers : null;
   if (!rows) return { ok: false, because: 'the Kosmos+ answer carried no computers' };
-  // The SAME derivation the maker used for `from`: the first label of the computer's address (a row's
-  // `name` is a separate field, and the two need not be spelled alike).
-  const names = rows.map((c) => ownFromOf(c && c.address)).filter(Boolean);
+  /* Which rows count as this account's computers is account-computers.js's rule (one label under the
+     computers' domain), the rule the "Your computers" menu uses: a row that menu would drop must not
+     make a code pass here. The name compared is the first label of that address, the same derivation
+     the maker used for `from` (a row's `name` is a separate field and need not be spelled alike). */
+  const computers = require('./account-computers');
+  let domain = null;
+  try { domain = computers.computerDomain(remote.COORDINATOR()); } catch { domain = null; }
+  if (!domain) return { ok: false, because: 'the Kosmos+ address is not one computers can live under' };
+  const names = rows.filter((c) => c && computers.validAddress(c.address, domain)).map((c) => ownFromOf(c.address)).filter(Boolean);
   // This computer's own row is always in a real answer, so a list with no readable name is a list that
   // could not be read, not an account with no computers: "could not check", never "another account".
   if (!names.length) return { ok: false, because: 'the Kosmos+ answer named no computer' };
   return { ok: true, names };
 }
 
-/* kosmos#4699: why an own code could not be checked, in words the person can act on. The raw cause is
-   never shown: a spawn failure carries a path on this computer, and the tunnel's refusal line carries a
-   route and a status code. Only the coordinator's own sentence is kept, and only when it has no path. */
+/* kosmos#4699: why an own code could not be checked, in words the person can act on. Every sentence
+   returned is written here: the raw cause (a path from a spawn failure, the tunnel's route and status,
+   the coordinator's own words) goes to the log and never to the screen. */
 function uncheckedRefusal(because) {
   // The tunnel prints its failure as `Error: ...`, and macRequest hands that line on as it came: strip
   // it, or the anchored match below never sees a real refusal (only a hand-written one in a test).
@@ -286,6 +292,10 @@ function uncheckedRefusal(because) {
   // "Mac" or "computer": the connector's prefix is per platform (fedseats' MAC_LEVEL_REFUSAL, #4645).
   if (/^Kosmos\+ refused this (?:Mac|computer): .*\(HTTP 403 on [^)]*, code own_lineage\)$/.test(b)) {
     return { status: 409, body: { reason: 'unchecked', error: 'This computer has not been allowed on your Kosmos+ account yet, so Kosmos cannot check this code. Kosmos on one of your other computers shows that this computer is asking: press Allow there, then paste the code again.' } };
+  }
+  // A connector older than the route can never sign it: trying again cannot help, updating can.
+  if (/does not sign/.test(b)) {
+    return { status: 409, body: { reason: 'unchecked', error: 'Kosmos on this computer is too old to check this code. Update Kosmos on this computer, then paste the code again.' } };
   }
   if (b) console.error('#4699: an own code could not be checked: ' + b.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 300));
   return { status: 502, body: { reason: 'unchecked', error: 'Kosmos could not check that this code is from one of your computers. Try again in a moment.' } };
@@ -363,12 +373,14 @@ async function verify(remote, body) {
     if (!own.from) {
       return { status: 409, body: { reason: 'old-code', error: 'This code was made by an older Kosmos. Update Kosmos on the computer that has the project, then make a new code there.' } };
     }
+    const key = OWN_KEY_PREFIX + own.ref;
     const mine = await ownAccountNames(remote);
-    if (!mine.ok) return uncheckedRefusal(mine.because);
+    // A refusal also forgets an earlier accepted check of the same room: nothing is left to join with.
+    if (!mine.ok) { verified.delete(key); return uncheckedRefusal(mine.because); }
     if (!mine.names.includes(own.from)) {
+      verified.delete(key);
       return { status: 409, body: { reason: 'other-account', error: 'This code is from a computer that is not on this Kosmos+ account, so the project cannot be added here. Check that both computers are signed in to the same Kosmos+ account, then make a new code on the computer that has the project.' } };
     }
-    const key = OWN_KEY_PREFIX + own.ref;
     const snap = { edge_id: key, own: true, project_name: externalName(own.name, NAME_MAX), project_desc: null, owner_handle: 'your other computer' };
     verified.delete(key);
     verified.set(key, Object.assign({ at: Date.now(), ref: own.ref }, snap));

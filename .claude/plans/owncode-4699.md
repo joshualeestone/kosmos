@@ -19,7 +19,7 @@ its room notes.
   - `other-account`: the maker is not on this account (a different account, or a computer since removed);
   - `unchecked`: the list could not be read (not accepted on trust); `no-remote` when this computer is
     not signed in to Kosmos+;
-  - `old-code`: a `v: 1` code, which names no computer.
+  - `old-code`: a code with no maker (`from`), which is what a Kosmos from before this change makes.
 - The own-code route refuses when this computer has no Kosmos+ address (it has no name to give), before
   anything is recorded.
 - engine/fedseats.js: the far side of a room the person's own computers sit in (a `self` link, or an
@@ -32,8 +32,9 @@ its room notes.
   relay change and a deploy, to answer a question the signed computer list already answers. Rejected for
   that reason. A name is not a secret and is already that computer's public address.
 - **Fail closed when the list cannot be read.** A join needs the coordinator a moment later anyway.
-- **`v: 1` codes are refused, not grandfathered.** Accepting them would keep the hole for any code made by
-  a computer that has not updated. The sentence says what to do.
+- **A code with no maker is refused, not grandfathered.** Accepting it would keep the hole for any code
+  made by a computer that has not updated. The sentence says what to do. (The format number is still 1:
+  what is refused is the missing `from`, not the number.)
 
 ## Weakest premise
 That the maker is still on the account, under the same name, when the code is pasted. A computer renamed or
@@ -167,3 +168,21 @@ Run because a merge of main came after review 3. It found three real things the 
   role removed from the far-side test; the log line carries the card number.
 - NITs not taken: a fixture `self` link carrying `edge_id`; the page-equality test would need escaping for
   a sentence with an apostrophe (none has one).
+
+## Review 7 (opus): 2 WARNINGs, 4 CONVENTIONs
+- W FIXED: a connector older than the account-computers route fails with "does not sign", which the
+  general sentence answered with "Try again in a moment" for ever. It now says to update Kosmos on this
+  computer (the wording fedseats already uses for the same cause). Test case added.
+- W FIXED (coverage): the browser check asserted the refusal's text with the join form closed, so a hidden
+  or overflowing sentence would pass. It now opens the join screen, and asserts the sentence is visible
+  there and does not push the page sideways. NOT RUN YET: it needs a browser-check turn.
+- CONVENTION FIXED: one derivation of "this account's computers". Verify now applies account-computers.js's
+  address rule (one label under the coordinator's domain), so a row the "Your computers" menu would drop
+  cannot make a code pass. Both fixtures that fake the coordinator now say which domain it is on.
+- CONVENTIONs FIXED: two comments said the coordinator's sentence may be shown (none is, since review 5);
+  this plan's top part called the refused code "a v: 1 code" in two places.
+- NIT taken: a refused check forgets an earlier accepted check of the same room. Test, with a control.
+- NITs not taken: `from` is an unsigned claim (Weakest premise); two older notes still say "the external
+  project" for an owner room seated on a guest's edge after that edge ends (they predate this branch and
+  are true of the guest); the "press Allow there" sentence depends on the waiting-computer card from
+  kosmos-relay#4681 and the app's #4702, which are not merged either.

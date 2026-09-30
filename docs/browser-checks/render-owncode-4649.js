@@ -41,6 +41,7 @@ const federation = require('../../engine/federation');
 const remote = require('../../engine/remote');
 remote.kosmosPlus = () => true;   // the own-code route needs Kosmos Plus; the page gate is stubbed the same way below
 remote.address = () => 'study.kosmos.test';   // kosmos#4699: a code names the computer that made it, so the route needs this one's address
+remote.COORDINATOR = () => 'https://login.kosmos.test';   // the account's computers are trusted only under the coordinator's domain
 // kosmos#4699: Verify checks a code's maker against this account's computers. The coordinator's
 // answer is stubbed: this account has "study" (this board) and "laptop".
 remote.macRequest = async (method, route) => (route === '/v1/mac/account-computers'
@@ -109,12 +110,20 @@ function chk(ok, label, extra) {
           // be refused as already here), verified through the real /api/federation/verify.
           const ownCodeFrom = (from) => federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: 'bc-' + from + '-' + engineName + width, name: 'From the ' + from, from }), 'utf8').toString('base64url');
           // kosmos#4699: a code made on a computer that is NOT on this account is refused, in words.
+          // On the JOIN SCREEN itself, open: the sentence must be visible there and fit the width.
           const stranger = await page.evaluate(async (c) => {
+            openAddProject();
+            pjSetAddMode('join');
             document.getElementById('pj-join-code').value = c;
             await pjVerifyCode();
-            return { owner: document.getElementById('pj-join-owner').textContent, err: document.getElementById('pj-join-err').textContent };
+            const e = document.getElementById('pj-join-err');
+            const r = e.getBoundingClientRect();
+            return { owner: document.getElementById('pj-join-owner').textContent, err: e.textContent,
+              shown: r.width > 0 && r.height > 0 && getComputedStyle(e).visibility !== 'hidden',
+              wide: document.documentElement.scrollWidth > innerWidth };
           }, ownCodeFrom('elsewhere'));
           chk(/not on this Kosmos\+ account/.test(stranger.err) && stranger.owner !== 'Your other computer', `${E} a code from a computer that is not on this account is refused, and says so`, JSON.stringify(stranger));
+          chk(stranger.shown && !stranger.wide, `${E} the refusal is visible on the open join screen and does not push the page sideways`, JSON.stringify(stranger));
           const foreign = ownCodeFrom('laptop');
           const owner = await page.evaluate(async (c) => {
             document.getElementById('pj-join-code').value = c;

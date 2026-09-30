@@ -149,8 +149,8 @@ test('#4699 a room shared only with your own computers is never called "the exte
   assert.doesNotMatch(last('proj-far-own') + last('proj-far-self'), /external project/);
   // Control: a project joined from someone else still says what it is.
   assert.match(last('proj-far-guest'), /the connection to the external project is not up right now/);
-  // Reviews 4 and 5: an owner project shared by own code may ALSO have a guest from another account, and
-  // before its seat is up this computer cannot tell. The words are true with or without one.
+  // An owner project shared by own code may ALSO have a guest from another account, and before its seat
+  // is up this computer cannot tell. The words are true with or without one.
   federation.recordLink('proj-far-mixed', { role: 'owner', ref: 'ref-far-mixed', selfShared: true });
   const h2 = harness({ edges: [{ id: 'edge-far-mixed', project_ref: 'ref-far-mixed', status: 'active' }] });
   await fedseats.ensure('proj-far-mixed');

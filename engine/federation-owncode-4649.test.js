@@ -136,7 +136,7 @@ test('an own-code verify with no way to ask about Kosmos Plus is refused (fails 
 const ownCodeFrom = (from, ref) => federation.OWN_PREFIX + Buffer.from(JSON.stringify({ v: 1, ref: ref || 'ref-4699', name: 'Shared', from })).toString('base64url');
 const plusRemote = (answer) => {
   const calls = [];
-  return { calls, kosmosPlus: () => true, macRequest: async (method, route, body) => { calls.push([method, route, body]); return typeof answer === 'function' ? answer() : answer; } };
+  return { calls, kosmosPlus: () => true, COORDINATOR: () => 'https://login.kosmos.test', macRequest: async (method, route, body) => { calls.push([method, route, body]); return typeof answer === 'function' ? answer() : answer; } };
 };
 const LIST = (...names) => ({ ok: true, data: { computers: names.map((name) => ({ name, address: name + '.kosmos.test', this: false })) } });
 
@@ -200,6 +200,11 @@ test('#4699: a could-not-check refusal never shows a path or a route, and names 
     // A list that names no computer could not be read: never "another account".
     [{ ok: true, data: { computers: [] } }, 'unchecked', /Try again in a moment/],
     [{ ok: true, data: { computers: [{ name: 'study' }] } }, 'unchecked', /Try again in a moment/],
+    // A row that is not one label under the computers' domain is not one of this account's computers
+    // (the rule the "Your computers" menu applies): it cannot make a code pass.
+    [{ ok: true, data: { computers: [{ name: 'study', address: 'study.anything.example' }] } }, 'unchecked', /Try again in a moment/],
+    // A connector older than the route can never sign it: updating helps, trying again does not.
+    [{ ok: false, because: 'Error: mac-request does not sign POST "/v1/mac/account-computers"' }, 'unchecked', /too old to check this code\. Update Kosmos on this computer/],
     [{ ok: false, because: WAITING.replace(/^Error: /, '') }, 'unchecked', /has not been allowed on your Kosmos\+ account yet/],
     [{ ok: false, because: UNKNOWN }, 'unchecked', /Try again in a moment/],
   ];
@@ -212,6 +217,13 @@ test('#4699: a could-not-check refusal never shows a path or a route, and names 
   // A computer that is waiting to be allowed is not told to try again: retrying cannot allow it.
   const held = await federation.verify(plusRemote({ ok: false, because: WAITING }), { code: ownCodeFrom('study', 'ref-words') });
   assert.doesNotMatch(held.body.error, /Try again/);
+  // A refusal forgets an earlier accepted check of the same room, so nothing is left to join with.
+  const ok = await federation.verify(plusRemote(LIST('study')), { code: ownCodeFrom('study', 'ref-forget') });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.ok(federation.joinSnapshot('own:ref-forget'), 'control: the accepted check is held');
+  const later = await federation.verify(plusRemote(LIST('den')), { code: ownCodeFrom('study', 'ref-forget') });
+  assert.equal(later.body.reason, 'other-account');
+  assert.equal(federation.joinSnapshot('own:ref-forget'), null, 'a refused check left the earlier one in place');
 });
 
 test('#4699: a code in the first format (no maker) is refused with the way forward', async () => {
