@@ -302,18 +302,20 @@ test('fetchStanding: NULL and NO tunnel call when not enrolled', async () => {
   assert.equal(r.calls.length, 0);
 });
 
-test('#4731: with the switch OFF an enrolled computer is still heard from: one signed standing call with an EMPTY body (no remote report)', async () => {
+test('#4731, #4743: with the switch OFF an enrolled computer is still heard from: one signed standing call whose body says only that remote access is off', async () => {
   enroll(false);
   const r = await run('ok:{"standing":"good"}', () => macStanding.fetchStanding());
   assert.equal(r.value, 'good');
   assert.equal(r.calls.length, 1, 'off read as gone to the coordinator: it heard nothing');
   assert.deepEqual(r.dialled, [], 'no direct dial: still signed through the tunnel');
   assert.equal(fake.flag(r.calls[0], '--path'), '/v1/mac/standing', 'the existing standing route, nothing new');
-  assert.deepEqual(JSON.parse(r.calls[0].stdin), {}, 'the body carried the remote report while remote access is off');
-  // CONTROL: the same computer with the switch ON sends its report, so the empty body above is the off arm.
+  assert.deepEqual(JSON.parse(r.calls[0].stdin), { remote: { on: false } },
+    'the body must say remote access is off, and nothing more (no report fields while off)');
+  // CONTROL: the same computer with the switch ON sends its full report, so the one-bit body above is the off arm.
   enroll(true);
   const on = await run('ok:{"standing":"good"}', () => macStanding.fetchStanding());
   assert.deepEqual(Object.keys(JSON.parse(on.calls[0].stdin)), ['remote']);
+  assert.notDeepEqual(JSON.parse(on.calls[0].stdin).remote, { on: false }, 'the switch ON must not send the off body');
 });
 
 test('fetchStanding: the kosmos_plus bool shape maps too', async () => {

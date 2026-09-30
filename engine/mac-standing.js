@@ -79,17 +79,20 @@ async function fetchStanding() {
        refreshStandingIfStale sets for that state, with an EMPTY body: the coordinator must be able to
        tell a computer that is in use with remote access off from one that is gone (since #4681 a
        computer quiet for a day opens the lost-computer recovery doors). Nothing about remote access
-       itself changes: no tunnel, no relay ticket, and no remote report. */
+       itself changes: no tunnel, no relay ticket, and no remote report.
+       kosmos#4743: the body says ONE thing, {"remote":{"on":false}}, so the account page can say
+       "Remote access is off" instead of "Answering now". No other report field goes out. */
     const settings = remote.read();
     if (settings.ok !== true) return null;   // #4308: an unreadable settings file says nothing, so nothing goes out
     const on = settings.on === true;
     /* POST: the Mac is identified by the signature the tunnel adds, not by anything in
        the body. The body carries this Mac's remote-access report (kosmos#4277,
        engine/remote-report.js), which a coordinator without #4277 ignores; `{}` when
-       the report cannot be built, or when remote access is off. */
+       the report cannot be built; `{"remote":{"on":false}}` when remote access is off (kosmos#4743). */
     let report = null;
     if (on) { try { report = require('./remote-report').build(); } catch { report = null; } }
-    const r = await remote.macRequest('POST', ROUTE, report ? { remote: report } : {});
+    const body = report ? { remote: report } : (on ? {} : { remote: { on: false } });
+    const r = await remote.macRequest('POST', ROUTE, body);
     if (!r || !r.ok) { logFailure(r && r.because); return null; }
     // The report went out: its heal baseline counts now, not before (a failed send keeps it).
     if (report) { try { require('./remote-report').commitHeal(report); } catch { /* never costs the standing */ } }
