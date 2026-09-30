@@ -72,6 +72,13 @@ already applies with the switch off. Review 1 found it.)
    agent token keep their ranges: not this slice's change, and a token they wrongly present is refused by the board.
 6. "Ten verbs" was eleven.
 
+## Review round 2 (a second blind reviewer, no blocker; one should-fix, one nit, both taken)
+1. The ABCDE case could only fail when the tests happened to run in a dictionary-ordered locale (under C it passed
+   with the range put back). That one send now runs with LC_ALL=en_US.UTF-8, and with the range put back the suite
+   run under LC_ALL=C turns 17 red.
+2. The runner guard only compared line numbers. It now also runs the runner's own unset line and checks that a
+   node child no longer sees the switch.
+
 ## Not done
 - Automatic status reports ignore the switch: the Mac report hook goes through `kosmos report` and so honours it,
   but the Windows Claude hook (engine/kosmos-report-hook.js) and the Codex, Gemini, Grok and Antigravity bridges

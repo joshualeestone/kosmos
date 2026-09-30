@@ -122,8 +122,8 @@ function runCli(args, env) {
   }));
 }
 
-async function send(port, seen, home, args, token, only) {
-  const env = { ...process.env, KOSMOS_PORT: String(port), KOSMOS_HOME: home, AGENT_WORKFORCE_DATA: '', TMUX_PANE: '' };
+async function send(port, seen, home, args, token, only, extraEnv) {
+  const env = { ...process.env, KOSMOS_PORT: String(port), KOSMOS_HOME: home, AGENT_WORKFORCE_DATA: '', TMUX_PANE: '', ...(extraEnv || {}) };
   if (token === null) delete env.KOSMOS_AGENT_TOKEN; else env.KOSMOS_AGENT_TOKEN = token;
   /* Slice 7's switch is OFF unless a test turns it on: never inherited from the machine running the tests. */
   if (only === undefined) delete env.KOSMOS_AGENT_TOKEN_ONLY; else env.KOSMOS_AGENT_TOKEN_ONLY = only;
@@ -218,7 +218,9 @@ for (const [route, args] of TOKEN_ONLY_VERBS) {
           /* ABCDE: upper case with no letter past F, which a locale-ordered [a-f] range lets through (review 1). The
              board token must stay; whether the verb also presents it as its agent token is each verb's own older
              rule, not this switch's. */
-          const upper = await send(port, seen, home, args, 'ABCDE', '1');
+          /* Run in a dictionary-ordered locale ON PURPOSE: under C or POSIX a range rejects ABCDE too, so this case
+             could not fail there (review 2 measured it). en_US.UTF-8 is present on every macOS runner. */
+          const upper = await send(port, seen, home, args, 'ABCDE', '1', { LC_ALL: 'en_US.UTF-8' });
           assert.equal(upper.board, BOARD, `with "ABCDE" as its token, kosmos ${longName(args)} dropped the board token`);
         }
         for (const only of ['', '0', 'true', 'yes', ' 1']) {

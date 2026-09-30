@@ -74,4 +74,15 @@ else
   fail "the unset did not clear both vars for a node child (got: $probe)"
 fi
 
+# #4491 slice 7, the behavioural leg for the switch, run through the RUNNER'S OWN unset line (not a copy of it), so
+# an unset that does not clear a node child is caught, not only one that moved.
+uline="$(grep -E '^[[:space:]]*unset([[:space:]].*)?[[:space:]]KOSMOS_AGENT_TOKEN_ONLY([[:space:]]|$)' "$RT" | head -1)"
+probe2="$(KOSMOS_AGENT_TOKEN_ONLY=1 bash -c "$uline"'
+  node -pe "String(process.env.KOSMOS_AGENT_TOKEN_ONLY)"' 2>&1)"
+if [ -n "$uline" ] && [ "$probe2" = "undefined" ]; then
+  pass "the runner's own unset line clears KOSMOS_AGENT_TOKEN_ONLY for a node child"
+else
+  fail "the runner's unset line did not clear KOSMOS_AGENT_TOKEN_ONLY for a node child (line: $uline; got: $probe2)"
+fi
+
 [ "$fails" = 0 ] && { echo "ALL PASS"; exit 0; } || { echo "FAILED"; exit 1; }
