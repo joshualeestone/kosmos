@@ -15,6 +15,10 @@ reaction bar already meets. Back is the one people use most.
 - An invisible ::after centred on each control, max(100%, 36px) square, under @media (hover: none). The + buttons
   are 22px bordered circles on a grid; padding with a negative margin would grow the drawn circle.
 - 36px, the room's --room-tap (#3811), not 44: these sit in tight headers beside other controls.
+- In the one-screen layout, + New task and the tasks View All sit at the top (+ New task also at the right edge) of a
+  column that clips (overflow: hidden, needed for its scroller), which cut a centred area to about 30px. Their areas
+  grow inward there (down from the top; left from + New task's right edge). The column is not changed.
+- Back is not shown in the one-screen layout (its crumb row is display:none), so it is not measured there.
 - Rejected: enlarging the drawn controls (a visual change the card did not ask for).
 
 ## Weakest premise
@@ -22,12 +26,16 @@ That an ::after tap area never covers a neighbour in states this check does not 
 the cog, a member list longer than the sample). The neighbour arm checks every control within 40px in the sample.
 
 ## Checks
-- render-room-msgbox-2806, one in-page helper (tapProbe4663) run on the phone page (375, tab layout) and the touch
-  tablet page (1180, one-screen layout): each of the six, scrolled to mid-screen, is hit at four on-screen points on
-  its 36px box; no button or link within 40px loses its own centre to one of them; and the probe puts back every change
-  it made to reveal them (hidden, inert, inline display, only forcing display where it computed none), checked by a
-  before/after snapshot, so later arms see the real layout (review round 1).
-- Red on origin/main's page (both reach arms); the restore arm is red with the undo removed.
-- Not measured: partial overlap of two enlarged areas with each other (the sample's gaps are 8px against 7px of growth
-  a side), and states the sample does not draw (long names, long member lists): the weakest premise above.
+- render-room-msgbox-2806, one in-page helper (tapProbe4663) that measures each control's REAL tap extent: every point
+  of a grid around it (the control scrolled to mid-screen) that reaches it, and the box those points span, which must
+  be at least 35x35. Shape-agnostic, so it measures a centred area and an inward one alike. Runs on: phone 375 (tab
+  layout), touch tablet 1180 (tab layout, all six), and the ONE-SCREEN layout set for real (data-layout=consolidated,
+  body.consolidated) at 1024 and 1180 (five: Back is not shown there). Also: no button or link within 40px loses its own
+  centre to one of the areas, and the probe restores every change (hidden, inert, inline display, scroll positions),
+  checked by a before/after snapshot.
+- Red on origin/main's page (every reach arm); red in the one-screen arms with the inward rules removed (+ New task
+  36x30, View All 44x31); the restore arm red with the undo removed.
+- The first tablet arm (round 1) claimed the one-screen layout and never drew it; review round 2 found it, and the
+  layout it missed was the one where the fix failed.
+- Not measured: states the sample does not draw (long names, long member lists): the weakest premise above.
 - mobile-shots' tap audit still lists these (it measures drawn boxes, not hit areas); that is expected.
