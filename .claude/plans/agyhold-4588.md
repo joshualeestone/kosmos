@@ -16,7 +16,7 @@ Card: #4588. Stacked on PR A (branch agyquota-4588, not yet merged). Design and 
 - The assigner does not pick a held agent (its idle clock is kept); `givePart` in assigner mode refuses a held agent
   before assigning, as a backstop.
 
-- The schedule (as of review 3): each agy agent's last-seen reset is remembered by session (a card that shows a new
+- The schedule (SUPERSEDED by review 4, see below; kept for the record): each agy agent's last-seen reset is remembered by session (a card that shows a new
   reset corrects only itself; an entry is dropped once served; resets over 8 days ahead are not believed). The pool is
   paused until the latest of them. After it (R), the resume owns the first slots, R + GRACE_MS + k * STAGGER_MS, and
   waits the grace after R even for an agent whose own reset came earlier; the held senders come back one agent per
@@ -94,6 +94,23 @@ held needlessly until the reset: the safe direction, it costs only delay.
 - (N) LEFT: with the resume switched off (AGENT_WORKFORCE_AGY_QUOTA_RESUME_OFF=1) the memory is fed only by a sender
   that targets an agy card; the scanner's regex heuristic still cannot see a regex right after `)` (the whole-file
   guard catches the desync that would cause); a held recommender peer is not asked for that item (decided).
-- Measured: the three new files 24 + 4 + 17, plus the touched modules' files, all green (see the run below). Mutations:
+- Measured: the three new files 24 + 4 + 17, plus the touched modules' files: 289/289. Mutations:
   memory of only what cards show now (6 tests red), senders sharing the resume's slots (3 red), no pool grace for the
   resume (1 red).
+
+## Review iteration 4 (blind, sonnet)
+- (W) FIXED: the fixed sender slots assumed the resume moves one agent per STAGGER_MS; it moves per 60 s tick, backs
+  off on a failed try, and orders by reset, so a sender could land before an agent's own resume. The release now
+  follows the resume's real progress: the resume sweep records pending or done for the pool's reset; every agy card
+  is held while it is pending; agent i comes back at done + (i+1) * SLOT_MS (SLOT_MS is the longer of the stagger and
+  the 60 s tick), by session name. If the resume never reports for a reset (switched off, or a board restart), a
+  fallback sized for every agent's resume with all its tries stands in. Memory entries drop MAX_AGE_MS after their
+  reset. This replaces the fixed schedule of review 3.
+- (W) FIXED: a held peer was not asked and the playbook said nobody could be reached. A fresh recommender item now
+  waits while any of its peers is held.
+- (W) MEASURED, no change: unanswered() has only a lower age bound (UNANSWERED_AFTER_MS), so a nudge held through a
+  long pause is still due after it; said so beside the hold.
+- (N) LEFT: heldForQuota fails open if chat.js cannot load (then nothing works anyway); poolHeldUntil is exported for
+  tests only; givePart's held 409 is read by the assigner as a plain refused give, which refunds its charge.
+- Measured: engine/agyhold-4588.test.js 25/25 and the full targeted set 290/290. Mutations: pending ignored (2
+  tests red), the done time moving every sweep (1), the recommender not checking peers (1).
