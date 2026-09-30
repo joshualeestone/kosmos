@@ -6703,7 +6703,9 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          prompt -- the exact sentence this branch's chat half exists to remove,
          reappearing in the one arm the feature is for. Measured across all five
          report arms; this was the only one that lost it. */
-      return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null, backgroundWait: scraped.backgroundWait === true, ...workingProject(false) };
+      return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null, backgroundWait: scraped.backgroundWait === true,
+        waiting: reported.waiting || null,   // #4569 fix 4: a Muse agent's queue, only while this working report is fresh
+        ...workingProject(false) };
     }
     // Rule 5: the comparison happens BEFORE the decay.
     if (scraped.state === STATE.WORKING) {
@@ -7015,6 +7017,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
        the heartbeat leg (there is no pane to read working off of). */
     activeWhileWaiting,
     stateReported: status.reported === true,
+    waiting: status.waiting || null,   // #4569 fix 4
     /* #2808 class 2: same field as the pane card carries, for shape parity, so a consumer reads
        one card shape. panelessCard reconciles through the SAME reconcileReport as the pane path,
        so a paneless agent that self-reports needs_you with by:'agent' DOES carry 'agent' here and
@@ -7697,6 +7700,7 @@ function snapshot() {
       /* Whether the state above is the agent's own account (#188's third
          verb) rather than a pane reading. */
       stateReported: status.reported === true,
+      waiting: status.waiting || null,   // #4569 fix 4: messages waiting behind a busy Muse turn ({ n, yours })
       /* #2808 class 2: 'auto' = a technical permission/trust prompt (class 1, PigeonPete's
          invisible supervision handle), 'agent' = the agent's own deliberate question (class 2,
          de-alarmed to a calm "has a question" rather than the red "Needs you" that reads as
