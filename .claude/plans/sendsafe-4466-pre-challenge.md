@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: sendsafe-4466
-diff_hash: a271c53ce68855fe9624122d2eacf5cd732af5c52ee59c8b9887c97a6c9ddd72
-validation: passed (full tools/run-tests.sh through validation_log_run_or_skip, run on MORTALS via ~/.cache/claude-handoffs/mortals-validate.sh at d514cac4c, 2026-09-29 17:38-18:36 CDT: EXIT=0, node 12181 tests 0 fail, shell half clean; the Mortals validation-log entry status=clean with hash equal to this diff_hash)
+diff_hash: 4be691c0594708d2f484ada3323b86f09ea89c9c21b94b9fc17f5ee7625fedbc
+validation: passed (full tools/run-tests.sh through validation_log_run_or_skip, run on MORTALS via ~/.cache/claude-handoffs/detached-mortals-validate.sh at the REBASED head 6e823285c, 2026-09-29 21:09-22:37 CDT: EXIT=0, node 12344 tests, 0 failed, 0 cancelled, shell part green; recorded entry hash 4be691c0 equals this worktree's. An earlier pass at 072c0ac56 (12320/0) was superseded when main moved into engine/messages.js and server.js; the rebase kept both conflicting test blocks. Main has moved 9 more commits since (install/kosmos, server.js); the branch merges without conflict and the PR CI runs on the merge commit)
 subdir_audit: passed
-timestamp: 2026-09-29T23:37:09Z
+timestamp: 2026-09-30T04:51:14Z
 iterations: 13
 converged: true
 ---
