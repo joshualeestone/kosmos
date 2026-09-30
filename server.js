@@ -12932,14 +12932,19 @@ const server = http.createServer(async (req, res) => {
       const rows = masked.map((m) => {
         const person = !(typeof m.from === 'string' && m.from);
         const files = (Array.isArray(m.attachments) ? m.attachments : (m.attachment ? [m.attachment] : []))
-          .map((a) => (a && typeof a.name === 'string' ? a.name : 'a file'));
+          // Review 2: a name is the person's, printed into a terminal: brackets (the markers' own delimiters)
+          // and C1 controls out.
+          .map((a) => (a && typeof a.name === 'string' ? a.name.replace(/[\[\]\u0080-\u009f]/g, '') || 'a file' : 'a file'));
         return {
           at: typeof m.at === 'string' ? m.at : null,
           from: person ? 'person' : 'you',
           text: typeof m.text === 'string' ? m.text : '',
           attachments: files,
           chose: person && m.wire != null,
-          reached: !person || !m.delivery || m.delivery.state === chat.DELIVERY.PLACED,
+          // Review 2: could_not is "did not reach you"; unconfirmed (pasted, Enter not confirmed) often did.
+          reached: !person || !m.delivery || m.delivery.state === chat.DELIVERY.PLACED
+            ? 'yes'
+            : (m.delivery.state === chat.DELIVERY.COULD_NOT ? 'no' : 'maybe'),
         };
       });
       if (!asText) { sendJson(res, 200, { ok: true, messages: rows }); return; }
@@ -12947,16 +12952,18 @@ const server = http.createServer(async (req, res) => {
       if (!rows.length) { res.end('No messages between you and the person yet.\n'); return; }
       /* One row per message; a message's own further lines are INDENTED, so text a person typed can never read
          as another row ("<time> you: ...") in the agent's context. */
+      /* Review 2: the markers sit BEFORE the colon, so nothing the person typed (it all comes after it) can
+         pass for one. */
       const lines = rows.map((r) => {
-        const head = (r.at ? r.at.replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '')
-          + (r.from === 'person' ? 'the person: ' : 'you: ');
         const notes = [];
         if (r.chose) notes.push('[chose this from a menu]');
         if (r.attachments.length) notes.push('[attached: ' + r.attachments.join(', ') + ']');
-        if (!r.reached) notes.push('[this did not reach you]');
+        if (r.reached === 'no') notes.push('[this did not reach you]');
+        if (r.reached === 'maybe') notes.push('[this may not have reached you]');
+        const head = (r.at ? r.at.replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '')
+          + (r.from === 'person' ? 'the person' : 'you') + (notes.length ? ' ' + notes.join(' ') : '') + ': ';
         const body = r.text.split(/\r?\n/);
-        const first = [body[0], ...notes].filter(Boolean).join(' ');
-        return [head + first, ...body.slice(1).map((l) => '    ' + l)].join('\n');
+        return [head + body[0], ...body.slice(1).map((l) => '    ' + l)].join('\n');
       });
       res.end(lines.join('\n') + '\n');
     } catch (err) {

@@ -83,3 +83,11 @@ test('#4784 review 1: --limit 0 is refused before any request', () => withStubBo
   assert.equal(out.code, 2, out.stdout + out.stderr);
   assert.equal(seen.length, 0);
 }));
+
+test('#4784 review 2: --limit 51 and a --limit with no value are refused before any request', () => withStubBoard(async (port, seen) => {
+  for (const args of [['inbox', '--limit', '51'], ['inbox', '--limit']]) {
+    const out = await runCli(args, envFor(port));
+    assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout + out.stderr);
+  }
+  assert.equal(seen.length, 0);
+}));

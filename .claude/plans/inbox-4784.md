@@ -42,3 +42,17 @@ whichever it was, as long as the message was stored (every DM is).
   serves every thread to the board token).
 - Also: --limit 0 refused on both CLIs; the enforcing test asserts the route's words.
 Not taken: a test of the guide mask (it is the thread route's own helper; a guide fixture is heavy).
+
+## Review 2 (opus, blind, on 755fd3eae), 17:11 CDT: no BLOCKER, 4 WARNINGs, all fixed
+- unconfirmed (pasted, Enter not confirmed) now reads "[this may not have reached you]"; only could_not
+  reads "did not reach you" (telling an agent it never got a message it acted on invites a repeat).
+- Tested: on an enforcing board the agent's token wins over any pane (four panes tried; control: its
+  own rows come back).
+- Tested: the setup guide's thread comes back masked (a real guide fixture: the marker file).
+- Tested: the Windows verb (route, token, text, refusal exit, bad limits send nothing).
+- NITs taken: markers sit before the colon (typed text cannot pose as one); attachment names lose
+  brackets and C1 controls; --limit must be 1 to 50 (and present with a value) on both CLIs; the Mac
+  parses its arguments before asking the board; one help sentence on both CLIs.
+- NITs not taken: WORLD_CHECKED_AGENT_ROUTES (GET /api/report has the same gap; a separate card if
+  wanted); append order vs time order; the refusal on stdout (as whoami).
+Focused set: 66 of 66 (both route tests, both CLIs, help, parity, verbs, the nudge).

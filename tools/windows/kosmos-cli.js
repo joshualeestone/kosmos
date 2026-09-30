@@ -572,15 +572,17 @@ async function verbWhoami(ctx) {
 /* #4784, as install/kosmos cmd_inbox: your own recent direct messages with the person, read back from the board. */
 async function verbInbox(ctx, args) {
   let limit = '';
+  let given = false;
   while (args.length) {
     const a = args.shift();
-    if (a === '--limit') { limit = args.shift() || ''; continue; }
+    if (a === '--limit') { given = true; limit = args.shift() || ''; continue; }
     const m = /^--limit=(.*)$/.exec(a);
-    if (m) { limit = m[1]; continue; }
+    if (m) { given = true; limit = m[1]; continue; }
     ctx.err(USAGE.inbox);
     return 2;
   }
-  if (limit && !/^[1-9]\d*$/.test(limit)) { ctx.err('--limit takes a whole number from 1 to 50.'); return 2; }
+  // Review 2, as install/kosmos: a given --limit is a whole number from 1 to 50.
+  if (given && !(/^[1-9]\d?$/.test(limit) && Number(limit) <= 50)) { ctx.err('--limit takes a whole number from 1 to 50.'); return 2; }
   const r = await ctx.call('GET', '/api/inbox?as=text&limit=' + limit + '&from_pane=');
   if (!r.reached) return ctx.unreachable('read your messages');
   ctx.out(String(r.text || '').replace(/\n$/, ''));

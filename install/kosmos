@@ -2354,23 +2354,26 @@ cmd_report_show() {
 # can be lost); the board keeps every message, so this prints them rather than asking the person to resend.
 # Only YOUR thread: identity is resolved exactly as `report show` resolves it, and there is no agent argument.
 cmd_inbox() {
-  if ! healthy; then
-    say_not_up "your messages cannot be read"
-    exit 1
-  fi
-  local _limit=""
+  local _limit="" _haslimit=0
   while [ $# -gt 0 ]; do
     case "$1" in
-      --limit) shift; _limit="${1:-}" ;;
-      --limit=*) _limit="${1#--limit=}" ;;
+      --limit) shift; _haslimit=1; _limit="${1:-}" ;;
+      --limit=*) _haslimit=1; _limit="${1#--limit=}" ;;
       *) say "kosmos inbox takes only --limit N."; exit 2 ;;
     esac
     shift || true
   done
-  case "$_limit" in
-    '') ;;
-    *[!0-9]*|0|0*) say "--limit takes a whole number from 1 to 50."; exit 2 ;;
-  esac
+  # Review 2: a given --limit is a whole number from 1 to 50, checked before the board is asked.
+  if [ "$_haslimit" = 1 ]; then
+    case "$_limit" in
+      [1-9]|[1-4][0-9]|50) ;;
+      *) say "--limit takes a whole number from 1 to 50."; exit 2 ;;
+    esac
+  fi
+  if ! healthy; then
+    say_not_up "your messages cannot be read"
+    exit 1
+  fi
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in
     ''|*[!0-9a-f]*) ;;
@@ -2811,7 +2814,7 @@ if [ "$_kosmos_help" = 1 ]; then
     inbox)
       # #4784 review 1: NOT with the read-only group below. Run bare, inbox prints the person's private
       # messages, which is not what --help promises.
-      printf 'kosmos inbox [--limit N]: your recent messages with the person, newest last (10 by default, 50 at most).\n'
+      printf 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)\n'
       exit 0 ;;
     adopt|whoami|connections)
       # These show read-only OUTPUT on --help (they act read-only), so their own
