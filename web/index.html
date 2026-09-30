@@ -34099,7 +34099,7 @@ async function paintTalk(sessionName, agentName) {
         + (!events.length && !h.source ? ' Its screen does not name them or say what they run.'
           : (!h.command ? ' Its screen does not say what they run.' : ''))
         + (/^Project config\b/i.test(String(h.source || '')) ? ' Codex says this one is in a project\u2019s own settings, which the agent can write to, so the agent could have written it.' : '')
-        + ' Trusting covers every hook Codex lists, for every Codex agent on this account, and trusted hooks run outside the sandbox. If you are not sure, continue without them.';
+        + ' Trusting covers every hook Codex lists, for every Codex agent on this account, and trusted hooks can act freely on this computer. If you are not sure, continue without them.';
     }
     qCodex.hidden = false;
   } else {

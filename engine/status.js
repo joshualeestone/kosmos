@@ -1778,7 +1778,9 @@ function codexHookSummary(paneText) {
        counts only THIS event's hooks (measured: the table said 2, this page 1), so no total is claimed from here. */
     /* The page's own block starts at its "<Event> hooks" heading, found by searching UP from the first "[!] Hook N"
        row (review round 13: a fixed offset missed the heading and warning once an event had three or more hooks). */
-    const firstHook = all.findIndex((r) => CODEX_HOOK_ONE_ROW.test(r));
+    /* Within the dialog's own rows only (review round 14: a "[!] Hook 1" row printed higher up must not start it). */
+    const floor = Math.max(0, all.length - 2 * CODEX_HOOK_ROWS);
+    const firstHook = all.findIndex((r, i) => i >= floor && CODEX_HOOK_ONE_ROW.test(r));
     let start = firstHook;
     for (let i = firstHook - 1; i >= 0 && i >= firstHook - 12; i -= 1) { if (/^\s*[A-Za-z]+ hooks\s*$/.test(all[i])) { start = i; break; } }
     const block = start >= 0 ? all.slice(start) : rows;

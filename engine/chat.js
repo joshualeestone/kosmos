@@ -1222,7 +1222,8 @@ function sameCodexHooks(a, b) {
  *   hook:  Escape -> the table, then as the table
  * Before EVERY key the screen is read again and must be the screen that key was measured on; after it, the screen
  * settles and is read again. Anything else stops with what it saw: nothing is pressed into a screen we did not expect.
- * Resolves { ok: true, choice, keys } | { ok: false, because, keys }. Never rejects.
+ * `seen` is the summary the page showed (status.codexHookSummary); the first key must match it.
+ * Resolves { ok: true, choice, keys, screen } | { ok: false, because, keys, reread? }. Never rejects.
  */
 async function answerCodexHooks(sessionName, choice, roster, seen) {
   const keys = [];
@@ -1272,6 +1273,10 @@ async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card,
     keys.push(key);
     return !(got.spawnFailed || !got.ran || got.status !== 0);
   };
+  /* After a key that trusts, any later failure says so (review round 14): "nothing more was pressed" alone would read
+     as though Trust did nothing, and trusting is the one choice that is hard to take back. */
+  let trustPressed = false;
+  const noAfter = (m) => no(trustPressed ? `${m}. Trust may already have taken effect` : m);
   const steps = CODEX_HOOK_STEPS[choice];
   let now = look();
   const readFirst = now.screen || null;
@@ -1299,26 +1304,27 @@ async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card,
       key = choice === 'trust' ? mk.trust : mk.skip;
       if (!key) return no('the hook question on its screen does not show that choice the way we know it, so nothing was pressed; open its Terminal tab to see it');
     }
-    if (!press(key)) return no('we could not press the key; open its Terminal tab to see it');
+    if (!press(key)) return noAfter('we could not press the key; open its Terminal tab to see it');
+    if (choice === 'trust' && (key === 't' || now.screen === 'menu')) trustPressed = true;
     first = false;
     await wait(CODEX_HOOK_SETTLE_MS);
     const after = look();
-    if (after.unseen) return no('we answered, and then could not see its screen to check it; open its Terminal tab to see it');
-    if (after.screen === 'blank') return no('we answered, and its screen was blank when we checked; open its Terminal tab to see it');
+    if (after.unseen) return noAfter('we answered, and then could not see its screen to check it; open its Terminal tab to see it');
+    if (after.screen === 'blank') return noAfter('we answered, and its screen was blank when we checked; open its Terminal tab to see it');
     if (after.screen !== step[1]) {
       if (after.screen === now.screen) {
         /* A slow redraw is not proof the key failed (review round 11): after a Trust key it may still have landed. */
         if (choice === 'trust') return no('we pressed Trust and its screen has not changed yet, so it may still take effect; check again in a moment');
-        return no('its screen did not change after we answered; open its Terminal tab to see it');
+        return noAfter('its screen did not change after we answered; open its Terminal tab to see it');
       }
-      return no('its screen went somewhere we have not measured, so nothing more was pressed; open its Terminal tab to see it');
+      return noAfter('its screen went somewhere we have not measured, so nothing more was pressed; open its Terminal tab to see it');
     }
     if (after.screen === 'gone') return { ok: true, choice, keys, screen: readFirst };
     /* Trust from one hook's page: the full list is up now; the person chooses again with every hook in view. */
     if (choice === 'trust' && now.screen === 'hook') return { ok: false, keys, because: 'the full list of hooks is showing now; read it and choose again', reread: true };
     now = after;
   }
-  return no('its screen is still asking after four keys, so we stopped; open its Terminal tab to see it');
+  return noAfter('its screen is still asking after four keys, so we stopped; open its Terminal tab to see it');
 }
 
 /* #3564: what a paused swarm still accepts. */

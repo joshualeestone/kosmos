@@ -487,3 +487,20 @@ test('#4607 round 13: a hook page for an event with 3 or more hooks claims no co
     assert.deepEqual(s.events, [{ event: 'Stop', count: n }], `${n} hooks`);
   }
 });
+
+/* Review round 14. */
+test('#4607 round 14: after the key that trusts, a later failure says Trust may already have taken effect', () => withCodex(TABLE, async (board) => {
+  const t = arm([TABLE, TABLE, MENU]);   // "t", then a screen nobody measured
+  const r = await chat.answerCodexHooks('sam', 'trust', board.agents, SHOWN);
+  assert.equal(r.ok, false);
+  assert.deepEqual(t.keys(), ['t']);
+  assert.match(r.because, /Trust may already have taken effect/);
+}));
+
+test('#4607 round 14: a failure before any trusting key does not say so', () => withCodex(TABLE, async (board) => {
+  const t = arm([TABLE, TABLE, MENU]);   // Escape (skip), then an unmeasured screen
+  const r = await chat.answerCodexHooks('sam', 'skip', board.agents, SHOWN);
+  assert.equal(r.ok, false);
+  assert.deepEqual(t.keys(), ['Escape']);
+  assert.doesNotMatch(r.because, /Trust may/);
+}));
