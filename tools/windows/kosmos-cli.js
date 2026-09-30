@@ -612,7 +612,7 @@ async function taskAdd(ctx, args) {
   const detail = words.join(' ');
   const body = { sentence, detail, from_pane: '' };
   if (parent !== null) body.parent = parent;
-  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/tasks', body, { agent: false });
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/tasks', body);   // #4491 slice 5: with the agent's own token
   if (!r.reached) return ctx.unreachable('add that task');
   if (r.json && r.json.task) { ctx.out('Task added to ' + project + (parent !== null ? ', under task ' + parent : '') + '. See it with: kosmos task list ' + project); return 0; }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that task: ' + ctx.refusedBy(r) + '.'); return 1; }
@@ -626,7 +626,7 @@ async function taskClose(ctx, args) {
   const [project, num] = args;
   if (!project || !num) { ctx.err('Usage: kosmos task close <project-id> <task-number>   (the number is shown by kosmos task list)'); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
-  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/close', undefined, { agent: false });
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/close');   // #4491 slice 5: with the agent's own token
   if (!r.reached) return ctx.unreachable('close that task');
   if (r.json && r.json.task) { ctx.out('Closed task ' + num + ' on ' + project + '.'); return 0; }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not close that task: ' + ctx.refusedBy(r) + '.'); return 1; }
