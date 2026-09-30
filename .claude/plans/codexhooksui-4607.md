@@ -98,6 +98,12 @@ Round 16: isViaScreen alone would pass a cross-site request (it takes Sec-Fetch-
 relies on the board's global cross-site write guard (crossSiteWrite) and the board-token gate in front of it. A summary
 that changes between polls holds the buttons 1.2 s; source and command lines wrap at phone width.
 
+Round 17, stated: the table's exact check needs its warning on one row, so a narrow pane that wraps it fails closed
+(nothing pressed), as for the menu. Codex's own /hooks viewer with an active hook reads as the open list, so another
+agent sending "/hooks" to a Codex agent raises the Close box and the floor refuses messages until the person closes it
+(a nuisance, never a trust). The menu offers no "show the list" (key 1 was measured) to keep one path per screen; the
+person can Continue and nothing is trusted, which is the safe default.
+
 ## Weakest premise
 That 0.149.1's screens and keys hold for the Codex the person runs. A newer Codex (0.159.2 exists) may word the
 dialog differently; then codexHookReview reads nothing, the card shows no buttons, and nothing is pressed (fails

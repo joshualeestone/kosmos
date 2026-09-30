@@ -79,6 +79,12 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
     const a = await paint({ ...base, codexHooks: TABLE });
     const held = await page.evaluate(() => document.getElementById('d-qask-codex-skip').disabled);
     chk(held === true, `${t} a new summary holds the buttons for a moment (round 16)`, String(held));
+    /* Round 17: an identical paint inside the hold must not leave them disabled for good. */
+    await page.waitForTimeout(400);
+    await paint({ ...base, codexHooks: TABLE });
+    await page.waitForTimeout(1600);
+    const freed = await page.evaluate(() => !document.getElementById('d-qask-codex-skip').disabled);
+    chk(freed === true, `${t} an identical paint inside the hold still frees the buttons`, String(freed));
     chk(a.exists && a.box && a.codex, `${t} the needs-you box shows the Codex hook choice`, JSON.stringify(a));
     chk(/Sam needs you to decide about Codex hooks\./.test(a.label), `${t} the label names the agent`, a.label);
     chk(/Codex found 2 hooks it has not been told to trust \(SubagentStop, Stop\)\./.test(a.what) && a.source === null,

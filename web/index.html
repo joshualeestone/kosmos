@@ -34074,9 +34074,13 @@ async function paintTalk(sessionName, agentName) {
     const changed = !prevShown || prevShown.forAgent !== sessionName || JSON.stringify(prevShown.hooks) !== JSON.stringify(h);
     window.__codexHooksShown = { forAgent: sessionName, hooks: h };
     if (changed) {
+      /* A hold NUMBER, bumped only by a changed paint (review round 17: comparing the summary object left the buttons
+         disabled for good when an identical paint landed inside the hold). An answer in flight owns the buttons. */
+      const seq = (window.__codexHoldSeq = (window.__codexHoldSeq || 0) + 1);
+      window.__codexHoldUntil = Date.now() + 1200;
       const hold = ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close'].map((id) => document.getElementById(id));
       hold.forEach((b) => { b.disabled = true; });
-      setTimeout(() => { if (window.__codexHooksShown && window.__codexHooksShown.hooks === h) hold.forEach((b) => { b.disabled = false; }); }, 1200);
+      setTimeout(() => { if (window.__codexHoldSeq === seq && !window.__codexAnswering) hold.forEach((b) => { b.disabled = false; }); }, 1200);
     }
     const listOpen = h.screen === 'trusted';
     const srcRow = document.getElementById('d-qask-codex-source');
@@ -40943,6 +40947,7 @@ async function answerCodexHooksFromBox(choice) {
   const buttons = ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close'].map((id) => document.getElementById(id));
   const msg = document.getElementById('d-qask-codex-msg');
   buttons.forEach((b) => { b.disabled = true; });
+  window.__codexAnswering = true;
   if (choice === 'trust' && document.getElementById('d-qask-codex-trust').textContent === 'Show the full list') choice = 'list';
   const opening = choice === 'list';
   msg.textContent = opening ? 'Opening the full list\u2026' : (choice === 'trust' ? 'Trusting the hooks\u2026' : (choice === 'close' ? 'Closing the list\u2026' : 'Continuing without the hooks\u2026'));
@@ -40964,7 +40969,11 @@ async function answerCodexHooksFromBox(choice) {
   } catch {
     if (CURRENT && CURRENT.sessionName === forAgent) msg.textContent = 'We could not reach Kosmos to answer it.';
   } finally {
-    buttons.forEach((b) => { b.disabled = false; });
+    window.__codexAnswering = false;
+    /* Not inside a hold a poll started meanwhile (review round 17): wait it out. */
+    const left = (window.__codexHoldUntil || 0) - Date.now();
+    if (left > 0) setTimeout(() => { if (!window.__codexAnswering) buttons.forEach((b) => { b.disabled = false; }); }, left);
+    else buttons.forEach((b) => { b.disabled = false; });
   }
 }
 document.getElementById('d-qask-codex-trust').addEventListener('click', () => answerCodexHooksFromBox('trust'));
