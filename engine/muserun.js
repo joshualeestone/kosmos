@@ -39,6 +39,8 @@ const COULD_NOT_RUN = 'Kosmos could not run Muse Code just now';
 const TIMED_OUT = 'Muse Code did not finish the turn in time';
 const NOT_WIRED_UP = 'Muse Code is not wired up on this computer yet';
 const STOPPED = 'Stopped before Muse Code finished';
+/* The session is still held by a turn that is ending (#4569: the front retries a stop note on this). */
+const BUSY = 'Muse Code is still working on this agent\'s last turn';
 
 /**
  * The arguments for one turn, or { error } when an input is not one Kosmos will hand Muse.
@@ -181,7 +183,7 @@ function runTurn(input) {
         // Kosmos's own stop first (round 3): stderr from a turn Kosmos stopped does not say why it ended.
         if (err && err.overflow) because = 'Muse Code said more than Kosmos reads in one turn';
         else if (err && err.killed) because = TIMED_OUT;
-        else if (err && /already in use/.test(String(stderr || ''))) because = 'Muse Code is still working on this agent\'s last turn';
+        else if (err && /already in use/.test(String(stderr || ''))) because = BUSY;
         // Singular and plural both appear in the captures (round 1).
         else if (err && /missing meta credential/.test(String(stderr || ''))) {
           because = 'Muse Code is not signed in on this computer';
@@ -216,4 +218,4 @@ function setForTests(o) {
 }
 function resetForTests() { runMuse = REAL.runMuse; turnTimeoutMs = TURN_TIMEOUT_MS; hardCapMs = TURN_HARD_CAP_MS; maxBytes = TURN_MAX_BUFFER; platform = process.platform; }
 
-module.exports = { turnArgs, parseEvents, runTurn, APPROVAL_MODES, TURN_TIMEOUT_MS, TURN_HARD_CAP_MS, TIMED_OUT, COULD_NOT_RUN, NOT_WIRED_UP, STOPPED, setForTests, resetForTests };
+module.exports = { turnArgs, parseEvents, runTurn, APPROVAL_MODES, TURN_TIMEOUT_MS, TURN_HARD_CAP_MS, TIMED_OUT, COULD_NOT_RUN, NOT_WIRED_UP, STOPPED, BUSY, setForTests, resetForTests };
