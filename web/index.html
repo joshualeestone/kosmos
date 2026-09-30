@@ -43761,9 +43761,14 @@ function plusSiBoughtPick(b) {
     ? 'An address on this account is waiting for its payment.'
     : 'Each computer on Kosmos+ has its own address, and this account has none waiting for this computer.';
   /* A pending address is a checkout under way, or one cancelled (its hold ends by itself), so both ways on. */
-  document.getElementById('plus-si-bought-none-hint').textContent = pending
+  /* A computer set up before and then reset (or signed out and forgotten) is no longer known here, so its old address
+     reads as another computer's: say how to free it, beside the way to buy one. */
+  const own = PLUS_SI_SESSION && /^([a-z0-9-]{3,32}\.[a-z0-9.-]+)$/.exec(String(PLUS_SI_SESSION.account_address || ''));
+  const ownHeld = own && b.addresses.some((r) => r.address === own[1] && r.state === 'in_use') && !b.this_name;
+  document.getElementById('plus-si-bought-none-hint').textContent = (pending
     ? 'If you finished paying, check again in a moment. If not, buy it on the Kosmos+ website.'
-    : 'Buy one on the Kosmos+ website, then check again here.';
+    : 'Buy one on the Kosmos+ website, then check again here.')
+    + (ownHeld ? ' If this computer used to be ' + own[1] + ', retire it on your account page first, then check again.' : '');
   const buy = document.getElementById('plus-si-bought-buy');
   buy.href = b.buy_url || (PLUS_ACCOUNT_URL + 'signin#add-computer');
   document.getElementById('plus-si-bought').hidden = false;
@@ -43773,7 +43778,12 @@ function plusSiBoughtPick(b) {
 }
 {
   const again = document.getElementById('plus-si-bought-recheck');
-  if (again) again.addEventListener('click', () => { if (PLUS_SI_SESSION) { plusSiMsg(''); plusSiSession(PLUS_SI_SESSION, true).catch(plusSiReReadFailed); } });
+  if (again) again.addEventListener('click', () => {
+    if (!PLUS_SI_SESSION) return;
+    const ep = PLUS_SI_EPOCH;
+    plusSiMsg('');
+    plusSiSession(PLUS_SI_SESSION, true).catch(() => { if (ep === PLUS_SI_EPOCH) plusSiReReadFailed(); });
+  });
 }
 
 /* The last step: name this computer -> signin-register, which returns the address.
@@ -43841,9 +43851,9 @@ async function plusSiDoRegister(name, owned) {
      certificate failure) may be passing, and the address is still this person's, so it keeps Try again on the
      same address (below). */
   const refused = !r.ok && !r.timeout && /that name is taken|already in use by a (Mac|computer) on this account|needs an address you have bought/i.test(String(r.because || ''));
-  /* Also after the old step ran because the list could not be read: an automatic register to an address another
-     computer holds would otherwise offer Try again on it forever. */
-  if (refused && (PLUS_SI_PICKED || PLUS_SI_UNREAD) && PLUS_SI_SESSION && !/start again from the email/i.test(String(r.because || ''))) {
+  /* Also after the old step ran because the list could not be read, for its AUTOMATIC register only: to an address
+     another computer holds it would otherwise offer Try again forever. A name the person typed keeps the name step. */
+  if (refused && (PLUS_SI_PICKED || (PLUS_SI_UNREAD && owned)) && PLUS_SI_SESSION && !/start again from the email/i.test(String(r.because || ''))) {
     PLUS_SI_PICKED = false;
     PLUS_SI_UNREAD = false;
     PLUS_SI_REFUSED.push(name);
@@ -43853,7 +43863,7 @@ async function plusSiDoRegister(name, owned) {
     if (siSpin) siSpin.hidden = false;
     if (PLUS_SI_BOUGHT_LAST) PLUS_SI_BOUGHT_LAST = Object.assign({}, PLUS_SI_BOUGHT_LAST, { addresses: PLUS_SI_BOUGHT_LAST.addresses.filter((x) => x.name !== name) });
     plusSiMsg(r.because);
-    plusSiSession(PLUS_SI_SESSION, true, r.because).catch(plusSiReReadFailed);
+    { const ep = PLUS_SI_EPOCH; plusSiSession(PLUS_SI_SESSION, true, r.because).catch(() => { if (ep === PLUS_SI_EPOCH) plusSiReReadFailed(); }); }
     return;
   }
   PLUS_SI_RETRY_FROM_LIST = PLUS_SI_PICKED && !r.ok;   // a Try again on a picked address is still a pick

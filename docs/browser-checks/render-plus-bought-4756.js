@@ -100,6 +100,8 @@ const SCENARIOS = {
   // This computer's own stale sign-in holds the picked address: not a refusal, so Try again on it (after removing the
   // stale entry on the website) works, and the address is never banished.
   'pick-own-stale': { stale: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
+  // The first read fails and the person TYPES a name that is taken: that keeps the name step (not the list), as before.
+  'unread-typed-taken': { account: '', refuse: 'mine', lists: [null], auto: null },
   // A pick refused (another computer took it first) returns to the list with the reason, not Try again on the same address.
   'pick-refused': { refuse: 'spare', lists: [
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] },
@@ -208,6 +210,7 @@ const visible = (page, sel) => page.evaluate((s) => {
       } else if (key === 'none') {
         chk(await visible(page, '#plus-si-bought-none'), `[${key}] with none free it says so`);
         chk(/waiting for its payment/.test(await page.textContent('#plus-si-bought-none-lead')), `[${key}] a pending purchase is named as waiting for its payment`);
+        chk(/If this computer used to be first\.kosmosplus\.com, retire it on your account page first/.test(await page.textContent('#plus-si-bought-none-hint')), `[${key}] and says how to free the account's address if it was this computer's`, await page.textContent('#plus-si-bought-none-hint'));
         chk((await page.getAttribute('#plus-si-bought-buy', 'href')) === BUY, `[${key}] the buy link is the coordinator's`, await page.getAttribute('#plus-si-bought-buy', 'href'));
         chk(!(await visible(page, '#plus-si-name-field')), `[${key}] no field to type a name`);
         await page.screenshot({ path: path.join(OUT, 'plus-bought-none-light.png') });
@@ -260,6 +263,14 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(JSON.stringify(regs) === JSON.stringify(['first']), `[${key}] one register to the account's address, not a second`, JSON.stringify(regs));
         const btns = await page.$$eval('#plus-si-bought-list button', (b) => b.map((x) => x.getAttribute('data-bought')));
         chk(JSON.stringify(btns) === JSON.stringify(['spare']), `[${key}] the list, without the refused address though the re-read says free`, JSON.stringify(btns));
+      } else if (key === 'unread-typed-taken') {
+        await page.waitForSelector('#plus-si-name', { state: 'visible', timeout: 8000 }).catch(() => {});
+        await page.fill('#plus-si-name', 'mine');
+        await page.click('#plus-si-register-go');
+        await page.waitForFunction(() => /that name is taken/.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+        chk(regs.length === 1 && regs[0] === 'mine', `[${key}] the typed name was sent`, JSON.stringify(regs));
+        chk(await visible(page, '#plus-si-name-field'), `[${key}] the name step stays, so another name can be typed`);
+        chk(asked === 1, `[${key}] the list is not read again for a typed name`, String(asked));
       } else if (key === 'own-pending') {
         chk(await visible(page, '#plus-si-bought-none'), `[${key}] the none panel shows`);
         chk(/waiting for its payment/.test(await page.textContent('#plus-si-bought-none-lead')), `[${key}] with the waiting-for-payment line`);
