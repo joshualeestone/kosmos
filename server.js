@@ -17173,8 +17173,8 @@ const server = http.createServer(async (req, res) => {
       /* The person's own mark is changed only from the screen, in either direction (review round 7: a process could
          re-mark it as its own and then clear that), checked inside the write (review round 9). The person is a flag,
          not a name, so an agent named "operator" is not the person. */
-      /* #4733: the setup guide's note is masked before it is kept (below). */
       const as = { by, person: viaScreen, refusePersonMark: !viaScreen };
+      /* #4733: the note is masked when `by` is the setup guide. From the screen `by` is null, so the person's is kept. */
       const out = body.clear === true
         ? tasks.clearBuilt(id, taskBuilt[2], as)
         : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? guideMasked(by, body.note) : '' });
@@ -17279,8 +17279,9 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         /* #4733: the setup guide's words are masked before they are recorded or previewed to anyone (its replies,
-           messages and posts already are, #3769). Keyed on the identified sender, so the screen and any other
-           agent pass unchanged; a caller nobody could identify is not masked (it is recorded as "An agent"). */
+           messages and posts already are, #3769). Keyed on the identified sender, so any other agent passes
+           unchanged. Two callers are not masked: one nobody could identify (recorded as "An agent"), and one that
+           claims the screen, which is taken as the person whoever sent it (isViaScreen). */
         const saidText = !viaScreen && senderCard ? guideMasked(senderCard.sessionName, body.text) : body.text;
         const t = tasks.say(id, taskSay[2], saidText);
         /* Deliver to the agents ASSIGNED to the task (Josh, 2026-09-12: "only to
