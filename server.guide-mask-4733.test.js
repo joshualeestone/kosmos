@@ -267,3 +267,17 @@ test('#4733 the length limits are judged on the masked words: a guide text the m
   assert.equal((await post(`/api/project/${projectId}/task/${n2}/built`, { note }, OTHER)).status, 200);
   assert.equal((await post(`/api/project/${projectId}/task/${n2}/message`, { text }, OTHER)).status, 200);
 });
+
+test('#4733 the person\'s own words are never masked: a task message and a note sent from the screen are kept as sent', async () => {
+  const n = newTask('From the screen');
+  const words = `Use ${KEY} for the mail account.`;
+  const screen = async (p, body) => {
+    const res = await fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify(body) });
+    return { status: res.status, json: await res.json().catch(() => null) };
+  };
+  assert.equal((await screen(`/api/project/${projectId}/task/${n}/message`, { text: words })).status, 200);
+  assert.ok(JSON.stringify(taskchat.read(projectId, n)).includes(words), 'the person\'s message was changed');
+  assert.equal((await screen(`/api/project/${projectId}/task/${n}/built`, { note: `waiting on ${KEY}` })).status, 200);
+  assert.equal(stored(n).builtByPerson, true, 'CONTROL: the mark was not recorded as the person\'s');
+  assert.equal(stored(n).builtNote, `waiting on ${KEY}`, 'the person\'s note was changed');
+});

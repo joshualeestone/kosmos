@@ -2988,7 +2988,8 @@ function guideMasked(who, text) {
 /* #4733: the masker for the free-text fields of ONE agent's status report. selfreport makes text of whatever it is
    handed (String(value)), so the setup guide's value that is not a string is made text here first; left as it
    came, it would be stored unmasked. An absent value, and every value of any other agent, passes as it came.
-   Who is asked once per report, not once per field: the report route runs on every hook heartbeat. */
+   Any other agent's report asks who it is once, not once per field: the report route runs on every hook
+   heartbeat. (The guide's own fields each ask again, inside guideMasked.) */
 function reportFieldMasker(who) {
   if (!isSetupGuide(who)) return (value) => value;
   return (value) => (value === null || value === undefined ? value : guideMasked(who, typeof value === 'string' ? value : String(value)));
