@@ -55,3 +55,22 @@ held needlessly until the reset: the safe direction, it costs only delay.
   pin checks order, not brace nesting; a held recommender peer is not asked for that item (decided above).
 - Measured: 260/260 across the new files and the touched modules' files. Mutations: no release tail, the resume
   ignoring the pool, and ready() not held each red exactly their own test.
+
+## Review iteration 2 (blind, sonnet)
+- (W) FIXED: connection heal counts a try before delivering, so the gate could only spend its budget; it is back on
+  chat.deliver (an agy card never reads connection_lost). Pinned as staying on deliver.
+- (W) FIXED: the resume sweep asked only the cards while heldForQuota also asked the memory, so a card that stopped
+  showing its pause before the reset let the resume type into the still-empty pool. Both now ask poolPausedUntil.
+- (W) FIXED: the tail ended in one burst. Each agy agent is now released at its own slot after the reset (grace plus
+  one stagger per agent before it by session name); the last one ends with the whole tail.
+- (W) FIXED: the memory only rose and was never bounded. While cards show a pause it takes their current latest reset
+  (a corrected card lowers it), and a reset over 8 days ahead is not believed (Google's longest window is a week).
+- (N) FIXED: the assigner's held-ask branch is marked as a backstop.
+- (N) LEFT: the recommender playbook tells a stuck agent nobody could be reached when peers were merely held (decided);
+  whether the unanswered sweep's age window can outlast a long pause (not checked; the nudge is not spent by a hold).
+- Found while fixing a pin: the pins' comment stripper did not know regex literals, and a quote inside one put it out
+  of step from server.js line 3914 on, so every later comment survived stripping (the pins were right only because
+  few comments name those calls). It now handles regex literals, and a guard asserts that no pure // comment line of
+  server.js survives; switching regex handling off reds that guard.
+- Measured: 287/287 across the new files and the touched modules' files (connlost-heal added). Mutations: the memory
+  only rising, no 8-day cap, the whole tail for everyone, and the resume ignoring the memory each red exactly their test.
