@@ -3821,6 +3821,27 @@ test('#4583 round 5: a done typed for a folder whose brief has its own Done sect
   assert.equal(notes[0].audience, messages.NOTE_AUDIENCE_AGENTS);
 });
 
+test('#4583 round 7: a done typed for a brief whose ## Done section is already filled is quoted to the team', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const dir = folder('filled-done');
+  const mine = '# Mine\n\n## Goal\n\nG.\n\n## Done when\n\nShip v1\n';
+  fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), mine);
+  const made = json(await post('/api/projects', { name: 'Filled', folder: dir, agents: ['agent-a'], done: '500 signups' })).project;
+  assert.equal(fs.readFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), 'utf8'), mine);
+  const texts = messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id).map((n) => n.text);
+  assert.deepEqual(texts, [projects.doneNotWrittenNote('500 signups')]);
+});
+
+test('#4583 round 7 CONTROL: the same done typed again, already in the brief, posts nothing', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const dir = folder('same-done');
+  fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), '# Mine\n\n## Goal\n\nG.\n\n## Done when\n\nShip v1\n');
+  const made = json(await post('/api/projects', { name: 'Same', folder: dir, agents: ['agent-a'], done: 'Ship v1' })).project;
+  assert.equal(messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id).length, 0);
+});
+
 test('#4583 round 6 CONTROL: no BRIEF.md the stub could write means no "already has a Done section" note', async () => {
   reset();
   const messages = require('./engine/messages');

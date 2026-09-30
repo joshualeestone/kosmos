@@ -1996,13 +1996,16 @@ function doneMarkdown(done) {
 }
 /* A Done heading of the person's own shape: any level, "Done..." or "What done...". fillDone leaves such a brief alone. */
 const OWN_DONE_HEADING = /^[ \t]*#{1,6}[ \t]+(?:what[ \t]+)?done\b/im;
-/* Round 6: true only when BRIEF.md is readable, has no Done section Kosmos reads, and has one of the person's own
-   shape: exactly when fillDone declines for that reason, so the create route's note never gives a false one. */
+/* Rounds 6 and 7: true only when BRIEF.md is readable and holds a Done section of the person's own that fillDone will
+   not change: a `## Done...` section that already has words, or a Done heading of another shape. Exactly the cases
+   fillDone declines for that reason, so the create route's note never gives a false one and never misses one. */
 function doneHeadingIsOwn(folder) {
   try {
     if (!folder || !path.isAbsolute(folder)) return false;
     const { text } = readBriefSafely(folder);
-    return typeof text === 'string' && !require('./brief').doneSectionRange(text) && OWN_DONE_HEADING.test(text);
+    if (typeof text !== 'string') return false;
+    const brief = require('./brief');
+    return brief.doneSectionRange(text) ? brief.doneSetFrom(text) === true : OWN_DONE_HEADING.test(text);
   } catch { return false; }
 }
 /* Whether BRIEF.md in folder holds this typed done (as fillDone or the stub writes it). */
