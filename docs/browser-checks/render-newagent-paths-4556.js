@@ -23,12 +23,13 @@
  *   K6 Team with a catalogue: the dropdown is back and the org chart is the plain second choice; the teams are
  *      listed, and Create hands the chosen key to openTeamCreate;
  *   K7 focus: a path's heading takes the keyboard, and Back returns it to the card the person came from;
- *   K8 the race: openCreate's roles load answers AFTER the Swarm path's, and the Swarm screen still opens on the
- *      role menu with no Project Manager picked (ROLES_GEN);
+ *   K8 overlapping roles loads (openCreate's, then the Swarm path's, sharing one request): the Swarm screen still
+ *      opens on the role menu with no Project Manager picked, because only the newest caller paints (ROLES_GEN);
  *   K9 a board with no define-your-own role offers no org chart on the Team screen (it creates down that path).
  *   K11 Back and Team again keep the team the person had picked.
- *   K12 a slow first roles load, and a second that fails while it is out, across Team, Back, Team, Back, Single:
- *       Team ends with the org chart and no failure note, and Single ends fully built (the review's race).
+ *   K12 a slow first roles load across Team, Back, Team, Back, Single: Team ends with the org chart and no failure
+ *       note, and Single ends fully built. Its failing second answer is served only if a second request is made,
+ *       so this arm guards against a return to two requests (red on the code before fetchRoles).
  *   K10 the roles cannot be read: the Team screen says the org chart cannot be offered (not only "coming soon"),
  *       and choosing Team again tries again and offers it once they load.
  *
@@ -293,7 +294,7 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
       ok(t + ' K7 a path\'s heading takes the keyboard, and Back returns it to the card chosen',
         f1 === 'cstep-role-title' && f2 === 'single' && f3 === 'cstep-team-title' && f4 === 'team', JSON.stringify([f1, f2, f3, f4]));
 
-      // K8: the race. openCreate's roles load ('pm') is held until after the Swarm path's ('list') has answered.
+      // K8: openCreate's roles load ('pm') and the Swarm path's ('list') overlap; only the newest caller may paint.
       ROLES_DELAY_ONCE = 900;
       await page.evaluate(() => { ROLES = null; openCreate(); });   // loadRoles caches; a fresh load is the race
       await page.click('#cstep-kind [data-path="swarm"]');

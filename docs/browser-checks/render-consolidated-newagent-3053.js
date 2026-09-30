@@ -64,7 +64,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         res.createInDisplay = panelCreate.parentElement === panelProjects;
         res.listStillVisible = listView.hidden === false;                            // projects column kept
         res.projectViewHidden = document.getElementById('pj-one-view').hidden === true;
-        res.onRoleStep = document.getElementById('cstep-kind') && document.getElementById('cstep-kind').hidden === false;   // #4556: step one is the three-way choice
+        res.onKindStep = document.getElementById('cstep-kind') && document.getElementById('cstep-kind').hidden === false;   // #4556: step one is the three-way choice
         const lv = rect(listView); const pp = rect(panelProjects);
         /* #4556: step one's three cards sit side by side, centred in the display column (the panel is wider on this
            step on purpose, so the three fit in one row). */
@@ -100,7 +100,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
 
     ok(t + ' #3053 showTab relocates the create panel into the display area (consolidated)', out.err === null && out.relocatedByShowTab === true && out.hiddenBeforeOpen === true, JSON.stringify(out));
     ok(t + ' #3053 THE FIX: New Agent stays in the consolidated view (no kick-out to tab view)', out.err === null && out.stillConsolidated === true, JSON.stringify(out));
-    ok(t + ' #3053 the create panel opens visible in the display column, on step one (the three-way choice, #4556)', out.err === null && out.createVisible === true && out.createInDisplay === true && out.onRoleStep === true, JSON.stringify(out));
+    ok(t + ' #3053 the create panel opens visible in the display column, on step one (the three-way choice, #4556)', out.err === null && out.createVisible === true && out.createInDisplay === true && out.onKindStep === true, JSON.stringify(out));
     ok(t + ' #4556 step one shows its cards side by side, centred in the display column', out.err === null && out.kindCards >= 2 && out.kindOneRow === true && out.kindLeftGap > 0 && Math.abs(out.kindLeftGap - out.kindRightGap) <= 24, JSON.stringify({ n: out.kindCards, row: out.kindOneRow, l: out.kindLeftGap, r: out.kindRightGap }));
     ok(t + ' #3053 the projects list stays visible beside the create panel', out.err === null && out.listStillVisible === true && out.projectViewHidden === true, JSON.stringify(out));
     // The create panel is a 34rem FORM, not a full-width fill like settings. Josh, 2026-09-23
