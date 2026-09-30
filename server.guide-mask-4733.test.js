@@ -204,7 +204,7 @@ test('#4733 a report the guide made before the mask is not written again as it w
 test('#4733 the mask runs before the store cuts a long report, and keeps its paragraph break', async () => {
   /* The key starts 20 characters before the 1000-character cap, so a cut made BEFORE the mask would leave its
      first 20 characters in the store, no longer shaped like a key. */
-  const lead = 'Step one is done.\n' + 'x'.repeat(980 - 'Step one is done.\n'.length);
+  const lead = 'Step one is done.\n' + 'x'.repeat(979 - 'Step one is done.\n'.length) + ' ';   // a space, so the key stands as its own word
   const body = { state: 'working', text: lead + KEY + ' and then the rest' };
   assert.equal(lead.length, 980, 'CONTROL: the lead is not the length this test needs');
 
@@ -280,4 +280,37 @@ test('#4733 the person\'s own words are never masked: a task message and a note 
   assert.equal((await screen(`/api/project/${projectId}/task/${n}/built`, { note: `waiting on ${KEY}` })).status, 200);
   assert.equal(stored(n).builtByPerson, true, 'CONTROL: the mark was not recorded as the person\'s');
   assert.equal(stored(n).builtNote, `waiting on ${KEY}`, 'the person\'s note was changed');
+});
+
+test('#4733 a guide text far over its limit is not scanned whole: the task routes refuse it, a report is cut at a space first', async () => {
+  const secretmask = require('./engine/secretmask');
+  const scanned = [];
+  const realMask = secretmask.mask;
+  stub(secretmask, 'mask', (text) => { scanned.push(String(text).length); return realMask(text); });
+  try {
+    const n = newTask('Far over the limit');
+    const bigMessage = ('word ' .repeat(tasks.MESSAGE_MAX * 2)) + KEY;          // 5 x 4000 characters, ten times the limit
+    const bigNote = ('word '.repeat(tasks.BUILT_NOTE_MAX * 2)) + KEY;
+    assert.ok(bigMessage.length > tasks.MESSAGE_MAX * 8 && bigNote.length > tasks.BUILT_NOTE_MAX * 8, 'CONTROL: the texts are not over the ceiling');
+
+    const m = await post(`/api/project/${projectId}/task/${n}/message`, { text: bigMessage }, GUIDE);
+    assert.equal(m.status, 400, JSON.stringify(m.json));
+    assert.match(m.json.error, /keep the message to \d+ characters or fewer/);
+    const b = await post(`/api/project/${projectId}/task/${n}/built`, { note: bigNote }, GUIDE);
+    assert.equal(b.status, 400, JSON.stringify(b.json));
+    assert.match(b.json.error, /keep the note to \d+ characters or fewer/);
+    assert.equal('builtAt' in stored(n), false);
+    assert.ok(!JSON.stringify(taskchat.read(projectId, n)).includes('word word'), 'a refused message was recorded');
+    assert.deepEqual(scanned, [], 'a text far over its limit was scanned anyway');
+
+    /* A report of 9000 characters whose key sits across the 8000-character ceiling: cut at the space before the
+       key, so the scan sees no part of it, and the store then keeps its first 1000 characters. */
+    const lead = 'word '.repeat(1598);   // 7990 characters, ending in a space
+    const r = await post('/api/report', { state: 'working', text: lead + KEY + ' ' + 'tail '.repeat(200) }, GUIDE);
+    assert.equal(r.json.recorded, true, JSON.stringify(r.json));
+    assert.deepEqual(scanned, [7990], 'the report was not cut to the ceiling, at the space, before it was scanned');
+    const gr = selfreport.read(GUIDE);
+    assert.ok(!gr.because.includes(KEY.slice(0, 8)), 'part of the key was stored');
+    assert.equal(gr.because.length, 1000, 'CONTROL: the store did not keep the first 1000 characters');
+  } finally { secretmask.mask = realMask; }
 });

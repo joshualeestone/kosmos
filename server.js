@@ -2975,14 +2975,23 @@ function isSetupGuide(name) {
     return setupAssistant.isGuideFolder(guide);
   } catch { return false; }
 }
-/* The setup guide's words with anything shaped like a secret masked (engine/secretmask.js): stored replies
-   (keepAgentReply), the thread as read, and (#4733) a task message, a built note and a status report as recorded.
+/* The setup guide's words with anything shaped like a secret masked (engine/secretmask.js).
    Logs that a mask fired and which kinds, never the value. Any other agent's text passes unchanged. */
 function guideMasked(who, text) {
   if (typeof text !== 'string' || !isSetupGuide(who)) return text;
   const out = require('./engine/secretmask').mask(text);
   if (out.fired.length) console.error(`#3769: caught ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
   return out.text;
+}
+
+/* #4733: the mask is a scan on the board's one thread, and at the sites below it runs BEFORE the length limit
+   (so a cut can never leave part of a key). A guide text more than this many times over its limit is not
+   scanned whole: a task message or a built note is refused with the limit's own sentence, and a report field is
+   cut to the ceiling first, at a space, so no part of a word is left at the cut. */
+const GUIDE_PRE_MASK_TIMES = 8;
+const REPORT_FIELD_PRE_MASK_MAX = 1000 * GUIDE_PRE_MASK_TIMES;   // selfreport's longest field (because) is 1000
+function guideTextOverCeiling(who, text, limit) {
+  return typeof text === 'string' && text.length > limit * GUIDE_PRE_MASK_TIMES && isSetupGuide(who);
 }
 
 /* #4733: the masker for the free-text fields of ONE agent's status report. selfreport makes text of whatever it is
@@ -2992,7 +3001,16 @@ function guideMasked(who, text) {
    heartbeat. (The guide's own fields each ask again, inside guideMasked.) */
 function reportFieldMasker(who) {
   if (!isSetupGuide(who)) return (value) => value;
-  return (value) => (value === null || value === undefined ? value : guideMasked(who, typeof value === 'string' ? value : String(value)));
+  return (value) => {
+    if (value === null || value === undefined) return value;
+    let text = typeof value === 'string' ? value : String(value);
+    if (text.length > REPORT_FIELD_PRE_MASK_MAX) {
+      let end = REPORT_FIELD_PRE_MASK_MAX;   // back to the last space, one step a character (no regex to backtrack)
+      while (end > 0 && !/\s/.test(text[end - 1])) end -= 1;
+      text = text.slice(0, end);
+    }
+    return guideMasked(who, text);
+  };
 }
 
 /* #3769: rows as read, for a route that serves stored rows: any row the setup guide wrote is masked
@@ -17175,10 +17193,16 @@ const server = http.createServer(async (req, res) => {
       /* The person's own mark is changed only from the screen, in either direction (review round 7: a process could
          re-mark it as its own and then clear that), checked inside the write (review round 9). The person is a flag,
          not a name, so an agent named "operator" is not the person. */
+      /* #4733: the setup guide's note is masked before it is kept (below). One far over the limit is refused here,
+         unscanned, in the words the limit itself uses. */
+      if (body.clear !== true && guideTextOverCeiling(by, body.note, tasks.BUILT_NOTE_MAX)) {
+        sendJson(res, 400, { error: `keep the note to ${tasks.BUILT_NOTE_MAX} characters or fewer` });
+        return;
+      }
       const as = { by, person: viaScreen, refusePersonMark: !viaScreen };
       const out = body.clear === true
         ? tasks.clearBuilt(id, taskBuilt[2], as)
-        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? guideMasked(by, body.note) : '' });   // #4733: the guide's note is masked
+        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? guideMasked(by, body.note) : '' });
       if (!out.ok) {
         const code = out.person ? 403 : out.closed ? 409 : out.code === 'UNREADABLE' ? 500
           : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);
@@ -17282,6 +17306,10 @@ const server = http.createServer(async (req, res) => {
         /* #4733: the setup guide's words are masked before they are recorded or previewed to anyone (its replies,
            messages and posts already are, #3769). Keyed on the identified sender, so the screen and any other
            agent pass unchanged; a caller nobody could identify is not masked (it is recorded as "An agent"). */
+        if (!viaScreen && senderCard && guideTextOverCeiling(senderCard.sessionName, body.text, tasks.MESSAGE_MAX)) {
+          sendJson(res, 400, { error: `keep the message to ${tasks.MESSAGE_MAX} characters or fewer` });   // far over the limit: refused unscanned
+          return;
+        }
         const saidText = !viaScreen && senderCard ? guideMasked(senderCard.sessionName, body.text) : body.text;
         const t = tasks.say(id, taskSay[2], saidText);
         /* Deliver to the agents ASSIGNED to the task (Josh, 2026-09-12: "only to
