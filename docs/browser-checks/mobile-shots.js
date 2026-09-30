@@ -127,9 +127,35 @@ async function openConsAgents(page) {
   });
   await page.reload({ waitUntil: 'load' });   // 'load', per this file's rule; the next line is the real readiness signal
   await page.waitForFunction(() => document.documentElement.getAttribute('data-layout') === 'consolidated', null, { timeout: 8000 });
-  await page.click('#tabs .tab[data-tab="agents"]', { timeout: 5000 });
-  await page.waitForSelector('#panel-cons-agents .cons-agents-lay', { state: 'visible', timeout: 5000 });
+  /* The board's own boot can activate a project AFTER this opens Agents, which closes the Agents view
+     (iteration 7: shots of a project passed). So open it, then require it to STAY open for a while,
+     opening it again if the board took it back. */
+  const shown = () => page.evaluate(() => {
+    const p = document.getElementById('panel-cons-agents'); const sw = document.querySelector('#panel-cons-agents .cons-agents-lay');
+    return !!(p && !p.hidden && p.getClientRects().length && sw && sw.getClientRects().length);
+  });
+  await page.waitForTimeout(1500);   // let the board's own boot navigation happen first
+  for (let tries = 0; tries < 6; tries++) {
+    try {
+      await page.click('#tabs .tab[data-tab="agents"]', { timeout: 5000 });
+      await page.waitForSelector('#panel-cons-agents .cons-agents-lay', { state: 'visible', timeout: 5000 });
+    } catch { continue; }   // taken back before it showed: try again
+    await page.waitForTimeout(1500);
+    if (await shown()) return;
+  }
+  throw new Error('cons-agents: the board kept closing the Agents view');
 }
+/* Run AFTER the shot (the SCREENS `after` hook): the Agents view and its switch must still have been on
+   screen, with the expected segment chosen, or the row is an error rather than a green shot of something else. */
+const consAgentsStill = (want) => async (page) => {
+  const got = await page.evaluate(() => {
+    const p = document.getElementById('panel-cons-agents'); const sw = document.querySelector('#panel-cons-agents .cons-agents-lay');
+    const r = sw ? sw.getBoundingClientRect() : null;
+    const on = sw ? sw.querySelector('[aria-checked="true"]') : null;
+    return { panel: !!(p && !p.hidden && p.getClientRects().length), inView: !!(r && r.width && r.bottom > 0 && r.top < innerHeight), on: on ? on.dataset.conslay : null };
+  });
+  if (!got.panel || !got.inView || got.on !== want) throw new Error('the shot is not the Agents view with ' + want + ' chosen: ' + JSON.stringify(got));
+};
 
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
@@ -289,12 +315,12 @@ const SCREENS = [
   { name: 'cons-agents', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page) => {
     await openConsAgents(page);
     await page.waitForSelector('#panel-cons-agents .cons-agents-lay [data-conslay="grid"][aria-checked="true"]', { timeout: 5000 });
-  } },
+  }, after: consAgentsStill('grid') },
   { name: 'cons-agents-org', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page) => {
     await openConsAgents(page);
     await page.click('#panel-cons-agents [data-conslay="org"]', { timeout: 5000 });
     await page.waitForSelector('#panel-cons-agents [data-conslay="org"][aria-checked="true"]', { timeout: 5000 });
-  } },
+  }, after: consAgentsStill('org') },
   // The design review's ask (kosmos#4594): the keyboard focus ring on a segment. A real key press, so :focus-visible shows (a scripted
   // .focus() alone may not): focus Grid, ArrowRight moves to Org chart, chooses it and keeps focus there.
   { name: 'cons-agents-focus', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page) => {
@@ -303,7 +329,7 @@ const SCREENS = [
     await page.keyboard.press('ArrowRight');
     await page.waitForFunction(() => document.activeElement && document.activeElement.dataset.conslay === 'org'
       && document.activeElement.matches(':focus-visible'), null, { timeout: 5000 });
-  } },
+  }, after: consAgentsStill('org') },
   { name: 'create-agent', owner: 'unowned', go: async (page) => {
     // A real tap (visible, not covered), the way a phone user reaches it; a hidden button fails the shot.
     await page.click('#new-agent', { timeout: 5000 });
