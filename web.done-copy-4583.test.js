@@ -14,7 +14,7 @@ function doneField() {
   const at = html.indexOf('id="pj-add-done"');
   assert.ok(at > 0, 'the create form has no #pj-add-done box');
   const start = html.lastIndexOf('<div class="field">', at);
-  const end = html.indexOf('</div>', at);
+  const end = html.indexOf('id="pj-add-done-err"', at);
   assert.ok(start > 0 && end > at, 'could not find the field around #pj-add-done');
   return html.slice(start, end);
 }
@@ -33,4 +33,11 @@ test('#4583: the done hint says what skipping does, and does not explain Kosmos\
   assert.match(hint, /^Optional\./);
   assert.doesNotMatch(hint, /Done not set/i, 'the hint names the row tag again');
   assert.doesNotMatch(hint, /\bchar/i, 'the hint names the length cap again');
+});
+
+test('#4583: the done box\'s own too-long error names no field, the same shape as the description\'s', () => {
+  const call = html.match(/pjFieldBad\('pj-add-done', 'pj-add-done-err',\s*'([^']*)'/);
+  assert.ok(call, 'the done box has no too-long error');
+  assert.strictEqual(call[1], 'That answer is longer than ');
+  assert.match(html, /'That description is longer than ' \+ PJ_DESC_MAX/, 'the description sibling changed shape');
 });
