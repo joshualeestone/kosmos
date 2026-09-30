@@ -42542,6 +42542,10 @@ const PLUS_ACCOUNT_URL = 'https://login.kosmosplus.com/';
    The app's copy -> "Copied" pattern: the button says it for 2s and the live region says it for a screen reader.
    If the clipboard is refused, the address is selected on screen so the person can copy it themselves. */
 let PLUS_COPY_TIMER = null;
+/* #4744 (review 8): one press at a time, and a press cancels the last one's pending words, so a slow clipboard
+   answer cannot interleave with the next press or write a stale note after a success. */
+let PLUS_COPY_BUSY = false;
+let PLUS_COPY_SAY_TIMER = null;
 function plusCopyViaExec() {
   // execCommand first because it runs synchronously inside the press (no await before it); the clipboard API is the
   // second try. Both copy the same full URL.
@@ -42557,10 +42561,13 @@ async function plusCopyAddress() {
   const btn = document.getElementById('plus-copy');
   const status = document.getElementById('plus-copy-status');
   const note = document.getElementById('plus-status');
-  if (!btn) return;
+  if (!btn || PLUS_COPY_BUSY) return;
+  if (PLUS_COPY_SAY_TIMER) { clearTimeout(PLUS_COPY_SAY_TIMER); PLUS_COPY_SAY_TIMER = null; }
   let ok = plusCopyViaExec();
   if (!ok) {
+    PLUS_COPY_BUSY = true;
     try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(PLUS_ACCOUNT_URL); ok = true; } } catch { ok = false; }
+    finally { PLUS_COPY_BUSY = false; }
   }
   if (PLUS_COPY_TIMER) { clearTimeout(PLUS_COPY_TIMER); PLUS_COPY_TIMER = null; }
   if (status) status.textContent = '';
@@ -42568,7 +42575,7 @@ async function plusCopyAddress() {
     btn.textContent = 'Copied';
     if (note && note.dataset.copyFail) { note.textContent = ''; delete note.dataset.copyFail; }
     // Cleared first and set a moment later, so a second press is spoken again.
-    if (status) setTimeout(() => { if (btn.textContent === 'Copied') status.textContent = 'Address copied.'; }, 30);
+    if (status) PLUS_COPY_SAY_TIMER = setTimeout(() => { PLUS_COPY_SAY_TIMER = null; if (btn.textContent === 'Copied') status.textContent = 'Address copied.'; }, 30);
     PLUS_COPY_TIMER = setTimeout(() => { PLUS_COPY_TIMER = null; btn.textContent = 'Copy'; if (status) status.textContent = ''; }, 2000);
     return;
   }
@@ -42579,7 +42586,7 @@ async function plusCopyAddress() {
   btn.textContent = 'Copy';
   const say = selected ? 'Kosmos could not copy it. The address is selected: copy it from there.' : 'Kosmos could not copy it. The address is login.kosmosplus.com.';
   // Cleared first and set a moment later, so a second failure is spoken again.
-  if (note) { note.textContent = ''; note.dataset.copyFail = '1'; setTimeout(() => { if (note.dataset.copyFail) note.textContent = say; }, 30); }
+  if (note) { note.textContent = ''; note.dataset.copyFail = '1'; PLUS_COPY_SAY_TIMER = setTimeout(() => { PLUS_COPY_SAY_TIMER = null; if (note.dataset.copyFail) note.textContent = say; }, 30); }
 }
 /* #4744: the one-line sentence may wrap only if it would overflow (a font wider than the sizing allows): measured
    with the wrap removed, on every resize of the box and when the box is shown. */
