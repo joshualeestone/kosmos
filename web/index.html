@@ -62307,11 +62307,11 @@ document.getElementById('pj-one-pause').addEventListener('click', async () => {
     btn.disabled = false;
   }
 });
+
 // Archiving from the detail view. No confirmation on purpose: unlike removal
 // (which drops the membership list and cannot be undone by re-adding the
 // folder), archiving keeps everything and Restore is one click away in the
 // disclosure this returns you to.
-
 document.getElementById('pj-one-archive').addEventListener('click', async () => {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
