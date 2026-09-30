@@ -3468,8 +3468,9 @@ async function inSandboxCwd(fn) {
   const was = process.cwd();
   process.chdir(SANDBOX);
   try {
-    assert.ok(path.resolve(MODE_FILE).startsWith(fs.realpathSync(SANDBOX)) || path.resolve(MODE_FILE).startsWith(SANDBOX),
-      'the mode file must resolve inside the sandbox: ' + path.resolve(MODE_FILE));
+    const at = path.resolve(MODE_FILE);   // with the separator, so a sibling sharing the random prefix cannot pass
+    assert.ok(at.startsWith(fs.realpathSync(SANDBOX) + path.sep) || at.startsWith(SANDBOX + path.sep),
+      'the mode file must resolve inside the sandbox: ' + at);
     return await fn();
   } finally { process.chdir(was); }
 }
