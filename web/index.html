@@ -3862,7 +3862,7 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons
 .cons-agents-lay button + button { border-left: 0.5px solid var(--separator); }
 .cons-agents-lay button:hover { color: var(--label); }
 .cons-agents-lay button[aria-checked="true"] { background: var(--gold-bright); color: #14161a; }
-.cons-agents-lay button:focus-visible { outline: 2px solid var(--label); outline-offset: -2px; }
+.cons-agents-lay button:focus-visible { outline: 2px solid var(--label); outline-offset: -3px; }
 .cons-agents-lay button[aria-checked="true"]:focus-visible { outline-color: #14161a; }
 /* The consolidated projects rail's way into Tasks (kept since #4345 put the tab bar back: it is the
    way in when the rail is what the person is looking at). */
@@ -31390,7 +31390,7 @@ function boardApplyVisibility(onAgents) {
     document.getElementById('alist').hidden = !onAgents || lay !== 'list';
     const orgC = document.getElementById('orgview');
     orgC.hidden = BOARD_LAYOUT !== 'org';
-    /* A saved 'list' (chosen in the tab view) shows the grid here but presses neither button, so a
+    /* A saved 'list' (chosen in the tab view) shows the grid here but checks neither segment, so a
        click on Grid is a real choice rather than a silent overwrite of the list (review round 2). */
     consLaySync();
     if (!orgC.hidden) paintOrg();
@@ -41372,7 +41372,7 @@ function placeAgentsPanel(consolidated) {
       /* #4594: a radio group's keys. Left/Right (and Up/Down) move AND choose, wrapping, and focus follows. */
       wrap.addEventListener('keydown', (e) => {
         const b = e.target.closest('[data-conslay]');
-        if (!b || !['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) return;
+        if (!b || e.altKey || e.metaKey || e.ctrlKey || !['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) return;
         const all = [...wrap.querySelectorAll('[data-conslay]')];
         const i = all.indexOf(b);
         const to = all[(i + ((e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : all.length - 1)) % all.length];

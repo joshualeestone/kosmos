@@ -48,6 +48,8 @@
  * `phoneOnly: true` if the screen exists only at a phone width (the desktop size skips it), and
  * `desktopOnly: true` if it exists only at a desktop width (the phone sizes skip it; the consolidated
  * view, for one, starts at 960px).
+ * `go` must not write to the board's server store (a PUT, a saved setting): one board serves every
+ * screen of a run, so the write would change every screen shot after it.
  * `go` starts on a freshly loaded board at the size and theme (data has
  * `projectId`, and `chatAgent` / `askAgent`: use those, never a literal agent id,
  * so the screen works under --data store too); leave the page showing the screen. Keep names short and unique
@@ -109,6 +111,15 @@ const at = async (page, qs) => {
   await page.goto(page.url().split('?')[0] + qs, { waitUntil: 'load' });
   await page.waitForTimeout(900);
 };
+
+/* #4594: the consolidated view, applied in the PAGE only (applyLayout persists nothing). Saving it with
+   PUT /api/style would change the one board every later screen of this run is shot on. */
+async function openConsAgents(page) {
+  await page.evaluate(() => applyLayout('consolidated', true));
+  await page.waitForFunction(() => document.documentElement.getAttribute('data-layout') === 'consolidated', null, { timeout: 5000 });
+  await page.click('#tabs .tab[data-tab="agents"]', { timeout: 5000 });
+  await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 5000 });
+}
 
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
@@ -266,19 +277,11 @@ const SCREENS = [
   /* #4594: the consolidated view's Agents column and its Grid / Org chart segmented control. The
      consolidated view exists only at >= 960px, so these are desktop-only. */
   { name: 'cons-agents', owner: 'Ice Cream Kitty', desktopOnly: true, go: async (page) => {
-    // The board's own saved choice, as render-tasks-view-3559.js reaches it (the picker sits in a menu).
-    await page.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'consolidated' }) }).then((r) => r.text()));
-    await page.reload({ waitUntil: 'networkidle' });
-    await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 8000 });
-    await page.click('#tabs .tab[data-tab="agents"]', { timeout: 5000 });
+    await openConsAgents(page);
     await page.waitForSelector('#panel-cons-agents .cons-agents-lay [data-conslay="grid"][aria-checked="true"]', { timeout: 5000 });
   } },
   { name: 'cons-agents-org', owner: 'Ice Cream Kitty', desktopOnly: true, go: async (page) => {
-    // The board's own saved choice, as render-tasks-view-3559.js reaches it (the picker sits in a menu).
-    await page.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'consolidated' }) }).then((r) => r.text()));
-    await page.reload({ waitUntil: 'networkidle' });
-    await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 8000 });
-    await page.click('#tabs .tab[data-tab="agents"]', { timeout: 5000 });
+    await openConsAgents(page);
     await page.click('#panel-cons-agents [data-conslay="org"]', { timeout: 5000 });
     await page.waitForSelector('#panel-cons-agents [data-conslay="org"][aria-checked="true"]', { timeout: 5000 });
   } },
@@ -794,10 +797,10 @@ async function run() {
   if (COVER_CONTROL === 'spill' && args.sizes.every((sz) => SIZES[sz].desktop)) {
     throw new Error('MSHOTS_COVER_CONTROL=spill needs a phone size');
   }
-  /* Nothing to shoot is not a pass: every requested screen is phone-only at the sizes asked for. Decided before
-     any browser or board starts (tools.mobile-shots-desktop.test.js). */
+  /* Nothing to shoot is not a pass: every requested screen is skipped at the sizes asked for (phone-only at desktop,
+     desktop-only at a phone). Decided before any browser or board starts (tools.mobile-shots-desktop.test.js). */
   const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !(SIZES[sz].desktop ? sc.phoneOnly : sc.desktopOnly)).length, 0);
-  if (!planned) throw new Error('no shot would be taken: every requested screen is phone-only at these sizes');
+  if (!planned) throw new Error('no shot would be taken: every requested screen is skipped at these sizes (phone-only at desktop, desktop-only at a phone)');
   // Test hook (tools.mobile-shots-desktop.test.js): report the plan and stop, before any browser or board.
   if (process.env.MSHOTS_PLAN_ONLY === '1') { console.log(`planned ${planned} screen(s) per theme and engine`); return 0; }
   const { chromium, webkit } = require('playwright');
