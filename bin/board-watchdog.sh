@@ -224,6 +224,9 @@ WAIT="$((THROTTLE * (FAILS + 1)))"
 # This is the recovery that cleared Josh's box. It falls back to `kosmos start` if
 # launchctl cannot drive the job (e.g. the job is not loaded), which is the case
 # `kosmos start` is better at anyway.
+# #4669: since then a board `kosmos start` launches leads its own process group, so no launchd job
+# tracks it and kickstart -k cannot kill it; the re-run `kosmos start` frees a held port through the
+# #3079 reclaim instead.
 #
 # #4466: EXCEPT a board that is busy (status exit 4) past the busy grace. Every attempt on it is the
 # reclaim-flagged start: the #3079 reclaim kills OUR listener on the port whoever tracks it, which

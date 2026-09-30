@@ -949,6 +949,7 @@ const dmfiles = require('./engine/dmfiles');          // #3614: where an agent s
 const doctrine = require('./engine/doctrine');
 const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
+const accountComputers = require('./engine/account-computers'); // kosmos#4648
 const phonenotify = require('./engine/phonenotify');
 const styles = require('./engine/styles');
 const tips = require('./engine/tips');
@@ -3074,7 +3075,7 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
      is treated as absent: never block a legit reply over a stale id. The person's
      room route refuses one instead (#3745, see its plan); a retention change must
      revisit both. A proactive post (no in_reply_to) is unchanged. */
-  const citedId = String(inReplyTo == null ? '' : inReplyTo).trim();
+  const citedId = messages.messageIdOf(inReplyTo);   // #4631: '530' and 'message 530' name m530 too
   let answeredProject = null;   // outside the block: the which-room ask below keys on it (round 3)
   if (citedId) {
     try {
@@ -8168,6 +8169,16 @@ const server = http.createServer(async (req, res) => {
     // #3829 follow-up: the card names this Mac's own sign-in the same way the list does.
     try { sendJson(res, 200, Object.assign({}, remote.pendingDevices(), { self_device_id: typeof remote.read().device_id === 'string' ? remote.read().device_id : '' })); }
     catch { sendJson(res, 500, { error: 'we could not read what is waiting' }); }
+    return;
+  }
+  /* kosmos#4648 (weekend goal #4647): the computers on this board's Kosmos+ account, for the
+     top-left menu's "Your computers". Signed through the tunnel and each online state measured
+     (engine/account-computers.js). Always 200: { ok: false, because } when there is no list
+     (not signed in, an old connector or coordinator), and the page hides the section. */
+  if (pathname === '/api/remote/computers' && (req.method === 'GET' || req.method === 'HEAD')) {
+    accountComputers.fetchComputers()
+      .then((r) => sendJson(res, 200, r))
+      .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read your computers' }));
     return;
   }
   if (pathname === '/api/remote/devices' && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -15863,6 +15874,7 @@ const server = http.createServer(async (req, res) => {
         let replyTo = null;
         // '' is refused (400), unlike the agent route's in_reply_to '': the page never sends it, so one here is a bad client.
         if (body.reply_to !== undefined && body.reply_to !== null) {
+          if (typeof body.reply_to === 'string') body.reply_to = messages.messageIdOf(body.reply_to);   // #4631
           if (typeof body.reply_to !== 'string' || !/^m\d+$/.test(body.reply_to)) { sendJson(res, 400, { error: 'that is not a message we can reply to' }); return; }
           let inRoom = null;
           try { inRoom = messages.projectOfPost(body.reply_to); } catch {
@@ -15938,7 +15950,7 @@ const server = http.createServer(async (req, res) => {
         if (!out.ok) { sendJson(res, 400, out); return; }
         /* The fresh reactions for this post, from the operator's viewpoint. */
         let reactions = [];
-        try { reactions = messages.reactionsFor(postId, messages.record().rows, 'you'); } catch { reactions = []; }
+        try { reactions = messages.reactionsFor(out.of, messages.record().rows, 'you'); } catch { reactions = []; }   // #4631: the canonical id (the route takes '530' too)
         sendJson(res, 200, { ok: true, op: out.op, emoji: out.emoji, of: out.of, reactions });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
