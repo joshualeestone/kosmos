@@ -163,7 +163,7 @@ const STATES = {
             });
             if (wide >= 600) chk(n.shown && n.inScreen && n.lines === 1 && n.spare >= 10 && n.clear >= 18 && parseFloat(n.font) >= 12, `${t} #4744: at ${wide} wide the sentence is one line at 12px or more, 10px+ inside its box and before Copy`, JSON.stringify(n));
             // A phone: it may wrap (the address may break), but nothing runs past its box or under Copy.
-            else chk(n.shown && n.inScreen && n.spare >= 0 && n.clear >= 0, `${t} #4744: at ${wide} wide (narrower than the one-line box) the box stays on screen and the sentence wraps inside it, clear of Copy`, JSON.stringify(n));
+            else chk(n.shown && n.inScreen && n.lines >= 2 && parseFloat(n.font) >= 12 && n.spare >= 0 && n.clear >= 0, `${t} #4744: at ${wide} wide (narrower than the one-line box) the box stays on screen and the sentence wraps inside it, clear of Copy`, JSON.stringify(n));
           }
           await page.setViewportSize(vp); await page.waitForTimeout(250);
         }
