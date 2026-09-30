@@ -60,8 +60,10 @@
  *      process is started, and the stop is repeated until nothing it owns is left.
  *
  * SAFETY: processes are only ever signalled by exact pid, and only pids this run
- * started or found as their descendants, or whose command line names this run's
- * sandbox. Never a process-group, user-wide or name-pattern kill.
+ * started while they are live, their descendants (walked only while the parent is live,
+ * then re-checked by command line), or a process that runs one of this run's binaries
+ * (or a sandbox script) AND names this run's sandbox. Never a process-group, user-wide
+ * or name-pattern kill. SIGINT, SIGTERM, SIGHUP and SIGQUIT all tear down.
  *
  * Helper names carry a `fedproof` prefix where a plain name (cleanup, readLog...) could
  * match an engine export: engine.reachable.test.js counts any file under tools/ that
@@ -191,15 +193,28 @@ async function stopPids(pids, graceMs = 3000) {
   await waitFor(() => mine.every((p) => !alive(p)), graceMs, 100);
   for (const p of mine) if (alive(p)) { try { process.kill(p, 'SIGKILL'); } catch { /* gone */ } }
 }
+function isLive(entry) { return !!entry.child.pid && entry.child.exitCode === null && entry.child.signalCode === null; }
+/* The descendants an entry owns. While it is live they are walked from its pid and remembered
+   (pid -> command line). Once it has exited its pid may be reused, so it is never walked again:
+   only a remembered descendant still alive with the SAME command line is returned. */
+function ownedDescendants(entry, table) {
+  if (!entry.known) entry.known = new Map();
+  if (isLive(entry)) {
+    for (const d of descendantsOf(entry.child.pid, table)) {
+      const row = table.find((r) => r.pid === d);
+      if (row) entry.known.set(d, row.cmd);
+    }
+  }
+  const out = [];
+  for (const [d, cmd] of entry.known) { const row = table.find((r) => r.pid === d); if (row && row.cmd === cmd) out.push(d); }
+  return out;
+}
 /* One started process and every descendant it has now (seats, tunnels), by exact pid. */
 async function stopTree(entry) {
   let table = [];
   try { table = psTable(); } catch { table = []; }
-  const pid = entry.child.pid;
-  if (!pid || entry.child.exitCode !== null || entry.child.signalCode !== null) {
-    await stopPids(descendantsOf(pid, table)); return;   // exited: its pid may be reused, never signal it
-  }
-  await stopPids([...descendantsOf(pid, table), pid]);
+  const own = ownedDescendants(entry, table);
+  await stopPids(isLive(entry) ? [...own, entry.child.pid] : own);   // exited: never signal its own pid
 }
 /* Every pid this run owns that is still alive: the started processes, their descendants,
    and anything whose command line names the sandbox (a seat orphaned by its board). */
@@ -208,14 +223,24 @@ function ownedAlive() {
   try { table = psTable(); } catch { table = []; }
   const pids = new Set();
   for (const e of started) {
-    if (!e.child.pid) continue;
-    if (e.child.exitCode === null && e.child.signalCode === null) pids.add(e.child.pid);
-    for (const d of descendantsOf(e.child.pid, table)) pids.add(d);
+    if (isLive(e)) pids.add(e.child.pid);
+    for (const d of ownedDescendants(e, table)) pids.add(d);
   }
-  for (const r of table) if (r.cmd.includes(SANDBOX) && r.pid !== process.pid) pids.add(r.pid);
+  // An orphaned seat names the sandbox (its state dir) AND runs one of this run's binaries, or a
+  // script inside the sandbox. A stranger that merely mentions the path (tail -f of a log, an
+  // editor, a grep) runs something else and is never matched.
+  const ours = [...Object.values(BIN), process.execPath];
+  const runsOurs = (cmd) => cmd.startsWith(SANDBOX) || ours.some((b) => cmd === b || cmd.startsWith(b + ' '));
+  for (const r of table) if (r.pid !== process.pid && r.cmd.includes(SANDBOX) && runsOurs(r.cmd)) pids.add(r.pid);
   return [...pids].filter((p) => p !== process.pid && alive(p));
 }
 let cleaned = false;
+let cleanedDone = false;
+// Last resort: an exit that skipped the async cleanup still SIGTERMs every live started pid.
+process.on('exit', () => {
+  if (cleanedDone) return;
+  for (const e of started) if (isLive(e)) { try { process.kill(e.child.pid, 'SIGTERM'); } catch { /* gone */ } }
+});
 async function fedproofCleanup() {
   if (cleaned) return;
   cleaned = true;
@@ -229,6 +254,7 @@ async function fedproofCleanup() {
   }
   left = ownedAlive();
   if (left.length) console.log('WARN  processes this run owns are still alive: ' + left.join(','));
+  cleanedDone = !left.length;
   if (KEEP) console.log('kept sandbox: ' + SANDBOX);
   else { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* reported by the next run's leftovers */ } }
 }
@@ -751,4 +777,4 @@ for (const ev of ['uncaughtException', 'unhandledRejection']) process.on(ev, (er
   console.log('FAIL  harness error (' + ev + '): ' + (err && err.message ? err.message : err));
   results.push({ ok: false }); halted = true; fedproofFinish(1);
 });
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { if (!halted) console.log('interrupted (' + sig + ')'); results.push({ ok: false }); halted = true; fedproofFinish(1); });
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT']) process.on(sig, () => { if (!halted) console.log('interrupted (' + sig + ')'); results.push({ ok: false }); halted = true; fedproofFinish(1); });

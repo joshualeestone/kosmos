@@ -45,9 +45,11 @@ typed.log), on free 27xxx ports. Everything lives under one mktemp sandbox, remo
 The relay's log lines are the seat observable. If the relay's tracing format or its member
 naming changes, step 6's seat checks fail loudly (they cannot pass vacuously: no parsed member
 means no room with two members), but they would need updating rather than signalling a product
-bug. Second: the relay-down control stops the relay 3 s before posting; a seat that took longer
-to notice would write into a dead connector and the "stayed on this computer" check would FAIL
-(a real finding or a timing flake, to be read from the board log).
+bug. Second: the relay-down control (7b) stops the relay, then posts on A every 0.5 s for up to
+30 s (SEND_MS) until a post is answered by the not-connected note as its very next row. Posts
+before the seat noticed are printed as a NOTE and are all watched for non-delivery too. A seat
+that never notices within 30 s FAILs 7b (a real finding or a timing flake, read from the board
+log).
 
 ## Measured
 
@@ -104,3 +106,21 @@ recorder FAILs step 3 control; unreadable B room FAILs step 7b control; injected
 FAILs as harness error (uncaughtException); forcing the refusal branch FAILs "C is REFUSED"
 (verify 200, join 200); non-executable bin dir FAILs at start. Zero leftover processes or
 sandbox dirs after every run.
+
+## Review iteration 3
+
+Blind sonnet review of 72790bc7b: no BLOCKER, 4 WARNINGs, 2 NITs.
+- W1 (fixed): an exited entry's pid was still walked for descendants, so a reused pid could hand
+  it a stranger's children. Descendants are now walked only while the parent is live and
+  remembered with their command line; after exit only a remembered pid with the same command
+  line is signalled.
+- W2 (fixed): the orphan sweep matched any process naming the sandbox (a `tail -f` of a log).
+  It now also requires the process to run one of this run's binaries, node, or a sandbox script.
+- W3 (fixed): SIGHUP and SIGQUIT now tear down like SIGINT/SIGTERM, and an `exit` handler
+  SIGTERMs every live started pid if the async cleanup did not finish.
+- W4 (fixed): the Weakest premise paragraph described a 3 s pause the code no longer has; it now
+  describes the post-until-noted loop.
+- NIT1 (deferred): the step 3 recorder control drives only A's wrapper. B's and C's are made by
+  the same function, and B's own-post typed.log control exercises B's at runtime.
+- NIT2 (deferred): the step 6 "no disconnect" check reads net membership, so a flap between polls
+  would net out. It proves "up now"; a flap is not the property this card asks about.
