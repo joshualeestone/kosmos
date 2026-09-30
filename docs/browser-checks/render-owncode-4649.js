@@ -12,6 +12,8 @@
  *  - a code shown for one project never shows in another project's settings;
  *  - on the joining computer, Verify shows the code as shared by "Your other computer", never as
  *    a Kosmos+ address (an own code's owner_handle is not a name to append .kosmosplus.com to);
+ *  - kosmos#4699: a code made on a computer that is not on this account is refused, and the page says
+ *    so in words ("not on this Kosmos+ account");
  *  - 390 wide with no sideways scroll, chromium and webkit, no page errors.
  *
  *   HEADED=0 node docs/browser-checks/render-owncode-4649.js

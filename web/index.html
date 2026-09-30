@@ -60617,8 +60617,9 @@ function pjFedMessage(body, fallback) {
   // and overloading it as an error key here is a needless ambiguity. Unknown reasons fall through
   // to the caller's safe fallback.
   const reason = body && (body.reason || body.error);
-  // kosmos#4699: "could not check" carries its cause (remote access off, a computer not allowed yet),
-  // which is the only part the person can act on.
+  // kosmos#4699: "could not check" may carry the coordinator's own sentence (a computer not allowed yet),
+  // which is the only part the person can act on. The board builds it with no path or route in it
+  // (federation.js uncheckedRefusal), so it is shown as given.
   if (reason === 'unchecked' && typeof body.error === 'string' && body.error) return body.error;
   const M = {
     'already-used': 'That code has already been used. Ask for a fresh one.',
@@ -60632,6 +60633,7 @@ function pjFedMessage(body, fallback) {
     'not-plus': 'Joining your other computer\'s project needs Kosmos Plus on this computer.',
     // kosmos#4699: an own code names the computer that made it, and only this account's computers count.
     'other-account': 'This code is from a computer that is not on this Kosmos+ account, so the project cannot be added here. If it came from your own computer, make a new code there.',
+    'no-remote': 'Turn on Kosmos+ remote access on this computer, then paste the code again.',
     'old-code': 'This code was made by an older Kosmos. Update Kosmos on the computer that has the project, then make a new code there.',
   };
   return (reason && M[reason]) || fallback;

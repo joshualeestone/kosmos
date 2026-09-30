@@ -26,7 +26,8 @@ const fedseal = require('./fedseal');
 const FILE = 'federation.json';
 const MAC_INVITE = '/v1/mac/federation/invite';
 const MAC_VERIFY = '/v1/mac/federation/verify';
-const MAC_ACCOUNT_COMPUTERS = '/v1/mac/account-computers';   // kosmos#4648; read here for #4699
+// kosmos#4648's route, shared with the switcher's reader so a rename cannot split them (#4699).
+const MAC_ACCOUNT_COMPUTERS = require('./account-computers').ROUTE;
 
 function file() {
   return path.join(store.ROOT, FILE);
@@ -260,6 +261,22 @@ async function ownAccountNames(remote) {
   return { ok: true, names };
 }
 
+/* kosmos#4699: why an own code could not be checked, in words the person can act on. The raw cause is
+   never shown: a spawn failure carries a path on this computer, and the tunnel's refusal line carries a
+   route and a status code. Only the coordinator's own sentence is kept, and only when it has no path. */
+function uncheckedRefusal(because) {
+  const b = typeof because === 'string' ? because : '';
+  if (/not connected to Kosmos\+/.test(b)) {
+    return { status: 409, body: { reason: 'no-remote', error: 'Turn on Kosmos+ remote access on this computer, then paste the code again.' } };
+  }
+  const m = /^Kosmos\+ refused this Mac: (.+?)(?: \(HTTP \d+ on [^)]*\))?$/.exec(b);
+  const said = m && m[1].trim();
+  if (said && !/[\/\\]/.test(said)) {
+    return { status: 502, body: { reason: 'unchecked', error: 'Kosmos could not check that this code is from one of your computers: Kosmos+ said ' + said.replace(/[.;]\s*$/, '') + '.' } };
+  }
+  return { status: 502, body: { reason: 'unchecked', error: 'Kosmos could not check that this code is from one of your computers. Try again in a moment.' } };
+}
+
 /** Mint an invite for a project the person is creating or owns. */
 async function invite(remote, body) {
   const kind = body && body.invited_kind;
@@ -333,11 +350,9 @@ async function verify(remote, body) {
       return { status: 409, body: { reason: 'old-code', error: 'This code was made by an older Kosmos. Update Kosmos on the computer that has the project, then make a new code there.' } };
     }
     const mine = await ownAccountNames(remote);
-    if (!mine.ok) {
-      return { status: 502, body: { reason: 'unchecked', error: 'Kosmos could not check that this code is from one of your computers (' + mine.because + '). Try again in a moment.' } };
-    }
+    if (!mine.ok) return uncheckedRefusal(mine.because);
     if (!mine.names.includes(own.from)) {
-      return { status: 409, body: { reason: 'other-account', error: 'This code is from a computer that is not on this Kosmos+ account (a different account, or a computer that has since been removed), so the project cannot be added here. If it came from your own computer, make a new code there.' } };
+      return { status: 409, body: { reason: 'other-account', error: 'This code is from a computer that is not on this Kosmos+ account, so the project cannot be added here. If it came from your own computer, make a new code there.' } };
     }
     const key = OWN_KEY_PREFIX + own.ref;
     const snap = { edge_id: key, own: true, project_name: externalName(own.name, NAME_MAX), project_desc: null, owner_handle: 'your other computer' };

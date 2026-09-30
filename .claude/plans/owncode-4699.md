@@ -73,3 +73,21 @@ STATED, NOT FIXED:
   2026-09-30 (#4704), so the only boards with that parser are builds cut from main that same day.
 - The order of refusals: a code whose room is already on this computer says "already on this computer"
   before the account is checked.
+
+## Review 2 (fable): 2 WARNINGs, 4 NITs
+
+- W1 FIXED: three room notes in server.js `federateOut` still said "the external project" on own rooms. They
+  use `fedseats.farSide` (now exported); the unreadable-record note says "nothing is sent from this room",
+  since without the record nobody can say which side it is. Test pins an own (`self`) room, with the
+  member room as the control; reverting the note turns it red (checked).
+- W2 FIXED: the `unchecked` refusal printed the raw cause, which can carry a path (a spawn ENOENT) or a
+  route and status (the tunnel's refusal line). `uncheckedRefusal` now maps: not connected -> reason
+  `no-remote` with the way forward; a coordinator refusal -> only its sentence, the `(HTTP n on path)` tail
+  stripped, dropped if it holds a slash, no retry advice; anything else -> the generic sentence. Test
+  asserts no slash, HTTP code or ENOENT reaches the person on all three.
+- NIT 3 FIXED: the "nothing is held" test now asserts `joinSnapshot` is null right after the refusal.
+- NIT 4 FIXED as one wording: the server's `other-account` parenthetical is gone, so both copies read alike.
+  The page keeping its own table is the page's convention for every reason (self-shared, not-plus too).
+- NIT 5 FIXED: the route constant is `account-computers.js`'s ROUTE. The looser label rule stays on
+  purpose: it compares labels only, and the answer is unsigned either way (Not covered).
+- NIT 6 FIXED: the browser check's header names the refusal-in-words assertion.

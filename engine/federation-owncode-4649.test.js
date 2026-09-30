@@ -166,6 +166,7 @@ test('#4699: a code from a computer that is not on this account is refused, and 
   assert.equal(out.status, 409, JSON.stringify(out.body));
   assert.equal(out.body.reason, 'other-account');
   assert.match(out.body.error, /not on this Kosmos\+ account/);
+  assert.equal(federation.joinSnapshot('own:ref-other'), null, 'a refused code left a snapshot a join could use');
   // Control for "nothing is held": the same ref from an account computer IS accepted afterwards.
   const mine = await federation.verify(plusRemote(LIST('study')), { code: ownCodeFrom('study', 'ref-other') });
   assert.equal(mine.status, 200, JSON.stringify(mine.body));
@@ -178,6 +179,23 @@ test('#4699: when the account\'s computers cannot be read, the code is not accep
     assert.equal(out.body.reason, 'unchecked');
     assert.match(out.body.error, /could not check/);
   }
+});
+
+test('#4699: a could-not-check refusal never shows a path or a route, and names what the person can do', async () => {
+  const cases = [
+    [{ ok: false, because: 'this computer is not connected to Kosmos+' }, 'no-remote', /Turn on Kosmos\+ remote access/],
+    [() => { throw new Error('spawn /Users/someone/Kosmos/bin/kosmos-tunnel ENOENT'); }, 'unchecked', /Try again in a moment/],
+    [{ ok: false, because: 'Kosmos+ refused this Mac: this computer is not allowed yet; allow it from your other computer first (HTTP 403 on /v1/mac/account-computers)' }, 'unchecked', /Kosmos\+ said this computer is not allowed yet; allow it from your other computer first\.$/],
+  ];
+  for (const [answer, reason, words] of cases) {
+    const out = await federation.verify(plusRemote(answer), { code: ownCodeFrom('study', 'ref-words') });
+    assert.equal(out.body.reason, reason, JSON.stringify(out.body));
+    assert.match(out.body.error, words, out.body.error);
+    assert.doesNotMatch(out.body.error, /\/|HTTP \d|ENOENT/, 'a path, route or status reached the person: ' + out.body.error);
+  }
+  // The coordinator's sentence carries no retry advice: retrying cannot allow a computer.
+  const held = await federation.verify(plusRemote(cases[2][0]), { code: ownCodeFrom('study', 'ref-words') });
+  assert.doesNotMatch(held.body.error, /Try again/);
 });
 
 test('#4699: a code in the first format (no maker) is refused with the way forward', async () => {

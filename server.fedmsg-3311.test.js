@@ -223,6 +223,19 @@ test('a post with no words sends nothing and says attachments stay here', async 
   assert.equal(children[0].written.length, before, 'nothing was sent');
   const notes = messages.record().rows.filter((m) => m.kind === 'note' && m.project === pid);
   assert.match(notes[notes.length - 1].text, /attachments are not sent/);
+  // kosmos#4699 control: a room shared with another account still names the external project.
+  assert.match(notes[notes.length - 1].text, /the external project/);
+});
+
+test('kosmos#4699: a room shared only with your own computers does not call them the external project', async () => {
+  const own = projects.create({ name: 'Own Club' }).id;
+  federation.recordLink(own, { role: 'self', edge_id: 'edge-own', project_name: 'Own Club' });
+  federateOut(own, { id: 'p-own', from: 'you', text: '' }, true);
+  const notes = messages.record().rows.filter((m) => m.kind === 'note' && m.project === own);
+  assert.ok(notes.length, 'fixture: the no-words note was written');
+  const said = notes[notes.length - 1].text;
+  assert.match(said, /attachments are not sent to your other computers/, said);
+  assert.doesNotMatch(said, /external project/, said);
 });
 
 test('a post in a room that is not federated sends nothing and says nothing', async () => {
