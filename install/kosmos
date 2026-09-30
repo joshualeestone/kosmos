@@ -1038,8 +1038,10 @@ cmd_start() {
   # carried it would hand every later `kosmos start` it runs leave to kill a busy board.
   # #4669: set -m, so the board gets its OWN process group. When a launchd job ends, launchd kills every
   # process left in the job's process group, and nohup does not leave it. So a board started by a job that
-  # runs `kosmos start` (the watchdog, or an old-style login job) died the instant that job exited: on
-  # Mortals the watchdog's recovery board lived 745 ms. $! is still the board's pid (env and nohup exec).
+  # runs `kosmos start` died the instant that job exited: on Mortals the watchdog's recovery board lived
+  # 745 ms (measured). A throwaway RunAtLoad job of the same shape (nohup a child, exit) lost its child too,
+  # so an old-style login job running `kosmos start` would as well (that shape measured, not that job).
+  # $! is still the board's pid (env and nohup exec).
   set -m
   env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY PORT="$PORT" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
   set +m

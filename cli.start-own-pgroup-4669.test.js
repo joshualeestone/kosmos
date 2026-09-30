@@ -65,11 +65,28 @@ function env(home, port) {
 
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
-/** Every pid whose process group is `pgid`, read from ps. */
-function groupMembers(pgid) {
-  const out = execFileSync('/bin/ps', ['-A', '-o', 'pid=,pgid='], { encoding: 'utf8' });
-  return out.split('\n').map((l) => l.trim().split(/\s+/).map(Number))
-    .filter(([pid, g]) => Number.isInteger(pid) && pid > 1 && g === pgid).map(([pid]) => pid);
+/** Every pid whose process group is `pgid` AND whose command names this run's sandbox `home`, read from
+ *  ps. The second condition keeps a stranger that reused a pid out of what the test signals: the only
+ *  process expected there is the stub board, whose argv carries `home`. */
+function groupMembers(pgid, home) {
+  const out = execFileSync('/bin/ps', ['-A', '-o', 'pid=,pgid=,command='], { encoding: 'utf8' });
+  return out.split('\n').map((l) => l.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/)).filter(Boolean)
+    .map(([, pid, g, cmd]) => ({ pid: Number(pid), pgid: Number(g), cmd }))
+    .filter((p) => p.pid > 1 && p.pgid === pgid && p.cmd.includes(home)).map((p) => p.pid);
+}
+
+/** Wait up to `ms` for `pid` to be gone (kill(pid, 0) still succeeds on a zombie not yet reaped). */
+async function goneWithin(pid, ms) {
+  for (const end = Date.now() + ms; Date.now() < end;) {
+    if (!alive(pid)) return true;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return !alive(pid);
+}
+
+/** The board pid this run's start wrote, or 0. */
+function readBoardPid(home) {
+  try { return Number(fs.readFileSync(path.join(home, 'board.pid'), 'utf8')) || 0; } catch { return 0; }
 }
 
 async function answers(port) {
@@ -92,19 +109,22 @@ async function startThenEndTheJob(cli) {
     job.stdout.on('data', (d) => { said += d; });
     job.stderr.on('data', (d) => { said += d; });
     const code = await new Promise((r) => job.on('exit', (c) => r(c)));
+    boardPid = readBoardPid(home);
     assert.equal(code, 0, 'kosmos start must succeed in the sandbox: ' + said);
-    boardPid = Number(fs.readFileSync(path.join(home, 'board.pid'), 'utf8'));
     assert.ok(boardPid > 1 && alive(boardPid), 'the pidfile names a live board: ' + boardPid);
     assert.ok(await answers(port), 'the board answers before the job ends');
 
     // The job has exited. launchd now kills what is left in its process group. List it, check each pid
     // is not this test or its parent, and signal exactly those pids.
-    const left = groupMembers(pgid);
+    const left = groupMembers(pgid, home);
     for (const pid of left) assert.ok(pid !== process.pid && pid !== process.ppid, 'refusing to signal the test itself: ' + pid);
     for (const pid of left) { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
-    await new Promise((r) => setTimeout(r, 300));
-    return { inGroup: left.includes(boardPid), alive: alive(boardPid), answers: await answers(port) };
+    // A killed board is dead within the wait; a surviving one is still alive at its end.
+    const gone = await goneWithin(boardPid, 2000);
+    return { inGroup: left.includes(boardPid), alive: !gone, answers: await answers(port) };
   } finally {
+    // Also when the start failed after launching node: never leave a stub board bound to a port.
+    if (!boardPid) boardPid = readBoardPid(home);
     if (boardPid > 1 && alive(boardPid)) { try { process.kill(boardPid, 'SIGKILL'); } catch { /* gone */ } }
     fs.rmSync(home, { recursive: true, force: true });
   }
