@@ -1,6 +1,7 @@
 'use strict';
 /**
- * #4491 slices 2-3: `kosmos msg`, `kosmos post`, `kosmos react` and `kosmos task message` present the agent's own token
+ * #4491 slices 2-4: `kosmos msg`, `kosmos post`, `kosmos react`, `kosmos task message`, and (slice 4) the reads
+ * `kosmos room`, `kosmos task list`, `kosmos agent roles` and `kosmos agent role-draft` present the agent's own token
  * (KOSMOS_AGENT_TOKEN, plain hex only) as `x-kosmos-agent-token`, as reply and report already do,
  * so the board can tell the agent from the person. The board token is still sent as well.
  *
@@ -42,10 +43,22 @@ const ANSWERS = {
   '/api/project/p4491/task/1/message': { ok: true, delivered: [] },
 };
 
+/* Slice 4: the reads. The room is answered as text (its `?as=text` arm), the others as the JSON each verb parses. */
+const READ_ANSWERS = {
+  '/api/project/p4491/room': 'nothing here yet\n',
+  '/api/tasks': JSON.stringify({ tasks: [], count: 0 }),
+  '/api/roles': JSON.stringify({ roles: [{ key: 'builder', label: 'Builder' }], own: { instructions: 'You are {{NAME}}.' } }),
+};
+
 function withStub(fn) {
   const seen = [];
   const server = http.createServer((req, res) => {
     const route = req.url.split('?')[0];
+    if (req.method === 'GET' && READ_ANSWERS[route] !== undefined) {
+      seen.push({ route, method: 'GET', query: req.url.split('?')[1] || '', agent: req.headers['x-kosmos-agent-token'], board: req.headers['x-kosmos-board-token'] });
+      res.writeHead(200, { 'content-type': route.endsWith('/room') ? 'text/plain; charset=utf-8' : 'application/json' });
+      return res.end(READ_ANSWERS[route]);
+    }
     if (req.method === 'POST' && ANSWERS[route]) {
       seen.push({ route, agent: req.headers['x-kosmos-agent-token'], board: req.headers['x-kosmos-board-token'] });
       req.resume();
@@ -69,7 +82,13 @@ const VERBS = [
   ['/api/post', ['post', 'p4491', 'hello']],
   ['/api/react', ['react', 'p4491', 'm1', 'thumbsup']],
   ['/api/project/p4491/task/1/message', ['task', 'message', 'p4491', '1', 'hello']],
+  // Slice 4, the reads (two-word verbs are named by both words in the test titles below).
+  ['/api/project/p4491/room', ['room', 'p4491']],
+  ['/api/tasks', ['task', 'list', 'p4491']],
+  ['/api/roles', ['agent', 'roles']],
+  ['/api/roles', ['agent', 'role-draft']],
 ];
+const verbName = (args) => args.slice(0, args[0] === 'task' || args[0] === 'agent' ? 2 : 1).join(' ');
 
 // Async execFile, never execFileSync: a synchronous child blocks the event loop the stub answers on.
 // The exit code itself is not asserted (the headers the stub saw are), but a run that ended with no
@@ -92,7 +111,7 @@ async function send(port, seen, home, args, token) {
 }
 
 for (const [route, args] of VERBS) {
-  test(`kosmos ${args.slice(0, args[0] === 'task' ? 2 : 1).join(' ')} presents a valid agent token as x-kosmos-agent-token, and still the board token`, async () => {
+  test(`kosmos ${verbName(args)} presents a valid agent token as x-kosmos-agent-token, and still the board token`, async () => {
     const home = makeHome();
     try {
       await withStub(async (port, seen) => {
@@ -104,7 +123,7 @@ for (const [route, args] of VERBS) {
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
 
-  test(`kosmos ${args.slice(0, args[0] === 'task' ? 2 : 1).join(' ')} sends no agent header for a junk or absent token`, async () => {
+  test(`kosmos ${verbName(args)} sends no agent header for a junk or absent token`, async () => {
     const home = makeHome();
     try {
       await withStub(async (port, seen) => {
