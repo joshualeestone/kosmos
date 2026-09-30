@@ -98,6 +98,7 @@ const EXCUSED = {
   setBrowserOpener: 'test seam (#3288): replaces engine/win32signin.js\'s own opener (rundll32 url.dll,FileProtocolHandler, detached), so a suite never opens a real browser and can see the link Kosmos opens.',
   setPortFinder: 'test seam (#3288): replaces engine/win32signin.js\'s netstat lookup of the sign-in program\'s listening port, so a suite never runs netstat.',
   setWindowsSigninHostForTests: 'test seam (win32-claude-signin-host): forces engine/win32signin.js on or off under test (null follows WINDOWS_SIGNIN_HOST_ENABLED, which ships true since the L-1 live check, #3288). Off keeps the kill-switch path covered. Refuses outside a node --test process.',
+  allowWatchHeldForTests: 'test seam (#4640): engine/remote.js holds the second computer\'s session token in memory only while it waits to be allowed, and never exports the token (a credential). This boolean is the only way engine/remote.test.js can check the token is dropped after the final answer, after the wait window, and on a deny, without exposing the token itself.',
   setPlatformForTests: 'test seam (#1704 PR3): engine/worldstarts.js picks the platform arm for a caller that does not pass one. The switch route never passes one, so server.world-switch-agents-1704.test.js states the Mac arm through this and drives it with remove.setRunner from any host. Production uses process.platform.',
   // #3485 Kosmos Community feed store (engine/communitystore.js): the DATA-MODEL slice,
   // landed + tested before its screen per the data-model/build split on #3485. The caller is
