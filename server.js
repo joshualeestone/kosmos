@@ -2975,8 +2975,8 @@ function isSetupGuide(name) {
     return setupAssistant.isGuideFolder(guide);
   } catch { return false; }
 }
-/* The setup guide's words with anything shaped like a secret masked (engine/secretmask.js), for every
-   agent-written text that reaches the person: stored replies (keepAgentReply) and the thread as read.
+/* The setup guide's words with anything shaped like a secret masked (engine/secretmask.js): stored replies
+   (keepAgentReply), the thread as read, and (#4733) a task message, a built note and a status report as recorded.
    Logs that a mask fired and which kinds, never the value. Any other agent's text passes unchanged. */
 function guideMasked(who, text) {
   if (typeof text !== 'string' || !isSetupGuide(who)) return text;
@@ -13033,12 +13033,14 @@ const server = http.createServer(async (req, res) => {
         const kept = selfreport.record(who, {
           state: body.state,
           project: typeof body.project === 'string' ? body.project : undefined,
-          because: body.text,
+          /* #4733: the setup guide's words are masked here too (every free-text field of a report); any other
+             agent's pass unchanged (guideMasked). */
+          because: guideMasked(who, body.text),
           waiting: body.waiting,   // #4569 fix 4: selfreport keeps it only on a sane working report
           final: body.final,       // #4612: a Muse turn's answer; selfreport keeps it only on a sane idle or working report
-          on: body.on,
-          owner: body.owner,
-          until: body.until,
+          on: guideMasked(who, body.on),
+          owner: guideMasked(who, body.owner),
+          until: guideMasked(who, body.until),
           /* #570: which RUN said it, when the sender came from a launch token.
              The pane arm resolves no instance and leaves this undefined. */
           instance: sender.instance,
@@ -17162,7 +17164,7 @@ const server = http.createServer(async (req, res) => {
       const as = { by, person: viaScreen, refusePersonMark: !viaScreen };
       const out = body.clear === true
         ? tasks.clearBuilt(id, taskBuilt[2], as)
-        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? body.note : '' });
+        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? guideMasked(by, body.note) : '' });   // #4733: the guide's note is masked
       if (!out.ok) {
         const code = out.person ? 403 : out.closed ? 409 : out.code === 'UNREADABLE' ? 500
           : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);
@@ -17263,7 +17265,11 @@ const server = http.createServer(async (req, res) => {
           }
           return;
         }
-        const t = tasks.say(id, taskSay[2], body.text);
+        /* #4733: the setup guide's words are masked before they are recorded or previewed to anyone (its replies,
+           messages and posts already are, #3769). Keyed on the identified sender, so the screen and any other
+           agent pass unchanged; a caller nobody could identify is not masked (it is recorded as "An agent"). */
+        const saidText = !viaScreen && senderCard ? guideMasked(senderCard.sessionName, body.text) : body.text;
+        const t = tasks.say(id, taskSay[2], saidText);
         /* Deliver to the agents ASSIGNED to the task (Josh, 2026-09-12: "only to
            the agents assigned to the task"), never the whole project. The full
            message lives in the task record (say, above); what an assignee receives
@@ -17283,7 +17289,7 @@ const server = http.createServer(async (req, res) => {
            assignee parses. */
         const clean = (s) => String(s == null ? '' : s).replace(/[\r\n"]/g, ' ');
         const projName = clean((proj && proj.name) || id);
-        const rawPreview = clean(body.text);
+        const rawPreview = clean(saidText);
         const preview = rawPreview.length > 140 ? rawPreview.slice(0, 140) + '...' : rawPreview;
         /* The sender (senderCard, resolved above). Two uses: exclude the sender from the recipients (an
            agent that runs `kosmos task message` should not be notified about its own
