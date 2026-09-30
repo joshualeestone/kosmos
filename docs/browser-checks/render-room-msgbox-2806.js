@@ -126,6 +126,15 @@ function tapProbe4663(skip) {
   const sx = scrollX, sy = scrollY;
   const start = snap() + '#' + scrolled.map(([, t, l]) => t + ',' + l).join(';') + '#' + sx + ',' + sy;
   const undo = [];
+  /* A project with one task and one file (review round 4): the first task card and the first file row sit a few px
+     under the tasks and Files headers, so an area reaching below a header takes their top edge. With empty lists the
+     neighbour arm below had nothing under a header to measure. Put back at the end like everything else. */
+  const tasklist = document.getElementById('pj-tasklist'), docs = document.getElementById('pj-docs');
+  const seeded = [[tasklist, tasklist && tasklist.innerHTML], [docs, docs && docs.innerHTML]];
+  const door = document.getElementById('pj-alltasks'); const doorWas = door && [door.hidden, door.textContent];
+  if (typeof paintProjectTasks === 'function') paintProjectTasks({ id: 'p4663', tasks: [{ number: 1, title: 'Write the launch note', progress: { assigned: 1, closed: 0 }, parts: [] }] });
+  if (docs) docs.innerHTML = '<button type="button" class="pj-doc" data-doc="notes.md"><span class="pj-doc-n">notes.md</span></button>';
+  undo.push(() => { for (const [el, html] of seeded) if (el) el.innerHTML = html; if (door) { door.hidden = doorWas[0]; door.textContent = doorWas[1]; } });
   const set = (el, prop, val) => { const was = prop === 'hidden' ? el.hidden : prop === 'inert' ? el.hasAttribute('inert') : el.style[prop];
     undo.push(() => { if (prop === 'hidden') el.hidden = was; else if (prop === 'inert') { if (was) el.setAttribute('inert', ''); else el.removeAttribute('inert'); } else el.style[prop] = was; });
     if (prop === 'hidden') el.hidden = val; else if (prop === 'inert') el.removeAttribute('inert'); else el.style[prop] = val; };
@@ -161,6 +170,8 @@ function tapProbe4663(skip) {
     out.push({ id, drawn: Math.round(r.width) + 'x' + Math.round(r.height), tap: Math.round(w) + 'x' + Math.round(h), reach: w >= 35 && h >= 35 });
   }
   const theirs = [];
+  // The rows under the headers must be drawn, or the neighbour arm has no subject (counted, not assumed).
+  const subjects = ['#pj-tasklist .tkcard', '#pj-docs .pj-doc'].map((q) => [...document.querySelectorAll(q)].filter((e) => e.getBoundingClientRect().height > 0).length);
   for (const id of ids) {
     const b = document.getElementById(id); if (!b) continue; b.scrollIntoView({ block: 'center', inline: 'center' }); const r = b.getBoundingClientRect();
     for (const n of document.querySelectorAll('button, a[href], [role="button"]')) {
@@ -185,7 +196,7 @@ function tapProbe4663(skip) {
   for (const [e, t, l] of scrolled) { e.scrollTop = t; e.scrollLeft = l; }
   window.scrollTo(sx, sy);
   const end = snap() + '#' + scrolled.map(([e]) => e.scrollTop + ',' + e.scrollLeft).join(';') + '#' + scrollX + ',' + scrollY;
-  return { out, theirs, restored: end === start, changed: undo.length };
+  return { out, theirs, restored: end === start, changed: undo.length, subjects };
 }
 
 (async () => {
@@ -793,10 +804,15 @@ function tapProbe4663(skip) {
       await phonePage.evaluate(() => { const t = document.getElementById('pj-post'); if (t) t.blur(); });
       // The column that DOES move (Members/Files) must give a focused control its focus back.
       const splitFocus = await phonePage.evaluate(() => {
+        // What this changes is put back after the turn (review round 4: the #4663 probe below measured this altered page).
+        const undo = []; window.__splitUndo = () => { for (const u of undo.reverse()) u(); };
         for (let el = document.querySelector('.pj3 > .pjsplit'); el && el !== document.body; el = el.parentElement) {
+          const was = [el.hidden, el.hasAttribute('inert'), el.style.display];
+          undo.push(() => { el.hidden = was[0]; if (was[1]) el.setAttribute('inert', ''); el.style.display = was[2]; });
           el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block';
         }
         const b = document.getElementById('pj-add-member'); if (!b) return 'no #pj-add-member';
+        const bWas = [b.hidden, b.style.display]; undo.push(() => { b.hidden = bWas[0]; b.style.display = bWas[1]; });
         b.hidden = false; b.style.display = 'inline-block'; b.focus();
         return document.activeElement === b ? 'pj-add-member' : 'not focusable';
       });
@@ -809,12 +825,12 @@ function tapProbe4663(skip) {
       const splitBack = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
       chk(splitFocus === 'pj-add-member' && splitWide === 'pj-add-member' && splitBack === 'pj-add-member' && splitOrder.startsWith('members-files,room'),
         `[phone] a control focused in Members/Files keeps its focus when the phone turns`, `${splitFocus} -> ${splitWide} -> ${splitBack} (order ${splitOrder})`);
-      await phonePage.evaluate(() => { const b = document.getElementById('pj-add-member'); if (b) b.blur(); });
+      await phonePage.evaluate(() => { const b = document.getElementById('pj-add-member'); if (b) b.blur(); if (window.__splitUndo) window.__splitUndo(); });
       // #4663: on a touchscreen the project page's small controls (drawn 22 to 28px) take a tap across at least 36px
-      // around their centre, and none of those areas steals a tap from a neighbouring control's own centre.
+      // on each, and none of those areas takes any part of a neighbouring control (the first task and file included).
       const taps = await phonePage.evaluate(tapProbe4663);
       chk(taps.out.length === 6 && taps.out.every((x) => !x.error && x.reach), `[phone] #4663: Back, settings, + Add member, + New task and both View All take a tap across at least 36px`, JSON.stringify(taps.out));
-      chk(taps.theirs.length === 0, `[phone] #4663: no enlarged tap area takes any part of a neighbouring control`, JSON.stringify(taps.theirs));
+      chk(taps.theirs.length === 0 && taps.subjects.every((n) => n >= 1), `[phone] #4663: no enlarged tap area takes any part of a neighbouring control, the first task and the first file under their headers included`, JSON.stringify({ theirs: taps.theirs, subjects: taps.subjects }));
       chk(taps.restored, `[phone] #4663: the probe left the page as it found it`, String(taps.restored));
       // The projects list's top row at 375 on a touchscreen (16px sort): Add Project, the sort and
       // the view toggle must not overlap and must stay inside the row. (The harness only flags
@@ -1640,14 +1656,15 @@ function tapProbe4663(skip) {
       // #4663 on a touchscreen tablet in the TAB layout (the static page's own layout at 1180).
       const ttaps = await tabletPage.evaluate(tapProbe4663);
       chk(ttaps.out.length === 6 && ttaps.out.every((x) => !x.error && x.reach), `[tablet 1180/touch tabs] #4663: all six small project controls take a tap across at least 36px`, JSON.stringify(ttaps.out));
-      chk(ttaps.theirs.length === 0 && ttaps.restored, `[tablet 1180/touch tabs] #4663: no enlarged tap area takes any part of a neighbour, and the probe left the page as it found it`, JSON.stringify({ theirs: ttaps.theirs, restored: ttaps.restored }));
+      chk(ttaps.theirs.length === 0 && ttaps.subjects.every((n) => n >= 1) && ttaps.restored, `[tablet 1180/touch tabs] #4663: no enlarged tap area takes any part of a neighbour (the first task and file included), and the probe left the page as it found it`, JSON.stringify({ theirs: ttaps.theirs, subjects: ttaps.subjects, restored: ttaps.restored }));
     } finally {
       chk(tabletPageErrors.length === 0, '[tablet] no script errors on the page', tabletPageErrors.join(' | '));
       await tabletPage.close();
     }
     // #4663 in the ONE-SCREEN layout on a touchscreen tablet, set as the dark/consolidated arm above sets it (the
-    // static page does not choose it by itself). Back is not shown in this layout (its crumb row is display:none), so
-    // it is left out rather than forced visible; the other five must all take their 36px tap.
+    // static page does not choose it by itself). Back (its crumb row is display:none) and + Add member (the Members
+    // card is display:none here, #3218) are not shown in this layout, so both are left out rather than forced
+    // visible (forcing Members visible also reflows the Files card); the other four must all take their 36px tap.
     for (const w of [1024, 1180]) {
       const consTap = await browser.newPage({ viewport: { width: w, height: 820 }, colorScheme: 'light', hasTouch: true, isMobile: true });
       const consTapErrors = watchErrors(consTap);
@@ -1657,9 +1674,9 @@ function tapProbe4663(skip) {
         await consTap.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
           document.documentElement.setAttribute('data-layout', 'consolidated'); document.body.classList.add('consolidated'); });
         const layout = await consTap.evaluate(() => document.documentElement.getAttribute('data-layout') + '/' + document.body.classList.contains('consolidated'));
-        const ctaps = await consTap.evaluate(tapProbe4663, ['pj-back']);
-        chk(layout === 'consolidated/true' && ctaps.out.length === 5 && ctaps.out.every((x) => !x.error && x.reach), `[tablet ${w}/touch one-screen] #4663: the five small project controls it shows take a tap across at least 36px`, JSON.stringify({ layout, out: ctaps.out }));
-        chk(ctaps.theirs.length === 0 && ctaps.restored, `[tablet ${w}/touch one-screen] #4663: no enlarged tap area takes any part of a neighbour, and the probe left the page as it found it`, JSON.stringify({ theirs: ctaps.theirs, restored: ctaps.restored }));
+        const ctaps = await consTap.evaluate(tapProbe4663, ['pj-back', 'pj-add-member']);
+        chk(layout === 'consolidated/true' && ctaps.out.length === 4 && ctaps.out.every((x) => !x.error && x.reach), `[tablet ${w}/touch one-screen] #4663: the four small project controls it shows take a tap across at least 36px`, JSON.stringify({ layout, out: ctaps.out }));
+        chk(ctaps.theirs.length === 0 && ctaps.subjects.every((n) => n >= 1) && ctaps.restored, `[tablet ${w}/touch one-screen] #4663: no enlarged tap area takes any part of a neighbour (the first task and file included), and the probe left the page as it found it`, JSON.stringify({ theirs: ctaps.theirs, subjects: ctaps.subjects, restored: ctaps.restored }));
       } finally {
         chk(consTapErrors.length === 0, `[tablet ${w} one-screen] no script errors on the page`, consTapErrors.join(' | '));
         await consTap.close();
