@@ -269,7 +269,8 @@ test('#4043: what the board actually receives: the route, state, text, auto and 
 
 /* #4491: which credentials the bridge presents. The agent's own token always, when it has a well-formed one; the
    person's board token only when this process can read one. An agy agent that cannot read the board token still
-   reports, as itself: POST /api/report takes the agent's token (server.js REMOTE_AGENT_ROUTES). */
+   reports, as itself. That the BOARD then takes the agent's token with no board token is not measured here (this
+   stub answers 200 to anything): server.report-reply-loopback-1968.test.js's AGENT-TOKEN arm pins it. */
 test('#4491: the bridge presents the agent\'s token, and the board token only when it can read one', async () => {
   const http = require('node:http');
   const { spawn } = require('node:child_process');
@@ -300,18 +301,19 @@ test('#4491: the bridge presents the agent\'s token, and the board token only wh
   const tok = 'ab12'.repeat(16);
   const none = path.join(SB, 'no-board-token');       // a data folder the board never wrote a token into
   const held = path.join(SB, 'with-board-token');
-  fs.mkdirSync(none, { recursive: true });
-  fs.mkdirSync(path.join(held, store.APP), { recursive: true });
-  fs.writeFileSync(path.join(held, store.APP, 'board.token'), 'abc123boardtoken');
+  const BAD = ['', ' ', 'not-hex', 'ABCDEF', 'deadbeef warning: x'];
   try {
+    fs.mkdirSync(none, { recursive: true });
+    fs.mkdirSync(path.join(held, store.APP), { recursive: true });
+    fs.writeFileSync(path.join(held, store.APP, 'board.token'), 'abc123boardtoken');
     await stop({ KOSMOS_AGENT_TOKEN: tok, AGENT_WORKFORCE_DATA: none });
     await stop({ KOSMOS_AGENT_TOKEN: tok, AGENT_WORKFORCE_DATA: held });
-    for (const bad of ['', 'not-hex', 'ABCDEF', 'deadbeef warning: x']) await stop({ KOSMOS_AGENT_TOKEN: bad, AGENT_WORKFORCE_DATA: none });
+    for (const bad of BAD) await stop({ KOSMOS_AGENT_TOKEN: bad, AGENT_WORKFORCE_DATA: none });
   } finally {
     server.closeAllConnections(); server.close();
     for (const pane of panes) { try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: String(port), TMUX_PANE: pane }), { force: true }); } catch { /* none */ } }
   }
-  assert.equal(seen.length, 6, 'a report was lost: every Stop must reach the board, with or without a board token');
+  assert.equal(seen.length, 2 + BAD.length, 'a report was lost: every Stop must reach the board, with or without a board token');
   assert.equal(seen[0].headers['x-kosmos-agent-token'], tok, 'the agent\'s token did not reach the board');
   assert.equal(seen[0].headers['x-kosmos-board-token'], undefined, 'no token file, so no board-token header may be sent');
   assert.equal(seen[0].body.state, 'idle', 'with no board token to read, the report itself changed');
@@ -321,7 +323,7 @@ test('#4491: the bridge presents the agent\'s token, and the board token only wh
   assert.equal(seen[1].headers['x-kosmos-agent-token'], tok);
   /* No token, or one that is not plain hex, is never presented: the route would refuse it rather than fall back
      to the pane (the other three bridges' rule). */
-  for (const s of seen.slice(2)) assert.equal(s.headers['x-kosmos-agent-token'], undefined, 'a missing or malformed token was presented');
+  BAD.forEach((bad, i) => assert.equal(seen[2 + i].headers['x-kosmos-agent-token'], undefined, JSON.stringify(bad) + ' was presented as the agent\'s token'));
 });
 /* The merge of main into #4588 put `waiting` (#4569) and `until` (#4588) on one buildBody call: each must reach the
    board in its own field. Dropping either one at the send site reds this test or the next. */
