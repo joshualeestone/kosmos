@@ -15205,6 +15205,8 @@ test('#2811 PARITY: the live branch that HAS an account carries `name` too, or t
 
     assert.ok('name' in out.account,
       'the live-with-account branch dropped `name`, so the three account constructions return different field sets');
+    assert.ok('keyTail' in out.account,
+      'the live-with-account branch dropped `keyTail` (#4603), so the three account constructions return different field sets');
     assert.equal(out.account.name, null,
       'a Claude dir carries no sidecar, so `name` must be present and NULL here -- a non-null means it is reading the wrong dir');
 
