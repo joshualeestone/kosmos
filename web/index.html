@@ -34096,7 +34096,8 @@ async function paintTalk(sessionName, agentName) {
         + (events.length ? ' (' + events.join(', ') + ')' : '')
         + '.'
         /* Review round 3: say what the screen does NOT tell, rather than let a count read as enough to trust on. */
-        + (events.length || h.source ? '' : ' Its screen does not name them or say what they run.')
+        + (!events.length && !h.source ? ' Its screen does not name them or say what they run.'
+          : (!h.command ? ' Its screen does not say what they run.' : ''))
         + (/^Project config\b/i.test(String(h.source || '')) ? ' Codex says this one is in a project\u2019s own settings, which the agent can write to, so the agent could have written it.' : '')
         + ' Trusting covers every hook Codex lists, and trusted hooks run outside the sandbox. If you are not sure, continue without them.';
     }
@@ -40933,7 +40934,8 @@ async function answerCodexHooksFromBox(choice) {
   const buttons = ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close'].map((id) => document.getElementById(id));
   const msg = document.getElementById('d-qask-codex-msg');
   buttons.forEach((b) => { b.disabled = true; });
-  msg.textContent = choice === 'trust' ? 'Trusting the hooks\u2026' : (choice === 'close' ? 'Closing the list\u2026' : 'Continuing without the hooks\u2026');
+  const opening = choice === 'trust' && document.getElementById('d-qask-codex-trust').textContent === 'Show the full list';
+  msg.textContent = opening ? 'Opening the full list\u2026' : (choice === 'trust' ? 'Trusting the hooks\u2026' : (choice === 'close' ? 'Closing the list\u2026' : 'Continuing without the hooks\u2026'));
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/codex-hooks',
       { method: 'POST', headers: { 'content-type': 'application/json' },

@@ -70,6 +70,12 @@ list that shows no ACTIVE hook (a hook that is disabled or fails to load) is not
 stops with "went somewhere we have not measured", no Escape is sent, and the board shows nothing while the list is
 open. Measured neither way; stated.
 
+Round 9: the menu's digits are read only when the screen ends in the EXACT measured block (title, count, sandbox
+line, the three options, footer, nothing else); agent text that imitates it above another popup gives no digit. A
+narrow pane that wraps an option row therefore gives no digit either (fails closed: nothing pressed). The source and
+command show only on one hook's page, where Trust presses nothing; on the table and menu the page says the screen
+does not say what they run. #4589's floor is shared with Stop now, so Stop now is refused while the list is open.
+
 ## Weakest premise
 That 0.149.1's screens and keys hold for the Codex the person runs. A newer Codex (0.159.2 exists) may word the
 dialog differently; then codexHookReview reads nothing, the card shows no buttons, and nothing is pressed (fails

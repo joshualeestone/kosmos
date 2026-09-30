@@ -1688,11 +1688,23 @@ function codexHookMenuKeys(paneText) {
   let from = -1;
   rows.forEach((r, i) => { if (CODEX_HOOK_MENU_TITLE.test(r)) from = i; });
   if (from < 0) return { trust: null, skip: null };
-  const tail = rows.slice(from + 1);
-  const one = (re) => { const hits = tail.map((r) => re.exec(r)).filter(Boolean); return hits.length === 1 ? hits[0][1] : null; };
-  const trust = one(CODEX_HOOK_MENU_TRUST);
-  const skip = one(CODEX_HOOK_MENU_SKIP);
-  return { trust, skip: skip && skip !== trust ? skip : null };
+  /* The EXACT measured block, and nothing else (review round 9: a "Hooks need review" line and option rows written by
+     an agent, above another popup with the same footer, read as the menu, and Trust pressed "2" there). From the
+     title to the end, blank rows aside: the count, the sandbox line, "1. Review hooks", the Trust and Continue rows
+     (either order), then only the footer (which may wrap). Any other row between them returns no digit. */
+  const block = rows.slice(from + 1).filter((r) => r.trim());
+  if (block.length < 6) return { trust: null, skip: null };
+  if (!CODEX_HOOK_MENU_COUNT.test(block[0])) return { trust: null, skip: null };
+  if (!/^\s*Hooks can run outside the sandbox after you trust them\.\s*$/.test(block[1])) return { trust: null, skip: null };
+  if (!/^\s*(?:›\s*)?1\.\s+Review hooks\s*$/.test(block[2])) return { trust: null, skip: null };
+  const pair = [block[3], block[4]];
+  const t = pair.map((r) => CODEX_HOOK_MENU_TRUST.exec(r)).filter(Boolean);
+  const k = pair.map((r) => CODEX_HOOK_MENU_SKIP.exec(r)).filter(Boolean);
+  if (t.length !== 1 || k.length !== 1) return { trust: null, skip: null };
+  if (block.slice(5).join('').replace(/\s+/g, '') !== 'Pressentertoconfirmoresctogoback') return { trust: null, skip: null };
+  const trust = t[0][1];
+  const skip = k[0][1];
+  return { trust, skip: skip !== trust ? skip : null };
 }
 /* #4607: what the card shows beside its two buttons. From the MENU, the count ("2 hooks are new or changed."); from
    the TABLE, the events with hooks to review (the Review column); from one HOOK, its event and source. Only what the
@@ -1715,7 +1727,11 @@ function codexHookSummary(paneText) {
     const m = rows.map((r) => CODEX_HOOK_MENU_COUNT.exec(r)).filter(Boolean).pop();
     if (m) count = Number(m[1]);
   } else if (seen.screen === 'table') {
-    for (const r of rows) {
+    /* Only the table's own rows: after its "Event  Installed  Active  Review" header (review round 9: a transcript
+       row of the same shape above it added a made-up event). */
+    let head = -1;
+    rows.forEach((r, i) => { if (/^\s*Event\s+Installed\s+Active\s+Review\b/.test(r)) head = i; });
+    for (const r of head >= 0 ? rows.slice(head + 1) : []) {
       const m = CODEX_HOOK_TABLE_ROW.exec(r);
       if (m && Number(m[4]) > 0) events.push({ event: m[1], count: Number(m[4]) });
     }

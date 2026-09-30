@@ -1213,10 +1213,15 @@ const CODEX_HOOK_BUSY = new Set();
 /* #4607 (review round 4): what the person was shown, as the thread route sent it (status.codexHookSummary). The
    answer must be about THAT dialog: a different one on screen now (another hook set, or another screen) is refused. */
 function sameCodexHooks(a, b) {
-  const norm = (h) => (h && typeof h === 'object')
-    ? JSON.stringify({ screen: h.screen || null, count: typeof h.count === 'number' ? h.count : null,
-      events: Array.isArray(h.events) ? h.events.map((e) => `${e && e.event}:${e && e.count}`) : [], source: h.source || null, command: h.command || null })
-    : null;
+  /* Never throws on what a request sends (review round 9): anything odd is simply not a match. */
+  const norm = (h) => {
+    try {
+      return (h && typeof h === 'object')
+        ? JSON.stringify({ screen: h.screen || null, count: typeof h.count === 'number' ? h.count : null,
+          events: Array.isArray(h.events) ? h.events.map((e) => `${e && e.event}:${e && e.count}`) : [], source: h.source || null, command: h.command || null })
+        : null;
+    } catch { return null; }
+  };
   return norm(a) !== null && norm(a) === norm(b);
 }
 async function answerCodexHooks(sessionName, choice, roster, seen) {
