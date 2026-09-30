@@ -365,7 +365,8 @@ async function run() {
     if (!sandboxedData(dataRoot)) {
       check('REARM: runs only on a sandboxed board (AGENT_WORKFORCE_DATA under the temp dir)', false, String(dataRoot));
     } else {
-      const file = path.join(dataRoot, 'community.json');
+      // The board's own path (store.ROOT is <data>/<app>, not <data>), read from the module that owns it.
+      const file = require('../../engine/communityswitch').FILE;
       const had = fs.existsSync(file) ? fs.readFileSync(file) : null;
       const realNotice = async (state) => {
         fs.writeFileSync(file, JSON.stringify(state));

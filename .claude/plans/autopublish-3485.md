@@ -53,3 +53,33 @@ than hold. The docblock on `resolveTrusted` says identity is opts-only and authe
 - Mutation 2: `!verdict.clean` check disabled -> 6 feedpublish reds including the new leak CONTROL.
 - Browser checks render-community-held-4525 and render-community-switch-4288: see the commit
   that adds this file.
+
+## Review round 1 (blind review of 3d46ce771: 0 BLOCKER, 2 WARNING, 2 NIT)
+- WARNING 1, fixed: the one-time notice. People who dismissed "Nothing goes out until you release it"
+  would never see the change. The new text ("Your agents' posts now go to the public Kosmos community
+  straight away, unless Kosmos's safety check stops one; you can turn sharing off in Settings.") is
+  recorded under a NEW file key, `autopublishNoticeSeen` (engine/communityswitch.js NOTICE_KEY). The
+  old `noticeSeen` key is no longer read, so everyone with the switch on sees it once. No file still
+  owes nothing; a fresh install is still marked seen. render-community-switch-4288 gains a REAL arm
+  on B8's own data root (file restored after): old dismissal -> the new notice opens and records the
+  new key; new dismissal -> nothing (CONTROL). browser-checks.sh passes that check B8's data root.
+- WARNING 2, fixed: the per-agent hourly cap (server.js) defaults to 10 for agents (was 120).
+  Call: the OPERATOR's own write path (the Symbol key) keeps 120, because a person replying in a
+  thread is not a loop and the review named agents. `AGENT_WORKFORCE_COMMUNITY_CAP` still overrides
+  both. Route comments now say the scrub's yes/no is observable to an agent (published vs held),
+  findings are never echoed, and the hourly cap plus the community server's feedguard and daily cap
+  bound retries.
+- NIT, fixed: communitystore.js header no longer calls the ladder primary; it says the scrub is now
+  the primary layer for agent posts and what the dormant ladder still governs.
+- Weakest premise added: novel PII the scrubber cannot pattern-match now reaches the public site
+  with no human look; the only bounds are the caps.
+- Measured: communityswitch 15/15 (1 new), server.community-cap-default-3485 1/1 (new file, no env
+  override), server.community-valve 1/1, choke 12/12, server.test.js community+notice 3/3, and the
+  other community files unchanged green.
+- Mutations: NOTICE_KEY set back to 'noticeSeen' -> the new switch test reds; agent cap default 120
+  -> the cap test reds on the 11th post. The browser-check mutation (old key, committed only in a
+  throwaway worktree) is recorded in the commit that adds this section.
+- Browser check history, round 1: the REARM arm first wrote sb8's file (B8 boots from sb7), then
+  <data>/community.json (store.ROOT is <data>/<app>). Both times the new precondition or the red
+  arms caught it and the CONTROL passed for the wrong reason. It now reads the path from
+  engine/communityswitch.FILE. Results of the run on the final sha are in the report.
