@@ -25,7 +25,7 @@ take main the order is mixed. That changes fairness only: exclusivity rests on t
 That --light stays honest: a mislabelled long job jumps the line. Bounded: the lane still takes one turn at a time, a
 heavy waiter past 45 min goes first, and queued-heavy logs each turn's length.
 
-## Tests (tools/test-cut-guard.sh, 137 pass)
+## Tests (tools/test-cut-guard.sh, 137 pass at first build; 139 after review rounds 1-2)
 light ahead of an older heavy (an older lib's marker reads heavy); CONTROL heavy in the same place waits; heavy past
 the starve line ahead of light; CONTROL a longer starve line; two lights oldest-first; unknown class recorded heavy.
 Mutation (constant rank) reds the light arm and the starve control.
@@ -34,8 +34,8 @@ Mutation (constant rank) reds the light arm and the starve control.
 - WARNING 2, fixed: nothing stopped a full suite declaring itself light (an exported KOSMOS_QUEUE_CLASS=light, or a
   light queue turn that launches run-tests.sh). run-tests.sh now sets KOSMOS_QUEUE_CLASS=heavy after the lib loads and
   before its first wait, and KOSMOS_QUEUE_CLASS joins KOSMOS_WAIT_CONTROL_VARS so no descendant inherits it (the
-  existing not-inherited arm now covers it). New arm; mutation (the assignment removed) reds exactly it. 138/138.
-- WARNING 1, DECIDED, kept: a heavy waiter past the 45-min starve line outranks light, so a light job joining a queue
+  existing not-inherited arm now covers it). Round 2: the first arm only grepped line order (could pass on an unreachable assignment); it is now DRIVEN: a real run-tests.sh with KOSMOS_QUEUE_CLASS=light queues behind a waiter and its marker line 5 must read heavy, with an in-test CONTROL copy (the line removed) that must read light. 139/139.
+- WARNING 1, DECIDED, kept (stated plainly per round 2: the 10:07 snapshot that motivated the card is itself a case the lane does NOT help, because its 3 suites were already past the starve line): a heavy waiter past the 45-min starve line outranks light, so a light job joining a queue
   of already-aged suites still waits behind them. Kept because that line is the only thing that stops a stream of light
   runs holding a suite back for ever, and the aged backlog drains in order (each suite 15 to 20 min, and each departure
   restarts the light waiter's bound). Rejected: ageing against "time since a heavy last held the box" (more shared

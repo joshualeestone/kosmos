@@ -989,16 +989,33 @@ _seen_all=1; for v in $KOSMOS_WAIT_CONTROL_VARS; do has "$out" "SEEN $v=unset" |
 { [ "$_seen_all" = 1 ] && [ -n "$KOSMOS_WAIT_CONTROL_VARS" ]; } \
   && pass "#4609 the queue overrides and wait controls are not inherited by the suite's own processes" \
   || fail "#4609 a node the suite ran inherited an override, or never ran ($(printf '%s' "$out" | tail -6 | tr '\n' '|'))"
-# Review: a full suite queues heavy whatever class it inherited. The assignment must come after the lib loads and
-# before the first wait (a light suite would jump the lane). CONTROL: the ordinary light class still reads light.
-_cls_at="$(grep -n '^KOSMOS_QUEUE_CLASS=heavy$' "$HERE/run-tests.sh" | head -1 | cut -d: -f1)"
-_lib_at="$(grep -n 'tools/lib/cut-guard.sh" 2>/dev/null || true$' "$HERE/run-tests.sh" | head -1 | cut -d: -f1)"
-_wait_at="$(grep -n '^ *kosmos_wait_until_clear ' "$HERE/run-tests.sh" | head -1 | cut -d: -f1)"
-{ [ -n "$_cls_at" ] && [ -n "$_lib_at" ] && [ -n "$_wait_at" ] && [ "$_lib_at" -lt "$_cls_at" ] && [ "$_cls_at" -lt "$_wait_at" ] \
-  && [ "$(KOSMOS_QUEUE_CLASS=light _kosmos_queue_class)" = light ] \
-  && [ "$(KOSMOS_QUEUE_CLASS=light; KOSMOS_QUEUE_CLASS=heavy; _kosmos_queue_class)" = heavy ]; } \
-  && pass "#4609 run-tests.sh queues heavy even with KOSMOS_QUEUE_CLASS=light inherited" \
-  || fail "#4609 run-tests.sh can queue light (class line ${_cls_at:-none}, lib ${_lib_at:-none}, first wait ${_wait_at:-none})"
+# Review rounds 1-2: a full suite queues HEAVY whatever class it inherited. Driven, not grepped: a real copy of
+# run-tests.sh started with KOSMOS_QUEUE_CLASS=light queues behind a waiter, and the class line (5) of the marker it
+# writes is read. CONTROL: the same copy with the assignment removed writes "light", so the arm can see the danger.
+_rt_marker_class() {   # <tree>: start its run-tests.sh queued behind a waiter, print its marker's line 5, stop it
+  local tree="$1" rp i cls="" wq
+  sleep 60 & wq=$!
+  printf '100 %s\n%s\n%s\n%s\n' "$wq" "$(ps -ww -o command= -p "$wq")" "$(_kosmos_pid_started_local "$wq")" "$(_kosmos_pid_started "$wq")" > "$(_kosmos_marker_dir)/suitewait.$wq"
+  (cd "$tree" && exec env KOSMOS_QUEUE_CLASS=light KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
+    KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= bash tools/run-tests.sh) >/dev/null 2>&1 &
+  rp=$!
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    [ -s "$(_kosmos_marker_dir)/suitewait.$rp" ] && { cls="$(sed -n '5p' "$(_kosmos_marker_dir)/suitewait.$rp")" || cls=""; break; }
+    sleep 0.5
+  done
+  pkill -P "$rp" 2>/dev/null; kill "$rp" "$wq" 2>/dev/null; wait "$rp" "$wq" 2>/dev/null
+  rm -f "$(_kosmos_marker_dir)/suitewait.$rp" "$(_kosmos_marker_dir)/suitewait.$wq"
+  printf '%s' "${cls:-none}"
+}
+_cls_real="$(_rt_marker_class "$RT")"
+RT3="$(mktemp -d /tmp/rt4609c.XXXXXX)"; mkdir -p "$RT3/tools/lib" "$RT3/sub"
+grep -v '^KOSMOS_QUEUE_CLASS=heavy$' "$HERE/run-tests.sh" > "$RT3/tools/run-tests.sh"; cp "$HERE"/lib/*.sh "$RT3/tools/lib/"
+: > "$RT3/sub/stray.test.js"
+_cls_ctl="$(_rt_marker_class "$RT3")"; rm -rf "$RT3"
+[ "$_cls_ctl" = light ] && pass "#4609 CONTROL: a run-tests.sh without the heavy line queues as light (the arm can see it)" \
+  || fail "#4609 CONTROL: the copy without the heavy line queued as '$_cls_ctl', so the arm below proves nothing"
+[ "$_cls_real" = heavy ] && pass "#4609 run-tests.sh queues heavy even with KOSMOS_QUEUE_CLASS=light inherited" \
+  || fail "#4609 run-tests.sh queued as '$_cls_real' with KOSMOS_QUEUE_CLASS=light inherited"
 out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all")"
 { has "$out" "COVERAGE MISMATCH" && ! has "$out" "waiting for the box longer"; } \
   && pass "#4498 a run-tests.sh inside a test does not queue behind a waiting suite" \
