@@ -26,9 +26,21 @@ fetchStanding, and then #4681's doors need another signal.
 mac-standing.js said "a PAID route must not be called when the feature is off" (fed-gate W1, #3355): an engineering
 choice to spare the coordinator, not a ruling. Kept in spirit: twice a day, empty body.
 
+## Premise, checked
+The coordinator's standing handler (kosmos-relay coordinator/src/macs.rs, on main and on wip/retirehold-4681) calls
+touch_mac, refreshing last_seen, unless the body is a not-enrolled report; an empty body is not one. So this ping is
+what #4681's quiet test reads.
+
+## Known side effect (a coordinator follow-up, not fixed here)
+The account page (coordinator/src/signin.html) shows "Answering now" when last_seen is under 120 s old. So for about
+two minutes after each twice-daily ping, a computer with remote access OFF reads "Answering now" though nobody can
+reach it: the confusion #4277 review 12 kept a not-enrolled board out of. Fixing it needs the coordinator to keep
+"in use" apart from "answering" (e.g. the ping sends {"remote":{"on":false}} and the page does not say "Answering"
+for a Mac whose last report says off). Named on the card for the relay lane.
+
 ## Weakest premise
-That the coordinator counts /v1/mac/standing as "in use" for #4681's quiet test. The card says standing counts; not
-re-read here in kosmos-relay.
+That twice a day is enough for every quiet test #4681 adds. Its line is one day; 12 h leaves room for one missed ping
+(a computer asleep at that moment), not two.
 
 ## Tests
 engine/mac-standing.test.js (off: one signed call, empty body; CONTROL on: the report body),
