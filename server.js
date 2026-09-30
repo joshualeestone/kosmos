@@ -87,6 +87,8 @@ const {
      reported question from the board's generic "asking" and not offer the
      placeholder as the question the person should answer. */
   ASKING_GENERIC,
+  /* #4607: what a Codex agent's "Hooks need review" screen says, for the thread's two buttons. */
+  codexHookSummary,
 } = require('./engine/status');
 const removal = require('./engine/remove');
 const worldstarts = require('./engine/worldstarts'); // #1704 PR3: pause/resume a Kosmos's agents across a switch
@@ -6073,6 +6075,29 @@ const server = http.createServer(async (req, res) => {
     const ok = stopped.ok === true && helped.ok === true;
     sendJson(res, 200, { ok: true, stopped: ok,
       because: ok ? null : (stopped.ok ? helped.because : stopped.because), swarm: next });
+    return;
+  }
+  /* #4607: the PERSON answers Codex's "Hooks need review" from the board: { choice: 'trust' | 'skip' }. Trusting lets
+     the hooks run outside the sandbox, and #4589's floor keeps every message path from answering it, so this route
+     is the person's only: not an agent-token route (AGENT_TOKEN_ROUTES), and refused when the caller presents an agent
+     token or is not a browser page (isViaScreen, checked after the body is read so a token in the body counts).
+     ADVISORY, as for the board's other person-only routes: a local process holding the board token can send a
+     browser's headers. The answer itself is chat.answerCodexHooks: the screen is read again before every key. */
+  const codexHooks = pathname.match(/^\/api\/agent\/([^/]+)\/codex-hooks$/);
+  if (codexHooks && req.method === 'POST') {
+    const name = decodeSegment(codexHooks[1]);
+    if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    readBody(req, 4096)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { ok: false, because: 'only you can answer this, from the board' }); return; }
+        const choice = body.choice;
+        if (choice !== 'trust' && choice !== 'skip') { sendJson(res, 400, { ok: false, because: 'choose to trust the hooks or to continue without them' }); return; }
+        const r = await chat.answerCodexHooks(name, choice, safeRoster());
+        sendJson(res, 200, { ok: r.ok === true, choice, because: r.ok ? null : r.because });
+      })
+      .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
     return;
   }
   /* #3564: a swarm's settings (the contract on #3564): { maxHelpers?, dailyTokenLimit?, active? }.
@@ -13765,6 +13790,12 @@ const server = http.createServer(async (req, res) => {
     // the agent's own words with no on-screen numbers, so it never draws
     // buttons (optionsIn would refuse the prose anyway; this states the intent).
     const options = (asking && question && !question.reported) ? chat.optionsIn(question.text) : null;
+    /* #4607: a Codex agent stopped on its "Hooks need review" dialog. questionIn finds no question there (the dialog
+       is not a prompt the person types into, #4589), so the page is told what the screen says instead: which screen,
+       how many hooks, their events and source where shown. The page answers through POST .../codex-hooks, never the
+       composer. From the same fresh capture as the question; null for everything else. */
+    const codexHooks = (asking && card && card.runner === 'codex' && view && typeof view.text === 'string')
+      ? codexHookSummary(view.text) : null;
     /**
      * ⚠️ PRESENCE IS THE SEND GATE'S OWN ANSWER, not a second derivation of it.
      * The first version of this route asked whether a tied card existed, which
@@ -13894,6 +13925,7 @@ const server = http.createServer(async (req, res) => {
       /* #3769: a question read off the guide's screen is its words too. */
       question: guideThread && question && typeof question.text === 'string' ? { ...question, text: guideMasked(guideName, question.text) } : question,
       questionBecause,
+      codexHooks, // #4607
       /* #1629: the page draws a composer under a question, and for the trust
          dialog that invites the one keystroke that ends the session. The
          route says so up front, in the same sentence the send refusal uses,
