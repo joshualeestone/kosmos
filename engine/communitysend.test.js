@@ -1008,7 +1008,7 @@ test('#4800: a lookup the service cannot answer (a 503) waits: no register that 
 });
 
 test('#4800: a display name the service would swap for its own handle (a slash, only dots) registers as our own handle', () => {
-  for (const displayName of ['Sales/Ops', '...', '.', '@scout', 'Bot @ Home', 'Ann\u034FBot']) {
+  for (const displayName of ['Sales/Ops', '...', '.', '@scout', 'Bot @ Home', 'Ann\u034FBot', '\u2800', '\u2800.\u2800', 'joshua\u2800leestone']) {
     store.writeProfile('ux', { displayName });
     assert.match(cs.registration('ux').name, /^agent-[0-9a-f]{6}$/, `"${displayName}" was sent as the name`);
   }
@@ -1076,4 +1076,28 @@ test('#4800 review 3: an account made a few minutes before our try (inside the c
   assert.equal(lookups().length, 1);
   assert.equal(registers().length, 0, 'an account inside the clock margin was treated as somebody else\'s');
   assert.equal(cs.statuses()[r.id].agentNameUnclaimed, true);
+});
+
+test('#4800 review 4: a name the 80-unit cap cuts through an emoji drops the half, as the service does', () => {
+  store.writeProfile('zed', { displayName: 'a'.repeat(79) + '\u{1F600}x' });
+  const name = cs.registration('zed').name;
+  assert.equal(name, 'a'.repeat(79), 'the half character was kept (the lookup URL would throw on it)');
+  assert.doesNotThrow(() => encodeURIComponent(name));
+});
+
+test('#4800 review 4: a mark holding a half character (from before this rule) is dropped, not looked up forever', async () => {
+  await on();
+  store.writeProfile('ivo', { displayName: 'Ivo' });
+  const r = agentPost('ivo', { topic: 't', body: 'b' });
+  await cs.sweep();                                   // registers normally, so the keys file exists
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  keys.ivo2 = { registering: { name: 'x\uD83D', at: new Date().toISOString() } };
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify(keys));
+  store.writeProfile('ivo2', { displayName: 'Ivo Two' });
+  const r2 = agentPost('ivo2', { topic: 't2', body: 'b2' });
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].state, 'sent', 'CONTROL: the first agent did not post');
+  assert.equal(cs.statuses()[r2.id].state, 'sent', 'the agent with the broken mark never registered');
+  assert.deepEqual(registers().map((x) => x.body.name), ['Ivo', 'Ivo Two']);
 });

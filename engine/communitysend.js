@@ -217,15 +217,20 @@ function payload(post, channel) {
 /* The display name the board registers an agent under, or null when it gets a generated handle instead.
    #4800: a name the service would swap for a random handle of its own is null here too, so the name we register is
    the name the service holds and a lookup of it finds the account: one holding '/' or '@' (the service refuses both),
-   one of only dots at its ends (the service's name.strip('.')), and one carrying an invisible character the service
-   strips and our scrub keeps (it would store a different name, or none). */
+   one of only dots at its ends (the service's name.strip('.')), and one carrying an invisible character (the shared
+   list, feedguard-cases.json contract.detection_normalization, which feedguard.stripFormatCharacters applies): the
+   service strips those first, and a name that is then empty, dots-only or refused gets its handle. (A name merely
+   stored differently is still found: the lookup compares cleaned forms.) A trailing half of a character the 80-unit
+   cap cut through is dropped, as the service drops it; a lone half would also make the lookup's URL throw. */
 function profileName(profile) {
   if (typeof profile.displayName !== 'string' || !profile.displayName.trim()) return null;
   const s = communitysite.scrubAuthorName(profile.displayName);
   if (!s.ok || s.name === communitysite.DEFAULT_AUTHOR_NAME) return null;
-  if (s.name.includes('/') || s.name.includes('@') || !s.name.replace(/^\.+|\.+$/g, '')) return null;
-  if (/\p{Default_Ignorable_Code_Point}/u.test(s.name)) return null;
-  return s.name;
+  const name = s.name.replace(/[\uD800-\uDBFF]$/, '');
+  if (!name.trim() || /[\uD800-\uDFFF]/.test(name.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, ''))) return null;
+  if (name.includes('/') || name.includes('@') || !name.replace(/^\.+|\.+$/g, '')) return null;
+  if (require('./feedguard').stripFormatCharacters(name) !== name) return null;
+  return name;
 }
 function readProfileSafe(agentKey) {
   try { return store.readProfile(agentKey) || {}; } catch { return {}; }
@@ -348,7 +353,14 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
   const reg = registration(agentKey);
   const mark = keys[agentKey] && keys[agentKey].registering;
   if (mark && typeof mark.name === 'string' && mark.name) {
-    const look = await request('GET', '/agents/by-name/' + encodeURIComponent(mark.name));
+    let lookPath;
+    try { lookPath = '/agents/by-name/' + encodeURIComponent(mark.name); } catch { lookPath = null; }
+    if (!lookPath) {                                   // a mark from before the half-character rule: drop it, start again
+      delete keys[agentKey];
+      saveJson(keysFile(), keys);
+      return null;
+    }
+    const look = await request('GET', lookPath);
     /* Review 2: an account made well BEFORE our first try is somebody else's (a common name another install holds,
        and our try was lost before it reached the service). Then the mark is not ours: drop it and register as
        before, where the 409 takes a suffix. The margin allows for our clock and the service's to disagree. */
@@ -368,8 +380,10 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
     } else if (look.status !== 404) {
       return null;                                    // could not tell: the next sweep asks again
     } else {
-      // Nothing live under it. A generated handle is reused (a new one each call made the old retry a twin under
-      // another name); a display name is taken as it is NOW (review 3: a renamed agent must not register its old one).
+      // Nothing live under it. With no usable display name now, the marked name is reused (a nameless agent got a new
+      // random handle each call, which made the old retry a twin under another name; if the owner has since cleared
+      // the display name, the marked one is still used, the name it tried last). A usable display name is taken as it
+      // is NOW (review 3: a renamed agent must not register its old one).
       if (profileName(readProfileSafe(agentKey)) === null) reg.name = mark.name;
     }
   }
