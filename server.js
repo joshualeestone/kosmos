@@ -3997,7 +3997,8 @@ function processCaller(req, body, roster, viaScreen, notDone) {
    checked is not let through. A project nobody stored is left to the handler's own 404.
    ONE exception: a project a PROCESS made that lists nobody (`made.via === 'process'`, `agents: []`). That is
    what `kosmos project create` made before slice 5b put an identified maker on its project, and still makes for
-   a caller nobody can name (the person in a terminal outside tmux). Every agent's working rules say "once it
+   a caller nobody can name (the person in a terminal outside tmux) and for the setup guide, which is recorded as
+   the maker and never put on a project. Every agent's working rules say "once it
    exists you ... hand it work the same way as any other project" (engine/defaults.js, "Making a project"), so
    the projects agents made before 5b keep taking their tasks. A task there can have no assignee (an assignee
    must be a member). A project made ON THE PAGE is not that, with nobody ticked or emptied later: nobody
@@ -15948,7 +15949,9 @@ const server = http.createServer(async (req, res) => {
             /* Slice 5b: not the maker. It made the project a moment ago and the CLI has just told it so; a line
                typed into its own pane for every project it makes would also sit outside the member valve (create
                records no member change), so a looping agent could type into itself as fast as it can create. Its
-               instructions are still synced above, which is what makes the membership real for it. */
+               instructions are still synced above, like any member's: that is what lists the project in its own
+               instructions. When the sync cannot be done the verdict says so and the membership stands, as for
+               any member (the three-valued verdict below). */
             const said = a === makerMember ? null : await projects.speakOfMembershipAsync(a, made, 'joined', roster);
             return { agent: a, ...verdict, said };
           }));

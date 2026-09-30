@@ -145,6 +145,24 @@ test('the setup guide is recorded as the maker of a project it makes, and is NOT
   assert.deepEqual(stored(m.id).agents, ['mara']);
 });
 
+test('a maker with no roster row (a Windows agent) is on its project under the token store\'s key', async (t) => {
+  const liveness = require('./engine/liveness');
+  const realAlive = liveness.alive;
+  liveness.alive = (key) => (key === 'ghost' ? true : realAlive(key));
+  t.after(() => { liveness.alive = realAlive; sendertoken.revoke('ghost'); });
+  const ghost = sendertoken.mint('ghost').token;
+  const g = await make('Made From Windows', withBoard({ 'x-kosmos-agent-token': ghost }));
+  assert.equal(g.r.code, 200, g.r.text.slice(0, 200));
+  assert.deepEqual([stored(g.id).agents, stored(g.id).made.by], [['ghost'], 'ghost']);
+  /* Its instructions are synced like any member's. Here the agent has no folder on this computer, so the verdict
+     says it could not be done, and the membership stands all the same: recorded, reportable, and not a failed create. */
+  const told = JSON.parse(g.r.text).told;
+  assert.deepEqual([told.length, told[0].agent, told[0].said], [1, 'ghost', null]);
+  assert.equal(typeof told[0].state, 'string', 'the maker has no sync verdict at all');
+  /* And it can use what it made, on its token alone. */
+  assert.equal((await call('POST', '/api/project/' + g.id + '/tasks', { headers: { 'x-kosmos-agent-token': ghost }, body: { sentence: 'first task' } })).code, 200);
+});
+
 test('a caller nobody can name makes a project with exactly the members it asked for, as before', async () => {
   /* The person in a terminal outside tmux: no token, no pane. */
   const terminal = await make('Made In A Terminal', withBoard(), { from_pane: '' });

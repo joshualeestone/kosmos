@@ -44,8 +44,9 @@ and had to carry an exception for these memberless projects. This slice makes th
   setup guide on a Mac, an agent behind a reverse proxy) make projects is a separate decision, left for the slice
   where the CLIs stop sending the board token.
 - **Slice 5a's exception stays, reworded.** Projects agents made before this slice still list nobody. They keep
-  taking tasks from an identified agent (the exception), so nothing that works today stops. New agent-made
-  projects never need it. Rejected: deleting the exception now, which would refuse an agent a task on a project
+  taking tasks from an identified agent (the exception), so nothing that works today stops. New projects made
+  by an ordinary agent never need it; projects made by the setup guide, or by a caller nobody can name, still
+  list nobody and still rely on it. Rejected: deleting the exception now, which would refuse an agent a task on a project
   it made last week.
 
 ## What changes for callers that work today (stated)
@@ -66,6 +67,10 @@ and had to carry an exception for these memberless projects. This slice makes th
   with nobody on it.
 - A paneless maker (a Windows agent, a token with no roster row) is listed under the token store's key, which can
   differ in spelling from its name.
+- The maker's instructions are synced like any member's, and like any member's that can fail (measured: a maker
+  with no folder on this computer gets "it has no folder of its own on this computer yet"). The membership stands
+  and the create still answers 200 with that verdict in `told`, which is the route's existing rule for a member it
+  could not tell.
 - `kosmos room reopen` is not touched. It clears the loop-guard that exists to stop agents, so whether an agent's
   own token may do it is its own decision (the next slice).
 
@@ -78,7 +83,7 @@ nobody has ruled on a lead agent that sets up projects for others and does not w
   and slice 5a's exception keeps its tasks working.
 
 ## Tests
-- `server.agent-projects-4491.test.js` (new, 8; the last two listed came from round 1), projects made for real in the sandbox: an agent's token names it
+- `server.agent-projects-4491.test.js` (new, 9), projects made for real in the sandbox: an agent's token names it
   as the maker and puts it on the project, after which it adds a task and reads the room on its token alone while
   another agent is refused both; a pane names the maker too, and named members are kept with the maker listed
   once; a terminal with no pane and the page make exactly what they asked for; an unresolvable token makes nothing
@@ -106,4 +111,15 @@ nobody has ruled on a lead agent that sets up projects for others and does not w
   another agent now, and a second case covers a maker that names itself.
 - C the plan omitted the brief note and the `isNamedOurs` tightening, and the person typing in an agent's pane:
   all three are stated above.
+
+## Review round 2 (sonnet): 0 BLOCKER, 1 WARNING, 1 CONVENTION, 2 NIT
+- W a maker with no roster row: the comment said its instructions "are still synced", which is not always so.
+  Measured with the real route: the project is made (200), the maker is on it under its key, and the sync verdict
+  for an agent with no folder here is "could not" with its reason; the membership stands, as for any member.
+  The comment and plan say that now, and a test pins the case (and that the maker can then add a task).
+  The reviewer's predicted reason ("no agent with exactly this name") is not what the route answers.
+- C the exception's comment and the plan left out the setup guide as a third source of memberless process-made
+  projects: added.
+- NITs not taken: a trimmed-versus-untrimmed name comparison that cannot differ today; the guide is tested in its
+  roster-name form only (the key form resolves the same folder).
 
