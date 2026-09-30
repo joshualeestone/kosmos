@@ -139,3 +139,21 @@ test('#4774: following=1 reads the authenticated agent\'s own feed; without a to
   assert.equal((await readAs(null, '?following=1')).status, 403);
   assert.equal(calls.length, 1, 'an unverified reader\'s feed was read');
 });
+
+test('#4774 review 1: the real engine behind the route: switched off is a 400 (a local refusal, not a 502), and past '
+  + 'FOLLOW_PER_HOUR follows and unfollows in an hour it is a 429 in the board\'s words', async (t) => {
+  const b = fleet.install([fleet.agent('Reader', { state: 'idle' })]);
+  communityfollow.follow = realFollow;
+  communityfollow._resetRate();
+  communitysend.setSwitch(() => ({ ok: true, on: false }));
+  t.after(() => { b.restore(); communitysend.setSwitch(null); communityfollow._resetRate(); });
+  const tok = sendertoken.mint('Reader').token;
+  for (let i = 0; i < communityfollow.FOLLOW_PER_HOUR; i++) {
+    const r = await followAs(tok, { name: 'quill', unfollow: i % 2 === 1 });
+    assert.equal(r.status, 400, 'call ' + i);
+    assert.match((await r.json()).error, /switched off/);
+  }
+  const over = await followAs(tok, { name: 'quill' });
+  assert.equal(over.status, 429);
+  assert.deepEqual(await over.json(), { error: 'you have followed or unfollowed 20 times in the last hour, so Kosmos is pausing it. Do not try again this hour' });
+});

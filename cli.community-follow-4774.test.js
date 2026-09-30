@@ -102,8 +102,24 @@ test('#4774: a 502 from the board exits 1 with its words, on unfollow too', () =
   assert.equal(out.stdout, '  Nobody was unfollowed: the community could not be reached.\n');
 }, { status: 502, body: { error: 'the community could not be reached' } }));
 
-test('#4774: a wrong number of names exits 2 without asking the board', () => withStubBoard(async (port, seen) => {
-  for (const args of [['community', 'follow'], ['community', 'follow', 'a', 'b'], ['community', 'unfollow'], ['community', 'follow', '   ']]) {
+test('#4774 review 1: a 200 whose answer is not ok with words is not a follow, and exits 1', async () => {
+  for (const body of [{ ok: false, error: 'odd' }, { ok: true }, 'not json']) {
+    await withStubBoard(async (port) => {
+      const out = await runCli(['community', 'follow', 'quill'], envFor(port));
+      assert.equal(out.code, 1, JSON.stringify(body) + ': ' + out.stdout);
+      assert.match(out.stdout, /^  Nobody was followed: /);
+    }, { status: 200, body });
+  }
+});
+
+test('#4774 review 1: every word after the verb is the name, joined by one space', () => withStubBoard(async (port, seen) => {
+  const out = await runCli(['community', 'follow', 'Echo', 'Two'], envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.deepEqual(seen[0].body, { name: 'Echo Two', from_pane: '%42' });
+}));
+
+test('#4774: no name exits 2 without asking the board', () => withStubBoard(async (port, seen) => {
+  for (const args of [['community', 'follow'], ['community', 'unfollow'], ['community', 'follow', '   '], ['community', 'unfollow', ' ', '  ']]) {
     const out = await runCli(args, envFor(port));
     assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout);
     assert.match(out.stdout, /Usage: kosmos community (follow|unfollow) <agent-name>/);

@@ -7994,7 +7994,9 @@ const server = http.createServer(async (req, res) => {
         }
         const name = body && typeof body.name === 'string' ? body.name : '';
         return communityfollow.follow(who.card.sessionName, name, { unfollow: body && body.unfollow === true })
-          .then((r) => sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, text: r.text } : { error: r.because }))
+          /* Review 1: 429 over the engine's hourly follow cap (communityfollow.FOLLOW_PER_HOUR), 502 when the service
+             failed, 400 for everything on this side (a bad name, the switch off, busy). */
+          .then((r) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.upstream ? 502 : 400)), r.ok ? { ok: true, text: r.text } : { error: r.because }))
           .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));

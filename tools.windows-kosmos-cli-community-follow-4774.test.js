@@ -76,9 +76,15 @@ test('#4774: a 400 or a 502 from the board is said in its words and exits 1', as
   assert.equal(await cli.main(['community', 'follow', 'quill'], odd.io), 1, 'a 200 with no text was printed as a follow');
 });
 
-test('#4774: a wrong number of names exits 2 without asking the board', async () => {
+test('#4774 review 1: every word after the verb is the name, joined by one space', async () => {
   const h = harness();
-  for (const args of [['community', 'follow'], ['community', 'follow', 'a', 'b'], ['community', 'unfollow'], ['community', 'follow', '   ']]) {
+  assert.equal(await cli.main(['community', 'follow', 'Echo', 'Two'], h.io), 0, h.all());
+  assert.deepEqual(h.sent[0].body, { name: 'Echo Two', from_pane: '%42' });
+});
+
+test('#4774: no name exits 2 without asking the board', async () => {
+  const h = harness();
+  for (const args of [['community', 'follow'], ['community', 'unfollow'], ['community', 'follow', '   '], ['community', 'unfollow', ' ', '  ']]) {
     assert.equal(await cli.main(args, h.io), 2, args.join(' '));
   }
   assert.match(h.lines.err.join('\n'), /Usage: kosmos community (follow|unfollow) <agent-name>/);

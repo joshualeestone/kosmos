@@ -211,6 +211,24 @@ function endpointAllowed() {
   } catch { return false; }
 }
 
+/* #4774 review 1: the service's answer is read up to this many bytes (engine/communityread.js reads with the same
+   function and the same cap; it lives here because communityread already requires this module). */
+const RESPONSE_CAP = 256 * 1024;
+async function readCapped(r, cap) {
+  if (!r.body || typeof r.body.getReader !== 'function') { const t = await r.text(); if (t.length > cap) throw new Error('too big'); return t; }
+  const reader = r.body.getReader();
+  const parts = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.byteLength;
+    if (n > cap) { try { await reader.cancel(); } catch { /* already gone */ } throw new Error('too big'); }
+    parts.push(value);
+  }
+  return Buffer.concat(parts.map((u) => Buffer.from(u))).toString('utf8');
+}
+
 async function request(method, pathname, { token, body } = {}) {
   const post = sender || ((url, init) => fetch(url, init));
   const ctl = new AbortController();
@@ -225,7 +243,9 @@ async function request(method, pathname, { token, body } = {}) {
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
     let json = null;
-    try { json = await res.json(); } catch { json = null; }
+    /* #4774 review 1: read through a cap, never whole: a huge or endless answer must not sit in the board's memory.
+       Past the cap the answer is unreadable (json null), exactly as an answer that does not parse. */
+    try { json = JSON.parse(await readCapped(res, RESPONSE_CAP)); } catch { json = null; }
     // Seconds only: this backend sends seconds, and an HTTP-date falls back to the default wait.
     const retry = res.headers && typeof res.headers.get === 'function' ? Number(res.headers.get('retry-after')) : NaN;
     return { status: res.status, json, retryAfter: Number.isFinite(retry) ? retry : null };
@@ -591,34 +611,79 @@ function exclusive(fn) {
   return p;
 }
 
+/* #4774 review 1: an agentCall waits behind the sweep for at most this long before it gives up with a busy answer (it
+   then never runs), and each agent has at most one agentCall in flight or queued: a second one for the same agent is
+   answered busy at once. (Busy rather than joining the first even when it is the same request: simpler, and the
+   agent is told to try again, which is safe for follow, unfollow and a read.) */
+const AGENT_WAIT_MS = 20000;
+let agentWaitMs = AGENT_WAIT_MS;
+const agentsInCall = new Set();
+const busy = () => ({ ok: false, local: true, because: 'Kosmos is busy talking to the community; try again in a minute' });
+
 /**
  * #4774: one request to the community AS an agent, for the board's own agent-facing verbs (follow, unfollow, the
  * Following feed). The key never leaves this module, the same as a post. Always resolves:
  *   { ok: true, status, json }  the service answered (any status; the caller reads it)
- *   { ok: false, because }      nothing could be asked, in words a person reads
+ *   { ok: true, answered }      a hook below answered, and nothing more was sent
+ *   { ok: false, because }      nothing could be asked, in words a person reads; `local: true` when the reason is on
+ *                               this board (switched off, an insecure address, unreadable keys, a refused account,
+ *                               busy) rather than the service failing
  * `register: false` answers { ok: true, status: 0, unregistered: true } for an agent with no community account
  * rather than creating one (reading its own Following feed is no reason to make a public profile).
+ * `beforeRegister(publicGet)` runs only for an agent about to be registered, and `beforeCall(publicGet, myName)` just
+ * before the request; either returns null to go on, or a value that is handed back as `answered`. `publicGet(path)`
+ * is a GET with NO bearer, so the hooks can read public pages but never hold a key.
  */
-function agentCall(agentKey, method, pathname, { register = true } = {}) {
-  return exclusive(async () => {
-    if (!switchOn()) return { ok: false, because: 'the Kosmos community is switched off on this board' };
-    if (!endpointAllowed()) return { ok: false, because: 'the community address is not https, so nothing is sent to it' };
-    if (!sender && underTest()) return { ok: false, because: 'no network in tests' };
-    const keys = loadJson(keysFile());
-    if (!keys) return { ok: false, because: 'this board\'s community keys cannot be read, so it cannot act as the agent' };
-    const k = keys[agentKey];
-    if (k && k.refused) return { ok: false, because: 'the community switched off this agent\'s account' };
-    if (!(k && k.apiKey)) {
-      if (!register) return { ok: true, status: 0, json: null, unregistered: true };
-      if (!(await ensureRegistered(agentKey, keys, Date.now()))) {
-        return { ok: false, because: 'the community could not register this agent just now; try again later' };
-      }
-    }
-    const r = await asAgent(agentKey, keys, method, pathname);
-    if (r.status === 0) return { ok: false, because: 'the community could not be reached' };
-    if (keys[agentKey] && keys[agentKey].refused) return { ok: false, because: 'the community switched off this agent\'s account' };
-    return { ok: true, status: r.status, json: r.json };
+function agentCall(agentKey, method, pathname, opts = {}) {
+  if (agentsInCall.has(agentKey)) return Promise.resolve(busy());
+  agentsInCall.add(agentKey);
+  return new Promise((resolve) => {
+    let started = false;
+    let gaveUp = false;
+    const timer = setTimeout(() => {
+      if (started) return;
+      gaveUp = true;
+      agentsInCall.delete(agentKey);
+      resolve(busy());
+    }, agentWaitMs);
+    const done = (r) => { if (gaveUp) return; agentsInCall.delete(agentKey); resolve(r); };
+    exclusive(async () => {
+      if (gaveUp) return null;                        // answered busy already: it never runs later
+      started = true;
+      clearTimeout(timer);
+      return agentCallNow(agentKey, method, pathname, opts);
+    }).then(done, () => done({ ok: false, because: 'the community could not be reached' }));
   });
+}
+
+async function agentCallNow(agentKey, method, pathname, { register = true, beforeRegister, beforeCall } = {}) {
+  const local = (because) => ({ ok: false, local: true, because });
+  if (!switchOn()) return local('the Kosmos community is switched off on this board');
+  if (!endpointAllowed()) return local('the community address is not https, so nothing is sent to it');
+  if (!sender && underTest()) return local('no network in tests');
+  const publicGet = async (p) => { const r = await request('GET', p); return { status: r.status, json: r.json }; };
+  const keys = loadJson(keysFile());
+  if (!keys) return local('this board\'s community keys cannot be read, so it cannot act as the agent');
+  const k = keys[agentKey];
+  if (k && k.refused) return local('the community switched off this agent\'s account');
+  if (!(k && k.apiKey)) {
+    if (!register) return { ok: true, status: 0, json: null, unregistered: true };
+    if (beforeRegister) {
+      const a = await beforeRegister(publicGet);
+      if (a != null) return { ok: true, answered: a };
+    }
+    if (!(await ensureRegistered(agentKey, keys, Date.now()))) {
+      return { ok: false, because: 'the community could not register this agent just now; try again later' };
+    }
+  }
+  if (beforeCall) {
+    const a = await beforeCall(publicGet, String(keys[agentKey].name || ''));
+    if (a != null) return { ok: true, answered: a };
+  }
+  const r = await asAgent(agentKey, keys, method, pathname);
+  if (r.status === 0) return { ok: false, because: 'the community could not be reached' };
+  if (keys[agentKey] && keys[agentKey].refused) return local('the community switched off this agent\'s account');
+  return { ok: true, status: r.status, json: r.json };
 }
 
 /**
@@ -694,9 +759,10 @@ function industryUnreachable() {
 function setSender(f) { sender = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
+function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 
 module.exports = {
   switchOn, industryUnreachable, sweep, agentCall, requestDelete, statuses, payload, titleFor, registration, underTest,
-  setSender, setTimeoutMs, setSwitch, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
+  setSender, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, readCapped, RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
   _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile },
 };

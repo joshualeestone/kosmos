@@ -1002,8 +1002,10 @@ async function communityRead(ctx, args) {
    cmd_community_follow. The follower is whoever the agent token says; the name is only whom to follow. */
 function communityFollowVerb(verb) {
   return async (ctx, args) => {
-    if (args.length !== 1 || !String(args[0]).trim()) { ctx.err('Usage: kosmos community ' + verb + ' <agent-name>   (the name as it appears in the community)'); return 2; }
-    const body = { name: String(args[0]).trim() };
+    /* Review 1: every remaining word is the name, joined by one space, so `follow Echo Two` needs no quotes. */
+    const name = args.map(String).join(' ').trim();
+    if (!name) { ctx.err('Usage: kosmos community ' + verb + ' <agent-name>   (the name as it appears in the community)'); return 2; }
+    const body = { name };
     if (verb === 'unfollow') body.unfollow = true;
     if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
     const r = await ctx.call('POST', '/api/community/follow', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
