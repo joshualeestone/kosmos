@@ -6530,11 +6530,16 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 200, { unavailable: true, problems: [orgchartfile.whyNoReader() || orgchartfile.NO_MODEL] });
           return;
         }
-        // #4560: a kind of file the reader here cannot take (a PDF with Grok, say) is said before the consent.
-        const cannot = orgchartfile.readerProblem(name, reader);
-        if (cannot) { sendJson(res, 200, { unavailable: true, problems: [cannot] }); return; }
         const q = new URL(req.url, ROUTING_BASE).searchParams;
-        if (q.get('consent') !== '1') { sendJson(res, 200, { needsConsent: true, ...orgchartfile.consentFor(reader) }); return; }
+        if (q.get('consent') !== '1') {
+          // #4560: a kind of file this reader cannot take (a PDF with Grok, say) is said instead of the consent. Asked
+          // only here: on the consented send the reader pin below decides first, so a refusal never names a provider
+          // the person was not asked about (and the key reader refuses the kind again before sending anything).
+          const cannot = orgchartfile.readerProblem(name, reader);
+          if (cannot) { sendJson(res, 200, { unavailable: true, problems: [cannot] }); return; }
+          sendJson(res, 200, { needsConsent: true, ...orgchartfile.consentFor(reader) });
+          return;
+        }
         if (!isViaScreen(req, null)) { sendJson(res, 403, { error: 'only you can send a file to your AI provider, from the New Agent screen' }); return; }
         // #4560: the send goes to the reader the person was shown, or nowhere (an account may have changed since).
         /* No reader at all is refused outright (whatever availability says). A page from before #4560 sends no reader

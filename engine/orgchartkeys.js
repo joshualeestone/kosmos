@@ -247,8 +247,10 @@ const KNOWN_CODES = new Set([
 /* A refusal as a sentence the person can act on. Built from the status and a KNOWN provider error code only. */
 function refusal(p, status, body) {
   const err = body && typeof body === 'object' ? (body.error || body) : {};
-  // The provider's own code (or Google's status); not the generic `type`, which reads as jargon.
-  const raw = String((err && (err.code || err.status)) || '').toLowerCase().slice(0, 60);
+  // The provider's own code word: OpenAI and xAI send it as `code`; Google sends a NUMBER as `code` and the word as
+  // `status` ({ code: 403, status: "PERMISSION_DENIED" }), so a numeric code falls through to `status`.
+  const word = err && typeof err.code === 'string' && err.code ? err.code : (err && typeof err.status === 'string' ? err.status : '');
+  const raw = String(word).toLowerCase().slice(0, 60);
   const code = KNOWN_CODES.has(raw) ? raw : '';
   if (status === 401 || /invalid_api_key|unauthenticated|api_key_invalid/.test(code)) {
     return p.name + ' did not accept this key. Check it in Settings, AI Models, or use a CSV or Excel export.';
@@ -260,6 +262,17 @@ function refusal(p, status, body) {
   if (/image|unsupported|invalid_base64/.test(code)) return p.name + ' could not read this file. Try a PNG or JPG picture, or a CSV or Excel export.';
   if (status === 429) return p.name + ' is busy or this key has reached its limit. Try again in a minute, or use a CSV or Excel export.';
   return p.name + ' could not read the chart (' + (status || 'no answer') + (code ? ', ' + code : '') + '). Try again, or use a CSV or Excel export.';
+}
+
+/* For the board log only, beside the person's sentence: the error's `type` (from a fixed list) and the request field
+   it names (`param`, identifier-shaped only), so one line tells "our request shape is stale" (a renamed or dropped
+   field) from "the file was bad". Neither can carry a key: one is from a list, the other a short identifier. */
+const KNOWN_TYPES = new Set(['invalid_request_error', 'authentication_error', 'permission_error', 'not_found_error', 'rate_limit_error', 'server_error', 'api_error']);
+function diagnosis(body) {
+  const err = body && typeof body === 'object' && body.error && typeof body.error === 'object' ? body.error : {};
+  const type = typeof err.type === 'string' && KNOWN_TYPES.has(err.type) ? err.type : null;
+  const param = typeof err.param === 'string' && /^[a-z0-9_.[\]]{1,40}$/.test(err.param) ? err.param : null;
+  return [type && 'type ' + type, param && 'param ' + param].filter(Boolean).join(', ');
 }
 
 /**
@@ -275,7 +288,7 @@ async function read(reader, prompt, name, media, buf, signal) {
   // Not logged: the person's own Stop, and a refusal made before anything was sent (no boundary was crossed).
   if (!got.ok && !got.local && !(signal && signal.aborted)) {
     const who = (reader && PROVIDERS[reader.provider] && PROVIDERS[reader.provider].name) || 'a key provider';
-    console.warn('[orgchart] ' + who + ' read failed: ' + String(got.because).slice(0, 300));
+    console.warn('[orgchart] ' + who + ' read failed: ' + String(got.because).slice(0, 300) + (got.diag ? ' [' + got.diag + ']' : ''));
   }
   return got;
 }
@@ -338,7 +351,7 @@ async function readOnce(reader, prompt, name, media, buf, signal) {
   }
   let body = null;
   try { body = JSON.parse(raw); } catch { body = null; }
-  if (!res.ok) return { ok: false, because: refusal(p, res.status, body) };
+  if (!res.ok) return { ok: false, because: refusal(p, res.status, body), diag: diagnosis(body) };
   if (!body || (body.status && body.status !== 'completed')) {
     const st = body && ['incomplete', 'failed', 'cancelled', 'in_progress', 'queued', 'requires_action'].includes(body.status) ? ' (' + body.status + ')' : '';
     return { ok: false, because: p.name + ' did not finish reading the chart' + st + '. Try a clearer picture, or a CSV or Excel export.' };
@@ -351,4 +364,4 @@ async function readOnce(reader, prompt, name, media, buf, signal) {
   return { ok: true, structured };
 }
 
-module.exports = { pick, KNOWN_CODES, urlFrom, MAX_OUTPUT_TOKENS, offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };
+module.exports = { diagnosis, KNOWN_TYPES, pick, KNOWN_CODES, urlFrom, MAX_OUTPUT_TOKENS, offReason, setEnabled, ENABLED_DEFAULT, OFF_WHY, keeps, KEEPS, setTimeoutMs, MAX_ANSWER_BYTES, accountsFrom, PROVIDERS, ORDER, STRICT_SCHEMA, chooseReader, label, cannotRead, read, setAccounts, setKeyFor, refusal, responsesAnswer };

@@ -177,7 +177,7 @@ test('#4560: refusals are plain sentences; the key never appears in anything ret
       const cases = [
         [401, { error: { code: 'invalid_api_key', message: 'Incorrect API key provided: ' + KEY } }, /did not accept this key/],
         [404, { error: { code: 'model_not_found', message: 'The model does not exist or you do not have access. key=' + KEY } }, new RegExp('cannot use ' + keys.PROVIDERS[provider].model.replace('.', '\\.'))],
-        [403, { error: { status: 'PERMISSION_DENIED', message: KEY } }, /cannot use/],
+        [403, { error: { code: 403, status: 'PERMISSION_DENIED', message: KEY } }, /cannot use/],   // Google's real shape: a numeric code, the word in status
         [429, { error: { code: 'rate_limit_exceeded' } }, /busy or this key has reached its limit/],
         [500, 'upstream said ' + KEY, /could not read the chart \(500\)/],
         [502, { error: { code: 'bad_gateway', message: 'upstream saw ' + KEY } }, /could not read the chart \(502, bad_gateway\)/],
@@ -407,10 +407,29 @@ test('#4560: the person\'s own Stop, and a refusal made before anything is sent,
     const pending = o.readWithModel('chart.png', PNG, { signal: ctl.signal });
     await new Promise((ok) => setTimeout(ok, 150));
     ctl.abort();
-    await pending;
+    assert.match((await pending).problems[0], /the read was stopped/, 'the Stop arm must actually have stopped a read');
     reply = () => ({ status: 500, body: {} });
     await o.readWithModel('chart.png', PNG);   // CONTROL: a real boundary failure is logged
   } finally { console.warn = warn; }
   assert.equal(lines.length, 1, JSON.stringify(lines));
   assert.match(lines[0], /OpenAI read failed: OpenAI could not read the chart \(500\)/);
+});
+
+test('#4560: Google\'s error word is read from `status` when `code` is a number', () => {
+  const g = keys.PROVIDERS.google;
+  assert.match(keys.refusal(g, 400, { error: { code: 400, status: 'INVALID_ARGUMENT', message: 'x' } }), /\(400, invalid_argument\)/);
+  assert.match(keys.refusal(keys.PROVIDERS.openai, 400, { error: { code: 'invalid_image_format' } }), /could not read this file/, 'CONTROL: a string code is still read');
+});
+
+test('#4560: the log line says which request field a 400 names, from an allowlisted type and an identifier-shaped param only', async () => {
+  only('openai');
+  reply = () => ({ status: 400, body: { error: { code: null, type: 'invalid_request_error', param: 'text.format', message: 'Unknown parameter ' + KEY } } });
+  const lines = [];
+  const warn = console.warn;
+  console.warn = (m) => lines.push(String(m));
+  try { await o.readWithModel('chart.png', PNG); } finally { console.warn = warn; }
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /\[type invalid_request_error, param text\.format\]$/, lines[0]);
+  assert.equal(keys.diagnosis({ error: { type: 'sk-' + KEY, param: KEY + ' x' } }), '', 'a key-shaped type or param is never logged');
+  assert.ok(!lines[0].includes(KEY));
 });

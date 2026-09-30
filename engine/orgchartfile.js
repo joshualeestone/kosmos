@@ -645,7 +645,7 @@ function readerProblem(name, reader) {
 function dispatchRunner(line, signal, file) {
   const r = file.reader || currentReader();   // the reader the person agreed to, when the route passes it
   if (r && r.kind === 'key') return require('./orgchartkeys').read(r, PROMPT, file.name, file.media, file.buf, signal);
-  return defaultModelRunner(line, signal);
+  return defaultModelRunner(line || requestLine(file.name, file.buf), signal);
 }
 let modelRunner = dispatchRunner;
 function setModelRunner(fn) { modelRunner = typeof fn === 'function' ? fn : dispatchRunner; }
@@ -698,7 +698,10 @@ async function readWithModel(name, bytes, opts = {}) {
   if (reading) return { rows: [], problems: ['A chart is already being read. Wait for it to finish, then try again.'] };
   reading = true;
   let got;
-  try { got = await modelRunner(requestLine(name, buf), opts && opts.signal, { name, media: MODEL_TYPES[extOf(name)].media, buf, reader: opts && opts.reader }); } catch { got = { ok: false, because: 'the read failed' }; }
+  // Claude's stream-json line (the whole file as base64) is built only for a runner that reads it: the key path
+  // encodes the file its own way, so the dispatcher builds the line itself, and only on the Claude branch.
+  const line = modelRunner === dispatchRunner ? null : requestLine(name, buf);
+  try { got = await modelRunner(line, opts && opts.signal, { name, media: MODEL_TYPES[extOf(name)].media, buf, reader: opts && opts.reader }); } catch { got = { ok: false, because: 'the read failed' }; }
   finally { reading = false; }
   if (!got || !got.ok) return { rows: [], problems: [(got && got.because) || 'the read failed'], unavailable: Boolean(got && got.unavailable) };
   return fromModel(got.structured);
