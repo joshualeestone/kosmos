@@ -18,7 +18,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SETUP="${KOSMOS_STATIC_SETUP:-$HERE/install/setup.sh}"
 LIB="${KOSMOS_STATIC_LIB:-$HERE/tools/lib/install-static-checks.sh}"
 INSTALL_SH="${KOSMOS_STATIC_INSTALL_SH:-$HERE/tools/test-install.sh}"
-EXPECTED=23   # the static checks in the lib; a group that loses one must not pass quietly
+# The static checks in the lib, per group (23 in all). Counted per group, not only in total: a check moved from a
+# cut group into the open group would keep the total and quietly leave the cut.
+STATIC_GROUPS="port:14 update:3 board_off:5 open:1"
 
 PASS=0; FAIL=0
 chk() {
@@ -27,11 +29,17 @@ chk() {
 }
 # shellcheck source=lib/install-static-checks.sh
 source "$LIB"
-install_static_all
+COUNT_BAD=""
+for spec in $STATIC_GROUPS; do
+  g="${spec%%:*}"; want="${spec##*:}"; before=$((PASS + FAIL))
+  "install_static_${g}_checks"
+  got=$((PASS + FAIL - before))
+  [ "$got" -eq "$want" ] || COUNT_BAD="$COUNT_BAD group $g: $got checks ran, expected $want;"
+done
 
 echo "install-static: $PASS passed, $FAIL failed"
-if [ "$((PASS + FAIL))" -ne "$EXPECTED" ]; then
-  echo "install-static: $((PASS + FAIL)) checks ran, expected $EXPECTED (a check was added or lost: update EXPECTED with it)" >&2
+if [ -n "$COUNT_BAD" ]; then
+  echo "install-static:$COUNT_BAD a check was added, lost or moved between groups (update STATIC_GROUPS with it)" >&2
   exit 1
 fi
 # test-install.sh calls each group exactly once, where its checks sat; the port, update and board-off groups
@@ -39,6 +47,12 @@ fi
 # running them while this stayed green. The open group has always sat after it (a full run only).
 gate=$(grep -nE '^if \[ "\$\{KOSMOS_INSTALL_GATE:-0\}" = 1 \]; then$' "$INSTALL_SH" | cut -d: -f1 || true)
 if [ "$(printf '%s\n' "$gate" | grep -c .)" != 1 ]; then echo "install-static: $INSTALL_SH has no single release-gate exit to measure the calls against" >&2; exit 1; fi
+# test-install.sh must load the lib exactly once, unconditionally (at the start of a line), before its first group
+# call; otherwise the cut dies or skips the checks while this, which loads the lib itself, stays green.
+src=$(grep -nE '^source "\$HERE/tools/lib/install-static-checks\.sh"$' "$INSTALL_SH" | cut -d: -f1 || true)
+if [ "$(printf '%s\n' "$src" | grep -c .)" != 1 ]; then echo "install-static: $INSTALL_SH does not load the checks library exactly once at the start of a line" >&2; exit 1; fi
+first=$(grep -nE '^install_static_[a-z_]+_checks([[:space:]]|$)' "$INSTALL_SH" | head -1 | cut -d: -f1 || true)
+if [ -n "$first" ] && [ "$src" -gt "$first" ]; then echo "install-static: $INSTALL_SH loads the checks library at line $src, after its first group call at line $first" >&2; exit 1; fi
 for g in install_static_port_checks install_static_update_checks install_static_board_off_checks install_static_open_checks; do
   n=$(grep -cE "^${g}([[:space:]]|$)" "$INSTALL_SH" || true)
   if [ "$n" != 1 ]; then echo "install-static: $INSTALL_SH calls $g $n times, not once (the cut would not run its checks as before)" >&2; exit 1; fi

@@ -51,3 +51,8 @@ indented or renamed call.
 The classifier is a text rule, not a proof: a check whose expression reads a repo file through a variable other
 than SETUP or HERE would be missed and stay cut-only. The static set only grows by someone moving a check into the
 lib; the count guard makes that a deliberate edit, not a silent one.
+
+## Review iteration 1 (fresh loop, 2026-09-29 22:24)
+- The runner now counts checks per group (port 14, update 3, board off 5, open 1), so a check moved from a cut group into the open group, which keeps the total, fails its group's count.
+- The runner requires test-install.sh to load the lib exactly once at the start of a line, before its first group call.
+- Control arms added for both: a check moved from port to open fails "group port: 13 checks ran, expected 14"; the load moved after the port call fails on the load position; the load removed fails on the missing load.
