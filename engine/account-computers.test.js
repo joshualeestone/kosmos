@@ -95,6 +95,34 @@ test('parseComputers: keeps valid rows, drops a row with a bad address or no nam
   assert.equal(ac.parseComputers(null, 'kosmos.test'), null);
 });
 
+test('#4726 parseComputers: held is carried as a bool; absent (a coordinator before #4681) or anything but true reads as not held', () => {
+  const rows = ac.parseComputers({ computers: [
+    { name: 'waiting', address: 'waiting.kosmos.test', held: true },
+    { name: 'allowed', address: 'allowed.kosmos.test', held: false },
+    { name: 'old', address: 'old.kosmos.test' },
+    { name: 'odd', address: 'odd.kosmos.test', held: 'true' },
+  ] }, 'kosmos.test');
+  assert.deepEqual(rows.map((r) => [r.name, r.held]), [['waiting', true], ['allowed', false], ['old', false], ['odd', false]]);
+});
+
+test('#4726 fetchComputers: a held computer is never probed and reads offline; the others are probed as before (control)', async () => {
+  enroll(true);
+  const probed = [];
+  const probe = async (a) => { probed.push(a); return true; };
+  const answer = { computers: [
+    { name: 'laptop', address: 'laptop.kosmos.test', this: true, held: false },
+    { name: 'waiting', address: 'waiting.kosmos.test', this: false, held: true },
+    { name: 'allowed', address: 'allowed.kosmos.test', this: false, held: false },
+  ] };
+  const r = await run('ok:' + JSON.stringify(answer), () => ac.fetchComputers({ probe }));
+  assert.equal(r.value.ok, true, JSON.stringify(r.value));
+  assert.deepEqual(probed, ['allowed.kosmos.test'], 'a held computer was probed');
+  const by = Object.fromEntries(r.value.computers.map((c) => [c.name, c]));
+  assert.equal(by.waiting.held, true);
+  assert.equal(by.waiting.online, false, 'a held computer reads online');
+  assert.equal(by.allowed.online, true, 'CONTROL: an allowed computer is probed and can read online');
+});
+
 test('fetchComputers: SIGNED through the tunnel (one mac-request POST, no direct dial), this computer first and not probed, others probed', async () => {
   enroll(true);
   const probed = [];

@@ -68,6 +68,9 @@ function parseComputers(answer, domain) {
       address: r.address,
       this: r.this === true,
       updating: typeof r.updating_until === 'number',
+      /* #4726 (#4681): a computer still WAITING to be allowed from another of the owner's computers. The
+         coordinator always sends a bool; an absent field (a coordinator before #4681) reads as not held. */
+      held: r.held === true,
     });
   }
   return out;
@@ -120,7 +123,8 @@ async function fetchComputers(opts) {
     if (!domain) return { ok: false, because: 'the Kosmos+ address is not one computers can live under' };
     const rows = parseComputers(r.data, domain);
     if (!rows) return { ok: false, because: 'the Kosmos+ answer carried no computers' };
-    const online = await Promise.all(rows.map((c) => (c.this ? true : probe(c.address).catch(() => false))));
+    // #4726: a held computer is not probed: it cannot serve until it is allowed, and it is never opened from here.
+    const online = await Promise.all(rows.map((c) => (c.this ? true : c.held ? false : probe(c.address).catch(() => false))));
     const computers = rows.map((c, i) => Object.assign({}, c, { online: online[i] === true }));
     // This computer first, then the others by name, so the list reads the same every time.
     computers.sort((a, b) => (a.this === b.this ? a.name.localeCompare(b.name) : (a.this ? -1 : 1)));
