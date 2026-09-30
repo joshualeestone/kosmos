@@ -830,6 +830,25 @@ pick_ports() {
 pick_ports
 log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13 $P14 $P15 $P16 $P17 $P18 $P19 (chosen by the OS, #633)"
 
+# #4632: the roles and teams catalogue a board downloads when the role picker opens. Every board
+# here gets it from this local server, which serves the genuine published files (signed with the
+# catalogue repo's key, test-support/catalogue-published/), so no board asks installkosmos.com
+# (#4253) and every picker sees the same catalogue whatever the network does. Only the two file
+# names are served; anything else is a 404.
+P_CAT="$(free_port)"
+node -e '
+  const http = require("node:http"), fs = require("node:fs"), path = require("node:path");
+  const dir = path.join(process.cwd(), "test-support", "catalogue-published");
+  http.createServer((q, r) => {
+    const name = String(q.url).split("?")[0].replace(/^\//, "");
+    if (!["catalogue.json", "catalogue.json.sig"].includes(name)) { r.writeHead(404); r.end(); return; }
+    r.writeHead(200); r.end(fs.readFileSync(path.join(dir, name)));
+  }).listen(Number(process.argv[1]), "127.0.0.1");
+' "$P_CAT" > /dev/null 2>&1 &
+SERVER_PIDS+=("$!")
+export KOSMOS_CATALOGUE_BASE="http://127.0.0.1:$P_CAT/"
+log "catalogue for every board: $KOSMOS_CATALOGUE_BASE (the published files, served locally)"
+
 # --- 1. regress-a-night: a night's releases still COMPOSE --------------------
 # The one check that asserts the whole board still hangs together (three
 # layouts, the switches, accounts, delete history, a task page with parts).
@@ -1243,6 +1262,8 @@ if boot_board "$sb7" "$P8"; then
   run_one "render-made-endings" node docs/browser-checks/render-made-endings.js "$B8"
   run_one "render-rename-say"   node docs/browser-checks/render-rename-say.js "$B8"
   run_one "render-role-limit"   node docs/browser-checks/render-role-limit.js "$B8"
+  # #4632: opening the picker downloads the catalogue; its roles reach the picker.
+  run_one "render-catalogue-fetch-4632" node docs/browser-checks/render-catalogue-fetch-4632.js "$B8"
   run_one "render-role-order"   node docs/browser-checks/render-role-order.js "$B8"
   # #718: the PWA service worker registers, controls the page, and a real push
   # delivered through its own handler (via CDP) shows a notification. Chromium-only

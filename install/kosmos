@@ -3112,7 +3112,8 @@ cmd_agent() {
   local body rc=0
   case "$sub" in
     roles)
-      body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/roles" 2>/dev/null) || rc=$?
+      # ?catalogue=1: listing the roles asks for the downloaded ready-made ones too, as the picker does (#4632).
+      body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/roles?catalogue=1" 2>/dev/null) || rc=$?
       if [ "$rc" -ne 0 ]; then say_unreached "list the roles" "$rc"; exit 1; fi
       if [ -z "$body" ]; then say "Kosmos gave an empty answer when asked for the roles. Try again in a minute."; exit 1; fi
       printf '%s' "$body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}for(const r of (j.roles||[]))if(r&&r.key)console.log(r.key+"  "+(r.label||""))})' \

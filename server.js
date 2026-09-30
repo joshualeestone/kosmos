@@ -6259,7 +6259,7 @@ const server = http.createServer(async (req, res) => {
         caution: r.caution || null,
       })),
       // What the board holds of the downloaded catalogue: whether any, which serial, and why the
-      // last download was not used, so the picker can say it is showing the built-in roles only.
+      // last download was not used. The picker reads `loaded` (to ask again on its next open).
       catalogue: catalogue.status(),
     });
     // refresh() never rejects; the second handler is for a bug in it, which must not hang the picker.
@@ -6301,6 +6301,14 @@ const server = http.createServer(async (req, res) => {
           // No error code: the catch below answers in our own words whatever
           // this is, and a code nothing reads is a hint that something does.
           throw new Error('we could not read that request');
+        }
+
+        /* #4632: a ready-made role comes from the downloaded catalogue. When the key asked for is not
+           one this board holds (nobody has opened the picker yet, so nothing was downloaded), ask the
+           catalogue first, as the picker would, so an agent or the CLI can make any role the picker
+           offers. At most once in ten minutes, never throws; an unknown key is still refused below. */
+        if (typeof body.role === 'string' && body.role && !roles.byKey(body.role)) {
+          await catalogue.refresh();
         }
 
         /**

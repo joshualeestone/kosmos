@@ -713,7 +713,8 @@ async function agentCreate(ctx, args) {
   return 1;
 }
 async function agentRoles(ctx) {
-  const r = await ctx.call('GET', '/api/roles', undefined, { agent: false });
+  // ?catalogue=1: listing the roles asks for the downloaded ready-made ones too, as the picker does (#4632).
+  const r = await ctx.call('GET', '/api/roles?catalogue=1', undefined, { agent: false });
   if (!r.reached) return ctx.unreachable('list the roles');
   const roles = r.json && Array.isArray(r.json.roles) ? r.json.roles : null;
   if (!roles) { ctx.err('Kosmos gave an answer we could not read when listing the roles.'); return 1; }

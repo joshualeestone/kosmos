@@ -15939,3 +15939,59 @@ test('#4006: an agent whose restart did not come back reads needs_you, and its t
     board.restore();
   }
 });
+
+test('#4632: only the picker\'s ?catalogue=1, and a create for a role not held, download the catalogue', async () => {
+  const http = require('node:http');
+  const crypto = require('node:crypto');
+  const catalogue = require('./engine/catalogue');
+  const roles = require('./engine/roles');
+  const { FIXTURE } = require('./test-support/catalogue-fixture');
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
+  const body = fs.readFileSync(FIXTURE, 'utf8').replace(/"serial": \d+/, `"serial": ${catalogue.MIN_SERIAL + 1}`);
+  const sig = crypto.sign(null, Buffer.from(body), privateKey).toString('base64');
+  let asked = 0;
+  const srv = http.createServer((q, r) => {
+    asked += 1;
+    const name = q.url.split('?')[0];
+    if (name === '/catalogue.json') r.end(body); else if (name === '/catalogue.json.sig') r.end(sig); else { r.writeHead(404); r.end(); }
+  });
+  await new Promise((ok) => srv.listen(0, '127.0.0.1', ok));
+  const was = process.env.KOSMOS_CATALOGUE_BASE;
+  process.env.KOSMOS_CATALOGUE_BASE = `http://127.0.0.1:${srv.address().port}/`;
+  const reset = () => {
+    try { fs.rmSync(catalogue.cacheFile(), { force: true }); } catch { /* none */ }
+    catalogue.useKeyForTest(publicKey.export({ type: 'spki', format: 'pem' }));
+    roles.remerge();
+    asked = 0;
+  };
+  try {
+    reset();
+    const plain = JSON.parse((await req('/api/roles')).body);
+    assert.equal(asked, 0, 'a plain /api/roles downloaded the catalogue');
+    assert.equal(plain.catalogue.loaded, false);
+    assert.ok(!plain.roles.some((r) => r.key === 'cmo'), 'CONTROL: no catalogue role before a download');
+    await req('/api/roles', { method: 'HEAD' });
+    assert.equal(asked, 0, 'a HEAD downloaded the catalogue');
+
+    const picked = JSON.parse((await req('/api/roles?catalogue=1')).body);
+    assert.equal(asked, 2, 'the picker\'s request did not fetch the file and its signature');
+    assert.equal(picked.catalogue.loaded, true, JSON.stringify(picked.catalogue));
+    assert.ok(picked.roles.some((r) => r.key === 'cmo'), 'the downloaded roles did not reach the answer');
+
+    reset();
+    // A create for a role the board does not hold asks the catalogue first (it is refused here for
+    // its missing name, after the download).
+    await postJson('/api/agents', { role: 'cmo' });
+    assert.equal(asked, 2, 'a create for a catalogue role not held did not ask the catalogue');
+    assert.ok(roles.byKey('cmo'), 'the downloaded role is not there for the create');
+    asked = 0;
+    await postJson('/api/agents', { role: 'pm' });
+    assert.equal(asked, 0, 'CONTROL: a create for a built-in role asks nothing');
+  } finally {
+    if (was === undefined) delete process.env.KOSMOS_CATALOGUE_BASE; else process.env.KOSMOS_CATALOGUE_BASE = was;
+    try { fs.rmSync(catalogue.cacheFile(), { force: true }); } catch { /* none */ }
+    catalogue.useKeyForTest(null);
+    roles.remerge();
+    await new Promise((ok) => srv.close(ok));
+  }
+});

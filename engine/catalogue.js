@@ -6,9 +6,9 @@
  *
  * #4632: the catalogue no longer ships inside Kosmos. It is built and signed by the public repo
  * joshualeestone/kosmos-catalogue and published at installkosmos.com/catalogue/. Kosmos downloads
- * it only when someone opens the role picker or the Team screen (`refresh()`, called by those
- * routes), keeps it in the data folder, and uses it only when its Ed25519 signature verifies
- * against PUBLIC_KEY below. Until the first download, and whenever the stored copy does not
+ * it only when it is asked for: the role picker (/api/roles?catalogue=1), `kosmos agent roles`, a
+ * create for a role the board does not hold, and (with #4557) the Team screen. It keeps it in the
+ * data folder, and uses it only when its Ed25519 signature verifies against PUBLIC_KEY below. Until the first download, and whenever the stored copy does not
  * verify, there is no catalogue: the picker shows the original roles and there are no teams.
  *
  * This module is the one reader of the stored copy: roles.js merges `rawRoles()` into ROLES (and
@@ -28,7 +28,10 @@ MCowBQYDK2VwAyEAgvJCzB8DWrcrRCw/rOTLUIj+ii/Sy0TJI7uKogLNpN0=
 -----END PUBLIC KEY-----
 `;
 const DEFAULT_BASE = 'https://installkosmos.com/catalogue/';
-// The published file's format (kosmos-catalogue build.js `version`).
+/* The published file's format (kosmos-catalogue build.js `version`). The address below names no
+   version, so it is a contract: catalogue.json stays format 2 for as long as a release that reads
+   it is in use, and a new format is published under a new file name beside it, never in its place
+   (every shipped Kosmos would otherwise lose the catalogue for good). */
 const FORMAT = 2;
 /* The oldest catalogue this version accepts: the serial published when it was released. A copy
    holding no catalogue yet has nothing newer to compare a download with, so without this floor an
@@ -126,12 +129,25 @@ function load() {
 function readRoles() { const c = load(); return c ? c : { groups: [], roles: [] }; }
 function readTeams() { const c = load(); return c ? c : { teams: [] }; }
 
+/** The body of url, refused as soon as it is known to exceed MAX_BYTES: by its Content-Length
+ *  before reading, and by a running count while reading, so an oversized answer is never held. */
 async function fetchBytes(doFetch, url) {
   const res = await doFetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS), cache: 'no-store' });
   if (!res.ok) throw new Error(`${url} answered ${res.status}`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.length > MAX_BYTES) throw new Error(`${url} is larger than ${MAX_BYTES} bytes`);
-  return buf;
+  const tooBig = () => new Error(`${url} is larger than ${MAX_BYTES} bytes`);
+  if (Number(res.headers.get('content-length')) > MAX_BYTES) throw tooBig();
+  if (!res.body) return Buffer.alloc(0);
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of res.body) {
+    total += chunk.length;
+    if (total > MAX_BYTES) {
+      try { await res.body.cancel(); } catch { /* already closed */ }
+      throw tooBig();
+    }
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
 }
 
 /**
@@ -165,15 +181,22 @@ function refresh(opts = {}) {
       if (held && r.catalogue.serial < held.serial) {
         throw new Error(`the downloaded catalogue is older than the one held (${r.catalogue.serial} < ${held.serial})`);
       }
-      const text = bytes.toString('utf8');
-      // Stored as text: a copy that does not survive the round trip byte for byte fails its
-      // signature on the next read, which leaves no catalogue rather than a changed one.
-      const file = cacheFile();
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      const tmp = `${file}.${process.pid}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify({ sig: sig.toString('utf8').trim(), text }));
-      fs.renameSync(tmp, file);
       const changed = !held || held.serial !== r.catalogue.serial;
+      if (changed) {
+        // Stored as text: a copy that does not survive the round trip byte for byte fails its
+        // signature on the next read, which leaves no catalogue rather than a changed one.
+        const text = bytes.toString('utf8');
+        const file = cacheFile();
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        const tmp = `${file}.${process.pid}.tmp`;
+        try {
+          fs.writeFileSync(tmp, JSON.stringify({ sig: sig.toString('utf8').trim(), text }));
+          fs.renameSync(tmp, file);
+        } catch (err) {
+          try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ }
+          throw err;
+        }
+      }
       data = r.catalogue;
       lastError = null;
       if (changed) require('./roles').remerge();

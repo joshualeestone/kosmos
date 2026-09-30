@@ -25,6 +25,8 @@ const roles = require('./roles');
 const { FIXTURE } = require('../test-support/catalogue-fixture');
 
 const TEXT = fs.readFileSync(FIXTURE, 'utf8');
+// fresh() deletes the stored catalogue's folder, so the data root must be this test's sandbox.
+require('../test-support/data-root-sandbox').assertSandboxedDataRoot(SANDBOX, [require('./store').ROOT]);
 const BUILT_IN = roles.BUILT_IN.length;
 
 /** A fresh key pair the module trusts, a clean store, and a signer for payloads. */
@@ -88,8 +90,8 @@ test('a changed byte, another key, or a catalogue this version cannot read is re
     tampered: { body: good.body.replace('Chief of Staff', 'Chief 0f Staff'), sig: good.sig },
     otherKey: { body: good.body, sig: crypto.sign(null, Buffer.from(good.body), crypto.generateKeyPairSync('ed25519').privateKey).toString('base64') },
     newFormat: signed(10, TEXT.replace('"version": 2', '"version": 3')),
-    noSerial: signed(null),
-    belowFloor: { ...signed(-1) },
+    zeroSerial: signed(null),
+    belowFloor: signed(-1),
   };
   for (const [name, payload] of Object.entries(cases)) {
     const st = await catalogue.refresh({ fetcher: server(payload).fetcher, force: true });
@@ -186,4 +188,54 @@ test('the catalogue was checked against the roles this version has built in', ()
   // update that list in joshualeestone/kosmos-catalogue and refresh test-support/catalogue-fixture.json.
   const listed = JSON.parse(TEXT).kosmosRoles;
   assert.deepEqual(listed, roles.BUILT_IN.map((r) => r.key).sort());
+});
+
+test('an oversized answer is refused by its Content-Length before it is read, and while it streams without one', async () => {
+  const { signed } = fresh();
+  const good = signed(70);
+  // A body that fails if it is ever read: the refusal must come from the declared length instead.
+  const declared = async (url) => {
+    if (url.includes('.sig')) return new Response(good.sig);
+    const body = new ReadableStream({ start(c) { c.error(new Error('the body was read')); } });
+    return new Response(body, { headers: { 'content-length': String(8 * 1024 * 1024 + 1) } });
+  };
+  const st = await catalogue.refresh({ fetcher: declared, force: true });
+  assert.match(st.error, /larger than/, 'refused, but by reading the body rather than by its declared length');
+  let pulled = 0;
+  const endless = async (url) => {
+    if (url.includes('.sig')) return new Response(good.sig);
+    return new Response(new ReadableStream({ pull(c) { pulled += 1; c.enqueue(new Uint8Array(1024 * 1024)); } }));
+  };
+  const st2 = await catalogue.refresh({ fetcher: endless, force: true });
+  assert.match(st2.error, /larger than/);
+  assert.ok(pulled <= 10, `read ${pulled} MB of an answer with no end`);
+  // CONTROL: the same payload at its real size is taken.
+  assert.equal((await catalogue.refresh({ fetcher: server(good).fetcher, force: true })).serial, catalogue.MIN_SERIAL + 70);
+});
+
+test('a download of the serial already held does not rewrite the stored copy', async () => {
+  const { signed } = fresh();
+  const same = signed(80);
+  await catalogue.refresh({ fetcher: server(same).fetcher, force: true });
+  const file = catalogue.cacheFile();
+  const old = new Date(Date.now() - 60000);
+  fs.utimesSync(file, old, old);
+  const before = fs.statSync(file).mtimeMs;
+  await catalogue.refresh({ fetcher: server(same).fetcher, force: true });
+  assert.equal(fs.statSync(file).mtimeMs, before, 'the same serial was written again');
+  await catalogue.refresh({ fetcher: server(signed(81)).fetcher, force: true });
+  assert.notEqual(fs.statSync(file).mtimeMs, before, 'CONTROL: a new serial is written');
+});
+
+test('the browser-check harness points every board it boots at a local catalogue, never installkosmos.com', () => {
+  const lines = fs.readFileSync(path.join(__dirname, '..', 'tools', 'browser-checks.sh'), 'utf8').split('\n');
+  const i = lines.findIndex((l) => l.startsWith('export KOSMOS_CATALOGUE_BASE='));
+  assert.ok(i >= 0, 'browser-checks.sh does not export KOSMOS_CATALOGUE_BASE at top level');
+  assert.match(lines[i], /http:\/\/127\.0\.0\.1:/);
+  // The first CALL (a line that runs boot_board with arguments), not the function's definition.
+  const firstBoot = lines.findIndex((l) => /^\s*(if )?(AGENT_WORKFORCE_HOME="[^"]*" )?boot_board(_\w+)? "\$/.test(l));
+  assert.ok(firstBoot >= 0, 'premise: found the harness\'s first board boot');
+  assert.ok(firstBoot > i, `the first board boots on line ${firstBoot + 1}, before the export on line ${i + 1}`);
+  const shots = fs.readFileSync(path.join(__dirname, '..', 'docs', 'browser-checks', 'mobile-shots.js'), 'utf8');
+  assert.match(shots, /KOSMOS_CATALOGUE_BASE: process\.env\.KOSMOS_CATALOGUE_BASE \|\| 'http:\/\/127\.0\.0\.1:9\/'/, 'mobile-shots boots a board that can ask installkosmos.com');
 });
