@@ -19,8 +19,9 @@ hold ends by itself, now after 33 minutes, her review 3) change nothing this bra
 - server.js: GET /api/remote/signin-addresses.
 - web/index.html: the session step. On the first read, anything but a definite live:true is the step exactly as
   before. Live: the account's first computer, and a computer signing in again to its own address, register as
-  before; any other computer, and an account with no address at all, picks one of the account's FREE bought
-  addresses (no name field), or, with none, is told so and sent to the website with Check again. A re-read that
+  before, and so does an app-made account whose free first address is unused (the name step; see "Free first
+  address" below); any other computer picks one of the account's FREE bought addresses (no name field), or, with
+  none, is told so and sent to the website with Check again. A re-read that
   fails stays on the list and says so; one that finds the switch off takes the step as before.
 - docs/browser-checks/render-plus-bought-4756.js (gated): one scenario per path of the session step (the list is in
   the file); the control (main's page) fails it.

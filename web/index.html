@@ -43227,8 +43227,9 @@ function plusSiStage(stage, data) {
     return;
   }
   /* A failure while the new step decides lands on the old step, never on a loader with no way on. (The register it
-     then starts reports its own failures, as before.) */
-  if (stage === 'session') { const epoch = PLUS_SI_EPOCH; plusSiSession(data).catch(() => { if (epoch === PLUS_SI_EPOCH) plusSiAsBefore(data); }); return; }
+     then starts reports its own failures, as before.) It counts as a list not read, so a refusal of that register
+     can still go back to the list. */
+  if (stage === 'session') { const epoch = PLUS_SI_EPOCH; plusSiSession(data).catch(() => { if (epoch === PLUS_SI_EPOCH) { PLUS_SI_UNREAD = true; plusSiAsBefore(data); } }); return; }
   if (stage === 'registered') return;  // handled by the register button itself
   /* Any other value means the coordinator returned a stage this client does not know.
      The engine fails closed on unexpected shapes today (engine/remote.js absorbSession /
