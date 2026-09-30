@@ -40,6 +40,7 @@ render-chip-filters-3423
 render-claude-connect-choice-2433
 render-cluster-reorder-2929
 render-codex-account-picker-2811
+render-codex-hooks-4607
 render-composer-caret-4585
 render-composer-reset
 render-composer-stroke
@@ -160,6 +161,7 @@ render-project-done-4583
 render-project-members-3387
 render-project-needsyou-2699
 render-project-rows
+render-projects-badges-4730
 render-projects-roadmap-3276
 render-prompter-label-1843
 render-provider-combobox-1040

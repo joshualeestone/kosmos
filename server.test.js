@@ -3410,9 +3410,8 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
   const known = drive(knownFleet, { total: 4, needsYou: 1, notRunning: 0 });
   assert.equal(known['st-working'].textContent, '2', 'a fully-known fleet must not wear the floor mark');
   assert.equal(known['st-idle'].textContent, '1', 'a fully-known fleet must not wear the floor mark');
-  /* #2157: the Working tile (chip + its .act animation) hides at a KNOWN zero and
-     only there. Nonzero keeps it shown; a floored count keeps it shown too, because
-     hiding would claim "none working" on a read that cannot stand behind it. */
+  /* #2157, #4736: the Working tile (chip + its .act animation) hides whenever it reads zero, "0+"
+     included (Josh 2026-09-30). Nonzero keeps it shown. */
   assert.equal(live['st-working-tile'].hidden, false, 'a nonzero working count keeps the tile shown (the floored-ZERO path is the zeroFloor fixture below)');
   assert.equal(known['st-working-tile'].hidden, false, 'a nonzero working count keeps the tile shown');
   const zeroKnown = drive(
@@ -3423,10 +3422,15 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
   const zeroFloor = drive(
     [{ state: 'idle' }, { state: 'unknown' }],
     { total: 2, needsYou: 0, notRunning: 0 });
-  assert.equal(zeroFloor['st-working-tile'].hidden, false,
-    'zero working WITH an unknown is a floor, so the tile stays shown -- hiding would claim none working');
+  assert.equal(zeroFloor['st-working-tile'].hidden, true,
+    '#4736: zero working WITH an unknown ("0+") hides the tile too (Josh: "if there are 0 working, lets not show the tile")');
   assert.equal(zeroFloor['st-working'].textContent, '0+',
-    'and the floored zero renders as 0+, not hidden');
+    'the number underneath is still the floored 0+ (only the tile is hidden)');
+  /* #4736: the OTHER way to "0+", unreadable pane lines with no unknown agent, hides the tile too. */
+  const zeroUnread = drive([{ state: 'idle' }], { total: 1, needsYou: 0, notRunning: 0, unreadableLines: 1 });
+  assert.equal(zeroUnread['st-working'].textContent, '0+', 'fixture: unreadable lines floor the zero');
+  assert.equal(zeroUnread['st-working-tile'].hidden, true,
+    '#4736: a zero floored by unreadable lines hides the Working tile too');
   assert.equal(live['st-attn'].textContent, '1', 'the needs-you tile lost its count');
   assert.equal(live['st-attn-tile'].hidden, false, 'a nonzero needs-you must show the alert tile');
   /* #653 (Josh, 2026-08-24): the Not-running tile is gone. The painter must
@@ -7135,24 +7139,24 @@ test('an attributed refusal is an event: logged once per window with its because
 });
 
 test('the project pill claims only what the counts support', () => {
-  /* Pack view C's state pill, driven at its honesty boundaries: "Nothing
-     running" is a CLAIM made only when every member was actually seen; a
-     blind roster or unseen members get the unsure treatment, never a
-     reassurance. */
+  /* Pack view C's state pill. Since #4730 (Josh, 2026-09-30) it shows only while something runs:
+     "if there's nothing running or we can't tell, let's just not display a badge". So nothing
+     running, an unseen member and a blind roster all give NO pill, and a blind roster never keeps
+     claiming Working or Issue. */
   const pjPillOf = pageFunction('pjPillOf');
   assert.equal(pjPillOf({ summary: { total: 3, needsYou: 1, working: 1 } }, false).label, 'Issue');
   assert.equal(pjPillOf({ summary: { total: 3, working: 2 } }, false).label, 'Working');
-  assert.equal(pjPillOf({ summary: { total: 2 } }, false).label, 'Nothing running');
+  assert.equal(pjPillOf({ summary: { total: 2 } }, false).label, '', 'nothing running shows a badge again');
   /* ⚠️ WAS 'No agents yet' UNTIL #1303 E. Josh: "On the Projects tab I don't want
      to show 'no agents' as a status for a project." An empty label is the signal
      the row builder reads to omit the pill entirely, so the assertion is that
      there is NO status rather than that the status is empty-looking. */
   assert.equal(pjPillOf({ summary: { total: 0 } }, false).label, '');
-  assert.equal(pjPillOf({ summary: { total: 2, unseen: 1 } }, false).label, 'Can’t tell',
-    'an unseen member let the card claim nothing is running');
-  assert.equal(pjPillOf({ summary: { total: 2, working: 1 } }, true).label, 'Can’t tell',
+  assert.equal(pjPillOf({ summary: { total: 2, unseen: 1 } }, false).label, '',
+    'an unseen member shows a badge again');
+  assert.equal(pjPillOf({ summary: { total: 2, working: 1 } }, true).label, '',
     'a blind roster let the card keep claiming Working');
-  assert.equal(pjPillOf({ summary: { total: 2, needsYou: 1 } }, true).label, 'Can’t tell',
+  assert.equal(pjPillOf({ summary: { total: 2, needsYou: 1 } }, true).label, '',
     'a blind roster let the card keep claiming Issue, the strongest reassurance it could leak');
 });
 
