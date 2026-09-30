@@ -3827,9 +3827,11 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    (AGENT_WORKFORCE_ALLOWED_HOSTS) it arrives as a loopback peer and passes this gate. So the two reads that carry
    people's work are narrowed IN THEIR HANDLERS for a caller that came through on its agent token alone
    (agentTokenOnlyCaller): the room and the task list answer only for a project that agent is on, the task list
-   needs `?project=`, and its costly Tasks-view arm (`?view=tasks`, `?withArchived=`) is the page's and is not
-   served. The roles list is the product's own text and is open to any valid token. A caller that also presents
-   the board token (every agent's CLI today, and the person) is untouched. The setup guide is NOT a special case:
+   needs `?project=`, and its costly Tasks-view arm (`?view=tasks`) is the page's and is not served. (The #4581
+   project reads above stay open to every token: they carry counts, members and the brief, not the conversation
+   or the task text.) The roles list is the product's own text and is open to any valid token. A caller that
+   also presents the board token (every agent's CLI today, and the person) is untouched. The setup guide is NOT a
+   special case:
    on Claude its Read deny rules stop its file tools, not the `kosmos` command's own read of the board token
    (engine/setup-assistant.js says so; the measurement is in .claude/plans/agent-reads-4491.md), and a Codex,
    Gemini or Grok guide has no deny file at all. */

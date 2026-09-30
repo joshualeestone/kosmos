@@ -12,7 +12,8 @@ project reads (#4692), all on main.
    open to any valid token. A caller that also presents the board token is not narrowed.
 3. Both CLIs (Mac `install/kosmos`, Windows `tools/windows/kosmos-cli.js`) send the agent's own token on those
    reads, plain hex only, and still send the board token.
-4. Nothing an agent or the person can do today stops working.
+4. Nothing an agent or the person can do today stops working, because every CLI still sends the board token
+   (Decisions says what changes the day they stop).
 
 ## Why these three, and why now
 Step 3 of Option C is "both CLIs stop reading board.token". That can only happen once every verb an agent uses
@@ -156,4 +157,10 @@ matter at the slice where the CLIs drop it.
 - NIT the plan said the Tasks view parameters are refused; they are ignored: corrected.
 - NIT membership was checked on the first project with the id while the list filters by id: both reads now require
   the agent on EVERY stored project with that id; tested with a doubled id, measured red with "any".
+
+## Review round 6 (sonnet): 0 BLOCKER, 0 WARNING, 0 CONVENTION, 3 NIT. CONVERGED
+- NITs, all taken as wording only (no code): the route comment names `?view=tasks` alone as the Tasks-view arm
+  (`?withArchived=` does nothing without it), and says why the #4581 project reads stay open while the room and
+  tasks are narrowed (counts, members and the brief, not the conversation or the task text); "Finished looks
+  like" 4 now carries its condition.
 
