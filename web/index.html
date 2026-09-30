@@ -9851,9 +9851,10 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #st-dm-tile[aria-pressed="true"] { background: var(--nl-grey); border-color: var(--k-ink); }
 /* New agent: the project page's round button (its back button: 40px, a hairline) with the words beside it. */
 :root[data-look="new"] body:not(.consolidated) #new-agent { border: 0; background: transparent; padding: 0; gap: 12px; min-height: 40px; }
-:root[data-look="new"] body:not(.consolidated) #new-agent .plus { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+:root[data-look="new"] body:not(.consolidated) #new-agent .plus { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; flex: none;
   background: var(--nl-grey); color: var(--k-ink); font-size: 1.375rem; }
 :root[data-look="new"] body:not(.consolidated) #new-agent:hover .plus { background: var(--k-rule); }
+:root[data-look="new"] body:not(.consolidated) #new-agent .slab { white-space: nowrap; }
 /* The sort menu and the grid / list / org chart toggle: grey pills with no outline; the current view is a
    white segment on the grey, not gold (gold stays for the one primary action on a page). */
 :root[data-look="new"] body:not(.consolidated) #boardbar .sortctl select { border-color: transparent; background: var(--nl-grey); border-radius: 999px; }
@@ -9863,6 +9864,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #boardbar .vt.on { background: var(--k-bg); color: var(--k-ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
 /* Board notices (the restart note and its siblings): the project page's grey box instead of a bordered one. */
 :root[data-look="new"] body:not(.consolidated) .pj-empty { border-color: transparent; background: var(--nl-grey); border-radius: 28px; }
+:root[data-look="new"] body:not(.consolidated) #restart-wrap .pj-empty { margin-bottom: 18px; }
 /* Cards: the project page's corners. The plain card (no state stroke) loses its border and shadow, since its
    grey ground is the separation. Every stroke that means something stays: Working (green), Issue (red), Question
    (blue) and the dashed "could not read" (.unk). */
