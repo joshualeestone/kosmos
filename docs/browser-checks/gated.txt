@@ -143,6 +143,7 @@ render-plus-blue-1615
 render-plus-gate-1615
 render-plus-panel-3829
 render-plus-signin-3478
+render-plus-signin-enter-0929
 render-plus-stars-3778
 render-profile-field-widths-2697
 render-project-members-3387
