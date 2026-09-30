@@ -69,7 +69,9 @@ function parseComputers(answer, domain) {
       this: r.this === true,
       updating: typeof r.updating_until === 'number',
       /* #4726 (#4681): a computer still WAITING to be allowed from another of the owner's computers. The
-         coordinator always sends a bool; an absent field (a coordinator before #4681) reads as not held. */
+         coordinator always sends a bool; an absent field (a coordinator before #4681) reads as not held. Retired
+         wins over held with nothing to do here: the coordinator never lists a retired computer on this route
+         (kosmos-relay coordinator/src/macs.rs account_computers filters on retired_at). */
       held: r.held === true,
     });
   }

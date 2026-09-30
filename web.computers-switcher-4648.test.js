@@ -104,7 +104,8 @@ test('#4726 a computer still waiting to be allowed is a greyed row that says so,
   const [, held, allowed] = list.children;
   assert.equal(held.tagName.toLowerCase(), 'div', 'a held computer must never be a link');
   assert.equal(held.href, undefined);
-  assert.deepEqual(text(held).slice(1), ['planted', 'Waiting to be allowed from another of your computers']);
+  assert.deepEqual(text(held).slice(1), ['planted', 'Waiting to be allowed']);
+  assert.equal(held.title, 'Waiting to be allowed from another of your computers', 'the whole sentence is the row title');
   assert.ok(held.className.split(' ').includes('worldsw-row-off'), 'a held computer is greyed');
   assert.equal(allowed.tagName.toLowerCase(), 'a', 'CONTROL: an allowed online computer is still a link');
   assert.deepEqual(text(allowed).slice(1), ['agent1s', 'Online']);

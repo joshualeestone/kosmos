@@ -25898,9 +25898,12 @@ function computersRender(data) {
       row.setAttribute('aria-current', 'true');
       st.textContent = 'This computer';
     } else {
-      const state = held ? 'Waiting to be allowed from another of your computers'
+      /* A held row's state is kept short so the name beside it is not squeezed out of a narrow menu; the whole
+         sentence is its title. */
+      const state = held ? 'Waiting to be allowed'
         : (c.updating === true ? 'Updating' : (c.online === true ? 'Online' : 'Not connected'));
       st.textContent = state;
+      if (held) row.title = 'Waiting to be allowed from another of your computers';
       if (opens) {
         row.href = 'https://' + c.address + '/';
         row.target = '_blank';
