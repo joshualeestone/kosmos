@@ -9881,6 +9881,14 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    treatment, per the same 08-21 ruling) loses its border and shadow, since its grey ground is the separation. */
 :root[data-look="new"] body:not(.consolidated) #grid .acard { border-radius: 24px; }
 :root[data-look="new"] body:not(.consolidated) #grid .acard:not(.working):not(.attn):not(.question):not(.unk) { border-color: transparent; box-shadow: none; }
+/* The list view (#4470, the next page after the cards): the same language. A row is shorter than a card, so its
+   corners sit between the project page's task rows (10px) and the cards (24px). The ground keeps saying the state
+   (grey, the working green, the needs-you red wash: #3187), so a plain row's border goes, as a plain card's did.
+   What a stroke MEANS stays: the needs-you row keeps its red edge, the could-not-read row its dash. Hover still
+   draws today's border, since a row with no edge needs some sign it can be opened; hover never changes the ground,
+   which is the state. */
+:root[data-look="new"] body:not(.consolidated) #alist .lrow { border-radius: 16px; }
+:root[data-look="new"] body:not(.consolidated) #alist .lrow:not(.attn):not(.unk):not(:hover) { border-color: transparent; }
 /* ===== GENERATED: forced dark theme. Do not edit by hand. ===== */
 /* Written by tools/sync-forced-theme.js from the prefers-color-scheme
    blocks above. Edit those; run the tool; commit both. */

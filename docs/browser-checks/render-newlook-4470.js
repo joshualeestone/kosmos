@@ -162,6 +162,27 @@ const PARTS = `(() => {
   return { found: true, avatars: [...row.querySelectorAll('.tkcard-part .lav')].filter((a) => a.getClientRects().length).length,
     held: dot(row.querySelector('.tkcard-part:not(.none)')), nobody: dot(row.querySelector('.tkcard-part.none')) };
 })()`;
+/* The list view (#4470's next page): switch the Agents board to the list, read the plain idle row (and the same
+   row under the pointer), then switch back to the grid so the later arms read the cards. */
+async function listLook(page) {
+  const btn = await page.$('#boardbar .vt[data-layout="list"]');
+  if (!btn) return { found: false, why: 'no list button' };
+  await btn.click();
+  await page.waitForSelector('#alist .lrow', { timeout: 8000 }).catch(() => {});
+  const read = () => page.evaluate(() => {
+    const rows = [...document.querySelectorAll('#alist .lrow')];
+    const idle = rows.find((r) => !['working', 'attn', 'unk', 'off'].some((c) => r.classList.contains(c)));
+    if (!idle) return { found: false, why: 'no plain row', rows: rows.length };
+    const cs = getComputedStyle(idle);
+    return { found: true, border: cs.borderTopColor, radius: cs.borderTopLeftRadius, ground: cs.backgroundImage !== 'none' || cs.backgroundColor !== 'rgba(0, 0, 0, 0)' };
+  });
+  const rest = await read();
+  let hover = null;
+  if (rest.found) { await page.hover('#alist .lrow:not(.working):not(.attn):not(.unk):not(.off)'); await page.waitForTimeout(150); hover = (await read()).border; await page.mouse.move(1, 1); }
+  const grid = await page.$('#boardbar .vt[data-layout="grid"]');
+  if (grid) { await grid.click(); await page.waitForTimeout(300); }
+  return { ...rest, hover };
+}
 const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmid .composer .composerbox')).backgroundColor`;
 /* The Agents page in the new look: the idle and the working card's border, the Agents tile's border, the New
    agent button's round, the current view segment's ground, and the page's own ground. */
@@ -411,6 +432,11 @@ const AGENTS_LOOK = `(() => {
       });
       chk(pressed.found && pressed.bg !== 'rgba(0, 0, 0, 0)' && pressed.border !== 'rgba(0, 0, 0, 0)',
         `${tag} On, Agents page: a pressed Messages filter still shows its pressed ground and border`, JSON.stringify(pressed));
+      const listOn = await listLook(page);
+      chk(listOn.found && listOn.border === 'rgba(0, 0, 0, 0)' && listOn.radius === '16px' && listOn.ground,
+        `${tag} On, Agents list: a plain row keeps its grey ground, loses its border and takes 16px corners`, JSON.stringify(listOn));
+      chk(listOn.found && listOn.hover && listOn.hover !== 'rgba(0, 0, 0, 0)',
+        `${tag} On, Agents list: a row under the pointer shows its border (a sign it opens)`, JSON.stringify(listOn));
 
       await page.reload({ waitUntil: 'networkidle' });
       await clearFirstRun(page);
@@ -447,6 +473,9 @@ const AGENTS_LOOK = `(() => {
       const agOff = await page.evaluate(AGENTS_LOOK);
       chk(agOff.idle !== 'rgba(0, 0, 0, 0)' && agOff.idle !== 'absent' && agOff.tile !== 'rgba(0, 0, 0, 0)' && agOff.plus && agOff.plus.round !== '50%',
         `${tag} Off, Agents page: today's bordered idle card, Agents tile and New agent tile`, JSON.stringify(agOff));
+      const listOff = await listLook(page);
+      chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px',
+        `${tag} Off, Agents list: today's bordered row with 12px corners`, JSON.stringify(listOff));
       /* What the new look must NOT change, compared on the same board: the working card's stroke (state owns the
          stroke) and the current view's gold (Josh 2026-08-17: selected is gold). */
       chk(agOn.working === agOff.working, `${tag} the working card's stroke is the same with the look on as off`, JSON.stringify({ on: agOn.working, off: agOff.working }));
@@ -468,5 +497,5 @@ const AGENTS_LOOK = `(() => {
     for (const d of ROOTS) fs.rmSync(d, { recursive: true, force: true });
   }
   console.log(`\n${ran - fail.length}/${ran} passed`);
-  process.exit(fail.length || ran < 130 ? 1 : 0);   // a full run makes about 140 (three passes); a skipped pass must fail
+  process.exit(fail.length || ran < 138 ? 1 : 0);   // a full run makes about 149 (three passes, 3 list arms each); a skipped pass must fail
 })();
