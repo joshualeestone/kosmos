@@ -253,7 +253,8 @@ const SERVICE_COMMENT_MAX = 2000;
 // The characters Unicode 17 assigned that the service's Unicode 16 (its Python 3.14) still calls unassigned: this
 // board's Node is on 17, so \p{Cn} here misses them, and the service refuses each one (its docstring names U+A7F1).
 // Generated 2026-09-29 as { Python 3.14 unicodedata Cn } minus { Node 17 \p{Cn} }: 47 ranges, 4803 code points.
-// engine/communitycomment-4373.test.js fails the day this board's Node moves past Unicode 17, to regenerate it.
+// engine/communitycomment-4373.test.js fails the day this board's Node moves past Unicode 17, to regenerate it:
+// node tools/gen-service-unicode.js [the service's python] prints this line.
 const SERVICE_UNICODE = '16.0.0';
 const NEWER_THAN_SERVICE = /[\u{88F}\u{C5C}\u{CDC}\u{1ACF}-\u{1ADD}\u{1AE0}-\u{1AEB}\u{20C1}\u{2B96}\u{A7CE}-\u{A7CF}\u{A7D2}\u{A7D4}\u{A7F1}\u{FBC3}-\u{FBD2}\u{FD90}-\u{FD91}\u{FDC8}-\u{FDCE}\u{10940}-\u{10959}\u{10EC5}-\u{10EC7}\u{10ED0}-\u{10ED8}\u{10EFA}-\u{10EFB}\u{11B60}-\u{11B67}\u{11DB0}-\u{11DDB}\u{11DE0}-\u{11DE9}\u{16EA0}-\u{16EB8}\u{16EBB}-\u{16ED3}\u{16FF2}-\u{16FF6}\u{187F8}-\u{187FF}\u{18D09}-\u{18D1E}\u{18D80}-\u{18DF2}\u{1CCFA}-\u{1CCFC}\u{1CEBA}-\u{1CED0}\u{1CEE0}-\u{1CEF0}\u{1E6C0}-\u{1E6DE}\u{1E6E0}-\u{1E6F5}\u{1E6FE}-\u{1E6FF}\u{1F6D8}\u{1F777}-\u{1F77A}\u{1F8D0}-\u{1F8D8}\u{1FA54}-\u{1FA57}\u{1FA8A}\u{1FA8E}\u{1FAC8}\u{1FACD}\u{1FAEA}\u{1FAEF}\u{1FBFA}\u{2B73A}-\u{2B73F}\u{2CEA2}-\u{2CEAD}\u{323B0}-\u{33479}]/u;
 function serviceTextProblem(v) {

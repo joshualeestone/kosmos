@@ -249,3 +249,16 @@ case a refused comment); the Mac CLI builds JSON from env vars and sends it as -
 own line" could be misread as a separate line; that fails safely ("Nothing to send"), runs nothing.
 Review rounds after the #4374 rebase: the block change (1 W), its confirmation (1 W), then six red-team rounds (3 W; 3 W;
 1 B + 2 W; 1 B + 2 W + 1 N; 1 W + 1 N; converged). 17 rounds in all.
+
+## After merging main and the 5 ms test fix: review round (blind, sonnet), 2026-09-30 06:03
+Full validation PASSED on 9a85cbc33 first. Round found 3 WARNINGs:
+- DUPLICATE of the ledger: no answer or a 5xx records `unconfirmed` and never resends (the at-most-once choice),
+  and only /api/community/sent shows it until the Settings list (both recorded above, lines 30-36 and 64).
+- DUPLICATE of iteration 8's accepted note: a rejected comment still records the ON period's start (it only moves the
+  window earlier while ON; nothing is sent or leaked).
+- NEW, FIXED: the 47 NEWER_THAN_SERVICE ranges could not be regenerated (the header named the step, not the command).
+  tools/gen-service-unicode.js [python] prints the exact line; run here with python3.14 (Unicode 16) and Node 26
+  (Unicode 17) it reproduces the committed line byte for byte (47 ranges, 4803 code points); CONTROL: with python3.13
+  (Unicode 15.1) it gives 87 ranges and does not match. The header now names the command.
+NITs left: the 409 branch is unreachable until replies ship; the Mac verb joins arguments with "$*"; the block's token
+cost is unmeasured.
