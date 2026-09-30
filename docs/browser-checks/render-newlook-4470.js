@@ -497,5 +497,5 @@ const AGENTS_LOOK = `(() => {
     for (const d of ROOTS) fs.rmSync(d, { recursive: true, force: true });
   }
   console.log(`\n${ran - fail.length}/${ran} passed`);
-  process.exit(fail.length || ran < 138 ? 1 : 0);   // a full run makes about 149 (three passes, 3 list arms each); a skipped pass must fail
+  process.exit(fail.length || ran < 138 ? 1 : 0);   // a full run makes 152 (measured, three passes with 3 list arms each); a skipped pass must fail
 })();
