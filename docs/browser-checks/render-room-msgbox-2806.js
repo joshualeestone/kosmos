@@ -116,12 +116,15 @@ const now = () => new Date().toISOString();
 /* #4663: runs in the page. Reveals the project page's six small controls the way an open project shows them (the
    static page opens none), measures each one's tap area and its neighbours' centres, then puts every change back, so
    later arms see the page as it was. A parent is only forced visible where it computes display:none, and only then. */
-function tapProbe4663() {
-  const ids = ['pj-back', 'pj-settings-link', 'pj-add-member', 'pj-newtask', 'pj-docs-all', 'pj-alltasks'];
+function tapProbe4663(skip) {
+  const ids = ['pj-back', 'pj-settings-link', 'pj-add-member', 'pj-newtask', 'pj-docs-all', 'pj-alltasks'].filter((id) => !(skip || []).includes(id));
   // What the probe may change, read before and after: each control and its ancestors' hidden, inert and inline display.
   const snap = () => ids.map((id) => { const out = []; for (let el = document.getElementById(id); el && el !== document.body; el = el.parentElement)
     out.push([el.hidden, el.hasAttribute('inert'), el.style.display].join('/')); const b = document.getElementById(id); return out.join('>') + '|' + (b ? b.textContent : ''); }).join(';');
-  const start = snap();
+  // Scroll positions too: scrollIntoView below moves the window and every scrolling ancestor.
+  const scrolled = [document.scrollingElement, ...document.querySelectorAll('*')].filter((e) => e && (e.scrollTop || e.scrollLeft)).map((e) => [e, e.scrollTop, e.scrollLeft]);
+  const sx = scrollX, sy = scrollY;
+  const start = snap() + '#' + scrolled.map(([, t, l]) => t + ',' + l).join(';') + '#' + sx + ',' + sy;
   const undo = [];
   const set = (el, prop, val) => { const was = prop === 'hidden' ? el.hidden : prop === 'inert' ? el.hasAttribute('inert') : el.style[prop];
     undo.push(() => { if (prop === 'hidden') el.hidden = was; else if (prop === 'inert') { if (was) el.setAttribute('inert', ''); else el.removeAttribute('inert'); } else el.style[prop] = was; });
@@ -143,12 +146,19 @@ function tapProbe4663() {
     // In the middle of the screen, so every probe point is on screen: a point off screen proves nothing.
     b.scrollIntoView({ block: 'center', inline: 'center' });
     const r = b.getBoundingClientRect(); if (!r.width || !r.height) { out.push({ id, error: 'not drawn' }); continue; }
+    /* The tap area's real extent, whatever its shape (centred, or grown inward where a column clips it): every point
+       of a grid around the control that reaches it, and the box those points span. Off-screen points are not
+       sampled, and the control is mid-screen, so none is. */
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-    const hw = Math.max(r.width, 36) / 2 - 1, hh = Math.max(r.height, 36) / 2 - 1;
-    const edges = [[cx - hw, cy], [cx + hw, cy], [cx, cy - hh], [cx, cy + hh]];
-    const onScreen = edges.filter(([x, y]) => x >= 0 && y >= 0 && x <= innerWidth && y <= innerHeight);
-    const missed = onScreen.filter(([x, y]) => !hit(x, y, b)).length;
-    out.push({ id, drawn: Math.round(r.width) + 'x' + Math.round(r.height), probed: onScreen.length, reach: onScreen.length >= 3 && missed === 0 });
+    const span = Math.max(r.width, r.height, 36) / 2 + 12;
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (let y = Math.max(0, cy - span); y <= Math.min(innerHeight - 1, cy + span); y += 1) {
+      for (let x = Math.max(0, cx - span); x <= Math.min(innerWidth - 1, cx + span); x += 1) {
+        if (hit(x, y, b)) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      }
+    }
+    const w = x1 - x0 + 1, h = y1 - y0 + 1;
+    out.push({ id, drawn: Math.round(r.width) + 'x' + Math.round(r.height), tap: Math.round(w) + 'x' + Math.round(h), reach: w >= 35 && h >= 35 });
   }
   const theirs = [];
   for (const id of ids) {
@@ -164,7 +174,10 @@ function tapProbe4663() {
     }
   }
   for (const u of undo.reverse()) u();
-  return { out, theirs, restored: snap() === start, changed: undo.length };
+  for (const [e, t, l] of scrolled) { e.scrollTop = t; e.scrollLeft = l; }
+  window.scrollTo(sx, sy);
+  const end = snap() + '#' + scrolled.map(([e]) => e.scrollTop + ',' + e.scrollLeft).join(';') + '#' + scrollX + ',' + scrollY;
+  return { out, theirs, restored: end === start, changed: undo.length };
 }
 
 (async () => {
@@ -1616,13 +1629,33 @@ function tapProbe4663() {
       // 15 fields render at 1180 (measured, both engines; others sit in views hidden at that width).
       chk(!tablet.error && tablet.hoverNone && tablet.fields >= 12 && tablet.at16 === tablet.fields && tablet.outside.length === 0,
         `[tablet 1180/touch] at 16px every field stays inside its nearest container, one view at a time`, JSON.stringify(tablet));
+      // #4663 on a touchscreen tablet in the TAB layout (the static page's own layout at 1180).
+      const ttaps = await tabletPage.evaluate(tapProbe4663);
+      chk(ttaps.out.length === 6 && ttaps.out.every((x) => !x.error && x.reach), `[tablet 1180/touch tabs] #4663: all six small project controls take a tap across at least 36px`, JSON.stringify(ttaps.out));
+      chk(ttaps.theirs.length === 0 && ttaps.restored, `[tablet 1180/touch tabs] #4663: no enlarged tap area takes a neighbour's centre, and the probe left the page as it found it`, JSON.stringify({ theirs: ttaps.theirs, restored: ttaps.restored }));
     } finally {
       chk(tabletPageErrors.length === 0, '[tablet] no script errors on the page', tabletPageErrors.join(' | '));
-      // #4663 on a touchscreen tablet (the one-screen layout at 1180): the same six controls sit in other grid tracks.
-      const ttaps = await tabletPage.evaluate(tapProbe4663);
-      chk(ttaps.out.filter((x) => !x.error).length >= 4 && ttaps.out.every((x) => x.error || x.reach), `[tablet] #4663: the small project controls take a tap across at least 36px in the one-screen layout`, JSON.stringify(ttaps.out));
-      chk(ttaps.theirs.length === 0 && ttaps.restored, `[tablet] #4663: no enlarged tap area takes a neighbour's centre, and the probe left the page as it found it`, JSON.stringify({ theirs: ttaps.theirs, restored: ttaps.restored }));
       await tabletPage.close();
+    }
+    // #4663 in the ONE-SCREEN layout on a touchscreen tablet, set as the dark/consolidated arm above sets it (the
+    // static page does not choose it by itself). Back is not shown in this layout (its crumb row is display:none), so
+    // it is left out rather than forced visible; the other five must all take their 36px tap.
+    for (const w of [1024, 1180]) {
+      const consTap = await browser.newPage({ viewport: { width: w, height: 820 }, colorScheme: 'light', hasTouch: true, isMobile: true });
+      const consTapErrors = watchErrors(consTap);
+      try {
+        await consTap.addInitScript(() => { window.setInterval = () => 0; window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }); });
+        await consTap.goto(PAGE);
+        await consTap.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
+          document.documentElement.setAttribute('data-layout', 'consolidated'); document.body.classList.add('consolidated'); });
+        const layout = await consTap.evaluate(() => document.documentElement.getAttribute('data-layout') + '/' + document.body.classList.contains('consolidated'));
+        const ctaps = await consTap.evaluate(tapProbe4663, ['pj-back']);
+        chk(layout === 'consolidated/true' && ctaps.out.length === 5 && ctaps.out.every((x) => !x.error && x.reach), `[tablet ${w}/touch one-screen] #4663: the five small project controls it shows take a tap across at least 36px`, JSON.stringify({ layout, out: ctaps.out }));
+        chk(ctaps.theirs.length === 0 && ctaps.restored, `[tablet ${w}/touch one-screen] #4663: no enlarged tap area takes a neighbour's centre, and the probe left the page as it found it`, JSON.stringify({ theirs: ctaps.theirs, restored: ctaps.restored }));
+      } finally {
+        chk(consTapErrors.length === 0, `[tablet ${w} one-screen] no script errors on the page`, consTapErrors.join(' | '));
+        await consTap.close();
+      }
     }
     // DARK, phone, touch: the open bar has its own ground against the dark room ground, so its
     // emoji read over the message it covers, and it still takes its taps. (Lifted to body, the

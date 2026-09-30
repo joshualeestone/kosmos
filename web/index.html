@@ -5980,6 +5980,11 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
   :is(#pj-back, #pj-settings-link, #pj-add-member, #pj-newtask, #pj-docs-all, #pj-alltasks)::after {
     content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
     width: max(100%, 36px); height: max(100%, 36px); }
+  /* In the one-screen layout + New task and the tasks View All sit at the top (+ New task also at the right) of a
+     column that clips (overflow: hidden, for its scroller), so a centred area lost its top and right. Theirs grow
+     inward instead: down from the top, and left from + New task's right edge. */
+  html[data-layout="consolidated"] body.consolidated #pj-alltasks::after { top: 0; transform: translateX(-50%); }
+  html[data-layout="consolidated"] body.consolidated #pj-newtask::after { top: 0; left: auto; right: 0; transform: none; }
 }
 /* Josh, 2026-09-10 (#2711 item 4): the tab-view conversation search is narrow
    at rest ("Search"), and widens when the person clicks into it so they have
