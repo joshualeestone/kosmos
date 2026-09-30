@@ -3715,6 +3715,21 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
 /* #3703: the head carries "+ New task" beside the title, as Mona's mock draws it (.mh / .newbtn). */
 #panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+/* #4586 (Josh, 2026-09-29 11:35): "click the back button at the top left next to the title and go right
+   back into the project." A round chevron, the #2928 back glyph in #4470's round frame, sized to sit beside
+   a sub-view's title. On Tasks it shows only while the view is for one project (tskPaint sets it, and it
+   reuses the crumb's Open project path); on Documents only in the consolidated view (the tab view keeps
+   its "<- name" back). The title takes the free space, so the chevron sits against it, not across the row. */
+.sub-back { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--k-rule); background: none;
+            color: var(--k-ink-2); cursor: pointer; display: grid; place-items: center; flex: none; padding: 0; }
+.sub-back:hover { background: var(--k-sunk); color: var(--k-ink); }
+.sub-back[hidden] { display: none; }
+#panel-tasks .tsk-head > .sub-back { align-self: center; margin-right: -4px; }
+#panel-tasks .tsk-head > #tsk-title { margin-right: auto; }
+#pj-docs-view .pjtitle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
+#pj-docs-view .pjtitle > .sub-back { grid-column: 1; grid-row: 1; margin-right: 12px; }
+#pj-docs-view .pjtitle > :not(.sub-back) { grid-column: 2; }
+body:not(.consolidated) #docs-chev { display: none; }
 /* #3949 (Josh, 09-26 19:30): the title carries the count ("30 Tasks on 2 Projects"); the separate count line is
    gone, and the search sits compact to the right of Sort (below). */
 .tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 14px 0 4px; }
@@ -5070,7 +5085,9 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   /* #3502 (Josh, 2026-09-23, consolidated project sub-views): the "Back to <project>"
      controls are redundant in the consolidated view -- the project is already open and
      its name is one click away, so remove them from Documents, Tasks and Project Settings.
-     Kept in the tab view (body:not(.consolidated)), where the back control is the way out. */
+     Kept in the tab view (body:not(.consolidated)), where the back control is the way out.
+     #4586 (Josh, 2026-09-29) reversed this for Documents and Tasks: the way back there is now the
+     round chevron beside the title (#docs-chev, #tsk-back), so #docs-back stays hidden here. */
   html[data-layout="consolidated"] body.consolidated #docs-back,
   html[data-layout="consolidated"] body.consolidated #pj-settings-back { display: none; }
   /* #3502: with the back button gone the heading must not jump against the top rule.
@@ -15257,6 +15274,10 @@ window.kosmosMeasureScrollbarWidth();
     <button class="back" id="docs-back" type="button"></button>
     <div class="pjhead">
       <div class="pjtitle">
+        <!-- #4586 (Josh, 2026-09-29 11:35): the back chevron beside the title, straight back to the
+             project's room. #3502 hid #docs-back in the consolidated view; Josh reversed that. The tab
+             view keeps its own "<- name" back above, so this one shows only in the consolidated view. -->
+        <button class="sub-back" id="docs-chev" type="button" aria-label="Back to the project"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
         <h2 class="dname">Documents</h2>
         <p class="pj-desc">In <b id="docs-project"></b>.</p>
       </div>
@@ -15757,7 +15778,7 @@ window.kosmosMeasureScrollbarWidth();
            everything from Group by / Sort down sits on white, full width, and the task cards are shaded. -->
       <div class="tsk-band">
       <p class="tsk-crumb" id="tsk-crumb"></p>
-      <div class="tsk-head"><h2 id="tsk-title">Tasks</h2><button class="btn uprime" id="tsk-new" type="button"><span aria-hidden="true">+</span> New task</button></div>
+      <div class="tsk-head"><button class="sub-back" id="tsk-back" type="button" hidden aria-label="Back to the project"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button><h2 id="tsk-title">Tasks</h2><button class="btn uprime" id="tsk-new" type="button"><span aria-hidden="true">+</span> New task</button></div>
       <div class="tsk-ctrls" id="tsk-filters">
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-projsel">Project:</label><select class="tsk-sel" id="tsk-projsel"></select></div>
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-win">Created:</label><select class="tsk-sel" id="tsk-win"></select></div>
@@ -52582,6 +52603,14 @@ function tskPaint() {
   document.getElementById('tsk-crumb').innerHTML = picked
     ? '<button type="button" data-proj="">All tasks</button> › ' + esc(picked.name) + ' · <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button>'
     : '';
+  /* #4586: the chevron beside the title is the crumb's Open project, shown exactly when that is: the
+     panel's delegated [data-open-project] click opens the room, so there is one way in, not two. */
+  const back = document.getElementById('tsk-back');
+  if (back) {
+    back.hidden = !picked;
+    if (picked) { back.dataset.openProject = picked.id; back.setAttribute('aria-label', 'Back to ' + picked.name); }
+    else delete back.dataset.openProject;
+  }
   const scoped = tskScoped(all, TSK, now);
   const open = scoped.filter((t) => t.state !== 'closed');
   /* #3949 (Josh, 09-26 19:30): the title IS the count: "30 Tasks on 2 Projects" (open tasks in the current scope, the
@@ -52843,7 +52872,7 @@ function tskFocusMark(el) {
   if (!attr) return null;
   const row = el.closest('.tsk-row');
   const box = row ? null : el.closest('#tsk-crumb, #tsk-tiles');
-  return { tag: el.tagName.toLowerCase(), attr, value: el.getAttribute(attr), row: row ? row.dataset.key : null, box: box ? box.id : null };
+  return { tag: el.tagName.toLowerCase(), attr, value: el.getAttribute(attr), row: row ? row.dataset.key : null, box: box ? box.id : null, id: el.id || null };
 }
 function tskFocusRestore(mark) {
   if (!mark) return;
@@ -52851,6 +52880,11 @@ function tskFocusRestore(mark) {
     ? document.querySelector('#tsk-groups .tsk-row[data-key="' + CSS.escape(mark.row) + '"]')
     : (mark.box ? document.getElementById(mark.box) : document.getElementById('panel-tasks'));
   const shown = (x) => x && x.getClientRects().length > 0;
+  /* #4586: a control with an id (the title's back chevron, #tsk-back) is not rebuilt by the paint, so
+     it keeps focus while it is still on screen; without this the attribute search finds the crumb's
+     Open project first, which carries the same data-open-project. */
+  const same = mark.id ? document.getElementById(mark.id) : null;
+  if (shown(same)) { same.focus(); return; }
   const again = scope ? [...scope.querySelectorAll(mark.tag + '[' + mark.attr + '="' + CSS.escape(String(mark.value)) + '"]')].find(shown) : null;
   if (again) { again.focus(); return; }
   /* The control is gone with its container (the crumb's "All tasks" empties the crumb): land on
@@ -54887,6 +54921,7 @@ async function openDocsView() {
   if (!p) return;
   document.getElementById('docs-project').textContent = p.name;
   document.getElementById('docs-back').textContent = '\u2190 ' + p.name;
+  document.getElementById('docs-chev').setAttribute('aria-label', 'Back to ' + p.name); // #4586
   const box = document.getElementById('docs-list');
   const msg = document.getElementById('docs-msg');
   const count = document.getElementById('docs-count');
@@ -54950,6 +54985,7 @@ async function openDocsView() {
   }
 }
 document.getElementById('docs-back').addEventListener('click', () => { pjView('one'); });
+document.getElementById('docs-chev').addEventListener('click', () => { pjView('one'); }); // #4586: the same way back
 document.getElementById('docs-finder').addEventListener('click', async () => {
   const msg = document.getElementById('docs-msg');
   try {
