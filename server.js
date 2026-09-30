@@ -8231,7 +8231,7 @@ const server = http.createServer(async (req, res) => {
      Only device_status ever comes back (pending, acked, denied); `stop` says there is nothing left to wait for
      (no second computer waiting, a final answer given, or a tunnel too old to ask), so the page stops asking. */
   if (pathname === '/api/remote/signin-allowed' && req.method === 'GET') {
-    // A final answer is given once, so another website must not be able to take it.
+    // Another website must not learn whether this computer was allowed, or spend the engine's asks on it.
     const refusedRead = crossSiteRead(req);
     if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
     remote.signinAllowStatus()
