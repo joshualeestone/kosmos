@@ -43707,11 +43707,12 @@ async function plusSiSession(data, again, keep) {
      switch on, cannot name one here: it gets the list, or the way to buy one. */
   /* This computer already holds one of the account's addresses (set up before, signing in again): it keeps it. */
   const mine = b && b.this_name ? b.addresses.filter((r) => r.name === b.this_name)[0] : null;
-  if (mine && !(own && mine.name === own[1])) { plusSiRegisterMode(mine.address); plusSiShow('plus-si-register'); plusSiDoRegister(mine.name, mine.name); return; }
+  // A register that goes ahead does not keep a refusal's words beside it (again: after a refused pick).
+  if (mine && !(own && mine.name === own[1])) { if (again) plusSiMsg(''); plusSiRegisterMode(mine.address); plusSiShow('plus-si-register'); plusSiDoRegister(mine.name, mine.name); return; }
   /* The account's own address as before only when it is free (or absent from the list, failing open) or already
      this computer's; a PENDING one is not bought yet, so it gets the list and its waiting-for-payment line. */
   const asBefore = !b || (own && (!ownRow || ownRow.state === 'free' || b.this_name === own[1]));
-  if (asBefore) { plusSiAsBefore(data); return; }
+  if (asBefore) { if (again) plusSiMsg(''); plusSiAsBefore(data); return; }
   plusSiBoughtPick(b);
 }
 function plusSiBoughtPick(b) {
