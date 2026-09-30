@@ -124,7 +124,7 @@ function navGeo() {
         // Which words, in how many lines, in how wide a column: a failed height names its cause.
         // spare: the BUTTON's text column (its content box) less the words' one-line width. Not the label's own box: a
         // label is centred in a column-flex button (align-items: center on #d-nav.dnav-boxed button, #3500), so it shrinks to its
-        // words and would always read ~0 spare. On #4712's first CI run a label with ~0 spare here wrapped there.
+        // words and would always read ~0 spare.
         const rg = document.createRange(); rg.selectNodeContents(el);
         const rects = [...rg.getClientRects()].map((r) => r.width);
         const bcs = getComputedStyle(b);
@@ -216,10 +216,11 @@ function measure() {
         chk(g.whole && !g.scrolls, `${t} #4661: every section tab is whole on screen, and the row does not scroll`, `whole=${g.whole} scrolls=${g.scrolls}`);
         chk(g.cut.length === 0 && g.spill.length === 0, `${t} #4661: no label is broken inside a word, clipped, or outside its button`, JSON.stringify({ cut: g.cut, spill: g.spill }));
         chk(g.h >= 44 && g.h <= 52, `${t} #4661: at 375 and wider, with default text, the row keeps its one-line 44px height`, `h=${g.h} ${JSON.stringify(g.labels)}`);
-        chk(g.labels.filter((l) => !l.pill && typeof l.spare === 'number').length >= 3 && g.labels.every((l) => l.pill || l.spare === null || l.spare >= 2), `${t} #4661: all three labels are measured on one line, each with at least 2px to spare in its column (a slightly wider font does not wrap it)`, JSON.stringify(g.labels));
-        // 2px: CI's font measured "Direct Message" about 1-2px wider than this Mac's (92 against ~90.5). It is enforced
-        // on CI's font too, on purpose: there it should leave ~3.3px at 375 (computed, not yet measured on CI), and a
-        // runner font 1.3px wider fails here, as a spare problem, before it wraps. rowW in the detail says whether the
+        chk(g.labels.filter((l) => !l.pill).length >= 3 && g.labels.filter((l) => !l.pill).every((l) => typeof l.spare === 'number' && l.spare >= 2), `${t} #4661: every label is measured on one line, each with at least 2px to spare in its column (a slightly wider font does not wrap it)`, JSON.stringify(g.labels));
+        // 2px: CI measured "Direct Message" 92px wide (its shrink-wrapped label at 393, run 36704478874), about 1-2px
+        // wider than this Mac's font. It is enforced on CI's font too, on purpose: there it should leave ~3.3px at 375
+        // (computed from that 92, not yet measured at 375), and a runner font more than ~1.3px wider fails here, as a
+        // spare problem, before it wraps. rowW in the detail says whether the
         // font or the row changed. A swarm's status word (a shrink-wrapped pill) is skipped. Only this arm asserts
         // spare: the swarm row, the sideways arm and the 320/larger-text arms do not.
         chk(!(m.label && m.label.w > 2 && m.label.h > 2) && m.labelDisplay !== 'none' && m.labelText.length > 0, `${t} the caption that repeats the agent's name is not shown but kept for screen readers`, JSON.stringify({ label: m.label, display: m.labelDisplay, text: m.labelText }));

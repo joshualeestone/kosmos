@@ -10308,9 +10308,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
     /* Equal shares of the row, never narrower than the button's longest word: when four cannot fit (a swarm's,
        at large text on the narrowest phones) the row wraps to a second line rather than cut or spill a word. */
     flex: 1 1 0; width: auto; min-width: min-content; min-height: 44px; flex-direction: column; gap: 2px;
-    /* 2px at the sides: at 375 wide "Direct Message" needs about 92px in CI's macOS font, and a 100px button with
-       4px sides and 1px borders left it a 90px column, so it wrapped there while fitting here. 2px sides and a 4px
-       gap give the column about 95. */
+    /* 2px at the sides: "Direct Message" measures 92px in CI's macOS font (at 393). At 375 wide with three buttons,
+       a 100px button with 4px sides and 1px borders left it a 90px column, so it wrapped there while fitting here.
+       2px sides and a 4px gap give that column about 95. */
     padding: 4px 2px; border-radius: 14px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-lab,
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack .dnav-lab {
