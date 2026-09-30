@@ -1029,7 +1029,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   // happened (the envelope states "answers mN" as fact).
   let replyTo = null;
   if (inReplyTo != null && inReplyTo !== '') {
-    const wanted = String(inReplyTo).trim();
+    const wanted = messageIdOf(inReplyTo);   // #4631: '530' and 'message 530' name m530 too
     if (!/^m[0-9]+$/.test(wanted)) {
       return refuse(toName, 'in_reply_to must be a message id like m12');
     }
@@ -1994,8 +1994,8 @@ function blockBody() {
     '**Do not quote the bracket line when you answer.** Every delivered',
     'message opens with a bracketed line naming its sender. A message you',
     'send that contains such a line is refused, because it could',
-    'impersonate another sender. Say it in your own words, or name',
-    'the id ("re m12") instead of pasting the line.',
+    'impersonate another sender. Say it in your own words instead of',
+    'pasting the line: whose message it was and what it said.',
     '',
     'Mention @<their-name> to address someone directly; everyone else on',
     'the project receives it marked as background.',
@@ -2328,6 +2328,20 @@ function reactionsFor(of, rows, youReactor) {
   return out;
 }
 
+/* #4631: a message id as a PERSON may write it. Ids are stored as 'm' + a number, one sequence for the whole
+   Kosmos, so the number alone names the message. A person copies "message 530 in Kosmos Growth" (the page's
+   Copy message reference) and pastes it to an agent, or types "530"; each input point runs its value
+   through here, so all of them come out as 'm530'. The words after "in" are a courtesy for the reader and are
+   not checked here: each caller still checks the id is in the room it expects. Anything that is not one of these
+   shapes comes back trimmed and otherwise unchanged, so the caller's own refusal still names what was wrong.
+   "530 in <anything>" is m530 whatever the words say: the room is checked by the caller, not here. */
+function messageIdOf(value) {
+  const s = String(value == null ? '' : value).trim();
+  /* No '#': '#4631' is how a card is written, and a card number must not quietly name a message. */
+  const hit = /^(?:message\s+)?m?(\d{1,15})(?:\s+in\s+\S.*)?[.,;:!?]?$/i.exec(s);   // a sentence's own full stop too
+  return hit ? 'm' + String(Number(hit[1])) : s;
+}
+
 /* Toggle one reactor's reaction on a post. Discord's click semantics: if the
    reactor already has this emoji on this post it is REMOVED, otherwise ADDED.
    The post must exist in the named project (a reaction to nothing is refused,
@@ -2338,7 +2352,7 @@ function reactionsFor(of, rows, youReactor) {
    {ok:false, because}. */
 function react({ project, of, emoji, from, operator, members }) {
   const projectId = String(project == null ? '' : project).trim();
-  const postId = String(of == null ? '' : of).trim();
+  const postId = messageIdOf(of);   // #4631: '530' and 'message 530' name m530 too
   const e = normalizeReactionEmoji(emoji);
   if (!projectId) return { ok: false, because: 'we could not tell which project this post is in' };
   if (!postId) return { ok: false, because: 'we could not tell which post to react to' };
@@ -2515,6 +2529,7 @@ module.exports = {
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   projectOfPost, owedElsewhere,
   react, reactionsFor, normalizeReactionEmoji,
+  messageIdOf, // #4631
   operatorDirect, dmAnsweredParts, operatorNowLabel, validTimeZone, roomClock,
   START, END, blockBody,
   LOG,
