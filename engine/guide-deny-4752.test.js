@@ -136,6 +136,7 @@ test('#4752 for a guide in a named world, every entry of the default world\'s st
     'the worlds folder or its registry was named: ' + named.join(' '));
   assert.ok(!named.some((r) => r === `Read(${abs(base)}/**)`), 'the base was named whole');
   assert.ok(named.length >= 9, 'CONTROL: the entries were not read at all: ' + named.length);
+  assert.equal(new Set(rules).size, rules.length, 'a rule is there twice: ' + rules.filter((r, i) => rules.indexOf(r) !== i).join(' '));
 });
 
 test('#4752 when the base cannot be worked out (preWorldEnv throws), that is said, and the earlier rules still come back', () => {
@@ -202,7 +203,7 @@ test('#4752 rewriting the guide\'s rules drops the rule for a store entry that i
   assert.ok(read().includes(bak), 'CONTROL: the backup was not named the first time');
   /* A person's own rule under the same folder but deeper, and one elsewhere, must survive. */
   const s = JSON.parse(fs.readFileSync(path.join(guide, '.claude', 'settings.json'), 'utf8'));
-  s.permissions.deny.push(`Read(${abs(path.join(base, 'deeper', 'x.txt'))})`, 'Read(//elsewhere/**)');
+  s.permissions.deny.push(`Read(${abs(path.join(base, 'deeper', 'x.txt'))})`, 'Read(//elsewhere/**)', `Read(${abs(path.join(base, 'worlds.json'))})`);
   fs.writeFileSync(path.join(guide, '.claude', 'settings.json'), JSON.stringify(s));
   fs.unlinkSync(path.join(base, 'projects.json.bak-20260824-201717'));
   assert.equal(setupAssistant.guardGuideFolder(guide, 'guide', deps).ok, true);
@@ -210,6 +211,7 @@ test('#4752 rewriting the guide\'s rules drops the rule for a store entry that i
   assert.ok(!after.includes(bak), 'the rule for a deleted entry stayed');
   assert.ok(after.includes(`Read(${abs(path.join(base, 'keep.json'))})`), 'the rule for an entry that is still there was lost');
   assert.ok(after.includes(`Read(${abs(path.join(base, 'deeper', 'x.txt'))})`) && after.includes('Read(//elsewhere/**)'), 'a rule that is not one entry of the store was dropped');
+  assert.ok(after.includes(`Read(${abs(path.join(base, 'worlds.json'))})`), 'a person\'s rule for the registry (a name this code never writes) was dropped');
   assert.ok(after.includes('Read(~/.ssh/**)'), 'CONTROL: the ordinary rules are gone');
 });
 
@@ -224,11 +226,13 @@ test('#4752 when the store cannot be listed on a rewrite, the earlier rules for 
   assert.equal(setupAssistant.guardGuideFolder(guide, 'guide', deps).ok, true);
   const read = () => JSON.parse(fs.readFileSync(path.join(guide, '.claude', 'settings.json'), 'utf8')).permissions.deny;
   assert.ok(read().includes(rule), 'CONTROL: the entry was not named the first time');
+  /* The store's folder replaced by a file: listing it fails (ENOTDIR) whoever runs the test, root included. */
+  fs.renameSync(base, base + '.moved');
+  fs.writeFileSync(base, 'not a folder');
   const write = process.stderr.write;
   process.stderr.write = (s, ...rest) => (String(s).startsWith('#4752') ? true : write.call(process.stderr, s, ...rest));
-  fs.chmodSync(base, 0o000);
   try { assert.equal(setupAssistant.guardGuideFolder(guide, 'guide', deps).ok, true); }
-  finally { fs.chmodSync(base, 0o755); process.stderr.write = write; }
+  finally { process.stderr.write = write; }
   assert.ok(read().includes(rule), 'an unlistable store dropped the rules made from its last listing');
 });
 

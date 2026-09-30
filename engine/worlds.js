@@ -69,6 +69,8 @@ function baseRoot(env, platform, home) {
 }
 
 function registryPath(base) { return path.join(base, REGISTRY_FILE); }
+/* The registry's lock folder's name, beside the registry (withRegistryLock). */
+function registryLockName() { return `.${REGISTRY_FILE}.lock`; }
 
 /* The implicit default world -- what an install with no registry IS. `base:null`
    is the signal for "legacy roots, no override": the migration state where the
@@ -309,7 +311,7 @@ function worldLockBusyError() {
 }
 function withRegistryLock(base, fn) {
   fs.mkdirSync(base, { recursive: true });
-  const lockDir = path.join(base, `.${REGISTRY_FILE}.lock`);
+  const lockDir = path.join(base, registryLockName());
   let held = false;
   try {
     try {
@@ -571,6 +573,7 @@ module.exports = {
   WORLDS_SUBDIR,
   baseRoot,
   registryPath,
+  registryLockName,
   defaultWorld,
   readRegistry,
   writeRegistry,
