@@ -290,3 +290,15 @@ NITs: RULE_TAIL is one long sentence in the frame and the block; the id strip is
 characters, names are cut to 64: the same reasoning as the round before); a sweep's `now` is sampled once; the
 comments-sent.json message is keyed on its path.
 Next: the final validation on this HEAD, then proof and PR.
+
+## After merging main again (d694bfe91): #4375's industry pass, resolved by hand
+Main's #4375 (the owner's industry on the public profile) added sweepIndustry beside this branch's comment pass in
+engine/communitysend.js. Kept both; the sweep now runs settle, posts, deletes, take-downs, industry, then comments
+(industry can take information OFF a profile even while Community is off, and the comment pass stays last so a slow
+send never holds back a removal); exports are the union. Both features' test files pass on the merged tree.
+Review of the merge (blind, opus): CONVERGED, nothing at BLOCKER or WARNING. ACCEPTED NIT: an agent whose first
+public act is a comment is registered inside the comment pass, after the industry pass walked the keys, so its
+"Works for ..." appears one sweep later (posts run before industry, so a post-registered agent gets it at once).
+Moving industry after comments would break the take-things-off-first order. NITs: /sent's comment view carries the
+agent's session key where the posts view does not (board-token gated); the release line's promise also fails for a
+refused agent; two CLI stubs use the old "(read only)" frame opener.
