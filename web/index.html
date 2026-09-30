@@ -4210,6 +4210,13 @@ body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row {
      status stay pinned to the right edge, and the content indents inside. */
   padding: 7px 12px 7px calc(30px + var(--pj-depth, 0) * 22px);
   margin: 0; }
+/* #4730 (Josh, 2026-09-30): alternating rows get "a really really light" background, spreadsheet
+   style, so the eye can follow a row across. A 3.5% wash of the ink over the page ground: darker than
+   the ground in light, lighter in dark, and unlike the card surface it never matches the hover (the
+   rule below, which wins by coming later), so the row under the pointer still stands out. The class is set by
+   the fold walk (applyConsFold), which skips folded rows. */
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.pj-stripe {
+  background: color-mix(in srgb, var(--k-ink) 3.5%, transparent); }
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row:hover {
   background: var(--k-surface); box-shadow: none; border: 0; }
 /* Needs-you: the card border is gone, so attn gets the attn border colour as a full inset
@@ -6904,6 +6911,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    symptom above the fold and not this. */
 .dm.mine .dm-w { text-align: right; }
 .dmnone { font-size: .875rem; color: var(--k-ink-2); margin: 0; }
+/* #4612: what a Muse agent answered in its own window when it never replied here. Kept in the person's own reading
+   size, line breaks as written, and bounded so a long answer scrolls instead of pushing the composer away. */
+.dmunsent-text { margin: 6px 0 0; padding: 8px 12px; border-left: 3px solid var(--k-rule); color: var(--k-ink);
+  font-size: .9375rem; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow-y: auto; }
+.dmunsent-text:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }   /* #4612 review: it scrolls, so the keyboard can reach it */
 /* ⚠️ THE SAME DOTS THE CARD USES, not a second animation: `.act` is the
    board's working glyph, and a different one here would be two renderings of
    one fact. It borrows the sibling hint's size and colour so the line reads as
@@ -11200,6 +11212,20 @@ window.kosmosMeasureScrollbarWidth();
              #2456/#2575 reported-question false state. -->
         <button class="btn" id="d-qask-trust-restart" type="button" hidden>Trust &amp; Restart</button>
         <p class="fmsg" id="d-qask-trust-restart-msg" role="status" aria-live="polite"></p>
+        <!-- #4607: Codex's "Hooks need review", answered here by the person (never by a typed message, #4589). The
+             render unhides it only when the thread route sends body.codexHooks. Two choices; leaving it is not
+             pressing either. Self-contained, like the Trust & Restart above. -->
+        <div id="d-qask-codex" hidden>
+          <p class="fhint" id="d-qask-codex-what" style="margin:4px 0 8px;"></p>
+          <p class="fhint" id="d-qask-codex-source" hidden style="margin:0 0 8px;">Where Codex says it comes from: <code id="d-qask-codex-source-text" style="overflow-wrap:anywhere;min-width:0;"></code></p>
+          <p class="fhint" id="d-qask-codex-command" hidden style="margin:0 0 8px;">What it runs: <code id="d-qask-codex-command-text" style="overflow-wrap:anywhere;min-width:0;"></code></p>
+          <div class="frow" style="gap:8px;flex-wrap:wrap;">
+            <button class="btn" id="d-qask-codex-skip" type="button">Continue without them</button>
+            <button class="btn btn-quiet" id="d-qask-codex-trust" type="button">Trust all of them</button>
+            <button class="btn" id="d-qask-codex-close" type="button" hidden>Close the list</button>
+          </div>
+          <p class="fmsg" id="d-qask-codex-msg" role="status" aria-live="polite"></p>
+        </div>
       </div>
     </div>
     <!-- #2622: the search moved up beside the caption (.d-talk-caprow above). It still
@@ -17369,12 +17395,9 @@ window.kosmosMeasureScrollbarWidth();
          written by nothing here yet; a future pack rule or drive lands on
          them for free -->
     <div class="stat"><b id="st-agents" data-count="agents">0</b><span class="slab">Agents</span></div>
-    <!-- #2157: the Working tile (chip + its .act animation) hides at a KNOWN zero,
-         the same grammar the alert tile uses, so a board with nothing working does
-         not carry an animated "0 Working". It stays VISIBLE when the count is a
-         floor (unknowns present) -- hiding there would claim "none working" on a
-         read that cannot stand behind it, the same reason the failed-poll path
-         shows "?" rather than hiding (render + the reasoning at st-working = '?'). -->
+    <!-- #2157, #4736: the Working tile (chip + its .act animation) hides whenever it would read zero,
+         "0+" included (Josh 2026-09-30: "if there are 0 working, lets not show the tile"), the same
+         grammar the alert tile uses. A failed poll shows "?" and keeps the tile (that is not a zero). -->
     <div class="stat" id="st-working-tile"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><b id="st-working" data-count="working">0</b><span class="slab">Working</span></div>
     <div class="stat"><span class="rest" aria-hidden="true"></span><b id="st-idle" data-count="idle">0</b><span class="slab">Idle</span></div>
     <!-- 🔑 THE FOURTH TILE, and it is the row's existing grammar with one more
@@ -21682,11 +21705,10 @@ async function tick() {
     document.getElementById('st-agents').textContent = tileCount(c.total, floor);
     const workingCount = data.agents.filter((a) => !(a && a.isGuide === true)).filter((a) => a.state === 'working').length;
     document.getElementById('st-working').textContent = tileCount(workingCount, stateFloor);
-    /* #2157: hide the Working tile (chip + its .act animation) at a KNOWN zero,
-       the alert tile's grammar. stateFloor true means unknowns cloud the count
-       (it renders "0+"), so hiding there would claim "none working" on a read
-       that cannot stand behind it -- keep it shown, as the failed-poll "?" is. */
-    document.getElementById('st-working-tile').hidden = workingCount === 0 && !stateFloor;
+    /* #2157, then #4736 (Josh, 2026-09-30 10:05: "if there are 0 working, lets not show the tile"): the
+       Working tile hides whenever its number is zero, "0+" included. It was kept for "0+" (unknowns cloud
+       the count); he ruled for the simpler row. A failed poll's "?" is not a zero and still shows. */
+    document.getElementById('st-working-tile').hidden = workingCount === 0;
     document.getElementById('st-idle').textContent =
       tileCount(data.agents.filter((a) => !(a && a.isGuide === true)).filter((a) => a.state === 'idle').length, stateFloor);
     /* ⚠️ FROM THE COUNT, not from filtering the roster on `running`. The two
@@ -21994,9 +22016,8 @@ async function tick() {
        card above already says the whole board is blind. */
     document.getElementById('st-agents').textContent = '?';
     document.getElementById('st-working').textContent = '?';
-    /* #2157: a failed poll shows "?" and must un-hide the Working tile -- a prior
-       known-zero tick may have hidden it, and staying hidden would claim "none
-       working" on the one poll that knows nothing. Same reason it shows "?". */
+    /* #2157, #4736: a failed poll shows "?" and un-hides the Working tile. A prior zero tick
+       ("0" or "0+") may have hidden it, and "?" is not a zero, so the tile shows it. */
     document.getElementById('st-working-tile').hidden = false;
     document.getElementById('st-idle').textContent = '?';
     /* ⚠️ SHOWN AS UNKNOWN RATHER THAN HIDDEN, unlike the alert tile beside it,
@@ -34130,7 +34151,9 @@ async function paintTalk(sessionName, agentName) {
      below keying on `answerNote` alone is equivalent -- kept explicit so a future
      route change that decoupled them cannot silently show the box on a non-asking
      paint. */
-  const nowHidden = !(body.asking && body.answerNote);
+  /* #4607: the box also shows for Codex's hook review (body.codexHooks), a permission decision answered with a
+     button, like the folder-trust recovery. */
+  const nowHidden = !(body.asking && (body.answerNote || body.codexHooks));
   /**
    * ⚠️ THE RESCUE COMES BEFORE EVERY HIDE IN THIS SECTION, and its first
    * version did not.
@@ -34195,6 +34218,10 @@ async function paintTalk(sessionName, agentName) {
   /* #2129: default the recovery button hidden every paint, so it only shows
      where the branch below explicitly turns it on. */
   if (qTrust) qTrust.hidden = true;
+  const qCodex = document.getElementById('d-qask-codex');
+  if (qCodex) qCodex.hidden = true;
+  /* A line left from an earlier answer goes with the question it answered (review round 1). */
+  if (!(body.asking && body.codexHooks)) { const m = document.getElementById('d-qask-codex-msg'); if (m) m.textContent = ''; window.__codexHooksShown = null; }
   if (body.answerNote) {
     /* #2129 folder-trust recovery: the ONLY state that still shows this box. The
        trust-dialog question is itself an ordinary thread bubble now (engine
@@ -34203,6 +34230,61 @@ async function paintTalk(sessionName, agentName) {
        wording Josh removed in #3419) plus the one-click Trust & Restart (#2129). */
     qlab.textContent = name + ' is stuck on a folder-trust prompt. ' + body.answerNote;
     if (qTrust) qTrust.hidden = false;
+  } else if (body.asking && body.codexHooks && qCodex) {
+    /* #4607: only what the screen says. The count from the menu, the events from the table, the source from one
+       hook's page; a missing fact is left out, never guessed. */
+    const h = body.codexHooks;
+    /* #4607 (review round 4): what the person is shown is sent back with their answer, so a changed dialog is
+       refused rather than answered. */
+    /* A summary that changed since the last paint holds the buttons for a moment (review round 16), so a click does
+       not land on words the person had no time to read. */
+    const prevShown = window.__codexHooksShown;
+    const changed = !prevShown || prevShown.forAgent !== sessionName || JSON.stringify(prevShown.hooks) !== JSON.stringify(h);
+    window.__codexHooksShown = { forAgent: sessionName, hooks: h };
+    if (changed) {
+      /* A hold NUMBER, bumped only by a changed paint (review round 17: comparing the summary object left the buttons
+         disabled for good when an identical paint landed inside the hold). An answer in flight owns the buttons. */
+      const seq = (window.__codexHoldSeq = (window.__codexHoldSeq || 0) + 1);
+      window.__codexHoldUntil = Date.now() + 1200;
+      const hold = ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close'].map((id) => document.getElementById(id));
+      /* A focused button would drop keyboard focus to the page when disabled (round 18): hand it to the box first. */
+      if (hold.includes(document.activeElement)) { const box = document.getElementById('d-talk-box'); if (box) box.focus(); }
+      hold.forEach((b) => { b.disabled = true; });
+      setTimeout(() => { if (window.__codexHoldSeq === seq && !window.__codexAnswering) hold.forEach((b) => { b.disabled = false; }); }, 1200);
+    }
+    const listOpen = h.screen === 'trusted';
+    const srcRow = document.getElementById('d-qask-codex-source');
+    document.getElementById('d-qask-codex-source-text').textContent = h.source && !listOpen ? String(h.source).slice(0, 160) : '';
+    srcRow.hidden = !(h.source && !listOpen);
+    const cmdRow = document.getElementById('d-qask-codex-command');
+    document.getElementById('d-qask-codex-command-text').textContent = h.command && !listOpen ? String(h.command).slice(0, 160) : '';
+    cmdRow.hidden = !(h.command && !listOpen);
+    const n = typeof h.count === 'number' && h.count > 0 ? h.count : null;
+    const events = Array.isArray(h.events) ? h.events.map((e) => e && e.event).filter(Boolean) : [];
+    /* The trusted-but-open list (a dropped Escape after trusting): only Close. Otherwise the two choices, and the
+       summary says Trust covers every hook Codex lists (from one hook's page the screen names only that one). */
+    document.getElementById('d-qask-codex-trust').hidden = listOpen;
+    /* From one hook's page Trust only goes back to the full list (it names one hook; Codex trusts them all), so the
+       button says what it does there (review round 8). */
+    document.getElementById('d-qask-codex-trust').textContent = h.screen === 'hook' ? 'Show the full list' : 'Trust all of them';
+    document.getElementById('d-qask-codex-skip').hidden = listOpen;
+    document.getElementById('d-qask-codex-close').hidden = !listOpen;
+    if (listOpen) {
+      qlab.textContent = name + '\u2019s Codex hooks are trusted, and their list is still open.';
+      document.getElementById('d-qask-codex-what').textContent = 'Close the list and Codex carries on.';
+    } else {
+      qlab.textContent = name + ' needs you to decide about Codex hooks.';
+      document.getElementById('d-qask-codex-what').textContent =
+        'Codex found ' + (n ? n + (n === 1 ? ' hook' : ' hooks') : 'hooks') + ' it has not been told to trust'
+        + (events.length ? ' (' + events.join(', ') + ')' : '')
+        + '.'
+        /* Review round 3: say what the screen does NOT tell, rather than let a count read as enough to trust on. */
+        + (!events.length && !h.source ? ' Its screen does not name them or say what they run.'
+          : (!h.command ? ' Its screen does not say what they run.' : ''))
+        + (/^Project config\b/i.test(String(h.source || '')) ? ' Codex says this one is in a project\u2019s own settings, which the agent can write to, so the agent could have written it.' : '')
+        + ' Trusting covers every hook Codex lists, for every Codex agent on this account, and trusted hooks can act freely on this computer. If you are not sure, continue without them.';
+    }
+    qCodex.hidden = false;
   } else {
     /* Every other state -- a regular needs_you question, a stranded "Issue", or
        nothing asking -- shows nothing here (nowHidden hides the box); the
@@ -35412,6 +35494,9 @@ function openDetail(sessionName, section, fromProject) {
      same as the two above (an in-flight POST for the leaving agent left it
      disabled; the leaving agent's own finally re-enable is a harmless no-op). */
   { const b = document.getElementById('d-qask-trust-restart'); if (b) b.disabled = false; }
+  /* #4607: the Codex hook buttons, the same way. */
+  for (const id of ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close']) { const b = document.getElementById(id); if (b) b.disabled = false; }
+  { const m = document.getElementById('d-qask-codex-msg'); if (m) m.textContent = ''; }
   /* #2808: re-enable the chat-box dismiss for the agent we are opening, same as
      the trust-restart button above. */
 
@@ -41023,6 +41108,49 @@ document.getElementById('d-qask-trust-restart').addEventListener('click', async 
     btn.disabled = false;
   }
 });
+
+/* #4607: the person answers Codex's "Hooks need review" with a button. POST /api/agent/<name>/codex-hooks, owner-only
+   on the server, which reads the screen again before every key. Self-contained, with the same capture-and-recheck as
+   the Trust & Restart twin above, so a receipt cannot land under a different agent. The next poll hides the box once
+   the dialog is gone. */
+async function answerCodexHooksFromBox(choice) {
+  if (!CURRENT) return;
+  const forAgent = CURRENT.sessionName;
+  const buttons = ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close'].map((id) => document.getElementById(id));
+  const msg = document.getElementById('d-qask-codex-msg');
+  buttons.forEach((b) => { b.disabled = true; });
+  window.__codexAnswering = true;
+  if (choice === 'trust' && document.getElementById('d-qask-codex-trust').textContent === 'Show the full list') choice = 'list';
+  const opening = choice === 'list';
+  msg.textContent = opening ? 'Opening the full list\u2026' : (choice === 'trust' ? 'Trusting the hooks\u2026' : (choice === 'close' ? 'Closing the list\u2026' : 'Continuing without the hooks\u2026'));
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/codex-hooks',
+      { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ choice, seen: (window.__codexHooksShown && window.__codexHooksShown.forAgent === forAgent) ? window.__codexHooksShown.hooks : null }) });
+    const r = await res.json().catch(() => ({}));
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      /* Done means what was seen: its screen stopped asking about hooks (review round 1: not a claim about what
+         Codex does next). */
+      msg.textContent = (res.ok && r.ok)
+        ? (choice === 'trust' ? 'Done. Its screen is no longer asking about hooks.'
+          : (choice === 'close' ? 'Done. The list is closed.' : 'Done. Its screen is no longer asking about hooks, and they were not trusted.'))
+        : (r.because || r.error || 'We could not answer it. Look at its window.');
+      /* The box hides on the next poll once the question is gone, so a success is also said where it stays a moment. */
+      if (res.ok && r.ok && typeof msgToast === 'function') msgToast(msg.textContent);
+    }
+  } catch {
+    if (CURRENT && CURRENT.sessionName === forAgent) msg.textContent = 'We could not reach Kosmos to answer it.';
+  } finally {
+    window.__codexAnswering = false;
+    /* Not inside a hold a poll started meanwhile (review round 17): wait it out. */
+    const left = (window.__codexHoldUntil || 0) - Date.now();
+    if (left > 0) setTimeout(() => { if (!window.__codexAnswering) buttons.forEach((b) => { b.disabled = false; }); }, left);
+    else buttons.forEach((b) => { b.disabled = false; });
+  }
+}
+document.getElementById('d-qask-codex-trust').addEventListener('click', () => answerCodexHooksFromBox('trust'));
+document.getElementById('d-qask-codex-skip').addEventListener('click', () => answerCodexHooksFromBox('skip'));
+document.getElementById('d-qask-codex-close').addEventListener('click', () => answerCodexHooksFromBox('close'));
 
 /* Open Terminal (Josh 0.6.44): POST /api/agent/<name>/launch-terminal (Pete's route)
    attaches a Terminal.app window to the agent's live tmux session so the person can watch
@@ -51585,6 +51713,7 @@ function applyConsFold() {
      and cannot diverge from it: a row is hidden exactly when it sits deeper than the
      nearest folded ancestor still in effect. (#2929 iter3, was pjDescendantIds) */
   let cutoff = Infinity;   // rows with --pj-depth > cutoff are inside a collapsed branch
+  let shown = 0;           // #4730: visible rows so far, for the list view's alternating shade
   for (const row of list.querySelectorAll('.pj-row[data-project]')) {
     const depth = Number(row.style.getPropertyValue('--pj-depth')) || 0;
     /* #2929 slice 2: only TOP-LEVEL rows are draggable, and only in the consolidated
@@ -51606,6 +51735,10 @@ function applyConsFold() {
     // the token's presence already matches force -- so it needs no compare-guard. The
     // aria-expanded and caret-text writes below are NOT idempotent, so they do. (#2929 iter4)
     row.classList.toggle('pj-fold-hidden', shouldHide);
+    /* #4730: every second VISIBLE row is shaded, counted here because this walk is what knows
+       which rows a fold hid (CSS :nth-child would count the hidden ones and break the pattern).
+       Only the tab list view draws the shade (the CSS is scoped to it). */
+    row.classList.toggle('pj-stripe', !shouldHide && (shown++ % 2 === 1));
     if (!shouldHide) {
       // A VISIBLE folded parent collapses everything deeper than it until a row
       // returns to its depth or shallower; anything else clears the collapse.
@@ -51756,34 +51889,24 @@ function pjTilesUnknown() {
   document.getElementById('st-pjdm-tile').hidden = true;
 }
 
-/* The pack's state pill (view C): Issue > Working > Can't tell >
-   Nothing running. "Nothing running" is a CLAIM -- it is only made when
-   every member was actually seen; a blind roster or unseen members get
-   the board's own unsure treatment instead of a reassurance. */
+/* The pack's state pill (view C): Issue > Working > Restarting, and since #4730 nothing else. A pill
+   means something is running; with nothing running, an unseen member or a blind roster the card shows
+   none (Josh 2026-09-30), and it never shows Working or Issue it could not read. */
 function pjPillOf(p, unreadable) {
   const s = p.summary || {};
   if (!unreadable && s.needsYou) return { cls: 'attn', glyph: '<span class="haz" aria-hidden="true">!</span>', label: 'Issue' };
   if (!unreadable && s.working) return { cls: '', glyph: '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>', label: 'Working' };
-  /* #2019: the projects-list rollup is the 7th agent-state surface. A project
-     whose only active agent is mid-restart must NOT fall through to "Nothing
-     running" (the gone-lie this card refuses). This reads a summary.restarting
-     count the engine half (Renet) folds into p.summary; it is INERT until that
-     field arrives, exactly like the rest of this presentation PR, and ranks below
-     working (something genuinely working wins) but above the not-running
-     fallback. The K matches the card's mark. */
+  /* #2019: a project whose only active agent is mid-restart keeps a Restarting badge (it is running);
+     it ranks below Working. It reads summary.restarting; the K matches the card's mark. */
   if (!unreadable && s.restarting) return { cls: '', glyph: GLYPH.restarting, label: 'Restarting' };
-  /* 🔑 NO STATUS AT ALL FOR A PROJECT WITH NO AGENTS (kosmos#1303 E). Josh: "On
-     the Projects tab I don't want to show 'no agents' as a status for a
-     project." An empty label is the signal; the row builder omits the pill
-     rather than rendering an empty one, so there is no stray element and no
-     `:empty` rule to remember.
-     ⚠️ THE FACT IS NOT LOST, it is just not dressed as a STATUS: the row already
-     omits the agent count when `s.total` is zero, so an empty project reads as a
-     title with nothing under it, which is what "no agents yet" was saying in more
-     words and in the slot reserved for what a project is DOING. */
-  if (!s.total) return { cls: '', glyph: '', label: '' };
-  if (unreadable || s.unseen) return { cls: '', glyph: '', label: 'Can\u2019t tell' };
-  return { cls: '', glyph: '<span class="rest" aria-hidden="true"></span>', label: 'Nothing running' };
+  /* #4730 (Josh, 2026-09-30 09:06): "if there's nothing running or we can't tell, let's just not
+     display a badge here. Let's only display a badge if something is actually running." So
+     "Can't tell" and "Nothing running" are gone from the Projects views, like "No agents yet"
+     before them (#1303 E): an empty label and no pill. Issue (an agent needs you), Working and
+     Restarting stay, each a running agent. With the whole roster unreadable no card shows a badge
+     either, and the Projects views say nothing about it (his rule, applied literally): the Agents
+     page reports a failed read, and the project's own page still says who is unseen. */
+  return { cls: '', glyph: '', label: '' };
 }
 
 /* The bubble's text, in one place: nothing for none, 99+ past the cap. The
@@ -51889,12 +52012,10 @@ function projectCard(p, unreadable, depth, childCount) {
   const count = s.total ? '<span class="pjcount">' + Number(s.total) + (s.total === 1 ? ' agent' : ' agents') + '</span>' : '';
   const facesRow = (faces || count)
     ? '<span class="pjfaces"><span aria-hidden="true">' + faces + '</span>' + count + '</span>' : '';
-  /* ⚠️ The card NEVER says everything is fine when part of it was
-     unreadable -- the pill claims only what the counts support, and the
-     blind spot is SAID in words below, same rule as before the restyle. */
-  const bits = [];
-  if (!unreadable && s.unseen) bits.push(s.unseen + ' we cannot see');
-  if (unreadable && s.total) bits.push('we cannot see how they are doing right now');
+  /* #4730 (Josh, 2026-09-30 09:06): no "N we cannot see" line on the Projects views ("Let's just
+     not list if we can't see an agent. We don't need that information here."). The card still never
+     says everything is FINE: with no pill it makes no claim about state at all, and the project's
+     own page keeps the unseen member marked (#2804). */
   /* #747 and #748 (Josh, 2026-08-24 21:22 and 21:24): the tile reads title,
      then the short description, then the agents with their count, with the
      status at the top right; the folder chip under the title is gone (on
@@ -51942,7 +52063,6 @@ function projectCard(p, unreadable, depth, childCount) {
     + (p.doneSet === false ? '<span class="pj-doneunset">Done not set</span>' : '')
     + facesRow
     + parentChip
-    + (bits.length ? '<span class="pj-who">' + esc(bits.join(', ')) + '</span>' : '')
     + (folder.bad ? '<span class="pj-warn">' + esc(folder.text) + '</span>' : '')
     + '</button>';
 }
@@ -57197,6 +57317,13 @@ function dmOwesLine(owes) {
      ⚠️ THE GRACE: `owes` is true the instant a message lands, so without it every thread accuses the agent for the
      first two minutes of every exchange. `pjOldEnoughToJudge` is the room's own test and refuses an unparseable
      timestamp rather than treating it as long ago. */
+  /* #4612: the agent finished a turn after this message and answered only in its own window (a Muse agent that never
+     ran kosmos reply). Said at once, with no grace: the turn is over, so there is nothing left to wait for. */
+  if (owes.unsent && typeof owes.unsent.text === 'string' && owes.unsent.text) {
+    return '<div class="dmunsent"><p class="dmnone">It finished without replying here. What it said in its own window:</p>'
+      + '<blockquote class="dmunsent-text" tabindex="0" aria-label="What it said in its own window">'   // scrolls, so keyboard-reachable
+      + esc(owes.unsent.text) + '</blockquote></div>';
+  }
   if (!pjOldEnoughToJudge(owes.lastHeardAt)) return '';
   return '<p class="dmnone">Nothing back yet.</p>';
 }
