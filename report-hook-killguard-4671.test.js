@@ -223,6 +223,19 @@ test('#4671 round 7: without jq, a .md write and a description are not read, as 
   assert.equal(run('Bash', { command: 'KILL -9 N1', description: 'x' }, { noJq: true }).code, 2, 'the command is still read');
 });
 
+test('#4671 round 8 nits: .MD is a document on both paths; a to-do list is not read; invalid UTF-8 does not fail open', () => {
+  for (const noJq of [false, true]) {
+    assert.equal(run('Write', { file_path: '/tmp/README.MD', content: 'never KILL -9 N1' }, { noJq }).code, 0);
+    assert.equal(run('TodoWrite', { todos: [{ content: 'find why KILL -9 N1 ended the session', status: 'pending', activeForm: 'finding' }] }, { noJq }).code, 0);
+  }
+  // A raw invalid byte next to a real command: without jq the event is still read and the call still refused.
+  const payload = Buffer.concat([Buffer.from('{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"' + d('KILL -9 N1') + ' #'), Buffer.from([0xff, 0xfe]), Buffer.from('"}}')]);
+  const env = { ...process.env, KOSMOS_REPORT_CLI: STUB, TMPDIR: SANDBOX, HOME: SANDBOX, KOSMOS_REPORT_HOOK_NO_JQ: '1', LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8' };
+  delete env.TMUX_PANE; delete env.KOSMOS_KILL_GUARD;
+  const r = spawnSync('/bin/bash', [HOOK], { input: payload, env, encoding: 'utf8', timeout: 20000 });
+  assert.equal(r.status, 2, r.stderr);
+});
+
 test('#4671 the awk fallback (no perl) blocks and allows like the rest, and stays inside the timeout', () => {
   for (const cmd of ['KILL -9 N1', 'PKILL -u me', 'PGREP -u $USER | xargs KILL']) assert.equal(run('Bash', { command: cmd }, { noJq: true, noPerl: true }).code, 2, cmd);
   assert.equal(run('Bash', { command: 'KILL -9 $PID\nsleep 1\ngit log N1' }, { noJq: true, noPerl: true }).code, 0);

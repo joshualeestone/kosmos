@@ -32,10 +32,13 @@ test. Windows agents (the node hook) and Codex/Gemini/Grok agents are not guarde
 ## Tests
 report-hook-killguard-4671.test.js drives the real hook, every Bash case with and without jq; the cases are
 written with uppercase placeholders so the test file never holds a literal shape (an agent editing it is
-not refused, and a test writes the hook itself and this test through the guard). 267/267; with the guard
-disabled 173 fail and 94 pass (the controls, plus the arms that assert no block). Hook suites 334/334.
+not refused, and a test writes the hook itself and this test through the guard). 268/268; with the guard
+disabled 174 fail and 94 pass (the controls, plus the arms that assert no block). Hook suites 334/334.
 Reviews: round 1 (1 blocker, 6 warnings), round 2 (3 blockers, 5 warnings), round 3 (1 blocker, 2 warnings, 7 nits), round 4 (2 blockers, 6 warnings), round 5 (2 blockers, both on the no-jq path), round 6 (1 blocker: a quadratic decode; 2 warnings) addressed. Round 7: no blocker (converged by the rule
-below); its 2 warnings taken (a linear perl decode, the jq field choices mirrored without jq).
+below); its 2 warnings taken (a linear perl decode, the jq field choices mirrored without jq). Round 8: no blocker,
+no warning (CONVERGED); four of its NITs applied after it, not re-reviewed: a case-insensitive .md test and
+new_source for .md without jq, TodoWrite items not read without jq, LC_ALL=C on the no-jq seds (invalid
+UTF-8 no longer makes the guard fail open; a test pins it and was red without the fix).
 Round 5 root cause: without jq the guard read raw JSON, where a newline is two characters; the no-jq path
 now decodes the JSON escapes with awk, so both paths read real lines.
 

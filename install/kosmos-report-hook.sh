@@ -162,7 +162,7 @@ else
   # No jq on this Mac: the event name is still recoverable with sed, and a
   # clean Mac is exactly the machine this install targets. Tool names are
   # nice-to-have and degrade to "a tool" below.
-  EVENT=$(printf '%s' "$INPUT" | sed -n 's/.*"hook_event_name"[[:space:]]*:[[:space:]]*"\([A-Za-z]*\)".*/\1/p' | head -1)
+  EVENT=$(printf '%s' "$INPUT" | LC_ALL=C sed -n 's/.*"hook_event_name"[[:space:]]*:[[:space:]]*"\([A-Za-z]*\)".*/\1/p' | head -1)
 fi
 [ -n "$EVENT" ] || exit 0
 
@@ -229,10 +229,12 @@ _kg_text() { # what the guard reads
     # is quadratic on one long line (a 1.4 MB Write took 3.3 s against the hook's 15 s timeout), so awk
     # is only the fallback where perl is missing, and then for inputs under 256 KB; above that, raw.
     local _s='"([^"\\]|\\.)*"' _drop='old_string|description|prompt' _raw
-    if printf '%s' "$INPUT" | grep -Eq '"(file_path|notebook_path)"[[:space:]]*:[[:space:]]*"[^"]*\.(md|markdown)"'; then
-      _drop="$_drop|content|new_string"
+    if printf '%s' "$INPUT" | LC_ALL=C grep -Eiq '"(file_path|notebook_path)"[[:space:]]*:[[:space:]]*"[^"]*\.(md|markdown)"'; then
+      _drop="$_drop|content|new_string|new_source"
     fi
-    _raw="$(printf '%s' "$INPUT" | sed -E "s/\"($_drop)\"[[:space:]]*:[[:space:]]*$_s//g" 2>/dev/null)" || _raw="$INPUT"
+    # A to-do list's items are words about work, not work (jq never reads them either).
+    if printf '%s' "$INPUT" | LC_ALL=C grep -Eq '"todos"[[:space:]]*:'; then _drop="$_drop|content|activeForm"; fi
+    _raw="$(printf '%s' "$INPUT" | LC_ALL=C sed -E "s/\"($_drop)\"[[:space:]]*:[[:space:]]*$_s//g" 2>/dev/null)" || _raw="$INPUT"
     if [ -x /usr/bin/perl ] && [ -z "${KOSMOS_REPORT_HOOK_NO_PERL:-}" ]; then   # the switch: tests drive the awk fallback
       printf '%s' "$_raw" | /usr/bin/perl -pe 's/\\\\/\x01/g; s/\\n/\n/g; s/\\r/\r/g; s/\\t/\t/g; s/\\"/"/g; s/\x01/\\/g' 2>/dev/null \
         && return
