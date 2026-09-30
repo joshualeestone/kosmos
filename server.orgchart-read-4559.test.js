@@ -126,7 +126,12 @@ test('#4559: a picture is NOT sent without consent: the first answer names the p
   const r = await send('chart.png', fs.readFileSync(path.join(FIX, 'chart.png')), { headers: SCREEN });
   assert.deepEqual(r.json, { needsConsent: true, provider: 'Anthropic (Claude)', reader: 'claude', uses: 'using your plan', keeps: require('./engine/orgchartkeys').CLAUDE_KEEPS });
   // #4660: the Claude line says what Anthropic keeps, both cases of the setting Kosmos cannot read, from the sources on the card.
-  assert.match(r.json.keeps, /^Anthropic keeps what you send for 30 days\. If "Help improve Claude" is on .* up to 5 years.* Team or Enterprise plan it is 30 days.* flag can be kept for up to 2 years\.$/);
+  // The wording itself, not the constant: each plan's case, the de-identified rendering, and no claim that Kosmos
+  // asked Anthropic not to store it (the Claude read makes no such request).
+  const k = r.json.keeps;
+  assert.match(k, /^On a Free, Pro or Max plan, Anthropic keeps what you send for 30 days, or, if "Help improve Claude" is on in your Claude privacy settings, for up to 5 years, with details that identify you removed, to train its models\. /);
+  assert.match(k, / On a Team or Enterprise plan, it keeps it for 30 days\. Anything its safety systems flag can be kept for up to 2 years\.$/);
+  assert.doesNotMatch(k, /even though Kosmos asks|anonymous|separated from your account/);
   assert.equal(sent.length, 0, 'the file went to the model before the person said yes');
 });
 

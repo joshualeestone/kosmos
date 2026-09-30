@@ -192,10 +192,14 @@ const KEEPS = {
    5-year retention period", "Commercial users (Team, Enterprise, and API): Standard: 30-day retention period") and
    the privacy center (privacy.claude.com, "How long do you store my data?": "in a de-identified format for up to 5
    years", flagged chats "inputs and outputs for up to 2 years"). No "even though Kosmos asks": the Claude read sends
-   no such request to Anthropic (--no-session-persistence only stops the local transcript). */
-const CLAUDE_KEEPS = 'Anthropic keeps what you send for 30 days. If "Help improve Claude" is on in your Claude privacy settings, '
-  + 'it may keep it for up to 5 years, separated from your account, to train its models (on a Team or Enterprise plan it is 30 days). '
-  + 'Anything its safety systems flag can be kept for up to 2 years.';
+   no such request to Anthropic (--no-session-persistence only stops the local transcript).
+   Said as each plan's own case, because the training setting is a Free/Pro/Max setting. "De-identified" is said as
+   "with details that identify you removed", not as anonymous or unlinked: the source promises no more than that.
+   Left out, on purpose: the classifier SCORES kept up to 7 years for flagged content (scores, not what was sent), and
+   Enterprise zero data retention (Kosmos cannot see it; saying 30 days there overstates, the safe direction). */
+const CLAUDE_KEEPS = 'On a Free, Pro or Max plan, Anthropic keeps what you send for 30 days, or, if "Help improve Claude" is on '
+  + 'in your Claude privacy settings, for up to 5 years, with details that identify you removed, to train its models. '
+  + 'On a Team or Enterprise plan, it keeps it for 30 days. Anything its safety systems flag can be kept for up to 2 years.';
 const keeps = (reader) => (reader && reader.kind === 'claude' ? CLAUDE_KEEPS : (reader && KEEPS[reader.provider]) || null);
 
 /* What a provider cannot read, said as what to do instead. */
