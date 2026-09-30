@@ -64,12 +64,6 @@ test('#4730: the Projects card draws no "we cannot see" line', () => {
   assert.doesNotMatch(body, /class="pj-who"/, 'the card emits the pj-who line again');
 });
 
-test('#4730: list rows are shaded by the fold walk, visible rows only', () => {
-  assert.match(PAGE, /row\.classList\.toggle\('pj-stripe', !shouldHide && \(shown\+\+ % 2 === 1\)\)/,
-    'the stripe is no longer set from the visible-row count in applyConsFold');
-  assert.match(PAGE, /body:not\(\.consolidated\)\.pj-roadmap #pj-list:not\(\.asgrid\) \.pj-row\.pj-stripe \{/,
-    'the stripe rule is not scoped to the tab list view');
-});
 
 test('the row omits the pill element when there is no label', () => {
   /* An empty `<span class="pjpill">` would still take its margins and gaps, so

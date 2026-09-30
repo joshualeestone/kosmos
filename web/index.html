@@ -4184,11 +4184,12 @@ body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row {
   padding: 7px 12px 7px calc(30px + var(--pj-depth, 0) * 22px);
   margin: 0; }
 /* #4730 (Josh, 2026-09-30): alternating rows get "a really really light" background, spreadsheet
-   style, so the eye can follow a row across. Half the card surface, so the row under the pointer
-   (full surface, the rule below, which wins by coming later) still stands out. The class is set by
+   style, so the eye can follow a row across. A 3.5% wash of the ink over the page ground: darker than
+   the ground in light, lighter in dark, and unlike the card surface it never matches the hover (the
+   rule below, which wins by coming later), so the row under the pointer still stands out. The class is set by
    the fold walk (applyConsFold), which skips folded rows. */
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.pj-stripe {
-  background: color-mix(in srgb, var(--k-surface) 50%, transparent); }
+  background: color-mix(in srgb, var(--k-ink) 3.5%, transparent); }
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row:hover {
   background: var(--k-surface); box-shadow: none; border: 0; }
 /* Needs-you: the card border is gone, so attn gets the attn border colour as a full inset
@@ -51039,8 +51040,11 @@ function paintProjects() {
   { const sm = document.getElementById('pj-rm-summary');
     if (sm) {
       const projWord = active.length === 1 ? 'project' : 'projects';
+      /* #4730: with a blind roster no project shows a badge (Josh: "if we can't tell ... not display a
+         badge"), so the page says once, here, that it cannot see what is running, rather than per card. */
       const txt = active.length + ' ' + projWord
-        + (attnProjects ? ' · ' + attnProjects + ' need you' : '');
+        + (attnProjects ? ' · ' + attnProjects + ' need you' : '')
+        + (PJ_AGENTS_UNREADABLE && active.length ? ' · we cannot see what is running right now' : '');
       if (sm.textContent !== txt) sm.textContent = txt;
     } }
   /* #2863: the projects unread tally, the rollup of the per-project unread
@@ -51455,17 +51459,16 @@ function pjTilesUnknown() {
   document.getElementById('st-pjdm-tile').hidden = true;
 }
 
-/* The pack's state pill (view C): Issue > Working > Can't tell >
-   Nothing running. "Nothing running" is a CLAIM -- it is only made when
-   every member was actually seen; a blind roster or unseen members get
-   the board's own unsure treatment instead of a reassurance. */
+/* The pack's state pill (view C): Issue > Working > Restarting, and since #4730 nothing else. A pill
+   means something is running; with nothing running, an unseen member or a blind roster the card shows
+   none (Josh 2026-09-30), and it never shows Working or Issue it could not read. */
 function pjPillOf(p, unreadable) {
   const s = p.summary || {};
   if (!unreadable && s.needsYou) return { cls: 'attn', glyph: '<span class="haz" aria-hidden="true">!</span>', label: 'Issue' };
   if (!unreadable && s.working) return { cls: '', glyph: '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>', label: 'Working' };
   /* #2019: the projects-list rollup is the 7th agent-state surface. A project
-     whose only active agent is mid-restart must NOT fall through to "Nothing
-     running" (the gone-lie this card refuses). This reads a summary.restarting
+     whose only active agent is mid-restart must NOT lose its badge (#4730: a
+     project shows one only while something runs, and a restart is running). This reads a summary.restarting
      count the engine half (Renet) folds into p.summary; it is INERT until that
      field arrives, exactly like the rest of this presentation PR, and ranks below
      working (something genuinely working wins) but above the not-running

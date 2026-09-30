@@ -7133,24 +7133,24 @@ test('an attributed refusal is an event: logged once per window with its because
 });
 
 test('the project pill claims only what the counts support', () => {
-  /* Pack view C's state pill, driven at its honesty boundaries: "Nothing
-     running" is a CLAIM made only when every member was actually seen; a
-     blind roster or unseen members get the unsure treatment, never a
-     reassurance. */
+  /* Pack view C's state pill. Since #4730 (Josh, 2026-09-30) it shows only while something runs:
+     "if there's nothing running or we can't tell, let's just not display a badge". So nothing
+     running, an unseen member and a blind roster all give NO pill, and a blind roster never keeps
+     claiming Working or Issue. */
   const pjPillOf = pageFunction('pjPillOf');
   assert.equal(pjPillOf({ summary: { total: 3, needsYou: 1, working: 1 } }, false).label, 'Issue');
   assert.equal(pjPillOf({ summary: { total: 3, working: 2 } }, false).label, 'Working');
-  assert.equal(pjPillOf({ summary: { total: 2 } }, false).label, 'Nothing running');
+  assert.equal(pjPillOf({ summary: { total: 2 } }, false).label, '', 'nothing running shows a badge again');
   /* ⚠️ WAS 'No agents yet' UNTIL #1303 E. Josh: "On the Projects tab I don't want
      to show 'no agents' as a status for a project." An empty label is the signal
      the row builder reads to omit the pill entirely, so the assertion is that
      there is NO status rather than that the status is empty-looking. */
   assert.equal(pjPillOf({ summary: { total: 0 } }, false).label, '');
-  assert.equal(pjPillOf({ summary: { total: 2, unseen: 1 } }, false).label, 'Can’t tell',
-    'an unseen member let the card claim nothing is running');
-  assert.equal(pjPillOf({ summary: { total: 2, working: 1 } }, true).label, 'Can’t tell',
+  assert.equal(pjPillOf({ summary: { total: 2, unseen: 1 } }, false).label, '',
+    'an unseen member shows a badge again');
+  assert.equal(pjPillOf({ summary: { total: 2, working: 1 } }, true).label, '',
     'a blind roster let the card keep claiming Working');
-  assert.equal(pjPillOf({ summary: { total: 2, needsYou: 1 } }, true).label, 'Can’t tell',
+  assert.equal(pjPillOf({ summary: { total: 2, needsYou: 1 } }, true).label, '',
     'a blind roster let the card keep claiming Issue, the strongest reassurance it could leak');
 });
 
