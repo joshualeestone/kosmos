@@ -1643,6 +1643,19 @@ html.tip-dimming[data-tip-ground]:not([data-layout="consolidated"]) { background
    Only where scrollbars take width (data-scrollbar-classic, set by kosmosMeasureScrollbarWidth): an overlay-scrollbar
    Mac has no gutter to fix, and there a white canvas would only flash above the header on a rubber-band bounce. */
 html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):has(> body > #panel-tasks:not([hidden])) { background: var(--k-surface); }
+/* #4542: the same gutter on Settings > Kosmos Plus. body.plus-active paints its navy as a radial-gradient IMAGE and sets
+   its tokens on the body, so the canvas has no colour of its own and the #1309 gutter painted a pure white 15px strip
+   the full height of a navy page (measured 255,255,255 beside 12,21,41). The canvas takes the gradient's OUTER stop,
+   so the strip reads as the gradient's own edge. This is a second copy of that colour: web.plus-gutter-4542.test.js
+   pins it to the body.plus-active gradient's last stop, so the two cannot drift. Rejected: dropping the gutter on
+   Plus (a 15px jump into the section, what #1309 prevents), and moving the Plus tokens to the root (the largest
+   change, for the same pixels). Same guards as #4216 above: classic scrollbars only, not the consolidated layout, not
+   while the tour dims. A root with a colour of its own no longer lets the body's gradient paint the canvas, so the body
+   fills at least the window (as tip-dimming's does, above): a Plus page shorter than a tall window keeps its gradient to
+   the bottom instead of a flat band under it. Specificity (0,4,2): any future root rule for a dialog over Plus (#4506
+   is still open) must outrank it. */
+html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):has(> body.plus-active) { background-color: #0b1428; }
+html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming):has(> body.plus-active) > body { min-height: 100vh; }
 html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .tipcard .tip-dots { display: flex; gap: 5px; }
 .tipcard .tip-dots i { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--k-ink-2) 35%, transparent); }
@@ -1917,6 +1930,18 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 button.worldsw-row { border: 0; background: none; text-align: left; width: 100%; cursor: pointer; }
 button.worldsw-row:hover { background: var(--k-sunk); }
 button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+/* kosmos#4648: another computer is a link row (it opens that computer's address in the
+   browser), styled as the Kosmos rows are; the state word sits at the row's end. */
+a.worldsw-row { text-decoration: none; cursor: pointer; }
+.worldsw-row-off .worldsw-rowname { color: var(--k-ink-2); }
+/* New Kosmos rounds its bottom corners as the menu's last element; with Your computers below it,
+   it is not the last, so its hover is square (kosmos#4648 review). */
+.worldsw-new:has(+ .worldsw-computers:not([hidden])) { border-radius: 0; }
+a.worldsw-row:hover { background: var(--k-sunk); }
+a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+.worldsw-computers { margin-top: 4px; padding-top: 4px; border-top: 0.5px solid var(--separator); }
+.worldsw-sec { padding: 4px 8px 2px; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
+.worldsw-state { flex: none; margin-left: auto; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
 /* #2238: the honest post-switch status banner. A world's roots load only on board
    boot, so switching needs a board restart; this banner says so (no auto-restart). */
 /* #1704 PR3: the switch dialog's pause/keep choice. A fieldset, so its UA chrome goes. */
@@ -2314,7 +2339,15 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   0%, 100% { transform: translateY(0); opacity: .45; }
   50%      { transform: translateY(-4px); opacity: 1; }
 }
-@media (prefers-reduced-motion: reduce) { .act i { animation: none; } }
+/* #4591 (Josh 2026-09-29 11:47, Mac app: "his animate green dots are not animating"). With Reduce Motion on,
+   the dots used to stop dead (animation: none), three level full-green dots that read as frozen, which is
+   what his screenshot shows. Reduce Motion asks for no movement, and a fade is not movement: so there they
+   still fade in turn, slower, with no translate, and Working keeps looking live. */
+@keyframes work-fade {
+  0%, 100% { opacity: .35; }
+  50%      { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) { .act i { animation: work-fade 1.6s ease-in-out infinite; } }
 .rest { width: 10px; height: 2.5px; border-radius: 2px; background: #b8bcc2; flex: 0 0 10px; }
 .pause { display: inline-flex; gap: 2.5px; }
 .pause i { width: 2.5px; height: 10px; border-radius: 1px; background: var(--k-ink-2); }
@@ -2466,8 +2499,8 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    animation, per the same rule the DM busy-line follows). They are decorative
    (aria-hidden), so the meaning rides in the text label, which sits in
    --k-ink-2 -- the same muted ink the .atask/.amodel/.ltask/.lmodel lines
-   already use on this ground, so it clears AA. `.act` is already
-   reduced-motion-safe. font-weight 400 so it does not inherit .lstate's 600. */
+   already use on this ground, so it clears AA. `.act` fades, and does not
+   move, under reduced motion (#4591). font-weight 400 so it does not inherit .lstate's 600. */
 .alsowork { display: inline-flex; align-items: center; gap: 6px;
             font-size: .8125rem; font-weight: 400; color: var(--k-ink-2); }
 .acard .alsowork { align-self: center; margin-top: 6px; }
@@ -6410,6 +6443,22 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    about 1.95:1, under SC 1.4.11's 3:1; accepted because hover is not the only state indicator (keyboard
    focus keeps the bar's 2px ink ring below) and it is the owner's call, as with #4051's gold edge. */
 .rxn-reply:hover, .rxn-reply:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
+/* #4631: Copy message reference, first in the hover bar, drawn like Reply. The number is faint: it is there so a
+   person sees what they copy, not to be read as part of the message. */
+.rxn-ref { font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 8px; margin-right: 4px; cursor: pointer; min-height: 24px; min-width: 24px;
+           display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.rxn-ref-ico { flex: none; display: block; }
+.rxn-ref-n { opacity: .7; font-variant-numeric: tabular-nums; }
+.rxn-ref:hover, .rxn-ref:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
+.rxn-ref:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.msg-menu { position: fixed; z-index: 40; min-width: 200px; padding: 4px; border: 1px solid var(--k-rule); border-radius: 8px;
+            background: var(--k-surface); box-shadow: 0 8px 24px rgba(20,22,26,.16); }
+.msg-menu[hidden] { display: none; }
+.msg-menu-i { display: block; width: 100%; text-align: left; font: inherit; font-size: .875rem; color: var(--k-ink); background: none; border: 0; border-radius: 5px; padding: 7px 10px; min-height: 32px; cursor: pointer; }
+.msg-menu-i:hover, .msg-menu-i:focus-visible { background: color-mix(in srgb, var(--k-surface) 88%, var(--k-ink)); outline: none; }
+.msg-toast { position: fixed; z-index: 45; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: min(520px, calc(100vw - 32px));
+             padding: 9px 14px; border-radius: 8px; background: var(--k-ink); color: var(--k-surface); font-size: .875rem; box-shadow: 0 8px 24px rgba(20,22,26,.2); }
+.msg-toast[hidden] { display: none; }
 .pj-replying { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 6px 10px; border: 0.5px solid var(--gold-deep); background: var(--k-surface); color: var(--k-ink-2); font-size: .8125rem; border-radius: 4px; }
 .pj-replying[hidden] { display: none; }
 /* No longer drawn by the room (#4359 removed its "Add @name" hint); kept because render-no-left-bars-3692 renders markup with it. */
@@ -6518,7 +6567,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   /* The room's touch target, said once (#3811): 36px, under the 44px guidance, for these small
      controls repeated on every post; the Allow card's primary buttons are 44. */
   #pj-room { --room-tap: 36px; }
-  #pj-room .rxn-pick, #pj-room .rxn-more, #pj-room .rxn-reply { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #3745: Reply is a target in the same bar */
+  #pj-room .rxn-pick, #pj-room .rxn-more, #pj-room .rxn-reply, #pj-room .rxn-ref { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #3745: Reply is a target in the same bar; #4631: Copy reference too */
+  /* #4631: on a touchscreen Copy reference is the icon alone. The number is for a pointer resting on a post; a
+     thumb's bar is short of width on a phone, and the button's label and the toast still name the number. */
+  #pj-room .rxn-ref-n, #d-dmthread .rxn-ref-n { display: none; }
   /* A reaction already on a post is a target too, on any touchscreen (a phone turned
      sideways is wider than the phone block but still a thumb). */
   #pj-room .rxn { min-height: var(--room-tap); padding: 2px 10px; }
@@ -6539,7 +6591,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
     border-radius: 100px; padding: 2px 4px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
   #d-dmthread { -webkit-tap-highlight-color: transparent; touch-action: manipulation; --room-tap: 36px; }
   #d-dmthread a, #d-dmthread button { -webkit-tap-highlight-color: rgba(120, 120, 128, .2); }
-  #d-dmthread .rxn-pick, #d-dmthread .rxn-more, #d-dmthread .rxn-reply { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #4256: Reply is a target in the DM's bar too */
+  #d-dmthread .rxn-pick, #d-dmthread .rxn-more, #d-dmthread .rxn-reply, #d-dmthread .rxn-ref { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #4256: Reply is a target in the DM's bar too */
   #d-dmthread .rxn { min-height: var(--room-tap); padding: 2px 10px; }
 }
 .rxn-pick { border: 0; background: transparent; cursor: pointer; font-size: 1.15rem; line-height: 1;
@@ -7078,7 +7130,16 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   box-sizing: border-box; margin: 0; padding: 0; border: 0; }
 #pj-post-mirror .pj-mirror-in { box-sizing: border-box; font: inherit; font-size: .9375rem;
   line-height: 1.5; padding: 9px 4px; margin: 0; color: var(--k-ink);
-  white-space: pre-wrap; overflow-wrap: break-word; word-break: break-word; }
+  white-space: pre-wrap; overflow-wrap: break-word; }
+/* #4585 (Josh, 2026-09-29 11:33: the caret sat a few characters right of the text). The textarea draws the
+   caret and wraps the text; the mirror draws the text the person sees. They must lay out identically, or
+   the mirror wraps a word onto a line the textarea has not (the caret then sits where the textarea's text
+   is, not where the visible text is). Two properties differed: letter-spacing (a form control does not
+   inherit the body's -0.006em, the mirror did, so its words were narrower and fitted more on a line) and
+   word-break (break-word on the mirror only). The mirror now takes the textarea's own values, and the
+   textarea is listed too so no later rule can move one without the other: the browser resets letter- and
+   word-spacing on form controls, but word-break is inherited, so this rule is what pins it on both. */
+#pj-post, #pj-post-mirror .pj-mirror-in { letter-spacing: normal; word-spacing: normal; word-break: normal; }
 .pj-mirror-in .pj-live-mention { color: var(--pj-mention); }
 .cpost { flex: 0 0 auto; padding: .5em 1.05em; font-size: .9375rem; }
 /* #761 (Josh, 2026-08-24 21:56: "a little extra space below 'Drop a file
@@ -7180,8 +7241,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dfiles-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .dfiles-head .dlab { margin: 0; }
 .dfiles .pj-docs { margin-top: 8px; }
-/* #3757: View All sits at the right of the Files header, as on the project page's header. */
-.dfiles-head .pj-viewall { display: inline; width: auto; }
+/* #3757: View All sits at the right of the Files header, as on the project page's header.
+   #4570 (Josh, 2026-09-29 10:46): at the project page's size too, the small link size its Files and
+   Tasks doors use, not the inherited body size (it read as a second heading beside FILES). */
+.dfiles-head .pj-viewall { display: inline; width: auto; font-size: var(--consolidated-link-size); }
 .dfiles-screen-head { margin-bottom: 4px; }
 #d-sec-files #d-filesall-msg:empty { display: none; }   /* no empty band between the title and the first row */
 #d-files-back { align-self: flex-start; }
@@ -10547,6 +10610,17 @@ window.kosmosMeasureScrollbarWidth();
         <button class="worldsw-new" id="worldsw-new" type="button">
           <span class="worldsw-plus" aria-hidden="true">+</span> New Kosmos
         </button>
+        <!-- kosmos#4648 (weekend goal #4647): the other computers on this Kosmos+ account.
+             Filled by computersFetch/computersRender when the menu opens; hidden unless the
+             board is signed in to Kosmos+ and the account has another computer. Each other
+             computer is a link that opens its own address in the person's browser, so this
+             window stays this computer and coming back is one click. On a connect-only Mac and
+             on the phone the app opens a person's own computer IN its window instead (#4356), so
+             there the way back is that computer's own menu. -->
+        <div class="worldsw-computers" id="worldsw-computers" hidden>
+          <div class="worldsw-sec" id="worldsw-computers-h">Your computers</div>
+          <div class="worldsw-list" id="worldsw-computers-list" role="group" aria-labelledby="worldsw-computers-h"></div>
+        </div>
       </div>
     </div>
     <!-- ⚠️ THE UPDATE NOTICE SITS BESIDE THE MARK, Josh 2026-08-17: "make
@@ -25736,6 +25810,87 @@ function worldswOpen() {
   if (!menu || !btn || !menu.hidden) return;
   menu.hidden = false;
   btn.setAttribute('aria-expanded', 'true');
+  computersFetch().catch(() => {});   // kosmos#4648: the other computers, read fresh on each open
+}
+/* kosmos#4648 (weekend goal #4647): "Your computers" in this menu. The board reads the
+   computers on its Kosmos+ account through the tunnel and measures which are online
+   (engine/account-computers.js); /api/remote/computers answers { ok: false } when there is
+   no list, and the section stays hidden. Rows are built from textContent, never markup.
+   An address is used only if it is a plain DNS name, so nothing in the answer can become a
+   different URL. The monotonic counter keeps a slow read from an EARLIER open from
+   repainting over a newer one. */
+/* 🛑 The same rule the board applies (engine/account-computers.js validAddress): an address is
+   used only as `<label>.<domain>`, one plain label under the computers' domain the board sends
+   (derived from the Kosmos+ sign-in host), no punycode lookalike. Anything else is dropped, so an
+   answer can never put a link to another host, a LAN address included, in this menu. */
+function computerAddressOk(a, domain) {
+  if (typeof a !== 'string' || typeof domain !== 'string' || !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) return false;
+  const suffix = '.' + domain;
+  if (!a.endsWith(suffix)) return false;
+  const label = a.slice(0, -suffix.length);
+  return label.length >= 1 && label.length <= 63 && /^[a-z0-9-]+$/.test(label)
+    && !label.startsWith('-') && !label.endsWith('-') && !label.startsWith('xn--');
+}
+let COMPUTERS_GEN = 0;
+async function computersFetch() {
+  const gen = ++COMPUTERS_GEN;
+  /* Hide last time's list until THIS read lands: a state word from an earlier open ("Online")
+     must never be shown as current (a probe can take seconds). */
+  const box = document.getElementById('worldsw-computers');
+  const list = document.getElementById('worldsw-computers-list');
+  if (box) box.hidden = true;
+  if (list) list.textContent = '';
+  let data = null;
+  try {
+    const res = await fetch('/api/remote/computers', { cache: 'no-store' });
+    if (res.ok) data = await res.json();
+  } catch { data = null; }
+  if (gen !== COMPUTERS_GEN) return;
+  computersRender(data);
+}
+function computersRender(data) {
+  const box = document.getElementById('worldsw-computers');
+  const list = document.getElementById('worldsw-computers-list');
+  if (!box || !list) return;
+  const rows = (data && data.ok === true && Array.isArray(data.computers))
+    ? data.computers.filter((c) => c && typeof c.name === 'string' && c.name && computerAddressOk(c.address, data.domain))
+    : [];
+  // Only this computer (or nothing): there is nowhere else to go, so the section stays hidden.
+  if (rows.length < 2) { list.textContent = ''; box.hidden = true; return; }
+  list.textContent = '';
+  for (const c of rows) {
+    /* Only an ONLINE computer is a link. An offline one would open a browser error page (the
+       relay closes a computer that is not connected at the TLS handshake, and HSTS keeps it https),
+       and an updating one is restarting; each is a plain row that says so instead. */
+    const opens = c.this !== true && c.online === true && c.updating !== true;
+    const row = document.createElement(opens ? 'a' : 'div');
+    row.className = (opens || c.this === true) ? 'worldsw-row' : 'worldsw-row worldsw-row-off';
+    const check = document.createElement('span');
+    check.className = 'worldsw-check';
+    check.setAttribute('aria-hidden', 'true');
+    check.textContent = '✓';
+    const nm = document.createElement('span');
+    nm.className = 'worldsw-rowname';
+    nm.textContent = c.name;
+    const st = document.createElement('span');
+    st.className = 'worldsw-state';
+    if (c.this === true) {
+      row.setAttribute('aria-current', 'true');
+      st.textContent = 'This computer';
+    } else {
+      const state = c.updating === true ? 'Updating' : (c.online === true ? 'Online' : 'Not connected');
+      st.textContent = state;
+      if (opens) {
+        row.href = 'https://' + c.address + '/';
+        row.target = '_blank';
+        row.rel = 'noopener noreferrer';
+        row.setAttribute('aria-label', 'Open ' + c.name + ', ' + state.toLowerCase());
+      }
+    }
+    row.append(check, nm, st);
+    list.appendChild(row);
+  }
+  box.hidden = false;
 }
 function worldswToggle() {
   const menu = document.getElementById('worldsw-menu');
@@ -33210,7 +33365,7 @@ function dmRow(m, name, replyAdjacent) {
        because the lifted dmRow tests run without the room's reaction helpers. */
     const rxns = (m.at && typeof rxnsInner === 'function')
       ? '<div class="rxns" data-at="' + esc(String(m.at)) + '">' + rxnsInner(m.reactions,
-        typeof CURRENT === 'undefined' || !CURRENT || m.from === CURRENT.sessionName) + '</div>' : '';   // #4256: Reply on this agent's own messages (the server takes no other sender's)
+        typeof CURRENT === 'undefined' || !CURRENT || m.from === CURRENT.sessionName, m.id) + '</div>' : '';   // #4256: Reply on this agent's own messages (the server takes no other sender's)
     return '<div class="msg" data-mid="' + midOf(m) + '">' + av
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(shownFrom) + '</b>'
@@ -43399,6 +43554,36 @@ document.getElementById('plus-si-done-go').addEventListener('click', () => {
   PLUS_SIGNIN_ACTIVE = false;
   paintPlus();
 });
+/* Josh, 2026-09-29 (his live test on Windows: typed his email, pressed Enter, nothing happened): Enter in
+   any box of this sign-in presses that step's own button, exactly as a click would. None of these boxes is
+   in a <form>, so the browser does nothing on Enter by itself. A click, not a call to the handler, so the
+   button's own rules still apply: a busy (disabled) or hidden button does nothing, and a code field's
+   click guard (a code already refused is not sent again) sees the press like any other. The enrol pair in
+   the connected flow (plus-email, plus-code, plus-name) gets the same. */
+const PLUS_ENTER_GO = {
+  'plus-signin-email': 'plus-signin-code',
+  'plus-si-code-in': 'plus-si-code-go',
+  'plus-si-second-in': 'plus-si-second-go',
+  'plus-si-phone': 'plus-si-phone-go',
+  'plus-si-enrol-code': 'plus-si-enrol-confirm-go',
+  'plus-si-name': 'plus-si-register-go',
+  'plus-email': 'plus-send-code',
+  'plus-code': 'plus-confirm',
+  'plus-name': 'plus-confirm',
+};
+for (const [inputId, goId] of Object.entries(PLUS_ENTER_GO)) {
+  const inp = document.getElementById(inputId);
+  if (!inp) continue;
+  inp.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;   // an input method's Enter commits its word
+    if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    if (e.repeat) return;   // a held Enter presses once
+    const go = document.getElementById(goId);
+    if (!go || go.disabled || go.hidden || go.getClientRects().length === 0) return;
+    go.click();
+  });
+}
 
 
 function paintModelWhy(selId, whyId) {
@@ -55675,6 +55860,7 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
     pjReplyStart(box.getAttribute('data-post'));
     return;
   }
+  if (e.target.closest('.rxn-ref')) { rxnCloseAllPickers(); msgRefCopy(box.closest('.msg')); return; }   // #4631
   const btn = e.target.closest('.rxn, .rxn-pick');
   if (!btn || !PJ_CURRENT) return;
   await rxnToggle(PJ_CURRENT, box, btn.getAttribute('data-emoji'));
@@ -55778,6 +55964,7 @@ document.getElementById('d-dmthread').addEventListener('click', async (e) => {
     return;
   }
   if (e.target.closest('.rxn-reply')) { rxnCloseAllPickers(); dmReplyStart(box.getAttribute('data-at')); return; }   // #4256, closing a picker open on another row as the room does
+  if (e.target.closest('.rxn-ref')) { rxnCloseAllPickers(); msgRefCopy(box.closest('.msg')); return; }   // #4631
   const btn = e.target.closest('.rxn, .rxn-pick');
   if (!btn) return;
   await dmRxnToggle(CURRENT.sessionName, box, btn.getAttribute('data-emoji'));
@@ -55927,6 +56114,18 @@ function pjRxnResetRow(messageRow) {
   messageRow.classList.remove('rxn-show', 'rxn-below');
   const quickBar = messageRow.querySelector('.rxn-quick'); if (quickBar) quickBar.removeAttribute('style');
 }
+/* #4631: keep a touchscreen's open bar inside its thread sideways. Copy reference made the bar wider, and on a phone
+   a short post of the person's own (its bar hangs from the bubble's right edge) sent it past the thread's left edge,
+   and an agent's (hanging from the bubble's left) past the right. Shifted, not re-anchored, so it stays over its own
+   post as far as the thread allows. The shift is exact: a rounded one left it 0.4px outside. Called by pjRxnPlace
+   (a tap) and by the keyboard-focus opener, which never runs pjRxnPlace. */
+function rxnKeepInsideX(quickBar, host) {
+  if (!quickBar || !host) return;
+  quickBar.style.transform = '';
+  const R = host.getBoundingClientRect(), Q = quickBar.getBoundingClientRect();
+  const dx = Q.left < R.left ? R.left - Q.left : (Q.right > R.right ? R.right - Q.right : 0);
+  if (dx) quickBar.style.transform = 'translateX(' + dx + 'px)';
+}
 /* Above the message unless the thread's top edge, or the top of the screen (the page itself
    scrolls on a phone), would cut it; then below (CSS .rxn-below). */
 function pjRxnPlace(row, fromTap) {
@@ -55934,6 +56133,7 @@ function pjRxnPlace(row, fromTap) {
   const quickBar = row.querySelector('.rxn-quick'); const room = row.closest('#pj-room, #d-dmthread');
   if (!quickBar || !room) { pjRxnClose(); return; }   // nothing to place: do not leave a lifted, empty row
   quickBar.removeAttribute('style');
+  rxnKeepInsideX(quickBar, room);   // #4631
   const band = pjRxnVisibleBand(room);
   const rowRect = row.getBoundingClientRect();
   // Only a tap guarantees the post is in view. A repaint of a post that is no longer on
@@ -55955,7 +56155,8 @@ function pjRxnPlace(row, fromTap) {
   RXN_PINNED = true;
   // A post taller than what is showing (just tapped, or re-placed): pin the bar in the visible
   // thread, where the post is, at the same left edge. A scroll or viewport change re-places it (below).
-  const barLeft = quickBar.getBoundingClientRect().left;
+  const barLeft = quickBar.getBoundingClientRect().left;   // after the sideways shift above, which the fixed left now carries
+  quickBar.style.transform = '';
   // At the post's own top when that is showing (so it does not cover the message above), else at
   // the top of what is showing; never past the bottom of what is showing.
   const pinTop = Math.min(Math.max(band.top, rowRect.top) + RXN_BAR_GAP_PX, band.bottom - quickBar.offsetHeight - RXN_BAR_GAP_PX);
@@ -55971,7 +56172,7 @@ function pjRxnTap(e) {
   if (!(window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches)) return;
   if (!e.target || !e.target.closest) return;
   const room = e.currentTarget;
-  if (e.target.closest('.rxn-pick, .rxn, .rxn-reply')) { pjRxnClose(); return; }   // any reaction taken, or Reply (#3745), closes it
+  if (e.target.closest('.rxn-pick, .rxn, .rxn-reply, .rxn-ref')) { pjRxnClose(); return; }   // any reaction taken, or Reply (#3745), closes it
   if (e.target.closest('a, button, .rxns, [data-open-agent]')) {
     // Left to its own handler, but one bar at a time: a tap on another row's link closes an open bar
     // (in the other thread too: pjRxnClose closes both, as the outside-tap closer already would).
@@ -56070,11 +56271,12 @@ for (const id of rxnHosts()) document.getElementById(id).addEventListener('focus
   const row = quickBar.closest('.msg'); if (!row || row.classList.contains('rxn-show')) return;
   row.classList.remove('rxn-below');
   if (quickBar.getBoundingClientRect().top < pjRxnVisibleBand(event.currentTarget).top) row.classList.add('rxn-below');
+  rxnKeepInsideX(quickBar, event.currentTarget);   // #4631: and inside it sideways
 });
 for (const id of rxnHosts()) document.getElementById(id).addEventListener('focusout', (event) => {
   const quickBar = event.target && event.target.closest && event.target.closest('.rxn-quick');
   if (!quickBar || quickBar.contains(event.relatedTarget)) return;
-  const row = quickBar.closest('.msg'); if (row && !row.classList.contains('rxn-show')) row.classList.remove('rxn-below');
+  const row = quickBar.closest('.msg'); if (row && !row.classList.contains('rxn-show')) { row.classList.remove('rxn-below'); quickBar.style.transform = ''; }   // #4631: the sideways shift too
 });
 // iOS reports the keyboard and pinch zoom on the visual viewport, not as a window resize.
 if (window.visualViewport) {
@@ -56664,7 +56866,195 @@ const RXN_DEFAULTS = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F525}'];
    carried thousands of dead nodes. The full list now lives in ONE shared `#rxn-picker`
    (rxnPickerEl / rxnPickerBuild below), the same shape the composer's `#pj-emoji`
    panel already uses, opened beside whichever post's smiley was clicked. */
-function rxnsInner(list, withReply) {
+/* #4631 (Josh, 2026-09-29 14:42): "would be even cooler if i could like ctrl + click and get a message ID from any
+   message to then reference it to an agent later on". Every message offers "Copy message reference": right-click
+   (which is ctrl-click on a Mac), ctrl-click on Windows, and a button at the start of the hover bar for touch and
+   keyboard. It copies words a person can paste to any agent: "message 530 in Kosmos Growth" for a message with a
+   number (ids are one sequence for the whole Kosmos, so the number alone finds it and the room is for the reader;
+   the agent's commands take this whole phrase, engine/messages.js messageIdOf), and "Mark's message to me at
+   2:31 PM on Sep 29" for a direct-conversation row, which has no number. The hover button shows the number
+   faintly, so a person sees what they are copying; it is never shown outside the hover bar. */
+function msgRefNumber(mid) {
+  const hit = /^m(\d+)$/.exec(String(mid || ''));
+  return hit ? hit[1] : '';
+}
+function msgRefButton(mid) {
+  const n = msgRefNumber(mid);
+  return '<button class="rxn-ref" type="button" title="Copy message reference" aria-label="'
+    + (n ? 'Copy a reference to message ' + n : 'Copy a reference to this message') + '">'
+    + '<svg class="rxn-ref-ico" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>'
+    + (n ? '<span class="rxn-ref-n">' + n + '</span>' : '')
+    + '</button>';
+}
+function msgRefWhen(at) {
+  const d = new Date(at);
+  if (!at || isNaN(d.getTime())) return '';
+  /* en-US: the phrase around them is English ("at 2:31 PM on Sep 29"), and a reader's own locale would mix the two. */
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const day = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return ' at ' + time + ' on ' + day;
+}
+/* The words copied for one message row, or '' when the row is not a message this can name. */
+function msgRefText(row) {
+  if (!row || !row.getAttribute) return '';
+  const mid = row.getAttribute('data-mid') || '';
+  const inRoom = !!(row.closest && row.closest('#pj-room'));
+  const n = msgRefNumber(mid);
+  const agent = (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName)
+    ? (typeof tskAgentName === 'function' ? tskAgentName(CURRENT.sessionName) : CURRENT.sessionName) : '';
+  if (n) {
+    /* Where it is, for the reader: the room's name, or the direct conversation it sits in. */
+    const nameEl = inRoom ? document.getElementById('pj-one-name') : null;
+    const room = nameEl ? nameEl.textContent.trim() : '';
+    const where = inRoom ? (room ? ' in ' + room : '') : (agent ? ' in my conversation with ' + agent : '');
+    return 'message ' + n + where;
+  }
+  if (inRoom) return '';   // a room row with no number (an outside guest's) is not a direct-conversation row
+  const when = msgRefWhen(mid);
+  if (!when) return '';
+  if (row.classList.contains('you')) return 'my message' + (agent ? ' to ' + agent : '') + when;
+  const nm = row.querySelector('.msg-nm');
+  const who = nm ? nm.textContent.trim() : agent;
+  return who ? who + "'s message to me" + when : '';
+}
+function msgToast(text) {
+  let t = document.getElementById('msg-toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'msg-toast'; t.className = 'msg-toast'; t.setAttribute('role', 'status'); t.setAttribute('aria-live', 'polite');
+    document.body.appendChild(t);
+    /* A live region that arrives already holding its words is often not announced, so the first one is filled
+       a moment after it is in the page. */
+    t.hidden = false; t.style.opacity = '0';   // not an empty dark pill while it waits for its words
+    setTimeout(() => { t.textContent = msgToast.words; t.style.opacity = ''; }, 60);   // the LATEST words, if a second copy came first
+  } else {
+    t.textContent = text;
+  }
+  msgToast.words = text;
+  t.hidden = false;
+  clearTimeout(msgToast.timer);
+  msgToast.timer = setTimeout(() => { t.hidden = true; }, 2600);
+}
+async function msgRefCopy(row) {
+  const text = msgRefText(row);
+  if (!text) return;
+  let ok = false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(text); ok = true; }
+  } catch { ok = false; }
+  if (!ok) {
+    /* The same fallback copyCommandFrom uses: a clipboard the page may not write (an older WebView, a denied
+       permission) is reached through a selected textarea instead. */
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { ok = document.execCommand('copy'); } catch { ok = false; }
+    ta.remove();
+  }
+  msgToast(ok ? 'Copied "' + text + '". Paste it to any agent.' : 'Could not copy. The reference is: ' + text);
+}
+/* The small menu right-click and ctrl-click open on a message. One item today; a menu (not an instant copy) so
+   the click says what it will do before it does it. */
+function msgMenuClose(restoreFocus) {
+  const m = document.getElementById('msg-menu');
+  if (!m || m.hidden) return;
+  m.hidden = true; m.msgRef = null;
+  const back = m.msgBack; m.msgBack = null;
+  if (restoreFocus && back && back.isConnected && typeof back.focus === 'function') back.focus({ preventScroll: true });
+}
+/* The row the menu was opened on, found again by its id and thread: a poll can repaint the thread while the
+   menu is open, and the old node, detached, no longer knows which room it was in. */
+function msgMenuRow(ref) {
+  if (!ref) return null;
+  if (ref.row && ref.row.isConnected) return ref.row;
+  const host = document.getElementById(ref.host);
+  const found = host && ref.mid ? [...host.querySelectorAll('.msg')].find((r) => r.getAttribute('data-mid') === ref.mid) : null;
+  return found || ref.row;
+}
+function msgMenuOpen(row, x, y) {
+  let m = document.getElementById('msg-menu');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'msg-menu'; m.className = 'msg-menu'; m.setAttribute('role', 'menu'); m.hidden = true;
+    m.innerHTML = '<button type="button" role="menuitem" class="msg-menu-i" id="msg-menu-copy">Copy message reference</button>';
+    document.body.appendChild(m);
+    m.addEventListener('click', (e) => {
+      if (!e.target.closest('#msg-menu-copy')) return;
+      const r = msgMenuRow(m.msgRef); msgMenuClose(true); msgRefCopy(r);
+    });
+    m.addEventListener('keydown', (e) => { if (e.key === 'Escape' || e.key === 'Tab') { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); } msgMenuClose(e.key === 'Escape'); } });
+    m.addEventListener('focusout', (e) => { if (!m.contains(e.relatedTarget)) msgMenuClose(false); });
+    /* WebKit (Safari, the Mac app) does not focus a clicked button: pressing it moves focus to nothing, the
+       focusout above closes the menu, and the click never lands. Keeping the press from taking focus away
+       lets the click through; Tab and Escape are unaffected. */
+    m.addEventListener('mousedown', (e) => e.preventDefault());
+  }
+  const host = row.closest('#pj-room') ? 'pj-room' : 'd-dmthread';
+  m.msgRef = { row, host, mid: row.getAttribute('data-mid') || '' };
+  m.msgBack = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
+  m.hidden = false;
+  /* A keyboard's menu key reports no pointer position (0, 0): open it at the message instead of the corner. */
+  if (!x && !y) { const r = row.getBoundingClientRect(); x = r.left + 16; y = r.top + 16; }
+  const w = m.offsetWidth, h = m.offsetHeight;
+  m.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 8)) + 'px';
+  m.style.top = Math.max(8, Math.min(y, window.innerHeight - h - 8)) + 'px';
+  document.getElementById('msg-menu-copy').focus();
+}
+/* Which clicks open it. Not on a link, a button, a field or a picture (their own menus stay), and not while
+   text is selected (the browser's Copy is what a person wants then). */
+function msgMenuRowFor(e) {
+  const t = e.target;
+  if (!t || !t.closest) return null;
+  const row = t.closest('#pj-room .msg, #d-dmthread .msg');
+  /* [data-open-agent]: a name or picture that opens the agent's page; a ctrl-click there already navigated. */
+  if (!row || t.closest('a, button, input, textarea, select, img, video, [contenteditable], [data-open-agent]')) return null;
+  if (msgSelectedAtPress(e)) return null;
+  return msgRefText(row) ? row : null;
+}
+/* Whether text was selected when the person pressed. WebKit (Safari, the Mac app) selects the word under the
+   pointer BEFORE it fires contextmenu, so the live selection at that moment says "text is selected" for every
+   right-click on words, and the menu never opened on a Mac. So the state is read at the press (a capture-phase
+   mousedown, before the word is selected) and used for the contextmenu that follows it. A contextmenu with no
+   press of its own (a keyboard's menu key) reads the live selection. */
+let MSG_PRESS = null;
+function msgHasSelection() {
+  const sel = window.getSelection ? window.getSelection() : null;
+  return !!(sel && !sel.isCollapsed && String(sel).trim());
+}
+function msgSelectedAtPress(e) {
+  if (e && e.type === 'contextmenu' && MSG_PRESS && Date.now() - MSG_PRESS.at < 1500) return MSG_PRESS.selected;
+  return msgHasSelection();
+}
+document.addEventListener('mousedown', (e) => {
+  MSG_PRESS = (e.button === 2 || (e.button === 0 && e.ctrlKey)) ? { at: Date.now(), selected: msgHasSelection() } : null;
+}, true);
+const MSG_MENU_MAC = /Mac|iPhone|iPad/.test(navigator.platform || '');
+document.addEventListener('contextmenu', (e) => {
+  /* Not on a touchscreen: a long-press there is how text is selected, and the hover bar's button is how a thumb
+     copies a reference. */
+  if (typeof PJ_TOUCH_MQ !== 'undefined' && window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches) return;
+  const row = msgMenuRowFor(e);
+  if (!row) return;
+  e.preventDefault();
+  /* The word WebKit selected for this right-click was not the person's selection: clear it, so it does not
+     stay highlighted behind the menu. */
+  if (MSG_PRESS && !MSG_PRESS.selected && window.getSelection) window.getSelection().removeAllRanges();
+  MSG_PRESS = null;
+  msgMenuOpen(row, e.clientX, e.clientY);
+});
+/* A Mac already turns ctrl-click into the contextmenu above; elsewhere ctrl-click is a plain click. */
+document.addEventListener('click', (e) => {
+  const m = document.getElementById('msg-menu');
+  if (m && !m.hidden && !(e.target.closest && e.target.closest('#msg-menu'))) msgMenuClose();
+  if (MSG_MENU_MAC || !e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+  const row = msgMenuRowFor(e);
+  if (!row) return;
+  e.preventDefault();
+  msgMenuOpen(row, e.clientX, e.clientY);
+});
+window.addEventListener('scroll', () => msgMenuClose(false), true);   // never the event as restoreFocus
+window.addEventListener('resize', () => msgMenuClose(false));
+function rxnsInner(list, withReply, mid) {
   const pills = (Array.isArray(list) ? list : []).map((r) => {
     const e = String(r && r.emoji ? r.emoji : '');
     if (!e) return '';
@@ -56694,7 +57084,9 @@ function rxnsInner(list, withReply) {
     + '<svg class="rxn-reply-ico" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17l-5-5 5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>'
     + 'Reply</button>' : '';
   return pills
-    + '<span class="rxn-quick">' + quicks
+    /* #4631: Copy message reference goes FIRST, so the emoji stay together and Reply stays last (#4358); the
+       faint number at the front reads as the message's own label. Guarded: tests lift rxnsInner alone. */
+    + '<span class="rxn-quick">' + (typeof msgRefButton === 'function' ? msgRefButton(mid) : '') + quicks
     + '<button class="rxn-more" type="button" aria-label="More reactions" aria-expanded="false">'
     + '<span class="rxn-more-glyph" aria-hidden="true">\u{1F600}</span></button>'
     + reply
@@ -56703,12 +57095,16 @@ function rxnsInner(list, withReply) {
 function pjReactions(m) {
   const id = String(m && m.id ? m.id : '');
   if (!id) return '';
-  return '<div class="rxns" data-post="' + esc(id) + '">' + rxnsInner(m && m.reactions, true) + '</div>';
+  return '<div class="rxns" data-post="' + esc(id) + '">' + rxnsInner(m && m.reactions, true, id) + '</div>';
 }
 /* Repaint one post's reaction row in place from a fresh list (the react route's
    response), so a toggle updates its own row without a full room re-fetch. */
 function repaintReactions(box, list) {
-  if (box) box.innerHTML = rxnsInner(list, box.hasAttribute('data-post') || box.hasAttribute('data-at'));   // a room row and a DM row (#4256) keep their Reply
+  /* #4631: the id the bar shows is the row's own (data-mid), as the first paint took it: a DM box is keyed by its
+     time (data-at), so reading data-post alone dropped a DM message's number on the first reaction. */
+  const row = box && box.closest ? box.closest('.msg') : null;
+  if (box) box.innerHTML = rxnsInner(list, box.hasAttribute('data-post') || box.hasAttribute('data-at'),
+    (row && row.getAttribute('data-mid')) || box.getAttribute('data-post') || '');   // a room row and a DM row (#4256) keep their Reply
 }
 /* #2700: fold a run of consecutive room refusals that share one reason into a
    single 'refused-group' row, so a valve-stopped busy room shows ONE band
@@ -57679,10 +58075,20 @@ function pjMentionPaint() {
   if (!val || !input.offsetWidth) { input.classList.remove('mention-live'); inner.innerHTML = ''; return; }
   input.classList.add('mention-live');
   inner.innerHTML = pjMentionHighlightHTML(val, pjMentionKeys(pjById(PJ_CURRENT)));
-  mirror.style.left = input.offsetLeft + 'px';
-  mirror.style.top = input.offsetTop + 'px';
-  mirror.style.width = input.offsetWidth + 'px';
-  mirror.style.height = input.offsetHeight + 'px';
+  /* #4585: the textarea's REAL box, not offsetLeft/offsetTop/offsetWidth (whole pixels: the mirror was up
+     to 1px narrower, and wrapped a word the textarea did not). Placed relative to the mirror's offset parent
+     (the composer box), inside its border. The textarea shows no scrollbar (.cinput hides it in both engines;
+     render-composer-caret-4585 asserts it in Chromium, where scrollbars are classic; WebKit's overlay
+     scrollbars take no width either way), so its full width is its text's width. */
+  const inR = input.getBoundingClientRect();
+  const host = mirror.offsetParent;   // the composer box (position: relative); null only when not laid out
+  if (!host) { input.classList.remove('mention-live'); inner.innerHTML = ''; return; }
+  const hostR = host.getBoundingClientRect();
+  const hostCs = getComputedStyle(host);   // its border in real pixels (clientLeft/Top are whole ones)
+  mirror.style.left = (inR.left - hostR.left - (parseFloat(hostCs.borderLeftWidth) || 0)) + 'px';
+  mirror.style.top = (inR.top - hostR.top - (parseFloat(hostCs.borderTopWidth) || 0)) + 'px';
+  mirror.style.width = inR.width + 'px';
+  mirror.style.height = inR.height + 'px';
   inner.style.transform = 'translateY(' + (-input.scrollTop) + 'px)';
 }
 
@@ -57699,6 +58105,10 @@ document.getElementById('pj-post').addEventListener('scroll', () => {
   if (input && inner) inner.style.transform = 'translateY(' + (-input.scrollTop) + 'px)';
 });
 window.addEventListener('resize', pjMentionPaint);
+/* #4585: the composer's width also changes with no window resize (the layout switch, a panel, a page
+   scrollbar arriving); the textarea rewraps at once, so the mirror must too. It also fires on a keystroke's
+   grow, already painted by pjGrowComposer; painting again is the same paint. */
+if (typeof ResizeObserver === 'function') new ResizeObserver(() => pjMentionPaint()).observe(document.getElementById('pj-post'));
 
 /* ---- #2254: the emoji picker ------------------------------------------------
    Josh: "add a card so that the user could add emojis to their input." A curated

@@ -511,18 +511,24 @@ test('#4559: the model\'s own doubt is kept beside a note the file earned', () =
 
 /* #4598 (Sonya Blade): openers with no closer made the reader quadratic, so an 848-byte workbook froze the board for
    8.8 s. These compare the work at N and 4N rather than trusting a wall time alone (which flakes under load, #4189):
-   linear work grows about 4x, quadratic about 16x. Each size is timed per parse, repeating until at least 25 ms has
-   passed so a fast parse is still measurable, and the best of three is kept. */
-function perParse(buf) {
-  let best = Infinity;
-  for (let k = 0; k < 3; k += 1) {
-    let reps = 0;
-    const t0 = process.hrtime.bigint();
-    let ms = 0;
-    do { o.readLocal('x.xlsx', buf); reps += 1; ms = Number(process.hrtime.bigint() - t0) / 1e6; } while (ms < 25);
-    best = Math.min(best, ms / reps);
-  }
-  return best;
+   linear work grows about 4x, quadratic about 16x. One pass times a parse by repeating it until at least 25 ms has
+   passed, so a fast parse is still measurable; perParsePair below keeps the best of five interleaved passes. */
+function onePass(buf, name) {
+  let reps = 0;
+  let ms = 0;
+  const t0 = process.hrtime.bigint();
+  do { o.readLocal(name, buf); reps += 1; ms = Number(process.hrtime.bigint() - t0) / 1e6; } while (ms < 25);
+  return ms / reps;
+}
+/* Both sizes' per-parse time, each the best of five passes, the passes INTERLEAVED (small, large, small, large...)
+   after a warm-up of each. Measured on the shared box: three back-to-back passes of the large size all landed in
+   another agent's heavy run and read 97x, a false red; interleaved, a busy stretch hits both sides. */
+function perParsePair(small, large, name = 'x.xlsx') {
+  for (let w = 0; w < 3; w += 1) { o.readLocal(name, small); o.readLocal(name, large); }
+  let a = Infinity;
+  let b = Infinity;
+  for (let k = 0; k < 5; k += 1) { a = Math.min(a, onePass(small, name)); b = Math.min(b, onePass(large, name)); }
+  return [a, b];
 }
 const SHEET1 = '<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Name</t></is></c></row></sheetData></worksheet>';
 const CRAFTED = {
@@ -537,8 +543,7 @@ for (const [what, make] of Object.entries(CRAFTED)) {
     const N = 16000;
     const small = make(N);
     assert.ok(small.length < 4096, `CONTROL: the crafted file is small on disk (${small.length} bytes)`);
-    const a = perParse(small);
-    const b = perParse(make(4 * N));
+    const [a, b] = perParsePair(small, make(4 * N));
     t.diagnostic(`4x the input: ${(b / a).toFixed(1)}x the time (${a.toFixed(3)} ms -> ${b.toFixed(3)} ms per parse)`);
     assert.ok(b / a < 8, `4x the input took ${(b / a).toFixed(1)}x the time (${a.toFixed(2)} ms -> ${b.toFixed(2)} ms): the reader is not linear here`);
   });
@@ -559,19 +564,8 @@ test('#4559: a CSV keeps at most KEEP_COLS fields a row, and a header of commas 
   const wide = o.parseDelimited('Name,Title,' + ','.repeat(100000) + '\nAvery Quill,CEO\n');
   assert.equal(wide[0].length, o.KEEP_COLS, 'the header keeps KEEP_COLS fields');
   assert.deepEqual(wide[1], ['Avery Quill', 'CEO'], 'CONTROL: a normal row is untouched');
-  const time = (n) => {
-    const text = 'Title,Manager' + ','.repeat(n) + '\nCEO,\n';
-    let best = Infinity;
-    for (let k = 0; k < 3; k += 1) {
-      let reps = 0; let ms = 0;
-      const t0 = process.hrtime.bigint();
-      do { o.readLocal('wide.csv', Buffer.from(text)); reps += 1; ms = Number(process.hrtime.bigint() - t0) / 1e6; } while (ms < 25);
-      best = Math.min(best, ms / reps);
-    }
-    return best;
-  };
-  const a = time(200000);
-  const b = time(800000);
+  const wideCsv = (n) => Buffer.from('Title,Manager' + ','.repeat(n) + '\nCEO,\n');
+  const [a, b] = perParsePair(wideCsv(200000), wideCsv(800000), 'wide.csv');
   t.diagnostic(`4x the commas: ${(b / a).toFixed(1)}x the time (${a.toFixed(2)} ms -> ${b.toFixed(2)} ms per parse)`);
   assert.ok(b / a < 8, `4x the commas took ${(b / a).toFixed(1)}x the time`);
 });
