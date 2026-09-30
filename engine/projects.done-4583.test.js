@@ -294,7 +294,7 @@ test('#4583 review: a placeholder under a heading the person retitled is replace
 test('#4583 round 5: a done typed like a heading or a rule stays the done, in the stub and through fillDone', () => {
   reset();
   const rb = require('./brief');
-  for (const done of ['# of signups hits 500', '---', '* * *', '## Launch']) {
+  for (const done of ['# of signups hits 500', '---', '* * *', '## Launch', '\\#tag', '\\---', '\\*b*', '\\a', '\\\\x']) {
     const dir = folder('md');
     const made = projects.create({ name: 'Md', folder: dir, done });
     assert.equal(rb.readBrief(dir).done, done, 'stub: ' + done);

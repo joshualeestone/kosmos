@@ -3821,6 +3821,16 @@ test('#4583 round 5: a done typed for a folder whose brief has its own Done sect
   assert.equal(notes[0].audience, messages.NOTE_AUDIENCE_AGENTS);
 });
 
+test('#4583 round 6 CONTROL: no BRIEF.md the stub could write means no "already has a Done section" note', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const dir = folder('unwritable-brief');
+  fs.mkdirSync(path.join(dir, projects.BRIEF_STUB_FILENAME));   // a directory where the brief would go: nothing is written
+  const made = json(await post('/api/projects', { name: 'No brief', folder: dir, agents: ['agent-a'], done: 'Ship v1' })).project;
+  const texts = messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id).map((n) => n.text);
+  assert.ok(!texts.includes(projects.doneNotWrittenNote('Ship v1')), 'the note gave a false reason: ' + JSON.stringify(texts));
+});
+
 test('#4583: a done over 1000 characters is refused with the done box named, and nothing is created', async () => {
   reset();
   const res = await post('/api/projects', { name: 'Too long', folder: folder('too-long'), done: 'x'.repeat(1001) });

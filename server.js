@@ -15464,7 +15464,7 @@ const server = http.createServer(async (req, res) => {
           /* #4583 review round 5: a done typed on the form that BRIEF.md could not take (the person's brief has a Done
              section of its own) is quoted to the team with one question, never dropped without a word. */
           const typedDone = projects.cleanDone(body.done);
-          if (made.agents.length > 0 && typedDone && !projects.doneWrittenIn(made.folder, typedDone)) {
+          if (made.agents.length > 0 && typedDone && !projects.doneWrittenIn(made.folder, typedDone) && projects.doneHeadingIsOwn(made.folder)) {
             messages.roomNote(made.id, projects.doneNotWrittenNote(typedDone), { audience: messages.NOTE_AUDIENCE_AGENTS });
           }
         } catch { /* the note is furniture; the project exists regardless */ }

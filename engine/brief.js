@@ -113,7 +113,7 @@ function sectionFrom(text, heading, dropLines) {
   const words = body.join('\n').replace(/<!--[\s\S]*?-->/g, '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim().replace(/\s+/g, ' ');
   if (!words || SEEDED_PROMPT.test(words)) return null;
   // #4583 round 5: projects.doneMarkdown escapes a done that starts like a heading or a rule; show prints it as typed.
-  const shown = words.replace(/^\\(?=[#*_-])/, '');
+  const shown = words.replace(/^\\(?=[#*_\\-])/, '');
   const chars = Array.from(shown);
   return chars.length > GOAL_MAX ? chars.slice(0, GOAL_MAX - 1).join('').trimEnd() + '\u2026' : shown;
 }

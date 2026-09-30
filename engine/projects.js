@@ -1991,7 +1991,19 @@ const BRIEF_DONE_PLACEHOLDERS = Object.freeze([BRIEF_DONE_PLACEHOLDER, '_How wil
    escaped (Markdown's backslash) and brief.js strips that one escape when reading. */
 function doneMarkdown(done) {
   const t = String(done);
-  return /^(?:#|([-*_])(?:\s*\1){2,}\s*$)/.test(t) ? '\\' + t : t;
+  // Round 6: a done that itself starts with a backslash is escaped too, so reading strips exactly the one added.
+  return /^(?:#|\\|([-*_])(?:\s*\1){2,}\s*$)/.test(t) ? '\\' + t : t;
+}
+/* A Done heading of the person's own shape: any level, "Done..." or "What done...". fillDone leaves such a brief alone. */
+const OWN_DONE_HEADING = /^[ \t]*#{1,6}[ \t]+(?:what[ \t]+)?done\b/im;
+/* Round 6: true only when BRIEF.md is readable, has no Done section Kosmos reads, and has one of the person's own
+   shape: exactly when fillDone declines for that reason, so the create route's note never gives a false one. */
+function doneHeadingIsOwn(folder) {
+  try {
+    if (!folder || !path.isAbsolute(folder)) return false;
+    const { text } = readBriefSafely(folder);
+    return typeof text === 'string' && !require('./brief').doneSectionRange(text) && OWN_DONE_HEADING.test(text);
+  } catch { return false; }
 }
 /* Whether BRIEF.md in folder holds this typed done (as fillDone or the stub writes it). */
 function doneWrittenIn(folder, done) {
@@ -2113,7 +2125,7 @@ function fillDone(folder, doneText) {
     /* Round 5: a Done heading of the person's own shape (any level, "Done..." or "What done...") is theirs, whether
        empty or not: left alone, never followed by a second section. The create route then asks, in the room, which
        done stands (doneNotWrittenNote), so the typed words are not lost. */
-    else if (/^[ \t]*#{1,6}[ \t]+(?:what[ \t]+)?done\b/im.test(text)) return false;
+    else if (OWN_DONE_HEADING.test(text)) return false;
     else next = text.trimEnd() + eol + eol + '## Done looks like' + eol + eol + md + eol;
     if (next === null) return false;
     fs.writeFileSync(file, next, 'utf8');
@@ -3203,7 +3215,7 @@ module.exports = {
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,
-  BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,
+  BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneHeadingIsOwn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,
   findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership, speakOfMembershipAsync,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
   folderPathPreview, makeFolder, revealFolder, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile,
