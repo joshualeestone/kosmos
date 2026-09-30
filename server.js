@@ -3854,8 +3854,7 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    agents, the pickers that add a member to a project included (#3739), so it is on a project only if a process
    holding the board token put it there.
    What the guide then SAYS is masked for secrets on its replies, `kosmos msg`, `kosmos post` and the team purpose
-   (#3769), and NOT on a task message, a task-built note or a status report: that gap is on main already and is
-   #4733, not this slice's to close. */
+   (#3769), and on a task message, a task-built note and a status report (#4733). */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
   'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks']);   // overview: #4581, `kosmos project list`
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
