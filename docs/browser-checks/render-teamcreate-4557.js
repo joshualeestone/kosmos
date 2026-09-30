@@ -386,6 +386,7 @@ function chk(ok, label, extra) {
           chk(/same name/.test(msg) && posted.length === 0 && projects.readAll().length === before,
             `${E} two seats with one name are refused before any project or agent is made`, msg + ' | posted ' + posted.length);
           chk(!(await page.isDisabled('#tc-go')) && !(await page.isHidden('#tc-go')), `${E} and the button is back to try again`);
+          chk(!(await page.isDisabled('#tc-provider')), `${E} #4719 and the Model menu is open again (nothing was made)`);
           chk(errs.length === 0, `${E} no page errors (refusal arm)`, errs.join(' | '));
           await page.close();
         }
