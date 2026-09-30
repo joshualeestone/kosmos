@@ -3764,3 +3764,19 @@ test('#2707 CONTROL: a brief-less project with NO agents gets NO note (nobody to
   const room = await req(`/api/project/${made.id}/room?as=text`);
   assert.doesNotMatch(room.body, /not seven/i, 'a project with no agents needs no coordination note');
 });
+
+/* #4642: a served post row says who it really addressed (the `mentioned` recorded at send time), so
+   the page paints blue from what happened, not from today's wider rule. [] when nobody was addressed,
+   so the page can tell "nobody" from a hand-built row without the field. */
+test('#4642: a room post row carries its recorded `mentioned`, [] when it addressed nobody', async () => {
+  const projectsEngine = require('./engine/projects');
+  const fsx = require('node:fs');
+  const p = projectsEngine.create({ name: 'Mention Record 4642', agents: [], roster: [], description: 'x', made: { via: 'test' } });
+  try {
+    const at = new Date().toISOString();
+    const row = (id, extra) => JSON.stringify({ kind: 'post', id, project: p.id, from: 'you', operator: true, to: ['kano'], text: '@Kano look', at, outcomes: {}, ...extra }) + '\n';
+    fsx.appendFileSync(require('./engine/messages').LOG, row('m-4642-a', { mentioned: ['kano'] }) + row('m-4642-b', {}));
+    const posts = json(await req('/api/project/' + p.id + '/room')).rows.filter((m) => m.kind === 'post');
+    assert.deepEqual(posts.map((m) => [m.id, m.mentioned]), [['m-4642-a', ['kano']], ['m-4642-b', []]]);
+  } finally { try { projectsEngine.remove(p.id); } catch { /* cleanup */ } }
+});
