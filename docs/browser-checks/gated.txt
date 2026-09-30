@@ -160,6 +160,7 @@ render-project-done-4583
 render-project-members-3387
 render-project-needsyou-2699
 render-project-rows
+render-projects-badges-4730
 render-projects-roadmap-3276
 render-prompter-label-1843
 render-provider-combobox-1040

@@ -4210,6 +4210,13 @@ body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row {
      status stay pinned to the right edge, and the content indents inside. */
   padding: 7px 12px 7px calc(30px + var(--pj-depth, 0) * 22px);
   margin: 0; }
+/* #4730 (Josh, 2026-09-30): alternating rows get "a really really light" background, spreadsheet
+   style, so the eye can follow a row across. A 3.5% wash of the ink over the page ground: darker than
+   the ground in light, lighter in dark, and unlike the card surface it never matches the hover (the
+   rule below, which wins by coming later), so the row under the pointer still stands out. The class is set by
+   the fold walk (applyConsFold), which skips folded rows. */
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.pj-stripe {
+  background: color-mix(in srgb, var(--k-ink) 3.5%, transparent); }
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row:hover {
   background: var(--k-surface); box-shadow: none; border: 0; }
 /* Needs-you: the card border is gone, so attn gets the attn border colour as a full inset
@@ -17372,12 +17379,9 @@ window.kosmosMeasureScrollbarWidth();
          written by nothing here yet; a future pack rule or drive lands on
          them for free -->
     <div class="stat"><b id="st-agents" data-count="agents">0</b><span class="slab">Agents</span></div>
-    <!-- #2157: the Working tile (chip + its .act animation) hides at a KNOWN zero,
-         the same grammar the alert tile uses, so a board with nothing working does
-         not carry an animated "0 Working". It stays VISIBLE when the count is a
-         floor (unknowns present) -- hiding there would claim "none working" on a
-         read that cannot stand behind it, the same reason the failed-poll path
-         shows "?" rather than hiding (render + the reasoning at st-working = '?'). -->
+    <!-- #2157, #4736: the Working tile (chip + its .act animation) hides whenever it would read zero,
+         "0+" included (Josh 2026-09-30: "if there are 0 working, lets not show the tile"), the same
+         grammar the alert tile uses. A failed poll shows "?" and keeps the tile (that is not a zero). -->
     <div class="stat" id="st-working-tile"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><b id="st-working" data-count="working">0</b><span class="slab">Working</span></div>
     <div class="stat"><span class="rest" aria-hidden="true"></span><b id="st-idle" data-count="idle">0</b><span class="slab">Idle</span></div>
     <!-- 🔑 THE FOURTH TILE, and it is the row's existing grammar with one more
@@ -21685,11 +21689,10 @@ async function tick() {
     document.getElementById('st-agents').textContent = tileCount(c.total, floor);
     const workingCount = data.agents.filter((a) => !(a && a.isGuide === true)).filter((a) => a.state === 'working').length;
     document.getElementById('st-working').textContent = tileCount(workingCount, stateFloor);
-    /* #2157: hide the Working tile (chip + its .act animation) at a KNOWN zero,
-       the alert tile's grammar. stateFloor true means unknowns cloud the count
-       (it renders "0+"), so hiding there would claim "none working" on a read
-       that cannot stand behind it -- keep it shown, as the failed-poll "?" is. */
-    document.getElementById('st-working-tile').hidden = workingCount === 0 && !stateFloor;
+    /* #2157, then #4736 (Josh, 2026-09-30 10:05: "if there are 0 working, lets not show the tile"): the
+       Working tile hides whenever its number is zero, "0+" included. It was kept for "0+" (unknowns cloud
+       the count); he ruled for the simpler row. A failed poll's "?" is not a zero and still shows. */
+    document.getElementById('st-working-tile').hidden = workingCount === 0;
     document.getElementById('st-idle').textContent =
       tileCount(data.agents.filter((a) => !(a && a.isGuide === true)).filter((a) => a.state === 'idle').length, stateFloor);
     /* ⚠️ FROM THE COUNT, not from filtering the roster on `running`. The two
@@ -21997,9 +22000,8 @@ async function tick() {
        card above already says the whole board is blind. */
     document.getElementById('st-agents').textContent = '?';
     document.getElementById('st-working').textContent = '?';
-    /* #2157: a failed poll shows "?" and must un-hide the Working tile -- a prior
-       known-zero tick may have hidden it, and staying hidden would claim "none
-       working" on the one poll that knows nothing. Same reason it shows "?". */
+    /* #2157, #4736: a failed poll shows "?" and un-hides the Working tile. A prior zero tick
+       ("0" or "0+") may have hidden it, and "?" is not a zero, so the tile shows it. */
     document.getElementById('st-working-tile').hidden = false;
     document.getElementById('st-idle').textContent = '?';
     /* ⚠️ SHOWN AS UNKNOWN RATHER THAN HIDDEN, unlike the alert tile beside it,
@@ -51509,6 +51511,7 @@ function applyConsFold() {
      and cannot diverge from it: a row is hidden exactly when it sits deeper than the
      nearest folded ancestor still in effect. (#2929 iter3, was pjDescendantIds) */
   let cutoff = Infinity;   // rows with --pj-depth > cutoff are inside a collapsed branch
+  let shown = 0;           // #4730: visible rows so far, for the list view's alternating shade
   for (const row of list.querySelectorAll('.pj-row[data-project]')) {
     const depth = Number(row.style.getPropertyValue('--pj-depth')) || 0;
     /* #2929 slice 2: only TOP-LEVEL rows are draggable, and only in the consolidated
@@ -51530,6 +51533,10 @@ function applyConsFold() {
     // the token's presence already matches force -- so it needs no compare-guard. The
     // aria-expanded and caret-text writes below are NOT idempotent, so they do. (#2929 iter4)
     row.classList.toggle('pj-fold-hidden', shouldHide);
+    /* #4730: every second VISIBLE row is shaded, counted here because this walk is what knows
+       which rows a fold hid (CSS :nth-child would count the hidden ones and break the pattern).
+       Only the tab list view draws the shade (the CSS is scoped to it). */
+    row.classList.toggle('pj-stripe', !shouldHide && (shown++ % 2 === 1));
     if (!shouldHide) {
       // A VISIBLE folded parent collapses everything deeper than it until a row
       // returns to its depth or shallower; anything else clears the collapse.
@@ -51680,34 +51687,24 @@ function pjTilesUnknown() {
   document.getElementById('st-pjdm-tile').hidden = true;
 }
 
-/* The pack's state pill (view C): Issue > Working > Can't tell >
-   Nothing running. "Nothing running" is a CLAIM -- it is only made when
-   every member was actually seen; a blind roster or unseen members get
-   the board's own unsure treatment instead of a reassurance. */
+/* The pack's state pill (view C): Issue > Working > Restarting, and since #4730 nothing else. A pill
+   means something is running; with nothing running, an unseen member or a blind roster the card shows
+   none (Josh 2026-09-30), and it never shows Working or Issue it could not read. */
 function pjPillOf(p, unreadable) {
   const s = p.summary || {};
   if (!unreadable && s.needsYou) return { cls: 'attn', glyph: '<span class="haz" aria-hidden="true">!</span>', label: 'Issue' };
   if (!unreadable && s.working) return { cls: '', glyph: '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>', label: 'Working' };
-  /* #2019: the projects-list rollup is the 7th agent-state surface. A project
-     whose only active agent is mid-restart must NOT fall through to "Nothing
-     running" (the gone-lie this card refuses). This reads a summary.restarting
-     count the engine half (Renet) folds into p.summary; it is INERT until that
-     field arrives, exactly like the rest of this presentation PR, and ranks below
-     working (something genuinely working wins) but above the not-running
-     fallback. The K matches the card's mark. */
+  /* #2019: a project whose only active agent is mid-restart keeps a Restarting badge (it is running);
+     it ranks below Working. It reads summary.restarting; the K matches the card's mark. */
   if (!unreadable && s.restarting) return { cls: '', glyph: GLYPH.restarting, label: 'Restarting' };
-  /* 🔑 NO STATUS AT ALL FOR A PROJECT WITH NO AGENTS (kosmos#1303 E). Josh: "On
-     the Projects tab I don't want to show 'no agents' as a status for a
-     project." An empty label is the signal; the row builder omits the pill
-     rather than rendering an empty one, so there is no stray element and no
-     `:empty` rule to remember.
-     ⚠️ THE FACT IS NOT LOST, it is just not dressed as a STATUS: the row already
-     omits the agent count when `s.total` is zero, so an empty project reads as a
-     title with nothing under it, which is what "no agents yet" was saying in more
-     words and in the slot reserved for what a project is DOING. */
-  if (!s.total) return { cls: '', glyph: '', label: '' };
-  if (unreadable || s.unseen) return { cls: '', glyph: '', label: 'Can\u2019t tell' };
-  return { cls: '', glyph: '<span class="rest" aria-hidden="true"></span>', label: 'Nothing running' };
+  /* #4730 (Josh, 2026-09-30 09:06): "if there's nothing running or we can't tell, let's just not
+     display a badge here. Let's only display a badge if something is actually running." So
+     "Can't tell" and "Nothing running" are gone from the Projects views, like "No agents yet"
+     before them (#1303 E): an empty label and no pill. Issue (an agent needs you), Working and
+     Restarting stay, each a running agent. With the whole roster unreadable no card shows a badge
+     either, and the Projects views say nothing about it (his rule, applied literally): the Agents
+     page reports a failed read, and the project's own page still says who is unseen. */
+  return { cls: '', glyph: '', label: '' };
 }
 
 /* The bubble's text, in one place: nothing for none, 99+ past the cap. The
@@ -51813,12 +51810,10 @@ function projectCard(p, unreadable, depth, childCount) {
   const count = s.total ? '<span class="pjcount">' + Number(s.total) + (s.total === 1 ? ' agent' : ' agents') + '</span>' : '';
   const facesRow = (faces || count)
     ? '<span class="pjfaces"><span aria-hidden="true">' + faces + '</span>' + count + '</span>' : '';
-  /* ⚠️ The card NEVER says everything is fine when part of it was
-     unreadable -- the pill claims only what the counts support, and the
-     blind spot is SAID in words below, same rule as before the restyle. */
-  const bits = [];
-  if (!unreadable && s.unseen) bits.push(s.unseen + ' we cannot see');
-  if (unreadable && s.total) bits.push('we cannot see how they are doing right now');
+  /* #4730 (Josh, 2026-09-30 09:06): no "N we cannot see" line on the Projects views ("Let's just
+     not list if we can't see an agent. We don't need that information here."). The card still never
+     says everything is FINE: with no pill it makes no claim about state at all, and the project's
+     own page keeps the unseen member marked (#2804). */
   /* #747 and #748 (Josh, 2026-08-24 21:22 and 21:24): the tile reads title,
      then the short description, then the agents with their count, with the
      status at the top right; the folder chip under the title is gone (on
@@ -51866,7 +51861,6 @@ function projectCard(p, unreadable, depth, childCount) {
     + (p.doneSet === false ? '<span class="pj-doneunset">Done not set</span>' : '')
     + facesRow
     + parentChip
-    + (bits.length ? '<span class="pj-who">' + esc(bits.join(', ')) + '</span>' : '')
     + (folder.bad ? '<span class="pj-warn">' + esc(folder.text) + '</span>' : '')
     + '</button>';
 }
