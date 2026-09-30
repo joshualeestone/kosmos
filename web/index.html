@@ -14175,6 +14175,13 @@ window.kosmosMeasureScrollbarWidth();
     <label class="flabel" for="tc-project">Project</label>
     <select id="tc-project"></select>
     <p class="rolehelp" id="tc-note" role="status" aria-live="polite"></p>
+    <!-- Review 27: the team step obeyed the single create's "Let Kosmos know" box, which is on another
+         step and cannot be seen from here. This is that same choice, shown where it is used (kept equal
+         to #create-tell, which stays the one the creates read). `for` names the box, as it does there. -->
+    <label class="tellrow" for="tc-tell">
+      <input type="checkbox" id="tc-tell">
+      <span id="tc-tell-say"></span>
+    </label>
     <div class="importrow">
       <button class="btn uprime" type="button" id="tc-go"></button>
       <button class="btn uprime" type="button" id="tc-hello" hidden></button>
@@ -46776,6 +46783,12 @@ function tcPaint() {
   go.textContent = 'Create ' + n + (n === 1 ? ' agent' : ' agents');
   go.disabled = Boolean(TC.busy);   // round 4: a resumed team still being started must not offer a dead button
   document.getElementById('tc-project').disabled = TC.started;
+  // The "Let Kosmos know" choice: the sheet's one box, shown here too; fixed once the run has started.
+  const tell = document.getElementById('tc-tell');
+  const tellBox = document.getElementById('create-tell');
+  tell.checked = tellBox ? tellBox.checked === true : true;
+  tell.disabled = Boolean(TC.started || TC.busy);
+  document.getElementById('tc-tell-say').textContent = n === 1 ? 'Let Kosmos know an agent was created' : 'Let Kosmos know these agents were created';
   /* Back is always allowed now (round 3): leaving no longer resets a live team, it only steps away. */
   document.getElementById('tc-back').disabled = false;
   const msgEl = document.getElementById('tc-msg');
@@ -46847,6 +46860,11 @@ async function tcSpecs(project, check) {
 document.getElementById('tc-back').addEventListener('click', () => {
   if (tcLive()) { cstep('role'); return; }
   TC_GEN += 1; TC = null; cstep('role');
+});
+
+document.getElementById('tc-tell').addEventListener('change', (e) => {
+  const tellBox = document.getElementById('create-tell');
+  if (tellBox) tellBox.checked = e.currentTarget.checked;   // one choice for the sheet, whichever step it was made on
 });
 
 /* Straight to the lead, the way the single create's Say Hello goes straight to its agent (openDetail). */

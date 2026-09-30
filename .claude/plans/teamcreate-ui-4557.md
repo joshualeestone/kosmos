@@ -321,4 +321,11 @@ compared the step with itself; this one compared it with its sibling.
   real agents), so the earlier arms need this run as much as the new ones do.
 - The full suite queued on Mortals for 90332aac7 was stopped before it started (it would have measured a
   head that no longer exists). A new one is owed on this head, and another blind round after it.
+- NIT taken (the rest of review 27 arrived later): the team step obeyed the single create's "Let Kosmos
+  know an agent was created" box, which sits on another step and cannot be seen from the team step. A
+  person who goes straight to a team sent one created notice per member with no way to say no on that
+  screen. The same choice is now shown on the team step, kept equal to the sheet's one box, and fixed once
+  the run starts. The existing browser arm unticks it HERE now, not by reaching into the hidden box.
+- Stated by the reviewer and true: `openTeamCreate` has no caller in the page yet (it waits on #4556), so
+  nothing on this branch can be reached by a person until that lands.
 

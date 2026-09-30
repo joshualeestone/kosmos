@@ -1,4 +1,4 @@
-// Browser-check-surface: cstep-team tc-title tc-purpose tc-list tc-project tc-note tc-go tc-hello tc-back tc-msg
+// Browser-check-surface: cstep-team tc-title tc-purpose tc-list tc-project tc-note tc-tell tc-tell-say tc-go tc-hello tc-back tc-msg
 'use strict';
 /**
  * A whole prebuilt team in one go (#4557, umbrella #4554, Josh 2026-09-29 09:06), on a real board.
@@ -570,10 +570,17 @@ function chk(ok, label, extra) {
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           await page.selectOption('#tc-project', 'none');
-          await page.evaluate(() => { document.getElementById('create-tell').checked = false; });
+          /* Review 27: the choice is on THIS step, where the person is (the sheet's own box is on another
+             step and hidden here). Ticked to start with, named, and unticking it is what the creates obey. */
+          const tell = await page.evaluate(() => { const b = document.getElementById('tc-tell'); const r = b.getBoundingClientRect();
+            return { shown: r.width > 0 && r.height > 0, checked: b.checked, says: document.getElementById('tc-tell-say').textContent, named: b.labels.length === 1 }; });
+          chk(tell.shown && tell.checked && tell.named && tell.says === 'Let Kosmos know these agents were created', `${E} the team step shows the Let Kosmos know choice, ticked, with a name`, JSON.stringify(tell));
+          await page.click('#tc-tell');
+          chk(await page.evaluate(() => document.getElementById('create-tell').checked === false), `${E} unticking it here unticks the sheet's one box`);
           await page.click('#tc-go');
           await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].length === 3 && [...document.querySelectorAll('#tc-list .tc-state')].every((x) => x.textContent === 'Running'));
           chk(posted.length === 3 && posted.every((b) => b.notifyCreated === false), `${E} with the box unticked, every member is made with notifyCreated false`, JSON.stringify(posted.map((b) => b.notifyCreated)));
+          chk(await page.isDisabled('#tc-tell'), `${E} the choice cannot be changed once the team is being made`);
           chk(errs.length === 0, `${E} no page errors (tell-box arm)`, errs.join(' | '));
           await page.close();
         }
