@@ -47,7 +47,7 @@
  * ENGINES=chromium,webkit runs every arm in each (WebKit is Playwright's build, not Safari), the
  * same switch as render-dm-phone-718. Chromium alone by default, which is what the gate runs.
  */
-// Browser-check-surface: pj-room rxn-quick rxn-show rxn-below pj-list-view sortctl viewtoggle nt-modal am-modal pj-post-mirror pj-add-member
+// Browser-check-surface: pj-room rxn-quick rxn-show rxn-below pj-list-view sortctl viewtoggle nt-modal am-modal pj-post-mirror pj-add-member pj-back pj-settings-link pj-newtask pj-docs-all pj-alltasks
 const path = require('node:path');
 const playwright = require('playwright');
 /* ENGINES=chromium,webkit (the render-dm-phone-718 switch). An unknown name is refused rather
@@ -735,6 +735,48 @@ const now = () => new Date().toISOString();
       chk(splitFocus === 'pj-add-member' && splitWide === 'pj-add-member' && splitBack === 'pj-add-member' && splitOrder.startsWith('members-files,room'),
         `[phone] a control focused in Members/Files keeps its focus when the phone turns`, `${splitFocus} -> ${splitWide} -> ${splitBack} (order ${splitOrder})`);
       await phonePage.evaluate(() => { const b = document.getElementById('pj-add-member'); if (b) b.blur(); });
+      // #4663: on a touchscreen the project page's small controls (drawn 22 to 28px) take a tap across at least 36px
+      // around their centre, and none of those areas steals a tap from a neighbouring control's own centre.
+      const taps = await phonePage.evaluate(() => {
+        const ids = ['pj-back', 'pj-settings-link', 'pj-add-member', 'pj-newtask', 'pj-docs-all', 'pj-alltasks'];
+        for (const id of ids) {
+          const b = document.getElementById(id); if (!b) continue; b.hidden = false; if (!b.textContent.trim() && id === 'pj-alltasks') b.textContent = 'View All';
+          for (let el = b; el && el !== document.body; el = el.parentElement) { el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+        }
+        const hit = (x, y, b) => { const t = document.elementFromPoint(x, y); return !!t && (t === b || b.contains(t)); };
+        const out = [];
+        for (const id of ids) {
+          const b = document.getElementById(id); if (!b) { out.push({ id, error: 'missing' }); continue; }
+          // In the middle of the screen, so every probe point is on screen: a point off screen proves nothing (the
+          // first version of this arm counted one as reached, and Back and the cog passed on main unmeasured).
+          b.scrollIntoView({ block: 'center', inline: 'center' });
+          const r = b.getBoundingClientRect(); if (!r.width || !r.height) { out.push({ id, error: 'not drawn' }); continue; }
+          const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+          const hw = Math.max(r.width, 36) / 2 - 1, hh = Math.max(r.height, 36) / 2 - 1;
+          const edges = [[cx - hw, cy], [cx + hw, cy], [cx, cy - hh], [cx, cy + hh]];
+          const onScreen = edges.filter(([x, y]) => x >= 0 && y >= 0 && x <= innerWidth && y <= innerHeight);
+          const missed = onScreen.filter(([x, y]) => !hit(x, y, b)).length;
+          out.push({ id, drawn: Math.round(r.width) + 'x' + Math.round(r.height), probed: onScreen.length, reach: onScreen.length >= 3 && missed === 0 });
+        }
+        // Neighbours: every other button or link within 40px keeps its own centre.
+        const theirs = [];
+        for (const id of ids) {
+          const b = document.getElementById(id); if (!b) continue; const r = b.getBoundingClientRect();
+          for (const n of document.querySelectorAll('button, a[href], [role="button"]')) {
+            if (n === b || b.contains(n) || n.contains(b)) continue;
+            const q = n.getBoundingClientRect(); if (!q.width || !q.height) continue;
+            const near = q.right > r.left - 40 && q.left < r.right + 40 && q.bottom > r.top - 40 && q.top < r.bottom + 40;
+            if (!near) continue;
+            const x = q.left + q.width / 2, y = q.top + q.height / 2;
+            if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) continue;
+            const t = document.elementFromPoint(x, y);
+            if (t && ids.some((j) => { const o = document.getElementById(j); return o && o !== n && !n.contains(o) && (t === o || o.contains(t)); })) theirs.push((n.id || n.className || n.tagName) + ' taken by ' + (t.id || t.className));
+          }
+        }
+        return { out, theirs };
+      });
+      chk(taps.out.length === 6 && taps.out.every((x) => !x.error && x.reach), `[phone] #4663: Back, settings, + Add member, + New task and both View All take a tap across at least 36px`, JSON.stringify(taps.out));
+      chk(taps.theirs.length === 0, `[phone] #4663: no enlarged tap area takes a neighbouring control's own centre`, JSON.stringify(taps.theirs));
       // The projects list's top row at 375 on a touchscreen (16px sort): Add Project, the sort and
       // the view toggle must not overlap and must stay inside the row. (The harness only flags
       // overflow past the panel; controls drawn over each other inside it pass that.)

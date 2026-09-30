@@ -5939,6 +5939,15 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .pjtitle #pj-one-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
 .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 1px 0 0; max-width: none; line-height: 1.35; }
 .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
+/* #4663 (Mona Lisa's phone audit): on a touchscreen the project page's small controls (Back, the settings cog,
+   + Add member, + New task and the two View All links, drawn 22 to 28px) take a thumb-sized tap: an invisible
+   area centred on each, at least the room's --room-tap (36px). Nothing drawn moves or grows. */
+@media (hover: none) {
+  #pj-back, #pj-settings-link, #pj-add-member, #pj-newtask, #pj-docs-all, #pj-alltasks { position: relative; }
+  :is(#pj-back, #pj-settings-link, #pj-add-member, #pj-newtask, #pj-docs-all, #pj-alltasks)::after {
+    content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: max(100%, 36px); height: max(100%, 36px); }
+}
 /* Josh, 2026-09-10 (#2711 item 4): the tab-view conversation search is narrow
    at rest ("Search"), and widens when the person clicks into it so they have
    room to type. Scoped to body:not(.consolidated) so it never applies in the
