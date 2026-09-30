@@ -8,12 +8,16 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # 19 arms; an inherited KOSMOS_TESTS_IGNORE_SUITE reds the #4498 queue arms. Each arm sets what it needs. The lib's own
 # list, plus the other guards' overrides this file also exercises.
 unset $KOSMOS_WAIT_CONTROL_VARS KOSMOS_HARNESS_IGNORE_SUITE KOSMOS_CUT_IGNORE_HARNESS KOSMOS_HARNESS_IGNORE_CUT
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)"; trap 'kill "${SUITE:-}" 2>/dev/null; rm -rf "$T"' EXIT
 # A pid proven dead at runtime (#4206 review 11). The guards now run a real lsof and ancestry walk on
 # every candidate, so a fixed probe pid is only safe where it cannot be handed out: 99999 holds on
 # macOS (pids stop at 99998) but not on Linux (pid_max is often 4194304). A reused pid would need the
 # counter to wrap within this run.
 ( : ) & DEAD=$!; wait "$DEAD"
+# #4609: a stand-in for a RUNNING suite must be a live process, because the suite check now drops a candidate that is
+# gone (ESRCH): a waiter's subshell that exited between pgrep and the walk was counted as a live suite. $DEAD stays the
+# stand-in for the release, browser and harness arms, which do not check that a candidate exists.
+sleep 3600 </dev/null >/dev/null 2>&1 & SUITE=$!
 # #1796: isolate the run-marker dir so the always-on marker arm reads THIS test's
 # fixtures, never a real marker a live run on this box may have left in the default
 # /tmp dir. The existing arms below get an empty dir (marker arm inert); the marker
@@ -29,7 +33,7 @@ has_pid() { case " $1 " in *[!0-9]"$2"[!0-9]*) return 0;; *) return 1;; esac; }
 printf '#!/bin/sh\nprintf "'"$DEAD"' bash tools/release.sh 0.5.54\\n"\n' > "$T/probe-live"; chmod +x "$T/probe-live"
 printf '#!/bin/sh\nexit 1\n' > "$T/probe-quiet"; chmod +x "$T/probe-quiet"
 printf '#!/bin/sh\nexit 3\n' > "$T/probe-dead"; chmod +x "$T/probe-dead"
-printf '#!/bin/sh\n[ "$1" = '"$DEAD"' ] && printf "node --test tools.release-gate.test.js\\nbash tools/run-tests.sh\\n"\n' > "$T/ancestor-fixture"; chmod +x "$T/ancestor-fixture"
+printf '#!/bin/sh\n{ [ "$1" = '"$DEAD"' ] || [ "$1" = '"$SUITE"' ]; } && printf "node --test tools.release-gate.test.js\\nbash tools/run-tests.sh\\n"\n' > "$T/ancestor-fixture"; chmod +x "$T/ancestor-fixture"
 printf '#!/bin/sh\nexit 0\n' > "$T/ancestor-none"; chmod +x "$T/ancestor-none"
 
 out="$(KOSMOS_CUT_PROBE="$T/probe-live" kosmos_refuse_if_cut_live "a full run" 2>&1)"; rc=$?
@@ -182,7 +186,7 @@ kill "$kt_script" 2>/dev/null; wait "$kt_script" 2>/dev/null
 # Rooted under /tmp BY NAME, not under $T: where mktemp honours TMPDIR (Linux, under run-tests.sh)
 # $T sits inside a kt<digits> folder, and a frozen tree built there would rightly read as a fixture.
 FR="$(mktemp -d /tmp/cutguard-frozen.XXXXXX)" && [ -n "$FR" ] || { echo "FAIL  no frozen root (mktemp failed), so the frozen-tree arms cannot run"; exit 1; }
-trap 'rm -rf "$T" "$FR"' EXIT
+trap 'kill "${SUITE:-}" 2>/dev/null; rm -rf "$T" "$FR"' EXIT
 FROZEN="$FR/T//kosmos-release.msHOlx/kosmos-aad0d84cd3e8"
 mkdir -p "$FROZEN/tools"
 ( cd "$FROZEN" && exec sleep 30 ) & frozen=$!
@@ -473,9 +477,11 @@ has "$out" "KOSMOS_CUT_IGNORE_HARNESS=1 cuts anyway" && pass "#4410 CONTROL: wit
   || fail "#4410 the cut's default override text changed: $out"
 
 # The mirror: kosmos_refuse_if_suite_live, through its KOSMOS_SUITE_PROBE seam.
-printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n"\n' "$DEAD" > "$T/sprobe-live"; chmod +x "$T/sprobe-live"
-printf '#!/bin/sh\nprintf "%s bash %s/tools/run-tests.sh\\n"\n' "$DEAD" "$KTD" > "$T/sprobe-kt"; chmod +x "$T/sprobe-kt"
-printf '#!/bin/sh\nprintf "5353 bash tools/run-tests.sh\\n"\n' > "$T/sprobe-self"; chmod +x "$T/sprobe-self"
+printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n"\n' "$SUITE" > "$T/sprobe-live"; chmod +x "$T/sprobe-live"
+printf '#!/bin/sh\nprintf "%s bash %s/tools/run-tests.sh\\n"\n' "$SUITE" "$KTD" > "$T/sprobe-kt"; chmod +x "$T/sprobe-kt"
+# The caller's own pid must be LIVE ($SUITE): a pid that does not exist is dropped as gone (#4609), which would pass this
+# arm without the self-drop.
+printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n"\n' "$SUITE" > "$T/sprobe-self"; chmod +x "$T/sprobe-self"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-live" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "tools/run-tests.sh" && has "$out" "KOSMOS_HARNESS_IGNORE_SUITE=1"; } \
   && pass "#4410 a harness refuses to start while a test suite is running, and names the override" \
@@ -488,14 +494,14 @@ out="$(KOSMOS_SUITE_PROBE="$T/probe-dead" kosmos_refuse_if_suite_live "a full in
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-kt" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#4410 a run-tests.sh fixture in the kt<digits> sandbox is not a live suite (control: the live arm above)" \
   || fail "#4410 a sandboxed run-tests.sh fixture refused the harness (rc=$rc, $out)"
-printf '#!/bin/sh\nprintf "%s /opt/homebrew/bin/bash %s/tools/run-tests.sh\\n"\n' "$DEAD" "$KTD" > "$T/sprobe-kt-brew"; chmod +x "$T/sprobe-kt-brew"
+printf '#!/bin/sh\nprintf "%s /opt/homebrew/bin/bash %s/tools/run-tests.sh\\n"\n' "$SUITE" "$KTD" > "$T/sprobe-kt-brew"; chmod +x "$T/sprobe-kt-brew"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-kt-brew" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#4410 a sandboxed run-tests.sh fixture started by a Homebrew bash is dropped too (the fixture rule's interpreter is as wide as the suite arm's)" \
   || fail "#4410 a Homebrew-bash sandboxed fixture refused the harness (rc=$rc, $out)"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-fixture" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-live" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#4410 a run-tests.sh with a node --test ancestor is not a live suite (control: the live arm above)" \
   || fail "#4410 a node --test run-tests.sh fixture refused the harness (rc=$rc, $out)"
-out="$(KOSMOS_SUITE_SELF_PID=5353 KOSMOS_SUITE_PROBE="$T/sprobe-self" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID="$SUITE" KOSMOS_SUITE_PROBE="$T/sprobe-self" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#4410 the caller's own pid is not a separate suite" || fail "#4410 the guard refused its own caller (rc=$rc, $out)"
 
 # The suite guard's REAL name arm (pgrep plus the filter), through _kosmos_suite_candidates. Other
@@ -625,6 +631,27 @@ else
 fi
 for p in $leaf $mid $deep; do kill "$p" 2>/dev/null; done; wait "$deep" 2>/dev/null
 rm -f "$W/markers/suitewait.$deep"
+
+# #4609: a candidate that is gone is not a running suite. The real case is a waiter's $( ) subshell that was in pgrep's
+# snapshot and exited before the walk read its parent: the walk ends on an empty ppid, and before this fix the dead
+# subshell was counted as live, so with a dozen waiters polling the front one never started. $DEAD is exactly that: a
+# `bash tools/run-tests.sh` line whose pid no longer exists.
+out="$(printf '%s bash tools/run-tests.sh\n' "$DEAD" | _kosmos_drop_suite_waiters)"
+[ -z "$out" ] && pass "#4609 a suite candidate that exited before the walk is not a live suite" \
+  || fail "#4609 an exited candidate was counted as a live suite ($out)"
+printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n"\n' "$DEAD" > "$T/sprobe-gone"; chmod +x "$T/sprobe-gone"
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-gone" kosmos_refuse_if_suite_live "this test run" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#4609 and the suite check lets a run start past it" \
+  || fail "#4609 an exited candidate still refused a run (rc=$rc, $out)"
+# CONTROL: the same line for a live process with no waiter above it is kept, so the drop is about existence, not the line.
+out="$(printf '%s bash tools/run-tests.sh\n' "$SUITE" | _kosmos_drop_suite_waiters)"
+has_pid "$out" "$SUITE" && pass "#4609 CONTROL: a live candidate with no waiter above it is kept" \
+  || fail "#4609 CONTROL: a live suite candidate was dropped ($out)"
+# Only ESRCH is gone. A pid we may not signal (pid 1 as a normal user: EPERM) still exists and stays counted; run as root
+# the signal succeeds, which keeps it too.
+out="$(printf '1 bash tools/run-tests.sh\n' | _kosmos_drop_suite_waiters)"
+has_pid "$out" 1 && pass "#4609 a pid that cannot be signalled (EPERM) is not taken for gone" \
+  || fail "#4609 an EPERM pid was dropped as gone ($out)"
 
 # The queue: the oldest waiter goes first; a run with no marker is behind every waiter.
 rm -f "$W/held"; printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
@@ -887,13 +914,13 @@ out="$(KOSMOS_NO_WAIT=1 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test r
 # run-tests.sh in a scratch tree with one stray test file stops at its coverage check, the first thing after the
 # guard, so "COVERAGE MISMATCH" means the guard let it through and nothing ran. The tree is rooted under /tmp by
 # name (not $T, which may sit in the kt sandbox and would make every run here a fixture).
-RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; RT2=""; trap 'type q_clear >/dev/null 2>&1 && q_clear; rm -rf "$T" "$RT" ${RT2:+"$RT2"}' EXIT
+RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; RT2=""; trap 'kill "${SUITE:-}" 2>/dev/null; type q_clear >/dev/null 2>&1 && q_clear; rm -rf "$T" "$RT" ${RT2:+"$RT2"}' EXIT
 mkdir -p "$RT/tools/lib" "$RT/sub"; cp "$HERE/run-tests.sh" "$RT/tools/"; cp "$HERE"/lib/*.sh "$RT/tools/lib/"
 : > "$RT/sub/stray.test.js"
 sleep 60 & wp=$!
 printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
-# The caller reads as a fixture (a node --test ancestor), except the stand-in pid $DEAD (see the wiring test below).
-printf '#!/bin/sh\n[ "$1" = '"$DEAD"' ] || printf "node --test tools.x.test.js\\n"\n' > "$T/ancestor-all"; chmod +x "$T/ancestor-all"
+# The caller reads as a fixture (a node --test ancestor), except the stand-in pids $DEAD and $SUITE (see the wiring test below).
+printf '#!/bin/sh\n{ [ "$1" = '"$DEAD"' ] || [ "$1" = '"$SUITE"' ]; } || printf "node --test tools.x.test.js\\n"\n' > "$T/ancestor-all"; chmod +x "$T/ancestor-all"
 rt_run() { (cd "$RT" && env KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_HARNESS_PROBE="$T/probe-quiet" KOSMOS_SUITE_PROBE="$T/probe-quiet" \
   KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= "$@" bash tools/run-tests.sh 2>&1); }
 out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none")"
@@ -944,7 +971,7 @@ cat > "$T/sprobe-then-cut" <<SH
 n=\$(cat "$W/cutcalls" 2>/dev/null || echo 0); n=\$((n + 1)); echo "\$n" > "$W/cutcalls"
 if [ "\$n" -eq 1 ]; then
   printf 'OTHER %s %s mortals release 0.9.99\\n' "$holder" "\$((\$(date +%s) + 600))" > "$W/markers/machine-claim"
-  printf '%s bash tools/run-tests.sh\\n' "$DEAD"; exit 0
+  printf '%s bash tools/run-tests.sh\\n' "$SUITE"; exit 0
 fi
 exit 1
 SH
@@ -970,8 +997,8 @@ out="$(cd "$HERE/.." && KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_PROCESS_ANCE
 # A run-tests.sh inside a test (here: every pid has a node --test ancestor) is part of the suite that
 # started it, so it skips the suite check. The live stand-in harness (fixtures kept) is what refuses
 # it instead; the suite check comes first, so a missing skip would print the suite refusal.
-# The stand-in suite's own pid ($DEAD) is exempt, so only the CALLER reads as a fixture.
-printf '#!/bin/sh\n[ "$1" = '"$DEAD"' ] || printf "node --test tools.x.test.js\\n"\n' > "$T/ancestor-all"; chmod +x "$T/ancestor-all"
+# The stand-in suite's own pid ($SUITE; $DEAD for the harness) is exempt, so only the CALLER reads as a fixture.
+printf '#!/bin/sh\n{ [ "$1" = '"$DEAD"' ] || [ "$1" = '"$SUITE"' ]; } || printf "node --test tools.x.test.js\\n"\n' > "$T/ancestor-all"; chmod +x "$T/ancestor-all"
 out="$(cd "$HERE/.." && KOSMOS_NO_WAIT=1 KOSMOS_WAIT_MAX_S=0 KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all" KOSMOS_HARNESS_KEEP_FIXTURES=1 KOSMOS_HARNESS_SELF_PID=999999 \
   KOSMOS_HARNESS_PROBE="$T/hprobe-real" KOSMOS_SUITE_PROBE="$T/sprobe-live" KOSMOS_TEST_PART=all KOSMOS_SHELL_SHARD= bash tools/run-tests.sh 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "an install harness" && ! has "$out" "a test suite (tools/run-tests.sh) is already running"; } \
