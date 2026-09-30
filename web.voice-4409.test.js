@@ -307,8 +307,8 @@ test('#4409 review 2: two messages with the same words: read-aloud stays on the 
 test('#4409: read aloud uses on-device voices only, and only an agent\'s message offers it', () => {
   assert.match(fn('speakVoice'), /\.filter\(\(v\) => v\.localService\)/, 'a network voice would send the message text off the Mac');
   assert.match(PAGE, /const agent = !!m && m\.operator !== true;/);
-  assert.match(PAGE, /rxnsInner\(m && m\.reactions, true, agent\)/, 'the room offers read-aloud on the person\'s own post');
-  assert.match(PAGE, /box\.hasAttribute\('data-speak'\)\);   \/\/ #4409/, 'a reaction repaint drops the read-aloud button');
+  assert.match(PAGE, /rxnsInner\(m && m\.reactions, true, agent, id\)/, 'the room offers read-aloud on the person\'s own post');   // #4631: the post's id follows, for Copy reference
+  assert.match(PAGE, /box\.hasAttribute\('data-speak'\),   \/\/ #4409/, 'a reaction repaint drops the read-aloud button');   // #4631's row id follows it as the fourth argument
   assert.match(PAGE, /if \(m\.from === session\) d\.appendChild\(speakButtonEl\(\)\);/, 'the Guide\'s answers cannot be read aloud');
   assert.match(fn('speechTextOfRow'), /'\.msg-nm, \.msg-t, \.msg-replyto, \.vh, \.rxns, button/, 'the name, the time or a button label is read out as the message');
   assert.match(fn('speechTextOfRow'), /querySelectorAll\('pre, \.mdcb'\)\.forEach\(\(n\) => n\.replaceWith\(document\.createTextNode\(' Code block\. '\)\)\)/, 'a rendered code block (span.mdcb) is spelled out');

@@ -942,15 +942,16 @@ const now = () => new Date().toISOString();
         const C = comp.getBoundingClientRect(), Rw = row.getBoundingClientRect();
         const overlap = Rw.bottom > C.top + 4;
         const t = at(C.left + C.width / 2, Math.min(C.bottom - 4, Math.max(C.top + 4, (C.top + Math.min(C.bottom, Rw.bottom)) / 2)));
-        return { hits, want: 5 + (q.querySelector('.rxn-speak') && q.querySelector('.rxn-speak').getClientRects().length ? 1 : 0), overlap, composerOnTop: !!(t && comp.contains(t)), row: [Math.round(Rw.top), Math.round(Rw.bottom)], comp: [Math.round(C.top), Math.round(C.bottom)] };
+        return { hits, want: 6 + (q.querySelector('.rxn-speak') && q.querySelector('.rxn-speak').getClientRects().length ? 1 : 0), overlap, composerOnTop: !!(t && comp.contains(t)), row: [Math.round(Rw.top), Math.round(Rw.bottom)], comp: [Math.round(C.top), Math.round(C.bottom)] };
       });
       await phonePage.evaluate(() => { if (typeof pjRxnClose === 'function') pjRxnClose(); window.scrollTo(0, 0); });
       await phonePage.setViewportSize({ width: 375, height: 800 });
       await phonePage.waitForTimeout(100);
       // #4409: every phone arm counts the bar's SHOWN buttons (want), so without read aloud they would all pass on the
-      // narrower bar and never measure the wide one this guards. Pin that an agent's bar here carries it.
-      chk(!inPlaceHits.error && inPlaceHits.want === 6,
-        `[phone/touch] precondition: an agent's bar shows read aloud, so these arms measure the six-button bar`, JSON.stringify(inPlaceHits));
+      // narrower bar and never measure the wide one this guards. Pin that an agent's bar here carries it. Seven since
+      // #4631 added Copy reference: it, the three quick emoji, the picker, read aloud and Reply.
+      chk(!inPlaceHits.error && inPlaceHits.want === 7,
+        `[phone/touch] precondition: an agent's bar shows read aloud, so these arms measure the seven-button bar`, JSON.stringify(inPlaceHits));
       chk(!inPlaceHits.error && inPlaceHits.overlap && inPlaceHits.hits.length === inPlaceHits.want && inPlaceHits.hits.every(Boolean) && inPlaceHits.composerOnTop,
         `[phone/touch, in place] the open bar takes its taps and the sticky composer stays on top of the open row`, JSON.stringify(inPlaceHits));
       const phoneGeometry = await phonePage.evaluate((ts) => {
@@ -1028,7 +1029,7 @@ const now = () => new Date().toISOString();
       const hits = await phonePage.evaluate(() => {
         const row = document.querySelector('#pj-room .msg.rxn-show'); const q = row && row.querySelector('.rxn-quick');
         if (!q) return { error: 'no open bar' };
-        return { below: row.classList.contains('rxn-below'), want: 5 + (q.querySelector('.rxn-speak') && q.querySelector('.rxn-speak').getClientRects().length ? 1 : 0), hits: [...q.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => {
+        return { below: row.classList.contains('rxn-below'), want: 6 + (q.querySelector('.rxn-speak') && q.querySelector('.rxn-speak').getClientRects().length ? 1 : 0), hits: [...q.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => {
           const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
           return top === b || b.contains(top); }) };
       });
@@ -1127,8 +1128,8 @@ const now = () => new Date().toISOString();
       chk(rowsLeft === 4 && cardClicks === 1 && barAfterCardTap.shown === 0 && barAfterCardTap.op === '0', `[phone/touch] a tap on a file card does not toggle the bar`, JSON.stringify(Object.assign({ rowsLeft, cardClicks }, barAfterCardTap)));
       // The person's own SHORT post: its bar (right anchor) stays inside the thread, and every
       // touch target in it, and the reaction pill, is at least the room's --room-tap (#3811), which
-      // is itself at least 36px (the size decided for these small repeated targets). Five buttons since
-      // #3745: the three quick emoji, the picker, and Reply.
+      // is itself at least 36px (the size decided for these small repeated targets). Six buttons since
+      // #4631: Copy reference, the three quick emoji, the picker, and Reply (five since #3745).
       const own = phonePage.locator('#pj-room .msg.you .msg-bd p').last();
       await own.tap();
       await phonePage.waitForTimeout(300);
@@ -1142,7 +1143,7 @@ const now = () => new Date().toISOString();
           buttons: [...q.querySelectorAll('button')].map(size), pill: row.querySelector('.rxn') ? Math.round(row.querySelector('.rxn').getBoundingClientRect().height) : null };
       });
       chk(!ownBar.error && ownBar.inside, `[phone/touch] the bar on a short post of your own stays inside the thread`, JSON.stringify(ownBar));
-      chk(!ownBar.error && ownBar.tapPx >= 36 && ownBar.buttons.length === 5 && ownBar.buttons.every((n) => n >= ownBar.tapPx) && ownBar.pill >= ownBar.tapPx, `[phone/touch] every reaction target is at least --room-tap, and --room-tap is at least 36px (the bar's buttons and a reaction pill)`, JSON.stringify(ownBar));
+      chk(!ownBar.error && ownBar.tapPx >= 36 && ownBar.buttons.length === 6 && ownBar.buttons.every((n) => n >= ownBar.tapPx) && ownBar.pill >= ownBar.tapPx, `[phone/touch] every reaction target is at least --room-tap, and --room-tap is at least 36px (the bar's buttons and a reaction pill)`, JSON.stringify(ownBar));
       // The open bar is CLEAR of its one-line bubble, so tapping the bubble again closes the bar
       // and reacts with nothing (at thumb size an overlapping bar covered the whole bubble).
       const clear = await phonePage.evaluate(() => {
@@ -1162,7 +1163,7 @@ const now = () => new Date().toISOString();
         const previous = row.previousElementSibling; const barRect = quickBar.getBoundingClientRect();
         const overlapsPrevious = !!(previous && (() => { const p = previous.getBoundingClientRect(); return barRect.top < p.bottom && barRect.bottom > p.top; })());
         const hits = [...quickBar.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return top === b || b.contains(top); });
-        return { overlapsPrevious, hits, want: 5 + (quickBar.querySelector('.rxn-speak') && quickBar.querySelector('.rxn-speak').getClientRects().length ? 1 : 0) };
+        return { overlapsPrevious, hits, want: 6 + (quickBar.querySelector('.rxn-speak') && quickBar.querySelector('.rxn-speak').getClientRects().length ? 1 : 0) };
       });
       chk(!hitsAbove.error && hitsAbove.overlapsPrevious && hitsAbove.hits.length === hitsAbove.want && hitsAbove.hits.every(Boolean), `[phone/touch] a bar above its post is on top of the message before it`, JSON.stringify(hitsAbove));
       await own.tap();
@@ -1194,7 +1195,7 @@ const now = () => new Date().toISOString();
         if (!q) return { error: 'no open bar' };
         const Q = q.getBoundingClientRect(), R = room.getBoundingClientRect();
         const hits = [...q.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
-        return { inView: Q.top >= R.top && Q.bottom <= R.bottom && Q.left >= R.left && Q.right <= R.right + 1, bar: [Math.round(Q.top), Math.round(Q.bottom)], room: [Math.round(R.top), Math.round(R.bottom)], hits, want: 5 + (q.querySelector('.rxn-speak') && q.querySelector('.rxn-speak').getClientRects().length ? 1 : 0), pinned: q.style.position === 'fixed' };
+        return { inView: Q.top >= R.top && Q.bottom <= R.bottom && Q.left >= R.left && Q.right <= R.right + 1, bar: [Math.round(Q.top), Math.round(Q.bottom)], room: [Math.round(R.top), Math.round(R.bottom)], hits, want: 6 + (q.querySelector('.rxn-speak') && q.querySelector('.rxn-speak').getClientRects().length ? 1 : 0), pinned: q.style.position === 'fixed' };
       });
       chk(tallAt.tall && !tall.error && tall.pinned && tall.inView && tall.hits.length === tall.want && tall.hits.every(Boolean), `[phone/touch] on a post taller than the thread the bar is pinned in view and takes its taps`, JSON.stringify(Object.assign({ tall: tallAt.tall }, tall)));
       // A repaint (a new post arriving) while the pinned bar is up and its post still on screen
@@ -1411,7 +1412,7 @@ const now = () => new Date().toISOString();
         setTimeout(() => {
           const band = pjRxnVisibleBand(room); const B = bar.getBoundingClientRect();
           const hits = [...bar.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
-          const placed = { rowTopShowing: row.getBoundingClientRect().top >= band.top - 0.5, below: row.classList.contains('rxn-below'), inView: B.top >= band.top - 0.5 && B.bottom <= band.bottom + 0.5, hits, want: 5 + (bar.querySelector('.rxn-speak') && bar.querySelector('.rxn-speak').getClientRects().length ? 1 : 0) };
+          const placed = { rowTopShowing: row.getBoundingClientRect().top >= band.top - 0.5, below: row.classList.contains('rxn-below'), inView: B.top >= band.top - 0.5 && B.bottom <= band.bottom + 0.5, hits, want: 6 + (bar.querySelector('.rxn-speak') && bar.querySelector('.rxn-speak').getClientRects().length ? 1 : 0) };
           button.blur();
           setTimeout(() => { const afterBlur = { below: row.classList.contains('rxn-below'), shown: RXN_SHOW_POST, styled: !!(bar.style.left || bar.style.maxWidth) /* #4409: the fit's inline left and max-width are gone */ }; room.style.top = '0px'; res({ wouldClip, placed, afterBlur }); }, 50);
         }, 300);
@@ -1593,7 +1594,7 @@ const now = () => new Date().toISOString();
         if (!quickBar) return { error: 'no open bar' };
         const barBg = rgba(getComputedStyle(quickBar).backgroundColor); const threadBg = getComputedStyle(room).backgroundColor;
         const hits = [...quickBar.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
-        return { dark: matchMedia('(prefers-color-scheme: dark)').matches, barBg: getComputedStyle(quickBar).backgroundColor, threadBg, opaque: (barBg[3] === undefined ? 1 : barBg[3]) > 0.9, differs: getComputedStyle(quickBar).backgroundColor !== threadBg, border: getComputedStyle(quickBar).borderTopWidth, hits, want: 5 + (quickBar.querySelector('.rxn-speak') && quickBar.querySelector('.rxn-speak').getClientRects().length ? 1 : 0) };
+        return { dark: matchMedia('(prefers-color-scheme: dark)').matches, barBg: getComputedStyle(quickBar).backgroundColor, threadBg, opaque: (barBg[3] === undefined ? 1 : barBg[3]) > 0.9, differs: getComputedStyle(quickBar).backgroundColor !== threadBg, border: getComputedStyle(quickBar).borderTopWidth, hits, want: 6 + (quickBar.querySelector('.rxn-speak') && quickBar.querySelector('.rxn-speak').getClientRects().length ? 1 : 0) };
       });
       chk(!dark.error && dark.dark && dark.opaque && dark.differs && parseFloat(dark.border) >= 1 && dark.hits.length === dark.want && dark.hits.every(Boolean),
         `[dark/phone/touch] the open bar has its own ground and edge on the dark thread and takes its taps`, JSON.stringify(dark));

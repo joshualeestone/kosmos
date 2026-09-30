@@ -117,14 +117,14 @@ function chk(ok, label, extra) {
     // #4358 (Josh): the four emoji together, then Reply LAST with a small arrow, and a bright gold outline on hover.
     const bar = await p.evaluate(() => {
       const q = document.querySelector('#pj-room .rxns .rxn-quick');
-      const kids = q ? [...q.children].map((k) => k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-speak') ? 'speak' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?') : [];
+      const kids = q ? [...q.children].map((k) => k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-speak') ? 'speak' : k.classList.contains('rxn-ref') ? 'ref' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?') : [];
       const you = !!(q && q.closest('.msg') && q.closest('.msg').classList.contains('you'));   // #4409: read-aloud is on an agent's post only
       const r = q && q.querySelector('.rxn-reply');
       const ico = r && r.firstElementChild;
       return { you, kids: kids.join(','), arrowFirst: !!ico && ico.tagName.toLowerCase() === 'svg' && ico.classList.contains('rxn-reply-ico'),
         word: r ? r.textContent.trim() : null };
     });
-    chk(bar.kids === (bar.you ? 'pick,pick,pick,more,reply' : 'pick,pick,pick,more,speak,reply'), 'the hover bar reads the three quick emoji, the smiley, (on an agent\'s post, read-aloud, #4409), then Reply last', JSON.stringify({ you: bar.you, kids: bar.kids }));
+    chk(bar.kids === (bar.you ? 'ref,pick,pick,pick,more,reply' : 'ref,pick,pick,pick,more,speak,reply'), 'the hover bar reads Copy reference (#4631), the three quick emoji, the smiley, (on an agent\'s post, read-aloud, #4409), then Reply last', JSON.stringify({ you: bar.you, kids: bar.kids }));
     chk(bar.arrowFirst && bar.word === 'Reply', 'Reply carries a small arrow icon before the word', JSON.stringify(bar));
     const rests = {};
     for (const scheme of ['light', 'dark']) {
@@ -537,7 +537,7 @@ function chk(ok, label, extra) {
     await p.mouse.move(shortBox.x, shortBox.y);
     await p.waitForTimeout(300);
     const shortBar = await measureShort();
-    chk(shortBar.inside && shortBar.hits.length === 6 && shortBar.hits.every(Boolean), 'on a one-word agent post the bar (with read-aloud, #4409, and Reply) stays inside the thread and every button takes its click', JSON.stringify(shortBar));
+    chk(shortBar.inside && shortBar.hits.length === 7 && shortBar.hits.every(Boolean), 'on a one-word agent post the bar (with Copy reference, #4631, read-aloud, #4409, and Reply) stays inside the thread and every button takes its click', JSON.stringify(shortBar));
     // The hovered row itself changes in the repaint (its words are edited here; in life a reaction lands), so
     // the page draws a NEW element without the measured class. Read in the same moment as the repaint:
     // Chromium re-sends a hover to a still mouse shortly after, which would mend it by accident.
