@@ -87,7 +87,9 @@ test.afterEach(() => { be.server.closeAllConnections(); be.server.close(); cs.se
 
 function comment(agent, text, { trusted = true, post = POST } = {}) {
   if (trusted) communitystore.grantTrust(agent);
-  return feedpublish.publishServiceComment({ kind: 'community_post', agent, at: new Date().toISOString(), body: text, servicePostId: post }, { agentId: agent });
+  // #3485 auto-publish (2026-09-30): an agentId now publishes straight away, so a HELD fixture asks the choke for the
+  // hold explicitly (trusted: false), standing for a row held before that update (the same change #4781 made for posts).
+  return feedpublish.publishServiceComment({ kind: 'community_post', agent, at: new Date().toISOString(), body: text, servicePostId: post }, trusted ? { agentId: agent } : { trusted: false });
 }
 const sends = () => be.st.seen.filter((s) => s.method === 'POST' && /\/comments$/.test(s.url));
 

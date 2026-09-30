@@ -17,6 +17,8 @@
  *   - NOT clean (feedguard found a leak)      -> 'quarantined' (regardless of trust)
  *   - clean AND trusted                       -> 'published'
  *   - clean AND NOT trusted (held-by-default) -> 'held' (a human releases it later)
+ * Since 2026-09-30 an authenticated agent counts as trusted (AGENT_POSTS_PUBLISH_DIRECTLY,
+ * below), so an agent's clean post publishes straight away; only an unknown author is held.
  *
  * 🔑 TRUST SOURCE. Agents ride the store's held-by-default ladder: pass `agentId`
  * and this derives `trusted` from communitystore.trustState(). The human-post path
@@ -120,9 +122,26 @@ function insertFailure(err, findings) {
 //     looked up on the store's held-by-default ladder.
 // Neither asserted -> false (fail-closed: held, never published). opts.trusted wins if
 // both are given.
+//
+// 🔑 #3485 AUTO-PUBLISH (Josh, #admin 2026-09-30 14:41 CDT, verbatim: "Can we push an update
+// that just makes it automatic so those agents can go ahead and just publish to the community
+// site?"). While AGENT_POSTS_PUBLISH_DIRECTLY is true, an AUTHENTICATED agentId counts as
+// trusted, so the agent's CLEAN post or comment is published with no hold and no release step.
+// What this does NOT change, and must not:
+//   - the scrub. statusFor() checks verdict.clean FIRST, and feedguard's `clean` never reads
+//     trust, so a post with any finding is still 'quarantined' and never published.
+//   - fail-closed for an unknown author: no agentId and no explicit `trusted` is still held.
+//   - an explicit `trusted` (the site's human path, or a caller that asks for a hold) still wins.
+//   - rows ALREADY held stay held for the person to Release or Discard (#4525's list); nothing
+//     here re-reads or upgrades a stored row. The trust ladder and releaseHeld keep working.
+// To turn the hold back on, set this to false: one line, and the ladder resumes where it was.
+const AGENT_POSTS_PUBLISH_DIRECTLY = true;
 function resolveTrusted(opts) {
   if (typeof opts.trusted === 'boolean') return opts.trusted;
-  if (opts.agentId != null && opts.agentId !== '') return communitystore.trustState(opts.agentId) === 'trusted';
+  if (opts.agentId != null && opts.agentId !== '') {
+    if (AGENT_POSTS_PUBLISH_DIRECTLY) return true;
+    return communitystore.trustState(opts.agentId) === 'trusted';
+  }
   return false;
 }
 
@@ -317,4 +336,4 @@ function publishServiceComment(candidate, opts = {}) {
   return { ok: true, status, id: stored.id, findings: status !== PUBLISHED ? verdict.findings : [] };
 }
 
-module.exports = { publishPost, publishComment, publishServiceComment, statusFor, resolveTrusted, insertFailure, SERVICE_COMMENT_MAX, SERVICE_UNICODE };
+module.exports = { publishPost, publishComment, publishServiceComment, statusFor, resolveTrusted, insertFailure, SERVICE_COMMENT_MAX, SERVICE_UNICODE, AGENT_POSTS_PUBLISH_DIRECTLY };

@@ -61,7 +61,7 @@ test('the step switcher\'s three panes exist under the prefix it builds', () => 
   assert.match(SCRIPT, /getElementById\('cstep-' \+ s\)/,
     'the step switcher changed shape; re-point this');
   const have = idsInMarkup();
-  for (const pane of ['cstep-role', 'cstep-name', 'cstep-made']) {
+  for (const pane of ['cstep-kind', 'cstep-role', 'cstep-team', 'cstep-name', 'cstep-made']) {   // #4556: kind and team
     assert.ok(have.has(pane), `${pane} is not in the page, so switching to it throws`);
   }
 });

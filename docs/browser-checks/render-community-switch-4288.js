@@ -3,8 +3,9 @@
 /*
  * #4288: the Kosmos Community switch in Settings > Automation (Mona Lisa's design on the card).
  *
- * Every /api/community-setting request is answered at the browser (page.route), so this check
- * writes nothing to the board and each arm sees exactly the state it names:
+ * Every /api/community-setting request is answered at the browser (page.route), except in the
+ * REARM arm (which writes and then restores the board's community.json), and each arm sees exactly
+ * the state it names:
  *   DEFAULT   the board's own read (a sandboxed board has no community.json): the row shows
  *             under Automation, below the Daily report box, reads ON, the share says "not
  *             measured yet" (never 0), and the OFF note is hidden.
@@ -20,6 +21,8 @@
  *   NOTICE    (part B) a pending one-time notice opens once, records itself as seen once, and closes on
  *             Got it, Escape and the backdrop; Change in Settings lands on the switch. A seen notice, an
  *             OFF switch and an unread setting open nothing.
+ *   REARM     (#3485, REAL, needs AGENT_WORKFORCE_DATA) a board that dismissed the OLD notice sees the
+ *             new one once; a board that dismissed the new one does not (CONTROL). The file is restored.
  * The DEFAULT arm is also the control for the others: it proves the row is found and read.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
@@ -27,6 +30,17 @@
  */
 
 const { chromium } = require('playwright');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+// The REARM arm writes the board's community.json, so only on a board whose data root is a temp sandbox.
+function sandboxedData(d) {
+  if (!d || !fs.existsSync(d)) return false;
+  const real = fs.realpathSync(d);
+  return [os.tmpdir(), '/tmp', '/private/tmp', '/var/folders', '/private/var/folders']
+    .some((t) => { try { return real.startsWith(fs.realpathSync(t) + path.sep); } catch { return false; } });
+}
 
 const BASE = process.argv[2] || process.env.KOSMOS_URL || 'http://127.0.0.1:17461';
 const ROUTE = '**/api/community-setting';
@@ -269,7 +283,8 @@ async function run() {
     const n1 = await noticeFor(pending);
     const a = await noticeState(n1.pg);
     check('NOTICE: a pending notice opens', a.open === true, JSON.stringify(a));
-    check('NOTICE: it carries Mona\'s title and the release promise', a.title === 'Your agents can join the Kosmos community' && /Nothing goes out until you release it\.$/.test(a.body), JSON.stringify(a));
+    // #3485 (Josh, 2026-09-30): agents publish straight away, so the notice no longer promises a release step.
+    check('NOTICE: it carries Mona\'s title and says posts go out straight away unless the safety check stops them', a.title === 'Your agents can join the Kosmos community' && /posts now go to the public Kosmos community straight away, unless Kosmos’s safety check stops one; you can turn sharing off in Settings\.$/.test(a.body) && !/until you release/.test(a.body), JSON.stringify(a));
     check('NOTICE: focus starts on the box, not a button (an Enter in flight cannot dismiss it)', a.focus === 'cn-box', a.focus);
     await n1.pg.keyboard.press('Tab');
     const t1 = await n1.pg.evaluate(() => document.activeElement && document.activeElement.id);
@@ -339,6 +354,52 @@ async function run() {
       const st = await noticeState(n.pg);
       check('NOTICE: ' + label + ' opens nothing and records nothing', st.open === false && n.posts.length === 0, JSON.stringify([st, n.posts]));
       await n.pg.close();
+    }
+
+    /* #3485 RE-ARM (Josh, 2026-09-30: agents publish straight away). The notice's words changed, so a
+       person who dismissed the OLD notice ("Nothing goes out until you release it") must see the new one
+       once. This arm is REAL (no page.route): it writes the board's own community.json, loads the page,
+       and restores the file after, so the checks that share this board see what they saw before. It runs
+       only on a sandboxed board whose data root it was given. */
+    const dataRoot = process.env.AGENT_WORKFORCE_DATA;
+    if (!sandboxedData(dataRoot)) {
+      check('REARM: runs only on a sandboxed board (AGENT_WORKFORCE_DATA under the temp dir)', false, String(dataRoot));
+    } else {
+      // The board's own path (store.ROOT is <data>/<app>, not <data>), read from the module that owns it.
+      const file = require('../../engine/communityswitch').FILE;
+      const had = fs.existsSync(file) ? fs.readFileSync(file) : null;
+      const realNotice = async (state) => {
+        fs.writeFileSync(file, JSON.stringify(state));
+        const pg = await page();
+        let gets = 0;
+        pg.on('request', (r) => { if (/\/api\/community-setting$/.test(r.url())) gets++; });
+        await load(pg);
+        const until = Date.now() + 15000;
+        while (gets < 2 && Date.now() < until && !(await pg.$('#cmnotice'))) await pg.waitForTimeout(100);
+        await pg.waitForSelector('#cmnotice', { timeout: 3000 }).catch(() => {});
+        return pg;
+      };
+      try {
+        /* Precondition: the file written is THIS board's. Without it every REARM arm could read a file the
+           board never looks at, and the CONTROL would pass for that reason alone (it did, once, on sb8). */
+        fs.writeFileSync(file, JSON.stringify({ on: false, noticeSeen: true, autopublishNoticeSeen: true }));
+        const probe = await fetch(BASE.replace(/\/$/, '') + '/api/community-setting').then((x) => x.json()).catch(() => null);
+        check('REARM: precondition, the file written is the one this board reads', Boolean(probe && probe.on === false), JSON.stringify(probe));
+        // The OLD dismissal: the file has noticeSeen true and no new key. RED before the new key existed.
+        const r1 = await realNotice({ on: true, noticeSeen: true });
+        const s1 = await noticeState(r1);
+        check('REARM: a board that dismissed the OLD notice sees the new one', s1.open === true && /straight away/.test(s1.body), JSON.stringify(s1));
+        await r1.close();
+        const after = JSON.parse(fs.readFileSync(file, 'utf8'));
+        check('REARM: opening it recorded the new dismissal on the board', after.autopublishNoticeSeen === true, JSON.stringify(after));
+        // CONTROL: a board that dismissed the NEW notice opens nothing.
+        const r2 = await realNotice({ on: true, noticeSeen: true, autopublishNoticeSeen: true });
+        const s2 = await noticeState(r2);
+        check('REARM CONTROL: a board that dismissed the NEW notice opens nothing', s2.open === false, JSON.stringify(s2));
+        await r2.close();
+      } finally {
+        if (had === null) fs.rmSync(file, { force: true }); else fs.writeFileSync(file, had);
+      }
     }
   } finally {
     await browser.close();

@@ -73,15 +73,22 @@ async function fetchStanding() {
   let remote;
   try { remote = require('./remote'); } catch { return null; }
   try {
-    // Gate on the switch AND enrolment: a PAID route must not be called when the
-    // feature is off, and there is no Mac identity when not enrolled.
-    if (!remote.read().on || !remote.enrolled()) return null;
+    // No Mac identity when not enrolled.
+    if (!remote.enrolled()) return null;
+    /* #4731: with remote access OFF this is still sent, at the slow cadence remote.js's
+       refreshStandingIfStale sets for that state, with an EMPTY body: the coordinator must be able to
+       tell a computer that is in use with remote access off from one that is gone (since #4681 a
+       computer quiet for a day opens the lost-computer recovery doors). Nothing about remote access
+       itself changes: no tunnel, no relay ticket, and no remote report. */
+    const settings = remote.read();
+    if (settings.ok !== true) return null;   // #4308: an unreadable settings file says nothing, so nothing goes out
+    const on = settings.on === true;
     /* POST: the Mac is identified by the signature the tunnel adds, not by anything in
        the body. The body carries this Mac's remote-access report (kosmos#4277,
        engine/remote-report.js), which a coordinator without #4277 ignores; `{}` when
-       the report cannot be built. */
+       the report cannot be built, or when remote access is off. */
     let report = null;
-    try { report = require('./remote-report').build(); } catch { report = null; }
+    if (on) { try { report = require('./remote-report').build(); } catch { report = null; } }
     const r = await remote.macRequest('POST', ROUTE, report ? { remote: report } : {});
     if (!r || !r.ok) { logFailure(r && r.because); return null; }
     // The report went out: its heal baseline counts now, not before (a failed send keeps it).

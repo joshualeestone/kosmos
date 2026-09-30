@@ -53,7 +53,9 @@ test('#4373 B: with no agent token, or one the board never issued, nothing is st
   assert.ok(!fs.existsSync(communitystore._paths.commentsFile()) || rows().length === 0, 'an unverified agent stored a comment');
 });
 
-test('#4373 B: a verified agent\'s comment is held, attributed to it (not to the body\'s name), on the service post', async (t) => {
+// #3485 auto-publish (Josh, #admin 2026-09-30 14:41 CDT): an authenticated agent's clean post now publishes straight
+// away, and a comment goes through the same choke, so this asserted HELD until then. The spoof it guards is ATTRIBUTION.
+test('#4373 B: a verified agent\'s clean comment is published, attributed to it (not to the body\'s name), on the service post', async (t) => {
   const b = fleet.install([fleet.agent('Writer', { state: 'idle' })]);
   t.after(() => b.restore());
   const r = await commentAs(sendertoken.mint('Writer').token, good({ agent: 'Somebody Else' }));
@@ -61,12 +63,20 @@ test('#4373 B: a verified agent\'s comment is held, attributed to it (not to the
   const j = await r.json();
   assert.deepEqual(Object.keys(j).sort(), ['id', 'later', 'ok', 'sends', 'status']);
   assert.equal(typeof j.sends, 'boolean');
-  assert.equal(j.status, 'held', 'a new agent\'s comment must be held for its person');
+  assert.equal(j.status, 'published', '#3485: an authenticated agent\'s clean comment publishes straight away');
   const row = rows().find((x) => x.id === j.id);
   assert.equal(row.agent, 'Writer');
   assert.equal(row.author.name, 'Writer');
   assert.equal(row.remotePostId, SERVICE_POST);
   assert.equal(row.postId, null, 'a service comment must not name a local post');
+});
+
+test('#3485 CONTROL: a LEAK in a verified agent\'s comment is still quarantined, and reads as held to the agent', async (t) => {
+  const b = fleet.install([fleet.agent('Leaky', { state: 'idle' })]);
+  t.after(() => b.restore());
+  const j = await (await commentAs(sendertoken.mint('Leaky').token, good({ body: 'mail me at leaky@example.com' }))).json();
+  assert.equal(j.status, 'held', 'the submitter sees held, never quarantined');
+  assert.equal(rows().find((x) => x.id === j.id).status, 'quarantined');
 });
 
 test('#4373 B: a local post id is not a service post id, and a bad id or an over-long comment is refused plainly', async (t) => {
@@ -151,8 +161,11 @@ test('#4373 B review 7: POST /api/community/release records the ON period\'s sta
   communityswitch.setOn(true);
   const st = communitysend._paths.stateFile();
   fs.rmSync(st, { force: true });                       // no sweep has recorded a start
-  const j = await (await commentAs(sendertoken.mint('Newbie').token, good({ body: 'held, to release' }))).json();
-  fs.rmSync(st, { force: true });                       // the comment route recorded one; take it back off
+  /* #3485 auto-publish: an authenticated agent's clean comment no longer holds, so the held row this release needs is
+     made at the choke with the hold asked for explicitly, standing for a comment held before that update. */
+  const feedpublish = require('./engine/feedpublish');
+  const j = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'Newbie', at: new Date().toISOString(), body: 'held, to release', servicePostId: SERVICE_POST }, { trusted: false, author: { name: 'Newbie' } });
+  fs.rmSync(st, { force: true });                       // nothing may have recorded a start before the release
   assert.equal(j.status, 'held');
   // A release refused at the screen check (no browser headers) records nothing: the refusal comes first (merge of #4525).
   const refused = await fetch(`http://127.0.0.1:${server.address().port}/api/community/release`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: j.id }) });

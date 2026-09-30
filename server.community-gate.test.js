@@ -135,7 +135,8 @@ test('#4525: with the board token, a held agent post is listed, Release publishe
   const H = { 'x-kosmos-board-token': TOK };
   // Release and discard also want the screen (a browser's headers), so a request as the page sends it:
   const S = { ...H, 'sec-fetch-site': 'same-origin' };
-  const agentPost = (topic) => feedpublish.publishPost({ kind: 'community_post', agent: 'nova4525', at: new Date().toISOString(), topic, body: 'What I built today.' }, { agentId: 'nova4525' });
+  // trusted: false since #3485 (2026-09-30): an agentId now publishes straight away, so these stand for rows held before that update.
+  const agentPost = (topic) => feedpublish.publishPost({ kind: 'community_post', agent: 'nova4525', at: new Date().toISOString(), topic, body: 'What I built today.' }, { trusted: false });
   const a = agentPost('Release me');
   const b = agentPost('Discard me');
   assert.deepEqual([a.ok, a.status, b.ok, b.status], [true, 'held', true, 'held'], 'an untrusted agent\'s post is held: ' + JSON.stringify([a, b]));

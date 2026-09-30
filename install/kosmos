@@ -99,6 +99,15 @@ else
 fi
 PORT="${KOSMOS_PORT:-$_kosmos_default_port}"
 URL="http://127.0.0.1:$PORT"
+# #4466: every request this CLI makes to the board is loopback, and it must never go through a proxy. In a
+# sandbox that is proxy-only (http_proxy/HTTPS_PROXY/ALL_PROXY set, measured on a real agent's), curl sent
+# 127.0.0.1 through the proxy, which answered with an empty page, so a running board read as "another app
+# is using port" and start refused. Loopback is added to the caller's own NO_PROXY and no_proxy (curl reads
+# either), never replacing it; outside requests still use the proxy. Exported, so the board this CLI
+# starts, and through it every agent session, inherits the same loopback exemption (only loopback is added).
+case ",${NO_PROXY:-}," in *,127.0.0.1,*) ;; *) NO_PROXY="127.0.0.1,localhost${NO_PROXY:+,$NO_PROXY}" ;; esac
+case ",${no_proxy:-}," in *,127.0.0.1,*) ;; *) no_proxy="127.0.0.1,localhost${no_proxy:+,$no_proxy}" ;; esac
+export NO_PROXY no_proxy
 PIDFILE="$KOSMOS_HOME/board.pid"
 # #2955: the deliberate-stop marker the board watchdog reads. `kosmos stop` writes
 # it (before it kills), `kosmos start` clears it (at the very top, before any bind
@@ -816,6 +825,9 @@ agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, e
   for _a in "$@"; do if [ "$_a" = --force ]; then return 0; fi; done
   if ! _invoked_by_agent; then return 0; fi
   healthy --once || true
+  # #4466: a listener that IS the board this install recorded is running, even if this probe could not read
+  # it (a proxy in the way): treat it as up, so an agent's start neither spends the start claim nor goes on.
+  if [ "$HEALTH_STATE" = stranger ] && _listener_is_our_board >/dev/null; then HEALTH_STATE=busy; fi
   case "$HEALTH_STATE" in
     up|busy)
       if [ "$_verb" = start ]; then say "Kosmos is already running at $URL"; exit 0; fi
@@ -902,6 +914,15 @@ _await_board_up() {
   done
   return 1
 }
+# #4466: the port's listener IS the process this install recorded (board.pid), so the board is ours and
+# running even though it did not answer this command (a proxy in the way, or busy). Prints the pid.
+_listener_is_our_board() {
+  local _mine _lo
+  _mine="$(running_pid)" || return 1
+  _lo="$(port_listener_owner 2>/dev/null)" || return 1
+  [ "${_lo%% *}" = "$_mine" ] || return 1
+  printf '%s' "$_mine"
+}
 cmd_start() {
   # #2955: clear the deliberate-stop marker EARLY -- before the healthy check and
   # the bind below that can fail. Starting means "I want it running", which retires
@@ -933,7 +954,19 @@ cmd_start() {
     _busy_person_hint
     return 0
   fi
-  # #3079: the port is held but NOT by our answering board. If it is OUR OWN stale
+  # #4466: the board this install recorded holds the port and is alive: it is running, whatever this command
+  # could not read. Never reclaim (kill) it from a plain start; only the watchdog's and the installer's
+  # KOSMOS_RECLAIM_BUSY start may. (Under a proxy this start used to kill a healthy board it could not reach.)
+  if [ "${KOSMOS_RECLAIM_BUSY:-}" != 1 ]; then
+    local _ours
+    if _ours="$(_listener_is_our_board)"; then
+      say "Kosmos is already running at $URL (process $_ours), but it did not answer this command."
+      _busy_person_hint
+      return 0
+    fi
+  fi
+  # #3079: the port is held but NOT by our answering board. If it is OUR OWN stale (and, since #4466, not
+  # the board.pid process: that one is "already running" above, unless KOSMOS_RECLAIM_BUSY=1)
   # Kosmos build (a common single-user update, where the old process still holds the
   # address the new build wants), reclaim it: kill it and start ours over it, no manual
   # step. A FOREIGN account's process (shared Mac, wrapped per-uid ports) or a same-uid
@@ -1222,6 +1255,7 @@ cmd_stop() {
 }
 
 cmd_status() {
+  local _st_pid
   if healthy; then
     local pid
     pid="$(running_pid)" || pid=""
@@ -1234,6 +1268,12 @@ cmd_status() {
     # Exit 4, not 0 and not 1: 1 means "not running" (the start advice), and 0 would hide a board that is
     # WEDGED rather than busy (#2955: holds the port, never answers) from bin/board-watchdog.sh, which
     # reads this exit code and gives 4 a long grace instead of treating it as down.
+    exit 4
+  elif [ "$HEALTH_STATE" = stranger ] && _st_pid="$(_listener_is_our_board)"; then
+    # #4466: the listener is the board this install recorded, so it is running; it just did not answer this
+    # command (a proxy in the way, or busy). Exit 4 like busy, so the watchdog gives it the busy grace.
+    say "Kosmos is running at $URL (process $_st_pid) but did not answer this command."
+    _busy_person_hint
     exit 4
   elif [ "$HEALTH_STATE" = stranger ]; then
     # The same answer start would give, so two adjacent commands cannot
@@ -1452,6 +1492,21 @@ cmd_msg() {
   body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/msg" \
     -H 'content-type: application/json' \
     --data-binary @- 2>/dev/null) || rc=$?
+  # #4580: a timeout or a cut reply may come AFTER the board delivered. The board keeps one copy of the
+  # same send inside five minutes (engine/messages.js), so asking once more is safe, and turns "maybe"
+  # into the board's real receipt.
+  case "$rc" in
+    18|28|52|56)
+      printf '%sKosmos did not answer; asking once more (the board keeps one copy of a repeat)...\n' "${KOSMOS_SAY_INDENT:-  }" >&2
+      sleep 1   # not straight back into the same busy moment
+      rc=0
+      body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/msg" \
+        -H 'content-type: application/json' \
+        --data-binary @- 2>/dev/null) || rc=$?
+      # The first attempt may have landed: a retry that proves nothing (refused: the board restarted in between)
+      # must not turn "maybe" into "not sent", or the agent re-sends into a board that no longer remembers it.
+      case "$rc" in 0|18|28|52|56) ;; *) rc=52 ;; esac ;;
+  esac
   if [ "$rc" -eq 28 ]; then
     say "Kosmos was slow to answer and we stopped waiting. The message may have been delivered; check with them before sending it again."
     exit 3
@@ -1474,7 +1529,11 @@ cmd_msg() {
   # delivery, unconfirmed means the text may already be in their composer
   # (do NOT re-send), could_not names why.
   case "$body" in
-    *'"state":"placed"'*)      say "Placed with $to." ;;
+    *'"state":"placed"'*)
+      case "$body" in
+        *'"duplicate":true'*) say "Placed with $to (it had arrived the first time; it was not sent twice)." ;;
+        *) say "Placed with $to." ;;
+      esac ;;
     *'"state":"unconfirmed"'*)
       # The server's own sentence: unconfirmed has two flavors (typed with
       # Enter unconfirmed, or a send that timed out mid-flight) and only
@@ -1553,9 +1612,10 @@ cmd_reply() {
   # refuses on an enforcing board (a bare pane is the cross-account spoof path).
   # Inert (omitted) when empty -- a non-enforcing board writes no token file.
   local _bt; _bt="$(board_token || true)"
-  # #3769: the agent's own token too, as `whoami` and `report` present it (hex only). The setup guide
-  # runs sandboxed with Kosmos's data folder denied, so it cannot read the board token; its agent
-  # token is what keeps its reply on an enforcing board. Omitted when empty, as before.
+  # #3769: the agent's own token too, as `whoami` and `report` present it (hex only). A Claude setup
+  # guide on a Mac runs sandboxed with Kosmos's data folder denied (guardGuideFolder in
+  # engine/setup-assistant.js), and board_token above reads only that folder; its agent token is
+  # what keeps its reply on an enforcing board. Omitted when empty, as before.
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in
     ''|*[!0-9a-f]*) ;;
@@ -1851,15 +1911,33 @@ cmd_post() {
     _keep_piped
     exit 2
   fi
+  # The post's budget: 120 s (a fan-out to many agents takes time). KOSMOS_POST_TIMEOUT_S is a test seam, whole
+  # seconds only, so a test can reach the timeout branch without waiting two minutes.
+  local _post_budget=120
+  case "${KOSMOS_POST_TIMEOUT_S:-}" in ''|*[!0-9]*) ;; *) _post_budget="$KOSMOS_POST_TIMEOUT_S" ;; esac
   # #2909: the body goes to curl on stdin (printf is a builtin, so no argv limit applies), not
   # as a --data argument, so a long piped message cannot make curl fail to start.
   # #4491: this agent's own token, in its plain-hex shape only (junk is dropped, as reply and report do),
   # so the board can tell the agent from the person. Off argv through kosmos_curl's mode-600 header file.
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
-  body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "$_tok" -sS -m 120 -X POST "$URL/api/post" \
+  body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "$_tok" -sS -m "$_post_budget" -X POST "$URL/api/post" \
     -H 'content-type: application/json' \
     --data-binary @- 2>/dev/null) || rc=$?
+  # #4580: a cut reply may come AFTER the board kept the post; the board keeps one copy of the same post
+  # inside five minutes, so asking once more is safe. Not after a timeout (28): with a 120 s budget the post
+  # is still being delivered, and the board already folds a repeat that arrives while it is.
+  case "$rc" in
+    18|52|56)
+      printf '%sKosmos did not answer; asking once more (the board keeps one copy of a repeat)...\n' "${KOSMOS_SAY_INDENT:-  }" >&2
+      sleep 1   # not straight back into the same busy moment
+      rc=0
+      body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "$_tok" -sS -m "$_post_budget" -X POST "$URL/api/post" \
+        -H 'content-type: application/json' \
+        --data-binary @- 2>/dev/null) || rc=$?
+      # As in msg: a retry that proves nothing keeps the first attempt's "maybe".
+      case "$rc" in 0|18|28|52|56) ;; *) rc=52 ;; esac ;;
+  esac
   if [ "$rc" -eq 28 ]; then
     say "Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it."
     exit 3
@@ -1886,7 +1964,11 @@ cmd_post() {
   # EVERY member got it; unconfirmed means the room is partly reached
   # (the outcomes live in the record for the screens to draw).
   case "$body" in
-    '{"delivery":{"state":"placed"'*)      say "Posted to $project. Everyone on it has it waiting." ;;
+    '{"delivery":{"state":"placed"'*)
+      case "$body" in
+        *'"duplicate":true'*) say "Posted to $project. Everyone on it has it waiting (it had arrived the first time; it was not posted twice)." ;;
+        *) say "Posted to $project. Everyone on it has it waiting." ;;
+      esac ;;
     '{"delivery":{"state":"unconfirmed"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
       say "Posted, but not everyone is confirmed${because:+: $because}. Do not re-post; the room screen shows who got it."
@@ -2269,7 +2351,8 @@ cmd_report_show() {
 
 # #4289: an agent posts to the Kosmos community through its own board. The board, not the agent,
 # decides what happens next: every post goes through feedpublish (the leak scrub and the trust
-# ladder), a new agent's post is HELD until its person releases it, and only the board's send layer
+# ladder), a clean post publishes straight away (#3485, 2026-09-30; one the scrub stops is HELD for
+# its person), and only the board's send layer
 # (#4287) ever talks to the public site. Identity rides the agent token and the pane, never the
 # body, exactly as cmd_report does. The JSON is built by node from environment variables, so
 # quotes, backticks, dollars and newlines in a post arrive as written.
@@ -2329,7 +2412,7 @@ cmd_community() {
   status=$(printf '%s' "$parsed" | cut -f1)
   why=$(printf '%s' "$parsed" | cut -f2)
   if [ "$_code" = "200" ] && [ "$status" = "held" ]; then
-    say "Posted. It is held until your person releases it, which is expected: nothing you write goes public before that."
+    say "Posted, and held for your person to look at before it goes public, which is expected. Do not post it again."
     exit 0
   fi
   if [ "$_code" = "200" ] && [ "$status" = "published" ]; then
@@ -2647,7 +2730,11 @@ cmd_room() {
   # `_body=$(...)` (a failing substitution aborts the process at that line), the
   # same care cmd_post takes.
   local _body _rc=0 _code
-  _body=$(kosmos_curl "$_bt" "" -sS -m 15 -w $'\n%{http_code}' "$URL/api/project/$esc_project/room?as=text" 2>/dev/null) || _rc=$?
+  # #4491 slice 4: the agent's own token too (plain hex only, as msg and post take it), so this read still works
+  # once the CLI stops holding the person's board token.
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
+  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/project/$esc_project/room?as=text" 2>/dev/null) || _rc=$?
   if [ "$_rc" -ne 0 ]; then
     say_unreached "read that room" "$_rc"
     exit 1
@@ -2985,7 +3072,9 @@ cmd_task() {
   case "$sub" in
     list)
       local rc=0 body
-      body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/tasks?project=$esc_project" 2>/dev/null) || rc=$?
+      local _ltok=""   # #4491 slice 4: the agent's own token too, plain hex only, as the room read sends it
+      case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _ltok="$KOSMOS_AGENT_TOKEN" ;; esac
+      body=$(kosmos_curl "$_bt" "$_ltok" -sS -m 15 "$URL/api/tasks?project=$esc_project" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say_unreached "list tasks" "$rc"; exit 1; }
       case "$body" in '{"error":'*)
         local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
@@ -3291,11 +3380,13 @@ cmd_agent() {
   local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
   local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert when empty
   local body rc=0
+  local _rtok=""   # #4491 slice 4: the two role reads carry the agent's own token too, plain hex only
+  case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _rtok="$KOSMOS_AGENT_TOKEN" ;; esac
   case "$sub" in
     roles)
       # ?catalogue=1: listing the roles asks for the downloaded ready-made ones too, as the picker does (#4632).
       # -m 25: the board may be downloading (up to 8 s, 16 s when it retries past the caches).
-      body=$(kosmos_curl "$_bt" "" -sS -m 25 "$URL/api/roles?catalogue=1" 2>/dev/null) || rc=$?
+      body=$(kosmos_curl "$_bt" "$_rtok" -sS -m 25 "$URL/api/roles?catalogue=1" 2>/dev/null) || rc=$?
       if [ "$rc" -ne 0 ]; then say_unreached "list the roles" "$rc"; exit 1; fi
       if [ -z "$body" ]; then say "Kosmos gave an empty answer when asked for the roles. Try again in a minute."; exit 1; fi
       printf '%s' "$body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}for(const r of (j.roles||[]))if(r&&r.key)console.log(r.key+"  "+(r.label||""))})' \
@@ -3304,7 +3395,7 @@ cmd_agent() {
     role-draft)
       # The "Describe it yourself" text (the `own` role): what a new role starts from. {{NAME}} stays; Kosmos
       # fills it with the agent's name when it is made.
-      body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/roles" 2>/dev/null) || rc=$?
+      body=$(kosmos_curl "$_bt" "$_rtok" -sS -m 15 "$URL/api/roles" 2>/dev/null) || rc=$?
       if [ "$rc" -ne 0 ]; then say_unreached "get the role text" "$rc"; exit 1; fi
       if [ -z "$body" ]; then say "Kosmos gave an empty answer when asked for the role text. Try again in a minute."; exit 1; fi
       # --to writes the file itself, as UTF-8 with the text's own line endings (#4474): a shell's redirection can

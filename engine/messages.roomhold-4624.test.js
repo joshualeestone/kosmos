@@ -120,6 +120,24 @@ test('#4624: a working member is not typed a colleague\'s un-addressed post; an 
   });
 });
 
+test('#4624 with #4580: the same post sent again while it is held is folded into the first, and still reads as placed', () => {
+  withFleet(room3(), (board) => {
+    report('mara', 'working');
+    report('april', 'idle');
+    armSender('leo-discord');
+    const tmux = arm();
+    const post = { fromPane: '%7', project: PROJECT, text: 'thinking out loud about the lease' };
+    const first = messages.sendPost(post, board.agents, MEMBERS);
+    assert.equal(first.outcomes.mara, roomhold.HELD, 'the precondition: the first copy was held for the working member');
+    const again = messages.sendPost(post, board.agents, MEMBERS);
+    assert.equal(again.duplicate, true, 'the precondition: the second copy was folded into the first');
+    assert.equal(again.id, first.id);
+    assert.equal(again.state, chat.DELIVERY.PLACED, 'a folded retry of a held post read as not placed, so the sender would post it a third time');
+    assert.equal(typedTo(tmux, sessionOf(board, 'april')).length, 1, 'the idle member was typed the post twice');
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [first.id], 'the working member holds it once');
+  });
+});
+
 test('#4624: an @-named working member is typed the post; so is every member for the person\'s post', () => {
   withFleet(room3(), (board) => {
     report('mara', 'working');

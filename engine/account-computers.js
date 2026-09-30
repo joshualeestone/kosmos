@@ -36,6 +36,8 @@ function computerDomain(coordinatorUrl) {
   try { host = new URL(coordinatorUrl).hostname.toLowerCase(); } catch { return null; }
   const labels = host.split('.');
   if (labels.length < 3 || labels.some((l) => !l)) return null;
+  // An IP address has dots and no domain: nothing can be a label under "0.0.1" (kosmos#4699).
+  if (labels.every((l) => /^\d+$/.test(l))) return null;
   return labels.slice(1).join('.');
 }
 

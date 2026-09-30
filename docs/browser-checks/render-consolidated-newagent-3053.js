@@ -49,7 +49,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       const panelProjects = document.getElementById('panel-projects');
       const listView = document.getElementById('pj-list-view');
       const railNew = document.getElementById('rail-agents-new');
-      const rect = (e) => { const b = e.getBoundingClientRect(); return { w: Math.round(b.width), left: Math.round(b.left), right: Math.round(b.right) }; };
+      const rect = (e) => { const b = e.getBoundingClientRect(); return { w: Math.round(b.width), left: Math.round(b.left), right: Math.round(b.right), top: Math.round(b.top) }; };
       try {
         // Enter the consolidated view through the real path; showTab relocates the create panel.
         document.documentElement.setAttribute('data-layout', 'consolidated');
@@ -64,14 +64,22 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         res.createInDisplay = panelCreate.parentElement === panelProjects;
         res.listStillVisible = listView.hidden === false;                            // projects column kept
         res.projectViewHidden = document.getElementById('pj-one-view').hidden === true;
-        // Fills the display column: its left sits just past the list's right edge, wide, not a
-        // centered content-width island offset into the column.
-        const pc = rect(panelCreate); const lv = rect(listView); const pp = rect(panelProjects);
+        res.onKindStep = document.getElementById('cstep-kind') && document.getElementById('cstep-kind').hidden === false;   // #4556: step one is the three-way choice
+        const lv = rect(listView); const pp = rect(panelProjects);
+        /* #4556: step one's three cards sit side by side, centred in the display column (the panel is wider on this
+           step on purpose, so the three fit in one row). */
+        const cards = [...panelCreate.querySelectorAll('#cstep-kind .nak-btn')].filter((b) => !b.hidden).map(rect);
+        res.kindCards = cards.length;
+        res.kindOneRow = cards.length > 0 && new Set(cards.map((c) => c.top)).size === 1;
+        res.kindLeftGap = cards.length ? Math.min(...cards.map((c) => c.left)) - lv.right : null;
+        res.kindRightGap = cards.length ? pp.right - Math.max(...cards.map((c) => c.right)) : null;
+        // The form itself is measured on the role screen, which Single leads to.
+        panelCreate.querySelector('#cstep-kind [data-path="single"]').click();
+        const pc = rect(panelCreate);
         res.leftGapPastList = pc.left - lv.right;   // gap between the list's right rule and the form's left edge
         res.rightGap = pp.right - pc.right;         // gap between the form's right edge and the display column's right edge
         res.createWidth = pc.w;
         res.col2Width = pp.w - lv.w;
-        res.onRoleStep = document.getElementById('cstep-role') && document.getElementById('cstep-role').hidden === false;
         // Navigate to a project -> create hides, project shows (create-back / done path).
         pjView('one');
         res.createHiddenAfterNav = panelCreate.hidden === true;
@@ -92,7 +100,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
 
     ok(t + ' #3053 showTab relocates the create panel into the display area (consolidated)', out.err === null && out.relocatedByShowTab === true && out.hiddenBeforeOpen === true, JSON.stringify(out));
     ok(t + ' #3053 THE FIX: New Agent stays in the consolidated view (no kick-out to tab view)', out.err === null && out.stillConsolidated === true, JSON.stringify(out));
-    ok(t + ' #3053 the create panel opens visible in the display column, on the role step', out.err === null && out.createVisible === true && out.createInDisplay === true && out.onRoleStep === true, JSON.stringify(out));
+    ok(t + ' #3053 the create panel opens visible in the display column, on step one (the three-way choice, #4556)', out.err === null && out.createVisible === true && out.createInDisplay === true && out.onKindStep === true, JSON.stringify(out));
+    ok(t + ' #4556 step one shows its cards side by side, centred in the display column', out.err === null && out.kindCards >= 2 && out.kindOneRow === true && out.kindLeftGap > 0 && Math.abs(out.kindLeftGap - out.kindRightGap) <= 24, JSON.stringify({ n: out.kindCards, row: out.kindOneRow, l: out.kindLeftGap, r: out.kindRightGap }));
     ok(t + ' #3053 the projects list stays visible beside the create panel', out.err === null && out.listStillVisible === true && out.projectViewHidden === true, JSON.stringify(out));
     // The create panel is a 34rem FORM, not a full-width fill like settings. Josh, 2026-09-23
     // (#chaoskosmos-design): "the margin issue for viewing Add an Agent on the consolidated view.

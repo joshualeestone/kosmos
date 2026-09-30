@@ -611,7 +611,7 @@ function tokenOkAny({ tokens, req, routingBase }) {
 }
 
 module.exports = {
-  fullySandboxed, enforced, tokenPath, enforcedTokenPath, generateToken, readToken, ensureToken,
+  fullySandboxed, enforced, TOKEN_FILE, tokenPath, enforcedTokenPath, generateToken, readToken, ensureToken,
   cookieToken, presentedToken, queryToken, matches, cookieHeader, pathWithoutToken,
   pathWithoutParam, bootstrap, tokenOk, COOKIE_NAME, HEADER_NAME,
   // #3055: the multi-world board-token gate -- read a specific world's token, and

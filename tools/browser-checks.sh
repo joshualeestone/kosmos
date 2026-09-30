@@ -947,9 +947,10 @@ run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 # must be taken, and nav-menu, a phone-only screen, must be skipped there
 # rather than error. allow-card fails unless its Allow button is what sits at its own centre
 # (kosmos#4524) and its code boxes sit inside their card (kosmos#4568), and a shot fails if
-# the one-time Community notice covers it. The full sweep (16 shots per screen) is a by-hand tool.
+# the one-time Community notice covers it. cons-agents (kosmos#4594) is the desktop-only mirror of nav-menu:
+# shot at desktop through its /api/style read stub, skipped at se. The full sweep (16 shots per screen) is a by-hand tool.
 run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/mobile-shots" \
-  --screens home,nav-menu,agents-list,settings-accounts,allow-card --sizes se,desktop --themes light --strict
+  --screens home,nav-menu,agents-list,settings-accounts,allow-card,cons-agents --sizes se,desktop --themes light --strict
 # The leak guard's two arms, each of which MUST stop the run with exit 3 AND
 # with its own arm's message: a signed-in account planted in the sandboxed home
 # must be stopped by the accounts preflight ("the throwaway board lists"), and
@@ -1289,8 +1290,10 @@ if boot_board "$sb7" "$P8"; then
   # page.route, so a non-enforcing board is fine.
   run_one "render-optout-403-2020" env KOSMOS_URL="$B8" node docs/browser-checks/render-optout-403-2020.js
   # #4288: the Kosmos Community switch (default ON, OFF note, 403 could-not-read, the share line,
-  # a click). Every /api/community-setting request is answered at the browser, so it writes nothing.
-  run_one "render-community-switch-4288" env KOSMOS_URL="$B8" node docs/browser-checks/render-community-switch-4288.js
+  # a click). Every /api/community-setting request is answered at the browser, except the REARM arm.
+  # #3485: its REARM arm is real (writes and restores community.json), so it is given B8's data root
+  # (B8 is booted from sb7 by boot_board, not from sb8).
+  run_one "render-community-switch-4288" env KOSMOS_URL="$B8" AGENT_WORKFORCE_DATA="$sb7/data" node docs/browser-checks/render-community-switch-4288.js
   # #4313: your agents' posts in the community, each with Delete (empty, rows, ask, keep, delete,
   # reopen, a refused delete, 403). /api/community/mine and /delete are answered at the browser, so it writes nothing.
   run_one "render-community-delete-4313" env KOSMOS_URL="$B8" node docs/browser-checks/render-community-delete-4313.js
