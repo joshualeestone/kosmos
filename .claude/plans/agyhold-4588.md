@@ -174,3 +174,16 @@ held needlessly until the reset: the safe direction, it costs only delay.
 - (N) LEFT: a held fresh recommender item's hourly charge counts inside that one step before its refund (transient);
   other suites could leak POOL_MEMO only with antigravity cards carrying quotaUntil (none do); the resume waits for
   the whole pool, bounded by MAX_POOL_MS (the PR description will say so).
+
+## Review iteration 9 (blind, opus)
+- (W) FIXED: review 7's age-window extension applied to ANY later pool pause, so a pause that began days after an
+  agent's own window had closed revived a stop PR A deliberately leaves alone (reproduced by the reviewer; reachable
+  after a board restart). The memory now records when each pause was first seen, and heldBackBy extends an agent's
+  window only by a pause first seen while that window was still open.
+- (N) FIXED: connection heal's stated reason is only the counted try; the unmeasured "an agy card never reads
+  connection_lost" is gone from the code, a test title and the plan. The memory comment says exactly when an entry
+  is dropped.
+- (N) LEFT: account-notify logs not-delivered each minute while a manager is held; deliverAutomatic reads Date.now()
+  while autoretellTick passes its own now (no difference in production).
+- Measured: engine/agyhold-4588.test.js 29/29; the targeted set 294/294. Mutations: any later pause extending
+  (the late-pause test reds), and no extension at all (the held-back test reds).
