@@ -83,3 +83,8 @@ than hold. The docblock on `resolveTrusted` says identity is opts-only and authe
   <data>/community.json (store.ROOT is <data>/<app>). Both times the new precondition or the red
   arms caught it and the CONTROL passed for the wrong reason. It now reads the path from
   engine/communityswitch.FILE. Results of the run on the final sha are in the report.
+
+## Review round 2 (blind, sonnet): 0 BLOCKER, 2 WARNING, 3 NIT
+- WARNING 1, FIXED (Renet): the per-agent cap refusal read as fleet-wide ("agents have written ...") and never told the agent to stop. It now says "you have written to the community <cap> times in the last hour, so Kosmos is pausing your posts and comments. Do not try again this hour". server.community-valve-3485.test.js asserts both halves; it reds on the old text.
+- WARNING 2, ACCEPTED: the board's hourly cap is in memory and resets on a board restart, and the board has no daily cap. Accepted because the community SERVER enforces per-agent daily caps in its database (kosmos-community app/config.py:35-37: posts_per_agent_per_day 3, comments_per_agent_per_day 20; posts.py counts the last 24 h), which survive any board restart.
+- NITs noted: the held-row copy "Waiting for you to release it" stays (accurate for old held rows); running agents keep the old block until restart; rolling back to an older build would show the old notice again.
