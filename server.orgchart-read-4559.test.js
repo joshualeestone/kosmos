@@ -129,13 +129,14 @@ test('#4559: a picture is NOT sent without consent: the first answer names the p
   // The wording itself, not the constant: each plan's case, the de-identified rendering, and no claim that Kosmos
   // asked Anthropic not to store it (the Claude read makes no such request).
   const k = r.json.keeps;
-  assert.match(k, /^On a Free, Pro or Max plan, Anthropic keeps what you send for 30 days\. If you have allowed Anthropic to use your chats to improve Claude \(in your Claude privacy settings\), Anthropic keeps it for up to 5 years to train its models, with details that identify you removed\. /);
-  assert.match(k, / On a Team or Enterprise plan, or an Anthropic API account, Anthropic keeps it for 30 days\. Anything its safety systems flag can be kept for up to 2 years\.$/);
+  assert.match(k, /^On a Free, Pro or Max plan, Anthropic keeps what you send for up to 30 days\. If you have allowed Anthropic to use your chats to improve Claude \(in your Claude privacy settings\), Anthropic keeps it for up to 5 years to train its models, with details that identify you removed\. /);
+  assert.match(k, / On a Team or Enterprise plan, or an Anthropic API account, Anthropic keeps it for up to 30 days\. Anything its safety systems flag can be kept for up to 2 years\.$/);
   assert.doesNotMatch(k, /even though Kosmos asks|anonymous|separated from your account|Help improve Claude/);
+  assert.doesNotMatch(k, /(?<!up to )30 days/, 'never a flat 30 days: the sources say within 30 days, and the API may keep less');
   assert.equal(sent.length, 0, 'the file went to the model before the person said yes');
 });
 
-test('#4660: a Claude account on an API key is told it is billed to that key and kept 30 days, not the plan sentences', async () => {
+test('#4660: a Claude account on an API key is told it is billed to that key and kept up to 30 days, not the plan sentences', async () => {
   const sent = [];
   orgchartfile.setModelAvailable(() => true);
   orgchartfile.setModelRunner(async (line) => { sent.push(line); return { ok: true, structured: { people: [] } }; });
@@ -144,7 +145,7 @@ test('#4660: a Claude account on an API key is told it is billed to that key and
     const r = await send('chart.png', fs.readFileSync(path.join(FIX, 'chart.png')), { headers: SCREEN });
     assert.equal(r.json.needsConsent, true);
     assert.equal(r.json.uses, 'billed to your Anthropic API key');
-    assert.equal(r.json.keeps, 'On an Anthropic API key, Anthropic keeps what you send for 30 days. Anything its safety systems flag can be kept for up to 2 years.');
+    assert.equal(r.json.keeps, 'On an Anthropic API key, Anthropic keeps what you send for up to 30 days. Anything its safety systems flag can be kept for up to 2 years.');
     assert.equal(sent.length, 0);
   } finally { orgchartfile.setReaderForTest(() => ({ kind: 'claude' })); }
 });

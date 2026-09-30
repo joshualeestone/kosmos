@@ -185,27 +185,29 @@ const KEEPS = {
   google: 'Google keeps what you send for 55 days to check for misuse, even though Kosmos asks it not to store it, and its staff may read what it flags. On a free Gemini key, Google also uses it to improve its products, and people may read it.',
   xai: 'xAI keeps what you send for 30 days in case of abuse, even though Kosmos asks it not to store it. It does not train on it.',
 };
-/* #4660: what Anthropic keeps when Claude reads the file on the person's own plan. It depends on the account's
-   "Help improve Claude" setting, which Kosmos cannot read, so both cases are said. Sources, quoted on #4660
-   (issuecomment-5901775669): Claude Code's data-usage page (code.claude.com/docs/en/data-usage: "Users who don't
+/* #4660: what Anthropic keeps when Claude reads the file on the person's own plan. On Free/Pro/Max it depends on the
+   account's model-improvement setting, which Kosmos cannot read, so both cases are said. Every number has its page,
+   date and quoted line in the source table on #4660. Sources: Claude Code's data-usage page (code.claude.com/docs/en/data-usage: "Users who don't
    allow data use for model improvement: 30-day retention period", "Users who allow data use for model improvement:
    5-year retention period", "Commercial users (Team, Enterprise, and API): Standard: 30-day retention period") and
    the privacy center (privacy.claude.com, "How long do you store my data?": "in a de-identified format for up to 5
-   years", flagged chats "inputs and outputs for up to 2 years"). No "even though Kosmos asks": the Claude read sends
+   years", flagged chats "inputs and outputs for up to 2 years"), and for the API the commercial article
+   (privacy.claude.com 7996866: "we automatically delete inputs and outputs on our backend within 30 days").
+   "UP TO 30 days", never a flat 30: "within 30 days" is a ceiling, and the API retention page says conversation
+   content "is not retained by default" (except Covered Models, 30 days), so up to 30 is true of every source.
+   No "even though Kosmos asks": the Claude read sends
    no such request to Anthropic (--no-session-persistence only stops the local transcript).
    Said as each plan's own case, because the training setting is a Free/Pro/Max setting; the setting is described as
    the pages do ("allow us to use your chats ... to improve Claude", "Model Improvement in your Privacy Settings"), not
    by a toggle label they never print. A Claude account known to run on an API key (#2420, `apiKey` on its row) gets
-   CLAUDE_API_KEEPS, its own case ("Commercial users (Team, Enterprise, and API): Standard: 30-day").
-   "De-identified" is said as
-   "with details that identify you removed", not as anonymous or unlinked: the source promises no more than that.
+   CLAUDE_API_KEEPS, its own case. "De-identified" is said as "with details that identify you removed", not as anonymous or unlinked: the source promises no more than that.
    Left out, on purpose: the classifier SCORES kept up to 7 years for flagged content (scores, not what was sent), and
-   Enterprise zero data retention (Kosmos cannot see it; saying 30 days there overstates, the safe direction). */
-const CLAUDE_KEEPS = 'On a Free, Pro or Max plan, Anthropic keeps what you send for 30 days. If you have allowed Anthropic to use '
+   Enterprise zero data retention (Kosmos cannot see it; "up to 30 days" stays true there). */
+const CLAUDE_KEEPS = 'On a Free, Pro or Max plan, Anthropic keeps what you send for up to 30 days. If you have allowed Anthropic to use '
   + 'your chats to improve Claude (in your Claude privacy settings), Anthropic keeps it for up to 5 years to train its models, with details '
-  + 'that identify you removed. On a Team or Enterprise plan, or an Anthropic API account, Anthropic keeps it for 30 days. '
+  + 'that identify you removed. On a Team or Enterprise plan, or an Anthropic API account, Anthropic keeps it for up to 30 days. '
   + 'Anything its safety systems flag can be kept for up to 2 years.';
-const CLAUDE_API_KEEPS = 'On an Anthropic API key, Anthropic keeps what you send for 30 days. '
+const CLAUDE_API_KEEPS = 'On an Anthropic API key, Anthropic keeps what you send for up to 30 days. '
   + 'Anything its safety systems flag can be kept for up to 2 years.';
 const keeps = (reader) => {
   if (reader && reader.kind === 'claude') return reader.apiKey === true ? CLAUDE_API_KEEPS : CLAUDE_KEEPS;
