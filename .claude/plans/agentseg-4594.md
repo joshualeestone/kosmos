@@ -26,6 +26,13 @@ convention as those: its own block with the shared values, not a shared selector
   control in tools.mobile-shots-desktop.test.js; the README row documents both flags.
 - tools/browser-checks.sh's gated mobile-shots slice includes `cons-agents` (shot at desktop, skipped at se), so
   the stub path and the desktop-only skip run on every gate run.
+  `cons-agents-org` and `cons-agents-focus` are design-review screens only, not gated: the keys and the tab stop
+  they show are asserted by render-consolidated-nav-4345.js; the ring's LOOK is judged in the review shots.
+- These screens stub the style READ, so they never exercise the switch's save round trip; that path is covered by
+  render-consolidated-nav-4345.js (the saved `kosmos.layout.agents` choice), not by the shots.
+- Each shot is asserted after it is taken (`consAgentsStill`): a board that closed the Agents view makes the row an
+  ERROR, never a green picture of something else. The settle waits are fixed (the app exposes no board-ready
+  signal), so on a slow machine they can flake loudly, never pass wrongly.
 
 ## Checks
 render-consolidated-nav-4345.js: the radiogroup, one connected track (bordered, clipped, segments touching),
