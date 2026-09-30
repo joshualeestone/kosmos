@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kosmos+ start to finish</title>
+<style>
+/* One page for Josh. The page is Kosmos light; each small screen is drawn in the surface it lives on: the
+   Kosmos+ website in its premium blue (royal #4171E3 for every action, gold for the mark), the Kosmos app in
+   its own light look. Words on every screen are the live ones (login.kosmosplus.com's signin.html and the app),
+   except where a step is COMING, which is marked. */
+:root { --ink: #14161a; --ink-2: #4a4f57; --bg: #faf9f7; --surface: #ffffff; --rule: #e3e1dc; --gold: #d6a62e;
+  --navy: #0e1a33; --navy-2: #16264a; --navy-rule: #2a3d66; --royal: #4171e3; --sky: #c9d6f2; --sky-2: #8fa3cc; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+.page { width: 1800px; padding: 40px 48px 36px; }
+.head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 26px; }
+.head h1 { margin: 0; font-size: 34px; letter-spacing: -.01em; line-height: 1.1; }
+.head p { margin: 6px 0 0; color: var(--ink-2); font-size: 16px; max-width: 900px; }
+.legend { display: flex; gap: 18px; align-items: center; font-size: 14px; color: var(--ink-2); }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; letter-spacing: .06em; border-radius: 999px; padding: 3px 10px; }
+.pill.built { background: var(--ink); color: #fff; }
+.pill.coming { border: 1.5px dashed var(--gold); color: var(--ink); }
+.pill.coming::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--gold); }
+
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; }
+.step { background: var(--surface); border: 1px solid var(--rule); border-radius: 16px; padding: 18px 20px 18px; display: flex; flex-direction: column; }
+.step.wide { grid-column: span 1; }
+.st { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.num { width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--gold); display: grid; place-items: center; font-weight: 700; font-size: 14px; flex: none; }
+.st h2 { margin: 0; font-size: 19px; flex: 1; }
+.where { font-size: 13px; color: var(--ink-2); margin: 0 0 12px 38px; }
+.cap { margin: 12px 0 0; font-size: 14px; color: var(--ink-2); }
+.cap b { color: var(--ink); }
+.refs { margin-top: auto; padding-top: 10px; font-size: 12px; color: var(--ink-2); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.two .lab { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 13px; font-weight: 650; }
+
+/* A small screen of the Kosmos+ website. */
+.web { background: radial-gradient(120% 90% at 50% 0%, var(--navy-2), var(--navy)); border-radius: 12px; padding: 14px; color: #fff; min-height: 228px; }
+.web .url { font-size: 11px; color: var(--sky-2); text-align: center; margin-bottom: 10px; }
+.web .card { background: rgba(255,255,255,.04); border: 1px solid var(--navy-rule); border-radius: 12px; padding: 14px 14px 12px; text-align: center; }
+.web h3 { margin: 0 0 4px; font-size: 16px; }
+.web p { margin: 0 0 10px; font-size: 12.5px; color: var(--sky); }
+.web .fld { text-align: left; font-size: 11.5px; color: var(--sky-2); margin: 6px 0 3px; }
+.web .in { background: rgba(0,0,0,.25); border: 1px solid var(--navy-rule); border-radius: 8px; height: 32px; display: flex; align-items: center; padding: 0 10px; font-size: 12.5px; color: #e8eefc; text-align: left; }
+.web .go { margin-top: 10px; background: var(--royal); color: #fff; border-radius: 8px; height: 34px; display: grid; place-items: center; font-weight: 650; font-size: 13px; }
+.web .boxes { display: flex; gap: 6px; justify-content: center; margin: 4px 0 2px; }
+.web .boxes i { width: 26px; height: 32px; border: 1px solid var(--navy-rule); border-radius: 6px; background: rgba(0,0,0,.25); display: grid; place-items: center; font-style: normal; font-weight: 700; font-size: 14px; }
+.web ul { text-align: left; margin: 4px 0 0; padding-left: 18px; font-size: 12px; color: var(--sky); }
+.web .red { background: #b3342b; }
+.web .price { font-size: 22px; font-weight: 700; margin: 2px 0 6px; }
+.web .price small { font-size: 12px; font-weight: 500; color: var(--sky-2); }
+
+/* A small screen of the Kosmos app. */
+.app { background: #fff; border: 1px solid var(--rule); border-radius: 12px; min-height: 228px; overflow: hidden; }
+.app .bar { height: 26px; background: #f3f1ec; border-bottom: 1px solid var(--rule); display: flex; align-items: center; gap: 6px; padding: 0 10px; font-size: 11px; color: var(--ink-2); }
+.app .bar i { width: 8px; height: 8px; border-radius: 50%; background: #d9d6cf; }
+.app .body { padding: 12px 14px; }
+.app h3 { margin: 0 0 6px; font-size: 15px; }
+.app .ok { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 650; color: #1e7a45; background: #e6f4ec; border-radius: 999px; padding: 2px 10px; }
+.app .row { margin-top: 10px; border: 1px solid var(--rule); border-radius: 10px; padding: 10px 10px 10px 12px; display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
+.app .row b { font-weight: 700; }
+.app .copy { margin-left: auto; border: 1px solid var(--rule); border-radius: 8px; padding: 3px 10px; font-weight: 650; font-size: 12px; flex: none; }
+.app .ask { margin-top: 10px; border: 1px solid #c9d6f2; background: #f4f7fd; border-radius: 10px; padding: 10px 12px; font-size: 12.5px; }
+.app .code { font: 700 18px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .12em; margin: 6px 0; }
+.app .btns { display: flex; gap: 8px; margin-top: 8px; }
+.app .b { border-radius: 8px; padding: 4px 12px; font-weight: 650; font-size: 12px; border: 1px solid var(--rule); background: #fff; }
+.app .b.blue { background: var(--royal); border-color: var(--royal); color: #fff; }
+.app .muted { color: var(--ink-2); font-size: 12px; margin-top: 6px; }
+.flag { margin-top: 8px; font-size: 12px; color: #9a4b12; background: #fbf0e4; border-radius: 8px; padding: 6px 8px; }
+
+.foot { margin-top: 18px; display: flex; justify-content: space-between; font-size: 13px; color: var(--ink-2); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="head">
+    <div>
+      <h1>Kosmos+, start to finish</h1>
+      <p>Every step a person takes today, in the words on the screen, and the two steps that change next. Plan: the north star (2026-09-30).</p>
+    </div>
+    <div class="legend"><span class="pill built">BUILT</span><span>live now</span><span class="pill coming">COMING</span><span>being built, not live</span></div>
+  </div>
+
+  <div class="grid">
+    <!-- 1 -->
+    <section class="step">
+      <div class="st"><span class="num">1</span><h2>Sign up</h2><span class="pill built">BUILT</span></div>
+      <p class="where">login.kosmosplus.com</p>
+      <div class="web"><div class="url">login.kosmosplus.com</div><div class="card">
+        <h3>Check your email</h3><p>Type the six-digit code we sent to josh@example.com. It is good for ten minutes.</p>
+        <div class="boxes"><i>4</i><i>1</i><i>9</i><i>0</i><i>2</i><i></i></div>
+        <h3 style="margin-top:14px">One more code</h3><p style="margin-bottom:6px">Verify your account using a phone or authenticator app.</p>
+        <div class="in">Code</div></div></div>
+      <p class="cap"><b>Email, then its six-digit code, then a second code</b> from an authenticator app. The second step is required on every account; text messages are not on offer yet.</p>
+    </section>
+
+    <!-- 2 -->
+    <section class="step">
+      <div class="st"><span class="num">2</span><h2>Pay, and pick an address</h2><span class="pill built">BUILT</span></div>
+      <p class="where">login.kosmosplus.com, then Stripe</p>
+      <div class="two">
+        <div class="web" style="min-height:0"><div class="card">
+          <h3>Start your subscription</h3><div class="price">$19.99 <small>a month</small></div>
+          <div class="fld">Promo code (optional)</div><div class="in"></div>
+          <div class="go">Continue to payment</div></div></div>
+        <div class="web" style="min-height:0"><div class="card">
+          <h3>Success!</h3><p>You are now a Kosmos+ Member.</p>
+          <h3 style="font-size:14px">Set up your Kosmos+ address</h3>
+          <div class="in" style="font-size:11.5px">pizzarama.kosmosplus.com</div>
+          <div class="go">Save this name</div></div></div>
+      </div>
+      <p class="cap"><b>Card details go to Stripe</b>; Kosmos never sees them. The address is the computer's permanent private name, and the page then shows how to connect it.</p>
+    </section>
+
+    <!-- 3 -->
+    <section class="step">
+      <div class="st"><span class="num">3</span><h2>First computer connected</h2><span class="pill built">BUILT</span></div>
+      <p class="where">In Kosmos: Settings, then Kosmos Plus</p>
+      <div class="app"><div class="bar"><i></i><i></i><i></i><span style="margin-left:6px">Kosmos · Settings · Kosmos Plus</span></div><div class="body">
+        <h3>Kosmos Plus <span class="ok">● Connected</span></h3>
+        <div class="row"><span>Access this computer from other devices at <b>login.kosmosplus.com</b></span><span class="copy">Copy</span></div>
+        <p class="muted">Signed in with the same email and phone codes as step 1. The computer connects itself.</p>
+      </div></div>
+      <p class="cap">The row's new wording (your sentence and Copy) ships in the next build (PR #4770); today it reads "Sign in at login.kosmosplus.com" with Open.</p>
+    </section>
+
+    <!-- 4 -->
+    <section class="step">
+      <div class="st"><span class="num">4</span><h2>A second computer</h2></div>
+      <p class="where">Today, and what it becomes</p>
+      <div class="two">
+        <div><div class="lab"><span>Today</span><span class="pill built">BUILT</span></div>
+          <div class="app" style="min-height:0"><div class="bar"><i></i><i></i><span style="margin-left:4px">first computer</span></div><div class="body">
+            <div class="ask" style="margin-top:0"><b>PizzaRama (Kosmos app)</b> is asking to use this Kosmos.
+              <div class="code">X3-P2</div><div class="muted" style="margin-top:0">Allow only if this code is showing on the device in your hand.</div>
+              <div class="btns"><span class="b blue">Allow</span><span class="b">Deny</span></div></div>
+            <div class="flag">The new computer shows no code (#4773), and signing it in creates its address for free.</div>
+          </div></div></div>
+        <div><div class="lab"><span>Coming</span><span class="pill coming">COMING</span></div>
+          <div class="web" style="min-height:0"><div class="card">
+            <h3 style="font-size:14px">Your computers</h3>
+            <div class="in" style="font-size:11.5px;margin-top:6px">laptop.kosmosplus.com · Connected</div>
+            <div class="go">Add a computer</div>
+            <p style="margin:8px 0 0;font-size:11.5px">Pay, pick its name. Then sign in on the new computer and pick that address.</p></div></div></div>
+      </div>
+      <p class="cap"><b>Each computer is a purchase</b> (your ruling "A": everyone already on keeps working). Then the website asks <b>"Connect them?"</b>, and each computer says yes once.</p>
+      <p class="refs">#4754, #4756 (Kitty, Pete). Connect and approve-once wait on your flow outline.</p>
+    </section>
+
+    <!-- 5 -->
+    <section class="step">
+      <div class="st"><span class="num">5</span><h2>From your phone</h2><span class="pill built">BUILT</span></div>
+      <p class="where">login.kosmosplus.com on the phone</p>
+      <div class="two">
+        <div class="web" style="min-height:0"><div class="card">
+          <h3 style="font-size:14px">Sign in to Kosmos+</h3>
+          <p>The first time, your computer asks you to allow this device.</p>
+          <div class="in" style="justify-content:center;font:700 16px ui-monospace,Menlo,monospace;letter-spacing:.12em">K7-4M</div>
+          <p style="margin:8px 0 0;font-size:11.5px">Your computer allowed this device. Choose which Kosmos to open.</p></div></div>
+        <div class="app" style="min-height:0"><div class="bar"><i></i><i></i><span style="margin-left:4px">your computer</span></div><div class="body">
+          <div class="ask" style="margin-top:0"><b>Josh's iPhone</b> is asking to use this Kosmos.
+            <div class="code">K7-4M</div><div class="muted" style="margin-top:0">Allow only if this code is showing on the device in your hand.</div>
+            <div class="btns"><span class="b blue">Allow</span><span class="b">Deny</span></div></div>
+          <p class="muted">Your approved redesign of this card (#4637, "Josh's iPhone wants to connect") is built on a branch and held for your flow outline.</p>
+        </div></div>
+      </div>
+      <p class="cap"><b>Sign in, allow it once on the computer</b>, then pick which Kosmos to open.</p>
+    </section>
+
+    <!-- 6 -->
+    <section class="step">
+      <div class="st"><span class="num">6</span><h2>Delete the account</h2><span class="pill built">BUILT</span></div>
+      <p class="where">login.kosmosplus.com, signed in (live since 14:56 today)</p>
+      <div class="two">
+        <div class="web" style="min-height:0"><div class="card">
+          <h3 style="font-size:14px">Delete your Kosmos+ account?</h3>
+          <p style="margin-bottom:2px">This deletes</p>
+          <ul><li>Your Kosmos+ address</li><li>Reaching your computers from anywhere</li><li>The devices you allowed</li><li>Notifications on your phone</li><li>Your sign-in and two-factor settings</li></ul>
+          <div class="go red">Delete my account</div></div></div>
+        <div class="web" style="min-height:0"><div class="card">
+          <h3 style="font-size:14px">Your Kosmos+ account is deleted</h3>
+          <p>Kosmos keeps working on your computers. You can make a new Kosmos+ account any time.</p>
+          <div class="go">Close</div></div></div>
+      </div>
+      <p class="cap"><b>Kosmos itself is untouched</b>: agents and projects stay on each computer. Only the Kosmos+ parts go.</p>
+    </section>
+  </div>
+
+  <div class="foot"><span>Words are copied from the live pages (login.kosmosplus.com, 30 Sep 2026) and the app. Codes and names are examples.</span><span>Mona Lisa, for kosmos#4754</span></div>
+</div>
+</body>
+</html>
