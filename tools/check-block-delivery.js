@@ -220,7 +220,7 @@ for (const name of names) {
     if (have.length) stale += 1;
   } else {
     const unsure = ent.unsure || [];
-    const missing = ent.filter((a) => !have.includes(a));
+    const missing = ent.filter((a) => !have.includes(a) && !unsure.includes(a));   // reported once, as CANNOT TELL
     const extra = have.filter((a) => !ent.includes(a) && !unsure.includes(a));
     if (!missing.length && !extra.length && !unsure.length) verdict = 'delivered to all entitled';
     else {
