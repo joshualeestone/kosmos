@@ -292,7 +292,9 @@ _lsof_present() { [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; }
 #     other answer falls back to the page and its identity match above, unchanged;
 #   - it sets HEALTH_STATE: up | down (nothing listening: connection refused) | stranger (an
 #     answer that is not ours) | busy (connected, but no answer in time, or the reply was cut) |
-#     unreachable (refused, yet a listener is there: this shell cannot connect, #4636);
+#     unreachable (refused, yet a listener is there: this shell cannot connect, #4636; or, with sandbox
+#     evidence, a health curl killed by a signal or an lsof refused: this shell cannot check at all,
+#     _UNREACH_BLIND);
 #   - on busy it tries again with a longer wait each time (2, 4, 8, 8... s) until KOSMOS_BUSY_WAIT
 #     (default 20 s) has passed, saying once on stderr that it is waiting. Only then does it give up,
 #     still as busy, so the caller says "busy" (say_not_up), never "not running" and never "start it".
@@ -306,7 +308,7 @@ HEALTH_STATE=down
 _HEALTH_OWNER=""
 _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
   local _out _rc _code _body _took _left_s
-  _UNREACH_PID=""; _UNREACH_CMD=""   # #4636: set only by an unreachable reading, never left over from an earlier one
+  _UNREACH_PID=""; _UNREACH_CMD=""; _UNREACH_BLIND=""   # #4636: set only by an unreachable reading, never left over from an earlier one
   # `&& _rc=0 || _rc=$?`, not `; _rc=$?`: under set -e a failing substitution in a plain assignment
   # would end the script whenever a caller is outside an if/&&/|| (errexit is only off inside those).
   _out="$(/usr/bin/curl -sS -m "$1" -w '\n%{time_total}\n%{http_code}' "$URL/api/health" 2>/dev/null)" && _rc=0 || _rc=$?
@@ -314,7 +316,7 @@ _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
     0) ;;
     7) _health_refused "$1"; return ;;              # refused: nothing is listening, or this shell is blocked
     18|28|52|56) _health_no_answer; return ;;       # timed out, or connected and cut off
-    *) HEALTH_STATE=stranger; return ;;             # an answer that is not HTTP: not our board
+    *) _health_blind "$_rc" && return; HEALTH_STATE=stranger; return ;;   # an answer that is not HTTP: not our board
   esac
   _code="${_out##*$'\n'}"; _body="${_out%$'\n'*}"
   _took="${_body##*$'\n'}"; _body="${_body%$'\n'*}"
@@ -336,6 +338,7 @@ _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
     # 22 is an HTTP error for `/`: an older board of ours failing under load, or a stranger's web server.
     # The same ownership check as a timeout decides which.
     18|22|28|52|56) _health_no_answer ;;
+    # (No "cannot check" here: this runs only after the /api/health curl connected, so this shell can connect.)
     *) HEALTH_STATE=stranger ;;
   esac
 }
@@ -351,11 +354,16 @@ _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
 # probe and its own lsof (-S 2 bounds each stalled kernel call, not the whole lsof run).
 _UNREACH_CMD=""
 _UNREACH_PID=""
+_UNREACH_BLIND=""
 _HEALTH_REPROBE=""
 _health_refused() {   # <the probe's budget, to re-probe with>
-  local _pc
+  local _pc _lrc
   # lsof on each refusal, the re-probe's too: a listener that exited in the half second then reads down.
-  _pc="$(_ipv4_listener)" || _pc=""
+  _pc="$(_ipv4_listener)" && _lrc=0 || { _lrc=$?; _pc=""; }
+  # #4636 (Sonya's stricter seatbelt, process-info denied): lsof itself was REFUSED, so "no listener" is not
+  # known. In a sandboxed shell that is "cannot check", never "not running" (whose start advice would launch
+  # a board inside the sandbox).
+  if [ -z "$_pc" ] && [ "$_lrc" = 2 ] && _shell_is_sandboxed; then _UNREACH_BLIND=1; HEALTH_STATE=unreachable; return; fi
   if [ -z "$_pc" ]; then HEALTH_STATE=down; return; fi
   if [ -z "${_HEALTH_REPROBE:-}" ]; then
     # A local, seen by the nested probe through bash's dynamic scope and gone however this returns.
@@ -367,8 +375,19 @@ _health_refused() {   # <the probe's budget, to re-probe with>
   _UNREACH_PID="${_pc%% *}"; _UNREACH_CMD="${_pc#* }"
   HEALTH_STATE=unreachable
 }
+# #4636: this shell cannot see the board at all. A sandbox stricter than a network rule (process-info denied,
+# measured with sandbox-exec 2026-09-30) kills curl itself with a signal (exit 133, SIGTRAP) and refuses lsof
+# ("can't get PID byte count: Operation not permitted"). With sandbox evidence (ps denied) that is "cannot
+# check": unreachable with no listener named, so status exits 5, start and stop do nothing, and no verb blames
+# "another app". Without sandbox evidence a signalled curl keeps the old reading, stranger.
+_health_blind() {   # <curl's exit code>
+  [ "${1:-0}" -gt 128 ] 2>/dev/null || return 1
+  _shell_is_sandboxed || return 1
+  _UNREACH_PID=""; _UNREACH_CMD=""; _UNREACH_BLIND=1; HEALTH_STATE=unreachable
+}
 # "<pid> <command>" (lsof's short command name, e.g. node) of an IPv4 listener on 127.0.0.1:PORT or
-# *:PORT, or nothing (return 1). Pipe-free: lsof's output goes to awk through a here-doc.
+# *:PORT, or nothing (return 1; return 2 when lsof was REFUSED, "Operation not permitted", and named none: not
+# "no listener" but "cannot see"). Pipe-free: lsof's output goes to awk through a here-doc.
 _ipv4_listener() {
   _lsof_present || return 1
   local _l _o
@@ -376,7 +395,9 @@ _ipv4_listener() {
   # mount cannot hold a hook's report past its budget on a board that is only down.
   # Parsed whatever lsof's exit status: a timed-out call on some other file makes it exit 1 with our listener
   # still in its output (port_listener_owner reads it the same way).
-  _l="$(/usr/sbin/lsof -S 2 -nP -i4TCP:"$PORT" -sTCP:LISTEN -Fpcn 2>/dev/null)" || true
+  # stderr joins stdout: -F lines start p/c/f/n, which awk reads; lsof's own messages start "lsof:", which it
+  # skips, and the refusal is read from them below.
+  _l="$(/usr/sbin/lsof -S 2 -nP -i4TCP:"$PORT" -sTCP:LISTEN -Fpcn 2>&1)" || true
   _o="$(/usr/bin/awk -v port="$PORT" '
     /^p/ { p = substr($0, 2); next }
     /^c/ { c = substr($0, 2); next }
@@ -384,7 +405,10 @@ _ipv4_listener() {
 $_l
 EOF
 )"
-  [ -n "$_o" ] || return 1
+  if [ -z "$_o" ]; then
+    case "$_l" in *"lsof: "*"Operation not permitted"*) return 2 ;; esac
+    return 1
+  fi
   printf '%s' "$_o"
 }
 # A listener that took the connection but did not answer is BUSY only when it is OUR board: a
@@ -486,6 +510,10 @@ say_unreached() {   # <what could not happen, e.g. "record that"> <curl exit> [w
 }
 # #4636: the words for a board this shell cannot connect to (HEALTH_STATE unreachable).
 _unreachable_why() {
+  if [ -n "${_UNREACH_BLIND:-}" ]; then
+    printf '%s' "this shell cannot check (a sandbox blocks what it checks with: connecting to this computer's own address, or seeing which program holds the port)"
+    return
+  fi
   printf '%s' "this shell cannot connect to it (a sandbox, a network rule or a local network fault is blocking connections to this computer's own address)"
 }
 # #4636: positive evidence that this shell runs under a macOS sandbox (seatbelt): /bin/ps is setuid root, and
@@ -512,7 +540,8 @@ _unreachable_is_ours() {
 # "Kosmos is running" only when the listener is the process this install recorded in board.pid (board-run writes
 # it; read here without ps, which such a sandbox denies); otherwise what we know: something (its name) is listening.
 _unreachable_lead() {   # the start of the sentence, up to "but"
-  if _unreachable_is_ours; then printf '%s' "Kosmos is running at $URL, but"
+  if [ -n "${_UNREACH_BLIND:-}" ]; then printf '%s' "Kosmos may be running at $URL, but"
+  elif _unreachable_is_ours; then printf '%s' "Kosmos is running at $URL, but"
   else printf '%s' "Something (${_UNREACH_CMD:-a program}) is listening on port $PORT, so it may be Kosmos, but"; fi
 }
 # The one message for a verb that needs the board and did not get it (#4466). A busy board is
@@ -1036,6 +1065,8 @@ _await_board_up() {
       # a refusal WHILE lsof shows the listener counts here.
       # A listener that is not the launched pid (another process on the port): never a kill; the wait runs on and,
       # if nothing changes, ends in "did not come up" (safe, if not the most precise words).
+      # (A "cannot check" reading names no pid, so it lands here too and is never a kill: cmd_start refuses before
+      # launching in such a shell, so only a sandbox that tightens mid-boot could reach this; it ends in "did not come up".)
       if [ -n "$_pid" ] && [ "$_UNREACH_PID" != "$_pid" ]; then _unreach_seen=0; fi
       if [ -n "$_pid" ] && [ "$_UNREACH_PID" = "$_pid" ] && [ "$_unreach_seen" -ge 2 ] && ! _shell_is_sandboxed; then
         say "Kosmos started at $URL (process $_pid), but $(_unreachable_why), so this shell cannot use it."
@@ -1419,7 +1450,9 @@ cmd_stop() {
   elif [ "$HEALTH_STATE" = unreachable ]; then
     # #4636: something listens and this shell cannot reach it. Not "not running", and no stop marker. When it is
     # this install's own board (its pid is in board.pid) this shell simply cannot confirm or stop it from here.
-    if _unreachable_is_ours; then
+    # "Cannot check" (_UNREACH_BLIND) names no listener at all, so it gets the same honest words: never "not
+    # started by this command", a claim about a board this shell cannot see.
+    if [ -n "${_UNREACH_BLIND:-}" ] || _unreachable_is_ours; then
       die "$(_unreachable_lead) $(_unreachable_why), so it cannot be stopped from here and was left alone. Stop it from a normal Terminal."
     fi
     die "$(_unreachable_lead) $(_unreachable_why), and it was not started by this command, so it was left alone."

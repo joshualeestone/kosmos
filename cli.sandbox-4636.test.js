@@ -46,6 +46,23 @@ if (!SRC.includes(GUARD)) throw new Error('install/kosmos no longer has the #463
 const UNFIXED = path.join(ROOT, 'kosmos-unfixed');
 fs.writeFileSync(UNFIXED, SRC.replace(GUARD, 'HEALTH_STATE=down; return'), { mode: 0o755 });
 
+// The stricter seatbelt (Sonya, m3799): process-info denied too. curl is killed by a signal there and lsof is refused,
+// so this shell can see nothing of the board. BLINDLESS is install/kosmos with the "cannot check" reading taken out.
+// Two hooks, one per route: the health curl killed by a signal (STRICT reaches it), and lsof refused (LISTPIDS
+// reaches it). Each has its own control: BLINDLESS takes out both, LSOFLESS only the second.
+const BLIND_HOOKS = [['_health_blind "$_rc" && return; ', ''],
+  ['if [ -z "$_pc" ] && [ "$_lrc" = 2 ] && _shell_is_sandboxed; then', 'if false; then']];
+let blindless = SRC;
+for (const [a, b] of BLIND_HOOKS) {
+  if (!blindless.includes(a)) throw new Error('install/kosmos no longer has the #4636 "cannot check" hook the control takes out: ' + a);
+  blindless = blindless.replace(a, b);
+}
+const BLINDLESS = path.join(ROOT, 'kosmos-blindless');
+fs.writeFileSync(BLINDLESS, blindless, { mode: 0o755 });
+// Only the "lsof refused" hook taken out (the curl-signal route kept), for the LISTPIDS control.
+const LSOFLESS = path.join(ROOT, 'kosmos-lsofless');
+fs.writeFileSync(LSOFLESS, SRC.replace(BLIND_HOOKS[1][0], BLIND_HOOKS[1][1]), { mode: 0o755 });
+
 const DEAD_PROXY = 'http://127.0.0.1:9';   // nothing listens on the discard port; #4622 routes loopback around it
 const SANDBOX = '(version 1)(allow default)(deny network-outbound)';
 // Not only present: it must run here (it cannot nest inside another sandbox, where every sandboxed arm should skip).
@@ -53,6 +70,26 @@ const SANDBOX = '(version 1)(allow default)(deny network-outbound)';
 const HAVE_SANDBOX = fs.existsSync('/usr/bin/sandbox-exec')
   && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/usr/bin/true'], { timeout: 20000 }).status === 0
   && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/usr/sbin/lsof', '-nP', '-p', String(process.pid)], { timeout: 20000 }).status === 0;
+const STRICT = '(version 1)(allow default)(deny network-outbound)(deny process-info*)';
+// Runs here, and really is the shape measured: lsof refused ("Operation not permitted") and ps denied inside it.
+const HAVE_STRICT = fs.existsSync('/usr/bin/sandbox-exec') && (() => {
+  const cp = require('node:child_process');
+  if (cp.spawnSync('/usr/bin/sandbox-exec', ['-p', STRICT, '/usr/bin/true'], { timeout: 20000 }).status !== 0) return false;
+  const l = cp.spawnSync('/usr/bin/sandbox-exec', ['-p', STRICT, '/usr/sbin/lsof', '-nP', '-iTCP', '-sTCP:LISTEN'], { timeout: 20000 });
+  const ps = cp.spawnSync('/usr/bin/sandbox-exec', ['-p', STRICT, '/bin/ps', '-p', String(process.pid)], { timeout: 20000 });
+  return l.status !== 0 && /Operation not permitted/.test(String(l.stderr)) && ps.status !== 0;
+})();
+// A profile where curl is REFUSED normally (exit 7) but lsof is refused and ps denied (round 23's measurement): the
+// only way into the "lsof refused" route, which STRICT never reaches (curl dies first there).
+const LISTPIDS = '(version 1)(allow default)(deny network-outbound)(deny process-info-listpids)';
+const HAVE_LISTPIDS = fs.existsSync('/usr/bin/sandbox-exec') && (() => {
+  const cp = require('node:child_process');
+  if (cp.spawnSync('/usr/bin/sandbox-exec', ['-p', LISTPIDS, '/usr/bin/true'], { timeout: 20000 }).status !== 0) return false;
+  const c = cp.spawnSync('/usr/bin/sandbox-exec', ['-p', LISTPIDS, '/usr/bin/curl', '-s', '-m', '2', 'http://127.0.0.1:1/'], { timeout: 20000 });
+  const l = cp.spawnSync('/usr/bin/sandbox-exec', ['-p', LISTPIDS, '/usr/sbin/lsof', '-nP', '-iTCP', '-sTCP:LISTEN'], { timeout: 20000 });
+  const ps = cp.spawnSync('/usr/bin/sandbox-exec', ['-p', LISTPIDS, '/bin/ps', '-p', String(process.pid)], { timeout: 20000 });
+  return c.status === 7 && l.status !== 0 && /Operation not permitted/.test(String(l.stderr)) && ps.status !== 0;
+})();
 // The CLI stops a board it launched from a blocked shell only on this evidence of a sandbox (ps denied).
 const PS_DENIED_IN_SANDBOX = HAVE_SANDBOX && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/bin/ps', '-p', String(process.pid)], { timeout: 20000 }).status !== 0;
 
@@ -69,8 +106,9 @@ function env(port, extra = {}, homeOut, pid) {
     AGENT_WORKFORCE_LAUNCH: path.join(home, 'launch'), AGENT_WORKFORCE_PROJECTS: path.join(home, 'projects'),
     KOSMOS_BUSY_WAIT: '4', ...extra };
 }
-function run(cli, args, e, sandboxed) {
-  const [file, argv] = sandboxed ? ['/usr/bin/sandbox-exec', ['-p', SANDBOX, cli, ...args]] : [cli, args];
+function run(cli, args, e, sandboxed) {   // sandboxed: true (SANDBOX) or a profile string
+  const prof = sandboxed === true ? SANDBOX : sandboxed;
+  const [file, argv] = prof ? ['/usr/bin/sandbox-exec', ['-p', prof, cli, ...args]] : [cli, args];
   return new Promise((resolve, reject) => execFile(file, argv, { env: e, timeout: 60000 }, (err, so, se) => {
     if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + ') ' + se)); return; }
     resolve({ code: err ? err.code : 0, out: (so + se).replace(/\s+/g, ' ').trim() });
@@ -184,15 +222,20 @@ test('a sandboxed shell: the watchdog start (KOSMOS_RECLAIM_BUSY=1) FAILS loudly
   assert.match(r.out, /Nothing was started or stopped/);
 });
 
-const HAVE_PYTHON = (() => { try { return require('node:child_process').spawnSync('/usr/bin/python3', ['-c', 'print(1)'], { timeout: 20000 }).status === 0; } catch { return false; } })();
-test('a sandboxed shell, a listener that is NOT node: never called Kosmos, and start does not say it is running', { skip: (!HAVE_SANDBOX && 'no sandbox-exec on this computer') || (!HAVE_PYTHON && 'no working /usr/bin/python3 for the non-node listener') }, async () => {
-  const py = spawn('/usr/bin/python3', ['-c', 'import socket,sys\ns=socket.socket();s.bind(("127.0.0.1",0));s.listen(5)\nprint(s.getsockname()[1],flush=True)\nimport time\ntime.sleep(120)'], { stdio: ['ignore', 'pipe', 'ignore'] });
+// The non-node listener is /usr/bin/nc (lsof names it "nc"), not /usr/bin/python3: on a Mac without the command
+// line tools, or with Xcode's license not yet accepted, python3 is a stub that fails or raises a dialog.
+const HAVE_NC = fs.existsSync('/usr/bin/nc');
+test('a sandboxed shell, a listener that is NOT node: never called Kosmos, and start does not say it is running', { skip: (!HAVE_SANDBOX && 'no sandbox-exec on this computer') || (!HAVE_NC && 'no /usr/bin/nc for the non-node listener') }, async () => {
+  const port = await freePort();
+  const lst = spawn('/usr/bin/nc', ['-lk', '127.0.0.1', String(port)], { stdio: ['ignore', 'ignore', 'ignore'] });
   try {
-    const port = await new Promise((resolve, reject) => {
-      py.stdout.once('data', (d) => resolve(Number(String(d).trim())));
-      py.once('error', reject);
-      py.once('exit', (c) => reject(new Error('the python listener exited before listening: ' + c)));
-    });
+    // Listening once lsof shows it (a connect would use up nc's one accept).
+    let seen = '';
+    for (let i = 0; i < 30 && !/cnc/.test(seen); i++) {
+      await new Promise((ok) => setTimeout(ok, 100));
+      seen = String(require('node:child_process').spawnSync('/usr/sbin/lsof', ['-nP', '-i4TCP:' + port, '-sTCP:LISTEN', '-Fpc']).stdout);
+    }
+    assert.match(seen, /cnc/, 'nc never showed as listening on ' + port);
     const s = await run(CLI, ['status'], env(port), true);
     assert.equal(s.code, 5, s.out);
     assert.match(s.out, /Something \(.+\) is listening on port/);
@@ -200,7 +243,7 @@ test('a sandboxed shell, a listener that is NOT node: never called Kosmos, and s
     const r = await run(CLI, ['start'], env(port), true);
     assert.notEqual(r.code, 0, r.out);
     assert.doesNotMatch(r.out, /already running/);
-  } finally { py.kill('SIGKILL'); }
+  } finally { lst.kill('SIGKILL'); }
 });
 
 test('a sandboxed shell, a node listener that is NOT this install\'s recorded board: "something (node)", never "Kosmos"', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
@@ -421,15 +464,19 @@ test('the one re-probe: a board that answers on the second try is up; one that n
   assert.match(gone.out, /first=down flag=\[\]/, gone.out);
 });
 
-test('a board whose connection queue is FULL (wedged) is not "unreachable": the OS drops the connect, curl times out', { skip: !HAVE_PYTHON && 'no working /usr/bin/python3 for the listener' }, async (t) => {
+test('a board whose connection queue is FULL (wedged) is not "unreachable": the OS drops the connect, curl times out', async (t) => {
   // Measured on macOS: a full accept queue drops new connects silently (curl 28), never refuses them (curl 7).
-  const py = spawn('/usr/bin/python3', ['-c', 'import socket,time\ns=socket.socket();s.bind(("127.0.0.1",0));s.listen(1)\nprint(s.getsockname()[1],flush=True)\ntime.sleep(60)'], { stdio: ['ignore', 'pipe', 'ignore'] });
+  // A node listener with a backlog of 1 that then blocks its own event loop, so it never accepts (the port goes out
+  // with a synchronous write first); it exits on its own after 30 s.
+  const lst = spawn(process.execPath, ['-e', 'const s = require("net").createServer().listen({ port: 0, host: "127.0.0.1", backlog: 1 }, () => {'
+    + ' require("fs").writeSync(1, s.address().port + "\\n"); const end = Date.now() + 30000; while (Date.now() < end) {} process.exit(0); });'],
+    { stdio: ['ignore', 'pipe', 'ignore'] });
   const held = [];
   try {
     const port = await new Promise((resolve, reject) => {
-      py.stdout.once('data', (d) => resolve(Number(String(d).trim())));
-      py.once('error', reject);
-      py.once('exit', (c) => reject(new Error('the python listener exited before listening: ' + c)));
+      lst.stdout.once('data', (d) => resolve(Number(String(d).trim())));
+      lst.once('error', reject);
+      lst.once('exit', (c) => reject(new Error('the node listener exited before listening: ' + c)));
     });
     for (let i = 0; i < 4; i++) { const c = require('node:net').connect(port, '127.0.0.1'); c.on('error', () => {}); held.push(c); }
     await new Promise((ok) => setTimeout(ok, 500));
@@ -446,7 +493,7 @@ test('a board whose connection queue is FULL (wedged) is not "unreachable": the 
       { env: env(port) }, (err, so) => resolve(String(so).trim())));
     assert.doesNotMatch(r, /state=unreachable/, r);
     assert.match(r, /state=(busy|stranger)/, r);
-  } finally { held.forEach((c) => c.destroy()); py.kill('SIGKILL'); }
+  } finally { held.forEach((c) => c.destroy()); lst.kill('SIGKILL'); }
 });
 
 test('a sandboxed shell, stop with this install\'s board.pid: "cannot be stopped from here", board left alone', { skip: !PS_DENIED_IN_SANDBOX && 'ps works in this sandbox, so stop goes by the pid (and stops it), which is right there' }, async () => {
@@ -465,6 +512,99 @@ test('CONTROL: without the guard, the sandboxed status says "not running" and st
   assert.match(s.out, /Kosmos is not running\. Start it with: kosmos start/);
   const r = await withBoard('ok', (p) => run(UNFIXED, ['start'], env(p), true));
   assert.match(r.out, /Another app on this computer is already using port/);
+});
+
+const NO_STRICT = !HAVE_STRICT && 'no stricter sandbox here (sandbox-exec missing, or lsof and ps are not both refused under process-info denial)';
+
+test('a STRICTER sandbox (lsof refused, curl killed): status exits 5, "may be running, cannot check", never "another app"', { skip: NO_STRICT }, async () => {
+  const s = await withBoard('ok', (p, pid) => run(CLI, ['status'], env(p, {}, null, pid), STRICT));
+  assert.equal(s.code, 5, s.out);
+  assert.match(s.out, /Kosmos may be running at .*this shell cannot check/);
+  assert.doesNotMatch(s.out, /another app|not running/i);
+  assert.doesNotMatch(s.out, START_ADVICE);
+  // With nothing listening this shell still cannot tell, so it says the same: never "not running" and a start.
+  const free = await run(CLI, ['status'], env(await freePort()), STRICT);
+  assert.equal(free.code, 5, free.out);
+  assert.doesNotMatch(free.out, START_ADVICE);
+});
+
+test('a STRICTER sandbox: start and stop on a running board kill nothing, blame no app, write no stop marker', { skip: NO_STRICT }, async () => {
+  const r = await withBoard('ok', (p, pid) => run(CLI, ['start'], env(p, {}, null, pid), STRICT));
+  assert.equal(r.died, false, r.out);
+  assert.match(r.out, /this shell cannot check/);
+  assert.doesNotMatch(r.out, /another app|stale|Bringing the board up/i);
+  const h = {};
+  const st = await withBoard('ok', (p, pid) => run(CLI, ['stop'], env(p, {}, h, pid), STRICT));
+  assert.equal(st.died, false, st.out);
+  assert.doesNotMatch(st.out, /another app|not running|not started by this command/i);
+  assert.match(st.out, /cannot be stopped from here and was left alone/);
+  assert.equal(fs.existsSync(path.join(h.home, 'board.stopped')), false, 'stop wrote the deliberate-stop marker');
+});
+
+test('a STRICTER sandbox: restart refuses before stopping, open exits 5, neither says "not running" or "another app"', { skip: NO_STRICT }, async () => {
+  const rs = await withBoard('ok', (p, pid) => run(CLI, ['restart'], env(p, {}, null, pid), STRICT));
+  assert.equal(rs.died, false, rs.out);
+  assert.notEqual(rs.code, 0, rs.out);
+  assert.doesNotMatch(rs.out, /another app|not running/i);
+  const op = await withBoard('ok', (p, pid) => run(CLI, ['open'], env(p, {}, null, pid), STRICT));
+  assert.equal(op.died, false, op.out);
+  assert.equal(op.code, 5, op.out);
+  assert.match(op.out, /this shell cannot check/);
+  assert.doesNotMatch(op.out, /another app|not running/i);
+});
+
+const NO_LISTPIDS = !HAVE_LISTPIDS && 'no lsof-refusing sandbox here (curl must be refused with 7 while lsof and ps are refused)';
+test('a sandbox that REFUSES lsof (curl refused normally): status exits 5, "cannot check", on a live board and a free port', { skip: NO_LISTPIDS }, async () => {
+  const s = await withBoard('ok', (p, pid) => run(CLI, ['status'], env(p, {}, null, pid), LISTPIDS));
+  assert.equal(s.code, 5, s.out);
+  assert.match(s.out, /Kosmos may be running at .*this shell cannot check/);
+  assert.doesNotMatch(s.out, START_ADVICE);
+  const free = await run(CLI, ['status'], env(await freePort()), LISTPIDS);
+  assert.equal(free.code, 5, free.out);
+  assert.doesNotMatch(free.out, START_ADVICE);
+});
+
+test('CONTROL: without the "lsof refused" hook, that sandbox says "not running" with the start advice', { skip: NO_LISTPIDS }, async () => {
+  const s = await withBoard('ok', (p, pid) => run(LSOFLESS, ['status'], env(p, {}, null, pid), LISTPIDS));
+  assert.equal(s.code, 1, s.out);
+  assert.match(s.out, /Kosmos is not running\. Start it with: kosmos start/);
+});
+
+test('CONTROL: without the "cannot check" reading, the STRICTER sandbox says another app holds the port (Sonya\'s m3799)', { skip: NO_STRICT }, async () => {
+  const s = await withBoard('ok', (p, pid) => run(BLINDLESS, ['status'], env(p, {}, null, pid), STRICT));
+  assert.equal(s.code, 1, s.out);
+  assert.match(s.out, /another app is using port/);
+});
+
+test('a curl killed by a signal is "cannot check" only with sandbox evidence; otherwise the old reading stands', async () => {
+  const probe = (sandboxed) => new Promise((resolve) => execFile('/bin/bash', ['-c', 'source "' + CLI + '"; '
+    + '_shell_is_sandboxed() { return ' + (sandboxed ? 0 : 1) + '; }; '
+    + 'if _health_blind 133; then echo "rc=0 state=$HEALTH_STATE blind=$_UNREACH_BLIND"; else echo "rc=1 state=$HEALTH_STATE"; fi; '
+    + 'if _health_blind 7; then echo "seven=blind"; else echo "seven=no"; fi'],
+    { env: env(1) }, (err, so, se) => resolve(String(so).trim() + String(se).trim())));
+  const yes = await probe(true);
+  assert.match(yes, /rc=0 state=unreachable blind=1/, yes);
+  assert.match(yes, /seven=no/, yes);   // an ordinary refusal is never read as blind
+  const no = await probe(false);
+  assert.match(no, /rc=1 state=down/, no);
+});
+
+test('an lsof REFUSED is "cannot check" only with sandbox evidence; otherwise a stopped board reads down (the watchdog can recover it)', async () => {
+  const probe = (sandboxed) => new Promise((resolve) => execFile('/bin/bash', ['-c', 'source "' + CLI + '"; '
+    + '_shell_is_sandboxed() { return ' + (sandboxed ? 0 : 1) + '; }; _ipv4_listener() { return 2; }; '
+    + '_health_refused 2; echo "state=$HEALTH_STATE blind=${_UNREACH_BLIND:-}"'],
+    { env: env(1) }, (err, so, se) => resolve(String(so).trim() + String(se).trim())));
+  assert.match(await probe(false), /state=down blind=$/);
+  assert.match(await probe(true), /state=unreachable blind=1/);
+});
+
+test('each probe starts clean: a "cannot check" reading does not carry into the next one', async () => {
+  const r = await new Promise((resolve) => execFile('/bin/bash', ['-c', 'source "' + CLI + '"; '
+    + '_shell_is_sandboxed() { return 0; }; _health_blind 133; echo "first=$HEALTH_STATE/${_UNREACH_BLIND:-}"; '
+    + '_health_probe 1; echo "next=$HEALTH_STATE/${_UNREACH_BLIND:-}"'],
+    { env: env(1) }, (err, so, se) => resolve(String(so).trim() + String(se).trim())));
+  assert.match(r, /first=unreachable\/1/, r);
+  assert.match(r, /next=down\/$/m, r);   // port 1: nothing listens, curl is refused, lsof names none
 });
 
 test('CONTROL: outside the sandbox, a stopped board is still "not running" at once, with the start advice', async () => {

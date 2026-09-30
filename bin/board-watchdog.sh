@@ -77,8 +77,8 @@ COOLDOWN="$(numdef "${KOSMOS_WATCHDOG_COOLDOWN:-}" 3600)"
 # into minute-long blackouts on an external tester's 25-agent board. It can also be a wedged board (#2955), which
 # still needs recovering. So a busy reading counts toward the same down streak, but with this much
 # longer grace before the first restart: a board that has not answered once in five minutes is wedged.
-# (#4636: exit 5 is different: this shell cannot connect at all, so it tells nothing about the board and
-# kicks nothing; see its branch below.)
+# (#4636: exit 5 is different: this shell cannot connect at all, or with sandbox evidence cannot check at
+# all, so it tells nothing about the board and kicks nothing; see its branch below.)
 BUSY_GRACE="$(numdef "${KOSMOS_WATCHDOG_BUSY_GRACE:-}" 300)"
 
 now() { date +%s; }
@@ -161,8 +161,10 @@ if [ "$STATUS_RC" -eq 0 ]; then
 fi
 
 # #4636: status exit 5 is "a listener is there, but this shell cannot connect to it" (a sandbox, a network
-# rule, a local network fault). The watchdog cannot tell anything about the board from here, and restarting
-# it would not help, so it kicks nothing and ends any down streak and busy clock (a later down or busy reading
+# rule, a local network fault), or, with sandbox evidence, "this shell cannot check at all" (a stricter sandbox
+# that also refuses lsof or kills curl; nothing need be listening). Under launchd ps works, so only the first
+# arises here. The watchdog cannot tell anything about the board from here, and restarting it would not help,
+# so it kicks nothing and ends any down streak and busy clock (a later down or busy reading
 # starts a fresh grace). Accepted, like the busy/down flap below: a board whose status flips between 5 and 4 (or
 # 1) on every tick restarts a clock each time and so is never recovered by the watchdog; under launchd, 5 comes
 # only from a real local network fault, where a restart could not fix the kernel's state anyway.
