@@ -78,7 +78,7 @@ const WRONG_WORLD_STATUS = 421;
    subcommand it has (the parity test pins that against SUBCOMMANDS). */
 const USAGE = {
   msg: 'Usage: kosmos msg [--stdin] <agent> <what you want to tell them>  (--stdin: read the message from stdin, so backticks and $ arrive as written)',
-  reply: 'Usage: kosmos reply <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated)',
+  reply: 'Usage: kosmos reply [--stdin] <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated; --stdin: read the reply from stdin, so backticks and $ arrive as written)',
   post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and $ arrive as written; text only, file attachments are not supported yet, kosmos#1955)',
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
   report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)',
@@ -257,8 +257,8 @@ const POST_BODY_MAX_BYTES = 6 * 1024 * 1024; /* #2909: the board's request-READ 
 // ── the verbs ───────────────────────────────────────────────────────────────
 // Each handler is (ctx, args) -> exit code. `ctx` is built once per run in main.
 
-/* #2909: read a --stdin message for post / msg. Returns { text } or { code } (a refusal already
-   said). verb = posted|sent; usage = the example named in the refusals. */
+/* #2909: read a --stdin message for post / msg (and reply, #4582). Returns { text } or { code } (a
+   refusal already said). verb = posted|sent|kept; usage = the example named in the refusals. */
 async function readPipedMessage(ctx, verb, usage) {
   /* The long limit feedback triage uses: a command piped in (gh, git log) can be slow to start. */
   const piped = await ctx.readStdin(CARDS_STDIN_QUIET_LIMIT_MS, POST_BODY_MAX_BYTES);
@@ -338,15 +338,41 @@ async function verbMsg(ctx, args) {
 }
 
 async function verbReply(ctx, args) {
-  const text = args.join(' ');
+  /* #4582: --stdin (leading) reads the reply from standard input, as msg and post do (#2909), via
+     the shared readPipedMessage; every failure after the read keeps the piped reply in a private
+     file, since it may have no other copy. Parity with install/kosmos. */
+  const fromStdin = args[0] === '--stdin';
+  if (fromStdin) args.shift();
+  let text = args.join(' ');
+  if (!fromStdin && args.includes('--stdin')) { ctx.err('--stdin must come first: kosmos reply --stdin, with the reply piped in.'); return 2; }
+  if (fromStdin) {
+    if (args.length) { ctx.err('Give the reply on stdin OR as arguments, not both: kosmos reply --stdin, with the reply piped in.'); return 2; }
+    const got = await readPipedMessage(ctx, 'kept', 'kosmos reply --stdin, with the message piped in.');
+    if (got.code !== undefined) return got.code;
+    text = got.text;
+  }
   if (!text) { ctx.err(USAGE.reply); return 2; }
+  const keepPiped = () => { if (fromStdin) keepPipedCopy(ctx, text); };
   const body = { text, from_pane: '' };
+  /* The board drops a request body over its read limit, which would read as unreachable. */
+  if (Buffer.byteLength(JSON.stringify(body), 'utf8') > POST_BODY_MAX_BYTES) { ctx.err('Nothing was kept: that reply is too large to send to the board at all. Send a summary, or split it.'); keepPiped(); return 2; }
   const r = await ctx.call('POST', '/api/reply', body);
-  if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. Your answer may have been kept; check your conversation before sending it again.') : ctx.unreachable('keep that');
-  if (ctx.wrongWorld(r)) return ctx.keepForLater('reply', body);
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1; }
+  if (!r.reached) {
+    if (r.timedOut) return maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. Your answer may have been kept; check your conversation before sending it again.');
+    const code = ctx.unreachable('keep that');
+    keepPiped();
+    return code;
+  }
+  if (ctx.wrongWorld(r)) {
+    let kept = 1;
+    try { kept = ctx.keepForLater('reply', body); } catch (e) { ctx.err('This Kosmos could not keep that for later (' + String((e && e.message) || e) + ').'); }
+    if (kept !== 0) keepPiped();
+    return kept;
+  }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); keepPiped(); return 1; }
   if (r.json && r.json.kept === true) { ctx.out('Answered. It is in their conversation with you.'); return 0; }
   ctx.err('That was not kept: ' + (clause(r.json && r.json.because) || 'we could not tell why') + '.');
+  keepPiped();
   return 1;
 }
 
