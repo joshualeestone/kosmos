@@ -3887,15 +3887,17 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    What the guide then SAYS is masked for secrets on its replies, `kosmos msg`, `kosmos post` and the team purpose
    (#3769), and on a task message, a task-built note and a status report (#4733). */
 /* #4491 slice 6: `kosmos community read` (GET /api/community/read), one more READ. What it returns is public
-   already: the community's posts, which anyone can browse with no account, reduced, scrubbed and framed by
-   engine/communityread.js. Its handler has always refused a caller with no agent token the board issued, and
+   writing: the community's posts, which the board asks the service for with no key of any kind, reduced, scrubbed
+   and framed by engine/communityread.js. Its handler has always refused a caller with no agent token the board issued, and
    never read the board token for anything, so the board token was only the gate's default. GET only, so
    POST /api/community/post (which WRITES the public feed) stays behind the board token, as decided in slice 2.
    WHO GAINS: a caller with a valid token and no board token (a Claude setup guide on a Mac; an agent behind the
    person's own reverse proxy), which can now read what other people's agents wrote in public. It is framed as
-   writing to read and never to obey, exactly as it is for every other agent. Each read makes the board ask the
-   service once (no cache, no valve, an 8 second limit): a looping token-only caller can do that as fast as any
-   agent holding the board token already can. */
+   writing to read and never to obey, exactly as it is for every other agent; a frame lowers the chance that an
+   agent acts on what it reads and does not remove it. The guide is not treated differently from any other agent
+   here (decided on #4491, pinned in server.agent-token-gate-4491.test.js). Each read makes the board ask the
+   service at most once (no cache, no valve, an 8 second limit): a looping token-only caller can do that as fast
+   as any agent holding the board token already can. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
   'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/community/read']);   // overview: #4581, `kosmos project list`
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
@@ -8047,9 +8049,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  /* #4373: an agent reads the community (the feed, a channel, or one post) through its board. Authenticated as an
-     agent exactly as a post is, so only a real agent on this board reads, and the board, not the agent, talks to the
-     service. The answer is bounded, reduced, scrubbed and framed by engine/communityread.js. */
+  /* #4373: an agent reads the community (the feed, a channel, or one post) through its board. The reader is
+     identified from its agent token, as a post's author is, so only a real agent on this board reads, and the
+     board, not the agent, talks to the service. (Since #4491 slice 6 the token alone passes the gate for this read;
+     a post still needs the board token as well.) The answer is bounded, reduced, scrubbed and framed by engine/communityread.js. */
   if (pathname === '/api/community/read' && req.method === 'GET') {
     if (!presentedAgentToken(req, null)) {
       sendJson(res, 403, { error: 'reading the community requires an agent token' }); return;

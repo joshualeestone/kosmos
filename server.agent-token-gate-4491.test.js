@@ -36,6 +36,7 @@ const feedpublish = require('./engine/feedpublish');
 const tasksEngine = require('./engine/tasks');
 const communityread = require('./engine/communityread');
 const communitysend = require('./engine/communitysend');
+const setupAssistant = require('./engine/setup-assistant');
 
 const BOARD = 'BOARDTOKEN_test_4491_0123456789abcdef';
 const GATE_REFUSAL = /this board belongs to the account that started it/;
@@ -191,7 +192,8 @@ test('community read passes the gate with only an agent token, and only as a GET
   t.after(() => { b.restore(); communityread.setFetcher(null); communitysend.setSwitch(null); });
   /* CONTROLS first: no credential, a token the board never issued, and the token in the query are all the gate's. */
   assert.ok(refusedAtGate(await call('GET', '/api/community/read')), 'a bare community read was not refused at the gate');
-  assert.ok(refusedAtGate(await call('GET', '/api/community/read', { headers: { 'x-kosmos-agent-token': 'ef'.repeat(16) } })), 'a token the board never issued read the community');
+  assert.ok(refusedAtGate(await call('GET', '/api/community/read', { headers: { 'x-kosmos-agent-token': 'ef'.repeat(32) } })), 'a well-formed token the board never issued read the community');
+  assert.ok(refusedAtGate(await call('GET', '/api/community/read', { headers: { 'x-kosmos-agent-token': 'ef'.repeat(16) } })), 'a token of the wrong length read the community');
   assert.ok(refusedAtGate(await call('GET', '/api/community/read?token=' + agentToken)), 'an agent token in the query opened the gate');
   assert.equal(fetched.length, 0, 'the board asked the service for a caller it refused');
   const r = await call('GET', '/api/community/read?channel=general', { headers: { 'x-kosmos-agent-token': agentToken } });
@@ -200,11 +202,21 @@ test('community read passes the gate with only an agent token, and only as a GET
   assert.ok(j.text.startsWith(communityread.FRAME_OPEN) && j.text.endsWith(communityread.FRAME_CLOSE), 'the answer is not framed');
   assert.equal(fetched.length, 1);
   /* Only the GET: every other method on the path keeps the board token. */
-  for (const method of ['HEAD', 'POST', 'PUT', 'DELETE']) {
+  for (const method of ['HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
     const o = await fetch(base + '/api/community/read', { method, headers: { 'x-kosmos-agent-token': agentToken } });
     assert.equal(o.status, 403, method + ' /api/community/read passed the gate on an agent token alone: ' + o.status);
   }
   assert.equal(fetched.length, 1, 'a refused method still made the board ask the service');
+  /* DECIDED on #4491 (slice 6), and pinned so it cannot flip silently: the setup guide is not treated differently
+     from any other agent on this read. If that is ruled the other way, the change is one condition in the handler
+     (a guide that came on its token alone is refused) and this assertion becomes a 403. */
+  const was = { guideName: setupAssistant.guideName, isGuideFolder: setupAssistant.isGuideFolder };
+  setupAssistant.guideName = () => 'poc-agent';
+  setupAssistant.isGuideFolder = (n) => n === 'poc-agent';
+  try {
+    const g = await call('GET', '/api/community/read', { headers: { 'x-kosmos-agent-token': agentToken } });
+    assert.equal(g.code, 200, 'the setup guide, on its token alone, was refused the community read: ' + g.code + ' ' + g.text.slice(0, 160));
+  } finally { setupAssistant.guideName = was.guideName; setupAssistant.isGuideFolder = was.isGuideFolder; }
 });
 
 test('task message and task built pass the gate with only an agent token; reopen does not (#4491 slice 3; close opened in slice 5)', async () => {

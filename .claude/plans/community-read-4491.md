@@ -30,8 +30,24 @@ the query, and `POST /api/community/post` on a token alone are all still refused
 3. Post stays behind the board token (slice 2's decision, unchanged, and pinned by its own test).
 
 ## Measured
-- The six test files that touch this route, the set and the two CLIs: 54 of 54.
+- The six test files that touch this route, the set and the two CLIs: 54 of 54 (again after round 1's fixes).
 - Mutation: the entry removed from the set turns BOTH the new gate test and the pin red; file restored byte-identical.
+
+## Review round 1 (one blind reviewer, no blocker; six findings, all taken)
+1. The "token the board never issued" control was 32 characters, so it was refused for its shape and never reached
+   the token store. Now a 64 character one, with the short one kept as its own control.
+2. Decision 1 had no test, so a later handler change could flip it silently. Now pinned: the guide, on its token
+   alone, reads (200). Mutation: a guide refusal in the handler turns the test red.
+3. The handler's comment said the read is authenticated "exactly as a post is"; after this change a post needs the
+   board token and a read does not. Reworded.
+4. The method loop left out PATCH and OPTIONS. Added.
+5. "asks the service once" is "at most once" (the switch off, or a bad channel, asks nothing). Reworded.
+6. "anyone can browse with no account" is a claim about the service this repo cannot show. Reworded to what the
+   code shows: the board asks the service with no key.
+The reviewer also RAN: path spellings (trailing slash, case, encoded, doubled slash are refused; `/./read` is the
+same path after URL parsing), every other method (403 on a token alone, 404 with the board token, so the loop is
+not vacuous), a valid token whose agent is not on the roster (passes the gate, refused by the handler, nothing
+fetched), and that the caller's input cannot steer the service URL.
 
 ## Not done
 - No full run yet. This slice will be rebased onto the top of my stack (agent-projects-4491 after its own rebase)
