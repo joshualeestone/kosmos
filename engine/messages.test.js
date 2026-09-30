@@ -428,7 +428,9 @@ test('the colleagues block says a reply in your own session reaches nobody, and 
      guard DOES run. */
   assert.match(body, /Do not\s+quote\s+the\s+bracket\s+line/i,
     'the block never warns that echoing the delivery marker is refused, so the guard reads as a silent failure');
-  assert.match(body, /own\s+words,\s+or\s+name\s+the\s+id/i,
+  /* #4631: what to do instead is now whose message it was and what it said, not the bare id ("re m12"),
+     which agents then repeated to people. */
+  assert.match(body, /own\s+words\s+instead\s+of\s+pasting\s+the\s+line:\s+whose\s+message\s+it\s+was\s+and\s+what\s+it\s+said/i,
     'the warning does not say what to do instead');
   /* CONTROL: the WARNING paragraph must DESCRIBE the marker, never carry
      one. (The block elsewhere quotes the prefix on purpose, to teach
@@ -2763,3 +2765,19 @@ test('#4447: a plain FILE where the Inbox should be is refused as "not a folder"
   });
 });
 
+
+/* #4631: a person copies "message 530 in Kosmos Growth" from a message (or types "530") and pastes it to an
+   agent. Every input point runs the value through messageIdOf, so each of those shapes names m530, and
+   anything else comes back unchanged for the caller's own refusal to name. */
+test('#4631: messageIdOf reads the ways a person writes a message id', () => {
+  for (const v of ['m530', 'M530', '530', ' 530 ', 'message 530', 'Message 530',
+    'message m530', 'message 530 in Kosmos Growth', '530 in Five Families', 'm0530', 'message 530.', 'message 530 in Kosmos Growth,']) {
+    assert.equal(messages.messageIdOf(v), 'm530', JSON.stringify(v));
+  }
+  for (const v of ['', 'abc', 'message', 'message abc', 'mm530', '530x', 'message 530 about the deck', '5 30', '530..', '#530', '#4631', 'message #530',
+    '2026-09-29T19:05:01.000Z', '1234567890123456']) {
+    assert.equal(messages.messageIdOf(v), v.trim(), JSON.stringify(v));
+  }
+  assert.equal(messages.messageIdOf(null), '');
+  assert.equal(messages.messageIdOf(undefined), '');
+});

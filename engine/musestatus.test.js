@@ -215,7 +215,7 @@ test('#3939 3c-1: older events of a kind are pruned; the newest of each stays; n
   assert.equal(names.filter((n) => /-turn-/.test(n)).length, 1, 'older turns were not pruned: ' + names);
   assert.equal(names.filter((n) => /-note-/.test(n)).length, 1, 'older notes were not pruned: ' + names);
   assert.deepEqual(fs.readdirSync(muse.eventsFolder()).filter((n) => n.endsWith('.tmp')), [], 'a temporary file was left');
-  assert.deepEqual(muse.latest(), { turn: T + 30, sign: null, note: { finish: T + 20, start: T + 20, digests: [], fileUnread: false, vanished: false } });
+  assert.deepEqual(muse.latest(), { turn: T + 30, sign: null, note: { finish: T + 20, start: T + 20, digests: [], fileUnread: false, vanished: false, saveOnly: false } });
   clean();
 }));
 
@@ -401,3 +401,43 @@ test('#3939: the preview marker turns Muse on (a Mac), and removing it turns it 
     if (was === undefined) delete process.env.AGENT_WORKFORCE_MUSE; else process.env.AGENT_WORKFORCE_MUSE = was;
   }
 });
+
+test('#4569: lastSeenWorking is Kosmos\'s own sign-in or a finished turn, never Muse\'s record alone; refused is a refusal nothing has undone', () => withXdg((xdg) => {
+  clean();
+  writeAuth(xdg, { meta: { token: 'x' } });
+  assert.deepEqual(muse.signedIn(), { signedIn: true, how: 'file' }, 'CONTROL: Muse\'s own record says signed in');
+  assert.equal(muse.lastSeenWorking(), null, 'Muse\'s record alone read as seen working (it would be green)');
+  assert.equal(muse.refused(), false);
+  // Josh's case (10:47): Muse's record AND Kosmos's own sign-in. signedIn() answers 'file' first; still seen working.
+  muse.markKosmosSignedIn(T);
+  assert.deepEqual(muse.lastSeenWorking(), { at: T, from: 'sign' }, 'Kosmos\'s own sign-in was not seen working (the black row)');
+  muse.markTurnSignedIn(T + 5);
+  assert.deepEqual(muse.lastSeenWorking(), { at: T + 5, from: 'turn' }, 'the newer of the two is not the one said');
+  // A refusal after both: not seen working, and refused.
+  fs.rmSync(path.join(xdg, 'muse', 'auth.json'));
+  muse.markSignedOut(T + 10);
+  assert.equal(muse.signedIn().signedIn, false, 'CONTROL: signed out after the refusal');
+  assert.equal(muse.lastSeenWorking(), null, 'a sign-in the refusal ended still reads as working');
+  assert.equal(muse.refused(), true, 'a refused sign-in is not said (the row vanished instead of going red)');
+  muse.markKosmosSignedIn(T + 20);
+  assert.equal(muse.refused(), false, 'signing in again did not clear the refusal');
+  assert.deepEqual(muse.lastSeenWorking(), { at: T + 20, from: 'sign' });
+  clean();
+  assert.equal(muse.refused(), false, 'never signed in reads as refused');
+}));
+
+test('#4569 review round 1: a sign-in whose save failed is not a refusal (no turn ran); a refused turn after it is', () => withXdg(() => {
+  clean();
+  muse.markSaveFailed(T);
+  assert.equal(muse.signedIn().signedIn, false, 'CONTROL: not signed in');
+  assert.equal(muse.refused(), false, 'a failed save read as Meta refusing a turn (a red row for someone never signed in)');
+  muse.markSignedOut(T + 10);
+  assert.equal(muse.refused(), true, 'CONTROL: a refused turn after it is a refusal');
+  clean();
+  place('note', T, '{"start":' + T + '}\n');   // a note from before the kind was written
+  assert.equal(muse.refused(), true, 'an older note without a kind stopped counting as a refusal');
+  clean();
+  place('note', T, '{"start":' + T + ',"kind":"save"}\n'); place('note', T, '{"start":' + T + '}\n');
+  assert.equal(muse.refused(), true, 'a refusal at the same moment as a failed save was hidden by it');
+  clean();
+}));

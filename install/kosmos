@@ -1036,7 +1036,17 @@ cmd_start() {
   # every `kosmos` it runs later (its own Restart button would then read as an agent). And not the
   # reclaim flag either: it is meant for this one start (setup.sh, the watchdog), and a board that
   # carried it would hand every later `kosmos start` it runs leave to kill a busy board.
+  # #4669: set -m, so the board gets its OWN process group. When a launchd job ends, launchd kills every
+  # process left in the job's process group, and nohup does not leave it. So a board started by a job that
+  # runs `kosmos start` died the instant that job exited: on Mortals the watchdog's recovery board lived
+  # 745 ms (measured). A throwaway RunAtLoad job of the same shape (nohup a child, exit) lost its child too,
+  # so an old-style login job running `kosmos start` would as well (that shape measured, not that job).
+  # $! is still the board's pid (env and nohup exec). Side effect, harmless: under set -m bash no longer
+  # starts the child with SIGINT/SIGQUIT ignored; the board handles SIGINT itself, and in its own group a
+  # Ctrl-C in the terminal cannot reach it anyway.
+  set -m
   env -u KOSMOS_AGENT_SESSION -u KOSMOS_AGENT_TOKEN -u TMUX_PANE -u KOSMOS_RECLAIM_BUSY PORT="$PORT" nohup "$NODE" "$APP" </dev/null >> "$BOARD_LOG" 2>&1 3>&- &
+  set +m
   printf '%s' "$!" > "$PIDFILE"
   # ⚠️ WAIT FOR THE BOARD TO ANSWER, NOT FOR THE PROCESS TO EXIST. A pid that
   # crashes half a second in still had a pid. Thirty half-second tries is
@@ -2968,7 +2978,10 @@ cmd_task() {
       [ "$rc" -eq 0 ] || { say_unreached "send that message" "$rc" write; exit 1; }
       # Success is the board's own {"ok":true,...} shape, not merely the absence of an error.
       case "$body" in
-        '{"ok":'*) say "Message recorded on task $num of ${project:-the project}; any agents assigned to it were notified." ;;
+        '{"ok":'*)
+          # #4540: the board's own sentence about who was told (it carries no double quote); none from an older board.
+          local told; told=$(printf '%s' "$body" | sed -n 's/.*"summary":"\([^"]*\)".*/\1/p')
+          say "Message recorded on task $num of ${project:-the project}.${told:+ $told}" ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos refused that message: ${because:-it did not say why}."; exit 1 ;;
