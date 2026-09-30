@@ -121,8 +121,8 @@ test('#4733 the note on the guide\'s built mark is kept masked; another agent\'s
   assert.equal(stored(n2).builtNote, note, 'CONTROL: another agent\'s note was changed');
 });
 
-test('#4733 the guide\'s status report is recorded masked in every free-text field; another agent\'s is kept as sent', async () => {
-  const body = { state: 'needs_you', text: `I need you to confirm ${KEY}`, on: `the key ${KEY}`, owner: `whoever holds ${KEY}`, until: `after ${KEY}` };
+test('#4733 the guide\'s status report is recorded masked in every field kept as text; another agent\'s is kept as sent', async () => {
+  const body = { state: 'needs_you', text: `I need you to confirm ${KEY}`, on: `the key ${KEY}`, owner: `whoever holds ${KEY}`, until: `after ${KEY}`, project: KEY };
 
   const g = await post('/api/report', body, GUIDE);
   assert.equal(g.status, 200, JSON.stringify(g.json));
@@ -130,22 +130,67 @@ test('#4733 the guide\'s status report is recorded masked in every free-text fie
   const gr = selfreport.read(GUIDE);
   assert.equal(gr.found, true);
   assert.equal(gr.because, `I need you to confirm ${MASK}`);
+  assert.equal(gr.on, `the key ${MASK}`);
+  assert.equal(gr.owner, `whoever holds ${MASK}`);
+  assert.equal(gr.until, `after ${MASK}`);
+  assert.equal(gr.project, MASK);
   assert.ok(!JSON.stringify(gr).includes(KEY), 'the key reached the guide\'s stored report: ' + JSON.stringify(gr));
-  assert.ok(JSON.stringify(gr).includes(`the key ${MASK}`) && JSON.stringify(gr).includes(`whoever holds ${MASK}`), 'on and owner were not kept (masked): ' + JSON.stringify(gr));
   assert.ok(!JSON.stringify(g.json).includes(KEY), 'the key came back in the route\'s answer');
 
   const o = await post('/api/report', body, OTHER);
   assert.equal(o.status, 200, JSON.stringify(o.json));
   const or = selfreport.read(OTHER);
-  assert.equal(or.because, body.text, 'CONTROL: another agent\'s report was changed');
-  assert.equal(or.on, body.on, 'CONTROL: another agent\'s report was changed');
+  for (const [field, sent] of [['because', body.text], ['on', body.on], ['owner', body.owner], ['until', body.until], ['project', body.project]]) {
+    assert.equal(or[field], sent, `CONTROL: another agent's ${field} was changed`);
+  }
 });
 
-test('#4733 a report field that is not a string is passed on as it came (the mask never invents one)', async () => {
+test('#4733 a report field that is not a string is made text and masked for the guide (the store would make text of it unmasked)', async () => {
+  const body = { state: 'needs_you', text: [`the key is ${KEY}`], on: [KEY], owner: [`holder ${KEY}`], until: [`after ${KEY}`] };
+
+  const g = await post('/api/report', body, GUIDE);
+  assert.equal(g.status, 200, JSON.stringify(g.json));
+  assert.equal(g.json.recorded, true, JSON.stringify(g.json));
+  const gr = selfreport.read(GUIDE);
+  assert.equal(gr.because, `the key is ${MASK}`);
+  assert.equal(gr.on, MASK);
+  assert.equal(gr.owner, `holder ${MASK}`);
+  assert.equal(gr.until, `after ${MASK}`);
+  assert.ok(!JSON.stringify(gr).includes(KEY), 'the key reached the guide\'s stored report: ' + JSON.stringify(gr));
+
+  // CONTROL: the same body from another agent is stored as the store has always made text of it, key and all.
+  const o = await post('/api/report', body, OTHER);
+  assert.equal(o.status, 200, JSON.stringify(o.json));
+  const or = selfreport.read(OTHER);
+  assert.equal(or.because, `the key is ${KEY}`, 'CONTROL: another agent\'s list was not stored as its text');
+  assert.equal(or.on, KEY);
+});
+
+test('#4733 a guide report with no on or owner still records them as absent', async () => {
   const g = await post('/api/report', { state: 'working', text: 'Reading the inbox' }, GUIDE);
   assert.equal(g.status, 200, JSON.stringify(g.json));
   const gr = selfreport.read(GUIDE);
   assert.equal(gr.because, 'Reading the inbox');
   assert.equal(gr.on, null);
   assert.equal(gr.owner, null);
+});
+
+test('#4733 a report the guide made before the mask is not written again as it was when a post carries it onto a project', async () => {
+  /* A working report as an older build stored it: straight into the store, key and all. */
+  for (const who of [GUIDE, OTHER]) {
+    const kept = selfreport.record(who, { state: 'working', because: `using ${KEY}`, on: `the ${KEY} step` });
+    assert.equal(kept.recorded, true, JSON.stringify(kept));
+    assert.equal(selfreport.read(who).because, `using ${KEY}`, 'CONTROL: the old report was not stored with the key');
+  }
+  for (const who of [GUIDE, OTHER]) {
+    const r = await post('/api/post', { project: projectId, text: 'Starting on the mail account.' }, who);
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+  }
+  const gr = selfreport.read(GUIDE);
+  assert.equal(gr.project, projectId, 'CONTROL: the post did not carry the report onto the project, so nothing was written again');
+  assert.equal(gr.because, `using ${MASK}`);
+  assert.equal(gr.on, `the ${MASK} step`);
+  const or = selfreport.read(OTHER);
+  assert.equal(or.project, projectId, 'CONTROL: the other agent\'s report was not carried either');
+  assert.equal(or.because, `using ${KEY}`, 'CONTROL: another agent\'s carried report was changed');
 });

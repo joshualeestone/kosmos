@@ -2985,6 +2985,14 @@ function guideMasked(who, text) {
   return out.text;
 }
 
+/* #4733: one free-text field of the setup guide's status report, masked. selfreport makes text of whatever it is
+   handed (String(value)), so a value that is not a string is made text here first; left as it came, it would be
+   stored unmasked. An absent value, and anyone else's, passes as it came. */
+function guideMaskedField(who, value) {
+  if (value === null || value === undefined || !isSetupGuide(who)) return value;
+  return guideMasked(who, typeof value === 'string' ? value : String(value));
+}
+
 /* #3769: rows as read, for a route that serves stored rows: any row the setup guide wrote is masked
    (rows stored before the write-side filter existed). `wholeThread` masks every row, for a thread
    whose other party is the guide. Rows from anyone else pass unchanged. */
@@ -13032,15 +13040,15 @@ const server = http.createServer(async (req, res) => {
         } catch { /* unknown reads as a change */ }
         const kept = selfreport.record(who, {
           state: body.state,
-          project: typeof body.project === 'string' ? body.project : undefined,
-          /* #4733: the setup guide's words are masked here too (every free-text field of a report); any other
-             agent's pass unchanged (guideMasked). */
-          because: guideMasked(who, body.text),
+          /* #4733: the setup guide's words are masked in each field selfreport stores as text (guideMaskedField);
+             any other agent's pass as they came. */
+          project: typeof body.project === 'string' ? guideMaskedField(who, body.project) : undefined,
+          because: guideMaskedField(who, body.text),
           waiting: body.waiting,   // #4569 fix 4: selfreport keeps it only on a sane working report
           final: body.final,       // #4612: a Muse turn's answer; selfreport keeps it only on a sane idle or working report
-          on: guideMasked(who, body.on),
-          owner: guideMasked(who, body.owner),
-          until: guideMasked(who, body.until),
+          on: guideMaskedField(who, body.on),
+          owner: guideMaskedField(who, body.owner),
+          until: guideMaskedField(who, body.until),
           /* #570: which RUN said it, when the sender came from a launch token.
              The pane arm resolves no instance and leaves this undefined. */
           instance: sender.instance,
@@ -13690,7 +13698,9 @@ const server = http.createServer(async (req, res) => {
                      note the agent had set. */
                   selfreport.record(who, {
                     state: 'working', project: projectId,
-                    because: current.because, on: current.on, owner: current.owner, until: current.until,
+                    /* #4733: masked for the setup guide, so a report it made before the mask is not written again as it was. */
+                    because: guideMaskedField(who, current.because), on: guideMaskedField(who, current.on),
+                    owner: guideMaskedField(who, current.owner), until: guideMaskedField(who, current.until),
                     instance: poster.instance, auto: true,
                   });
                 }
