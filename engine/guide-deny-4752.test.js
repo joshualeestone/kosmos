@@ -275,3 +275,38 @@ test('#4752 a rule that would take in the guide\'s own folder (an older folder t
   assert.equal(said.length, 1, 'leaving it out was not said');
   assert.ok(deny.includes(`Read(//${path.join(SANDBOX, 'data-own').replace(/^\/+/, '')}/**)`), 'CONTROL: the ordinary data folder rule is gone');
 });
+
+test('#4752 the own-folder check leaves the rules from before #4752 alone, and catches a linked store entry', () => {
+  /* A workers folder inside the data folder: the long-standing data folder rule covers the guide, and stays
+     (it is not this change's to drop). A linked entry in the default world's store pointing at the guide's
+     parent is this change's, and is left out. */
+  const root = path.join(SANDBOX, 'own-2');
+  const data = path.join(root, 'data');
+  const guide = path.join(data, 'workers', 'guide');
+  fs.mkdirSync(guide, { recursive: true });
+  const base = path.join(root, 'base');
+  fs.mkdirSync(path.join(base, 'worlds'), { recursive: true });
+  fs.symlinkSync(path.join(data, 'workers'), path.join(base, 'linked'));
+  const write = process.stderr.write;
+  process.stderr.write = (s, ...rest) => (String(s).startsWith('#4752') ? true : write.call(process.stderr, s, ...rest));
+  let deny;
+  try {
+    assert.equal(setupAssistant.guardGuideFolder(guide, 'guide', { dataRoot: data, worldsBase: base, legacyRoots: [] }).ok, true);
+    deny = JSON.parse(fs.readFileSync(path.join(guide, '.claude', 'settings.json'), 'utf8')).permissions.deny;
+  } finally { process.stderr.write = write; }
+  const abs = (p) => '//' + p.replace(/^\/+/, '');
+  assert.ok(deny.includes(`Read(${abs(data)}/**)`), 'the data folder rule (#3769) was dropped by the #4752 check');
+  assert.ok(!deny.includes(`Read(${abs(path.join(base, 'linked'))}/**)`), 'the linked entry that holds the guide was named');
+  assert.ok(deny.includes(`Read(${abs(path.join(base, 'board.token'))})`), 'CONTROL: the base rules were not written at all');
+});
+
+test('#4752 a base whose path the rule syntax would misread gets no rules, and that is said', () => {
+  const said = [];
+  const write = process.stderr.write;
+  process.stderr.write = (s, ...rest) => { if (String(s).startsWith('#4752')) { said.push(String(s)); return true; } return write.call(process.stderr, s, ...rest); };
+  let rules;
+  try { rules = setupAssistant.guideDenyRules({ dataRoot: '/x/worlds/w1/Kosmos', worldsBase: '/Users/Jo (work)/Kosmos', legacyRoots: ['/Users/Jo (work)/AgentWorkforce'] }); }
+  finally { process.stderr.write = write; }
+  assert.deepEqual(rules.filter((r) => r.includes('Jo (work)')), [], 'a rule was written for a path with a bracket');
+  assert.equal(said.length, 2, 'the two paths left out were not both said: ' + said.join(' | '));
+});

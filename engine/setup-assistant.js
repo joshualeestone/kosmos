@@ -261,16 +261,19 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
      board start); an entry made later is uncovered until the next start, except the token and its temporary
      copies, which are always named. */
   /* The same folder, spelt differently (case on a case-insensitive disk, a link) or not: real paths when both exist. */
-  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
-  const same = (a, b) => !!a && !!b && (path.resolve(a) === path.resolve(b) || real(a) === real(b));
+  const same = (a, b) => !!a && !!b && (path.resolve(a) === path.resolve(b) || realOr(a) === realOr(b));
+  /* A folder whose path the rule syntax would misread (`* ? [ ] ( ) { } !`) gets no rule here: said, not guessed. */
+  const plain = (p) => { if (!/[*?[\](){}!]/.test(String(p))) return true; process.stderr.write(`#4752: no rule for ${p}: its path has a character the rule syntax reads as a pattern\n`); return false; };
+  let extra = [];
   let entryBase = null;
   let listed = false;   // earlier per-entry rules are dropped only when this list is complete
   try {
     const more = [];
     for (const old of (legacyRoots !== undefined ? legacyRoots : guideLegacyRoots(home))) {
-      if (old && !same(old, dataRoot)) more.push(`Read(${ruleAbs(old)}/**)`);
+      if (old && !same(old, dataRoot) && plain(old)) more.push(`Read(${ruleAbs(old)}/**)`);
     }
-    const base = worldsBase !== undefined ? worldsBase : guideWorldsBase();
+    const base0 = worldsBase !== undefined ? worldsBase : guideWorldsBase();
+    const base = base0 && !same(base0, dataRoot) && !plain(base0) ? null : base0;
     if (base && !same(base, dataRoot)) {
       const worlds = require('./worlds');
       const tokenFile = require('./boardauth').TOKEN_FILE;
@@ -296,13 +299,14 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
       for (const leaf of [store.APP, store.LEGACY_APP]) more.push(`Read(${ruleAbs(worldsDir)}/*/${leaf}/**)`);
     }
     rules.push(...more);
+    extra = more;
     if (listed) entryBase = base;
   } catch (err) {
     /* The rules above still stand: a guide is never left with none because these could not be worked out. Said,
        so a guide written without them can be told apart from one written with them. */
     process.stderr.write(`#4752: the setup guide's rules for the older data folder and the other worlds' stores were left out: ${(err && err.message) || err}\n`);
   }
-  return { rules, entryBase };
+  return { rules, entryBase, extra };
 }
 /* A folder's real path when it can be read, else the path as given. */
 function realOr(p) { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } }
@@ -376,11 +380,14 @@ function guardGuideFolder(dir, agentName, deps = {}) {
        behind for ever. Only a rule this code could have written for one entry is dropped (wasEntryRule); any
        other rule stays, a person's own rule for the registry or for a name this code leaves alone included. */
     const kept = fresh.entryBase ? had.filter((r) => fresh.rules.includes(r) || !wasEntryRule(r, fresh.entryBase)) : had;
-    /* #4752: never a rule that takes in the guide's own folder. An older folder or a linked entry a person made
-       can resolve to an ancestor of it; the sandbox follows links, so such a rule would cut the guide off from its
-       own instructions. Dropped, and said. */
+    /* #4752: none of THIS change's rules (fresh.extra) may take in the guide's own folder. An older folder or a
+       linked entry a person made can resolve to an ancestor of it, and the sandbox follows links, so such a rule
+       would cut the guide off from its own instructions: dropped, and said. What this checks, no more: a rule
+       naming one folder or file, compared by real path, on a Mac or Linux path; a rule with a `*` is not
+       checked, and the rules from before #4752 are left as they were. */
     const own = realOr(dir);
     const safe = fresh.rules.filter((r) => {
+      if (!fresh.extra.includes(r)) return true;
       const m = /^Read\(\/\/([^*?]*?)(\/\*\*)?\)$/.exec(r);
       if (!m) return true;
       const target = realOr('/' + m[1]);
