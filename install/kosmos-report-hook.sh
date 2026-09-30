@@ -172,61 +172,67 @@ json_field() { # $1 jq path, $2 sed key fallback
 }
 
 # --- #4671: never let an agent stop every process the person owns ------------
-# On 2026-09-29 a review subagent on a Kosmos Mac ran a throwaway script that
-# signalled pid -1, which means every process this user may signal. It ended the
-# person's whole login session: every agent, the board, the Kosmos app, their open
-# apps. This blocks a tool call (exit 2, the reason on stderr) whose command or
-# written code holds one of these LITERAL shapes:
-#   a shell `kill` whose target is -1 (also quoted, or fed to xargs); killall -u or
-#   -m; pkill -u/-U, or pkill -f with a match-everything pattern; kill fed by
-#   `pgrep -u`; code signalling pid -1 (process.kill, os.kill, C kill, Ruby, Perl,
-#   an argv array); launchctl bootout of a whole gui/user domain, launchctl reboot.
-# Allowed: a named pid, `kill -1 <pid>` (SIGHUP to one), group kills, kill 0,
-# killall/pkill by name, signal 0 to -1 (it sends nothing).
-# 🛑 IT DOES NOT STOP THE 2026-09-29 SCRIPT ITSELF: that one took -1 from a list
-# at run time (`for (const pid of [-1, ...]) process.kill(pid, ...)`). No text
-# match can see a computed pid; report-hook-killguard-4671.test.js pins that as a
-# known gap. It stops the literal shapes only.
-# Scope: with jq it reads only what runs or is written (tool_input.command,
-# content, new_string, new_source, edits[].new_string), for ANY tool, so Monitor
-# and command-running MCP tools are covered and a description or a deleted line
-# is not. Without jq it reads the raw input (wider, may refuse a mention).
+# On 2026-09-29 a review subagent on a Kosmos Mac ran a throwaway node script that
+# sent SIGKILL to process id minus one, which means every process this user may
+# signal. It ended the person's whole login session: every agent, the board, the
+# Kosmos app, their open apps. This blocks a tool call (exit 2, the reason on
+# stderr) whose command or written code holds one of these LITERAL shapes:
+#   - a shell kill whose target is minus one (also quoted, or fed to xargs);
+#   - code sending a signal to minus one (node, Python, C, Ruby, Perl, an argv array);
+#   - pkill or killall limited only by a user (-u/-U, no name or pattern), or
+#     with a match-everything pattern; a kill fed by `pgrep -u <user>` alone;
+#   - launchctl bootout of a whole gui/user/login domain, or launchctl reboot.
+# Allowed: a named pid, SIGHUP to one pid, a group kill, kill 0, pkill/killall by
+# name or pattern (also with -u), signal 0 from code, bootout of one service.
+# 🛑 IT DOES NOT STOP THE 2026-09-29 SCRIPT ITSELF: that one took the minus one
+# from a list at run time. No text match can see a computed pid;
+# report-hook-killguard-4671.test.js pins that as a known gap.
+# Reads: with jq, only what runs or is written (tool_input command, script, code,
+# args, content, new_string, new_source, edits[].new_string), for ANY tool; a
+# Write/Edit to a .md, .markdown or .txt file is not checked (a document is not
+# run). Without jq, the raw input (wider; a mention or a deleted line can be
+# refused). The operator can turn it off for an agent by starting it with
+# KOSMOS_KILL_GUARD=off; an agent cannot change its own hook's environment.
 # Not guarded at all: Windows agents (the node hook, engine/kosmos-report-hook.js)
 # and Codex, Gemini and Grok agents, which have no such hook.
 _kg_text() { # what the guard reads
   if [ -n "$JQ" ]; then
-    printf '%s' "$INPUT" | "$JQ" -r '.tool_input // {} | [.command, .content, .new_string, .new_source, (.edits // [] | .[]? | .new_string)] | map(select(type == "string")) | join("\n")' 2>/dev/null
+    printf '%s' "$INPUT" | "$JQ" -r '
+      (.tool_input | objects) as $t
+      | if (($t.file_path // $t.notebook_path // "") | strings | test("\\.(md|markdown|txt)$"; "i")) then ""
+        else [ $t.command, $t.script, $t.code, $t.content, $t.new_string, $t.new_source,
+               ($t.args | arrays | map(strings) | join(" ")),
+               ($t.edits | arrays | .[] | objects | .new_string) ]
+             | map(strings) | join("\n") end' 2>/dev/null
   else
     printf '%s' "$INPUT"
   fi
 }
 _kill_all_reason() { # $1 the text; prints the reason and succeeds when it would stop everything
-  local B='(^|[^A-Za-z0-9_.-]|\\[nt])' T="([[:space:]]|\$|\\\\[nt]|[;&|)<>\`\"'\\\\])"
-  local Q="(\\\\?[\"'])?" SP='([[:space:]]|\\t)+' NZ='([^0[:space:]]|0[^[:space:])])'
-  local shkill="${B}kill${SP}((-s${SP}[A-Za-z0-9]+|-n${SP}[0-9]+|--|-[A-Za-z0-9]+)${SP})+(${Q}[0-9]+${Q}${SP})*${Q}-1${Q}${T}"
-  local xkill="${B}(echo|printf)${SP}${Q}-1${Q}${T}.*xargs.*${B}kill"
-  local kall="${B}killall${SP}(-[A-Za-z0-9]+${SP})*-[A-Za-z]*[um]"
-  local pk="${B}pkill${SP}(-[A-Za-z0-9]+${SP})*-[A-Za-z]*[uU]|${B}pkill${SP}(-[A-Za-z0-9]+${SP})*-[A-Za-z]*f${SP}(\\\\?[\"'](\\.\\*?)?\\\\?[\"']|\\.\\*?)([[:space:]]|\$|\\\\[nt]|[;&|)\"])"
-  local pg="${B}pgrep${SP}(-[A-Za-z0-9]+${SP})*-[A-Za-z]*[uU]"
-  local code="([Pp]rocess|os|syscall|unix|libc|posix)(\\.|::)[Kk]ill(pg)?[[:space:]]*\\([[:space:]]*-[[:space:]]*1[[:space:]]*(\\)|,[[:space:]]*${NZ})|${B}kill[[:space:]]*\\([[:space:]]*-1[[:space:]]*,[[:space:]]*${NZ}"
-  local sigfirst="(Process\\.kill|${B}kill)[[:space:]]*\\(?[[:space:]]*[A-Za-z0-9:_\"'\\\\]+[[:space:]]*,[[:space:]]*-1([^0-9]|\$)"
-  local argv="\\\\?[\"']kill\\\\?[\"'][[:space:]]*,[^]]*\\\\?[\"']-1\\\\?[\"']"
-  local lctl="${B}launchctl${SP}(reboot|bootout${SP}(gui|user|login)/(\\\$\\(id -u\\)|[^/([:space:]\\\\\"']+)${T})"
+  local B='(^|[^A-Za-z0-9_.-]|\\[nt])' SP='([[:space:]]|\\t)+' Q="(\\\\?[\"'])?"
+  # E: nothing after the operand but the end of the command. A double quote counts only where a raw JSON
+  # string ends (followed by , or }), so `pkill -u "$USER" node` is not read as ending at "$USER".
+  local T="([[:space:]]|\$|\\\\[nt]|[;&|)<>\`\"'\\\\])" E="([[:space:]]|\\\\t)*(\$|\\\\n|[;&|)]|\"[,}])"
+  local NEG1="${Q}-1${Q}" FL="(-[a-z0-9]+${SP})*" NZ='([^0[:space:]]|0[^[:space:])])'
+  # OP: one user or pattern operand, quoted or not, or a $( ... ). Note `(${SP})?`, never `${SP}?`:
+  # that expands to `(...)+?`, which POSIX ERE leaves undefined and BSD grep reads as "at least one".
+  local OP="${Q}(\\\$\\([^)]*\\)|[^[:space:]\\\\;&|)\"'(-][^[:space:]\\\\;&|)\"'(]*)${Q}"
+  local shkill="${B}kill${SP}((-s${SP}[A-Za-z0-9]+|-n${SP}[0-9]+|--|-[A-Za-z0-9]+)${SP})+(${Q}[0-9]+${Q}${SP})*${NEG1}${T}"
+  local xkill="${B}(echo|printf)${SP}(--${SP})?${NEG1}${T}.*xargs.*${B}kill|xargs[^|;]*${B}kill[^|;]*<<<(${SP})?${NEG1}"
+  local code="([Pp]rocess|os|syscall|unix|libc|posix|\\))(\\.|::)[Kk]ill(pg)?[[:space:]]*\\([[:space:]]*-[[:space:]]*1[[:space:]]*(\\)|,[[:space:]]*${NZ})|${B}kill[[:space:]]*\\([[:space:]]*-1[[:space:]]*,[[:space:]]*${NZ}|Process\\.kill[[:space:]]*\\([^,()]+,[[:space:]]*-1[[:space:]]*\\)|${B}kill${SP}[A-Za-z0-9\"']+[[:space:]]*(,|=>)[[:space:]]*-1([^0-9]|\$)"
+  local argv="\\\\?[\"']([^\"',]*/)?kill\\\\?[\"'][[:space:]]*,[^]]*\\\\?[\"']-1\\\\?[\"']"
+  local user="${B}(pkill|killall)${SP}${FL}-[a-z]*[uU](${SP})?${OP}${E}"
+  local every="${B}(pkill|killall)${SP}${FL}(-m${SP})?(\\\\?[\"'](\\.(\\*)?|\\^)?\\\\?[\"']|\\.(\\*)?|\\^)${E}"
+  local pgk="\\\$\\((${SP})?pgrep${SP}${FL}-[a-z]*[uU](${SP})?${OP}[[:space:]]*\\)|${B}pgrep${SP}${FL}-[a-z]*[uU](${SP})?${OP}[[:space:]]*\\|[[:space:]]*xargs[^|;]*${B}kill"
+  local uid="(\\\$\\(id -u[^)]*\\)|\\\$\\{?UID\\}?|[0-9]+)"
+  local lctl="${B}launchctl${SP}(reboot|bootout${SP}(gui|user|login)/${Q}${uid}${Q}${E})"
   local _t="$1"
-  # One pass on the common path; the named passes only run on a hit.
-  printf '%s' "$_t" | grep -Eq -- "$shkill|$xkill|$kall|$pk|$pg|$code|$sigfirst|$argv|$lctl" || return 1
-  if printf '%s' "$_t" | grep -Eq -- "$lctl"; then
-    echo "launchctl ending your whole login domain"
-  elif printf '%s' "$_t" | grep -Eq -- "$pg"; then
-    printf '%s' "$_t" | grep -Eq -- "${B}kill" || return 1
-    echo "a kill fed by pgrep -u (every process you own)"
-  elif printf '%s' "$_t" | grep -Eq -- "$kall|$pk"; then
-    echo "a killall or pkill that matches every process you own"
-  else
-    echo "a signal to process id -1 (every process you own)"
-  fi
+  if printf '%s' "$_t" | grep -Eq -- "$shkill|$xkill|$code|$argv"; then echo "a signal to process id -1 (every process you own)"
+  elif printf '%s' "$_t" | grep -Eq -- "$user|$every|$pgk"; then echo "a kill that matches every process you own"
+  elif printf '%s' "$_t" | grep -Eq -- "$lctl"; then echo "a launchctl command that ends your whole login session or the computer"
+  else return 1; fi
 }
-if [ "$EVENT" = PreToolUse ]; then
+if [ "$EVENT" = PreToolUse ] && [ "${KOSMOS_KILL_GUARD:-}" != off ]; then
   _KG_TEXT="$(_kg_text)"
   if [ -n "$_KG_TEXT" ] && _KG_WHY="$(_kill_all_reason "$_KG_TEXT" 2>/dev/null)" && [ -n "$_KG_WHY" ]; then
     printf 'Kosmos blocked this %s call: it contains %s. On this computer that ends the whole session of the person you work for: every agent, the Kosmos board, and their open apps (kosmos#4671). Stop only exact process ids you started yourself and checked. If you are only writing ABOUT such a command, reword it.\n' \
