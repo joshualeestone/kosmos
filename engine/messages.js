@@ -1436,7 +1436,7 @@ function mentionedMembers(cleaned, recipients, roster) {
   return { mentioned, ambiguous };
 }
 
-function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery) {
+function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery, deliverAutomaticToPane) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
      composer through the server, which is the operator's own surface),
@@ -1954,6 +1954,19 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     const heldIds = roomhold.take(name, projectId);
     const heldLine = heldIds.length ? ' ' + roomhold.clauseFor(projectId, shownProject, heldIds) : '';
     const finish = (sent) => {
+      /* #4588 PR B: held on the shared Google quota, nothing typed. The post is kept for this member like a #4624
+         hold (its id, marked when it names them), so it counts as placed for the sender and is told in one line by the
+         idle flush, the next typed arrival here, or roomhold.flushReleased after the reset. Could not keep it: not
+         reached, as before. */
+      if (sent && sent.held === true) {
+        roomhold.restore(name, projectId, heldIds);
+        unspill(spilled[name]);
+        if (roomhold.hold(name, projectId, mentioned.has(name) ? roomhold.addressedId(id) : id)) {
+          outcomes[name] = roomhold.HELD;
+          reached += 1;
+        } else outcomes[name] = chat.DELIVERY.COULD_NOT;
+        return sent;
+      }
       outcomes[name] = sent.state;
       if (sent.state !== chat.DELIVERY.COULD_NOT) reached += 1;
       else {
@@ -1964,8 +1977,12 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     };
     // A throw or rejection from the typing path is not a told member either: put the held ids back.
     const putBack = (err) => { roomhold.restore(name, projectId, heldIds); throw err; };
+    /* #4588 PR B: the person's own post is typed at once (never held); a colleague's post, addressed or not, is an
+       automatic sender from this member's side, so it goes through the gate that holds it while a Gemini (Antigravity)
+       member is paused on the shared Google quota. */
+    const typeInto = operator === true ? deliverToPane : (deliverAutomaticToPane || deliverToPane);
     let sent;
-    try { sent = deliverToPane(name, envelope + catchUp + heldLine, roster, undefined, typeof trailer === 'string' ? trailer : undefined); }
+    try { sent = typeInto(name, envelope + catchUp + heldLine, roster, undefined, typeof trailer === 'string' ? trailer : undefined); }
     catch (err) { putBack(err); }
     return sent && typeof sent.then === 'function' ? sent.then(finish, putBack) : finish(sent);
   };
@@ -2040,11 +2057,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
 }
 
 function sendPost(input, roster, members) {
-  return sendPostWithDelivery(input, roster, members, chat.deliver, false);
+  return sendPostWithDelivery(input, roster, members, chat.deliver, false, chat.deliverAutomatic);
 }
 
 function sendPostAsync(input, roster, members) {
-  return Promise.resolve(sendPostWithDelivery(input, roster, members, chat.deliverAsync, true));
+  return Promise.resolve(sendPostWithDelivery(input, roster, members, chat.deliverAsync, true, chat.deliverAutomaticAsync));
 }
 
 /** Messages involving one agent (or all, unfiltered), oldest first. */

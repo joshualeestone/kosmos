@@ -268,3 +268,21 @@ test('#4588 B pin: the auto-retell\'s ready() holds a running agent on the pool 
   assert.ok(stopped > -1 && stopped < held, 'a stopped agent must still be ready first (it reads its file at its next start)');
   assert.ok(told > held, 'the hold must come before the staleness read decides readiness');
 });
+
+/* #4588 PR B review: the #4624 idle flush types "[While you were working, N room posts ...]" into the agent, an
+   automatic line, and the minute retry that tells posts held on the quota after the reset is one too. Both go through
+   the gated async path; a held verdict is COULD_NOT, which puts the ids back (engine/roomhold-agyhold-4588.test.js). */
+for (const [name, anchor] of [['#4624 idle flush', 'roomhold.flushOnIdle(who, {'], ['quota-held room retry', 'roomhold.flushReleased(r, {']]) {
+  test('#4588 B pin: the ' + name + ' delivers through chat.deliverAutomaticAsync, never chat.deliverAsync', () => {
+    const w = windowAfter(anchor);
+    assert.match(w, /deliver:\s*chat\.deliverAutomaticAsync,/, name + ': not on the gated path');
+    assert.equal(/chat\.deliverAsync\b/.test(w), false, name + ': a plain chat.deliverAsync is still passed');
+  });
+}
+
+test('#4588 B pin: the quota-held room retry runs in the minute sweep beside sweepUnanswered, for antigravity cards only', () => {
+  const at = CODE.indexOf('roomhold.flushReleased(r, {');
+  const sweep = CODE.lastIndexOf('messages.sweepUnanswered(safeRoster())', at);
+  assert.ok(sweep > -1 && at - sweep < 400, 'the retry is not in the nudge sweep\'s minute timer');
+  assert.match(windowAfter('roomhold.flushReleased(r, {'), /isAgy:\s*\(c\)\s*=>\s*c\.runner === 'antigravity'/);
+});

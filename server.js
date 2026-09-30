@@ -13117,8 +13117,10 @@ const server = http.createServer(async (req, res) => {
            hook never waits on a pane. */
         if (body.state === 'idle') {
           setImmediate(() => {
+            /* #4588 PR B: an automatic line, so it goes through the Google quota gate; a held verdict is COULD_NOT, which
+               puts the ids back for the next arrival or roomhold.flushReleased after the reset. */
             roomhold.flushOnIdle(who, {
-              deliver: chat.deliverAsync, roster, DELIVERY: chat.DELIVERY, env: process.env,
+              deliver: chat.deliverAutomaticAsync, roster, DELIVERY: chat.DELIVERY, env: process.env,
               shownOf: (id) => { const p = projects.get(id, roster); return p ? p.name : null; },
             }).then((done) => {
               for (const d of done) process.stdout.write(`room-hold: ${who} told of ${d.n} held post(s) in ${d.projectId} delivery=${d.state}\n`);
@@ -18466,6 +18468,19 @@ function start(port = PORT) {
            paneRoster-vs-snapshot confusion this file's own docblock
            warns about, one more time. */
         try { messages.sweepUnanswered(safeRoster()); } catch { /* the line still shows */ }
+        /* #4588 PR B: room posts held for an Antigravity agent while the shared Google quota was out are told once
+           its timers are released (engine/roomhold.js flushReleased), when no idle report arrives to flush them. */
+        try {
+          const r = safeRoster();
+          roomhold.flushReleased(r, {
+            isAgy: (c) => c.runner === 'antigravity' && c.isNamedOurs !== false,
+            readReport: (n) => selfreport.read(n), now: Date.now(), decayMs: require('./engine/status').REPORT_WORKING_DECAY_MS,
+            deliver: chat.deliverAutomaticAsync, DELIVERY: chat.DELIVERY, env: process.env,
+            shownOf: (id) => { const p = projects.get(id, r); return p ? p.name : null; },
+          }).then((done) => {
+            for (const d of done) process.stdout.write(`room-hold: ${d.name} told of ${d.n} held post(s) in ${d.projectId} after the quota hold, delivery=${d.state}\n`);
+          }).catch(() => { /* the posts stay held for the next minute */ });
+        } catch { /* the posts stay held for the next minute */ }
       }, 60 * 1000);
       if (sweep && typeof sweep.unref === 'function') sweep.unref();
       /* #1724: the auto-handoff sweep (the consume half). Sibling to the #185

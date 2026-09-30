@@ -43,6 +43,19 @@ held needlessly until the reset: the safe direction, it costs only delay.
 - A held recommender peer is not asked for that item, like any unreachable peer.
 - The outbox drain replays an agent's own saved message and is not held, like a live send.
 - Connection heal stays on chat.deliver: it counts a try before delivering.
+- Review WARNING 2 (no persistent hold state; after a board restart the hold reappears only while a card still shows
+  quotaUntil ahead): KEPT. It fails toward typing one line into an empty pool, which the agent then reports (and that
+  report re-arms the hold); persisting the pool memory is a later card.
+- Room deliveries (review WARNING 1): a colleague's room post, addressed or not, is automatic from the member's side and
+  goes through deliverAutomatic / the new deliverAutomaticAsync; the person's post (operator: true) stays on deliver /
+  deliverAsync and is never held. External (federated) rows are only recorded, never typed, so they need no gate. A held
+  post is kept in the member's #4624 roomhold list (its id marked '@' when it names the member, so the later line says
+  which posts ask for an answer instead of "nothing is asked of you"), and counts as placed for the sender (no re-post).
+  The #4624 idle flush now uses deliverAutomaticAsync: a held verdict is COULD_NOT, which restores the ids.
+  RETRY: nothing re-typed a held post once the pool refilled if the agent's idle report came while its own timers were
+  still held (the release is one agent per slot) and no further room post arrived. Added roomhold.flushReleased, run in
+  the existing one-minute unanswered sweep, antigravity cards only, skipping a fresh `working` member (as #4624 does).
+  With AGENT_WORKFORCE_ROOM_HOLD_OFF=1 the flushes are off, so a quota-held post is told only on the next typed arrival.
 
 ## Measured
 - First build: engine/agyhold-4588.test.js 16/16, engine/agyhold-deliver-4588.test.js 4/4, server.agyhold-4588.test.js 15/15
@@ -243,3 +256,10 @@ since this branch is stacked on it.
   the agentnudge / assigner / recommender / firstreply / messages / chat files this branch touches). Both
   browser-check gates rc 0. No web/ change, so no browser check is selected.
 - Review: the 12 blind iterations above ran on the pre-rebase tree; the rebase changed one export line.
+
+## Review WARNING (room deliveries, idle flush), 2026-09-30
+- Tests: engine/roomhold-agyhold-4588.test.js 11/11; server.agyhold-4588.test.js gains 3 pins. Focused set (every
+  4588, agyhooks, messages, chat, roomhold test file, fixture-discipline, the four browser-check guards): 34 files, 617/617.
+- Mutations, each restored and cmp-checked: the gate removed from room posts (6 red), deliverAutomaticAsync ungated
+  (3 red), a held verdict not kept (6 red), the retry ignoring `working` (1 red, its CONTROL), the person's post gated
+  (1 red, its CONTROL), the server idle flush back on chat.deliverAsync (1 red, its pin).

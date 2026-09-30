@@ -1,0 +1,289 @@
+'use strict';
+
+/**
+ * #4588 PR B review (WARNING): room deliveries into a Gemini (Antigravity) agent paused on the shared Google quota.
+ *
+ * A colleague's room post, addressed or not, is an automatic sender from the member's side, so it goes through the
+ * quota gate (chat.deliverAutomatic / deliverAutomaticAsync). A held post is kept for the member like a #4624 hold (its
+ * id, marked when it names the member) and told in one line later: by the idle flush, the next typed arrival, or
+ * roomhold.flushReleased once the member's timers are released. The person's own post is typed at once.
+ *
+ * Same harness as messages.roomhold-4624.test.js: real roster rows from the fleet fixture, a scripted tmux runner,
+ * and every "was it typed" assertion reads the recorded pastes.
+ *
+ *   node --test engine/roomhold-agyhold-4588.test.js
+ */
+
+const os = require('node:os');
+const path = require('node:path');
+
+const SANDBOX = path.join(os.tmpdir(), 'kosmos-roomhold-agy-test-' + process.pid);
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+delete process.env.AGENT_WORKFORCE_ROOM_HOLD_OFF;
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+
+const chat = require('./chat');
+const messages = require('./messages');
+const selfreport = require('./selfreport');
+const status = require('./status');
+const roomhold = require('./roomhold');
+const agyquota = require('./agyquota');
+const store = require('./store');
+const fleet = require('../test-support/fleet');
+
+test('sandbox: the store root is inside this process\'s temp dir', () => {
+  assert.ok(path.resolve(store.ROOT).startsWith(path.resolve(os.tmpdir()) + path.sep), store.ROOT);
+});
+
+function withFleet(specs, fn) {
+  const board = fleet.install(specs);
+  try { return fn(board); } finally { board.restore(); }
+}
+async function withFleetAsync(specs, fn) {
+  const board = fleet.install(specs);
+  try { return await fn(board); } finally { board.restore(); }
+}
+
+function okProbe() { return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' }; }
+function ok(out) { return { ran: true, spawnFailed: false, status: 0, out: out || '', err: '' }; }
+
+function fakeTmux() {
+  const calls = [];
+  const fn = (args) => {
+    calls.push(args);
+    if (args[0] === 'display-message') return okProbe();
+    return ok();
+  };
+  fn.pastedSends = () => {
+    const out = [];
+    let cur = '';
+    let target = null;
+    let has = false;
+    for (const a of calls) {
+      if (a[0] === 'set-buffer') { cur += a[a.length - 1]; has = true; }
+      else if (a[0] === 'paste-buffer') { target = a[a.length - 1]; }
+      else if (a[0] === 'send-keys' && a[a.length - 1] === 'Enter' && has) { out.push({ text: cur, target }); cur = ''; target = null; has = false; }
+    }
+    if (has) out.push({ text: cur, target });
+    return out;
+  };
+  return fn;
+}
+
+function arm() {
+  const tmux = fakeTmux();
+  chat.setRunner(tmux);
+  chat.setDryRun(false);
+  return tmux;
+}
+
+function armSender(session) { messages.setRunner(() => ({ ok: true, session })); }
+
+function typedTo(tmux, session) {
+  const t = (s) => String(s.target || '');
+  return tmux.pastedSends().filter((s) => t(s).startsWith('=' + session + ':') || t(s).startsWith('=' + session + '-discord:')).map((s) => s.text);
+}
+
+function report(name, state) {
+  const kept = selfreport.record(name, { state, because: 'test' });
+  assert.equal(kept.recorded, true, 'the test could not record a report for ' + name);
+}
+
+/* leo (claude) posts; mara is a Gemini (Antigravity) member; april is a claude member (the non-agy CONTROL). */
+const AGY = { state: 'unknown', runner: 'antigravity', command: 'agy', screen: '' };
+function room3() {
+  return [fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', AGY), fleet.agent('april', { state: 'idle' })];
+}
+const MEMBERS = ['leo', 'mara', 'april'];
+const PROJECT = 'henderson-lease';
+
+/* The real cards, with the pool paused (mara's card shows a reset ahead) or not. Only quotaUntil is overridden. */
+function rosterOf(board, quotaUntil) {
+  return board.agents.map((c) => (c.sessionName === 'mara' ? { ...c, quotaUntil } : { ...c }));
+}
+const AHEAD = () => new Date(Date.now() + 30 * 60e3).toISOString();
+/* After the reset: the card no longer shows a pause and the pool memory has aged out (its release has passed). */
+function poolReset() { agyquota.POOL_MEMO.bySession.clear(); agyquota.POOL_MEMO.seen.clear(); }
+
+test.beforeEach(() => {
+  chat.resetForTests();
+  messages.resetForTests();
+  poolReset();
+  for (const d of [messages.LOG, roomhold.dir(), selfreport.DIR]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* fresh */ } }
+});
+test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+
+test('#4588 B room fixture: mara is a real antigravity card and the gate holds it while its card shows a reset ahead', () => {
+  withFleet(room3(), (board) => {
+    const r = rosterOf(board, AHEAD());
+    assert.equal(r.find((c) => c.sessionName === 'mara').runner, 'antigravity');
+    assert.equal(r.find((c) => c.sessionName === 'april').runner !== 'antigravity', true);
+    assert.notEqual(agyquota.heldForQuota('mara', r, Date.now()), null);
+    assert.equal(agyquota.heldForQuota('april', r, Date.now()), null);
+  });
+});
+
+test('#4588 B room: a colleague\'s post that @-names a paused agy member is held (not typed), kept marked as addressed; the claude member is typed (CONTROL)', () => {
+  withFleet(room3(), (board) => {
+    report('mara', 'idle');
+    report('april', 'idle');
+    armSender('leo-discord');
+    const tmux = arm();
+    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara @april can you check clause 4?' }, rosterOf(board, AHEAD()), MEMBERS);
+    assert.equal(sent.state, chat.DELIVERY.PLACED, 'a held post must read as placed to the sender: ' + (sent.because || ''));
+    assert.equal(sent.outcomes.mara, roomhold.HELD);
+    assert.deepEqual(typedTo(tmux, 'mara'), [], 'a paused agy member was typed a colleague\'s post');
+    assert.equal(typedTo(tmux, 'april').length, 1, 'CONTROL: a non-agy member is never held');
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [roomhold.addressedId(sent.id)]);
+    assert.deepEqual(roomhold.heldIn('april', PROJECT), []);
+  });
+});
+
+test('#4588 B room: an un-addressed colleague post is held for the paused (idle-reporting) member too', () => {
+  withFleet(room3(), (board) => {
+    report('mara', 'idle');
+    armSender('leo-discord');
+    const tmux = arm();
+    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'thinking out loud' }, rosterOf(board, AHEAD()), MEMBERS);
+    assert.equal(sent.outcomes.mara, roomhold.HELD);
+    assert.deepEqual(typedTo(tmux, 'mara'), []);
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [sent.id], 'an un-addressed post is kept unmarked');
+  });
+});
+
+test('#4588 B room CONTROL: the person\'s own post is typed into the paused agy member at once, carrying the held line', () => {
+  withFleet(room3(), (board) => {
+    report('mara', 'idle');
+    armSender('leo-discord');
+    arm();
+    const r = rosterOf(board, AHEAD());
+    const first = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara over to you' }, r, MEMBERS);
+    assert.equal(first.outcomes.mara, roomhold.HELD);
+    const tmux = arm();
+    const mine = messages.sendPost({ operator: true, project: PROJECT, text: 'the person writes to the room' }, r, MEMBERS);
+    assert.equal(mine.outcomes.mara, chat.DELIVERY.PLACED, 'the person\'s post was held');
+    const got = typedTo(tmux, 'mara');
+    assert.equal(got.length, 1);
+    assert.match(got[0], /the person writes to the room/);
+    assert.match(got[0], new RegExp('1 of them names you and asks for your answer \\(' + first.id + '\\)'), 'the held post did not ride on the typed arrival');
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [], 'told once: the ride cleared it');
+  });
+});
+
+test('#4588 B room: the async room path (sendPostAsync) holds a colleague post the same way', async () => {
+  await withFleetAsync(room3(), async (board) => {
+    report('mara', 'idle');
+    armSender('leo-discord');
+    const tmux = arm();
+    const sent = await messages.sendPostAsync({ fromPane: '%7', project: PROJECT, text: '@mara async?' }, rosterOf(board, AHEAD()), MEMBERS);
+    assert.equal(sent.outcomes.mara, roomhold.HELD);
+    assert.deepEqual(typedTo(tmux, 'mara'), []);
+    assert.equal(typedTo(tmux, 'april').length, 1, 'CONTROL: the claude member is typed');
+  });
+});
+
+test('#4588 B room: after the reset a colleague post is typed to the agy member as before (the gate is not stuck)', () => {
+  withFleet(room3(), (board) => {
+    report('mara', 'idle');
+    armSender('leo-discord');
+    const tmux = arm();
+    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara now?' }, rosterOf(board, null), MEMBERS);
+    assert.equal(sent.outcomes.mara, chat.DELIVERY.PLACED);
+    assert.equal(typedTo(tmux, 'mara').length, 1);
+  });
+});
+
+function flushDeps(r) {
+  return { deliver: chat.deliverAutomaticAsync, roster: r, DELIVERY: chat.DELIVERY, env: {}, shownOf: () => 'Henderson lease' };
+}
+
+test('#4588 B idle flush: on a paused agy member it is held, nothing is typed, and the ids are put back; after the reset it is told once', async () => {
+  await withFleetAsync(room3(), async (board) => {
+    report('mara', 'idle');
+    armSender('leo-discord');
+    arm();
+    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara look at this' }, rosterOf(board, AHEAD()), MEMBERS);
+    const bg = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'and this, not for you' }, rosterOf(board, AHEAD()), MEMBERS);
+    const kept = [roomhold.addressedId(sent.id), bg.id];
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), kept);
+
+    let tmux = arm();
+    const held = await roomhold.flushOnIdle('mara', flushDeps(rosterOf(board, AHEAD())));
+    assert.equal(held.length, 1);
+    assert.equal(held[0].state, chat.DELIVERY.COULD_NOT);
+    assert.deepEqual(typedTo(tmux, 'mara'), [], 'the idle flush typed into a paused agy member');
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), kept, 'a held flush dropped the ids');
+
+    poolReset();
+    tmux = arm();
+    const done = await roomhold.flushOnIdle('mara', flushDeps(rosterOf(board, null)));
+    assert.equal(done[0].state, chat.DELIVERY.PLACED);
+    const got = typedTo(tmux, 'mara');
+    assert.equal(got.length, 1);
+    assert.match(got[0], new RegExp('2 room posts arrived in project Henderson lease \\(' + sent.id + ', ' + bg.id + '\\)\\. 1 of them names you'));
+    assert.equal(got[0].includes('@'), false, 'the internal mark leaked into the line');
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), []);
+    tmux = arm();
+    assert.deepEqual(await roomhold.flushOnIdle('mara', flushDeps(rosterOf(board, null))), [], 'told twice');
+  });
+});
+
+function releasedDeps(r, now) {
+  return { ...flushDeps(r), isAgy: (c) => c.runner === 'antigravity' && c.isNamedOurs !== false, readReport: (n) => selfreport.read(n), now, decayMs: status.REPORT_WORKING_DECAY_MS };
+}
+
+test('#4588 B retry (flushReleased): with no idle report, posts held on the quota reach the member after the reset, once; not while held', async () => {
+  await withFleetAsync(room3(), async (board) => {
+    report('mara', 'idle');
+    armSender('leo-discord');
+    arm();
+    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara please' }, rosterOf(board, AHEAD()), MEMBERS);
+
+    let tmux = arm();
+    const r1 = rosterOf(board, AHEAD());
+    const whileHeld = await roomhold.flushReleased(r1, releasedDeps(r1, Date.now()));
+    assert.deepEqual(whileHeld.map((d) => d.state), [chat.DELIVERY.COULD_NOT]);
+    assert.deepEqual(typedTo(tmux, 'mara'), [], 'the retry typed while the pool is held');
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [roomhold.addressedId(sent.id)]);
+
+    poolReset();
+    tmux = arm();
+    const r2 = rosterOf(board, null);
+    const after = await roomhold.flushReleased(r2, releasedDeps(r2, Date.now()));
+    assert.deepEqual(after.map((d) => [d.name, d.state]), [['mara', chat.DELIVERY.PLACED]]);
+    assert.equal(typedTo(tmux, 'mara').length, 1);
+    assert.match(typedTo(tmux, 'mara')[0], new RegExp('names you and asks for your answer \\(' + sent.id + '\\)'));
+    tmux = arm();
+    assert.deepEqual(await roomhold.flushReleased(r2, releasedDeps(r2, Date.now())), [], 'delivered twice');
+    assert.deepEqual(typedTo(tmux, 'mara'), []);
+  });
+});
+
+test('#4588 B retry CONTROL: a working agy member, and a non-agy member holding #4624 posts, are not flushed by the retry', async () => {
+  await withFleetAsync(room3(), async (board) => {
+    report('mara', 'working');
+    report('april', 'idle');
+    assert.equal(roomhold.hold('mara', PROJECT, 'm900001'), true);
+    assert.equal(roomhold.hold('april', PROJECT, 'm900002'), true);
+    const tmux = arm();
+    const r = rosterOf(board, null);
+    assert.deepEqual(await roomhold.flushReleased(r, releasedDeps(r, Date.now())), []);
+    assert.deepEqual(tmux.pastedSends(), []);
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), ['m900001']);
+    assert.deepEqual(roomhold.heldIn('april', PROJECT), ['m900002'], 'the retry reached a non-agy member');
+  });
+});
+
+test('#4588 B clause: without an addressed id the #4624 line is byte-unchanged', () => {
+  assert.equal(roomhold.clauseFor('p1', 'P one', ['m1']),
+    '[While you were working, 1 room post not addressed to you arrived in project P one (m1). Nothing is asked of you; read them with: kosmos room p1]');
+  assert.equal(roomhold.plainId(roomhold.addressedId('m7')), 'm7');
+  // The same id held again unmarked is kept once, with its mark.
+  assert.equal(roomhold.hold('zed', 'p1', roomhold.addressedId('m7')), true);
+  assert.equal(roomhold.hold('zed', 'p1', 'm7'), true);
+  assert.deepEqual(roomhold.heldIn('zed', 'p1'), ['@m7']);
+});
