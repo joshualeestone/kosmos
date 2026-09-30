@@ -43,6 +43,7 @@ test('#4752 a guide in a named world denies its own store, the default world\'s 
     'Read(//old/AgentWorkforce/**)',
     'Read(//b/board.token)',
     'Read(//b/.board.token.*)',
+    'Read(//b/.*.tmp)',
     'Read(//b/worlds/*/Kosmos/**)',
     'Read(//b/worlds/*/AgentWorkforce/**)',
   ]);
@@ -155,16 +156,34 @@ test('#4752 the base\'s own passing files are not named one by one, a name the r
   const base = path.join(SANDBOX, 'base-odd');
   fs.mkdirSync(path.join(base, 'worlds'), { recursive: true });
   fs.mkdirSync(path.join(base, '.worlds.json.lock'));
-  for (const f of ['.worlds.json.4242.tmp', '.board.token.4242.tmp', 'notes (1).txt', 'a*b', 'My Notes.txt']) fs.writeFileSync(path.join(base, f), 'x');
+  for (const f of ['.worlds.json.4242.tmp', '.board.token.4242.tmp', '.world-boot-attempts.json.4242.tmp', 'notes (1).txt', 'a*b', 'My Notes.txt']) fs.writeFileSync(path.join(base, f), 'x');
   fs.mkdirSync(path.join(SANDBOX, 'elsewhere'), { recursive: true });
   fs.symlinkSync(path.join(SANDBOX, 'elsewhere'), path.join(base, 'linked'));
   const abs = (p) => '//' + p.replace(/^\/+/, '');
   const rules = setupAssistant.guideDenyRules({ dataRoot: path.join(base, 'worlds', 'w1', store.APP), worldsBase: base, legacyRoots: [] });
   const named = rules.filter((r) => r.startsWith(`Read(${abs(base)}/`));
-  for (const skipped of ['.worlds.json.lock', '.worlds.json.4242.tmp', '.board.token.4242.tmp', 'notes (1).txt', 'a*b']) {
+  for (const skipped of ['.worlds.json.lock', '.worlds.json.4242.tmp', '.board.token.4242.tmp', '.world-boot-attempts.json.4242.tmp', 'notes (1).txt', 'a*b']) {
     assert.ok(!named.some((r) => r.includes(skipped)), 'named one by one: ' + skipped);
   }
   assert.ok(named.includes(`Read(${abs(path.join(base, 'My Notes.txt'))})`), 'a name with a space was not named');
   assert.ok(named.includes(`Read(${abs(path.join(base, 'linked'))})`) && named.includes(`Read(${abs(path.join(base, 'linked'))}/**)`), 'a link did not get both forms');
-  assert.ok(named.includes(`Read(${abs(path.join(base, '.board.token'))}.*)`), 'CONTROL: the pattern rule that covers the temporary copies is gone');
+  assert.ok(named.includes(`Read(${abs(path.join(base, '.board.token'))}.*)`) && named.includes(`Read(${abs(base)}/.*.tmp)`),
+    'the pattern rules that cover the temporary files are gone');
+});
+
+test('#4752 when the default world\'s store cannot be listed, only its entry list is lost, and that is said', () => {
+  const base = path.join(SANDBOX, 'base-is-a-file');
+  fs.writeFileSync(base, 'not a folder');
+  const said = [];
+  const write = process.stderr.write;
+  process.stderr.write = (s, ...rest) => { if (String(s).startsWith('#4752')) { said.push(String(s)); return true; } return write.call(process.stderr, s, ...rest); };
+  let rules;
+  try { rules = setupAssistant.guideDenyRules({ dataRoot: '/b/worlds/w1/Kosmos', worldsBase: base, legacyRoots: ['/old/AgentWorkforce'] }); }
+  finally { process.stderr.write = write; }
+  const abs = (p) => '//' + p.replace(/^\/+/, '');
+  assert.ok(rules.includes(`Read(${abs(path.join(base, 'board.token'))})`) && rules.includes('Read(//old/AgentWorkforce/**)')
+    && rules.includes(`Read(${abs(path.join(base, 'worlds'))}/*/${store.APP}/**)`),
+    'rules that do not need the list were lost');
+  assert.equal(said.length, 1, 'the lost list was not said');
+  assert.match(said[0], /could not be listed/);
 });

@@ -270,8 +270,12 @@ function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase
       more.push(`Read(${abs(path.join(base, tokenFile))})`);   // the default world's token
       more.push(`Read(${abs(path.join(base, '.' + tokenFile))}.*)`);   // and its temporary copy while it is rewritten
       const registry = path.basename(worlds.registryPath(base));
+      more.push(`Read(${abs(base)}/.*.tmp)`);   // every temporary file Kosmos writes there (a process id in each name)
       let entries = [];
-      try { entries = fs.readdirSync(base, { withFileTypes: true }); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+      try { entries = fs.readdirSync(base, { withFileTypes: true }); } catch (e) {
+        /* Only the entry list is lost: the rules above do not depend on it. */
+        if (e.code !== 'ENOENT') process.stderr.write(`#4752: the default world's store could not be listed, so its entries are not named one by one: ${e.message}\n`);
+      }
       for (const d of entries) {
         if (!baseEntryToName(d.name, worlds.WORLDS_SUBDIR, registry, tokenFile)) continue;
         const at = abs(path.join(base, d.name));
@@ -292,14 +296,15 @@ function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase
   return rules;
 }
 /* #4752: whether an entry directly in the worlds' base gets a rule of its own. Not the worlds folder or its
-   registry (the guide's own folder is under the first). Not the registry's lock and temporary files, nor the
-   token's temporary copies: the `.board.token.*` rule covers those, and each carries a process id, so naming
-   them one by one would add a rule per leftover that never goes away (earlier rules are kept on rewrite). Not a
-   name with a character the rule syntax reads as a pattern or a bracket (`* ? [ ] ( ) { } !`): such a rule would
-   deny more than the entry or not parse. Those names are left readable; Kosmos makes none. */
+   registry (the guide's own folder is under the first). Not a temporary file (`.<name>.<process id>...tmp`) or
+   the registry's lock: the `.board.token.*` and `.*.tmp` pattern rules cover the temporary files, the lock holds
+   nothing, and naming them one by one would add a rule per leftover that never goes away (earlier rules are
+   kept on every rewrite). Not a name with a character the rule syntax reads as a pattern or a bracket
+   (`* ? [ ] ( ) { } !` or a backslash): such a rule would deny more than the entry or not parse, so the name is
+   left readable; Kosmos makes none. */
 function baseEntryToName(name, worldsDir, registry, tokenFile) {
   if (name === worldsDir || name === registry) return false;
-  if (name.startsWith(`.${registry}.`) || name.startsWith(`.${tokenFile}.`)) return false;
+  if (name.startsWith(`.${tokenFile}.`) || name === `.${registry}.lock` || /^\..*\.tmp$/.test(name)) return false;
   return !/[*?[\](){}!\\]/.test(name);
 }
 /* #4752: the worlds' base (the default world's data folder), as it was before any world was applied to this
