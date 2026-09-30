@@ -48,6 +48,9 @@ const NOT_DOWNLOADED = 'Kosmos has not downloaded the prebuilt teams to this com
 /* The download worked and what came was refused (its signature, its format, a serial this version will
    not take): being online does not help, so the sentence must not say it would. */
 const REFUSED = 'Kosmos downloaded the prebuilt teams but could not use them';
+/* Kosmos keeps no record of a team that is half made. After a page reload in the middle of making one,
+   the agents already made are simply agents, and their names are taken. */
+const MAYBE_OURS = '. If you were making this team a moment ago, those agents are already on your board';
 /* A newer catalogue arrived between the screen opening and the button: the rows on screen are the old
    team's seats. */
 const CHANGED = 'this prebuilt team was updated after this screen opened, so its seats no longer match. Go back and open the team again';
@@ -86,7 +89,7 @@ function notHeld(c) {
   if (s && s.loaded) return null;
   // The catalogue's own reason rides along: "check it is online" alone would be wrong for a refused copy.
   const why = s && typeof s.error === 'string' && s.error ? ' (' + s.error + ')' : '';
-  return (/refused/.test(why) ? REFUSED : NOT_DOWNLOADED) + why;
+  return (s && s.refused === true ? REFUSED : NOT_DOWNLOADED) + why;
 }
 
 /**
@@ -100,8 +103,9 @@ async function refresh(cat) {
   try {
     const c = cat === undefined ? catalogue() : cat;
     if (!c || typeof c.refresh !== 'function') return;
-    const held = typeof c.status === 'function' && Boolean((c.status() || {}).loaded);
-    await c.refresh({ force: !held });
+    // A copy that arrived and was refused is not asked for again at once: only a new publish changes it.
+    const st = typeof c.status === 'function' ? (c.status() || {}) : {};
+    await c.refresh({ force: !st.loaded && st.refused !== true });
   } catch (err) {
     console.error('[teamseed] the catalogue refresh failed:', (err && err.message) || err);
   }
@@ -115,7 +119,10 @@ function list(cat) {
   const teams = (c.teams() || []).map((t) => ({
     key: t.key, label: t.label, blurb: t.blurb, kind: t.kind, rank: t.rank, count: membersOf(t).length,
   }));
-  teams.sort((a, b) => (a.rank || 0) - (b.rank || 0) || String(a.label).localeCompare(String(b.label)));
+  // The catalogue's own order (business, then personal, each by rank): ranks restart per kind, so rank
+  // alone would interleave the two. Sorted here too, since a catalogue handed in may not be in order.
+  const kindOrder = (k) => { const i = ['business', 'personal'].indexOf(k); return i === -1 ? 2 : i; };
+  teams.sort((a, b) => kindOrder(a.kind) - kindOrder(b.kind) || (a.rank || 0) - (b.rank || 0) || String(a.label).localeCompare(String(b.label)));
   return { ok: true, teams };
 }
 
@@ -193,10 +200,10 @@ function specs(req, cat, deps) {
   }
   // Every taken name in one answer: making the same team again takes all of its suggested names.
   if (takenSeats.length === 1) {
-    return { ok: false, because: 'there is already an agent called ' + takenSeats[0].raw + ' on this computer; give the ' + takenSeats[0].title + ' another name' };
+    return { ok: false, because: 'there is already an agent called ' + takenSeats[0].raw + ' on this computer; give the ' + takenSeats[0].title + ' another name' + MAYBE_OURS };
   }
   if (takenSeats.length > 1) {
-    return { ok: false, because: 'these names are already taken on this computer: ' + takenSeats.map((t) => t.raw + ' (the ' + t.title + ')').join(', ') + '; give each one another name' };
+    return { ok: false, because: 'these names are already taken on this computer: ' + takenSeats.map((t) => t.raw + ' (the ' + t.title + ')').join(', ') + '; give each one another name' + MAYBE_OURS };
   }
 
   /* April (#4555): the catalogue's own reason, per member, for anything it would refuse (a role this

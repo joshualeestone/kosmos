@@ -511,12 +511,16 @@ function cleanName(raw) {
 function roleKeyOf(opts) { return String((opts && opts.role) || '').trim(); }
 
 /* #4557: the block a seeded team member's brief rides in, inside its role's standard instructions. */
+// A bound, so a catalogue cannot hand create a novel. The published briefs are a few kilobytes (2026-09-30).
 const TEAM_BRIEF_MAX = 32 * 1024;
 function teamBlockBody(brief) {
   /* Neutralised like every other value that lands in a managed block (round 2): a brief carrying any
      kosmos marker would make the NEXT splices find two candidate spans, refuse as ambiguous, and leave
      the agent silently without its reports/colleagues blocks. */
-  return '## Your team\n\n' + require('./projects').neutralise(String(brief).trim()) + '\n';
+  // A brief that opens with its own heading (the catalogue's does: "## On this team") keeps it; the
+  // fixed heading is only for one that has none, so no file carries an empty heading above a real one.
+  const body = require('./projects').neutralise(String(brief).trim());
+  return (/^#{1,6} /.test(body) ? '' : '## Your team\n\n') + body + '\n';
 }
 
 function spokenName(clean) {
@@ -4259,7 +4263,7 @@ function createAgentInner(opts) {
     if (Buffer.byteLength(wantTeam, 'utf8') > TEAM_BRIEF_MAX) {
       return { outcome: OUTCOME.REFUSED, because: 'this team member\'s brief is too long to fit in its instructions', steps };
     }
-    const composed = require('./projects').spliceBlock(roles.instructionsFor(roleKey, shown) || '',
+    const composed = require('./projects').spliceBlock(roles.instructionsFor(roleKey, shown),
       teamBlockBody(wantTeam), require('./projects').TEAM_START, require('./projects').TEAM_END);
     if (Buffer.byteLength(composed, 'utf8') > require('./instructions').MAX_BYTES) {
       return { outcome: OUTCOME.REFUSED, because: 'this team member\'s brief is too long to fit in its instructions', steps };

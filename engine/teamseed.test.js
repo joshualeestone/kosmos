@@ -42,11 +42,12 @@ function fixture() {
   };
 }
 
-test('list: every team, ordered by rank, with its member count', () => {
+test('list: every team in the catalogue\'s order (business, then personal, each by rank), with its member count', () => {
   const r = teamseed.list(fixture());
   assert.equal(r.ok, true);
-  assert.deepEqual(r.teams.map((t) => [t.key, t.count]), [['home', 2], ['marketing', 3], ['nolead', 1]]);
-  assert.equal(r.teams[1].label, 'Marketing Team');
+  // home is personal rank 1 and marketing business rank 2: rank alone would put home first.
+  assert.deepEqual(r.teams.map((t) => [t.key, t.count]), [['marketing', 3], ['home', 2], ['nolead', 1]]);
+  assert.equal(r.teams[0].label, 'Marketing Team');
 });
 
 test('a catalogue that throws (a bad generated build) is unavailable, never a throw', () => {
@@ -82,7 +83,11 @@ test('#4632 not downloaded: a catalogue that holds nothing says so at every entr
 
 test('#4632 not downloaded: the sentence carries the catalogue\'s own reason, and a REFUSED copy is not blamed on being offline', () => {
   const offline = { ...fixture(), status: () => ({ loaded: false, error: 'fetch failed' }) };
-  const refused = { ...fixture(), status: () => ({ loaded: false, error: 'the downloaded catalogue was refused: its signature does not verify' }) };
+  // Read from the catalogue's `refused` flag, not from its words: the same words without the flag are
+  // not a refusal, and the flag with other words is.
+  const refused = { ...fixture(), status: () => ({ loaded: false, refused: true, error: 'its signature does not verify' }) };
+  const onlyWords = { ...fixture(), status: () => ({ loaded: false, error: 'the downloaded catalogue was refused: x' }) };
+  assert.ok(teamseed.list(onlyWords).because.startsWith(teamseed.NOT_DOWNLOADED));
   assert.equal(teamseed.list(offline).because, teamseed.NOT_DOWNLOADED + ' (fetch failed)');
   const r = teamseed.list(refused);
   assert.ok(r.because.startsWith(teamseed.REFUSED) && /signature/.test(r.because), r.because);
@@ -108,7 +113,9 @@ test('#4632 refresh: asks the catalogue to download, and a failure there never r
   const how = [];
   await teamseed.refresh({ status: () => ({ loaded: false }), refresh: async (o) => { how.push(o); } });
   await teamseed.refresh({ status: () => ({ loaded: true }), refresh: async (o) => { how.push(o); } });
-  assert.deepEqual(how, [{ force: true }, { force: false }]);
+  // A copy that arrived and was refused keeps the catalogue's pacing: asking again cannot change it.
+  await teamseed.refresh({ status: () => ({ loaded: false, refused: true }), refresh: async (o) => { how.push(o); } });
+  assert.deepEqual(how, [{ force: true }, { force: false }, { force: false }]);
   const quiet = console.error; console.error = () => {};
   try {
     await teamseed.refresh({ refresh: async () => { throw new Error('offline'); } });
@@ -188,7 +195,7 @@ test('specs with checkTaken refuses a name already taken on this computer, namin
   const cat = fixture();
   const r = teamseed.specs({ team: 'marketing', names: { lead: 'Maya', content: 'Leo', social: 'Ana' }, checkTaken: true }, cat, deps);
   assert.equal(r.ok, false);
-  assert.equal(r.because, 'there is already an agent called Leo on this computer; give the Content Writer another name');
+  assert.equal(r.because, 'there is already an agent called Leo on this computer; give the Content Writer another name. If you were making this team a moment ago, those agents are already on your board');
   assert.equal(cat.calls.length, 0, 'nothing is built when a name is taken');
   const retry = teamseed.specs({ team: 'marketing', names: { lead: 'Maya', content: 'Leo', social: 'Ana' } }, cat, deps);
   assert.equal(retry.ok, true, 'a retry re-reads specs without the check, since this team took some of the names itself');

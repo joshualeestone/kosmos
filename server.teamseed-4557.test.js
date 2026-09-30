@@ -162,7 +162,7 @@ test('check: true refuses a name whose agent folder already exists here; without
   const names = { lead: 'Taken One', content: 'Free Two', social: 'Free Three' };
   const refused = await call('POST', '/api/teams/seeded/marketing/specs', { names, check: true });
   assert.equal(refused.status, 400);
-  assert.equal(refused.json.error, 'there is already an agent called Taken One on this computer; give the Chief Marketing Officer another name');
+  assert.equal(refused.json.error, 'there is already an agent called Taken One on this computer; give the Chief Marketing Officer another name. If you were making this team a moment ago, those agents are already on your board');
   const unchecked = await call('POST', '/api/teams/seeded/marketing/specs', { names });
   assert.equal(unchecked.status, 200);
 });

@@ -179,3 +179,21 @@ the limit". It cannot: every later block is spliced only if the result still fit
 shows on the member's row. A brief near the 32 KiB cap would cost the member its later blocks, not make an
 unreadable file. Real briefs are one or two kilobytes.
 DUPLICATE: the org chart before the role text for every project (decided under review 19).
+
+## Review 21 (fable)
+FIXED:
+- The team list kept rank order only, which interleaved personal and business teams (ranks restart per
+  kind). It now follows the catalogue's order: business, then personal, each by rank. The old test pinned
+  the interleaving.
+- A member's file carried an empty "## Your team" heading directly above the brief's own "## On this
+  team". The fixed heading is now only for a brief that has none.
+- Whether a downloaded copy was REFUSED is a flag on the catalogue's status, set where the refusal is
+  thrown, not a match on the sentence. A refused copy is also not asked for again on every open.
+- A name already taken says the agent may be this team's own ("If you were making this team a moment ago,
+  those agents are already on your board").
+DECIDED, NOT FIXED:
+- Kosmos keeps no record of a half-made team. After a page reload in the middle of a run, reopening the
+  team cannot resume it: the made agents are simply agents, their names are taken, and the person names
+  the remaining seats or makes those agents singly. The sentence above is the whole mitigation. A record
+  of a team in the making (so a reload resumes) is a feature of its own. Weakest premise: that a reload
+  mid-run is rare, in a run that takes well under a minute.

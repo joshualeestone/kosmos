@@ -127,6 +127,7 @@ test('#4557 req 1: a member is the single-agent file of its role, plus its team 
   const team = blockOf(member, projects.TEAM_START, projects.TEAM_END);
   assert.ok(team, 'the member has no team block');
   assert.match(team, /## On this team/);
+  assert.doesNotMatch(team, /## Your team/, 'a brief that opens with its own heading got an empty one above it');
   assert.match(team, /## Personality/);
   // The role's standard template is there: its opening line and the colleagues block every
   // role-template agent is born with (and the raw-instructions path skips).
@@ -212,6 +213,8 @@ test('#4557 create: teamInstructions is refused alongside instructions, as a non
   assert.match(huge.because, /too long to fit/);
   const fits = create.createAgent({ ...base, name: 'Fits', teamInstructions: 'x'.repeat(32 * 1024) });
   assert.equal(fits.outcome, create.OUTCOME.CREATED, 'a brief of exactly 32 KiB was refused: ' + fits.because);
+  // Control for the heading rule: a brief with NO heading of its own is given one.
+  assert.match(blockOf(file(create.slugFor('Fits')), projects.TEAM_START, projects.TEAM_END), /## Your team\n\nxx/, 'a brief with no heading was left without one');
   // ...and it leaves the standard blocks in: the colleagues block lands after it.
   assert.ok(blockOf(file(create.slugFor('Fits')), '<!-- kosmos:colleagues:start -->', '<!-- kosmos:colleagues:end -->'), 'a full-size brief pushed out a standard block');
   // Nothing was made by any refusal (every case above, null's "Bad4" included).

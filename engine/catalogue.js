@@ -60,10 +60,11 @@ let key = PUBLIC_KEY;
 let data;            // undefined: not read yet; null: none usable; else the parsed catalogue
 let lastTry = 0;
 let lastError = null;
+let lastRefused = false;   // the last download arrived and was REFUSED (its signature, format or serial)
 let inflight = null;
 
 /** Tests sign with their own key pair. In-process only: nothing outside this process can reach it. */
-function useKeyForTest(pem) { key = pem || PUBLIC_KEY; data = undefined; lastTry = 0; lastError = null; }
+function useKeyForTest(pem) { key = pem || PUBLIC_KEY; data = undefined; lastTry = 0; lastError = null; lastRefused = false; }
 
 const KEY_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const isText = (v) => typeof v === 'string' && v.length > 0;
@@ -222,11 +223,11 @@ function refresh(opts = {}) {
         [bytes, sig] = await download(`?fresh=${Date.now()}`);
         r = check(bytes, sig.toString('utf8'));
       }
-      if (!r.ok) throw new Error(`the downloaded catalogue was refused: ${r.because}`);
+      if (!r.ok) throw Object.assign(new Error(`the downloaded catalogue was refused: ${r.because}`), { refused: true });
       // It is stored as text, so it must survive the round trip to text byte for byte (a BOM or
       // invalid UTF-8 would not): refused now, rather than lost at the next restart.
       const text = bytes.toString('utf8');
-      if (!Buffer.from(text, 'utf8').equals(bytes)) throw new Error('the downloaded catalogue was refused: it is not plain UTF-8 text');
+      if (!Buffer.from(text, 'utf8').equals(bytes)) throw Object.assign(new Error('the downloaded catalogue was refused: it is not plain UTF-8 text'), { refused: true });
       const held = load();
       if (held && r.catalogue.serial < held.serial) {
         throw new Error(`the downloaded catalogue is older than the one held (${r.catalogue.serial} < ${held.serial})`);
@@ -253,9 +254,11 @@ function refresh(opts = {}) {
       }
       data = r.catalogue;
       lastError = saveError;
+      lastRefused = false;
       if (changed) require('./roles').remerge();
     } catch (err) {
       lastError = (err && err.message) || String(err);
+      lastRefused = Boolean(err && err.refused);
     } finally {
       inflight = null;
     }
@@ -267,7 +270,8 @@ function refresh(opts = {}) {
 /** What the board holds, for the routes that serve the picker and the Team screen. */
 function status() {
   const c = load();
-  return { loaded: !!c, serial: c ? c.serial : null, roles: c ? c.roles.length : 0, teams: c ? c.teams.length : 0, error: lastError };
+  // `refused`: the last download arrived and was not used, so trying again helps only after a new publish.
+  return { loaded: !!c, serial: c ? c.serial : null, roles: c ? c.roles.length : 0, teams: c ? c.teams.length : 0, error: lastError, refused: lastRefused };
 }
 
 /** The menu order of role groups, first to last. */
