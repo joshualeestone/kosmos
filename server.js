@@ -3817,12 +3817,18 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    credential (a later slice). They change no project, task or message, and there is no caller to identify. Two of
    them can make the board fetch something: `?catalogue=1` on the roles read downloads the role catalogue (at most
    once in ten minutes, signature checked), and the room's JSON arm warms link previews for the posts it returns
-   (engine/unfurl.js, with its own private-address rule). Every agent could already cause both through the board
-   token its CLI sends. GET only: the key is `METHOD pathname`, so HEAD and every write on the same path stay
-   behind the board token, and the query (`?project=`, `?as=text`, `?catalogue=1`) is not part of it.
-   The setup guide is NOT an exception here. Its Read deny rules stop its file tools and a direct `cat`, not the
-   `kosmos` command's own read of the board token (measured 2026-09-30 with a stand-in script under the same rule
-   shape), so it reads rooms and tasks today like any other agent, and these routes give it nothing new. */
+   (engine/unfurl.js, with its own private-address rule). GET only: the key is `METHOD pathname`, so HEAD and
+   every write on the same path stay behind the board token, and the query (`?project=`, `?as=text`,
+   `?catalogue=1`) is not part of it.
+   WHO GAINS: an agent whose `kosmos` command can read the board token already makes these reads, and gains
+   nothing. An agent that holds a valid token and truly cannot read the board token gains exactly these three
+   reads (and can cause the two fetches): that is what this list grants, and each entry is a grant from the day the
+   CLIs stop sending the board token. No such agent is known today. The setup guide is NOT one and is not an
+   exception here: on Claude its Read deny rules stop its file tools, not the `kosmos` command's own read of the
+   board token (engine/setup-assistant.js says so; the measurement is in .claude/plans/agent-reads-4491.md), and
+   a Codex, Gemini or Grok guide has no deny file at all. A token minted for an agent on another machine
+   (POST /api/agent-token) reaches this board directly only as a network peer, which remoteWriteGuard refuses
+   before this gate (none of these is in REMOTE_AGENT_ROUTES). */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
   'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks']);   // overview: #4581, `kosmos project list`
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with

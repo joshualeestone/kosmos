@@ -3,8 +3,7 @@
 /**
  * #4491 slice 4: three READS an agent already makes every day with the board token (`kosmos agent roles`,
  * `kosmos task list`, `kosmos room`) are reachable with ONLY its own agent token. The setup guide is no
- * exception: its `kosmos` command already reads the board token (its Read deny rules stop its file tools,
- * not a script's own read; measured), so it reads rooms and tasks today and gains nothing here.
+ * exception (the plan, .claude/plans/agent-reads-4491.md, says why and what was measured).
  *
  * Same harness as server.agent-token-gate-4491.test.js: the board boots fully sandboxed, then
  * enforcement is flipped on in memory, so no real store is touched.
@@ -114,8 +113,11 @@ test('only GET on exactly those paths: every other verb and neighbour stays behi
   }
 });
 
-test('the setup guide reads them with its own token like any agent: it already could, through the board token its CLI reads', async (t) => {
+test('TRIPWIRE: the gate has no setup-guide rule, so a marked guide reads them like any agent (adding one is a decision)', async (t) => {
   withProject(t);
+  /* This cannot fail on today's gate, which never looks at the marker: it is here to go red the day someone adds a
+     guide rule, so that closing a read the guide makes today is decided and not a side effect. Measured red
+     against this branch's first version, which had such a rule. */
   /* A REAL marked folder, not a stub: the folder the board would look in for this name, with the guide marker. */
   const dir = path.dirname(instructions.fileFor(GUIDE));
   fs.mkdirSync(dir, { recursive: true });

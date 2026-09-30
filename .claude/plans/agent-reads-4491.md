@@ -7,7 +7,8 @@ project reads (#4692), all on main.
 1. `GET /api/roles`, `GET /api/tasks` and `GET /api/project/<p>/room` pass the board-token gate for a loopback
    caller presenting only a valid agent token in the header. These are the reads behind `kosmos agent roles`,
    `kosmos agent role-draft`, `kosmos task list` and `kosmos room`.
-2. No agent gains a read it did not already have, the setup guide included (see Decisions).
+2. No agent known today gains a read it did not already have, the setup guide included (see Decisions). An agent
+   that holds a valid token and cannot read the board token WOULD gain these three: that is what the list grants.
 3. Both CLIs (Mac `install/kosmos`, Windows `tools/windows/kosmos-cli.js`) send the agent's own token on those
    reads, plain hex only, and still send the board token.
 4. Nothing an agent or the person can do today stops working.
@@ -82,3 +83,13 @@ from then on this list IS what an agent can read, and each entry needs to be loo
 - C "fails closed" was false for every state the real code can reach: gone with the rule.
 - NITs: `kosmos agent roles` named correctly; the double token-store scan is gone with the rule; the Windows test
   uses the hook's real token check; HEAD is tested on all three reads.
+
+## Review round 2 (sonnet): 0 BLOCKER, 1 WARNING, 0 CONVENTION, 2 NIT
+- W "no agent gains a read" rested on every token holder also holding the board token, which the code does not
+  establish: the route comment now says who gains (an agent that cannot read the board token gains exactly these
+  three reads; none is known today), names the non-Claude guide, and says why a token minted for another machine
+  does not reach the gate directly (remoteWriteGuard, read in this repo). NOT verified here, and said so: that the
+  Kosmos+ tunnel presents the person's board token on the traffic it forwards (that code is in kosmos-relay).
+- NIT the guide test cannot fail on today's gate: retitled TRIPWIRE, with a comment saying what it is for.
+- NIT a dated measurement stated as fact in shipped source: the comment now points at this plan for it.
+
