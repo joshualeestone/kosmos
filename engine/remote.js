@@ -287,6 +287,12 @@ function fedSetStanding(standing) {
    caught within a TTL (UI off), but the fed-route 403 stays the hard security gate --
    this only keeps the UI honest. */
 const STANDING_TTL_MS = 60 * 1000;   // ICK's ~60s; deliberately not per-poll (5s) to spare the coordinator
+/* #4731: with remote access OFF an enrolled computer is still heard from, but only this often: well inside the
+   coordinator's one-day "quiet" line (#4681), and far from the minute-scale cadence of a computer that is on. */
+const OFF_STANDING_TTL_MS = 12 * 60 * 60 * 1000;
+/* #4731 review: a ping that could not get an answer while OFF (a laptop waking before its Wi-Fi) is retried after this,
+   not after the whole 12 h, so one failed attempt cannot use up the slot and two cannot cross the one-day line. */
+const OFF_RETRY_MS = 30 * 60 * 1000;
 let standingRefreshInFlight = false;
 const FED_LIVE_TTL_MS = 60 * 1000;   // mirrors STANDING_TTL_MS; a launch flag changes rarely, but a lapse/rollback should still reach a board within ~one TTL
 let fedLiveRefreshInFlight = false;
@@ -305,7 +311,7 @@ async function fetchStanding() {
    still reports (tested here rather than in server.js). Every ten minutes it
    runs the refresh, which is single-flighted and TTL-gated: with a tab open, /api/status already
    refreshes on its own (shorter) TTL and this timer adds nothing; with none, it is the only
-   caller, at most one standing call per ten minutes. The TTL sits under
+   caller, at most one standing call per ten minutes (with remote access OFF, one per OFF_STANDING_TTL_MS, #4731). The TTL sits under
    the interval: the refresh stamps its time AFTER the fetch returns, so a TTL equal to the interval
    skipped every other tick. Called through module.exports so a test can observe it; a
    refresh that throws or rejects never stops the timer. One early tick a minute after boot, so a
@@ -341,10 +347,12 @@ async function refreshStandingIfStale(opts) {
   }
   const s = read();
   if (s.ok !== true) return;
+  // #4731: off, the cadence is OFF_STANDING_TTL_MS whatever the caller asked (a 0 TTL included).
+  const due = s.on === true ? ttl : Math.max(ttl, OFF_STANDING_TTL_MS);
   // Math.abs (kosmos#4277): a wall clock stepped backwards (a wrong Mac clock being
   // corrected) leaves standing_at in the future; without it every refresh read as fresh, the early
   // tick's TTL 0 included, until the clock caught up. The same guard as reportNotEnrolledIfDue.
-  if (Math.abs(now - (s.standing_at || 0)) < ttl) return;   // still fresh
+  if (Math.abs(now - (s.standing_at || 0)) < due) return;   // still fresh
   standingRefreshInFlight = true;
   // The answer is about the identity on disk when it was asked: a Forget, or a
   // Forget and a new sign-in, while it was out means it is about one that is gone,
@@ -356,7 +364,9 @@ async function refreshStandingIfStale(opts) {
     if (typeof standing === 'string') {
       fedSetStanding(standing);             // a definite answer: update the value + reset the clock
     } else {
-      write({ standing_at: Date.now() });   // could not determine: KEEP the last-known value, back the retry off to the next TTL
+      // could not determine: KEEP the last-known value, back the retry off to the next TTL; while OFF,
+      // stamped so the retry lands OFF_RETRY_MS from now rather than a whole OFF_STANDING_TTL_MS (#4731).
+      write({ standing_at: s.on === true ? Date.now() : Date.now() - (OFF_STANDING_TTL_MS - OFF_RETRY_MS) });
     }
   } catch { /* refresh is best-effort; a poll must never see this throw */ }
   finally { standingRefreshInFlight = false; }
@@ -1507,40 +1517,6 @@ function signinDeviceId() {
   return id;
 }
 
-/* #4638 (Josh, 15:13): a SECOND computer on an account. The coordinator leaves account_address out once another
-   live computer holds the account's name (kosmos-relay #3823), and its answer still lists the account's addresses and
-   carries this sign-in's match code, the same four characters the other computer's Allow card shows. The page uses
-   them to skip the address chooser, name this computer after itself, and show the code to match. Page-safe only:
-   each value is checked against its own shape (the code against the coordinator's alphabet, XX-XX), never passed
-   through raw, and a value that fails its shape is simply absent. `computer` is this computer's own name, the one the
-   Allow card already shows (thisComputerDeviceName), without the " (Kosmos app)" label. */
-const MATCH_CODE = /^[2-9A-HJKMNP-Z]{2}-[2-9A-HJKMNP-Z]{2}$/;
-function secondComputerFields(data, ownedAddress) {
-  if (ownedAddress) return {};
-  const addresses = (Array.isArray(data && data.addresses) ? data.addresses : [])
-    .filter((a) => typeof a === 'string' && /^[a-z0-9-]{3,32}\.[a-z0-9.-]{3,253}$/.test(a));
-  const other = addresses[0] || '';
-  if (!other) return {};
-  /* Review round 1: every label, so the page can tell a reinstalled computer (its own name already on the account)
-     from a new one, and say "one of your other computers" when there are several (the first is not always the
-     one whose Allow card is showing). */
-  const labels = addresses.slice(0, 20).map((a) => a.split('.')[0]);
-  /* #4681 (Kitty's retirehold): a computer of this account that is still WAITING to be allowed is no longer in
-     `addresses`; the coordinator names it in `waiting_labels` (names only, never an address a page could open). The page
-     uses it for one thing: not to register this computer again as name-2 beside a waiting one of the same name. A name
-     is not identity (#4681 review 16), so nothing here says the waiting computer IS this one. */
-  const waiting = (Array.isArray(data.waiting_labels) ? data.waiting_labels : [])
-    .filter((l) => typeof l === 'string' && /^[a-z0-9-]{3,32}$/.test(l)).slice(0, 20);
-  const code = typeof data.match_code === 'string' && MATCH_CODE.test(data.match_code) ? data.match_code : '';
-  let computer = '';
-  try {
-    const label = thisComputerDeviceName();
-    computer = label.endsWith(DEVICE_SUFFIX) ? label.slice(0, -DEVICE_SUFFIX.length) : '';
-    if (computer === 'This computer') computer = '';
-  } catch { computer = ''; }
-  return { other_address: other, other_labels: labels, waiting_labels: waiting, match_code: code, computer };
-}
-
 /** Take the tunnel's `stage` answer, stash any bearer material HERE, and return
     to the caller ONLY page-safe fields (never the session token, never the
     challenge value, never the enrol-only token) -- the stage always, plus on the
@@ -1564,10 +1540,14 @@ function absorbSession(data) {
        account_address (a coordinator that predates it sends none, and the page falls back). Passed
        through only in its own shape: a lowercase label and a domain, nothing else. */
     const addr = typeof data.account_address === 'string' && /^[a-z0-9-]{3,32}\.[a-z0-9.-]{3,253}$/.test(data.account_address) ? data.account_address : '';
-    const second = secondComputerFields(data, addr);
-    // #4640: `second` marks the one case that keeps the token past register (signinAllowStatus).
-    signinSession = { token, second: Boolean(second.other_address) };
-    return { ok: true, because: null, data: { stage: 'session', account_address: addr, ...second } };
+    /* #4640: a SECOND computer on the account: no account_address (another live computer holds the account's name,
+       kosmos-relay #3823) while the account still lists addresses. It is the one case that may keep the token past
+       register, and only when the page asks to wait for the Allow (signinRegister awaitAllow, signinAllowStatus).
+       Nothing about it reaches the page (#4638's page fields were reverted, a67b04cd3). */
+    const second = !addr && (Array.isArray(data.addresses) ? data.addresses : [])
+      .some((a) => typeof a === 'string' && /^[a-z0-9-]{3,32}\.[a-z0-9.-]{3,253}$/.test(a));
+    signinSession = { token, second };
+    return { ok: true, because: null, data: { stage: 'session', account_address: addr } };
   }
   if (stage === 'second') {
     const challenge = data && typeof data.challenge === 'string' ? data.challenge : '';
@@ -1676,7 +1656,10 @@ let signinEpoch = 0;
    kosmos4640_register_keeps_the_session_and_it_sees_the_allow). So register keeps the token for this ONE purpose:
    only on a second computer (a first one has nobody to wait for), only for ALLOW_WATCH_MS, only here in the engine
    (the page gets device_status and nothing else), and it is dropped by Sign out, a new sign-in, Forget, and the
-   first final answer. Past the window the page keeps its Done button, which is how it worked before. */
+   first final answer. Past the window the page keeps its Done button, which is how it worked before.
+   ⚠️ After the #4638 revert (a67b04cd3) no page sends awaitAllow: the code landing that asked was #4638's. This half
+   (signinRegister's awaitAllow, signinAllowStatus, /api/remote/signin-allowed) is kept, tested, for the sign-in that
+   replaces it (#4754) to call; until then a second computer's Allow shows as the 'waiting-allow' pill instead. */
 const ALLOW_WATCH_MS = 15 * 60 * 1000;
 let allowWatchMsForTests = 0;   // a test seam only (setAllowWatchMsForTests); nothing in the environment lengthens it
 const allowWatchMs = () => (allowWatchMsForTests > 0 ? allowWatchMsForTests : ALLOW_WATCH_MS);
@@ -2210,7 +2193,7 @@ async function signinRegister(name, opts) {
   } };
 }
 
-module.exports = { COORDINATOR, fedSeatArgs, fetchFederationLive, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,

@@ -92,12 +92,10 @@ if (args[0] === 'signin') {
     // #3796 addendum 8: a session for an account that already owns an address, and one with a bad address shape.
     if (code === '262626') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-owned', account_address: 'josh0925-150pm.kosmosplus.com' })); process.exit(0); }
     if (code === '272727') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-odd', account_address: 'javascript:alert(1)' })); process.exit(0); }
-    // #4638: a SECOND computer: no account_address (another computer holds it), the account's addresses, the match code;
-    // then the same with hostile shapes; then an owned address alongside the list (the first-computer path).
+    // #4640: a SECOND computer: no account_address (another computer holds it) and the account's addresses; then the
+    // same with addresses in no valid shape; then an owned address alongside the list (the first-computer path).
     if (code === '282828') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-second', addresses: ['josh09292026.kosmosplus.com'], match_code: 'K7-3M' })); process.exit(0); }
-    if (code === '232323') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-waiting', addresses: ['josh09292026.kosmosplus.com'], waiting_labels: ['pizzarama', 'Bad Name', 'x.kosmosplus.com', 7], match_code: 'K7-3M' })); process.exit(0); }
     if (code === '292929') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-second-odd', addresses: ['<b>x</b>', 'javascript:alert(1)'], match_code: '<script>' })); process.exit(0); }
-    if (code === '313131') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-second-badcode', addresses: ['josh09292026.kosmosplus.com'], match_code: 'I0-OL' })); process.exit(0); }
     if (code === '323232') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-owned2', account_address: 'josh0925-150pm.kosmosplus.com', addresses: ['josh0925-150pm.kosmosplus.com'], match_code: 'K7-3M' })); process.exit(0); }
     if (code === '333333') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-fake', sms_available: true, why_authenticator: 'stronger than sms' })); process.exit(0); }
     if (code === '777777') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, sms_available: true })); process.exit(0); }  // enrol stage with NO token -> engine guard
@@ -1287,33 +1285,28 @@ test('signin verify passes the account\'s existing address through, and only in 
   assert.equal(plain.data.account_address, '', 'an account with no address got one');
 });
 
-/* #4638: a second computer on the account gets the other computer's address, the code to match and its own name, and
-   only in their own shapes; a first computer (owned address) gets none of them. */
-test('#4638 signin verify tells a second computer what it needs to skip the chooser, in safe shapes only', async () => {
-  await remote.signinStart('her@example.com');
-  const second = await remote.signinVerify('her@example.com', '282828');
-  assert.equal(second.data.account_address, '');
-  assert.equal(second.data.other_address, 'josh09292026.kosmosplus.com');
-  assert.equal(second.data.match_code, 'K7-3M');
-  assert.deepEqual(second.data.other_labels, ['josh09292026']);
-  assert.equal(typeof second.data.computer, 'string');
-  assert.ok(!/\(Kosmos app\)/.test(second.data.computer), 'the computer name kept the device label');
-  assert.ok(!JSON.stringify(second.data).includes('kst1.'), 'the session token leaked');
-  await remote.signinStart('her@example.com');
-  const odd = await remote.signinVerify('her@example.com', '292929');
-  assert.equal(odd.data.other_address, undefined, 'an address in the wrong shape made this a second computer');
-  assert.equal(odd.data.match_code, undefined);
-  await remote.signinStart('her@example.com');
-  const badcode = await remote.signinVerify('her@example.com', '313131');
-  assert.equal(badcode.data.other_address, 'josh09292026.kosmosplus.com');
-  assert.equal(badcode.data.match_code, '', 'a code outside the coordinator\'s alphabet was passed to the page');
-  await remote.signinStart('her@example.com');
-  const owned = await remote.signinVerify('her@example.com', '323232');
-  assert.equal(owned.data.account_address, 'josh0925-150pm.kosmosplus.com');
-  assert.equal(owned.data.other_address, undefined, 'a first computer (owned address) was treated as a second one');
-  await remote.signinStart('her@example.com');
-  const plain = await remote.signinVerify('her@example.com', '111111');
-  assert.equal(plain.data.other_address, undefined, 'a brand-new account was treated as a second computer');
+/* #4640 after the #4638 revert (a67b04cd3): the page gets the stage and account_address only, never the other
+   computer's address, a code or a name, and never the token. Whether this is a second computer is the engine's own
+   gate for keeping the token (valid addresses listed, no owned one); it never reaches the page. */
+test('#4640 a second computer is known to the engine only: the page gets no #4638 fields, and only a real second computer keeps the token', async () => {
+  for (const code of ['282828', '292929', '323232']) {
+    await remote.signinStart('her@example.com');
+    const v = await remote.signinVerify('her@example.com', code);
+    assert.equal(v.ok, true, v.because);
+    assert.deepEqual(Object.keys(v.data).sort(), ['account_address', 'stage'], code + ': the page got more than the stage and address');
+    assert.ok(!JSON.stringify(v.data).includes('kst1.'), code + ': the session token leaked');
+  }
+  // CONTROLS for the gate: addresses in no valid shape, and an owned address, are not a second computer.
+  for (const [code, name, want] of [['292929', 'oddlist', false], ['323232', 'ownedlist', false], ['282828', 'realsecond', true]]) {
+    remote.signinCancel();
+    await remote.forget();
+    await remote.signinStart('her@example.com');
+    assert.equal((await remote.signinVerify('her@example.com', code)).ok, true);
+    const reg = await remote.signinRegister(name, { awaitAllow: true });
+    assert.equal(reg.ok, true, reg.because);
+    assert.equal(remote.allowWatchHeldForTests(), want, code + ': kept the token ' + (want ? 'not ' : '') + 'as a second computer');
+  }
+  remote.signinCancel();
 });
 
 /* #4640: a second computer, once registered, can learn that its first computer allowed it. The session token is kept
@@ -1322,18 +1315,6 @@ test('#4638 signin verify tells a second computer what it needs to skip the choo
 const ALLOW = RECORD + '.allow';
 const STATUS_TOKEN = RECORD + '.status-token';
 let secondN = 0;
-/* #4681: a computer of the account that is still waiting is listed apart, names only; the page gets only names in the
-   label shape (never an address), and an answer without the field gives an empty list. */
-test('#4681 signin verify passes waiting_labels on as names only, and an answer without it gives none', async () => {
-  await remote.signinStart('her@example.com');
-  const w = await remote.signinVerify('her@example.com', '232323');
-  assert.deepEqual(w.data.waiting_labels, ['pizzarama'], 'a non-label (a space, an address, a number) reached the page');
-  assert.deepEqual(w.data.other_labels, ['josh09292026'], 'the waiting computer leaked into the other computers');
-  await remote.signinStart('her@example.com');
-  const plain = await remote.signinVerify('her@example.com', '282828');
-  assert.deepEqual(plain.data.waiting_labels, [], 'CONTROL: a coordinator without the field gives an empty list');
-});
-
 async function signedInSecond(code = '282828') {
   await remote.signinStart('her@example.com');
   const v = await remote.signinVerify('her@example.com', code);

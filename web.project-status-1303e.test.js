@@ -31,14 +31,37 @@ test('a project with no agents gets no status label at all', () => {
   assert.equal(got.glyph, '', 'an empty status should carry no glyph either');
 });
 
-test('every OTHER state still has its label, so this did not silence the pill', () => {
+test('a running state still has its label, so this did not silence the pill', () => {
   /* 🛑 THE CONTROL THAT MATTERS. Returning an empty label for everything would
-     pass the test above and remove the status from the whole product. */
+     pass the tests around it and remove the status from the whole product. */
   const f = pillOf();
   assert.equal(f({ summary: { total: 3, needsYou: 1 } }, false).label, 'Issue');
   assert.equal(f({ summary: { total: 3, working: 1 } }, false).label, 'Working');
-  assert.equal(f({ summary: { total: 3 } }, false).label, 'Nothing running');
-  assert.equal(f({ summary: { total: 3, unseen: 1 } }, false).label, 'Can’t tell');
+  // (Restarting is not asserted here: its glyph is GLYPH.restarting, which this lifted copy cannot see.)
+});
+
+test('#4730: no badge when nothing runs or we cannot tell (Josh, 2026-09-30)', () => {
+  /* "if there's nothing running or we can't tell, let's just not display a badge here. Let's only
+     display a badge if something is actually running." */
+  const f = pillOf();
+  for (const [what, p, unreadable] of [
+    ['nothing running', { summary: { total: 3 } }, false],
+    ['an unseen member', { summary: { total: 3, unseen: 1 } }, false],
+    ['an unreadable roster', { summary: { total: 3, working: 1 } }, true],
+  ]) {
+    const got = f(p, unreadable);
+    assert.equal(got.label, '', what + ': a badge is back (' + got.label + ')');
+    assert.equal(got.glyph, '', what + ': an empty badge still carries a glyph');
+  }
+});
+
+test('#4730: the Projects card draws no "we cannot see" line', () => {
+  const at = PAGE.indexOf('function projectCard(');
+  assert.notEqual(at, -1, 'projectCard is gone');
+  const body = PAGE.slice(at, PAGE.indexOf('\n}', at));
+  // The emitted strings, not the words (the comment explaining their removal quotes them).
+  assert.doesNotMatch(body, /' we cannot see'|'we cannot see how they are doing/, 'the card says "we cannot see" again');
+  assert.doesNotMatch(body, /class="pj-who"/, 'the card emits the pj-who line again');
 });
 
 test('the row omits the pill element when there is no label', () => {

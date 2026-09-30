@@ -144,3 +144,36 @@ kept through the retry (reds), prefix kept in the sentence (2 reds), report row 
   render-plus-second-computer-4638 31 PASS, render-plus-signin-3478 175 PASS, render-plus-signin-enter-0929 12 PASS,
   render-plus-stars-3778 18 PASS, 0 FAIL in each. Full suite not run; the challenge-loop proof is stale after
   the rebase and must be regenerated before any PR.
+
+## Rebased onto main after the #4638 revert (2026-09-30)
+
+- Old head 028d65602 (on 844b2372a, #4638). New base origin/main a6632f152, which carries a67b04cd3 (Revert #4638).
+- MERGED origin/main rather than rebasing: all 20 #4640 commits touch the regions the revert deleted, so a rebase
+  would re-resolve the same conflict up to 20 times and leave commits that never ran. One merge commit holds the
+  whole resolution in one reviewable diff; the #4640 history is unchanged.
+- Kept (#4640's own): allowWaitSentence and the 'waiting-allow' tunnel state (wait sentence required; own_lineage's
+  final sentences stay refusals), remote-report's waiting-allow code, the webhook line, the grey "Waiting to be
+  allowed" pill in paintPlus, the render-plus-panel-3829 waiting arm and its control, and the engine allow-watch
+  (signinRegister awaitAllow, signinAllowStatus, signinAllowDone, /api/remote/signin-allowed and -done) with its tests.
+- Dropped, because each only extended #4638's reverted flow:
+  - waiting_labels (#4681): lived in secondComputerFields and plusSiSecondStart, both gone; its test and fixture 232323.
+  - The page's allow landing: plusSiWatchAllow, plusSiAllowed, plusSiRefused, PLUS_SI_WATCH, the aria-live on
+    plus-si-match-lead, awaitAllow in plusSiDoRegister, the Done button's signin-allowed-done post. They hung off
+    #4638's code landing (PLUS_SI_SECOND, plusSiSecondDone), which no longer exists.
+  - The #4640 arms in render-plus-second-computer-4638.js (the file is deleted on main) and its README row.
+  - The #4638 test "signin verify tells a second computer what it needs", and fixture 313131.
+- Changed: absorbSession no longer calls secondComputerFields. The engine decides "second computer" itself (no
+  account_address, at least one valid address listed) and keeps it in signinSession only; the page gets stage and
+  account_address, as on main. New test pins that, with controls (bad address shapes, an owned address);
+  mutation `!addr ||` reds it.
+- ⚠️ Consequence: nothing on the page calls the allow-watch now, so the "moves on by itself" landing does NOT ship
+  here. A second computer shows the waiting pill, which turns to Connected when its tunnel comes up. The engine half
+  waits for #4754 (sign-in to a bought address) to call it.
+- Conflicts: README.md (main's), render-plus-second-computer-4638.js (deleted), engine/remote.js (two hunks),
+  engine/remote.test.js (two), web/index.html (four, all main's), plus two auto-merged index.html hunks naming
+  PLUS_SI_SECOND, removed by hand.
+- Tests: remote 132/132, remote-report 15/15, remote-standing-refresh 12/12, server 346/346, webhooks-1307 39/39,
+  engine.reachable 1/1, wired 11/11, indexed 1/1, selectors 4/4, reason-grep 5/5 (no EXPECTED_* change needed:
+  the revert already took 4638's emit sites out, and this merge adds none). Browser checks via the light queue:
+  render-plus-panel-3829 118 PASS / 0 FAIL, render-plus-signin-3478 175 PASS / 0 FAIL. Full suite not run; the
+  challenge-loop proof is stale and must be regenerated before a PR.

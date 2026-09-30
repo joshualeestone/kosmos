@@ -37,8 +37,8 @@ const HANDS_OFF_LINES = [
 /* #4474 (Josh, on #1279: "if the type of agent they need created isn't there, they can create it from scratch"):
    when no role on the list fits, the PM writes one, starting from the default text, and makes the agent from it
    after the same one-line confirmation. The same file makes more agents with that
-   role; Kosmos keeps no list of made-up roles. Not the setup guide: it is sandboxed away from the person's secrets,
-   and a role it wrote would give an unsandboxed agent instructions the guide may not act on (the server refuses
+   role; Kosmos keeps no list of made-up roles. Not the setup guide: it is kept away from the person's secrets (#3769),
+   and a role it wrote would give an agent without those guards instructions the guide may not act on (the server refuses
    it, team.vetAgentMember); it walks the person through New agent instead. */
 const NEW_ROLE_LINES = [
   '  If no role on that list fits, write one, in a file named for it: run',
