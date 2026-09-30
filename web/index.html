@@ -42241,6 +42241,12 @@ function paintAsk() {
       /* #3829 review: denying an OLD request (older than an hour, likely the person's own stale sign-in)
          does not accuse anyone; the password sentence is for a fresh one they did not make. */
       const oldAsk = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
+      /* #4702 (after #4681 review 13): a denied request that registered a new computer stays denied when it signs in
+         again, so "it can ask again by signing in" would be false for it. It says what is true, and where to go. */
+      const regName = typeof d.registers_computer === 'string' && d.registers_computer ? d.registers_computer : '';
+      if (regName) return '<div class="askrow done"><p>Denied. The computer ' + askEsc(regName) + ' was not let in, and signing in again will not ask again. To let it in later, retire it on your account page (View account) and set it up again.' +
+        (oldAsk ? '' : ' If you did not just set up a computer, someone has a code sent to <b>' + askEsc(ASK.email || 'your email') + '</b>: change that email\'s password.') + '</p>' +
+        '<div class="acts"><button class="btn" type="button" data-ask="gotit" data-id="' + askEsc(d.device_id) + '">Got it</button></div></div>';
       if (oldAsk) return '<div class="askrow done"><p>Denied. That ' + askEsc(kind) + ' was not let in; it can ask again by signing in.</p>' +
         '<div class="acts"><button class="btn" type="button" data-ask="gotit" data-id="' + askEsc(d.device_id) + '">Got it</button></div></div>';
       return '<div class="askrow done"><p>Denied. That ' + askEsc(kind) + ' was not let in. If you did not just sign in anywhere, someone has a code sent to <b>' + askEsc(ASK.email || 'your email') +
@@ -42253,9 +42259,13 @@ function paintAsk() {
     const stale = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
     const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
     const say = d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
+    /* #4702: allowing a sign-in that registered a computer also frees that computer (#4665 holds it until then), so
+       the card says so, in words: the owner decides knowing what the Allow unlocks. */
+    const frees = typeof d.registers_computer === 'string' && d.registers_computer
+      ? ' Allowing this also lets the computer ' + askEsc(d.registers_computer) + ' allow devices.' : '';
     return '<div class="askreq' + (stale ? ' stale' : '') + '"><div class="askdev">' + askIcon(kind) + '</div>' +
       '<div class="askwho"><b>' + askEsc(kind) + '</b>' + askAgoSpan(d.first_seen) + '</div>' +
-      '<p class="asksay">' + say + again + (e && e.state === 'error' ? ' ' + askEsc(e.because) : '') + '</p>' +
+      '<p class="asksay">' + say + frees + again + (e && e.state === 'error' ? ' ' + askEsc(e.because) : '') + '</p>' +
       /* #3952: the code in the same boxes as every device code, on its own row, so it can be matched at a glance
          against the device in the person's hand (Josh 09-26: "they matched perfectly"). Directly above Allow, nothing
          between them, so matching and allowing are one glance (Mona Lisa, 09-26). */

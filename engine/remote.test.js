@@ -946,6 +946,25 @@ test('pending is a FILE the tunnel writes: read, never spawned, and empty while 
   assert.ok(!recorded().some((a) => a[0] === 'devices'), 'reading pending spawned the binary');
 });
 
+test('#4702 a request that registered a computer carries its name (trimmed, capped); absent or not a string is null', () => {
+  const dir = enrol();
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
+    { device_id: 'dev-a', name: 'iPhone', first_seen: 1756000000, code: 'K7-3M', registers_computer: '  Kitchen Mac  ' },
+    { device_id: 'dev-b', name: 'iPhone', first_seen: 1756000000, code: 'K7-3N' },
+    { device_id: 'dev-c', name: 'iPhone', first_seen: 1756000000, code: 'K7-3P', registers_computer: { name: 'x' } },
+    { device_id: 'dev-d', name: 'iPhone', first_seen: 1756000000, code: 'K7-3Q', registers_computer: 'M'.repeat(90) },
+    { device_id: 'dev-e', name: 'iPhone', first_seen: 1756000000, code: 'K7-3R', registers_computer: '   ' },
+  ] }));
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = 'relay.test:443';
+  remote.setOn(true);
+  const by = Object.fromEntries(remote.pendingDevices().devices.map((d) => [d.device_id, d.registers_computer]));
+  assert.equal(by['dev-a'], 'Kitchen Mac', 'the computer name is trimmed and passed on');
+  assert.equal(by['dev-b'], null, 'CONTROL: a request that registered nothing says nothing');
+  assert.equal(by['dev-c'], null, 'a non-string is not passed to the page');
+  assert.equal(by['dev-d'], 'M'.repeat(60), 'capped at 60, like the device name');
+  assert.equal(by['dev-e'], null, 'a blank name is no name');
+});
+
 test('allow drives the binary with the Mac-first verb, the id and the kind; a bad id is refused in words without spawning', async () => {
   enrol();
   const bad = await remote.deviceAllow('../evil', 'iPhone');

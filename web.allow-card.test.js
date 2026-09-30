@@ -48,6 +48,31 @@ test('#3829 each request is a compact card: kind, when, the code, one device-neu
   assert.match(card, /data-ask="deny"[^>]*>Deny<\/button>/);
 });
 
+test('#4702 the ask says when Allow also frees a computer, escaped, on the ask only (not on Allowed or Denied)', () => {
+  const at = JS.indexOf("'<div class=\"askreq'");
+  const card = JS.slice(at, JS.indexOf("</div></div>';", at));
+  assert.match(JS, /const frees = typeof d\.registers_computer === 'string' && d\.registers_computer\s*\? ' Allowing this also lets the computer ' \+ askEsc\(d\.registers_computer\) \+ ' allow devices\.' : '';/);
+  assert.match(card, /'<p class="asksay">' \+ say \+ frees \+ again/, 'the sentence is not in the ask card');
+  const from = JS.indexOf("if (e && e.state === 'allowed')");
+  const done = JS.slice(from, JS.indexOf('const stale', from));   // the Allowed and Denied branches only
+  assert.ok(done.length > 100 && !/frees/.test(done), 'the Allowed / Denied lines mention it (they are after the decision)');
+});
+
+test('#4702 a denied request that registered a computer never promises it can ask again by signing in', () => {
+  const from = JS.indexOf("if (e && e.state === 'denied')");
+  const denied = JS.slice(from, JS.indexOf('const stale', from));
+  const reg = denied.indexOf('if (regName) return');
+  const old = denied.indexOf('if (oldAsk) return');
+  assert.ok(reg > 0 && old > reg, 'the registered-computer line must come before the generic ones');
+  const line = denied.slice(reg, old);
+  assert.match(line, /The computer ' \+ askEsc\(regName\) \+ ' was not let in, and signing in again will not ask again\. To let it in later, retire it on your account page \(View account\) and set it up again\./);
+  assert.doesNotMatch(line, /can ask again by signing in/);
+  // #3829's rule on this line too: an OLD request is never accused; a fresh one gets the password sentence.
+  assert.match(line, /\(oldAsk \? '' : ' If you did not just set up a computer, someone has a code sent to <b>' \+ askEsc\(ASK\.email \|\| 'your email'\) \+ '<\/b>: change that email\\'s password\.'\)/);
+  // CONTROL: the generic old-request line still says it (true for every other denied device).
+  assert.match(denied.slice(old), /it can ask again by signing in/);
+});
+
 test('#3829 an unnamed request is "Unknown device", never the bare noun', () => {
   assert.match(JS, /return d && typeof d\.name === 'string' && d\.name \? d\.name : 'Unknown device';/);
   /* #4610 (Josh's ruling 13:00): this Mac's own sign-in is granted by the board and never shown, so the page no
@@ -62,7 +87,8 @@ test('the change-your-password sentence appears on the Deny branch and the re-as
   const plain = JS.slice(at, JS.indexOf('\n', at));
   assert.ok(at > -1, 'the plain sentence moved; re-anchor');
   assert.doesNotMatch(plain, /password/, 'the plain ask carries the intruder sentence, which the wrong person reads every time');
-  const d0 = JS.indexOf("e.state === 'denied'");
+  // #4702: the registered-computer Denied line comes first; the old and fresh generic lines follow it.
+  const d0 = JS.indexOf("if (oldAsk) return", JS.indexOf("e.state === 'denied'"));
   // Comments stripped: a sentence ABOUT the password line is not the line.
   const oldBranch = JS.slice(d0, JS.indexOf('Got it', d0)).replace(/\/\*[\s\S]*?\*\//g, '');
   const freshBranch = JS.slice(JS.indexOf('Got it', d0) + 1, JS.indexOf('Got it', JS.indexOf('Got it', d0) + 1));
