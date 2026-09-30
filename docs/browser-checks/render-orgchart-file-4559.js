@@ -501,8 +501,8 @@ async function run() {
       const sortedL = putsL.slice().sort();
       check('LEAVE DURING CREATE: the reporting-line fix-up still lands after the person left the panel',
         JSON.stringify(sortedL) === JSON.stringify(['account-executive={"reportsTo":"head-of-sales-2"}', 'sales-engineer={"reportsTo":"head-of-sales-2"}']), JSON.stringify(sortedL));
-      /* #4688: the team made after they left comes back with the panel, with its Undo, not a blank panel and 7
-         agents to remove one by one. */
+      /* #4688: the team made after they left comes back with the panel, with its Undo, not a blank panel and 4
+         agents to remove one by one. FOUR: this arm's read is mocked with PICTURE_ROWS (4 people), not the CSV's 7. */
       await plc.click('#cstep-kind [data-path="team"]');
       await plc.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
       await plc.click('#team-orgchart-open');
@@ -511,7 +511,7 @@ async function run() {
         undo: !document.getElementById('orgchart-undo').hidden ? document.getElementById('orgchart-undo').textContent : null,
         count: document.getElementById('orgchart-count').textContent, create: document.getElementById('orgchart-create').disabled }));
       check('#4688 LEAVE DURING CREATE, REOPENED: the team made after the person left comes back with its result and Undo',
-        back.created === 7 && back.box && /remove these 7 agents/.test(back.undo || '') && /Created 7 agents/.test(back.count) && back.create, JSON.stringify(back));
+        back.created === 4 && back.box && /remove these 4 agents/.test(back.undo || '') && /Created 4 agents/.test(back.count) && back.create, JSON.stringify(back));
       // CONTROL: a new batch still replaces it (a fresh Preview), so the kept Undo is not sticky forever.
       await plc.fill('#orgchart-text', 'Chief Executive Officer');
       await plc.click('#orgchart-preview');
