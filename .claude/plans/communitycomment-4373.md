@@ -278,3 +278,15 @@ cost is unmeasured.
   a 5 ms gap, 12 of 12 alone. The window stays >= (review 4 needs a comment in the start's own millisecond inside).
 NITs left: settle() keeps an old `reasons` on a sent row; the Settings line "releasing it while Community is on sends
 it" is true only if it is still on at the next sweep.
+
+## Next round (blind, sonnet), 2026-09-30 06:11: CONVERGED (no NEW finding)
+- the "will not go" record in comments-sent.json can be lost to a concurrent sweep's save: DUPLICATE of review 6 (the
+  authoritative notSent mark is on the comment row, which the sweep only reads).
+- a comment released while OFF shows nothing on /sent: DUPLICATE (/sent lists what the board has TRIED to send, as
+  recorded above; the page tells the person it never goes).
+- the CLI's "may have been taken, do not send it again" can lose a comment on a transient board failure: DUPLICATE of
+  the at-most-once choice.
+NITs: RULE_TAIL is one long sentence in the frame and the block; the id strip is single-pass (a splice needs 72
+characters, names are cut to 64: the same reasoning as the round before); a sweep's `now` is sampled once; the
+comments-sent.json message is keyed on its path.
+Next: the final validation on this HEAD, then proof and PR.
