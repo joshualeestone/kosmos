@@ -33,7 +33,8 @@ function stubBoardCliTests(dir) {
 }
 
 /** Ways a test hands the CLI this computer's own environment (and with it, its data root). */
-const INHERIT_RE = /\.\.\.process\.env\b|Object\.assign\(\s*\{\s*\}\s*,\s*process\.env\b|env:\s*process\.env\b/g;
+// Object.assign with process.env as ANY argument (review round 6: not only the second).
+const INHERIT_RE = /\.\.\.process\.env\b|Object\.assign\([^;]*?\bprocess\.env\b(?!\.)|env:\s*process\.env\b(?!\.)/g;
 /** A data root of its own, named with a value (an empty one means "unset" to engine/store.js). */
 // AGENT_WORKFORCE_HOME is the next place engine/store.js looks when AGENT_WORKFORCE_DATA is unset or empty.
 // The space goes inside the lookahead, or backtracking lets '' through. undefined, null and the parent's own value
@@ -43,7 +44,8 @@ const DATA_KEY = /AGENT_WORKFORCE_(DATA|HOME)\s*[:=](?!\s*(?:['"`]{2}|undefined\
  *  bridges resolve their engine beside themselves and ignore it; review round 3). */
 // Not the repo itself either (review round 5): with no app/engine/store under it, install/kosmos loads the
 // checkout's own engine/store.js, which finds the real data root.
-const HOME_KEY = /KOSMOS_HOME\s*[:=](?!\s*(?:['"`]{2}|undefined\b|null\b|process\.env\b|__dirname\b|REPO\b|ROOT\b))/;
+// Round 6: any value built from __dirname (path.resolve(__dirname, '..') is the checkout too), and any REPO*/ROOT* name.
+const HOME_KEY = /KOSMOS_HOME\s*[:=](?!\s*(?:['"`]{2}|undefined\b|null\b|process\.env\b|[^,}\n]*__dirname|(?:REPO|ROOT)\w*\b))/;
 
 /** The text of the object literal (or call) an inherit match sits in: from the nearest unclosed `{` (or, for
  *  Object.assign, the call's `(`) to its matching close. Keys spread in from elsewhere (`...env`) are not in it,
@@ -77,7 +79,8 @@ function leakIn(text) {
     const env = m[0].startsWith('Object.assign') ? enclosing(text, m.index + m[0].indexOf('('), '(', ')') : enclosing(text, m.index, '{', '}');
     // The sandbox key must come AFTER the spread in the same object (review round 5): before it, the parent's own
     // value wins, and an agent's pane sets AGENT_WORKFORCE_DATA to the real root on a non-default install.
-    const after = env.slice(Math.max(0, env.indexOf(m[0])));
+    // For Object.assign the parent's env is an argument: what follows it inside the call wins (review round 6).
+    const after = env.slice(Math.max(0, m[0].startsWith('Object.assign') ? env.indexOf('process.env') : env.indexOf(m[0])));
     if (!(DATA_KEY.test(after) || (runsCli && HOME_KEY.test(after)))) bad.push(line);
   }
   if (bad.length) return `inherits the parent environment with no data root of its own at line ${bad.join(', ')}`;
@@ -122,6 +125,12 @@ test('#4796 control: the check can see a file without a data root, in each shape
   // Review round 5.
   assert.notEqual(leakIn(cli + 'const env = { AGENT_WORKFORCE_DATA: DATA, ...process.env, KOSMOS_PORT: p };\n'), null, 'a data root before the spread is overwritten by the parent\'s');
   assert.notEqual(leakIn(cli + inh.replace('KOSMOS_PORT', 'KOSMOS_HOME: __dirname, KOSMOS_PORT')), null, 'KOSMOS_HOME pointing at the repo loads the real store');
+  // Review round 6.
+  assert.notEqual(leakIn(cli + 'const env = Object.assign({}, { AGENT_WORKFORCE_DATA: D }, process.env);\n'), null, 'Object.assign with the root before the parent\'s env');
+  assert.equal(leakIn(cli + 'const env = Object.assign({}, process.env, { AGENT_WORKFORCE_DATA: D });\n'), null, 'Object.assign with the root after it');
+  for (const v of ["path.resolve(__dirname, '..')", 'path.join(__dirname)', 'REPO_ROOT']) {
+    assert.notEqual(leakIn(cli + inh.replace('KOSMOS_PORT', `KOSMOS_HOME: ${v}, KOSMOS_PORT`)), null, `KOSMOS_HOME: ${v} is the checkout`);
+  }
 });
 
 test('#4796 control: with the #4796 fix taken back out, the guard names each file the leak was measured in', () => {
