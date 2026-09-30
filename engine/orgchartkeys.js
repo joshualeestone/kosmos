@@ -201,7 +201,7 @@ const KEEPS = {
    Left out, on purpose: the classifier SCORES kept up to 7 years for flagged content (scores, not what was sent), and
    Enterprise zero data retention (Kosmos cannot see it; saying 30 days there overstates, the safe direction). */
 const CLAUDE_KEEPS = 'On a Free, Pro or Max plan, Anthropic keeps what you send for 30 days. If you have allowed Anthropic to use '
-  + 'your chats to improve Claude (in your Claude privacy settings), it keeps it for up to 5 years to train its models, with details '
+  + 'your chats to improve Claude (in your Claude privacy settings), Anthropic keeps it for up to 5 years to train its models, with details '
   + 'that identify you removed. On a Team or Enterprise plan, or an Anthropic API account, Anthropic keeps it for 30 days. '
   + 'Anything its safety systems flag can be kept for up to 2 years.';
 const CLAUDE_API_KEEPS = 'On an Anthropic API key, Anthropic keeps what you send for 30 days. '

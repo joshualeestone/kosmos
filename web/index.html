@@ -46818,8 +46818,9 @@ async function orgchartSendFile(file, consent, seq, reader) {   // reader: the i
   if (out.needsConsent) {
     ORGCHART_FILE_PENDING = file;
     ORGCHART_FILE_READER = out.reader || null;
-    /* #4560: how it is paid for (a plan, or per request to a key) and what that provider keeps even though Kosmos
-       asks it not to store the file (Liu Kang m3686), both from the board. */
+    /* #4560: how it is paid for (a plan, or per request to a key) and what that provider keeps, both from the board:
+       a key provider's line says it keeps it even though Kosmos asks it not to store the file (Liu Kang m3686);
+       Claude's says what Anthropic keeps on the person's plan or API key (#4660). */
     document.getElementById('orgchart-consent-say').textContent = 'This file is read by your own AI provider, ' + out.provider
       + ', ' + (out.uses || 'using your plan') + '. It names the people on your chart, so it is sent only if you say so. Kosmos keeps no copy.'
       + (out.keeps ? ' ' + out.keeps : '');

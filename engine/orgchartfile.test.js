@@ -456,18 +456,27 @@ test('#4559: common HR headers for the manager column are recognised (Supervisor
 test('#4660: the Claude reader carries whether its account runs on an API key (the consent line depends on it)', (t) => {
   const accounts = require('./accounts');
   const runners = require('./runners');
-  const saved = process.env.CLAUDE_CONFIG_DIR;
-  delete process.env.CLAUDE_CONFIG_DIR;
+  const saved = { dir: process.env.CLAUDE_CONFIG_DIR, key: process.env.ANTHROPIC_API_KEY };
+  delete process.env.ANTHROPIC_API_KEY;
+  // The shape accounts.list() really emits for a key account: a non-default folder, reached through CLAUDE_CONFIG_DIR.
+  process.env.CLAUDE_CONFIG_DIR = '/tmp/x-claude';
   t.mock.method(runners, 'resolveBin', () => ({ present: true, bin: 'claude' }));
-  let row = { dir: '/tmp/x-claude', isDefault: true, email: null, apiKey: true };
-  t.mock.method(accounts, 'list', () => [row]);
+  let rows = [{ dir: '/tmp/x-claude', isDefault: false, email: null, apiKey: true }];
+  t.mock.method(accounts, 'list', () => rows);
   try {
     assert.deepEqual(o.currentReader(), { kind: 'claude', dir: '/tmp/x-claude', apiKey: true });
     assert.equal(o.consentFor(o.currentReader()).uses, 'billed to your Anthropic API key');
-    row = { dir: '/tmp/x-claude', isDefault: true, email: 'a@b.c', apiKey: false };
-    assert.deepEqual(o.currentReader(), { kind: 'claude', dir: '/tmp/x-claude', apiKey: false }, 'CONTROL: a subscription row');
+    // The default account on a subscription: not a key, until the board's own environment carries one.
+    delete process.env.CLAUDE_CONFIG_DIR;
+    rows = [{ dir: '/tmp/x-default', isDefault: true, email: 'a@b.c', apiKey: false }];
+    assert.deepEqual(o.currentReader(), { kind: 'claude', dir: '/tmp/x-default', apiKey: false }, 'CONTROL: a subscription row');
     assert.equal(o.consentFor(o.currentReader()).uses, 'using your plan');
-  } finally { if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = saved; }
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-TEST-4660';
+    assert.equal(o.currentReader().apiKey, true, 'ANTHROPIC_API_KEY in the board env is what the read bills');
+    assert.equal(o.consentFor(o.currentReader()).uses, 'billed to your Anthropic API key');
+  } finally {
+    for (const [k, v] of [['CLAUDE_CONFIG_DIR', saved.dir], ['ANTHROPIC_API_KEY', saved.key]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
 });
 
 test('#4559: a row on a loop that also shares its name keeps both notes', () => {

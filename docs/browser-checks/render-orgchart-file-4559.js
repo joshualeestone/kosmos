@@ -73,7 +73,8 @@ const EXPECT_REPORTS = [
 
 /* A Claude consent answer as the board sends one: the engine's own keeps sentence, not a copy (#4660). The reader
    id and `uses` are left out, as before, so these arms send exactly what they did. */
-const CLAUDE_ASK = { needsConsent: true, provider: 'Anthropic (Claude)', keeps: require('../../engine/orgchartkeys').CLAUDE_KEEPS };
+const okeys = require('../../engine/orgchartkeys');   // the engine's own sentences, not copies
+const CLAUDE_ASK = { needsConsent: true, provider: 'Anthropic (Claude)', keeps: okeys.CLAUDE_KEEPS };
 const PICTURE_ROWS = [
   { person: 'Avery Quill', title: 'Chief Executive', reportsTo: null, why: null },
   { person: 'Bo Linden', title: 'Head of Sales', reportsTo: 0, why: null },
@@ -143,7 +144,7 @@ async function run() {
       if (scheme === 'light') {
         check('PICTURE: before anything is read, the box names the provider and says why it asks', /read by your own AI provider, Anthropic \(Claude\)/.test(a.consent) && /names the people on your chart/.test(a.consent), a.consent);
         // #4660: the engine's own sentence (not a copy) reaches the page, after the no-copy line.
-        check('PICTURE: the Claude consent says what Anthropic keeps, both cases of the training setting', a.consent.endsWith('Kosmos keeps no copy. ' + require('../../engine/orgchartkeys').CLAUDE_KEEPS), a.consent);
+        check('PICTURE: the Claude consent says what Anthropic keeps, both cases of the training setting', a.consent.endsWith('Kosmos keeps no copy. ' + okeys.CLAUDE_KEEPS), a.consent);
         check('PICTURE: the first request carried no consent and no file (it only asks who would read it)', reads.length === 1 && reads[0].consent === false && reads[0].bytes === 0, JSON.stringify(reads));
         check('PICTURE: Read it has focus', await p3.evaluate(() => document.activeElement && document.activeElement.id) === 'orgchart-consent-go');
         await p3.click('#orgchart-consent-no');
@@ -356,7 +357,6 @@ async function run() {
     // KEY PROVIDER (#4560): with a key-connected provider instead of Claude, the consent names that provider and
     // account, and a kind it cannot read (Grok and a PDF) is said at once, with no consent box.
     const pk = await page();
-    const okeys = require('../../engine/orgchartkeys');   // the engine's own sentences, not copies
     const grokPdf = okeys.cannotRead('xai', 'application/pdf');
     const grokKeeps = okeys.keeps({ provider: 'xai' });
     let sentReader = null;
