@@ -40,6 +40,7 @@ render-chip-filters-3423
 render-claude-connect-choice-2433
 render-cluster-reorder-2929
 render-codex-account-picker-2811
+render-composer-caret-4585
 render-composer-reset
 render-composer-stroke
 render-conn-ask-4451
