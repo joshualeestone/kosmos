@@ -389,3 +389,12 @@ test('a person who joined, with no saved name, is never sent as "the project own
     if (saved) fs.writeFileSync(you.FILE, saved);
   }
 });
+
+test('#4580: a folded retry (the same post, duplicate) never goes out to the other side a second time', async () => {
+  const before = children.map((c) => c.written.length);
+  federateOut(pid, { id: 'p-dup', from: 'you', text: 'said once', duplicate: true }, false);
+  assert.deepEqual(children.map((c) => c.written.length), before, 'a duplicate receipt was federated again');
+  // CONTROL: the same delivery without the duplicate mark does go out, so the arm can see a send.
+  federateOut(pid, { id: 'p-dup', from: 'you', text: 'said once' }, false);
+  assert.notDeepEqual(children.map((c) => c.written.length), before);
+});
