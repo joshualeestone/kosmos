@@ -17,7 +17,11 @@ set -u
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 SETUP="$HERE/install/setup.sh"
 [ -f "$SETUP" ] || { echo "FAIL: cannot find install/setup.sh at $SETUP" >&2; exit 1; }
-if [ ! -x /usr/bin/sandbox-exec ]; then echo "SKIP: no sandbox-exec on this computer"; exit 0; fi
+if [ ! -x /usr/bin/sandbox-exec ]; then
+  # A Mac without sandbox-exec is a broken runner, not a reason to go green without testing anything.
+  if [ "$(uname -s)" = Darwin ]; then echo "FAIL: /usr/bin/sandbox-exec is missing on this Mac" >&2; exit 1; fi
+  echo "SKIP: no sandbox-exec (not a Mac)"; exit 0
+fi
 NODE="$(command -v node || true)"
 [ -n "$NODE" ] || { echo "FAIL: node is needed for the stub listener" >&2; exit 1; }
 
@@ -38,7 +42,6 @@ mkdir -p "$T/home/bin" "$T/logs"
 printf '#!/bin/sh\nexit 0\n' > "$T/home/bin/kosmos"; chmod +x "$T/home/bin/kosmos"
 printf '%s\n' "$BLOCK" > "$T/pause.sh"
 cat > "$T/run.sh" <<'EOF'
-#!/bin/bash
 set -e
 T="$1"; PORT="$2"
 KOSMOS_HOME="$T/home"; LOG_DIR="$T/logs"; FRESH_INSTALL=no
@@ -50,10 +53,11 @@ echo "PASSED THE PAUSE"
 EOF
 
 free_port() { "$NODE" -e "const s=require('net').createServer();s.listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})"; }
-# mode http: answers like a board. mode silent: accepts and never answers.
+# mode http: answers like a board. mode silent: accepts and never answers. mode v6: answers, on ::1 only.
 start_listener() {
   "$NODE" -e "const m=process.argv[2];const p=+process.argv[1];
     if(m==='http'){require('http').createServer((q,r)=>r.end('<title>Kosmos</title>')).listen(p,'127.0.0.1')}
+    else if(m==='v6'){require('http').createServer((q,r)=>r.end('<title>Kosmos</title>')).listen(p,'::1')}
     else{require('net').createServer(()=>{}).listen(p,'127.0.0.1')}
     setTimeout(()=>process.exit(0),120000)" "$1" "$2" &
   LISTENER=$!
@@ -65,8 +69,9 @@ start_listener() {
 }
 stop_listener() { if [ -n "$LISTENER" ]; then kill "$LISTENER" 2>/dev/null; wait "$LISTENER" 2>/dev/null; LISTENER=""; fi; }
 run_pause() { # profile-or-empty port
-  if [ -n "$1" ]; then /usr/bin/sandbox-exec -p "$1" /bin/bash "$T/run.sh" "$T" "$2" 2>&1
-  else /bin/bash "$T/run.sh" "$T" "$2" 2>&1; fi
+  # /bin/sh: setup.sh ships as curl | sh, so the block runs in that dialect here too.
+  if [ -n "$1" ]; then /usr/bin/sandbox-exec -p "$1" /bin/sh "$T/run.sh" "$T" "$2" 2>&1
+  else /bin/sh "$T/run.sh" "$T" "$2" 2>&1; fi
 }
 
 FAILS=0
@@ -79,6 +84,11 @@ chk "control: outside a sandbox, a free port passes the pause" '[[ "$OUT" == *"P
 # CONTROL: outside a sandbox, a listener that accepts but never answers keeps the existing kill advice.
 P="$(free_port)"; start_listener "$P" silent; OUT="$(run_pause "" "$P")"; stop_listener
 chk "control: outside a sandbox, a silent listener still gets the existing pid advice" '[[ "$OUT" == *"is still holding port"* && "$OUT" != *"normal Terminal"* ]]'
+
+# Outside a sandbox, a listener on ::1 only (curl to 127.0.0.1 cannot connect, lsof sees it). This is an
+# ordinary Terminal, so the words must still name the pid and say what to quit, not only "use a normal Terminal".
+P="$(free_port)"; start_listener "$P" v6; OUT="$(run_pause "" "$P")"; V6PID="$LISTENER"; stop_listener
+chk "outside a sandbox, a ::1-only listener stops the update and names its pid to quit" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"quit the app with pid $V6PID"* ]]'
 
 # A: lsof sees the live board, curl cannot connect. Must stop, and must not say to kill it.
 P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_A" "$P")"; stop_listener

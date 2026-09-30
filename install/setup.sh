@@ -2698,10 +2698,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   # Did the stop actually work? A POST-CONDITION of the line above, which is
   # why it needs the binary to exist. Fresh installs get their own check far
   # earlier, where it is a precondition instead.
-  # #4651: the probe's exit code is kept. 7 is "could not connect", which after a stop usually means the board is
-  # gone, but from a sandboxed shell (a seatbelt that denies outbound connections) it is what a LIVE board reads as.
-  _pauserc=0
-  _pausebody="$(curl -fsS -m 2 "http://127.0.0.1:$PORT/" 2>/dev/null)" || { _pauserc=$?; _pausebody=""; }
+  _pausebody="$(curl -fsS -m 2 "http://127.0.0.1:$PORT/" 2>/dev/null)" || _pausebody=""
   case "$_pausebody" in
     *"Agent Workforce"*|*Kosmos*)
       # #964: is the board that answered actually OURS? The check above matches ANY
@@ -2801,30 +2798,37 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     # the bare substitution killed the run silently at "pausing" (found
     # by the harness's update pass going from green to a log that just
     # stops). The good case must never be the fatal one.
-    # #4651: an lsof that FAILS is not an lsof that found nothing. Both exit 1, but only a failure says why on
-    # stderr (measured: a seatbelt that denies process info gives "can't get PID byte count: Operation not
-    # permitted"). Read as "free", it let the update replace the app under a board that was still serving. So a
-    # failure is UNKNOWN, and unknown stops the update before anything is changed. -w keeps lsof's warnings (a stale
-    # network mount, say) off stderr, so only a real failure is read as one.
-    _tries=0; _pids=""; _lsoferr=""
+    # #4651: an lsof that FAILS is not an lsof that found nothing. Read as "nothing listening", a denied lsof let
+    # the update replace the app under a live board, so a failed reading stops the update. Failed means: exit
+    # above 1, or exit 1 with anything on stderr. Exit 1 with empty stderr is read as "nothing listening", the
+    # weakest premise here (#4651 plan). -w keeps lsof's warnings off stderr. One reading gives the pids, the
+    # exit and the stderr together.
+    _tries=0; _pids=""; _lsofbad=""
+    _lsoferrf="$(mktemp "${TMPDIR:-/tmp}/kosmos-lsof.XXXXXXXXXX" 2>/dev/null || true)"
     while [ "$_tries" -lt 10 ]; do
       _lsofrc=0
-      _pids="$(lsof -w -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null)" || _lsofrc=$?
+      _pids="$(lsof -w -tiTCP:"$PORT" -sTCP:LISTEN 2>"${_lsoferrf:-/dev/null}")" || _lsofrc=$?
       if [ -z "$_pids" ]; then
-        if [ "$_lsofrc" -ne 0 ]; then _lsoferr="$(lsof -w -tiTCP:"$PORT" -sTCP:LISTEN 2>&1 >/dev/null || true)"; fi
+        if [ "$_lsofrc" -gt 1 ]; then _lsofbad=yes
+        elif [ "$_lsofrc" -eq 1 ] && [ -n "$_lsoferrf" ] && [ -s "$_lsoferrf" ]; then _lsofbad=yes
+        fi
         break
       fi
       _tries=$((_tries + 1)); sleep 1
     done
-    if [ -z "$_pids" ] && [ -n "$_lsoferr" ]; then
+    [ -n "$_lsoferrf" ] && rm -f "$_lsoferrf"
+    # Not recorded in #2055's update-abort streak: the board shows that streak as "Kosmos was busy, quit and
+    # reopen it", which is not the remedy for either stop below.
+    if [ -z "$_pids" ] && [ -n "$_lsofbad" ]; then
       die "This shell is not allowed to check whether Kosmos is still running on port $PORT (a sandbox or a security rule is in the way), so the update stopped before changing anything. Paste the install line into a normal Terminal window instead."
     fi
     if [ -n "$_pids" ]; then
       _pids="$(printf '%s' "$_pids" | tr '\n' ' ' | sed 's/ *$//')"
-      # #4651: something listens, but this shell could not connect to it at all: a sandboxed shell, looking at a
-      # board that is very likely still running. Telling it to kill that pid would be telling it to kill the board.
+      # #4651: read the probe again now, after the wait, rather than trusting the one taken before it.
+      _pauserc=0
+      curl -fsS -m 2 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null || _pauserc=$?
       if [ "$_pauserc" -eq 7 ]; then
-        die "Kosmos may still be running on port $PORT, but this shell is not allowed to connect to it (a sandbox or a network rule is in the way), so the update stopped before changing anything. Paste the install line into a normal Terminal window instead."
+        die "Something is still holding port $PORT (pid $_pids), and this shell cannot connect to it, so the update stopped before changing anything. If you ran the install line in an agent's shell or another sandboxed tool, this is most likely your Kosmos, still running: paste the install line into a normal Terminal window instead. If this already is a normal Terminal, quit the app with pid $_pids, then paste the install line again."
       fi
       die "A process is still holding port $PORT after the pause (pid $_pids). Quit it (or run 'kill $_pids'), then paste the install line again."
     fi

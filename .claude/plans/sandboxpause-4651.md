@@ -17,11 +17,11 @@ Nothing before the pause writes to the install except `mkdir -p "$KOSMOS_HOME" "
 
 ## The fix (install/setup.sh only, stacked on sandbox-4636 at bc08ac81d, with Johnny's agreement)
 1. **The pause's post-condition fails CLOSED.** The update goes past the pause only on positive evidence that the port is free. An `lsof` that errors (non-zero **with** stderr, or a denial) is **unknown**, never "free". Unknown stops the install before any change.
-2. **Blocked shell, one sentence.** When the probe cannot connect (curl 7) and the shell cannot see the board (Johnny's `kosmos status` exit 5, or an unknown port reading), the installer stops with: run the install line from a normal Terminal; nothing was changed. Not "kill <pid>", and not "another app". It **calls** #4636's `status` and never redefines its checks (Johnny's ruling, m3795).
+2. **Blocked shell, one sentence.** When lsof sees a listener and curl, re-read after the ten-second wait, cannot connect (7), the installer stops before changing anything. It names the pid and gives both remedies: from an agent's shell or another sandboxed tool, use a normal Terminal; in a normal Terminal already, quit that pid. A denied lsof stops with the normal-Terminal sentence. It does not call `kosmos status` (see Decided while building).
 3. **Outside a sandbox nothing changes.** The existing branches (#964, #2055's abort streak, the ten-second drain grace) keep their words and order.
 
 ## Tests
-- A shell test that runs the **real** pause block under `sandbox-exec` with both profiles against a node stub board. Both must stop, change nothing (checksums of a planted `app/` before and after), and say "normal Terminal".
+- A shell test that runs the **real** pause block under `sandbox-exec` with both profiles against a node stub board. Both must stop before the line the harness prints once the pause is passed, and say "normal Terminal". (The pause block itself writes nothing to the install; everything that replaces the app runs after it, so stopping there is what "changes no file" means.)
 - **Controls:** each arm is measured red on the current code. The stricter profile gets past the pause today, and the first profile gives the kill advice today. There is also an outside-sandbox arm where nothing changes. Node only for listeners: `/usr/bin/python3` is the Xcode stub here.
 - Light runs only, and no real install on this box.
 
@@ -34,12 +34,13 @@ Nothing before the pause writes to the install except `mkdir -p "$KOSMOS_HOME" "
 
 ## Decided while building
 - **The installer does not call `kosmos status`.** At the pause, the only kosmos on disk is the installed (OLD) CLI: the new bundle is installed after the pause (`install_kosmos`, after the pause block). So exit 5 is not there on the first update after release. The installer decides from its own port facts (curl exit code, lsof result or error). It neither calls nor redefines #4636's checks.
-- **curl 7 plus a listener is read as a blocked shell.** Outside a sandbox a listener that accepts gets a connection; a wedged one times out (28). So only a shell that may not connect reads 7 while lsof sees a listener.
+- **curl 7 plus a listener gets words that fit both a sandbox and a normal Terminal.** Review iteration 1 measured curl 7 outside any sandbox too: a listener bound to ::1 only, or to a non-loopback address (KOSMOS_BIND_HOST). There is no sandbox signal in the installer to tell them apart (the new CLI is not on disk yet), so the message names the pid and both remedies.
+- **Not recorded in #2055's update-abort streak:** the board shows that streak as "Kosmos was busy, quit and reopen it", which is not the remedy for these stops.
 - `lsof -w`, so warnings (a stale network mount) never read as a failure.
 
 ## Done
 - c2e4168fd: the fix in install/setup.sh.
-- d720fee74: tools/test-setup-pause-sandbox-4651.sh, wired into test:shell. 7/7 with the fix; 4 red without it (A: kill advice; B: passed the pause, twice; B free port: passed).
+- d720fee74: tools/test-setup-pause-sandbox-4651.sh, wired into test:shell. After review iteration 1: 8/8 with the fix; 5 red on the pre-fix setup.sh (A: kill advice; B: passed the pause, twice; B free port: passed; ::1 outside a sandbox: kill advice).
 - Also run: tools.shell-shard-4317 12/12, test-pause-foreign-board-964 12/12, test-update-abort-2055 10/10. server.connect.test.js has 1 failure (OpenAI accounts route) that is identical at bc08ac81d without this change: not this branch.
 
 ## Owed
