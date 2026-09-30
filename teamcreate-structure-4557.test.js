@@ -227,3 +227,10 @@ test('#4557 create: a brief carrying kosmos markers is neutralised, so every oth
   assert.ok(blockOf(text, '<!-- kosmos:colleagues:start -->', '<!-- kosmos:colleagues:end -->'), 'the colleagues block did not land');
   assert.match(blockOf(text, projects.TEAM_START, projects.TEAM_END), /\(kosmos marker\)/, 'the brief\'s markers were not neutralised');
 });
+
+test('#4557 teamBlockState: whole, none, or broken (a lone, doubled or reversed marker), which the delivery check reports', () => {
+  const { TEAM_START: S, TEAM_END: E, teamBlockState } = projects;
+  assert.equal(teamBlockState('plain'), 'none');
+  assert.equal(teamBlockState('a ' + S + ' b ' + E + ' c'), 'whole');
+  for (const bad of [S + ' only', 'only ' + E, E + ' x ' + S, S + E + S + E]) assert.equal(teamBlockState(bad), 'broken', bad);
+});

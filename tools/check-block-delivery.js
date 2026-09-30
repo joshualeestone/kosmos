@@ -121,7 +121,13 @@ function entitled(name, agents, text) {
   /* #4557: BIRTH-ONLY, NOT UNIVERSAL. Only an agent made from a seeded team carries it, and nothing but
      that birth writes it, so the file is the only record: entitled exactly where it was written. Its
      absence is therefore never STALE (nothing later is supposed to add it). */
-  if (name === 'team') return agents.filter((a) => String(text[a] || '').includes(projects.TEAM_START));
+  if (name === 'team') {
+    // A file with either team marker was born with the block; one whose block is not whole (a lone or
+    // doubled marker) is reported rather than counted as delivered, so this row can say something.
+    const ent = agents.filter((a) => projects.teamBlockState(text[a]) !== 'none');
+    ent.unsure = ent.filter((a) => projects.teamBlockState(text[a]) === 'broken');
+    return ent;
+  }
   if (name !== 'projects') return agents;
   try {
     const members = new Set();

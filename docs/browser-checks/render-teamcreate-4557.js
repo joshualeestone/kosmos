@@ -227,8 +227,9 @@ function chk(ok, label, extra) {
           await page.close();
         }
 
-        /* --- iteration 12: the lead's create LANDS, then the connection drops. Try again is refused on the
-           name; the page finds that agent on the board, takes it as made, and makes the held reports. ---- */
+        /* --- iterations 12-13: the lead's create LANDS, then the connection drops. The names were checked
+           free before the run, so the page finds that exact agent on the board, takes it as made at once, and
+           makes the held reports: no Try again, no second lead. ------------------------------------------ */
         {
           const { page, errs, posted, drop } = await newPage(1280);
           await page.evaluate(() => openTeamCreate('marketing'));
@@ -236,14 +237,11 @@ function chk(ok, label, extra) {
           await page.selectOption('#tc-project', 'none');
           drop.Maya = true;
           await page.click('#tc-go');
-          await settle(page, () => /Not made/.test((document.querySelector('#tc-list li[data-slot="lead"] .tc-state') || {}).textContent || ''));
-          const d1 = await rows(page);
-          chk(d1[0].state === 'Not made' && /may have been made anyway/.test(d1[0].why || ''), `${E} a dropped connection says the lead may have been made`, JSON.stringify(d1[0]));
-          await page.click('#tc-list li[data-slot="lead"] .tc-retry');
           await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((x) => x.textContent === 'Running'));
-          const d2 = await rows(page);
-          chk(posted.map((b) => b.name).join() === 'Maya,Maya,Leo,Ana' && d2.every((r) => r.state === 'Running'),
-            `${E} Try again finds the lead that landed, takes it, and makes the reports (no second lead)`, JSON.stringify({ posted: posted.map((b) => b.name), states: d2.map((r) => r.state) }));
+          const d = await rows(page);
+          chk(posted.map((b) => b.name).join() === 'Maya,Leo,Ana' && d.every((r) => r.state === 'Running'),
+            `${E} a lead whose create landed before the connection dropped is taken as made, and the reports follow (no second lead)`,
+            JSON.stringify({ posted: posted.map((b) => b.name), states: d.map((r) => r.state) }));
           chk(errs.length === 0, `${E} no page errors (dropped-connection arm)`, errs.join(' | '));
           await page.close();
         }

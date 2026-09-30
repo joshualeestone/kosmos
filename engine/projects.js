@@ -243,6 +243,14 @@ const COMMUNITY_END = '<!-- kosmos:community:end -->';
 // (Josh: never written raw in place of them). Defined beside the others for the same reason.
 const TEAM_START = '<!-- kosmos:team:start -->';
 const TEAM_END = '<!-- kosmos:team:end -->';
+/** #4557: 'none', 'whole' (one start, then one end) or 'broken' (anything else: a lone marker, two, out of order). */
+function teamBlockState(text) {
+  const t = String(text || '');
+  const starts = t.split(TEAM_START).length - 1;
+  const ends = t.split(TEAM_END).length - 1;
+  if (!starts && !ends) return 'none';
+  return (starts === 1 && ends === 1 && t.indexOf(TEAM_START) < t.indexOf(TEAM_END)) ? 'whole' : 'broken';
+}
 
 /**
  * Every managed-block marker in the product, in one list.
@@ -3023,7 +3031,7 @@ function toldOverride(verdict, sessionName, known) {
 
 module.exports = {
   joinTaskClaims, swarmOffIn, swarmOffSet, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
-  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, TEAM_START, TEAM_END, ALL_MARKERS, neutralise,
+  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, TEAM_START, TEAM_END, teamBlockState, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,

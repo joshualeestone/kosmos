@@ -2814,10 +2814,14 @@ function cannotMoveAside(kind) {
 function defaultAgentFor(members) {
   const list = Array.isArray(members) ? members.filter(Boolean) : [];
   if (!list.length) return null;
-  // #4557 (April, #4555 review): the org chart first. A member other members on this project report
-  // to is the manager by structure; the role text is only a guess ("Social Media Manager" matched
-  // before the CMO a seeded team reports to). Most reports wins; a tie keeps the list order.
+  // #4557 (April, #4555 review): the org chart first; the role text is only a guess ("Social Media
+  // Manager" matched before the CMO a seeded team reports to). The top of the chart is the member others
+  // report to who reports to nobody here; with no single one, most direct reports, a tie in list order.
   const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+  const reportedTo = (m) => list.some((o) => o !== m && same(o.reportsTo, m.sessionName));
+  const reportsHere = (m) => list.some((o) => o !== m && same(m.reportsTo, o.sessionName));
+  const roots = list.filter((m) => reportedTo(m) && !reportsHere(m));
+  if (roots.length === 1) return roots[0].sessionName;
   let head = null;
   let most = 0;
   for (const m of list) {

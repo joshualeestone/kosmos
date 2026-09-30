@@ -46616,10 +46616,10 @@ async function tcRunOnce(gen) {
       m.maybeMade = true;
     }
     if (gen !== TC_GEN) return;
-    /* A create that landed before the connection dropped: Try again is refused on the name (field 'name').
-       If that exact agent is now on the board, it is this member: take it as made, which releases the
-       reports held behind a lead. */
-    if (m.maybeMade && out && out.outcome !== 'created' && out.field === 'name' && s.session) {
+    /* A create that landed before the connection dropped: Try again is refused. The names were checked
+       free before the run, so if that exact agent is now on the board, it is this member: take it as
+       made, which releases the reports held behind a lead. */
+    if (m.maybeMade && out && out.outcome !== 'created' && s.session) {
       let found = null;
       try { const res = await fetch('/api/status', { cache: 'no-store' }); if (res.ok) found = ((await res.json()).agents || []).find((a) => a.sessionName === s.session) || null; } catch { found = null; }
       if (gen !== TC_GEN) return;
