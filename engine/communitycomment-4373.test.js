@@ -177,6 +177,10 @@ test('review (merge): turning Community off ends the ON period at once, so a com
   cs.endOnPeriodNow();
   assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, undefined, 'OFF left the old window open');
   const r = comment('ava', 'Released while off.');
+  // The window is `receivedAt >= since` in milliseconds. Without a gap the next ON period can start in the SAME
+  // millisecond the comment was made, and then the comment is inside it: the test flaked 2 runs in 3 alone. A real
+  // OFF-then-ON has a person's gap between the two; this is the smallest one (as review 1's test does).
+  await new Promise((res) => setTimeout(res, 5));
   SW = { on: true, ok: true };        // back ON before any sweep ran while OFF
   await cs.sweep();
   assert.equal(sends().filter((x) => x.body && x.body.body === 'Released while off.').length, 0, 'a comment made while OFF went out');
