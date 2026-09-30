@@ -79,3 +79,20 @@ and at phone width.
 - An open's refetch that fails keeps the menu already held (offline is when the catalogue is incomplete).
 - Accepted: if the open's answer lands after the person has chosen a path (Single, Team or Swarm each become the newest caller), the newly downloaded roles are not shown on that visit (the picker is not repainted under a choice in progress); once the answer has landed they appear on Back or the next open.
 - Not changed here, main's behaviour: on the first-run import link the open itself lands on the role screen, so its late answer can still repaint under a choice made there (follow-up card).
+
+## Handover to Renet Tilley (2026-09-30 07:38, Splinter; Angel out until Oct 3)
+Review round on 9680941e2 (blind, opus), the first since the proof was written (it predates the main merge and the
+three #4632 follow-ups): 0 BLOCKER, 2 WARNING, both DEFERRED on a premise now pinned by a test.
+- (W) a late roles answer that lands under a path already painted swaps ROLES/OWN_ROLE under a menu built from the
+  older payload, so the menu shown and the role created could come from two payloads. They cannot differ for any role
+  the menu shows: the only payload a refetch replaces is an incomplete one (built-ins only), and engine/roles.js
+  remerge keeps every built-in and SKIPS a catalogue role with a built-in's key, so each shown key is in the later
+  payload with identical copy. New test in engine/catalogue.download-4632.test.js: a signed catalogue that redefines
+  `pm` leaves the built-in copy, once; reds when the merge lets the catalogue win.
+- (W) Team moving ROLES_GEN (9680941e2) has no check, and its named cost (Team options stale on a changed OWN_ROLE)
+  cannot occur: `own` is the built-in roles.byKey('own') in every payload. Painting or not painting under Team gives
+  the same data; the bump keeps the one rule that only the newest caller paints. Kept as is.
+NITs, noted: "they appear on Back or the next open" means the next Single or Swarm choice after Back (Back alone
+repaints nothing; Team never rebuilds the picker); paintRoleMenu excludes the literal 'pm' while buildPicker falls
+back to ROLES[0] (only for a payload with no pm, which remerge never produces); the Team note says "choose Team again"
+while a retry is in flight; Back from Swarm when SWARMS_ON flips has no card to focus.
