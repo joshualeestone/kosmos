@@ -108,6 +108,25 @@ test('#4763: two running agents whose names share a key (Mara / mara): neither t
   } finally { one.restore(); }
 });
 
+test('#4763 review 3: a clash logs once per clash, and a clean resolve re-arms it', () => {
+  const warned = [];
+  const orig = console.warn;
+  console.warn = (m) => { warned.push(String(m)); };
+  try {
+    const t = sendertoken.mint('Zed4763').token;
+    sendertoken.mint('zed4763');
+    const both = fleet.install([fleet.agent('Zed4763', { state: 'idle' }), fleet.agent('zed4763', { state: 'idle' })]);
+    try { sendertoken.resolve(t, both.roster); sendertoken.resolve(t, both.roster); } finally { both.restore(); }
+    assert.equal(warned.filter((w) => w.includes('"zed4763"')).length, 1, 'a clash was not logged exactly once: ' + JSON.stringify(warned));
+    const one = fleet.install([fleet.agent('zed4763', { state: 'idle' })]);
+    try { assert.equal(sendertoken.resolve(t, one.roster).ok, true, 'CONTROL: one twin resolves'); } finally { one.restore(); }
+    const again = fleet.install([fleet.agent('Zed4763', { state: 'idle' }), fleet.agent('zed4763', { state: 'idle' })]);
+    try { sendertoken.resolve(t, again.roster); } finally { again.restore(); }
+    assert.equal(warned.filter((w) => w.includes('"zed4763"')).length, 2, 'a clash after a clean resolve was not logged again');
+    assert.ok(!warned.join('\n').includes(t), 'the log line carried the token');
+  } finally { console.warn = orig; }
+});
+
 test('the body still cannot name the sender: an unissued token is refused, not believed', () => {
   const board = fleet.install([fleet.agent('renet-windows', { state: 'idle' })]);
   try {

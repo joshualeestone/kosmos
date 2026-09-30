@@ -13256,14 +13256,20 @@ const server = http.createServer(async (req, res) => {
         /* #4763: safeKey is lossy and the token file is keyed on it, so issuing for "mara" while an agent of ours
            called "Mara" runs in a pane puts a token in Mara's file that resolves as Mara. Refuse, as creating an
            agent does. Only PANE rows can be told apart by spelling: a paneless or created row is named by its key,
-           so re-issuing for a remote agent under its own name still works. An unreadable roster (null) finds no
-           clash, which is today's behaviour; #4792 (the name on each token) closes this without a roster. */
-        const clash = (safeRoster() || []).find((r) => {
+           so re-issuing for a remote agent under its own name still works. An unreadable roster is refused (503),
+           as creating an agent and this file's other roster routes refuse it: we cannot say there is no clash.
+           #4792 (the name on each token) closes this without a roster. */
+        const tokenRoster = safeRoster();
+        if (tokenRoster === null) {
+          sendJson(res, 503, { issued: false, because: 'we could not check which agents are on this computer, so we did not issue a token; try again' });
+          return;
+        }
+        const clash = tokenRoster.find((r) => {
           if (!r || r.isNamedOurs !== true || r.paneless === true || !r.sessionName || r.sessionName === name) return false;
           try { return store.safeKey(r.sessionName) === key; } catch { return false; }
         });
         if (clash) {
-          sendJson(res, 409, { issued: false, because: `an agent called ${clash.sessionName} is already running on this computer, and a token for ${name} would be filed under the same name` });
+          sendJson(res, 409, { issued: false, because: `an agent called ${clash.sessionName} has a session on this computer, and a token for ${name} would be filed under the same name` });
           return;
         }
         // #4530: tagged remote, so a Mac supervisor's sweep of untagged tokens skips a token minted here.

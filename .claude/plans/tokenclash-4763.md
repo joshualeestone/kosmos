@@ -46,3 +46,12 @@ Perturbations: removing the server guard reds exactly the new paneless arm; remo
 Weakest premise: that a clash between two pane agents is the only two-row case; a created-never-run row keyed
 the same as a pane row is deduped by boardKeys, so it cannot make a second row.
 Perturbation: the route guard disabled reds exactly the new route arm. Focused: 73 of 73 (three files).
+
+## Review 3 (fable, blind, on b2deebb73), 17:33 CDT: CONVERGED (no BLOCKER or WARNING), 3 NITs, all taken
+- The route fails CLOSED (503, nothing written) on an unreadable roster, as create.js and the sibling roster routes do.
+- Words: "agents of ours are filed under the token key" / "has a session on this computer" (a crashed-to-shell pane
+  counts too, rightly, so "running" overclaimed).
+- The clash log re-arms after a clean resolve (one line per clash episode, not per process).
+Tests: the 503 arm (control: a readable empty roster issues) and the log arm (once, re-armed, no token in the line).
+Perturbations: each guard removed reds exactly its arm. Focused: 75 of 75 (three files).
+Reviewer 3's measurements: this Mac's 20 tmux sessions have no safeKey pair, so deploying mutes nobody here.

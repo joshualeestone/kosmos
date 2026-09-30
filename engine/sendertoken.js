@@ -385,14 +385,15 @@ function resolve(token, roster) {
        paneless fallback, which resolves by key alone, does not re-admit the token as the key. */
     if (cards.length > 1) {
       /* Both agents go mute at once and the answer is NO_MATCH by design, so the operator's only trace is here.
-         Once per key per process: every request from either agent would otherwise log it. */
+         Once per clash: every request from either agent would otherwise log it; one clean resolve re-arms it. */
       if (!CLASH_LOGGED.has(key)) {
         CLASH_LOGGED.add(key);
-        console.warn(`[sendertoken] #4763: ${cards.length} running agents share the token key "${key}" (${cards.map((c) => c.sessionName).join(', ')}); their tokens are refused until one is renamed or stopped`);
+        console.warn(`[sendertoken] #4763: ${cards.length} agents of ours are filed under the token key "${key}" (${cards.map((c) => c.sessionName).join(', ')}); their tokens are refused until one is renamed or stopped`);
       }
       return { ok: false, because: NO_MATCH, [CLASH]: true };
     }
     if (cards.length !== 1) return { ok: false, because: NO_MATCH };
+    CLASH_LOGGED.delete(key);   // the clash (if there was one) is over, so a later one logs again
     const card = cards[0];
     return { ok: true, card, instance: hit.instance || null };
   }
