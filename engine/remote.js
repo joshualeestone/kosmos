@@ -1667,7 +1667,8 @@ function dropAllowWatch() {
 }
 /* The final answer, once given, WITHOUT the token: kept to the end of the same window (or until a new watch or a
    Sign out, a new sign-in or Forget replaces it) so a second tab or a lost response is told the same thing instead
-   of "stop" on a question that was answered (possibly with a no). */
+   of "stop" on a question that was answered (possibly with a no). An answer that arrives after Done ended the wait
+   is not kept: the page that pressed Done has moved on. */
 let allowFinal = null;   // { status, until }
 /* The page is done waiting (Done, or moving on after "Allowed"): drop the token and nothing else. Not a Sign out: a
    sign-in in progress elsewhere is untouched, and the final answer stays for a second tab or a lost response. */

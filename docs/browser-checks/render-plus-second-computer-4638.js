@@ -151,8 +151,19 @@ const seen = (page, id) => page.evaluate((i) => { const e = document.getElementB
       // What Done does is end the landing (PLUS_SI_LANDED) and repaint; what the repaint then shows depends on this check's
       // stubbed status, so the landing flag is the assertion, not the panel.
       ok('#4640 acked: it moves on by itself, as Done does', moved.landed === false && asked.n === 2, JSON.stringify({ ...moved, asked: asked.n }));
+      const focus = await pg.evaluate(() => (document.activeElement === document.body ? 'body' : (document.activeElement && document.activeElement.id) || '?'));
+      ok('#4640 moving on by itself leaves focus on the Kosmos Plus section, not the page', focus === 's-sec-plus', focus);
       ok('#4640 moving on tells the engine to drop the token it kept for the asking (signin-allowed-done), and is not a Sign out', asked.cancels === 1 && !asked.signouts, JSON.stringify(asked));
       ok('#4640 no page errors (acked)', errors.length === 0, errors.join(' | '));
+      await pg.close();
+    }
+    {
+      // CONTROL: focus the person put somewhere else (here the Settings nav) is not taken when the landing moves on.
+      const { pg } = await landed([{ ok: true, device_status: 'acked' }]);
+      await pg.evaluate(() => { const b = document.querySelector('#s-nav button[data-go="plus"]'); b.focus(); });
+      await pg.waitForFunction(() => PLUS_SI_LANDED === false, null, { timeout: 15000 }).catch(() => {});
+      const kept = await pg.evaluate(() => (document.activeElement && document.activeElement.getAttribute('data-go')) || (document.activeElement === document.body ? 'body' : document.activeElement.id));
+      ok('#4640 CONTROL: focus elsewhere is left where the person put it', kept === 'plus', kept);
       await pg.close();
     }
     {

@@ -43744,7 +43744,14 @@ function plusSiAllowed() {
   document.getElementById('plus-si-match-code').hidden = true;
   setTimeout(() => {
     if (PLUS_SI_SECOND !== sec || !PLUS_SI_LANDED) return;
+    // Nobody pressed anything, so focus that was on this landing must not fall to the page when it goes (#4271, the
+    // #1918 class): the Kosmos Plus section keeps it, and paintPlus repaints inside it. Decided BEFORE the move,
+    // because what holds focus now may be hidden by the repaint later. Focus elsewhere (another tab) is left alone.
+    const section = document.getElementById('s-sec-plus');
+    const at = document.activeElement;
+    const ours = !at || at === document.body || (section && section.contains(at));
     document.getElementById('plus-si-done-go').click();
+    if (section && ours) section.focus();
   }, PLUS_SI_ALLOWED_SHOW_MS);
 }
 /* Denied: this computer stays registered and on Kosmos+ at its own address (the done line stays true); the no is

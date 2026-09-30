@@ -71,8 +71,10 @@ match could never fire).
   after the page lost the answer, and the watch is the right one. A failure to ask is logged once per watch (no
   token). "Allowed" says "by one of your other computers" when there are several. (busy() refuses a second register
   while one is in flight, so two opt-ins cannot race.)
-- Inherited, not mine: browser-checks-reason-grep.test.js reds on the base (209 emit sites, expected 208) because
-  #4638 added one; Pete owns the bump, and this branch rebases after it.
+- Iteration 13: after moving on by itself, focus goes to the Kosmos Plus section (#s-sec-plus, tabindex -1) instead of
+  falling to the page (#4271, the #1918 class); browser arm asserts it.
+- Was inherited, now resolved: #4638's pinned emit-site count is bumped to 209 on its own branch (merged in here);
+  this branch adds no emit site.
 - Iteration 6: the denied line starts "press Done" (Remove this computer is on the Kosmos Plus pane Done leads to,
   shown whenever this computer is enrolled). The promise behind it is PINNED in kosmos-relay signinstatus-4640
   (coordinator/tests/api.rs kosmos4640_after_a_no_removing_the_computer_and_signing_in_again_asks_afresh): after
