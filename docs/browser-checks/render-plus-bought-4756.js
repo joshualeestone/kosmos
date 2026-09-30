@@ -102,6 +102,11 @@ const SCENARIOS = {
   'pick-own-stale': { stale: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
   // The first read fails and the person TYPES a name that is taken: that keeps the name step (not the list), as before.
   'unread-typed-taken': { account: '', refuse: 'mine', lists: [null], auto: null },
+  // The list cannot be read twice running: the panel keeps saying so, never "none waiting" (nothing was read).
+  'unread-twice': { refuse: 'first', lists: [null, null, null], auto: null },
+  // The first read fails, the account has no address, and a typed name is refused as not bought: that proves the
+  // switch is on, so the list (or the way to buy one) replaces a name step where no name can work.
+  'unread-typed-notbought': { account: '', notbought: 'mine', lists: [null, { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('spare', 'free')] }], auto: null },
   // A pick refused (another computer took it first) returns to the list with the reason, not Try again on the same address.
   'pick-refused': { refuse: 'spare', lists: [
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] },
@@ -167,6 +172,7 @@ const visible = (page, sel) => page.evaluate((s) => {
           if (sc.refuseSecond === b.name && regs.length === 2) return json(400, { error: 'Kosmos+ said no (409): that name is taken.' });
           if ((sc.offline === b.name || sc.refuseSecond === b.name) && regs.length === 1) return json(400, { error: 'this computer could not reach the sign-in service' });
           if (sc.retire409 === b.name && regs.length === 1) return json(400, { error: 'an earlier sign-in on this computer could not be removed (the coordinator said no (409): busy); try again in a moment' });
+          if (sc.notbought === b.name) return json(400, { error: 'Kosmos+ said no (402): This computer needs an address you have bought. Buy one at https://login.kosmosplus.com/signin#add-computer, then sign in again.' });
           if (sc.stale === b.name && regs.length === 1) return json(400, { error: 'The name spare may be held by an earlier sign-in on this computer. Remove it on your account page, or pick another name.' });
           if (sc.certfail === b.name && regs.length === 1) return json(400, { error: 'the certificate for spare.kosmosplus.com could not be issued; try again in a minute' });
           return json(200, reg(b.name));
@@ -271,6 +277,20 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(regs.length === 1 && regs[0] === 'mine', `[${key}] the typed name was sent`, JSON.stringify(regs));
         chk(await visible(page, '#plus-si-name-field'), `[${key}] the name step stays, so another name can be typed`);
         chk(asked === 1, `[${key}] the list is not read again for a typed name`, String(asked));
+      } else if (key === 'unread-twice') {
+        await page.waitForSelector('#plus-si-bought-none', { state: 'visible', timeout: 8000 }).catch(() => {});
+        chk(/could not list the addresses/.test(await page.textContent('#plus-si-bought-none-lead')), `[${key}] after the refusal, the panel says the list could not be read`);
+        await page.click('#plus-si-bought-recheck');
+        await page.waitForTimeout(800);
+        chk(asked === 3, `[${key}] Check again asked again`, String(asked));
+        chk(/could not list the addresses/.test(await page.textContent('#plus-si-bought-none-lead')), `[${key}] and a second failure still says so, not "none waiting"`, await page.textContent('#plus-si-bought-none-lead'));
+      } else if (key === 'unread-typed-notbought') {
+        await page.waitForSelector('#plus-si-name', { state: 'visible', timeout: 8000 }).catch(() => {});
+        await page.fill('#plus-si-name', 'mine');
+        await page.click('#plus-si-register-go');
+        await page.waitForSelector('#plus-si-bought-list button[data-bought="spare"]', { state: 'visible', timeout: 8000 }).catch(() => {});
+        chk(await visible(page, '#plus-si-bought-list button[data-bought="spare"]'), `[${key}] a typed name refused as not bought goes to the list`);
+        chk(!(await visible(page, '#plus-si-name-field')), `[${key}] and the name step, where no name can work, is gone`);
       } else if (key === 'own-pending') {
         chk(await visible(page, '#plus-si-bought-none'), `[${key}] the none panel shows`);
         chk(/waiting for its payment/.test(await page.textContent('#plus-si-bought-none-lead')), `[${key}] with the waiting-for-payment line`);

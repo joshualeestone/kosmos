@@ -2950,6 +2950,7 @@ test('#4756: with bought addresses switched off, signinAddresses answers live:fa
       assert.equal(seen.some((s) => s.url === '/v1/meta'), true, 'never asked /v1/meta; the zero above proves nothing');
     });
   }
+  remote.resetForTests();   // no sign-in held into the next test
 });
 
 test('#4756: live, it needs the sign-in session, sends it only as a Bearer to the coordinator, and passes rows only in their own shapes', async () => {
@@ -3003,6 +3004,7 @@ test('#4756: AGENT_WORKFORCE_BOUGHT_ADDRESSES=1 turns it on without the coordina
       const r = await remote.signinAddresses();
       assert.equal(r.ok, false);
       assert.doesNotMatch(r.because, /proxy page/, 'showed words from something that is not the coordinator');
+      assert.equal(r.because, 'Kosmos+ could not list your addresses', 'a reached service that refused was reported as unreachable');
     });
   } finally { delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES; remote.resetForTests(); }
 });

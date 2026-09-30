@@ -43635,7 +43635,7 @@ document.getElementById('plus-si-enrol-confirm-go').addEventListener('click', as
 let PLUS_SI_SESSION = null;
 let PLUS_SI_PICKED = false;   // the register now running came from the bought-address list
 let PLUS_SI_RETRY_FROM_LIST = false;
-let PLUS_SI_REFUSED = [];    // addresses refused in this sign-in: never offered or registered to again, whatever a re-read says
+let PLUS_SI_REFUSED = [];    // addresses refused in this sign-in: not offered, or registered to automatically, from a list again
 let PLUS_SI_UNREAD = false;  // the first read failed (not a switch that is off), so the old step ran without a list
 let PLUS_SI_BOUGHT_SEQ = 0;
 let PLUS_SI_BOUGHT_LAST = null;   // the last list shown, re-shown when a re-read fails
@@ -43707,6 +43707,7 @@ async function plusSiSession(data, again, keep) {
     else {
       /* Never had a list (the first read failed too): the none panel, saying so, with Check again and the website. */
       plusSiBoughtPick({ addresses: [], buy_url: '' });
+      PLUS_SI_BOUGHT_LAST = null;   // a placeholder, not a list: another failed read must not read it as "none waiting"
       document.getElementById('plus-si-bought-none-lead').textContent = 'Kosmos+ could not list the addresses on this account just now.';
       document.getElementById('plus-si-bought-none-hint').textContent = 'Check again in a moment, or buy one on the Kosmos+ website.';
     }
@@ -43760,11 +43761,11 @@ function plusSiBoughtPick(b) {
   document.getElementById('plus-si-bought-none-lead').textContent = pending
     ? 'An address on this account is waiting for its payment.'
     : 'Each computer on Kosmos+ has its own address, and this account has none waiting for this computer.';
-  /* A pending address is a checkout under way, or one cancelled (its hold ends by itself), so both ways on. */
   /* A computer set up before and then reset (or signed out and forgotten) is no longer known here, so its old address
      reads as another computer's: say how to free it, beside the way to buy one. */
   const own = PLUS_SI_SESSION && /^([a-z0-9-]{3,32}\.[a-z0-9.-]+)$/.exec(String(PLUS_SI_SESSION.account_address || ''));
   const ownHeld = own && b.addresses.some((r) => r.address === own[1] && r.state === 'in_use') && !b.this_name;
+  /* A pending address is a checkout under way, or one cancelled (its hold ends by itself), so both ways on. */
   document.getElementById('plus-si-bought-none-hint').textContent = (pending
     ? 'If you finished paying, check again in a moment. If not, buy it on the Kosmos+ website.'
     : 'Buy one on the Kosmos+ website, then check again here.')
@@ -43851,9 +43852,11 @@ async function plusSiDoRegister(name, owned) {
      certificate failure) may be passing, and the address is still this person's, so it keeps Try again on the
      same address (below). */
   const refused = !r.ok && !r.timeout && /that name is taken|already in use by a (Mac|computer) on this account|needs an address you have bought/i.test(String(r.because || ''));
-  /* Also after the old step ran because the list could not be read, for its AUTOMATIC register only: to an address
-     another computer holds it would otherwise offer Try again forever. A name the person typed keeps the name step. */
-  if (refused && (PLUS_SI_PICKED || (PLUS_SI_UNREAD && owned)) && PLUS_SI_SESSION && !/start again from the email/i.test(String(r.because || ''))) {
+  /* Also after the old step ran because the list could not be read: its AUTOMATIC register (to an address another
+     computer holds it would otherwise offer Try again forever), and a typed name refused as not bought (no name can
+     work then). Any other refusal of a typed name keeps the name step. */
+  const needsBought = /needs an address you have bought/i.test(String(r.because || ''));   // proves the switch is on
+  if (refused && (PLUS_SI_PICKED || (PLUS_SI_UNREAD && (owned || needsBought))) && PLUS_SI_SESSION && !/start again from the email/i.test(String(r.because || ''))) {
     PLUS_SI_PICKED = false;
     PLUS_SI_UNREAD = false;
     PLUS_SI_REFUSED.push(name);
