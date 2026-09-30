@@ -454,10 +454,28 @@ test('task message: a missing part or a non-number task is a usage error that se
   }
 });
 
-test('an unknown task subcommand lists all five, as install/kosmos does', async () => {
+test('an unknown task subcommand lists all seven, as install/kosmos does', async () => {
   const r = await run(['task', 'reassign', 'p1']);
   assert.equal(r.code, 2);
-  assert.equal(r.err, 'Unknown: kosmos task reassign. Try: list | add | close | message | built');
+  assert.equal(r.err, 'Unknown: kosmos task reassign. Try: list | add | close | message | built | hold | unhold');
+});
+
+test('#4771 task hold / unhold: POST .../task/<n>/hold with {onHold} and the board token; a non-number is a usage error sent nowhere', async () => {
+  const on = await run(['task', 'hold', 'p1', '3'], () => ({ body: { task: { number: 3, onHold: true } } }));
+  assert.equal(on.code, 0, on.err);
+  assert.equal(on.calls[0].route, '/api/project/p1/task/3/hold');
+  assert.deepEqual(on.calls[0].body, { onHold: true });
+  assert.match(on.out, /Put task 3 on p1 on hold/);
+  const off = await run(['task', 'unhold', 'p1', '3'], () => ({ body: { task: { number: 3 } } }));
+  assert.equal(off.code, 0, off.err);
+  assert.deepEqual(off.calls[0].body, { onHold: false });
+  assert.match(off.out, /Took task 3 on p1 off hold/);
+  const bad = await run(['task', 'hold', 'p1', 'two']);
+  assert.equal(bad.code, 2);
+  assert.equal(bad.calls.length, 0);
+  const refused = await run(['task', 'hold', 'p1', '9'], () => ({ status: 404, body: { error: 'there is no task by that number on this project' } }));
+  assert.equal(refused.code, 1);
+  assert.match(refused.err, /no task by that number/);
 });
 
 test('room reopen: POST .../room/reopen with no body and no agent token; 2xx -> 0, 404 -> 1, other -> 1 with the board\'s because', async () => {

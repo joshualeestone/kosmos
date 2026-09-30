@@ -2847,6 +2847,8 @@ cmd_task() {
       say "  kosmos task close <project-id> <task-number>                  close one (number is from list)"
       say "  kosmos task message <project-id> <task-number> \"<what to say>\"  say something in a task's conversation"
       say "  kosmos task built <project-id> <task-number> [\"what is left\"]  mark it built, waiting to be released or checked"
+      say "  kosmos task hold <project-id> <task-number>  put it on hold (Kosmos stops nudging anyone about it or handing it out)"
+      say "  kosmos task unhold <project-id> <task-number>  take it off hold"
       say "      --clear                                                  take the built mark off"
       say "  (project ids are in your instructions' Your projects section.)"
       exit 2 ;;
@@ -2882,8 +2884,11 @@ cmd_task() {
     built)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task built <project-id> <task-number> [\"what is left\"]   (or --clear to take the mark off)"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac ;;
+    hold|unhold)
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task $sub <project-id> <task-number>"; exit 2; }
+      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac ;;
     *)
-      say "Unknown: kosmos task $sub. Try: list | add | close | message | built"
+      say "Unknown: kosmos task $sub. Try: list | add | close | message | built | hold | unhold"
       exit 2 ;;
   esac
   if ! healthy; then
@@ -2958,6 +2963,25 @@ cmd_task() {
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos refused that task: ${because:-it did not say why}."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when adding that task."; exit 1 ;;
+      esac
+      ;;
+    hold|unhold)
+      # #4771: put a task on hold (the Prompter never nudges an agent about it and the Assigner never hands it out), or
+      # take it off. A board write, like close.
+      local project num want; project="${1:-}"; num="${2:-}"   # both validated (num is all-digits) before the health check above
+      if [ "$sub" = hold ]; then want=true; else want=false; fi
+      local rc=0 body
+      body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/hold" \
+        -H 'content-type: application/json' --data "{\"onHold\":$want}" 2>/dev/null) || rc=$?
+      [ "$rc" -eq 0 ] || { say_unreached "change that task" "$rc" write; exit 1; }
+      case "$body" in
+        '{"task":'*)
+          if [ "$want" = true ]; then say "Put task $num on ${project:-the project} on hold. Kosmos will not nudge anyone about it or hand it out."
+          else say "Took task $num on ${project:-the project} off hold."; fi ;;
+        '{"error":'*)
+          local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+          say "Kosmos could not change that task: ${because:-it did not say why}."; exit 1 ;;
+        *) say "Kosmos gave an answer we could not read when changing that task."; exit 1 ;;
       esac
       ;;
     close)
