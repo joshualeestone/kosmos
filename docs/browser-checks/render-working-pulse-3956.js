@@ -15,7 +15,14 @@
  *   - in the dark theme the working ground still swings toward green
  *     (read from elements placed in the real page, so the page's own stylesheet decides);
  *   - under prefers-reduced-motion nothing pulses and the working card keeps its static ground.
+ *   - #4765: the pulse and the pill's breath animate ONLY opacity, on the box's ::before layer. A colour
+ *     animation (what shipped in 0.7.11) makes the browser restyle and repaint every working box on
+ *     every frame, which kept a quarter to over half of the page's main thread busy at rest (measured).
  * Control: the same readings on the idle card show the instrument can see "no pulse".
+ *
+ * #4765: the pulse now lives on the box's ::before (a green layer that fades), so both instruments read
+ * what the screen shows: `anim` reads the ::before, and `ground` paints the box's colour and then the
+ * ::before's colour at its current opacity.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-working-pulse-3956.js
  */
@@ -51,20 +58,28 @@ const lean = (c) => c[1] - (c[0] + c[2]) / 2;
 /* The element's background colour as sRGB bytes [r, g, b]. Painted through a 1x1 canvas, because a
    colour mid-animation computes as oklab(...) (the interpolation space), not rgb(...), and reading
    that string's numbers as bytes is a wrong instrument that reports no movement at all. */
-async function ground(page, sel) {
-  return page.$eval(sel, (el) => {
-    const c = document.createElement('canvas');
-    c.width = 1; c.height = 1;
-    const x = c.getContext('2d');
-    x.fillStyle = getComputedStyle(el).backgroundColor;
+/* The box's colour with its ::before layer composited over it at the layer's current opacity. */
+const COMPOSITE = `(el) => {
+  const c = document.createElement('canvas');
+  c.width = 1; c.height = 1;
+  const x = c.getContext('2d');
+  x.fillStyle = getComputedStyle(el).backgroundColor;
+  x.fillRect(0, 0, 1, 1);
+  const b = getComputedStyle(el, '::before');
+  if (b.content !== 'none') {
+    x.globalAlpha = Number(b.opacity);
+    x.fillStyle = b.backgroundColor;
     x.fillRect(0, 0, 1, 1);
-    return Array.from(x.getImageData(0, 0, 1, 1).data.slice(0, 3));
-  });
+  }
+  return Array.from(x.getImageData(0, 0, 1, 1).data.slice(0, 3));
+}`;
+async function ground(page, sel) {
+  return page.$eval(sel, new Function('return ' + COMPOSITE)());
 }
 async function anim(page, sel) {
   return page.$eval(sel, (el) => {
-    const cs = getComputedStyle(el);
-    return { name: cs.animationName, dur: cs.animationDuration, count: cs.animationIterationCount };
+    const cs = getComputedStyle(el, '::before');
+    return { name: cs.animationName, dur: cs.animationDuration, count: cs.animationIterationCount, onBox: getComputedStyle(el).animationName };
   });
 }
 
@@ -106,6 +121,15 @@ async function placeSiblings(page) {
         chk(w.name === 'working-pulse', `${engineName}: the working card runs working-pulse`, JSON.stringify(w));
         chk(parseFloat(w.dur) >= 3, `${engineName}: the pulse is slow (3s or more per cycle)`, w.dur);
         chk(w.count === 'infinite', `${engineName}: the pulse never stops while working`, w.count);
+        /* #4765: what makes it cheap. Every running glow animation (the pulse and the pill's breath) changes
+           ONLY opacity, and none runs on a box itself. A background, border or colour here is the 0.7.11 cost. */
+        const props = await page.evaluate(() => document.getAnimations()
+          .filter((a) => a.animationName === 'working-pulse' || a.animationName === 'breathe')
+          .map((a) => ({ name: a.animationName, pseudo: a.effect.pseudoElement || '', props: [...new Set(a.effect.getKeyframes().flatMap((k) => Object.keys(k)))].filter((k) => !['offset', 'easing', 'composite', 'computedOffset'].includes(k)) })));
+        chk(props.some((a) => a.name === 'working-pulse') && props.some((a) => a.name === 'breathe'), `${engineName}: precondition: the pulse and the breath are both running`, JSON.stringify(props.map((a) => a.name)));
+        chk(props.every((a) => a.props.length === 1 && a.props[0] === 'opacity'), `${engineName}: the pulse and the breath animate only opacity`, JSON.stringify(props));
+        chk(props.every((a) => a.pseudo === '::before'), `${engineName}: the pulse and the breath run on a ::before layer, not on the box`, JSON.stringify(props.map((a) => a.pseudo)));
+        chk(w.onBox === 'none', `${engineName}: the working card itself runs no animation`, w.onBox);
 
         /* Sampled across one full cycle: the ground must swing, gently. */
         const raw = [];
@@ -122,13 +146,10 @@ async function placeSiblings(page) {
            across three polls, re-finding the card each time: at least two rebuilds must happen (or
            this arm proves nothing), and no step between neighbouring readings may jump. A smooth
            step here is under one unit; the snap this guards against was about five. */
-        const watch = await page.evaluate(async () => {
+        const watch = await page.evaluate(async (src) => {
           const out = { steps: [], replaced: 0 };
-          const px = (el) => {
-            const c = document.createElement('canvas'); c.width = 1; c.height = 1;
-            const x = c.getContext('2d'); x.fillStyle = getComputedStyle(el).backgroundColor; x.fillRect(0, 0, 1, 1);
-            const d = x.getImageData(0, 0, 1, 1).data; return d[1] - (d[0] + d[2]) / 2;
-          };
+          const composite = new Function('return ' + src)();
+          const px = (el) => { const d = composite(el); return d[1] - (d[0] + d[2]) / 2; };
           let prev = null; let prevEl = null;
           const end = performance.now() + 16000;
           while (performance.now() < end) {
@@ -141,7 +162,7 @@ async function placeSiblings(page) {
             prev = v; prevEl = el;
           }
           return out;
-        });
+        }, COMPOSITE);
         chk(watch.replaced >= 2, `${engineName}: precondition: the board rebuilt the working card during the watch`, `rebuilt ${watch.replaced}x`);
         const worst = Math.max(...watch.steps);
         chk(worst < 2.5, `${engineName}: a rebuilt card continues the pulse, it does not snap back to white`, `largest frame-to-frame step ${worst.toFixed(2)} over ${watch.steps.length} frames`);
@@ -167,8 +188,7 @@ async function placeSiblings(page) {
           html.setAttribute('data-layout', 'consolidated');
           body.classList.add('consolidated', 'fold-a');
           const el = document.querySelector('[data-pulse3956="lrow"]');
-          const cs = getComputedStyle(el);
-          const out = { name: cs.animationName, wash: /gradient/.test(cs.backgroundImage) };
+          const out = { name: getComputedStyle(el, '::before').animationName, wash: /gradient/.test(getComputedStyle(el).backgroundImage) };
           if (before.layout === null) html.removeAttribute('data-layout'); else html.setAttribute('data-layout', before.layout);
           body.className = before.cls;
           return out;

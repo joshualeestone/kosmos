@@ -2492,13 +2492,24 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 /* The orb breathes with its dots, so a working agent reads as working from
    across the room. Off entirely for reduced motion: a full board would otherwise
    carry a dozen pulses at once. */
-.acard.working .astate.st-working { animation: breathe 2.4s ease-in-out infinite; }
+/* #4765: the breath is an OVERLAY that fades, not a background and border that change. Animating a colour makes
+   the browser restyle and repaint the pill on every frame (it cannot hand a colour to the GPU); animating the
+   opacity of a layer lets the GPU do it. Measured headed on a 24-agent board: the Agents view at rest went from
+   61% of the page's one main thread busy to 5% with this and the pulse below, which is what made typing and
+   clicks wait. The pill keeps the breath's low point as its own colours; the overlay adds the difference up to
+   the old high point and fades in and out. `isolation` keeps the overlay under the pill's text. */
+.acard.working .astate.st-working { position: relative; isolation: isolate;
+  background: rgba(47,125,90,.07); border-color: rgba(47,125,90,.38); }
+.acard.working .astate.st-working::before { content: ''; position: absolute; inset: -1px; z-index: -1;
+  border-radius: inherit; pointer-events: none; background: rgba(47,125,90,.14); border: 1px solid rgba(47,125,90,.62);
+  opacity: 0; animation: breathe 2.4s ease-in-out infinite; }
 @keyframes breathe {
-  0%, 100% { background: rgba(47,125,90,.07); border-color: rgba(47,125,90,.38); }
-  50%      { background: rgba(47,125,90,.20); border-color: rgba(47,125,90,.62); }
+  0%, 100% { opacity: 0; }
+  50%      { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .acard.working .astate.st-working { animation: none; background: rgba(47,125,90,.14); }
+  .acard.working .astate.st-working { background: rgba(47,125,90,.14); }
+  .acard.working .astate.st-working::before { animation: none; }
 }
 /* #3956 (Josh, 2026-09-26): "the green was glowing to a slightly darker green and back ... not
    fast, very gradual ... a 10% or 15% increase". Every working-green ground (grid card, list row
@@ -2507,15 +2518,24 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    wash, from the surface to the surface with 10% green mixed in. No JS timer. Its cost is a
    repaint of each working box per frame (background-color is not a compositor property). Off
    for reduced motion, which keeps the static wash. */
-.acard.working, .lrow.working, #pj-one-agents .pj-member.pjm-working {
-  animation: working-pulse 3.6s ease-in-out infinite;
+/* #4765: this pulse is now a green layer that FADES (opacity, which the GPU animates) rather than a background
+   colour that changes (a restyle and repaint of every working box on every frame; see the breath above). Same
+   look: at its peak the layer is 10% green over the box, as the colour was 10% green mixed in. The keyframes keep
+   the name working-pulse so pinWorkingPulse keeps every box in phase; they now run on the box's ::before, which
+   pinWorkingPulse reaches with getAnimations({ subtree: true }). Checked on the live page before choosing this:
+   giving the boxes `position: relative; isolation: isolate` moved none of 1,015 element rectangles, and nothing
+   inside a box is positioned against, or stacked over, anything outside it. */
+.acard.working, .lrow.working, #pj-one-agents .pj-member.pjm-working { position: relative; isolation: isolate; }
+.acard.working::before, .lrow.working::before, #pj-one-agents .pj-member.pjm-working::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
+  background: #2f7d5a; opacity: 0; animation: working-pulse 3.6s ease-in-out infinite;
 }
 @keyframes working-pulse {
-  0%, 100% { background-color: var(--k-surface); }
-  50%      { background-color: color-mix(in srgb, var(--k-surface) 90%, #2f7d5a); }
+  0%, 100% { opacity: 0; }
+  50%      { opacity: .10; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .acard.working, .lrow.working, #pj-one-agents .pj-member.pjm-working { animation: none; }
+  .acard.working::before, .lrow.working::before, #pj-one-agents .pj-member.pjm-working::before { animation: none; }
 }
 /* #2146: coexistence signal. A needs_you/blocked agent that is ALSO actively
    working (the engine's additive `activeWhileWaiting`, #2169) carries the board's
@@ -69474,7 +69494,7 @@ firstRunBoot(PARAMS.get('first-run') === '1', Number(PARAMS.get('fr-step')) || 1
    reduced-motion setting switched off). Events only, no timer. */
 function pinWorkingPulse(el) {
   if (!el || typeof el.getAnimations !== 'function') return;
-  for (const a of el.getAnimations()) {
+  for (const a of el.getAnimations({ subtree: true })) {   // #4765: the pulse runs on the box's ::before
     if (a.animationName === 'working-pulse' && a.startTime !== 0) a.startTime = 0;
   }
 }
