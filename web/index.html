@@ -23664,6 +23664,7 @@ function agyAsk() {
         const cur = id === 'd-provider' && typeof CURRENT !== 'undefined' && CURRENT ? providerOf(CURRENT) : '';
         paintAgyOption(sel, cur);
       }
+      if (typeof tcProviderSettle === 'function') tcProviderSettle();   // #4719: a subscription pick no longer allowed
       // The first-run Gemini row names the subscription only where it is offered (review round 9).
       const tag = document.querySelector && document.querySelector('#fr-gemini-connect');
       const small = tag && tag.parentElement && tag.parentElement.querySelector('.llm-w small');
@@ -47464,6 +47465,8 @@ async function tcFillProvider(gen) {
   if (!from || !sel) return;
   const stale = () => gen !== undefined && gen !== TC_GEN;   // another team was opened while this one read
   TC_PROVIDER_TOUCHED = false;
+  // The menus still hold the last team's options during the wait: not choosable until they are this one's.
+  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = true; }
   /* The team step can be opened without the create form (openTeamCreate from the Team path), so the
      account list may not be read yet; read it the way the form does. Without it every member would go to
      Claude, which is the failure #4719 exists for. /api/accounts checks each account live and can be
@@ -47511,6 +47514,7 @@ async function tcFillProvider(gen) {
   tcProviderSettle();
   // What a late account list may replace: the plain default, never a choice copied from the form.
   TC_PROVIDER_START = copied === 'anthropic' ? sel.value : '\u0000';
+  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = false; }
 }
 document.getElementById('tc-provider').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; fillCreateAccounts(TC_PICKER); });
 
@@ -47638,7 +47642,9 @@ function tcPaint() {
   tell.checked = tellBox ? tellBox.checked === true : true;
   tell.disabled = Boolean(TC.started || TC.busy);
   document.getElementById('tc-tell-say').textContent = n === 1 ? 'Let Kosmos know an agent was created' : 'Let Kosmos know these agents were created';
-  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = TC.started || Boolean(TC.busy); }
+  /* #4719: the choice is fixed once any member exists (its teammates must run on the same account). Until
+     then, even after a start whose lead was refused, it can be changed and Try again uses the new one. */
+  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = Boolean(TC.busy) || tcAnyMade(); }
   /* Back is always allowed now (round 3): leaving no longer resets a live team, it only steps away. */
   document.getElementById('tc-back').disabled = false;
   const msgEl = document.getElementById('tc-msg');
@@ -47698,13 +47704,21 @@ function tcNames() {
 
 /* #4719: the provider and account for every member. Read off the menus until the team starts, then the
    values fixed at the start (TC.model), so a retry makes the member on the same account as the rest. */
+function tcAnyMade() {
+  return Boolean(TC && Array.isArray(TC.members) && TC.members.some((m) => m && m.made));
+}
 function tcModel() {
-  if (TC && TC.model) return TC.model;
+  // Fixed once any member exists (its teammates run on the same account), and for the length of a run.
+  if (TC && TC.model && (tcAnyMade() || TC.busy)) return TC.model;
+  // Otherwise the menus decide (after a start whose lead was refused, they are open again), and what
+  // they say is kept for the run that follows.
   const p = document.getElementById('tc-provider');
   const a = document.getElementById('tc-account');
   const provider = p ? String(p.value || '') : '';
   const account = a ? String(a.value || '') : '';
-  return { ...(provider ? { provider } : {}), ...(account ? { account } : {}) };
+  const m = { ...(provider ? { provider } : {}), ...(account ? { account } : {}) };
+  if (TC && TC.started) TC.model = m;
+  return m;
 }
 async function tcSpecs(project, check) {
   const res = await fetch('/api/teams/seeded/' + encodeURIComponent(TC.key) + '/specs', {
