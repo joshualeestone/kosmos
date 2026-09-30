@@ -133,3 +133,11 @@ matter at the slice where the CLIs drop it.
   comments; the pin's failure message and the CLI test's messages say the right verb; `kosmos agent roles` is
   asserted to send `catalogue=1`.
 
+## Review round 4 (sonnet): 0 BLOCKER, 1 WARNING, 0 CONVENTION, 2 NIT
+- W membership for the new reads is by key, looser than slice 3's exact spelling for a carded caller, and nothing
+  said so: the helper's comment now says it, with why it is no wider than the token store (one file per key).
+  Kept by key on purpose: a read has no body and no pane, and the token store's key is the only name it has.
+- NIT an unreadable projects list is a 503 on the room and a 500 on the task list for a token-only caller: both
+  closed; left as they are (the 500 is the task read's existing answer for every caller) and now tested.
+- NIT the thrower in the unreadable-list test leaned on another helper's undo: it has its own now.
+

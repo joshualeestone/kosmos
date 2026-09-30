@@ -3914,7 +3914,10 @@ function agentTokenOk(req) {
    not (the board is not enforcing, or the caller also holds the person's credential: the page, the person's
    terminal, every agent's CLI today), else the token's agent as the token store names it (its key, which is
    store.safeKey of the session name), or '' when the token names nobody. For the READ handlers only: they have no
-   body, and the gate has already checked the token, so this is the same header read twice. */
+   body, and the gate has already checked the token, so this is the same header read twice.
+   Membership for these reads is therefore BY KEY (projectHasAgent(stored, key, true)), not by exact spelling as
+   the slice-3 writes compare a carded caller: a project that lists "a.b" admits the token whose key is "ab". That
+   is no wider than the token store itself, which keeps both names in the one file for that key. */
 function agentTokenOnlyCaller(req) {
   if (!boardAuthState.on || boardTokenOk(req)) return null;
   let who = null;

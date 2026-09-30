@@ -153,10 +153,16 @@ test('a token for a name no project lists reads no room and no tasks; a projects
   assert.equal((await call('GET', '/api/roles', asAgent(stray.token))).code, 200, 'the roles list is open to any valid token');
   /* Unreadable registry: the member cannot be checked, so the token-only read is refused (503), while the board
      token keeps the room's old fail-open read. */
+  const stubbed = projectsEngine.readAll;
   projectsEngine.readAll = () => { throw new Error('unreadable'); };
+  t.after(() => { projectsEngine.readAll = stubbed; });   // its own undo, run before withProject's (last registered, first run)
   const blind = await call('GET', '/api/project/p4491/room?as=text', asAgent(agentToken));
   assert.equal(blind.code, 503, 'an unreadable projects list let a token-only read through: ' + blind.code);
   assert.equal((await call('GET', '/api/project/p4491/room?as=text', { headers: { 'x-kosmos-board-token': BOARD } })).code, 200, 'the board token lost the room\'s fail-open read');
+  /* The task list reads the projects before anything else, so it answers its own 500 for every caller. Closed, not open. */
+  const blindTasks = await call('GET', '/api/tasks?project=p4491', asAgent(agentToken));
+  assert.equal(blindTasks.code, 500, 'an unreadable projects list did not stop the token-only task read: ' + blindTasks.code);
+  assert.doesNotMatch(blindTasks.text, /read me/);
 });
 
 test('only GET on exactly those paths: every other verb and neighbour stays behind the board token', async () => {
