@@ -360,7 +360,9 @@ async function refreshStandingIfStale(opts) {
   } catch { /* refresh is best-effort; a poll must never see this throw */ }
   finally {
     standingRefreshInFlight = false;
-    if (flipPending) { flipPending = false; askAfterFlip(); }
+    // Not cleared here: the ask clears it when it really proceeds (above), so a re-ask stopped early (busy,
+    // not enrolled) leaves it pending for the next refresh rather than dropping the flip (review 5).
+    if (flipPending) askAfterFlip();
   }
 }
 /* kosmos#4277: the one report a board sends while it believes it is NOT enrolled, when its

@@ -407,6 +407,36 @@ test('#4743: a flip whose first ask was stopped is told by the next refresh, eve
   }
 });
 
+test('#4743: a flip told to a board that cannot ask yet is not dropped when the refresh that was out ends', async () => {
+  enroll(true);
+  let release;
+  const slow = () => new Promise((r) => { release = () => r('good'); });
+  const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(cur, { standing_at: 0 })) + '\n');
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    const out = remote.refreshStandingIfStale({ ttlMs: 0, fetcher: slow });   // the poll's refresh, still out
+    await new Promise((r) => setTimeout(r, 50));
+    unenroll();                                                                // a sign-in starts: cannot ask
+    assert.equal(remote.setOn(false).ok, true);
+    release(); await out;                                                     // its re-ask stops early
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(fake.calls().length, 0, 'precondition: nothing could be sent yet');
+    // The sign-in finishes, and its own write stamps the standing fresh.
+    for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(path.join(STATE, f), 'x');
+    const now = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+    fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(now, { standing_at: Date.now() })) + '\n');
+    await remote.refreshStandingIfStale({ ttlMs: 0 });
+    await waitForFakeCalls(fake, 1, 5000);
+    const off = fake.calls().find((c) => fake.flag(c, '--path') === '/v1/mac/standing');
+    assert.ok(off, 'the flip was dropped');
+    assert.deepEqual(JSON.parse(off.stdin), { remote: { on: false } });
+  } finally {
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+  }
+});
+
 test('fetchStanding: the kosmos_plus bool shape maps too', async () => {
   enroll();
   assert.equal((await run('ok:{"kosmos_plus":true}', () => macStanding.fetchStanding())).value, 'good');

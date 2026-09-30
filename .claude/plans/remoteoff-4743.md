@@ -31,8 +31,8 @@ this board half should reach users only after the coordinator half is deployed.
   during a sign-in) is told by the next refresh even after another writer stamped the standing fresh; red
   without the fix.
 `engine/mac-standing.test.js`: the #4731 off-arm test now asserts the body is exactly
-`{"remote":{"on":false}}`, and its control asserts the switch-on body is not that. Red with the change
-removed (17 pass, 1 fail). The related suites (remote, remote-report, remote-standing-refresh,
+`{"remote":{"on":false}}`, and its control asserts the switch-on body is not that. Each new test is red with the guard it names
+removed. The related suites (remote, remote-report, remote-standing-refresh,
 remote-unreadable-4308, engine.reachable, fixture-discipline) pass.
 
 ## Review 4 (opus, blind): 0 blockers, 3 warnings, 4 nits
@@ -43,6 +43,13 @@ remote-unreadable-4308, engine.reachable, fixture-discipline) pass.
 - Stated, not built: a board that was already OFF when it upgrades to this keeps its off-cadence stamp, so
   its first off check-in can come up to 12 h after the upgrade; meanwhile other signed contact can still make
   the page say "Answering now". Once, and it fixes itself.
+
+## Review 5 (fable, blind): 0 blockers, 1 warning, 4 nits
+- W, taken: when a refresh that was out ended, it cleared the pending flip BEFORE its re-ask had passed the
+  early returns, so a flip told to a board that could not ask yet (a sign-in in flight) was dropped. The flag
+  is now cleared only by an ask that proceeds. New test: the flip survives that sequence (red without it).
+- N, taken in the relay half: `{"remote":{"on":true}}` alone (a report that could not be built) clears the
+  mark but is not stored over the last diagnosis.
 
 ## Weakest premise
 That one bit about remote access is not something #4731 meant to keep back. #4731's comment says "no
