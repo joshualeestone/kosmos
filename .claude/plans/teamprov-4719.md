@@ -125,3 +125,11 @@ teamcreate-ui-4557 (PR #4709, not yet on main); rebased onto main once #4709 mer
   offers it.
 - tcApplyLateAccounts has its own unit tests (kept while fixed, applied when open, never moving a
   copied or chosen provider, the chosen account restored); removing the restore fails one.
+
+## Review iteration 11: converged (NITs only, recorded, not changed)
+- tcFillProvider's 5 s wait watches only the step's own read; if the list becomes known from the
+  create form's read first, the step still waits for its own or the timeout.
+- The settle's no-loop argument needs #create-provider to carry both anthropic and openai options;
+  a guard (return when the default is not among the options) would make that explicit.
+- A #245 comment near the create form's POST says no account is sent on OpenAI; both the form and the
+  team step send it. Pre-existing, not from this change.
