@@ -157,11 +157,13 @@ test('msg, post and react: never exempt for a network peer or with NO credential
   const agentOnly = lineOf('AGENT_TOKEN_ROUTES');
   assert.ok(agentOnly, 'AGENT_TOKEN_ROUTES moved; this pin reads nothing');
   const routes = (agentOnly.match(/'[^']+'/g) || []).map((q) => q.slice(1, -1)).sort();
-  assert.deepEqual(routes, ['POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/whoami'],
-    'AGENT_TOKEN_ROUTES changed: every route added here must be checked to identify its caller from the header token');
+  /* #4581 added the one READ, GET /api/projects/overview (`kosmos project list`): it writes nothing and answers
+     every caller the same, so it has no caller to identify; every WRITE here still must. */
+  assert.deepEqual(routes, ['GET /api/projects/overview', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/whoami'],
+    'AGENT_TOKEN_ROUTES changed: every write added here must be checked to identify its caller from the header token');
   /* #4491 slice 3: the parameterized routes, pinned exactly like the set. */
   const patterns = (src.match(/const AGENT_TOKEN_ROUTE_PATTERNS = \[[^\n]*\];/) || [''])[0];
-  assert.equal(patterns, 'const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \\/api\\/project\\/[^/]+\\/task\\/\\d+\\/(?:message|built)$/];',
+  assert.equal(patterns, 'const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \\/api\\/project\\/[^/]+\\/task\\/\\d+\\/(?:message|built)$/, /^GET \\/api\\/project\\/[^/]+\\/overview$/];',
     'AGENT_TOKEN_ROUTE_PATTERNS changed: every route a pattern admits must identify its caller from the header token');
   assert.match(src, /const agentTokenRoute = \(key\) => AGENT_TOKEN_ROUTES\.has\(key\) \|\| AGENT_TOKEN_ROUTE_PATTERNS\.some\(/, 'the route check no longer reads the set and the patterns');
   assert.match(src, /agentTokenRoute\([^)]*\) && agentTokenOk\(req\)/, 'the agent-token exemption no longer requires a valid token');
