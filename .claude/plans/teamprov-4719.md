@@ -118,3 +118,10 @@ teamcreate-ui-4557 (PR #4709, not yet on main); rebased onto main once #4709 mer
   of a create that is still landing, which is the worse failure; that logic is #4557's.
 - NIT, recorded: a disabled selected option can survive Back and reopen of a live team (the step is
   hidden, so nothing settles it); the server refuses it per member, visibly.
+
+## Review iteration 10 (changes)
+- A late account list also refills menus the person already touched (it was skipped, leaving the
+  account menu on its placeholder): their provider is kept, and their account when the list still
+  offers it.
+- tcApplyLateAccounts has its own unit tests (kept while fixed, applied when open, never moving a
+  copied or chosen provider, the chosen account restored); removing the restore fails one.

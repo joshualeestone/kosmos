@@ -107,3 +107,52 @@ test('#4719 the remembered choice is used only once a member exists; before that
   ctx.model(t);
   assert.deepEqual({ ...t.model }, { provider: 'anthropic', account: '/acct/claude' });
 });
+
+/* A late account list (rounds 9 and 10): kept while the choice is fixed, applied when it is open, and a
+   person who already chose keeps their provider and, when still offered, their account. */
+function lateWorld({ fixed, touched, provider, start, account, offered }) {
+  const acct = { value: account, options: [] };
+  const sel = { value: provider };
+  const els = { 'tc-provider': sel, 'tc-account': acct };
+  let fills = 0;
+  const ctx = {
+    document: { getElementById: (id) => els[id] || null },
+    tcChoiceFixed: () => fixed,
+    tcProviderDefault: () => 'openai',
+    tcProviderSettle: () => {},
+    TC_PICKER: {},
+    // Like the real fill: the account menu is rebuilt from the list, back on its first entry.
+    fillCreateAccounts: () => { fills += 1; acct.options = offered.map((value) => ({ value })); acct.value = offered[0] || ''; },
+  };
+  const at = SCRIPT.indexOf('function tcApplyLateAccounts');
+  const end = SCRIPT.indexOf('\n}\n', at) + 3;
+  assert.ok(at > 0 && end > at, 'tcApplyLateAccounts moved');
+  vm.runInNewContext(`let TC = { lateAccounts: true }; let TC_PROVIDER_TOUCHED = ${touched}; let TC_PROVIDER_START = ${JSON.stringify(start)};\n`
+    + SCRIPT.slice(at, end) + '\nthis.apply = tcApplyLateAccounts; this.pending = () => TC.lateAccounts;', ctx);
+  return { ctx, sel, acct, fills: () => fills };
+}
+
+test('#4719 a late account list waits while the choice is fixed, and is applied once it is open', () => {
+  const held = lateWorld({ fixed: true, touched: false, provider: 'anthropic', start: 'anthropic', account: '', offered: ['/a/1'] });
+  held.ctx.apply();
+  assert.equal(held.fills(), 0);
+  assert.equal(held.ctx.pending(), true, 'a list that landed during a run was dropped');
+  const open = lateWorld({ fixed: false, touched: false, provider: 'anthropic', start: 'anthropic', account: '', offered: ['/a/1'] });
+  open.ctx.apply();
+  assert.deepEqual([open.sel.value, open.acct.value, open.fills(), open.ctx.pending()], ['openai', '/a/1', 1, false]);
+});
+
+test('#4719 a late account list never moves a choice copied from the form or made by the person', () => {
+  // Copied from the form (the start marker is not the menu's value): refilled, provider kept.
+  const copied = lateWorld({ fixed: false, touched: false, provider: 'google', start: '\u0000', account: '', offered: ['/g/1'] });
+  copied.ctx.apply();
+  assert.deepEqual([copied.sel.value, copied.fills()], ['google', 1]);
+  // Chosen by the person: provider kept, and their account when the list still offers it.
+  const kept = lateWorld({ fixed: false, touched: true, provider: 'anthropic', start: 'anthropic', account: '/a/2', offered: ['/a/1', '/a/2'] });
+  kept.ctx.apply();
+  assert.deepEqual([kept.sel.value, kept.acct.value, kept.fills()], ['anthropic', '/a/2', 1]);
+  // Their account is gone from the list: the list's own default stands.
+  const gone = lateWorld({ fixed: false, touched: true, provider: 'anthropic', start: 'anthropic', account: '/a/9', offered: ['/a/1', '/a/2'] });
+  gone.ctx.apply();
+  assert.equal(gone.acct.value, '/a/1');
+});
