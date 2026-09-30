@@ -66,8 +66,8 @@ async function openPlus(page, remote) {
       /* page.__holdRemote: once set, a status read never answers, so no later paintPlus (the 5s tick included)
          can repaint over a state the check set by hand (#4694). The hold ends only when the page closes, so never
          await paintPlus() after setting it: it would never finish. It relies on paintPlus's read having no timeout
-         shorter than this arm's run (about 2s after the hold); a shorter one would end the held read, state 1 would
-         repaint, and the arm would fail (loudly). */
+         of its own (it has none today); one that ended a held read would let state 1 repaint, and the arm would fail
+         (loudly). */
       if (page.__holdRemote) { page.__held = (page.__held || 0) + 1; return; }
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(remote) });
     }
@@ -217,7 +217,7 @@ async function openPlus(page, remote) {
          newer PLUS_EPOCH (paintPlus bumps it before its read, with no await between its epoch check and its writes),
          so every paint still in flight, including one whose read was answered before the hold, returns without
          touching the page. That cancellation rests on that order in web/index.html; this check asserts the hold and
-         the pair's visibility, and does not itself force an in-flight paint (a probe did: see the plan). */
+         the pair's visibility, and does not itself force an in-flight paint (a probe did, on #4694). */
       await openPlus(page, WAITING);
       await page.evaluate(() => paintPlus());
       page.__holdRemote = true;
