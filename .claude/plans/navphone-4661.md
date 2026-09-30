@@ -7,8 +7,9 @@ On a phone with the Direct Message open, the agent's section buttons (Direct Mes
 and a swarm's fourth) sit in one row the page's width, every button whole, no word broken, nothing scrolling.
 At 375 and wider with default text the row keeps its 44px height; narrower, or with larger text, a label may
 wrap to a second line between words (measured, three buttons: 59px at 320 and 360, 67px at 375 with 130% text).
-A swarm's four buttons at 130 to 150% text on a 320 phone wrap to two rows; at 150% on 320x568 the conversation
-keeps 46px, the real cost of four whole words there. Chromium and WebKit.
+A swarm's four buttons stay one row at default text for every status word (Active, Stopped, Paused (limit));
+at 130 to 150% text on a 320 phone they wrap to two rows, and at 150% on 320x568 the conversation keeps 46px, the
+real cost of four whole words there. Chromium and WebKit.
 
 ## Cause
 The row was a sideways scroller (a 32px fade on the right was its only cue). At 393 and 375 wide the
@@ -20,7 +21,12 @@ third button was cut mid-word ("AI Se"), so it read as broken, not scrollable.
   A grid of equal columns (the first version) spilled words out of their buttons when four did not fit (a swarm's,
   at 130 to 150% text on a 320 phone: "Settings" is wider than a quarter of the screen), which review round 2
   found; the old scroller hid the same problem. Now only that case wraps to a second row.
-- A swarm's status word keeps its word and drops its colour dot in this row (the dot only repeats the word).
+- A swarm's status word keeps its word and drops its colour dot in this row (the dot only repeats the word), and
+  may wrap between its own words ("Paused (limit)"), so a long status does not widen its button until the row wraps.
+- With the icons gone (swarm row) the needs-you dot moves into the corner and the buttons' labels start 13px down,
+  below it (review round 3 found the dot drawn over "Direct Message" at 320).
+- When the row does wrap (the extreme text sizes above), a lone button on the second line takes the full width. That
+  reads as three tabs and a banner; it is the accepted fallback, not the normal shape.
 - Labels break only between words (overflow-wrap: normal). The first version used overflow-wrap: anywhere, which
   brought back the card's defect as "Messa / ge" at larger text sizes (review round 1).
 - A swarm's fourth button carries its status word under its label; with the icon too the row grew to about 80px,
@@ -35,7 +41,8 @@ That a .75rem label under an icon is legible enough on a phone. It is the size o
 it reads as too small, the next step is icon-only for Profile and AI Settings with the words as their names.
 
 ## Checks
-- render-dm-chatfirst-718, one shared in-page measure (navGeo): one row by geometry (it read flex-direction, a
+- render-dm-chatfirst-718, one shared in-page measure (navGeo), which also counts each label's lines (a legal
+  break is at a space, including a zero-height one, or after a hyphen): one row by geometry (it read flex-direction, a
   proxy the grid broke while the row stayed one row), every tab whole, no scroll, and no word broken, measured per
   character (a line change with no space either side). Arms: 375 to 430 at 44 to 52px; 320, 360 and 375 at 130%
   text (at most two label lines, thread at least 60px); the swarm row (four buttons, at most 60px) and the swarm

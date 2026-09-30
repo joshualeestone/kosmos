@@ -10254,6 +10254,12 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed:has(#d-nav-swarm:not([hidden])) .dnav-ico { display: none; }
   /* Its status is the word; the colour dot beside it only repeats it, and cost the word 13px of a narrow column. */
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-swarm .swpill i { display: none; }
+  /* "Paused (limit)" is two words: it may wrap between them, rather than widen its button until the row wraps. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-swarm .swpill { white-space: normal; text-align: center; }
+  /* With the icons gone the label starts at the top, where the needs-you dot sits: the dot moves into the corner and
+     the label starts below it. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed:has(#d-nav-swarm:not([hidden])) button { padding-top: 13px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed:has(#d-nav-swarm:not([hidden])) button .dot { top: 3px; right: 3px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-ico svg { width: 18px; height: 18px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button .dot { top: 6px; right: 6px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-swarm .swpill { padding: 0; border: 0; background: none; }   /* the word stays: colour alone fails WCAG 1.4.1 */
