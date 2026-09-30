@@ -473,10 +473,14 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
      token measured to clear 3:1 non-text contrast (it is deeper than --gold in light). */
   /* #3829: Kosmos+ blue, not gold (the 09-16 ruling: gold is regular Kosmos only); #3a68d8 clears 3:1 as a
      1px line on the light surface (about 5:1) and the dark one (about 3.4:1). */
+  /* #4637 (Josh 09-29: "radically redesign... doesn't fit the branding"; Mona Lisa's flow outline, #4754): the notice
+     and the sheet are drawn in the Kosmos+ navy, on every page, in both themes. */
   .askcard { margin: 10px 24px 0; padding: 12px 16px; border: 1px solid #3a68d8;
              border-radius: 10px;
-             background: var(--k-surface); font-size: .875rem; color: var(--k-ink-2); }
-  .askcard h3 { font: 600 1rem var(--font-ui); color: var(--k-ink); margin: 0 0 4px; }
+             background: linear-gradient(160deg,#1b2c50,#0f1d38); font-size: .875rem; color: #c3cde3; }
+  .askcard h3 { font: 600 1rem var(--font-ui); color: #fff; margin: 0 0 4px; }
+  .askcard .asknote b { color: #fff; }
+  .askbrand { font: 700 .72rem var(--font-ui); letter-spacing: .12em; text-transform: uppercase; color: #7ea0f0; margin: 0; }
   /* #718: the Allow card is a decision taken with a thumb, often on the phone being allowed. */
   @media (hover: none) { .askcard button { min-height: 44px; } }
   /* #3829 addendum: the same thumb-size buttons where the cards now live on Kosmos Plus (above the panel). */
@@ -487,8 +491,22 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
                    color: var(--k-ink); background: var(--k-sunk, rgba(20,22,26,.05)); padding: 1px 6px; border-radius: 5px; }
   /* #3829 (Mona Lisa's sketch): one compact card per request. Icon, who and when, one sentence, then
      the code large in boxes directly above Allow (Kosmos+ blue) / Deny (#3952, Mona Lisa). Older than an hour: faded. */
+  /* #4637: one sheet per request, on the Kosmos+ navy: the brand, who wants in, the code large and once, one line,
+     then Allow (Kosmos+ blue) and a quiet Not me. */
   .askreq { display: grid; grid-template-columns: 40px 1fr auto; gap: 4px 14px; align-items: center;
-            padding: 12px 14px; margin-top: 8px; border: 1px solid rgba(58,104,216,.55); border-radius: 12px; max-width: 640px; }
+            padding: 16px 18px; margin-top: 8px; border: 1px solid #3a68d8; border-radius: 14px; max-width: 640px;
+            background: linear-gradient(160deg,#1f3360,#132449); color: #c3cde3; }
+  .askreq .askbrand { grid-column: 1 / span 3; }
+  .askreq .askwho b { color: #fff; font-size: 1.05rem; }
+  .askreq .askwho span { color: #9fb0d4; }
+  .askreq .askdev { background: rgba(126,160,240,.14); }
+  .askreq .askdev svg { stroke: #dfe6f5; }
+  /* The ids keep a Settings text rule (an id-level p style) from shrinking the code, in either place it renders. */
+  #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig { grid-column: 2 / span 2; margin: 6px 0 2px;
+                font: 700 1.9rem/1.2 var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .14em; color: #fff; }
+  .askreq .asksay { color: #c3cde3; }
+  .askreq .btn.quiet, .askreq .btn.quiet:hover { background: none; border: 0; color: #b8c4de; text-decoration: underline; text-underline-offset: 3px; }
+  .askrow.done .askok { font: 600 1rem var(--font-ui); color: #fff; }
   /* Faded is the border and the icon, not the words: the text and the code stay readable (review). */
   .askreq.stale { border-color: var(--k-rule); }
   .askreq.stale .askdev { opacity: .45; }
@@ -502,7 +520,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   /* No fill of its own: this card is drawn in the Kosmos+ skin (navy, light ink), so the code sits on the card's own
      ground in the card's own ink, which already reads there (review round 2: a white fill gave light-on-light). */
   .askcode .devcode-cell { border-color: var(--k-rule); background: transparent; }
-  .askreq .asksay { grid-column: 2; font-size: .85rem; color: var(--k-ink-2); }
+  .askreq .asksay { grid-column: 2 / span 2; font-size: .85rem; }
   .askreq .acts { grid-column: 2 / span 2; display: flex; gap: 8px; margin-top: 6px; }
   .askcard .btn.uprime, .askcard .btn.uprime:hover { background: #2f57c4; border-color: #2f57c4; color: #fff; }
   /* A secondary button on the card never disappears into its ground (the #3796 rule): a visible stroke. */
@@ -510,7 +528,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .askrow { padding: 8px 0; border-top: 1px solid var(--k-rule); }
   .askrow:first-child { border-top: 0; padding-top: 0; }
   .askrow .acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
-  .askrow.done p { color: var(--k-ink); }
+  .askrow.done p { color: #dfe6f5; }
   /* The Settings list: the durable home of the same rows. */
   .devrow { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 0.5px solid var(--separator); flex-wrap: wrap; }
   .devrow:first-child { border-top: 0; }
@@ -16998,7 +17016,7 @@ window.kosmosMeasureScrollbarWidth();
          sign-in wizard, off screen (mobile-shots allow-card, Allow at y=985 on desktop). States 1 and 2 are hidden
          while the connected panel shows, so there this is still directly above #plus-flow. -->
     <div class="plus-asks" id="plus-asks" role="status" aria-live="polite" hidden>
-      <p class="setname" id="plus-asks-title">Asking to use this Kosmos</p>
+      <p class="setname" id="plus-asks-title">Waiting for you</p>
       <div id="plus-ask-rows"></div>
     </div>
 
@@ -42484,6 +42502,12 @@ function askIcon(kind) {
   if (/ipad|tablet/i.test(k)) return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="2.5" width="15" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg>';
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M2 19.5h20"/></svg>';
 }
+/* #4637: who wants in, in the person's words (escaped): another of their own computers joining (#4773's
+   joining_computer), or a phone or browser connecting. */
+function askHead(d) {
+  if (d && d.joining_computer) return 'Your computer "' + askEsc(d.joining_computer) + '" wants to join';
+  return askEsc(askKind(d)) + ' wants to connect to your Kosmos';
+}
 function askArticle(kind, cap) {
   const an = /^[aeiou]/i.test(kind);
   return (cap ? (an ? 'An ' : 'A ') : (an ? 'an ' : 'a ')) + kind;
@@ -42579,26 +42603,29 @@ function paintAsk() {
     title.textContent = '';
     lead.hidden = true;
     const n = live.length;
-    askWrite(document.getElementById('ask-rows'), '<div class="asknote"><span>' + (n === 1 ? askEsc(askKind(live[0])) + ' is asking to use this Kosmos.' : n + ' devices are asking to use this Kosmos.') +
+    askWrite(document.getElementById('ask-rows'), '<div class="asknote"><span class="askbrand">Kosmos+</span><span>' + (n === 1 ? askHead(live[0]) + '.' : n + ' devices want to connect to your Kosmos.') +
       '</span><button class="btn uprime" type="button" data-ask="open">Review</button></div>');
     return;
   }
   if (!anything) return;
-  if (!inPanel) { title.textContent = 'Asking to use this Kosmos'; lead.hidden = true; }
+  if (!inPanel) { title.textContent = 'Waiting for you'; lead.hidden = true; }
   const out = [];
   const seen = new Set();
   const render = (d, e) => {
     const kind = askKind(d);
     if (e && e.state === 'allowed') {
-      return '<div class="askrow done"><p>Allowed. Your ' + askEsc(kind) + ' will open Kosmos on its own in a moment.</p></div>';
+      /* #4637: the success state names it, and says where it can be removed later. */
+      const who = d.joining_computer ? askEsc(d.joining_computer) : askEsc(kind);
+      return '<div class="askrow done"><p class="askok">' + who + ' is connected.</p>' +
+        '<p>' + (d.joining_computer ? 'Your computers now trust each other.' : 'It opens Kosmos on its own in a moment.') + ' You can remove it any time under Devices.</p></div>';
     }
     if (e && e.state === 'denied') {
       /* #3829 review: denying an OLD request (older than an hour, likely the person's own stale sign-in)
          does not accuse anyone; the password sentence is for a fresh one they did not make. */
       const oldAsk = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
-      if (oldAsk) return '<div class="askrow done"><p>Denied. That ' + askEsc(kind) + ' was not let in; it can ask again by signing in.</p>' +
+      if (oldAsk) return '<div class="askrow done"><p>Turned away. That ' + askEsc(kind) + ' was not let in; it can ask again by signing in.</p>' +
         '<div class="acts"><button class="btn" type="button" data-ask="gotit" data-id="' + askEsc(d.device_id) + '">Got it</button></div></div>';
-      return '<div class="askrow done"><p>Denied. That ' + askEsc(kind) + ' was not let in. If you did not just sign in anywhere, someone has a code sent to <b>' + askEsc(ASK.email || 'your email') +
+      return '<div class="askrow done"><p>Turned away. That ' + askEsc(kind) + ' was not let in. If you did not just sign in anywhere, someone has a code sent to <b>' + askEsc(ASK.email || 'your email') +
         '</b>: change that email\'s password.</p>' +
         '<div class="acts"><button class="btn" type="button" data-ask="gotit" data-id="' + askEsc(d.device_id) + '">Got it</button></div></div>';
     }
@@ -42607,16 +42634,20 @@ function paintAsk() {
        against the device in their hand; #3952). A request older than an hour is faded. No paragraphs, no "Not now". */
     const stale = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
     const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
-    const say = d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
-    return '<div class="askreq' + (stale ? ' stale' : '') + '"><div class="askdev">' + askIcon(kind) + '</div>' +
-      '<div class="askwho"><b>' + askEsc(kind) + '</b>' + askAgoSpan(d.first_seen) + '</div>' +
+    /* #4637/#4773: a computer joining shows this same code on its own screen, and the person just signed it in. */
+    const say = d.joining_computer ? 'Allow it if you just signed it in, and it shows this code.'
+      : d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
+    /* #4637 (Mona Lisa's outline, #4754): the Kosmos+ sheet. The brand, who wants in and when, one line, then the code
+       large and once (not the letter boxes) directly above Allow, so matching and allowing stay one glance (#3952),
+       and a quiet Not me. The device id never reaches readable text. */
+    const label = (d.joining_computer ? 'computer ' + askEsc(d.joining_computer) : askEsc(kind)) + (d.code ? ', code ' + askEsc(d.code) : '');
+    return '<div class="askreq' + (stale ? ' stale' : '') + '"><p class="askbrand">Kosmos+</p><div class="askdev">' + askIcon(d.joining_computer ? 'computer' : kind) + '</div>' +
+      '<div class="askwho"><b>' + askHead(d) + '</b>' + askAgoSpan(d.first_seen) + '</div>' +
       '<p class="asksay">' + say + again + (e && e.state === 'error' ? ' ' + askEsc(e.because) : '') + '</p>' +
-      /* #3952: the code in the same boxes as every device code, on its own row, so it can be matched at a glance
-         against the device in the person's hand (Josh 09-26: "they matched perfectly"). Directly above Allow, nothing
-         between them, so matching and allowing are one glance (Mona Lisa, 09-26). */
-      (d.code ? '<div class="askcode">' + devCodeHtml('', d.code) + '</div>' : '') +
-      '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + askEsc(kind) + (d.code ? ', code ' + askEsc(d.code) : '') + '">Allow</button>' +
-      '<button class="btn" type="button" data-ask="deny" data-id="' + askEsc(d.device_id) + '" aria-label="Deny ' + askEsc(kind) + (d.code ? ', code ' + askEsc(d.code) : '') + '">Deny</button></div></div>';
+      /* Read out a character at a time, as the boxes were (#3952): "V R, D 6". */
+      (d.code ? '<p class="askcodebig" role="img" aria-label="' + askEsc(String(d.code).split('-').filter((g) => g).map((g) => [...g].join(' ')).join(', ')) + '">' + askEsc(d.code) + '</p>' : '') +
+      '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + label + '">Allow</button>' +
+      '<button class="btn quiet" type="button" data-ask="deny" data-id="' + askEsc(d.device_id) + '" aria-label="Not me: turn away ' + label + '">Not me</button></div></div>';
   };
   for (const d of rows) { seen.add(d.device_id); out.push(render(d, ASK.done[d.device_id])); }
   for (const id of doneIds) { if (!seen.has(id)) out.push(render(ASK.done[id].device, ASK.done[id])); }

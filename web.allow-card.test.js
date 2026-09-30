@@ -41,11 +41,12 @@ test('#3829 each request is a compact card: kind, when, the code, one device-neu
   assert.doesNotMatch(card, /device_id\)\s*\+\s*'<\/(b|span|p|div)>/, 'the device id reaches readable text');
   assert.ok(!/>' \+ askEsc\(d\.device_id\)/.test(card), 'the device id is interpolated as text, which identifies the device beyond kind, time and code');
   // Positive control: the same card does carry the kind, the time and the code.
-  assert.match(card, /askEsc\(kind\)/);
+  // #4637: the headline says who wants in (askHead: the kind, or "Your computer ... wants to join").
+  assert.match(card, /askHead\(d\)/);
   assert.match(card, /askAgoSpan\(d\.first_seen\)/);   // #3978: the time is a span filled in place
   assert.match(card, /askEsc\(d\.code\)/);
   assert.match(card, /data-ask="allow"[^>]*>Allow<\/button>/);
-  assert.match(card, /data-ask="deny"[^>]*>Deny<\/button>/);
+  assert.match(card, /data-ask="deny"[^>]*>Not me<\/button>/);
 });
 
 test('#3829 an unnamed request is "Unknown device", never the bare noun', () => {
@@ -58,8 +59,8 @@ test('#3829 an unnamed request is "Unknown device", never the bare noun', () => 
 });
 
 test('the change-your-password sentence appears on the Deny branch and the re-ask line, never on the plain ask', () => {
-  const at = JS.indexOf("const say = d.code ?");
-  const plain = JS.slice(at, JS.indexOf('\n', at));
+  const at = JS.indexOf("const say = ");
+  const plain = JS.slice(at, JS.indexOf(';', at));   // #4637: the plain ask spans two lines now (the computer variant)
   assert.ok(at > -1, 'the plain sentence moved; re-anchor');
   assert.doesNotMatch(plain, /password/, 'the plain ask carries the intruder sentence, which the wrong person reads every time');
   const d0 = JS.indexOf("e.state === 'denied'");
@@ -72,12 +73,14 @@ test('the change-your-password sentence appears on the Deny branch and the re-as
   assert.match(JS, /has asked again\. If it is not yours, change that email\\?'s password; that is what stops it/);
 });
 
-/* #3829: "Not now" and "Not me" are gone (Mona Lisa's review: Allow / Deny only); a request that is left
-   alone fades after an hour instead. Requests show ONCE, as cards, not again in the devices list. */
-test('Remove confirms inline with the sentence the tunnel makes true; Allow / Deny only, and requests show once', () => {
+/* #3829: "Not now" is gone; a request that is left alone fades after an hour instead. #4637 (Mona Lisa's flow
+   outline, Josh's go 09-30 17:34): the turn-away button reads "Not me", in place of Deny, not beside it. Requests show
+   ONCE, as cards, not again in the devices list. */
+test('Remove confirms inline with the sentence the tunnel makes true; Allow / Not me only, and requests show once', () => {
   assert.match(JS, /Remove this ' \+ askEsc\(name\) \+ '\? It stops right away\. It can ask again by signing in\./);
   assert.equal((JS.match(/data-ask="later"/g) || []).length, 0, 'a Not now dismiss is back');
-  assert.doesNotMatch(JS, />Not me</, 'a Not me button is back');
+  assert.doesNotMatch(JS, />Deny</, 'a Deny button is back beside Not me: two ways to say no');
+  assert.equal((JS.match(/>Not me</g) || []).length, 1, 'the turn-away button is not the one Not me');
   assert.doesNotMatch(JS, /devrow pending/, 'pending requests are painted in the devices list too');
   // Stronger than the class name: the devices list paints no Allow or Deny at all.
   const pd = JS.slice(JS.indexOf('async function paintDevices'), JS.indexOf("document.getElementById('plus-devlist').addEventListener"));
