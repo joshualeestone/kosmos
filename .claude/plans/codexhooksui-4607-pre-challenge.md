@@ -89,3 +89,17 @@ None.
 
 ### Validation
 Full suite on Mortals (detached, normal queue) at the merged head 21621a1df: clean, hash 3432152d6770 (2026-09-30T14:35:32Z).
+
+### Changes after convergence (2026-09-30 13:20 CDT): merged main, path C
+
+- **Validated head:** 21621a1df, full suite clean on Mortals (hash 3432152d).
+- **Merged origin/main 471492a54** in 88bdd6f4c (after the #4638 revert, #4742 and #4618). Main's
+  commits since the validated base touch web/index.html, server.js and browser-checks-reason-grep.test.js,
+  all files of this PR: path C.
+- **One hand-resolved line** (Splinter 12:13: a hand line counts for path C when a focused test measures
+  it): `EXPECTED_SITES` in browser-checks-reason-grep.test.js, main 221, this branch 216 -> **222**, note
+  appended. The reason-grep test measures it: 5/0.
+- **Focused tests on the merged tree** (throwaway 7c096f3ae, tree 184886088, which is exactly this
+  branch's tree after the merge): web.* 2200/0; engine/chat.codex-hooks-4607, server.codex-hooks-4607,
+  engine/chat.codex-hooks-4589, engine.reachable and server.agent-token-gate-4491 94/0; reason-grep 5/0;
+  surface gate 0; **render-codex-hooks-4607 all passed (44), Chromium and WebKit.**
