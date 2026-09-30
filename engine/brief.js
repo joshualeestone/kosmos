@@ -88,11 +88,10 @@ function readBriefText(folder) {
    prompt is not an answer: the stub's prompts are one italic line ending "Replace this line." (the done one, since
    #4583, after a bold "Not set yet."; projects.briefStubContent), and the RULE is matched, not one spelling, so a
    reworded prompt stays a prompt. */
-/* #4583 review round 3: ONE heading rule for a Done section, shared by every reader and by projects.fillDone. Any
-   heading level; its words start with "done" or "what done" ("Done looks like", "Done when", "What done looks like").
-   The section ends at the next heading of the same or a higher level, as Markdown nests them. */
-const DONE_HEADING = /^(#{1,6})\s+(?:what\s+)?done\b.*$/i;
-const ANY_HEADING = /^(#{1,6})\s/;
+/* ONE heading rule for a Done section, shared by every reader and by projects.fillDone (#4583 review). Level 2 only,
+   as #4581 read it: widening it to every level (review round 4) let a "# Done Deal" title or a "### Done so far" note
+   capture the section. */
+const DONE_HEADING = /^##\s+done\b.*$/i;
 const THEMATIC_BREAK = /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/;
 /* #4583: a done left blank is seeded as "**Not set yet.** " before that same italic prompt, so the prompt may carry
    that one bold prefix and still be a prompt (else `kosmos project show` printed the placeholder as the done). The bold
@@ -103,12 +102,10 @@ function sectionFrom(text, heading, dropLines) {
   const lines = text.split(/\r?\n/);
   const at = lines.findIndex((l) => heading.test(l.trim()));
   if (at === -1) return null;
-  const level = heading.exec(lines[at].trim())[1].length;
   const body = [];
   for (const l of lines.slice(at + 1)) {
     // A horizontal rule ends it too: the seeded stub puts Kosmos's own footer after one, under Done.
-    const h = ANY_HEADING.exec(l);
-    if ((h && h[1].length <= level) || THEMATIC_BREAK.test(l)) break;
+    if (NEXT_SECTION.test(l) || THEMATIC_BREAK.test(l)) break;
     // #4583 review: a seeded placeholder left above or below a person's own words is dropped, whole lines only
     // (projects.placeholderLine's rule), so what is printed is what they wrote.
     if (!(dropLines && dropLines.includes(l.trim()))) body.push(l);
@@ -123,6 +120,16 @@ function doneFrom(text) { return sectionFrom(text, DONE_HEADING, projects.BRIEF_
    one-time room note, projects.fillDone and `kosmos project show` cannot disagree. With a Done section (DONE_HEADING) it is
    set exactly when doneFrom finds words in it. With none (a person's own brief, or a heading they retitled), it is set
    unless a seeded placeholder is still a whole line somewhere, so a retitled section still holding it reads unset. */
+/* The line range [from, to) of the Done section's body in text.split(/\r?\n/), or null: what fillDone may write in. */
+function doneSectionRange(text) {
+  if (typeof text !== 'string') return null;
+  const lines = text.split(/\r?\n/);
+  const at = lines.findIndex((l) => DONE_HEADING.test(l.trim()));
+  if (at === -1) return null;
+  let to = at + 1;
+  while (to < lines.length && !NEXT_SECTION.test(lines[to]) && !THEMATIC_BREAK.test(lines[to])) to += 1;
+  return { heading: at, from: at + 1, to };
+}
 function doneSectionIn(text) {
   return typeof text === 'string' && text.split(/\r?\n/).some((l) => DONE_HEADING.test(l.trim()));
 }
@@ -139,4 +146,4 @@ function readBrief(folder) {
   if (text === null) return { goal: null, done: null, found: false, doneSection: false };
   return { goal: goalFrom(text), done: doneFrom(text), found: true, doneSection: doneSectionIn(text) };
 }
-module.exports = { goalFrom, readGoal, doneFrom, doneSetFrom, doneSectionIn, readBrief, DONE_HEADING, MAX_BYTES, GOAL_MAX };
+module.exports = { goalFrom, readGoal, doneFrom, doneSetFrom, doneSectionIn, doneSectionRange, readBrief, DONE_HEADING, MAX_BYTES, GOAL_MAX };

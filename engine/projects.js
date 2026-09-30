@@ -2060,20 +2060,29 @@ function fillDone(folder, doneText) {
     const hit = placeholderLine(text);
     let next = null;
     const brief = require('./brief');   // not at the top: brief.js requires this file
-    /* #4583 review round 3: the one rule first. A Done section that already holds words is the person's, whatever
-       else is in the file (a placeholder left beside them included): never merged into, never followed by a second. */
-    const hasSection = brief.doneSectionIn(text);
-    if (hasSection && brief.doneSetFrom(text) !== false) return false;
-    // A function replacement: the person's words are data, so "$&" or "$'" in them is never a replacement pattern.
-    if (hit) next = text.split(/(\r?\n)/).map((part) => (part.trim() === hit ? part.replace(hit, () => doneText) : part)).join('');
-    else if (hasSection) {
-      // An EMPTY Done section gets the done under its heading (a blank line after it when a line follows directly).
-      const parts = text.split(/(\r?\n)/);
-      const at = parts.findIndex((part) => brief.DONE_HEADING.test(part.trim()));
-      const follows = at + 2 < parts.length && parts[at + 2].trim() !== '';
-      parts.splice(at + 1, 0, eol + eol + doneText + (follows ? eol : ''));
-      next = parts.join('');
-    } else next = text.replace(/\s*$/, '') + eol + eol + '## Done looks like' + eol + eol + doneText + eol;
+    /* #4583 review: the one rule first. A Done section that already holds words is the person's, whatever else is in
+       the file (a placeholder left beside them included): never merged into, never followed by a second. */
+    const range = brief.doneSectionRange(text);
+    if (range && brief.doneSetFrom(text) !== false) return false;
+    const lines = text.split(/\r?\n/);
+    const seps = text.match(/\r?\n/g) || [];
+    const join = (ls) => ls.map((l, k) => l + (k < seps.length ? seps[k] : '')).join('');
+    if (range) {
+      // An unset Done section: its own placeholder line is replaced, never one under another heading; an empty one
+      // gets the done under its heading (a blank line kept before a line that follows directly, e.g. a rule).
+      const k = lines.findIndex((l, n) => n >= range.from && n < range.to && l.trim() === hit);
+      // A function replacement: the person's words are data, so "$&" or "$'" in them is never a replacement pattern.
+      if (hit && k !== -1) { lines[k] = lines[k].replace(hit, () => doneText); next = join(lines); }
+      else {
+        const follows = range.heading + 1 < lines.length && lines[range.heading + 1].trim() !== '';
+        lines[range.heading] += eol + eol + doneText + (follows ? eol : '');
+        next = join(lines);
+      }
+    }
+    // No Done section: a placeholder left under a heading the person retitled is Kosmos's own line, so it is replaced.
+    else if (hit) next = text.split(/(\r?\n)/).map((part) => (part.trim() === hit ? part.replace(hit, () => doneText) : part)).join('');
+    // Any heading level, any case, trailing words allowed: a Done section the person titled their own way is theirs.
+    else if (!/^#{1,6}[ \t]*done looks like\b/im.test(text)) next = text.replace(/\s*$/, '') + eol + eol + '## Done looks like' + eol + eol + doneText + eol;
     if (next === null) return false;
     fs.writeFileSync(file, next, 'utf8');
     return true;

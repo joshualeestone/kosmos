@@ -242,15 +242,14 @@ test('#4583 review round 3: fillDone never merges into, or adds a second section
   }
 });
 
-test('#4583 review round 3: a retitled or deeper Done heading is read, filled and badged by the same rule', () => {
+test('#4583 review: an empty Done section, or one holding only the placeholder, is filled in place and badged by the same rule', () => {
   reset();
   const rb = require('./brief');
   const dirs = {};
   for (const [name, text] of [
-    ['whatdone', '# P\n\n## What done looks like\n\n' + projects.BRIEF_DONE_PLACEHOLDER + '\n\n## Notes\n\nN.\n'],
-    ['h3', '# P\n\n## Goal\n\nG.\n\n### Done looks like\n\n## Notes\n\nN.\n'],
+    ['empty', '# P\n\n## Goal\n\nG.\n\n## Done looks like\n\n## Notes\n\nN.\n'],
     ['rule', '# P\n\n## Done looks like\n---\nFooter.\n'],
-    ['h3sib', '# P\n\n## Plan\n\n### Done looks like\n\n### Notes\n\nN.\n'],   // a sibling ### heading ends it
+    ['own', '# P\n\n## Goal\n\n' + projects.BRIEF_DONE_PLACEHOLDER + '\n\n## Done looks like\n\n' + projects.BRIEF_DONE_PLACEHOLDER + '\n'],
   ]) {
     const dir = folder(name);
     dirs[name] = dir;
@@ -266,6 +265,30 @@ test('#4583 review round 3: a retitled or deeper Done heading is read, filled an
   }
   // The typed done never becomes a setext heading over a rule directly under the heading.
   assert.ok(brief(dirs.rule).includes('## Done looks like\n\nTYPED\n\n---'), brief(dirs.rule));
+  // Only the Done section's own placeholder is replaced; the one a person moved under Goal is theirs.
+  assert.ok(brief(dirs.own).includes('## Goal\n\n' + projects.BRIEF_DONE_PLACEHOLDER), brief(dirs.own));
+});
+
+test('#4583 review round 4: a "Done" title or a ### "Done so far" note never captures the Done section', () => {
+  const rb = require('./brief');
+  const title = '# Done Deal\n\n## Goal\n\nSell it.\n\n## Done looks like\n\n' + projects.BRIEF_DONE_PLACEHOLDER + '\n';
+  assert.equal(rb.doneFrom(title), null);
+  assert.equal(rb.doneSetFrom(title), false);
+  const sofar = '# P\n\n## Progress\n\n### Done so far\n\nlogin page\n\n## Done looks like\n\nAll users can pay.\n';
+  assert.equal(rb.doneFrom(sofar), 'All users can pay.');
+});
+
+test('#4583 review: a placeholder under a heading the person retitled is replaced; show says there is no Done section', () => {
+  reset();
+  const rb = require('./brief');
+  const dir = folder('whatdone');
+  const made = projects.create({ name: 'Retitled', folder: dir });
+  fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), '# P\n\n## What done looks like\n\n' + projects.BRIEF_DONE_PLACEHOLDER + '\n');
+  assert.equal(projects.get(made.id, []).doneSet, false);
+  assert.equal(projects.fillDone(dir, 'TYPED'), true);
+  assert.equal(brief(dir), '# P\n\n## What done looks like\n\nTYPED\n');
+  assert.equal(projects.get(made.id, []).doneSet, true);
+  assert.deepEqual([rb.readBrief(dir).done, rb.readBrief(dir).doneSection], [null, false]);
 });
 
 test('#4583 round 2: a done with $& or $\' is written as typed, never as a replacement pattern', () => {
