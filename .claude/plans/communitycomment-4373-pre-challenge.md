@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: communitycomment-4373
-diff_hash: fd02cfc8332ae7763cab43e35b2c5eebfceac0305b9e3366f68d2bbcfc964fa7
-validation: passed
+diff_hash: 2745183c439ccb132a1631c2d31deaeed9b4a9106c5e89b078790fc23ba9c7e7
+validation: pending (full validation queued on Agent1s after the merge with main)
 subdir_audit: passed
-timestamp: 2026-09-30T16:03:35Z
-iterations: 21
+timestamp: 2026-09-30T23:13:12Z
+iterations: 23
 converged: true
 ---
 
@@ -92,3 +92,13 @@ None.
 - Shell-injection defence for the commands agents run: environment-built JSON, a quoted heredoc with KOSMOS_END, the PowerShell single-quoted here-string.
 - Board-side checks match the service's own refusals, including the Unicode 16 vs 17 gap, now with a generator.
 - The read frame closes the forged-id path in the header line an agent takes a post id from.
+
+### Iteration 22 (merge with main after #4781 auto-publish and #4580, 2026-09-30 evening): 0 BLOCKER, 3 WARNING, 3 NIT
+- [WARNING] both comment CLIs still promised a release step --> FIXED (#4781's post wording; tests with doesNotMatch)
+- [WARNING] the service-comment route's 429 text missed the per-agent cap --> FIXED (same text as the post route; valve test)
+- [WARNING] the merge extends auto-publish to comments on the public service, undocumented --> DECIDED and recorded (plan, #4373; follow-up #4801)
+### Iteration 23: 0 BLOCKER, 0 WARNING, 5 NIT (CONVERGED)
+- [NIT] stale test headers and a plan attribution --> FIXED; the rest recorded in the plan
+
+### After the merge
+Community test set on the merge: 557 pass, 0 fail; both browser-check gates rc 0 on the committed tree; the fix commit's files 31/31 and 46/46.
