@@ -51,6 +51,12 @@ remote-unreadable-4308, engine.reachable, fixture-discipline) pass.
 - N, taken in the relay half: `{"remote":{"on":true}}` alone (a report that could not be built) clears the
   mark but is not stored over the last diagnosis.
 
+## Review 6 (opus, blind): 0 blockers, 2 warnings (comments, taken), 3 nits
+- Two comments were false (the body shape; what makes a pending flip due); corrected.
+- Stated, not built: a sign-in that switches the switch ON itself (turnOnAfterSignin, not setOn) is told at
+  the next on-cadence refresh (60 s with the page open, up to 10 min), not at once. Tried a hook there; it
+  broke remote.test.js's Forget-during-retire test, so it was backed out rather than forced.
+
 ## Weakest premise
 That one bit about remote access is not something #4731 meant to keep back. #4731's comment says "no
 remote report" while off; this sends no report FIELDS, only the switch's state, which the computer's owner

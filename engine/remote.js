@@ -276,7 +276,8 @@ let standingRefreshInFlight = false;
 let flipPending = false;
 function askAfterFlip() {
   const cur = read();
-  // Off: set the stamp back past the off cadence, or the refresh below would read as fresh.
+  // flipPending makes the refresh below due. Off: the stamp is also set back, so if this ask's answer is
+  // thrown away (a Forget or new identity while it is out) the next poll asks again.
   if (cur.ok === true && cur.on !== true) write({ standing_at: Date.now() - OFF_STANDING_TTL_MS });
   try { Promise.resolve(module.exports.refreshStandingIfStale({ ttlMs: 0 })).catch(() => {}); } catch { /* best-effort */ }
 }

@@ -88,8 +88,8 @@ async function fetchStanding() {
     const on = settings.on === true;
     /* POST: the Mac is identified by the signature the tunnel adds, not by anything in
        the body. The body carries this Mac's remote-access report (kosmos#4277,
-       engine/remote-report.js), which a coordinator without #4277 ignores; `{}` when
-       the report cannot be built; `{"remote":{"on":false}}` when remote access is off (kosmos#4743). */
+       engine/remote-report.js), which a coordinator without #4277 ignores. kosmos#4743: with no
+       report (off, or on and it could not be built) the body is just `{"remote":{"on":<switch>}}`. */
     let report = null;
     if (on) { try { report = require('./remote-report').build(); } catch { report = null; } }
     /* kosmos#4743: on, with no report built, still says on, so a computer the coordinator has
