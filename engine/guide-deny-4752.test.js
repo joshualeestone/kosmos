@@ -88,7 +88,7 @@ test('#4752 worked out from this process, not handed in: the older folder beside
 test('#4752 a process that has entered a named world (an agent\'s way, applyAgentWorldEnv; the board\'s goes through the same applyWorldEnv) still finds the base it came from', () => {
   const home = path.join(SANDBOX, 'home2');
   fs.mkdirSync(home, { recursive: true });
-  const env = { PATH: process.env.PATH, HOME: home, AGENT_WORKFORCE_HOME: home, KOSMOS_WORLD: 'beta' };
+  const env = { PATH: process.env.PATH, HOME: home, AGENT_WORKFORCE_HOME: home, AGENT_WORKFORCE_LAUNCH: process.env.AGENT_WORKFORCE_LAUNCH, KOSMOS_WORLD: 'beta' };
   const script = `
     const worlds = require(${JSON.stringify(path.join(__dirname, 'worlds.js'))});
     const base = worlds.baseRoot(process.env);
@@ -309,4 +309,27 @@ test('#4752 a base whose path the rule syntax would misread gets no rules, and t
   finally { process.stderr.write = write; }
   assert.deepEqual(rules.filter((r) => r.includes('Jo (work)')), [], 'a rule was written for a path with a bracket');
   assert.equal(said.length, 2, 'the two paths left out were not both said: ' + said.join(' | '));
+});
+
+test('#4752 a rule refused because it takes in the guide\'s folder stays out on a rewrite, even if an earlier start wrote it', () => {
+  const root = path.join(SANDBOX, 'own-3');
+  const guide = path.join(root, 'workers', 'guide');
+  fs.mkdirSync(guide, { recursive: true });
+  const base = path.join(root, 'base');
+  fs.mkdirSync(path.join(base, 'worlds'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'elsewhere'));
+  fs.symlinkSync(path.join(root, 'elsewhere'), path.join(base, 'linked'));
+  const deps = { dataRoot: path.join(root, 'data'), worldsBase: base, legacyRoots: [] };
+  const read = () => JSON.parse(fs.readFileSync(path.join(guide, '.claude', 'settings.json'), 'utf8')).permissions.deny;
+  const rule = `Read(//${path.join(base, 'linked').replace(/^\/+/, '')}/**)`;
+  const write = process.stderr.write;
+  process.stderr.write = (s, ...rest) => (String(s).startsWith('#4752') ? true : write.call(process.stderr, s, ...rest));
+  try {
+    assert.equal(setupAssistant.guardGuideFolder(guide, 'guide', deps).ok, true);
+    assert.ok(read().includes(rule), 'CONTROL: the linked entry was not named while it pointed elsewhere');
+    fs.unlinkSync(path.join(base, 'linked'));
+    fs.symlinkSync(path.join(root, 'workers'), path.join(base, 'linked'));   // now it holds the guide
+    assert.equal(setupAssistant.guardGuideFolder(guide, 'guide', deps).ok, true);
+  } finally { process.stderr.write = write; }
+  assert.ok(!read().includes(rule), 'the rule written on the earlier start came back');
 });

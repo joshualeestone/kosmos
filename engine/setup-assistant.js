@@ -220,7 +220,8 @@ function markGuideFolder(agentName) {
 /* The same home accounts.js and create.js use (a named world or a test sets it). */
 function kosmosHome() { return process.env.AGENT_WORKFORCE_HOME || require('os').homedir(); }
 /* `worldsBase` and `legacyRoots` are for tests: left out, both are worked out from this process (as `dataRoot`'s
-   default is), and production passes none of these. `home` reaches the older folder of this world; the
+   default is), and production passes none of these. `home` reaches the older folder of this world (when
+   AGENT_WORKFORCE_DATA is unset: dataRootFor ignores the home otherwise); the
    worlds' base comes from the environment the process was started with (`preWorldEnv`), whatever `home` says. */
 function guideDenyRules(opts = {}) { return guideDenyRulesFor(opts).rules; }
 /* The rules, and the default world's store they name entry by entry (null when none is), so guardGuideFolder
@@ -263,7 +264,7 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
   /* The same folder, spelt differently (case on a case-insensitive disk, a link) or not: real paths when both exist. */
   const same = (a, b) => !!a && !!b && (path.resolve(a) === path.resolve(b) || realOr(a) === realOr(b));
   /* A folder whose path the rule syntax would misread (`* ? [ ] ( ) { } !`) gets no rule here: said, not guessed. */
-  const plain = (p) => { if (!/[*?[\](){}!]/.test(String(p))) return true; process.stderr.write(`#4752: no rule for ${p}: its path has a character the rule syntax reads as a pattern\n`); return false; };
+  const plain = (p) => { if (!RULE_SYNTAX.test(String(p))) return true; process.stderr.write(`#4752: no rule for ${p}: its path has a character the rule syntax reads as a pattern\n`); return false; };
   let extra = [];
   let entryBase = null;
   let listed = false;   // earlier per-entry rules are dropped only when this list is complete
@@ -273,14 +274,15 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
       if (old && !same(old, dataRoot) && plain(old)) more.push(`Read(${ruleAbs(old)}/**)`);
     }
     const base0 = worldsBase !== undefined ? worldsBase : guideWorldsBase();
-    const base = base0 && !same(base0, dataRoot) && !plain(base0) ? null : base0;
-    if (base && !same(base, dataRoot)) {
+    const apart = base0 && !same(base0, dataRoot);
+    const base = apart && !plain(base0) ? null : base0;
+    if (base && apart) {
       const worlds = require('./worlds');
       const tokenFile = require('./boardauth').TOKEN_FILE;
       more.push(`Read(${ruleAbs(path.join(base, tokenFile))})`);   // the default world's token
       more.push(`Read(${ruleAbs(path.join(base, '.' + tokenFile))}.*)`);   // and its temporary copy while it is rewritten
       const registry = path.basename(worlds.registryPath(base));
-      more.push(`Read(${ruleAbs(base)}/.*.tmp)`);   // the dot-named temporary files (the registry's, the token's, the boot guard's)
+      more.push(`Read(${ruleAbs(path.join(base, '.*.tmp'))})`);   // the dot-named temporary files (the registry's, the token's, the boot guard's)
       let entries = [];
       try { entries = fs.readdirSync(base, { withFileTypes: true }); listed = true; } catch (e) {
         /* Only the entry list is lost: the rules above do not depend on it. A store that is not there (ENOENT)
@@ -308,6 +310,8 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
   }
   return { rules, entryBase, extra };
 }
+/* The characters the rule syntax reads as a pattern or a bracket (and a backslash): a path with one gets no rule. */
+const RULE_SYNTAX = /[*?[\](){}!\\]/;
 /* A folder's real path when it can be read, else the path as given. */
 function realOr(p) { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } }
 /* A path as a Claude Code rule spells an absolute one: two slashes, then the path without its leading slashes. */
@@ -333,7 +337,7 @@ function wasEntryRule(rule, base) {
 function baseEntryToName(name, worldsDir, registry, tokenFile) {
   if (name === worldsDir || name === registry || name === tokenFile) return false;   // the token has its own rule, always
   if (name.startsWith(`.${tokenFile}.`) || name === require('./worlds').registryLockName() || /^\..*\.tmp$/.test(name)) return false;
-  return !/[*?[\](){}!\\]/.test(name) && name === name.trim();
+  return !RULE_SYNTAX.test(name) && name === name.trim();
 }
 /* #4752: the worlds' base (the default world's data folder), as it was before any world was applied to this
    process; null when it cannot be worked out. */
@@ -395,7 +399,9 @@ function guardGuideFolder(dir, agentName, deps = {}) {
       process.stderr.write(`#4752: a rule that would take in the guide's own folder was left out: ${r}\n`);
       return false;
     });
-    const deny = [...new Set([...kept, ...safe])];
+    /* A refused rule is kept out of the earlier rules too, or a rule written on an earlier start would come back. */
+    const refused = new Set(fresh.rules.filter((r) => !safe.includes(r)));
+    const deny = [...new Set([...kept, ...safe])].filter((r) => !refused.has(r));
     const next = { ...cur, permissions: { ...perms, deny } };
     /* Sandboxed Bash (Ice Cream Kitty's review): the deny rules above bind Claude Code's own tools, and
        a shell command such as `node -e readFileSync('.env')` or `grep -r` is a subprocess they do not
