@@ -16179,6 +16179,56 @@ const server = http.createServer(async (req, res) => {
       .catch((err) => sendJson(res, 400, { error: (err && err.message) || 'we could not read that request' }));
     return;
   }
+  /* kosmos#4649: the "add your other computer" code for a project on this computer, for
+     ANOTHER computer of the same account to join its shared room. Screen-only like invite:
+     it marks the project shared with the person's other computers (its owner seat then
+     opens even with no guest). */
+  if (pathname === '/api/federation/own-code' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can share a project with their other computers.' }); return; }
+        // The coordinator seats an own room only for a Kosmos Plus account, so a code made
+        // without it could never connect, and its owner seat would retry for nothing.
+        let plus = false;
+        try { plus = remote.kosmosPlus() === true; } catch { plus = false; }
+        if (!plus) { sendJson(res, 403, { reason: 'not-plus', error: 'Adding your other computers needs Kosmos Plus on this computer.' }); return; }
+        let proj = null;
+        try { proj = typeof body.project === 'string' ? projects.get(body.project, safeRoster()) : null; } catch { proj = null; }
+        if (!proj) { sendJson(res, 404, { error: 'There is no such project on this computer.' }); return; }
+        // The engine reads and writes this computer's link and seal records; a failure there is
+        // ours, not the request's.
+        let refusal, code, wasShared;
+        try {
+          // A link left by an earlier project with this id (#3851's stamp) is not this project's:
+          // forget it first, so the code names a room this project will actually sit in.
+          if (federation.linkFor(proj.id) && !fedseats.linkFor(proj.id)) federation.forgetLink(proj.id);
+          refusal = federation.ownCodeRefusal(proj.id);
+          if (refusal === 'guest') { sendJson(res, 409, { reason: 'guest', error: 'This project was shared with you from someone else, so it cannot be added to your other computers from here.' }); return; }
+          if (refusal === 'sealed') { sendJson(res, 409, { reason: 'sealed', error: 'This project is sealed for the people you invited, so your other computers cannot join it yet.' }); return; }
+          const before = federation.linkFor(proj.id);
+          wasShared = !!(before && (before.selfShared === true || before.role === 'self'));   // a self link was told at join
+          code = federation.ownCode(proj.id, proj.name);
+        } catch {
+          sendJson(res, 500, { error: 'Kosmos could not read or save this project\'s sharing on this computer. Try again in a moment.' });
+          return;
+        }
+        if (!code) { sendJson(res, 409, { error: 'Kosmos could not make a code for this project.' }); return; }
+        // The first time: the owner's room now opens to the relay, so this side is told too.
+        if (!wasShared) {
+          try { messages.roomNote(proj.id, 'This project is now shared with your other computers. Messages in this room are not sealed end to end.'); } catch { /* the note is furniture */ }
+        }
+        // A press is an explicit ask: an own room refused earlier this session is tried again.
+        fedseats.retryOwn(proj.id);
+        fedseats.ensure(proj.id).catch(() => {});
+        sendJson(res, 200, { code });
+      })
+      .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
   if (pathname === '/api/federation/join' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {
@@ -16188,6 +16238,16 @@ const server = http.createServer(async (req, res) => {
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can invite or join an external project.' }); return; }
         const snap = federation.joinSnapshot(body.edge_id);
         if (!snap) { sendJson(res, 409, { error: 'Verify the code again before joining. Each code works once, so if it says it was already used, ask for a new one.' }); return; }
+        // A second Join of the same own code (the snapshot is forgotten only after the first
+        // finishes) would make a second project in the same room.
+        if (snap.own) {
+          let here;
+          try { here = federation.ownRefHere(snap.ref); } catch {
+            sendJson(res, 500, { error: 'Kosmos could not read which projects are shared on this computer. Try again in a moment.' });
+            return;
+          }
+          if (here) { sendJson(res, 409, { reason: 'already_joined', error: 'This project is already on this computer.' }); return; }
+        }
         const roster = safeRoster();
         const agents = Array.isArray(body.agents) ? body.agents.filter((a) => typeof a === 'string') : [];
         // The owner's words stay theirs: the name is only a starting point for a
@@ -16198,7 +16258,10 @@ const server = http.createServer(async (req, res) => {
         // Without its link the project is an ordinary local one that says nothing
         // of where it came from; take it back out rather than leave that behind.
         try {
-          federation.recordLink(made.id, { role: 'member', edge_id: snap.edge_id, owner_handle: snap.owner_handle,
+          /* kosmos#4649: a project from ANOTHER computer of this account is a `self` link:
+             its seat is the account's own room, nothing was redeemed, nothing is sealed. */
+          if (snap.own) federation.recordLink(made.id, { role: 'self', ref: snap.ref, project_name: snap.project_name, project_created: made.createdAt });
+          else federation.recordLink(made.id, { role: 'member', edge_id: snap.edge_id, owner_handle: snap.owner_handle,
             project_name: snap.project_name, project_desc: snap.project_desc, project_created: made.createdAt });
         } catch (err) {
           try { projects.remove(made.id); } catch { /* reported below either way */ }
@@ -16216,7 +16279,11 @@ const server = http.createServer(async (req, res) => {
             throw err;
           }
         }
-        if (!snap.seal_s) {
+        if (snap.own) {
+          try {
+            messages.roomNote(made.id, 'This project is shared with your other computers. Messages in this room are not sealed end to end.');
+          } catch { /* the note is furniture; the room exists regardless */ }
+        } else if (!snap.seal_s) {
           try {
             messages.roomNote(made.id, 'This shared room is not sealed end to end: the owner\'s computer runs an older Kosmos, so its messages travel readable to the relay. To seal it, ask the owner to update Kosmos and send a new code.');
           } catch { /* the note is furniture; the room exists regardless */ }

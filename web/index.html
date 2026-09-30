@@ -9043,6 +9043,8 @@ html[data-kosmos-platform="win32"] ::-webkit-scrollbar-button { display: none; }
    a non-Plus viewer who selects Join gets showPlusGate("join") instead (see the change handler),
    so the form is never reached anyway; this rule is the belt-and-suspenders. */
 html:not([data-fed-ui="show"]) #pj-invite-panel,html:not([data-fed-ui="show"]) #pj-join-mode { display: none !important; }
+/* kosmos#4649: "Add your other computer" is a shared-room control, so it hides exactly when they do. */
+html:not([data-fed-ui="show"]) #pjs-own-field { display: none !important; }
 /* The Add-external buttons show GRAYED (not hidden) for a non-"show" viewer, and stay CLICKABLE so
    the click can open showPlusGate("connect"). Visual gray only -- no pointer-events:none. */
 html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"]) #pj-add-ext-agent { opacity: .55; }
@@ -15398,6 +15400,21 @@ window.kosmosMeasureScrollbarWidth();
       <p class="fmsg" id="pjs-hooks-msg" aria-live="polite" tabindex="-1"></p>
       <div class="frow" style="margin-top: var(--space-4)">
         <button class="btn" id="pjs-hook-add" type="button"><span aria-hidden="true">+</span> New webhook</button>
+      </div>
+    </div>
+
+    <!-- kosmos#4649 (weekend goal #4647): put this project on another of YOUR computers, so the agents
+         on each computer share one conversation. The code is pasted into Join a project there. -->
+    <div class="field" id="pjs-own-field">
+      <span class="flabel" id="pjs-own-label">Your other computers</span>
+      <p class="fhint" id="pjs-own-hint">Share this project with another computer signed in to your Kosmos Plus account. Its agents and the agents here will talk in one conversation. Once it is shared with your other computers, it cannot also be shared with other people yet.</p>
+      <div class="frow" id="pjs-own-row" hidden>
+        <input id="pjs-own-code" type="text" readonly aria-labelledby="pjs-own-label" spellcheck="false">
+        <button class="btn" id="pjs-own-copy" type="button">Copy</button>
+      </div>
+      <p class="fmsg" id="pjs-own-msg" aria-live="polite" tabindex="-1"></p>
+      <div class="frow" style="margin-top: var(--space-4)">
+        <button class="btn" id="pjs-own-add" type="button"><span aria-hidden="true">+</span> Add your other computer</button>
       </div>
     </div>
 
@@ -53815,6 +53832,7 @@ function pjPaintParentSelect(p) {
 }
 
 function paintProjectSettings(p) {
+  pjsOwnReset(p && p.id);   // kosmos#4649: a code shown for one project never shows on another
   // #3134: showing the settings panel cancels any pending save auto-advance. A
   // save schedules a ~1s timer that returns to the project; if the person comes
   // BACK to settings within that window (the cog, a member change, any path that
@@ -54052,6 +54070,54 @@ async function pjsHookCopy(which) {
   if (said) said.textContent = ok ? (internet ? 'Copied the internet link.' : (document.getElementById('pjs-hook-public') ? 'Copied the link for this computer.' : 'Copied.')) : (internet ? 'Kosmos could not copy it. Select the internet link and copy it yourself.' : 'Kosmos could not copy it. Select the link and copy it yourself.');
 }
 document.getElementById('pjs-hook-add').addEventListener('click', pjsHookAdd);
+
+/* kosmos#4649: the "add your other computer" code for the project open in settings. On the other
+   computer it goes into Join a project, which shows it as shared by "your other computer". */
+const PJS_OWN = { projectId: null };
+function pjsOwnReset(projectId) {
+  PJS_OWN.projectId = projectId || null;
+  document.getElementById('pjs-own-row').hidden = true;
+  document.getElementById('pjs-own-code').value = '';
+  document.getElementById('pjs-own-msg').textContent = '';
+  document.getElementById('pjs-own-add').disabled = false;
+}
+async function pjsOwnAdd() {
+  const msg = document.getElementById('pjs-own-msg');
+  const btn = document.getElementById('pjs-own-add');
+  const forProject = PJS_OWN.projectId;
+  if (!forProject) return;
+  btn.disabled = true;
+  msg.textContent = 'Making a code…';
+  try {
+    const res = await fetch('/api/federation/own-code', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ project: forProject }),
+    });
+    const body = await res.json().catch(() => null);
+    if (PJS_OWN.projectId !== forProject) return;   // settings moved to another project meanwhile
+    if (!res.ok || !body || typeof body.code !== 'string') {
+      msg.textContent = (body && body.error) || 'Kosmos could not make a code just now. Try again in a moment.';
+      return;
+    }
+    document.getElementById('pjs-own-code').value = body.code;
+    document.getElementById('pjs-own-row').hidden = false;
+    msg.textContent = 'On your other computer, open Projects, Join a project, and paste this code.';
+  } catch {
+    if (PJS_OWN.projectId === forProject) msg.textContent = 'Kosmos could not make a code just now. Try again in a moment.';
+  } finally {
+    if (PJS_OWN.projectId === forProject) btn.disabled = false;
+  }
+}
+async function pjsOwnCopy() {
+  const code = document.getElementById('pjs-own-code');
+  const msg = document.getElementById('pjs-own-msg');
+  let ok = false;
+  try { if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') { await navigator.clipboard.writeText(code.value); ok = true; } } catch { ok = false; }
+  if (!ok) { try { code.select(); ok = !!(document.execCommand && document.execCommand('copy')); } catch { ok = false; } }
+  msg.textContent = ok ? 'Code copied.' : 'Kosmos could not copy it. Select the code and press Command C.';
+}
+document.getElementById('pjs-own-add').addEventListener('click', pjsOwnAdd);
+document.getElementById('pjs-own-copy').addEventListener('click', pjsOwnCopy);
 document.getElementById('pjs-hooks').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;
@@ -60539,6 +60605,9 @@ function pjFedMessage(body, fallback) {
     'not-found': 'That code was not recognised. Check it and try again.',
     'self-join': 'That is your own project, so there is nothing to join.',
     'double-join': 'You are already on that project.',
+    'already_joined': 'This project is already on this computer.',   // kosmos#4649 own-account code
+    'self-shared': 'This project is shared with your other computers, so it cannot be shared with other people yet.',
+    'not-plus': 'Joining your other computer\'s project needs Kosmos Plus on this computer.',
   };
   return (reason && M[reason]) || fallback;
 }
@@ -60643,9 +60712,13 @@ async function pjVerifyCode() {
     document.getElementById('pj-join-desc').textContent = body.project_desc || 'No description.';
     // Who is on the other end: the owner's Kosmos+ name, set by Kosmos+ itself, so
     // unlike the name and description above the inviter cannot write it.
-    document.getElementById('pj-join-owner').textContent = body.owner_handle
-      ? body.owner_handle + '.kosmosplus.com'
-      : 'A Kosmos+ account with no name yet';
+    // kosmos#4649: an own-account code is shared by this person's other computer, which has no
+    // Kosmos+ address of its own to show.
+    document.getElementById('pj-join-owner').textContent = body.own === true
+      ? 'Your other computer'
+      : body.owner_handle
+        ? body.owner_handle + '.kosmosplus.com'
+        : 'A Kosmos+ account with no name yet';
     // A fresh verify starts with no agents added, and any picker left open by a prior verify is
     // re-hidden: show the "No agents on it yet." hint rather than leaving the box empty. Set it
     // directly (a fresh verify is always the empty state) so this success path stays self-contained
