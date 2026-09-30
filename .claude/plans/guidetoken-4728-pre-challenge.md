@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: guidetoken-4728
-diff_hash: 042927e7b1becd08e77944529ef09608684cff3f929a0b1c627894a06d4e18b3
-validation: passed (the full suite, on Mortals, for this diff hash; log entry 2026-09-30T16:14:34Z, run on the head before the rebase, c854a611e; a second full run on the rebased head was started after this file was written)
+diff_hash: d4f24893e771c699039db73cf68c89b199f4f4cb0fe85f4920391a6ee43c5530
+validation: passed once, on Mortals, the full suite, on the head before main took #4739 (c854a611e, diff hash 042927e7b1be, log entry 2026-09-30T16:14:34Z); NOT yet on this head, which is that branch rebased onto origin/main 6ea3ebf56 (a full run on it was started after this file was written; its result is in the PR)
 subdir_audit: not run (the diff changes no subdirectory CLAUDE.md)
-timestamp: 2026-09-30T16:15:25Z
+timestamp: 2026-09-30T16:26:49Z
 iterations: 11
 converged: true
 ---
@@ -17,10 +17,12 @@ converged: true
 **Total findings:** 24 WARNINGs and 6 CONVENTIONs raised across the rounds (repeats of one concern counted each time), 0 BLOCKERs, about 35 NITs
 **Fixed:** 22 distinct | **Deferred:** 2 distinct | **Asked (awaiting user):** 0
 
-**The commit refs in this file are the branch's commits BEFORE it was rebased** onto origin/main cc9c778dc
-(2026-09-30, after the loop converged). The same thirteen commits, in the same order and under the same
-subjects, now follow main with new ids. The rebase changed no file this branch touches (main had not touched
-any of them), so the diff hash above is the same before and after; I computed it both times.
+**The commit refs in this file are the branch's commits BEFORE it was rebased.** It was rebased twice after the
+loop converged, both times with no conflict: onto origin/main cc9c778dc (main had touched none of this
+branch's files; the diff hash stayed 042927e7b1be), and then onto 6ea3ebf56, after #4491 slice 4 (#4739) landed
+and changed `server.js` and `install/kosmos` near, but not in, the lines this branch changes. The second rebase
+moved line numbers in `server.js`, so the diff hash above is new; the changes themselves are the ones the
+reviewers read. The same commits, in the same order and under the same subjects, now follow main with new ids.
 
 What the loop was: a comment-only change, and from round 3 on most findings were about sentences the
 previous round's fix had written (the kosmos#120 pattern). From round 7 the fixes REMOVED those claims from
