@@ -33,6 +33,8 @@ esac
 
 PROFILE_A='(version 1)(allow default)(deny network-outbound)'
 PROFILE_B='(version 1)(allow default)(deny network-outbound)(deny process-info*)'
+# C: B with writes to the temp folders denied too, so the check cannot lean on a temp file to see lsof fail.
+PROFILE_C='(version 1)(allow default)(deny network-outbound)(deny process-info*)(deny file-write* (subpath "/private/var/folders") (subpath "/private/tmp"))'
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/pause4651.XXXXXX")"
 LISTENER=""
@@ -99,6 +101,10 @@ chk "sandbox A, live board: says to use a normal Terminal, never to kill the pid
 P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_B" "$P")"; stop_listener
 chk "sandbox B, live board: the update stops before changing anything (it passed before #4651)" '[[ "$OUT" == *"DIE:"* && "$OUT" != *"PASSED THE PAUSE"* ]]'
 chk "sandbox B, live board: says to use a normal Terminal" '[[ "$OUT" == *"normal Terminal"* ]]'
+
+# C: no file can be written, and lsof is denied. Must still stop.
+P="$(free_port)"; start_listener "$P" http; OUT="$(run_pause "$PROFILE_C" "$P")"; stop_listener
+chk "sandbox C (no temp writes either), live board: the update stops, and says to use a normal Terminal" '[[ "$OUT" == *"DIE:"* && "$OUT" == *"normal Terminal"* && "$OUT" != *"PASSED THE PAUSE"* ]]'
 
 # B with nothing listening: the shell still cannot tell, so it stops too (fail closed, by decision).
 P="$(free_port)"; OUT="$(run_pause "$PROFILE_B" "$P")"
