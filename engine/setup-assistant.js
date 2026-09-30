@@ -213,9 +213,9 @@ function markGuideFolder(agentName) {
  *     a Claude guide anywhere else     not refused: no sandbox is written there (not measured)
  *     a Codex, Gemini or Grok guide    not refused: its runner does not read that settings file (not measured)
  *   Even in the first row the refusal reaches only the paths these rules name.
- * - #4752: the other folders a board token can sit in are denied too: the older data folder, and, for a guide
- *   in a named world, the default world's board.token and every world's store. Not the worlds' base whole: a
- *   named world's agents, the guide included, live under it.
+ * - #4752: the other stores are denied too: the older data folder, and, for a guide in a named world, the
+ *   default world's store (entry by entry) and every world's store. Not the worlds' base whole: a named
+ *   world's agents, the guide included, live under it.
  */
 /* The same home accounts.js and create.js use (a named world or a test sets it). */
 function kosmosHome() { return process.env.AGENT_WORKFORCE_HOME || require('os').homedir(); }
@@ -249,10 +249,13 @@ function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase
     rules.push(`Read(${abs(path.join(home, '.claude.json'))})`);
   }
   if (dataRoot) rules.push(`Read(${abs(dataRoot)}/**)`);
-  /* #4752: a board token can also sit in the older data folder and in another world's. `dataRoot` above is this
-     guide's own world only, so those are named too. Not the worlds' base whole: a named world's agents, the guide
-     included, live under it (<base>/worlds/<id>/workers), and a rule on the base would cut the guide off from
-     its own instructions. */
+  /* #4752: a board token (and the rest of a store: agent tokens, device secrets, conversations) can also sit in
+     the older data folder and in another world's. `dataRoot` above is this guide's own world only, so those are
+     named too. Not the worlds' base whole: in a named world the guide's own folder is under it
+     (<base>/worlds/<id>/workers), and a rule on the base would cut it off from its own instructions. So in the
+     base, which IS the default world's store, every entry is named except the worlds folder and its registry.
+     The list is read when the rules are written (a guide's are rewritten at every board start); an entry made
+     later is uncovered until then, except the token and its temporary copies, which are always named. */
   const same = (a, b) => !!a && !!b && path.resolve(a) === path.resolve(b);
   try {
     const more = [];
@@ -261,10 +264,19 @@ function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase
     }
     const base = worldsBase !== undefined ? worldsBase : guideWorldsBase();
     if (base && !same(base, dataRoot)) {
+      const worlds = require('./worlds');
       const tokenFile = require('./boardauth').TOKEN_FILE;
       more.push(`Read(${abs(path.join(base, tokenFile))})`);   // the default world's token
       more.push(`Read(${abs(path.join(base, '.' + tokenFile))}.*)`);   // and its temporary copy while it is rewritten
-      const worldsDir = path.join(base, require('./worlds').WORLDS_SUBDIR);
+      const keep = new Set([worlds.WORLDS_SUBDIR, path.basename(worlds.registryPath(base))]);
+      let entries = [];
+      try { entries = fs.readdirSync(base, { withFileTypes: true }); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+      for (const d of entries) {
+        if (keep.has(d.name)) continue;
+        const at = abs(path.join(base, d.name));
+        more.push(d.isDirectory() ? `Read(${at}/**)` : `Read(${at})`);
+      }
+      const worldsDir = path.join(base, worlds.WORLDS_SUBDIR);
       // every named world's store. On Windows this joins `/` onto a `\` path, as the data folder rule always has; not measured there.
       for (const leaf of [store.APP, store.LEGACY_APP]) more.push(`Read(${abs(worldsDir)}/*/${leaf}/**)`);
     }
@@ -272,25 +284,24 @@ function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase
   } catch (err) {
     /* The rules above still stand: a guide is never left with none because these could not be worked out. Said,
        so a guide written without them can be told apart from one written with them. */
-    process.stderr.write(`#4752: the setup guide's rules for the older data folder and the other worlds were left out: ${(err && err.message) || err}\n`);
+    process.stderr.write(`#4752: the setup guide's rules for the older data folder and the other worlds' stores were left out: ${(err && err.message) || err}\n`);
   }
   return rules;
 }
 /* #4752: the worlds' base (the default world's data folder), as it was before any world was applied to this
    process; null when it cannot be worked out. */
 function guideWorldsBase() {
-  try { const worlds = require('./worlds'); return worlds.baseRoot(worlds.preWorldEnv(process.env)); } catch { return null; }
+  const worlds = require('./worlds');
+  return worlds.baseRoot(worlds.preWorldEnv(process.env));   // a throw reaches guideDenyRules, which says so
 }
 /* #4752: the older data folder (store.LEGACY_APP), for this world and for the default world. */
 function guideLegacyRoots() {
+  const worlds = require('./worlds');   // a throw reaches guideDenyRules, which says so
   const out = [];
-  try {
-    const worlds = require('./worlds');
-    for (const env of [process.env, worlds.preWorldEnv(process.env)]) {
-      const root = store.dataRootFor(process.platform, env.AGENT_WORKFORCE_HOME || require('os').homedir(), env, store.LEGACY_APP);
-      if (root && !out.includes(root)) out.push(root);
-    }
-  } catch { /* the rules above still stand */ }
+  for (const env of [process.env, worlds.preWorldEnv(process.env)]) {
+    const root = store.dataRootFor(process.platform, env.AGENT_WORKFORCE_HOME || require('os').homedir(), env, store.LEGACY_APP);
+    if (root && !out.includes(root)) out.push(root);
+  }
   return out;
 }
 

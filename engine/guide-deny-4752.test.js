@@ -10,6 +10,8 @@
  * folder under the base was measured once by hand, 2026-09-30: the table is in
  * .claude/plans/guidedeny-4752-20260930.md and on #4752.
  *
+ * The rule strings below are POSIX paths: this file runs on the Mac and Linux jobs, not on Windows.
+ *
  *   node --test engine/guide-deny-4752.test.js
  */
 const test = require('node:test');
@@ -80,10 +82,10 @@ test('#4752 worked out from this process, not handed in: the older folder beside
   assert.ok(rules.includes(`Read(${abs(older)}/**)`), 'the older data folder is not denied: ' + rules.filter((r) => r.includes(SANDBOX)).join(' '));
 });
 
-test('#4752 a process that has entered a named world (as a guide\'s board does) still finds the base it came from', () => {
+test('#4752 a process that has entered a named world (an agent\'s way, applyAgentWorldEnv; the board\'s goes through the same applyWorldEnv) still finds the base it came from', () => {
   const home = path.join(SANDBOX, 'home2');
   fs.mkdirSync(home, { recursive: true });
-  const env = { PATH: process.env.PATH, AGENT_WORKFORCE_HOME: home, KOSMOS_WORLD: 'beta' };
+  const env = { PATH: process.env.PATH, HOME: home, AGENT_WORKFORCE_HOME: home, KOSMOS_WORLD: 'beta' };
   const script = `
     const worlds = require(${JSON.stringify(path.join(__dirname, 'worlds.js'))});
     const base = worlds.baseRoot(process.env);
@@ -118,4 +120,33 @@ test('#4752 when the extra folders cannot be worked out, the rules that were the
   } finally { process.stderr.write = write; Object.defineProperty(worlds, 'WORLDS_SUBDIR', was); }
   assert.ok(setupAssistant.guideDenyRules({ dataRoot: '/b/worlds/w1/Kosmos', worldsBase: '/b', legacyRoots: [] }).includes('Read(//b/board.token)'),
     'CONTROL: with the folder readable again the extra rules are back');
+});
+
+test('#4752 for a guide in a named world, every entry of the default world\'s store is named, except the worlds folder and its registry', () => {
+  const base = path.join(SANDBOX, 'base-entries');
+  for (const d of ['sendertokens', 'secrets', 'chats', 'worlds/w1/workers/guide']) fs.mkdirSync(path.join(base, d), { recursive: true });
+  for (const f of ['board.token', 'connect.json', 'github-app.json', 'messages.jsonl', 'worlds.json']) fs.writeFileSync(path.join(base, f), 'x');
+  const abs = (p) => '//' + p.replace(/^\/+/, '');
+  const rules = setupAssistant.guideDenyRules({ dataRoot: path.join(base, 'worlds', 'w1', store.APP), worldsBase: base, legacyRoots: [] });
+  for (const d of ['sendertokens', 'secrets', 'chats']) assert.ok(rules.includes(`Read(${abs(path.join(base, d))}/**)`), 'folder not named: ' + d);
+  for (const f of ['board.token', 'connect.json', 'github-app.json', 'messages.jsonl']) assert.ok(rules.includes(`Read(${abs(path.join(base, f))})`), 'file not named: ' + f);
+  const named = rules.filter((r) => r.startsWith(`Read(${abs(base)}/`));
+  assert.ok(!named.some((r) => r === `Read(${abs(path.join(base, 'worlds'))}/**)` || r === `Read(${abs(path.join(base, 'worlds.json'))})`),
+    'the worlds folder or its registry was named: ' + named.join(' '));
+  assert.ok(!named.some((r) => r === `Read(${abs(base)}/**)`), 'the base was named whole');
+  assert.ok(named.length >= 9, 'CONTROL: the entries were not read at all: ' + named.length);
+});
+
+test('#4752 when the base cannot be worked out (preWorldEnv throws), that is said, and the earlier rules still come back', () => {
+  const worlds = require('./worlds');
+  const was = worlds.preWorldEnv;
+  worlds.preWorldEnv = () => { throw new Error('no pre-world roots'); };
+  const said = [];
+  const write = process.stderr.write;
+  process.stderr.write = (s, ...rest) => { if (String(s).startsWith('#4752')) { said.push(String(s)); return true; } return write.call(process.stderr, s, ...rest); };
+  let rules;
+  try { rules = setupAssistant.guideDenyRules(); } finally { process.stderr.write = write; worlds.preWorldEnv = was; }
+  assert.ok(rules.includes(`Read(//${store.ROOT.replace(/^\/+/, '')}/**)`), 'the data folder rule was lost');
+  assert.equal(said.length, 1, 'the failure was not said');
+  assert.match(said[0], /left out: no pre-world roots/);
 });
