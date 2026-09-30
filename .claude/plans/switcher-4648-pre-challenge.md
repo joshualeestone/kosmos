@@ -23,3 +23,27 @@ converged: true
 - Round 4: converged. After it, the only change is the test leak fix (fake.cleanup()), which is inside the validated head dc27240a7.
 
 The relay half (#212) is merged and deployed (coordinator 212acd0, and now d0b75bd). The connector rebuild that makes this list appear on a Mac is a separate step (release step 1d refuses a stale connector).
+
+### Per-Iteration Breakdown
+
+#### Iteration 1 (fable): 1 BLOCKER, 4 WARNINGs, 2 CONVENTIONs, 3 NITs
+- [BLOCKER] docs/browser-checks/gated.txt - the browser check was not gated, so nothing ran it --> FIXED (enrolled, sorted; wiring, PR-select and quarantine guards 56/56)
+- [WARNING] engine/account-computers.js - any DNS name (a LAN address included) passed validation --> FIXED (one label under the coordinator's domain, before any probe; an off-domain row is dropped and never probed)
+- [WARNING] web/index.html - offline rows linked to a browser error page --> FIXED (only online computers are links)
+- [WARNING] web/index.html - a reopened menu showed the previous open's state words --> FIXED (hidden and emptied at each read's start)
+- [WARNING] tests - the worldswOpen test grepped for the call; the probe-timeout arm hung instead of failing --> FIXED (runs the shipped function with a spy; a hard race)
+- [CONVENTION] connect-only Macs and phones open another computer in-window (#4356) --> stated in plan and markup
+- [CONVENTION] the ship dependency (coordinator deploy + connector rebuild) --> stated
+- [NIT] x3 (rounded corners, invented host names in the fixture) --> FIXED; a short cache for fast reopens DEFERRED
+
+#### Iteration 2 (sonnet): 1 BLOCKER, 1 NIT
+- [BLOCKER] tools/test-connector-verbs.sh pins the macRequest callers and account-computers.js is a new one --> RE-DECIDED in writing (an old connector refuses the route, which hides the section); the pinned list is six; 22/22
+- [NIT] the render-side hide was unguarded (the fake box started hidden) --> FIXED (starts visible; red-checked)
+
+#### Iteration 3 (fable): 1 WARNING, 2 NITs
+- [WARNING] browser check - the not-signed-in control read the DOM before the stub was served --> FIXED (waits for the served counter and a render tick; red-checked 4 FAILED with that mutation)
+- [NIT] the server arm's title claimed the not-signed-in path --> retitled to what it proves
+- [NIT] the "emptied" half of the no-list arm could not fail --> seeds a stale row now
+
+#### Iteration 4
+- Zero NEW BLOCKERs or WARNINGs. CONVERGED.
