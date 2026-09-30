@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: teamsize-4555
-diff_hash: 60b5002e01e4259cb85aac7c91545ff0d8cd27aa2d05ac301927efcf92e83259
+diff_hash: 8b827a52ac48ff3114ef45fa6f4d7b44a97f3d11ec359be43819a23501b3da67
 validation: FOCUSED (Splinter 17:44: no new full runs on Mortals until the 0.7.14 cut). The 5 test files that use engine/catalogue: 427 of 427 on eb34a7e26. Mutations: floor back to 4 fails the small-team case; ceiling at 6 fails the sixth-report case.
 subdir_audit: not run (the diff changes no subdirectory CLAUDE.md)
 timestamp: 2026-09-30T22:36:32Z
