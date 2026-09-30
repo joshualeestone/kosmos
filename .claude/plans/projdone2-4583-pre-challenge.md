@@ -2,23 +2,39 @@
 pre_challenge: true
 method: challenge-loop
 branch: projdone2-4583
-diff_hash: 76b9eb531a0e8ddef49a0df9d39f0f7131122b1be110421dc7b5a1adcfd887cc
+diff_hash: 6791cdfdbf4a322d8801aa55d6c89fee0e73a9f6b2f5067a2b055b68e89b61f6
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-30T12:11:56Z
-iterations: 6
+timestamp: 2026-09-30T14:19:57Z
+iterations: 16
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 6 separate blind reviewers (Opus and Sonnet alternating)
-**Converged:** Yes (round 6: nothing above NIT)
+**Iterations:** 16 separate blind reviewers, Opus and Sonnet alternating: 6 before main was merged, then 10 more
+after merging main exposed a conjunction with #4581 (its show read this card's placeholder as the done)
+**Converged:** Yes (second loop, round 10: nothing above NIT)
 **Total findings acted on:** 0 BLOCKERs, 11 WARNINGs, several NITs
 **Fixed:** every WARNING, each with a test that fails on revert | **Deferred:** 0 | **Asked:** 0
 
-Full validation clean on Mortals at 1ebdb07fb, after main (with #4609) was merged in and main's newer guards were met
-(fixture-discipline, the pointer-site count, the loadProjects harness, the notice wiring pin, five surface trailers).
+Full validation clean on Mortals at 8e28e4bd4 (hash 6791cdfdbf4a), after the second loop. The first validation
+(1ebdb07fb) predates it.
+
+### The second loop (after merging main), rounds 1-10
+- R1 Opus: 2 WARNINGs (badge and show judged "done set" by different rules) --> FIXED: brief.doneSetFrom is the one rule
+- R2 Sonnet: 2 WARNINGs (a retitled heading; fillDone adding a second Done section) --> FIXED
+- R3 Opus: 3 WARNINGs (fillDone merging into a written done; a second section; heading shapes) --> FIXED
+- R4 Sonnet: 2 BLOCKERs, caused by R3's widening of the Done heading (a "# Done Deal" title, a "### Done so far" note)
+  --> FIXED: main's level-2 rule restored; fillDone scoped to the Done section
+- R5 Opus: 3 WARNINGs (a Markdown-led done; own-heading levels; a placeholder remnant) --> FIXED
+- R6 Sonnet: 2 WARNINGs (a backslash-led done; a note with a false reason) --> FIXED
+- R7 Opus: 1 WARNING (a filled ## Done section dropped the typed done silently) --> FIXED
+- R8 Sonnet: 2 WARNINGs (a Goal line vouching for a lost done; unreadable or read-only briefs) --> FIXED: any typed
+  done not in the Done section is quoted to the team with its true reason
+- R9 Opus: 1 WARNING (the welcome home's own done written into a person's brief) --> FIXED: seedDoneOnly
+- R10 Sonnet: nothing above NIT. Converged.
+Twenty controls, each red on revert. NITs accepted in each round's commit message.
 
 ### Per-Iteration Breakdown
 
