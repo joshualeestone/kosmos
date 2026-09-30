@@ -151,18 +151,19 @@ const STATES = {
         chk(v.fit && v.fit.lines === 1 && v.fit.sameRow && v.fit.spare >= 10 && v.fit.clear >= 18 && parseFloat(v.fit.font) >= 12, `${t} #4744: the sentence is one line at 12px or more, ends 10px+ inside its box and before Copy, on Copy's row`, JSON.stringify(v.fit));
         if (key === 'connected') { // #4744: at 640 and 600 wide (the Windows launcher's 640 window, less its frame and scrollbar) it is still one line.
           const vp = page.viewportSize();
-          for (const wide of [640, 600, 360]) {
+          for (const wide of [640, 600, 560, 520, 360]) {
             await page.setViewportSize({ width: wide, height: vp.height }); await page.waitForTimeout(250);
             const n = await page.evaluate(() => {
               const e = document.getElementById('plus-chip-say'), c = document.getElementById('plus-copy');
               const r = document.createRange(); r.selectNodeContents(e); const rs = [...r.getClientRects()].filter((x) => x.width > 0);
               const right = Math.max(...rs.map((x) => x.right));
-              return { shown: e.getBoundingClientRect().height > 0, lines: (rs.some((x) => Math.abs(x.top - rs[0].top) > 4) ? 2 : 1), font: getComputedStyle(e).fontSize,
+              const chip = document.getElementById('plus-chip').getBoundingClientRect();
+              return { inScreen: chip.left >= 0 && chip.right <= innerWidth + 0.5, shown: e.getBoundingClientRect().height > 0, lines: (rs.some((x) => Math.abs(x.top - rs[0].top) > 4) ? 2 : 1), font: getComputedStyle(e).fontSize,
                 spare: Math.round(e.getBoundingClientRect().right - right), clear: Math.round(c.getBoundingClientRect().left - right) };
             });
-            if (wide >= 600) chk(n.shown && n.lines === 1 && n.spare >= 10 && n.clear >= 18 && parseFloat(n.font) >= 12, `${t} #4744: at ${wide} wide the sentence is one line at 12px or more, 10px+ inside its box and before Copy`, JSON.stringify(n));
+            if (wide >= 600) chk(n.shown && n.inScreen && n.lines === 1 && n.spare >= 10 && n.clear >= 18 && parseFloat(n.font) >= 12, `${t} #4744: at ${wide} wide the sentence is one line at 12px or more, 10px+ inside its box and before Copy`, JSON.stringify(n));
             // A phone: it may wrap (the address may break), but nothing runs past its box or under Copy.
-            else chk(n.shown && n.spare >= 0 && n.clear >= 0, `${t} #4744: at ${wide} wide (a phone) the sentence wraps inside its box and clear of Copy`, JSON.stringify(n));
+            else chk(n.shown && n.inScreen && n.spare >= 0 && n.clear >= 0, `${t} #4744: at ${wide} wide (narrower than the one-line box) the box stays on screen and the sentence wraps inside it, clear of Copy`, JSON.stringify(n));
           }
           await page.setViewportSize(vp); await page.waitForTimeout(250);
         }

@@ -10149,8 +10149,9 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 @container (min-width: 490px) {
   #s-sec-plus .plus-chip-say { white-space: nowrap; font-size: clamp(.75rem, calc((100cqw - 80px) / 34), .9rem); }
 }
-/* The safety valve: if a font runs wider than that margin allows, plusChipFit sees the sentence overflow and lets it
-   wrap, so it never paints under Copy. */
+/* The safety valve: if a font runs wider than that margin allows, plusChipFit sees the sentence overflow (on a resize
+   of the box, or when the panel repaints) and lets it wrap rather than run under Copy. Container queries and cqw need
+   Safari 16 / Chromium 105: the Mac app's floor is macOS 13.5 (Safari 16.5) and WebView2 updates itself. */
 #s-sec-plus .plus-chip-say.plus-chip-wrap { white-space: normal; }
 #s-sec-plus .plus-chip-say b { font-weight: 700; color: #fff; }
 #s-sec-plus .plus-foot { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.1); }
@@ -42542,8 +42543,8 @@ const PLUS_ACCOUNT_URL = 'https://login.kosmosplus.com/';
    If the clipboard is refused, the address is selected on screen so the person can copy it themselves. */
 let PLUS_COPY_TIMER = null;
 function plusCopyViaExec() {
-  // execCommand first, the clipboard API second: both copy the same full URL, so the order only decides which path
-  // a web view that refuses one of them still has.
+  // execCommand first because it runs synchronously inside the press (no await before it); the clipboard API is the
+  // second try. Both copy the same full URL.
   const t = document.createElement('textarea'); t.value = PLUS_ACCOUNT_URL; t.setAttribute('readonly', '');
   t.style.position = 'fixed'; t.style.top = '0'; t.style.left = '0'; t.style.opacity = '0';
   let ok = false;
@@ -42594,6 +42595,10 @@ function plusChipFit() {
 { const b = document.getElementById('plus-copy'); if (b) b.addEventListener('click', plusCopyAddress); }
 
 async function paintPlus() {
+  /* #4744: a Copy failure's note belongs to the box. Whatever this paint does next (including an early return),
+     if the panel or the box is not showing now, the note's flag goes, so a later reconnect never shows it. */
+  { const st0 = document.getElementById('plus-status'), fl0 = document.getElementById('plus-flow'), ch0 = document.getElementById('plus-chip');
+    if (st0 && st0.dataset && st0.dataset.copyFail && (!fl0 || fl0.hidden || !ch0 || ch0.hidden)) { delete st0.dataset.copyFail; st0.textContent = ''; } }
   /* #1615: three states, per design/plus-flow.html section 5. `state1` is the pane a
      person with no Plus sees; `state2` is the sign-in for somebody who has paid but has
      not connected this Mac; `flow` is the connected state and is unchanged.

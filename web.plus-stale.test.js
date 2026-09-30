@@ -176,3 +176,15 @@ test('#4744: the copy-failure note survives a connected repaint and is cleared b
   await paint(w);
   assert.equal(st.textContent, '', 'after a reconnect the line under the box is not empty (#4080)');
 });
+
+test('#4744: a copy-failure note does not survive the panel being hidden (e.g. an early return), so a reconnect is clean', async () => {
+  const r = connected([]);
+  const w = world(r);
+  const st = w.el('plus-status');
+  st.dataset = { copyFail: '1' };
+  st.textContent = 'Kosmos could not copy it. The address is selected: copy it from there.';
+  w.el('plus-flow').hidden = true;   // the flow was hidden by an earlier paint that returned before the status line
+  await paint(w);
+  assert.equal(st.dataset.copyFail, undefined, 'the failure flag survived the panel being hidden');
+  assert.equal(st.textContent, '', 'after reconnecting, the line under the box is not empty (#4080)');
+});
