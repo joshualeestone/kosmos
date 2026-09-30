@@ -169,3 +169,28 @@ Next: the full validation once #4574 is on main (the queue override would otherw
 NITs: word-form resets ("1 hour 5 minutes") read as none; agyquota.js requires status.js for two constants; the page's
 day suffix can flip between renders at the 20 h line; the server wiring pin is a source match.
 Next: the final validation on this HEAD, then proof and PR.
+
+## After merging main 2026-09-30
+- Merged origin/main (41 commits) as 68d7c5027. Two conflicts, both sides kept:
+  - bin/agy-report-bridge.js: main's #4569 made buildBody's 4th argument `waiting` (a Muse queue count); this
+    branch's `until` is now the 5th, and the send passes mapped.waiting, mapped.until. reportFor auto-merged:
+    `waiting` only on a working report, `until` only on a quota idle.
+  - web/index.html: main's waitingLine and this branch's quotaResetWords sat in one place; both kept. stateReason's
+    waiting line is working-only, the quota line rate_limited-only, so their order does not matter.
+- Added a seam test (agyhooks.test.js): the real bridge posts a Muse queue count as `waiting` with no until. Controls,
+  measured: dropping mapped.waiting at the send reds 1 test; swapping the two arguments reds 2. Before this test,
+  dropping mapped.waiting reddened nothing (unpinned on main too).
+- Single files, measured: agyhooks 36/36, the five 4588 engine/server/web files, status 211/211, goldencard 35/35
+  (no re-capture needed: main's `waiting` and this branch's `quotaUntil` both present, both null), reason-grep 5/5,
+  fixture-discipline 20/20, engine.reachable, geminisettings, agyseed-4417, musefront, selfreport/status/web
+  4569, report-readback-2709, report-refusal-4606: all pass. Both browser-check gates pass.
+
+### Review iteration 9 (blind, sonnet), over the merge: CONVERGED (0 BLOCKER, 0 WARNING)
+Checked: the bridge throttle (only a repeated working is held, so a quota idle and its until always send); the report
+route keeps until on an auto idle and #4606 only rewords a refusal; status.js ordering (main's Codex branch and
+`waiting` do not touch the quota rule); the agy runner detection still yields 'antigravity'; a Muse Stop carries no
+error, so it cannot read as a quota pause.
+- NIT, left (PR B): main's #4624 roomhold.flushOnIdle runs on every idle report, the quota idle included, so room
+  posts held while the agent worked are typed into it at the pause. The turn fails on the exhausted quota and files
+  a fresh quota report; the pause card holds. Reasoned, not run. This is one of the automatic senders during the
+  pause that PR B holds (see Rejected).
