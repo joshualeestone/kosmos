@@ -4,8 +4,9 @@ Card: kosmos#4694. Kosmos+ sign-in is one of Josh's priorities, and a check that
 Plus change selects it.
 
 ## Done looks like
-The enrol-pair arm of docs/browser-checks/render-plus-signin-enter-0929.js cannot be undone by a repaint: it passes
-every run, and a repaint landing between showing the pair and pressing Enter (what failed CI) changes nothing.
+The enrol-pair arm of docs/browser-checks/render-plus-signin-enter-0929.js is not undone by a paintPlus repaint,
+whether the repaint started before the hand-showing (still in flight) or after it (the 5s tick, where CI failed):
+the arm passes every run, and each of those two cases has a mutant that goes red without its guard.
 
 ## Cause (measured)
 - CI run 36672061656: the email fill succeeded, then Enter sent nothing (posts `[]`), so the code row never showed and
@@ -15,14 +16,17 @@ every run, and a repaint landing between showing the pair and pressing Enter (wh
   tick. A paint that lands after the hand-showing and before Enter hides the pair again, so the keypress goes nowhere.
 
 ## Change (check only; no product change)
-- After opening the pane, the check awaits a paint of its own (a newer PLUS_EPOCH, so any paint still in flight
-  returns without touching the page), then holds every later GET /api/remote (never answered), so no repaint can
-  undo the hand-shown pair.
-- A deliberate repaint is fired between the fill and Enter, the gap CI hit, so every run exercises the hazard.
+- After opening the pane the check lets one paint run, then holds every later GET /api/remote (never answered).
+- Then, BEFORE showing the pair, it starts one more paint. That paint waits on a held read forever and takes a newer
+  PLUS_EPOCH, so any paint still in flight (one that started during the first and was answered before the hold)
+  returns without touching the page. Round 1's review reproduced that case: awaiting one paint alone did not cover it.
+- A repaint that starts between the fill and Enter (the gap CI hit) is fired on purpose; its read is held.
 
 ## Measured
-- Control: the new check without the settle-and-freeze lines fails 2 of 2 with CI's exact failure (`[]`).
-- Fixed: 4 of 4 alone, 8 of 8 under load (4 parallel, twice), 15 checks each.
+- A repaint AFTER the hand-showing: without the hold, 2 of 2 red with CI's exact failure (`[]`).
+- A repaint that started DURING the settle (a second paint, its read slowed 400ms, a 500ms slow-machine wait before
+  the fill): without the held paint before showing the pair, 5 of 6 red; with it, 0 of 6.
+- The check itself: 4 of 4 alone after the round 1 fix (8 of 8 under load before it), 15 checks each.
 - Not reproduced on main without the deliberate repaint (6 alone, 12 under load): the natural race is rare here.
 
 ## Weakest premise
@@ -32,5 +36,6 @@ visibility would not be held by the frozen status read. None found: the pair's h
 
 ## Noted, not in scope
 For every /api/remote answer, paintPlus shows the connected flow only when enrolled is true, and the enrol pair only
-when enrolled is not true, so the pair may never show on a real board in this build. That is a product question for
-the Plus owner, not this check.
+when enrolled is not true, so the pair may never show on a real board in this build (a reading, not measured on a
+live board). Posted on #4694 for the Plus owner (comment 5905625279). The arm shows the pair by hand and freezes
+repaints, so it tests the Enter handler only and cannot see this.
