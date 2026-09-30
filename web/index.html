@@ -10301,18 +10301,17 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      shares, icon above a small label, no scrolling. A label breaks only between words, so on a narrow phone
      or with larger text the row grows by a second label line rather than cutting a word. */
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed {
-    flex: none; display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px; margin: 0; padding: 4px 0; }
+    flex: none; display: flex; flex-direction: row; flex-wrap: wrap; column-gap: 4px; row-gap: 6px; margin: 0; padding: 4px 0; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack { display: contents; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button,
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button.dnav-dm {
     /* Equal shares of the row, never narrower than the button's longest word: when four cannot fit (a swarm's,
        at large text on the narrowest phones) the row wraps to a second line rather than cut or spill a word. */
     flex: 1 1 0; width: auto; min-width: min-content; min-height: 44px; flex-direction: column; gap: 2px;
-    /* 2px at the sides: "Direct Message" measures 92px in CI's macOS font (at 393). At 375 wide with three buttons,
-       a 100px button with 4px sides and 1px borders left it a 90px column, so it wrapped there while fitting here.
-       2px sides and a 4px gap give that column about 95. */
-    /* 12px corners, as the base boxed button (#3500): at 14px the curve came within ~0.3px of a full-width label's
-       ends at the bottom of a 44px button; 12px leaves them ~1.3px clear. */
+    /* 2px sides and a 4px column gap leave "Direct Message" (about 92px in CI's macOS font) a column of about 95px
+       at 375 wide with three buttons. With 4px sides and a 6px gap the column was 90 and it wrapped on CI. */
+    /* 12px corners, as the base boxed button (#3500): the label runs close to the sides, and a tighter curve keeps
+       its ends clear of the corners. */
     padding: 4px 2px; border-radius: 12px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-lab,
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack .dnav-lab {
