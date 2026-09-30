@@ -314,7 +314,8 @@ test('duplicate keys and a team without one lead and 1 to 5 reports are refused'
     [(d) => { d.teams[1].key = d.teams[0].key; }, /two teams share a key/],
     [(d) => { d.teams[0].members[1].reportsTo = null; }, /not a lead and 1 to 5 reports/],
     [(d) => { d.teams[0].members = d.teams[0].members.slice(0, 1); }, /not a lead and 1 to 5 reports/],
-    [(d) => { d.teams[0].members.push(...d.teams[1].members.filter((m) => m.reportsTo).map((m) => ({ ...m, slot: m.slot + '-x' }))); }, /not a lead and 1 to 5 reports/],
+    // Exactly one over: a team of 5 reports gets a sixth (an off-by-one at the top must be caught).
+    [(d) => { const t = d.teams.find((x) => x.members.length === 6); t.members.push({ ...t.members[1], slot: 'extra-sixth', name: 'Sixthperson' }); }, /not a lead and 1 to 5 reports/],
   ];
   let n = 130;
   for (const [spoil, why] of spoils) {
