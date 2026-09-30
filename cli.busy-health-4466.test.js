@@ -145,7 +145,7 @@ async function closedPort() {
 }
 function baseEnv(port, extra = {}) {
   // The runner's own agent markers are removed FIRST, so a test is a person unless it says otherwise.
-  const env = { ...process.env };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: path.join(SCRATCH_HOME, 'data') };   // #4796: the same root the arms use, named here too
   delete env.KOSMOS_AGENT_TOKEN; delete env.KOSMOS_AGENT_SESSION; delete env.TMUX_PANE;
   // A throwaway KOSMOS_HOME and store roots by default, so no arm reads this machine's pidfile or board
   // token (board_token asks node for store.ROOT, which follows AGENT_WORKFORCE_DATA), even run outside
