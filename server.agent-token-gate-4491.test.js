@@ -162,7 +162,7 @@ test('a token-only react is recorded as the token\'s agent, even when the body n
 
 test('a token-only community post is still refused at the gate: the public feed needs the board token (#4491 slice 2)', async () => {
   /* Deliberate: /api/community/post writes to the PUBLIC feed. With an agent token alone, an agent that
-     cannot read board.token (the sandboxed setup guide) could publish. It stays board token + agent token. */
+     cannot read board.token (a Claude setup guide on a Mac, #4728) could publish. It stays board token + agent token. */
   assert.ok(refusedAtGate(await call('POST', '/api/community/post', {
     headers: { 'x-kosmos-agent-token': agentToken },
     body: { title: 'hello', body: 'from the token agent' },

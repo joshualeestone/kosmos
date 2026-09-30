@@ -207,8 +207,9 @@ function markGuideFolder(agentName) {
  * - Kosmos's own data folder is denied whole: the guide's instructions and page file live in its
  *   worker folder. The `kosmos` command the guide runs reads board.token in that folder as its own
  *   process, and whether that read is refused differs by guide (#4728):
- *     a Claude guide on macOS          refused, by the sandbox guardGuideFolder adds (measured)
- *     a Claude guide anywhere else     not refused: no sandbox is written there (from the code below)
+ *     a Claude guide on macOS          refused, by the sandbox guardGuideFolder adds (measured, with a
+ *                                      stand-in for the command)
+ *     a Claude guide anywhere else     not refused: no sandbox is written there (not measured)
  *     a Codex, Gemini or Grok guide    not refused: its runner does not read this file (not measured)
  *   Even in the first row the refusal reaches only the paths these rules name.
  */
