@@ -237,9 +237,9 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         if (beat.unref) beat.unref();
         let r;
         const isNote = stopNoteRunning;
-        /* #4612 review: the answer is dated by when its DM reached this front, not by the turn's start, which the board
-           compares with the newest DM: a DM that waited behind a newer one must not pass as that one's answer. A stop
-           note has no receipt time here, so its turn's start stands. */
+        /* #4612 review: the answer is dated by when its DM reached this front (a stop note: when its stop arrived), not
+           by the turn's start, which the board compares with the newest DM. The fallback serves prompts that are not the
+           person's DM, whose date nothing reads. */
         const startedAt = takeReceived(prompt) || new Date().toISOString();
         try {
           for (let tries = 0; ; tries++) {
@@ -260,7 +260,14 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         /* #4612: the answer to the person's latest DM rides with the next reports (the working reports of turns queued
            behind it, then the idle one), so the DM can show it when the agent answered in its own window but never ran
            kosmos reply. A later DM turn replaces this copy. */
-        if (answersTheDm(prompt)) { dmAnswer = r && r.ok && text ? { text: Array.from(text).slice(0, FINAL_MAX).join(''), startedAt } : null; dmAnswerFresh = !!dmAnswer; }
+        if (answersTheDm(prompt)) {
+          dmAnswer = r && r.ok && text ? { text: Array.from(text).slice(0, FINAL_MAX).join(''), startedAt } : null;
+          /* #4612 review: with a newer DM of the person's already waiting, this answer can never be the one to show
+             (the DM owed is the newer one), so none is carried. DMs that reached the front in one read share a
+             time, which the board's date check alone could not tell apart. */
+          if (queue.some(answersTheDm)) dmAnswer = null;
+          dmAnswerFresh = !!dmAnswer;
+        }
         if (!queue.length) { noteSent = null; report('idle', null, dmAnswer); dmAnswer = null; dmAnswerFresh = false; }
         write(PROMPT);
       }

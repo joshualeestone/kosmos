@@ -656,29 +656,29 @@ test('#4612 review (fresh loop): a DM that waited behind a newer DM is dated by 
   h.pending[0](OK('done'));   // the long job ends after BOTH DMs arrived, so the first DM's turn starts after the second
   await h.f.drained();
   const answers = sent.map(([, f]) => f).filter(Boolean);
-  const first = answers.find((f) => f.text === 'Answer to the first.');
+  assert.equal(h.calls.filter((c) => /first question/.test(c.prompt)).length, 1, 'CONTROL: the first DM\'s turn ran');
+  // With the newer DM already waiting, the first DM's answer is never sent: it could only ever show under the newer one.
+  assert.equal(answers.filter((f) => f.text === 'Answer to the first.').length, 0, 'the first DM\'s answer went to the board while a newer DM waited: ' + JSON.stringify(sent));
   const second = answers.find((f) => f.text === 'Answer to the second.');
-  assert.ok(first && second, 'CONTROL: both DM turns answered: ' + JSON.stringify(sent));
-  assert.ok(Date.parse(first.startedAt) < secondAt, 'the first DM\'s answer was dated after the second DM arrived, so the board would show it under the second: ' + JSON.stringify(first));
-  assert.ok(Date.parse(second.startedAt) >= secondAt - 5, 'the second DM\'s answer is dated before it arrived: ' + JSON.stringify(second));
+  assert.ok(second && Date.parse(second.startedAt) >= secondAt - 5, 'the second DM\'s answer is missing or dated before it arrived: ' + JSON.stringify(second));
 });
 
-test('#4612 review (fresh loop): the same words sent twice keep their own arrival times, so neither copy passes as a newer DM\'s answer', async () => {
+test('#4612 review (fresh loop): the same words sent twice: only the later copy\'s answer goes, dated by that copy\'s arrival', async () => {
   const sent = [];
-  const h = harness((input, i) => (i === 0 ? 'hold' : /status\?/.test(input.prompt) ? OK('Answer to status.') : OK('')),
-    { report: (s, w, final) => sent.push([s, final || null]) });
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('Answer to status.')), { report: (s, w, final) => sent.push([s, final || null]) });
   h.f.feed('long job\r');
   h.f.feed(OP('status?') + '\r');
+  await new Promise((r) => setTimeout(r, 20));
+  const secondAt = Date.now();
   h.f.feed(OP('status?') + '\r');   // the same words again (the envelope's time is a minute or nothing)
-  await new Promise((r) => setTimeout(r, 15));
-  const newerAt = Date.now();
-  h.f.feed(OP('hello??') + '\r');   // answered with no words, so nothing of its own replaces the earlier answers
   await new Promise((r) => setTimeout(r, 15));
   h.pending[0](OK('done'));
   await h.f.drained();
+  assert.equal(h.calls.filter((c) => /status\?/.test(c.prompt)).length, 2, 'CONTROL: both copies ran');
   const answers = sent.map(([, f]) => f).filter((f) => f && f.text === 'Answer to status.');
-  assert.ok(answers.length >= 1, 'CONTROL: the status copies were answered: ' + JSON.stringify(sent));
-  for (const f of answers) assert.ok(Date.parse(f.startedAt) < newerAt, 'a copy of "status?" was dated after "hello??" arrived: ' + JSON.stringify(f));
+  assert.ok(answers.length >= 1, 'no answer went to the board: ' + JSON.stringify(sent));
+  // Every answer sent is the later copy's (the earlier one had a newer DM waiting), dated by when that copy arrived.
+  for (const f of answers) assert.ok(Date.parse(f.startedAt) >= secondAt - 5, 'an answer carried the first copy\'s time: ' + JSON.stringify(f));
 });
 
 test('#4612 review (fresh loop): a second stop\'s note is dated by that stop\'s arrival, not by when it runs', async () => {
@@ -691,15 +691,32 @@ test('#4612 review (fresh loop): a second stop\'s note is dated by that stop\'s 
   h.f.feed(OP('are you there') + '\r');   // waits behind the note
   const stopAt = Date.now();
   h.f.feed(OP('STOP!') + '\r');           // drops "are you there" and queues the second note
-  await new Promise((r) => setTimeout(r, 15));
-  const newerAt = Date.now();
-  h.f.feed(OP('one more thing') + '\r');  // arrives after the second stop, runs after its note
-  await new Promise((r) => setTimeout(r, 15));
+  await new Promise((r) => setTimeout(r, 20));
+  const releaseAt = Date.now();            // the second note runs only after this
   h.pending[1](OK('Stopped, sorry.'));
   await h.f.drained();
   const more = sent.map(([, f]) => f).find((f) => f && f.text === 'Stopped again.');
   assert.ok(more, 'CONTROL: the second stop\'s note ran and answered: ' + JSON.stringify(sent));
-  assert.ok(Date.parse(more.startedAt) >= stopAt - 5 && Date.parse(more.startedAt) < newerAt, 'the second note was not dated by its stop\'s arrival: ' + JSON.stringify(more));
+  assert.ok(Date.parse(more.startedAt) >= stopAt - 5 && Date.parse(more.startedAt) < releaseAt, 'the second note was not dated by its stop\'s arrival: ' + JSON.stringify(more));
+});
+
+test('#4612 review (fresh loop): a stop request drops the arrival times of the DMs it drops', async () => {
+  const sent = [];
+  // Only the plain DM is answered with these words: the stop note also names "status?" (as dropped), and gets none.
+  const h = harness((input, i) => (i === 0 ? 'hold' : /^\[message from your operator/.test(input.prompt) && /status\?/.test(input.prompt) ? OK('Answer to status.') : OK('')),
+    { report: (s, w, final) => sent.push([s, final || null]) });
+  h.f.feed('long job\r');
+  h.f.feed(OP('status?') + '\r');   // waits, then the stop drops it
+  await new Promise((r) => setTimeout(r, 5));
+  h.f.feed(OP('stop') + '\r');
+  await h.f.drained();
+  await new Promise((r) => setTimeout(r, 20));
+  const resendAt = Date.now();
+  h.f.feed(OP('status?') + '\r');
+  await h.f.drained();
+  const ans = sent.map(([, f]) => f).find((f) => f && f.text === 'Answer to status.');
+  assert.ok(ans, 'CONTROL: the resent DM was answered: ' + JSON.stringify(sent));
+  assert.ok(Date.parse(ans.startedAt) >= resendAt - 5, 'the resent DM took the dropped copy\'s time: ' + JSON.stringify(ans));
 });
 
 test('#4612 review (fresh loop): the answer goes on ONE working report, not on every beat', async () => {

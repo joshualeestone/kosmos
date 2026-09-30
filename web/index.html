@@ -6877,6 +6877,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    size, line breaks as written, and bounded so a long answer scrolls instead of pushing the composer away. */
 .dmunsent-text { margin: 6px 0 0; padding: 8px 12px; border-left: 3px solid var(--k-rule); color: var(--k-ink);
   font-size: .9375rem; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow-y: auto; }
+.dmunsent-text:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }   /* #4612 review: it scrolls, so the keyboard can reach it */
 /* ⚠️ THE SAME DOTS THE CARD USES, not a second animation: `.act` is the
    board's working glyph, and a different one here would be two renderings of
    one fact. It borrows the sibling hint's size and colour so the line reads as
@@ -56856,7 +56857,8 @@ function dmOwesLine(owes) {
      ran kosmos reply). Said at once, with no grace: the turn is over, so there is nothing left to wait for. */
   if (owes.unsent && typeof owes.unsent.text === 'string' && owes.unsent.text) {
     return '<div class="dmunsent"><p class="dmnone">It finished without replying here. What it said in its own window:</p>'
-      + '<blockquote class="dmunsent-text">' + esc(owes.unsent.text) + '</blockquote></div>';
+      + '<blockquote class="dmunsent-text" tabindex="0" aria-label="What it said in its own window">'   // scrolls, so keyboard-reachable
+      + esc(owes.unsent.text) + '</blockquote></div>';
   }
   if (!pjOldEnoughToJudge(owes.lastHeardAt)) return '';
   return '<p class="dmnone">Nothing back yet.</p>';

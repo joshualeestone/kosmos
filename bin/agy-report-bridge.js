@@ -152,7 +152,8 @@ function readStdin() {
 }
 
 /* The pure event -> report translation, exported for tests. `eventName` is argv[2]; `payload` the
-   parsed stdin (may be null: the event name alone is enough). Returns { state, text } or null. */
+   parsed stdin (may be null: the event name alone is enough). Returns { state, text } or null, with `waiting`
+   (#4569) and `final` (#4612) when the Muse front's payload carries them. */
 function reportFor(eventName, payload) {
   if (eventName === LAUNCH_EVENT) return { state: 'idle', text: '' };   // #4417: up, and no turn has started
   const state = STATE_FOR_EVENT[eventName];
