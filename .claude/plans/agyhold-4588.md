@@ -359,3 +359,13 @@ since this branch is stacked on it.
 - Weakest premise: addressable is read off the same roster snapshot the gate reads, so a pane that stops between the
   snapshot and the keystroke is still refused by deliver's own later checks, not by this gate. That is the pre-quota
   behaviour, not a new gap.
+
+## Review round 7, 2026-09-30: 0 BLOCKER, 0 WARNING, 3 NIT. CONVERGED
+The reviewer checked every other heldForQuota caller against the round-6 addressability rule (assigner, givePart,
+recommender, autoretell, agentnudge, firstreply): consistent, or a safe delay. addressable reads only the in-memory
+roster. NITs, decided not built:
+- flushReleased retries a reachable agy agent every minute during the pause and the server logs "told of" a
+  COULD_NOT. Log noise, not a delivery bug: follow-up card https://github.com/joshualeestone/kosmos/issues/4797.
+- A delivery to a stopped agy agent no longer feeds notePool. The resume sweep feeds it every minute; only with the
+  resume brake on AND all traffic to stopped agents is the memory staler. Accepted.
+- flushReleased's addressable check could run before two file reads. Cosmetic.
