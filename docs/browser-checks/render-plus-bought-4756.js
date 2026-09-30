@@ -57,6 +57,17 @@ const SCENARIOS = {
   unreachable: { lists: [null], auto: 'first' },   // the engine route refuses: the step as before
   'first-computer': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'free')] }], auto: 'first' },
   'this-computer': { lists: [{ ok: true, live: true, this_name: 'first', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: 'first' },
+  // Set up before as another of the account's addresses: it keeps that one, with no pick.
+  'this-other': { lists: [{ ok: true, live: true, this_name: 'spare', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'in_use'), row('other', 'free')] }], auto: 'spare' },
+  // An account with no address yet: the name step as before (the coordinator rules on the name).
+  'no-address': { account: '', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] }], auto: null },
+  // Check again that cannot reach the service stays on the panel and says so; it never falls back to the account's address.
+  'recheck-fails': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] }, null], auto: null },
+  // A pick refused (another computer took it first) returns to the list with the reason, not Try again on the same address.
+  'pick-refused': { refuse: 'spare', lists: [
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] },
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'in_use'), row('other', 'free')] },
+  ], auto: null },
 };
 
 async function open(page) {
@@ -98,12 +109,16 @@ const visible = (page, sel) => page.evaluate((s) => {
         const p = new URL(req.url()).pathname;
         const json = (status, body) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
         if (p === '/api/remote/signin-start') return json(200, { ok: true, stage: 'code_sent' });
-        if (p === '/api/remote/signin-verify') return json(200, { ok: true, stage: 'session', account_address: 'first.kosmosplus.com' });
+        if (p === '/api/remote/signin-verify') return json(200, { ok: true, stage: 'session', account_address: sc.account === undefined ? 'first.kosmosplus.com' : sc.account });
         if (p === '/api/remote/signin-addresses') {
           const ans = sc.lists[Math.min(asked, sc.lists.length - 1)]; asked += 1;
           return ans ? json(200, ans) : json(400, { error: 'Kosmos+ could not be reached to list your addresses' });
         }
-        if (p === '/api/remote/signin-register') { const b = req.postDataJSON(); regs.push(b.name); return json(200, reg(b.name)); }
+        if (p === '/api/remote/signin-register') {
+          const b = req.postDataJSON(); regs.push(b.name);
+          if (sc.refuse === b.name) return json(400, { error: 'the name ' + b.name + ' is already connected on another computer' });
+          return json(200, reg(b.name));
+        }
         if (p === '/api/remote/signin-cancel') return json(200, { ok: true, stage: 'cancelled' });
         return json(400, { error: 'no stub for ' + p });
       });
@@ -145,6 +160,31 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(await visible(page, '#plus-si-bought-list button[data-bought="paying"]'), `[${key}] and offers the address once it is confirmed`);
         chk(!(await visible(page, '#plus-si-bought-none')), `[${key}] the none panel goes`);
         chk(regs.length === 0, `[${key}] nothing registered without a pick`);
+      }
+      else if (key === 'no-address') {
+        chk(await visible(page, '#plus-si-name-field'), `[${key}] the name step shows, as before`);
+        chk(!(await visible(page, '#plus-si-bought')), `[${key}] no bought-address panel`);
+        chk(regs.length === 0, `[${key}] nothing registered by itself`, JSON.stringify(regs));
+      } else if (key === 'recheck-fails') {
+        chk(await visible(page, '#plus-si-bought-none'), `[${key}] starts on the none panel`);
+        await page.click('#plus-si-bought-recheck');
+        await page.waitForFunction(() => /could not/i.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+        chk(asked === 2, `[${key}] Check again asked again`, String(asked));
+        chk(/could not be reached to list your addresses/.test(await page.textContent('#plus-signin-msg')), `[${key}] the failure is said`, await page.textContent('#plus-signin-msg'));
+        chk(await visible(page, '#plus-si-bought-none'), `[${key}] and the none panel stays`);
+        chk(!(await page.isDisabled('#plus-si-bought-recheck')), `[${key}] Check again is usable again`);
+        await page.waitForTimeout(800);
+        chk(regs.length === 0, `[${key}] it never fell back to registering the account's address`, JSON.stringify(regs));
+      } else if (key === 'pick-refused') {
+        await page.click('#plus-si-bought-list button[data-bought="spare"]');
+        await page.waitForFunction(() => /already connected/.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+        await page.waitForTimeout(500);
+        chk(regs.length === 1 && regs[0] === 'spare', `[${key}] the pick was sent once`, JSON.stringify(regs));
+        chk(/already connected on another computer/.test(await page.textContent('#plus-signin-msg')), `[${key}] the reason is said`);
+        chk(asked === 2, `[${key}] the list was read again`, String(asked));
+        const btns = await page.$$eval('#plus-si-bought-list button', (b) => b.map((x) => x.getAttribute('data-bought')));
+        chk(JSON.stringify(btns) === JSON.stringify(['other']), `[${key}] back on the list, now without the taken address`, JSON.stringify(btns));
+        chk(!(await visible(page, '#plus-si-register-go')), `[${key}] no Try again on the taken address`);
       }
       chk(errs.length === 0, `[${key}] no page errors`, errs.join(' | '));
       await page.close();

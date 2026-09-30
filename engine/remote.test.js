@@ -2916,6 +2916,7 @@ async function withCoordinator(routes, fn) {
     const ans = routes[req.url];
     if (!ans) { res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":"no"}'); return; }
     if (ans.redirectTo) { res.writeHead(302, { location: ans.redirectTo }); res.end(); return; }
+    if (ans.html) { res.writeHead(502, { 'content-type': 'text/html' }); res.end(JSON.stringify({ error: 'a proxy page, not the coordinator' })); return; }
     res.writeHead(ans[0], { 'content-type': 'application/json' });
     res.end(JSON.stringify(ans[1]));
   });
@@ -2952,6 +2953,7 @@ test('#4756: with bought addresses switched off, signinAddresses answers live:fa
 });
 
 test('#4756: live, it needs the sign-in session, sends it only as a Bearer to the coordinator, and passes rows only in their own shapes', async () => {
+  delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES;
   remote.resetForTests();
   await withCoordinator({ '/v1/meta': [200, { bought_addresses: true }], '/v1/account/addresses': [200, Object.assign({}, BOUGHT, { buy_url: 'javascript:alert(1)' })] }, async (seen) => {
     const none = await remote.signinAddresses();
@@ -2995,5 +2997,35 @@ test('#4756: AGENT_WORKFORCE_BOUGHT_ADDRESSES=1 turns it on without the coordina
       const r = await remote.signinAddresses();
       assert.equal(r.ok, false, 'followed a redirect with the session token');
     });
+    await withCoordinator({ '/v1/account/addresses': { html: true } }, async () => {
+      const r = await remote.signinAddresses();
+      assert.equal(r.ok, false);
+      assert.doesNotMatch(r.because, /proxy page/, 'showed words from something that is not the coordinator');
+    });
   } finally { delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES; remote.resetForTests(); }
+});
+
+test('#4756: a computer already set up says which of the account\'s addresses it holds (this_name)', async () => {
+  delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES;
+  remote.resetForTests();
+  try {
+    await remote.setupStart('her@example.com');
+    const set = await remote.setupComplete('123456', 'spare');
+    assert.equal(set.ok, true, set.because);
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '262626');
+    await withCoordinator({ '/v1/meta': [200, { bought_addresses: true }], '/v1/account/addresses': [200, BOUGHT] }, async () => {
+      const r = await remote.signinAddresses();
+      assert.equal(r.ok, true, r.because);
+      assert.equal(r.data.this_name, 'spare');
+    });
+  } finally { await remote.forget(); remote.resetForTests(); }
+  // Control: after the forget nothing is set up here, so the same read names no address.
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '262626');
+  await withCoordinator({ '/v1/meta': [200, { bought_addresses: true }], '/v1/account/addresses': [200, BOUGHT] }, async () => {
+    const r = await remote.signinAddresses();
+    assert.equal(r.data.this_name, '', 'named an address for a computer that holds none');
+  });
+  remote.resetForTests();
 });

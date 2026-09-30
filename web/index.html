@@ -43635,29 +43635,51 @@ document.getElementById('plus-si-enrol-confirm-go').addEventListener('click', as
    is up, and #1014's "on its way" wording before then). A separate done panel would
    be drawn and then immediately replaced by that same paint, so it could flash for
    well under a round trip or not be seen at all. */
-/* #3796 addendum 9: register THIS computer to `name`. Called by the button for a chosen name, and
-   automatically for an account that already owns one (`owned` is then its full address, when known). */
 /* The session step. kosmos#4756: when the coordinator says bought addresses are live, a computer that is not
    the account's first (its address is in use by another computer) picks one of the account's BOUGHT
-   addresses instead of naming one. Anything but a definite live:true (switch off, an older engine, the
-   list not reachable) is the step exactly as before: the coordinator refuses an address not bought
-   whatever this page shows, so the old path can only fail with its sentence, never skip the purchase. */
+   addresses instead of naming one. On the FIRST read, anything but a definite live:true (switch off, an older
+   engine, the list not reachable) is the step exactly as before. A RE-read (Check again, or after a refused
+   pick) stays on the list and says what went wrong: by then this page knows it is a second computer. */
 let PLUS_SI_SESSION = null;
-async function plusSiSession(data) {
-  PLUS_SI_SESSION = data;
-  const bought = document.getElementById('plus-si-bought'); if (bought) bought.hidden = true;
-  const epoch = PLUS_SI_EPOCH;
-  let b = null;
+let PLUS_SI_PICKED = false;   // the register now running came from the bought-address list
+let PLUS_SI_BOUGHT_SEQ = 0;
+let PLUS_SI_BOUGHT_LAST = null;   // the last list shown, re-shown when a re-read fails
+async function plusSiBoughtRead() {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), PLUS_ASK_TIMEOUT_MS);
   try {
-    const res = await fetch('/api/remote/signin-addresses', { method: 'GET' });
+    const res = await fetch('/api/remote/signin-addresses', { method: 'GET', signal: ctl.signal });
     const j = await res.json().catch(() => null);
-    if (res.ok && j && j.live === true && Array.isArray(j.addresses)) b = j;
-  } catch { /* the step as before */ }
-  if (epoch !== PLUS_SI_EPOCH) return;   // signed out while this was out
+    if (res.ok && j && j.live === true && Array.isArray(j.addresses)) return { list: j };
+    if (res.ok && j && j.live === false) return { off: true };
+    return { because: plusWords((j && j.error) || 'Kosmos+ could not list your addresses') };
+  } catch {
+    return { because: 'this computer could not reach the sign-in service' };
+  } finally { clearTimeout(timer); }
+}
+async function plusSiSession(data, again) {
+  PLUS_SI_SESSION = data;
+  PLUS_SI_PICKED = false;
+  const bought = document.getElementById('plus-si-bought');
+  const recheck = document.getElementById('plus-si-bought-recheck');
+  if (!again && bought) bought.hidden = true;
+  if (recheck) recheck.disabled = true;
+  const epoch = PLUS_SI_EPOCH, seq = ++PLUS_SI_BOUGHT_SEQ;
+  const got = await plusSiBoughtRead();
+  if (epoch !== PLUS_SI_EPOCH || seq !== PLUS_SI_BOUGHT_SEQ) return;   // signed out, or a newer read
+  if (recheck) recheck.disabled = false;
+  const b = got.list || null;
+  if (again && !b) {
+    if (PLUS_SI_BOUGHT_LAST) plusSiBoughtPick(PLUS_SI_BOUGHT_LAST);
+    plusSiMsg(got.because || 'That did not work. Check again in a moment.');
+    return;
+  }
   const own = /^([a-z0-9-]{3,32})\./.exec(String(data.account_address || ''));
   const ownRow = b && own ? b.addresses.filter((r) => r.name === own[1])[0] : null;
-  const firstOrThis = !b || (own && (!ownRow || ownRow.state !== 'in_use' || b.this_name === own[1]));
-  if (firstOrThis) {
+  /* As before: no list, an account with no address yet (the name step, which the coordinator rules on), the
+     account's first computer (its address has no computer on it), or this computer signing in to it again. */
+  const asBefore = !b || !own || !ownRow || ownRow.state !== 'in_use' || b.this_name === own[1];
+  if (asBefore) {
     plusSiRegisterMode(data.account_address);
     plusSiShow('plus-si-register');
     /* #3796 addendum 9: an account that already has an address skips this step: register to it now. */
@@ -43666,12 +43688,13 @@ async function plusSiSession(data) {
     document.getElementById('plus-si-name').focus();
     return;
   }
-  /* This computer already holds one of the account's addresses (a sign-in again): it keeps it. */
+  /* This computer already holds another of the account's addresses (set up before, signing in again): it keeps it. */
   const mine = b.this_name ? b.addresses.filter((r) => r.name === b.this_name)[0] : null;
   if (mine) { plusSiRegisterMode(mine.address); plusSiShow('plus-si-register'); plusSiDoRegister(mine.name, mine.name); return; }
   plusSiBoughtPick(b);
 }
 function plusSiBoughtPick(b) {
+  PLUS_SI_BOUGHT_LAST = b;
   plusSiRegisterMode('');
   const field = document.getElementById('plus-si-name-field'); if (field) field.hidden = true;
   const go = document.getElementById('plus-si-register-go'); if (go) go.hidden = true;
@@ -43686,7 +43709,9 @@ function plusSiBoughtPick(b) {
     btn.setAttribute('data-bought', row.name);
     btn.addEventListener('click', () => {
       document.getElementById('plus-si-bought').hidden = true;
+      plusSiMsg('');
       plusSiRegisterMode(row.address);
+      PLUS_SI_PICKED = true;
       plusSiDoRegister(row.name, row.name);
     });
     list.appendChild(btn);
@@ -43711,9 +43736,11 @@ function plusSiBoughtPick(b) {
 }
 {
   const again = document.getElementById('plus-si-bought-recheck');
-  if (again) again.addEventListener('click', () => { if (PLUS_SI_SESSION) plusSiSession(PLUS_SI_SESSION); });
+  if (again) again.addEventListener('click', () => { if (PLUS_SI_SESSION) { plusSiMsg(''); plusSiSession(PLUS_SI_SESSION, true); } });
 }
 
+/* #3796 addendum 9: register THIS computer to `name`. Called by the button for a chosen name, and
+   automatically for an account that already owns one (`owned` is then its full address, when known). */
 async function plusSiDoRegister(name, owned) {
   const btn = document.getElementById('plus-si-register-go');
   const foot = document.getElementById('plus-si-cancel');
@@ -43758,6 +43785,14 @@ async function plusSiDoRegister(name, owned) {
      ("your account already owns the name X"). Register to that one instead, once. */
   const owns = !r.ok && !owned ? /already owns the name ([a-z0-9-]{3,32})\b/.exec(String(r.because || '')) : null;
   if (owns) { plusSiRegisterMode('', owns[1]); plusSiDoRegister(owns[1], owns[1]); return; }
+  /* kosmos#4756: a register from the bought-address list that is refused (another computer took that address
+     first) goes back to the list with the reason, rather than offering Try again on the same address. */
+  if (!r.ok && PLUS_SI_PICKED && PLUS_SI_SESSION && !/start again from the email/i.test(String(r.because || ''))) {
+    PLUS_SI_PICKED = false;
+    plusSiMsg(r.because);
+    plusSiSession(PLUS_SI_SESSION, true);
+    return;
+  }
   if (!r.ok && owned && !/start again from the email/i.test(String(r.because || ''))) {
     /* Review: an automatic register that failed (a second computer on a web-named account is refused
        today, #3796's carded multi-Mac gap) must not leave the person with no control: say so, keep

@@ -1963,6 +1963,8 @@ async function signinAddresses(opts) {
     res = await get(String(COORDINATOR()).replace(/\/+$/, '') + '/v1/account/addresses', {
       headers: { authorization: 'Bearer ' + signinSession.token },
       signal: AbortSignal.timeout(opts.timeoutMs || FED_LIVE_TIMEOUT_MS), redirect: 'error' });
+    // Only the coordinator's own JSON: a page from anything in between is not read, so its words are never shown.
+    if (!/^application\/json\b/i.test(String((res.headers && res.headers.get && res.headers.get('content-type')) || ''))) throw new Error('not json');
     body = await res.json();
   } catch {
     return { ok: false, because: 'Kosmos+ could not be reached to list your addresses' };
