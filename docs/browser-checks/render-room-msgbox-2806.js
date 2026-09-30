@@ -124,7 +124,11 @@ function tapProbe4663(skip) {
     // The two lists the probe draws into, and the page's cache of the task list (paintProjectTasks skips a repaint
     // that matches it), so a probe that left either behind reads as not restored.
     + '|' + ['pj-tasklist', 'pj-docs'].map((i) => { const e = document.getElementById(i); return e ? e.innerHTML : ''; }).join('|')
-    + '|' + (typeof TK_LIST_HTML === 'undefined' ? '' : String(TK_LIST_HTML));
+    + '|' + ['pj-crumb', 'pj-one-agents'].map((i) => { const e = document.getElementById(i); return e ? e.innerHTML : ''; }).join('|')
+    + '|' + (typeof TK_LIST_HTML === 'undefined' ? '' : String(TK_LIST_HTML))
+    // Every element scrolled away from 0, by position in the page, so a scroll the probe CAUSES reads as not restored
+    // (review round 8: only elements already scrolled at the start were compared).
+    + '|' + [...document.querySelectorAll('*')].map((e, i) => (e.scrollTop || e.scrollLeft ? i + ':' + e.scrollTop + ',' + e.scrollLeft : '')).filter(Boolean).join(';');
   // Scroll positions too: scrollIntoView below moves the window and every scrolling ancestor.
   const scrolled = [document.scrollingElement, ...document.querySelectorAll('*')].filter((e) => e && (e.scrollTop || e.scrollLeft)).map((e) => [e, e.scrollTop, e.scrollLeft]);
   const sx = scrollX, sy = scrollY;
@@ -134,11 +138,16 @@ function tapProbe4663(skip) {
      under the tasks and Files headers, so an area reaching below a header takes their top edge. With empty lists the
      neighbour arm below had nothing under a header to measure. Put back at the end like everything else. */
   const tasklist = document.getElementById('pj-tasklist'), docs = document.getElementById('pj-docs');
-  const seeded = [[tasklist, tasklist && tasklist.innerHTML], [docs, docs && docs.innerHTML]];
+  const crumb = document.getElementById('pj-crumb'), members = document.getElementById('pj-one-agents');
+  const seeded = [tasklist, docs, crumb, members].map((el) => [el, el && el.innerHTML]);
   const door = document.getElementById('pj-alltasks'); const doorWas = door && [door.hidden, door.textContent];
   const cacheWas = typeof TK_LIST_HTML === 'undefined' ? undefined : TK_LIST_HTML;
   if (typeof paintProjectTasks === 'function') paintProjectTasks({ id: 'p4663', tasks: [{ number: 1, sentence: 'Write the launch note', progress: { assigned: 1, closed: 0 }, parts: [] }] });
   if (docs) docs.innerHTML = '<button type="button" class="pj-doc" data-doc="notes.md"><span class="pj-doc-n">notes.md</span></button>';
+  /* A parent project's crumb beside Back (a role=link, 6px from it) and two member rows under + Add member (they open
+     the agent's page): clickable neighbours the sample did not draw before round 8. */
+  if (crumb) crumb.innerHTML = '<span class="pj-crumb-lead"><span class="pj-crumb-link" role="link" tabindex="0" data-project="p0">Parent</span></span><span class="pj-crumb-sep" aria-hidden="true">/</span><span class="pj-crumb-cur">This project</span>';
+  if (members) members.innerHTML = ['april', 'leo'].map((a) => '<div class="pj-member" data-agent="' + a + '"><span class="pj-member-b">' + a + '</span></div>').join('');
   undo.push(() => { for (const [el, html] of seeded) if (el) el.innerHTML = html; if (door) { door.hidden = doorWas[0]; door.textContent = doorWas[1]; }
     if (cacheWas !== undefined) TK_LIST_HTML = cacheWas; });
   const set = (el, prop, val) => { const was = prop === 'hidden' ? el.hidden : prop === 'inert' ? el.hasAttribute('inert') : el.style[prop];
@@ -167,10 +176,10 @@ function tapProbe4663(skip) {
        sampled, and the control is mid-screen, so none is. */
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
     const span = Math.max(r.width, r.height, 36) / 2 + 12;
-    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, hits = 0;
     for (let y = Math.floor(Math.max(0, cy - span)) + 0.5; y <= Math.min(innerHeight - 1, cy + span); y += 1) {
       for (let x = Math.floor(Math.max(0, cx - span)) + 0.5; x <= Math.min(innerWidth - 1, cx + span); x += 1) {
-        if (hit(x, y, b)) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+        if (hit(x, y, b)) { hits += 1; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
       }
     }
     const w = x0 === Infinity ? 0 : x1 - x0 + 1, h = y0 === Infinity ? 0 : y1 - y0 + 1;
@@ -181,13 +190,15 @@ function tapProbe4663(skip) {
     const pa = getComputedStyle(b, '::after'); const aw = parseFloat(pa.width) || 0, ah = parseFloat(pa.height) || 0;
     const size = pa.content !== 'none' ? Math.max(aw, r.width) : r.width, sizeH = pa.content !== 'none' ? Math.max(ah, r.height) : r.height;
     out.push({ id, drawn: Math.round(r.width) + 'x' + Math.round(r.height), area: size.toFixed(1) + 'x' + sizeH.toFixed(1), tap: w + 'x' + h,
-      reach: size >= 36 && sizeH >= 36 && w >= size - 1 && h >= sizeH - 1 });
+      // The hits must FILL the area, not only span it: something laid over its middle would leave the edges hitting
+      // (review round 8, measured: a 36x12 overlay across + Add member's area kept a 37x37 span).
+      hits, reach: size >= 36 && sizeH >= 36 && w >= size - 1 && h >= sizeH - 1 && hits >= (size - 1) * (sizeH - 1) });
   }
   // The rows under the headers must be drawn, or the neighbour arm has no subject (counted, not assumed).
-  subjects = ['#pj-tasklist .tkcard', '#pj-docs .pj-doc'].map((q) => [...document.querySelectorAll(q)].filter((e) => e.getBoundingClientRect().height > 0).length);
+  subjects = ['#pj-tasklist .tkcard', '#pj-docs .pj-doc', '#pj-crumb .pj-crumb-link', '#pj-one-agents .pj-member'].map((q) => [...document.querySelectorAll(q)].filter((e) => e.getBoundingClientRect().height > 0).length);
   for (const id of ids) {
     const b = document.getElementById(id); if (!b) continue; b.scrollIntoView({ block: 'center', inline: 'center' }); const r = b.getBoundingClientRect();
-    for (const n of document.querySelectorAll('button, a[href], [role="button"]')) {
+    for (const n of document.querySelectorAll('button, a[href], [role="button"], [role="link"], .pj-member[data-agent]')) {
       if (n === b || b.contains(n) || n.contains(b)) continue;
       const q = n.getBoundingClientRect(); if (!q.width || !q.height) continue;
       if (!(q.right > r.left - 40 && q.left < r.right + 40 && q.bottom > r.top - 40 && q.top < r.bottom + 40)) continue;
@@ -1694,7 +1705,7 @@ function tapProbe4663(skip) {
         const layout = await consTap.evaluate(() => document.documentElement.getAttribute('data-layout') + '/' + document.body.classList.contains('consolidated'));
         const ctaps = await consTap.evaluate(tapProbe4663, ['pj-back', 'pj-add-member']);
         chk(layout === 'consolidated/true' && ctaps.out.length === 4 && ctaps.out.every((x) => !x.error && x.reach), `[tablet ${w}/touch one-screen] #4663: the four small project controls it shows take a tap across at least 36px`, JSON.stringify({ layout, out: ctaps.out }));
-        chk(ctaps.theirs.length === 0 && ctaps.subjects.every((n) => n >= 1) && ctaps.restored, `[tablet ${w}/touch one-screen] #4663: no enlarged tap area takes any part of a neighbour (the first task and file included), and the probe left the page as it found it`, JSON.stringify({ theirs: ctaps.theirs, subjects: ctaps.subjects, restored: ctaps.restored }));
+        chk(ctaps.theirs.length === 0 && ctaps.subjects.slice(0, 2).every((n) => n >= 1) && ctaps.restored, `[tablet ${w}/touch one-screen] #4663: no enlarged tap area takes any part of a neighbour (the first task and file included), and the probe left the page as it found it`, JSON.stringify({ theirs: ctaps.theirs, subjects: ctaps.subjects, restored: ctaps.restored }));
       } finally {
         chk(consTapErrors.length === 0, `[tablet ${w} one-screen] no script errors on the page`, consTapErrors.join(' | '));
         await consTap.close();

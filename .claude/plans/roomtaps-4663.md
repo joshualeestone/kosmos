@@ -37,7 +37,9 @@ reaction bar already meets. Back is the one people use most.
 That an ::after tap area never covers a neighbour in states this check does not draw (a long project name pushing
 the cog, a member list longer than the sample). The neighbour arm checks every control within 40px in the sample,
 which now draws one task and one file (round 4: with empty lists it had nothing under a header to measure).
-Its neighbours are buttons, links and role=button; no field sits within 40px of these six today.
+Its neighbours are buttons, links, role=button, role=link (the parent-project crumb beside Back, 6px away) and member
+rows (.pj-member[data-agent], which open an agent); the probe draws one crumb and two members too (round 8). No field
+sits within 40px of these six today.
 Not checked by an arm: the one-screen touch header's extra 14px takes 14px off the task list's visible height. The
 list scrolls (overflow-y: auto), so nothing is cut off, only one more scroll sooner.
 
@@ -48,7 +50,9 @@ list scrolls (overflow-y: auto), so nothing is cut off, only one more scroll soo
   ::after), at least 36x36, which is exact; the grid must then span that size to within 1px, so a clipped area fails.
   Two halves because hit-testing cannot see below a pixel: both engines round the asked point to a whole pixel, so a
   36px area reads 36 or 37 by where it sits and a 35px area could read 36 (rounds 6 and 7; a binary search to 1/64px
-  read 37.0 for 36 and passed a 35px area, measured). Not caught: clipping by under 1px. Shape-agnostic, so it measures a centred area and an inward one alike. Runs on: phone 375 (tab
+  read 37.0 for 36 and passed a 35px area, measured). The hits must also FILL the area, at least (size-1)^2 points,
+  not only span it (round 8: a 36x12 overlay across + Add member's area kept a 37x37 span). Not caught: clipping or
+  covering under 1px. Shape-agnostic, so it measures a centred area and an inward one alike. Runs on: phone 375 (tab
   layout), touch tablet 1180 (tab layout, all six), and the ONE-SCREEN layout set for real (data-layout=consolidated,
   body.consolidated) at 1024 and 1180 (four: Back and + Add member are not shown there). The probe draws one task
   and one file first and asserts both rows are drawn (subjects [1,1]), and puts the lists back after. Also: no button or link within 40px has ANY pixel of
@@ -58,6 +62,10 @@ list scrolls (overflow-y: auto), so nothing is cut off, only one more scroll soo
 - The neighbour arm red on round 3's page (044f6aa73) with the seeded rows, WebKit: pj-doc 3% (phone), 5% (tablet
   tabs), tkcard 6% and pj-doc 6% (one-screen 1024 and 1180). Green on this head, Chromium and WebKit.
 - The phone arm now runs after the focus-turn arm puts back its forced display (round 4: it measured an altered page).
+- Round 8 controls, WebKit: an overlay across + Add member's area's middle is red (888 hits of 1225); Back's area
+  widened to 40px is red through the crumb link (32 px) in both tab arms. The one-screen rules sit under the same
+  960px gate as the layout itself. The restore snapshot also compares every scrolled element, so a scroll the probe
+  causes reads as not restored.
 - Round 7 controls, both engines: every area at 35px is red in all eight reach arms (by size); the one-screen header
   room removed is red (+ New task and View All reachable only 23 to 24px tall though their areas are 36).
 - Round 6 controls, WebKit: the list-adjacent areas pushed
