@@ -531,7 +531,7 @@ kosmos_refuse_if_suite_live() {
 # #4609: the overrides and wait controls a caller sets for run-tests.sh's own wait (not the test probes, which tests
 # pass explicitly). run-tests.sh unsets them once its wait has read them, and test-cut-guard.sh starts without them, so
 # no test inherits a caller's (one list, used by both).
-KOSMOS_WAIT_CONTROL_VARS="KOSMOS_TESTS_IGNORE_SUITE KOSMOS_TESTS_IGNORE_HARNESS KOSMOS_IGNORE_MACHINE_CLAIM KOSMOS_NO_WAIT KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S KOSMOS_WAIT_QUEUE_CEIL_S KOSMOS_WAIT_NOW KOSMOS_WAIT_SLEEP"
+KOSMOS_WAIT_CONTROL_VARS="KOSMOS_TESTS_IGNORE_SUITE KOSMOS_TESTS_IGNORE_HARNESS KOSMOS_IGNORE_MACHINE_CLAIM KOSMOS_NO_WAIT KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S KOSMOS_WAIT_QUEUE_CEIL_S KOSMOS_WAIT_NOW KOSMOS_WAIT_SLEEP KOSMOS_QUEUE_CLASS"
 _kosmos_suite_waiter_file() { printf '%s/suitewait.%s' "$(_kosmos_marker_dir)" "$1"; }
 
 # _kosmos_suite_waiter_live <pid>: 0 when <pid> holds a verified waiting marker (alive, same command, and a matching
@@ -654,7 +654,10 @@ _kosmos_suite_waiters_ahead() {
   # Queue times are the real clock (see kosmos_wait_until_clear), so the starve line is measured against it too.
   now="$(date +%s)"
   if [ -n "$mine_ts" ]; then
-    cls="$(sed -n '5p' "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null)"; [ -n "$cls" ] || cls="$(_kosmos_queue_class)"
+    case "$mine_ts" in *[!0-9]*) mine_ts="" ;; esac   # review: a corrupt own queue time is no queue time (behind every waiter)
+  fi
+  if [ -n "$mine_ts" ]; then
+    cls="$(sed -n '5p' "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null)" || cls=""; [ -n "$cls" ] || cls="$(_kosmos_queue_class)"
     mine_rank="$(_kosmos_queue_rank "$mine_ts" "$cls" "$now")"
   fi
   for f in "$dir"/suitewait.*; do
@@ -667,7 +670,7 @@ _kosmos_suite_waiters_ahead() {
     read -r ts _ 2>/dev/null < "$f" || continue
     case "$ts" in ''|*[!0-9]*) continue ;; esac
     if [ -z "$mine_ts" ]; then echo "$pid"; continue; fi
-    cls="$(sed -n '5p' "$f" 2>/dev/null)"   # an older lib's marker has no line 5: heavy
+    cls="$(sed -n '5p' "$f" 2>/dev/null)" || cls=""   # an older lib's marker has no line 5 (or it just left): heavy
     rank="$(_kosmos_queue_rank "$ts" "$cls" "$now")"
     if [ "$rank" -lt "$mine_rank" ] || { [ "$rank" -eq "$mine_rank" ] && { [ "$ts" -lt "$mine_ts" ] || { [ "$ts" -eq "$mine_ts" ] && [ "$pid" -lt "$mine_pid" ]; }; }; }; then
       echo "$pid"

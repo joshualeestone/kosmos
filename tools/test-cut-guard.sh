@@ -989,6 +989,16 @@ _seen_all=1; for v in $KOSMOS_WAIT_CONTROL_VARS; do has "$out" "SEEN $v=unset" |
 { [ "$_seen_all" = 1 ] && [ -n "$KOSMOS_WAIT_CONTROL_VARS" ]; } \
   && pass "#4609 the queue overrides and wait controls are not inherited by the suite's own processes" \
   || fail "#4609 a node the suite ran inherited an override, or never ran ($(printf '%s' "$out" | tail -6 | tr '\n' '|'))"
+# Review: a full suite queues heavy whatever class it inherited. The assignment must come after the lib loads and
+# before the first wait (a light suite would jump the lane). CONTROL: the ordinary light class still reads light.
+_cls_at="$(grep -n '^KOSMOS_QUEUE_CLASS=heavy$' "$HERE/run-tests.sh" | head -1 | cut -d: -f1)"
+_lib_at="$(grep -n 'tools/lib/cut-guard.sh" 2>/dev/null || true$' "$HERE/run-tests.sh" | head -1 | cut -d: -f1)"
+_wait_at="$(grep -n '^ *kosmos_wait_until_clear ' "$HERE/run-tests.sh" | head -1 | cut -d: -f1)"
+{ [ -n "$_cls_at" ] && [ -n "$_lib_at" ] && [ -n "$_wait_at" ] && [ "$_lib_at" -lt "$_cls_at" ] && [ "$_cls_at" -lt "$_wait_at" ] \
+  && [ "$(KOSMOS_QUEUE_CLASS=light _kosmos_queue_class)" = light ] \
+  && [ "$(KOSMOS_QUEUE_CLASS=light; KOSMOS_QUEUE_CLASS=heavy; _kosmos_queue_class)" = heavy ]; } \
+  && pass "#4609 run-tests.sh queues heavy even with KOSMOS_QUEUE_CLASS=light inherited" \
+  || fail "#4609 run-tests.sh can queue light (class line ${_cls_at:-none}, lib ${_lib_at:-none}, first wait ${_wait_at:-none})"
 out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all")"
 { has "$out" "COVERAGE MISMATCH" && ! has "$out" "waiting for the box longer"; } \
   && pass "#4498 a run-tests.sh inside a test does not queue behind a waiting suite" \
