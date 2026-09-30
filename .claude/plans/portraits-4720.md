@@ -54,8 +54,8 @@ Rejected:
   through, as it says itself), one with no Sec-Fetch-Site and a loopback Referer, or a program
   on this computer.
   What it can cause is bounded: a request for a path the signed catalogue names, at the
-  catalogue's address, at most two a minute per portrait while it fails (the plain ask and the
-  one past the caches), one when it succeeds, and none after that: kept on disk, or held in
+  catalogue's address, at most two asks a minute per portrait while it fails (the plain ask and the
+  one past the caches; an ask that is redirected is more than one request), one when it succeeds, and none after that: kept on disk, or held in
   memory when the disk refuses the save. A page that is not the board's cannot read the bytes;
   an image tag could tell a picture from an error, and its size. The pictures are public.
 - **The route can answer late.** Each of the two asks may take the full 8 s timeout, so a slow
@@ -169,8 +169,25 @@ showed why.
 The counts quoted in reviews 1 and 2 above are what was true then. On the head after review 5 I
 re-ran every one in a single pass: 29 single removals or weakenings in `engine/catalogue.js` and 2
 in the route each turn a test red (31 of 31), and so does keying either map by the hash alone
-(each its own test). Still green when removed, and left: the three defensive lines in the route's
-handler named under review 2.
+(each its own test). That is 31 of the ones I tried, not every line: see review 6 for the ones a
+reviewer found still green.
+
+## Review 6 (blind, fable): 0 blockers, 0 warnings, 3 nits. CONVERGED
+
+The reviewer ran its own sweep of 51 removals it chose itself: 44 red. The 7 that stay green, all
+left as they are: in the route, the early return when the response is gone, the catch around the
+answer, the headers-sent check in the 404, the GET-only check (decided in review 3) and the
+rejection arm of the promise (`portrait()` never rejects); in the engine, writing through a
+temporary file and a rename instead of straight to the final name (the difference only shows
+if the process dies mid-write), and the `try` around the prune's delete (it throws only on a
+permission error). Unmutated, both files were green 10 runs of 10; the three timing-dependent
+removals were red 20 of 20 each.
+
+Nits, taken in this file only (no code or test changed after this review): the sweep sentence
+above no longer reads as a complete list; "two a minute" counts asks, and an ask that is
+redirected is more than one request (the redirect gap already says redirects are followed).
+Not taken: a remembered failure is not dropped when the catalogue is replaced (about 200 bytes
+per portrait ever named, and the same name with the same hash failing is still true).
 
 ## Weakest premise
 
