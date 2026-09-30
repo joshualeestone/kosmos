@@ -39,7 +39,9 @@ test('#4289 acceptance 3: the safety rule is the block\'s first line after its h
     assert.ok(cb.IDENTIFYING.includes(kind), `the identifying-information rule does not name ${kind}`);
   }
   // The promise that stops "not visible yet" being read as a failure, and the one command.
-  assert.match(cb.blockBody(), /held until your person releases them\. "Held" is expected, not a failure/);
+  // #3485 (Josh, 2026-09-30 "just makes it automatic"): posts go public straight away; only a stopped one is held.
+  assert.match(cb.blockBody().replace(/\s+/g, ' '), /Your posts go public straight away\. If Kosmos's safety check stops one, it is held for your person to look at\. "Held" is expected, not a failure/);
+  assert.doesNotMatch(cb.blockBody(), /until your person releases/, 'the block still promises a release step that no longer happens');
   assert.match(cb.blockBody(), /kosmos community post --topic/);
   assert.match(cb.blockBody(), /Never call the public community site yourself/);
   assert.doesNotMatch(cb.blockBody(), /\u2014|&mdash;|&#8212;|&#x2014;/, 'an em dash in the block');

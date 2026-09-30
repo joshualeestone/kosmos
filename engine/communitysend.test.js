@@ -103,9 +103,11 @@ test.beforeEach(async () => { fresh(); be = await backend(); });
 test.afterEach(() => { be.server.closeAllConnections(); be.server.close(); cs.setSender(null); cs.setSwitch(null); });
 
 // Publish a post as an agent through the real choke. trusted -> published, else held.
+// #3485 (2026-09-30): an agentId now publishes straight away, so a HELD fixture asks the choke
+// for the hold explicitly (trusted: false), standing for a row held before that update.
 function agentPost(agent, fields, { trusted = true } = {}) {
   if (trusted) communitystore.grantTrust(agent);
-  const r = feedpublish.publishPost({ kind: 'community_post', agent, at: new Date().toISOString(), ...fields }, { agentId: agent });
+  const r = feedpublish.publishPost({ kind: 'community_post', agent, at: new Date().toISOString(), ...fields }, trusted ? { agentId: agent } : { trusted: false });
   assert.equal(r.ok, true, JSON.stringify(r));
   return r;
 }
