@@ -259,18 +259,24 @@ test('a project a process made that still lists nobody (what `kosmos project cre
   assert.deepEqual([w.made.map((m) => m.by), w.acts], [['otto'], [['close', 'p4491', '7']]]);
 });
 
-test('a project with no members that the PERSON made or emptied, or whose member list is not a list, is not opened', async (t) => {
+test('a project with no members that was made on the page, or has no process-made record, or whose member list is not a list, is not opened', async (t) => {
   let agents = [];
   let made = { via: 'screen', by: null };
   const w = world(t);
   const realAll = projectsEngine.readAll;
   projectsEngine.readAll = () => [{ id: 'p4491', name: 'p4491', agents, tasks: [], made }];
   try {
+    /* The refusal must be the membership sentence: a 403 for any other reason (a token that stopped resolving)
+       would make every arm below pass for the wrong reason. */
     const tryBoth = async (why) => {
-      assert.equal((await call('POST', '/api/project/p4491/tasks', { headers: asAgent(w.otto), body: { sentence: 'x' } })).code, 403, 'task add opened: ' + why);
-      assert.equal((await call('POST', '/api/project/p4491/task/1/close', { headers: asAgent(w.otto) })).code, 403, 'task close opened: ' + why);
+      const add = await call('POST', '/api/project/p4491/tasks', { headers: asAgent(w.otto), body: { sentence: 'x' } });
+      assert.equal(add.code, 403, 'task add opened: ' + why);
+      assert.match(JSON.parse(add.text).error, /not on this project, so it cannot add tasks to it/, why);
+      const close = await call('POST', '/api/project/p4491/task/1/close', { headers: asAgent(w.otto) });
+      assert.equal(close.code, 403, 'task close opened: ' + why);
+      assert.match(JSON.parse(close.text).error, /not on this project, so it cannot close its tasks/, why);
     };
-    await tryBoth('a project the person made with nobody ticked, or emptied by removing its last member');
+    await tryBoth('a project made on the page with nobody ticked, or made there and emptied by removing its last member');
     made = null;
     await tryBoth('an old record with no `made`');
     made = { via: 'kosmos', by: null };
@@ -280,9 +286,12 @@ test('a project with no members that the PERSON made or emptied, or whose member
     agents = ['mara'];
     await tryBoth('a process-made project that has a member now');
     assert.deepEqual([w.made, w.acts], [[], []]);
-    /* CONTROL: the same process-made project with an empty list IS open, so the 403s above are each their own reason. */
+    /* CONTROL, and a stated limit: the same process-made project with an empty list IS open, so the 403s above
+       are each their own reason. This is also what a process-made project looks like after it was staffed and
+       emptied again (removing a member keeps `made`): the store cannot tell the two apart, so that one is open too. */
     agents = [];
     assert.equal((await call('POST', '/api/project/p4491/tasks', { headers: asAgent(w.otto), body: { sentence: 'x' } })).code, 200);
+    assert.equal((await call('POST', '/api/project/p4491/task/1/close', { headers: asAgent(w.otto) })).code, 200);
   } finally { projectsEngine.readAll = realAll; }
 });
 
@@ -294,7 +303,9 @@ test('a project id stored twice, one copy empty and process-made, the other with
     { id: 'p4491', name: 'two', agents: ['mara'], tasks: [], made: { via: 'screen', by: null } },
   ];
   try {
-    assert.equal((await call('POST', '/api/project/p4491/tasks', { headers: asAgent(w.otto), body: { sentence: 'x' } })).code, 403);
+    const otto = await call('POST', '/api/project/p4491/tasks', { headers: asAgent(w.otto), body: { sentence: 'x' } });
+    assert.equal(otto.code, 403);
+    assert.match(JSON.parse(otto.text).error, /not on this project/, 'the 403 is not the membership refusal');
     assert.equal((await call('POST', '/api/project/p4491/tasks', { headers: asAgent(w.mara), body: { sentence: 'x' } })).code, 200, 'control: a member of the staffed copy adds');
   } finally { projectsEngine.readAll = realAll; }
 });

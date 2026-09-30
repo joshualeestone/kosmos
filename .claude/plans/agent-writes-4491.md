@@ -62,9 +62,14 @@ may an agent put on a new project) and `kosmos room reopen` (it clears the loop-
   task to it, and could not put itself on it either. So a project whose record says a process made it
   (`made.via === 'process'`) and whose member list is an empty list takes tasks from any identified agent, as it
   did before this slice. Round 5's first form of this ("any project with no members") was too wide: it also
-  opened a project the person made with nobody ticked, one emptied by removing its last member, and any record
-  whose member list was not a list. None of those is opened now. `made` is an advisory record, used here only to
-  keep a prescribed workflow working and never to let a caller into a project that has members.
+  opened a project made ON THE PAGE with nobody ticked, one made there and emptied by removing its last member,
+  and any record whose member list was not a list. None of those is opened now. `made` is an advisory record,
+  used here only to keep a prescribed workflow working and never to let a caller into a project that has members.
+  Two things the record cannot tell apart, both open, both accepted (round 7): the PERSON running `kosmos project
+  create` in a terminal makes the same record as an agent does; and a process-made project that was staffed and
+  then emptied again looks like a new one (removing a member keeps `made`). Nobody is on either to be spoken for.
+  This exception is a bridge. The next slice makes project create put its maker on the project; then the maker
+  is a member like any other and the exception is deleted.
   What it allows there, stated: an identified agent (on a token alone, or with the board token) adds tasks and
   closes ANY task in such a project, including one the person added. A task there can have no assignee.
   What stays inconsistent until the next slice: on that same project the agent cannot, on its token alone, read
@@ -77,7 +82,7 @@ may an agent put on a new project) and `kosmos room reopen` (it clears the loop-
   presented, so the page's and the terminal's close cost what they cost before.
 - **Reopen shares the handler and so the rule, but not the gate.** `reopen` is not in the pattern: it stays behind
   the board token (no CLI verb uses it). With the board token, an identified non-member is refused there too.
-- **`made.by` now names the agent, and the person sees it.** It was empty for a CLI caller (see above), so the
+- **A task's added-by record (the TASK's `made.by`, not the project's) now names the agent, and the person sees it.** It was empty for a CLI caller (see above), so the
   task page's "added by" label and the task's activity log said "An agent". They now say the agent's name. That
   is the intent. Nothing else reads the field: it does not change who the task is given to, what the breaker
   counts, or how the task is listed.
@@ -119,7 +124,7 @@ agent makes; that case is the exception above.)
   throws is a 503 on both writes and the board keeps answering (with the catch removed the test file hangs and
   fails). An unreadable projects list is a 503 on close too.
   A process-made project that lists nobody takes a task from an agent on no list and lets it close any task
-  there. The same project is NOT opened when the person made it, when it has no `made` record, when Kosmos made
+  there. The same project is NOT opened when it was made on the page, when it has no `made` record, when Kosmos made
   it, when its member list is not a list, or once it has a member. A doubled id with one such copy and one
   staffed copy refuses a non-member of the staffed one. Each measured red (see round 6).
   Measured red, one mutation each: no membership rule; the gate left closed; a bad token swapped for the pane; the
@@ -194,4 +199,16 @@ agent makes; that case is the exception above.)
 - NITs: the test now closes a task the agent did not add (the widest thing the exception allows); "the post half
   is already untrue on main" is marked as read from engine/messages.js, not run.
 - The reviewer's consistency finding is recorded above as what stays inconsistent until the next slice.
+
+## Review round 7 (opus): 0 BLOCKER, 1 WARNING, 1 CONVENTION, 2 NIT
+- W a process-made project that was staffed and later emptied is still opened, and nothing stored can tell it from
+  a new one: DECLARED, not fixed (comment, Decisions, and the test's control arm says so). The repair is the next
+  slice, which removes the exception. Rejected: a never-staffed marker written by create, for an exception meant
+  to live one slice.
+- C "a project the PERSON made is not that" was false for the person's own terminal (`kosmos project create`
+  there records a process-made project): the comment and plan now say "made on the page".
+- NITs: the closed arms assert the membership sentence, not only the 403; the task's added-by record is named as
+  the task's.
+- Confirmed by the reviewer from the code: the helper cannot throw for any stored shape; `via` is derived by the
+  route, never taken from the body; a caller with only an agent token cannot make or empty a project.
 

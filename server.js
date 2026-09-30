@@ -3954,14 +3954,18 @@ function processCaller(req, body, roster, viaScreen, notDone) {
 /* Slice 5: an identified agent writes only in a project it is on, as task message and task built already require.
    [status, sentence] to refuse with, or null. An unreadable projects list refuses (503): a member that cannot be
    checked is not let through. A project nobody stored is left to the handler's own 404.
-   ONE exception: a project a PROCESS made that still lists nobody (`made.via === 'process'`, `agents: []`). That
-   is exactly what `kosmos project create` makes (it lists nobody, not even its maker), and every agent's working
-   rules say "once it exists you ... hand it work the same way as any other project" (engine/defaults.js, "Making
-   a project"): refusing the maker its own new project would break the one workflow the product prescribes. A
-   task there can have no assignee (an assignee must be a member). A project the PERSON made, or emptied by
-   removing its last member, is not that: nobody identified writes in it until someone is on it. `made` is an
-   advisory record (engine/projects.js says so), and it is used here only to keep something working, never to
-   let a caller into a project that has members. An `agents` that is not an array is not "no members". */
+   ONE exception: a project a PROCESS made that lists nobody (`made.via === 'process'`, `agents: []`). That is
+   what `kosmos project create` makes (it lists nobody, not even its maker; run by an agent or by the person in a
+   terminal, the record is the same), and every agent's working rules say "once it exists you ... hand it work
+   the same way as any other project" (engine/defaults.js, "Making a project"): refusing the maker its own new
+   project would break the one workflow the product prescribes. A task there can have no assignee (an assignee
+   must be a member). A project made ON THE PAGE is not that, with nobody ticked or emptied later: nobody
+   identified writes in it until someone is on it. An `agents` that is not an array is not "no members".
+   ⚠️ What it cannot tell apart: a process-made project that was staffed and then emptied again looks the same in
+   the store (removing a member keeps `made`), so it is open too. Accepted: nobody is on it to be spoken for.
+   `made` is an advisory record (engine/projects.js says so), used here only to keep something working, never to
+   let a caller into a project that has members. This exception is a bridge: once project create puts its maker
+   on the project (#4491's next slice), it has no reason to exist. */
 function notOnProjectRefusal(who, id, verb, notDone) {
   if (!who || !who.card) return null;
   let stored;
