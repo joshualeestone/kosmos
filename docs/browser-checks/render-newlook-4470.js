@@ -19,6 +19,9 @@
  *    tabs marked by ink and weight; the consolidated layout keeping today's arrangement and back again,
  *  - with it off: every placement back where today has it, no state word, today's underline,
  *  - the Agents page's inks clearing 4.5:1 on the new grounds,
+ *  - the Agents page in the new look: the plain idle card and the Agents tile lose their border while the
+ *    working card keeps its stroke, New agent is a 40px round grey button, the current view is not gold;
+ *    and with the look off, today's bordered card and New agent tile (the control),
  *  - light, dark and 390 wide, with no sideways scroll and no page errors.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -157,6 +160,20 @@ const PARTS = `(() => {
     held: dot(row.querySelector('.tkcard-part:not(.none)')), nobody: dot(row.querySelector('.tkcard-part.none')) };
 })()`;
 const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmid .composer .composerbox')).backgroundColor`;
+/* The Agents page in the new look: the idle and the working card's border, the Agents tile's border, the New
+   agent button's round, the current view segment's ground, and the page's own ground. */
+const AGENTS_LOOK = `(() => {
+  const cards = [...document.querySelectorAll('#grid .acard')];
+  const STATES = ['working', 'attn', 'question', 'unk', 'off'];
+  const card = (cls) => cls === 'idle' ? cards.find((c) => !STATES.some((s) => c.classList.contains(s))) : cards.find((c) => c.classList.contains(cls));
+  const bc = (el) => el ? getComputedStyle(el).borderTopColor : 'absent';
+  const plus = document.querySelector('#new-agent .plus'), on = document.querySelector('#boardbar .vt.on');
+  const agentsTile = document.getElementById('st-agents') && document.getElementById('st-agents').closest('.stat');
+  const p = plus ? getComputedStyle(plus) : null;
+  return { idle: bc(card('idle')), working: bc(card('working')), tile: bc(agentsTile),
+    plus: p ? { w: plus.getBoundingClientRect().width, round: p.borderRadius, bg: p.backgroundColor } : null,
+    seg: on ? getComputedStyle(on).backgroundColor : 'absent', page: getComputedStyle(document.body).backgroundColor };
+})()`;
 
 (async () => {
   let server, browser;
@@ -304,6 +321,18 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
       /* The rule under the header goes on every page of the tab layout, not only the project. */
       const agRule = await page.evaluate(() => getComputedStyle(document.querySelector('body > .apphead')).borderBottomColor);
       chk(agRule === 'rgba(0, 0, 0, 0)', `${tag} On, Agents page: no rule under the header`, agRule);
+      /* The Agents page designed in the new look: the plain idle card loses its border, the working card keeps
+         its green stroke (state owns the stroke), the plain tiles lose their box, New agent is a 40px round grey
+         button, and the current view segment is the page's ground, not gold. */
+      await page.evaluate(() => { const g = document.querySelector('#boardbar .vt[data-layout="grid"]'); if (g && !g.classList.contains('on')) g.click(); });
+      await page.waitForTimeout(400);
+      const agOn = await page.evaluate(AGENTS_LOOK);
+      chk(agOn.idle === 'rgba(0, 0, 0, 0)' && agOn.working !== 'rgba(0, 0, 0, 0)' && agOn.working !== 'absent',
+        `${tag} On, Agents page: the idle card has no border, the working card keeps its stroke`, JSON.stringify(agOn));
+      chk(agOn.tile === 'rgba(0, 0, 0, 0)', `${tag} On, Agents page: the Agents tile has no box`, JSON.stringify(agOn));
+      chk(agOn.plus && Math.round(agOn.plus.w) === 40 && agOn.plus.round === '50%' && agOn.plus.bg === GREY_OF[theme],
+        `${tag} On, Agents page: New agent is a 40px round grey button`, JSON.stringify(agOn.plus));
+      chk(agOn.seg === agOn.page, `${tag} On, Agents page: the current view is the page's ground, not gold`, JSON.stringify({ seg: agOn.seg, page: agOn.page }));
 
       await page.reload({ waitUntil: 'networkidle' });
       await clearFirstRun(page);
@@ -334,6 +363,12 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
       chk(!stOff.shown, `${tag} Off: the member row prints no state word, as today (#3212)`, JSON.stringify(stOff));
       chk(pjOff.order === 'members,files' && pjOff.tasksLast, `${tag} Off: Tasks is back at the end of the project page, as today`, JSON.stringify(pjOff));
       chk(back.look === null && back.kbg === before.kbg, `${tag} Off and a reload give today's page back`, JSON.stringify(back));
+      /* Control for the Agents arms: with the look off, the idle card keeps its border and New agent has no round. */
+      await page.evaluate(() => showTab('agents'));
+      await page.waitForTimeout(600);
+      const agOff = await page.evaluate(AGENTS_LOOK);
+      chk(agOff.idle !== 'rgba(0, 0, 0, 0)' && agOff.idle !== 'absent' && agOff.plus && agOff.plus.round !== '50%',
+        `${tag} Off, Agents page: today's bordered idle card and New agent tile`, JSON.stringify(agOff));
       if (width >= 1088) {
         const tabsOff = await page.evaluate(TABS);
         chk(tabsOff.onUnderline !== 'rgba(0, 0, 0, 0)' && tabsOff.onUnderline !== 'absent', `${tag} Off: today's gold underline marks the current tab`, JSON.stringify(tabsOff));
