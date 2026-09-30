@@ -3715,6 +3715,21 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
 /* #3703: the head carries "+ New task" beside the title, as Mona's mock draws it (.mh / .newbtn). */
 #panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+/* #4586 (Josh, 2026-09-29 11:35): "click the back button at the top left next to the title and go right
+   back into the project." A round chevron, the #2928 back glyph in #4470's round frame, sized to sit beside
+   a sub-view's title. On Tasks it shows only while the view is for one project (tskPaint sets it, and it
+   reuses the crumb's Open project path); on Documents only in the consolidated view (the tab view keeps
+   its "<- name" back). The title takes the free space, so the chevron sits against it, not across the row. */
+.sub-back { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--k-rule); background: none;
+            color: var(--k-ink-2); cursor: pointer; display: grid; place-items: center; flex: none; padding: 0; }
+.sub-back:hover { background: var(--k-sunk); color: var(--k-ink); }
+.sub-back[hidden] { display: none; }
+#panel-tasks .tsk-head > .sub-back { align-self: center; margin-right: -4px; }
+#panel-tasks .tsk-head > #tsk-title { margin-right: auto; }
+#pj-docs-view .pjtitle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
+#pj-docs-view .pjtitle > .sub-back { grid-column: 1; grid-row: 1; margin-right: 12px; }
+#pj-docs-view .pjtitle > :not(.sub-back) { grid-column: 2; }
+body:not(.consolidated) #docs-chev { display: none; }
 /* #3949 (Josh, 09-26 19:30): the title carries the count ("30 Tasks on 2 Projects"); the separate count line is
    gone, and the search sits compact to the right of Sort (below). */
 .tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 14px 0 4px; }
@@ -3895,11 +3910,6 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons
   padding: 3px 10px; border-radius: 999px; cursor: pointer; }
 .cons-agents-lay button[aria-pressed="true"] { color: var(--k-ink); border-color: var(--gold-edge); }
 .cons-agents-lay button:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-/* The consolidated projects rail's way into Tasks (kept since #4345 put the tab bar back: it is the
-   way in when the rail is what the person is looking at). */
-.rail-tasks { border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); font: 600 .75rem var(--font-ui);
-  padding: 2px 8px; border-radius: 999px; cursor: pointer; margin-left: 8px; }
-.rail-tasks:hover { color: var(--k-ink); border-color: var(--gold-edge); }
 @media (max-width: 760px) {
   .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
   .tsk-main { padding: 22px 14px 120px; }
@@ -5075,7 +5085,9 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   /* #3502 (Josh, 2026-09-23, consolidated project sub-views): the "Back to <project>"
      controls are redundant in the consolidated view -- the project is already open and
      its name is one click away, so remove them from Documents, Tasks and Project Settings.
-     Kept in the tab view (body:not(.consolidated)), where the back control is the way out. */
+     Kept in the tab view (body:not(.consolidated)), where the back control is the way out.
+     #4586 (Josh, 2026-09-29) reversed this for Documents and Tasks: the way back there is now the
+     round chevron beside the title (#docs-chev, #tsk-back), so #docs-back stays hidden here. */
   html[data-layout="consolidated"] body.consolidated #docs-back,
   html[data-layout="consolidated"] body.consolidated #pj-settings-back { display: none; }
   /* #3502: with the back button gone the heading must not jump against the top rule.
@@ -14550,11 +14562,8 @@ window.kosmosMeasureScrollbarWidth();
          title aligned with the agents head, where a 22px fold button + 7px gap
          still inset the name. -->
     <div class="railhead" id="rail-projects" hidden>
-      <!-- #3559: the consolidated view hides the tab bar (it is one screen), so its way into
-           Tasks lives here, beside the "Projects" name it lists tasks from (the + stays alone at
-           the far right). It opens Tasks INSIDE the display column (openConsolidatedTasks), the
-           way the user menu opens Settings there (#2842), never out to the tab view. -->
-      <span class="lead"><span class="railname">Projects</span><button class="rail-tasks" type="button" id="rail-projects-tasks" title="Every task across your projects" hidden>Tasks</button></span>
+      <!-- #4595 (Josh, 2026-09-29): no Tasks button here; Tasks is reached from the tab bar. -->
+      <span class="lead"><span class="railname">Projects</span></span>
       <span class="railacts">
         <button class="fold plus" type="button" id="rail-projects-new" aria-label="Add Project" title="Add Project">+</button>
       </span>
@@ -15265,6 +15274,10 @@ window.kosmosMeasureScrollbarWidth();
     <button class="back" id="docs-back" type="button"></button>
     <div class="pjhead">
       <div class="pjtitle">
+        <!-- #4586 (Josh, 2026-09-29 11:35): the back chevron beside the title, straight back to the
+             project's room. #3502 hid #docs-back in the consolidated view; Josh reversed that. The tab
+             view keeps its own "<- name" back above, so this one shows only in the consolidated view. -->
+        <button class="sub-back" id="docs-chev" type="button" aria-label="Back to the project"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
         <h2 class="dname">Documents</h2>
         <p class="pj-desc">In <b id="docs-project"></b>.</p>
       </div>
@@ -15765,7 +15778,7 @@ window.kosmosMeasureScrollbarWidth();
            everything from Group by / Sort down sits on white, full width, and the task cards are shaded. -->
       <div class="tsk-band">
       <p class="tsk-crumb" id="tsk-crumb"></p>
-      <div class="tsk-head"><h2 id="tsk-title">Tasks</h2><button class="btn uprime" id="tsk-new" type="button"><span aria-hidden="true">+</span> New task</button></div>
+      <div class="tsk-head"><button class="sub-back" id="tsk-back" type="button" hidden aria-label="Back to the project"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button><h2 id="tsk-title">Tasks</h2><button class="btn uprime" id="tsk-new" type="button"><span aria-hidden="true">+</span> New task</button></div>
       <div class="tsk-ctrls" id="tsk-filters">
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-projsel">Project:</label><select class="tsk-sel" id="tsk-projsel"></select></div>
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-win">Created:</label><select class="tsk-sel" id="tsk-win"></select></div>
@@ -21774,7 +21787,7 @@ async function tick() {
     // from sourceChannel + the federation-live flip + this viewer's Plus entitlement,
     // and stamp it on <html> for the CSS gate. Fail-safe (see fedGateMode).
     fedGateStamp(data);
-    // #3559 (Josh): the Tasks tab and the consolidated rail's Tasks button, once 25 tasks ever.
+    // #3559 (Josh): the Tasks tab, once 25 tasks ever.
     tskTabGate(data.tasksTab === true);
 
     // The freshness stamp is load-bearing. An ambient board gets trusted
@@ -41613,8 +41626,8 @@ function openConsolidatedSettings() {
   syncPlusChrome();
 }
 /* #3559: the Tasks view in the consolidated display column, the same relocation as app settings
-   (#2842) and create (#3053): the consolidated view is one screen, so its Tasks button must not
-   kick the person out to the tab view. In the column the view's own project rail folds to its
+   (#2842) and create (#3053): in the consolidated view the Tasks tab (#4345) must not kick the
+   person out to the tab view. In the column the view's own project rail folds to its
    dropdown (the consolidated projects rail is right beside it). The tab view shows Tasks as its
    own page. Transient like consolidated settings: a reload restores the project view. */
 let TASKS_PANEL_HOME = null;
@@ -52551,6 +52564,14 @@ function tskPaint() {
   document.getElementById('tsk-crumb').innerHTML = picked
     ? '<button type="button" data-proj="">All tasks</button> › ' + esc(picked.name) + ' · <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button>'
     : '';
+  /* #4586: the chevron beside the title is the crumb's Open project, shown exactly when that is: the
+     panel's delegated [data-open-project] click opens the room, so there is one way in, not two. */
+  const back = document.getElementById('tsk-back');
+  if (back) {
+    back.hidden = !picked;
+    if (picked) { back.dataset.openProject = picked.id; back.setAttribute('aria-label', 'Back to ' + picked.name); }
+    else delete back.dataset.openProject;
+  }
   const scoped = tskScoped(all, TSK, now);
   const open = scoped.filter((t) => t.state !== 'closed');
   /* #3949 (Josh, 09-26 19:30): the title IS the count: "30 Tasks on 2 Projects" (open tasks in the current scope, the
@@ -52673,14 +52694,13 @@ async function tskOpenTask(key) {
 async function tskOpenProject(id) {
   await tskGoToProject(id);
 }
-/* #3559, Josh's ruling: the top-level ways into Tasks (the tab, and the consolidated projects
-   rail's button, which stands in for the tab there) appear once the person has 25 tasks ever,
+/* #3559, Josh's ruling: the top-level way into Tasks (the tab; #4595 took out the projects rail's
+   own button, Josh 2026-09-29: people reach Tasks from the top) appears once the person has 25 tasks ever,
    from the status poll's `tasksTab` (the engine counts and saves the flag, so once shown they stay).
    A project's View All still opens this view below 25: it is that project's only full list. */
 function tskTabGate(show) {
-  for (const el of [document.querySelector('.tab[data-tab="tasks"]'), document.getElementById('rail-projects-tasks')]) {
-    if (el && el.hidden === show) el.hidden = !show;
-  }
+  const el = document.querySelector('.tab[data-tab="tasks"]');
+  if (el && el.hidden === show) el.hidden = !show;
   /* This viewer's last answer, so a board past 25 does not pop the tab into the bar a moment after
      every load. A convenience only: the status tick stays the authority and corrects it. */
   try { localStorage.setItem('kosmos.tasksTab', show ? '1' : '0'); } catch { /* private window or blocked */ }
@@ -52813,7 +52833,7 @@ function tskFocusMark(el) {
   if (!attr) return null;
   const row = el.closest('.tsk-row');
   const box = row ? null : el.closest('#tsk-crumb, #tsk-tiles');
-  return { tag: el.tagName.toLowerCase(), attr, value: el.getAttribute(attr), row: row ? row.dataset.key : null, box: box ? box.id : null };
+  return { tag: el.tagName.toLowerCase(), attr, value: el.getAttribute(attr), row: row ? row.dataset.key : null, box: box ? box.id : null, id: el.id || null };
 }
 function tskFocusRestore(mark) {
   if (!mark) return;
@@ -52821,6 +52841,11 @@ function tskFocusRestore(mark) {
     ? document.querySelector('#tsk-groups .tsk-row[data-key="' + CSS.escape(mark.row) + '"]')
     : (mark.box ? document.getElementById(mark.box) : document.getElementById('panel-tasks'));
   const shown = (x) => x && x.getClientRects().length > 0;
+  /* #4586: a control with an id (the title's back chevron, #tsk-back) is not rebuilt by the paint, so
+     it keeps focus while it is still on screen; without this the attribute search finds the crumb's
+     Open project first, which carries the same data-open-project. */
+  const same = mark.id ? document.getElementById(mark.id) : null;
+  if (shown(same)) { same.focus(); return; }
   const again = scope ? [...scope.querySelectorAll(mark.tag + '[' + mark.attr + '="' + CSS.escape(String(mark.value)) + '"]')].find(shown) : null;
   if (again) { again.focus(); return; }
   /* The control is gone with its container (the crumb's "All tasks" empties the crumb): land on
@@ -52941,7 +52966,6 @@ document.getElementById('tsk-bclear').addEventListener('click', () => {
   // The bar hides with the ticks, taking this button with it: land on the search, not the body.
   document.getElementById('tsk-search').focus();
 });
-document.getElementById('rail-projects-tasks').addEventListener('click', openConsolidatedTasks);
 
 document.getElementById('pj-tasklist').addEventListener('click', (e) => {
   const card = e.target.closest('.tkcard');
@@ -54858,6 +54882,7 @@ async function openDocsView() {
   if (!p) return;
   document.getElementById('docs-project').textContent = p.name;
   document.getElementById('docs-back').textContent = '\u2190 ' + p.name;
+  document.getElementById('docs-chev').setAttribute('aria-label', 'Back to ' + p.name); // #4586
   const box = document.getElementById('docs-list');
   const msg = document.getElementById('docs-msg');
   const count = document.getElementById('docs-count');
@@ -54921,6 +54946,7 @@ async function openDocsView() {
   }
 }
 document.getElementById('docs-back').addEventListener('click', () => { pjView('one'); });
+document.getElementById('docs-chev').addEventListener('click', () => { pjView('one'); }); // #4586: the same way back
 document.getElementById('docs-finder').addEventListener('click', async () => {
   const msg = document.getElementById('docs-msg');
   try {
@@ -55494,10 +55520,18 @@ function pjInline(text) {
    strikethrough, inline code, fenced code block, one heading size, unordered
    and ordered list rows, blockquote, horizontal rule, emoji (free -- UTF-8
    passes through `esc`), and the pre-existing bare-URL autolink. A markdown
-   `[text](url)` renders as its TEXT only, never a clickable anchor: a link an
-   agent authored is a navigation risk for a non-technical reader (Josh can
-   flip this to clickable later -- it is one branch). The bare-URL autolink
-   that predates this is unchanged.
+   `[text](url)` never becomes a label that hides where it goes: a link an
+   agent authored is a navigation risk for a non-technical reader. #4627: it
+   renders as its text followed by the address in full, `text (url)`, and a
+   web address there is linked exactly as a bare URL is (the address is what
+   the reader sees and clicks, so nothing is hidden). The label is never linked
+   to the address; a label that is itself a bare URL is linked to ITSELF by the
+   autolink, like any bare URL. Limits: an address is cut at its first `)`, as a
+   bare one is; a title (`(url "t")`) stays text; an address naming a project
+   file gets no "Show me" chip. Before #4627 the address
+   was dropped, and agents pasted bare URLs to get it seen. A non-web address
+   (mailto:, javascript:, a relative path) stays visible text, never a link.
+   The bare-URL autolink that predates this is unchanged.
 
    NOT here, deliberately: the project-ROOM activity thread (pjRoomBody ->
    pjBody -> pjLinkPaths) already renders fenced blocks, filename "Show me"
@@ -55512,7 +55546,8 @@ function pjRichSpans(seg, names, agentNames) {
        1. pull inline code out to a held placeholder (its body is never
           markdown-parsed or linkified),
        2. escape everything else (every tag below is one we emit),
-       3. resolve [text](url) to its text (the url is dropped before autolink),
+       3. resolve [text](url) to `text (url)`, the url held as a link when it is
+          a web address and as plain text otherwise (#4627),
        4. autolink bare URLs -- and, when a `names` set is supplied, turn a cited
           project file into a "Show me" chip -- BY WHITESPACE TOKEN, holding the
           built anchor/chip, so each is atomic: an underscore inside it is never
@@ -55535,7 +55570,17 @@ function pjRichSpans(seg, names, agentNames) {
   let s = String(seg == null ? '' : seg).replace(/￼/g, '');
   s = s.replace(/`([^`\n]+)`/g, (mm, code) => hold('<code class="mdc">' + esc(code) + '</code>'));
   s = esc(s);
-  s = s.replace(/\[([^\]\n]+)\]\([^)\n]+\)/g, '$1');
+  /* #4627: the address is shown, never hidden behind the label. `s` is already escaped, so the
+     url is escaped text, the same form the bare-URL autolink below puts in its href. */
+  s = s.replace(/\[([^\]\n]+)\]\(([^)\n]+)\)/g, (mm, label, url) => {
+    const u = url.trim();
+    const shown = /^https?:\/\/[^\s\uFFFC]+$/.test(u)
+      ? hold('<a class="xlink" href="' + u + '" target="_blank" rel="noreferrer noopener">' + u + '</a>')
+      /* Held so the emphasis pass leaves it alone, unless it already carries a held span (inline code
+         inside the address): restoring is one pass, so a placeholder held inside another would leak. */
+      : (u.includes('\uFFFC') ? u : hold(u));
+    return label + ' (' + shown + ')';
+  });
   /* A URL (or, with `names`, a cited file) is a whole whitespace-delimited
      token. Trailing sentence punctuation and trailing emphasis stars
      (`**url**`) are peeled off; a trailing underscore is kept, because URLs use
@@ -55631,7 +55676,7 @@ function pjRich(text) {
      list, `N.` list, `---` rule) are checked at line start only, so `#tag`,
      `well-being` and `C#` stay literal. The `[text](url)` disqualifier is what
      routes a link to ANY target (a relative path, `mailto:`, an anchor -- not
-     just http) to the slow path, where its syntax is stripped to the text; the
+     just http) to the slow path, where it becomes `text (address)` (#4627); the
      http/https checks alone would leave a non-http link showing raw markup.
      📌 On `.pj-msg-text`: a plain multiline message keeps its literal `\n` here,
      while a message carrying any marker/URL/link takes the slow path and its

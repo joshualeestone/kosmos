@@ -126,18 +126,18 @@ test('the two big gaps: less top padding, an empty crumb takes no room, and the 
   assert.doesNotMatch(PAGE, /#tsk-msg[^{]*\{[^}]*display:\s*none/);
 });
 
-test('#3559 (Josh): the Tasks tab and the rail button start hidden and follow the status poll\'s tasksTab', () => {
+test('#3559 (Josh): the Tasks tab starts hidden and follows the status poll\'s tasksTab (#4595: the rail pill is gone)', () => {
   assert.match(PAGE, /<button class="tab"\s+data-tab="tasks"\s+role="tab" aria-selected="false" hidden>Tasks<\/button>/,
     'the tab is on screen before the poll says there are 25 tasks');
-  assert.match(PAGE, /id="rail-projects-tasks" title="[^"]*" hidden>Tasks<\/button>/, 'the consolidated rail button is on screen before 25 tasks');
+  assert.doesNotMatch(PAGE, /id="rail-projects-tasks"/, 'the projects rail grew its Tasks pill back (#4595)');
   assert.match(SCRIPT, /fedGateStamp\(data\);\s*\/\/[^\n]*\n\s*tskTabGate\(data\.tasksTab === true\);/, 'the status poll does not apply the gate');
-  const els = { tab: { hidden: true }, rail: { hidden: true } };
-  const document = { querySelector: (q) => (q === '.tab[data-tab="tasks"]' ? els.tab : null), getElementById: (id) => (id === 'rail-projects-tasks' ? els.rail : null) };
+  const els = { tab: { hidden: true } };
+  const document = { querySelector: (q) => (q === '.tab[data-tab="tasks"]' ? els.tab : null) };
   const gate = new Function('document', page.liftAll(SCRIPT, ['tskTabGate']) + '\nreturn tskTabGate;')(document);
   gate(true);
-  assert.deepEqual([els.tab.hidden, els.rail.hidden], [false, false]);
+  assert.equal(els.tab.hidden, false);
   gate(false);
-  assert.deepEqual([els.tab.hidden, els.rail.hidden], [true, true], 'a false (or missing) tasksTab does not hide them');
+  assert.equal(els.tab.hidden, true, 'a false (or missing) tasksTab does not hide it');
 });
 
 test('a closed task has no claim agent, whatever its parts say (closing leaves parts open)', () => {
