@@ -1,6 +1,9 @@
 'use strict';
 
 const test = require('node:test');
+// #4632: the ready-made roles are downloaded; sandbox the data root and store the signed fixture
+// first, so every-role sweeps below see the catalogue's roles too, and never the operator's own copy.
+require('../test-support/catalogue-fixture').sandboxWithCatalogue('roles');
 const assert = require('node:assert/strict');
 
 test('every role carries the summary rhythm (except the setup guide), and only the two overseers carry the sweep (#518, #519, #3034)', () => {
@@ -124,4 +127,10 @@ test('#4474: when no role fits, the PM writes one from the default text, after t
     assert.match(flat, /kosmos agent create "<name>" --new-role "<role name>" --from role-<short-name>\.md "<why>"/, `${key} is not told the new-role verb`);
     assert.match(flat, /To make another agent with that role later, use the same file\./);
   }
+});
+
+test('#4632 premise: the sweeps in this file include the downloaded catalogue roles', () => {
+  const roles = require('./roles');
+  assert.ok(roles.byKey('cmo'), 'the catalogue fixture is not merged, so the sweeps above cover only the built-in roles');
+  assert.ok(roles.ROLES.length > roles.BUILT_IN.length);
 });

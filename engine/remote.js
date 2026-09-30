@@ -626,18 +626,25 @@ function ensure(port) {
    fed-room`). stdin and stdout are the interface (lines of JSON; see
    engine/fedseats.js); stderr joins the board's log like the tunnel's own. The
    same binary, relay, state dir and coordinator as the drive tunnel. */
-function spawnFedSeat(edgeId) {
+/* The connector arguments for a room seat. `target` is an edge id (a guest's link, or an
+   owner's active edge), or { own: <project_ref> } for a seat in this computer's OWN
+   account's room (kosmos#4649: `fed-room --own-project`, given instead of --edge). */
+function fedSeatArgs(target) {
+  const own = target && typeof target === 'object' && typeof target.own === 'string' ? target.own : null;
   const args = [
     'fed-room',
     '--relay', RELAY(),
     '--state-dir', STATE_DIR(),
     '--coordinator', COORDINATOR(),
-    '--edge', String(edgeId),
+    ...(own !== null ? ['--own-project', own] : ['--edge', String(target)]),
   ];
   if (process.env.AGENT_WORKFORCE_TUNNEL_CA) {
     args.push('--tunnel-ca', process.env.AGENT_WORKFORCE_TUNNEL_CA);
   }
-  return spawn(BIN(), args, connectorSpawnOptions({ stdio: ['pipe', 'pipe', 'inherit'] }));
+  return args;
+}
+function spawnFedSeat(target) {
+  return spawn(BIN(), fedSeatArgs(target), connectorSpawnOptions({ stdio: ['pipe', 'pipe', 'inherit'] }));
 }
 
 function startChild() {
@@ -1824,8 +1831,10 @@ const KEPT_HALF = (why) => ({ ok: false, because: 'an earlier sign-in on this co
 function explainStranded(result, half, name) {
   const stranded = half && half.stranded;
   // Only the same-account answer: another account's name ("that name is taken")
-  // or this account's own name rule is not this computer's doing.
-  if (!stranded || !result || result.ok || !/already in use by a Mac on this account/i.test(String(result.because || ''))) return result;
+  // or this account's own name rule is not this computer's doing. #4645: "a Mac" is
+  // the coordinator's wording today and "a computer" the wording it can move to once
+  // installs carry this reader; both are the same answer.
+  if (!stranded || !result || result.ok || !/already in use by a (?:Mac|computer) on this account/i.test(String(result.because || ''))) return result;
   // Replaced, not added to: the coordinator's sentence ("If that is this Mac, it
   // is already signed in / set up") is false here. The retire's reason went to
   // the log in clearHalfIdentity.
@@ -1955,7 +1964,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { COORDINATOR, fetchFederationLive, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { COORDINATOR, fedSeatArgs, fetchFederationLive, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,
