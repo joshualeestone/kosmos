@@ -39,3 +39,19 @@ held needlessly until the reset: the safe direction, it costs only delay.
 - 27 mutations by the test author, each reddening its intended arm; plus the assigner step skip removed: exactly the
   step-held test reds.
 - NOT yet: the full suite (other existing pins may count these call sites).
+
+## Review iteration 1 (blind, opus)
+- (W) FIXED: the auto-retell spent its one retell per change (and wrote the instructions) before the held line, so the
+  "listed" line was lost for the whole pause. The hold is now in autoretellTick's ready(): not ready, looked at again.
+- (W) FIXED: every held sender fired at every agy agent in the minute the pool refilled, ahead of PR A's staggered
+  resume. The pool now stays held for GRACE_MS + STAGGER_MS per agy agent after its reset. A card drops quotaUntil at
+  its reset, so the latest reset is remembered in memory (POOL_MEMO; a board restart forgets it: that one tail is lost).
+  And the resume sweep resumes nobody while any agy card is still paused (one pool, not one reset per card).
+- (W) FIXED: heldForQuota found the card by exact sessionName while deliver uses chat.resolveCard; it now uses
+  resolveCard, so the gate and the delivery mean the same card.
+- (N) FIXED: the quota hold's act is quota-held (agentnudge's hourly cap already said held); a held recommender item
+  is logged once per pause; the assigner comment names deliverAutomatic.
+- (N) LEFT: the timer-closure pins are a hand-written list (a new timer on chat.deliver is not caught); the givePart
+  pin checks order, not brace nesting; a held recommender peer is not asked for that item (decided above).
+- Measured: 260/260 across the new files and the touched modules' files. Mutations: no release tail, the resume
+  ignoring the pool, and ready() not held each red exactly their own test.
