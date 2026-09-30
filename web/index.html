@@ -1776,6 +1776,9 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 /* #3946: the identity mark (or chosen picture), mirrored as the name is typed. */
 .ctype-dot.has-mark { background-size: cover; background-position: center; background-repeat: no-repeat; }
 @media (max-width: 40rem) { .ctype { grid-template-columns: 1fr; } }
+/* #4556: on the Swarm path only the Swarm card shows (the swarm's preview, not a choice), full width. */
+.ctype-opt[hidden] { display: none; }
+.ctype:has(> .ctype-opt[hidden]) { grid-template-columns: 1fr; }
 /* Sliders: the mock's value beside the track, gold. */
 .swrow, .swticks { max-width: 26rem; }
 .swrow { display: flex; align-items: center; gap: 12px; }
@@ -6910,6 +6913,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    false with nobody editing it.) Removing the stranded separator (the previous round) fixed the
    symptom above the fold and not this. */
 .dm.mine .dm-w { text-align: right; }
+/* #4556 design shots: the role menu at 16px on a phone, so iOS does not zoom when it is tapped (the Swarm screen
+   opens on it). */
+@media (max-width: 40rem) { #rolesel { font-size: 16px; } }   /* the New Agent phone layout's breakpoint */
 .dmnone { font-size: .875rem; color: var(--k-ink-2); margin: 0; }
 /* #4612: what a Muse agent answered in its own window when it never replied here. Kept in the person's own reading
    size, line breaks as written, and bounded so a long answer scrolls instead of pushing the composer away. */
@@ -7828,7 +7834,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 
 /* #3042 (Josh, 2026-09-14): while the agent is being made (the 'made' step), the
    "All agents" back button is removed so a person cannot accidentally leave
-   mid-creation. cstep() toggles the [hidden] attribute on the three steps, so a
+   mid-creation. cstep() shows one step at a time through the [hidden] attribute, so a
    visible #cstep-made means we are on the progress screen; :has() keys the removal
    off exactly that state, leaving the button on the role/name steps where leaving
    before submit is safe. The top tab bar stays as the way out, the same pattern as
@@ -8823,6 +8829,34 @@ html:has(> body > #fr-choice:not([hidden])) { overflow: hidden; scrollbar-gutter
 .frc-btn:hover:not(:disabled) { border-color: var(--frc-gold); }
 .frc-btn:focus-visible { outline: 2px solid var(--frc-gold); outline-offset: 2px; }
 .frc-btn:disabled { opacity: 0.6; cursor: default; }
+/* #4556: New Agent's first screen, three large choices with line art in the first-run choice screen's shape
+   (#4356: 280px cards, 90px art, gold dots are agents), on the page's own tokens so light and dark follow the
+   theme. At phone width the cards stack and the art shrinks. */
+#panel-create:has(#cstep-kind:not([hidden])) { max-width: 60rem; }
+.nak-buttons { display: flex; flex-wrap: wrap; gap: 18px; justify-content: center; width: 100%; margin-top: 8px; }
+.nak-btn { flex: 1 1 240px; max-width: 300px; min-height: 210px; box-sizing: border-box; padding: 26px 18px 18px;
+           border-radius: 16px; border: 1px solid var(--separator); background: var(--bg-elevated); color: var(--k-ink);
+           display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; text-align: center;
+           font: inherit; }
+.nak-art { display: block; flex: none; width: 100%; max-width: 278px; height: 90px; margin-bottom: 16px;
+           fill: none; stroke: var(--label-2); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.nak-art .nak-gold { fill: var(--gold); stroke: none; }
+.nak-name { font: 600 17px/22px var(--font-ui); }
+.nak-desc { font-size: 14px; line-height: 1.4; color: var(--label-2); }
+.nak-btn:hover:not(:disabled) { border-color: var(--gold); }
+.nak-btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.nak-btn[hidden] { display: none; }
+.nak-team-opt { padding: 16px 0; border-top: 1px solid var(--separator); }
+.nak-team-opt:first-of-type { border-top: 0; }
+.nak-team-opt.nak-team-only { border-top: 0; padding-top: 0; }   /* #4556: the org chart alone, no divider above it */
+.nak-team-opt select { width: 100%; max-width: 100%; }
+@media (max-width: 40rem) {
+  .nak-btn { flex-basis: 100%; max-width: none; min-height: 0; flex-direction: row; text-align: left;
+             padding: 14px 16px; gap: 14px; flex-wrap: wrap; }
+  .nak-art { width: 124px; height: 40px; margin: 0; align-self: center; }   /* Mona's review: the art about 40px tall */
+  .nak-name { flex: 1 1 0; min-width: 0; }   /* beside the art, wrapping to two lines (Mona's review), never below it */
+  .nak-desc { flex-basis: 100%; }
+}
 .fr-back { position: fixed; inset: 0; z-index: 60;
            overflow-y: auto; display: flex; justify-content: center;
            padding: var(--space-8) var(--space-5); }
@@ -13965,9 +13999,22 @@ window.kosmosMeasureScrollbarWidth();
      screenshotted and shared. -->
 <section class="panel" id="panel-create" hidden>
   <button class="back" id="create-back">&#8592; All agents</button>
+  <!-- #4556: back from a path's second screen to the three-way choice. Shown only on those screens. -->
+  <button class="back" id="create-path-back" type="button" hidden>&#8592; Choose another kind</button>
 
-  <div id="cstep-role">
-    <h2>What should this agent do?</h2>
+  <!-- #4556 (Josh, #4554, 2026-09-29 09:06): the first screen is three large side-by-side choices with line art.
+       Gold dots are agents, as in the first-run choice screen's art (#4356). Each opens its own second screen. -->
+  <div id="cstep-kind">
+    <h2 id="nak-title">What would you like to create?</h2>
+    <div class="nak-buttons" role="group" aria-labelledby="nak-title">
+      <button type="button" class="nak-btn" data-path="single"><svg class="nak-art" viewBox="0 0 278 90" width="278" height="90" aria-hidden="true" focusable="false"><circle cx="139" cy="45" r="30"/><circle class="nak-gold" cx="139" cy="45" r="13"/></svg><span class="nak-name">Create a Single Agent</span><span class="nak-desc">One agent for one job</span></button>
+      <button type="button" class="nak-btn" data-path="team"><svg class="nak-art" viewBox="0 0 278 90" width="278" height="90" aria-hidden="true" focusable="false"><path d="M139 26V45M76 45H202M76 45V62M118 45V62M160 45V62M202 45V62"/><circle class="nak-gold" cx="139" cy="17" r="11"/><circle class="nak-gold" cx="76" cy="72" r="9"/><circle class="nak-gold" cx="118" cy="72" r="9"/><circle class="nak-gold" cx="160" cy="72" r="9"/><circle class="nak-gold" cx="202" cy="72" r="9"/></svg><span class="nak-name">Create a Team of Agents</span><span class="nak-desc">A lead and the people who report to it</span></button>
+      <button type="button" class="nak-btn" data-path="swarm" id="nak-swarm" hidden><svg class="nak-art" viewBox="0 0 278 90" width="278" height="90" aria-hidden="true" focusable="false"><circle cx="139" cy="45" r="38"/><circle class="nak-gold" cx="139" cy="45" r="11"/><circle class="nak-gold" cx="113" cy="30" r="8"/><circle class="nak-gold" cx="166" cy="30" r="8"/><circle class="nak-gold" cx="110" cy="60" r="8"/><circle class="nak-gold" cx="168" cy="60" r="8"/><circle class="nak-gold" cx="139" cy="17" r="6"/><circle class="nak-gold" cx="139" cy="73" r="6"/></svg><span class="nak-name">Create a Swarm of Autonomous Agents</span><span class="nak-desc">Many agents that answer as one</span></button>
+    </div>
+  </div>
+
+  <div id="cstep-role" hidden>
+    <h2 id="cstep-role-title" tabindex="-1">What should this agent do?</h2>
     <!-- #737: the pack's line under the heading (Josh, 2026-08-24 21:12,
          "match up the design to the pack design"). -->
     <p class="dhint" style="margin:-6px 0 14px;">You can change any of this later.</p>
@@ -14120,27 +14167,41 @@ window.kosmosMeasureScrollbarWidth();
              the scan finds any; the paste/choose controls above work regardless. -->
         <div class="import-found" id="import-found" hidden></div>
       </div>
-      <!-- ⚠️ FIFTH OPTION: upload an org chart (#1280). It is the ONLY entry in
-           this list that creates MANY agents at once, so it needs what a bulk
-           operation needs and the other four do not: a preview with a count
-           before it commits, and a way back. Objective is THROUGHPUT (Josh's
-           ruling) -- paste 15-20 names and titles, get that many agents in
-           seconds -- not a clever chart parser. Gated on OWN_ROLE like pick-own
-           and pick-import, because each row is created down the SAME 'own'
-           (define-your-own) path, its title as the role label. Names are OFF by
-           default (an agent under a real person's name has consequences in logs,
-           commits and messages); the person's name is a label the operator opts
-           into, never the agent's machine name unless they ask. -->
-      <label class="pick2 own" hidden id="pick-orgchart">
-        <input type="radio" name="rmode" value="orgchart">
-        <span class="pickmark" aria-hidden="true">&#10003;</span>
-        <span class="p2n">Upload an org chart</span>
-        <span class="p2d">Create a whole team at once from a list</span>
-        <span class="p2full">Paste your people and their titles, one per line. We will show you the full list before creating anything, and you can raise or cancel it first.</span>
-      </label>
-      <!-- The panel only exists once its radio is chosen (mirrors #rolepick and
-           #importpick), so the screen stays the options tall until someone asks
-           to build a team. -->
+      </fieldset>
+    </div>
+    <div class="fmsg" id="roles-msg" role="status" aria-live="polite"></div>
+    <!-- ⚠️ THE PACK'S FOOTER: right-aligned, one primary, and the SAME size on
+         both steps. Its own comment says why the two must match: "two primary
+         buttons in one flow at two different sizes reads as two different
+         weights." -->
+    <div class="sfoot">
+      <button class="btn uprime big" id="role-next" type="button" disabled>Continue</button>
+    </div>
+  </div>
+
+  <!-- #4556: the Team path's second screen. A ready-made team from the seeded catalogue (#4555, created by
+       #4557's openTeamCreate), or the org chart (#1280), moved here from the Single screen. -->
+  <div id="cstep-team" hidden>
+    <h2 id="cstep-team-title" tabindex="-1">Create a Team of Agents</h2>
+    <p class="dhint" style="margin:-6px 0 14px;">A lead and the agents who report to it, made in one go.</p>
+    <div class="nak-team-opt">
+      <!-- Mona's review: no dropdown or disabled Create while no teams exist; the note below says so once. -->
+      <div id="team-seeded-pick">
+        <label class="flabel" for="team-seeded">Pick a ready-made team</label>
+        <select id="team-seeded" disabled><option value="">Loading the teams...</option></select>
+        <p class="rolehelp" id="team-seeded-desc"></p>
+        <div class="importrow">
+          <button class="btn uprime" type="button" id="team-seeded-go" disabled>Create this team</button>
+        </div>
+      </div>
+      <p class="rolelimit" id="team-seeded-msg" role="status" aria-live="polite" hidden></p>
+    </div>
+    <p class="rolelimit" id="team-orgchart-msg" role="status" aria-live="polite" hidden></p>
+    <div class="nak-team-opt" id="team-orgchart-opt" hidden>
+      <p class="flabel" id="team-orgchart-label">Or upload an org chart</p>
+      <div class="importrow">
+        <button class="btn" type="button" id="team-orgchart-open" aria-expanded="false" aria-controls="orgchartpick">Upload an org chart</button>
+      </div>
       <div class="rolepick" id="orgchartpick" hidden>
         <label class="flabel" for="orgchart-text">Your people</label>
         <textarea id="orgchart-text" rows="6" placeholder="One person per line, for example:&#10;Marketing Lead&#10;Sarah Chen, Head of Sales&#10;Engineer"></textarea>
@@ -14202,23 +14263,14 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <p class="rolelimit" id="orgchart-msg" role="status" aria-live="polite" hidden></p>
       </div>
-      </fieldset>
-    </div>
-    <div class="fmsg" id="roles-msg" role="status" aria-live="polite"></div>
-    <!-- ⚠️ THE PACK'S FOOTER: right-aligned, one primary, and the SAME size on
-         both steps. Its own comment says why the two must match: "two primary
-         buttons in one flow at two different sizes reads as two different
-         weights." -->
-    <div class="sfoot">
-      <button class="btn uprime big" id="role-next" type="button" disabled>Continue</button>
     </div>
   </div>
 
   <div id="cstep-name" hidden>
     <h2 id="create-meet">Set up your agent</h2>
     <p id="create-blurb"></p>
-    <!-- #3564: Agent / Swarm, shown only when the board's engine can make a swarm (SWARMS_ON). Native radios in
-         a fieldset, as the other choices here; the card is the label. -->
+    <!-- #3564 / #4556: the kind now comes from New Agent's first screen. On the Swarm path the Swarm card shows alone
+         as the swarm's preview; on the Single path neither shows. The radios stay as the state createKind() reads. -->
     <fieldset class="ctype" id="create-kind" hidden>
       <legend class="vh">What kind of agent</legend>
       <label class="ctype-opt"><input type="radio" name="create-kind" value="agent" aria-label="Agent" checked><span class="ctype-dot" id="create-kind-agent-face" aria-hidden="true"></span><span><b>Agent</b><span class="d">One agent, works on one thing at a time.</span></span></label>
@@ -21322,6 +21374,7 @@ async function tick() {
        ordinary agent, present only when the engine is in). An empty board shows neither, so New agent offers
        Swarm once the flag lands (asked of the engine on #3564). */
     SWARMS_ON = data.swarms === true || (Array.isArray(data.agents) && data.agents.some((x) => x && Object.prototype.hasOwnProperty.call(x, 'swarm')));
+    { const ns = document.getElementById('nak-swarm'); if (ns) ns.hidden = !SWARMS_ON; }   // #4556: the Swarm choice, once the board says it can
     swarmCreatePaint();
     /**
      * 🛑 THE ROOM'S WORKING LINE PAINTS HERE, ON THE CLOCK ITS DATA ARRIVES ON.
@@ -42117,7 +42170,7 @@ function placeProjectsView(cons, wasCons) {
   }
 }
 /* Open the create panel inside the consolidated display column, staying in the consolidated view.
-   openCreate has already reset the form and set cstep('role'); this only swaps the display column
+   openCreate has already reset the form and set its first step (cstep('kind'), or 'role' for the import link); this only swaps the display column
    to the create panel (hiding the project views), keeps the projects list beside it, and does NOT
    showTab (which would drop body.consolidated and kick to the tab view -- the #3053 bug). Guarded
    on body.consolidated for the same reason openConsolidatedSettings is. */
@@ -46779,68 +46832,237 @@ let CREATING = false;      // a create is in flight; guards the double-click
 let IMPORT_GEN = 0;
 
 function cstep(which) {
-  ['role', 'name', 'made'].forEach((s) => {
+  ['kind', 'role', 'team', 'name', 'made'].forEach((s) => {
     document.getElementById('cstep-' + s).hidden = (s !== which);
   });
+  /* #4556: Back to the three-way choice, only from a path's second screen. */
+  document.getElementById('create-path-back').hidden = !(which === 'role' || which === 'team');
+  /* Mona's review: one back link on a second screen, "Choose another kind"; All agents is one step further back. */
+  document.getElementById('create-back').hidden = (which === 'role' || which === 'team');
 }
+
+/* #4556: which of New Agent's three paths the person chose on the first screen: 'single', 'team' or 'swarm'.
+   Single and Swarm share the role screen (each shows only its own options); Team has its own screen. The kind
+   of agent (agent or swarm) now comes from the path, so the step-2 Agent/Swarm selector is never shown. */
+let CREATE_PATH = null;
+function chooseCreatePath(path) {
+  CREATE_PATH = path;
+  const kind = document.querySelector('input[name="create-kind"][value="' + (path === 'swarm' ? 'swarm' : 'agent') + '"]');
+  if (kind) kind.checked = true;
+  swarmCreatePaint();
+  if (path === 'team') {
+    cstep('team'); loadSeededTeams(); document.getElementById('cstep-team-title').focus();
+    // The org chart needs the roles' own entry: load them if there are none (a failed load is retried here),
+    // otherwise repaint the Team options from what is there.
+    // ROLES_GEN moves either way, so Team is the newest caller too and an open's late answer does not paint under it.
+    if (!(ROLES && ROLES.length)) loadRoles('pm'); else { ROLES_GEN += 1; paintPathOptions(); }
+    return;
+  }
+  document.getElementById('cstep-role-title').textContent = path === 'swarm' ? 'What should this swarm do?' : 'What should this agent do?';
+  cstep('role');
+  document.getElementById('cstep-role-title').focus();   // the chosen card is now hidden; keep the keyboard on the new screen
+  /* A swarm has no Project Manager, no import and no org chart (Josh, #4554), so it opens on the role menu. */
+  loadRoles(path === 'swarm' ? 'list' : 'pm');
+}
+
+/* #4556: the Team screen. The ready-made teams come from the seeded catalogue (GET /api/teams/seeded, #4555),
+   and creating one is #4557's openTeamCreate(key). Until each exists, the screen says so rather than offering a
+   control that does nothing. The org chart (#1280) opens its existing panel, moved here from the Single screen. */
+let SEEDED_TEAMS = null;
+let SEEDED_GEN = 0;
+function resetTeamStep() {
+  ORGCHART_GEN += 1;   // a team create still in flight must not paint over a screen the person has left
+  orgchartEndFileFlow();   // #4559's leave rule; the result and its Undo stay until the panel is reopened
+  SEEDED_GEN += 1;
+  document.getElementById('orgchartpick').hidden = true;
+  document.getElementById('team-orgchart-open').setAttribute('aria-expanded', 'false');
+  const m = document.getElementById('team-seeded-msg'); m.textContent = ''; m.hidden = true;
+}
+function teamSaySeeded(text) {
+  const m = document.getElementById('team-seeded-msg');
+  m.textContent = text; m.hidden = !text;
+}
+function paintSeededTeam() {
+  const sel = document.getElementById('team-seeded');
+  const t = (SEEDED_TEAMS || []).find((x) => x.key === sel.value) || null;
+  const n = t ? (Array.isArray(t.members) ? t.members.length : (Number.isFinite(Number(t.count)) ? Number(t.count) : null)) : null;   // #4555's shape carries members
+  /* Review round 5: #4555's blurbs end without a full stop; the role screen adds one the same way. */
+  const blurb = t && t.blurb ? (/[.!?]$/.test(t.blurb.trim()) ? t.blurb.trim() : t.blurb.trim() + '.') : '';
+  document.getElementById('team-seeded-desc').textContent =
+    t ? blurb + (n ? (blurb ? ' ' : '') + n + (n === 1 ? ' agent.' : ' agents.') : '') : '';
+  document.getElementById('team-seeded-go').disabled = !t;
+}
+async function loadSeededTeams() {
+  const gen = ++SEEDED_GEN;
+  const sel = document.getElementById('team-seeded');
+  sel.disabled = true;
+  document.getElementById('team-seeded-go').disabled = true;
+  teamSaySeeded('');
+  /* Round 3: nothing of the dropdown until the answer is in, so a slow first load does not flash a control the
+     no-teams layout then removes. */
+  if (!SEEDED_TEAMS) {
+    // Round 4: the loading layout is the no-teams one, so the answer arriving moves nothing.
+    document.getElementById('team-seeded-pick').hidden = true;
+    document.getElementById('team-orgchart-label').hidden = true;
+    document.getElementById('team-orgchart-opt').classList.add('nak-team-only');
+    document.getElementById('team-orgchart-open').classList.add('uprime');
+  }
+  if (!SEEDED_TEAMS) {
+    try {
+      const res = await fetch('/api/teams/seeded', { cache: 'no-store' });
+      if (!res.ok) throw new Error('status ' + res.status);
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : (data && Array.isArray(data.teams) ? data.teams : []);
+      const teams = list.filter((t) => t && typeof t.key === 'string' && typeof t.label === 'string')
+        .sort((a, b) => (Number(a.rank) || 0) - (Number(b.rank) || 0));
+      SEEDED_TEAMS = teams.length ? teams : null;   // round 3: an empty list is asked again next visit, like a 404
+    } catch { SEEDED_TEAMS = null; }
+  }
+  if (gen !== SEEDED_GEN) return;
+  /* Review round 5: a catalogue with no way to create a team yet (#4557's openTeamCreate) is still "coming soon":
+     a Create that cannot create is the do-nothing control Mona ruled out. */
+  const none = !SEEDED_TEAMS || !SEEDED_TEAMS.length || typeof window.openTeamCreate !== 'function';
+  /* Mona's review: with no teams, no control that can do nothing. The note says it once, and Upload an org chart is
+     the screen's main (gold) action; the dropdown and Create come back once #4555 seeds teams. */
+  document.getElementById('team-seeded-pick').hidden = none;
+  document.getElementById('team-orgchart-open').classList.toggle('uprime', none);
+  /* Mona's second look: with no teams the gold button says it all, so no label repeating it and no divider above. */
+  document.getElementById('team-orgchart-label').hidden = none;
+  document.getElementById('team-orgchart-opt').classList.toggle('nak-team-only', none);
+  if (none) {
+    sel.innerHTML = '';
+    document.getElementById('team-seeded-desc').textContent = '';
+    teamSaySeeded('Ready-made teams are coming soon.');
+    return;
+  }
+  const chosen = sel.value;   // a revisit keeps the team they had picked, while it is still offered
+  sel.innerHTML = '<option value="">Choose a team</option>'
+    + SEEDED_TEAMS.map((t) => '<option value="' + esc(t.key) + '">' + esc(t.label) + '</option>').join('');
+  if (chosen && SEEDED_TEAMS.some((t) => t.key === chosen)) sel.value = chosen;
+  sel.disabled = false;
+  paintSeededTeam();
+}
+document.getElementById('team-seeded').addEventListener('change', paintSeededTeam);
+document.getElementById('team-seeded-go').addEventListener('click', () => {
+  const key = document.getElementById('team-seeded').value;
+  if (!key) return;
+  if (typeof window.openTeamCreate === 'function') { window.openTeamCreate(key); return; }
+  teamSaySeeded('Creating a ready-made team is coming soon. You can upload an org chart now.');
+});
+document.getElementById('team-orgchart-open').addEventListener('click', () => {
+  const panel = document.getElementById('orgchartpick');
+  const opening = panel.hidden;
+  ORGCHART_GEN += 1;
+  if (opening) resetOrgchartPreview();
+  else orgchartEndFileFlow();   // #4559's leave rule; the result and its Undo stay until the panel is reopened
+  panel.hidden = !opening;
+  document.getElementById('team-orgchart-open').setAttribute('aria-expanded', opening ? 'true' : 'false');
+  if (opening) document.getElementById('orgchart-text').focus();
+});
+document.querySelectorAll('#cstep-kind .nak-btn').forEach((b) => {
+  b.addEventListener('click', () => chooseCreatePath(b.dataset.path));
+});
+document.getElementById('create-path-back').addEventListener('click', () => {
+  resetTeamStep();
+  /* Review round 5: an import still being read must not move the person on to "Set up your agent" after they went
+     back to the choice (the panel stays open now, unlike All agents). The import's own generation check bails. */
+  IMPORT_GEN += 1;
+  const imp = document.getElementById('import-load'); if (imp) imp.disabled = false;
+  const from = CREATE_PATH;
+  CREATE_PATH = null;
+  cstep('kind');
+  const card = document.querySelector('#cstep-kind .nak-btn[data-path="' + from + '"]');
+  if (card) card.focus();   // back to the card the person came from
+});
 
 function roleByKey(key) {
   if (key === 'own') return OWN_ROLE;
   return (ROLES || []).find((r) => r.key === key) || null;
 }
 
-async function loadRoles(initialMode) {
-  // #1652: the create form opens on 'pm' by default; the ONLY caller that passes
-  // a mode is the first-run "look in my Documents/Downloads" link, which passes
-  // 'import' so the panel opens straight on import (and populateFoundImports runs
-  // the on-demand scan). Threaded through here rather than a separate pickMode
+let ROLES_FAILED = false;   // #4556 review: the last roles load failed (the Team screen says so)
+let ROLES_GEN = 0;   // #4556: only the latest call applies its default (openCreate and a path choice can both be in flight)
+/* #4556 review: ONE /api/roles request at a time, shared by every caller. openCreate and a path choice (Team,
+   then Back and Single) used to send one each, and whichever answered last wrote the shared lists; a stale one
+   could leave the screen half-built. Now the request writes ROLES / OWN_ROLE / CREATE_MODELS once, and only the
+   newest caller paints (loadRoles below). */
+let ROLES_FETCH = null;
+let ROLES_BUILT = false;   // buildPicker ran for the current ROLES
+function fetchRoles() {
+  if (!ROLES_FETCH) {
+    ROLES_FETCH = (async () => {
+      // ?catalogue=1: opening the picker is what downloads the ready-made roles (#4632).
+      const res = await fetch('/api/roles?catalogue=1', { cache: 'no-store' });
+      if (!res.ok) throw new Error('status ' + res.status);
+      const data = await res.json();
+      const roles = (data && data.roles) || [];
+      if (!roles.length) throw new Error('none came back');
+      ROLES = roles;
+      ROLES_COMPLETE = !!(data && data.catalogue && data.catalogue.loaded);
+      // Same payload, so the board and this form can never hold different titles.
+      learnRoleTitles(ROLES);
+      CREATE_MODELS = (data && data.models) || [];
+      OWN_ROLE = (data && data.own) || null;
+      ROLES_BUILT = false;
+      ROLES_FAILED = false;
+    })().finally(() => { ROLES_FETCH = null; });
+  }
+  return ROLES_FETCH;
+}
+async function loadRoles(initialMode, opening) {
+  const gen = ++ROLES_GEN;
+  // #1652 / #4556: the mode the role screen opens on. The callers: openCreate ('pm', or 'import' for the first-run
+  // "look in my Documents/Downloads" link, so the panel opens straight on import and populateFoundImports runs the
+  // on-demand scan), chooseCreatePath ('pm' for Single and Team, 'list' for Swarm), and the ?tab=create boot (no
+  // mode, so 'pm'). Any other value is 'pm'. Threaded through here rather than a separate pickMode
   // after openCreate, because loadRoles' async pickMode default would otherwise
   // override that later call and land the panel back on 'pm'.
-  const mode = initialMode === 'import' ? 'import' : 'pm';
+  const mode = initialMode === 'import' || initialMode === 'list' ? initialMode : 'pm';
   const msg = document.getElementById('roles-msg');
-  // ⚠️ Fetched once, but the DEFAULT is re-applied every time the panel opens.
-  // Returning early on the second visit left the picker rendered from last
-  // time with its old choice still marked, while `openCreate` had just
-  // cleared it -- a screen showing a selection the page did not have.
+  const paint = () => {
+    msg.textContent = '';
+    if (!ROLES_BUILT) { buildPicker(); ROLES_BUILT = true; }
+    // ⚠️ Fetched once, but the DEFAULT is re-applied every time the panel opens.
+    // Returning early on the second visit left the picker rendered from last
+    // time with its old choice still marked, while `openCreate` had just
+    // cleared it -- a screen showing a selection the page did not have.
+    updateRecPill(); paintPathOptions(); pickMode(mode);
+  };
   /* #4632: a menu without the downloaded catalogue (offline, or the download not done yet) is asked
-     for again on the next open; the board decides whether to try the network again. */
-  if (ROLES && ROLES.length && ROLES_COMPLETE) { updateRecPill(); pickMode(mode); return; }
+     for again on the next OPEN (openCreate and the ?tab=create boot pass `opening`); the board decides whether to
+     try the network again. A path choice paints the menu already held: it does not ask again, and being the newest
+     caller it is not painted over by the open's answer when that lands. */
+  if (ROLES && ROLES.length && (ROLES_COMPLETE || !opening)) { paint(); return; }
   msg.textContent = 'Loading…';
   try {
-    // ?catalogue=1: opening the picker is what downloads the ready-made roles (#4632).
-    const res = await fetch('/api/roles?catalogue=1', { cache: 'no-store' });
-    if (!res.ok) throw new Error('status ' + res.status);
-    const data = await res.json();
-    ROLES = (data && data.roles) || [];
-    ROLES_COMPLETE = !!(data && data.catalogue && data.catalogue.loaded);
-    // Same payload, so the board and this form can never hold different titles.
-    learnRoleTitles(ROLES);
-    CREATE_MODELS = (data && data.models) || [];
-    OWN_ROLE = (data && data.own) || null;
-    /* #591: the working rules, shown under the instructions box. Absent
-       from an older engine, the fold hides rather than showing an empty box. */
-    if (!ROLES.length) throw new Error('none came back');
-    msg.textContent = '';
-    buildPicker();
-    pickMode(mode);
+    await fetchRoles();
   } catch (err) {
+    if (gen !== ROLES_GEN) return;   // #4556: a newer call owns the screen
+    /* An open's refetch for an incomplete catalogue that fails (offline is when it is incomplete) keeps the menu
+       already held: it is still the copy agents are created from. */
+    if (opening && ROLES && ROLES.length) { paint(); return; }
     // ⚠️ Do NOT fall back to a hardcoded list. The blurb a person reads while
     // choosing has to be the copy the agent is actually created from, and a
     // local copy of the menu is exactly how those two drift apart.
     ROLES = null;
-    // And the pane-2 caches: a reopened panel whose fetch failed must not
-    // proceed on the previous load's own-entry or models (the drift the
+    // And the pane-2 caches: with no menu held (the branch above), a panel whose fetch failed must not
+    // proceed on an earlier load's own-entry or models (the drift the
     // no-hardcoded-list rule exists for, arriving through a stale cache).
     OWN_ROLE = null;
     CREATE_MODELS = [];
-    ['pick-pm', 'pick-list', 'pick-own', 'pick-import', 'pick-orgchart', 'rolepick', 'importpick', 'orgchartpick'].forEach((id) => {
+    ROLES_FAILED = true;
+    paintTeamOrgchartNote();
+    ['pick-pm', 'pick-list', 'pick-own', 'pick-import', 'rolepick', 'importpick', 'team-orgchart-opt'].forEach((id) => {
       document.getElementById(id).hidden = true;
     });
     // Not `esc()`: this goes into textContent, which does its own escaping, so
     // escaping first renders an `&` in the error as a literal `&amp;`.
     msg.textContent = 'We could not read the list of roles, so there is nothing safe to choose from. (' + err.message + ')';
     document.getElementById('role-next').disabled = true;
+    return;
   }
+  if (gen !== ROLES_GEN) return;   // #4556: a newer call owns the screen and paints it
+  paint();
 }
 
 /**
@@ -46867,32 +47089,63 @@ function buildPicker() {
      rather than a description. That moved to the last step in 0.2.92 and is
      still shown before the agent exists. */
   updateRecPill();
-  const rest = ROLES.filter((r) => r.key !== pm.key);
+  paintRoleMenu();
+  document.getElementById('pick-list').hidden = false;
+  // Only offered when the payload actually served the entry: a radio whose
+  // Continue silently does nothing (roleByKey('own') -> null -> return) is
+  // worse than the option being absent from an older server.
+  document.getElementById('pick-own').hidden = !OWN_ROLE;
+  paintPathOptions();
+}
+
+/* #4556 (Mona's design review): the roles that direct other agents or projects. A swarm has no one directing it
+   (Josh, #4554: no project-manager option), so on the Swarm path these are left out and the menu opens on the first
+   role that remains. Operations Manager stays: it keeps recurring work moving, it does not direct agents. */
+const SWARM_LEFT_OUT = ['pm', 'director'];
+/* The "Pick another role" menu for the path chosen, in the catalogue's own order of first appearance. Written only
+   when its contents change, so a pick in it survives a repaint that changes nothing. */
+function paintRoleMenu() {
+  const swarmPath = CREATE_PATH === 'swarm';
+  const rest = (ROLES || []).filter((r) => r.key !== 'pm' && !(swarmPath && SWARM_LEFT_OUT.includes(r.key)));
   document.getElementById('pick-list-desc').textContent =
     rest.length + ' ready-made jobs, from bookkeeping to security review';
-  // Optgroups in the catalogue's own order of first appearance.
   const groups = [];
   for (const r of rest) {
     let g = groups.find((x) => x.name === r.group);
     if (!g) { g = { name: r.group, roles: [] }; groups.push(g); }
     g.roles.push(r);
   }
-  document.getElementById('rolesel').innerHTML = groups.map((g) =>
+  const html = groups.map((g) =>
     `<optgroup label="${esc(g.name || 'Roles')}">` +
     g.roles.map((r) => `<option value="${esc(r.key)}">${esc(r.label)}</option>`).join('') +
     '</optgroup>').join('');
-  document.getElementById('pick-pm').hidden = false;
-  document.getElementById('pick-list').hidden = false;
-  // Only offered when the payload actually served the entry: a radio whose
-  // Continue silently does nothing (roleByKey('own') -> null -> return) is
-  // worse than the option being absent from an older server.
-  document.getElementById('pick-own').hidden = !OWN_ROLE;
-  // Import uses the `own` role's key, so it is offered on exactly the same
-  // condition the `own` option is.
-  document.getElementById('pick-import').hidden = !OWN_ROLE;
-  // #1280: the org-chart import creates every row down the `own` path, so it is
-  // offered on the same condition as `own` and `import`.
-  document.getElementById('pick-orgchart').hidden = !OWN_ROLE;
+  const sel = document.getElementById('rolesel');
+  const sig = rest.map((r) => r.key + ':' + r.label).join(',');   // round 3/4: keys and names, not the whole menu
+  if (sel.dataset.menu !== sig) { sel.innerHTML = html; sel.dataset.menu = sig; }
+}
+/* #4556: which role-screen options this path offers. Run on every open (buildPicker runs only on the first
+   fetch), so a Swarm visit after a Single one does not keep the Single options. A swarm has no Project Manager
+   and no import (Josh, #4554). */
+function paintPathOptions() {
+  const swarmPath = CREATE_PATH === 'swarm';
+  if (ROLES && ROLES.length) paintRoleMenu();
+  document.getElementById('pick-pm').hidden = swarmPath;
+  // Import uses the `own` role's key, so it is offered on the same condition the `own` option is.
+  document.getElementById('pick-import').hidden = !OWN_ROLE || swarmPath;
+  /* #4556 design shots: with no Project Manager above it (the Swarm path), "another" has nothing to follow. */
+  const listName = document.querySelector('#pick-list .p2n');
+  if (listName) listName.textContent = swarmPath ? 'Pick a role' : 'Pick another role';
+  /* The org chart creates every row down the `own` path, so it is offered on the same condition as `own`. */
+  document.getElementById('team-orgchart-opt').hidden = !OWN_ROLE;
+  paintTeamOrgchartNote();
+}
+/* #4556 review: when the roles could not be read the org chart cannot be offered, and the Team screen says so
+   rather than showing only "Ready-made teams are coming soon." */
+function paintTeamOrgchartNote() {
+  const m = document.getElementById('team-orgchart-msg');
+  const say = ROLES_FAILED && !OWN_ROLE
+    ? 'We could not load what uploading an org chart needs just now. Go back and choose Team again to try again.' : '';
+  m.textContent = say; m.hidden = !say;
 }
 
 /**
@@ -46950,32 +47203,20 @@ function pickMode(mode) {
   const input = document.querySelector(`input[name="rmode"][value="${mode}"]`);
   if (input) input.checked = true;
   document.getElementById('rolepick').hidden = mode !== 'list';
-  /* Import and org-chart each show their own panel and advance with their own
-     button, so the shared Continue is hidden for them and shown for every other
-     mode. */
+  /* Import shows its own panel and advances with its own button, so the shared
+     Continue is hidden for it and shown for every other mode. */
   const importing = mode === 'import';
-  const orgcharting = mode === 'orgchart';
   document.getElementById('importpick').hidden = !importing;
-  document.getElementById('orgchartpick').hidden = !orgcharting;
-  document.getElementById('role-next').hidden = importing || orgcharting;
+  document.getElementById('role-next').hidden = importing;
   /* Supersede any import still in flight so its resolution cannot yank the screen
      after the person moved on, and give the panel a fresh enabled button whenever
      it is shown. */
   IMPORT_GEN += 1;
-  // #1280: any mode change supersedes an in-flight team create (mirrors IMPORT_GEN).
-  ORGCHART_GEN += 1;
   if (importing) {
     document.getElementById('import-load').disabled = false;
     // #1652 PR2: fill (or refresh) the found-on-this-computer list each time the panel
     // opens. Best-effort and async; the paste/choose controls do not wait on it.
     populateFoundImports();
-  }
-  if (orgcharting) {
-    // #1280: a fresh panel each time it opens. The pasted text is kept (like
-    // import-text) so a person who tabbed away does not lose it, but the preview
-    // is hidden and the status cleared -- the text may have changed since the
-    // last parse, so a stale count must not stand as if it still described it.
-    resetOrgchartPreview();
   }
   if (mode === 'pm') {
     PICKED = (roleByKey('pm') || ROLES[0]).key;
@@ -46983,15 +47224,14 @@ function pickMode(mode) {
     // Not in the fetched menu on purpose; the key is the contract with the
     // engine, which holds the example text and the label gate.
     PICKED = 'own';
-  } else if (importing || orgcharting) {
-    // No single role: import sets 'own' on a successful read; org-chart creates
-    // many agents down its own button. The shared Continue stays hidden; each
-    // panel's own button is the advance.
+  } else if (importing) {
+    // No single role: import sets 'own' on a successful read. The shared Continue
+    // stays hidden; the import panel's own button is the advance.
     PICKED = null;
   } else {
     PICKED = document.getElementById('rolesel').value;
   }
-  document.getElementById('role-next').disabled = importing || orgcharting;
+  document.getElementById('role-next').disabled = importing;
   paintPickLimit();
 }
 
@@ -47034,7 +47274,7 @@ document.getElementById('rolesel').addEventListener('change', () => {
 // person reviewed rather than a re-parse of text they may have edited after.
 let ORGCHART_PARSED = null;
 /* Supersedes an in-flight team create the way IMPORT_GEN does for import: bumped
-   on any mode change (pickMode) so a late /api/team response cannot yank the
+   when the Team screen is left or reopened (resetTeamStep, #4556) so a late /api/team response cannot yank the
    screen after the operator switched away or reopened the form. */
 let ORGCHART_GEN = 0;
 /* #1280: the agents the last Create made ({ name, shownAs }), which is exactly what
@@ -47062,6 +47302,18 @@ let ORGCHART_MANY_OK = false;   // the person said yes to starting more than ORG
    never a silent accept. Named rather than inlined so the two do not drift unseen. */
 const ORGCHART_NAME_MAX = 32;
 
+function orgchartEndFileFlow() {
+  /* #4559: leaving or reopening the panel also ends the file flow: no consent box armed for a file the person has
+     moved past, and a picture being read is stopped (the board then stops the model call, which would otherwise
+     run on the person's plan with nobody to see its answer). */
+  if (ORGCHART_READ_CTL) ORGCHART_READ_CTL.abort();
+  const consent = document.getElementById('orgchart-consent');
+  if (consent) consent.hidden = true;
+  ORGCHART_FILE_PENDING = null;
+  ORGCHART_FILE_PEOPLE = null;
+  const note = document.getElementById('orgchart-file-note');
+  if (note && note.dataset.idle) note.textContent = note.dataset.idle;
+}
 function resetOrgchartPreview() {
   ORGCHART_PARSED = null;
   ORGCHART_MANY_OK = false;
@@ -47082,16 +47334,7 @@ function resetOrgchartPreview() {
   const undo = document.getElementById('orgchart-undo');
   if (undo) { undo.hidden = true; undo.disabled = false; }
   orgchartUndoAsking(false);
-  /* #4559: leaving or reopening the panel also ends the file flow: no consent box armed for a file the person has
-     moved past, and a picture being read is stopped (the board then stops the model call, which would otherwise
-     run on the person's plan with nobody to see its answer). */
-  if (ORGCHART_READ_CTL) ORGCHART_READ_CTL.abort();
-  const consent = document.getElementById('orgchart-consent');
-  if (consent) consent.hidden = true;
-  ORGCHART_FILE_PENDING = null;
-  ORGCHART_FILE_PEOPLE = null;
-  const note = document.getElementById('orgchart-file-note');
-  if (note && note.dataset.idle) note.textContent = note.dataset.idle;
+  orgchartEndFileFlow();
 }
 
 /* A title (or a person's name, when opted in) into a machine name the engine
@@ -47498,8 +47741,8 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      its result and Undo with it. The read's model call stops too, and a late answer is no longer current. */
   if (ORGCHART_READ_CTL) ORGCHART_READ_CTL.abort();
   ORGCHART_FILE_SEQ += 1;
-  // Capture the generation: if the operator changes mode or reopens the form while
-  // this create is in flight, pickMode bumps ORGCHART_GEN and every DOM write below
+  // Capture the generation: if the operator leaves the Team screen or reopens the form while
+  // this create is in flight, resetTeamStep bumps ORGCHART_GEN and every DOM write below
   // is skipped, so a late response cannot yank a screen the person has left.
   const gen = ORGCHART_GEN;
   const btn = document.getElementById('orgchart-create');
@@ -48306,8 +48549,14 @@ function swarmCreateTokensPerPoint() {
 function swarmCreatePaint() {
   const box = document.getElementById('create-kind');
   if (!box) return;
-  box.hidden = !SWARMS_ON;
+  /* #4556: the kind comes from New Agent's first screen now (Single or Swarm), so this is no longer a choice.
+     On the Swarm path the Swarm card stays, alone, as the swarm's preview (its circles follow the helpers slider
+     and carry the name's mark, #3946); on the Single path neither card shows. The radio stays as the state
+     createKind() reads. */
   const swarm = createKind() === 'swarm';
+  box.hidden = !swarm;
+  const agentOpt = box.querySelector('input[value="agent"]');
+  if (agentOpt && agentOpt.closest('label')) agentOpt.closest('label').hidden = true;
   document.getElementById('create-swarm').hidden = !swarm;
   const max = Number(document.getElementById('create-swarm-max').value) || 3;
   document.getElementById('create-swarm-max-v').textContent = String(max);
@@ -48365,6 +48614,10 @@ document.body.addEventListener('input', (e) => {
 
 function openCreate(initialMode) {
   PICKED = null;
+  /* #4556: every visit starts on the three-way choice; the first-run import link goes straight to Single. */
+  CREATE_PATH = initialMode === 'import' ? 'single' : null;
+  document.getElementById('nak-swarm').hidden = !SWARMS_ON;
+  resetTeamStep();
   /* #3564: each visit starts as a plain Agent. */
   { const ag = document.querySelector('input[name="create-kind"][value="agent"]'); if (ag) ag.checked = true; }
   swarmCreatePaint();
@@ -48418,7 +48671,8 @@ function openCreate(initialMode) {
   swarmCreatePaint();
   document.getElementById('create-go').disabled = false;
   document.getElementById('role-next').disabled = true;
-  cstep('role');
+  if (CREATE_PATH) { document.getElementById('cstep-role-title').textContent = 'What should this agent do?'; cstep('role'); }
+  else cstep('kind');
   /* #3053: in the consolidated view, open the create panel IN the display column rather than
      showTab('create'), which is not an agents/projects tab and so drops body.consolidated and
      kicks the person to the tab view. Mirrors #rail-me-go -> openConsolidatedSettings for the
@@ -48428,10 +48682,11 @@ function openCreate(initialMode) {
   } else {
     showTab('create');
   }
-  // #1652: passes the mode through to loadRoles' async pickMode, so the first-run
-  // import link (openCreate('import')) lands on the import panel rather than being
-  // reset to 'pm'. Every other caller passes nothing and gets 'pm' as before.
-  loadRoles(initialMode === 'import' ? 'import' : 'pm');
+  // #1652: the first-run import link (openCreate('import')) lands on the import panel, passed through
+  // loadRoles' async pickMode so it is not reset to 'pm'. #4556: every other caller starts on the three-way
+  // choice; the roles still load now, so Single and Swarm open at once, and the chosen path re-applies its own
+  // default (chooseCreatePath).
+  loadRoles(initialMode === 'import' ? 'import' : 'pm', true);
   /* #3877: the created-agent checkbox (#create-tell, restored by #3038, checked by default)
      is deliberately NOT reset on open: it carries the person's choice for the session, and
      the one-click found-agent add reads the same box. (This used to say the box was
@@ -68411,7 +68666,7 @@ if (BOOT_TAB === 'settings' && PARAMS.get('sec')) settingsOpen(PARAMS.get('sec')
 // menu. Without this it renders an empty role list and a dead Continue —
 // exactly the failure the instruction editor had when it shipped enabled and
 // empty on its own deep link.
-if (BOOT_TAB === 'create') loadRoles();
+if (BOOT_TAB === 'create') loadRoles(undefined, true);
 /* 🔑 THE BOARD NEEDS THE CATALOGUE TOO, and until now only the create form
    ever fetched it. An agent card reads its role out of the agent's own
    instruction file as prose, so "project manager" is what is on disk and what

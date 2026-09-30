@@ -511,9 +511,10 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     // T14: the card follows its target when the page scrolls. No screen with a tip scrolls at this size since Create
     // Agent lost its tip (#3755), so this opens a screen tip on the create form's heading, as its tip was.
     await page.setViewportSize({ width: 1280, height: 480 });
-    await page.evaluate(() => openCreate());
+    // #4556: New Agent opens on the short three-way choice; Single leads to the role screen, which scrolls here.
+    await page.evaluate(() => { openCreate(); chooseCreatePath('single'); });
     await page.waitForTimeout(400);
-    await page.evaluate(() => tipShow({ id: 'agents', title: 'Make an agent', at: '#panel-create h2', side: true, show: () => true,
+    await page.evaluate(() => tipShow({ id: 'agents', title: 'Make an agent', at: '#cstep-role-title', side: true, show: () => true,
       body: '<p>Give it a name and a picture so you can tell it apart, then tell it what the job is in plain words. You can change all of it later.</p>' }));
     const top0 = await page.evaluate(() => document.getElementById('tipcard').getBoundingClientRect().top);
     const title14 = (await cardState(page)).title;

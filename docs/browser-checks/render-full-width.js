@@ -145,12 +145,26 @@ const say = (ok, label, extra) => {
     await pg.waitForTimeout(400);
     await pg.click('#new-agent');
     await pg.waitForTimeout(700);
-    const create = await pg.evaluate(() => {
+    const measureCreate = () => pg.evaluate(() => {
       const p = document.getElementById('panel-create');
       if (!p || p.hidden) return null;
       const r = p.getBoundingClientRect();
-      return { left: Math.round(r.left), right: Math.round(r.right), width: Math.round(r.width) };
+      const kind = document.getElementById('cstep-kind');
+      return { left: Math.round(r.left), right: Math.round(r.right), width: Math.round(r.width),
+        kindStep: !!(kind && !kind.hidden && kind.getBoundingClientRect().height > 0) };
     });
+    /* #4556: the first step (Single / Team / Swarm, three big buttons in a row) widens the panel
+       to 60rem; every step after it is the 34rem form. Both are measured. */
+    const kindStep = await measureCreate();
+    say(Boolean(kindStep && kindStep.kindStep), theme + ': New Agent opens on the Single / Team / Swarm step', JSON.stringify(kindStep));
+    if (kindStep && kindStep.kindStep) {
+      say(Math.abs((kindStep.left + kindStep.right) / 2 - (edges.header.left + edges.header.right) / 2) <= 2,
+        theme + ': the Single / Team / Swarm step is centred on the page', JSON.stringify(kindStep));
+      say(kindStep.width >= 956 && kindStep.width <= 964, theme + ': and is the 60rem measure', String(kindStep.width));
+      await pg.click('#cstep-kind .nak-btn[data-path="single"]');
+      await pg.waitForTimeout(400);
+    }
+    const create = await measureCreate();
     say(Boolean(create), theme + ': the create form is on screen');
     if (create) {
       /* The create form has been a centred 34rem column since 75316b6
@@ -164,6 +178,7 @@ const say = (ok, label, extra) => {
       /* ⚠️ AND IT KEEPS ITS MEASURE. A form stretched to 1712px is the literal
          reading of full width and the one nobody asked for; 34rem is 544px
          at the default 16px, the same band the settings section is held to. */
+      say(!create.kindStep, theme + ': Single went on to the form', JSON.stringify(create));
       say(create.width >= 540 && create.width <= 548, theme + ': and is the 34rem measure', String(create.width));
       await pg.screenshot({ path: path.join(OUT, 'create-' + theme + '.png'), clip: { x: 0, y: 0, width: WIDE, height: 520 } });
     }
