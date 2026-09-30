@@ -80,9 +80,17 @@ test('#4786: handing a part to someone new counts; handing it back does not', ()
   assert.equal(newest(takenOff), T0 + 60000, 'taking someone off counted');
 });
 
-test('#4786: a row dated in the future is clamped to now, so it cannot switch the valve off', () => {
+test('#4786: a row dated in the future is skipped, so it cannot earn room in every later window', () => {
   const id = project([{ m: 1, kind: 'created' }, { m: 60 * 24 * 365, kind: 'closed' }]);
-  assert.equal(newest(id), NOW);
+  assert.deepEqual(taskchat.progressTimes(id, NOW), [M(1)]);
+});
+
+test('#4786: a task file last written before `since` is not read; one written since is', () => {
+  const id = project([{ m: 1, kind: 'created' }, { m: 2, kind: 'closed' }]);
+  const file = taskchat.taskChatFile(id, 1);
+  fs.utimesSync(file, new Date(M(2)), new Date(M(2)));
+  assert.deepEqual(taskchat.progressTimes(id, NOW, M(3)), [], 'a file untouched since `since` was read');
+  assert.deepEqual(taskchat.progressTimes(id, NOW, M(2)), [M(1), M(2)], 'CONTROL: a file written at `since` was skipped');
 });
 
 test('#4786: another project\'s files, a missing folder, and a bad project id read as nothing', () => {

@@ -188,11 +188,13 @@ function read(projectId, number) {
      A pre-assigned task's first holder holds part 1; an added part's first holder is whoever it was added for.
    Talk ('said'), going backwards (reopened, part-reopened, unbuilt), taking someone off, due dates and parents
    do not count. Making tasks or parts IS repeatable (review round 2), which is why the valve's allowance per step
-   is bounded and never resets the count: this list is evidence of work, not a key. A time later than `now` is
-   clamped to now. [] when there is none or nothing can be read (never throws). Reads only this project's task
-   files; the valve calls it only when a room is over its cap. */
+   is bounded and never resets the count: this list is evidence of work, not a key. A row dated after `now` is
+   skipped (review round 5: clamped to now it would count in every later window, past the person's reset). A task
+   file last written before `since` is not read at all: it can hold no step at or after `since`, which is all the
+   valve asks about. [] when there is none or nothing can be read (never throws). Reads only this project's task
+   files; the valve calls it only when a room is over its cap and the limit is on. */
 const PROGRESS_KINDS = new Set(['created', 'assigned', 'built', 'part-added', 'part-closed', 'closed']);
-function progressTimes(projectId, now = Date.now()) {
+function progressTimes(projectId, now = Date.now(), since = 0) {
   const out = [];
   try {
     const k = keyOf(projectId);
@@ -201,6 +203,10 @@ function progressTimes(projectId, now = Date.now()) {
     for (const name of fs.readdirSync(taskChatsDir())) {
       if (!name.startsWith(prefix) || !name.endsWith('.jsonl')) continue;
       const n = Number(name.slice(prefix.length, -'.jsonl'.length));
+      if (since > 0) {
+        const file = taskChatFile(projectId, n);
+        if (!file || fs.statSync(file).mtimeMs < since) continue;
+      }
       const seen = new Set();          // 'closed', 'built', 'part-closed:<id>' already counted once
       const held = new Map();          // partId -> everyone who has held it
       const holders = (partId) => {
@@ -225,8 +231,8 @@ function progressTimes(projectId, now = Date.now()) {
           who.add(row.who);
         }
         if (!counts) continue;
-        const t = Math.min(Date.parse(row.at), now);
-        if (Number.isFinite(t)) out.push(t);
+        const t = Date.parse(row.at);
+        if (Number.isFinite(t) && t <= now) out.push(t);
       }
     }
   } catch {

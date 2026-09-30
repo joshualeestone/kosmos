@@ -1770,11 +1770,12 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      one cheap task creation per budget would have turned into no valve at all. The worst a loop that also makes
      tasks can do is run to twice the cap. The task files are read only when the room is already over its cap and
      the limit is on (with it off the room is never held, so the allowance could only suppress the notice row; a
-     busy room with the limit off would otherwise re-read its task files on every post). A held agent that keeps
-     retrying pays one read of this project's task files per refused post. */
+     busy room with the limit off would otherwise re-read its task files on every post). Each post over the cap
+     (refused, or let through on the allowance) lists the task-chats folder and reads every file of this project
+     written since countFrom, synchronously. */
   let allowed = lim.roomArrivalsPerWindow;
   if (lim.on && operator !== true && arrivals + charged > allowed) {
-    const steps = require('./taskchat').progressTimes(projectId, now).filter((t) => t >= countFrom).length;
+    const steps = require('./taskchat').progressTimes(projectId, now, countFrom).filter((t) => t >= countFrom).length;
     allowed += Math.min(lim.roomArrivalsPerWindow, steps * Math.ceil(lim.roomArrivalsPerWindow / ROOM_PROGRESS_STEPS));
   }
   if (operator !== true && arrivals + charged > allowed) {

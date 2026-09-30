@@ -3139,6 +3139,7 @@ test('#4786: work moving in the project earns the room a bounded allowance; talk
       assert.equal(taskchat.record('henderson-lease', 2, { kind: 'closed' }), true);
       /* Arrivals the room now holds in its window, counted from the log itself, so nothing below assumes the
          budget divides evenly. Each post costs 2, so a room held at `cap` holds more than cap - 2 and at most cap. */
+      // Every post in the log counts: this test's log starts empty (wiped before each test) and all of it is in the window.
       const held = () => messages.record().rows.filter((m) => m.kind === 'post' && !m.operator
         && m.project === 'henderson-lease').reduce((n, m) => n + m.to.length, 0);
       const credit = Math.ceil(ROOM_BUDGET / 4);
