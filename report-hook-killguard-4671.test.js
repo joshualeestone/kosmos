@@ -79,6 +79,8 @@ const BLOCKED_BASH = [
   'LAUNCHCTL bootout "gui/$(id -u)"',
   "perl -e 'KILL(9, N1)'", "perl -e 'KILL -9, N1'", "perl -e 'KILL(\"KILL\", N1)'", "perl -e 'KILL \"KILL\", N1'",
   'KILLALL loginwindow', 'KILLALL -9 WindowServer', 'PKILL -x loginwindow',
+  // round 5: kill as the last word of a pipe
+  'PGREP -u $USER | xargs KILL', 'PGREP -f . | xargs KILL',
 ];
 const ALLOWED_BASH = [
   'KILL -9 12345', 'KILL -1 12345', 'KILL -TERM -- -4242', 'KILL 0',
@@ -98,6 +100,8 @@ const ALLOWED_BASH = [
   // round 4 controls
   'PKILL -u "$USER" -f x', 'KILLALL -u $USER -v node', 'lsof -t -i :3000 | xargs KILL', 'docker KILL web', 'tmux KILL-session -t x',
   'KILLALL Dock 2>/dev/null', 'PGREP -u $USER -l',
+  // round 5: ordinary multi-line scripts (a later `-1` flag is not a kill target)
+  'KILL -9 $PID\nsleep 1\ngit log N1', 'KILL -TERM $SERVER_PID\nwait $SERVER_PID\ngit log N1 --stat',
 ];
 
 for (const noJq of [false, true]) {
@@ -168,11 +172,19 @@ test('#4671 the operator can turn it off for an agent (KOSMOS_KILL_GUARD=off in 
   assert.equal(run('Bash', { command: 'KILL -9 N1' }, { env: { KOSMOS_KILL_GUARD: 'on' } }).code, 2, 'any other value keeps it on');
 });
 
-test('#4671 maintaining the guard is not refused by it: writing the hook itself, or this test, passes (with jq)', () => {
-  for (const f of [HOOK, __filename]) {
-    // raw: the file exactly as it is on disk, placeholders NOT decoded
-    const r = run('Write', { file_path: '/tmp/copy', content: fs.readFileSync(f, 'utf8') }, { raw: true });
-    assert.equal(r.code, 0, path.basename(f) + ': ' + r.stderr);
+test('#4671 maintaining the guard is not refused by it: writing the hook itself, or this test, passes (both paths)', () => {
+  for (const noJq of [false, true]) {
+    for (const f of [HOOK, __filename]) {
+      // raw: the file exactly as it is on disk, placeholders NOT decoded
+      const r = run('Write', { file_path: '/tmp/copy', content: fs.readFileSync(f, 'utf8') }, { raw: true, noJq });
+      assert.equal(r.code, 0, path.basename(f) + (noJq ? ' (no jq): ' : ': ') + r.stderr);
+    }
+  }
+});
+
+test('#4671 round 5: a multi-line script Write is read as lines on both paths', () => {
+  for (const noJq of [false, true]) {
+    assert.equal(run('Write', { file_path: '/tmp/stop.sh', content: 'KILL -TERM "$PID"\nwait "$PID"\ngit log N1 --oneline\n' }, { noJq }).code, 0);
   }
 });
 

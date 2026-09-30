@@ -191,15 +191,18 @@ json_field() { # $1 jq path, $2 sed key fallback
 # report-hook-killguard-4671.test.js pins that as a known gap.
 # 🛑 IT IS A SEATBELT, NOT A SANDBOX. Shell has more ways to say "everything" than
 # a text match can list. Known to pass: `ps -U me | xargs kill`, `pkill -f '.+'`,
-# `printf '%s' <minus one> | xargs kill`, and any shape not listed above. Known to
-# be refused although harmless: `pkill -n -u me`, `killall -s -u me` (a dry run),
-# and a mention inside a command (`git commit -m`, `grep`), which the message
-# tells the agent to reword.
+# `printf '%s' <minus one> | xargs kill`, Ruby's `Process.kill :KILL, <minus one>`
+# without parentheses, pkill with long flags (--signal), and any shape not listed
+# above. Known to be refused although harmless: `pkill -n -u me`, `killall -s -u
+# me` (a dry run), a user-wide pgrep that is filtered (| grep x | xargs kill) or
+# sits beside an unrelated kill in the same text, and a mention inside a command
+# (`git commit -m`, `grep`), which the message tells the agent to reword.
 # Reads: with jq, only what runs or is written (tool_input command, cmd, script,
 # code, args, content, new_string, new_source, edits[].new_string), for ANY tool;
 # the written content of a .md or .markdown file is not checked (a document is not
 # run; a .txt can be run with sh, so it is), but a runnable field always is.
-# Without jq, the raw input (wider; a mention or a deleted line can be refused).
+# Without jq, the whole input with its JSON escapes decoded (wider: a mention in a
+# description, or a deleted line, can be refused).
 # The operator can turn it off for an agent by starting it with
 # KOSMOS_KILL_GUARD=off; an agent cannot change its own hook's environment.
 # Not guarded at all: Windows agents (the node hook, engine/kosmos-report-hook.js)
@@ -214,7 +217,10 @@ _kg_text() { # what the guard reads
                                    ($t.edits | arrays | .[] | objects | .new_string) ] end)
       | map(strings) | join("\n")' 2>/dev/null
   else
-    printf '%s' "$INPUT"
+    # No jq: the raw input, with its JSON string escapes decoded (\\ first, via a placeholder, then \n \r
+    # \t \"), so a multi-line command reads as lines here exactly as it does with jq. awk ships with macOS.
+    printf '%s' "$INPUT" | awk '{ gsub(/\\\\/, "\001"); gsub(/\\n/, "\n"); gsub(/\\r/, "\r"); gsub(/\\t/, "\t");
+                                 gsub(/\\"/, "\""); gsub(/\001/, "\\"); print }' 2>/dev/null
   fi
 }
 _kill_all_reason() { # $1 the text; prints the reason and succeeds when it would stop everything
@@ -241,7 +247,7 @@ _kill_all_reason() { # $1 the text; prints the reason and succeeds when it would
   # A pgrep limited only by a user (or matching everything) counts when the same text also holds a kill:
   # the plumbing between them (a loop, a variable, $( ), xargs, backticks) is not modelled on purpose.
   local pgall="${B}pgrep${SP}${FL}(-[a-z]*[uU](${SP})?${OP}|-[a-z]*f${SP}(\\\\?[\"'](\\.(\\*)?|\\^)?\\\\?[\"']|\\.(\\*)?|\\^))((${SP})-[A-Za-z0-9]+)*([[:space:]]|\\\\[rt])*(\$|\\\\[rn]|[;&|)\`]|[0-9]*[<>]|\"[,}])"
-  local kword="${B}(kill|xargs${SP}([^|;]*${SP})?kill)(${SP}|\$)"
+  local kword="${B}(kill|xargs${SP}([^|;]*${SP})?kill)(${SP}|\$|[;&|)\`\"'])"
   # Ending the session by name: the login window and the window server.
   local sess="${B}(pkill|killall)${SP}${FL}${Q}(loginwindow|WindowServer)${Q}${T}"
   local uid="(\\\$\\(id -u[^)]*\\)|\\\$\\{?UID\\}?|[0-9]+)"
