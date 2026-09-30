@@ -80,7 +80,7 @@ const STATES = {
         const card = document.getElementById('askcard');
         return {
           pill: document.getElementById('plus-pill').textContent.trim(), pillState: document.getElementById('plus-pill').getAttribute('data-state'),
-          chip: vis('plus-chip'), copy: !!document.getElementById('plus-copy'), chipSay: (document.getElementById('plus-chip-say') || {}).textContent || '',
+          chip: vis('plus-chip'), chipSay: (document.getElementById('plus-chip-say') || {}).textContent || '',
           sectionText: (document.getElementById('plus-flow').innerText || '').replace(/\s+/g, ' '),
           swOn: sw.getAttribute('aria-checked'), swShown: !sw.hidden, swIsToggle: sw.classList.contains('toggle') && sw.getAttribute('role') === 'switch',
           logo: (() => { const c = document.getElementById('plus-logo'); if (!c || !c.width) return { drawn: false };
@@ -151,7 +151,7 @@ const STATES = {
         chk(v.fit && v.fit.lines === 1 && v.fit.sameRow && v.fit.spare >= 10 && v.fit.clear >= 18 && parseFloat(v.fit.font) >= 12, `${t} #4744: the sentence is one line at 12px or more, ends 10px+ inside its box and before Copy, on Copy's row`, JSON.stringify(v.fit));
         if (key === 'connected') { // #4744: at 640 and 600 wide (the Windows launcher's 640 window, less its frame and scrollbar) it is still one line.
           const vp = page.viewportSize();
-          for (const wide of [640, 600]) {
+          for (const wide of [640, 600, 360]) {
             await page.setViewportSize({ width: wide, height: vp.height }); await page.waitForTimeout(250);
             const n = await page.evaluate(() => {
               const e = document.getElementById('plus-chip-say'), c = document.getElementById('plus-copy');
@@ -160,7 +160,9 @@ const STATES = {
               return { shown: e.getBoundingClientRect().height > 0, lines: (rs.some((x) => Math.abs(x.top - rs[0].top) > 4) ? 2 : 1), font: getComputedStyle(e).fontSize,
                 spare: Math.round(e.getBoundingClientRect().right - right), clear: Math.round(c.getBoundingClientRect().left - right) };
             });
-            chk(n.shown && n.lines === 1 && n.spare >= 10 && n.clear >= 18 && parseFloat(n.font) >= 12, `${t} #4744: at ${wide} wide the sentence is one line at 12px or more, 10px+ inside its box and before Copy`, JSON.stringify(n));
+            if (wide >= 600) chk(n.shown && n.lines === 1 && n.spare >= 10 && n.clear >= 18 && parseFloat(n.font) >= 12, `${t} #4744: at ${wide} wide the sentence is one line at 12px or more, 10px+ inside its box and before Copy`, JSON.stringify(n));
+            // A phone: it may wrap (the address may break), but nothing runs past its box or under Copy.
+            else chk(n.shown && n.spare >= 0 && n.clear >= 0, `${t} #4744: at ${wide} wide (a phone) the sentence wraps inside its box and clear of Copy`, JSON.stringify(n));
           }
           await page.setViewportSize(vp); await page.waitForTimeout(250);
         }
@@ -190,9 +192,12 @@ const STATES = {
             const e = document.getElementById('plus-chip-say'), c = document.getElementById('plus-copy');
             const measure = () => { const r = document.createRange(); r.selectNodeContents(e); const rs = [...r.getClientRects()].filter((x) => x.width > 0);
               return { lines: rs.some((x) => Math.abs(x.top - rs[0].top) > 4) ? 2 : 1, clear: Math.round(c.getBoundingClientRect().left - Math.max(...rs.map((x) => x.right))) }; };
-            e.style.letterSpacing = '.18em'; plusChipFit(); await new Promise((r) => setTimeout(r, 80));
+            // Through the ResizeObserver, not a direct call: widen the letters, then nudge the box's width so the observer fires.
+            const chip = document.getElementById('plus-chip'); const w0 = chip.style.width;
+            const settle = () => new Promise((r) => setTimeout(r, 150));
+            e.style.letterSpacing = '.18em'; chip.style.width = (chip.getBoundingClientRect().width - 2) + 'px'; await settle();
             const wideOut = { ...measure(), wrapped: e.classList.contains('plus-chip-wrap') };
-            e.style.letterSpacing = ''; plusChipFit(); await new Promise((r) => setTimeout(r, 80));
+            e.style.letterSpacing = ''; chip.style.width = w0; await settle();
             return { wide: wideOut, normal: { ...measure(), wrapped: e.classList.contains('plus-chip-wrap') } };
           });
           chk(wide.wide.wrapped && wide.wide.clear >= 0 && !wide.normal.wrapped && wide.normal.lines === 1,

@@ -10143,8 +10143,8 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
    units): .9rem where there is room, down to .75rem, on one line. Narrower than that (a phone) it wraps, never cuts. */
 /* A fixed width that fits both "Copy" and "Copied", so pressing it never takes room from the sentence. */
 #s-sec-plus .plus-chip #plus-copy { padding: 6px 0; width: 72px; text-align: center; }
-#s-sec-plus .plus-chip-say { flex: 1 1 auto; min-width: 0; font: 500 .9rem var(--font-ui); color: #E6EBF7; }
-/* 80px = Copy (72) and the gap (8); /34 leaves ~8% for a wider system font (Segoe UI on Windows). The one-line rule
+#s-sec-plus .plus-chip-say { flex: 1 1 auto; min-width: 0; font: 500 .9rem var(--font-ui); color: #E6EBF7; overflow-wrap: anywhere; }
+/* 80px = Copy (72) and the gap (8); /34 leaves ~8% (about 32px at 1400) for a wider system font (Segoe UI on Windows). The one-line rule
    starts only where the .75rem floor itself fits (31.4 x 12px + 8% + 80 ~ 490); below that the sentence wraps. */
 @container (min-width: 490px) {
   #s-sec-plus .plus-chip-say { white-space: nowrap; font-size: clamp(.75rem, calc((100cqw - 80px) / 34), .9rem); }
@@ -42545,7 +42545,7 @@ function plusCopyViaExec() {
   // execCommand first, the clipboard API second: both copy the same full URL, so the order only decides which path
   // a web view that refuses one of them still has.
   const t = document.createElement('textarea'); t.value = PLUS_ACCOUNT_URL; t.setAttribute('readonly', '');
-  t.style.position = 'fixed'; t.style.opacity = '0';
+  t.style.position = 'fixed'; t.style.top = '0'; t.style.left = '0'; t.style.opacity = '0';
   let ok = false;
   try { document.body.appendChild(t); t.select(); ok = !!(document.execCommand && document.execCommand('copy')); }
   catch { ok = false; }
@@ -42589,7 +42589,8 @@ function plusChipFit() {
   if (say.scrollWidth > say.clientWidth + 1) say.classList.add('plus-chip-wrap');
 }
 { const chip = document.getElementById('plus-chip');
-  if (chip && typeof ResizeObserver === 'function') new ResizeObserver(() => plusChipFit()).observe(chip); }
+  // The class change is deferred a frame so it does not resize the observed box inside its own callback.
+  if (chip && typeof ResizeObserver === 'function') new ResizeObserver(() => requestAnimationFrame(plusChipFit)).observe(chip); }
 { const b = document.getElementById('plus-copy'); if (b) b.addEventListener('click', plusCopyAddress); }
 
 async function paintPlus() {

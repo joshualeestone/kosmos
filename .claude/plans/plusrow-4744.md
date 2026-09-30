@@ -17,8 +17,9 @@ Checked in a browser; served in a build.
 - One line: measured, the Settings column caps the panel at 544px on a desktop window, where the sentence at .9rem
   needs ~452px of ~404 beside Copy. So the box reaches into the panel's side padding, Copy is compact, and the
   sentence's size follows the box's width (container units, .75rem to .9rem): 12.8px at 1024 and 1400, .9rem at 800,
-  one line from 600 up with ~7% to spare; a phone wraps rather than cuts a word.
-- Copy tries execCommand first (as the file's other copy buttons do), then the clipboard API, both with the full URL. If
+  one line from 600 up with ~8% to spare (about 32px at 1400); a phone wraps rather than cuts a word.
+- Copy tries execCommand first, then the clipboard API, both with the full URL (the file's other copy buttons try the
+  clipboard API first; here execCommand first keeps the copy synchronous inside the press). If
   both refuse, the address is selected and the line under the box says so until the next press or until the box goes
   (the button keeps a fixed width, so the sentence never moves). No Mac-only keystroke is named.
 
