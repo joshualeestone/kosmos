@@ -16,7 +16,8 @@
  * checks whatever `store` says (KEEPS below, which the consent box shows).
  *
  * The provider URLs can be overridden by AGENT_WORKFORCE_ORGCHART_*_URL, for the tests' stub server, and ONLY to this
- * computer (127.0.0.1 or [::1]): no override can send a real key and the file to another host. A redirect is
+ * computer (127.0.0.1 or [::1]): no override can name another host. Whatever listens on that local port does get
+ * the key and the file, so the override is only as safe as the board's own environment, which is the person's. A redirect is
  * refused, never followed: a key or the file must not reach a host it was not sent to.
  *
  * 🔑 THE KEY. Read from its account folder only when a read is sent (readApiKey), sent only in a header, and never
@@ -249,7 +250,9 @@ const KNOWN_CODES = new Set([
 ]);
 /* A refusal as a sentence the person can act on. Built from the status and a KNOWN provider error code only. */
 function refusal(p, status, body) {
-  const err = body && typeof body === 'object' ? (body.error || body) : {};
+  // Nested ({ error: { code } }) or flat ({ code, error: "<message>" }, a shape xAI can send, as grokaccounts reads):
+  // `error` is the error only when it is an object, else the code sits at the top level.
+  const err = body && typeof body === 'object' ? (body.error && typeof body.error === 'object' ? body.error : body) : {};
   // The provider's own code word: OpenAI and xAI send it as `code`; Google sends a NUMBER as `code` and the word as
   // `status` ({ code: 403, status: "PERMISSION_DENIED" }), so a numeric code falls through to `status`.
   const word = err && typeof err.code === 'string' && err.code ? err.code : (err && typeof err.status === 'string' ? err.status : '');
@@ -276,7 +279,9 @@ const KNOWN_TYPES = new Set(['invalid_request_error', 'authentication_error', 'p
 // The request fields this reader sends (and their inner parts): a `param` outside this list is not logged at all.
 const KNOWN_PARAMS = new Set(['model', 'input', 'store', 'max_output_tokens', 'text', 'text.format', 'text.format.schema',
   'text.format.strict', 'text.format.name', 'response_format', 'response_format.schema', 'image_url', 'file_data',
-  'filename', 'detail', 'input[0]', 'input[0].content', 'input[0].content[0]', 'input[0].content[1]']);
+  'filename', 'detail', 'input[0]', 'input[0].role', 'input[0].content', 'input[0].content[0]', 'input[0].content[1]',
+  'input[0].content[0].type', 'input[0].content[0].image_url', 'input[0].content[0].file_data',
+  'input[0].content[0].filename', 'input[0].content[0].detail', 'input[0].content[1].type', 'input[0].content[1].text']);
 function diagnosis(body) {
   const err = body && typeof body === 'object' && body.error && typeof body.error === 'object' ? body.error : {};
   const type = typeof err.type === 'string' && KNOWN_TYPES.has(err.type) ? err.type : null;

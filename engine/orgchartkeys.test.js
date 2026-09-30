@@ -436,6 +436,7 @@ test('#4560: the log line says which request field a 400 names, from an allowlis
   assert.equal(lines.length, 1);
   assert.match(lines[0], /\[type invalid_request_error, param text\.format\]$/, lines[0]);
   assert.equal(keys.diagnosis({ error: { type: 'sk-' + KEY, param: KEY + ' x' } }), '', 'a key-shaped type or param is never logged');
+  assert.equal(keys.diagnosis({ error: { type: 'invalid_request_error', param: 'input[0].content[0].image_url' } }), 'type invalid_request_error, param input[0].content[0].image_url', 'a leaf field of the file part is logged');
   assert.equal(keys.diagnosis({ error: { type: 'invalid_request_error', param: 'abcdef0123456789abcdef' } }), 'type invalid_request_error', 'a param that is not a field this reader sends is left out, whatever its shape');
   assert.ok(!lines[0].includes(KEY));
 });
@@ -445,4 +446,10 @@ test('#4560: a bare 403 or 404 (no provider code) is not blamed on the key: it c
   assert.equal(keys.refusal(p, 404, {}), 'OpenAI could not read the chart (404). Try again, or use a CSV or Excel export.');
   assert.equal(keys.refusal(p, 403, null), 'OpenAI could not read the chart (403). Try again, or use a CSV or Excel export.');
   assert.match(keys.refusal(p, 404, { error: { code: 'model_not_found' } }), /cannot use gpt-6-astra/, 'CONTROL: the provider saying so still names the model');
+  // The flat shape ({ code, error: "<message>" }): the code is still read, and the message (here echoing the key) is not.
+  const x = keys.PROVIDERS.xai;
+  const flat = keys.refusal(x, 400, { code: 'invalid_api_key', error: 'Incorrect API key provided: ' + KEY });
+  assert.match(flat, /xAI Grok did not accept this key/, flat);
+  assert.ok(!flat.includes(KEY));
+  assert.match(keys.refusal(x, 400, { error: { code: 'invalid_api_key' } }), /did not accept this key/, 'CONTROL: the nested shape still reads');
 });
