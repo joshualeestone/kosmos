@@ -280,3 +280,15 @@ test('#4771 review: closing a held task\'s last part records the close before th
     assert.ok(closedAt >= 0 && droppedAt > closedAt, 'the dropped hold was recorded before the close that caused it: ' + JSON.stringify(kinds));
   } finally { w.restore(); }
 });
+
+test('#4771 review: the project view says whose pause it is', () => {
+  const w = world('pauseview' + seq, false);
+  try {
+    const view = () => projects.get(w.pid, []);
+    assert.equal(view().pausedByPerson, false, 'control: not paused reads as the person\'s pause');
+    projects.edit(w.pid, { paused: true });
+    assert.deepEqual([view().paused, view().pausedByPerson], [true, false], 'an agent\'s pause read as the person\'s');
+    projects.edit(w.pid, { paused: true, viaScreen: true });
+    assert.deepEqual([view().paused, view().pausedByPerson], [true, true]);
+  } finally { w.restore(); }
+});

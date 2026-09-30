@@ -1082,6 +1082,8 @@ function describe(project, roster, all) {
     archived: project.archived === true,
     // #4771: paused (the automations skip it); a record written before the field reads as not paused.
     paused: project.paused === true,
+    // #4771: whose pause it is, so the page can say when an agent paused it (the person's is lifted only on the screen).
+    pausedByPerson: project.paused === true && project.pausedByPerson === true,
     // Gated on the healed flag AND the value: a hand-edited record carrying
     // a date beside archived:false must not publish an "archived at", and a
     // non-string or unparseable value beside archived:true must not become

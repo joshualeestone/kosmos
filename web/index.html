@@ -54987,7 +54987,8 @@ function paintSettingsFacts(p) {
     if (pl && ph && pb) {
       if (p.paused === true) {
         pl.textContent = 'This project is paused';
-        ph.textContent = 'Kosmos is not nudging agents about its tasks or handing them out. Resume it to bring them back.';
+        ph.textContent = (p.pausedByPerson === true ? '' : 'An agent paused it. ')
+          + 'Kosmos is not nudging agents about its tasks or handing them out. Resume it to bring them back.';
         pb.textContent = 'Resume it';
       } else {
         pl.textContent = 'Pause this project';

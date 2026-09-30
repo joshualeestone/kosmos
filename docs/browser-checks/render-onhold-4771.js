@@ -56,6 +56,8 @@ function chk(ok, label, extra) {
   tasks.close(launch.id, 3);
   const winter = projects.create({ name: 'Winter catalog' });
   tasks.create(winter.id, { sentence: 'Draft the plan' });                // 1: held by pausing its project
+  const summer = projects.create({ name: 'Summer list' });                // paused by an agent, before the page loads
+  projects.edit(summer.id, { paused: true });
   require('../../engine/store').writeSettings({ tasksTabShown: true });
 
   const server = await srv.start(0);
@@ -118,6 +120,7 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => document.getElementById('pj-one-pause').textContent === 'Resume it', null, { timeout: 5000 }).catch(() => {});
       chk(await text(page, '#pj-one-pause') === 'Resume it' && await text(page, '#pj-one-pause-label') === 'This project is paused',
         `${tag} pressing it pauses the project: This project is paused, and Resume it`, JSON.stringify([await text(page, '#pj-one-pause'), await text(page, '#pj-one-pause-label')]));
+      chk(!/An agent paused it/.test(await text(page, '#pj-one-pause-hint') || ''), `${tag} the person's own pause is not credited to an agent`, await text(page, '#pj-one-pause-hint'));
       chk(await heldCount(page, '2') === '2', `${tag} a paused project's task counts under On hold`, await text(page, '#tsk-tiles [data-tile="held"] .num'));
       const held2 = await heldRows(page);
       chk(held2.includes('Draft the plan') && !held2.includes('Order proofs'), `${tag} On hold shows the paused project's task, and still not the control`, JSON.stringify(held2));
@@ -134,6 +137,11 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => document.getElementById('tk-hold').textContent === 'Put on hold', null, { timeout: 5000 }).catch(() => {});
       chk(await text(page, '#tk-hold') === 'Put on hold', `${tag} Take off hold takes the task off hold`, await text(page, '#tk-hold'));
       chk(await heldCount(page, '0') === '0', `${tag} with both undone, nothing is on hold`, await text(page, '#tsk-tiles [data-tile="held"] .num'));
+
+      /* A project an agent paused says so where it is resumed. */
+      await openSettings(page, summer.id);
+      chk(await text(page, '#pj-one-pause') === 'Resume it' && /^An agent paused it\./.test(await text(page, '#pj-one-pause-hint') || ''),
+        `${tag} a project an agent paused says an agent paused it`, JSON.stringify([await text(page, '#pj-one-pause'), await text(page, '#pj-one-pause-hint')]));
 
       /* A finished task offers no hold; the open task above is the control that it is offered at all. */
       await page.evaluate(async (pid) => { if (await tskGoToProject(pid)) openTaskPage(3); }, launch.id);
