@@ -130,6 +130,15 @@ function chk(ok, label, extra) {
       chk(a.visible, `${tag} the Files block is on screen`, JSON.stringify(a));
       chk(!a.finder && a.all, `${tag} #3757/#3994: no Open in Finder in the sidebar, and View All although every file is listed`, JSON.stringify(a));
       chk(a.below && a.overlap, `${tag} the Files block sits directly under the four-pack, in its column`, JSON.stringify({ below: a.below, overlap: a.overlap }));
+      /* #4570 (Josh, 2026-09-29 10:46): View All here is the project page's small link, not a second
+         heading. Compared with the project page's own Files View All in this page (same DOM, same theme),
+         so it follows that link rather than a pinned pixel size. */
+      const va = await page.evaluate(() => {
+        const cs = (id) => { const c = getComputedStyle(document.getElementById(id)); return { size: c.fontSize, weight: c.fontWeight }; };
+        return { agent: cs('d-files-all'), project: cs('pj-docs-all'), label: getComputedStyle(document.querySelector('.dfiles-head .dlab')).fontSize };
+      });
+      chk(va.agent.size === va.project.size && va.agent.weight === va.project.weight && parseFloat(va.agent.size) < 13,
+        `${tag} #4570: View All is the project page's small link (same size and weight)`, JSON.stringify(va));
       chk(JSON.stringify(a.rows.map((r) => r.name)) === JSON.stringify(['report.pdf', 'older-notes.md']), `${tag} April's files are listed newest first`, JSON.stringify(a.rows));
       chk(a.rows.length > 0 && /·/.test(a.rows[0].meta) && /\d+(\.\d+)?\s?(B|KB|MB)$/.test(a.rows[0].meta), `${tag} a row shows a date and a size`, JSON.stringify(a.rows[0]));
       /* #3994 (Josh 2026-09-26): the Files block sits in the same white container as the project page's
