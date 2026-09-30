@@ -76,12 +76,14 @@ let inflight = null;
 const portraitFailed = new Map();     // "<sha256> <image>" -> { at, because }: the last failed download
 const portraitInflight = new Map();   // "<sha256> <image>" -> the download under way
 /* A portrait that verified but could not be saved (a full or read-only disk; on Windows, a file
-   held open) is held here instead, so it is downloaded once and not on every ask. Bounded by the
-   catalogue: one entry per portrait it names, each at most PORTRAIT_MAX_BYTES, dropped when pruned. */
+   held open) is held here instead, so it is downloaded once and not on every ask. One entry per
+   portrait, each at most PORTRAIT_MAX_BYTES. An entry the catalogue no longer names is dropped the
+   next time a portrait is downloaded (prunePortraits), not before: until then it is only unused,
+   since portrait() serves nothing the held catalogue does not name. */
 const portraitUnsaved = new Map();    // sha256 -> bytes
 
 /** Tests sign with their own key pair. In-process only: nothing outside this process can reach it. */
-function useKeyForTest(pem) { key = pem || PUBLIC_KEY; data = undefined; lastTry = 0; lastError = null; portraitFailed.clear(); portraitUnsaved.clear(); }
+function useKeyForTest(pem) { key = pem || PUBLIC_KEY; data = undefined; lastTry = 0; lastError = null; portraitFailed.clear(); portraitUnsaved.clear(); portraitInflight.clear(); }
 
 const KEY_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const isText = (v) => typeof v === 'string' && v.length > 0;
@@ -324,10 +326,9 @@ function portraitFile(sha) { return path.join(path.dirname(cacheFile()), 'portra
 
 /** The same test the catalogue's builder applies before it publishes one: a RIFF container whose
  *  form is WEBP, whose size field accounts for the whole file, and whose first chunk is an image.
- *  (The builder also asks for 20 bytes first; here the form check already fails anything shorter
- *  than 12, before the size field is read, and the chunk check anything shorter than 16.) */
+ *  The 20 bytes are the builder's floor: a 16-byte file can carry all three marks and no image. */
 function isWebp(bytes) {
-  return bytes.subarray(0, 4).toString('latin1') === 'RIFF' && bytes.subarray(8, 12).toString('latin1') === 'WEBP'
+  return bytes.length >= 20 && bytes.subarray(0, 4).toString('latin1') === 'RIFF' && bytes.subarray(8, 12).toString('latin1') === 'WEBP'
     && bytes.readUInt32LE(4) + 8 === bytes.length && ['VP8 ', 'VP8L', 'VP8X'].includes(bytes.subarray(12, 16).toString('latin1'));
 }
 

@@ -46,17 +46,33 @@ function webp(seed, extra = 0) {
  *  `others` names more members' portraits: { '<avatar id>': [image, imageSha256] }. */
 function setup(image, imageSha256, others = {}) {
   fs.rmSync(path.dirname(catalogue.cacheFile()), { recursive: true, force: true });
+  SIGNER = storeSigned(named(image, imageSha256, others), catalogue.MIN_SERIAL);
+  // The precondition every test below rests on: the catalogue with these fields is the one held.
+  const held = catalogue.team('marketing');
+  assert.ok(held, 'the altered catalogue was not accepted');
+  assert.equal(held.members.find((m) => m.slot === 'lead').avatar.image, image);
+}
+
+let SIGNER = null;   // the key the held catalogue was signed with, for republish()
+
+/** The fixture's text with these members' avatar fields set. */
+function named(image, imageSha256, others = {}) {
   let text = TEXT;
   for (const [id, [img, sha]] of Object.entries({ 'marketing-lead': [image, imageSha256], ...others })) {
     const from = `"id": "${id}",\n            "image": null,\n            "imageSha256": null,`;
     assert.equal(text.split(from).length, 2, `the fixture no longer has ${id}'s avatar in the expected shape`);
     text = text.replace(from, `"id": "${id}",\n            "image": ${JSON.stringify(img)},\n            "imageSha256": ${JSON.stringify(sha)},`);
   }
-  storeSigned(text, catalogue.MIN_SERIAL);
-  // The precondition every test below rests on: the catalogue with these fields is the one held.
-  const held = catalogue.team('marketing');
-  assert.ok(held, 'the altered catalogue was not accepted');
-  assert.equal(held.members.find((m) => m.slot === 'lead').avatar.image, image);
+  return text;
+}
+
+/** Replace the held catalogue the way a real publish does (a newer signed download), without
+ *  touching what the process holds about portraits. `step` orders the publishes in one test. */
+async function republish(step, image, imageSha256, others = {}) {
+  const body = named(image, imageSha256, others).replace(/"serial": \d+/, `"serial": ${catalogue.MIN_SERIAL + step}`);
+  const sig = crypto.sign(null, Buffer.from(body), SIGNER).toString('base64');
+  const st = await catalogue.refresh({ force: true, fetcher: async (url) => new Response(url.endsWith('.sig') ? sig : body, { status: 200 }) });
+  assert.equal(st.serial, catalogue.MIN_SERIAL + step, `the republished catalogue was not taken: ${st.error}`);
 }
 
 /** A fetch that answers from `answers` in turn (the last one repeats) and records each address. */
@@ -281,8 +297,11 @@ test('each part of the WebP test is needed: a wrong size field, a wrong first ch
   const wrongChunk = Buffer.from(IMG); wrongChunk.write('EXIF', 12, 'latin1');
   const wrongForm = Buffer.from(IMG); wrongForm.write('WAVE', 8, 'latin1');
   const notRiff = Buffer.from(IMG); notRiff.write('RIFX', 0, 'latin1');
+  // `marksOnly` is 16 bytes carrying every mark and no image (the builder's floor is 20);
   // `tiny` is shorter than the size field itself: refused as not the image, not by an error reading it.
-  for (const [what, bytes] of Object.entries({ wrongSize, hidden, wrongChunk, wrongForm, notRiff, short: IMG.subarray(0, 12), tiny: Buffer.from('RIFF') })) {
+  const marksOnly = Buffer.alloc(16);
+  marksOnly.write('RIFF', 0, 'latin1'); marksOnly.writeUInt32LE(8, 4); marksOnly.write('WEBP', 8, 'latin1'); marksOnly.write('VP8L', 12, 'latin1');
+  for (const [what, bytes] of Object.entries({ wrongSize, hidden, wrongChunk, wrongForm, notRiff, marksOnly, short: IMG.subarray(0, 12), tiny: Buffer.from('RIFF') })) {
     setup(PATH, sha256(bytes));
     const r = await catalogue.portrait('marketing', 'lead', { fetcher: server(bytes).fetcher });
     assert.equal(r.ok, false, `${what} was taken as a portrait`);
@@ -332,4 +351,35 @@ test('two members sharing one image under two names: one name failing does not a
   assert.ok(calls.some((u) => u.endsWith('/avatars/marketing-content.webp')), 'the content writer address was never asked');
   // And once one name has delivered the image, the other member has it too: it is the same image.
   assert.equal((await catalogue.portrait('marketing', 'lead', { fetcher })).ok, true);
+});
+
+test('the cap is the catalogue builder\'s own: 512 KiB', () => {
+  assert.equal(catalogue.PORTRAIT_MAX_BYTES, 524288);
+});
+
+test('a catalogue replaced while a portrait downloads does not cost the portrait just kept', async () => {
+  setup(PATH, sha256(IMG));
+  // The newer catalogue names no portrait at all, and arrives while the image is on its way.
+  const fetcher = async () => { await republish(1, null, null); return new Response(IMG, { status: 200 }); };
+  const r = await catalogue.portrait('marketing', 'lead', { fetcher });
+  assert.equal(r.ok, true, r.because);
+  assert.equal(catalogue.team('marketing').members.find((m) => m.slot === 'lead').avatar.image, null, 'the precondition: the catalogue was replaced');
+  assert.ok(fs.readFileSync(catalogue.portraitFile(sha256(IMG))).equals(IMG), 'the portrait just kept was pruned away');
+});
+
+test('a portrait held in memory is dropped once the catalogue no longer names it', async () => {
+  const next = webp('the next lead');
+  setup(PATH, sha256(IMG));
+  fs.writeFileSync(path.dirname(catalogue.portraitFile(sha256(IMG))), 'in the way');   // every save fails
+  assert.equal((await catalogue.portrait('marketing', 'lead', { fetcher: server(IMG).fetcher })).ok, true);
+  const down = server(new Error('network down'));
+  // The control: while the catalogue names it, it is served from memory with the network down.
+  assert.equal((await catalogue.portrait('marketing', 'lead', { fetcher: down.fetcher })).ok, true);
+  // The catalogue moves on to another image; downloading that one prunes the first.
+  await republish(1, PATH, sha256(next));
+  assert.equal((await catalogue.portrait('marketing', 'lead', { fetcher: server(next).fetcher })).ok, true);
+  // Back to naming the first: it has to be downloaded again, so with the network down there is none.
+  await republish(2, PATH, sha256(IMG));
+  const r = await catalogue.portrait('marketing', 'lead', { fetcher: down.fetcher, force: true });
+  assert.equal(r.ok, false, 'a portrait the catalogue had stopped naming was still held');
 });

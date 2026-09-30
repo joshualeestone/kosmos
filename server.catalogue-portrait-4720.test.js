@@ -111,8 +111,7 @@ test('an image that is not the one the catalogue names is never served: 404 with
   const res = await fetch(`${base}/api/catalogue/portrait?team=marketing&slot=content`);
   assert.equal(res.status, 404);
   const json = await res.json();
-  assert.equal(json.ok, false);
-  assert.match(json.because, /not the image the catalogue names/);
+  assert.match(json.error, /not the image the catalogue names/);
   // The precondition: the board did ask, and was handed an image (a 404 here for any other reason proves nothing).
   assert.ok(asked.includes('/catalogue/avatars/marketing-content.webp'), 'the board never asked for the content writer portrait');
 });
@@ -123,7 +122,7 @@ test('a member with no portrait, an unknown member, an unknown team and a bare r
     ['team=nothing&slot=lead', /no prebuilt team/], ['', /no prebuilt team/]]) {
     const res = await fetch(`${base}/api/catalogue/portrait?${q}`);
     assert.equal(res.status, 404, q);
-    assert.match((await res.json()).because, why, q);
+    assert.match((await res.json()).error, why, q);
   }
   assert.equal(asked.length, before, 'a request for a member with no portrait reached the catalogue address');
 });

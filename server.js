@@ -6341,7 +6341,7 @@ const server = http.createServer(async (req, res) => {
     if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
     let q;
     try { q = new URL(req.url, ROUTING_BASE).searchParams; } catch { q = new URLSearchParams(); }
-    const none = (because) => { if (!res.headersSent && !res.destroyed) sendJson(res, 404, { ok: false, because }); };
+    const none = (because) => { if (!res.headersSent && !res.destroyed) sendJson(res, 404, { error: because }); };
     catalogue.portrait(q.get('team'), q.get('slot')).then((r) => {
       // Inside a promise handler: a throw here would be an unhandled rejection, so it is answered.
       try {
