@@ -78,7 +78,7 @@ function accountProblemOf(card) {
      credits": this is a subscription's allowance. */
   if (card.state === 'rate_limited' && card.runner === 'antigravity' && typeof card.quotaUntil === 'string' && Number.isFinite(Date.parse(card.quotaUntil))) {
     const resetAt = Date.parse(card.quotaUntil);
-    const hhmm = new Date(resetAt).toLocaleString([], { ...(resetAt - Date.now() > 20 * 3600 * 1000 ? { weekday: 'short' } : {}), hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+    const hhmm = require('./quotawords').quotaResetWords(resetAt);
     const text = `${who} has used up its Google account's Antigravity quota, which any other Antigravity agent signed in to`
       + ` the same Google account shares, so it has stopped. The quota resets at ${hhmm}.`;
     /* notify: false (review 2). The manager notice asks it to tell the person "so they can fix it", and this clears by

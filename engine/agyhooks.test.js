@@ -265,6 +265,40 @@ test('#4043: what the board actually receives: the route, state, text, auto and 
   assert.equal(seen[3].body.text, 'The turn ended with an error: quota exceeded');
 });
 
+test('#4588 (review 7): the real bridge carries a quota Stop\'s reset to the board as a strict ISO until', async () => {
+  const http = require('node:http');
+  const status = require('./status');
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => { body += d; });
+    req.on('end', () => {
+      seen.push(JSON.parse(body));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"recorded":true}');
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  const pane = '%quota-' + process.pid;
+  try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: String(port), TMUX_PANE: pane }), { force: true }); } catch { /* none */ }
+  const before = Date.now();
+  try {
+    await driveBridge(port, 'Stop', { fullyIdle: true, error: 'API error: RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 24m54s.' }, pane);
+    await driveBridge(port, 'Stop', { fullyIdle: true, error: 'boom' }, pane);   // CONTROL: an ordinary error
+  } finally {
+    server.closeAllConnections(); server.close();
+    try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: String(port), TMUX_PANE: pane }), { force: true }); } catch { /* none */ }
+  }
+  assert.equal(seen.length, 2);
+  const [quota, plain] = seen;
+  assert.match(quota.until, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, 'the reset did not reach the board: ' + JSON.stringify(quota));
+  const wait = Date.parse(quota.until) - before;
+  assert.ok(wait >= (24 * 60 + 54) * 1000 && wait < (24 * 60 + 54) * 1000 + 60000, 'until is not the reset: ' + quota.until);
+  assert.ok(quota.text.startsWith(status.QUOTA_REPORT_PREFIX), 'the board reads a pause only after this sentence: ' + quota.text);
+  assert.equal(plain.until, '', 'CONTROL: an ordinary error carries no reset');
+});
+
 test('#4043: the ask_question hooks are written only for an agy that handles them (1.1.9+); older or unknown gets working/idle only', () => {
   for (const [out, safe] of [['1.2.11', true], ['agy 1.1.9\n', true], ['1.1.10', true], ['2.0.0', true],
     ['1.1.8', false], ['1.0.16', false], ['0.9.99', false], ['', false], [undefined, false], ['not a version', false]]) {

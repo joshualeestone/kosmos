@@ -5,7 +5,8 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { accountProblemOf } = require('./accountproblem');
 
-const UNTIL = '2026-09-28T22:11:54.000Z';
+// A reset in the near future, as a paused card carries (a fixed date goes stale and then gains a day, review 7).
+const UNTIL = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 const HHMM = new Date(Date.parse(UNTIL)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 test('#4588: a quota-paused agy card is told plainly, with the shared account and the reset', () => {

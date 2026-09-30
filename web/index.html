@@ -18270,6 +18270,12 @@ function taskLine(a, opts) {
  * With the title no longer shown in any state, that whole concern is subsumed by
  * #209: there is no title on screen to strip.
  */
+/* #4588: engine/quotawords.js's rule, copied (the page cannot require engine code); web.agyquota-4588.test.js
+   compares the two over past and future resets. The day too beyond 20 hours either way (Google's weekly window). */
+function quotaResetWords(atMs, nowMs) {
+  const far = Math.abs(atMs - nowMs) > 20 * 3600 * 1000;
+  return new Date(atMs).toLocaleString([], { ...(far ? { weekday: 'short' } : {}), hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+}
 function stateReason(a, opts) {
   /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
      "This is not the same as having none": it pre-empts the fear the state exists
@@ -18354,9 +18360,7 @@ function stateReason(a, opts) {
      comes a little after the reset. */
   const resetAt = typeof a.quotaUntil === 'string' ? Date.parse(a.quotaUntil) : NaN;
   if (Number.isFinite(resetAt)) {
-    // The day too when it is not within the next 20 hours: Google's weekly window can put it days out (review 4).
-    const far = resetAt - Date.now() > 20 * 3600 * 1000;
-    return 'Usage limit reached. The Google quota resets at ' + new Date(resetAt).toLocaleString([], { ...(far ? { weekday: 'short' } : {}), hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) + '.';
+    return 'Usage limit reached. The Google quota resets at ' + quotaResetWords(resetAt, Date.now()) + '.';
   }
   /* 📌 THE HEDGE STAYS, THE VOCABULARY CHANGED (#215, Josh 2026-08-21 18:38:
      "the screen of a terminal is not something a white-collar person thinks
