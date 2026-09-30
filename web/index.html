@@ -6555,12 +6555,17 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   #pj-room .msg:not(.you) .rxn-quick { right: auto; left: 0; }
   /* #4409: at its natural width, and it wraps only when pjRxnFitWidth caps it at a thread narrower
      than the bar (without max-content an absolute bar would shrink to its short bubble and wrap there). */
-  #pj-room .rxn-quick, #d-dmthread .rxn-quick { width: max-content; flex-wrap: wrap; }
+  /* max-width 100vw, not none: a length, so the closed cap below can wait for the fade (none to 100% cannot be delayed). */
+  #pj-room .rxn-quick, #d-dmthread .rxn-quick { width: max-content; flex-wrap: wrap; max-width: 100vw; }
   /* #4409 with #4631: read aloud and Copy reference together make an agent's bar seven buttons, about 320px, and a
      CLOSED bar (opacity 0, but still laid out) at that natural width ran past a phone's right edge from an agent
      bubble's left (each change alone fit, by about a pixel). Closed, it wraps within its own bubble; open (tapped, or
-     keyboard focus inside it) it is back at its natural width, and pjRxnFitWidth and rxnKeepInsideX keep it inside. */
-  #pj-room .msg:not(.rxn-show) .rxn-quick:not(:focus-within), #d-dmthread .msg:not(.rxn-show) .rxn-quick:not(:focus-within) { max-width: 100%; }
+     keyboard focus inside it) it is back at its natural width, and pjRxnFitWidth and rxnKeepInsideX keep it inside.
+     The cap arrives only after the .12s fade: applied at once, a closing bar reshaped into a tall wrapped column while
+     still visible. Only the closed state carries the delay, so an opening bar takes its open width at once (pjRxnPlace
+     measures it in the same frame). */
+  #pj-room .msg:not(.rxn-show) .rxn-quick:not(:focus-within), #d-dmthread .msg:not(.rxn-show) .rxn-quick:not(:focus-within) { max-width: 100%;
+    transition: opacity .12s ease, max-width 0s linear .12s; }
   /* A tap on a message is a gesture now: no grey iOS flash over the whole thread. Links and
      buttons in it keep a tap flash of their own. */
   /* touch-action: no double-tap zoom, since open then close is two quick taps. */
@@ -6579,6 +6584,13 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   /* #4631: on a touchscreen Copy reference is the icon alone. The number is for a pointer resting on a post; a
      thumb's bar is short of width on a phone, and the button's label and the toast still name the number. */
   #pj-room .rxn-ref-n, #d-dmthread .rxn-ref-n { display: none; }
+  /* #4409 after #4631: Reply is its arrow alone on a touchscreen too (its label still says "Reply to this message").
+     Seven buttons with the word were 331px, and the open bar, which sits over the message above its own, then
+     covered that message's whole width: a tap meant to close the bar on the visible corner of a person's message
+     hit Reply. With the arrow alone, and without the pointer bar's extra 4px beside Copy reference and Reply (the
+     touch bar's 4px gap already spaces every button), it is 290px, about the six-button bar's 287 on either parent. */
+  #pj-room .rxn-reply-t, #d-dmthread .rxn-reply-t { display: none; }
+  #pj-room .rxn-quick .rxn-ref, #pj-room .rxn-quick .rxn-reply, #d-dmthread .rxn-quick .rxn-ref, #d-dmthread .rxn-quick .rxn-reply { margin: 0; }
   /* A reaction already on a post is a target too, on any touchscreen (a phone turned
      sideways is wider than the phone block but still a thumb). */
   #pj-room .rxn { min-height: var(--room-tap); padding: 2px 10px; }
@@ -57133,7 +57145,7 @@ function rxnsInner(list, withReply, withSpeak, mid) {
      small reply arrow before the word. */
   const reply = withReply ? '<button class="rxn-reply" type="button" aria-label="Reply to this message">'
     + '<svg class="rxn-reply-ico" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17l-5-5 5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>'
-    + 'Reply</button>' : '';
+    + '<span class="rxn-reply-t">Reply</span></button>' : '';   /* the word in a span of its own: a touchscreen hides it (#4409 after #4631) */
   /* #4409: read an agent's message aloud, in the same bar, just before Reply (Reply stays last, #4358). Drawn for agents' messages only, and shown
      only where the page can speak (html.has-speak). */
   const speak = withSpeak ? '<button class="rxn-speak" type="button" aria-label="Read this message aloud" aria-pressed="false" title="Read aloud">'
