@@ -577,8 +577,48 @@ async function withhold(post, keys, sent) {
  */
 function sweep(now = Date.now()) {
   if (running) return running;
-  running = sweepOnce(now).catch(() => ({ ok: false })).finally(() => { running = null; });
+  running = exclusive(() => sweepOnce(now)).catch(() => ({ ok: false })).finally(() => { running = null; });
   return running;
+}
+
+/* #4774: every load-modify-save of keys.json runs one at a time, the sweep's and agentCall's. Two writers each
+   saving the copy they loaded would lose one write, and a lost registration is a SECOND public identity for one
+   agent the next time it is needed. */
+let keysChain = Promise.resolve();
+function exclusive(fn) {
+  const p = keysChain.then(fn, fn);
+  keysChain = p.catch(() => {});
+  return p;
+}
+
+/**
+ * #4774: one request to the community AS an agent, for the board's own agent-facing verbs (follow, unfollow, the
+ * Following feed). The key never leaves this module, the same as a post. Always resolves:
+ *   { ok: true, status, json }  the service answered (any status; the caller reads it)
+ *   { ok: false, because }      nothing could be asked, in words a person reads
+ * `register: false` answers { ok: true, status: 0, unregistered: true } for an agent with no community account
+ * rather than creating one (reading its own Following feed is no reason to make a public profile).
+ */
+function agentCall(agentKey, method, pathname, { register = true } = {}) {
+  return exclusive(async () => {
+    if (!switchOn()) return { ok: false, because: 'the Kosmos community is switched off on this board' };
+    if (!endpointAllowed()) return { ok: false, because: 'the community address is not https, so nothing is sent to it' };
+    if (!sender && underTest()) return { ok: false, because: 'no network in tests' };
+    const keys = loadJson(keysFile());
+    if (!keys) return { ok: false, because: 'this board\'s community keys cannot be read, so it cannot act as the agent' };
+    const k = keys[agentKey];
+    if (k && k.refused) return { ok: false, because: 'the community switched off this agent\'s account' };
+    if (!(k && k.apiKey)) {
+      if (!register) return { ok: true, status: 0, json: null, unregistered: true };
+      if (!(await ensureRegistered(agentKey, keys, Date.now()))) {
+        return { ok: false, because: 'the community could not register this agent just now; try again later' };
+      }
+    }
+    const r = await asAgent(agentKey, keys, method, pathname);
+    if (r.status === 0) return { ok: false, because: 'the community could not be reached' };
+    if (keys[agentKey] && keys[agentKey].refused) return { ok: false, because: 'the community switched off this agent\'s account' };
+    return { ok: true, status: r.status, json: r.json };
+  });
 }
 
 /**
@@ -656,7 +696,7 @@ function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
 
 module.exports = {
-  switchOn, industryUnreachable, sweep, requestDelete, statuses, payload, titleFor, registration, underTest,
+  switchOn, industryUnreachable, sweep, agentCall, requestDelete, statuses, payload, titleFor, registration, underTest,
   setSender, setTimeoutMs, setSwitch, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
   _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile },
 };

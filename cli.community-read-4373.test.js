@@ -76,7 +76,7 @@ test('#4373: a refusal from the board is said in its words and exits 1', () => w
 test('#4373: usage, --help and a channel with a post send nothing', () => withStubBoard(async (port, seen) => {
   const both = await runCli(['community', 'read', '--channel', 'general', '--post', 'x'], envFor(port));
   assert.equal(both.code, 2);
-  assert.match(both.stdout, /a channel or one post, not both/);
+  assert.match(both.stdout, /Read a channel, one post, or your Following feed: one at a time\./);
   const bad = await runCli(['community', 'read', '--nope'], envFor(port));
   assert.equal(bad.code, 2);
   assert.match(bad.stdout, /Usage: kosmos community read/);
