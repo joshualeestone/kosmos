@@ -41335,7 +41335,7 @@ function placeTasksPanel(consolidated) {
    openDetail exactly as the rail does. */
 let CONS_AGENTS_HOME = null;
 /* #4594: the consolidated agents switch shows BOARD_LAYOUT. A saved 'list' (chosen in the tab view) checks
-   neither segment (review round 2 of #2842's relocation); the tab stop then falls to the first. */
+   neither segment (review round 2); the tab stop then falls to the first. */
 function consLaySync() {
   const all = [...document.querySelectorAll('#panel-cons-agents [data-conslay]')];
   const on = all.find((b) => b.dataset.conslay === BOARD_LAYOUT) || null;

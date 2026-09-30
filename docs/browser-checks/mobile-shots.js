@@ -51,8 +51,9 @@
  * One board serves every screen of a run, so a `go` that writes to the board's server store (a PUT, a
  * saved setting) must undo it in `after` (settings-recommender does, #4545), or it changes every screen
  * shot after it; the consolidated screens stub the READ instead (kosmos#4594).
- * `after: async (page, data) => {}` runs after the shot, whatever happened: it puts back what `go` changed,
- * and it may also check the shot (a throw there turns the row into an ERROR, as consAgentsStill does).
+ * `after: async (page, data) => {}` runs after the shot, whatever happened, to put back what `go` changed.
+ * `verify: async (page, data) => {}` runs right after the shot to check it is the screen meant: a throw
+ * DELETES the shot and makes the row an ERROR (consAgentsStill), so a wrong picture never reaches a review.
  * `go` starts on a freshly loaded board at the size and theme (data has
  * `projectId`, and `chatAgent` / `askAgent`: use those, never a literal agent id,
  * so the screen works under --data store too); leave the page showing the screen. Keep names short and unique
@@ -137,20 +138,21 @@ async function openConsAgents(page) {
     const p = document.getElementById('panel-cons-agents'); const sw = document.querySelector('#panel-cons-agents .cons-agents-lay');
     return !!(p && !p.hidden && p.getClientRects().length && sw && sw.getClientRects().length);
   });
-  await page.waitForTimeout(1500);   // let the board's own boot navigation happen first
+  if (await page.isVisible('#firstrun')) await page.keyboard.press('Escape');   // the reload can bring it back
+  // Stable = open on 4 samples in a row, 250 ms apart: a signal, not a fixed sleep.
+  const stable = async () => { for (let i = 0; i < 4; i++) { if (!(await shown())) return false; await page.waitForTimeout(250); } return true; };
   let last = null;
   for (let tries = 0; tries < 6; tries++) {
     try {
       await page.click('#tabs .tab[data-tab="agents"]', { timeout: 5000 });
       await page.waitForSelector('#panel-cons-agents .cons-agents-lay', { state: 'visible', timeout: 5000 });
     } catch (e) { last = e; continue; }   // taken back before it showed (or never there): try again
-    await page.waitForTimeout(1500);
-    if (await shown()) return;
+    if (await stable()) return;
   }
   throw new Error('cons-agents: the Agents view did not stay open' + (last ? ' (last: ' + String(last.message || last).split('\n')[0] + ')' : ''));
 }
-/* Run AFTER the shot (the SCREENS `after` hook): the Agents view and its switch must still have been on
-   screen, with the expected segment chosen, or the row is an error rather than a green shot of something else. */
+/* A SCREENS `verify` hook, run right after the shot: the Agents view and its switch must still be on screen with
+   the expected segment chosen, or the shot is deleted and the row is an ERROR, never a picture of something else. */
 const consAgentsStill = (want) => async (page) => {
   const got = await page.evaluate(() => {
     const p = document.getElementById('panel-cons-agents'); const sw = document.querySelector('#panel-cons-agents .cons-agents-lay');
@@ -319,12 +321,12 @@ const SCREENS = [
   { name: 'cons-agents', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page) => {
     await openConsAgents(page);
     await page.waitForSelector('#panel-cons-agents .cons-agents-lay [data-conslay="grid"][aria-checked="true"]', { timeout: 5000 });
-  }, after: consAgentsStill('grid') },
+  }, verify: consAgentsStill('grid') },
   { name: 'cons-agents-org', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page) => {
     await openConsAgents(page);
     await page.click('#panel-cons-agents [data-conslay="org"]', { timeout: 5000 });
     await page.waitForSelector('#panel-cons-agents [data-conslay="org"][aria-checked="true"]', { timeout: 5000 });
-  }, after: consAgentsStill('org') },
+  }, verify: consAgentsStill('org') },
   // The design review's ask (kosmos#4594): the keyboard focus ring on a segment. A real key press, so :focus-visible shows (a scripted
   // .focus() alone may not): focus Grid, ArrowRight moves to Org chart, chooses it and keeps focus there.
   { name: 'cons-agents-focus', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page) => {
@@ -333,7 +335,7 @@ const SCREENS = [
     await page.keyboard.press('ArrowRight');
     await page.waitForFunction(() => document.activeElement && document.activeElement.dataset.conslay === 'org'
       && document.activeElement.matches(':focus-visible'), null, { timeout: 5000 });
-  }, after: consAgentsStill('org') },
+  }, verify: consAgentsStill('org') },
   { name: 'create-agent', owner: 'unowned', go: async (page) => {
     // A real tap (visible, not covered), the way a phone user reaches it; a hidden button fails the shot.
     await page.click('#new-agent', { timeout: 5000 });
@@ -960,6 +962,13 @@ async function run() {
               /* A screen that changed the board's state puts it back here, whatever happened above,
                  so no later screen photographs it (#4545). A failure to is a flag on this row (counted
                  once: a row whose go() already errored is one errored screen, not two). */
+              if (sc.verify && !/ERROR/.test(note)) {
+                try { await sc.verify(page, ctxData); } catch (e) {
+                  try { fs.rmSync(path.join(out, file), { force: true }); } catch { /* best effort */ }
+                  errors++;
+                  note += (note ? '; ' : '') + 'ERROR verify (shot deleted): ' + String(e.message || e).split('\n')[0];
+                }
+              }
               if (sc.after) {
                 try { await sc.after(page, ctxData); } catch (e) { if (!/ERROR/.test(note)) errors++; note += (note ? '; ' : '') + 'ERROR after: ' + String(e.message || e).split('\n')[0]; }
               }
