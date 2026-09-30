@@ -1188,6 +1188,77 @@ function answerGeminiQuotaStop(sessionName, roster) {
   return { ok: true, key };
 }
 
+/* #4607: how long a Codex screen settles before a key: a key sent the instant a screen draws is dropped (measured
+   twice on 0.149.1, a "2" before the menu drew and a "t" as the table drew). */
+const CODEX_HOOK_SETTLE_MS = 1500;
+/**
+ * #4607: the PERSON answers Codex's "Hooks need review" from the board: choice 'trust' (every hook it lists) or
+ * 'skip' (continue without trusting; the hooks do not run). The only caller is the owner-only route; no message path
+ * reaches it, and #4589's floor (codexScreenRefusal, in deliverWithGap and keysAllowed) is unchanged for every other
+ * key. So this checks what keysAllowed checks EXCEPT that floor: this is the one place the dialog may be answered.
+ *
+ * Keys, measured 2026-09-30 on a live pane (Codex 0.149.1, isolated CODEX_HOME, one `true` Stop and one `true`
+ * SubagentStop hook):
+ *   menu:  trust "2", skip "3" (each acts at once, no Enter) -> the prompt
+ *   table: trust "t" -> the same table with "Press enter to view hooks; esc to close", then Escape -> the prompt;
+ *          skip Escape -> the prompt, nothing trusted
+ *   hook:  Escape -> the table, then as the table
+ * Before EVERY key the screen is read again and must be the screen that key was measured on; after it, the screen
+ * settles and is read again. Anything else stops with what it saw: nothing is pressed into a screen we did not expect.
+ * Resolves { ok: true, choice, keys } | { ok: false, because, keys }. Never rejects.
+ */
+async function answerCodexHooks(sessionName, choice, roster) {
+  const keys = [];
+  const no = (because) => ({ ok: false, because, keys });
+  if (choice !== 'trust' && choice !== 'skip') return no('choose to trust the hooks or to continue without them');
+  const allowed = addressable(sessionName, roster);
+  if (!allowed.ok) return no(allowed.because);
+  const card = allowed.card;
+  if (card.runner !== 'codex') return no('that is not a Codex agent');
+  if (card.reachedByChannel === true) return no('Kosmos cannot answer this on Windows yet; choose in the agent\u2019s own window');
+  const t = paneTarget(card);
+  const wait = (ms) => (pauser ? Promise.resolve(pauser(ms)) : (runner ? Promise.resolve() : new Promise((r) => setTimeout(r, ms))));
+  const look = () => {
+    const view = viewport(sessionName, roster);
+    const text = view && typeof view.text === 'string' ? view.text : null;
+    if (text === null) return { unseen: true };
+    const seen = status.codexHookReview(text);
+    if (seen) return { screen: seen.screen };
+    if (status.codexHookTrustedTable(text)) return { screen: 'trusted' };
+    return { screen: null };
+  };
+  const press = (key) => {
+    const got = tmux(['send-keys', '-t', t, key]);
+    keys.push(key);
+    return !(got.spawnFailed || !got.ran || got.status !== 0);
+  };
+  /* The first read is the one the person's click answers: the dialog must be on screen now. */
+  let now = look();
+  if (now.unseen) return no('we could not see its screen just now, so nothing was pressed');
+  if (!now.screen) return no('the hook question is not on its screen now, so nothing was pressed');
+  if (now.screen === 'trusted') return no('its hooks are already trusted and their list is open; close it in its window');
+  /* At most four keys (hook -> table -> trusted table -> prompt); a screen that does not move stops the loop. */
+  for (let step = 0; step < 4; step += 1) {
+    let key;
+    if (now.screen === 'menu') key = choice === 'trust' ? '2' : '3';
+    else if (now.screen === 'table') key = choice === 'trust' ? 't' : 'Escape';
+    else if (now.screen === 'hook') key = 'Escape';
+    else if (now.screen === 'trusted') key = choice === 'trust' ? 'Escape' : null;
+    if (!key) return no('its screen changed to something we did not expect, so nothing more was pressed; look at its window');
+    /* Read again immediately before the key: the screen must still be the one this key was measured on. */
+    const before = look();
+    if (before.screen !== now.screen) return no('its screen changed before we could answer, so nothing more was pressed; look at its window');
+    if (!press(key)) return no('we could not press the key; look at its window');
+    await wait(CODEX_HOOK_SETTLE_MS);
+    const after = look();
+    if (after.unseen) return no('we answered, and then could not see its screen to check it; look at its window');
+    if (!after.screen) return { ok: true, choice, keys };
+    if (after.screen === now.screen) return no('its screen did not change after we answered; look at its window');
+    now = after;
+  }
+  return no('its screen is still asking after four keys, so we stopped; look at its window');
+}
+
 /* #3564: what a paused swarm still accepts. */
 const PAUSED_SWARM_COMMANDS = /^\/(compact|clear|cost|context|status)([ \t][^\r\n]*)?$/i;
 
@@ -3255,7 +3326,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, deliverAsync, interrupt, stopHelpers, answerGeminiQuotaStop, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAsync, interrupt, stopHelpers, answerGeminiQuotaStop, answerCodexHooks, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,

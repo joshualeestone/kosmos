@@ -1651,6 +1651,56 @@ function isCodexHookEvidence(evidence) {
       || /^Press t to trust; esc to go back$/.test(evidence));
 }
 
+/* #4607: the table AFTER "t" trusted every hook (measured 2026-09-30 on a live pane, Codex 0.149.1,
+   test-support/codex-screens/hook-review-table-trusted-0.149.1.txt): the Review column is gone and the footer is
+   "Press enter to view hooks; esc to close". Nothing is left to trust; Esc closes it to the prompt. Matched like the
+   other footers: at the end of the last rows joined, with its own heading above, so the words in tool output do not
+   count. codexHookReview does not return this screen (there is no question on it). */
+const CODEX_HOOK_TRUSTED_FOOTER_END = /Pressentertoviewhooks;esctoclose$/;
+const CODEX_HOOK_TABLE_HEADING = /^\s*Lifecycle hooks from config and enabled plugins\.\s*$/;
+function codexHookTrustedTable(paneText) {
+  const rows = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
+  while (rows.length && !rows[rows.length - 1]) rows.pop();
+  if (!rows.length) return false;
+  const tail = rows.slice(-CODEX_HOOK_ROWS);
+  if (!CODEX_HOOK_TRUSTED_FOOTER_END.test(tail.slice(-3).join('').replace(/\s+/g, ''))) return false;
+  return tail.slice(0, -1).some((r) => CODEX_HOOK_TABLE_HEADING.test(r));
+}
+/* #4607: what the card shows beside its two buttons. From the MENU, the count ("2 hooks are new or changed."); from
+   the TABLE, the events with hooks to review (the Review column); from one HOOK, its event and source. Only what the
+   screen says: null fields when it does not say them. */
+const CODEX_HOOK_MENU_COUNT = /^\s*(\d+) hooks? (?:is|are) new or changed\.\s*$/;
+const CODEX_HOOK_TABLE_ROW = /^\s*([A-Za-z]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+\S.*$/;
+function codexHookSummary(paneText) {
+  const seen = codexHookReview(paneText);
+  if (!seen) return null;
+  const rows = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
+  let count = null;
+  const events = [];
+  let source = null;
+  if (seen.screen === 'menu') {
+    const m = rows.map((r) => CODEX_HOOK_MENU_COUNT.exec(r)).find(Boolean);
+    if (m) count = Number(m[1]);
+  } else if (seen.screen === 'table') {
+    for (const r of rows) {
+      const m = CODEX_HOOK_TABLE_ROW.exec(r);
+      if (m && Number(m[4]) > 0) events.push({ event: m[1], count: Number(m[4]) });
+    }
+    if (events.length) count = events.reduce((n, e) => n + e.count, 0);
+  } else if (seen.screen === 'hook') {
+    const ev = rows.map((r) => /^\s*Event\s{2,}(\S+)\s*$/.exec(r)).find(Boolean);
+    if (ev) events.push({ event: ev[1], count: 1 });
+    const si = rows.findIndex((r) => /^\s*Source\s{2,}\S/.test(r));
+    if (si >= 0) {
+      /* The source can wrap onto the next row (the captured screen does), which carries no label. */
+      const first = rows[si].replace(/^\s*Source\s+/, '');
+      const next = rows[si + 1] && /^\s{8,}\S/.test(rows[si + 1]) && !/^\s*[A-Z][a-z]+\s{2,}/.test(rows[si + 1]) ? rows[si + 1].trim() : '';
+      source = (first + next).trim();
+    }
+  }
+  return { screen: seen.screen, count, events, source };
+}
+
 /* #4004: Gemini CLI (0.61.0, measured 2026-09-26 against a fake 429 in a real tmux pane) on a daily quota.
    While it waits, its quota question is on screen ("Usage limit reached for <model>." over numbered options that
    end in "Stop"), and it waits there forever. After Stop, it is back at its prompt under
@@ -8086,6 +8136,7 @@ module.exports = {
   isTrustDialogEvidence,
   TRUST_DIALOG_SENTENCE,
   codexHookReview, // #4589
+  codexHookTrustedTable, codexHookSummary, // #4607
   isCodexHookEvidence,
   CODEX_HOOK_DIALOG_SENTENCE,
   CODEX_STARTING_SENTENCE,
