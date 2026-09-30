@@ -778,6 +778,8 @@ function recordRemoval(clean, job, stopped, shownAs, leftRunningByChoice) {
     return false;
   }
   forgetPendingStart(clean);
+  // #4624: room posts held for it are not told to a later agent of the same name.
+  try { require('./roomhold').forget(clean); } catch { /* best-effort; the posts are in the room */ }
   return isRemoved(clean);
 }
 

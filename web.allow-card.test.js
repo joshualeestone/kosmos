@@ -50,9 +50,11 @@ test('#3829 each request is a compact card: kind, when, the code, one device-neu
 
 test('#3829 an unnamed request is "Unknown device", never the bare noun', () => {
   assert.match(JS, /return d && typeof d\.name === 'string' && d\.name \? d\.name : 'Unknown device';/);
-  // ICK's finding: this computer's own in-app sign-in (no name) is "This computer (Kosmos app)", matched by its own device id.
-  assert.match(JS, /if \(d && ASK\.self && d\.device_id === ASK\.self\) return 'This computer \(Kosmos app\)';/);
-  assert.match(SERVER, /self_device_id: self/, 'the devices route no longer names this Mac\'s own id');
+  /* #4610 (Josh's ruling 13:00): this Mac's own sign-in is granted by the board and never shown, so the page no
+     longer relabels it and the board no longer sends its id (it picks the automatic grant, so it stays off the read
+     routes). Replaces #3829's "This computer (Kosmos app)" pin. */
+  assert.doesNotMatch(JS, /This computer \(Kosmos app\)/, 'the page still relabels a row it should never see');
+  assert.doesNotMatch(SERVER, /self_device_id/, 'a read route still sends this Mac\'s own device id to the page');
 });
 
 test('the change-your-password sentence appears on the Deny branch and the re-ask line, never on the plain ask', () => {
@@ -97,7 +99,7 @@ test('the poll for what is waiting reads a file and never spawns; the verbs shel
 });
 
 test('the Plus tab carries the needs-you dot in the nav’s own grammar', () => {
-  assert.match(PAGE, /data-go="plus" aria-controls="s-sec-plus"><span>Kosmos Plus<\/span><span class="dot" aria-hidden="true"><\/span><span class="vh"> \(needs you\)<\/span>/);
+  assert.match(PAGE, /data-go="plus" aria-controls="s-sec-plus"><span>Kosmos\+<\/span><span class="dot" aria-hidden="true"><\/span><span class="vh"> \(needs you\)<\/span>/);
   assert.match(JS, /#s-nav button\[data-go="plus"\]/);
 });
 

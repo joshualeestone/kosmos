@@ -5,7 +5,7 @@
 # setup.sh is served as a single curl|sh file and sources nothing, so this block
 # cannot live in a tools/lib the test could source. Instead we EXTRACT the exact
 # shipped bytes of the block from install/setup.sh (the same technique
-# test-install.sh uses for the default-port and derivation-formula fragments) and
+# tools/lib/install-static-checks.sh uses for the derivation-formula fragments) and
 # drive it through every arm with a stubbed info() and a temp LOG. This tests the
 # code that actually ships, not a re-implementation.
 set -u

@@ -56,6 +56,7 @@ const crypto = require('node:crypto');
 const { externalName, INVISIBLE, byCodePoint } = require('./externalname');
 const { execFileSync } = require('node:child_process');
 const chat = require('./chat');
+const roomhold = require('./roomhold');   // #4624
 const store = require('./store');
 const limits = require('./limits');
 
@@ -964,10 +965,12 @@ function inFlightTwin(key) {
 }
 function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0000' + place + '\u0000' + text; }
 /* One rule for a post's summary state, used by a fresh post and by its folded twin: every recipient placed
-   (or nobody to deliver to) is placed; anything else is unconfirmed. */
+   (or nobody to deliver to) is placed; anything else is unconfirmed.
+   #4624: a held post is kept and its member will be told, so it counts as placed for the sender, and so does
+   the folded retry of one (it reports the first copy's outcomes). */
 function aggregateState(outcomes) {
   const states = Object.values(outcomes || {});
-  return states.every((v) => v === chat.DELIVERY.PLACED) ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
+  return states.every((v) => v === chat.DELIVERY.PLACED || v === roomhold.HELD) ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
 }
 /* A retry follows its first copy with nothing new in that conversation; a real second answer usually comes after
    the other side spoke, or after the sender said something else ("yes", "wait", "yes" is a change of mind). So a
@@ -1837,6 +1840,16 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   let reached = 0;
   const deliverOne = (name) => {
     if (offHere.has(name)) return null;
+    /* #4624: a colleague's post that does not name this member, arriving mid-turn, is held rather than
+       typed (engine/roomhold.js says who and why). A post that cannot be held is typed as before. */
+    if (roomhold.shouldHold({ name, operator, mentioned, answersAuthor: answered && answered.operator !== true ? answered.from : null,
+      reachable: chat.addressable(name, roster).ok === true, readReport: (n) => require('./selfreport').read(n),
+      now: Date.now(), decayMs: require('./status').REPORT_WORKING_DECAY_MS, env: process.env })
+      && roomhold.hold(name, projectId, id)) {
+      outcomes[name] = roomhold.HELD;
+      reached += 1;
+      return null;
+    }
     /* #4447: a long post's full text goes into THIS member's own Inbox, and its pointer names that
        file. A member whose folder cannot take it is not reached (there is no shared folder to use). */
     let bodyHere = cleaned;
@@ -1936,14 +1949,25 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
         + (missed === 1 ? '' : 's') + ' this hour did not reach you.'
         + ' Read the room with: kosmos room ' + projectId + ']'
       : '';
+    /* #4624: posts held for this member in this room while it was working ride on this arrival, as one
+       line: taken now (so an idle flush cannot tell them too) and put back if this arrival is not typed. */
+    const heldIds = roomhold.take(name, projectId);
+    const heldLine = heldIds.length ? ' ' + roomhold.clauseFor(projectId, shownProject, heldIds) : '';
     const finish = (sent) => {
       outcomes[name] = sent.state;
       if (sent.state !== chat.DELIVERY.COULD_NOT) reached += 1;
-      else unspill(spilled[name]);   // #4447: nothing left for a member it never reached
+      else {
+        roomhold.restore(name, projectId, heldIds);
+        unspill(spilled[name]);   // #4447: nothing left for a member it never reached
+      }
       return sent;
     };
-    const sent = deliverToPane(name, envelope + catchUp, roster, undefined, typeof trailer === 'string' ? trailer : undefined);
-    return sent && typeof sent.then === 'function' ? sent.then(finish) : finish(sent);
+    // A throw or rejection from the typing path is not a told member either: put the held ids back.
+    const putBack = (err) => { roomhold.restore(name, projectId, heldIds); throw err; };
+    let sent;
+    try { sent = deliverToPane(name, envelope + catchUp + heldLine, roster, undefined, typeof trailer === 'string' ? trailer : undefined); }
+    catch (err) { putBack(err); }
+    return sent && typeof sent.then === 'function' ? sent.then(finish, putBack) : finish(sent);
   };
 
   const finishDeliveries = () => {
