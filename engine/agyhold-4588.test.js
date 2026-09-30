@@ -22,6 +22,8 @@ process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
 process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 
 const test = require('node:test');
+// agyquota remembers the latest pool reset it has seen (the release tail); each test starts with none.
+test.beforeEach(() => { require('./agyquota').POOL_MEMO.resetAt = null; });
 const assert = require('node:assert/strict');
 
 const store = require('./store');
@@ -167,7 +169,7 @@ test('#4588 B firstreply: a held delivery leaves the book untouched and reports 
     assert.equal(h.o.roster[0].state, 'idle', 'fixture: the card must read idle or the nudge is never tried');
     const r = firstreply.sweepOnce(h.o);
     assert.equal(h.calls.length, 1, 'fixture: the nudge was not attempted at all');
-    assert.deepEqual(r.results.map((x) => x.act), ['held']);
+    assert.deepEqual(r.results.map((x) => x.act), ['quota-held']);
     assert.equal(r.results[0].delivered, false);
     assert.equal(h.book.size, 0, 'a held nudge wrote the book (spent a try)');
     // Held every minute for longer than MAX_TRIES: still never spent, and still tried each sweep.
@@ -219,13 +221,13 @@ test('#4588 B agentnudge: a held delivery leaves the book and the hour untouched
     const sent = [];
     const first = anPass(w, HELD, book, sent);
     assert.equal(first.calls.length, 1, 'fixture: the nudge was not attempted at all');
-    assert.deepEqual(first.res.results.map((r) => r.act), ['held']);
+    assert.deepEqual(first.res.results.map((r) => r.act), ['quota-held']);
     assert.equal(first.res.results[0].delivered, false);
     assert.equal(book.size, 0, 'a held nudge wrote the book (spent a try)');
     assert.equal(sent.length, 0, 'a held nudge counted toward the hourly limit');
     // A held verdict is checked before the verdict state: even a (never-produced) placed+held counts nothing.
     const odd = anPass(w, () => ({ ...HELD(), state: DELIVERY.PLACED }), book, sent);
-    assert.deepEqual(odd.res.results.map((r) => r.act), ['held']);
+    assert.deepEqual(odd.res.results.map((r) => r.act), ['quota-held']);
     assert.equal(book.size, 0);
     assert.equal(sent.length, 0, 'held must never count toward the hour, whatever the state says');
   } finally { w.restore(); }
@@ -292,6 +294,7 @@ test('#4588 B assigner step: an agy agent held on the pool is neither asked nor 
     const held = run(asAgy.concat([paused]));
     assert.deepEqual(held.asks, [], 'a held agent was asked');
     assert.equal(held.out.next.askLog.length, 0, 'a held agent was charged');
+    agyquota.POOL_MEMO.resetAt = null; // the held run above recorded the pool's reset (its release tail)
     const ctl = run(asAgy);
     assert.deepEqual(ctl.asks, [w.session], 'CONTROL: the unheld agy agent was not asked, so the arm above proves nothing');
   } finally { w.restore(); }
@@ -491,4 +494,55 @@ test('#4588 B speakOfMembership: { automatic: true } uses deliverAutomatic; the 
     assert.equal(explicitFalse.state, DELIVERY.PLACED);
     assert.deepEqual(seen, ['automatic', 'deliver', 'deliver']);
   } finally { chat.deliver = real.d; chat.deliverAutomatic = real.a; }
+});
+
+/* ---- review iteration 1: the release tail, one pool for the resume, and chat's own card rule ---- */
+
+test('#4588 B release tail: held through the pool reset and then the resume\'s grace plus one stagger per agy agent; CONTROL: free after it', () => {
+  const memo = { resetAt: null };
+  const reset = Date.parse('2026-09-28T22:11:54.000Z');
+  const paused = [
+    { sessionName: 'tail-a', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(reset).toISOString() },
+    { sessionName: 'tail-b', runner: 'antigravity', state: 'idle' },
+    { sessionName: 'tail-x', runner: 'claude', state: 'idle' },
+  ];
+  assert.equal(agyquota.heldForQuota('tail-b', paused, reset - 1000, memo), reset, 'held while the pool is paused');
+  assert.equal(memo.resetAt, reset, 'the reset is remembered');
+  // After the reset the card no longer carries quotaUntil (status.js emits it only before the reset).
+  const after = paused.map((c) => (c.sessionName === 'tail-a' ? { ...c, state: 'idle', quotaUntil: null } : c));
+  const tail = agyquota.GRACE_MS + agyquota.STAGGER_MS * 2; // two antigravity cards
+  assert.equal(agyquota.releaseTailMs(after), tail);
+  assert.equal(agyquota.heldForQuota('tail-b', after, reset + 1000, memo), reset + tail, 'held inside the tail');
+  assert.equal(agyquota.heldForQuota('tail-b', after, reset + tail - 1, memo), reset + tail, 'held until the tail ends');
+  assert.equal(agyquota.heldForQuota('tail-b', after, reset + tail, memo), null, 'CONTROL: free once the tail has passed');
+  assert.equal(agyquota.heldForQuota('tail-x', after, reset + 1000, memo), null, 'CONTROL: a claude card is never held by the tail');
+  assert.equal(agyquota.heldForQuota('tail-b', after, reset + 1000, { resetAt: null }), null, 'CONTROL: with no reset remembered there is no tail');
+});
+
+test('#4588 B resume: nobody is resumed while ANY antigravity card is still inside its pause; CONTROL: resumed once the pool is open', () => {
+  const RESET = '2026-09-28T22:11:54.000Z';
+  const AT = Date.parse(RESET);
+  const report = { found: true, state: 'idle', by: 'auto', until: RESET, because: status.QUOTA_REPORT_PREFIX + ' Google said: ...' };
+  const now = AT + agyquota.GRACE_MS + 1;
+  const sent = [];
+  const base = [{ sessionName: 'res-a', name: 'A', runner: 'antigravity', state: 'idle' }];
+  const other = { sessionName: 'res-b', name: 'B', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(now + 60 * 60e3).toISOString() };
+  const run = (roster) => agyquota.sweepOnce({ roster, book: new Map(), now, memo: { resetAt: null }, readReport: (s) => (s === 'res-a' ? report : { found: false }),
+    deliver: (s) => { sent.push(s); return { state: DELIVERY.PLACED }; }, DELIVERY });
+  const held = run(base.concat([other]));
+  assert.equal(held.skipped, 'the shared pool is still paused');
+  assert.deepEqual(sent, [], 'res-a was resumed into a pool res-b still holds');
+  const open = run(base);
+  assert.deepEqual(sent, ['res-a'], 'CONTROL: with the pool open res-a is resumed, so the arm above proves the pool check');
+  assert.equal(open.skipped, undefined);
+});
+
+test('#4588 B heldForQuota finds the card by chat\'s own rule (resolveCard), so a differently cased name is still held; CONTROL: an unknown name is not', () => {
+  const now = Date.now();
+  const roster = [
+    { sessionName: 'CaseAgy', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(now + 60e3).toISOString(), isNamedOurs: true },
+  ];
+  assert.equal(chat.resolveCard(roster, 'caseagy').sessionName, 'CaseAgy', 'fixture: resolveCard is case-insensitive');
+  assert.notEqual(agyquota.heldForQuota('caseagy', roster, now, { resetAt: null }), null, 'a lower-cased name slipped past the gate');
+  assert.equal(agyquota.heldForQuota('nosuchagent', roster, now, { resetAt: null }), null, 'CONTROL');
 });

@@ -1129,6 +1129,11 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
         const card = projects.ourCard(name, board());
         if (!card) return false;
         if (card.state === STATE.STOPPED) return true;
+        /* #4588 PR B: a running agent held on its machine's shared Google quota is not ready: not spent, looked at again
+           next sweep, so neither its instructions write nor the one retell per change is used up during the pause. */
+        let held = null;
+        try { held = require('./engine/agyquota').heldForQuota(card.sessionName, board(), now); } catch { held = null; }
+        if (held !== null) return false;
         const st = projects.toldOverride(instructions.staleness(name, undefined, card.session), name, all);
         return !!(st && st.state === instructions.STALENESS.CURRENT);
       },
@@ -18654,6 +18659,7 @@ function start(port = PORT) {
          safeRoster(), never paneRoster(): it needs stateReportedBy/stateProject and full cards
          for chat.deliver. Own ~1-min timer, unref'd, best-effort. */
       let recommenderPrev;
+      const recommenderHeldLogged = new Set();
       const recommenderSweep = setInterval(() => {
         if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
         try {
@@ -18668,9 +18674,17 @@ function start(port = PORT) {
             heldUntil: (session) => agyQuota.heldForQuota(session, roster, Date.now()),
           });
           recommenderPrev = out.next;
-          for (const a of out.acted) process.stdout.write(a.verdict === 'held'
-            ? `recommender: ${a.name} (${a.session}) on ${a.project}: held on the shared Google quota, not convened yet\n`
-            : `recommender: ${a.name} (${a.session}) on ${a.project}: ${a.retry ? 'retry' : 'note ' + (a.noteLanded ? 'written' : 'NOT written') + ', asked [' + a.asked.join(', ') + ']'}, playbook ${a.verdict || 'threw'}\n`);
+          for (const a of out.acted) {
+            // #4588 PR B: a held item is logged once per pause, not every minute it stays held.
+            const heldKey = a.session + ' ' + a.project;
+            if (a.verdict === 'held') {
+              if (!recommenderHeldLogged.has(heldKey)) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: held on the shared Google quota, not convened yet\n`);
+              recommenderHeldLogged.add(heldKey);
+              continue;
+            }
+            recommenderHeldLogged.delete(heldKey);
+            process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: ${a.retry ? 'retry' : 'note ' + (a.noteLanded ? 'written' : 'NOT written') + ', asked [' + a.asked.join(', ') + ']'}, playbook ${a.verdict || 'threw'}\n`);
+          }
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) : 60 * 1000); // the env is the test seam only
       if (recommenderSweep && typeof recommenderSweep.unref === 'function') recommenderSweep.unref();
@@ -18678,7 +18692,7 @@ function start(port = PORT) {
          board that reads idle, whose commitments leave it free (assigner.commitmentsFree, #4552) and that has no open part of any task,
          for engine/assigner.js's IDLE_MS, it gives the next task nobody is on in a live project the
          agent belongs to, through givePart in its assigner mode (see givePart). Phase 3: with
-         nothing to hand out, it asks the agent (chat.deliver) to draft tasks toward a project's
+         nothing to hand out, it asks the agent (chat.deliverAutomatic) to draft tasks toward a project's
          BRIEF.md goal (engine/brief.js). The tick's composition is assigner.tick, with the reads
          injected here.
          Gated on live execution like the sweeps above; own ~1-min timer, unref'd, best-effort. */

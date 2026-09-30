@@ -25,6 +25,8 @@ process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 
 const test = require('node:test');
+// agyquota remembers the latest pool reset it has seen (the release tail); each test starts with none.
+test.beforeEach(() => { require('./engine/agyquota').POOL_MEMO.resetAt = null; });
 const assert = require('node:assert/strict');
 
 const store = require('./engine/store');
@@ -214,4 +216,18 @@ test('#4588 B pin: givePart checks heldForQuota inside its assigner branch BEFOR
   const branch = body.lastIndexOf('if (assigner) {', held);
   assert.notEqual(branch, -1, 'the hold check is not inside an assigner branch');
   assert.match(body.slice(held, assign), /status:\s*409,\s*held:\s*true/);
+});
+
+test('#4588 B pin: the auto-retell\'s ready() holds a running agent on the pool BEFORE anything is written or spent', () => {
+  const at = CODE.indexOf('ready: (name) => {');
+  assert.notEqual(at, -1, 'the auto-retell ready() was not found');
+  assert.equal(CODE.indexOf('ready: (name) => {', at + 1), -1, 'ready() anchor is not unique');
+  const body = CODE.slice(at, CODE.indexOf('},', at));
+  const held = body.search(/heldForQuota\(card\.sessionName, board\(\), now\)/);
+  const stopped = body.indexOf('STATE.STOPPED');
+  const told = body.indexOf('projects.toldOverride(');
+  assert.ok(held > -1, 'ready() does not ask heldForQuota');
+  assert.match(body, /if \(held !== null\) return false;/, 'a held agent is not reported not-ready');
+  assert.ok(stopped > -1 && stopped < held, 'a stopped agent must still be ready first (it reads its file at its next start)');
+  assert.ok(told > held, 'the hold must come before the staleness read decides readiness');
 });

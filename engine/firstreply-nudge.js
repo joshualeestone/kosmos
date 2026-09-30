@@ -170,7 +170,7 @@ function sweepOnce(o) {
       try { const r = o.deliver(session, NUDGE_TEXT, o.roster); state = r && r.state; held = Boolean(r && r.held === true); }
       catch (err) { state = 'threw: ' + String((err && err.message) || err); }
       /* #4588 PR B: held on the shared Google quota, nothing typed: no try is spent, so the nudge still comes after the reset. */
-      if (held) { results.push({ session, name: display, act: 'held', delivered: false, delivery: state, because: p.because }); continue; }
+      if (held) { results.push({ session, name: display, act: 'quota-held', delivered: false, delivery: state, because: p.because }); continue; }
       const D = o.DELIVERY || {};
       const delivered = D.PLACED != null && state === D.PLACED;
       const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);

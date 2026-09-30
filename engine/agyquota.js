@@ -50,12 +50,36 @@ function poolHeldUntil(roster, now) {
   }
   return until;
 }
-/* The reset an automatic line to `session` waits for, or null when it may be typed now: only an antigravity card is
-   held, and only while the pool is paused. A card missing from the roster is not held (the delivery refuses it anyway). */
-function heldForQuota(session, roster, now) {
-  const card = (Array.isArray(roster) ? roster : []).find((c) => c && c.sessionName === session);
+/* The latest pool reset this board has seen. A card stops carrying quotaUntil once its reset passes, so without this
+   the hold would lift the instant the pool refilled and every held sender would fire at every agent in the same minute,
+   ahead of the one-at-a-time resume below. In memory only: a board restart forgets it, and the release tail is then lost
+   for that one reset. */
+const POOL_MEMO = { resetAt: null };
+function notePool(roster, now, memo = POOL_MEMO) {
+  const until = poolHeldUntil(roster, now);
+  if (until !== null && (memo.resetAt === null || until > memo.resetAt)) memo.resetAt = until;
+  return until;
+}
+/* After the pool's reset, automatic senders stay held while the resume below works through the agents: its grace, then
+   one stagger step per antigravity agent on the board. */
+function releaseTailMs(roster) {
+  const n = (Array.isArray(roster) ? roster : []).filter((c) => c && c.runner === 'antigravity').length;
+  return GRACE_MS + STAGGER_MS * Math.max(1, n);
+}
+/* When an automatic line to `session` may be typed, in epoch ms, or null for now: only an antigravity card is held,
+   while the pool is paused and through the release tail after it. The card is found by chat's own rule
+   (resolveCard), so the gate and the delivery always mean the same card. */
+function heldForQuota(session, roster, now, memo = POOL_MEMO) {
+  let card = null;
+  try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
   if (!card || card.runner !== 'antigravity') return null;
-  return poolHeldUntil(roster, now);
+  const until = notePool(roster, now, memo);
+  if (until !== null) return until;
+  if (memo.resetAt !== null) {
+    const releaseAt = memo.resetAt + releaseTailMs(roster);
+    if (now < releaseAt) return releaseAt;
+  }
+  return null;
 }
 
 /* The card states a nudge may be typed over: never a question (a typed line could answer it), work, or a lost
@@ -92,6 +116,9 @@ function sweepOnce(o) {
     const now = Number.isFinite(o.now) ? o.now : Date.now();
     const read = typeof o.readReport === 'function' ? o.readReport : (s) => require('./selfreport').read(s);
     const log = typeof o.log === 'function' ? o.log : null;
+    /* #4588 PR B: one pool. While any antigravity card is still inside its pause, a resume into another one would spend
+       a turn against the same empty pool, so nobody is resumed until the latest reset has passed. */
+    if (notePool(o.roster, now, o.memo || POOL_MEMO) !== null) return { results, skipped: 'the shared pool is still paused' };
     const last = book.get(LAST);
     if (Number.isFinite(last) && now - last < STAGGER_MS) return { results, skipped: 'spacing resumes out' };
     const due = [];
@@ -144,4 +171,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, poolHeldUntil, heldForQuota, plan, sweepOnce, resumeEnabled, makeTick };
+module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, poolHeldUntil, notePool, releaseTailMs, heldForQuota, POOL_MEMO, plan, sweepOnce, resumeEnabled, makeTick };
