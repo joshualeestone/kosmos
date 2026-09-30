@@ -94,6 +94,17 @@ desktop. /design-shots owes the rest.
 The reviewer RAN sync-forced-theme --check (exit 0: nothing here sits in a dark media block) and the theme tests
 (28 of 28), and confirmed the pill pin outranks no pill style it should not (none exists besides the dark ones).
 
+## Review round 3 (a third blind reviewer, whole branch): no blocker, no should-fix, three nits, all taken. CONVERGED.
+1. The new-look member-row comment still called the pulse an animation of the row's ground. Reworded.
+2. The reduced-motion arm read only the ::before; it now also asserts the box itself runs no animation.
+3. The check's header said "the box's ::before" for the breath too; it is the pill's.
+The reviewer RAN 391 of 391 node tests and sync-forced-theme --check (exit 0), and worked the pill's peak through:
+old .696, new .698.
+
+## Design review
+Mona Lisa APPROVED (2026-09-30 17:26, #4765 comment 5920801968): a pixel diff of the shots against main differs only
+in the pulse's moment.
+
 ## Not done
 - /design-shots (light and dark, desktop and phone) for a design review: the set taken at 16:02 predates review
   round 1 and is NOT to be reviewed; shoot again.

@@ -9863,10 +9863,9 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 /* The stroke goes only on members the board can see; an unseen one keeps its dashed presence
    border (#2804), which is the only thing on the row saying we cannot see that agent. */
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member:not(.unseen) { border-color: transparent; }
-/* The #3956 working pulse is an ANIMATION of the row's ground, and an animation outranks every
-   rule, so the plain row needs it off explicitly; the green dot and "Working" carry that state.
-   #4765: the pulse now runs on the row's ::before layer, so that is what is switched off here (the box
-   itself runs none any more). */
+/* The #3956 working pulse needs switching off explicitly on the plain row; the green dot and "Working"
+   carry that state. #4765: the pulse runs on the row's ::before layer, so that layer is what is removed
+   here (the box itself runs no animation any more). */
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member.pjm-working::before { content: none; animation: none; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents { grid-column: 1 / -1; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-b { flex: 1 1 auto; }

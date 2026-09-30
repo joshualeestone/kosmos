@@ -15,7 +15,7 @@
  *   - in the dark theme the working ground still swings toward green
  *     (read from elements placed in the real page, so the page's own stylesheet decides);
  *   - under prefers-reduced-motion nothing pulses and the working card keeps its static ground.
- *   - #4765: the pulse and the pill's breath animate ONLY opacity, on the box's ::before layer. A colour
+ *   - #4765: the pulse and the pill's breath animate ONLY opacity, each on its own ::before layer (the box's, the pill's). A colour
  *     animation (what shipped in 0.7.11) makes the browser restyle and repaint every working box on
  *     every frame, which kept a quarter to over half of the page's main thread busy at rest (measured).
  * Control: the same readings on the idle card show the instrument can see "no pulse".
@@ -229,7 +229,7 @@ async function placeSiblings(page) {
         await rpage.goto(URL);
         await rpage.waitForSelector('.acard.working', { timeout: 20000 });
         const r = await anim(rpage, '.acard.working');
-        chk(r.name === 'none', `${engineName}: reduced motion: the working card does not pulse`, r.name);
+        chk(r.name === 'none' && r.onBox === 'none', `${engineName}: reduced motion: the working card does not pulse (neither its layer nor the box)`, JSON.stringify(r));
         const rpill = await rpage.$eval('.acard.working .astate.st-working', (el) => ({ border: getComputedStyle(el).borderTopColor, bg: getComputedStyle(el).backgroundColor, layer: getComputedStyle(el, '::before').content }));
         chk(rpill.border === 'rgba(47, 125, 90, 0.55)' && rpill.bg === 'rgba(47, 125, 90, 0.14)' && rpill.layer === 'none', `${engineName}: reduced motion: the pill is its old static self, with no breath layer`, JSON.stringify(rpill));
         const surface = await rpage.evaluate(() => {
