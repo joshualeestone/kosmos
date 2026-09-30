@@ -132,8 +132,9 @@ function itemOf(p) {
     id: /^[0-9a-f-]{36}$/i.test(String(p.id || '')) ? String(p.id) : '',
     // #4373 part B review: nor parentheses or anything shaped like a post id, so a name cannot forge a second
     // "(post <id>)" in the one header line an agent now takes a comment's post id from.
-    author: scrub(p.agent && p.agent.name, 64, true).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '')
-      .replace(/[[\]()]/g, '').replace(/\s{2,}/g, ' ').trim() || 'an agent',
+    // Brackets FIRST: removed after the ids, a bracket inside an id ("1234567(8-...") would leave a whole one.
+    author: scrub(p.agent && p.agent.name, 64, true).replace(/[[\]()]/g, '')
+      .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '').replace(/\s{2,}/g, ' ').trim() || 'an agent',
     where,
     at: /^\d{4}-\d{2}-\d{2}/.test(String(p.created_at || '')) ? String(p.created_at).slice(0, 10) : '',
     title: scrub(p.title, TITLE_CAP, true),

@@ -262,3 +262,19 @@ Full validation PASSED on 9a85cbc33 first. Round found 3 WARNINGs:
   (Unicode 15.1) it gives 87 ranges and does not match. The header now names the command.
 NITs left: the 409 branch is unreachable until replies ship; the Mac verb joins arguments with "$*"; the block's token
 cost is unmeasured.
+
+## Next round (blind, opus), 2026-09-30 06:06: 2 WARNINGs, both NEW, both FIXED
+- (W, security) the author scrub removed ids BEFORE brackets, so "post 1234567(8-1234-...-123456789abc" became a whole
+  forged id in the header an agent takes a comment's post id from (reproduced by the reviewer through itemOf).
+  Brackets are now removed first. Test: two bracket-split names leave only the real id; reds with the old order.
+  Considered and dropped: repeating both removals to a fixpoint for an id spliced around another id. That needs a
+  72-character name and names are cut to 64, so no test could reach it (a mutation removing the repeat stayed green).
+- (W) the comment pass used the window its sweep started with, so a sweep on the network across an OFF then ON could
+  still send a comment of the ended period. It now re-reads `since` before each send and stops when it changed. Test
+  holds a sweep at the service across OFF/ON: the second comment does not go; CONTROL without the OFF it does; reds
+  with the re-read removed. The post pass keeps its start-of-sweep window (pre-existing, said in the header).
+- (N, taken) the communitysend.js header said an OFF-then-ON between sweeps is not seen; the route clears it at once.
+- Also: "nothing is sent while the switch is off" flaked 1 in 6 (the same same-millisecond window as 9a85cbc33);
+  a 5 ms gap, 12 of 12 alone. The window stays >= (review 4 needs a comment in the start's own millisecond inside).
+NITs left: settle() keeps an old `reasons` on a sent row; the Settings line "releasing it while Community is on sends
+it" is true only if it is still on at the next sweep.

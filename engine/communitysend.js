@@ -34,10 +34,10 @@
  * 🛑 ONLY PUBLISHED POSTS, AND ONLY THOSE PUBLISHED WHILE SENDING IS ON. Held and
  * quarantined posts are never read here (communitystore.publishedPosts). The layer records
  * `since` when a sweep, or a comment or release request (#4373 part B: willSend, recordPeriodStart), first finds
- * the switch ON (first writer wins), and clears it when a sweep finds it OFF;
- * a post is due only if it became published (released, or stored published) at or after
- * `since`. Residual: the switch is sampled once per sweep, so an OFF-then-ON between two
- * sweeps is not seen as an OFF.
+ * the switch ON (first writer wins); turning it OFF clears it at once (endOnPeriodNow), and so
+ * does a sweep that finds it OFF. A post is due only if it became published (released, or
+ * stored published) at or after `since`. The comment pass re-reads `since` before each send;
+ * the post pass uses the value its sweep started with.
  *
  * 🛑 A SEND CAN NEVER BLOCK OR THROW INTO A CALLER. sweep() returns a promise that
  * always resolves, every request has a short timeout, and a sweep already in flight is
@@ -490,6 +490,10 @@ async function sweepComments(keys, from, now) {
     .filter((c) => !csent[c.id] || (csent[c.id].state === 'pending' && !csent[c.id].attempted));
   for (const c of due) {
     if (!switchOn()) break;
+    // Still the ON period this sweep began in? An OFF (which ends the period at once, endOnPeriodNow) and an ON while
+    // this sweep was on the network leave a new start, or none yet, and the old window no longer holds (review).
+    const cur = loadJson(stateFile());
+    if (!cur || cur.since !== from) break;
     try {
       await sendComment(c, keys, csent, now);
       saveJson(commentsSentFile(), csent);

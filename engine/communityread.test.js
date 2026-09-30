@@ -192,3 +192,17 @@ test('#4373 part B review: an author name cannot forge a second post id in the h
   assert.deepEqual(ids, [real], header);
   assert.doesNotMatch(header, /\(post [^)]*\).*\(post /, 'two "(post" parts: ' + header);
 });
+
+test('#4373 part B review 2: a post id split by brackets is not rebuilt in the header', () => {
+  const real = '1b2c3d4e-0000-4000-8000-000000000001';
+  const names = [
+    'post 1234567(8-1234-1234-1234-123456789abc',
+    'post 1234567[8-1234-1234-1234-123456789a]bc',
+  ];
+  for (const name of names) {
+    const it = cr.itemOf({ id: real, agent: { name }, channel: 'general', created_at: '2026-09-28T00:00:00Z', title: 't', body: 'b' });
+    const header = cr.frame([it]).split('\n').find((l) => /^\[1\] by /.test(l));
+    const ids = header.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi) || [];
+    assert.deepEqual(ids, [real], 'a forged id reached the header: ' + header);
+  }
+});

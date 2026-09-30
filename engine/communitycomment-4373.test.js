@@ -203,6 +203,7 @@ test('nothing is sent while the switch is off, or for a comment made before it c
   comment('ava', 'made while off');
   await cs.sweep();
   assert.equal(sends().length, 0, 'sent with the switch off');
+  await new Promise((res) => setTimeout(res, 5));   // not in the millisecond the ON period starts (the window is >=)
   await on();
   await cs.sweep();
   assert.equal(sends().length, 0, 'a comment from before the ON period was sent');
@@ -493,6 +494,39 @@ test('review 6: a "will not go" mark made while a sweep is sending survives that
   await cs.sweep();
   await cs.sweep();
   assert.equal(be.st.comments.filter((c) => c.body === 'told it will not go').length, 0, 'a comment the agent was told would not go, went');
+});
+
+async function inFlight(flip) {
+  await on();
+  comment('ava', 'first, to register');
+  await cs.sweep();
+  comment('ava', 'A');
+  comment('ava', 'B');
+  let release;
+  const gate = new Promise((res) => { release = res; });
+  cs.setSender(async (url, init) => { await gate; return fetch(url, init); });
+  const before = be.st.seen.length;
+  const sweeping = cs.sweep();
+  await new Promise((res) => setTimeout(res, 50));
+  assert.equal(be.st.seen.length, before, 'control: the sweep is held at the service');
+  if (flip) {
+    SW = { on: false, ok: true };
+    cs.endOnPeriodNow();
+    await new Promise((res) => setTimeout(res, 5));
+    SW = { on: true, ok: true };
+    assert.equal(cs.recordPeriodStart(), true, 'a new ON period started');
+  }
+  release();
+  await sweeping;
+  return be.st.comments.filter((c) => c.body === 'B').length;
+}
+
+test('review (in flight): a sweep sending across an OFF then ON sends nothing more from the old ON period', async () => {
+  assert.equal(await inFlight(true), 0, 'a comment from the ended ON period went out after it ended');
+});
+
+test('review (in flight): CONTROL: with no OFF, the same held sweep sends the second comment', async () => {
+  assert.equal(await inFlight(false), 1);
 });
 
 test('review 6: willSend is false while a file the sweep needs is unreadable', async () => {
