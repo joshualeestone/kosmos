@@ -141,19 +141,32 @@ test('#4784 review 2: an unconfirmed message "may not have reached you", and typ
   } finally { sendertoken.revoke('rua'); board.restore(); }
 });
 
-test('#4784 review 2: on an enforcing board a token wins over a pane that names another agent', async () => {
+/* #4784 review 3: the Mac path. Mac agents carry no agent token (only the win32 launch sets KOSMOS_AGENT_TOKEN), so
+   `kosmos inbox` there sends the BOARD token plus TMUX_PANE, and the route resolves the pane. fake-tmux answers one
+   session for every pane, so the panes are mapped here through messages.setRunner: %1 is leo's, %2 is nova's.
+   Without the map no pane could ever name nova, and a "token wins over the pane" arm could not fail. */
+test('#4784 review 3: the Mac path (board token + pane) reads the pane\'s agent, and an agent token wins over a pane naming another', async (t) => {
+  const messages = require('./engine/messages');
+  messages.setRunner((pane) => ({ ok: true, session: pane === '%2' ? 'nova-discord' : 'leo-discord' }));
+  t.after(() => messages.resetForTests());
   boardAuthState.on = true;
   try {
     await withLeo(async () => {
+      const board = { 'x-kosmos-board-token': TOK };
+      const leoPane = await get('/api/inbox?limit=50&from_pane=%251', board);
+      assert.equal(leoPane.code, 200, 'the Mac path (board token + leo\'s pane) was refused: ' + leoPane.text);
+      assert.ok(JSON.stringify(leoPane.json).includes('Please check the invoice from Monday'), 'leo\'s pane did not read leo\'s rows');
+      assert.ok(!JSON.stringify(leoPane.json).includes('SECRET FOR NOVA ONLY'), 'leo\'s pane read nova\'s rows');
+      // The documented reach, pinned so a tightening is a deliberate change: the board token may name any pane.
+      const novaPane = await get('/api/inbox?limit=50&from_pane=%252', board);
+      assert.equal(novaPane.code, 200, novaPane.text);
+      assert.ok(JSON.stringify(novaPane.json).includes('SECRET FOR NOVA ONLY'), 'CONTROL: pane %2 does not name nova, so the arm below proves nothing');
       const tok = sendertoken.mint(WHO).token;
       try {
-        // Every pane a fleet of two could use: none of them may turn leo's request into nova's.
-        for (const pane of ['%250', '%251', '%252', '%253']) {
-          const r = await get('/api/inbox?limit=50&from_pane=' + pane, { 'x-kosmos-agent-token': tok });
-          assert.equal(r.code, 200, r.text);
-          assert.ok(!JSON.stringify(r.json).includes('SECRET FOR NOVA ONLY'), 'a pane beat the token: ' + pane);
-          assert.ok(JSON.stringify(r.json).includes('Please check the invoice from Monday'), 'control: leo\'s own rows');
-        }
+        const r = await get('/api/inbox?limit=50&from_pane=%252', { 'x-kosmos-agent-token': tok });
+        assert.equal(r.code, 200, r.text);
+        assert.ok(!JSON.stringify(r.json).includes('SECRET FOR NOVA ONLY'), 'nova\'s pane beat leo\'s token');
+        assert.ok(JSON.stringify(r.json).includes('Please check the invoice from Monday'), 'control: leo\'s own rows');
       } finally { sendertoken.revoke(WHO); }
     });
   } finally { boardAuthState.on = false; }

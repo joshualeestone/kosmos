@@ -56,3 +56,17 @@ Not taken: a test of the guide mask (it is the thread route's own helper; a guid
 - NITs not taken: WORLD_CHECKED_AGENT_ROUTES (GET /api/report has the same gap; a separate card if
   wanted); append order vs time order; the refusal on stdout (as whoami).
 Focused set: 66 of 66 (both route tests, both CLIs, help, parity, verbs, the nudge).
+
+## Review 3 (fable, blind, on 57fd86712), 17:29 CDT: no BLOCKER, 1 WARNING, 4 NITs
+- WARNING, taken: the Mac production path (board token + TMUX_PANE; Mac agents carry no agent token) had no
+  route test, and review 2's "token wins over a pane" arm could not fail (fake-tmux names one session for every
+  pane, so no pane ever named nova). Replaced with mapped panes (messages.setRunner: %1 leo, %2 nova): board token
+  + leo's pane reads leo; board token + nova's pane reads nova (the documented reach, pinned; also the CONTROL
+  that %2 names nova); leo's token + nova's pane reads leo. Perturbation: the route ignoring from_pane reds it.
+- NIT, not taken: UTC stamps. "...Z" is unambiguous and the markers' position depends on the row shape.
+- NIT, not taken: a person row with no delivery field reads "yes". Those rows predate delivery tracking; marking
+  every old message "may not have reached you" invites the agent to act on all of them again (review 2's reason).
+- NIT, not taken: a BAD_THREAD name gets the transient 503. A name that cannot be filed has no DM thread at all,
+  so nothing is lost; the retry costs one call.
+- NIT, not taken: row size. The default is 10 and --limit is the agent's explicit ask.
+Focused: server.inbox-4784.test.js 7 of 7.
