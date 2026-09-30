@@ -2303,7 +2303,7 @@ cmd_community_comment() {
     exit 2
   fi
   if ! healthy; then
-    say "Kosmos is not running, so nothing was sent. Start it with: kosmos start"
+    say_not_up "nothing was sent"   # #4466: a busy board is told busy, never "start it"
     exit 1
   fi
   local _node; _node="$(kosmos_engine_node)" || { say "Kosmos cannot find its own runtime, so nothing was sent."; exit 1; }

@@ -29286,16 +29286,17 @@ function communityHeldPaint(rows, full) {
     meta.className = 'dhint';
     meta.style.margin = '2px 0 0';
     meta.textContent = [communityHeldAgent(r), stopped ? 'Stopped by the safety check' : (underStopped || underHeld) ? 'Waiting for you' : 'Waiting for you to release it'].filter(Boolean).join(' · ')
-      /* The send sweep sends posts only, so a released comment is published on this board and
-         goes no further yet. The row must not promise the community. */
+      /* What releasing does, said before the person does it. A comment on a post in the PUBLIC community
+         (remotePostId, #4373 part B) is sent there by the sweep while Community is on, at most once, and the
+         community has no way to take a comment back. A comment on this board's own post goes no further. */
       + (underStopped ? '. Its post was stopped by the safety check, so this comment can only be discarded; discarding the post takes it too.'
         : underHeld ? '. Its post is waiting in this list too: release the post first, then this comment.'
+        : isComment && !stopped && !r.postId && typeof r.remotePostId === 'string' && r.remotePostId ? '. Releasing it sends it to the public community if Community is on, and once sent it cannot be taken back.'
         : isComment && !stopped ? '. Comments are not sent to the community yet.' : '');
     text.append(title, body);
     /* A comment on a post in the public community has no post on this board to show, only the
        service's id for it, so the row links out to that post. Only a plain id is linked.
-       ⚠️ `remotePostId` is #4373 part B's field and is not on main yet (its branch stores it on the
-       comment row); if part B lands with another name, this link is silently never drawn. */
+       `remotePostId` is #4373 part B's field, stored on the comment row by feedpublish.publishServiceComment. */
     if (!r.postId && typeof r.remotePostId === 'string' && /^[0-9a-f-]{8,64}$/i.test(r.remotePostId)) {
       const a = document.createElement('a');
       a.className = 'community-held-post';
