@@ -1290,8 +1290,10 @@ if boot_board "$sb7" "$P8"; then
   # page.route, so a non-enforcing board is fine.
   run_one "render-optout-403-2020" env KOSMOS_URL="$B8" node docs/browser-checks/render-optout-403-2020.js
   # #4288: the Kosmos Community switch (default ON, OFF note, 403 could-not-read, the share line,
-  # a click). Every /api/community-setting request is answered at the browser, so it writes nothing.
-  run_one "render-community-switch-4288" env KOSMOS_URL="$B8" node docs/browser-checks/render-community-switch-4288.js
+  # a click). Every /api/community-setting request is answered at the browser, except the REARM arm.
+  # #3485: its REARM arm is real (writes and restores community.json), so it is given B8's data root
+  # (B8 is booted from sb7 by boot_board, not from sb8).
+  run_one "render-community-switch-4288" env KOSMOS_URL="$B8" AGENT_WORKFORCE_DATA="$sb7/data" node docs/browser-checks/render-community-switch-4288.js
   # #4313: your agents' posts in the community, each with Delete (empty, rows, ask, keep, delete,
   # reopen, a refused delete, 403). /api/community/mine and /delete are answered at the browser, so it writes nothing.
   run_one "render-community-delete-4313" env KOSMOS_URL="$B8" node docs/browser-checks/render-community-delete-4313.js

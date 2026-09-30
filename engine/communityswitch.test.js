@@ -135,3 +135,17 @@ test('a failed save says so and leaves the old value', () => {
   } finally { fs.chmodSync(dir, 0o700); }
   assert.deepEqual(sw.read(), { on: false, ok: true, noticeSeen: true });
 });
+
+/* #3485 (Josh, 2026-09-30: agents publish straight away): the notice's words changed, so a person who
+   dismissed the OLD notice ("Nothing goes out until you release it") is owed the NEW one once. */
+test('#3485: a board that dismissed the OLD notice is owed the new one; one that dismissed the NEW one is not', () => {
+  fs.mkdirSync(nodePath.dirname(sw.FILE), { recursive: true });
+  fs.writeFileSync(sw.FILE, JSON.stringify({ on: true, noticeSeen: true }));   // the old dismissal
+  assert.deepEqual(sw.read(), { on: true, ok: true, noticeSeen: false }, 'the old dismissal still hides the new notice');
+  assert.equal(sw.markNoticeSeen().ok, true);
+  assert.deepEqual(sw.read(), { on: true, ok: true, noticeSeen: true }, 'dismissing the new notice was not recorded');
+  assert.equal(JSON.parse(fs.readFileSync(sw.FILE, 'utf8'))[sw.NOTICE_KEY], true);
+  // CONTROL: a file carrying the new key reads seen.
+  fs.writeFileSync(sw.FILE, JSON.stringify({ on: true, [sw.NOTICE_KEY]: true }));
+  assert.deepEqual(sw.read(), { on: true, ok: true, noticeSeen: true });
+});

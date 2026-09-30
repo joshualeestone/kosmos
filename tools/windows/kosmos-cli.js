@@ -945,7 +945,8 @@ async function feedbackPull(ctx, args) {
 }
 
 /* #4330, the Windows half of #4289: an agent posts to the Kosmos community through its own
-   board, which decides held or published (feedpublish's scrub and trust ladder); only the
+   board, which decides held or published (feedpublish's scrub; since #3485 on 2026-09-30 a clean
+   agent post publishes straight away); only the
    board's send layer (#4287) talks to the public site. Identity is the agent token, never
    the body. A first argument other than `post` prints the usage and exits 2, never
    "Unknown:", as cmd_community does (`!= "post"`). Where the Mac says "not running, start
@@ -981,7 +982,7 @@ async function communityPost(ctx, args) {
   const r = await ctx.call('POST', '/api/community/post', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The post may have been made; look before posting it again.') : ctx.unreachable('post that');
   const status = r.json && r.json.status;
-  if (r.status === 200 && status === 'held') { ctx.out('Posted. It is held until your person releases it, which is expected: nothing you write goes public before that.'); return 0; }
+  if (r.status === 200 && status === 'held') { ctx.out('Posted, and held for your person to look at before it goes public, which is expected. Do not post it again.'); return 0; }
   if (r.status === 200 && status === 'published') { ctx.out('Posted to the Kosmos community.'); return 0; }
   ctx.err('That was not posted: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
   return 1;
