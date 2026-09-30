@@ -329,3 +329,22 @@ test('#4560: the Claude reader id pins the account the consent named; another de
     assert.equal(sent.length, 2);
   } finally { orgchartfile.setReaderForTest(() => ({ kind: 'claude' })); orgchartfile.setModelRunner(null); }
 });
+
+test('#4560: a key replaced in the same account folder while the consent box is open is another reader (409)', async () => {
+  const keys = require('./engine/orgchartkeys');
+  const sent = [];
+  orgchartfile.setModelAvailable(null);
+  orgchartfile.setReaderForTest(null);
+  orgchartfile.setModelRunner(async (line, signal, file) => { sent.push(file.reader); return { ok: true, structured: { people: [] } }; });
+  try {
+    keys.setAccounts(() => [{ provider: 'openai', dir: '/o', account: 'work', keyTail: 'AAAA' }]);
+    const ask = await send('chart.png', Buffer.alloc(0), { headers: SCREEN });
+    keys.setAccounts(() => [{ provider: 'openai', dir: '/o', account: 'work', keyTail: 'BBBB' }]);
+    const moved = await send('chart.png', fs.readFileSync(path.join(FIX, 'chart.png')), { headers: SCREEN, query: '?consent=1&reader=' + ask.json.reader });
+    assert.equal(moved.status, 409, JSON.stringify(moved.json));
+    keys.setAccounts(() => [{ provider: 'openai', dir: '/o', account: 'work', keyTail: 'AAAA' }]);
+    const ok = await send('chart.png', fs.readFileSync(path.join(FIX, 'chart.png')), { headers: SCREEN, query: '?consent=1&reader=' + ask.json.reader });
+    assert.equal(ok.status, 200, JSON.stringify(ok.json));
+    assert.equal(sent.length, 1);
+  } finally { keys.setAccounts(null); orgchartfile.setModelRunner(null); orgchartfile.setReaderForTest(() => ({ kind: 'claude' })); }
+});

@@ -25,7 +25,10 @@
 
 const MAX_ANSWER_BYTES = 4 << 20;   // a real answer is a few kilobytes
 /* A cap on what the model may generate, reasoning included, because the read is billed to the person's key: well
-   past a large chart's answer (2000 people is about 200 KB of JSON), so it only stops a runaway. */
+   past a large chart's answer (2000 people is about 200 KB of JSON), so it only stops a runaway. Under each model's
+   own ceiling, from its docs: gpt-6-astra "128,000 max output tokens"; grok-4.7 "Output limit | No text output
+   limit". Both providers' strict JSON schema accept a nullable type array (["string", "null"]), as STRICT_SCHEMA
+   uses. */
 const MAX_OUTPUT_TOKENS = 64000;
 /* An override honoured only to this computer (the tests' stub server): an address, not the name `localhost`, which
    a hosts file can point elsewhere. Any other override is ignored, so the key only ever goes to its provider. */
@@ -160,9 +163,9 @@ const ORDER = ['openai', 'google', 'xai'];
 /* Which providers may read an org chart (Liu Kang's ruling m3688). Gemini is OFF in v1: Google's own terms say
    "Do not submit sensitive, confidential, or personal information to the Unpaid Services", an org chart names real
    employees, and a free key cannot be told from a paid one. Turning it on is this one line (and its request shape
-   is kept and tested), if a paid key can be told apart or Josh rules otherwise. */
-// Turning Gemini on also means revisiting its request: it has no output cap yet, and its answer shape is checked only
-// against the docs and the stub (see PROVIDERS.google).
+   is kept and tested), if a paid key can be told apart or Josh rules otherwise. Turning it on also means revisiting
+   its request: it has no output cap yet, and its answer shape and `status` vocabulary are checked only against the
+   docs and the stub (see PROVIDERS.google). */
 const ENABLED_DEFAULT = { openai: true, google: false, xai: true };
 let enabled = { ...ENABLED_DEFAULT };
 /** Tests only: which providers are on; null restores the ruling. */
@@ -196,7 +199,7 @@ function accountsFrom(mods) {
     let rows = [];
     try { rows = mods[provider].list() || []; } catch { rows = []; }
     rows = rows.filter((r) => r && r.authMode === 'apikey').sort((a, b) => Number(b.isDefault === true) - Number(a.isDefault === true));
-    for (const r of rows) out.push({ provider, dir: r.dir, account: r.name || r.label || null });
+    for (const r of rows) out.push({ provider, dir: r.dir, account: r.name || r.label || null, keyTail: r.keyTail || null });
   }
   return out;
 }
@@ -211,7 +214,7 @@ function pick() {
   let list = [];
   try { list = accountsFn() || []; } catch { list = []; }
   const r = list.find((a) => a && PROVIDERS[a.provider] && enabled[a.provider]);
-  if (r) return { reader: { provider: r.provider, dir: r.dir, account: r.account || null }, offWhy: null };
+  if (r) return { reader: { provider: r.provider, dir: r.dir, account: r.account || null, keyTail: r.keyTail || null }, offWhy: null };
   const off = list.find((a) => a && PROVIDERS[a.provider] && !enabled[a.provider] && OFF_WHY[a.provider]);
   return { reader: null, offWhy: off ? OFF_WHY[off.provider] : null };
 }

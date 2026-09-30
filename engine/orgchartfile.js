@@ -620,7 +620,9 @@ function readerId(r) {
   const hash = (d) => require('node:crypto').createHash('sha256').update(String(d || '')).digest('hex').slice(0, 12);
   // Claude with its account folder hashed, like a key account's: another default account is another reader.
   if (r.kind === 'claude') return r.dir ? 'claude:' + hash(r.dir) : 'claude';
-  return r.provider + ':' + hash(r.dir);
+  // The key's last four characters too (already on the account row), so a key replaced in the same account folder
+  // while the consent box is open is another reader, not the one the person agreed to.
+  return r.provider + ':' + hash(String(r.dir || '') + '\u0000' + String(r.keyTail || ''));
 }
 /* What the consent box says about who reads it: the provider, how it is paid for, and what it keeps (#4560). */
 function consentFor(r) {

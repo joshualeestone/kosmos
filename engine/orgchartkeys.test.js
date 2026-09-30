@@ -153,13 +153,13 @@ test('#4560: the consent names the key provider and account; with none, Claude\'
 
 test('#4560: the reader is the first KEY account in Settings order (OpenAI, Gemini, Grok), the default first; a sign-in is skipped', () => {
   const mods = {
-    openai: { list: () => [{ dir: '/o/sub', authMode: 'chatgpt', isDefault: true }, { dir: '/o/k2', authMode: 'apikey', isDefault: false, label: 'side' }] },
+    openai: { list: () => [{ dir: '/o/sub', authMode: 'chatgpt', isDefault: true }, { dir: '/o/k2', authMode: 'apikey', isDefault: false, label: 'side', keyTail: 'wxyz' }] },
     google: { list: () => [{ dir: '/g/k', authMode: 'apikey', isDefault: true }] },
     xai: { list: () => [{ dir: '/x/k', authMode: 'apikey', isDefault: false, name: 'Team' }, { dir: '/x/d', authMode: 'apikey', isDefault: true }] },
   };
   assert.deepEqual(keys.accountsFrom(mods).map((a) => [a.provider, a.dir]), [['openai', '/o/k2'], ['google', '/g/k'], ['xai', '/x/d'], ['xai', '/x/k']]);
   keys.setAccounts(() => keys.accountsFrom(mods));
-  assert.deepEqual(keys.chooseReader(), { provider: 'openai', dir: '/o/k2', account: 'side' });
+  assert.deepEqual(keys.chooseReader(), { provider: 'openai', dir: '/o/k2', account: 'side', keyTail: 'wxyz' }, 'the key\'s last four travel with the reader (its id pins the key)');
   keys.setAccounts(() => keys.accountsFrom({ ...mods, openai: { list: () => [{ dir: '/o/sub', authMode: 'chatgpt', isDefault: true }] } }));
   assert.equal(keys.chooseReader().provider, 'google', 'a ChatGPT sign-in is not a key');
   keys.setAccounts(() => keys.accountsFrom({ openai: { list: () => { throw new Error('boom'); } }, google: { list: () => [] }, xai: { list: () => [] } }));

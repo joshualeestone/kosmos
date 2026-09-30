@@ -6535,6 +6535,7 @@ const server = http.createServer(async (req, res) => {
         if (cannot) { sendJson(res, 200, { unavailable: true, problems: [cannot] }); return; }
         const q = new URL(req.url, ROUTING_BASE).searchParams;
         if (q.get('consent') !== '1') { sendJson(res, 200, { needsConsent: true, ...orgchartfile.consentFor(reader) }); return; }
+        if (!isViaScreen(req, null)) { sendJson(res, 403, { error: 'only you can send a file to your AI provider, from the New Agent screen' }); return; }
         // #4560: the send goes to the reader the person was shown, or nowhere (an account may have changed since).
         /* No reader at all is refused outright (whatever availability says). A page from before #4560 sends no reader
            id; it only ever showed Claude's consent, so it may go on only when the reader is still Claude. */
@@ -6543,7 +6544,6 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 409, { error: 'Who reads this file changed since you were asked. Choose the file again to see who reads it now.' });
           return;
         }
-        if (!isViaScreen(req, null)) { sendJson(res, 403, { error: 'only you can send a file to your AI provider, from the New Agent screen' }); return; }
         // The consented send carries the file; an empty one would spend a request on nothing.
         if (!bytes.length) { sendJson(res, 400, { error: 'That file is empty. Choose it again.' }); return; }
         /* A read the person stops (or a page they leave) closes this response early: that aborts the model call
