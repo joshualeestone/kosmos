@@ -96,3 +96,8 @@ NITs, noted: "they appear on Back or the next open" means the next Single or Swa
 repaints nothing; Team never rebuilds the picker); paintRoleMenu excludes the literal 'pm' while buildPicker falls
 back to ROLES[0] (only for a payload with no pm, which remerge never produces); the Team note says "choose Team again"
 while a retry is in flight; Back from Swarm when SWARMS_ON flips has no card to focus.
+Next round (blind, sonnet): CONVERGED. 1 WARNING, a DUPLICATE of the deferral above (role-next reads roleByKey from
+the newer payload; safe because remerge keeps every built-in, now pinned by test). NIT taken: the cstep() comment
+said it toggles "the three steps" (there are five); it no longer counts them. NITs left: swarmCreatePaint no longer
+hides the Swarm card when SWARMS_ON flips off mid-visit (createKind() still sends 'agent'); the retry note and the
+Back-focus edge above. Next: the final validation on this head, then a new proof and merge on green.
