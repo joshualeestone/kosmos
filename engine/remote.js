@@ -385,24 +385,41 @@ function kosmosPlus() {
   return s.ok === true && s.standing === 'good';
 }
 /* The isolated coordinator read for the GLOBAL federation-live flag: true/false, or
-   null when it could not be determined (offline, or -- today -- the source is not wired
-   yet). A null NEVER changes the cache, so a transient failure keeps the last-known
-   value (no flicker) and the default stays FALSE (hidden).
-   🛑 PENDING ICK/Baron's coordinator field (routed after their wire-proof): the exact
-   endpoint/shape is theirs to confirm. Proposal: an unauthenticated global
-   `GET /v1/meta` carrying a `federation_live` bool (it already returns 200, and this is
-   a PUBLIC launch flag, so a per-account mac-signed path is wrong for it). Until that is
-   confirmed and wired here, this returns null -> refreshFederationLiveIfStale is a safe
-   no-op and federationLive() keeps the default false, so the producer behaves EXACTLY as
-   the merged #3353 env-only producer. Wiring the real fetch is then a one-function change.
-   This mirrors how fetchStanding() shipped a null stub pending ICK's standing mechanism. */
-async function fetchFederationLive() {
-  return null;
+   null when it could not be determined (offline, an error answer, or a coordinator that does
+   not publish the field yet). A null NEVER changes the cache, so a transient failure keeps the
+   last-known value (no flicker) and the default stays FALSE (hidden).
+   kosmos#4649: the source is the PUBLIC `GET /v1/meta`, field `federation_live` (a launch flag
+   for everyone, so neither signed nor per-account). A coordinator without the field answers
+   null here, which is exactly the old stub's behaviour, so this is safe to ship before it.
+   ⚠️ Switching OFF is an explicit `federation_live: false`, never a missing field or a revert: null
+   keeps the last-known value on purpose (no flicker), so a board that saw true keeps it until told false.
+   So the coordinator MUST always publish the field (false unless turned on) and never remove it;
+   that is a requirement on its /v1/meta (the relay side of kosmos#4649), not yet true today.
+   ⚠️ A plain HTTPS read, NOT through the tunnel binary and its pinned key: this flag only decides what
+   the screens OFFER, and the shared-room routes still refuse non-members on the server, so a spoofed
+   answer can show or hide screens, never grant access. Redirects are refused, and only a JSON answer
+   is parsed. `opts.fetch` and `opts.timeoutMs` are the test seam. */
+const FED_LIVE_TIMEOUT_MS = 5000;
+async function fetchFederationLive(opts) {
+  opts = opts || {};
+  const get = typeof opts.fetch === 'function' ? opts.fetch : fetch;
+  try {
+    const url = String(COORDINATOR()).replace(/\/+$/, '') + '/v1/meta';
+    const res = await get(url, { signal: AbortSignal.timeout(opts.timeoutMs || FED_LIVE_TIMEOUT_MS), redirect: 'error' });
+    if (!res || !res.ok) return null;
+    if (!/^application\/json\b/i.test(String((res.headers && res.headers.get && res.headers.get('content-type')) || ''))) return null;
+    const body = await res.json();
+    return (body && typeof body.federation_live === 'boolean') ? body.federation_live : null;
+  } catch {
+    return null;
+  }
 }
 /* Lazily refresh the cached federation-live flag when it is older than `ttlMs`.
    NON-BLOCKING by contract (callers do NOT await it), single-flighted, best-effort.
-   UNLIKE refreshStandingIfStale this is NOT gated on enrolled(): the flag is global and
-   a non-member board needs it to show the signup prompt. A definite bool updates the
+   Not gated on enrolled() (unlike refreshStandingIfStale): a board with remote access ON that
+   is not signed in yet still learns it. But gated on remote access being ON (kosmos#4649,
+   decided): a board that never opted in makes no call to our servers, so it cannot use the
+   flag for a signup prompt (an open product question on #4649). A definite bool updates the
    cache + resets the clock; a null KEEPS the last-known value and backs the retry off to
    the next TTL. */
 async function refreshFederationLiveIfStale(opts) {
@@ -413,6 +430,12 @@ async function refreshFederationLiveIfStale(opts) {
   if (fedLiveRefreshInFlight) return;
   const s = read();
   if (s.ok !== true) return;                       // state file unreadable -> keep default (false), do not stamp
+  /* kosmos#4649, decided: only a board whose person turned Kosmos+ remote access ON asks the coordinator.
+     A board that never opted in makes no call to our servers (the old stub made none; a live fetch would
+     have been 1,440 calls a day from every open board, and every test suite hitting /api/status). The
+     cost: a board that never turned it on cannot learn the flag, so it cannot show a signup prompt from
+     it. Whether never-opted-in boards should ask is a product call left open on #4649. */
+  if (s.on !== true) return;
   if (now - (s.fedLive_at || 0) < ttl) return;     // still fresh
   fedLiveRefreshInFlight = true;
   try {
@@ -430,7 +453,10 @@ async function refreshFederationLiveIfStale(opts) {
    AGENT_WORKFORCE_FEDERATION_LIVE env override on top for operator/dev boards. */
 function federationLive() {
   const s = read();
-  return s.ok === true && s.fedLive === true;
+  /* kosmos#4649 round 2: the flag counts only while remote access is ON, the same gate the refresh uses.
+     Otherwise a board that cached true and then turned remote access off would stop asking and keep true
+     forever, out of reach of the coordinator's explicit false. */
+  return s.ok === true && s.on === true && s.fedLive === true;
 }
 /* #4308 (Liu Kang's ruling): an unreadable settings file must stay visible to the person until THEY repair it.
    write() rebuilds the file from read(), and read() of a damaged file is the defaults with on:false, so any
@@ -768,8 +794,8 @@ function status() {
         address: null,
         /* #4308: say what repairs it, here and only here. The page shows this sentence as it is (paintPlus), so the
            repair instruction has one source. Only a person's own action (the switch among them) rewrites a damaged
-           file (see write()). "Kosmos Plus" is what the pane calls the switch. */
-        because: 'your remote-access settings could not be read. Turn Kosmos Plus on again to repair them',
+           file (see write()). "Kosmos+" is what the pane calls the switch. */
+        because: 'your remote-access settings could not be read. Turn Kosmos+ on again to repair them',
       };
     }
     if (!settings.on) return { state: 'off', address: null, because: 'the switch is off' };
@@ -2053,7 +2079,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { COORDINATOR, fedSeatArgs, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { COORDINATOR, fedSeatArgs, fetchFederationLive, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,

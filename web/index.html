@@ -2252,6 +2252,11 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
 .sortctl select:hover { color: var(--label); border-color: var(--label-2); }
 .sortctl select:focus-visible { outline: 2px solid var(--label); outline-offset: -2px; }
 .sortctl-i { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+/* #4662: iOS zooms into a field under 16px and does not zoom back (the same reason as the project page's one
+   field rule, #718), and the sort dropdowns were 13px: tapping one left the board zoomed and panning sideways.
+   Every .sortctl select, so the one-screen layout's own sorts (#agent-sort-cons, #pj-full-sort) are covered as
+   well as #agent-sort. A touchscreen only. The box is a fixed 32px, so the text grows within it. */
+@media (hover: none) { .sortctl select { font-size: 16px; } }
 .stats { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
 .stat { display: flex; align-items: center; gap: 9px;
         border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface);
@@ -3109,7 +3114,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .snav button:hover { color: var(--k-ink); }
 /* #3505 (Josh, 2026-09-23): size the SETTINGS nav pills to their longest label rather than
    stretching to the full nav column, which read as cluttered full-width blocks ("Advanced" as
-   wide as "Kosmos Plus"). .snav is a flex column, so width:max-content shrinks #s-nav to its
+   wide as "Kosmos+"). .snav is a flex column, so width:max-content shrinks #s-nav to its
    widest button and the width:100% buttons all match that one width: uniform, left-aligned, no
    longer full-column. Scoped to #s-nav (the Settings nav), NOT the shared .snav: the
    agent-detail nav #d-nav is #3500's separate redesign and must not change here. This id rule
@@ -3710,6 +3715,21 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
 /* #3703: the head carries "+ New task" beside the title, as Mona's mock draws it (.mh / .newbtn). */
 #panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+/* #4586 (Josh, 2026-09-29 11:35): "click the back button at the top left next to the title and go right
+   back into the project." A round chevron, the #2928 back glyph in #4470's round frame, sized to sit beside
+   a sub-view's title. On Tasks it shows only while the view is for one project (tskPaint sets it, and it
+   reuses the crumb's Open project path); on Documents only in the consolidated view (the tab view keeps
+   its "<- name" back). The title takes the free space, so the chevron sits against it, not across the row. */
+.sub-back { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--k-rule); background: none;
+            color: var(--k-ink-2); cursor: pointer; display: grid; place-items: center; flex: none; padding: 0; }
+.sub-back:hover { background: var(--k-sunk); color: var(--k-ink); }
+.sub-back[hidden] { display: none; }
+#panel-tasks .tsk-head > .sub-back { align-self: center; margin-right: -4px; }
+#panel-tasks .tsk-head > #tsk-title { margin-right: auto; }
+#pj-docs-view .pjtitle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
+#pj-docs-view .pjtitle > .sub-back { grid-column: 1; grid-row: 1; margin-right: 12px; }
+#pj-docs-view .pjtitle > :not(.sub-back) { grid-column: 2; }
+body:not(.consolidated) #docs-chev { display: none; }
 /* #3949 (Josh, 09-26 19:30): the title carries the count ("30 Tasks on 2 Projects"); the separate count line is
    gone, and the search sits compact to the right of Sort (below). */
 .tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 14px 0 4px; }
@@ -3890,11 +3910,6 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons
   padding: 3px 10px; border-radius: 999px; cursor: pointer; }
 .cons-agents-lay button[aria-pressed="true"] { color: var(--k-ink); border-color: var(--gold-edge); }
 .cons-agents-lay button:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-/* The consolidated projects rail's way into Tasks (kept since #4345 put the tab bar back: it is the
-   way in when the rail is what the person is looking at). */
-.rail-tasks { border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); font: 600 .75rem var(--font-ui);
-  padding: 2px 8px; border-radius: 999px; cursor: pointer; margin-left: 8px; }
-.rail-tasks:hover { color: var(--k-ink); border-color: var(--gold-edge); }
 @media (max-width: 760px) {
   .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
   .tsk-main { padding: 22px 14px 120px; }
@@ -5063,7 +5078,9 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   /* #3502 (Josh, 2026-09-23, consolidated project sub-views): the "Back to <project>"
      controls are redundant in the consolidated view -- the project is already open and
      its name is one click away, so remove them from Documents, Tasks and Project Settings.
-     Kept in the tab view (body:not(.consolidated)), where the back control is the way out. */
+     Kept in the tab view (body:not(.consolidated)), where the back control is the way out.
+     #4586 (Josh, 2026-09-29) reversed this for Documents and Tasks: the way back there is now the
+     round chevron beside the title (#docs-chev, #tsk-back), so #docs-back stays hidden here. */
   html[data-layout="consolidated"] body.consolidated #docs-back,
   html[data-layout="consolidated"] body.consolidated #pj-settings-back { display: none; }
   /* #3502: with the back button gone the heading must not jump against the top rule.
@@ -6377,7 +6394,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    the message area (.thread in the tab view; the merged .pj3 > .pjmid panel in the
    consolidated view, where #980 leaves .thread transparent) PLUS the sticky .composer,
    which #3267 already tied to that ground in lockstep, so both layouts black the composer too.
-   Two scoping guards, both deliberate. (1) body:not(.plus-active): the Kosmos Plus paid
+   Two scoping guards, both deliberate. (1) body:not(.plus-active): the Kosmos+ paid
    theme (body.plus-active, line ~7903) is a whole-app navy reskin via body-level TOKEN
    override; a hard-coded #000/#fff here would beat its inherited tokens and turn its navy
    dialogue black on a dark-OS machine, so Plus is excluded and keeps its own design (leave
@@ -6785,7 +6802,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    agent-message backgrounds should not vary message-to-message ("we determined we
    were only going to have one fixed color for the background message color for
    agent messages"). Every agent bubble now resolves to the flat --agent-msg base
-   set above (still per-theme, still the translucent --k-sunk on the Kosmos Plus
+   set above (still per-theme, still the translucent --k-sunk on the Kosmos+
    tab), and the data-am attribute is no longer emitted in dmRow / pjRoomRow. */
 /* #2067 / #2239: restricted-markdown treatments, on the surfaces that render
    them -- the talk thread (.dm-b) and the project message list (.pj-msg-text),
@@ -9969,7 +9986,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 @media (prefers-reduced-motion: reduce) { #boot-cover .boot-spin { animation: none; } }
 
 /* ================= Kosmos Plus — whole-app blue reskin (#1615) =================
-   Mona Lisa's decision (2026-09-06): while the Kosmos Plus tab is on screen the
+   Mona Lisa's decision (2026-09-06): while the Kosmos+ tab is on screen the
    WHOLE app takes the "first step" blue ground (nav + sidebar + content), for a
    premium feel unlike anywhere else in the app. Scoped to `body.plus-active`,
    toggled by syncPlusChrome() on section/tab change — and torn down on leave, so
@@ -10736,7 +10753,7 @@ window.kosmosMeasureScrollbarWidth();
       </button>
       <div class="userpop-menu" id="userpop-menu" hidden>
         <!-- #3360: Kosmos+ promo at the top. Logged-out shows "Log in to Kosmos+" (deep-links
-             to Settings > Kosmos Plus, the real sign-in surface -- sign-up itself happens on
+             to Settings > Kosmos+, the real sign-in surface -- sign-up itself happens on
              the site). A member in good standing sees the member line below instead
              (plusMember() reads data-fed-member). syncUserpopPlus() shows exactly one of the two. -->
         <button class="userpop-item userpop-plus" id="userpop-plus" type="button">
@@ -11965,7 +11982,7 @@ window.kosmosMeasureScrollbarWidth();
      (fed-gate state, when to gate) lives in fedGateMode; this modal only shows the prompt. -->
 <div class="rm-back" id="plus-gate-modal" hidden>
   <div class="rm-box" role="dialog" aria-modal="true" aria-labelledby="plus-gate-t" aria-describedby="plus-gate-msg">
-    <h2 class="rm-title" id="plus-gate-t">Kosmos Plus</h2>
+    <h2 class="rm-title" id="plus-gate-t">Kosmos+</h2>
     <p class="rm-small" id="plus-gate-msg"></p>
     <div class="rm-acts">
       <button class="btn" type="button" id="plus-gate-close">Not now</button>
@@ -14539,11 +14556,8 @@ window.kosmosMeasureScrollbarWidth();
          title aligned with the agents head, where a 22px fold button + 7px gap
          still inset the name. -->
     <div class="railhead" id="rail-projects" hidden>
-      <!-- #3559: the consolidated view hides the tab bar (it is one screen), so its way into
-           Tasks lives here, beside the "Projects" name it lists tasks from (the + stays alone at
-           the far right). It opens Tasks INSIDE the display column (openConsolidatedTasks), the
-           way the user menu opens Settings there (#2842), never out to the tab view. -->
-      <span class="lead"><span class="railname">Projects</span><button class="rail-tasks" type="button" id="rail-projects-tasks" title="Every task across your projects" hidden>Tasks</button></span>
+      <!-- #4595 (Josh, 2026-09-29): no Tasks button here; Tasks is reached from the tab bar. -->
+      <span class="lead"><span class="railname">Projects</span></span>
       <span class="railacts">
         <button class="fold plus" type="button" id="rail-projects-new" aria-label="Add Project" title="Add Project">+</button>
       </span>
@@ -15254,6 +15268,10 @@ window.kosmosMeasureScrollbarWidth();
     <button class="back" id="docs-back" type="button"></button>
     <div class="pjhead">
       <div class="pjtitle">
+        <!-- #4586 (Josh, 2026-09-29 11:35): the back chevron beside the title, straight back to the
+             project's room. #3502 hid #docs-back in the consolidated view; Josh reversed that. The tab
+             view keeps its own "<- name" back above, so this one shows only in the consolidated view. -->
+        <button class="sub-back" id="docs-chev" type="button" aria-label="Back to the project"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
         <h2 class="dname">Documents</h2>
         <p class="pj-desc">In <b id="docs-project"></b>.</p>
       </div>
@@ -15754,7 +15772,7 @@ window.kosmosMeasureScrollbarWidth();
            everything from Group by / Sort down sits on white, full width, and the task cards are shaded. -->
       <div class="tsk-band">
       <p class="tsk-crumb" id="tsk-crumb"></p>
-      <div class="tsk-head"><h2 id="tsk-title">Tasks</h2><button class="btn uprime" id="tsk-new" type="button"><span aria-hidden="true">+</span> New task</button></div>
+      <div class="tsk-head"><button class="sub-back" id="tsk-back" type="button" hidden aria-label="Back to the project"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button><h2 id="tsk-title">Tasks</h2><button class="btn uprime" id="tsk-new" type="button"><span aria-hidden="true">+</span> New task</button></div>
       <div class="tsk-ctrls" id="tsk-filters">
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-projsel">Project:</label><select class="tsk-sel" id="tsk-projsel"></select></div>
         <div class="tsk-ctl"><label class="tsk-cl" for="tsk-win">Created:</label><select class="tsk-sel" id="tsk-win"></select></div>
@@ -15838,7 +15856,7 @@ window.kosmosMeasureScrollbarWidth();
     <button type="button" data-go="automation" aria-controls="s-sec-automation">Automation</button>
     <button type="button" data-go="usage" aria-controls="s-sec-usage">Token Usage</button>
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
-    <button type="button" data-go="plus" aria-controls="s-sec-plus"><span>Kosmos Plus</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
+    <button type="button" data-go="plus" aria-controls="s-sec-plus"><span>Kosmos+</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
     <button type="button" data-go="advanced" aria-controls="s-sec-advanced">Advanced</button>
   </nav>
   <div class="dsecs">
@@ -16801,11 +16819,11 @@ window.kosmosMeasureScrollbarWidth();
        tab starts working without a rebuild. No domain appears anywhere in
        this section on purpose: the address arrives from the service, and
        the name Josh has ruled durable is "Plus", not any hostname. -->
-  <section class="dsec" id="s-sec-plus" data-sec="plus" tabindex="-1" aria-label="Kosmos Plus" hidden>
+  <section class="dsec" id="s-sec-plus" data-sec="plus" tabindex="-1" aria-label="Kosmos+" hidden>
     <!-- #3151 (Josh, 2026-09-15): the top "Kosmos Plus" heading and the
          "Use your Kosmos from anywhere." subcopy are deleted so the
          "Already have Kosmos+? Sign in" bar reflows to the top. The section
-         keeps aria-label="Kosmos Plus", so its accessible name is unchanged. -->
+         keeps aria-label="Kosmos+", so its accessible name is unchanged. -->
 
     <!-- #1615 blue reskin: the ambient star field behind the whole pane. It sits
          OUTSIDE #plus-state1 on purpose (web.plus-tab.test.js scopes its
@@ -17007,7 +17025,7 @@ window.kosmosMeasureScrollbarWidth();
              reset from a computer already connected to Kosmos+ (#733's "I lost my phone"); there is
              no support path or server unlock by design (docs/second-factor.md in kosmos-relay). -->
         <p class="plus-si-small"><a id="plus-si-second-help" class="plus-signin-link" href="#" role="button" aria-expanded="false" aria-controls="plus-si-second-recover">Can't get a code?</a></p>
-        <p class="plus-si-small" id="plus-si-second-recover" hidden>Open Kosmos on a computer that is already connected to Kosmos+, go to Settings, Kosmos Plus, and choose “Lost your phone?”. That resets this step, and nobody else can.</p>
+        <p class="plus-si-small" id="plus-si-second-recover" hidden>Open Kosmos on a computer that is already connected to Kosmos+, go to Settings, Kosmos+, and choose “Lost your phone?”. That resets this step, and nobody else can.</p>
       </div>
 
       <!-- Set up a second factor (signin-enrol): reached only when the account has
@@ -17088,7 +17106,7 @@ window.kosmosMeasureScrollbarWidth();
            Done hands over to the connected flow. -->
       <!-- #3796 addendum 10 (Josh's ruling, 17:28): the landing is the heading and ONE line. No address,
            no Copy, no tiles: another device signs in at the website, and this computer then asks to allow
-           it (the approval lives in Settings > Kosmos Plus). -->
+           it (the approval lives in Settings > Kosmos+). -->
       <div id="plus-si-done" hidden>
         <p class="plus-si-lead" id="plus-si-done-line">To use Kosmos on another device, sign in at login.kosmosplus.com.</p>
         <!-- #4638 (Josh, 15:17): a second computer on the account. The other computer is asked to let this one in,
@@ -17122,9 +17140,9 @@ window.kosmosMeasureScrollbarWidth();
            shows the setting (on = remote access wanted); the badge says whether it is connected. The logo is drawn
            from the Kosmos+ dot data the app already ships (kplusBarDrawMark, also the remote-access bar's mark). -->
       <div class="plus-headrow">
-        <canvas class="plus-logo" id="plus-logo" role="img" aria-label="Kosmos Plus"></canvas>
+        <canvas class="plus-logo" id="plus-logo" role="img" aria-label="Kosmos+"></canvas>
         <span class="plus-sp"></span>
-        <button class="toggle" type="button" id="plus-switch" role="switch" aria-label="Let your devices reach this computer through Kosmos Plus" hidden><i></i></button>
+        <button class="toggle" type="button" id="plus-switch" role="switch" aria-label="Let your devices reach this computer through Kosmos+" hidden><i></i></button>
         <span class="plus-pill" id="plus-pill" data-state="off">Off</span>
       </div>
       <!-- #4080 (Josh, 22:09: "lets put this ... in that box that the current URL is in"): the box holds the way
@@ -17189,7 +17207,7 @@ window.kosmosMeasureScrollbarWidth();
         <a class="plus-signin-link" id="plus-account" href="#" target="_blank" rel="noreferrer noopener">View account</a>
       </div>
       <div id="plus-forget-ask" hidden>
-        <p class="fhint" id="plus-forget-sure">This computer leaves your Kosmos Plus account and its address is freed. Your devices will no longer reach it. You can connect it again later by signing in.</p>
+        <p class="fhint" id="plus-forget-sure">This computer leaves your Kosmos+ account and its address is freed. Your devices will no longer reach it. You can connect it again later by signing in.</p>
         <div class="frow">
           <button class="btn danger-btn" type="button" id="plus-forget-yes">Remove</button>
           <button class="btn" type="button" id="plus-forget-no">Cancel</button>
@@ -17201,7 +17219,7 @@ window.kosmosMeasureScrollbarWidth();
 <!-- #4080: "Lost your phone?" opens this, in place of the essay that sat on the Kosmos Plus pane (Josh, 22:06:
        "all of this probably doesnt belong on that page"). The reset keeps its ids and its two-step arm (#733).
        The words are shortened; "always" is kept, per Josh's 2026-08-29 ruling that the second step ALWAYS happens.
-       It sits INSIDE the Kosmos Plus section, not as a direct child of <body>: the consolidated grid reserves 39 rows
+       It sits INSIDE the Kosmos+ section, not as a direct child of <body>: the consolidated grid reserves 39 rows
        for body's children (web.consolidated-980.test.js) and main already has 39. The section's own child rule would
        make it position:relative, so a rule restores the fixed overlay (#s-sec-plus > #plus-lost-modal; review round 3). -->
   <div class="rm-back" id="plus-lost-modal" hidden>
@@ -18311,7 +18329,21 @@ function taskLine(a, opts) {
  * With the title no longer shown in any state, that whole concern is subsumed by
  * #209: there is no title on screen to strip.
  */
+/* #4569 fix 4 (the write-up on Josh's Muse agent: "Working, 14 messages waiting"): a busy Muse agent's queue, in
+   Kosmos's own words, not quoted: the line is built from two checked numbers (engine/selfreport.js waitingOf) and
+   fixed words, never from agent text. The person's messages always run first, so "yours is next" says where
+   theirs sits. '' without a count. */
+function waitingLine(w) {
+  if (!w || !Number.isSafeInteger(w.n) || w.n < 1) return '';
+  const n = w.n; const yours = Number.isSafeInteger(w.yours) && w.yours > 0 ? Math.min(w.yours, n) : 0;
+  const base = n + (n === 1 ? ' message waiting' : ' messages waiting');
+  if (!yours) return base;
+  if (yours === n) return base + (n === 1 ? ', it\'s yours' : ', all yours');
+  return base + ', yours ' + (yours === 1 ? 'is' : 'are') + ' next';
+}
 function stateReason(a, opts) {
+  /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
+  if (a && a.state === 'working' && a.waiting) { const w = waitingLine(a.waiting); if (w) return w; }
   /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
      "This is not the same as having none": it pre-empts the fear the state exists
      to answer. Placed FIRST so it is not swallowed by the rate_limited guard
@@ -21759,7 +21791,7 @@ async function tick() {
     // from sourceChannel + the federation-live flip + this viewer's Plus entitlement,
     // and stamp it on <html> for the CSS gate. Fail-safe (see fedGateMode).
     fedGateStamp(data);
-    // #3559 (Josh): the Tasks tab and the consolidated rail's Tasks button, once 25 tasks ever.
+    // #3559 (Josh): the Tasks tab, once 25 tasks ever.
     tskTabGate(data.tasksTab === true);
 
     // The freshness stamp is load-bearing. An ambient board gets trusted
@@ -31982,10 +32014,10 @@ function paintBuildLine(version) {
 /* #3330 -> federation Kosmos+ gate (Josh launch spec, 2026-09-21). The #3312
    federation UI was hidden on prod by a plain sourceChannel gate. It now gates on
    TWO engine signals so the LAUNCH shows federation only to paying members:
-     - federationLive: the ONE coordinated flip. False until the coordinator is
-       deployed + the m2m pipe (slice 3) is e2e-proven, so prod stays hidden
-       (the old #3330 "not shipped yet" state) until Splinter flips it. Staging is
-       always treated live (a review surface).
+     - federationLive: the ONE coordinated flip, the coordinator's /v1/meta
+       `federation_live` (kosmos#4649; the board also honours its operator env
+       override). False until the coordinator publishes true, so prod stays hidden
+       until then. Staging is always treated live (a review surface).
      - plusEntitled: is THIS viewer an authenticated Kosmos+ member? Members get
        the fed UI; everyone else gets a "sign up for Kosmos+" prompt instead.
    Returns the gate mode: 'show' (fed UI), 'signup' (gated; the Plus-gate modal offers sign-up), or 'hidden'.
@@ -31995,7 +32027,7 @@ function paintBuildLine(version) {
    this reads data.kosmos_plus off the /api/status poll, which assumes the LOCAL server
    surfaces the relay's /v1/account/me bool there; if instead the frontend must call
    /v1/account/me directly, only fedGateStamp's read changes. The FLIP signal
-   (data.federationLive) -- who sets it, where -- is likewise pending. FAIL-SAFE by
+   (data.federationLive) is the coordinator's /v1/meta federation_live (kosmos#4649). FAIL-SAFE by
    construction: an unknown/absent signal never resolves to 'show' on prod -- a
    non-member or unknown viewer there gets 'signup', and before the flip everything is
    'hidden'. */
@@ -32034,7 +32066,7 @@ function fedGateStamp(data) {
     const b = document.getElementById(id);
     if (b) b.title = mode === 'show'
       ? 'Invite ' + who + " outside your Kosmos to this project's messages"
-      : 'Inviting ' + who + ' from outside your Kosmos needs Kosmos Plus';
+      : 'Inviting ' + who + ' from outside your Kosmos needs Kosmos+';
   }
 }
 /* The plus-gate modal's Sign up button routes into the in-app Kosmos Plus section --
@@ -32049,9 +32081,9 @@ function fedPlusSignupGo() {
    absent, so a caller (the fedGateMode gate behaviour, Angel's half) is always safe to call it. The
    gate DECISION (when a viewer is gated) lives in fedGateMode; this only PRESENTS the prompt. */
 const PLUS_GATE_COPY = {
-  join: "It's a Kosmos Plus feature and you must be logged in to access it.",
-  connect: 'To connect external people or agents, you must be signed in as a Kosmos Plus user.',
-  soon: 'This is coming to Kosmos Plus soon. You are already a member, so there is nothing to do.',
+  join: "It's a Kosmos+ feature and you must be logged in to access it.",
+  connect: 'To connect external people or agents, you must be signed in as a Kosmos+ user.',
+  soon: 'This is coming to Kosmos+ soon. You are already a member, so there is nothing to do.',
 };
 /* The element that opened the gate, so closing returns the keyboard to it. The caller passes it
    EXPLICITLY: WebKit (the production WKWebView) does not focus a <button> on click, so
@@ -41599,8 +41631,8 @@ function openConsolidatedSettings() {
   syncPlusChrome();
 }
 /* #3559: the Tasks view in the consolidated display column, the same relocation as app settings
-   (#2842) and create (#3053): the consolidated view is one screen, so its Tasks button must not
-   kick the person out to the tab view. In the column the view's own project rail folds to its
+   (#2842) and create (#3053): in the consolidated view the Tasks tab (#4345) must not kick the
+   person out to the tab view. In the column the view's own project rail folds to its
    dropdown (the consolidated projects rail is right beside it). The tab view shows Tasks as its
    own page. Transient like consolidated settings: a reload restores the project view. */
 let TASKS_PANEL_HOME = null;
@@ -42589,7 +42621,7 @@ async function paintPlus() {
   if (typeof paintSwitch === 'function') paintSwitch('plus-switch', r.on === true);
   else if (sw) { sw.hidden = false; if (sw.setAttribute) sw.setAttribute('aria-checked', r.on === true ? 'true' : 'false'); }   // the page tests lift paintPlus alone
   { const lg = document.getElementById('plus-logo');
-    if (lg && lg.dataset && !lg.dataset.drawn && typeof kplusBarDrawMark === 'function') { try { kplusBarDrawMark(lg, 22); lg.dataset.drawn = '1'; } catch { /* the label still says Kosmos Plus */ } } }
+    if (lg && lg.dataset && !lg.dataset.drawn && typeof kplusBarDrawMark === 'function') { try { kplusBarDrawMark(lg, 22); lg.dataset.drawn = '1'; } catch { /* the label still says Kosmos+ */ } } }
   const st = document.getElementById('plus-status');
   const stat = r.status || {};
   const because = plusWords(stat.because || '');
@@ -42778,7 +42810,7 @@ document.addEventListener('keydown', (e) => {
    sentence saying the address may still show there. That sentence is shown as it is: never "done" for a
    disconnect the account did not hear about. */
 const PLUS_FORGET_WORDS = {
-  done: 'This computer is removed from Kosmos Plus. Its address is free, and your devices can no longer reach it. Sign in to connect it again.',
+  done: 'This computer is removed from Kosmos+. Its address is free, and your devices can no longer reach it. Sign in to connect it again.',
   /* Not "still connected": a rare engine failure can come after the key is gone. Say only that it did not finish. */
   failed: (why) => 'Removing it did not finish: ' + why + '. Try again in a moment.',
 };
@@ -52614,6 +52646,14 @@ function tskPaint() {
   document.getElementById('tsk-crumb').innerHTML = picked
     ? '<button type="button" data-proj="">All tasks</button> › ' + esc(picked.name) + ' · <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button>'
     : '';
+  /* #4586: the chevron beside the title is the crumb's Open project, shown exactly when that is: the
+     panel's delegated [data-open-project] click opens the room, so there is one way in, not two. */
+  const back = document.getElementById('tsk-back');
+  if (back) {
+    back.hidden = !picked;
+    if (picked) { back.dataset.openProject = picked.id; back.setAttribute('aria-label', 'Back to ' + picked.name); }
+    else delete back.dataset.openProject;
+  }
   const scoped = tskScoped(all, TSK, now);
   const open = scoped.filter((t) => t.state !== 'closed');
   /* #3949 (Josh, 09-26 19:30): the title IS the count: "30 Tasks on 2 Projects" (open tasks in the current scope, the
@@ -52736,14 +52776,13 @@ async function tskOpenTask(key) {
 async function tskOpenProject(id) {
   await tskGoToProject(id);
 }
-/* #3559, Josh's ruling: the top-level ways into Tasks (the tab, and the consolidated projects
-   rail's button, which stands in for the tab there) appear once the person has 25 tasks ever,
+/* #3559, Josh's ruling: the top-level way into Tasks (the tab; #4595 took out the projects rail's
+   own button, Josh 2026-09-29: people reach Tasks from the top) appears once the person has 25 tasks ever,
    from the status poll's `tasksTab` (the engine counts and saves the flag, so once shown they stay).
    A project's View All still opens this view below 25: it is that project's only full list. */
 function tskTabGate(show) {
-  for (const el of [document.querySelector('.tab[data-tab="tasks"]'), document.getElementById('rail-projects-tasks')]) {
-    if (el && el.hidden === show) el.hidden = !show;
-  }
+  const el = document.querySelector('.tab[data-tab="tasks"]');
+  if (el && el.hidden === show) el.hidden = !show;
   /* This viewer's last answer, so a board past 25 does not pop the tab into the bar a moment after
      every load. A convenience only: the status tick stays the authority and corrects it. */
   try { localStorage.setItem('kosmos.tasksTab', show ? '1' : '0'); } catch { /* private window or blocked */ }
@@ -52876,7 +52915,7 @@ function tskFocusMark(el) {
   if (!attr) return null;
   const row = el.closest('.tsk-row');
   const box = row ? null : el.closest('#tsk-crumb, #tsk-tiles');
-  return { tag: el.tagName.toLowerCase(), attr, value: el.getAttribute(attr), row: row ? row.dataset.key : null, box: box ? box.id : null };
+  return { tag: el.tagName.toLowerCase(), attr, value: el.getAttribute(attr), row: row ? row.dataset.key : null, box: box ? box.id : null, id: el.id || null };
 }
 function tskFocusRestore(mark) {
   if (!mark) return;
@@ -52884,6 +52923,11 @@ function tskFocusRestore(mark) {
     ? document.querySelector('#tsk-groups .tsk-row[data-key="' + CSS.escape(mark.row) + '"]')
     : (mark.box ? document.getElementById(mark.box) : document.getElementById('panel-tasks'));
   const shown = (x) => x && x.getClientRects().length > 0;
+  /* #4586: a control with an id (the title's back chevron, #tsk-back) is not rebuilt by the paint, so
+     it keeps focus while it is still on screen; without this the attribute search finds the crumb's
+     Open project first, which carries the same data-open-project. */
+  const same = mark.id ? document.getElementById(mark.id) : null;
+  if (shown(same)) { same.focus(); return; }
   const again = scope ? [...scope.querySelectorAll(mark.tag + '[' + mark.attr + '="' + CSS.escape(String(mark.value)) + '"]')].find(shown) : null;
   if (again) { again.focus(); return; }
   /* The control is gone with its container (the crumb's "All tasks" empties the crumb): land on
@@ -53004,7 +53048,6 @@ document.getElementById('tsk-bclear').addEventListener('click', () => {
   // The bar hides with the ticks, taking this button with it: land on the search, not the body.
   document.getElementById('tsk-search').focus();
 });
-document.getElementById('rail-projects-tasks').addEventListener('click', openConsolidatedTasks);
 
 document.getElementById('pj-tasklist').addEventListener('click', (e) => {
   const card = e.target.closest('.tkcard');
@@ -54921,6 +54964,7 @@ async function openDocsView() {
   if (!p) return;
   document.getElementById('docs-project').textContent = p.name;
   document.getElementById('docs-back').textContent = '\u2190 ' + p.name;
+  document.getElementById('docs-chev').setAttribute('aria-label', 'Back to ' + p.name); // #4586
   const box = document.getElementById('docs-list');
   const msg = document.getElementById('docs-msg');
   const count = document.getElementById('docs-count');
@@ -54984,6 +55028,7 @@ async function openDocsView() {
   }
 }
 document.getElementById('docs-back').addEventListener('click', () => { pjView('one'); });
+document.getElementById('docs-chev').addEventListener('click', () => { pjView('one'); }); // #4586: the same way back
 document.getElementById('docs-finder').addEventListener('click', async () => {
   const msg = document.getElementById('docs-msg');
   try {
@@ -55557,10 +55602,18 @@ function pjInline(text) {
    strikethrough, inline code, fenced code block, one heading size, unordered
    and ordered list rows, blockquote, horizontal rule, emoji (free -- UTF-8
    passes through `esc`), and the pre-existing bare-URL autolink. A markdown
-   `[text](url)` renders as its TEXT only, never a clickable anchor: a link an
-   agent authored is a navigation risk for a non-technical reader (Josh can
-   flip this to clickable later -- it is one branch). The bare-URL autolink
-   that predates this is unchanged.
+   `[text](url)` never becomes a label that hides where it goes: a link an
+   agent authored is a navigation risk for a non-technical reader. #4627: it
+   renders as its text followed by the address in full, `text (url)`, and a
+   web address there is linked exactly as a bare URL is (the address is what
+   the reader sees and clicks, so nothing is hidden). The label is never linked
+   to the address; a label that is itself a bare URL is linked to ITSELF by the
+   autolink, like any bare URL. Limits: an address is cut at its first `)`, as a
+   bare one is; a title (`(url "t")`) stays text; an address naming a project
+   file gets no "Show me" chip. Before #4627 the address
+   was dropped, and agents pasted bare URLs to get it seen. A non-web address
+   (mailto:, javascript:, a relative path) stays visible text, never a link.
+   The bare-URL autolink that predates this is unchanged.
 
    NOT here, deliberately: the project-ROOM activity thread (pjRoomBody ->
    pjBody -> pjLinkPaths) already renders fenced blocks, filename "Show me"
@@ -55575,7 +55628,8 @@ function pjRichSpans(seg, names, agentNames) {
        1. pull inline code out to a held placeholder (its body is never
           markdown-parsed or linkified),
        2. escape everything else (every tag below is one we emit),
-       3. resolve [text](url) to its text (the url is dropped before autolink),
+       3. resolve [text](url) to `text (url)`, the url held as a link when it is
+          a web address and as plain text otherwise (#4627),
        4. autolink bare URLs -- and, when a `names` set is supplied, turn a cited
           project file into a "Show me" chip -- BY WHITESPACE TOKEN, holding the
           built anchor/chip, so each is atomic: an underscore inside it is never
@@ -55598,7 +55652,17 @@ function pjRichSpans(seg, names, agentNames) {
   let s = String(seg == null ? '' : seg).replace(/￼/g, '');
   s = s.replace(/`([^`\n]+)`/g, (mm, code) => hold('<code class="mdc">' + esc(code) + '</code>'));
   s = esc(s);
-  s = s.replace(/\[([^\]\n]+)\]\([^)\n]+\)/g, '$1');
+  /* #4627: the address is shown, never hidden behind the label. `s` is already escaped, so the
+     url is escaped text, the same form the bare-URL autolink below puts in its href. */
+  s = s.replace(/\[([^\]\n]+)\]\(([^)\n]+)\)/g, (mm, label, url) => {
+    const u = url.trim();
+    const shown = /^https?:\/\/[^\s\uFFFC]+$/.test(u)
+      ? hold('<a class="xlink" href="' + u + '" target="_blank" rel="noreferrer noopener">' + u + '</a>')
+      /* Held so the emphasis pass leaves it alone, unless it already carries a held span (inline code
+         inside the address): restoring is one pass, so a placeholder held inside another would leak. */
+      : (u.includes('\uFFFC') ? u : hold(u));
+    return label + ' (' + shown + ')';
+  });
   /* A URL (or, with `names`, a cited file) is a whole whitespace-delimited
      token. Trailing sentence punctuation and trailing emphasis stars
      (`**url**`) are peeled off; a trailing underscore is kept, because URLs use
@@ -55694,7 +55758,7 @@ function pjRich(text) {
      list, `N.` list, `---` rule) are checked at line start only, so `#tag`,
      `well-being` and `C#` stay literal. The `[text](url)` disqualifier is what
      routes a link to ANY target (a relative path, `mailto:`, an anchor -- not
-     just http) to the slow path, where its syntax is stripped to the text; the
+     just http) to the slow path, where it becomes `text (address)` (#4627); the
      http/https checks alone would leave a non-http link showing raw markup.
      📌 On `.pj-msg-text`: a plain multiline message keeps its literal `\n` here,
      while a message carrying any marker/URL/link takes the slow path and its
@@ -60943,7 +61007,7 @@ document.addEventListener('keydown', (e) => {
   if (document.activeElement === order[order.length - 1]) { e.preventDefault(); order[0].focus(); }
 });
 /* #3495 (Angel): the grayed Add-external buttons stay clickable; a non-Plus/not-live viewer gets
-   the shared Plus-gate modal ("must be signed in as a Kosmos Plus user") instead of minting an
+   the shared Plus-gate modal ("must be signed in as a Kosmos+ user") instead of minting an
    invite. A "show" viewer mints as before. */
 document.getElementById('pj-add-ext-person').addEventListener('click', (e) => { if (!fedShow()) { showPlusGate('connect', e.currentTarget); return; } pjMintInvite('person'); });
 document.getElementById('pj-add-ext-agent').addEventListener('click', (e) => { if (!fedShow()) { showPlusGate('connect', e.currentTarget); return; } pjMintInvite('agent'); });
@@ -68047,7 +68111,7 @@ function frChoiceInert(on) {
 
 /* #4356: show the first screen and resolve with the choice. Run agents, and Run agents here and
    connect, hide it and first run carries on. Connect leaves it up, buttons disabled, while the app
-   stops the board here and loads Kosmos Plus sign-in; if the app cannot be told, the buttons stay
+   stops the board here and loads Kosmos+ sign-in; if the app cannot be told, the buttons stay
    live rather than sit dead. */
 function frChoose() {
   const el = document.getElementById('fr-choice');
