@@ -385,10 +385,16 @@ const AGENTS_LOOK = `(() => {
         const ca = getComputedStyle(a), cb = getComputedStyle(b);
         const out = { found: true, empty: ca.borderTopColor, fail: cb.borderTopColor, failStyle: cb.borderTopStyle, ground: ca.backgroundColor, radius: ca.borderTopLeftRadius };
         a.remove(); b.remove();
+        /* The same empty note inside a project page keeps today's look (its column is already the grey box). */
+        const pv = document.getElementById('pj-one-view');
+        if (pv) { const c = document.createElement('div'); c.className = 'pj-empty'; c.textContent = 'x'; pv.append(c);
+          const cc = getComputedStyle(c); out.inProject = { ground: cc.backgroundColor, border: cc.borderTopColor }; c.remove(); }
         return out;
       });
       chk(notes.found && notes.empty === 'rgba(0, 0, 0, 0)' && notes.fail !== 'rgba(0, 0, 0, 0)' && notes.failStyle === 'solid' && notes.ground === GREY_OF[theme] && notes.radius === '28px',
         `${tag} On, Agents page: a board note is the grey box; a could-not-read note keeps its solid border`, JSON.stringify(notes));
+      chk(notes.inProject && notes.inProject.ground !== GREY_OF[theme] && notes.inProject.border !== 'rgba(0, 0, 0, 0)',
+        `${tag} On: an empty note inside a project page keeps today's look, not a grey box inside the grey box`, JSON.stringify(notes.inProject));
       chk(agOn.plus && Math.round(agOn.plus.w) === 40 && agOn.plus.round === '50%' && agOn.plus.bg === GREY_OF[theme],
         `${tag} On, Agents page: New agent is a 40px round grey button`, JSON.stringify(agOn.plus));
       /* A pressed filter tile (the Messages filter) must still look pressed: the no-box rule skips a pressed tile.
