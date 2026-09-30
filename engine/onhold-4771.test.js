@@ -134,3 +134,30 @@ test('#4771 the states are stored, shown and recorded: task on hold, project pau
     assert.equal('paused' in projects.readAll().find((p) => p.id === w.pid), false, 'resuming left a stored field behind');
   } finally { w.restore(); }
 });
+
+test('#4771 review: an agent\'s own instructions list held work marked, so it does not start parked tasks; plain work is not marked', () => {
+  const task = (number, extra) => Object.assign({ number, sentence: 'task ' + number, who: 'ada' }, extra);
+  const body = projects.blockBody([
+    { id: 'live', name: 'Live', folder: '/tmp/live', tasks: [task(1, { onHold: true }), task(2)] },
+    { id: 'parked', name: 'Parked', folder: '/tmp/parked', paused: true, tasks: [task(1)] },
+  ], 'ada');
+  const line = (proj, n) => body.split('\n').find((l) => l.includes(`task ${n} of ${proj}:`)) || '';
+  assert.match(line('Live', 1), /\[on hold: the person parked it; do not start it\]/, body);
+  assert.match(line('Parked', 1), /\[on hold: the person parked it; do not start it\]/, 'a paused project\'s task is not marked: ' + body);
+  assert.ok(line('Live', 2), 'control: the plain task is missing: ' + body);
+  assert.doesNotMatch(line('Live', 2), /on hold/, 'control: a task not held is marked held');
+});
+
+test('#4771 review: in a paused project a task marked built reads held (held is checked first, by design); resumed, it reads built again', () => {
+  const w = world('holdbuilt' + seq, true);
+  try {
+    tasks.setBuilt(w.pid, w.n, { by: w.who, note: 'waiting on the release' });
+    const row = () => tasks.allTasks().find((t) => t.projectId === w.pid && t.number === w.n);
+    assert.equal(tasks.taskState(row()), 'built', 'control: the built mark did not read built');
+    projects.setPaused(w.pid, true);
+    assert.equal(tasks.taskState(row()), 'held');
+    assert.ok(row().builtAt, 'pausing lost the built mark');
+    projects.setPaused(w.pid, false);
+    assert.equal(tasks.taskState(row()), 'built', 'resuming did not bring the built state back');
+  } finally { w.restore(); }
+});

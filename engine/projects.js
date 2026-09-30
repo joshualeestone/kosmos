@@ -2929,7 +2929,10 @@ function blockBody(projects, sessionName) {
        (Splinter's ruling, held for Josh, 2026-08-25 02:01). Lower-case
        "task" so the line and the instruction below agree. */
     // #1307: a webhook task's words are marked and quoted as outside text (tasks.forAgent).
-    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}`)].join('\n');
+    /* #4771: a task on hold, or in a paused project, stays on the agent's list, marked, so the agent does not start
+       parked work on its own. */
+    const held = (t) => (isPaused(p) || require('./tasks').isOnHold(t) ? ' [on hold: the person parked it; do not start it]' : '');
+    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t)}`)].join('\n');
   });
   return [
     '## Your projects',

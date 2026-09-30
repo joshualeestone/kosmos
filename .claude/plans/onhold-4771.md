@@ -30,6 +30,12 @@ agents onto tasks the person had put on hold and into a project the person had p
   tool a lead agent asked for. Also rejected: naming the agent, which needs the built route's token and pane
   resolution; a follow-up if people want the name.
 - `kosmos task list` marks held work "[on hold]" (the task's own hold or its paused project), so an agent can see it.
+- An agent's own instructions (the "Your projects" block, engine/projects.js blockBody) keep a held task on its list
+  but mark it "[on hold: the person parked it; do not start it]": the user's complaint was agents going onto parked
+  work, and the instructions are the list an agent reads without being nudged.
+- In a paused project a task marked built or being worked reads "held" on the Tasks view (held is checked first): the
+  pause is the fact the person set most recently. Its built mark is kept, and resuming shows it again (tested).
+- The hold route is open to any caller the board admits, like its sibling /due route; who did it is recorded.
 - The On hold tile sits after Josh's five open groups and before Completed; his order is otherwise unchanged.
 - Its colour is --k-ink-2, Unassigned's neutral: both mean nothing is moving, and the label and icon tell them apart.
 - A paused project holds every task in it on the Tasks view (they count under On hold), and resuming brings them
