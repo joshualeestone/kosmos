@@ -74,12 +74,30 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
           rows: document.querySelectorAll('#plus-ask-rows .askreq').length,
           withinSection: a.left >= s.left - 1 && a.right <= s.right + 1,
           belowHeader: a.top >= Math.round(head.getBoundingClientRect().bottom),
+          /* The first Allow's centre must be inside the viewport with no scrolling: placed after the sign-in wizard,
+             the requests rendered off screen (mobile-shots allow-card, y=985 on desktop). */
+          allowInView: (() => { const b = document.querySelector('#plus-ask-rows [data-ask="allow"]'); if (!b) return null;
+            const r = b.getBoundingClientRect(), y = r.top + r.height / 2; return y > 0 && y < innerHeight ? true : Math.round(y); })(),
         };
       });
       chk(where.signedInShown && !where.flowShown, '[' + W + '] precondition: the Plus screen shows "You\'re signed in" and not the connected panel', JSON.stringify(where));
       chk(where.inSection && where.rows === 2, '[' + W + '] #4610 right after sign-in both requests render in the Kosmos Plus section', JSON.stringify(where));
       chk(!where.topCard, '[' + W + '] #4610 and not in the top card, the band that spread above everything', JSON.stringify(where));
       chk(where.withinSection && where.belowHeader, '[' + W + '] #4610 they sit inside the settings column, below the header, not across the window', JSON.stringify(where));
+      chk(where.allowInView === true, '[' + W + '] #4610 the first Allow is on screen without scrolling, not below the sign-in wizard', JSON.stringify(where));
+      /* State 1 (not enrolled, the marketing pane) is the tall one: placed after it, the first Allow sat at y=985 at
+         1400 wide, which the done step above is too short to show. */
+      const s1 = await page.evaluate(async () => {
+        document.getElementById('plus-state1').hidden = false;
+        document.getElementById('plus-state2').hidden = true;
+        document.getElementById('plus-flow').hidden = true;
+        paintAsk();
+        const b = document.querySelector('#plus-ask-rows [data-ask="allow"]');
+        if (!b || document.getElementById('plus-asks').hidden) return { shown: false };
+        const r = b.getBoundingClientRect(), y = Math.round(r.top + r.height / 2);
+        return { shown: true, y, vh: innerHeight };
+      });
+      chk(s1.shown && s1.y > 0 && s1.y < s1.vh, '[' + W + '] #4610 before sign-in too (state 1) the first Allow is on screen without scrolling', JSON.stringify(s1));
 
       /* CONTROL: on any other view the top card is the compact notice, as before. */
       await page.evaluate(async () => { showTab('agents'); paintAsk(); });

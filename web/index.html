@@ -16674,6 +16674,17 @@ window.kosmosMeasureScrollbarWidth();
          Decorative -> aria-hidden. -->
     <canvas id="plus-stars" aria-hidden="true"></canvas>
 
+    <!-- #3829 addendum (Josh, 20:00): on Settings > Kosmos Plus the device requests sit directly ABOVE the
+         panel, at its width, in the settings column. Elsewhere the top card is only a compact notice linking here.
+         #4610 (Josh, 12:50): here in every Plus state, including right after sign-in, never across the top. They
+         sit FIRST in the section, before state 1 and state 2: after them, a waiting request rendered below the whole
+         sign-in wizard, off screen (mobile-shots allow-card, Allow at y=985 on desktop). States 1 and 2 are hidden
+         while the connected panel shows, so there this is still directly above #plus-flow. -->
+    <div class="plus-asks" id="plus-asks" role="status" aria-live="polite" hidden>
+      <p class="setname" id="plus-asks-title">Asking to use this Kosmos</p>
+      <div id="plus-ask-rows"></div>
+    </div>
+
     <!-- #1615, design/plus-flow.html section 5: this pane is THREE states, not one.
          Today's single state described a signup that does not happen here, which is
          kosmos#1115's finding restated as a design decision.
@@ -16954,13 +16965,6 @@ window.kosmosMeasureScrollbarWidth();
       <p class="plus-si-small plus-si-foot"><a id="plus-si-cancel" class="plus-signin-link" href="#">Cancel</a></p>
     </div>
 
-    <!-- #3829 addendum (Josh, 20:00): on Settings > Kosmos Plus the device requests sit directly ABOVE the
-         panel, at its width, in the settings column. Elsewhere the top card is only a compact notice linking here.
-         #4610 (Josh, 12:50): here in every Plus state, including right after sign-in, never across the top. -->
-    <div class="plus-asks" id="plus-asks" role="status" aria-live="polite" hidden>
-      <p class="setname" id="plus-asks-title">Asking to use this Kosmos</p>
-      <div id="plus-ask-rows"></div>
-    </div>
     <div id="plus-flow" hidden>
       <!-- #3829 (Josh, 16:54: "terribly worded and designed"; Mona Lisa's sketch on the card): status first,
            View my account top right, the address in ONE chip with Copy and Open and one plain line under it,
