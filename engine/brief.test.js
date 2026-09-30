@@ -69,3 +69,11 @@ test('readGoal: a real file is read; missing, a symlink, a directory and an over
   assert.equal(brief.readGoal(''), null);
   assert.equal(brief.readGoal(path.relative(process.cwd(), dir)), null, 'a relative folder was read against the working directory');
 });
+
+test('#4583 a done left blank (the "Not set yet" placeholder) is no done; one written is read as written', () => {
+  assert.equal(brief.doneFrom(projects.briefStubContent({ name: 'Lease' })), null, 'the Not set yet placeholder read as a done');
+  assert.equal(brief.doneFrom(projects.briefStubContent({ name: 'Lease', done: 'The lease is signed.' })), 'The lease is signed.');
+  // CONTROL: the bold words alone, or with a person's own words after them, are an answer, not the seeded prompt.
+  assert.equal(brief.doneFrom('## Done looks like\n\n**Not set yet.** We will decide on Friday.\n'), '**Not set yet.** We will decide on Friday.');
+});
+

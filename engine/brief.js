@@ -89,7 +89,9 @@ function readBriefText(folder) {
    projects.briefStubContent), and the RULE is matched, not one spelling, so a reworded prompt stays a prompt. */
 const DONE_HEADING = /^##\s+done\b.*$/i;
 const THEMATIC_BREAK = /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/;
-const SEEDED_PROMPT = /^_[^_]*Replace this line\.?_$/;
+/* #4583: a done left blank is seeded as "**Not set yet.** " before that same italic prompt, so the prompt may carry
+   that one bold prefix and still be a prompt (else `kosmos project show` printed the placeholder as the done). */
+const SEEDED_PROMPT = /^(?:\*\*Not set yet\.\*\* )?_[^_]*Replace this line\.?_$/;
 function sectionFrom(text, heading) {
   if (typeof text !== 'string' || !text) return null;
   const lines = text.split(/\r?\n/);
