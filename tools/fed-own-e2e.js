@@ -467,7 +467,8 @@ const TYPED_WATCH = [];   // { board, text, expect } re-read at the end of the r
 async function main() {
   console.log('#4693 own-account room proof, run ' + RUN + ', sandbox ' + SANDBOX);
   for (const [k, p] of Object.entries(BIN)) {
-    try { fs.accessSync(p, fs.constants.X_OK); } catch { throw new Error('missing or not executable: ' + k + ' binary at ' + p + ' (set FEDPROOF_BIN_DIR)'); }
+    // isRunnable: a directory must not count as a binary (engine.runnable-not-directory.test.js).
+    if (!require(path.join(REPO, 'engine', 'runners')).isRunnable(p)) throw new Error('missing or not executable: ' + k + ' binary at ' + p + ' (set FEDPROOF_BIN_DIR)');
   }
 
   // 1. coordinator
