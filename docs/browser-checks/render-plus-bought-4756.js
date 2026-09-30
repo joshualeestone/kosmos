@@ -59,8 +59,10 @@ const SCENARIOS = {
   'this-computer': { lists: [{ ok: true, live: true, this_name: 'first', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: 'first' },
   // Set up before as another of the account's addresses: it keeps that one, with no pick.
   'this-other': { lists: [{ ok: true, live: true, this_name: 'spare', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'in_use'), row('other', 'free')] }], auto: 'spare' },
-  // An account with no address yet: the name step as before (the coordinator rules on the name).
+  // An account with no address yet, switch on: it cannot name one here, so it is told how to buy one (no name step).
   'no-address': { account: '', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] }], auto: null },
+  // Check again that finds the switch now off takes the step as before, not a list that can never work.
+  'recheck-switched-off': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] }, { ok: true, live: false }], auto: null },
   // Check again that cannot reach the service stays on the panel and says so; it never falls back to the account's address.
   'recheck-fails': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] }, null], auto: null },
   // The read is slow: the code step is gone at once (its spent code cannot be sent again) and the step says it is checking.
@@ -203,9 +205,14 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(JSON.stringify(btns) === JSON.stringify(['other']), `[${key}] the refused address is not offered again`, JSON.stringify(btns));
         chk(!(await visible(page, '#plus-si-owned')), `[${key}] no "Connecting this computer as" line left beside it`);
         chk(regs.length === 1, `[${key}] nothing else was registered`, JSON.stringify(regs));
+      } else if (key === 'recheck-switched-off') {
+        await page.click('#plus-si-bought-recheck');
+        await page.waitForFunction(() => { const d = document.getElementById('plus-si-done'); return d && !d.hidden; }, null, { timeout: 8000 }).catch(() => {});
+        chk(regs.length === 1 && regs[0] === 'first', `[${key}] takes the step as before (registers to the account's address)`, JSON.stringify(regs));
+        chk(!(await visible(page, '#plus-si-bought')), `[${key}] with the list gone`);
       } else if (key === 'no-address') {
-        chk(await visible(page, '#plus-si-name-field'), `[${key}] the name step shows, as before`);
-        chk(!(await visible(page, '#plus-si-bought')), `[${key}] no bought-address panel`);
+        chk(!(await visible(page, '#plus-si-name-field')), `[${key}] no name field: a computer never makes an address`);
+        chk(await visible(page, '#plus-si-bought-none'), `[${key}] it is told how to buy one`);
         chk(regs.length === 0, `[${key}] nothing registered by itself`, JSON.stringify(regs));
       } else if (key === 'recheck-fails') {
         chk(await visible(page, '#plus-si-bought-none'), `[${key}] starts on the none panel`);

@@ -43625,19 +43625,6 @@ document.getElementById('plus-si-enrol-confirm-go').addEventListener('click', as
   if (!r.ok) { plusSiFail(r.because); return; }
   plusSiStage(r.data.stage, r.data);
 });
-/* The last step: name this computer -> signin-register, which returns the address.
-   The name rule is the engine's own (also enforced there); saying it here saves a
-   round trip.
-
-   On success, HAND OFF TO THE CONNECTED FLOW rather than drawing a separate "done"
-   panel. The engine writes this computer's state dir synchronously before answering
-   register (engine/remote.js signinRegister), so the machine already reads enrolled:
-   the very next paintPlus() -- this one, and the recurring 5s tick -- takes the
-   enrolled branch, hides state 2 and shows the connected flow, which is where the
-   address lives (its status line reads "Connected. Your address: ..." once the tunnel
-   is up, and #1014's "on its way" wording before then). A separate done panel would
-   be drawn and then immediately replaced by that same paint, so it could flash for
-   well under a round trip or not be seen at all. */
 /* The session step. kosmos#4756: when the coordinator says bought addresses are live, a computer that is not
    the account's first (its address is in use by another computer) picks one of the account's BOUGHT
    addresses instead of naming one. On the FIRST read, anything but a definite live:true (switch off, an older
@@ -43680,6 +43667,7 @@ async function plusSiSession(data, again, keep) {
     plusSiShow('plus-si-register');
     const owned = document.getElementById('plus-si-owned'); if (owned) owned.hidden = false;
     if (lead) lead.textContent = 'Checking your Kosmos+ addresses';
+    const tail = document.getElementById('plus-si-owned-tail'); if (tail) tail.textContent = '...';
     document.getElementById('plus-si-owned-addr').textContent = '';
     if (spin) spin.hidden = false;
   }
@@ -43690,7 +43678,7 @@ async function plusSiSession(data, again, keep) {
   if (spin) spin.hidden = true;
   if (lead) lead.textContent = 'Connecting this computer as';
   const b = got.list || null;
-  if (again && !b) {
+  if (again && !b && !got.off) {
     if (/start again from the email/i.test(String(got.because || ''))) { plusSiFail(got.because); return; }
     if (PLUS_SI_BOUGHT_LAST) plusSiBoughtPick(PLUS_SI_BOUGHT_LAST);
     const why = got.because || 'That did not work. Check again in a moment.';
@@ -43700,9 +43688,10 @@ async function plusSiSession(data, again, keep) {
   if (bought) bought.hidden = true;   // plusSiBoughtPick shows it again; every other way on is without it
   const own = /^([a-z0-9-]{3,32})\./.exec(String(data.account_address || ''));
   const ownRow = b && own ? b.addresses.filter((r) => r.name === own[1])[0] : null;
-  /* As before: no list, an account with no address yet (the name step, which the coordinator rules on), the
-     account's first computer (its address has no computer on it), or this computer signing in to it again. */
-  const asBefore = !b || !own || !ownRow || ownRow.state !== 'in_use' || b.this_name === own[1];
+  /* As before: no list (switch off, or not readable on the first read), the account's first computer (its address
+     has no computer on it), or this computer signing in to it again. An account with no address at all, with the
+     switch on, cannot name one here: it gets the list, or the way to buy one. */
+  const asBefore = !b || (own && (!ownRow || ownRow.state !== 'in_use' || b.this_name === own[1]));
   if (asBefore) {
     plusSiRegisterMode(data.account_address);
     plusSiShow('plus-si-register');
@@ -43764,6 +43753,19 @@ function plusSiBoughtPick(b) {
   if (again) again.addEventListener('click', () => { if (PLUS_SI_SESSION) { plusSiMsg(''); plusSiSession(PLUS_SI_SESSION, true); } });
 }
 
+/* The last step: name this computer -> signin-register, which returns the address.
+   The name rule is the engine's own (also enforced there); saying it here saves a
+   round trip.
+
+   On success, HAND OFF TO THE CONNECTED FLOW rather than drawing a separate "done"
+   panel. The engine writes this computer's state dir synchronously before answering
+   register (engine/remote.js signinRegister), so the machine already reads enrolled:
+   the very next paintPlus() -- this one, and the recurring 5s tick -- takes the
+   enrolled branch, hides state 2 and shows the connected flow, which is where the
+   address lives (its status line reads "Connected. Your address: ..." once the tunnel
+   is up, and #1014's "on its way" wording before then). A separate done panel would
+   be drawn and then immediately replaced by that same paint, so it could flash for
+   well under a round trip or not be seen at all. */
 /* #3796 addendum 9: register THIS computer to `name`. Called by the button for a chosen name, and
    automatically for an account that already owns one (`owned` is then its full address, when known). */
 async function plusSiDoRegister(name, owned) {
