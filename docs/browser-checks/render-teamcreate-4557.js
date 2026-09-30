@@ -166,6 +166,8 @@ function chk(ok, label, extra) {
             rowHidden: document.getElementById('tc-account-row').hidden }));
           chk(pick.provider === 'openai' && pick.account === '/acct/openai-only', `${E} #4719 with only an OpenAI account, the team step is on OpenAI and that account`, JSON.stringify(pick));
           chk(pick.rowHidden === true, `${E} #4719 one account: no account menu (#2097)`, JSON.stringify(pick));
+          // No project here: a project made in this arm would take "Marketing" from the arms below, which count names.
+          await page.selectOption('#tc-project', 'none');
           await page.click('#tc-go');
           await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((e) => e.textContent === 'Running'));
           const r1 = await rows(page);
