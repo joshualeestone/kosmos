@@ -92,8 +92,8 @@ async function open(browser, opts) {
         return got;
       });
       chk(Array.isArray(inPanel) && inPanel.length >= 2 && inPanel.every((b) => b.h >= 44), '[allow/touch] every Allow / Deny above the Kosmos Plus panel is at least 44px tall', JSON.stringify(inPanel));
-      // Review (#3829): with the connected panel NOT showing (not enrolled, or mid sign-in) there is nothing to sit
-      // above, so the full cards stay in the top card and the in-panel slot is empty.
+      // #4610 (Josh, 12:50) reverses #3829's review rule here: with the connected panel NOT showing (not enrolled, or mid
+      // sign-in) the requests still render in the Kosmos Plus section, never spread across the top of the window.
       const noFlow = await phone.evaluate(() => {
         const flow = document.getElementById('plus-flow');
         const was = flow.hidden; flow.hidden = true; paintAsk();
@@ -103,7 +103,7 @@ async function open(browser, opts) {
         flow.hidden = was; paintAsk();
         return out;
       });
-      chk(noFlow.panel && !noFlow.card && noFlow.allow >= 1 && noFlow.slot === 0, '[allow/place] with no connected panel showing, the full cards stay in the top card', JSON.stringify(noFlow));
+      chk(!noFlow.panel && noFlow.card && noFlow.allow === 0 && noFlow.slot >= 1, '[allow/place] #4610: with no connected panel showing, the requests are still in the Kosmos Plus section, not the top card', JSON.stringify(noFlow));
     }
     // (b) Answer's hit area, on a real needs-you card
     const ans = async (page) => page.evaluate((base) => {

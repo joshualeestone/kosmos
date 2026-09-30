@@ -2727,3 +2727,17 @@ test('#4006: the person\'s own Restart of a no-pane agent that fails again keeps
     disruption.clear(name);
   }
 });
+
+// #4624: room posts held for a member are forgotten when it is removed, so a later agent created under the
+// same name is never told about a room it was not in.
+test('#4624: removing an agent forgets the room posts held for it', () => {
+  const roomhold = require('./roomhold');
+  const name = madeAgent('held-on-remove');
+  boardShows(name, name);
+  assert.equal(roomhold.hold(name, 'lease', 'm4'), true, 'precondition: a post was held');
+  assert.deepEqual(roomhold.heldIn(name, 'lease'), ['m4']);
+  world();
+  remove.setDryRun(false);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED, 'precondition: the agent was removed');
+  assert.deepEqual(roomhold.heldProjects(name), [], 'removal left the held posts for whoever takes the name next');
+});
