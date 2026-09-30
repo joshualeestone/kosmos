@@ -17,7 +17,8 @@ its room notes.
   coordinator through the tunnel (`POST /v1/mac/account-computers`, signed with this computer's key, so it
   can only be this account's list). Refusals, each with a sentence and a reason:
   - `other-account`: the maker is not on this account (a different account, or a computer since removed);
-  - `unchecked`: the list could not be read (not accepted on trust);
+  - `unchecked`: the list could not be read (not accepted on trust); `no-remote` when this computer is
+    not signed in to Kosmos+;
   - `old-code`: a `v: 1` code, which names no computer.
 - The own-code route refuses when this computer has no Kosmos+ address (it has no name to give), before
   anything is recorded.
@@ -49,7 +50,7 @@ account (it says both). A code is made to be pasted within minutes, so this shou
 - engine/federation-owncode-4649.test.js: a code without a maker is never made and records nothing; a code
   from this account's computer verifies with exactly one signed read and nothing redeemed; one from another
   computer is refused and holds nothing for a join (with the control that the same ref is then accepted
-  from an account computer); an unreadable list refuses; a v 1 code refuses without asking the coordinator.
+  from an account computer); an unreadable list refuses; a code with no maker (made before this change) refuses without asking the coordinator.
 - server.federation-3311.test.js: the same at the routes, the no-address refusal, and the code carries
   this computer's name.
 - docs/browser-checks/render-owncode-4649.js: the code names its maker; a code from a computer not on the
@@ -120,6 +121,28 @@ Run because a merge of main came after review 3. It found three real things the 
   computer's own row; a refusal leaves an earlier snapshot for the same ref until it expires.
 - Controls, on a scratch copy: without the `Error:` strip, without the guest-edge case, and with the
   page's sentence changed, the three tests that cover them go red, each by name. In the worktree: 140 pass
-  across the four federation test files.
+  across the four federation test files (still 140 after review 5).
 - The full suite that passed at 3d5cba6b5 (12,528 tests) is about the head BEFORE this review and before
   a second merge of main. It does not cover this head. A new full run is owed.
+
+## Review 5 (sonnet): 3 WARNINGs, 2 CONVENTIONs
+- W FIXED: the other-account sentence ended "make a new code there", which loops in the likeliest real
+  case (the two computers are signed in to different Kosmos+ accounts: a new code is refused the same
+  way). It now says to check both are signed in to the same account first.
+- W FIXED, and review 4's pass-through withdrawn: ANY coordinator refusal without a slash was shown, so
+  "Kosmos+ said unknown mac." could reach the screen. Only one refusal has a way forward (this computer is
+  itself still waiting to be allowed, kosmos#4681), and it is recognised by the coordinator's CODE
+  (`own_lineage`, which the tunnel prints in the brackets), never by its words. It gets our own sentence.
+  Everything else gets the general one, and the detail goes to the log.
+  The shape is read from the tunnel's source (kosmos-relay crates/tunnel/src/coordinator.rs,
+  `refusal_error`: `<sentence> (HTTP <n> on <path>, code <c>)`), not from a run against a coordinator that
+  has #4681 (none is deployed). That code-in-the-line form arrives with the connector built from
+  kosmos-relay#4665: an app whose connector is older prints no code, and a waiting computer there gets
+  the general sentence. WEAKEST PREMISE: that this is an acceptable fallback for the builds in between.
+- W FIXED: "your other computers" was still said for an owner project shared by own code before its seat
+  is up, when a guest may be in the room too; and a project joined by own code sits in that same room.
+  This computer cannot tell. Those rooms, and a record that cannot be read, now say "the other computers
+  in this project", which is true with or without a guest. Review 4's seat-based split is gone.
+- CONVENTIONs fixed: this plan's top part still said `v: 2` in two places; the browser-check README row.
+- NITs taken: the no-address sentence named a switch where the state is "not signed in"; the test's
+  refusals are named constants, not positions in a list.

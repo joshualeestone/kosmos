@@ -276,12 +276,14 @@ function uncheckedRefusal(because) {
     // "Not connected" is not signed in to Kosmos+ here (the same state fedseats' note names).
     return { status: 409, body: { reason: 'no-remote', error: 'Sign in to Kosmos+ again in Settings on this computer, then paste the code again.' } };
   }
-  const m = /^Kosmos\+ refused this Mac: (.+?)(?: \(HTTP \d+ on [^)]*\))?$/.exec(b);
-  // The coordinator's sentence is outside text: one line, printable, bounded.
-  const said = m && m[1].replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
-  if (said && !/[\/\\]/.test(said)) {
-    return { status: 502, body: { reason: 'unchecked', error: 'Kosmos could not check that this code is from one of your computers: Kosmos+ said ' + said.replace(/[.;]\s*$/, '') + '.' } };
+  /* The one refusal with a way forward is recognised by the coordinator's CODE, which the tunnel prints
+     inside the brackets, never by its sentence: this computer is itself still waiting to be allowed on
+     the account (kosmos#4681). Any other refusal ("unknown mac", a clock skew) is not something the
+     person can act on, so it gets the general sentence and the detail stays in the log. */
+  if (/^Kosmos\+ refused this Mac: .*\(HTTP 403 on [^)]*, code own_lineage\)$/.test(b)) {
+    return { status: 409, body: { reason: 'unchecked', error: 'This computer has not been allowed on your Kosmos+ account yet, so Kosmos cannot check this code. Allow it from one of your other computers, then paste the code again.' } };
   }
+  if (b) console.error('[federation] an own code could not be checked: ' + b.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 300));
   return { status: 502, body: { reason: 'unchecked', error: 'Kosmos could not check that this code is from one of your computers. Try again in a moment.' } };
 }
 
@@ -360,7 +362,7 @@ async function verify(remote, body) {
     const mine = await ownAccountNames(remote);
     if (!mine.ok) return uncheckedRefusal(mine.because);
     if (!mine.names.includes(own.from)) {
-      return { status: 409, body: { reason: 'other-account', error: 'This code is from a computer that is not on this Kosmos+ account, so the project cannot be added here. If it came from your own computer, make a new code there.' } };
+      return { status: 409, body: { reason: 'other-account', error: 'This code is from a computer that is not on this Kosmos+ account, so the project cannot be added here. Check that both computers are signed in to the same Kosmos+ account, then make a new code on the computer that has the project.' } };
     }
     const key = OWN_KEY_PREFIX + own.ref;
     const snap = { edge_id: key, own: true, project_name: externalName(own.name, NAME_MAX), project_desc: null, owner_handle: 'your other computer' };

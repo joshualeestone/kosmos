@@ -144,20 +144,25 @@ test('#4699 a room shared only with your own computers is never called "the exte
     assert.strictEqual(fedseats.post(id, { from: 'Josh', kind: 'person', text: 'hello' }), false, id + ': not connected yet');
   }
   const last = (id) => h.notes.filter((n) => n.projectId === id).pop().text;
-  assert.match(last('proj-far-own'), /the connection to your other computers is not up right now/);
-  assert.match(last('proj-far-self'), /the connection to your other computers is not up right now/);
+  assert.match(last('proj-far-own'), /the connection to the other computers in this project is not up right now/);
+  assert.match(last('proj-far-self'), /the connection to the other computers in this project is not up right now/);
   assert.doesNotMatch(last('proj-far-own') + last('proj-far-self'), /external project/);
   // Control: a project joined from someone else still says what it is.
   assert.match(last('proj-far-guest'), /the connection to the external project is not up right now/);
-  // Review 4: an owner project shared by own code that ALSO has a guest from another account sits on the
-  // guest's edge, and its far side is not only the person's own computers.
+  // Reviews 4 and 5: an owner project shared by own code may ALSO have a guest from another account, and
+  // before its seat is up this computer cannot tell. The words are true with or without one.
   federation.recordLink('proj-far-mixed', { role: 'owner', ref: 'ref-far-mixed', selfShared: true });
   const h2 = harness({ edges: [{ id: 'edge-far-mixed', project_ref: 'ref-far-mixed', status: 'active' }] });
   await fedseats.ensure('proj-far-mixed');
   assert.strictEqual(h2.spawned[h2.spawned.length - 1].edge, 'edge-far-mixed', 'control: seated on the guest\'s edge');
   assert.strictEqual(fedseats.farSide('proj-far-mixed'), 'the other computers in this project');
   assert.strictEqual(fedseats.farSide('proj-far-mixed', true), 'The other computers in this project');
-  assert.strictEqual(fedseats.farSide('proj-far-own'), 'your other computers', 'control: no guest, own computers only');
+  assert.strictEqual(fedseats.farSide('proj-far-own'), 'the other computers in this project');
+  assert.strictEqual(fedseats.farSide('proj-far-self'), 'the other computers in this project');
+  assert.strictEqual(fedseats.farSide('proj-far-guest'), 'the external project', 'control: a project joined from someone else');
+  federation.recordLink('proj-far-owner-guests', { role: 'owner', ref: 'ref-far-owner-guests' });
+  assert.strictEqual(fedseats.farSide('proj-far-owner-guests'), 'the external project', 'control: an owner project shared with guests alone');
+  assert.strictEqual(fedseats.farSide('proj-far-no-record'), 'the other computers in this project', 'no record to read: words that are true either way');
 });
 
 test('#4649 an owner\'s OWN room refused for good stops seating it and says so once; the project is not ended', async () => {

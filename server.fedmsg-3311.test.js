@@ -234,7 +234,7 @@ test('kosmos#4699: a room shared only with your own computers does not call them
   const notes = messages.record().rows.filter((m) => m.kind === 'note' && m.project === own);
   assert.ok(notes.length, 'fixture: the no-words note was written');
   const said = notes[notes.length - 1].text;
-  assert.match(said, /attachments are not sent to your other computers/, said);
+  assert.match(said, /attachments are not sent to the other computers in this project/, said);
   assert.doesNotMatch(said, /external project/, said);
 });
 

@@ -187,25 +187,26 @@ test('#4699: when the account\'s computers cannot be read, the code is not accep
 });
 
 test('#4699: a could-not-check refusal never shows a path or a route, and names what the person can do', async () => {
+  // The refusal as the tunnel really prints it: `Error: ` first, and the coordinator's code in the brackets.
+  const WAITING = 'Error: Kosmos+ refused this Mac: this computer is not allowed yet; allow it from your other computer first (HTTP 403 on /v1/mac/account-computers, code own_lineage)';
+  // A refusal the person cannot act on: its words never reach the screen.
+  const UNKNOWN = 'Error: Kosmos+ refused this Mac: unknown mac (HTTP 401 on /v1/mac/account-computers)';
   const cases = [
     [{ ok: false, because: 'this computer is not connected to Kosmos+' }, 'no-remote', /Sign in to Kosmos\+ again in Settings/],
-    // Review 4: the line as the tunnel really prints it, `Error: ` first. Without the strip this answered
-    // "Try again in a moment", which for a computer not allowed yet can never succeed.
-    [{ ok: false, because: 'Error: Kosmos+ refused this Mac: this computer is not allowed yet; allow it from your other computer first (HTTP 403 on /v1/mac/account-computers)' }, 'unchecked', /Kosmos\+ said this computer is not allowed yet; allow it from your other computer first\.$/],
     [() => { throw new Error('spawn /Users/someone/Kosmos/bin/kosmos-tunnel ENOENT'); }, 'unchecked', /Try again in a moment/],
-    [{ ok: false, because: 'Kosmos+ refused this Mac: this computer is not allowed yet; allow it from your other computer first (HTTP 403 on /v1/mac/account-computers)' }, 'unchecked', /Kosmos\+ said this computer is not allowed yet; allow it from your other computer first\.$/],
+    [{ ok: false, because: WAITING }, 'unchecked', /has not been allowed on your Kosmos\+ account yet.*Allow it from one of your other computers/],
+    [{ ok: false, because: WAITING.replace(/^Error: /, '') }, 'unchecked', /has not been allowed on your Kosmos\+ account yet/],
+    [{ ok: false, because: UNKNOWN }, 'unchecked', /Try again in a moment/],
   ];
   for (const [answer, reason, words] of cases) {
     const out = await federation.verify(plusRemote(answer), { code: ownCodeFrom('study', 'ref-words') });
     assert.equal(out.body.reason, reason, JSON.stringify(out.body));
     assert.match(out.body.error, words, out.body.error);
-    assert.doesNotMatch(out.body.error, /\/|HTTP \d|ENOENT/, 'a path, route or status reached the person: ' + out.body.error);
+    assert.doesNotMatch(out.body.error, /\/|HTTP \d|ENOENT|unknown mac|own_lineage/, 'a path, route, status or identifier reached the person: ' + out.body.error);
   }
-  // The coordinator's sentence carries no retry advice: retrying cannot allow a computer.
-  for (const i of [1, 3]) {
-    const held = await federation.verify(plusRemote(cases[i][0]), { code: ownCodeFrom('study', 'ref-words') });
-    assert.doesNotMatch(held.body.error, /Try again/, cases[i][0].because);
-  }
+  // A computer that is waiting to be allowed is not told to try again: retrying cannot allow it.
+  const held = await federation.verify(plusRemote({ ok: false, because: WAITING }), { code: ownCodeFrom('study', 'ref-words') });
+  assert.doesNotMatch(held.body.error, /Try again/);
 });
 
 test('#4699: a code in the first format (no maker) is refused with the way forward', async () => {

@@ -16267,7 +16267,7 @@ const server = http.createServer(async (req, res) => {
           // the same account. A computer with no Kosmos+ address has no name to give.
           let from = null;
           try { from = federation.ownFromOf(remote.address()); } catch { from = null; }
-          if (!from) { sendJson(res, 409, { reason: 'no-address', error: 'This computer has no Kosmos+ address yet, so it cannot make a code for your other computers. Turn on Kosmos+ remote access on this computer first.' }); return; }
+          if (!from) { sendJson(res, 409, { reason: 'no-address', error: 'This computer has no Kosmos+ address yet, so it cannot make a code for your other computers. Sign in to Kosmos+ in Settings on this computer first.' }); return; }
           const before = federation.linkFor(proj.id);
           wasShared = !!(before && (before.selfShared === true || before.role === 'self'));   // a self link was told at join
           code = federation.ownCode(proj.id, proj.name, from);
