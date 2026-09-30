@@ -216,6 +216,7 @@ test('an oversized answer is refused by its Content-Length before it is read, an
 test('a download of the serial already held does not rewrite the stored copy', async () => {
   const { signed } = fresh();
   const same = signed(80);
+  // (This is the healthy case: the stored copy is there and verifies.)
   await catalogue.refresh({ fetcher: server(same).fetcher, force: true });
   const file = catalogue.cacheFile();
   const old = new Date(Date.now() - 60000);
@@ -238,4 +239,32 @@ test('the browser-check harness points every board it boots at a local catalogue
   assert.ok(firstBoot > i, `the first board boots on line ${firstBoot + 1}, before the export on line ${i + 1}`);
   const shots = fs.readFileSync(path.join(__dirname, '..', 'docs', 'browser-checks', 'mobile-shots.js'), 'utf8');
   assert.match(shots, /KOSMOS_CATALOGUE_BASE: process\.env\.KOSMOS_CATALOGUE_BASE \|\| 'http:\/\/127\.0\.0\.1:9\/'/, 'mobile-shots boots a board that can ask installkosmos.com');
+});
+
+test('a signed file that is not plain UTF-8 text is refused at download, not lost at the next restart', async () => {
+  const { privateKey } = fresh();
+  // An invalid byte inside a JSON string: it parses (as U+FFFD), verifies, and would not survive
+  // being stored as text.
+  const full = TEXT.replace(/"serial": \d+/, `"serial": ${catalogue.MIN_SERIAL + 90}`);
+  const at = full.indexOf('Chief of Staff');
+  const head = full.slice(0, at);
+  const tail = full.slice(at + 'Chief of Staff'.length);
+  const body = Buffer.concat([Buffer.from(head + 'Chief '), Buffer.from([0xff]), Buffer.from('f Staff' + tail)]);
+  const bomSig = crypto.sign(null, body, privateKey).toString('base64');
+  const fetcher = async (url) => new Response(url.includes('.sig') ? bomSig : body);
+  const st = await catalogue.refresh({ fetcher, force: true });
+  assert.equal(st.loaded, false);
+  assert.match(st.error, /not plain UTF-8 text/);
+  assert.equal(fs.existsSync(catalogue.cacheFile()), false);
+});
+
+test('the same serial is written again when the stored copy has gone, so a restart keeps it', async () => {
+  const { signed, pem } = fresh();
+  const same = signed(95);
+  await catalogue.refresh({ fetcher: server(same).fetcher, force: true });
+  fs.rmSync(catalogue.cacheFile());
+  await catalogue.refresh({ fetcher: server(same).fetcher, force: true });
+  assert.ok(fs.existsSync(catalogue.cacheFile()), 'the stored copy was not written back');
+  catalogue.useKeyForTest(pem);   // what a restart does
+  assert.equal(catalogue.status().serial, catalogue.MIN_SERIAL + 95);
 });

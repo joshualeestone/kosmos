@@ -15958,6 +15958,7 @@ test('#4632: only the picker\'s ?catalogue=1, and a create for a role not held, 
   await new Promise((ok) => srv.listen(0, '127.0.0.1', ok));
   const was = process.env.KOSMOS_CATALOGUE_BASE;
   process.env.KOSMOS_CATALOGUE_BASE = `http://127.0.0.1:${srv.address().port}/`;
+  require('./test-support/data-root-sandbox').assertSandboxedDataRoot(SANDBOX, [require('./engine/store').ROOT]);
   const reset = () => {
     try { fs.rmSync(catalogue.cacheFile(), { force: true }); } catch { /* none */ }
     catalogue.useKeyForTest(publicKey.export({ type: 'spki', format: 'pem' }));

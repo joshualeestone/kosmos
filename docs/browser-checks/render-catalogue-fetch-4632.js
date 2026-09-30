@@ -41,14 +41,15 @@ function check(name, pass, detail) {
   await page.goto(BASE + '/?tab=create', { waitUntil: 'load' });
   await page.waitForSelector('#pick-pm:not([hidden])', { timeout: 15000 });
   // The picker's list, which the menu fills from /api/roles?catalogue=1.
-  await page.evaluate(() => { const b = document.getElementById('pick-list'); if (b) b.click(); });
+  const hasList = await page.evaluate(() => { const b = document.getElementById('pick-list'); if (b) b.click(); return !!b; });
+  check('the picker has its list control', hasList);
   await page.waitForTimeout(800);
 
   const asked = rolesRequests.filter((u) => /[?&]catalogue=1(&|$)/.test(u));
   check('opening the picker asks the board with ?catalogue=1', asked.length >= 1, `${asked.length} of ${rolesRequests.length} /api/roles requests`);
   // The page also reads /api/roles at load for role titles; that read must not be the one that
   // downloads, or every page load would.
-  check('the page\'s load-time /api/roles read carries no ?catalogue=1', rolesRequests.length > asked.length,
+  check('the page\'s first /api/roles read, at load, carries no ?catalogue=1', rolesRequests.length > 0 && !/catalogue=1/.test(rolesRequests[0]),
     rolesRequests.map((u) => u.replace(BASE, '')).join(' '));
 
   const status = await page.evaluate(async (base) => (await (await fetch(base + '/api/roles')).json()).catalogue || null, BASE);

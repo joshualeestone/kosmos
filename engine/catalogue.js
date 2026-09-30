@@ -7,7 +7,7 @@
  * #4632: the catalogue no longer ships inside Kosmos. It is built and signed by the public repo
  * joshualeestone/kosmos-catalogue and published at installkosmos.com/catalogue/. Kosmos downloads
  * it only when it is asked for: the role picker (/api/roles?catalogue=1), `kosmos agent roles`, a
- * create for a role the board does not hold, and (with #4557) the Team screen. It keeps it in the
+ * create for a role the board does not hold, and, once #4557 lands, the Team screen. It keeps it in the
  * data folder, and uses it only when its Ed25519 signature verifies against PUBLIC_KEY below. Until the first download, and whenever the stored copy does not
  * verify, there is no catalogue: the picker shows the original roles and there are no teams.
  *
@@ -126,13 +126,23 @@ function load() {
   return data;
 }
 
+/** The serial of the stored copy when it reads and verifies, else null. */
+function storedSerial() {
+  try {
+    const stored = JSON.parse(fs.readFileSync(cacheFile(), 'utf8'));
+    const r = check(Buffer.from(stored.text, 'utf8'), stored.sig);
+    return r.ok ? r.catalogue.serial : null;
+  } catch { return null; }
+}
+
 function readRoles() { const c = load(); return c ? c : { groups: [], roles: [] }; }
 function readTeams() { const c = load(); return c ? c : { teams: [] }; }
 
 /** The body of url, refused as soon as it is known to exceed MAX_BYTES: by its Content-Length
  *  before reading, and by a running count while reading, so an oversized answer is never held. */
-async function fetchBytes(doFetch, url) {
-  const res = await doFetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS), cache: 'no-store' });
+async function fetchBytes(doFetch, url, stop) {
+  const signal = stop ? AbortSignal.any([AbortSignal.timeout(TIMEOUT_MS), stop]) : AbortSignal.timeout(TIMEOUT_MS);
+  const res = await doFetch(url, { signal, cache: 'no-store' });
   if (!res.ok) throw new Error(`${url} answered ${res.status}`);
   const tooBig = () => new Error(`${url} is larger than ${MAX_BYTES} bytes`);
   if (Number(res.headers.get('content-length')) > MAX_BYTES) throw tooBig();
@@ -164,10 +174,16 @@ function refresh(opts = {}) {
   inflight = (async () => {
     try {
       const doFetch = opts.fetcher || fetch;
-      const download = (query) => Promise.all([
-        fetchBytes(doFetch, base() + 'catalogue.json' + query),
-        fetchBytes(doFetch, base() + 'catalogue.json.sig' + query),
-      ]);
+      // One controller per pair, so when one of the two fails the other stops too.
+      const download = async (query) => {
+        const ctl = new AbortController();
+        try {
+          return await Promise.all([
+            fetchBytes(doFetch, base() + 'catalogue.json' + query, ctl.signal),
+            fetchBytes(doFetch, base() + 'catalogue.json.sig' + query, ctl.signal),
+          ]);
+        } catch (err) { ctl.abort(); throw err; }
+      };
       let [bytes, sig] = await download('');
       let r = check(bytes, sig.toString('utf8'));
       /* Just after a publish, a cache on the way can hold the new file with the old signature, or
@@ -177,15 +193,18 @@ function refresh(opts = {}) {
         r = check(bytes, sig.toString('utf8'));
       }
       if (!r.ok) throw new Error(`the downloaded catalogue was refused: ${r.because}`);
+      // It is stored as text, so it must survive the round trip to text byte for byte (a BOM or
+      // invalid UTF-8 would not): refused now, rather than lost at the next restart.
+      const text = bytes.toString('utf8');
+      if (!Buffer.from(text, 'utf8').equals(bytes)) throw new Error('the downloaded catalogue was refused: it is not plain UTF-8 text');
       const held = load();
       if (held && r.catalogue.serial < held.serial) {
         throw new Error(`the downloaded catalogue is older than the one held (${r.catalogue.serial} < ${held.serial})`);
       }
       const changed = !held || held.serial !== r.catalogue.serial;
-      if (changed) {
-        // Stored as text: a copy that does not survive the round trip byte for byte fails its
-        // signature on the next read, which leaves no catalogue rather than a changed one.
-        const text = bytes.toString('utf8');
+      // The same serial is written again only when the stored copy is gone or no longer verifies
+      // (a disk cleanup, say), so what is held in memory survives a restart.
+      if (changed || storedSerial() !== r.catalogue.serial) {
         const file = cacheFile();
         fs.mkdirSync(path.dirname(file), { recursive: true });
         const tmp = `${file}.${process.pid}.tmp`;

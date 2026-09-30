@@ -157,8 +157,9 @@ const CLI = require('./clipath').kosmosCliShown();
 // Its own data root inside the sandbox, so a child's stored catalogue never replaces this process's.
 const CHILD_ENV = { ...process.env, NODE_TEST_CONTEXT: '', AGENT_WORKFORCE_DATA: path.join(SANDBOX, 'child-support') };
 const FIXTURE = path.join(REPO, 'test-support', 'catalogue-fixture.js');
-// The spellings of the em dash the fleet's house rule names, written as escapes so this file has none.
-const EM_DASHES = ['\u2014', '&mdash;', '&#8212;', '&#x2014;', '&#X2014;', '\\u2014', '\\u{2014}'];
+// The spellings of the em dash the fleet's house rule names, assembled here so this file holds none.
+const DASH = String.fromCharCode(0x2014);
+const EM_DASHES = [DASH, '&' + 'mdash;', '&#' + '8212;', '&#x' + '2014;', '&#X' + '2014;', '\\' + 'u2014', '\\' + 'u{2014}'];
 
 test('no em dash in any spelling, in any role or team field', () => {
   const blob = JSON.stringify([catalogue.rawRoles(), catalogue.teams()]);
@@ -270,8 +271,13 @@ test('#4632: the catalogue is not shipped in the app, only downloaded; the fixtu
   assert.deepEqual(data, []);
   assert.ok(!fs.existsSync(path.join(REPO, 'tools', 'catalogue')), 'tools/catalogue moved to joshualeestone/kosmos-catalogue');
   assert.equal(path.dirname(require(FIXTURE).FIXTURE), path.join(REPO, 'test-support'));
-  // CONTROL: the filter sees a data module when one is there.
-  assert.ok(['catalogue-roles.js'].filter((f) => /^catalogue-.*\.js$/.test(f)).length === 1);
+  // CONTROL: the same scan, on a folder that holds a data module, finds it.
+  const probe = fs.mkdtempSync(path.join(os.tmpdir(), 'catalogue-scan-'));
+  try {
+    fs.writeFileSync(path.join(probe, 'catalogue-roles.js'), '');
+    fs.writeFileSync(path.join(probe, 'catalogue.test.js'), '');
+    assert.deepEqual(fs.readdirSync(probe).filter((f) => /^catalogue-.*\.js$/.test(f) && !f.endsWith('.test.js')), ['catalogue-roles.js']);
+  } finally { fs.rmSync(probe, { recursive: true, force: true }); }
 });
 
 test('a catalogue that fails to load costs the new roles, not the board: roles.js still loads, loudly', () => {
