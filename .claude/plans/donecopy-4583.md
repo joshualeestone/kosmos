@@ -11,7 +11,7 @@ My design pass on PR #4722 (card comment, 2026-09-30 09:3x) made three findings.
 On the create-project form (`web/index.html`, the `#pj-add-done` field):
 
 1. Label: "Done looks like" -> **"What does done look like?"**. The aria-label becomes the same question (it read "What done looks like"), so a screen reader and the page say one thing.
-2. Hint: "Optional. How will everyone know this is finished? Up to 1000 characters. Left blank, the project shows Done not set, and agents you put on it now ask you first." -> **"Optional. Skip it and the agents you put on it will ask you."** (review round 1: "the team" promised a question from a group that may not exist; the room note only fires once the project is staffed) The question moved into the label; the row tag's name is Kosmos's machinery, not the person's; the length cap is said by the error line when it is exceeded.
+2. Hint: "Optional. How will everyone know this is finished? Up to 1000 characters. Left blank, the project shows Done not set, and agents you put on it now ask you first." -> **"Optional. If you skip it, one of the agents you add here will ask you."** (reviews 1 and 3: the room note is posted only by the create handler, and only when the project is created with agents, and it asks for ONE question from one agent; a project staffed later gets no note, so the hint promises only what happens at creation) The question moved into the label; the row tag's name is Kosmos's machinery, not the person's; the length cap is said by the error line when it is exceeded.
 
 Not changed, deliberately:
 - The brief's `## Done looks like` heading and every engine string (a different surface, a file the person may edit, parsed by `engine/brief.js`).
