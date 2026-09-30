@@ -131,7 +131,7 @@ const RULES_HEADING = defaults.RULES_PHRASE;   // the one phrase appendTo keys o
  *     setup guide, where it is sandboxed, step outside its sandbox, #3769). Other fields are dropped.
  *   - Never the setup guide: that role is Kosmos's own, made once by Kosmos, with its folder locked down (#3769).
  *   - The setup guide makes agents only from the roles on the list (fromGuide): a role it wrote would hand an
- *     unsandboxed agent instructions the guide itself may not act on. The person writes their own in New agent.
+ *     agent without the guide's guards instructions the guide itself may not act on. The person writes their own in New agent.
  *   - A role's own label or text are not replaced under a built-in role's key: a made-up role is the `own` role
  *     with a label and text, so no agent reads as a Bookkeeper while carrying other instructions.
  *   - The shared working rules stay as Kosmos wrote them: create appends them when their heading is missing, and

@@ -41,7 +41,10 @@ Codex, Gemini or Grok guide has no such file" is also not what the code does, an
 
 ## The change (comments only, no behaviour)
 - `engine/setup-assistant.js`: replace the stale sentence with the three rows (each marked measured or not),
-  a pointer to the card for what the rules leave out, and the corrected "Claude only" line.
+  the plain statement that the refusal reaches only the paths the rules name, and the corrected "Claude only"
+  line. The list of places a board token can sit outside those paths is here and on the card, not in source.
+- `engine/team.js`, the fromGuide bullet (review round 4): "an unsandboxed agent" is now "an agent without the
+  guide's guards", the wording roles.js uses.
 - `engine/roles.js` and `engine/roles.test.js` (review round 3): "sandboxed away from the person's secrets"
   described every guide; now "kept away from the person's secrets (#3769)", which is true of every guide.
 - `engine/team.js`, above `vetAgentMember`: the guide rule is a cooperative guard; the one measured exception
