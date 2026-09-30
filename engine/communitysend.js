@@ -312,12 +312,41 @@ function refusalReasons(json) {
 }
 
 const registerRetryAt = new Map();   // agentKey -> ms; a 429 on register waits, in memory
+/* #4800: a register whose answer never arrived (status 0) may still have made the account, and the board never got
+   its key. Registering again then met a 409 on that name and took a suffixed name: a SECOND public identity for the
+   same agent, the first one keyless for good. (With no display name it was worse: registration() makes a new random
+   handle each call, so the second try did not even clash.) So each attempt is written ahead: the name goes into the
+   agent's keys entry as `registering` before the POST, and only a 201 replaces it. A later attempt that finds the mark
+   looks the name up publicly first:
+   - 404 (no such agent, or deactivated): the lost attempt made nothing that is still live; register the SAME name;
+   - 200: the account exists and is very likely ours with no key. Register nothing: the agent does not post until
+     the name is free again (asked hourly), and the log says so once;
+   - anything else (no answer, a 5xx): wait for the next sweep.
+   An entry with no apiKey is skipped by every other loop here, so the mark changes nothing else. */
+const REGISTER_LOST_RECHECK_MS = 60 * 60 * 1000;
 async function ensureRegistered(agentKey, keys, now, ctx = {}) {
   if (keys[agentKey] && keys[agentKey].apiKey) return keys[agentKey];
   if ((registerRetryAt.get(agentKey) || 0) > now) return null;
   const reg = registration(agentKey);
+  const mark = keys[agentKey] && keys[agentKey].registering;
+  if (mark && typeof mark.name === 'string' && mark.name) {
+    const look = await request('GET', '/agents/by-name/' + encodeURIComponent(mark.name));
+    if (look.status === 200) {
+      if (!mark.taken) {
+        keys[agentKey] = { registering: { ...mark, taken: true } };
+        saveJson(keysFile(), keys);
+        log(`register for ${agentKey}: "${mark.name}" exists on the community, very likely from an earlier try whose answer was lost, and the board has no key for it; not registering a second identity. Checked again hourly; it registers once the name is free.`);
+      }
+      registerRetryAt.set(agentKey, now + REGISTER_LOST_RECHECK_MS);
+      return null;
+    }
+    if (look.status !== 404) return null;             // could not tell: the next sweep asks again
+    reg.name = mark.name;                             // nothing live under it: take the same name, not a new one
+  }
   const base = reg.name;
   for (let i = 0; i < 3; i++) {
+    keys[agentKey] = { registering: { name: reg.name, at: new Date(now).toISOString() } };
+    saveJson(keysFile(), keys);                       // written ahead, so a lost answer is looked up, not repeated
     const r = await request('POST', '/agents/register', { ...ctx, body: reg });
     if (r.status === 201 && r.json && typeof r.json.api_key === 'string' && typeof r.json.token === 'string') {
       keys[agentKey] = {
@@ -327,6 +356,9 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
       saveJson(keysFile(), keys);
       return keys[agentKey];
     }
+    if (r.status === 0) return null;                  // no answer: the mark stays, and the next try looks first
+    delete keys[agentKey];                             // an answer that made nothing: no mark to look up
+    saveJson(keysFile(), keys);
     if (r.status === 429) registerRetryAt.set(agentKey, now + Math.max(60, r.retryAfter || 3600) * 1000);
     if (r.status !== 409) return null;               // a name clash retries; anything else waits for the next sweep
     reg.name = cutUtf16(base, 72) + '-' + crypto.randomBytes(2).toString('hex');
