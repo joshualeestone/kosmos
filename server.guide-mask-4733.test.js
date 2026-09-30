@@ -178,6 +178,7 @@ test('#4733 the guide\'s stored turn answer is masked as read on its thread (one
   const create = require('./engine/create');
   const answer = async (who) => (await (await fetch(`${base}/api/agent/${who}/thread`)).json()).owes;
   const heard = Date.now() - 5 * 60000;
+  try {
   for (const who of [GUIDE, OTHER]) {
     fs.mkdirSync(create.workerDir(who), { recursive: true });
     fs.writeFileSync(path.join(create.workerDir(who), 'CLAUDE.md'), `# ${who}\n`);
@@ -190,8 +191,11 @@ test('#4733 the guide\'s stored turn answer is masked as read on its thread (one
   assert.equal(g.unsent.text, `Your key is ${MASK}`);
   const o = await answer(OTHER);
   assert.equal(o.unsent && o.unsent.text, `Your key is ${KEY}`, 'CONTROL: another agent\'s answer was changed');
-  // A started report ends the carried answer, so the unmasked one stored here reaches no later test.
-  for (const who of [GUIDE, OTHER]) selfreport.record(who, { state: 'started' });
+  } finally {
+    // A started report ends the carried answer, so the unmasked one stored here reaches no later test,
+    // even when an assertion above fails.
+    for (const who of [GUIDE, OTHER]) selfreport.record(who, { state: 'started' });
+  }
   assert.equal(selfreport.read(GUIDE).final, null, 'cleanup: the stored answer is still carried');
 });
 
