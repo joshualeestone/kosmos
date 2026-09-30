@@ -1257,12 +1257,16 @@ test('#4638 signin verify tells a second computer what it needs to skip the choo
    Sign out, a new sign-in and Forget. A first computer keeps nothing (the control for "only a second computer"). */
 const ALLOW = RECORD + '.allow';
 const STATUS_TOKEN = RECORD + '.status-token';
+let secondN = 0;
 async function signedInSecond(code = '282828') {
   await remote.signinStart('her@example.com');
   const v = await remote.signinVerify('her@example.com', code);
   assert.equal(v.ok, true, v.because);
-  const reg = await remote.signinRegister('herlaptop', { awaitAllow: true });
+  // A fresh name each time, so this is always a real register (a repeat of the same name takes the shortcut).
+  secondN += 1;
+  const reg = await remote.signinRegister('herlaptop' + secondN, { awaitAllow: true });
   assert.equal(reg.ok, true, reg.because);
+  assert.notEqual(reg.data.alreadySetUp, true, 'CONTROL: this helper must take the real register path');
 }
 test('#4640 a second computer reads pending, then acked, with the token on stdin; the answer ends the wait', async () => {
   fs.rmSync(ALLOW, { force: true });
@@ -1315,6 +1319,17 @@ test('#4640 denied is final too, and a first computer keeps no token at all', as
   assert.equal(again.ok, true, again.because);
   assert.equal(again.data.alreadySetUp, true, 'CONTROL: this arm must take the already-set-up shortcut');
   assert.equal(remote.allowWatchHeldForTests(), false, 'the shortcut kept a first computer\'s token');
+  // The already-set-up shortcut keeps nothing even for a second computer whose page asked: the two meet only when the
+  // state dir is another account's (the account-switch edge), so the held session is not this computer's.
+  await remote.signinStart('her@example.com');
+  assert.equal((await remote.signinVerify('her@example.com', '282828')).ok, true);
+  assert.equal((await remote.signinRegister('switched', { awaitAllow: true })).ok, true);
+  remote.signinCancel();
+  await remote.signinStart('her@example.com');
+  assert.equal((await remote.signinVerify('her@example.com', '282828')).ok, true);
+  const shortcut = await remote.signinRegister('switched', { awaitAllow: true });
+  assert.equal(shortcut.data.alreadySetUp, true, 'CONTROL: this arm must take the already-set-up shortcut');
+  assert.equal(remote.allowWatchHeldForTests(), false, 'the shortcut kept a session that may be another account\'s');
   // CONTROL: a second computer whose page did NOT ask to wait (it took the chooser: a reinstalled computer) keeps nothing.
   remote.signinCancel();
   await remote.forget();
@@ -1325,19 +1340,18 @@ test('#4640 denied is final too, and a first computer keeps no token at all', as
 });
 test('#4640 Sign out, a new sign-in and Forget each drop the kept token', async () => {
   fs.rmSync(ALLOW, { force: true });
-  // Each arm first proves the watch is LIVE, so a drop is the drop's doing. The second and third sign-ins take
-  // register's already-set-up shortcut (same name), which must keep the watch too (a retry after a no).
+  // Each arm first proves the watch is LIVE, so a drop is the drop's doing.
   const live = async (what) => assert.deepEqual((await remote.signinAllowStatus()).data, { device_status: 'pending' }, what + ': no live watch to drop');
   await signedInSecond();
   await live('first register');
   remote.signinCancel();
   assert.equal((await remote.signinAllowStatus()).data.stop, true, 'Sign out left the token');
   await signedInSecond();
-  await live('the already-set-up shortcut');
+  await live('a second register');
   await remote.signinStart('someone@example.com');
   assert.equal((await remote.signinAllowStatus()).data.stop, true, 'a new sign-in left the token');
   await signedInSecond();
-  await live('the already-set-up shortcut, again');
+  await live('a third register');
   await remote.forget();
   assert.equal((await remote.signinAllowStatus()).data.stop, true, 'Forget left the token');
 });

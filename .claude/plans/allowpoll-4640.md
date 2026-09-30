@@ -62,6 +62,12 @@ match could never fire).
 - Iteration 9: a no does NOT unregister this computer (it stays on Kosmos+ at its address; the no is about reaching
   the other computer), so the denied landing keeps the "connected as" line and says "in to it", instead of
   "<computer> was not let in", which was false.
+- Iteration 10: register's already-set-up shortcut keeps NO watch. The page opts in only when this computer's name
+  is not among the account's addresses, and the shortcut runs only when the state dir is already at that name, so
+  they meet only in the account-switch edge (the held session is another account's). A retry after a no goes through
+  Remove this computer, which wipes the state dir, so it never takes the shortcut.
+  Deferred (benign): a second register call while one is in flight shares the first one's result, so the watch
+  follows the FIRST caller's awaitAllow. The page sends one register at a time.
 - Inherited, not mine: browser-checks-reason-grep.test.js reds on the base (209 emit sites, expected 208) because
   #4638 added one; Pete owns the bump, and this branch rebases after it.
 - Iteration 6: the denied line starts "press Done" (Remove this computer is on the Kosmos Plus pane Done leads to,

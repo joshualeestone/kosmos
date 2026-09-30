@@ -1665,8 +1665,9 @@ function dropAllowWatch() {
   if (allowWatch && allowWatch.timer) clearTimeout(allowWatch.timer);
   allowWatch = null;
 }
-/* The final answer, once given, WITHOUT the token: kept to the end of the same window so a second tab, a reload or a
-   lost response is told the same thing instead of "stop" on a question that was answered (possibly with a no). */
+/* The final answer, once given, WITHOUT the token: kept to the end of the same window (or until a new watch or a
+   Sign out, a new sign-in or Forget replaces it) so a second tab or a lost response is told the same thing instead
+   of "stop" on a question that was answered (possibly with a no). */
 let allowFinal = null;   // { status, until }
 /* The page is done waiting (Done, or moving on after "Allowed"): drop the token and nothing else. Not a Sign out: a
    sign-in in progress elsewhere is untouched, and the final answer stays for a second tab or a lost response. */
@@ -2082,9 +2083,11 @@ async function signinRegister(name, opts) {
       /* #3827: signing in IS asking to be reachable; ensure() only starts the tunnel when switched on. */
       turnOnAfterSignin();
       ensure(localPort);
-      // #4640: a second computer signing in again (after its first computer said no, a fresh knock) waits for the
-      // answer the same way a first register does. The token was not spent here, so it is the one to ask with.
-      if (awaitAllow && signinSession && signinSession.second === true && typeof signinSession.token === 'string') keepAllowWatch(signinSession.token);
+      // #4640: this shortcut keeps no watch. The page asks to wait only when this computer's name is NOT among the
+      // account's addresses, and this shortcut runs only when the state dir is already at that name, so the two meet
+      // only in the account-switch edge above: the held session is another account's, and its answer is not this
+      // computer's. (A retry after a no goes through Remove this computer, which wipes the state dir: no shortcut.)
+      endAllowWait();
       signinSession = null;
       // standing is '' on this path, not omitted: the engine cannot know it
       // without the coordinator round-trip this short-circuit skips, and a
