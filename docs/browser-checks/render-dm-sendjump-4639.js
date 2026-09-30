@@ -117,6 +117,12 @@ const youRow = (i, text) => ({ at: at(i), text, delivery: { state: 'placed', pan
     const afterNext = await pos();
     chk(afterNext.gap <= 8, 'J4 after their send, the agent\'s next message keeps them at the bottom', afterNext.gap + 'px above the floor');
 
+    // The send's own repaint has run once the log it painted from carries the sent row.
+    const sentIn = (mark) => {
+      const b = document.getElementById('d-dmthread').__lastBody;
+      return !!(b && Array.isArray(b.messages) && b.messages.some((m) => JSON.stringify(m).includes(mark)));
+    };
+
     // J5
     await page.fill('#d-talk-search', 'Agent message');
     await page.waitForFunction(() => TALK_QUERY === 'Agent message', null, { timeout: 5000 });
@@ -125,6 +131,10 @@ const youRow = (i, text) => ({ at: at(i), text, delivery: { state: 'placed', pan
     await page.fill('#d-say', 'My filtered message 4639-e');
     await page.click('#d-send');
     await page.waitForFunction(() => !TALK_SENDING, null, { timeout: 5000 });
+    // TALK_SENDING clears before the send's own repaint; wait for that repaint (its log carries the row, even though
+    // the search hides it) so a repaint that moved them would be seen.
+    await page.waitForFunction(sentIn, '4639-e', { timeout: 5000 });
+    await page.waitForTimeout(200);
     const afterFiltered = await pos();
     await page.fill('#d-talk-search', '');
     await page.waitForFunction(() => TALK_QUERY === '', null, { timeout: 5000 });
@@ -139,6 +149,8 @@ const youRow = (i, text) => ({ at: at(i), text, delivery: { state: 'placed', pan
     await page.evaluate(() => { const el = document.getElementById('d-dmthread'); el.scrollTop = Math.floor(el.scrollHeight * 0.35); });
     const scrolledMid = await pos();
     await page.waitForFunction(() => !TALK_SENDING, null, { timeout: 8000 });
+    await page.waitForFunction(sentIn, '4639-f', { timeout: 5000 });   // the send's own repaint, as in J5
+    await page.waitForTimeout(200);
     await page.evaluate(() => { window.__slowPost = 0; });
     const afterSlow = await pos();
     chk(scrolledMid.gap > 200 && Math.abs(afterSlow.top - scrolledMid.top) <= 4,

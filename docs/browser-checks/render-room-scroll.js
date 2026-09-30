@@ -455,7 +455,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
           await p.unroute('**/api/project/*/room');
         }
         await p.fill('#pj-post', '');
-        if (failUp.gap > 200 && afterFail.gap <= 8 && failSaid) ok('#4639 ' + tag + 'a send that fails lands them at the bottom and says so beside the composer');
+        if (failUp.gap > 200 && afterFail.gap <= 8 && /We could not post that/.test(failSaid || '')) ok('#4639 ' + tag + 'a send that fails lands them at the bottom and says so beside the composer');
         else bad('#4639 ' + tag + 'a send that fails lands them at the bottom and says so beside the composer', JSON.stringify({ failUp, afterFail, failSaid }));
       } catch (e) {
         bad('#4639 ' + tag + 'the room send-jump arms ran', String((e && e.message) || e));
