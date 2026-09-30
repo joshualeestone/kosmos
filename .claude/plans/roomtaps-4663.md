@@ -44,15 +44,24 @@ list scrolls (overflow-y: auto), so nothing is cut off, only one more scroll soo
 ## Checks
 - render-room-msgbox-2806, one in-page helper (tapProbe4663) that measures each control's REAL tap extent: every point
   of a grid around it (the control scrolled to mid-screen) that reaches it, and the box those points span, which must
-  be at least 36x36. Shape-agnostic, so it measures a centred area and an inward one alike. Runs on: phone 375 (tab
+  be at least 36x36, sampled at pixel centres so the span counts whole pixels (round 6: a fractional start read a
+  35px area as 36 and passed it). The printed spans still read 37 for a 36px area (hit-testing counts an edge pixel on
+  both sides, measured, not explained); what is proven is the boundary: 35px areas read 35 and fail, 36px pass. Shape-agnostic, so it measures a centred area and an inward one alike. Runs on: phone 375 (tab
   layout), touch tablet 1180 (tab layout, all six), and the ONE-SCREEN layout set for real (data-layout=consolidated,
   body.consolidated) at 1024 and 1180 (four: Back and + Add member are not shown there). The probe draws one task
-  and one file first and asserts both rows are drawn (subjects [1,1]), and puts the lists back after. Also: no button or link within 40px has more than 1% of
-  its drawn box (every pixel sampled) answering as one of the areas (round 3: a centre-only test missed an edge overlap), and the probe restores every change (hidden, inert, inline display, scroll positions),
+  and one file first and asserts both rows are drawn (subjects [1,1]), and puts the lists back after. Also: no button or link within 40px has ANY pixel of
+  its drawn box (every pixel sampled) answering as one of the areas (round 6: a 1% share let a 6px strip across the
+  first task card pass) (round 3: a centre-only test missed an edge overlap), and the probe restores every change (hidden, inert, inline display, scroll positions),
   checked by a before/after snapshot.
 - The neighbour arm red on round 3's page (044f6aa73) with the seeded rows, WebKit: pj-doc 3% (phone), 5% (tablet
   tabs), tkcard 6% and pj-doc 6% (one-screen 1024 and 1180). Green on this head, Chromium and WebKit.
 - The phone arm now runs after the focus-turn arm puts back its forced display (round 4: it measured an altered page).
+- Round 6 controls, WebKit: every area at 35px is red in all four reach arms (35x35); the list-adjacent areas pushed
+  8px below their controls are red in all four neighbour arms (tkcard 90 to 106 px, pj-doc 360 px). The probe puts the
+  page back in a finally, so a measurement that throws cannot leave later arms an altered page.
+- Card #4663 asked for padding with a negative margin and for mobile-shots' tap list to stop naming these six. Neither
+  fits: padding grows the drawn circles, and mobile-shots measures drawn boxes against 44px, so it lists them forever.
+  The card carries the changed design and this done-condition in a comment.
 - The restore snapshot covers the two lists' HTML and the page's task-list cache (TK_LIST_HTML, the repaint guard),
   which the probe puts back (round 5); red with the cache restore removed.
 - Red on origin/main's page (every reach arm); red in the one-screen arms with the inward rules removed (+ New task

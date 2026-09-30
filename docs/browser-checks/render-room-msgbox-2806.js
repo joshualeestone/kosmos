@@ -137,7 +137,7 @@ function tapProbe4663(skip) {
   const seeded = [[tasklist, tasklist && tasklist.innerHTML], [docs, docs && docs.innerHTML]];
   const door = document.getElementById('pj-alltasks'); const doorWas = door && [door.hidden, door.textContent];
   const cacheWas = typeof TK_LIST_HTML === 'undefined' ? undefined : TK_LIST_HTML;
-  if (typeof paintProjectTasks === 'function') paintProjectTasks({ id: 'p4663', tasks: [{ number: 1, title: 'Write the launch note', progress: { assigned: 1, closed: 0 }, parts: [] }] });
+  if (typeof paintProjectTasks === 'function') paintProjectTasks({ id: 'p4663', tasks: [{ number: 1, sentence: 'Write the launch note', progress: { assigned: 1, closed: 0 }, parts: [] }] });
   if (docs) docs.innerHTML = '<button type="button" class="pj-doc" data-doc="notes.md"><span class="pj-doc-n">notes.md</span></button>';
   undo.push(() => { for (const [el, html] of seeded) if (el) el.innerHTML = html; if (door) { door.hidden = doorWas[0]; door.textContent = doorWas[1]; }
     if (cacheWas !== undefined) TK_LIST_HTML = cacheWas; });
@@ -154,30 +154,32 @@ function tapProbe4663(skip) {
       if (getComputedStyle(el).display === 'none') set(el, 'display', 'block');
     }
   }
+  const out = [], theirs = []; let subjects = [];
+  try {
   const hit = (x, y, b) => { const t = document.elementFromPoint(x, y); return !!t && (t === b || b.contains(t)); };
-  const out = [];
   for (const id of ids) {
     const b = document.getElementById(id); if (!b) { out.push({ id, error: 'missing' }); continue; }
     // In the middle of the screen, so every probe point is on screen: a point off screen proves nothing.
     b.scrollIntoView({ block: 'center', inline: 'center' });
     const r = b.getBoundingClientRect(); if (!r.width || !r.height) { out.push({ id, error: 'not drawn' }); continue; }
     /* The tap area's real extent, whatever its shape (centred, or grown inward where a column clips it): every point
-       of a grid around the control that reaches it, and the box those points span. Off-screen points are not
-       sampled, and the control is mid-screen, so none is. */
+       of a grid around the control that reaches it, and the box those points span. Points sit at pixel centres, so
+       the span counts whole pixels: a 35px area reads 35, not 36 (review round 6: sampling from a fractional start
+       overstated by up to 1px, and a 35px area passed). Off-screen points are not sampled, and the control is
+       mid-screen, so none is. */
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
     const span = Math.max(r.width, r.height, 36) / 2 + 12;
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-    for (let y = Math.max(0, cy - span); y <= Math.min(innerHeight - 1, cy + span); y += 1) {
-      for (let x = Math.max(0, cx - span); x <= Math.min(innerWidth - 1, cx + span); x += 1) {
+    for (let y = Math.floor(Math.max(0, cy - span)) + 0.5; y <= Math.min(innerHeight - 1, cy + span); y += 1) {
+      for (let x = Math.floor(Math.max(0, cx - span)) + 0.5; x <= Math.min(innerWidth - 1, cx + span); x += 1) {
         if (hit(x, y, b)) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
       }
     }
     const w = x1 - x0 + 1, h = y1 - y0 + 1;
     out.push({ id, drawn: Math.round(r.width) + 'x' + Math.round(r.height), tap: Math.round(w) + 'x' + Math.round(h), reach: w >= 36 && h >= 36 });
   }
-  const theirs = [];
   // The rows under the headers must be drawn, or the neighbour arm has no subject (counted, not assumed).
-  const subjects = ['#pj-tasklist .tkcard', '#pj-docs .pj-doc'].map((q) => [...document.querySelectorAll(q)].filter((e) => e.getBoundingClientRect().height > 0).length);
+  subjects = ['#pj-tasklist .tkcard', '#pj-docs .pj-doc'].map((q) => [...document.querySelectorAll(q)].filter((e) => e.getBoundingClientRect().height > 0).length);
   for (const id of ids) {
     const b = document.getElementById(id); if (!b) continue; b.scrollIntoView({ block: 'center', inline: 'center' }); const r = b.getBoundingClientRect();
     for (const n of document.querySelectorAll('button, a[href], [role="button"]')) {
@@ -187,22 +189,27 @@ function tapProbe4663(skip) {
       const x = q.left + q.width / 2, y = q.top + q.height / 2;
       if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) continue;
       /* Every pixel of the neighbour's drawn box, not only its centre: an area can cover a neighbour's edge (review
-         round 3 found 18% of View All answering as + New task) while its centre stays its own. */
+         round 3 found 18% of View All answering as + New task) while its centre stays its own. Any pixel fails, not a
+         share: 1% of a task card is a 6px strip across an area, the round 4 defect (review round 6). */
       let taken = 0, total = 0, by = '';
-      for (let yy = Math.ceil(q.top); yy < q.bottom; yy += 1) for (let xx = Math.ceil(q.left); xx < q.right; xx += 1) {
+      for (let yy = Math.floor(q.top) + 0.5; yy < q.bottom; yy += 1) for (let xx = Math.floor(q.left) + 0.5; xx < q.right; xx += 1) {
+        if (yy < q.top || xx < q.left) continue;
         if (xx < 0 || yy < 0 || xx >= innerWidth || yy >= innerHeight) continue; total += 1;
         const t = document.elementFromPoint(xx, yy);
         const o = t && ids.map((j) => document.getElementById(j)).find((o2) => o2 && o2 !== n && !n.contains(o2) && (t === o2 || o2.contains(t)));
         if (o) { taken += 1; by = o.id; }
       }
-      if (total && taken / total > 0.01) theirs.push((n.id || n.className || n.tagName) + ': ' + Math.round(100 * taken / total) + '% answers as ' + by);
+      if (taken) theirs.push((n.id || n.className || n.tagName) + ': ' + taken + ' of ' + total + ' px answer as ' + by);
     }
   }
-  for (const u of undo.reverse()) u();
-  for (const [e, t, l] of scrolled) { e.scrollTop = t; e.scrollLeft = l; }
-  window.scrollTo(sx, sy);
+  } finally {
+    // Put back even if a measurement throws, so later arms never see an altered page.
+    for (const u of undo.reverse()) u();
+    for (const [e, t, l] of scrolled) { e.scrollTop = t; e.scrollLeft = l; }
+    window.scrollTo(sx, sy);
+  }
   const end = snap() + '#' + scrolled.map(([e]) => e.scrollTop + ',' + e.scrollLeft).join(';') + '#' + scrollX + ',' + scrollY;
-  return { out, theirs, restored: end === start, changed: undo.length, subjects };
+  return { out, theirs, restored: end === start, subjects };
 }
 
 (async () => {
