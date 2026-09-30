@@ -47,3 +47,13 @@ engine/mac-standing.test.js (off: one signed call, empty body; CONTROL on: the r
 engine/remote-standing-refresh.test.js (off: asked after 12 h, not inside it even with TTL 0; CONTROL on: minute
 cadence unchanged; CONTROL not enrolled: never). engine/remote-unreadable-4308.test.js still holds (an unreadable file
 sends nothing; this change first broke it, fixed by gating on a readable file).
+
+## Review round 1 (blind, sonnet, 2026-09-30 11:17): 0 BLOCKER, 1 WARNING (fixed), 3 NIT
+- WARNING, fixed: a ping with no answer while OFF stamped standing_at = now, so its retry waited the whole 12 h; two
+  failures in a row (a laptop waking before its Wi-Fi) crossed the one-day quiet line. Now stamped so the retry lands
+  OFF_RETRY_MS (30 min) later; an answered ping keeps the 12 h cadence; ON is unchanged. Test with both controls;
+  mutation (stamp back to plain now) reds exactly the new test (11 pass, 1 fail). remote-standing-refresh + mac-standing 30/30.
+- NIT taken: startReportTimer's header now says one call per OFF_STANDING_TTL_MS while off.
+- NIT noted: an off ping's answer now updates the cached standing every 12 h (before: never). Intended; a lapse is seen.
+- NIT, routed not fixed here: the account page says "Answering now" for ~2 min after each off ping. The coordinator
+  keeping "in use" apart from "answering" needs its own card before this reaches the fleet.

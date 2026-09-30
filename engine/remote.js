@@ -265,6 +265,9 @@ const STANDING_TTL_MS = 60 * 1000;   // ICK's ~60s; deliberately not per-poll (5
 /* #4731: with remote access OFF an enrolled computer is still heard from, but only this often: well inside the
    coordinator's one-day "quiet" line (#4681), and far from the minute-scale cadence of a computer that is on. */
 const OFF_STANDING_TTL_MS = 12 * 60 * 60 * 1000;
+/* #4731 review: a ping that could not get an answer while OFF (a laptop waking before its Wi-Fi) is retried after this,
+   not after the whole 12 h, so one failed attempt cannot use up the slot and two cannot cross the one-day line. */
+const OFF_RETRY_MS = 30 * 60 * 1000;
 let standingRefreshInFlight = false;
 const FED_LIVE_TTL_MS = 60 * 1000;   // mirrors STANDING_TTL_MS; a launch flag changes rarely, but a lapse/rollback should still reach a board within ~one TTL
 let fedLiveRefreshInFlight = false;
@@ -283,7 +286,7 @@ async function fetchStanding() {
    still reports (tested here rather than in server.js). Every ten minutes it
    runs the refresh, which is single-flighted and TTL-gated: with a tab open, /api/status already
    refreshes on its own (shorter) TTL and this timer adds nothing; with none, it is the only
-   caller, at most one standing call per ten minutes. The TTL sits under
+   caller, at most one standing call per ten minutes (with remote access OFF, one per OFF_STANDING_TTL_MS, #4731). The TTL sits under
    the interval: the refresh stamps its time AFTER the fetch returns, so a TTL equal to the interval
    skipped every other tick. Called through module.exports so a test can observe it; a
    refresh that throws or rejects never stops the timer. One early tick a minute after boot, so a
@@ -336,7 +339,9 @@ async function refreshStandingIfStale(opts) {
     if (typeof standing === 'string') {
       fedSetStanding(standing);             // a definite answer: update the value + reset the clock
     } else {
-      write({ standing_at: Date.now() });   // could not determine: KEEP the last-known value, back the retry off to the next TTL
+      // could not determine: KEEP the last-known value, back the retry off to the next TTL; while OFF,
+      // stamped so the retry lands OFF_RETRY_MS from now rather than a whole OFF_STANDING_TTL_MS (#4731).
+      write({ standing_at: s.on === true ? Date.now() : Date.now() - (OFF_STANDING_TTL_MS - OFF_RETRY_MS) });
     }
   } catch { /* refresh is best-effort; a poll must never see this throw */ }
   finally { standingRefreshInFlight = false; }
@@ -2056,7 +2061,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { OFF_STANDING_TTL_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,

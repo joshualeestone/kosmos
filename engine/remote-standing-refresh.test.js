@@ -84,6 +84,38 @@ test('#4731: remote access OFF: refreshed at most every OFF_STANDING_TTL_MS (12 
   assert.equal(called, 2, 'turning remote access on no longer refreshes on the minute cadence');
 });
 
+test('#4731: remote access OFF: a ping with no answer is retried after OFF_RETRY_MS, not a whole 12 h', async () => {
+  enroll();
+  const OFF = remote.OFF_STANDING_TTL_MS, RETRY = remote.OFF_RETRY_MS;
+  assert.ok(RETRY > TTL && RETRY < OFF / 4, 'the retry sits between the on cadence and the off cadence');
+  let called = 0;
+  const fetcher = async () => { called++; return null; };   // offline, a 5xx, the tunnel busy: no answer
+  writeSettings({ on: false, standing: 'good', standing_at: 1 });
+  const t0 = Date.now();
+  await remote.refreshStandingIfStale({ now: t0, ttlMs: TTL, fetcher });
+  assert.equal(called, 1);
+  assert.equal(remote.read().standing, 'good', 'a ping with no answer lost the last-known standing');
+  await remote.refreshStandingIfStale({ now: t0 + RETRY - 60 * 1000, ttlMs: TTL, fetcher });
+  assert.equal(called, 1, 'retried before OFF_RETRY_MS');
+  await remote.refreshStandingIfStale({ now: t0 + RETRY + 60 * 1000, ttlMs: TTL, fetcher });
+  assert.equal(called, 2, 'a ping with no answer while OFF waited longer than OFF_RETRY_MS for its retry');
+  // CONTROL: an ANSWERED ping while off is not retried at OFF_RETRY_MS (the 12 h cadence holds).
+  called = 0;
+  const answered = async () => { called++; return 'good'; };
+  writeSettings({ on: false, standing: 'good', standing_at: 1 });
+  const t1 = Date.now();
+  await remote.refreshStandingIfStale({ now: t1, ttlMs: TTL, fetcher: answered });
+  await remote.refreshStandingIfStale({ now: t1 + RETRY + 60 * 1000, ttlMs: TTL, fetcher: answered });
+  assert.equal(called, 1, 'an answered ping while off was asked again at the retry interval');
+  // CONTROL: ON, a ping with no answer backs off the ordinary TTL, as before.
+  called = 0;
+  writeSettings({ on: true, standing: 'good', standing_at: 1 });
+  const t2 = Date.now();
+  await remote.refreshStandingIfStale({ now: t2, ttlMs: TTL, fetcher });
+  await remote.refreshStandingIfStale({ now: t2 + TTL - 1000, ttlMs: TTL, fetcher });
+  assert.equal(called, 1, 'remote access on, a failed ping was retried inside the ordinary TTL');
+});
+
 test('#4731: CONTROL: remote access off and NOT enrolled (signed out) is never heard from', async () => {
   unenroll();
   writeSettings({ on: false, standing: '', standing_at: 1 });
