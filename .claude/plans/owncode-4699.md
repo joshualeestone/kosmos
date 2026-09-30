@@ -22,9 +22,10 @@ its room notes.
   - `old-code`: a `v: 1` code, which names no computer.
 - The own-code route refuses when this computer has no Kosmos+ address (it has no name to give), before
   anything is recorded.
-- engine/fedseats.js: the far side of a room is "your other computers" when the room is an own room (a
-  `self` link, or an owner project shared by own code), in every room note that named it.
-
+- engine/fedseats.js: the far side of a room the person's own computers sit in (a `self` link, or an
+  owner project shared by own code) is "the other computers in this project", never "the external
+  project". Those words are true whether or not a guest from another account is in the same room, which
+  this computer cannot tell before its seat is up. A record that cannot be read gets the same words.
 ## Decided
 - **The maker's NAME, not an account fingerprint.** The card said "carry an account fingerprint (a hash of
   the account id)". The board holds no account id: the coordinator would have to publish one, which is a
@@ -45,6 +46,11 @@ account (it says both). A code is made to be pasted within minutes, so this shou
 - A computer still waiting to be allowed on its account (kosmos#4681) is refused the computer list, so it
   cannot join by own code until it is allowed. That is intended.
 - Renet's harness (tools/fed-own-e2e.js, #4693) turns its NOTE into a check once this lands; that change is hers.
+- The one refusal with its own sentence ("this computer has not been allowed yet") is recognised by the
+  code the connector prints in its refusal line (`..., code own_lineage)`). NO MERGED OR DEPLOYED connector
+  prints that yet: it is on kosmos-relay's unmerged `selfack-4665` branch. The test's line is written to
+  that branch's shape, so the matcher and the test agree with each other and with that source, not with a
+  shipped binary. Until that connector ships, a waiting computer gets the general sentence.
 
 ## Checks
 - engine/federation-owncode-4649.test.js: a code without a maker is never made and records nothing; a code
@@ -146,3 +152,18 @@ Run because a merge of main came after review 3. It found three real things the 
 - CONVENTIONs fixed: this plan's top part still said `v: 2` in two places; the browser-check README row.
 - NITs taken: the no-address sentence named a switch where the state is "not signed in"; the test's
   refusals are named constants, not positions in a list.
+
+## Review 6 (fable): 2 WARNINGs, 2 CONVENTIONs
+- W FIXED: the waiting-computer matcher was anchored on "refused this Mac"; the Windows connector says
+  "refused this computer" (the prefix is per platform; fedseats already accepts both for #4645). A Windows
+  computer waiting to be allowed would have been told to try again. Both are matched; test line added.
+- W FIXED: "Allow it from one of your other computers" named no control. The sentence now says where:
+  Kosmos on the other computer shows that this computer is asking, with an Allow to press.
+  WEAKEST PREMISE: that the other computer's card is recognisable as "this computer is asking". Its copy
+  is PigeonPete's (#4702 board half).
+- CONVENTIONs fixed: this plan's top part still said "your other computers"; Not covered now says that no
+  shipped connector prints the code the matcher reads.
+- NITs taken: a list that names no computer is "could not check", not "another account"; a dead `guest`
+  role removed from the far-side test; the log line carries the card number.
+- NITs not taken: a fixture `self` link carrying `edge_id`; the page-equality test would need escaping for
+  a sentence with an apostrophe (none has one).

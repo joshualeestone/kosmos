@@ -252,7 +252,7 @@ function onEvent(projectId, line) {
    and a record that cannot be read, get words that are true either way. */
 function farSide(projectId, startsSentence) {
   const l = safeLink(projectId);
-  const external = l && (l.role === 'member' || l.role === 'guest' || (l.role === 'owner' && l.selfShared !== true));
+  const external = l && (l.role === 'member' || (l.role === 'owner' && l.selfShared !== true));
   const words = external ? 'the external project' : 'the other computers in this project';
   return startsSentence === true ? words.charAt(0).toUpperCase() + words.slice(1) : words;
 }

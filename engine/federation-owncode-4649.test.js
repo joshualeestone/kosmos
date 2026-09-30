@@ -194,7 +194,12 @@ test('#4699: a could-not-check refusal never shows a path or a route, and names 
   const cases = [
     [{ ok: false, because: 'this computer is not connected to Kosmos+' }, 'no-remote', /Sign in to Kosmos\+ again in Settings/],
     [() => { throw new Error('spawn /Users/someone/Kosmos/bin/kosmos-tunnel ENOENT'); }, 'unchecked', /Try again in a moment/],
-    [{ ok: false, because: WAITING }, 'unchecked', /has not been allowed on your Kosmos\+ account yet.*Allow it from one of your other computers/],
+    [{ ok: false, because: WAITING }, 'unchecked', /has not been allowed on your Kosmos\+ account yet.*press Allow there/],
+    // The connector on Windows says "this computer" where the Mac's says "this Mac".
+    [{ ok: false, because: WAITING.replace('refused this Mac: ', 'refused this computer: ') }, 'unchecked', /has not been allowed on your Kosmos\+ account yet/],
+    // A list that names no computer could not be read: never "another account".
+    [{ ok: true, data: { computers: [] } }, 'unchecked', /Try again in a moment/],
+    [{ ok: true, data: { computers: [{ name: 'study' }] } }, 'unchecked', /Try again in a moment/],
     [{ ok: false, because: WAITING.replace(/^Error: /, '') }, 'unchecked', /has not been allowed on your Kosmos\+ account yet/],
     [{ ok: false, because: UNKNOWN }, 'unchecked', /Try again in a moment/],
   ];

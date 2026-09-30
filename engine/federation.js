@@ -262,6 +262,9 @@ async function ownAccountNames(remote) {
   // The SAME derivation the maker used for `from`: the first label of the computer's address (a row's
   // `name` is a separate field, and the two need not be spelled alike).
   const names = rows.map((c) => ownFromOf(c && c.address)).filter(Boolean);
+  // This computer's own row is always in a real answer, so a list with no readable name is a list that
+  // could not be read, not an account with no computers: "could not check", never "another account".
+  if (!names.length) return { ok: false, because: 'the Kosmos+ answer named no computer' };
   return { ok: true, names };
 }
 
@@ -280,10 +283,11 @@ function uncheckedRefusal(because) {
      inside the brackets, never by its sentence: this computer is itself still waiting to be allowed on
      the account (kosmos#4681). Any other refusal ("unknown mac", a clock skew) is not something the
      person can act on, so it gets the general sentence and the detail stays in the log. */
-  if (/^Kosmos\+ refused this Mac: .*\(HTTP 403 on [^)]*, code own_lineage\)$/.test(b)) {
-    return { status: 409, body: { reason: 'unchecked', error: 'This computer has not been allowed on your Kosmos+ account yet, so Kosmos cannot check this code. Allow it from one of your other computers, then paste the code again.' } };
+  // "Mac" or "computer": the connector's prefix is per platform (fedseats' MAC_LEVEL_REFUSAL, #4645).
+  if (/^Kosmos\+ refused this (?:Mac|computer): .*\(HTTP 403 on [^)]*, code own_lineage\)$/.test(b)) {
+    return { status: 409, body: { reason: 'unchecked', error: 'This computer has not been allowed on your Kosmos+ account yet, so Kosmos cannot check this code. Kosmos on one of your other computers shows that this computer is asking: press Allow there, then paste the code again.' } };
   }
-  if (b) console.error('[federation] an own code could not be checked: ' + b.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 300));
+  if (b) console.error('#4699: an own code could not be checked: ' + b.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 300));
   return { status: 502, body: { reason: 'unchecked', error: 'Kosmos could not check that this code is from one of your computers. Try again in a moment.' } };
 }
 
