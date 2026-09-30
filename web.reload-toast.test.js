@@ -369,23 +369,24 @@ function safeToRestart({ sending = {}, drafts = {}, typed = [], attached = null,
 
 test('#4557: a team being made holds the automatic reload, and a finished or stopped one does not', () => {
   const src = page.liftAll(SCRIPT, ['updateNothingToLose', 'updateSafeReload']);
-  const run = (team) => {
+  const run = (team, uploading = 0) => {
     let reloaded = 0;
     new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
-      'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING', 'TC',
+      'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING', 'TC', 'TC_UPLOADING',
       src + '\nreturn updateSafeReload("0.2.76");')(
       { hidden: true }, { getItem: () => null, setItem() {} }, { location: { reload: () => { reloaded += 1; } } },
-      false, false, null, false, {}, {}, {}, {}, () => false, new Set(), { room: {}, agent: {} }, team);
+      false, false, null, false, {}, {}, {}, {}, () => false, new Set(), { room: {}, agent: {} }, team, uploading);
     return reloaded;
   };
   assert.equal(run(null), 1, 'CONTROL: no team open, an idle hidden page reloads');
-  assert.equal(run({ started: true, busy: false, running: false, watching: false, uploading: 0 }), 1, 'a team with nothing in flight (finished, or stopped on a row) held the reload for the rest of the tab');
+  assert.equal(run({ started: true, busy: false, running: false, watching: false }), 1, 'a team with nothing in flight (finished, or stopped on a row) held the reload for the rest of the tab');
   assert.equal(run({ busy: true }), 0, 'a reload between the click and the first agent (the names, the project)');
   assert.equal(run({ started: true, running: true }), 0, 'a reload while the members are being made left half a team');
   assert.equal(run({ started: true, watching: true }), 0, 'a reload while the board is watched for the members dropped their pictures and project tells');
-  assert.equal(run({ started: true, uploading: 1 }), 0, 'a reload cut off a picture going up');
+  assert.equal(run({ started: true }, 1), 0, 'a reload cut off a picture going up');
+  assert.equal(run(null, 1), 0, 'Say Hello let the team go, and a reload then cut off its last pictures');
   // The four flags are the ones the team step really sets.
-  for (const flag of ['TC.busy = true', 'TC.running = true', 'TC.watching = true', 'team.uploading = (team.uploading || 0) + 1']) {
+  for (const flag of ['TC.busy = true', 'TC.running = true', 'TC.watching = true', 'TC_UPLOADING += 1']) {
     assert.ok(SCRIPT.includes(flag), 'the team step no longer sets ' + flag);
   }
 });

@@ -255,7 +255,7 @@ function chk(ok, label, extra) {
             shown: !document.getElementById('tc-hello').hidden, wide: document.documentElement.scrollWidth > innerWidth }));
           chk(end.shown && end.hello === 'Say Hello to Maya Okafor' && /Say “hello” to each of them to activate it on Kosmos, starting with Maya Okafor\.$/.test(end.note) && !end.wide,
             `${E} a ready team invites a hello and offers one button, to the lead by its name`, JSON.stringify(end));
-          await settle(page, () => TC && !(TC.uploading > 0));
+          await settle(page, () => TC_UPLOADING === 0);
           chk(pictures.map((x) => x.name).sort().join() === 'ana,leo-two,maya-okafor' && pictures.every((x) => /^image\/png/.test(x.type)),
             `${E} every member made got a picture (the generated mark), once each`, JSON.stringify(pictures));
           chk(r2.every((r) => !/not set/.test(r.state)), `${E} and no row says its picture was not set`, JSON.stringify(r2.map((r) => r.state)));
@@ -266,6 +266,14 @@ function chk(ok, label, extra) {
             return { opened: window.__tcOpened || null, team: TC === null };
           });
           chk(went.opened === 'maya-okafor' && went.team, `${E} Say Hello goes straight to the lead and leaves no team behind to resume`, JSON.stringify(went));
+          /* Review 28: opening a team after that must not show the finished team's Say Hello while the new
+             one loads. The load is never answered here, so this is the screen as it stands mid-load. */
+          await page.route('**/api/teams/seeded/marketing', () => {});
+          await page.evaluate(() => { openTeamCreate('marketing'); });
+          await settle(page, () => /Loading the team/.test(document.getElementById('tc-title').textContent));
+          const loading = await page.evaluate(() => ({ title: document.getElementById('tc-title').textContent, hello: !document.getElementById('tc-hello').hidden,
+            options: document.getElementById('tc-project').options.length, tell: !document.getElementById('tc-tell').disabled }));
+          chk(/Loading the team/.test(loading.title) && !loading.hello && loading.options === 0 && !loading.tell, `${E} while another team loads, the finished team's Say Hello, project menu and choice are not on offer`, JSON.stringify(loading));
           await page.close();
         }
 

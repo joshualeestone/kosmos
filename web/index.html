@@ -19935,7 +19935,8 @@ function updateNothingToLose() {
     /* #4557: a team being made (its names being checked, its members being created, the board being
        watched for them, a picture going up). A reload here would leave half a team and no way to go on.
        Only while something is in flight: a finished or a stopped team holds nothing. */
-    typeof TC !== 'undefined' && !!TC && !!(TC.busy || TC.running || TC.watching || TC.uploading > 0),
+    typeof TC !== 'undefined' && !!TC && !!(TC.busy || TC.running || TC.watching),
+    typeof TC_UPLOADING !== 'undefined' && TC_UPLOADING > 0,   // counted apart: Say Hello lets the team go while its pictures are still going up
     typeof ATTACH_UPLOADING !== 'undefined' && ATTACH_UPLOADING > 0];   // round 9: a file still going up
   if (busy.some(Boolean)) return false;
   const drafted = (m) => !!m && Object.values(m).some((v) => (typeof v === 'string' ? v : (v && v.text) || '').trim());
@@ -46608,7 +46609,8 @@ let IMPORT_GEN = 0;
    nothing) and the page MAKES each one through POST /api/agents, one request per agent, so every agent
    gets a single agent's full birth and a failed one is retried alone without redoing the rest.
    The lead is made first: the others report to it by name, so they wait until it exists. */
-let TC = null;       // { key, team, leadSlot, members:[{slot,title,name,firstName,state,why,made,seen,portrait,renamedFrom,warn,together,stale,maybeMade}], newProjectName, newProjectBase, newProjectNext, project, started, busy, running, again, watching, watchUntil, uploading, paintedSig }
+let TC = null;       // { key, team, leadSlot, members:[{slot,title,name,firstName,state,why,made,seen,portrait,renamedFrom,warn,together,stale,maybeMade}], newProjectName, newProjectBase, newProjectNext, project, started, busy, running, again, watching, watchUntil, paintedSig }
+let TC_UPLOADING = 0;   // pictures going up; not on TC, because they outlive it (review 28)
 let TC_GEN = 0;      // bumped when the step is left or reopened, so a late answer cannot paint over it
 
 async function openTeamCreate(key) {
@@ -46643,6 +46645,11 @@ async function openTeamCreate(key) {
   document.getElementById('tc-purpose').textContent = '';
   document.getElementById('tc-list').replaceChildren();
   document.getElementById('tc-go').hidden = true;
+  /* Review 28: tcPaint owns these and only runs once a team has loaded, so while the load is out (or if
+     it fails) they were still the PREVIOUS team's: a Say Hello that did nothing, its project menu, its choice. */
+  document.getElementById('tc-hello').hidden = true;
+  const oldProject = document.getElementById('tc-project'); oldProject.replaceChildren(); oldProject.disabled = true;
+  document.getElementById('tc-tell').disabled = true;
   // The progress line is the previous team's: the load can take seconds now that it may download (#4632).
   document.getElementById('tc-note').textContent = '';
   msg.hidden = true; msg.textContent = '';
@@ -46808,7 +46815,7 @@ function tcPaint() {
        lead wakes the rest. */
     const leadName = tcLeadShown();
     note = 'Your team is ready. ' + (n === 1 ? 'It is' : 'They are') + ' running on your board.'
-      + (warned ? ' ' + warned + (warned === 1 ? ' of them has' : ' of them have') + ' something to look at, on its row.' : '')
+      + (warned ? (n === 1 ? ' It has' : ' ' + warned + (warned === 1 ? ' of them has' : ' of them have')) + ' something to look at, on its row.' : '')
       + (n === 1 ? ' Say “hello” to ' + (leadName || 'it') + ' to activate it on Kosmos.'
         : ' Say “hello” to each of them to activate it on Kosmos' + (leadName ? ', starting with ' + leadName + '.' : '.'));
   } else {
@@ -47058,10 +47065,9 @@ async function tcWatchLoop(gen) {
       m.seen = 'running';
       /* Review 27: every member gets a picture, as every single agent does: the catalogue's portrait
          when the team ships one, otherwise the generated mark for its name. */
-      const team = TC;
-      team.uploading = (team.uploading || 0) + 1;
+      TC_UPLOADING += 1;
       tcPortrait(m.made.name, m.made.image, m.made.shownAs).then((r) => { m.portrait = r; if (r === 'set') tick(); })
-        .finally(() => { team.uploading -= 1; tcPaint(); });
+        .finally(() => { TC_UPLOADING -= 1; tcPaint(); });
       for (const pr of (m.made.projects || [])) {
         if (!pr || !pr.added) continue;
         fetch('/api/project/' + encodeURIComponent(pr.id) + '/agent/' + encodeURIComponent(m.made.name), {

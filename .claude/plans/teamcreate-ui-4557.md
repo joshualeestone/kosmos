@@ -329,3 +329,17 @@ compared the step with itself; this one compared it with its sibling.
 - Stated by the reviewer and true: `openTeamCreate` has no caller in the page yet (it waits on #4556), so
   nothing on this branch can be reached by a person until that lands.
 
+## Review 28 (sonnet), on 9aaea3ce7: no BLOCKER, 1 low WARNING, 2 NITs. All three are in review 27's additions.
+- W FIXED: opening a team after a finished one showed the finished team's "Say Hello" (a dead button, since
+  the team is gone), its project menu and its choice while the new team loaded, or for good if the load
+  failed. The load path now clears them; tcPaint sets them again once a team is there. Browser arm: the
+  load is left unanswered and the screen is read as it stands.
+- NIT taken: "1 of them has something to look at" for a team of one is "It has something to look at".
+- NIT taken: Say Hello lets the team go while its last pictures may still be going up, and the reload hold
+  counted uploads on the team. The count is its own variable now, so it holds after the team is gone.
+- The reviewer's comparison with the single create found the team step level with it on the created
+  notice, the project tell, the picture, Say Hello and a dropped create. Two differences it judged fine
+  and nobody had written down: a team has no custom-picture path, and the board is refreshed when a
+  picture lands, not after each create.
+- NOT CHECKED by this round: the browser check file, the engine and the server. Round 27 read those.
+
