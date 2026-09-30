@@ -442,4 +442,14 @@ test('#4797: the log line says "told of" only when something was told', () => {
   assert.equal(/told of/.test(refused.replace('could not yet be told of', '')), false, 'a refused try was logged as told');
   assert.match(refused, /could not yet be told of 2 held post\(s\)/);
   assert.ok(refused.endsWith('\n') && placed.endsWith('\n'));
+  // No state: flushOnIdle put the ids back, so it was not told either.
+  assert.match(roomhold.toldLine('mara', { n: 1, projectId: PROJECT, state: undefined }), /could not yet be told of 1 held post/);
+  // UNCONFIRMED: flushOnIdle cleared the ids (the line reached the pane), so it is told, and says so.
+  assert.match(roomhold.toldLine('mara', { n: 1, projectId: PROJECT, state: chat.DELIVERY.UNCONFIRMED }), /told of 1 held post\(s\) in [^ ]+, delivery=/);
+});
+
+test('#4797: both server log lines for a flush go through toldLine (no inline "told of" left)', () => {
+  const src = fs.readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
+  assert.equal((src.match(/roomhold\.toldLine\(/g) || []).length, 2, 'CONTROL: the two call sites were not found');
+  assert.equal(/room-hold: \$\{[^}]+\} told of/.test(src), false, 'an inline "told of" log line is back in server.js');
 });

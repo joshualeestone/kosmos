@@ -249,11 +249,12 @@ async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver,
 }
 
 /* #4797: the server's log line for one flush result. "told of" only when something was: a refused try (COULD_NOT,
-   the quota gate or an unreachable pane) says it was not told, because its ids go back for a later try. `after` is
-   appended to a told line (the quota retry says "after the quota hold"). */
+   nothing reached the pane) or a result with no state says it was not told, the same two cases flushOnIdle puts the
+   ids back for. UNCONFIRMED is logged as told (flushOnIdle clears those ids; the line ends delivery=unconfirmed).
+   `after` is appended to a told line (the quota retry says "after the quota hold"). */
 function toldLine(name, d, after = '') {
   const DELIVERY = require('./chat').DELIVERY;
-  return d.state === DELIVERY.COULD_NOT
+  return !d.state || d.state === DELIVERY.COULD_NOT
     ? `room-hold: ${name} could not yet be told of ${d.n} held post(s) in ${d.projectId} (delivery=${d.state})\n`
     : `room-hold: ${name} told of ${d.n} held post(s) in ${d.projectId}${after ? ' ' + after : ''}, delivery=${d.state}\n`;
 }
