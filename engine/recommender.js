@@ -228,18 +228,12 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
   };
   for (const item of out.toConvene) {
     /* #4588 PR B: a stuck agent held on its machine's shared Google quota is not convened yet: no note, no asks, no
-       playbook, no attempt counted, and a fresh item gives its hourly charge back. It is convened after the reset.
-       A fresh item waits too while any of its peers is held: its one ask per peer would be spent on a held pane, and
-       the playbook would tell the stuck agent that nobody could be reached. */
-    let held = null;
-    if (typeof heldUntil === 'function') {
-      const who = [item.session].concat(item.retry ? [] : (item.peers || []).map((p) => p && p.session).filter(Boolean));
-      for (const s of who) {
-        let h = null;
-        try { h = heldUntil(s); } catch { h = null; }
-        if (h !== null && h !== undefined) { held = h; break; }
-      }
-    }
+       playbook, no attempt counted, and a fresh item gives its hourly charge back. It is convened after the reset. A peer
+       held on the quota is left out of this convening's asks (nothing typed into it), as any unreachable peer is; the
+       item is not held for it, so a stuck agent on another runner is not kept waiting for a Google pause. */
+    const isHeld = (s) => { if (typeof heldUntil !== 'function') return false; try { const h = heldUntil(s); return h !== null && h !== undefined; } catch { return false; } };
+    const held = isHeld(item.session) ? true : null;
+    if (!item.retry && held === null && Array.isArray(item.peers)) item.peers = item.peers.filter((p) => !(p && isHeld(p.session)));
     if (held !== null && held !== undefined) {
       if (!item.retry) {
         const i = out.next.log.findIndex((e) => e.at === now && e.session === item.session);

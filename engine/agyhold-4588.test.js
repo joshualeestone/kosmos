@@ -559,14 +559,14 @@ test('#4588 B resume and senders agree: a card that stops showing its pause befo
     deliver: (s) => { sent.push(s); return { state: DELIVERY.PLACED }; }, DELIVERY });
   run([a, b(new Date(later).toISOString(), 'rate_limited')], AT + agyquota.GRACE_MS + 1); // the board sees B paused until `later`
   // B's screen changed: it no longer shows the pause, but the pool is still empty until `later`.
-  const r = run([a, b(null, 'working')], AT + agyquota.GRACE_MS + 2);
+  const r = run([a, b(null, 'needs_you')], AT + agyquota.GRACE_MS + 2);
   assert.equal(r.skipped, 'the shared pool is still paused');
-  assert.notEqual(agyquota.heldForQuota('agr-a', [a, b(null, 'working')], AT + agyquota.GRACE_MS + 2, memo), null, 'the senders agree');
+  assert.notEqual(agyquota.heldForQuota('agr-a', [a, b(null, 'needs_you')], AT + agyquota.GRACE_MS + 2, memo), null, 'the senders agree');
   assert.deepEqual(sent, [], 'agr-a was resumed into a pool still empty until B\'s reset');
-  const early = agyquota.sweepOnce({ roster: [a, b(null, 'working')], book: new Map(), now: later + 1, memo, readReport: () => report,
+  const early = agyquota.sweepOnce({ roster: [a, b(null, 'needs_you')], book: new Map(), now: later + 1, memo, readReport: () => report,
     deliver: (s) => { sent.push(s); return { state: DELIVERY.PLACED }; }, DELIVERY });
   assert.equal(early.skipped, 'the shared pool has just refilled', 'an agent whose own reset came earlier still waits the grace after the pool refills');
-  const ok = agyquota.sweepOnce({ roster: [a, b(null, 'working')], book: new Map(), now: later + agyquota.GRACE_MS, memo, readReport: () => ({ ...report, until: new Date(later - agyquota.GRACE_MS - 1).toISOString() }),
+  const ok = agyquota.sweepOnce({ roster: [a, b(null, 'needs_you')], book: new Map(), now: later + agyquota.GRACE_MS, memo, readReport: () => ({ ...report, until: new Date(later - agyquota.GRACE_MS - 1).toISOString() }),
     deliver: (s) => { sent.push(s); return { state: DELIVERY.PLACED }; }, DELIVERY });
   assert.equal(ok.skipped, undefined, 'CONTROL: after the remembered reset the resume runs');
 });
@@ -579,8 +579,8 @@ test('#4588 B memory by session: a later card that STOPS showing its pause still
   const memo = agyquota.newPoolMemo();
   const card = (s, until, state) => ({ sessionName: s, runner: 'antigravity', state, quotaUntil: until === null ? null : new Date(until).toISOString() });
   agyquota.notePool([card('mb-a', A, 'rate_limited'), card('mb-b', B, 'rate_limited')], now, memo);
-  // B's screen changed (a person typed to it): it no longer shows the pause. A still does.
-  assert.equal(agyquota.poolPausedUntil([card('mb-a', A, 'rate_limited'), card('mb-b', null, 'working')], now + 60e3, memo), B,
+  // B's screen changed (a question is up, no turn has run): it no longer shows the pause. A still does.
+  assert.equal(agyquota.poolPausedUntil([card('mb-a', A, 'rate_limited'), card('mb-b', null, 'needs_you')], now + 60e3, memo), B,
     'the pool reopened at A\'s reset although B\'s pause stands');
   const fixMemo = agyquota.newPoolMemo();
   agyquota.notePool([card('mb-a', A, 'rate_limited'), card('mb-b', B, 'rate_limited')], now, fixMemo);
@@ -588,64 +588,54 @@ test('#4588 B memory by session: a later card that STOPS showing its pause still
     'CONTROL: B corrected its own reset, and the pool follows it');
 });
 
-/* ---- review iteration 4: the release follows the resume's real progress, not a fixed schedule ---- */
+/* ---- review iteration 5: a per-agent release that waits on nothing, a pool that can be seen serving, held peers left out ---- */
 
 const RS = Date.parse('2026-09-28T22:11:54.000Z');
 const rsRoster = (paused) => ['rs-a', 'rs-b', 'rs-c'].map((s) => ({ sessionName: s, name: s, runner: 'antigravity', state: s === paused ? 'rate_limited' : 'idle',
   quotaUntil: s === paused ? new Date(RS).toISOString() : null })).concat([{ sessionName: 'rs-x', runner: 'claude', state: 'idle' }]);
 
-test('#4588 B fallback: when the resume never reports for this reset, the senders come back after fallbackResumeMs, one SLOT_MS apart by name; CONTROL: a claude card is never held', () => {
+test('#4588 B release: after the reset agent i (by name) comes back at reset + GRACE_MS + (i+1) * SLOT_MS; CONTROL: a claude card is never held', () => {
   const memo = agyquota.newPoolMemo();
   agyquota.notePool(rsRoster('rs-a'), RS - 1, memo);
   const after = rsRoster(null);
-  const base = RS + agyquota.fallbackResumeMs(after);
-  assert.equal(agyquota.fallbackResumeMs(after), agyquota.GRACE_MS + agyquota.SLOT_MS * 3 * (agyquota.MAX_TRIES + 1));
-  assert.deepEqual(['rs-a', 'rs-b', 'rs-c'].map((s) => agyquota.heldForQuota(s, after, RS + 1, memo)), [1, 2, 3].map((k) => base + agyquota.SLOT_MS * k));
-  assert.equal(agyquota.heldForQuota('rs-a', after, base + agyquota.SLOT_MS, memo), null, 'rs-a is free at its slot');
-  assert.notEqual(agyquota.heldForQuota('rs-c', after, base + agyquota.SLOT_MS, memo), null, 'rs-c is still held then');
-  assert.equal(agyquota.heldForQuota('rs-x', after, RS + 1, memo), null, 'CONTROL');
+  assert.deepEqual(['rs-a', 'rs-b', 'rs-c'].map((s) => agyquota.heldForQuota(s, after, RS, memo)), [1, 2, 3].map((k) => RS + agyquota.GRACE_MS + agyquota.SLOT_MS * k));
+  assert.equal(agyquota.heldForQuota('rs-a', after, RS + agyquota.GRACE_MS + agyquota.SLOT_MS, memo), null, 'rs-a is free at its step');
+  assert.notEqual(agyquota.heldForQuota('rs-c', after, RS + agyquota.GRACE_MS + agyquota.SLOT_MS, memo), null, 'rs-c is still held then');
+  assert.equal(agyquota.heldForQuota('rs-x', after, RS, memo), null, 'CONTROL');
+  assert.equal(agyquota.heldForQuota('rs-c', after, RS + agyquota.GRACE_MS + agyquota.SLOT_MS * 3, memo), null, 'the last one is free at its step');
+  assert.equal(memo.bySession.size, 1, 'fixture: the entry is still remembered inside its release');
+  agyquota.notePool(after, RS + agyquota.GRACE_MS + agyquota.SLOT_MS * 4, memo);
+  assert.equal(memo.bySession.size, 0, 'an entry whose release has passed is dropped');
 });
 
-test('#4588 B while the resume reports pending, every agy card is held, even past the fallback; once it reports done at T, agent i comes back at T + (i+1) * SLOT_MS', () => {
+test('#4588 B an agent whose report says a reset 30 days away holds nobody (the 8-day rule); CONTROL: a sane reset does', () => {
+  const now = Date.parse('2026-09-28T20:00:00.000Z');
   const memo = agyquota.newPoolMemo();
-  agyquota.notePool(rsRoster('rs-a'), RS - 1, memo);
-  const after = rsRoster(null);
-  memo.resume = { reset: RS, doneAt: null };
-  const late = RS + agyquota.fallbackResumeMs(after) + 10 * agyquota.SLOT_MS;
-  for (const s of ['rs-a', 'rs-b', 'rs-c']) assert.notEqual(agyquota.heldForQuota(s, after, late, memo), null, s + ' was released while the resume is still pending');
-  const T = RS + 7 * 60e3;
-  memo.resume = { reset: RS, doneAt: T };
-  assert.deepEqual(['rs-a', 'rs-b', 'rs-c'].map((s) => agyquota.heldForQuota(s, after, T, memo)), [1, 2, 3].map((k) => T + agyquota.SLOT_MS * k));
-  assert.equal(agyquota.heldForQuota('rs-b', after, T + 2 * agyquota.SLOT_MS, memo), null, 'CONTROL: rs-b is free at its slot');
-  memo.resume = { reset: RS - 3600e3, doneAt: T };
-  assert.equal(agyquota.heldForQuota('rs-a', after, T + agyquota.SLOT_MS, memo), RS + agyquota.fallbackResumeMs(after) + agyquota.SLOT_MS,
-    'CONTROL: a report about ANOTHER reset is not this one\'s: the fallback applies');
+  const roster = [
+    { sessionName: 'far-a', runner: 'antigravity', state: 'idle' },
+    { sessionName: 'far-b', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(now + 30 * 24 * 3600e3).toISOString() },
+  ];
+  assert.equal(agyquota.heldForQuota('far-a', roster, now, memo), null, 'a 30-day reset held the pool');
+  assert.equal(agyquota.heldForQuota('far-a', [roster[0], { ...roster[1], quotaUntil: new Date(now + 3600e3).toISOString() }], now, memo), now + 3600e3, 'CONTROL');
 });
 
-test('#4588 B the resume sweep itself reports pending while an agent is due or backing off, then done once all are resumed; the senders follow it', () => {
+test('#4588 B an antigravity card seen WORKING clears the memory (the pool is serving turns); CONTROL: a working claude card does not', () => {
+  const now = Date.parse('2026-09-28T20:00:00.000Z');
+  const until = now + 5 * 3600e3;
+  const paused = [
+    { sessionName: 'wk-a', runner: 'antigravity', state: 'rate_limited', quotaUntil: new Date(until).toISOString() },
+    { sessionName: 'wk-b', runner: 'antigravity', state: 'idle' },
+    { sessionName: 'wk-x', runner: 'claude', state: 'working' },
+  ];
   const memo = agyquota.newPoolMemo();
-  const report = { found: true, state: 'idle', by: 'auto', until: new Date(RS).toISOString(), because: status.QUOTA_REPORT_PREFIX + ' Google said: ...' };
-  const book = new Map();
-  const sent = [];
-  const roster = rsRoster(null);
-  agyquota.notePool(rsRoster('rs-a'), RS - 1, memo);
-  const sweep = (now, deliverState) => agyquota.sweepOnce({ roster, book, now, memo, readReport: (s) => (s === 'rs-a' ? report : { found: false }),
-    deliver: (s) => { sent.push(s); return { state: deliverState }; }, DELIVERY });
-  sweep(RS + agyquota.GRACE_MS, DELIVERY.PLACED);
-  assert.deepEqual(sent, ['rs-a'], 'fixture: rs-a was resumed');
-  // The sweep that typed saw rs-a due, so the resume is pending until a later sweep finds nobody left.
-  assert.deepEqual(memo.resume, { reset: RS, doneAt: null });
-  assert.notEqual(agyquota.heldForQuota('rs-b', roster, RS + agyquota.GRACE_MS + 1, memo), null);
-  const T = RS + agyquota.GRACE_MS + agyquota.STAGGER_MS;
-  sweep(T, DELIVERY.PLACED);
-  assert.deepEqual(memo.resume, { reset: RS, doneAt: T }, 'the sweep that found nobody due did not report done');
-  sweep(T + 60e3, DELIVERY.PLACED);
-  assert.equal(memo.resume.doneAt, T, 'a later sweep moved the done time');
-  assert.equal(agyquota.heldForQuota('rs-a', roster, T + agyquota.SLOT_MS, memo), null, 'rs-a is free one slot after the resume finished');
-  assert.notEqual(agyquota.heldForQuota('rs-c', roster, T + agyquota.SLOT_MS, memo), null, 'rs-c waits its own slot');
+  assert.equal(agyquota.heldForQuota('wk-b', paused, now, memo), until, 'fixture: held');
+  const claudeWorks = paused.map((c) => (c.sessionName === 'wk-a' ? { ...c, state: 'idle', quotaUntil: null } : c));
+  assert.equal(agyquota.heldForQuota('wk-b', claudeWorks, now + 60e3, memo), until, 'CONTROL: a working claude card says nothing about the Google pool');
+  const agyWorks = claudeWorks.map((c) => (c.sessionName === 'wk-a' ? { ...c, state: 'working' } : c));
+  assert.equal(agyquota.heldForQuota('wk-b', agyWorks, now + 120e3, memo), null, 'an agy agent is running turns, yet the pool stayed held');
 });
 
-test('#4588 B recommender: a fresh item waits while any of its peers is held (no note, no ask, no playbook); CONTROL: with nobody held it convenes', () => {
+test('#4588 B recommender: a held PEER is left out of the asks but the item convenes; CONTROL: an unheld peer is asked', () => {
   const b = stuckBoard([{ name: 'recpeerheld', report: STUCK('which of two layouts to ship') }, { name: 'recpeerheldpeer' }]);
   try {
     const members = new Map([['proj-a', [b.key.recpeerheld, b.key.recpeerheldpeer]]]);
@@ -653,13 +643,12 @@ test('#4588 B recommender: a fresh item waits while any of its peers is held (no
     const seen = recommender.runOnce({ prev: undefined, roster: b.cards, setting: { on: true }, members, now: T0, ...d.deps });
     const out = recommender.runOnce({ prev: seen.next, roster: b.cards, setting: { on: true }, members, now: T0 + recommender.GRACE_MS, ...d.deps });
     assert.ok(d.heldAsked.includes(b.key.recpeerheldpeer), 'fixture: the peer was never asked about');
-    assert.equal(d.notes.length, 0, 'the item convened (room note) although a peer is held');
-    assert.equal(d.sent.length, 0, 'something was typed although a peer is held');
-    assert.deepEqual(out.acted.map((x) => x.verdict), ['held']);
-    assert.equal(out.next.log.length, 0, 'the fresh item kept its hourly charge');
+    assert.equal(d.sent.some(([s]) => s === b.key.recpeerheldpeer), false, 'a held peer was typed into');
+    assert.equal(d.notes.length, 1, 'the item did not convene: a stuck agent was kept waiting on a peer\'s Google pause');
+    assert.notEqual(out.acted[0].verdict, 'held');
     const free = recDeps(() => null);
-    recommender.runOnce({ prev: out.next, roster: b.cards, setting: { on: true }, members, now: T0 + recommender.GRACE_MS + 60e3, ...free.deps });
-    assert.equal(free.notes.length, 1, 'CONTROL: with nobody held the item convenes');
-    assert.ok(free.sent.some(([s]) => s === b.key.recpeerheldpeer), 'CONTROL: and the peer is asked');
+    const seen2 = recommender.runOnce({ prev: undefined, roster: b.cards, setting: { on: true }, members, now: T0 + 3 * 3600e3, ...free.deps });
+    recommender.runOnce({ prev: seen2.next, roster: b.cards, setting: { on: true }, members, now: T0 + 3 * 3600e3 + recommender.GRACE_MS, ...free.deps });
+    assert.ok(free.sent.some(([s]) => s === b.key.recpeerheldpeer), 'CONTROL: an unheld peer is asked');
   } finally { b.restore(); }
 });

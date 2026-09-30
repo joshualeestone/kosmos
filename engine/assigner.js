@@ -185,7 +185,8 @@ function askText(item) {
 }
 
 /**
- * One Assigner step. Pure.
+ * One Assigner step. Pure apart from one read: #4588 PR B asks agyquota.heldForQuota, which also records the
+ * Antigravity quota pool's reset in that module's memory (POOL_MEMO).
  * @param {object} o
  * @param {{idleSince: Map, log: Array}|undefined} o.prev  memory from the last step
  * @param {Array|null} o.roster  the board roster (safeRoster); null = read failure
