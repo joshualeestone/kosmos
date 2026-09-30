@@ -112,13 +112,22 @@ const at = async (page, qs) => {
   await page.waitForTimeout(900);
 };
 
-/* #4594: the consolidated view, applied in the PAGE only (applyLayout persists nothing). Saving it with
-   PUT /api/style would change the one board every later screen of this run is shot on. */
+/* #4594: the consolidated view without writing it. The page reads its layout from GET /api/style (paintStyles, also
+   on later polls), so a page-only applyLayout was undone mid-shot; saving it with PUT /api/style would change the
+   one board every later screen of this run is shot on. So the READ is stubbed in this screen's own context (gone
+   with it) to say consolidated, and the page reloads. Screens that call this set noServiceWorker. */
 async function openConsAgents(page) {
-  await page.evaluate(() => applyLayout('consolidated', true));
-  await page.waitForFunction(() => document.documentElement.getAttribute('data-layout') === 'consolidated', null, { timeout: 5000 });
+  await page.route('**/api/style', async (r) => {
+    if (r.request().method() !== 'GET') return r.continue();
+    const resp = await r.fetch();
+    const j = await resp.json().catch(() => null);
+    if (!j) return r.fulfill({ response: resp });
+    return r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } });
+  });
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForFunction(() => document.documentElement.getAttribute('data-layout') === 'consolidated', null, { timeout: 8000 });
   await page.click('#tabs .tab[data-tab="agents"]', { timeout: 5000 });
-  await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 5000 });
+  await page.waitForSelector('#panel-cons-agents .cons-agents-lay', { state: 'visible', timeout: 5000 });
 }
 
 const SCREENS = [
@@ -276,14 +285,23 @@ const SCREENS = [
   } },
   /* #4594: the consolidated view's Agents column and its Grid / Org chart segmented control. The
      consolidated view exists only at >= 960px, so these are desktop-only. */
-  { name: 'cons-agents', owner: 'Ice Cream Kitty', desktopOnly: true, go: async (page) => {
+  { name: 'cons-agents', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page) => {
     await openConsAgents(page);
     await page.waitForSelector('#panel-cons-agents .cons-agents-lay [data-conslay="grid"][aria-checked="true"]', { timeout: 5000 });
   } },
-  { name: 'cons-agents-org', owner: 'Ice Cream Kitty', desktopOnly: true, go: async (page) => {
+  { name: 'cons-agents-org', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page) => {
     await openConsAgents(page);
     await page.click('#panel-cons-agents [data-conslay="org"]', { timeout: 5000 });
     await page.waitForSelector('#panel-cons-agents [data-conslay="org"][aria-checked="true"]', { timeout: 5000 });
+  } },
+  // Mona's ask: the keyboard focus ring on a segment. A real key press, so :focus-visible shows (a scripted
+  // .focus() alone may not): focus Grid, ArrowRight moves to Org chart, chooses it and keeps focus there.
+  { name: 'cons-agents-focus', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page) => {
+    await openConsAgents(page);
+    await page.focus('#panel-cons-agents [data-conslay="grid"]');
+    await page.keyboard.press('ArrowRight');
+    await page.waitForFunction(() => document.activeElement && document.activeElement.dataset.conslay === 'org'
+      && document.activeElement.matches(':focus-visible'), null, { timeout: 5000 });
   } },
   { name: 'create-agent', owner: 'unowned', go: async (page) => {
     // A real tap (visible, not covered), the way a phone user reaches it; a hidden button fails the shot.
