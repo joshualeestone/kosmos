@@ -59,7 +59,7 @@ const HELD = () => ({ state: DELIVERY.COULD_NOT, held: true, heldUntil: new Date
 const REFUSED = () => ({ state: DELIVERY.COULD_NOT, because: 'refused' });
 const QUOTA_BECAUSE = "Paused: this Google account's shared Antigravity quota ran out.";
 
-/* ---- 1. poolHeldUntil / heldForQuota, on real board cards ---- */
+/* ---- 1. notePool (with a fresh memory) / heldForQuota, on real board cards ---- */
 
 /* Real cards: two agy agents and a claude one, built by the real snapshot from real self-reports (the
    status.agyquota-card-4588 fixture). `pausedUntil` maps agent name -> ISO reset for the ones paused. */
@@ -100,7 +100,7 @@ test('#4588 B heldForQuota: a paused agy card holds itself AND its idle agy coll
   const b = agyBoard({ agyholda: until });
   try {
     const now = Date.now();
-    assert.equal(agyquota.poolHeldUntil(b.cards, now), Date.parse(until));
+    assert.equal(agyquota.notePool(b.cards, now, agyquota.newPoolMemo()), Date.parse(until));
     assert.equal(agyquota.heldForQuota(b.s.agyholda, b.cards, now), Date.parse(until), 'the paused agent itself');
     assert.equal(agyquota.heldForQuota(b.s.agyholdb, b.cards, now), Date.parse(until), 'the idle colleague shares the one pool');
     assert.equal(agyquota.heldForQuota(b.s.claudehold, b.cards, now), null, 'CONTROL: a claude agent draws on no Google pool');
@@ -113,37 +113,37 @@ test('#4588 B heldForQuota: a reset already past holds nothing; no paused agy ca
   const b = agyBoard({ agyholda: until });
   try {
     const after = Date.parse(until) + 1;
-    assert.equal(agyquota.poolHeldUntil(b.cards, after), null);
+    assert.equal(agyquota.notePool(b.cards, after, agyquota.newPoolMemo()), null);
     assert.equal(agyquota.heldForQuota(b.s.agyholdb, b.cards, after), null);
     // At the reset instant itself the pool is open again (strictly-after rule).
-    assert.equal(agyquota.poolHeldUntil(b.cards, Date.parse(until)), null);
+    assert.equal(agyquota.notePool(b.cards, Date.parse(until), agyquota.newPoolMemo()), null);
     // CONTROL: one millisecond before, it is held.
-    assert.equal(agyquota.poolHeldUntil(b.cards, Date.parse(until) - 1), Date.parse(until));
+    assert.equal(agyquota.notePool(b.cards, Date.parse(until) - 1, agyquota.newPoolMemo()), Date.parse(until));
   } finally { b.restore(); }
   const none = agyBoard({});
   try {
-    assert.equal(agyquota.poolHeldUntil(none.cards, Date.now()), null);
+    assert.equal(agyquota.notePool(none.cards, Date.now(), agyquota.newPoolMemo()), null);
     assert.equal(agyquota.heldForQuota(none.s.agyholda, none.cards, Date.now()), null);
   } finally { none.restore(); }
 });
 
-test('#4588 B poolHeldUntil: the latest of two resets is returned', () => {
+test('#4588 B notePool: the latest of two resets is returned', () => {
   const early = new Date(Date.now() + 10 * 60e3).toISOString();
   const late = new Date(Date.now() + 40 * 60e3).toISOString();
   const b = agyBoard({ agyholda: late, agyholdb: early });
   try {
-    assert.equal(agyquota.poolHeldUntil(b.cards, Date.now()), Date.parse(late));
+    assert.equal(agyquota.notePool(b.cards, Date.now(), agyquota.newPoolMemo()), Date.parse(late));
     // Past the early reset, the late one still holds the pool.
     assert.equal(agyquota.heldForQuota(b.s.agyholdb, b.cards, Date.parse(early) + 1), Date.parse(late));
   } finally { b.restore(); }
   // Order-independence: the same pair written the other way round.
   const c = agyBoard({ agyholda: early, agyholdb: late });
-  try { assert.equal(agyquota.poolHeldUntil(c.cards, Date.now()), Date.parse(late)); } finally { c.restore(); }
+  try { assert.equal(agyquota.notePool(c.cards, Date.now(), agyquota.newPoolMemo()), Date.parse(late)); } finally { c.restore(); }
 });
 
-test('#4588 B poolHeldUntil: garbage in is null, never a throw', () => {
-  assert.equal(agyquota.poolHeldUntil(null, Date.now()), null);
-  assert.equal(agyquota.poolHeldUntil([null, { runner: 'antigravity', quotaUntil: 'not a date' }], Date.now()), null);
+test('#4588 B notePool: garbage in is null, never a throw', () => {
+  assert.equal(agyquota.notePool(null, Date.now(), agyquota.newPoolMemo()), null);
+  assert.equal(agyquota.notePool([null, { runner: 'antigravity', quotaUntil: 'not a date' }], Date.now(), agyquota.newPoolMemo()), null);
   assert.equal(agyquota.heldForQuota('x', undefined, Date.now()), null);
 });
 
@@ -496,6 +496,7 @@ test('#4588 B speakOfMembership: { automatic: true } uses deliverAutomatic; the 
   } finally { chat.deliver = real.d; chat.deliverAutomatic = real.a; }
 });
 
+const pausedFor = (r, n, m) => { const x = agyquota.notePool(r, n, m); return x !== null && n < x ? x : null; };
 const memoReset = (m) => (m.bySession.size ? Math.max(...m.bySession.values()) : null);
 
 /* ---- review iteration 1: the release tail, one pool for the resume, and chat's own card rule ---- */
@@ -580,11 +581,11 @@ test('#4588 B memory by session: a later card that STOPS showing its pause still
   const card = (s, until, state) => ({ sessionName: s, runner: 'antigravity', state, quotaUntil: until === null ? null : new Date(until).toISOString() });
   agyquota.notePool([card('mb-a', A, 'rate_limited'), card('mb-b', B, 'rate_limited')], now, memo);
   // B's screen changed (a question is up, no turn has run): it no longer shows the pause. A still does.
-  assert.equal(agyquota.poolPausedUntil([card('mb-a', A, 'rate_limited'), card('mb-b', null, 'needs_you')], now + 60e3, memo), B,
+  assert.equal(pausedFor([card('mb-a', A, 'rate_limited'), card('mb-b', null, 'needs_you')], now + 60e3, memo), B,
     'the pool reopened at A\'s reset although B\'s pause stands');
   const fixMemo = agyquota.newPoolMemo();
   agyquota.notePool([card('mb-a', A, 'rate_limited'), card('mb-b', B, 'rate_limited')], now, fixMemo);
-  assert.equal(agyquota.poolPausedUntil([card('mb-a', A, 'rate_limited'), card('mb-b', now + 40 * 60e3, 'rate_limited')], now + 60e3, fixMemo), now + 40 * 60e3,
+  assert.equal(pausedFor([card('mb-a', A, 'rate_limited'), card('mb-b', now + 40 * 60e3, 'rate_limited')], now + 60e3, fixMemo), now + 40 * 60e3,
     'CONTROL: B corrected its own reset, and the pool follows it');
 });
 
@@ -604,8 +605,12 @@ test('#4588 B release: after the reset agent i (by name) comes back at reset + G
   assert.equal(agyquota.heldForQuota('rs-x', after, RS, memo), null, 'CONTROL');
   assert.equal(agyquota.heldForQuota('rs-c', after, RS + agyquota.GRACE_MS + agyquota.SLOT_MS * 3, memo), null, 'the last one is free at its step');
   assert.equal(memo.bySession.size, 1, 'fixture: the entry is still remembered inside its release');
+  // Kept past the release (the resume's age window counts from the pool's reset), but it holds nobody then.
   agyquota.notePool(after, RS + agyquota.GRACE_MS + agyquota.SLOT_MS * 4, memo);
-  assert.equal(memo.bySession.size, 0, 'an entry whose release has passed is dropped');
+  assert.equal(memo.bySession.size, 1, 'the entry was dropped before the resume\'s six-hour window');
+  assert.equal(agyquota.heldForQuota('rs-c', after, RS + agyquota.GRACE_MS + agyquota.SLOT_MS * 4, memo), null, 'a kept entry held an agent past its step');
+  agyquota.notePool(after, RS + agyquota.MAX_AGE_MS + agyquota.GRACE_MS + agyquota.SLOT_MS * 4, memo);
+  assert.equal(memo.bySession.size, 0, 'an entry is dropped once the window after its release has passed');
 });
 
 test('#4588 B an agent whose report says a reset 30 days away holds nobody (the 8-day rule); CONTROL: a sane reset does', () => {
@@ -659,4 +664,48 @@ test('#4588 B recommender: a held PEER is left out of the asks but the item conv
     recommender.runOnce({ prev: seen2.next, roster: b.cards, setting: { on: true }, members, now: T0 + 3 * 3600e3 + recommender.GRACE_MS, ...free.deps });
     assert.ok(free.sent.some(([s]) => s === b.key.recpeerheldpeer), 'CONTROL: an unheld peer is asked');
   } finally { b.restore(); }
+});
+
+/* ---- review iteration 7: a resume held back by a later reset is not lost; a held peer is worded as unreachable ---- */
+
+test('#4588 B an agent whose own reset is over six hours before the pool\'s is still resumed once the pool opens; CONTROL: PR A\'s window alone would drop it', () => {
+  const A = Date.parse('2026-09-28T10:00:00.000Z');
+  const B = A + 7 * 3600e3;
+  const memo = agyquota.newPoolMemo();
+  const reportA = { found: true, state: 'idle', by: 'auto', until: new Date(A).toISOString(), because: status.QUOTA_REPORT_PREFIX + ' Google said: ...' };
+  const cards = (bPaused) => [
+    { sessionName: 'late-a', name: 'A', runner: 'antigravity', state: 'idle' },
+    { sessionName: 'late-b', name: 'B', runner: 'antigravity', state: bPaused ? 'rate_limited' : 'idle', quotaUntil: bPaused ? new Date(B).toISOString() : null },
+  ];
+  const sent = [];
+  const book = new Map();
+  agyquota.notePool(cards(true), A - 60e3, memo);
+  const sweep = (now, roster) => agyquota.sweepOnce({ roster, book, now, memo, readReport: (s) => (s === 'late-a' ? reportA : { found: false }),
+    deliver: (s) => { sent.push(s); return { state: DELIVERY.PLACED }; }, DELIVERY });
+  assert.equal(sweep(A + 3600e3, cards(true)).skipped, 'the shared pool is still paused', 'fixture: B holds the pool');
+  sweep(B + agyquota.GRACE_MS, cards(false));
+  assert.deepEqual(sent, ['late-a'], 'late-a was dropped as more than six hours old although the pool only opened now');
+  assert.equal(agyquota.plan(reportA, undefined, B + agyquota.GRACE_MS).act, 'none', 'CONTROL: measured from its own reset alone, it would have been dropped');
+});
+
+test('#4588 B recommender: when every peer is held the playbook says they could not be reached (not that nobody else is on the project); CONTROL: a project with no peers says nobody else', () => {
+  const b = stuckBoard([{ name: 'recword', report: STUCK('which of two layouts to ship') }, { name: 'recwordpeer' }]);
+  try {
+    const members = new Map([['proj-a', [b.key.recword, b.key.recwordpeer]]]);
+    const d = recDeps((s) => (s === b.key.recwordpeer ? Date.now() + 60e3 : null));
+    const seen = recommender.runOnce({ prev: undefined, roster: b.cards, setting: { on: true }, members, now: T0, ...d.deps });
+    recommender.runOnce({ prev: seen.next, roster: b.cards, setting: { on: true }, members, now: T0 + recommender.GRACE_MS, ...d.deps });
+    const playbook = d.sent.filter(([s]) => s === b.key.recword).map(([, t]) => t).join('\n');
+    assert.ok(playbook.includes('could be reached'), 'the playbook did not say the peers could not be reached: ' + playbook.slice(0, 200));
+    assert.equal(playbook.includes('No one else is on this project'), false, 'a held peer was worded as not existing');
+    assert.equal(d.sent.some(([s]) => s === b.key.recwordpeer), false, 'the held peer was typed into');
+  } finally { b.restore(); }
+  const solo = stuckBoard([{ name: 'recsolo', report: STUCK('which of two layouts to ship') }]);
+  try {
+    const members = new Map([['proj-a', [solo.key.recsolo]]]);
+    const d = recDeps(() => null);
+    const seen = recommender.runOnce({ prev: undefined, roster: solo.cards, setting: { on: true }, members, now: T0, ...d.deps });
+    recommender.runOnce({ prev: seen.next, roster: solo.cards, setting: { on: true }, members, now: T0 + recommender.GRACE_MS, ...d.deps });
+    assert.ok(d.sent.map(([, t]) => t).join('\n').includes('No one else is on this project'), 'CONTROL: the no-peers wording is reachable');
+  } finally { solo.restore(); }
 });

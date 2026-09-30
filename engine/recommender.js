@@ -233,8 +233,6 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
        item is not held for it, so a stuck agent on another runner is not kept waiting for a Google pause. */
     const isHeld = (s) => { if (typeof heldUntil !== 'function') return false; try { const h = heldUntil(s); return h !== null && h !== undefined; } catch { return false; } };
     const held = isHeld(item.session);
-    // A new array for this convening only: step()'s own peers list is not touched.
-    if (!item.retry && !held && Array.isArray(item.peers)) item.peers = item.peers.filter((p) => !(p && isHeld(p.session)));
     if (held) {
       if (!item.retry) {
         const i = out.next.log.findIndex((e) => e.at === now && e.session === item.session);
@@ -246,7 +244,8 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
     let asked = item.asked || [];
     let noteLanded = null;
     if (!item.retry) {
-      asked = item.peers.filter((p) => send(p.session, peerAskText(item)) === DELIVERY.PLACED);
+      // A held peer is not typed into (not asked); it stays in item.peers, so the playbook says it could not be reached.
+      asked = item.peers.filter((p) => !isHeld(p.session) && send(p.session, peerAskText(item)) === DELIVERY.PLACED);
       /* #4423: the note's facts (who is stuck, who was asked, by session) ride beside its sentence, so the room can
          name them as they are called when it is read, not as they were called when it was written. */
       const rec = { stuck: item.session, asked: asked.map((p) => p.session), because: item.because };
