@@ -114,12 +114,14 @@ function sectionFrom(text, heading, dropLines) {
 }
 function doneFrom(text) { return sectionFrom(text, DONE_HEADING, projects.BRIEF_DONE_PLACEHOLDERS); }
 /* #4583 review: THE one rule for "does this brief say what done looks like", so the board's "Done not set" badge, the
-   one-time room note and `kosmos project show` cannot disagree. A brief with no Done section at all (a person's own)
-   reads as set, as before; one with a Done section is set only when doneFrom finds words in it. */
+   one-time room note, projects.fillDone and `kosmos project show` cannot disagree. With a `## Done...` section it is
+   set exactly when doneFrom finds words in it. With none (a person's own brief, or a heading they retitled), it is set
+   unless a seeded placeholder is still a whole line somewhere, so a retitled section still holding it reads unset. */
 function doneSetFrom(text) {
   if (typeof text !== 'string') return null;
-  if (!text.split(/\r?\n/).some((l) => DONE_HEADING.test(l.trim()))) return true;
-  return doneFrom(text) !== null;
+  const lines = text.split(/\r?\n/).map((l) => l.trim());
+  if (lines.some((l) => DONE_HEADING.test(l))) return doneFrom(text) !== null;
+  return !projects.BRIEF_DONE_PLACEHOLDERS.some((ph) => lines.includes(ph));
 }
 /* Goal and done in one read: { goal, done, found } where `found` says whether a readable brief was there at all
    (so "no brief" and "a brief with both left blank" are said apart). */
@@ -128,4 +130,4 @@ function readBrief(folder) {
   if (text === null) return { goal: null, done: null, found: false };
   return { goal: goalFrom(text), done: doneFrom(text), found: true };
 }
-module.exports = { goalFrom, readGoal, doneFrom, doneSetFrom, readBrief, MAX_BYTES, GOAL_MAX };
+module.exports = { goalFrom, readGoal, doneFrom, doneSetFrom, readBrief, DONE_HEADING, MAX_BYTES, GOAL_MAX };

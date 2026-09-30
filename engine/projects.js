@@ -2060,7 +2060,15 @@ function fillDone(folder, doneText) {
     const hit = placeholderLine(text);
     let next = null;
     // A function replacement: the person's words are data, so "$&" or "$'" in them is never a replacement pattern.
+    const brief = require('./brief');   // not at the top: brief.js requires this file
     if (hit) next = text.split(/(\r?\n)/).map((part) => (part.trim() === hit ? part.replace(hit, () => doneText) : part)).join('');
+    /* #4583 review: an EMPTY `## Done...` section (the one brief.doneFrom reads) gets the done under its heading, never
+       a second Done section after it, which every reader would miss (they read the first). */
+    else if (brief.doneSetFrom(text) === false) {
+      const parts = text.split(/(\r?\n)/);
+      const at = parts.findIndex((part) => brief.DONE_HEADING.test(part.trim()));
+      if (at !== -1) { parts.splice(at + 1, 0, eol + eol + doneText); next = parts.join(''); }
+    }
     // Any heading level, any case, trailing words allowed: a Done section the person titled their own way is theirs.
     else if (!/^#{1,6}[ \t]*done looks like\b/im.test(text)) next = text.replace(/\s*$/, '') + eol + eol + '## Done looks like' + eol + eol + doneText + eol;
     if (next === null) return false;

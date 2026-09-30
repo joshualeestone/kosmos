@@ -80,6 +80,30 @@ test('#4583 review: a person who writes done under the placeholder, leaving it i
   assert.equal(require('./brief').readBrief(dir).done, 'The lease is signed.', 'show prints the placeholder');
 });
 
+test('#4583 review round 2: done typed for a brief with an EMPTY Done section of its own fills that section, never a second one', () => {
+  reset();
+  const dir = folder('emptydone');
+  const made = projects.create({ name: 'Lease', folder: dir, description: 'Renew the lease' });
+  const file = path.join(dir, projects.BRIEF_STUB_FILENAME);
+  fs.writeFileSync(file, '# Lease\n\n## Goal\n\nRenew the lease.\n\n## Done when\n\n## Notes\n\nCall the landlord.\n');
+  assert.equal(projects.get(made.id, []).doneSet, false, 'an empty Done section read as set (fixture control)');
+  assert.equal(projects.fillDone(dir, 'The lease is signed.'), true);
+  const after = brief(dir);
+  assert.equal((after.match(/^##\s+done\b/gim) || []).length, 1, 'a second Done section was appended: ' + after);
+  assert.equal(require('./brief').readBrief(dir).done, 'The lease is signed.');
+  assert.equal(projects.get(made.id, []).doneSet, true);
+  assert.equal(projects.doneIsPending(dir), false);
+  assert.ok(after.includes('## Notes\n\nCall the landlord.'), 'the section after it was disturbed');
+});
+
+test('#4583 review round 2: no BRIEF.md at all is still pending for the room note (the brief is to be written)', () => {
+  reset();
+  const dir = folder('gone');
+  projects.create({ name: 'Lease', folder: dir });
+  fs.rmSync(path.join(dir, projects.BRIEF_STUB_FILENAME));
+  assert.equal(projects.doneIsPending(dir), true);
+});
+
 test('#4583: a brief written before #4583 (the old placeholder) is still read as done not set', () => {
   const dir = folder('old');
   fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME),

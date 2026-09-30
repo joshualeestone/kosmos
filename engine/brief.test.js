@@ -99,3 +99,14 @@ test('#4583 review: one rule for done set, so the badge, the room note and kosmo
   assert.equal(brief.doneSetFrom(null), null);
 });
 
+test('#4583 review round 2: a retitled Done heading still holding the placeholder is unset; CRLF reads the same', () => {
+  const retitled = '# P\n\n## What done looks like\n\n' + projects.BRIEF_DONE_PLACEHOLDER + '\n';
+  assert.equal(brief.doneSetFrom(retitled), false, 'a placeholder under a retitled heading read as set');
+  // CONTROL: the same retitled heading with the person's own words is set.
+  assert.equal(brief.doneSetFrom('# P\n\n## What done looks like\n\nThe lease is signed.\n'), true);
+  const crlf = '# P\r\n\r\n## Done looks like\r\n\r\n' + projects.BRIEF_DONE_PLACEHOLDER + '\r\n\r\nThe lease is signed.\r\n';
+  assert.equal(brief.doneFrom(crlf), 'The lease is signed.');
+  assert.equal(brief.doneSetFrom(crlf), true);
+  assert.equal(brief.doneSetFrom('# P\r\n\r\n## Done looks like\r\n\r\n' + projects.BRIEF_DONE_PLACEHOLDER + '\r\n'), false);
+});
+
