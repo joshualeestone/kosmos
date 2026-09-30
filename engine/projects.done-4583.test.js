@@ -213,9 +213,9 @@ test('#4583 round 1: the welcome project is not badged: its brief says what done
 test('#4583 round 1: done typed for a folder that already has a brief is not dropped', () => {
   reset();
   const stub = folder('oldstub');
-  fs.writeFileSync(path.join(stub, projects.BRIEF_STUB_FILENAME), '# Old\n\n## Done looks like\n\n_How will everyone know this is finished? Replace this line._\n\nMore.\n');
+  fs.writeFileSync(path.join(stub, projects.BRIEF_STUB_FILENAME), '# Old\n\n## Done looks like\n\n_How will everyone know this is finished? Replace this line._\n\n---\n\nMore.\n');
   projects.create({ name: 'Old stub', folder: stub, done: 'Filed.' });
-  assert.equal(brief(stub), '# Old\n\n## Done looks like\n\nFiled.\n\nMore.\n', 'Kosmos\'s own placeholder was not replaced');
+  assert.equal(brief(stub), '# Old\n\n## Done looks like\n\nFiled.\n\n---\n\nMore.\n', 'Kosmos\'s own placeholder was not replaced');
   const nodone = folder('nodone');
   fs.writeFileSync(path.join(nodone, projects.BRIEF_STUB_FILENAME), '# Mine\n\nMy goal.\n');
   projects.create({ name: 'No done section', folder: nodone, done: 'Shipped.' });
@@ -227,12 +227,53 @@ test('#4583 round 1: done typed for a folder that already has a brief is not dro
   assert.equal(brief(own), mine, 'the person\'s own Done section was overwritten');
 });
 
+test('#4583 review round 3: fillDone never merges into, or adds a second section after, a done the person wrote', () => {
+  reset();
+  const rb = require('./brief');
+  for (const [name, mine, said] of [
+    ['beside', '# Mine\n\n## Done looks like\n\n' + projects.BRIEF_DONE_PLACEHOLDER + '\n\nThe lease is signed.\n', 'The lease is signed.'],
+    ['donewhen', '# Mine\n\n## Done when\n\nThe lease is signed.\n', 'The lease is signed.'],
+  ]) {
+    const dir = folder(name);
+    fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), mine);
+    assert.equal(projects.fillDone(dir, 'TYPED'), false, name);
+    assert.equal(brief(dir), mine, name + ': the person\'s brief was changed');
+    assert.equal(rb.readBrief(dir).done, said, name);
+  }
+});
+
+test('#4583 review round 3: a retitled or deeper Done heading is read, filled and badged by the same rule', () => {
+  reset();
+  const rb = require('./brief');
+  const dirs = {};
+  for (const [name, text] of [
+    ['whatdone', '# P\n\n## What done looks like\n\n' + projects.BRIEF_DONE_PLACEHOLDER + '\n\n## Notes\n\nN.\n'],
+    ['h3', '# P\n\n## Goal\n\nG.\n\n### Done looks like\n\n## Notes\n\nN.\n'],
+    ['rule', '# P\n\n## Done looks like\n---\nFooter.\n'],
+    ['h3sib', '# P\n\n## Plan\n\n### Done looks like\n\n### Notes\n\nN.\n'],   // a sibling ### heading ends it
+  ]) {
+    const dir = folder(name);
+    dirs[name] = dir;
+    const made = projects.create({ name: name, folder: dir });
+    fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), text);
+    assert.equal(projects.get(made.id, []).doneSet, false, name + ': not badged before');
+    assert.equal(projects.doneIsPending(dir), true, name);
+    assert.equal(projects.fillDone(dir, 'TYPED'), true, name);
+    assert.equal(rb.readBrief(dir).done, 'TYPED', name + ': show cannot see the filled done');
+    assert.equal(projects.get(made.id, []).doneSet, true, name + ': still badged after');
+    assert.equal(projects.doneIsPending(dir), false, name);
+    assert.equal((brief(dir).match(/done looks like/gi) || []).length, 1, name + ': a second Done section');
+  }
+  // The typed done never becomes a setext heading over a rule directly under the heading.
+  assert.ok(brief(dirs.rule).includes('## Done looks like\n\nTYPED\n\n---'), brief(dirs.rule));
+});
+
 test('#4583 round 2: a done with $& or $\' is written as typed, never as a replacement pattern', () => {
   reset();
   const dir = folder('dollar');
-  fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), '# Old\n\n## Done looks like\n\n' + projects.BRIEF_DONE_PLACEHOLDER + '\n\nMy notes.\n');
+  fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), '# Old\n\n## Done looks like\n\n' + projects.BRIEF_DONE_PLACEHOLDER + '\n\n## Notes\n\nMy notes.\n');
   projects.create({ name: 'Dollar', folder: dir, done: "Revenue passes $$10k, $& and $' stay" });
-  assert.equal(brief(dir), "# Old\n\n## Done looks like\n\nRevenue passes $$10k, $& and $' stay\n\nMy notes.\n");
+  assert.equal(brief(dir), "# Old\n\n## Done looks like\n\nRevenue passes $$10k, $& and $' stay\n\n## Notes\n\nMy notes.\n");
 });
 
 test('#4583 round 2: a placeholder quoted inside other text is neither "not set" nor replaced', () => {

@@ -2059,18 +2059,21 @@ function fillDone(folder, doneText) {
     const eol = text.includes('\r\n') ? '\r\n' : '\n';
     const hit = placeholderLine(text);
     let next = null;
-    // A function replacement: the person's words are data, so "$&" or "$'" in them is never a replacement pattern.
     const brief = require('./brief');   // not at the top: brief.js requires this file
+    /* #4583 review round 3: the one rule first. A Done section that already holds words is the person's, whatever
+       else is in the file (a placeholder left beside them included): never merged into, never followed by a second. */
+    const hasSection = brief.doneSectionIn(text);
+    if (hasSection && brief.doneSetFrom(text) !== false) return false;
+    // A function replacement: the person's words are data, so "$&" or "$'" in them is never a replacement pattern.
     if (hit) next = text.split(/(\r?\n)/).map((part) => (part.trim() === hit ? part.replace(hit, () => doneText) : part)).join('');
-    /* #4583 review: an EMPTY `## Done...` section (the one brief.doneFrom reads) gets the done under its heading, never
-       a second Done section after it, which every reader would miss (they read the first). */
-    else if (brief.doneSetFrom(text) === false) {
+    else if (hasSection) {
+      // An EMPTY Done section gets the done under its heading (a blank line after it when a line follows directly).
       const parts = text.split(/(\r?\n)/);
       const at = parts.findIndex((part) => brief.DONE_HEADING.test(part.trim()));
-      if (at !== -1) { parts.splice(at + 1, 0, eol + eol + doneText); next = parts.join(''); }
-    }
-    // Any heading level, any case, trailing words allowed: a Done section the person titled their own way is theirs.
-    else if (!/^#{1,6}[ \t]*done looks like\b/im.test(text)) next = text.replace(/\s*$/, '') + eol + eol + '## Done looks like' + eol + eol + doneText + eol;
+      const follows = at + 2 < parts.length && parts[at + 2].trim() !== '';
+      parts.splice(at + 1, 0, eol + eol + doneText + (follows ? eol : ''));
+      next = parts.join('');
+    } else next = text.replace(/\s*$/, '') + eol + eol + '## Done looks like' + eol + eol + doneText + eol;
     if (next === null) return false;
     fs.writeFileSync(file, next, 'utf8');
     return true;
