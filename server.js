@@ -15951,7 +15951,7 @@ const server = http.createServer(async (req, res) => {
                records no member change), so a looping agent could type into itself as fast as it can create. Its
                instructions are still synced above, like any member's: that is what lists the project in its own
                instructions. When the sync cannot be done the verdict says so and the membership stands, as for
-               any member (the three-valued verdict below).
+               any member (the three-valued verdict described above).
                ⚠️ One sentence this leaves loose: a synced member's card can read "Kosmos changed its instructions,
                and told it on its screen" (projects.toldOverride). For the maker, what was on its screen is the
                CLI's own "Created project ..." line, not a line Kosmos typed. It does know: it made it. */

@@ -108,7 +108,7 @@ test('a working agent, or one outside the project, is not assigned', () => {
   } finally { w.restore(); }
 });
 
-test('#4740: an agent alone on a project it made itself is not given its tasks or asked its goal; with anyone else on it, it is', () => {
+test('#4740: an agent alone on a project it made itself is not asked to draft tasks toward its goal; tasks already there are still handed out', () => {
   const w = world([{ name: 'wkmaker' }, { name: 'wkother', member: false }]);
   try {
     addTask(w.pid, 'task one');
@@ -119,19 +119,16 @@ test('#4740: an agent alone on a project it made itself is not given its tasks o
     };
     const stored = projects.readAll();
     const as = (patch) => stored.map((p) => (p.id === w.pid ? { ...p, ...patch } : p));
+    const asked = (records) => a.goalProject(w.key.wkmaker, [{ ...records.find((p) => p.id === w.pid), tasks: [] }], new Map([[w.pid, 'ship it']]), new Map(), T0);
     const own = as({ made: { via: 'process', by: w.key.wkmaker } });
-    assert.deepEqual(run(own).toAssign, [], 'the maker, alone on its own project, was handed its task by the clock');
-    const rec = own.find((p) => p.id === w.pid);
-    assert.equal(a.goalProject(w.key.wkmaker, [{ ...rec, tasks: [] }], new Map([[w.pid, 'ship it']]), new Map(), T0), null,
-      'the maker, alone on its own project, was asked about its goal');
-    /* CONTROLS: the same project is worked as usual when the person made it, when another agent made it, and once a
-       second member is on it. */
-    assert.deepEqual(run(as({ made: { via: 'screen', by: null } })).toAssign.map((x) => x.session), [w.key.wkmaker], 'control: a project the person staffed');
-    assert.deepEqual(run(as({ made: { via: 'process', by: 'someone-else' } })).toAssign.map((x) => x.session), [w.key.wkmaker], 'control: another agent made it');
-    const joined = as({ made: { via: 'process', by: w.key.wkmaker }, agents: [w.key.wkmaker, w.key.wkother] });
-    assert.ok(run(joined).toAssign.map((x) => x.session).includes(w.key.wkmaker), 'control: with a second member the maker is an ordinary member');
-    assert.ok(a.goalProject(w.key.wkmaker, [{ ...joined.find((p) => p.id === w.pid), tasks: [] }], new Map([[w.pid, 'ship it']]), new Map(), T0),
-      'control: with a second member it is asked about the goal');
+    assert.equal(asked(own), null, 'the maker, alone on its own project, was asked to draft tasks toward its own goal');
+    /* A task that is already there is handed out, as the Assigner's description on the page says of any project. */
+    assert.deepEqual(run(own).toAssign.map((x) => x.session), [w.key.wkmaker], 'a task on the maker\'s own project was not handed out');
+    /* CONTROLS for the goal ask: the same project is asked about when the person made it, when another agent made
+       it, and once a second member is on it. */
+    assert.ok(asked(as({ made: { via: 'screen', by: null } })), 'control: a project the person staffed');
+    assert.ok(asked(as({ made: { via: 'process', by: 'someone-else' } })), 'control: another agent made it');
+    assert.ok(asked(as({ made: { via: 'process', by: w.key.wkmaker }, agents: [w.key.wkmaker, w.key.wkother] })), 'control: with a second member it is asked');
   } finally { w.restore(); }
 });
 

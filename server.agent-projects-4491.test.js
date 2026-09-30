@@ -33,6 +33,7 @@ const fleet = require('./test-support/fleet');
 const projectsEngine = require('./engine/projects');
 const messagesEngine = require('./engine/messages');
 const setupAssistant = require('./engine/setup-assistant');
+const chatEngine = require('./engine/chat');
 
 const BOARD = 'BOARDTOKEN_test_4491_projects_0123456789abcdef';
 const GATE_REFUSAL = /this board belongs to the account that started it/;
@@ -87,6 +88,28 @@ test('an agent that makes a project is recorded as its maker and is on it', asyn
   const otto = sendertoken.mint('otto').token;
   assert.equal((await call('POST', '/api/project/' + id + '/tasks', { headers: { 'x-kosmos-agent-token': otto }, body: { sentence: 'not mine' } })).code, 403, 'the maker\'s project was open to an agent that is not on it');
   assert.equal((await call('GET', '/api/project/' + id + '/room?as=text', { headers: { 'x-kosmos-agent-token': otto } })).code, 403);
+});
+
+test('the maker can post in the room of the project it made, which is what its working rules promise; another agent cannot', async (t) => {
+  /* The defect this change exists for: a room takes posts only from agents the project lists, and the maker was not
+     listed. Nothing is typed into a real pane: the chat engine's runner is stubbed, as the other #4491 tests do. */
+  chatEngine.setRunner((args) => (args[0] === 'display-message'
+    ? { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' }
+    : { ran: true, spawnFailed: false, status: 0, out: '', err: '' }));
+  chatEngine.setDryRun(false);
+  t.after(() => { messagesEngine.resetForTests(); chatEngine.setRunner(null); chatEngine.setDryRun(true); });
+  const { r, id } = await make('Room For Its Maker', withBoard({ 'x-kosmos-agent-token': mara }));
+  assert.equal(r.code, 200, r.text.slice(0, 200));
+  const NOT_ON_IT = /not on that project, so this room is not yours to post into/;
+  const post = await call('POST', '/api/post', { headers: { 'x-kosmos-agent-token': mara }, body: { project: id, text: 'first post in my own project' } });
+  assert.doesNotMatch(post.text, NOT_ON_IT, 'the maker was refused its own project\'s room: ' + post.text.slice(0, 200));
+  assert.equal(post.code, 200, 'the maker\'s post was not accepted: ' + post.code + ' ' + post.text.slice(0, 200));
+  const kept = messagesEngine.record().rows.filter((m) => m && m.kind === 'post' && m.project === id).map((m) => [m.from, m.text]);
+  assert.deepEqual(kept, [['mara', 'first post in my own project']], 'the maker\'s post is not in the room');
+  /* CONTROL: an agent that is not on it is refused with the membership sentence, so the rule is still there. */
+  const otto = sendertoken.mint('otto').token;
+  const outsider = await call('POST', '/api/post', { headers: { 'x-kosmos-agent-token': otto }, body: { project: id, text: 'not my room' } });
+  assert.match(outsider.text, NOT_ON_IT, 'an agent that is not on the project posted in its room: ' + outsider.code + ' ' + outsider.text.slice(0, 200));
 });
 
 test('a maker named by its pane is on the project too; members the request names are kept, once', async (t) => {

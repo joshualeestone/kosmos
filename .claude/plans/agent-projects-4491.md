@@ -27,7 +27,7 @@ and had to carry an exception for these memberless projects. This slice makes th
   project (a stranger's session is not an agent).
 - **Never the setup guide (round 1).** The page keeps the guide out of every list of agents, and a member is sent
   every post in its room. A guide that can reach this route (one that is not sandboxed holds the board token) is
-  recorded as the maker of a project it makes and is NOT put on it, which is what happened before this slice.
+  recorded as the maker of a project it makes (that record is new) and is NOT put on it (as before).
 - **The maker is not typed at, and is not told to ask for a brief (round 1).** Telling a member at create means
   syncing its instructions, typing a line into its pane, and, when the project has no brief, posting the
   agents-only "one of you ask what the goal is" note. For the maker: the sync stays (it is what makes the
@@ -54,9 +54,17 @@ and had to carry an exception for these memberless projects. This slice makes th
 - A project an agent makes now has that agent on it: it shows on the project's member list on the page, its
   instructions list the project (it is not typed at), it is sent the posts made in that room, and it can post
   there.
-- The clock's Assigner does NOT start working such a project: an agent alone on a project it made is not handed
-  its tasks or asked about its goal, exactly as before (when the project listed nobody). With anyone else on the
-  project, the maker is an ordinary member and the Assigner works it as it works any staffed project.
+- The clock's Assigner (on by default) now hands the maker any task on its project that nobody is on, as its
+  description on the page says of every project: the person, or the maker itself, put that task there. It does
+  NOT ask a maker alone on its own project to draft tasks toward the project's goal: that goal is the agent's own
+  description, not the person's, and asking would have an idle agent writing itself new work every day. With
+  anyone else on the project it is an ordinary project. (Round 3 first skipped both; round 5 showed the person
+  would then add tasks to a project that shows a member and see nothing handed out.) The page's Assigner
+  description ("If a project has no open tasks but its brief states a goal, Kosmos asks the agent to draft a
+  few") is not true of that one case; the page text is not changed here.
+- On the project's page, "Made by" now names the agent (it said "an agent or another program on this computer"),
+  the setup guide's name included. And the room of such a project no longer says "Put an agent on this project
+  and the room opens": it shows the post prompt, and what the person posts there is sent to the maker.
 - As in slice 5a: a stale or unresolvable `KOSMOS_AGENT_TOKEN` now turns `kosmos project create` into a 403, and
   a token with an unreadable roster into a 503, where before the CLI sent no token.
 
@@ -99,10 +107,12 @@ nobody has ruled on a lead agent that sets up projects for others and does not w
   and slice 5a's exception keeps its tasks working.
 
 ## Tests
-- `engine/assigner.test.js` (1 new): the maker alone on its own project gets no task and no goal ask; the same
-  project is worked when the person made it, when another agent made it, and once a second member is on it.
-  Measured red with the skip removed.
-- `server.agent-projects-4491.test.js` (new, 9), projects made for real in the sandbox: an agent's token names it
+- `engine/assigner.test.js` (1 new): the maker alone on its own project is not asked to draft tasks toward its
+  goal, and IS handed a task that is already there; the goal ask still happens when the person made the project,
+  when another agent made it, and once a second member is on it. Measured red with the skip removed.
+- `server.agent-projects-4491.test.js` (new, 10), projects made for real in the sandbox: the maker posts in its
+  project's room and the post is in the room, while another agent is refused with the membership sentence (red
+  when the maker is not added); an agent's token names it
   as the maker and puts it on the project, after which it adds a task and reads the room on its token alone while
   another agent is refused both; a pane names the maker too, and named members are kept with the maker listed
   once; a terminal with no pane and the page make exactly what they asked for; an unresolvable token makes nothing
@@ -163,4 +173,13 @@ nobody has ruled on a lead agent that sets up projects for others and does not w
   nothing is sent); `made.by` is stored untrimmed while members are trimmed (a session name has no edge spaces).
 - The reviewer found no other Assigner path that drives a maker alone on its project, and one narrow wrong skip:
   if the person removes everyone else from a project the maker made, the clock leaves the maker alone there.
+
+## Review round 5 (opus), the final pass as asked: 0 BLOCKER, 2 WARNING, 1 CONVENTION, 3 NIT
+- W the headline promise ("you post to it") had no test: added, through POST /api/post with the maker's token, with
+  another agent as the control. The reviewer traced all six verbs for the maker from the code and each is allowed.
+- W the Assigner skip made the page's description untrue for a project that now shows a member: the skip is
+  narrowed to the goal ask only; existing tasks are handed out. The one remaining mismatch with the page text is
+  stated above.
+- C "which is what happened before this slice" contradicted the Why (no maker was recorded before): reworded.
+- NITs taken: "below" is "above" in a comment; the two things the person newly sees on the page are stated.
 

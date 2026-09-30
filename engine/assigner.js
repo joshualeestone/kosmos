@@ -75,10 +75,12 @@ function idleCard(a) {
 /* #3564: the projects module's own reading of "switched off here". Lazy: requiring it at the top
    closes a require cycle and hands back a half-built module. */
 const isSwarmOff = (p, session) => require('./projects').isSwarmOff(p, session);
-/* #4740: an agent that makes a project is now on it (server.js, POST /api/projects). Alone on a project
-   it made itself, it is not given that project's tasks by the clock and not asked about its goal: nobody staffed
-   that project, and before 5b it listed nobody, so the Assigner never touched it. Once anyone else is on it, it is
-   an ordinary project and the maker an ordinary member. */
+/* #4740: an agent that makes a project is now on it (server.js, POST /api/projects). Alone on a project it made
+   itself, it is NOT asked to draft tasks toward that project's goal: the goal there is the agent's own description,
+   not the person's, and asking would have an idle agent writing itself new work every day with nobody in the loop
+   (before #4740 such a project listed nobody, so the Assigner never touched it). Tasks that already exist there
+   ARE handed out like any project's (`pick` has no such skip): the person, or the maker itself, put them there.
+   Once anyone else is on the project it is an ordinary project and the maker an ordinary member. */
 const aloneOnItsOwn = (p, session) => Array.isArray(p.agents) && p.agents.length === 1 && p.agents[0] === session
   && !!p.made && typeof p.made === 'object' && p.made.by === session;
 
@@ -132,7 +134,7 @@ function blocksGoalAsk(t) {
 function pick(session, projects, taken) {
   const candidates = [];
   for (const p of projects) {
-    if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session) || aloneOnItsOwn(p, session)) continue;
+    if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
     if (require('./projects').isPaused(p)) continue;   // #4771: nothing in a paused project is handed out
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (typeof t.number !== 'number') continue;
