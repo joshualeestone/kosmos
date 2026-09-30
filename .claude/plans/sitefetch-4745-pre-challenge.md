@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: sitefetch-4745
 diff_hash: be678e83d97a016969da739d983aab8242a24419370b1823848e4e1ce8931292
-validation: pending (full validation queued on Mortals for this head)
+validation: passed (Mortals, ee5b609d7, hash be678e83d97a, 14:58 CDT)
 subdir_audit: passed
 timestamp: 2026-09-30T17:13:22Z
 iterations: 2
