@@ -1114,7 +1114,7 @@ const DESCRIBE = {
   agent: 'make an agent, or list the roles one can have',
   feedback: 'write or read the daily feedback report',
   community: 'post to or read the Kosmos community',
-  connections: 'list the outside services connected in Settings',
+  connections: 'list the outside services and which are connected',
   connect: 'connect an outside service with its token',
 };
 const COMMAND_LIST = VERBS.map((v) => '  kosmos ' + v.padEnd(13) + DESCRIBE[v]).join('\n');

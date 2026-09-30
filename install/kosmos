@@ -2732,13 +2732,13 @@ cmd_adopt() {
 # here: tools.windows-kosmos-cli-verbs-parity.test.js reads these rows as the help's verbs and compares them with
 # the dispatch, and cli.help-lines-4785.test.js holds every row to having words after it.
 kosmos_command_list() {
-  printf '\n  Kosmos commands. Add --help to any of them to see how to use it.\n\n'
+  printf '\n  Kosmos commands:\n\n'
   printf '  kosmos start         start Kosmos on this computer\n'
   printf '  kosmos stop          stop Kosmos\n'
   printf '  kosmos restart       stop Kosmos and start it again\n'
   printf '  kosmos status        say whether Kosmos is running, and where\n'
-  printf '  kosmos open          open the dashboard in your browser\n'
-  printf '  kosmos agents        list the agents running on this computer\n'
+  printf '  kosmos open          open the dashboard in your browser, starting Kosmos if needed\n'
+  printf '  kosmos agents        list the agent sessions running on this computer\n'
   printf '  kosmos version       say which version of Kosmos this is\n'
   printf '  kosmos msg           send a message to one agent\n'
   printf '  kosmos post          post in a project room\n'
@@ -2753,8 +2753,10 @@ kosmos_command_list() {
   printf '  kosmos agent         make an agent, or list the roles one can have\n'
   printf '  kosmos adopt         give the agents already running here a Kosmos identity, once\n'
   printf '  kosmos whoami        say which agent you are and which account you are on\n'
-  printf '  kosmos connections   list the outside services connected in Settings\n'
+  printf '  kosmos connections   list the outside services and which are connected\n'
   printf '  kosmos connect       connect an outside service with its token\n\n'
+  printf '  For how to use one: kosmos <command> --help (msg, post, reply, react, report, room, feedback,\n'
+  printf '  community, task, project, agent and connect show their usage).\n'
 }
 
 # kosmos#1674: -h / --help must never SEND.
@@ -2776,6 +2778,9 @@ _kosmos_help=0
 for _a in "$@"; do
   case "$_a" in -h|--help) _kosmos_help=1 ;; esac
 done
+# kosmos#4785: `kosmos help` is the next guess after --help; it answered "Unknown" (Windows already treats it as
+# help). Only as the FIRST word, so a message that says "help" is still sent.
+[ "${1:-}" = help ] && _kosmos_help=1
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
     msg|reply|post|react|report|room|feedback|community|task|project|agent|connect)

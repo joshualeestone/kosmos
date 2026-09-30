@@ -62,6 +62,16 @@ test('#4785: kosmos --help gives every command a line saying what it does, and e
   }
 });
 
+test('#4785: kosmos help is help (exit 0, the list); "help" inside a message is still sent', async () => {
+  const r = await run(['help']);
+  assert.equal(r.code, 0, 'kosmos help exits ' + r.code);
+  assert.doesNotMatch(r.out, /Unknown:/);
+  assert.ok(rows(r.out).start, 'kosmos help does not print the list');
+  /* The control: only the FIRST word counts. At the dead port a real send says Kosmos is not running. */
+  const msg = await run(['msg', 'zzq-cannot-exist', 'help']);
+  assert.match(msg.out, /not running/, 'a message saying "help" was taken for a help request and not sent');
+});
+
 test('#4785: agent list points at kosmos agents; another unknown subcommand does not', async () => {
   const r = await run(['agent', 'list']);
   assert.equal(r.code, 2);
