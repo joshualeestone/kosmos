@@ -309,7 +309,7 @@ async function readOnce(reader, prompt, name, media, buf, signal) {
   const cannot = cannotRead(reader.provider, media);
   if (cannot) return { ok: false, local: true, because: cannot };
   const key = keyFor(reader);
-  if (!key) return { ok: false, because: 'the ' + p.name + ' key could not be read on this computer. Connect it again in Settings, AI Models.' };
+  if (!key) return { ok: false, local: true, because: 'the ' + p.name + ' key could not be read on this computer. Connect it again in Settings, AI Models.' };
   /* The person's Stop and the timeout hold until the WHOLE answer is read, not only its headers: a provider that
      stalls mid-answer is cut off, and the one-read-at-a-time lock is not held past the timeout. Dropping the request
      is Kosmos no longer waiting; it cannot promise the provider stops work it has already started. */

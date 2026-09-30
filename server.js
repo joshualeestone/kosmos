@@ -6546,7 +6546,11 @@ const server = http.createServer(async (req, res) => {
            id; it only ever showed Claude's consent, so it may go on only when the reader is still Claude. */
         const handed = q.has('reader') ? q.get('reader') : (reader && reader.kind === 'claude' ? orgchartfile.readerId(reader) : null);
         if (!reader || handed !== orgchartfile.readerId(reader)) {
-          sendJson(res, 409, { error: 'Who reads this file changed since you were asked. Choose the file again to see who reads it now.' });
+          // An old page (no reader id) meeting a key reader: nothing changed, the page is simply older than the board.
+          const oldPage = !q.has('reader') && reader && reader.kind === 'key';
+          sendJson(res, 409, { error: oldPage
+            ? 'This page is older than Kosmos. Reload the New Agent screen and choose the file again.'
+            : 'Who reads this file changed since you were asked. Choose the file again to see who reads it now.' });
           return;
         }
         // The consented send carries the file; an empty one would spend a request on nothing.

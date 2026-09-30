@@ -589,6 +589,7 @@ const claudeHere = () => {
 };
 /* #4560: who reads a picture or PDF here. Claude first, when this computer can run it (#4559); otherwise the first
    KEY-connected OpenAI, Gemini or Grok account, in Settings order (engine/orgchartkeys.js); otherwise nobody. */
+let lastWhy = null;   // set by currentReader (see whyNoReader)
 let readerOverride = null;
 /** Tests only: the reader to use ({kind:'claude'} or {kind:'key', provider, dir, account}); null restores the real one. */
 function setReaderForTest(fn) { readerOverride = typeof fn === 'function' ? fn : null; }
@@ -608,7 +609,6 @@ function currentReader() {
   lastWhy = got.offWhy;
   return got.reader ? { kind: 'key', ...got.reader } : null;
 }
-let lastWhy = null;
 /* Why the reader just worked out is null, from that same derivation (no second look), or null. */
 function whyNoReader() { return lastWhy; }
 /* The reader and, when there is none, why, as ONE value from one look (what the route uses, so no state is shared

@@ -158,6 +158,8 @@ test('#4560: the reader is the first KEY account in Settings order (OpenAI, Gemi
     xai: { list: () => [{ dir: '/x/k', authMode: 'apikey', isDefault: false, name: 'Team' }, { dir: '/x/d', authMode: 'apikey', isDefault: true }] },
   };
   assert.deepEqual(keys.accountsFrom(mods).map((a) => [a.provider, a.dir]), [['openai', '/o/k2'], ['google', '/g/k'], ['xai', '/x/d'], ['xai', '/x/k']]);
+  assert.equal(keys.accountsFrom({ openai: { list: () => [{ dir: '/o', authMode: 'apikey', isDefault: true, keyTail: 'wxyz' }] }, google: { list: () => [] }, xai: { list: () => [] } })[0].account,
+    'key ending wxyz', 'an unnamed key account is shown by its last four');
   keys.setAccounts(() => keys.accountsFrom(mods));
   assert.deepEqual(keys.chooseReader(), { provider: 'openai', dir: '/o/k2', account: 'side', keyTail: 'wxyz' }, 'the key\'s last four travel with the reader (its id pins the key)');
   keys.setAccounts(() => keys.accountsFrom({ ...mods, openai: { list: () => [{ dir: '/o/sub', authMode: 'chatgpt', isDefault: true }] } }));
@@ -202,7 +204,7 @@ test('#4560: refusals are plain sentences; the key never appears in anything ret
     assert.match(r.problems[0], /we could not reach OpenAI/);
   } finally { console.error = saved.e; console.warn = saved.w; console.log = saved.l; }
   for (const s of results.concat(logged)) assert.ok(!s.includes(KEY), 'the key leaked: ' + s.slice(0, 200));
-  assert.ok(results.length >= 25, 'CONTROL: the cases ran (' + results.length + ')');
+  assert.equal(results.length, 28, 'CONTROL: every case ran (3 providers x 9, plus the unreachable one)');
 });
 
 test('#4560: a stopped read drops the request (Kosmos stops waiting)', { timeout: 10000 }, async () => {
@@ -403,6 +405,9 @@ test('#4560: the person\'s own Stop, and a refusal made before anything is sent,
     await o.readWithModel('chart.pdf', PDF);   // refused before sending: Grok and a PDF
     only('openai');
     reply = () => ({ status: 200, body: ANSWER.openai(), delay: 2000 });
+    keys.setKeyFor(() => null);
+    await o.readWithModel('chart.png', PNG);   // the key could not be read here: nothing sent
+    keys.setKeyFor(() => KEY);
     const ctl = new AbortController();
     const pending = o.readWithModel('chart.png', PNG, { signal: ctl.signal });
     await new Promise((ok) => setTimeout(ok, 150));

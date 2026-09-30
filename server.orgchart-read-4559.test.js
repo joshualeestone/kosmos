@@ -307,7 +307,9 @@ test('#4560: a consented send with no reader behind it is refused; a page from b
     orgchartfile.setReaderForTest(() => ({ kind: 'claude' }));
     assert.equal((await post('?consent=1')).status, 200, 'an old page (no reader id) and Claude: as before');
     orgchartfile.setReaderForTest(() => ({ kind: 'key', provider: 'xai', dir: '/x', account: null }));
-    assert.equal((await post('?consent=1')).status, 409, 'an old page never showed a key provider\'s consent');
+    const old = await post('?consent=1');
+    assert.equal(old.status, 409, 'an old page never showed a key provider\'s consent');
+    assert.match((await old.json()).error, /This page is older than Kosmos\. Reload the New Agent screen/, 'it is told to reload, not that the reader changed');
     assert.equal(sent.length, 1, 'only the Claude send reached the runner');
   } finally { orgchartfile.setReaderForTest(() => ({ kind: 'claude' })); orgchartfile.setModelRunner(null); }
 });
