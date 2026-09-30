@@ -26,8 +26,11 @@
 #   3  the lock is held by a run for ANOTHER pull (or the automatic path): not posted, run it again
 #   4  not posted (Discord's error, no bot token, a broken environment): run it again
 #   5  posted, but the watermark was not recorded: do NOT run it again (it would post twice)
-#   6  the lock is held by a run posting THIS SAME pull (its $LOCK/wm equals ours): do NOT run it again, check #admin
-#   7  Discord did not answer (curl printed 000 or nothing): the post MAY have gone out, check #admin before running again
+#   6  the lock is held by a run posting THIS SAME pull (its $LOCK/wm equals ours): the other run's exit code decides; do
+#      NOT start another
+#   7  the post MAY have gone out, check #admin before running again: Discord did not answer (curl printed 000 or
+#      nothing), or a previous run of this same pull died while posting (it left a stale lock carrying our WM)
+#   any other code (for example 128+n when the run was killed by a signal): it may have died mid-post, check #admin first
 #
 # WHY ONLY SINCE THE LAST POST: over all time the store held 39 reports and about 105 candidates (measured
 # 2026-09-28); a digest of all of them every day would be the same wall each morning. A day's worth is a handful.
@@ -108,7 +111,7 @@ step_aside() {
   rm -rf "$WORK"
   if [ -n "$MSG_FILE" ]; then
     if [ "$(cat "$LOCK/wm" 2>/dev/null)" = "$WM" ]; then
-      log "another run is posting this same result; do NOT run it again, check #admin"; exit 6
+      log "another run is posting this same result; the other run's exit code decides; do NOT start another"; exit 6
     fi
     log "FAILED: the digest was NOT posted (another run holds the lock); run it again"; exit 3
   fi
@@ -116,13 +119,23 @@ step_aside() {
 }
 mkdir -p "$STATE" && chmod 700 "$STATE" || post_failed "no state folder $STATE" ""
 WORK="$(mktemp -d)" || post_failed "no temp folder" ""
+# Review 5 (nit i): every exit from here on removes $WORK, including a post_failed before the full trap below.
+trap 'rm -rf "$WORK"' EXIT
 # One run at a time (review 3: a launchd run and a manual one both posted). The lock holds its owner's pid.
 # Review 4, the races: a lock with no pid yet is a run STARTING, not a dead one (unless it is a minute old); a live
 # pid counts for an hour only (a real run takes about a minute, and a pid can be reused); a stale lock is taken over
 # by RENAMING it away, which only one run can win; and a run removes the lock only if it is still its own.
 LOCK="$STATE/lock"
 # Review 4 (W1): the wm is written BEFORE the pid, so a lock that shows a pid already shows its pull.
-take_lock() { mkdir "$LOCK" 2>/dev/null && { [ -z "$MSG_FILE" ] || echo "$WM" > "$LOCK/wm"; } && echo $$ > "$LOCK/pid"; }
+# Review 5 (W2): a lock this run made but could not fill (the wm or pid write failed) is removed, and the run fails
+# (exit 4 in message-file mode): left behind, it would read as a run "starting" with our wm, and we would step aside
+# from our own half-made lock (exit 6, "do NOT start another") with nothing posted.
+take_lock() {
+  mkdir "$LOCK" 2>/dev/null || return 1
+  { [ -z "$MSG_FILE" ] || echo "$WM" > "$LOCK/wm"; } && echo $$ > "$LOCK/pid" && return 0
+  rm -rf "$LOCK"
+  post_failed "could not write the lock in $STATE" ""
+}
 got_lock=""
 take_lock && got_lock=1
 # Review 4 (nit a): a failed mkdir with no lock there is not a held lock. Try once more (its holder may have just let
@@ -140,7 +153,15 @@ if [ -z "$got_lock" ]; then
   if mv "$LOCK" "$STATE/lock.stale.$$" 2>/dev/null; then
     # If what we moved is not the stale lock we judged (another run took over in between), put it back.
     if [ "$(cat "$STATE/lock.stale.$$/pid" 2>/dev/null)" != "$holder" ] && [ ! -e "$LOCK" ]; then mv "$STATE/lock.stale.$$" "$LOCK" 2>/dev/null; fi
+    # Review 5 (W1): a stale lock carrying OUR wm is a run of this same pull that died while posting, and its post may
+    # have gone out. Unless this pull's key says it was recorded as posted, stop and say to check #admin (exit 7). The
+    # stale lock is removed first, so a deliberate rerun after checking goes through.
+    stale_wm=$(cat "$STATE/lock.stale.$$/wm" 2>/dev/null)
     rm -rf "$STATE/lock.stale.$$"
+    if [ -n "$MSG_FILE" ] && [ -n "$stale_wm" ] && [ "$stale_wm" = "$WM" ] && [ "$(cat "$STATE/last-message-wm" 2>/dev/null)" != "$WM" ]; then
+      log "a previous run of this same pull died while posting; it MAY have been posted: check #admin before running again"
+      exit 7
+    fi
   fi
   take_lock || step_aside "another run took the lock"
   log "took over a stale lock (${holder:-no pid}, ${age}s old)"

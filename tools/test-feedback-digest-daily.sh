@@ -26,6 +26,7 @@ export FEEDBACK_DIGEST_CARDS_CMD="$T/cards.sh"
 cat > "$T/post.sh" <<EOF
 #!/bin/bash
 cp "\$1" "$T/posted.json"; date +%s > "$T/post-at"; echo x >> "$T/post-count"
+[ -f "$T/state/lock/wm" ] && cp "$T/state/lock/wm" "$T/lock-wm-seen"   # review 5 (W3a): the wm the lock held mid-post
 [ -f "$T/steal" ] && { cat "$T/steal" > "$T/state/lock/pid"; rm -f "$T/steal"; }   # another run takes the lock mid-post
 if [ -f "$T/arrive" ]; then
   at=\$(date +%s); printf -- '---\\ndate: x\\ninstall: x\\ngenerated_at: %s\\n---\\n- %s\\n' "\$(date -u -r "\$at" '+%Y-%m-%dT%H:%M:%SZ')" 'The settings page freezes and is broken when a provider is added.' > "$T/reports/2026-09-29-during.md"
@@ -103,6 +104,20 @@ printf '%s' "$out" | grep -q 'POSTED, but the watermark was not recorded.*do NOT
 [ -f "$T/posted.json" ] || { rmdir "$T/state/last-posted.tmp"; fail "the exit-5 arm did not post"; }
 rmdir "$T/state/last-posted.tmp"
 [ "$(cat "$T/state/last-posted")" = "$before_w" ] || fail "a failed watermark write still changed the watermark"
+# Review 5 (W3b): the key is written BEFORE last-posted, so after that exit 5 a rerun of the same pull posts nothing.
+posts=$(wc -l < "$T/post-count" | tr -d ' ')
+out="$(FEEDBACK_DIGEST_WATERMARK=$((now - 600)) FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo-ro.txt" run 2>&1)"; rc=$?
+[ "$rc" = 0 ] || fail "W3b: a rerun after exit 5 (last-posted unwritable) exited $rc, not 0: $out"
+printf '%s' "$out" | grep -q "this pull's result was already posted; nothing to do" || fail "W3b: a rerun after exit 5 did not say it was already posted: $out"
+[ "$(wc -l < "$T/post-count" | tr -d ' ')" = "$posts" ] || fail "W3b: a rerun after exit 5 posted again: $out"
+# ...and a key that cannot be written is exit 5 too (posted, not recorded), with its own line.
+rm -f "$T/state/last-message-wm" "$T/posted.json"; mkdir "$T/state/last-message-wm.tmp"
+out="$(FEEDBACK_DIGEST_WATERMARK=$((now - 600)) FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo-ro.txt" run 2>&1)"; rc=$?
+rmdir "$T/state/last-message-wm.tmp"
+[ "$rc" = 5 ] || fail "W3b: an unwritable key exited $rc, not 5: $out"
+printf '%s' "$out" | grep -q "POSTED, but this pull's key was not recorded.*do NOT run it again" || fail "W3b: an unwritable key did not say it was not recorded: $out"
+[ -f "$T/posted.json" ] || fail "W3b: the unwritable-key arm did not post"
+rm -f "$T/state/last-message-wm"
 
 # 2d. A second run while one holds the lock does nothing.
 mkdir "$T/state/lock" && echo $$ > "$T/state/lock/pid"; rm -f "$T/posted.json"
@@ -277,8 +292,10 @@ out="$(run 2>&1)"; rc=$?; [ "$rc" = 0 ] || fail "the automatic path beside a hel
 rm -rf "$T/state/lock"
 
 # 8e. Review 4 (W1): this pull's WM is an idempotency key. Two runs of one pull post exactly once; the second is success.
-nokey; rm -f "$T/posted.json" "$T/post-count"; echo 200 > "$T/code"
+nokey; rm -f "$T/posted.json" "$T/post-count" "$T/lock-wm-seen"; echo 200 > "$T/code"
 out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)" || fail "W1: the first run of a pull failed: $out"
+# Review 5 (W3a): a real message-file run holds its WM in $LOCK/wm while it posts (what exit 6 reads).
+[ "$(cat "$T/lock-wm-seen" 2>/dev/null)" = "$FEEDBACK_DIGEST_WATERMARK" ] || fail "W3a: the lock held wm '$(cat "$T/lock-wm-seen" 2>/dev/null)' during the post, not $FEEDBACK_DIGEST_WATERMARK"
 out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
 [ "$rc" = 0 ] || fail "W1: a rerun of a pull already posted exited $rc, not 0: $out"
 printf '%s' "$out" | grep -q "this pull's result was already posted; nothing to do" || fail "W1: a rerun of a posted pull did not say so: $out"
@@ -291,13 +308,38 @@ nokey; rm -f "$T/posted.json"
 mkdir "$T/state/lock" && echo "$FEEDBACK_DIGEST_WATERMARK" > "$T/state/lock/wm" && echo $$ > "$T/state/lock/pid"
 out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
 [ "$rc" = 6 ] || fail "W1: a held lock posting this same pull exited $rc, not 6: $out"
-printf '%s' "$out" | grep -q 'another run is posting this same result; do NOT run it again, check #admin' || fail "W1: exit 6 did not say not to run again: $out"
+printf '%s' "$out" | grep -q "another run is posting this same result; the other run's exit code decides; do NOT start another" || fail "W1: exit 6 did not say not to start another: $out"
 printf '%s' "$out" | grep -q 'NOT posted.*run it again' && fail "W1: exit 6 said to run it again: $out"
 echo "$((now - 500))" > "$T/state/lock/wm"
 out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
 [ "$rc" = 3 ] || fail "W1: a held lock for another pull exited $rc, not 3: $out"
 [ ! -f "$T/posted.json" ] || fail "W1: a locked-out run posted"
 rm -rf "$T/state/lock"
+# Review 5 (W1): a STALE lock (dead pid) carrying this pull's wm is a run of this pull that died while posting: exit 7,
+# nothing posted, the stale lock gone (so a deliberate rerun goes through). CONTROL: a stale lock for another pull is
+# taken over and posts.
+dead=999999; kill -0 "$dead" 2>/dev/null && fail "the test's dead pid $dead is running"
+nokey; rm -f "$T/posted.json"; posts=$(wc -l < "$T/post-count" | tr -d ' ')
+mkdir "$T/state/lock" && echo "$FEEDBACK_DIGEST_WATERMARK" > "$T/state/lock/wm" && echo "$dead" > "$T/state/lock/pid"
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
+[ "$rc" = 7 ] || fail "W1: a dead run of this same pull exited $rc, not 7: $out"
+printf '%s' "$out" | grep -q 'a previous run of this same pull died while posting; it MAY have been posted: check #admin before running again' || fail "W1: exit 7 for a dead run did not say to check #admin: $out"
+[ "$(wc -l < "$T/post-count" | tr -d ' ')" = "$posts" ] || fail "W1: a dead run of this same pull was posted again: $out"
+[ ! -e "$T/state/lock" ] || fail "W1: the stale lock of a dead run of this pull was left behind"
+nokey; rm -f "$T/posted.json"
+mkdir "$T/state/lock" && echo "$((now - 500))" > "$T/state/lock/wm" && echo "$dead" > "$T/state/lock/pid"
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
+[ "$rc" = 0 ] || fail "W1 CONTROL: a dead run of another pull was not taken over (rc $rc): $out"
+printf '%s' "$out" | grep -q 'took over a stale lock' || fail "W1 CONTROL: no takeover line: $out"
+[ "$(wc -l < "$T/post-count" | tr -d ' ')" = "$((posts + 1))" ] || fail "W1 CONTROL: a takeover from another pull did not post: $out"
+# Review 5 (W2): a lock this run made but could not fill is removed and fails as exit 4, never a step-aside from itself.
+# A umask of 277 makes the new lock directory read-only to its maker, so the wm write fails right after the mkdir.
+nokey; rm -f "$T/posted.json"; rm -rf "$T/state/lock"
+out="$(umask 277; FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
+[ "$rc" = 4 ] || fail "W2: a lock that could not be written exited $rc, not 4: $out"
+printf '%s' "$out" | grep -q 'could not write the lock in .*the digest was NOT posted; run it again' || fail "W2: a half-made lock was not reported: $out"
+[ ! -e "$T/state/lock" ] || { chmod 700 "$T/state/lock"; fail "W2: a half-made lock was left behind"; }
+[ ! -f "$T/posted.json" ] || fail "W2: a run with a half-made lock posted"
 
 # 8f. Review 4 (W2): Discord did not answer (curl printed 000, or nothing). The post MAY be in #admin: exit 7, check first.
 for c in 000 EMPTY; do
@@ -335,4 +377,4 @@ out="$(FEEDBACK_DIGEST_DRY_RUN=1 FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run)
 printf '%s' "$out" | grep -q '#9001 Room scroll jumps' || fail "the dry run did not print the message file: $out"
 [ ! -f "$T/posted.json" ] || fail "a message-file dry run posted"
 
-echo "PASS: feedback-digest-daily (a pull posted once then exits 0, held lock for this pull exits 6 and for another 3, no answer from Discord exits 7, a state path that is a file exits 4, message file verbatim with @everyone unpinged, refusals, watermark required and used, lock refusal, watermark never backwards, failed post exits 4, missing node named and exits 4, posted-but-unrecorded exits 5, watermark is pull start minus one, stray watermark said, 20-digit/zero/leading-zero watermark refused, cut at a line break, message-file dry run, nothing new, posted, mid-post arrival once, unwritable watermark, lock races, future watermark, failed post, dry run, no cards, card list at its limit)"
+echo "PASS: feedback-digest-daily (a dead run of this pull exits 7 and another pull's is taken over, a half-made lock exits 4 and is removed, the lock holds the WM mid-post, a rerun after exit 5 posts nothing, an unwritable key exits 5, a pull posted once then exits 0, held lock for this pull exits 6 and for another 3, no answer from Discord exits 7, a state path that is a file exits 4, message file verbatim with @everyone unpinged, refusals, watermark required and used, lock refusal, watermark never backwards, failed post exits 4, missing node named and exits 4, posted-but-unrecorded exits 5, watermark is pull start minus one, stray watermark said, 20-digit/zero/leading-zero watermark refused, cut at a line break, message-file dry run, nothing new, posted, mid-post arrival once, unwritable watermark, lock races, future watermark, failed post, dry run, no cards, card list at its limit)"

@@ -72,6 +72,33 @@ automatic text read as a task for him and as a final word, and Echo's actual res
   never say "run it again", and leave last-posted; 8g the state path a regular file exits 4. W1's rerun arm and W2's
   arm were each shown red with only that fix reverted.
 
+## Review 5
+- W1 (a crashed run of the same pull reposted): in the stale-lock takeover, after the stale lock is moved aside, its
+  wm is read and the lock removed; in message-file mode, if that wm equals ours and $STATE/last-message-wm is not ours,
+  the run logs "a previous run of this same pull died while posting; it MAY have been posted: check #admin before
+  running again" and exits 7. The stale lock is already gone, so a deliberate rerun after checking goes through. A key
+  equal to WM falls through to the key check (exit 0, already posted). Weakest premise: a run that died after writing
+  its wm but BEFORE posting also reads as "may have been posted"; the cost is one look at #admin.
+- W2 (a half-made lock): take_lock removes a lock it made but could not fill (wm or pid write failed) and fails via
+  post_failed "could not write the lock in $STATE" (exit 4 in message-file mode), instead of leaving a lock that reads
+  as a run starting with our wm (exit 6 with nothing posted).
+- W3 (unpinned plan claims): (a) the post stub copies $STATE/lock/wm during the post and 8e asserts it equals
+  FEEDBACK_DIGEST_WATERMARK; (b) after 2c's exit 5 (last-posted unwritable) a rerun of the same WM exits 0 with "already
+  posted" and no new post, and a $STATE/last-message-wm.tmp that is a directory exits 5 with "POSTED, but this pull's
+  key was not recorded".
+- Nits: $WORK is removed on every exit (a trap right after mktemp, replaced by the full trap once the lock is held);
+  the header and this plan say any other exit code means check #admin first; exit 6 says "the other run's exit code
+  decides; do NOT start another".
+- Decided NOT built: keeping only the latest key (a late retry of an OLDER pull after a newer one posts again). Echo
+  retries only its current pull, and the WM shape check plus the max() on last-posted bound the damage to one repeat
+  post that never moves the watermark back. Logging a stale last-posted on a key match: the next pull repairs it via
+  max(), so the line would describe a state that fixes itself.
+- Arms: 8e a stale lock with a dead pid (999999, checked not running with kill -0) and our wm exits 7, posts nothing and
+  leaves no lock; CONTROL, a dead pid with another pull's wm is taken over and posts; a umask of 277 makes the new lock
+  directory unwritable so the wm write fails: exit 4, "could not write the lock", no lock left, nothing posted; W3a and
+  W3b above. W1, W2, W3a (take_lock does not write wm) and W3b (the key written after last-posted) were each shown red
+  with only that code reverted.
+
 ## Weakest premise
 That Echo passes an honest pull-start epoch. The script can check the number is well formed and not in the future,
 not that it is the real start of Echo's pull; a watermark later than the pull reopens the gap from warning 1.
@@ -96,8 +123,10 @@ Exit codes in this mode:
   which (run it again, after fixing the environment if it says so)
 - 5 posted but watermark not recorded (do NOT run it again, it would post twice; the log line gives the value to write
   into last-posted)
-- 6 this same pull is being posted by another run (do NOT run it again; check #admin)
-- 7 Discord did not answer (check #admin first; the post may have gone out)
+- 6 this same pull is being posted by another run (the other run's exit code decides; do NOT start another)
+- 7 the post may have gone out, check #admin first: Discord did not answer, or a previous run of this same pull died
+  while posting (a stale lock carrying this WM)
+- any other code (for example 128+n from a kill): the run may have died mid-post; check #admin first
 Renet puts this into Echo's instructions; this branch does not edit Echo's folder. Plain text, no em dashes, under
 2000 characters, a section with "0" rather than left out:
 ```
