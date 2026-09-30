@@ -264,7 +264,8 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
   /* The same folder, spelt differently (case on a case-insensitive disk, a link) or not: real paths when both exist. */
   const same = (a, b) => !!a && !!b && (path.resolve(a) === path.resolve(b) || realOr(a) === realOr(b));
   /* A folder whose path the rule syntax would misread (`* ? [ ] ( ) { } !`) gets no rule here: said, not guessed. */
-  const plain = (p) => { if (!RULE_SYNTAX.test(String(p))) return true; process.stderr.write(`#4752: no rule for ${p}: its path has a character the rule syntax reads as a pattern\n`); return false; };
+  /* The platform's own separator is not the syntax, so it is taken out before the check. */
+  const plain = (p) => { if (!RULE_SYNTAX.test(String(p).split(path.sep).join('/'))) return true; process.stderr.write(`#4752: no rule for ${p}: its path has a character the rule syntax reads as a pattern\n`); return false; };
   let extra = [];
   let entryBase = null;
   let listed = false;   // earlier per-entry rules are dropped only when this list is complete
@@ -387,14 +388,14 @@ function guardGuideFolder(dir, agentName, deps = {}) {
     /* #4752: none of THIS change's rules (fresh.extra) may take in the guide's own folder. An older folder or a
        linked entry a person made can resolve to an ancestor of it, and the sandbox follows links, so such a rule
        would cut the guide off from its own instructions: dropped, and said. What this checks, no more: a rule
-       naming one folder or file, compared by real path, on a Mac or Linux path; a rule with a `*` is not
-       checked, and the rules from before #4752 are left as they were. */
+       naming one folder or file, compared by real path (a Windows rule is read with its drive letter); a rule
+       with a `*` is not checked, and the rules from before #4752 are left as they were. */
     const own = realOr(dir);
     const safe = fresh.rules.filter((r) => {
       if (!fresh.extra.includes(r)) return true;
       const m = /^Read\(\/\/([^*?]*?)(\/\*\*)?\)$/.exec(r);
       if (!m) return true;
-      const target = realOr('/' + m[1]);
+      const target = realOr(/^[A-Za-z]:/.test(m[1]) ? m[1] : '/' + m[1]);   // a Windows rule keeps its drive
       if (own !== target && !own.startsWith(target.endsWith(path.sep) ? target : target + path.sep)) return true;
       process.stderr.write(`#4752: a rule that would take in the guide's own folder was left out: ${r}\n`);
       return false;
