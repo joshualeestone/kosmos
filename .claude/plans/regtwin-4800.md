@@ -8,7 +8,8 @@ name up before registering again, reuses the same name when nothing live was mad
 account under that name exists without a key here.
 
 ## The change (engine/communitysend.js ensureRegistered)
-- Write-ahead: each register attempt first saves `{ registering: { name, at } }` as the agent's keys entry. A usable
+- Write-ahead: each register attempt first saves `{ registering: { name, at } }` as the agent's keys entry, `at` being
+  the wall clock at the POST (review 6: not the sweep's start). A usable
   201 replaces it with the real keys; only a 4xx (which proves nothing was made) removes it. No answer, a 5xx (a
   gateway can answer 504 after the service committed) or a 2xx whose body could not be read keeps it. Every other
   loop skips an entry with no apiKey, so the mark changes nothing else.
@@ -48,7 +49,7 @@ suffixed name. Safe direction (no twin, no wrong post), but it can leave an agen
 owner why the posts wait. There is no recovery path in the product: the only way out is the name freeing (which
 the service never does on its own) or hand-editing keys.json. A follow-up card if it is seen in practice.
 
-## Tests (engine/communitysend.test.js, 9 new; the fake service gains GET /agents/by-name)
+## Tests (engine/communitysend.test.js, 16 new; communitymine.test.js 1; web.community-name-held-4800.test.js 2; the fake service gains GET /agents/by-name)
 - lost after the account was made: one identity, no post, no second lookup within the hour (with a control that the
   lost register did make the account);
 - lost before: looked up, the same name registered, post sent;
@@ -56,7 +57,8 @@ the service never does on its own) or hand-editing keys.json. A follow-up card i
 - an answered 409 leaves no mark; an answered 400 leaves no mark (next try does not look up);
 - a gateway 504 after the commit, and a 201 whose body is cut, keep the mark (no twin); a 503 lookup waits;
 - slash and dots-only names are sent as our handle (control: an ordinary name is not);
-- review 6: a profile with no registered_at holds the name (control: the lookup ran);
+- review 6: a sweep that began 30 minutes before its register still recognises its own lost account (the
+  sweep-now mutant fails it); a profile with no registered_at holds the name (a regression pin; control: the lookup ran);
 - review 5: an account made an hour after our lost try takes a suffix; communitymine passes the flag as true (and
   false for a mark not yet found taken);
 - review 4: braille-blank names use our handle; a name cut through an emoji drops the half; a mark holding a half
@@ -84,10 +86,12 @@ age check; 3 should-fix (the page's hourly promise, the rename wording, tests fo
 nit taken (dots stripped from the ends only).
 Round 3: no blocker; 2 should-fix ('@' and invisible-character names the service swaps; the old name registered after
 a rename and a 404), taken; nits taken (a stale test title, a test pinning the clock margin).
-Round 6: no blocker; 2 should-fix (the mark's time was the sweep's start, so a slow sweep could read our own
-account as somebody else's; no test for a missing registered_at), taken; nit taken (no recovery path, stated).
-Round 5: no blocker; 2 should-fix (no upper bound on "ours": an account made well after our try was held forever;
-the owner's row flag untested through communitymine), taken; nits taken (two garbled plan lines).
 Round 4: no blocker; 2 should-fix (braille blank missed; a name cut through an emoji jammed the lookup), taken with
 the shared invisible list and the half-character drop; nits taken (the invisible rule's stated reason; the 404 reuse
 comment).
+Round 5: no blocker; 2 should-fix (no upper bound on "ours": an account made well after our try was held forever;
+the owner's row flag untested through communitymine), taken; nits taken (two garbled plan lines).
+Round 6: no blocker; 2 should-fix (the mark's time was the sweep's start, so a slow sweep could read our own
+account as somebody else's; no test for a missing registered_at), taken; nit taken (no recovery path, stated).
+Round 7: CONVERGED (no blocker, no should-fix); nits: this plan's counts, order and the mark's time (taken); a 429
+wait counted from the sweep's start (pre-existing, not changed here).
