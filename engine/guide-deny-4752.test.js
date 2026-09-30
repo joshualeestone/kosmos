@@ -197,6 +197,7 @@ test('#4752 rewriting the guide\'s rules drops the rule for a store entry that i
   const base = path.join(SANDBOX, 'base-rewrite');
   fs.mkdirSync(path.join(base, 'worlds'), { recursive: true });
   for (const f of ['keep.json', 'projects.json.bak-20260824-201717']) fs.writeFileSync(path.join(base, f), 'x');
+  fs.mkdirSync(path.join(base, 'old-backup-20260901'));   // a FOLDER entry: named in both forms, both must go (round 18)
   const guide = path.join(SANDBOX, 'guide-rewrite');
   fs.mkdirSync(guide, { recursive: true });
   const deps = { dataRoot: path.join(base, 'worlds', 'w1', store.APP), worldsBase: base, legacyRoots: [] };
@@ -205,14 +206,18 @@ test('#4752 rewriting the guide\'s rules drops the rule for a store entry that i
   assert.equal(setupAssistant.guardGuideFolder(guide, 'guide', deps).ok, true);
   const bak = `Read(${abs(path.join(base, 'projects.json.bak-20260824-201717'))})`;
   assert.ok(read().includes(bak), 'CONTROL: the backup was not named the first time');
+  const dirRule = `Read(${abs(path.join(base, 'old-backup-20260901'))})`;
+  assert.ok(read().includes(dirRule) && read().includes(`${dirRule.slice(0, -1)}/**)`), 'CONTROL: the backup folder was not named in both forms');
   /* A person's own rule under the same folder but deeper, and one elsewhere, must survive. */
   const s = JSON.parse(fs.readFileSync(path.join(guide, '.claude', 'settings.json'), 'utf8'));
   s.permissions.deny.push(`Read(${abs(path.join(base, 'deeper', 'x.txt'))})`, 'Read(//elsewhere/**)', `Read(${abs(path.join(base, 'worlds.json'))})`);
   fs.writeFileSync(path.join(guide, '.claude', 'settings.json'), JSON.stringify(s));
   fs.unlinkSync(path.join(base, 'projects.json.bak-20260824-201717'));
+  fs.rmdirSync(path.join(base, 'old-backup-20260901'));
   assert.equal(setupAssistant.guardGuideFolder(guide, 'guide', deps).ok, true);
   const after = read();
   assert.ok(!after.includes(bak), 'the rule for a deleted entry stayed');
+  assert.ok(!after.includes(dirRule) && !after.includes(`${dirRule.slice(0, -1)}/**)`), 'a rule for a deleted folder entry stayed');
   assert.ok(after.includes(`Read(${abs(path.join(base, 'keep.json'))})`), 'the rule for an entry that is still there was lost');
   assert.ok(after.includes(`Read(${abs(path.join(base, 'deeper', 'x.txt'))})`) && after.includes('Read(//elsewhere/**)'), 'a rule that is not one entry of the store was dropped');
   assert.ok(after.includes(`Read(${abs(path.join(base, 'worlds.json'))})`), 'a person\'s rule for the registry (a name this code never writes) was dropped');
@@ -287,6 +292,7 @@ test('#4752 the own-folder check leaves the rules from before #4752 alone, and c
   const base = path.join(root, 'base');
   fs.mkdirSync(path.join(base, 'worlds'), { recursive: true });
   fs.symlinkSync(path.join(data, 'workers'), path.join(base, 'linked'));
+  fs.symlinkSync(guide, path.join(base, 'guide-shortcut'));   // the guide folder ITSELF, not its parent (round 18)
   const write = process.stderr.write;
   process.stderr.write = (s, ...rest) => (String(s).startsWith('#4752') ? true : write.call(process.stderr, s, ...rest));
   let deny;
@@ -298,6 +304,7 @@ test('#4752 the own-folder check leaves the rules from before #4752 alone, and c
   assert.ok(deny.includes(`Read(${abs(data)}/**)`), 'the data folder rule (#3769) was dropped by the #4752 check');
   assert.ok(!deny.includes(`Read(${abs(path.join(base, 'linked'))}/**)`), 'the linked entry that holds the guide was named');
   assert.ok(!deny.includes(`Read(${abs(path.join(base, 'linked'))})`), 'the linked entry\'s plain rule (no /**), which also takes in the guide, was named');
+  assert.ok(!deny.some((r) => r.includes('guide-shortcut')), 'a linked entry that IS the guide folder was named');
   assert.ok(deny.includes(`Read(${abs(path.join(base, 'board.token'))})`), 'CONTROL: the base rules were not written at all');
 });
 
