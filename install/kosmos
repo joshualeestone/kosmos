@@ -599,6 +599,26 @@ board_token() {
   printf '%s' "$_tok"
 }
 
+# #4491 slice 7: the board token for an AGENT's everyday verb. With KOSMOS_AGENT_TOKEN_ONLY=1 and a well-formed
+# agent token (plain hex, exactly what each verb presents), this prints NOTHING and does not read board.token: the
+# request then carries the agent's token alone, so the board knows it is that agent and never the person. Anything
+# else (the switch off, which is the default; no token; a malformed one) is board_token, exactly as before.
+# Used ONLY by verbs whose route answers to the agent's token alone (server.js AGENT_TOKEN_ROUTES and its
+# patterns, the report and reply routes, and the team route). The person's verbs keep board_token: open,
+# connections, connect, project create, room reopen, community post (and community read until its route joins
+# the set). There is NO fallback: a board that refuses the token alone is told to the agent in the board's own
+# words. Falling back to the board token would put the person's credential back in the request the switch exists
+# to keep it out of. Call it the same way: _bt="$(agent_board_token || true)".
+agent_board_token() {
+  if [ "${KOSMOS_AGENT_TOKEN_ONLY:-}" = "1" ]; then
+    case "${KOSMOS_AGENT_TOKEN:-}" in
+      ''|*[!0-9a-f]*) ;;
+      *) return 0 ;;
+    esac
+  fi
+  board_token
+}
+
 # The node that runs an engine module from this shell, and where that module is.
 # Extracted from board_token (kosmos#2644, whose reasoning is above) when the
 # outbox keep (#1704 PR2) became a second caller, so the two layouts are decided
@@ -1473,7 +1493,7 @@ cmd_msg() {
   # No -f: an HTTP error still carries the server's own sentence, and
   # "could not reach" is a wrong diagnosis for a reachable server that
   # refused. Only a transport failure gets the unreachable sentence.
-  local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
+  local _bt; _bt="$(agent_board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
   local _data="{\"to\":\"$esc_to\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}"
   # #2909: refuse a body over the board's read limit with the real reason, and send it to curl on
   # stdin (printf is a builtin, so no argv limit applies to a long piped message).
@@ -1611,7 +1631,7 @@ cmd_reply() {
   # it, a same-account `kosmos reply` carries only a pane, which the board now
   # refuses on an enforcing board (a bare pane is the cross-account spoof path).
   # Inert (omitted) when empty -- a non-enforcing board writes no token file.
-  local _bt; _bt="$(board_token || true)"
+  local _bt; _bt="$(agent_board_token || true)"
   # #3769: the agent's own token too, as `whoami` and `report` present it (hex only). A Claude setup
   # guide on a Mac runs sandboxed with Kosmos's data folder denied (guardGuideFolder in
   # engine/setup-assistant.js), and board_token above reads only that folder; its agent token is
@@ -1882,7 +1902,7 @@ cmd_post() {
   # exit 28 vs the rest): "could not reach" for a server mid-delivery is
   # the misdiagnosis cmd_msg's own comment warns about, and it invites
   # the re-post the unconfirmed state exists to stop.
-  local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
+  local _bt; _bt="$(agent_board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
   # rc via `|| rc=$?`, NOT a bare `body=$(...); rc=$?`: the shebang is /bin/bash
   # 3.2 under `set -euo pipefail`, where a failing command substitution in a bare
   # assignment aborts the whole process at that line. The bare form killed `kosmos
@@ -2149,7 +2169,7 @@ cmd_whoami() {
     ''|*[!0-9a-f]*) ;;
     *) _tok="$KOSMOS_AGENT_TOKEN" ;;
   esac
-  local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
+  local _bt; _bt="$(agent_board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
   body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/whoami" \
     -H 'content-type: application/json' \
     -d "{\"from_pane\":\"$esc_pane\"}" 2>&1) || {
@@ -2277,7 +2297,7 @@ cmd_report() {
   # what a same-account report presents instead. Inert (omitted) when empty.
   # #1970: both tokens go off argv through kosmos_curl (they land in one mode-600
   # @file), so the anti-spoof board token is not itself exposed on argv.
-  local _bt; _bt="$(board_token || true)"
+  local _bt; _bt="$(agent_board_token || true)"
   # An --auto report's POST gets what is left of AUTO_REPORT_TOTAL_S (at least 2 s), so a board that
   # answered its health check slowly cannot then hold the hook past its 15 s timeout.
   if [ "$auto" = 1 ]; then
@@ -2329,7 +2349,7 @@ cmd_report_show() {
     ''|*[!0-9a-f]*) ;;
     *) _tok="$KOSMOS_AGENT_TOKEN" ;;
   esac
-  local _bt; _bt="$(board_token || true)"
+  local _bt; _bt="$(agent_board_token || true)"
   local _pane_q; _pane_q=$(printf '%s' "${TMUX_PANE:-}" | sed 's/%/%25/g')
   # bash-3.2 under set -euo pipefail: local-then-substitute, `|| _rc=$?` (a bare
   # `_body=$(...)` aborts the process on a curl failure), status via -w.
@@ -2648,7 +2668,7 @@ cmd_react() {
   esc_post=$(printf '%s' "$post" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   esc_emoji=$(printf '%s' "$emoji" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
-  local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
+  local _bt; _bt="$(agent_board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
   # rc is captured via `|| rc=$?`, NOT a bare `body=$(...); rc=$?`. The shebang is
   # /bin/bash (3.2 on macOS) under `set -euo pipefail`, where a failing command
   # substitution in a bare assignment ABORTS the whole process at that line -- so
@@ -2765,7 +2785,7 @@ cmd_room() {
   local esc_project
   require_valid_project_id "$project"
   esc_project="$project"
-  local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
+  local _bt; _bt="$(agent_board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
   # #2702: capture the HTTP status so an UNKNOWN project (404, "there is no
   # project by that name") prints its sentence AND exits non-zero -- parity with
   # cmd_post/cmd_react, which reject a bad id with exit 1. Before this, curl
@@ -3155,7 +3175,7 @@ cmd_task() {
     say_not_up "its tasks are unreachable"
     exit 1
   fi
-  local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert when empty
+  local _bt; _bt="$(agent_board_token || true)"   # #1946: board token for an enforcing board; inert when empty
   # #3035: a project id is looked up EXACTLY, never stripped -- room and task share
   # require_valid_project_id, so `kosmos room <id>` and `kosmos task <id>` reject the same bad
   # ids the same way (a typo reads as "there is no project by that name", never as an empty
@@ -3373,7 +3393,7 @@ cmd_project() {
     esac
     exit 1
   fi
-  local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert when empty
+  local _bt; _bt="$(agent_board_token || true)"   # #1946: board token for an enforcing board; inert when empty
   case "$sub" in
     list|show)
       # #4581: read-only. The agent's own token too (#4491, hex only, as msg sends it), so the board can tell
@@ -3429,7 +3449,9 @@ cmd_project() {
       # project it made. The board token is still what opens this route.
       local _ptok=""
       case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _ptok="$KOSMOS_AGENT_TOKEN" ;; esac
-      body=$(kosmos_curl "$_bt" "$_ptok" -sS -m 30 -X POST "$URL/api/projects" \
+      # Slice 7: making a project is opened by the board token only, so this arm reads it whatever the switch says.
+      local _pbt; _pbt="$(board_token || true)"
+      body=$(kosmos_curl "$_pbt" "$_ptok" -sS -m 30 -X POST "$URL/api/projects" \
         -H 'content-type: application/json' \
         --data "$_data" 2>/dev/null) || rc=$?
       if [ "$rc" -ne 0 ]; then
@@ -3509,7 +3531,7 @@ cmd_agent() {
   fi
   # The answer is read as JSON by the engine's own node (an agent's PATH may have none, #1911).
   local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
-  local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert when empty
+  local _bt; _bt="$(agent_board_token || true)"   # #1946: board token for an enforcing board; inert when empty
   local body rc=0
   local _rtok=""   # #4491 slice 4: the two role reads carry the agent's own token too, plain hex only
   case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _rtok="$KOSMOS_AGENT_TOKEN" ;; esac
