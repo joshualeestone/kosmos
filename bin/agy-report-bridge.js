@@ -185,12 +185,11 @@ function reportFor(eventName, payload) {
   if (state === 'working' && w && typeof w === 'object' && Number.isSafeInteger(w.n) && Number.isSafeInteger(w.yours)) {
     return final ? { state, text, waiting: { n: w.n, yours: w.yours }, final } : { state, text, waiting: { n: w.n, yours: w.yours } };
   }
-  if (final) return { state, text, final };
   if (state === 'idle' && payload && typeof payload === 'object') {
     /* A Stop with an error is still the end of the turn; say so on the card rather than hide it. */
     if (typeof payload.error === 'string' && payload.error.trim()) text = 'The turn ended with an error: ' + payload.error.trim();
   }
-  return { state, text };
+  return final ? { state, text, final } : { state, text };
 }
 
 /* The /api/report body. `auto: true` is the field the correctness argument rests on (a turn ending

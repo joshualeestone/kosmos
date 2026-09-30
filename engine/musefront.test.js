@@ -632,7 +632,7 @@ test('#4612 review round 1: the answer carried is the DM turn\'s, even when a ro
   const early = sent.findIndex(([s, f]) => s === 'working' && f && f.text === 'Answer to Josh.');
   assert.ok(early >= 0 && early < sent.findIndex(([s]) => s === 'idle'), 'the answer waited for the queue to drain: ' + JSON.stringify(sent));
   assert.equal(idle[0][1] && idle[0][1].text, 'Answer to Josh.', 'the room turn\'s answer was carried: ' + JSON.stringify(idle));
-  assert.ok(Date.parse(idle[0][1].startedAt) > fedAt, 'startedAt is when the DM was fed, not when its turn began');
+  assert.ok(Date.parse(idle[0][1].startedAt) >= fedAt, 'startedAt is when the DM was fed, not when its turn began');
   // CONTROL: only room turns ran, so no answer is carried.
   const c = []; const r = harness([OK('Nothing here needs me.')], { report: (s, w, final) => c.push(final || null) });
   r.f.feed(BG(2) + '\r'); await r.f.drained();
@@ -641,6 +641,37 @@ test('#4612 review round 1: the answer carried is the DM turn\'s, even when a ro
   const d = []; const q = harness([OK('Room answer.')], { report: (s, w, final) => d.push(final || null) });
   q.f.feed('[message from your operator · m7 · project p · to answer, run: kosmos post --in-reply-to m7 p] hi\r'); await q.f.drained();
   assert.equal(d[d.length - 1], null, 'a room post from the person was carried as a DM answer');
+});
+
+test('#4612 review (fresh loop): a DM that waited behind a newer DM is dated by when it arrived, so it cannot pass as the newer one\'s answer', async () => {
+  const sent = [];
+  const h = harness((input, i) => (i === 0 ? 'hold' : /first question/.test(input.prompt) ? OK('Answer to the first.') : OK('Answer to the second.')),
+    { report: (s, w, final) => sent.push([s, final || null]) });
+  h.f.feed('long job\r');
+  h.f.feed(OP('first question') + '\r');
+  await new Promise((r) => setTimeout(r, 15));
+  const secondAt = Date.now();
+  h.f.feed(OP('second question') + '\r');
+  await new Promise((r) => setTimeout(r, 15));
+  h.pending[0](OK('done'));   // the long job ends after BOTH DMs arrived, so the first DM's turn starts after the second
+  await h.f.drained();
+  const answers = sent.map(([, f]) => f).filter(Boolean);
+  const first = answers.find((f) => f.text === 'Answer to the first.');
+  const second = answers.find((f) => f.text === 'Answer to the second.');
+  assert.ok(first && second, 'CONTROL: both DM turns answered: ' + JSON.stringify(sent));
+  assert.ok(Date.parse(first.startedAt) < secondAt, 'the first DM\'s answer was dated after the second DM arrived, so the board would show it under the second: ' + JSON.stringify(first));
+  assert.ok(Date.parse(second.startedAt) >= secondAt - 5, 'the second DM\'s answer is dated before it arrived: ' + JSON.stringify(second));
+});
+
+test('#4612 review (fresh loop): a DM turn that throws leaves no answer to carry', async () => {
+  const sent = [];
+  const h = harness((input, i) => { if (i === 0) return OK('Earlier answer.'); throw new Error('boom'); },
+    { report: (s, w, final) => sent.push([s, final || null]) });
+  h.f.feed(OP('one') + '\r'); await h.f.drained();
+  assert.equal(sent[sent.length - 1][1] && sent[sent.length - 1][1].text, 'Earlier answer.', 'CONTROL: the first DM was answered');
+  h.f.feed(OP('two') + '\r'); await h.f.drained();
+  assert.equal(sent[sent.length - 1][0], 'idle');
+  assert.equal(sent[sent.length - 1][1], null, 'a DM turn that threw still carried the earlier answer');
 });
 
 test('#4612 review round 2: a stop note\'s answer is carried (it answers the person\'s stop DM); a later failed DM clears an earlier answer', async () => {

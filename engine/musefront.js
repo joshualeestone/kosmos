@@ -149,6 +149,7 @@ const DIGEST_MAX_CHARS = 32 * 1024;
 function createFront({ workspace, sessionId, runTurn, report, write, workingEveryMs = WORKING_EVERY_MS, busyRetryMs = BUSY_RETRY_MS, noteEveryMs = NOTE_EVERY_MS }) {
   let line = '';
   const queue = [];
+  const dmReceivedAt = new Map();   // #4612 review: when each of the person's DMs reached this front
   let running = false;
   const STOP_NOTES = new Set();   // #4569: stop notes waiting or running (a second stop leaves them alone)
   let stopNoteRunning = false;
@@ -215,7 +216,12 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         if (beat.unref) beat.unref();
         let r;
         const isNote = stopNoteRunning;
-        const startedAt = new Date().toISOString();   // #4612: the turn's start, which the board compares with the DM
+        /* #4612 review: the answer is dated by when its DM reached this front, not by the turn's start, which the board
+           compares with the newest DM: a DM that waited behind a newer one must not pass as that one's answer. A stop
+           note has no receipt time here, so its turn's start stands. */
+        const startedAt = dmReceivedAt.get(prompt) || new Date().toISOString();
+        dmReceivedAt.delete(prompt);
+        for (const k of dmReceivedAt.keys()) if (!queue.includes(k)) dmReceivedAt.delete(k);   // dropped by a stop
         try {
           for (let tries = 0; ; tries++) {
             r = await runTurn({ workspace, sessionId, prompt, approvalMode: 'never', onStop: (f) => { stopTurn = f; } });
@@ -251,6 +257,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     write('\n');
     if (!text) { write(PROMPT); return; }
     if (isStopRequest(text) && (running || queue.length)) { stopFor(text); noteSoon(); return; }
+    if (answersTheDm(text) && !dmReceivedAt.has(text)) dmReceivedAt.set(text, new Date().toISOString());
     if (kindOf(text) === 'operator') {
       // Behind the person's own earlier messages, ahead of everyone else's.
       let at = 0;

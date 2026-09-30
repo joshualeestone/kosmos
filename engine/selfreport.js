@@ -284,8 +284,10 @@ function record(sessionName, entry) {
        from these two numbers and fixed words only (no agent text reaches it), and it shows on the reporter's own
        card alone, so a false one is no worse than a false "working". */
     waiting: waitingOf(state, entry.waiting),
-    /* #4612: a Muse turn's answer, { text, startedAt }, on the idle report that ended it. Shown in the DM only when
-       the person's latest message is still unanswered there and this turn began after it arrived (server.js). */
+    /* #4612: a turn's answer, { text, startedAt }, on an idle or working report. The Muse front sends it; any agent's
+       own report could too, but it shows only under that agent's own DM, escaped, and only when the person's latest
+       message there is unanswered and startedAt is not before it (server.js), so a false one says nothing the agent
+       could not already post there itself. */
     final: finalOf(state, entry.final),
     /* #570: WHICH RUN of this agent said it. Two live runs of one agent used to
        interleave into this file with nothing marking two actors, so a pair of
