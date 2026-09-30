@@ -400,7 +400,9 @@ function kosmosPlus() {
    answer can show or hide screens, never grant access. Redirects are refused, and only a JSON answer
    is parsed. `opts.fetch` and `opts.timeoutMs` are the test seam. */
 const FED_LIVE_TIMEOUT_MS = 5000;
-async function fetchFederationLive(opts) {
+/* One boolean off /v1/meta, or null when it cannot tell. Shared by federation_live (#4649) and
+   bought_addresses (#4756); the rules above apply to both. */
+async function fetchMetaFlag(field, opts) {
   opts = opts || {};
   const get = typeof opts.fetch === 'function' ? opts.fetch : fetch;
   try {
@@ -409,11 +411,12 @@ async function fetchFederationLive(opts) {
     if (!res || !res.ok) return null;
     if (!/^application\/json\b/i.test(String((res.headers && res.headers.get && res.headers.get('content-type')) || ''))) return null;
     const body = await res.json();
-    return (body && typeof body.federation_live === 'boolean') ? body.federation_live : null;
+    return (body && typeof body[field] === 'boolean') ? body[field] : null;
   } catch {
     return null;
   }
 }
+async function fetchFederationLive(opts) { return fetchMetaFlag('federation_live', opts); }
 /* Lazily refresh the cached federation-live flag when it is older than `ttlMs`.
    NON-BLOCKING by contract (callers do NOT await it), single-flighted, best-effort.
    Not gated on enrolled() (unlike refreshStandingIfStale): a board with remote access ON that
@@ -1938,6 +1941,42 @@ function turnOnAfterSignin() {
   if (!wrote.ok) process.stderr.write('remote: signed in, but could not switch Kosmos+ on: ' + wrote.because + '\n');
 }
 
+/* kosmos#4754 / #4756 (Josh 2026-09-30, ruling "A"): a new computer is a purchase. Once the coordinator
+   says bought addresses are live (/v1/meta bought_addresses, or AGENT_WORKFORCE_BOUGHT_ADDRESSES=1 to test),
+   a computer signs in to an address the account has BOUGHT and never makes one, so the wizard needs the
+   account's addresses at the session step, before register. Read with the session this sign-in holds
+   (the coordinator's GET /v1/account/addresses, contract on kosmos#4754), a plain HTTPS read like
+   fetchFederationLive: it only decides what the step OFFERS, and register_mac refuses an address not
+   bought whatever this says. The token is sent only to COORDINATOR() and redirects are refused.
+   Answers { live:false } with the switch off (the wizard is exactly as before), else the rows in their
+   own shapes only, the website's buy link (https only), and this computer's own name if it is set up. */
+const BOUGHT_STATES = new Set(['in_use', 'free', 'pending']);
+async function signinAddresses(opts) {
+  opts = opts || {};
+  const get = typeof opts.fetch === 'function' ? opts.fetch : fetch;
+  // No session, no call at all (not even /v1/meta): there is nothing to list without one.
+  if (!signinSession || typeof signinSession.token !== 'string') return { ok: false, because: 'finish the code steps first' };
+  const live = process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES === '1' || (await fetchMetaFlag('bought_addresses', { fetch: get, timeoutMs: opts.timeoutMs })) === true;
+  if (!live) return { ok: true, because: null, data: { live: false } };
+  let res, body;
+  try {
+    res = await get(String(COORDINATOR()).replace(/\/+$/, '') + '/v1/account/addresses', {
+      headers: { authorization: 'Bearer ' + signinSession.token },
+      signal: AbortSignal.timeout(opts.timeoutMs || FED_LIVE_TIMEOUT_MS), redirect: 'error' });
+    body = await res.json();
+  } catch {
+    return { ok: false, because: 'Kosmos+ could not be reached to list your addresses' };
+  }
+  if (!res.ok) return { ok: false, because: (body && typeof body.error === 'string' && body.error) || 'Kosmos+ could not list your addresses' };
+  const rows = (body && Array.isArray(body.addresses) ? body.addresses : [])
+    .filter((r) => r && NAME_RULE.test(String(r.name)) && BOUGHT_STATES.has(r.state)
+      && typeof r.address === 'string' && /^[a-z0-9-]{3,32}\.[a-z0-9.-]{3,253}$/.test(r.address) && r.address.split('.')[0] === r.name)
+    .map((r) => ({ name: r.name, address: r.address, state: r.state }));
+  const buy = body && typeof body.buy_url === 'string' && /^https:\/\/[^\s"'<>]+$/.test(body.buy_url) ? body.buy_url : '';
+  const here = enrolled() ? String(address() || '').split('.')[0] : '';
+  return { ok: true, because: null, data: { live: true, addresses: rows, buy_url: buy, this_name: NAME_RULE.test(here) ? here : '' } };
+}
+
 async function signinRegister(name) {
   // First, before every path (the #1010 shortcut included): one register at a time (a
   // page that lost its connection can press Try again while the first is still
@@ -2051,7 +2090,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { COORDINATOR, fedSeatArgs, fetchFederationLive, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,

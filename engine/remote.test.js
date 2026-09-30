@@ -2906,3 +2906,94 @@ test('#4610 round 2: a grant still out when the identity changes cannot mark the
     await until(() => allows().length > before, 'the tick to grant it again: the old answer must not count for the new identity');
   } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_DEVICE_HANG_MS; remote.setOn(false); }
 });
+
+/* ---- kosmos#4756: a second computer signs in to a BOUGHT address (#4754 contract) ------------------ */
+async function withCoordinator(routes, fn) {
+  const http = require('node:http');
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    seen.push({ url: req.url, auth: req.headers.authorization || null });
+    const ans = routes[req.url];
+    if (!ans) { res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":"no"}'); return; }
+    if (ans.redirectTo) { res.writeHead(302, { location: ans.redirectTo }); res.end(); return; }
+    res.writeHead(ans[0], { 'content-type': 'application/json' });
+    res.end(JSON.stringify(ans[1]));
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
+  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'http://127.0.0.1:' + server.address().port + '/';
+  try { return await fn(seen); } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR; else process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = was;
+    server.closeAllConnections(); await new Promise((r) => server.close(r));
+  }
+}
+const BOUGHT = { addresses: [
+  { name: 'first', address: 'first.kosmos.invalid', state: 'in_use', computer: { name: 'first', last_seen: 1 } },
+  { name: 'spare', address: 'spare.kosmos.invalid', state: 'free', computer: null },
+  { name: 'paying', address: 'paying.kosmos.invalid', state: 'pending', computer: null },
+  { name: 'Bad Name', address: 'bad.kosmos.invalid', state: 'free' },
+  { name: 'other', address: 'notother.kosmos.invalid', state: 'free' },
+  { name: 'weird', address: 'weird.kosmos.invalid', state: 'retired' },
+], buy_url: 'https://login.kosmos.invalid/signin#add-computer', price: null };
+
+test('#4756: with bought addresses switched off, signinAddresses answers live:false and never reads the list', async () => {
+  delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES;
+  remote.resetForTests();
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '262626');
+  for (const meta of [{ bought_addresses: false }, { build: 'x' }]) {
+    await withCoordinator({ '/v1/meta': [200, meta], '/v1/account/addresses': [200, BOUGHT] }, async (seen) => {
+      const r = await remote.signinAddresses();
+      assert.deepEqual(r, { ok: true, because: null, data: { live: false } });
+      assert.equal(seen.some((s) => s.url === '/v1/account/addresses'), false, 'read the list with the switch off');
+      assert.equal(seen.some((s) => s.url === '/v1/meta'), true, 'never asked /v1/meta; the zero above proves nothing');
+    });
+  }
+});
+
+test('#4756: live, it needs the sign-in session, sends it only as a Bearer to the coordinator, and passes rows only in their own shapes', async () => {
+  remote.resetForTests();
+  await withCoordinator({ '/v1/meta': [200, { bought_addresses: true }], '/v1/account/addresses': [200, Object.assign({}, BOUGHT, { buy_url: 'javascript:alert(1)' })] }, async (seen) => {
+    const none = await remote.signinAddresses();
+    assert.equal(none.ok, false);
+    assert.match(none.because, /finish the code steps first/);
+    assert.equal(seen.length, 0, 'called the coordinator with no session');
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '262626');
+    const r = await remote.signinAddresses();
+    assert.equal(r.ok, true, r.because);
+    assert.equal(seen.find((s) => s.url === '/v1/account/addresses').auth, 'Bearer kst1.session-owned');
+    assert.deepEqual(r.data.addresses, [
+      { name: 'first', address: 'first.kosmos.invalid', state: 'in_use' },
+      { name: 'spare', address: 'spare.kosmos.invalid', state: 'free' },
+      { name: 'paying', address: 'paying.kosmos.invalid', state: 'pending' },
+    ], 'a row with a bad name, a mismatched address or an unknown state was passed through');
+    assert.equal(r.data.live, true);
+    assert.equal(r.data.buy_url, '', 'a buy link that is not https was passed to the page');
+  });
+  remote.resetForTests();
+});
+
+test('#4756: AGENT_WORKFORCE_BOUGHT_ADDRESSES=1 turns it on without the coordinator; a refusal keeps the server sentence; a redirect is not followed', async () => {
+  remote.resetForTests();
+  process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES = '1';
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '262626');
+    await withCoordinator({ '/v1/meta': [200, { bought_addresses: false }], '/v1/account/addresses': [200, BOUGHT] }, async () => {
+      const r = await remote.signinAddresses();
+      assert.equal(r.ok, true, r.because);
+      assert.equal(r.data.live, true);
+      assert.equal(r.data.buy_url, 'https://login.kosmos.invalid/signin#add-computer');
+    });
+    await withCoordinator({ '/v1/account/addresses': [401, { error: 'your sign-in has ended; start again from the email' }] }, async () => {
+      const r = await remote.signinAddresses();
+      assert.equal(r.ok, false);
+      assert.equal(r.because, 'your sign-in has ended; start again from the email');
+    });
+    await withCoordinator({ '/v1/account/addresses': { redirectTo: 'http://127.0.0.1:9/steal' } }, async () => {
+      const r = await remote.signinAddresses();
+      assert.equal(r.ok, false, 'followed a redirect with the session token');
+    });
+  } finally { delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES; remote.resetForTests(); }
+});
