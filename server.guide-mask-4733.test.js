@@ -45,6 +45,7 @@ const { MASK } = require('./engine/secretmask');
 const GUIDE = 'guidebot';
 const OTHER = 'helperbot';
 const THIRD = 'mona';   // the assignee both of them write to
+const PANE = 'fixture';   // the test fake-tmux answers every pane's session as fixture-discord, which ties to this agent
 const KEY = ['sk-ant-', 'api03-', 'FakeKeyFor4733Tests_abcdefGHIJ012345'].join('');
 const restore = [];
 function stub(obj, key, value) { const was = obj[key]; obj[key] = value; restore.push(() => { obj[key] = was; }); }
@@ -53,14 +54,15 @@ let base;
 let projectId;
 const token = {};
 const typed = [];   // every line the task message route hands to chat.deliverAsync
+let paneIsGuide = false;   // the pane-identified arm turns this on, so the agent a pane resolves to is the guide
 test.before(async () => {
   stub(setupAssistant, 'guideName', () => GUIDE);
-  stub(setupAssistant, 'isGuideFolder', (n) => n === GUIDE);
+  stub(setupAssistant, 'isGuideFolder', (n) => n === GUIDE || (paneIsGuide && n === PANE));
   await start(0);
   base = `http://127.0.0.1:${server.address().port}`;
-  const roster = fleet.install([fleet.agent(GUIDE, { state: 'idle' }), fleet.agent(OTHER, { state: 'idle' }), fleet.agent(THIRD, { state: 'idle' })]).agents;
+  const roster = fleet.install([fleet.agent(GUIDE, { state: 'idle' }), fleet.agent(OTHER, { state: 'idle' }), fleet.agent(THIRD, { state: 'idle' }), fleet.agent(PANE, { state: 'idle' })]).agents;
   const p = projects.create({ name: 'Alpha' });
-  for (const n of [GUIDE, OTHER, THIRD]) projects.addAgent(p.id, n, roster);
+  for (const n of [GUIDE, OTHER, THIRD, PANE]) projects.addAgent(p.id, n, roster);
   projectId = p.id;
   for (const n of [GUIDE, OTHER]) {
     const minted = sendertoken.mint(n);
@@ -77,8 +79,9 @@ test.after(() => {
 
 const newTask = (sentence) => tasks.create(projectId, { sentence, who: THIRD }).number;
 const stored = (n) => tasks.byNumber(projects.readAll().find((x) => x.id === projectId), n);
+/* `who` names the agent whose token is sent; null sends no token (the caller is then named by body.from_pane, if any). */
 const post = async (p, body, who) => {
-  const res = await fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': token[who] }, body: JSON.stringify(body) });
+  const res = await fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json', ...(who ? { 'x-kosmos-agent-token': token[who] } : {}) }, body: JSON.stringify(body) });
   return { status: res.status, json: await res.json().catch(() => null) };
 };
 
@@ -146,7 +149,7 @@ test('#4733 the guide\'s status report is recorded masked in every field kept as
 });
 
 test('#4733 a report field that is not a string is made text and masked for the guide (the store would make text of it unmasked)', async () => {
-  const body = { state: 'needs_you', text: [`the key is ${KEY}`], on: [KEY], owner: [`holder ${KEY}`], until: [`after ${KEY}`] };
+  const body = { state: 'needs_you', text: [`the key is ${KEY}`], on: [KEY], owner: [`holder ${KEY}`], until: [`after ${KEY}`], project: [KEY] };
 
   const g = await post('/api/report', body, GUIDE);
   assert.equal(g.status, 200, JSON.stringify(g.json));
@@ -215,4 +218,52 @@ test('#4733 the mask runs before the store cuts a long report, and keeps its par
   const o = await post('/api/report', body, OTHER);
   assert.equal(o.json.recorded, true, JSON.stringify(o.json));
   assert.ok(selfreport.read(OTHER).because.endsWith(KEY.slice(0, 20)), 'CONTROL: the store did not cut another agent\'s report inside the key, so the arm above proved nothing about the cut');
+});
+
+test('#4733 a caller named by its pane, not a token, is masked the same on both task routes', async () => {
+  const words = `The key is ${KEY}, paste it in.`;
+  const asPane = async (guide) => {
+    paneIsGuide = guide;
+    try {
+      const n = newTask('Pane arm ' + (guide ? 'guide' : 'control'));
+      const m = await post(`/api/project/${projectId}/task/${n}/message`, { text: words, from_pane: '%7' }, null);
+      assert.equal(m.status, 200, JSON.stringify(m.json));
+      const b = await post(`/api/project/${projectId}/task/${n}/built`, { note: `waiting on ${KEY}`, from_pane: '%7' }, null);
+      assert.equal(b.status, 200, JSON.stringify(b.json));
+      return { said: JSON.stringify(taskchat.read(projectId, n)), task: stored(n) };
+    } finally { paneIsGuide = false; }
+  };
+  const g = await asPane(true);
+  assert.equal(g.task.builtBy, PANE, 'CONTROL: the pane did not resolve to the agent, so the pane arm was not what ran');
+  assert.ok(g.said.includes(`The key is ${MASK}, paste it in.`) && !g.said.includes(KEY), 'a pane-named guide\'s message was not recorded masked: ' + g.said);
+  assert.equal(g.task.builtNote, `waiting on ${MASK}`);
+
+  const o = await asPane(false);
+  assert.equal(o.task.builtBy, PANE);
+  assert.ok(o.said.includes(words), 'CONTROL: the same pane\'s words were changed when it is not the guide');
+  assert.equal(o.task.builtNote, `waiting on ${KEY}`, 'CONTROL: the same pane\'s note was changed when it is not the guide');
+});
+
+test('#4733 the length limits are judged on the masked words: a guide text the mask lengthens past the limit is refused, and nothing is kept', async () => {
+  /* The mask can make a text LONGER: a one-character password in a link becomes the four-character mask. */
+  const link = 'ftp://u:p@h.example';
+  const note = 'x'.repeat(tasks.BUILT_NOTE_MAX - link.length - 1) + ' ' + link;
+  const text = 'x'.repeat(tasks.MESSAGE_MAX - link.length - 1) + ' ' + link;
+  assert.equal(note.length, tasks.BUILT_NOTE_MAX, 'CONTROL: the note is not exactly at its limit');
+  assert.equal(text.length, tasks.MESSAGE_MAX, 'CONTROL: the message is not exactly at its limit');
+
+  const n1 = newTask('At the limit, the guide');
+  const gb = await post(`/api/project/${projectId}/task/${n1}/built`, { note }, GUIDE);
+  assert.equal(gb.status, 400, JSON.stringify(gb.json));
+  assert.match(gb.json.error, /keep the note to \d+ characters or fewer/);
+  assert.equal('builtAt' in stored(n1), false, 'a refused note still marked the task');
+  const gm = await post(`/api/project/${projectId}/task/${n1}/message`, { text }, GUIDE);
+  assert.equal(gm.status, 400, JSON.stringify(gm.json));
+  assert.match(gm.json.error, /keep the message to \d+ characters or fewer/);
+  assert.ok(!JSON.stringify(taskchat.read(projectId, n1)).includes('h.example'), 'a refused message was still recorded');
+
+  // CONTROL: the same texts from another agent are inside the limits and are kept, so the refusals above are the mask's extra length.
+  const n2 = newTask('At the limit, another agent');
+  assert.equal((await post(`/api/project/${projectId}/task/${n2}/built`, { note }, OTHER)).status, 200);
+  assert.equal((await post(`/api/project/${projectId}/task/${n2}/message`, { text }, OTHER)).status, 200);
 });

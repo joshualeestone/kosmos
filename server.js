@@ -13693,15 +13693,15 @@ const server = http.createServer(async (req, res) => {
                   projectId = pj && pj.id;
                 } catch { projectId = null; }
                 if (projectId) {
-                  const carried = reportFieldMasker(who);
-                  /* Carry the poster's existing working CONTENT through unchanged
+                  /* Carry the poster's existing working CONTENT through
                      (because/on/owner/until) -- only the project is being added, and
                      selfreport.read reads those from the single latest line, so
                      omitting them here would silently drop a `working --on/--owner`
-                     note the agent had set. */
+                     note the agent had set. Unchanged, except (#4733) that the setup guide's are
+                     masked, so a report it made before the mask is not written again as it was. */
+                  const carried = reportFieldMasker(who);
                   selfreport.record(who, {
                     state: 'working', project: projectId,
-                    /* #4733: masked for the setup guide, so a report it made before the mask is not written again as it was. */
                     because: carried(current.because), on: carried(current.on),
                     owner: carried(current.owner), until: carried(current.until),
                     instance: poster.instance, auto: true,
