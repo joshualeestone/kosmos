@@ -117,3 +117,12 @@ None.
 - **Focused tests on the merged tree (20235efda, tree 3c02c2909):** web.* 2200/0, server.test.js 346/0,
   browser-checks-reason-grep 5/0, surface gate 0.
 - The full validation stays the one on 303440f09 (12542/0); path C replaces a second run.
+
+### Changes after convergence, second merge (2026-09-30 13:50 CDT)
+
+- **Merged origin/main 5e3c557cd** in bf257d97e. It adds #4618, #4750, #4607 (2819c39a3) and #4731.
+  Their files overlap this PR in web/index.html and browser-checks-reason-grep.test.js: path C again.
+- **One hand-resolved line:** `EXPECTED_SITES`, main 222 (after #4607's +1) -> **223**, note appended.
+  The reason-grep test measures it: 5/0 at 223, and 4/1 at 222 (control).
+- **Focused tests on this merge (bf257d97e):** web.* 2202/0, server.test.js 346/0, reason-grep 5/0,
+  surface gate 0.
