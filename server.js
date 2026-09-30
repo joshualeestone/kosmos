@@ -18112,7 +18112,8 @@ const server = http.createServer(async (req, res) => {
      the wrong content type, the same silent-success signature the API guard
      above exists to stop. A name outside the allowlist 404s as JSON rather
      than serving the page as an image. */
-  const iconGet = pathname.match(/^\/icons\/(kosmos-(?:16|32|48|180|192|512)\.png)$/);
+  // kosmos#4798: touch-180 (the iPhone home screen) and maskable-192/512 (Android) are full-bleed opaque squares.
+  const iconGet = pathname.match(/^\/icons\/(kosmos-(?:16|32|48|180|192|512|touch-180|maskable-192|maskable-512)\.png)$/);
   if (iconGet && (req.method === 'GET' || req.method === 'HEAD')) {
     fs.readFile(path.join(__dirname, 'web', 'icons', iconGet[1]), (err, buf) => {
       if (err) { sendJson(res, 404, { error: 'no such icon' }); return; }

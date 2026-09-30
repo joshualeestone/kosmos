@@ -6613,7 +6613,7 @@ test('the tab icons are served as images, and a wrong icon path cannot fall thro
   // shows a broken tab icon while the server reports success. The four
   // shipped sizes answer as PNGs; anything else under /icons/ is a JSON
   // 404, never the page dressed as an image.
-  for (const size of [16, 32, 48, 180]) {
+  for (const size of [16, 32, 48, 180, 'touch-180', 'maskable-192', 'maskable-512']) {   // kosmos#4798: the full-bleed three
     const res = await req(`/icons/kosmos-${size}.png`);
     assert.equal(res.status, 200, `kosmos-${size}.png`);
     assert.equal(res.type, 'image/png');
