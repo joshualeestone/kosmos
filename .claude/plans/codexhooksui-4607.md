@@ -32,10 +32,11 @@ dialog gone or changed) presses nothing. NOT claimed: that no local agent can ev
   - Round 1: menu digits are read from the option text on the same read that precedes the key (a reordered menu got
     Trust for Continue before); a missing option presses nothing. One answer per agent at a time (two surfaces
     answering at once typed the second key into the composer). The trusted-but-open list (a dropped Escape after `t`)
-    reads as needs-you, is refused by #4589's message floor, and takes only Close (Escape).
+    reads as needs-you, is refused by #4589's message floor, and takes only Close (Escape). It is also what Codex's own
+    hooks viewer shows on already-trusted hooks, so "list still open" covers that too (true either way).
   - Done when the dialog is gone from a fresh read; otherwise it says what it saw and stops (no retry loop).
   - These keys bypass #4589's refusal only inside this function; the message path's floor is unchanged.
-- Route `POST /api/agent/<name>/codex-hooks { choice }`: the person's board credential only (as #2808's grant),
+- Route `POST /api/agent/<name>/codex-hooks { choice: trust | skip | close }`: the person's board credential only (as #2808's grant),
   refused for an agent token. No chat, msg, post or task path reaches it.
 - Page (the agent page's needs-you box, where the folder-trust recovery lives): the label, a summary of only what the
   screen said (count, events, source) plus "Trusting covers every hook Codex lists", and two buttons: Continue without

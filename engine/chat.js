@@ -1214,15 +1214,16 @@ async function answerCodexHooks(sessionName, choice, roster) {
   const keys = [];
   const no = (because) => ({ ok: false, because, keys });
   if (choice !== 'trust' && choice !== 'skip' && choice !== 'close') return no('choose to trust the hooks or to continue without them');
-  const lockKey = String(sessionName == null ? '' : sessionName);
-  if (CODEX_HOOK_BUSY.has(lockKey)) return no('an answer to its hook question is already being sent; wait a moment');
-  CODEX_HOOK_BUSY.add(lockKey);
-  try { return await answerCodexHooksOnce(sessionName, choice, roster, keys, no); } finally { CODEX_HOOK_BUSY.delete(lockKey); }
-}
-async function answerCodexHooksOnce(sessionName, choice, roster, keys, no) {
   const allowed = addressable(sessionName, roster);
   if (!allowed.ok) return no(allowed.because);
-  const card = allowed.card;
+  /* Locked on the PANE the name resolved to, not the name as typed (review round 2: a case-folded spelling reaches the
+     same pane under another key). */
+  const lockKey = paneTarget(allowed.card) || String(allowed.card.sessionName || sessionName);
+  if (CODEX_HOOK_BUSY.has(lockKey)) return no('an answer to its hook question is already being sent; wait a moment');
+  CODEX_HOOK_BUSY.add(lockKey);
+  try { return await answerCodexHooksOnce(sessionName, choice, roster, keys, no, allowed.card); } finally { CODEX_HOOK_BUSY.delete(lockKey); }
+}
+async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card) {
   if (card.runner !== 'codex') return no('that is not a Codex agent');
   if (card.reachedByChannel === true) return no('Kosmos cannot answer this on Windows yet; choose in the agent\u2019s own window');
   const t = paneTarget(card);
@@ -1269,6 +1270,8 @@ async function answerCodexHooksOnce(sessionName, choice, roster, keys, no) {
     await wait(CODEX_HOOK_SETTLE_MS);
     const after = look();
     if (after.unseen) return no('we answered, and then could not see its screen to check it; look at its window');
+    /* A blank screen is not evidence the question went (review round 2): it may be mid-redraw. */
+    if (!after.screen && !String(after.text || '').trim()) return no('we answered, and its screen was blank when we checked; look at its window');
     if (!after.screen) return { ok: true, choice, keys };
     if (after.screen === now.screen) return no('its screen did not change after we answered; look at its window');
     now = after;

@@ -1690,12 +1690,16 @@ const CODEX_HOOK_TABLE_ROW = /^\s*([A-Za-z]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+\S.*$/;
 function codexHookSummary(paneText) {
   const seen = codexHookReview(paneText);
   if (!seen) return codexHookTrustedTable(paneText) ? { screen: 'trusted', count: null, events: [], source: null } : null;
-  const rows = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
+  /* Only the dialog's own rows, the last on the screen, and the LAST match (review round 2: an earlier count, event or
+     source in scrollback or echoed by the agent must not be shown as this dialog's). */
+  const all = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
+  while (all.length && !all[all.length - 1]) all.pop();
+  const rows = all.slice(-CODEX_HOOK_ROWS);
   let count = null;
   const events = [];
   let source = null;
   if (seen.screen === 'menu') {
-    const m = rows.map((r) => CODEX_HOOK_MENU_COUNT.exec(r)).find(Boolean);
+    const m = rows.map((r) => CODEX_HOOK_MENU_COUNT.exec(r)).filter(Boolean).pop();
     if (m) count = Number(m[1]);
   } else if (seen.screen === 'table') {
     for (const r of rows) {
@@ -1704,14 +1708,16 @@ function codexHookSummary(paneText) {
     }
     if (events.length) count = events.reduce((n, e) => n + e.count, 0);
   } else if (seen.screen === 'hook') {
-    const ev = rows.map((r) => /^\s*Event\s{2,}(\S+)\s*$/.exec(r)).find(Boolean);
+    const ev = rows.map((r) => /^\s*Event\s{2,}(\S+)\s*$/.exec(r)).filter(Boolean).pop();
     if (ev) events.push({ event: ev[1], count: 1 });
-    const si = rows.findIndex((r) => /^\s*Source\s{2,}\S/.test(r));
+    let si = -1;
+    rows.forEach((r, i) => { if (/^\s*Source\s{2,}\S/.test(r)) si = i; });
     if (si >= 0) {
       /* The source can wrap onto the next row (the captured screen does), which carries no label. */
       const first = rows[si].replace(/^\s*Source\s+/, '');
       const next = rows[si + 1] && /^\s{8,}\S/.test(rows[si + 1]) && !/^\s*[A-Z][a-z]+\s{2,}/.test(rows[si + 1]) ? rows[si + 1].trim() : '';
-      source = (first + next).trim();
+      /* One line, capped: it is shown beside the Trust button, and it is text from the screen, not ours. */
+      source = (first + next).replace(/\s+/g, ' ').trim().slice(0, 160) || null;
     }
   }
   return { screen: seen.screen, count, events, source };

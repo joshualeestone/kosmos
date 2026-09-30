@@ -34080,7 +34080,7 @@ async function paintTalk(sessionName, agentName) {
       document.getElementById('d-qask-codex-what').textContent =
         'Codex found ' + (n ? n + (n === 1 ? ' hook' : ' hooks') : 'hooks') + ' it has not been told to trust'
         + (events.length ? ' (' + events.join(', ') + ')' : '')
-        + (h.source ? ', from ' + h.source : '')
+        + (h.source ? ', from \u201c' + String(h.source).slice(0, 160) + '\u201d' : '')
         + '. Trusting covers every hook Codex lists, and trusted hooks run outside the sandbox. If you are not sure, continue without them.';
     }
     qCodex.hidden = false;
@@ -40925,7 +40925,7 @@ async function answerCodexHooksFromBox(choice) {
       /* Done means what was seen: its screen stopped asking about hooks (review round 1: not a claim about what
          Codex does next). */
       msg.textContent = (res.ok && r.ok)
-        ? (choice === 'trust' ? 'Done. The hooks are trusted, and its screen is no longer asking about them.'
+        ? (choice === 'trust' ? 'Done. Its screen is no longer asking about hooks, so they should now be trusted.'
           : (choice === 'close' ? 'Done. The list is closed.' : 'Done. It is carrying on without the hooks.'))
         : (r.because || r.error || 'We could not answer it. Look at its window.');
     }

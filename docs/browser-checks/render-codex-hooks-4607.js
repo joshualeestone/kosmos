@@ -111,7 +111,7 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
     const tr = await press('d-qask-codex-trust', { status: 200, body: { ok: true, choice: 'trust', because: null } });
     chk(tr.sent && tr.sent.url === '/api/agent/sam%20doe/codex-hooks' && tr.sent.method === 'POST' && JSON.parse(tr.sent.body || '{}').choice === 'trust',
       `${t} Trust POSTs { choice: 'trust' } to the encoded codex-hooks route`, JSON.stringify(tr.sent));
-    chk(/The hooks are trusted, and its screen is no longer asking about them\./.test(tr.msg) && tr.enabled, `${t} Trust shows the done line, buttons enabled again`, tr.msg);
+    chk(/Its screen is no longer asking about hooks, so they should now be trusted\./.test(tr.msg) && tr.enabled, `${t} Trust shows the done line, buttons enabled again`, tr.msg);
     const sk = await press('d-qask-codex-skip', { status: 200, body: { ok: false, choice: 'skip', because: 'the hook question is not on its screen now, so nothing was pressed' } });
     chk(sk.sent && JSON.parse(sk.sent.body || '{}').choice === 'skip', `${t} Continue POSTs { choice: 'skip' }`, JSON.stringify(sk.sent));
     chk(sk.msg === 'the hook question is not on its screen now, so nothing was pressed' && sk.enabled,

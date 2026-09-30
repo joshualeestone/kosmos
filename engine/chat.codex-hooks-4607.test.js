@@ -265,3 +265,37 @@ test('#4607 round 1: the open list reads as needing you, and the message floor r
     assert.deepEqual(t.typed(), [], text);
   }
 }));
+
+/* Review round 2. */
+test('#4607 round 2: the lock is the pane, so another spelling of the name cannot answer at the same time', () => withCodex(MENU, async (board) => {
+  const t = arm([MENU, MENU, IDLE]);
+  let release;
+  chat.setPauser(() => new Promise((r) => { release = r; }));
+  const first = chat.answerCodexHooks('sam', 'skip', board.agents);
+  await new Promise((r) => setImmediate(r));
+  const second = await chat.answerCodexHooks('SAM', 'trust', board.agents);
+  assert.equal(second.ok, false, JSON.stringify(second));
+  assert.match(second.because, /already being sent/);
+  release();
+  await first;
+  assert.deepEqual(t.keys(), ['3']);
+}));
+
+test('#4607 round 2: the summary reads the dialog, not scrollback above it', () => {
+  const staleMenu = '  9 hooks are new or changed.\n' + '\n'.repeat(40) + MENU;
+  assert.equal(status.codexHookSummary(staleMenu).count, 2);
+  const staleHook = '  Event     PreToolUse\n  Source    Someone else - /tmp/old/hooks.json\n' + '\n'.repeat(40) + HOOK;
+  const h = status.codexHookSummary(staleHook);
+  assert.deepEqual(h.events, [{ event: 'SubagentStop', count: 1 }]);
+  assert.match(h.source, /projects\/newsletter/);
+  const long = HOOK.replace(/Source    Project config - [^\n]*/, 'Source    ' + 'x'.repeat(400));
+  assert.ok(status.codexHookSummary(long).source.length <= 160);
+});
+
+test('#4607 round 2: a blank screen after a key is not taken as the question gone', () => withCodex(MENU, async (board) => {
+  const t = arm([MENU, MENU, '   \n  \n']);
+  const r = await chat.answerCodexHooks('sam', 'skip', board.agents);
+  assert.equal(r.ok, false);
+  assert.match(r.because, /blank when we checked/);
+  assert.deepEqual(t.keys(), ['3']);
+}));
