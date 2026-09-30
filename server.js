@@ -7670,6 +7670,8 @@ const server = http.createServer(async (req, res) => {
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const saved = communityswitch.setOn(body.on);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        // #4373 part B: OFF ends the ON period now, so what is released while OFF never goes (the page says so).
+        if (body.on === false) { try { communitysend.endOnPeriodNow(); } catch { /* the next sweep ends it */ } }
         sendJson(res, 200, communityBody());
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));

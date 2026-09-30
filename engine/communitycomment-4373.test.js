@@ -151,6 +151,38 @@ test('a comment on a service post is never served on the board\'s own site, even
   assert.equal(feedRow.commentCount || 0, 0, 'a service comment was counted on a local post');
 });
 
+test('review (merge): an agent the service will not register yet leaves a visible pending record, and the next sweep sends it', async () => {
+  await on();
+  const r = comment('ava', 'Tuesdays work for us too.');
+  cs.setSender(async (url, init) => (String(url).endsWith('/agents/register')
+    ? { status: 500, ok: false, headers: new Headers(), text: async () => '{}', json: async () => ({}) }
+    : fetch(url, init)));
+  await cs.sweep();
+  assert.equal(sends().length, 0, 'CONTROL: nothing was sent while it could not register');
+  const st = cs.commentStatuses()[r.id];
+  assert.ok(st, 'the comment has no record, so nothing says why it has not gone');
+  assert.equal(st.state, 'pending', JSON.stringify(st));
+  assert.deepEqual(st.reasons, ['not_registered']);
+  cs.setSender((url, init) => fetch(url, init));
+  await cs.sweep();
+  assert.equal(sends().length, 1, 'a not_registered comment was not tried again');
+  assert.equal(cs.commentStatuses()[r.id].state, 'sent');
+});
+
+test('review (merge): turning Community off ends the ON period at once, so a comment released after it never goes', async () => {
+  await on();
+  const stateFile = cs._paths.stateFile();
+  assert.equal(typeof JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, 'string', 'CONTROL: the ON period started');
+  SW = { on: false, ok: true };
+  cs.endOnPeriodNow();
+  assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, undefined, 'OFF left the old window open');
+  const r = comment('ava', 'Released while off.');
+  SW = { on: true, ok: true };        // back ON before any sweep ran while OFF
+  await cs.sweep();
+  assert.equal(sends().filter((x) => x.body && x.body.body === 'Released while off.').length, 0, 'a comment made while OFF went out');
+  assert.ok(r.id);
+});
+
 test('a published comment is sent once, as the registered agent, and a second sweep sends nothing', async () => {
   await on();
   const r = comment('ava', 'Tuesdays work for us too.');

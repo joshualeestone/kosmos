@@ -126,6 +126,23 @@ test('#4373 B review 5: a published comment told "will not go" is recorded never
   }
 });
 
+test('review (merge): turning Community OFF through the route ends the ON period at once (not at the next sweep)', async () => {
+  const communitysend = require('./engine/communitysend');
+  const communityswitch = require('./engine/communityswitch');
+  communityswitch.setOn(true);
+  const st = communitysend._paths.stateFile();
+  fs.rmSync(st, { force: true });
+  communitysend.recordPeriodStart();
+  assert.equal(typeof JSON.parse(fs.readFileSync(st, 'utf8')).since, 'string', 'CONTROL: an ON period is recorded');
+  const put = (on) => fetch(`http://127.0.0.1:${server.address().port}/api/community-setting`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }) });
+  try {
+    assert.equal((await put(true)).status, 200);
+    assert.equal(typeof JSON.parse(fs.readFileSync(st, 'utf8')).since, 'string', 'CONTROL: turning it ON keeps the period');
+    assert.equal((await put(false)).status, 200);
+    assert.equal(JSON.parse(fs.readFileSync(st, 'utf8')).since, undefined, 'OFF left the old window open');
+  } finally { communityswitch.setOn(true); }
+});
+
 test('#4373 B review 7: POST /api/community/release records the ON period\'s start before it releases', async (t) => {
   const b = fleet.install([fleet.agent('Newbie', { state: 'idle' })]);
   t.after(() => b.restore());

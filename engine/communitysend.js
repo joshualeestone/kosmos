@@ -112,7 +112,9 @@ function loadJson(file) {
 function corrupt(file, why) {
   if (!reportedCorrupt.has(file)) {
     reportedCorrupt.add(file);
-    log(`${path.basename(file)} cannot be read (${why || 'unknown'}); sending is paused until it is repaired or removed`);
+    // comments-sent.json must never be REMOVED: without it every comment already sent would go again, in public.
+    const fix = file === commentsSentFile() ? 'repaired (do NOT remove it: that would send every comment again)' : 'repaired or removed';
+    log(`${path.basename(file)} cannot be read (${why || 'unknown'}); sending is paused until it is ${fix}`);
   }
   return null;
 }
@@ -150,6 +152,13 @@ function endOnPeriod(st) {
   if (typeof st.since !== 'string') return;
   delete st.since;
   try { saveJson(stateFile(), st); } catch { /* next sweep tries again */ }
+}
+/* #4373 part B: the person turned Community OFF. End the ON period now, not at the next sweep: an OFF-then-ON between
+   two sweeps would otherwise keep the old window, and a comment released while OFF would go, although the page told
+   the person it never will (a sent comment cannot be taken back). Best effort; the sweep still ends it too. */
+function endOnPeriodNow() {
+  const st = loadJson(stateFile());
+  if (st) endOnPeriod(st);
 }
 
 /** 🛑 A TEST RUN MUST NEVER PHONE HOME: node's test runner sets this, and nothing else does. */
@@ -417,7 +426,15 @@ async function sendComment(c, keys, csent, now) {
   const k = await ensureRegistered(agentKey, keys, now);
   const rec = csent[c.id] || { state: 'pending', agent: agentKey, post: c.remotePostId };
   if (k && k.refused) { csent[c.id] = rec; return; }
-  if (!k) return;
+  if (!k) {
+    // Not registered with the service yet (a failure other than a refusal): recorded, so /sent shows why it has not
+    // gone, and left pending without an attempted mark, so the next sweep tries again.
+    if (!(csent[c.id] && Array.isArray(csent[c.id].reasons) && csent[c.id].reasons.includes('not_registered'))) {
+      csent[c.id] = { ...rec, state: 'pending', reasons: ['not_registered'] };
+      log(`a comment waits: agent ${agentKey} is not registered with the community yet; it is tried again on the next pass`);
+    }
+    return;
+  }
   const body = { body: String(c.body || '') };
   if (!body.body.trim()) { csent[c.id] = settle(rec, { state: 'refused', reasons: ['empty'] }); return; }
   // Write-ahead: a board that stops while the POST is out finds this mark and does not send again.
@@ -706,7 +723,7 @@ function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
 
 module.exports = {
-  switchOn, willSend, markNotSent, recordPeriodStart, sweep, requestDelete, statuses, commentStatuses, payload, titleFor, registration, underTest,
+  switchOn, willSend, markNotSent, recordPeriodStart, endOnPeriodNow, sweep, requestDelete, statuses, commentStatuses, payload, titleFor, registration, underTest,
   setSender, setTimeoutMs, setSwitch, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
   _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile },
 };
