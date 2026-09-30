@@ -77,6 +77,8 @@ const SCENARIOS = {
   ], auto: null },
   // A pick that cannot reach the service is not a refusal: the address is still theirs, and Try again retries it.
   'pick-offline': { offline: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
+  // A pick that fails for a reason that is not "taken" (a certificate) is not a refusal either: Try again, same address.
+  'pick-cert-fail': { certfail: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
   // A pick refused (another computer took it first) returns to the list with the reason, not Try again on the same address.
   'pick-refused': { refuse: 'spare', lists: [
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] },
@@ -134,6 +136,7 @@ const visible = (page, sel) => page.evaluate((s) => {
           const b = req.postDataJSON(); regs.push(b.name);
           if (sc.refuse === b.name) return json(400, { error: 'the name ' + b.name + ' is already connected on another computer.' });
           if (sc.offline === b.name && regs.length === 1) return json(400, { error: 'this computer could not reach the sign-in service' });
+          if (sc.certfail === b.name && regs.length === 1) return json(400, { error: 'the certificate for spare.kosmosplus.com could not be issued; try again in a minute' });
           return json(200, reg(b.name));
         }
         if (p === '/api/remote/signin-cancel') return json(200, { ok: true, stage: 'cancelled' });
@@ -214,7 +217,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         await page.waitForFunction(() => { const d = document.getElementById('plus-si-done'); return d && !d.hidden; }, null, { timeout: 8000 }).catch(() => {});
         chk(regs.length === 1 && regs[0] === 'first', `[${key}] takes the step as before (registers to the account's address)`, JSON.stringify(regs));
         chk(!(await visible(page, '#plus-si-bought')), `[${key}] with the list gone`);
-      } else if (key === 'pick-offline') {
+      } else if (key === 'pick-offline' || key === 'pick-cert-fail') {
         await page.click('#plus-si-bought-list button[data-bought="spare"]');
         await page.waitForSelector('#plus-si-register-go', { state: 'visible', timeout: 8000 }).catch(() => {});
         chk(asked === 1, `[${key}] the list is not re-read (the address was not refused)`, String(asked));

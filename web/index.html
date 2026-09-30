@@ -43098,7 +43098,8 @@ function plusSiStage(stage, data) {
     document.getElementById('plus-si-enrol-code').focus();
     return;
   }
-  if (stage === 'session') { plusSiSession(data); return; }
+  /* Anything that goes wrong in the new step lands on the old one, never on a loader with no way on. */
+  if (stage === 'session') { plusSiSession(data).catch(() => plusSiAsBefore(data)); return; }
   if (stage === 'registered') return;  // handled by the register button itself
   /* Any other value means the coordinator returned a stage this client does not know.
      The engine fails closed on unexpected shapes today (engine/remote.js absorbSession /
@@ -43629,7 +43630,8 @@ document.getElementById('plus-si-enrol-confirm-go').addEventListener('click', as
    the account's first (its address is in use by another computer) picks one of the account's BOUGHT
    addresses instead of naming one. On the FIRST read, anything but a definite live:true (switch off, an older
    engine, the list not reachable) is the step exactly as before. A RE-read (Check again, or after a refused
-   pick) stays on the list and says what went wrong: by then this page knows it is a second computer. */
+   pick) stays on the list and says what went wrong: by then this page knows it is a second computer. A re-read
+   whose answer takes the old way on (the address came free again, or the switch went off) registers as before. */
 let PLUS_SI_SESSION = null;
 let PLUS_SI_PICKED = false;   // the register now running came from the bought-address list
 let PLUS_SI_BOUGHT_SEQ = 0;
@@ -43646,6 +43648,16 @@ async function plusSiBoughtRead() {
   } catch {
     return { because: 'this computer could not reach the sign-in service' };
   } finally { clearTimeout(timer); }
+}
+/* The session step as it was before kosmos#4756. */
+function plusSiAsBefore(data) {
+  const spin = document.getElementById('plus-si-spin'); if (spin) spin.hidden = true;
+  plusSiRegisterMode(data.account_address);
+  plusSiShow('plus-si-register');
+  /* #3796 addendum 9: an account that already has an address skips this step: register to it now. */
+  if (PLUS_SI_OWNED) { plusSiDoRegister(PLUS_SI_OWNED, data.account_address); return; }
+  plusNamePrefill('plus-si-name', 'plus-si-name-suggested');   // #3842
+  document.getElementById('plus-si-name').focus();
 }
 async function plusSiSession(data, again, keep) {
   PLUS_SI_SESSION = data;
@@ -43693,15 +43705,7 @@ async function plusSiSession(data, again, keep) {
      has no computer on it), or this computer signing in to it again. An account with no address at all, with the
      switch on, cannot name one here: it gets the list, or the way to buy one. */
   const asBefore = !b || (own && (!ownRow || ownRow.state !== 'in_use' || b.this_name === own[1]));
-  if (asBefore) {
-    plusSiRegisterMode(data.account_address);
-    plusSiShow('plus-si-register');
-    /* #3796 addendum 9: an account that already has an address skips this step: register to it now. */
-    if (PLUS_SI_OWNED) { plusSiDoRegister(PLUS_SI_OWNED, data.account_address); return; }
-    plusNamePrefill('plus-si-name', 'plus-si-name-suggested');   // #3842
-    document.getElementById('plus-si-name').focus();
-    return;
-  }
+  if (asBefore) { plusSiAsBefore(data); return; }
   /* This computer already holds another of the account's addresses (set up before, signing in again): it keeps it. */
   const mine = b.this_name ? b.addresses.filter((r) => r.name === b.this_name)[0] : null;
   if (mine) { plusSiRegisterMode(mine.address); plusSiShow('plus-si-register'); plusSiDoRegister(mine.name, mine.name); return; }
@@ -43815,9 +43819,10 @@ async function plusSiDoRegister(name, owned) {
   if (owns) { plusSiRegisterMode('', owns[1]); plusSiDoRegister(owns[1], owns[1]); return; }
   /* kosmos#4756: a register from the bought-address list that is refused (another computer took that address
      first) goes back to the list with the reason, rather than offering Try again on the same address. */
-  /* Only a refusal from the service: a register that timed out or never reached it may have worked, and its
-     address is still this person's, so that one keeps Try again on the same address (below). */
-  const refused = !r.ok && !r.timeout && !/could not reach|has not answered/i.test(String(r.because || ''));
+  /* Only a refusal that says the address is taken or not this account's: anything else (a timeout, no answer, a
+     certificate failure) may be passing, and the address is still this person's, so it keeps Try again on the
+     same address (below). */
+  const refused = !r.ok && !r.timeout && /already (connected|in use)|taken|address you have bought|said no \((402|409)\)/i.test(String(r.because || ''));
   if (refused && PLUS_SI_PICKED && PLUS_SI_SESSION && !/start again from the email/i.test(String(r.because || ''))) {
     PLUS_SI_PICKED = false;
     const lead = document.getElementById('plus-si-owned-lead'); if (lead) lead.textContent = 'Checking your Kosmos+ addresses';
