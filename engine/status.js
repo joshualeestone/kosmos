@@ -1562,6 +1562,95 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
   /^\s*›\s*\d+\.\s.*\n\s*\d+\.\s/m,
 ]);
 
+/* #4589 (Josh, 2026-09-29 11:42): CODEX'S "HOOKS NEED REVIEW" DIALOG. Codex 0.149.1 stops at startup
+   when a hook it has not been told to trust is enabled (the desktop app's bundled plugins, in the shared
+   ~/.codex, bring four), and Kosmos typed the person's first message into it: the text vanished and
+   Enter opened the review table. Captured off a live pane on this Mac with one project hook
+   (test-support/codex-screens/, both screens), in the order a typed message meets them:
+     MENU:   "Hooks need review" / "› 1. Review hooks" / "2. Trust all and continue" /
+             "3. Continue without trusting (hooks won't run)" / "Press enter to confirm or esc to go back"
+     TABLE:  "⚠ N hooks need review before they can run." / the per-event table /
+             "Press t to trust all; enter to review hooks; esc to close"  (the words on the card)
+   🔑 THE DIALOG IS THE LAST THING ON THE SCREEN, and that is what separates it from the same words in an
+   agent's tool output: each screen's own footer must be the last non-blank row. The MENU draws at the
+   TOP of the pane with the rest blank, so trailing blank rows are dropped first (a fixed "last 25 rows"
+   of the raw capture holds nothing but blanks there). Matched to 0.149.1's layout: a later Codex that draws a row
+   below either footer reads as no dialog. Returns { screen: 'menu'|'table', evidence } or null. */
+const CODEX_HOOK_MENU_TITLE = /^\s*Hooks need review\s*$/;
+const CODEX_HOOK_TABLE_FOOTER = /^\s*Press t to trust all; enter to review hooks; esc to close\s*$/;
+const CODEX_HOOK_TABLE_WARNING = /^\s*(?:⚠\s*)?\d+ hooks? needs? review before (?:it|they) can run\.\s*$/;
+/* The same two footers matched at the END of a joined run of rows, so a wrapped footer still counts (round 1). */
+const CODEX_HOOK_MENU_FOOTER_END = /Pressentertoconfirmoresctogoback$/;
+const CODEX_HOOK_TABLE_FOOTER_END = /Pressttotrustall;entertoreviewhooks;esctoclose$/;
+/* Round 5: the THIRD screen, one hook's review, reached by Enter on the table ("enter to review hooks"). Captured on a
+   live pane (test-support/codex-screens/hook-review-hook-0.149.1.txt): its footer is "Press t to trust; esc to go
+   back", so a single "t" typed there trusts that hook. */
+const CODEX_HOOK_ONE_FOOTER_END = /Pressttotrust;esctogoback$/;
+const CODEX_HOOK_ONE_ROW = /^\s*\[!\]\s*Hook\s+\d+\b/;
+/* Round 6: the per-hook screen's constant "Trust ... review required" row sits a few rows above its footer, whatever
+   the hook's command length (a long inline script pushed the other anchors above the last 30 rows). */
+const CODEX_HOOK_TRUST_ROW = /^\s*Trust\s{2,}.*review required\s*$/;
+/* A Codex screen we could not read (round 2): not proof that no dialog is up, so nothing is typed. */
+const CODEX_UNSEEN_SENTENCE = 'we could not see its screen just now, so nothing was typed: Codex may be showing a question '
+  + 'there that typed text would answer. Send this again in a moment.';
+/* A Codex screen that is blank when read: the program is still drawing at startup (round 1). */
+const CODEX_STARTING_SENTENCE = 'it is still starting (its screen is blank), so nothing was typed: Codex may be about to ask '
+  + 'a question on that screen, and typed text would answer it. Send this again in a moment.';
+const CODEX_HOOK_ROWS = 30;
+function codexHookReview(paneText) {
+  const rows = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
+  while (rows.length && !rows[rows.length - 1]) rows.pop();
+  if (!rows.length) return null;
+  const tail = rows.slice(-CODEX_HOOK_ROWS);
+  /* Blind review round 1: on a pane narrower than the footer (about 58 columns: someone attached from a small
+     terminal), Codex wraps the footer over two or three rows, and a match on the last row alone missed the dialog
+     entirely. So the footer is matched at the END of the last three rows joined, and the heading / warning above it
+     is looked for in what precedes those rows. */
+  const WRAP = 3;
+  /* Whitespace is ignored: a wrap may fall between words or inside one, and a join cannot know which. */
+  const lastJoined = tail.slice(-WRAP).join('').replace(/\s+/g, '');
+  const above = tail.slice(0, -1);
+  if (CODEX_HOOK_MENU_FOOTER_END.test(lastJoined)) {
+    const title = above.slice().reverse().find((r) => CODEX_HOOK_MENU_TITLE.test(r));
+    return title ? { screen: 'menu', evidence: title.trim() } : null;
+  }
+  if (CODEX_HOOK_TABLE_FOOTER_END.test(lastJoined)) {
+    const joined = above.map((r) => r.trim()).join(' ');
+    const warning = above.slice().reverse().find((r) => CODEX_HOOK_TABLE_WARNING.test(r));
+    const wrapped = warning ? null : (joined.match(/(?:⚠\s*)?\d+ hooks? needs? review before (?:it|they) can run\./) || [null])[0];
+    return { screen: 'table', evidence: (warning || wrapped || 'Press t to trust all; enter to review hooks; esc to close').trim().replace(/^⚠\s*/, '') };
+  }
+  if (CODEX_HOOK_ONE_FOOTER_END.test(lastJoined)) {
+    /* Its own "N hook(s) need(s) review" line or a "[!] Hook N" row must be above, so the footer words alone are
+       not enough. */
+    /* Anchors searched over the WHOLE screen (round 6: not only the last CODEX_HOOK_ROWS), plus the Trust row near
+       the footer, which a long command cannot push away. */
+    const warning = rows.slice().reverse().find((r) => CODEX_HOOK_TABLE_WARNING.test(r));
+    const hookRow = rows.some((r) => CODEX_HOOK_ONE_ROW.test(r));
+    /* Round 7: the Trust row is matched on the last rows JOINED with whitespace removed, as the footers are, so it is
+       found when a narrow pane wraps it (a long command and a narrow pane together hid every anchor). */
+    const trustRow = rows.slice(-8).some((r) => CODEX_HOOK_TRUST_ROW.test(r))
+      || /Trust[^]{0,40}reviewrequired/.test(rows.slice(-14).join('').replace(/\s+/g, ''));
+    if (!warning && !hookRow && !trustRow) return null;
+    return { screen: 'hook', evidence: (warning || 'Press t to trust; esc to go back').trim().replace(/^⚠\s*/, '') };
+  }
+  return null;
+}
+/* The sentence the delivery refusal gives (engine/chat.js), about the AGENT: what it is stopped on, that typing
+   cannot answer it, and what to do. Trusting hooks is the person's call, so it recommends no answer. Plain
+   characters: rendered through textContent and as JSON. */
+const CODEX_HOOK_DIALOG_SENTENCE = 'it is waiting on a Codex hook approval: Codex found hooks it has not been told to trust '
+  + '(often from the Codex desktop app\u2019s plugins) and will not start until someone answers. Typing cannot answer it, '
+  + 'so nothing was typed. Choose in its terminal whether to trust them, then send this again.';
+/* True when a card's evidence is this dialog's. Only the Codex hook branch of classify writes these rows as
+   needs_you evidence. Unlike isTrustDialogEvidence, NO production code keys on it (round 4): the delivery floor
+   reads the screen fresh. Its callers are the tests that pin what the card shows. */
+function isCodexHookEvidence(evidence) {
+  return typeof evidence === 'string'
+    && (CODEX_HOOK_MENU_TITLE.test(evidence) || CODEX_HOOK_TABLE_WARNING.test(evidence) || CODEX_HOOK_TABLE_FOOTER.test(evidence)
+      || /^Press t to trust; esc to go back$/.test(evidence));
+}
+
 /* #4004: Gemini CLI (0.61.0, measured 2026-09-26 against a fake 429 in a real tmux pane) on a daily quota.
    While it waits, its quota question is on screen ("Usage limit reached for <model>." over numbered options that
    end in "Stop"), and it waits there forever. After Stop, it is back at its prompt under
@@ -3665,6 +3754,13 @@ function classify(pane, paneText) {
   if ((pane.runner === 'codex' || isCodexCommand(pane.command)) && !require('./win32roster').isWin32Pane(pane)) {
     if (paneText === null) {
       return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'we could not read its screen' };
+    }
+    /* #4589: the hook-review dialog first, so the card names it rather than "asking you something" (the
+       menu also matches the generic markers) or "unknown" (the table matches nothing: no composer, no
+       numbered option). The delivery floor reads the screen fresh (chat.js codexScreenRefusal); this evidence is what the card shows. */
+    const hooks = codexHookReview(paneText);
+    if (hooks) {
+      return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'it is waiting on a Codex hook approval', evidence: hooks.evidence };
     }
     const codexTail = paneText.split('\n').slice(-25).join('\n');
     if (CODEX_NEEDS_YOU_MARKERS.some((re) => re.test(codexTail))) {
@@ -6607,7 +6703,9 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          prompt -- the exact sentence this branch's chat half exists to remove,
          reappearing in the one arm the feature is for. Measured across all five
          report arms; this was the only one that lost it. */
-      return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null, backgroundWait: scraped.backgroundWait === true, ...workingProject(false) };
+      return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null, backgroundWait: scraped.backgroundWait === true,
+        waiting: reported.waiting || null,   // #4569 fix 4: a Muse agent's queue, only while this working report is fresh
+        ...workingProject(false) };
     }
     // Rule 5: the comparison happens BEFORE the decay.
     if (scraped.state === STATE.WORKING) {
@@ -6919,6 +7017,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
        the heartbeat leg (there is no pane to read working off of). */
     activeWhileWaiting,
     stateReported: status.reported === true,
+    waiting: status.waiting || null,   // #4569 fix 4
     /* #2808 class 2: same field as the pane card carries, for shape parity, so a consumer reads
        one card shape. panelessCard reconciles through the SAME reconcileReport as the pane path,
        so a paneless agent that self-reports needs_you with by:'agent' DOES carry 'agent' here and
@@ -7560,9 +7659,11 @@ function snapshot() {
       /* Which runner this pane RECORDED at launch (#245/#246): 'codex',
          'gemini', 'grok', 'antigravity' or 'claude', with empty meaning claude the way it does
          everywhere the option is absent. The switch screen keys on this, and it is
-         the supervisor's record, never an inference from the command. */
+         the supervisor's record; only an UNTAGGED pane is inferred from its command (agy, grok, native codex). */
       // #3568: an agy pane read before its runner tag lands is still antigravity (as isAgyPane says).
-      runner: pane.runner === 'codex' ? 'codex' : pane.runner === 'gemini' ? 'gemini' : (pane.runner === 'grok' || isGrokCommand(pane.command)) ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : pane.runner === 'muse' ? 'muse' : 'claude',
+      // #4589 round 2: and an UNTAGGED native codex pane is codex (the startup window the hook dialog lives in); a pane
+      // whose tag says otherwise keeps its tag (round 3).
+      runner: (pane.runner === 'codex' || (!pane.runner && isCodexCommand(pane.command))) ? 'codex' : pane.runner === 'gemini' ? 'gemini' : (pane.runner === 'grok' || isGrokCommand(pane.command)) ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : pane.runner === 'muse' ? 'muse' : 'claude',
       task: taskLine(pane.title),
       state: status.state,
       stateConfidence: status.confidence,
@@ -7599,6 +7700,7 @@ function snapshot() {
       /* Whether the state above is the agent's own account (#188's third
          verb) rather than a pane reading. */
       stateReported: status.reported === true,
+      waiting: status.waiting || null,   // #4569 fix 4: messages waiting behind a busy Muse turn ({ n, yours })
       /* #2808 class 2: 'auto' = a technical permission/trust prompt (class 1, PigeonPete's
          invisible supervision handle), 'agent' = the agent's own deliberate question (class 2,
          de-alarmed to a calm "has a question" rather than the red "Needs you" that reads as
@@ -7987,6 +8089,11 @@ module.exports = {
   consentPrompt,
   isTrustDialogEvidence,
   TRUST_DIALOG_SENTENCE,
+  codexHookReview, // #4589
+  isCodexHookEvidence,
+  CODEX_HOOK_DIALOG_SENTENCE,
+  CODEX_STARTING_SENTENCE,
+  CODEX_UNSEEN_SENTENCE,
   SELECTOR_GLYPHS,
   isCodexCommand,
   readableModelId, // #4416

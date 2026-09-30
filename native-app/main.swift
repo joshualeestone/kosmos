@@ -2749,7 +2749,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // opens in this window, as a same-window link would (connectLinkDecision); others go on to
         // the browser as before. A new window is a click or a page's own window.open, so "clicked".
         if computerMode == .connect && connectLinkDecision(for: url, clicked: true) == .inApp {
-            logLine("#4356: new window to Kosmos Plus opened in the app window: \(url.absoluteString)")
+            logLine("#4356: new window to Kosmos+ opened in the app window: \(url.absoluteString)")
             webView.load(URLRequest(url: url))
             return nil
         }
@@ -3795,7 +3795,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // (WebKitErrorDomain 102); that is not Kosmos Plus failing to answer.
         let policyCancel = (error as NSError).domain == "WebKitErrorDomain" && (error as NSError).code == 102
         if computerMode == .connect && !policyCancel && (isBoardLoadNav || webView.backForwardList.currentItem == nil) {
-            showStartupFailureAlert(detail: "Kosmos could not reach Kosmos Plus (\(kosmosPlusSignIn.host!)). Check this computer's internet connection, then press Cmd-R (View > Reload) to try again.", title: "Kosmos Plus did not answer")
+            showStartupFailureAlert(detail: "Kosmos could not reach Kosmos+ (\(kosmosPlusSignIn.host!)). Check this computer's internet connection, then press Cmd-R (View > Reload) to try again.", title: "Kosmos+ did not answer")
             return
         }
         // One-shot fall-through: the user's reload hit a dead page (the

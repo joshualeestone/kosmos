@@ -57,6 +57,12 @@ function goalFrom(text) {
  * @returns {string|null}
  */
 function readGoal(folder) {
+  const text = readBriefText(folder);
+  return text === null ? null : goalFrom(text);
+}
+/* The brief's text, read safely, or null (missing, not a regular file, too large, unreadable). Shared by
+   readGoal and readBrief so the two cannot check the file differently. */
+function readBriefText(folder) {
   // Absolute only, as projects.briefIsPending / seedBriefStub: a relative path would resolve against
   // the server's working directory.
   if (typeof folder !== 'string' || !folder || !path.isAbsolute(folder)) return null;
@@ -70,12 +76,42 @@ function readGoal(folder) {
     if (!fst.isFile() || fst.size > MAX_BYTES) return null;
     const buf = Buffer.alloc(fst.size);
     const n = fs.readSync(fd, buf, 0, fst.size, 0);
-    return goalFrom(buf.subarray(0, n).toString('utf8'));
+    return buf.subarray(0, n).toString('utf8');
   } catch {
     return null;
   } finally {
     if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* already closed */ } }
   }
 }
-
-module.exports = { goalFrom, readGoal, MAX_BYTES, GOAL_MAX };
+/* #4581: the brief's "Done looks like" section, as `kosmos project show` prints it. Any `## Done...` heading
+   (the seeded "Done looks like", or a person's own "Done when" / "Done"). A section still holding a seeded
+   prompt is not an answer: the stub's prompts are one italic line ending "Replace this line." (both of them,
+   projects.briefStubContent), and the RULE is matched, not one spelling, so a reworded prompt stays a prompt. */
+const DONE_HEADING = /^##\s+done\b.*$/i;
+const THEMATIC_BREAK = /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/;
+const SEEDED_PROMPT = /^_[^_]*Replace this line\.?_$/;
+function sectionFrom(text, heading) {
+  if (typeof text !== 'string' || !text) return null;
+  const lines = text.split(/\r?\n/);
+  const at = lines.findIndex((l) => heading.test(l.trim()));
+  if (at === -1) return null;
+  const body = [];
+  for (const l of lines.slice(at + 1)) {
+    // A horizontal rule ends it too: the seeded stub puts Kosmos's own footer after one, under Done.
+    if (NEXT_SECTION.test(l) || THEMATIC_BREAK.test(l)) break;
+    body.push(l);
+  }
+  const words = body.join('\n').replace(/<!--[\s\S]*?-->/g, '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').trim().replace(/\s+/g, ' ');
+  if (!words || SEEDED_PROMPT.test(words)) return null;
+  const chars = Array.from(words);
+  return chars.length > GOAL_MAX ? chars.slice(0, GOAL_MAX - 1).join('').trimEnd() + '\u2026' : words;
+}
+function doneFrom(text) { return sectionFrom(text, DONE_HEADING); }
+/* Goal and done in one read: { goal, done, found } where `found` says whether a readable brief was there at all
+   (so "no brief" and "a brief with both left blank" are said apart). */
+function readBrief(folder) {
+  const text = readBriefText(folder);
+  if (text === null) return { goal: null, done: null, found: false };
+  return { goal: goalFrom(text), done: doneFrom(text), found: true };
+}
+module.exports = { goalFrom, readGoal, doneFrom, readBrief, MAX_BYTES, GOAL_MAX };
