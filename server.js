@@ -3819,8 +3819,7 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    GET only: the key is `METHOD pathname`, so HEAD and every write on the same path stay behind the board token, and
    the query (`?project=`, `?as=text`, `?catalogue=1`) is not part of it. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
-  'GET /api/projects/overview',   // #4581: `kosmos project list`, read with the agent's own token
-  'GET /api/roles', 'GET /api/tasks']);
+  'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks']);   // overview: #4581, `kosmos project list`
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
    `[^/]+` for the project and `\d+` for the task, so no other task verb (close, reopen, parts) matches. Judged before
    the handler decodes the project, so an encoded `a%2Fb` passes here and then names no project (404). Each
@@ -3829,8 +3828,7 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    caller, so, unlike the task verbs, it has no caller to identify (as GET /api/projects/overview in the set above). */
 /* #4491 slice 4: the third pattern is `kosmos room <id>`, a READ of one project's room (anchored like the others, so
    /room/reopen and every other room verb do not match). */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built)$/, /^GET \/api\/project\/[^/]+\/overview$/,
-  /^GET \/api\/project\/[^/]+\/room$/];
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built)$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 4: the agent routes the SETUP GUIDE does not get with its token alone. The guide is the one agent kept
    from the board token on purpose (it talks to a newcomer and must never hand out what it can read, #3769), so it

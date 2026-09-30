@@ -159,14 +159,21 @@ test('msg, post and react: never exempt for a network peer or with NO credential
   const routes = (agentOnly.match(/'[^']+'/g) || []).map((q) => q.slice(1, -1)).sort();
   /* #4581 added the one READ, GET /api/projects/overview (`kosmos project list`): it writes nothing and answers
      every caller the same, so it has no caller to identify; every WRITE here still must. */
-  assert.deepEqual(routes, ['GET /api/projects/overview', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/whoami'],
+  /* #4491 slice 4 added two more READS (`kosmos agent roles`, `kosmos task list`): no caller to identify either. */
+  assert.deepEqual(routes, ['GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/whoami'],
     'AGENT_TOKEN_ROUTES changed: every write added here must be checked to identify its caller from the header token');
   /* #4491 slice 3: the parameterized routes, pinned exactly like the set. */
   const patterns = (src.match(/const AGENT_TOKEN_ROUTE_PATTERNS = \[[^\n]*\];/) || [''])[0];
-  assert.equal(patterns, 'const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \\/api\\/project\\/[^/]+\\/task\\/\\d+\\/(?:message|built)$/, /^GET \\/api\\/project\\/[^/]+\\/overview$/];',
+  assert.equal(patterns, 'const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \\/api\\/project\\/[^/]+\\/task\\/\\d+\\/(?:message|built)$/, /^GET \\/api\\/project\\/[^/]+\\/overview$/, /^GET \\/api\\/project\\/[^/]+\\/room$/];',
     'AGENT_TOKEN_ROUTE_PATTERNS changed: every route a pattern admits must identify its caller from the header token');
   assert.match(src, /const agentTokenRoute = \(key\) => AGENT_TOKEN_ROUTES\.has\(key\) \|\| AGENT_TOKEN_ROUTE_PATTERNS\.some\(/, 'the route check no longer reads the set and the patterns');
   assert.match(src, /agentTokenRoute\([^)]*\) && agentTokenOk\(req\)/, 'the agent-token exemption no longer requires a valid token');
+  /* #4491 slice 4: the room and the tasks are closed to the setup guide's token (it is kept from the board token on
+     purpose). Pinned exactly, so taking a route out of the closed set is a deliberate edit here; and every READ of
+     people's work that joins the agent-token routes above must be weighed for this set too. */
+  assert.equal((src.match(/const GUIDE_CLOSED_ROUTES = new Set\(\[[^\]]*\]\);/) || [''])[0], "const GUIDE_CLOSED_ROUTES = new Set(['GET /api/tasks']);", 'GUIDE_CLOSED_ROUTES changed');
+  assert.equal((src.match(/const GUIDE_CLOSED_ROUTE_PATTERNS = \[[^\n]*\];/) || [''])[0], 'const GUIDE_CLOSED_ROUTE_PATTERNS = [/^GET \\/api\\/project\\/[^/]+\\/room$/];', 'GUIDE_CLOSED_ROUTE_PATTERNS changed');
+  assert.match(src, /agentTokenRoute\(key\) && agentTokenOk\(req\) && !\(guideClosedRoute\(key\) && agentTokenIsGuide\(req\)\)/, 'the gate no longer keeps the guide-closed routes from the setup guide');
   /* #4491 slice 3: a network peer stays refused on the pattern routes too: remoteWriteGuard reads only the exact
      REMOTE_AGENT_ROUTES set, never the agent-token set or its patterns, and that set names no task route. */
   const guard = (src.match(/function remoteWriteGuard\([^)]*\) \{[\s\S]*?\n\}/) || [''])[0];
