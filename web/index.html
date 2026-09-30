@@ -3925,11 +3925,18 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons
 .cons-proj-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); margin: 0 0 var(--space-5) 0; }
 .cons-proj-title { margin: 0; font: 700 1.25rem var(--font-ui); color: var(--k-ink); }
 .cons-agents-head { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin: 0 0 var(--space-5) 0; }
-.cons-agents-lay { display: inline-flex; gap: 6px; }
-.cons-agents-lay button { border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); font: 600 .75rem var(--font-ui);
-  padding: 3px 10px; border-radius: 999px; cursor: pointer; }
-.cons-agents-lay button[aria-pressed="true"] { color: var(--k-ink); border-color: var(--gold-edge); }
-.cons-agents-lay button:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+/* #4594 (Josh, 2026-09-29 12:01): ONE segmented control, not two pills. The app's segmented language
+   (.laypick/.pj-mode: 0.5px separator, radius-control, elevated ground, gold selected segment with
+   #14161a ink); segments sized to their words, like .pj-mode, rather than .laypick's 38px icon squares. */
+.cons-agents-lay { display: inline-flex; border: 0.5px solid var(--separator); border-radius: var(--radius-control);
+  overflow: hidden; background: var(--bg-elevated); }
+.cons-agents-lay button { border: 0; background: none; color: var(--label-2); font: 600 13px var(--font-ui);
+  height: 30px; padding: 0 12px; cursor: pointer; white-space: nowrap; }
+.cons-agents-lay button + button { border-left: 0.5px solid var(--separator); }
+.cons-agents-lay button:hover:not([aria-checked="true"]) { color: var(--label); }
+.cons-agents-lay button[aria-checked="true"] { background: var(--gold-bright); color: #14161a; }
+.cons-agents-lay button:focus-visible { outline: 2px solid var(--label); outline-offset: -3px; }
+.cons-agents-lay button[aria-checked="true"]:focus-visible { outline-color: #14161a; }
 @media (max-width: 760px) {
   .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
   .tsk-main { padding: 22px 14px 120px; }
@@ -31864,9 +31871,9 @@ function boardApplyVisibility(onAgents) {
     document.getElementById('alist').hidden = !onAgents || lay !== 'list';
     const orgC = document.getElementById('orgview');
     orgC.hidden = BOARD_LAYOUT !== 'org';
-    /* A saved 'list' (chosen in the tab view) shows the grid here but presses neither button, so a
+    /* A saved 'list' (chosen in the tab view) shows the grid here but checks neither segment, so a
        click on Grid is a real choice rather than a silent overwrite of the list (review round 2). */
-    for (const b of document.querySelectorAll('#panel-cons-agents [data-conslay]')) b.setAttribute('aria-pressed', String(b.dataset.conslay === BOARD_LAYOUT));
+    consLaySync();
     if (!orgC.hidden) paintOrg();
     return;
   }
@@ -41926,6 +41933,16 @@ function placeTasksPanel(consolidated) {
    listeners are on the elements themselves (#grid, #orgmap), so an agent click in the column calls
    openDetail exactly as the rail does. */
 let CONS_AGENTS_HOME = null;
+/* #4594: the consolidated agents switch shows BOARD_LAYOUT. A saved 'list' (chosen in the tab view) checks
+   neither segment (review round 2); the tab stop then falls to the first. */
+function consLaySync() {
+  const all = [...document.querySelectorAll('#panel-cons-agents [data-conslay]')];
+  const on = all.find((b) => b.dataset.conslay === BOARD_LAYOUT) || null;
+  for (const b of all) {
+    b.setAttribute('aria-checked', String(b === on));
+    b.tabIndex = (b === (on || all[0])) ? 0 : -1;
+  }
+}
 function placeAgentsPanel(consolidated) {
   const projects = document.getElementById('panel-projects');
   if (!projects) return;
@@ -41940,15 +41957,31 @@ function placeAgentsPanel(consolidated) {
          this a person on the grid could never reach the org chart Josh named. It saves to the same
          key as that toggle, so the choice is one choice. List is not offered: the list is the rail. */
       wrap.innerHTML = '<div class="cons-agents-head">' + agentSortControlHtml('agent-sort-cons')
-        + '<div class="cons-agents-lay" role="group" aria-label="How to show agents here">'
-        + '<button type="button" data-conslay="grid" aria-pressed="false">Grid</button>'
-        + '<button type="button" data-conslay="org" aria-pressed="false">Org chart</button></div></div>';
-      wrap.addEventListener('click', (e) => {
-        const b = e.target.closest('[data-conslay]');
-        if (!b) return;
+        + '<div class="cons-agents-lay" role="radiogroup" aria-label="How to show agents here">'
+        + '<button type="button" role="radio" data-conslay="grid" aria-checked="false" tabindex="0">Grid</button>'
+        + '<button type="button" role="radio" data-conslay="org" aria-checked="false" tabindex="-1">Org chart</button></div></div>';
+      const pick = (b) => {
         layoutApply('agents', b.dataset.conslay);
         try { localStorage.setItem('kosmos.layout.agents', b.dataset.conslay); } catch { /* display preference only */ }
+      };
+      wrap.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-conslay]');
+        if (b) pick(b);
       });
+      /* #4594: a radio group's keys. Left/Right (and Up/Down) move AND choose, wrapping; Home and End go to
+         the first and last; focus follows. */
+      wrap.addEventListener('keydown', (e) => {
+        const b = e.target.closest('[data-conslay]');
+        if (!b || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || !['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+        const all = [...wrap.querySelectorAll('[data-conslay]')];
+        const i = all.indexOf(b);
+        const to = e.key === 'Home' ? all[0] : e.key === 'End' ? all[all.length - 1]
+          : all[(i + ((e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : all.length - 1)) % all.length];
+        e.preventDefault();
+        if (to.getAttribute('aria-checked') !== 'true') pick(to);   // the chosen one again: focus only, no repaint
+        to.focus();
+      });
+      consLaySync();   // right from the build, whatever BOARD_LAYOUT already is
     }
     if (wrap.parentElement !== projects) projects.appendChild(wrap);
     if (!CONS_AGENTS_HOME) {
