@@ -1274,6 +1274,7 @@ async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card,
   };
   const steps = CODEX_HOOK_STEPS[choice];
   let now = look();
+  const readFirst = now.screen || null;
   if (now.unseen) return no('we could not see its screen just now, so nothing was pressed');
   if (now.screen === 'gone' || now.screen === 'blank') return no('the hook question is not on its screen now, so nothing was pressed');
   if (now.screen === 'trusted' && choice !== 'close') return no('its hooks are already trusted and their list is still open; close the list');
@@ -1312,7 +1313,7 @@ async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card,
       }
       return no('its screen went somewhere we have not measured, so nothing more was pressed; open its Terminal tab to see it');
     }
-    if (after.screen === 'gone') return { ok: true, choice, keys };
+    if (after.screen === 'gone') return { ok: true, choice, keys, screen: readFirst };
     /* Trust from one hook's page: the full list is up now; the person chooses again with every hook in view. */
     if (choice === 'trust' && now.screen === 'hook') return { ok: false, keys, because: 'the full list of hooks is showing now; read it and choose again', reread: true };
     now = after;

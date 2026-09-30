@@ -472,3 +472,18 @@ test('#4607 round 12: four printed lines imitating the trusted list are not it (
   assert.equal(status.codexHookTrustedTable(fake), false);
   assert.equal(status.codexHookTrustedTable(TRUSTED), true, 'CONTROL: the real list still reads');
 });
+
+/* Review round 13. */
+test('#4607 round 13: a hook page for an event with 3 or more hooks claims no command and counts them', () => {
+  const TWO = read('hook-review-hook-two-0.149.1.txt');
+  const two = status.codexHookSummary(TWO);
+  assert.equal(two.command, null);
+  assert.deepEqual(two.events, [{ event: 'Stop', count: 2 }]);
+  for (const n of [3, 4]) {
+    const more = TWO.replace(/2 hooks need review before they can run\./, `${n} hooks need review before they can run.`)
+      .replace(/(\n\s*\[!\] Hook 2[^\n]*)/, (m) => m + Array.from({ length: n - 2 }, (_, i) => m.replace('Hook 2', 'Hook ' + (i + 3))).join(''));
+    const s = status.codexHookSummary(more);
+    assert.equal(s.command, null, `${n} hooks`);
+    assert.deepEqual(s.events, [{ event: 'Stop', count: n }], `${n} hooks`);
+  }
+});

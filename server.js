@@ -6097,14 +6097,21 @@ const server = http.createServer(async (req, res) => {
       .then(async (buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
-        if (!isViaScreen(req, body)) { sendJson(res, 403, { ok: false, because: 'only you can answer this, from the board' }); return; }
+        if (!isViaScreen(req, body)) {
+          /* Refusals are logged too (review round 13): they are the attempts the residual is about. */
+          process.stdout.write(`codex-hooks: refused ${JSON.stringify(name)} (not the person's page)\n`);
+          sendJson(res, 403, { ok: false, because: 'only you can answer this, from the board' });
+          return;
+        }
         const choice = body.choice;
         if (choice !== 'trust' && choice !== 'skip' && choice !== 'close') { sendJson(res, 400, { ok: false, because: 'choose to trust the hooks, to continue without them, or to close the list' }); return; }
         let r;
         try { r = await chat.answerCodexHooks(name, choice, safeRoster(), body.seen); }
         catch { sendJson(res, 500, { ok: false, because: 'something went wrong answering it; nothing more was pressed' }); return; }
         /* A record of the decision (review round 12): trusting writes to the account's Codex settings. */
-        process.stdout.write(`codex-hooks: ${name} choice=${choice} screen=${(body.seen && body.seen.screen) || '-'} ok=${r.ok === true} keys=${JSON.stringify(r.keys || [])}${r.ok ? '' : ' - ' + r.because}\n`);
+        /* Values JSON-quoted (a %0A in the name must not write a line of its own); the screen is the one the engine
+           READ, not the one the caller said it saw. */
+        process.stdout.write(`codex-hooks: ${JSON.stringify(name)} choice=${JSON.stringify(choice)} read=${JSON.stringify(r.screen || null)} ok=${r.ok === true} keys=${JSON.stringify(r.keys || [])}${r.ok ? '' : ' because=' + JSON.stringify(r.because)}\n`);
         sendJson(res, 200, { ok: r.ok === true, choice, because: r.ok ? null : r.because, reread: r.reread === true });
       })
       .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));

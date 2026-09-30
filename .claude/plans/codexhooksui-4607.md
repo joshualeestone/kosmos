@@ -61,8 +61,8 @@ comes from the agent's own project folder, and makes Continue the main button. T
 TRUSTED list (Enter there) was never captured, so it is not recognised: the board shows nothing while Codex waits on it.
 
 On the MENU the must-match check can compare only the screen and the count: a different set of hooks with the same
-count passes it, because the menu names none (review round 7). The table and hook pages carry events, source and
-command, which are compared.
+count passes it, because the menu names none (review round 7). On the TABLE it compares event names and their counts
+only (the table shows no source or command, round 13); only one hook's page carries a source and command.
 
 "Done" is reported when the next screen is not a hook screen and not blank, which includes another dialog (Codex's
 update menu, say): nothing more is pressed, and the card shows whatever that screen is (review round 8). A trusted

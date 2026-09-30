@@ -1776,12 +1776,16 @@ function codexHookSummary(paneText) {
     /* The page's own block: from its last "[!] Hook N" row (or its "... hooks" heading) to the end, over the whole
        screen, so a long command cannot push its fields out of view (review round 7). Its "N hooks need review" line
        counts only THIS event's hooks (measured: the table said 2, this page 1), so no total is claimed from here. */
-    let start = -1;
-    all.forEach((r, i) => { if (CODEX_HOOK_ONE_ROW.test(r)) start = i; });
-    if (start > 2) start -= 3;   // the event heading and its warning sit just above the hook row
+    /* The page's own block starts at its "<Event> hooks" heading, found by searching UP from the first "[!] Hook N"
+       row (review round 13: a fixed offset missed the heading and warning once an event had three or more hooks). */
+    const firstHook = all.findIndex((r) => CODEX_HOOK_ONE_ROW.test(r));
+    let start = firstHook;
+    for (let i = firstHook - 1; i >= 0 && i >= firstHook - 12; i -= 1) { if (/^\s*[A-Za-z]+ hooks\s*$/.test(all[i])) { start = i; break; } }
     const block = start >= 0 ? all.slice(start) : rows;
     const ev = block.map((r) => /^\s*Event\s{2,}(\S+)\s*$/.exec(r)).filter(Boolean).pop();
-    if (ev) events.push({ event: ev[1], count: 1 });
+    /* This event's own hook count, from its page's warning (round 13: it was always 1). */
+    const evWarn = block.map((r) => /^\s*(?:⚠\s*)?(\d+) hooks? needs? review before (?:it|they) can run\.\s*$/.exec(r)).filter(Boolean)[0];
+    if (ev) events.push({ event: ev[1], count: evWarn ? Number(evWarn[1]) : 1 });
     let si = -1;
     block.forEach((r, i) => { if (/^\s*Source\s{2,}\S/.test(r)) si = i; });
     if (si >= 0) {
