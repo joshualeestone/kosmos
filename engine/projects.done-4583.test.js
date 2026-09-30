@@ -291,6 +291,51 @@ test('#4583 review: a placeholder under a heading the person retitled is replace
   assert.deepEqual([rb.readBrief(dir).done, rb.readBrief(dir).doneSection], [null, false]);
 });
 
+test('#4583 round 5: a done typed like a heading or a rule stays the done, in the stub and through fillDone', () => {
+  reset();
+  const rb = require('./brief');
+  for (const done of ['# of signups hits 500', '---', '* * *', '## Launch']) {
+    const dir = folder('md');
+    const made = projects.create({ name: 'Md', folder: dir, done });
+    assert.equal(rb.readBrief(dir).done, done, 'stub: ' + done);
+    assert.equal(projects.get(made.id, []).doneSet, true, 'stub: ' + done);
+    assert.equal(projects.doneIsPending(dir), false, 'stub: ' + done);
+    assert.equal(projects.doneWrittenIn(dir, done), true, 'stub: ' + done);
+    const old = folder('mdfill');
+    fs.writeFileSync(path.join(old, projects.BRIEF_STUB_FILENAME), '# Old\n\n## Done looks like\n\n' + projects.BRIEF_DONE_PLACEHOLDER + '\n');
+    assert.equal(projects.fillDone(old, done), true);
+    assert.equal(rb.readBrief(old).done, done, 'fillDone: ' + done);
+  }
+  // CONTROL: an ordinary done is written exactly as typed, no escape.
+  const plain = folder('plain');
+  projects.create({ name: 'Plain', folder: plain, done: 'Ship v1' });
+  assert.match(brief(plain), /## Done looks like\n\nShip v1\n/);
+});
+
+test('#4583 round 5: a Done heading of the person\'s own shape, at any level, empty or not, is left alone', () => {
+  reset();
+  for (const mine of ['# Mine\n\n### Done looks like\n\n## Notes\n\nN.\n', '# Mine\n\n### Done when\n\ntests pass\n', '# Mine\n\n# Done\n\nX.\n']) {
+    const dir = folder('ownshape');
+    fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), mine);
+    assert.equal(projects.fillDone(dir, 'Ship v1'), false, mine);
+    assert.equal(brief(dir), mine, mine);
+    assert.equal(projects.doneWrittenIn(dir, 'Ship v1'), false, mine);
+  }
+});
+
+test('#4583 round 5: what is left of a seeded placeholder in an unset section is not printed with the done', () => {
+  reset();
+  const rb = require('./brief');
+  for (const left of ['**Not set yet.**', '**Not set yet.** _How will everyone know\nthis is finished? Replace this line._']) {
+    const dir = folder('remnant');
+    fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), '# P\n\n## Done looks like\n\n' + left + '\n\n## Notes\n\nN.\n');
+    assert.equal(rb.doneSetFrom(brief(dir)), false, 'fixture: the remnant reads unset');
+    assert.equal(projects.fillDone(dir, 'Ship v1'), true);
+    assert.equal(rb.readBrief(dir).done, 'Ship v1', left);
+    assert.ok(brief(dir).includes('## Notes\n\nN.'), 'the next section was disturbed');
+  }
+});
+
 test('#4583 round 2: a done with $& or $\' is written as typed, never as a replacement pattern', () => {
   reset();
   const dir = folder('dollar');

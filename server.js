@@ -15461,6 +15461,12 @@ const server = http.createServer(async (req, res) => {
             // #4583: a goal but no "done looks like": the same one-asks note, for done.
             messages.roomNote(made.id, projects.DONE_PENDING_NOTE, { audience: messages.NOTE_AUDIENCE_AGENTS });
           }
+          /* #4583 review round 5: a done typed on the form that BRIEF.md could not take (the person's brief has a Done
+             section of its own) is quoted to the team with one question, never dropped without a word. */
+          const typedDone = projects.cleanDone(body.done);
+          if (made.agents.length > 0 && typedDone && !projects.doneWrittenIn(made.folder, typedDone)) {
+            messages.roomNote(made.id, projects.doneNotWrittenNote(typedDone), { audience: messages.NOTE_AUDIENCE_AGENTS });
+          }
         } catch { /* the note is furniture; the project exists regardless */ }
         // The owner's seat waits for a first edge (someone has joined); try now.
         if (federationLinked) fedseats.ensure(made.id).catch(() => {});

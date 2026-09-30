@@ -1986,11 +1986,34 @@ const BRIEF_GOAL_PLACEHOLDER = '_What is this project for? Replace this line._';
    still read as not set. */
 const BRIEF_DONE_PLACEHOLDER = '**Not set yet.** _How will everyone know this is finished? Replace this line._';
 const BRIEF_DONE_PLACEHOLDERS = Object.freeze([BRIEF_DONE_PLACEHOLDER, '_How will everyone know this is finished? Replace this line._']);
+/* #4583 review round 5: a done typed as "# of signups hits 500" or "---" would be written as a heading or a rule,
+   ending the Done section at its own first line, so every reader said done was not set. Its first character is
+   escaped (Markdown's backslash) and brief.js strips that one escape when reading. */
+function doneMarkdown(done) {
+  const t = String(done);
+  return /^(?:#|([-*_])(?:\s*\1){2,}\s*$)/.test(t) ? '\\' + t : t;
+}
+/* Whether BRIEF.md in folder holds this typed done (as fillDone or the stub writes it). */
+function doneWrittenIn(folder, done) {
+  try {
+    if (!folder || !path.isAbsolute(folder) || typeof done !== 'string' || !done) return false;
+    const { text } = readBriefSafely(folder);
+    return typeof text === 'string' && text.split(/\r?\n/).some((l) => l.trim() === doneMarkdown(done));
+  } catch { return false; }
+}
+/* #4583 review round 5: the note when a done typed at creation could not go into BRIEF.md because the person's brief
+   already has a Done section of its own shape. Their words are quoted as data, never as an instruction. */
+function doneNotWrittenNote(done) {
+  return 'The person typed what done looks like when creating this project: "' + String(done).replace(/"/g, "'") + '". '
+    + 'BRIEF.md already has a Done section of its own, so Kosmos did not change it. ONE of you (the Project Manager, if '
+    + 'there is one) ask the person, here, which one stands, and write that into BRIEF.md. One question, not several.';
+}
+
 function briefStubContent({ name, description, done } = {}) {
   const goal = (typeof description === 'string' && description.trim())
     ? description.trim()
     : BRIEF_GOAL_PLACEHOLDER;
-  const doneLine = (typeof done === 'string' && done.trim()) ? done.trim() : BRIEF_DONE_PLACEHOLDER;
+  const doneLine = (typeof done === 'string' && done.trim()) ? doneMarkdown(done.trim()) : BRIEF_DONE_PLACEHOLDER;
   return `# ${String(name || 'This project')}\n\n`
     + `## Goal\n\n${goal}\n\n`
     + '## Done looks like\n\n'
@@ -2064,25 +2087,34 @@ function fillDone(folder, doneText) {
        the file (a placeholder left beside them included): never merged into, never followed by a second. */
     const range = brief.doneSectionRange(text);
     if (range && brief.doneSetFrom(text) !== false) return false;
+    const md = doneMarkdown(doneText);
     const lines = text.split(/\r?\n/);
     const seps = text.match(/\r?\n/g) || [];
-    const join = (ls) => ls.map((l, k) => l + (k < seps.length ? seps[k] : '')).join('');
+    const join = () => lines.map((l, k) => l + (k < seps.length ? seps[k] : '')).join('');
     if (range) {
-      // An unset Done section: its own placeholder line is replaced, never one under another heading; an empty one
-      // gets the done under its heading (a blank line kept before a line that follows directly, e.g. a rule).
+      // An unset Done section: its own placeholder line is replaced, never one under another heading.
       const k = lines.findIndex((l, n) => n >= range.from && n < range.to && l.trim() === hit);
       // A function replacement: the person's words are data, so "$&" or "$'" in them is never a replacement pattern.
-      if (hit && k !== -1) { lines[k] = lines[k].replace(hit, () => doneText); next = join(lines); }
+      if (hit && k !== -1) { lines[k] = lines[k].replace(hit, () => md); next = join(); }
       else {
+        // Round 5: what is left of a seeded placeholder (the bold words alone, or one re-wrapped over two lines) goes,
+        // so the printed done is only the person's words. Then the done goes under the heading (a blank line kept
+        // before a line that follows directly, e.g. a rule).
+        for (let n = range.to - 1; n >= range.from; n -= 1) {
+          if (/\*\*Not set yet\.\*\*|Replace this line\.?_/.test(lines[n])) { lines.splice(n, 1); seps.splice(n, 1); }
+        }
         const follows = range.heading + 1 < lines.length && lines[range.heading + 1].trim() !== '';
-        lines[range.heading] += eol + eol + doneText + (follows ? eol : '');
-        next = join(lines);
+        lines[range.heading] += eol + eol + md + (follows ? eol : '');
+        next = join();
       }
     }
     // No Done section: a placeholder left under a heading the person retitled is Kosmos's own line, so it is replaced.
-    else if (hit) next = text.split(/(\r?\n)/).map((part) => (part.trim() === hit ? part.replace(hit, () => doneText) : part)).join('');
-    // Any heading level, any case, trailing words allowed: a Done section the person titled their own way is theirs.
-    else if (!/^#{1,6}[ \t]*done looks like\b/im.test(text)) next = text.replace(/\s*$/, '') + eol + eol + '## Done looks like' + eol + eol + doneText + eol;
+    else if (hit) next = text.split(/(\r?\n)/).map((part) => (part.trim() === hit ? part.replace(hit, () => md) : part)).join('');
+    /* Round 5: a Done heading of the person's own shape (any level, "Done..." or "What done...") is theirs, whether
+       empty or not: left alone, never followed by a second section. The create route then asks, in the room, which
+       done stands (doneNotWrittenNote), so the typed words are not lost. */
+    else if (/^[ \t]*#{1,6}[ \t]+(?:what[ \t]+)?done\b/im.test(text)) return false;
+    else next = text.trimEnd() + eol + eol + '## Done looks like' + eol + eol + md + eol;
     if (next === null) return false;
     fs.writeFileSync(file, next, 'utf8');
     return true;
@@ -3171,7 +3203,7 @@ module.exports = {
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,
-  BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,
+  BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,
   findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership, speakOfMembershipAsync,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
   folderPathPreview, makeFolder, revealFolder, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile,
