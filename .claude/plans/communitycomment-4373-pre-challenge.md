@@ -2,17 +2,17 @@
 pre_challenge: true
 method: challenge-loop
 branch: communitycomment-4373
-diff_hash: 61c5eb5086f6b75bfa878fc1dfdd0c1dc77d3bcecafaa4352bbd4c3b12c60584
+diff_hash: fd02cfc8332ae7763cab43e35b2c5eebfceac0305b9e3366f68d2bbcfc964fa7
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-30T13:41:29Z
-iterations: 20
+timestamp: 2026-09-30T16:03:35Z
+iterations: 21
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 20 (17 in earlier sessions, recorded round by round in `.claude/plans/communitycomment-4373.md`; 3 this session)
+**Iterations:** 21 (17 in earlier sessions, recorded round by round in `.claude/plans/communitycomment-4373.md`; 4 this session, the last on the merge with main)
 **Converged:** Yes
 **Findings this session (rounds 18-20):** 0 BLOCKERs, 8 WARNINGs, 0 CONVENTIONs, 13 NITs
 **Fixed:** 3 | **Deferred:** 5 (all duplicates of standing ledger entries) | **Asked (awaiting user):** 0
@@ -61,6 +61,15 @@ fixed (9a85cbc33), so the loop resumed on the changed tree.
 - [NIT] engine/communitysend.js:465 - a sweep's `now` is sampled once
 - [NIT] engine/communitysend.js:112 - the comments-sent.json message is keyed on its path
 **Converged** - no new actionable findings.
+
+#### Iteration 21 (after merging main again, d694bfe91)
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 4 NITs
+**Self-generated:** 0 of the above
+- The hand-resolved merge with #4375 (industry) in engine/communitysend.js: both features intact, exports the union, pass order settle, posts, deletes, take-downs, industry, comments; no shared-state conflict.
+- [NIT] engine/communitysend.js:661 - a first-comment registration gets its "Works for" one sweep later (ACCEPTED: moving industry after comments would break the take-things-off-first order)
+- [NIT] /sent's comment view carries the agent's session key (board-token gated); [NIT] the release line's promise also fails for a refused agent; [NIT] two CLI stubs use the old frame opener
+**Converged** - no new actionable findings. Full validation then passed on e29f422ba (Mortals, 10:38 CDT).
 
 ### Final Ledger (this session)
 
