@@ -433,3 +433,13 @@ test('#4588 B clause: without an addressed id the #4624 line is byte-unchanged',
   assert.equal(roomhold.hold('zed', 'p1', 'm7'), true);
   assert.deepEqual(roomhold.heldIn('zed', 'p1'), ['@m7']);
 });
+
+test('#4797: the log line says "told of" only when something was told', () => {
+  const placed = roomhold.toldLine('mara', { n: 2, projectId: PROJECT, state: chat.DELIVERY.PLACED }, 'after the quota hold');
+  assert.match(placed, /^room-hold: mara told of 2 held post\(s\) in .+ after the quota hold, delivery=/);
+  assert.match(roomhold.toldLine('mara', { n: 2, projectId: PROJECT, state: chat.DELIVERY.PLACED }), /told of 2 held post\(s\) in [^ ]+, delivery=/);
+  const refused = roomhold.toldLine('mara', { n: 2, projectId: PROJECT, state: chat.DELIVERY.COULD_NOT }, 'after the quota hold');
+  assert.equal(/told of/.test(refused.replace('could not yet be told of', '')), false, 'a refused try was logged as told');
+  assert.match(refused, /could not yet be told of 2 held post\(s\)/);
+  assert.ok(refused.endsWith('\n') && placed.endsWith('\n'));
+});
