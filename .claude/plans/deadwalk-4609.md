@@ -51,3 +51,5 @@ A subshell orphaned while alive (parent exited first, reparented to 1) is still 
 - (N) FIXED: `_kosmos_pid_gone` signals once instead of twice.
 - (N) LEFT: the one-hour orphan after a SIGKILL (already recorded); LC_ALL=C being ignored by some shell (safe side, and
   the exited-candidate arm reds on that box).
+- Mutation 3 (the suite arm's `_kosmos_drop_self_subtree "$self"` replaced by `cat`, line 467 only): exactly the #4410
+  self-drop arm reds. Restored from HEAD. Before the iteration-3 fix this arm stayed green under the same mutation.
