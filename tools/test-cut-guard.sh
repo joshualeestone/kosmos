@@ -479,7 +479,9 @@ has "$out" "KOSMOS_CUT_IGNORE_HARNESS=1 cuts anyway" && pass "#4410 CONTROL: wit
 # The mirror: kosmos_refuse_if_suite_live, through its KOSMOS_SUITE_PROBE seam.
 printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n"\n' "$SUITE" > "$T/sprobe-live"; chmod +x "$T/sprobe-live"
 printf '#!/bin/sh\nprintf "%s bash %s/tools/run-tests.sh\\n"\n' "$SUITE" "$KTD" > "$T/sprobe-kt"; chmod +x "$T/sprobe-kt"
-printf '#!/bin/sh\nprintf "5353 bash tools/run-tests.sh\\n"\n' > "$T/sprobe-self"; chmod +x "$T/sprobe-self"
+# The caller's own pid must be LIVE ($SUITE): a pid that does not exist is dropped as gone (#4609), which would pass this
+# arm without the self-drop.
+printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n"\n' "$SUITE" > "$T/sprobe-self"; chmod +x "$T/sprobe-self"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-live" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "tools/run-tests.sh" && has "$out" "KOSMOS_HARNESS_IGNORE_SUITE=1"; } \
   && pass "#4410 a harness refuses to start while a test suite is running, and names the override" \
@@ -499,7 +501,7 @@ out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=99
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-fixture" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-live" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#4410 a run-tests.sh with a node --test ancestor is not a live suite (control: the live arm above)" \
   || fail "#4410 a node --test run-tests.sh fixture refused the harness (rc=$rc, $out)"
-out="$(KOSMOS_SUITE_SELF_PID=5353 KOSMOS_SUITE_PROBE="$T/sprobe-self" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
+out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID="$SUITE" KOSMOS_SUITE_PROBE="$T/sprobe-self" kosmos_refuse_if_suite_live "a full install-harness run" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#4410 the caller's own pid is not a separate suite" || fail "#4410 the guard refused its own caller (rc=$rc, $out)"
 
 # The suite guard's REAL name arm (pgrep plus the filter), through _kosmos_suite_candidates. Other

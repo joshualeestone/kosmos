@@ -43,3 +43,11 @@ A subshell orphaned while alive (parent exited first, reparented to 1) is still 
   before either: a wording the match missed reds the exited-candidate arm on the box that runs the suite.)
 - (N) LEFT: an orphaned sleep after a SIGKILL (its output now goes to /dev/null, so nothing waits on it); the ancestor
   probes and the single caller were checked and need no change.
+
+## Review iteration 3 (blind, opus)
+- (W) FIXED: the #4410 self-drop arm probed pid 5353, which does not exist, so the gone check alone cleared it and the
+  arm no longer guarded `_kosmos_drop_self_subtree`. It now probes the live `$SUITE` as the caller, with the ancestor
+  probe pinned to none so a fixture read cannot clear it either.
+- (N) FIXED: `_kosmos_pid_gone` signals once instead of twice.
+- (N) LEFT: the one-hour orphan after a SIGKILL (already recorded); LC_ALL=C being ignored by some shell (safe side, and
+  the exited-candidate arm reds on that box).

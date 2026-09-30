@@ -592,8 +592,7 @@ _kosmos_descends_from_suite_waiter() {
 _kosmos_pid_gone() {
   local err
   case "$1" in ''|*[!0-9]*) return 1 ;; esac
-  kill -0 "$1" 2>/dev/null && return 1
-  err="$(LC_ALL=C kill -0 "$1" 2>&1)"
+  err="$(LC_ALL=C kill -0 "$1" 2>&1)" && return 1
   case "$err" in *[Nn]'o such process'*) return 0 ;; esac
   return 1
 }
