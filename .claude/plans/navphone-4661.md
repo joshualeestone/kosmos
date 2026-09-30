@@ -47,7 +47,7 @@ it reads as too small, the next step is icon-only for Profile and AI Settings wi
   break is at a space, including a zero-height one, or after a hyphen): one row by geometry (it read flex-direction, a
   proxy the grid broke while the row stayed one row), every tab whole, no scroll, and no word broken, measured per
   character (a line change with no space either side). Arms: 375 to 430 at 44 to 52px; 320, 360 and 375 at 130%
-  text (at most two label lines, thread at least 60px); the swarm row (four buttons, at most 60px) and the swarm
+  text (at most two label lines, thread at least 60px); the swarm row (four buttons; ceilings above) and the swarm
   row, at 375 and 320, every status word (row-height ceilings 70 and 84px, conversation at least 60px), and at 130 and
   150% text (conversation at least 24px, a floor so the accepted cost cannot quietly get worse) (may wrap; nothing cut, clipped, or outside its button: a per-button
   containment measure added in round 2). Red on origin/main (scrolls); red with overflow-wrap: anywhere put back
