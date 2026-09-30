@@ -948,6 +948,7 @@ const dmfiles = require('./engine/dmfiles');          // #3614: where an agent s
 const doctrine = require('./engine/doctrine');
 const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
+const accountComputers = require('./engine/account-computers'); // kosmos#4648
 const phonenotify = require('./engine/phonenotify');
 const styles = require('./engine/styles');
 const tips = require('./engine/tips');
@@ -8135,6 +8136,16 @@ const server = http.createServer(async (req, res) => {
     // #3829 follow-up: the card names this Mac's own sign-in the same way the list does.
     try { sendJson(res, 200, Object.assign({}, remote.pendingDevices(), { self_device_id: typeof remote.read().device_id === 'string' ? remote.read().device_id : '' })); }
     catch { sendJson(res, 500, { error: 'we could not read what is waiting' }); }
+    return;
+  }
+  /* kosmos#4648 (weekend goal #4647): the computers on this board's Kosmos+ account, for the
+     top-left menu's "Your computers". Signed through the tunnel and each online state measured
+     (engine/account-computers.js). Always 200: { ok: false, because } when there is no list
+     (not signed in, an old connector or coordinator), and the page hides the section. */
+  if (pathname === '/api/remote/computers' && (req.method === 'GET' || req.method === 'HEAD')) {
+    accountComputers.fetchComputers()
+      .then((r) => sendJson(res, 200, r))
+      .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read your computers' }));
     return;
   }
   if (pathname === '/api/remote/devices' && (req.method === 'GET' || req.method === 'HEAD')) {
