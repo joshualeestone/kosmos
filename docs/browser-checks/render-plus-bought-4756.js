@@ -75,6 +75,8 @@ const SCENARIOS = {
   'pick-refused-reread-fails': { refuse: 'spare', lists: [
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] }, null,
   ], auto: null },
+  // A pick that cannot reach the service is not a refusal: the address is still theirs, and Try again retries it.
+  'pick-offline': { offline: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
   // A pick refused (another computer took it first) returns to the list with the reason, not Try again on the same address.
   'pick-refused': { refuse: 'spare', lists: [
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] },
@@ -130,7 +132,8 @@ const visible = (page, sel) => page.evaluate((s) => {
         }
         if (p === '/api/remote/signin-register') {
           const b = req.postDataJSON(); regs.push(b.name);
-          if (sc.refuse === b.name) return json(400, { error: 'the name ' + b.name + ' is already connected on another computer' });
+          if (sc.refuse === b.name) return json(400, { error: 'the name ' + b.name + ' is already connected on another computer.' });
+          if (sc.offline === b.name && regs.length === 1) return json(400, { error: 'this computer could not reach the sign-in service' });
           return json(200, reg(b.name));
         }
         if (p === '/api/remote/signin-cancel') return json(200, { ok: true, stage: 'cancelled' });
@@ -201,6 +204,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         await page.waitForFunction(() => /could not be reached/.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});
         const msg = await page.textContent('#plus-signin-msg');
         chk(/already connected on another computer/.test(msg) && /could not be reached/.test(msg), `[${key}] both the refusal and the failed read are said`, msg);
+        chk(!/\.\./.test(msg), `[${key}] without a doubled full stop`, msg);
         const btns = await page.$$eval('#plus-si-bought-list button', (b) => b.map((x) => x.getAttribute('data-bought')));
         chk(JSON.stringify(btns) === JSON.stringify(['other']), `[${key}] the refused address is not offered again`, JSON.stringify(btns));
         chk(!(await visible(page, '#plus-si-owned')), `[${key}] no "Connecting this computer as" line left beside it`);
@@ -210,6 +214,15 @@ const visible = (page, sel) => page.evaluate((s) => {
         await page.waitForFunction(() => { const d = document.getElementById('plus-si-done'); return d && !d.hidden; }, null, { timeout: 8000 }).catch(() => {});
         chk(regs.length === 1 && regs[0] === 'first', `[${key}] takes the step as before (registers to the account's address)`, JSON.stringify(regs));
         chk(!(await visible(page, '#plus-si-bought')), `[${key}] with the list gone`);
+      } else if (key === 'pick-offline') {
+        await page.click('#plus-si-bought-list button[data-bought="spare"]');
+        await page.waitForSelector('#plus-si-register-go', { state: 'visible', timeout: 8000 }).catch(() => {});
+        chk(asked === 1, `[${key}] the list is not re-read (the address was not refused)`, String(asked));
+        chk((await page.textContent('#plus-si-register-go')).trim() === 'Try again', `[${key}] Try again is offered`);
+        chk(/could not connect as/.test(await page.textContent('#plus-si-owned')) && /spare/.test(await page.textContent('#plus-si-owned')), `[${key}] on the same address`, await page.textContent('#plus-si-owned'));
+        await page.click('#plus-si-register-go');
+        await page.waitForFunction(() => { const d = document.getElementById('plus-si-done'); return d && !d.hidden; }, null, { timeout: 8000 }).catch(() => {});
+        chk(JSON.stringify(regs) === JSON.stringify(['spare', 'spare']), `[${key}] and it succeeds on the retry`, JSON.stringify(regs));
       } else if (key === 'no-address') {
         chk(!(await visible(page, '#plus-si-name-field')), `[${key}] no name field: a computer never makes an address`);
         chk(await visible(page, '#plus-si-bought-none'), `[${key}] it is told how to buy one`);

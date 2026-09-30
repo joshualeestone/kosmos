@@ -43670,6 +43670,7 @@ async function plusSiSession(data, again, keep) {
     const tail = document.getElementById('plus-si-owned-tail'); if (tail) tail.textContent = '...';
     document.getElementById('plus-si-owned-addr').textContent = '';
     if (spin) spin.hidden = false;
+    if (owned) owned.focus();   // the code field it replaces had the focus
   }
   const epoch = PLUS_SI_EPOCH, seq = ++PLUS_SI_BOUGHT_SEQ;
   const got = await plusSiBoughtRead();
@@ -43682,7 +43683,7 @@ async function plusSiSession(data, again, keep) {
     if (/start again from the email/i.test(String(got.because || ''))) { plusSiFail(got.because); return; }
     if (PLUS_SI_BOUGHT_LAST) plusSiBoughtPick(PLUS_SI_BOUGHT_LAST);
     const why = got.because || 'That did not work. Check again in a moment.';
-    plusSiMsg(keep ? keep + '. ' + why : why);   // a refused pick's reason is not overwritten
+    plusSiMsg(keep ? String(keep).replace(/[.!?]+$/, '') + '. ' + why : why);   // a refused pick's reason is not overwritten
     return;
   }
   if (bought) bought.hidden = true;   // plusSiBoughtPick shows it again; every other way on is without it
@@ -43814,14 +43815,21 @@ async function plusSiDoRegister(name, owned) {
   if (owns) { plusSiRegisterMode('', owns[1]); plusSiDoRegister(owns[1], owns[1]); return; }
   /* kosmos#4756: a register from the bought-address list that is refused (another computer took that address
      first) goes back to the list with the reason, rather than offering Try again on the same address. */
-  if (!r.ok && PLUS_SI_PICKED && PLUS_SI_SESSION && !/start again from the email/i.test(String(r.because || ''))) {
+  /* Only a refusal from the service: a register that timed out or never reached it may have worked, and its
+     address is still this person's, so that one keeps Try again on the same address (below). */
+  const refused = !r.ok && !r.timeout && !/could not reach|has not answered/i.test(String(r.because || ''));
+  if (refused && PLUS_SI_PICKED && PLUS_SI_SESSION && !/start again from the email/i.test(String(r.because || ''))) {
     PLUS_SI_PICKED = false;
-    const o = document.getElementById('plus-si-owned'); if (o) o.hidden = true;
+    const lead = document.getElementById('plus-si-owned-lead'); if (lead) lead.textContent = 'Checking your Kosmos+ addresses';
+    document.getElementById('plus-si-owned-addr').textContent = '';
+    const tail = document.getElementById('plus-si-owned-tail'); if (tail) tail.textContent = '...';
+    if (siSpin) siSpin.hidden = false;
     if (PLUS_SI_BOUGHT_LAST) PLUS_SI_BOUGHT_LAST = Object.assign({}, PLUS_SI_BOUGHT_LAST, { addresses: PLUS_SI_BOUGHT_LAST.addresses.filter((x) => x.name !== name) });
     plusSiMsg(r.because);
     plusSiSession(PLUS_SI_SESSION, true, r.because);
     return;
   }
+  PLUS_SI_PICKED = false;
   if (!r.ok && owned && !/start again from the email/i.test(String(r.because || ''))) {
     /* Review: an automatic register that failed (a second computer on a web-named account is refused
        today, #3796's carded multi-Mac gap) must not leave the person with no control: say so, keep

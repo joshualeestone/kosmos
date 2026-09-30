@@ -3029,3 +3029,29 @@ test('#4756: a computer already set up says which of the account\'s addresses it
   });
   remote.resetForTests();
 });
+
+test('#4756: a sign-out during the switch read stops before the list is read; a refusal with no sentence and a list that is not a list are handled', async () => {
+  delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES;
+  remote.resetForTests();
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '262626');
+  await withCoordinator({ '/v1/meta': [200, { bought_addresses: true }], '/v1/account/addresses': [200, BOUGHT] }, async (seen) => {
+    const slowMeta = (url, o) => { if (/\/v1\/meta$/.test(url)) remote.signinCancel(); return fetch(url, o); };
+    const r = await remote.signinAddresses({ fetch: slowMeta });
+    assert.equal(r.ok, false);
+    assert.match(r.because, /sign-in ended/);
+    assert.equal(seen.some((s) => s.url === '/v1/account/addresses'), false, 'read the list with a session that had ended');
+  });
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '262626');
+  await withCoordinator({ '/v1/meta': [200, { bought_addresses: true }], '/v1/account/addresses': [503, { nope: true }] }, async () => {
+    const r = await remote.signinAddresses();
+    assert.equal(r.because, 'Kosmos+ could not list your addresses');
+  });
+  await withCoordinator({ '/v1/meta': [200, { bought_addresses: true }], '/v1/account/addresses': [200, { addresses: 'first,spare' }] }, async () => {
+    const r = await remote.signinAddresses();
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.data.addresses, []);
+  });
+  remote.resetForTests();
+});
