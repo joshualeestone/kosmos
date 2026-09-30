@@ -59,9 +59,14 @@ const focusOn = (page, id) => page.evaluate((i) => document.getElementById(i).fo
 const quietly = (page, id, value) => page.evaluate(([i, v]) => { document.getElementById(i).value = v; }, [id, value]);
 
 async function openPlus(page, remote) {
-  await page.route('**/api/remote', (route, req) => {
+  await page.route('**/api/remote', async (route, req) => {
     const m = (req || route.request()).method();
-    if (m === 'GET' || m === 'HEAD') route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(remote) });
+    if (m === 'GET' || m === 'HEAD') {
+      /* page.__holdRemote: once set, a status read never answers, so no later paintPlus (the 5s tick included)
+         can repaint over a state the check set by hand (#4694). */
+      if (page.__holdRemote) return;
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(remote) });
+    }
     else route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
   });
   await page.route('**/api/remote/devices**', (route) => {
@@ -200,7 +205,15 @@ async function openPlus(page, remote) {
       const errs = [];
       page.on('pageerror', (e) => errs.push(e.message));
       const posts = [];
+      /* #4694: for WAITING the pane's own paint hides the connected flow (enrolled is false, so state 1 shows), so
+         the check shows the pair by hand. A paint that landed after that and before Enter (the click's own paint,
+         still in flight, or the 5s status tick) hid the pair again: Enter went nowhere, setup-start was never sent,
+         and the next fill timed out (CI run 36672061656). So: wait for a paint of the check's own to finish (a newer
+         epoch, so one still in flight returns without touching the page), then freeze paints before showing the pair,
+         and fire one in the gap below to prove the freeze holds. */
       await openPlus(page, WAITING);
+      await page.evaluate(() => paintPlus());
+      page.__holdRemote = true;
       await page.route('**/api/remote/setup-**', (route, rq) => {
         const req = rq || route.request();
         let body = null; try { body = JSON.parse(req.postData() || 'null'); } catch { body = null; }
@@ -216,6 +229,10 @@ async function openPlus(page, remote) {
         });
       }
       await page.fill('#plus-email', 'josh@example.com');
+      /* The hazard, on purpose: a repaint between the fill and Enter, as the status tick did in CI. It must not
+         move anything (its status read is held), or Enter below sends nothing. Not awaited: it never finishes. */
+      await page.evaluate(() => { paintPlus(); });
+      await page.waitForTimeout(100);
       await focusOn(page, 'plus-email');
       await page.keyboard.press('Enter');
       await page.waitForSelector('#plus-code-row', { state: 'visible', timeout: 5000 }).catch(() => {});
