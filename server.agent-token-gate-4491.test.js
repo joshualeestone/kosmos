@@ -349,6 +349,16 @@ test('task message does not tell an assignee that has left the project, and says
   /* CONTROL: the member is still sent the notification (whatever its delivery outcome), so the filter is membership. */
   const mara = delivered.find((d) => d.agent === 'mara');
   assert.ok(mara && !/not on this project/.test(mara.because || ''), 'control: the member was filtered too: ' + JSON.stringify(delivered));
+  /* #4540: the route's own sentence says the departed assignee was not told, and why. */
+  const summary = JSON.parse(r.text).summary;
+  assert.match(summary, /Not told: gone-agent is not on this project any more, so it was not told\./, summary);
+  assert.doesNotMatch(summary, /were notified/);
+  assert.match(summary, /(Told mara\.|mara may have been told|Not told: mara )/, 'the other assignee is not named: ' + summary);
+  /* #4540: a sender alone on its task is told nobody else was told (assigned counts the sender, delivered does not). */
+  tasksEngine.whoOf = () => ['mara'];
+  const alone = await call('POST', '/api/project/p4491/task/1/message', { headers: { 'x-kosmos-agent-token': sendertoken.mint('mara').token }, body: { text: 'just me' } });
+  assert.equal(alone.code, 200, alone.text.slice(0, 160));
+  assert.equal(JSON.parse(alone.text).summary, 'Nobody else is assigned to it, so no agent was told.');
 });
 
 test('task message: an unreadable project list at the record step is a 503, not a 400 (#4491 slice 3)', async (t) => {

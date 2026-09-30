@@ -61,11 +61,11 @@ class KosmosLauncher
     // an installer's job (win32-installer-native); 4 opens the board in its own
     // window (#1118); 5 installs itself without asking (#3286); 6 shows the waiting count on the
     // window's taskbar button (#3996); 7 replaces a board that holds its port but does not answer
-    // (#4543).
-    public const string LauncherVersion = "7.0.0.0";
+    // (#4543); 8 asks whether this computer runs agents or connects to them (#4381, off on main).
+    public const string LauncherVersion = "8.0.0.0";
     // Explorer's "Product version". Worded so nobody reads it as the Kosmos
     // version, which lives in manifest.json and on the board.
-    public const string LauncherProductVersion = "launcher 7.0";
+    public const string LauncherProductVersion = "launcher 8.0";
 
     // Kept in step with tools/build-kosmos-windows.sh, which reads the board's
     // default out of server.js and refuses the build if this disagrees. If it
@@ -203,6 +203,13 @@ class KosmosLauncher
         int? endedByInstallerDuties = RunInstallerDuties(here, node, port);
         if (endedByInstallerDuties.HasValue) return endedByInstallerDuties.Value;
 
+        // #4381: 🛑 THE MODE IS READ BEFORE ANYTHING OF THE BOARD'S STARTS. A computer that connects to
+        // agents on another computer starts neither the board (server.js, below) nor open-board.js, and
+        // does not replace a stuck board (which runs its task). Its window opens straight at Kosmos
+        // Plus and makes sure this computer's board is stopped (BoardWindowForm, off its UI thread).
+        // With the release switch off this is always Run, and nothing below changes.
+        bool connects = LaunchComputerMode() == ComputerMode.Connect;
+
         // #4543: a board that holds its port but does not answer is replaced BEFORE anything below
         // hands off to it. Without this, server.js's hand-off finds the logon task already running
         // (IgnoreNew starts nothing), the window opens onto the same frozen board, and "close Kosmos
@@ -211,7 +218,7 @@ class KosmosLauncher
         // to watch, not to have act on the board, and with nobody at the desktop nobody is waiting
         // on a window. A launch that sets PORT serves a port the logon task does not, so its task is
         // never touched (null); only a stuck Kosmos board on that port is.
-        if (showMessageBoxes)
+        if (showMessageBoxes && !connects)
         {
             bool portIsTheTasks = string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PORT"));
             ReplaceBoardIfStuck(port, portIsTheTasks ? BoardTaskName : null, StuckAfterMs);
@@ -225,8 +232,10 @@ class KosmosLauncher
         // cannot host the window. With nobody at the desktop there is no window to show, so the
         // opener runs as it always did. Both wait on open-board.js: a folder without it (a
         // partial extract, or a test's scratch folder) starts neither.
+        // #4381: a connect computer opens only the window (it loads Kosmos Plus, never the opener); with
+        // nobody at the desktop it opens nothing at all.
         string browserProblem = null;
-        if (File.Exists(opener))
+        if (File.Exists(opener) && (!connects || Environment.UserInteractive))
         {
             try
             {
@@ -246,6 +255,13 @@ class KosmosLauncher
                     Console.Error.WriteLine("Open http://127.0.0.1:" + port + " yourself.");
                 }
             }
+        }
+
+        if (connects)
+        {
+            if (browserProblem != null && showMessageBoxes) ShowMessageBox(browserProblem, true);
+            else if (!showMessageBoxes) Console.WriteLine(ConnectsElsewhereConsoleMessage);
+            return browserProblem != null ? 1 : 0;
         }
 
         if (!showMessageBoxes)
@@ -312,7 +328,10 @@ class KosmosLauncher
         // #2983: the board owns the signal's content, the launcher its lifetime. The
         // board has ended, so nothing else reads it; leaving it would litter %TEMP%.
         if (serveHereSignal != null) { try { File.Delete(serveHereSignal); } catch { /* a leftover temp file is not worth failing over */ } }
-        if (p.ExitCode != 0 && !stoppedByPerson)
+        // #4381: a board serving from here that the person's Connect ended (the window's stop) did not
+        // stop unexpectedly: measured on the Windows box, this box said it did, over Kosmos Plus sign-in.
+        bool endedByConnect = p.ExitCode != 0 && LaunchComputerMode() == ComputerMode.Connect;
+        if (p.ExitCode != 0 && !stoppedByPerson && !endedByConnect)
         {
             if (showMessageBoxes)
             {
@@ -956,7 +975,9 @@ class KosmosLauncher
     // has no console for it to reach, and a pipe nobody reads could hold it open), and what it says
     // is not trusted either way: `/Run` reports success when IgnoreNew started nothing
     // (engine/win32board.js taskXml), so the port is what is checked.
-    static void RunSchtasks(string arguments)
+    // Its exit code, or -1 when it did not run or did not finish in time (#4381 reads it for the
+    // connect switch's /DISABLE; #4543's callers ignore it).
+    static int RunSchtasks(string arguments)
     {
         try
         {
@@ -965,10 +986,274 @@ class KosmosLauncher
             task.CreateNoWindow = true;
             using (Process schtasks = Process.Start(task))
             {
-                if (!schtasks.WaitForExit(SchtasksTimeoutMs)) { try { schtasks.Kill(); } catch { /* it ended */ } }
+                if (!schtasks.WaitForExit(SchtasksTimeoutMs)) { try { schtasks.Kill(); } catch { /* it ended */ } return -1; }
+                return schtasks.ExitCode;
             }
         }
-        catch { /* a task that cannot be ended or started leaves the port check to decide */ }
+        catch { /* a task that cannot be ended or started leaves the port check to decide */ return -1; }
+    }
+
+    // ---- this computer runs agents, or connects to agents on another computer (#4356, #4381) ----
+    //
+    // The Windows half of Josh's first-run choice (#4356, option A). The Mac half is
+    // native-app/main.swift (computerMode, connectLinkDecision, switchToConnect, runAgentsHere); the
+    // page's half is web/index.html (frChoiceBridge, frChoiceWanted, frChoose), shared by both. One
+    // word per computer and account, in %LOCALAPPDATA%\Kosmos\mode (ComputerModeFile):
+    //   (no file)  never chosen: a fresh install (asked), or any install from before #4356, which
+    //              behaves exactly as it always did;
+    //   run        this computer runs agents;
+    //   connect    the window opens Kosmos Plus sign-in, and this computer never starts its board;
+    //   both       runs agents, as run does; first run ends at Kosmos Plus sign-in (the page does it);
+    //   anything else, or a file that cannot be read: UNREADABLE. The window asks again; it never
+    //   quietly picks one of the three.
+    // Outside the Kosmos folder on purpose: the updater swaps that folder by renames of exactly its
+    // ENTRIES (engine/win32update.js), and %LOCALAPPDATA%\Kosmos is where the window keeps its web
+    // profile already, which the uninstall removes (engine/win32uninstall.js item 8), so a reinstall
+    // asks again, as a fresh Mac does.
+
+    /* 🚦 THE RELEASE SWITCH, the Windows twin of the Mac's kosmosFirstRunChoice (Liu Kang m2647). OFF,
+       first run is exactly today's: the window never asks, never reads the mode file, never connects,
+       so nothing below changes a Windows computer. It stays off until a connect computer can update
+       itself (#4382), whose Windows half turns it on; tools.windows-computer-mode-4381.test.js pins it
+       off on main. `static readonly`, not const, only so the unreachable ON branches do not warn. */
+    internal static readonly bool FirstRunChoice = false;
+
+    internal enum ComputerMode { Unset, Run, Connect, Both, Unreadable }
+
+    // engine/win32apply.js reads the same file before any update starts a board (COMPUTER_MODE_*),
+    // pinned equal by the test.
+    internal const string ComputerModeFolderName = "Kosmos";
+    internal const string ComputerModeFileName = "mode";
+
+    // Not const only so the probe a test compiles beside this file can point it at a scratch folder.
+    internal static Func<string> computerModeFile = () =>
+        Path.Combine(Path.Combine(LocalAppDataFolder(), ComputerModeFolderName), ComputerModeFileName);
+
+    // The Mac's computerMode(fromFile:), byte for byte, and the same rows. null is "no file". Strict
+    // UTF-8, then every trailing \n dropped and nothing else, so:
+    //   - a \r\n ending (what Notepad writes) is UNREADABLE, as on the Mac. Decided on purpose: the
+    //     person is asked again, which is safe, and the app and the engine never read one file two
+    //     ways. Tolerating it would be the first place the two platforms disagree about the same bytes;
+    //   - a byte order mark is UNREADABLE (strict decoding keeps it as U+FEFF, which is not a word).
+    internal static ComputerMode ComputerModeFromBytes(byte[] data)
+    {
+        if (data == null) return ComputerMode.Unset;
+        string text;
+        try { text = new UTF8Encoding(false, true).GetString(data); }
+        catch { return ComputerMode.Unreadable; }
+        while (text.EndsWith("\n", StringComparison.Ordinal)) text = text.Substring(0, text.Length - 1);
+        switch (text)
+        {
+            case "run": return ComputerMode.Run;
+            case "connect": return ComputerMode.Connect;
+            case "both": return ComputerMode.Both;
+            default: return ComputerMode.Unreadable;
+        }
+    }
+
+    // A missing file (or folder) is Unset; any other failure to read it is Unreadable, never Unset: a
+    // choice that is there but cannot be read must not make a connect computer start its board.
+    internal static ComputerMode ReadComputerMode(string file)
+    {
+        byte[] data;
+        try { data = File.ReadAllBytes(file); }
+        catch (FileNotFoundException) { return ComputerMode.Unset; }
+        catch (DirectoryNotFoundException) { return ComputerMode.Unset; }
+        catch { return ComputerMode.Unreadable; }
+        return ComputerModeFromBytes(data);
+    }
+
+    // What this launch acts on. With the switch off, every computer runs agents, as before #4356, and
+    // the file is not even read.
+    internal static ComputerMode LaunchComputerMode()
+    {
+        if (!FirstRunChoice) return ComputerMode.Run;
+        return ReadComputerMode(computerModeFile());
+    }
+
+    internal static string ModeWord(ComputerMode mode)
+    {
+        return mode.ToString().ToLowerInvariant();
+    }
+
+    // Only the three real choices are ever written, "word\n" as the Mac writes it, and atomically: a
+    // temp file beside it, then one rename into place (File.Replace over a file already there,
+    // File.Move when there is none), so a reader never sees half a word. Only Kosmos.exe writes it.
+    // False when it could not be saved.
+    internal static bool WriteComputerMode(ComputerMode mode, string file)
+    {
+        if (mode != ComputerMode.Run && mode != ComputerMode.Connect && mode != ComputerMode.Both) return false;
+        string temp = null;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(file));
+            temp = file + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            File.WriteAllBytes(temp, Encoding.ASCII.GetBytes(ModeWord(mode) + "\n"));
+            if (File.Exists(file)) File.Replace(temp, file, null);
+            else File.Move(temp, file);
+            temp = null;
+            return true;
+        }
+        catch { return false; }
+        finally { if (temp != null) { try { File.Delete(temp); } catch { /* a stray temp file is not worth failing over */ } } }
+    }
+
+    // The board address plus what the page must know (the Mac's withModeQuery): `unset` shows the first
+    // screen before first run, `unreadable` shows it even after (web frChoiceWanted), and `both` ends
+    // first run at Kosmos Plus sign-in (web frPlusLast). `run` adds nothing. The boot nonce and anything
+    // else already on the address are kept: the board's ?boot= redirect keeps every other parameter
+    // (engine/boardauth.js pathWithoutParam).
+    internal static string WithModeQuery(string address, ComputerMode mode)
+    {
+        if (mode != ComputerMode.Unset && mode != ComputerMode.Unreadable && mode != ComputerMode.Both) return address;
+        Uri uri;
+        if (address == null || !Uri.TryCreate(address, UriKind.Absolute, out uri)) return address;
+        UriBuilder b = new UriBuilder(uri);
+        string query = b.Query.Length > 0 && b.Query[0] == '?' ? b.Query.Substring(1) : b.Query;
+        b.Query = (query.Length > 0 ? query + "&" : "") + "mode=" + ModeWord(mode);
+        return b.Uri.AbsoluteUri;
+    }
+
+    // A page's { kosmosMode: "<word>" } (web frChoiceBridge), as its string, or null when the message is
+    // not a mode message. What the word means is PageChoseMode's to decide.
+    internal static string ModeFromPageMessage(string json)
+    {
+        string raw = TaskbarBadge.JsonMember(json, PageModeMessageKey);
+        if (raw == null || raw.Length < 2 || raw[0] != '"') return null;
+        int end;
+        string word = ReadJsonString(raw, 0, out end);
+        return word != null && end == raw.Length - 1 ? word : null;
+    }
+
+    internal const string PageModeMessageKey = "kosmosMode";
+
+    // Where a connect computer's window goes: the same origin the phone apps and the Mac load (#2854).
+    internal const string KosmosPlusSignIn = "https://login.kosmosplus.com/";
+
+    internal enum ConnectLink { InApp, Browser, Block }
+
+    // Kosmos Plus itself or one of the person's computers, over https: the plain host, no user part, no
+    // port but 443, ASCII only. A computer is one label directly under kosmosplus.com, never deeper: 1
+    // to 63 of a-z, 0-9 and "-", no "-" at either end, and no "xn--" (punycode lookalikes). A port of
+    // the Mac's isKosmosPlusURL (itself the iOS rule), not shared code; the probe rows pin it.
+    internal static bool IsKosmosPlusAddress(string address)
+    {
+        if (address == null) return false;
+        foreach (char c in address) if (c > 127) return false;
+        Uri uri;
+        if (!Uri.TryCreate(address, UriKind.Absolute, out uri)) return false;
+        if (uri.Scheme != Uri.UriSchemeHttps || uri.UserInfo.Length > 0 || uri.Port != 443) return false;
+        string host = uri.Host.ToLowerInvariant();
+        string coordinator = new Uri(KosmosPlusSignIn).Host;
+        if (host == coordinator) return true;
+        string suffix = coordinator.Substring(coordinator.IndexOf('.'));
+        if (!host.EndsWith(suffix, StringComparison.Ordinal)) return false;
+        string label = host.Substring(0, host.Length - suffix.Length);
+        if (label.Length < 1 || label.Length > 63 || label[0] == '-' || label[label.Length - 1] == '-' || label.StartsWith("xn--", StringComparison.Ordinal)) return false;
+        foreach (char c in label)
+        {
+            if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-')) return false;
+        }
+        return true;
+    }
+
+    // A connect computer's main-frame navigations, as the Mac's connectLinkDecision decides them: Kosmos
+    // Plus and the person's computers in the window; any other https site in the person's browser; plain
+    // http, mail, phone and text links only from a click, and then in the browser; about:blank for the
+    // page's own use; every other scheme refused. So another site can never REPLACE the window's page
+    // with a fake Kosmos screen, and this computer's stopped board is never loaded by a script.
+    internal static ConnectLink ConnectLinkDecision(string address, bool clicked)
+    {
+        Uri uri;
+        if (address == null || !Uri.TryCreate(address, UriKind.Absolute, out uri)) return ConnectLink.Block;
+        // An if chain, not a string switch: this compiler turns a switch of six or more strings into a
+        // class named by a fresh GUID each build, which verify-launcher.ps1 would then have to mask.
+        string scheme = uri.Scheme.ToLowerInvariant();
+        if (scheme == "https")
+        {
+            if (IsKosmosPlusAddress(address)) return ConnectLink.InApp;
+            return uri.Host.Length > 0 ? ConnectLink.Browser : ConnectLink.Block;
+        }
+        if (scheme == "http")
+        {
+            if (uri.Host.Length == 0) return ConnectLink.Block;
+            return clicked ? ConnectLink.Browser : ConnectLink.Block;
+        }
+        if (scheme == "mailto" || scheme == "tel" || scheme == "sms") return clicked ? ConnectLink.Browser : ConnectLink.Block;
+        if (scheme == "about") return address == "about:blank" ? ConnectLink.InApp : ConnectLink.Block;
+        return ConnectLink.Block;
+    }
+
+    // The board task this port is served by, or null: a launch that sets PORT serves a port the logon
+    // task does not (#4543's rule, and engine/win32handoff.js overriddenBy's), so its task is never
+    // disabled, enabled, ended or run from here. That is also what keeps a throwaway board on a spare
+    // port away from the real Kosmos\board.
+    internal static string BoardTaskForThisPort()
+    {
+        return string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PORT")) ? BoardTaskName : null;
+    }
+
+    // 🛑 CONNECT'S STEPS 2 AND 3, IN THIS ORDER (#4381): Windows has no board.stopped marker and no
+    // `kosmos stop`, so the Mac's one command is two steps here.
+    //   2. the board's logon task is switched off (`/Change /DISABLE`), so a sign-in does not bring the
+    //      board back, and nothing else can `/Run` it either: a disabled task does not start. This is the
+    //      Windows board.stopped. Only a task that exists is switched off; one that is not there has
+    //      nothing to bring back. Then `/End`, so Task Scheduler stops counting it as running.
+    //   3. every Kosmos board of this user still listening on the port is ended with its process tree
+    //      (EndProcessTree, held open from the moment it is judged, as #4543 ends one).
+    // True when both held: the task is off (or absent, or not this port's) and no board of ours holds
+    // the port. False is said to the person (the window's ShowBoardStillRunning). Never throws. Idempotent,
+    // so every launch of a connect computer runs it again (the Mac's stopBoardIfRunning).
+    internal static bool StopBoardHere(int port, string taskName)
+    {
+        try
+        {
+            bool ok = true;
+            if (taskName != null && RunSchtasks("/Query /TN " + QuoteArgument(taskName)) == 0)
+            {
+                if (RunSchtasks("/Change /TN " + QuoteArgument(taskName) + " /DISABLE") != 0) ok = false;
+                RunSchtasks("/End /TN " + QuoteArgument(taskName));
+            }
+            return EndKosmosBoardsOnPort(port) && ok;
+        }
+        catch { return false; }
+    }
+
+    // Every listener on the port that is a Kosmos board of this user, ended with its tree; anything else
+    // listening there is somebody else's and is left alone. True when none of ours holds the port after.
+    internal static bool EndKosmosBoardsOnPort(int port)
+    {
+        List<int> listening = ListenersOnPort(port);
+        if (listening == null) return false;
+        if (listening.Count == 0) return true;
+        List<HeldProcess> held = new List<HeldProcess>();
+        try
+        {
+            foreach (int pid in listening)
+            {
+                HeldProcess process = HeldProcess.Open(pid);
+                if (process != null) held.Add(process);
+            }
+            // Read again with the handles held, as DecideAfterTheWait does: a number let go and reused
+            // between the read and the open no longer names a listener.
+            List<int> again = ListenersOnPort(port);
+            if (again == null) return false;
+            held.RemoveAll(p => { if (again.Contains(p.Id) && isKosmosBoardProcess(p)) return false; p.Dispose(); return true; });
+            if (held.Count == 0) return true;
+            foreach (HeldProcess board in held) EndProcessTree(board);
+            WaitForPortRelease(port, held);
+            return StillListening(port, held).Count == 0;
+        }
+        finally { foreach (HeldProcess p in held) p.Dispose(); }
+    }
+
+    // "Run agents on this computer", step 3 (the way back from connect): the logon task is switched on
+    // again, so the launch that follows hands the board to it as on any computer. A task the person
+    // switched off is otherwise LEFT off by the board's own boot (win32board.ensureInstalled), and the
+    // board would serve from the launcher instead.
+    internal static void EnableBoardTask(string taskName)
+    {
+        if (taskName != null) RunSchtasks("/Change /TN " + QuoteArgument(taskName) + " /ENABLE");
     }
 
     // ---- presenting to a person ----------------------------------------------
@@ -2198,19 +2483,16 @@ class KosmosLauncher
         System.Windows.Forms.Application.EnableVisualStyles();
         // Every address the window loads comes from the same --print-url answer: the first one, and
         // a fresh one each time Kosmos.exe is opened again (SignInAgain).
+        // #4381: the window reads this computer's mode itself, once, before anything loads; with the
+        // release switch off it is always Run.
+        ComputerMode mode = LaunchComputerMode();
         BoardWindowForm form = new BoardWindowForm(port, loader, WebView2UserDataFolder(),
-            () => ResolveBoardAddress(here, node, opener, app, port));
+            () => ResolveBoardAddress(here, node, opener, app, port), mode, here);
         // The handle first: a board that is already up answers in a moment, and BeginInvoke on a
         // form with no handle yet throws, which would drop the address on the floor.
         IntPtr formExists = form.Handle;
-        Thread resolve = new Thread(() =>
-        {
-            string resolved = ResolveBoardAddress(here, node, opener, app, port);
-            try { form.BeginInvoke(new Action(() => form.BoardAddressResolved(resolved))); }
-            catch { /* the window closed before the board answered */ }
-        });
-        resolve.IsBackground = true;
-        resolve.Start();
+        // A connect computer asks open-board.js nothing: it waits for a board that is never started.
+        if (mode != ComputerMode.Connect) form.ResolveBoardAddressInBackground();
         System.Windows.Forms.Application.Run(form);
         return form;
     }
@@ -2320,6 +2602,43 @@ class KosmosLauncher
     }
 
     // The pages the window makes itself: the "Starting Kosmos" page (NavigateToString) and blank.
+    // A box titled Kosmos, for the window (BoardWindowForm), which is another class.
+    internal static void ShowWindowMessage(string text, bool isError)
+    {
+        ShowMessageBox(text, isError);
+    }
+
+    // ---- the words of the first-run choice (#4381), the Mac's (main.swift) where Windows has them too ----
+
+    const string ConnectsElsewhereConsoleMessage =
+        "This computer connects to Kosmos on another computer, so Kosmos does not start here. Open Kosmos from the Start menu to sign in to Kosmos Plus.";
+
+    internal const string BoardStillRunningMessage =
+        "Kosmos could not stop running in the background on this computer. You can connect to your other computer anyway. Kosmos tries again the next time it opens.";
+
+    internal const string StillStoppingMessage = "Kosmos is still stopping the board on this computer. Try again in a moment.";
+
+    internal const string KosmosPlusUnreachableMessage =
+        "Kosmos could not reach Kosmos Plus (login.kosmosplus.com). Check this computer's internet connection, then press F5 to try again.";
+
+    // The system menu's item (right-click the title bar, or Alt+Space), shown only on a connect computer.
+    internal const string RunAgentsMenuText = "Run agents on this computer";
+
+    internal static string ChoiceNotSavedMessage(string folder)
+    {
+        return "Kosmos could not save your choice on this computer, so it may ask you again, or carry on as if this computer runs agents. Check that you can make changes in " + folder + ".";
+    }
+
+    internal static string ConnectNotSavedMessage(string folder)
+    {
+        return "Kosmos could not save your choice on this computer, so it will ask again. Check that you can make changes in " + folder + ".";
+    }
+
+    internal static string RunAgentsNotSavedMessage(string folder)
+    {
+        return "Kosmos could not save that change on this computer, so it still connects to agents on another computer. Check that you can make changes in " + folder + ", then try again.";
+    }
+
     internal static bool IsWindowOwnPage(string address)
     {
         return address != null && (address.StartsWith("about:", StringComparison.OrdinalIgnoreCase) || address.StartsWith("data:", StringComparison.OrdinalIgnoreCase));
@@ -2336,7 +2655,16 @@ class KosmosLauncher
 
     internal static void OpenInPersonsBrowser(string address)
     {
-        if (!IsWebAddress(address))
+        OpenInPersonsBrowser(address, false);
+    }
+
+    // #4381: `decidedByConnectRules` is a connect computer's window handing over a link its rules already
+    // sent to the browser (ConnectLinkDecision): a clicked mail, phone or text link then opens in the
+    // person's own app for it, as on the Mac. Every other caller is held to web links.
+    internal static void OpenInPersonsBrowser(string address, bool decidedByConnectRules)
+    {
+        if (decidedByConnectRules && ConnectLinkDecision(address, true) != ConnectLink.Browser) return;
+        if (!decidedByConnectRules && !IsWebAddress(address))
         {
             string scheme;
             Uri uri;
@@ -2520,8 +2848,32 @@ class BoardWindowForm : System.Windows.Forms.Form
     int? badgeOnTaskbar;
     bool badgeEverApplied;
 
-    internal BoardWindowForm(int port, IntPtr loader, string userDataFolder, Func<string> resolveBoardAddress)
+    // #4381: this computer's mode, read once at launch (KosmosLauncher.LaunchComputerMode) and changed
+    // only by the first screen (PageChoseMode) or the system menu (RunAgentsHere). Main-thread only.
+    KosmosLauncher.ComputerMode mode;
+    // The Kosmos folder, for "Run agents on this computer", which opens Kosmos.exe from it again.
+    readonly string here;
+    // The logon task this port is served by, or null when this launch set PORT (BoardTaskForThisPort).
+    readonly string boardTask;
+    // How many connect stops of ours are running (the switch, and a connect launch's). "Run agents on
+    // this computer" refuses until all of them finish, or its start would race a stop that could win.
+    // A count, not a flag, as on the Mac: two stops can overlap.
+    int stopsInFlight;
+    // The navigation to Kosmos Plus sign-in this window started, until it completes: only its failure
+    // is the "could not reach Kosmos Plus" box, never a page the person moved on to.
+    bool connectLoadPending;
+    // The last sign-in load failed: opening Kosmos again (SignInAgain) loads sign-in afresh.
+    bool connectLoadFailed;
+    bool runAgentsItemShown;
+    // The system menu's ids. WM_SYSCOMMAND keeps its low four bits for Windows, so both end in 0.
+    internal const int RunAgentsMenuId = 0x4380;
+    const int RunAgentsSeparatorId = 0x4390;
+
+    internal BoardWindowForm(int port, IntPtr loader, string userDataFolder, Func<string> resolveBoardAddress, KosmosLauncher.ComputerMode mode, string here)
     {
+        this.mode = mode;
+        this.here = here;
+        boardTask = KosmosLauncher.BoardTaskForThisPort();
         this.port = port;
         this.resolveBoardAddress = resolveBoardAddress;
         this.loader = loader;
@@ -2549,7 +2901,11 @@ class BoardWindowForm : System.Windows.Forms.Form
     protected override void OnLoad(EventArgs e)
     {
         base.OnLoad(e);
-        StartBadge();
+        // #4381: a connect computer has no board here, so no badge; and every launch of one makes sure
+        // the board is stopped (the Mac's stopBoardIfRunning), off this thread, while sign-in loads.
+        if (mode != KosmosLauncher.ComputerMode.Connect) StartBadge();
+        else StopBoardInBackground(false);
+        UpdateRunAgentsItem();
         try
         {
             IntPtr at = KosmosLauncher.GetProcAddress(loader, "CreateCoreWebView2EnvironmentWithOptions");
@@ -2583,17 +2939,45 @@ class BoardWindowForm : System.Windows.Forms.Form
         webView.add_NewWindowRequested(new NewWindowRequested(this), out token);
         webView.add_ProcessFailed(new ProcessFailed(this), out token);
         webView.add_WebMessageReceived(new WebMessageReceived(this), out token);
+        webView.add_NavigationCompleted(new NavigationCompleted(this), out token);
         FitViewToWindow();
         controller.MoveFocus(0);
-        if (boardAddress != null) NavigateToBoard();
+        if (mode == KosmosLauncher.ComputerMode.Connect) LoadConnect();
+        else if (boardAddress != null) NavigateToBoard();
         else webView.NavigateToString(KosmosLauncher.StartingPage);
     }
 
+    // open-board.js --print-url, off this thread; the answer comes back through BoardAddressResolved.
+    internal void ResolveBoardAddressInBackground()
+    {
+        Thread resolve = new Thread(() =>
+        {
+            string resolved = null;
+            try { resolved = resolveBoardAddress(); } catch { /* the plain address, below */ }
+            if (resolved == null) resolved = "http://127.0.0.1:" + port;
+            try { BeginInvoke(new Action(() => BoardAddressResolved(resolved))); }
+            catch { /* the window closed before the board answered */ }
+        });
+        resolve.IsBackground = true;
+        resolve.Start();
+    }
+
     // The address open-board.js named, once it has; whichever of it and the view is ready last navigates.
+    // #4381: with what the page must know about this computer's choice (WithModeQuery). A connect
+    // computer never loads its board, whatever arrives.
     internal void BoardAddressResolved(string address)
     {
-        boardAddress = address;
+        if (mode == KosmosLauncher.ComputerMode.Connect) return;
+        boardAddress = KosmosLauncher.WithModeQuery(address, mode);
         if (webView != null) NavigateToBoard();
+    }
+
+    // #4381: Kosmos Plus sign-in, the one page a connect computer opens by itself.
+    void LoadConnect()
+    {
+        if (webView == null) return;
+        connectLoadPending = true;
+        webView.Navigate(KosmosLauncher.KosmosPlusSignIn);
     }
 
     // Opening Kosmos.exe again is how a person signs back in (the zip's READ ME says so), so it has
@@ -2608,6 +2992,10 @@ class BoardWindowForm : System.Windows.Forms.Form
     // is lost. That is what the Mac's Reload does too, and the person asked for Kosmos again.
     internal void SignInAgain()
     {
+        // #4381: a connect computer has no board to sign in to; opening Kosmos again only brings this
+        // window forward (and goes back to sign-in if its last load failed, as the Mac's Reload does).
+        // Nothing here ever starts the board.
+        if (mode == KosmosLauncher.ComputerMode.Connect) { if (connectLoadFailed) LoadConnect(); return; }
         if (!navigatedToBoard || signingInAgain || resolveBoardAddress == null) return;
         signingInAgain = true;
         Thread resolve = new Thread(() =>
@@ -2619,7 +3007,8 @@ class BoardWindowForm : System.Windows.Forms.Form
                 BeginInvoke(new Action(() =>
                 {
                     signingInAgain = false;
-                    if (fresh != null && fresh.Contains("?boot=") && webView != null) webView.Navigate(fresh);
+                    if (mode == KosmosLauncher.ComputerMode.Connect) return;
+                    if (fresh != null && fresh.Contains("?boot=") && webView != null) webView.Navigate(KosmosLauncher.WithModeQuery(fresh, mode));
                 }));
             }
             catch { /* the window closed meanwhile */ }
@@ -2654,6 +3043,18 @@ class BoardWindowForm : System.Windows.Forms.Form
     {
         string uri;
         args.get_Uri(out uri);
+        // #4381: a connect computer's window follows the connect rules instead (ConnectLinkDecision);
+        // nothing changes on a computer that runs agents.
+        if (mode == KosmosLauncher.ComputerMode.Connect)
+        {
+            int userInitiated;
+            args.get_IsUserInitiated(out userInitiated);
+            KosmosLauncher.ConnectLink decided = KosmosLauncher.ConnectLinkDecision(uri, userInitiated != 0);
+            if (decided == KosmosLauncher.ConnectLink.InApp) return;
+            args.put_Cancel(1);
+            if (decided == KosmosLauncher.ConnectLink.Browser) BeginInvoke(new Action(() => KosmosLauncher.OpenInPersonsBrowser(uri, true)));
+            return;
+        }
         if (KosmosLauncher.IsBoardAddress(uri, port) || KosmosLauncher.IsWindowOwnPage(uri)) return;
         args.put_Cancel(1);
         BeginInvoke(new Action(() => KosmosLauncher.OpenInPersonsBrowser(uri)));
@@ -2668,9 +3069,36 @@ class BoardWindowForm : System.Windows.Forms.Form
         string uri;
         args.get_Uri(out uri);
         args.put_Handled(1);
+        // #4381: on a connect computer, Kosmos Plus and the person's computers open in this window, as
+        // a same-window link would; anything else is decided as a click (the Mac does the same).
+        if (mode == KosmosLauncher.ComputerMode.Connect)
+        {
+            KosmosLauncher.ConnectLink decided = KosmosLauncher.ConnectLinkDecision(uri, true);
+            if (decided == KosmosLauncher.ConnectLink.InApp) BeginInvoke(new Action(() => webView.Navigate(uri)));
+            else if (decided == KosmosLauncher.ConnectLink.Browser) BeginInvoke(new Action(() => KosmosLauncher.OpenInPersonsBrowser(uri, true)));
+            return;
+        }
         if (KosmosLauncher.IsBoardAddress(uri, port)) BeginInvoke(new Action(() => webView.Navigate(uri)));
         else BeginInvoke(new Action(() => KosmosLauncher.OpenInPersonsBrowser(uri)));
     }
+
+    // #4381: a connect computer's sign-in that did not load says so, in a box titled Kosmos (WebView2's own
+    // error page stays behind it, so the window is never blank). Only the load this window started
+    // (LoadConnect): a page the person moved on to is that page's business. A load cancelled on purpose
+    // (the connect rules sent a redirect to the browser) is not Kosmos Plus failing to answer.
+    internal void OnNavigationCompleted(ICoreWebView2NavigationCompletedEventArgs args)
+    {
+        if (mode != KosmosLauncher.ComputerMode.Connect || !connectLoadPending) return;
+        connectLoadPending = false;
+        int success;
+        args.get_IsSuccess(out success);
+        int status;
+        args.get_WebErrorStatus(out status);
+        connectLoadFailed = success == 0 && status != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED;
+        if (connectLoadFailed) BeginInvoke(new Action(() => KosmosLauncher.ShowWindowMessage(KosmosLauncher.KosmosPlusUnreachableMessage, true)));
+    }
+
+    const int COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED = 14;
 
     const int COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED = 0;
     const int COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED = 1;
@@ -2739,6 +3167,7 @@ class BoardWindowForm : System.Windows.Forms.Form
             return;
         }
         if (m.Msg != 0 && (uint)m.Msg == closeMessage) { Close(); return; }
+        if (m.Msg == WM_SYSCOMMAND && ((long)m.WParam & 0xFFF0) == RunAgentsMenuId) { RunAgentsHere(); return; }
         if (m.Msg != 0 && (uint)m.Msg == taskbarButtonCreatedMessage)
         {
             taskbarButtonReady = true;
@@ -2760,6 +3189,7 @@ class BoardWindowForm : System.Windows.Forms.Form
     // /api/status itself, with the board token, so the badge keeps up while minimised.
     void StartBadge()
     {
+        if (badgeTimer != null) return;
         badgeTimer = new System.Windows.Forms.Timer();
         badgeTimer.Interval = TaskbarBadge.PollEveryMs;
         badgeTimer.Tick += (sender, args) => RefreshBadge();
@@ -2787,6 +3217,8 @@ class BoardWindowForm : System.Windows.Forms.Form
     void BoardAnswered(bool answered, int? waiting, int asked)
     {
         badgeReadInFlight = false;
+        // #4381: a read that was asked before the switch to connect lands on no badge.
+        if (mode == KosmosLauncher.ComputerMode.Connect) return;
         if (answered) badgeMisses = 0; else badgeMisses++;
         // One slow answer on a busy board is not a board that is gone: the badge clears only after
         // MissesBeforeClear misses in a row (about 30 s), and until then the number stands.
@@ -2802,6 +3234,11 @@ class BoardWindowForm : System.Windows.Forms.Form
         if (!KosmosLauncher.IsBoardAddress(source, port)) return;
         string json;
         args.get_WebMessageAsJson(out json);
+        // #4381: the first screen's { kosmosMode }, from the board's own page only (above).
+        string chosen = KosmosLauncher.ModeFromPageMessage(json);
+        if (chosen != null) { PageChoseMode(chosen); return; }
+        // A connect computer shows no badge, whatever a board page still on screen says.
+        if (mode == KosmosLauncher.ComputerMode.Connect) return;
         int? waiting;
         if (!TaskbarBadge.ReadsAsPageMessage(json, out waiting)) return;
         pageSaidWaiting.Restart();
@@ -2842,6 +3279,175 @@ class BoardWindowForm : System.Windows.Forms.Form
         catch { /* no taskbar to badge (Explorer not running): its next TaskbarButtonCreated tries again */ }
         finally { if (icon != IntPtr.Zero) TaskbarBadge.DestroyIcon(icon); }
     }
+
+    // ---- #4381: this computer's choice, the connect switch, and the way back --------------------------
+
+    // The first screen's button (web frChoose). 🛑 HEARD ONLY WHILE THE WINDOW IS ASKING (unset or
+    // unreadable), and only from the board's own page (OnWebMessage checks the source first): once a
+    // choice is saved no page can change it, and a Kosmos Plus page never can. Boxes are shown after
+    // this returns (BeginInvoke), never inside WebView2's callback.
+    void PageChoseMode(string choice)
+    {
+        if (mode != KosmosLauncher.ComputerMode.Unset && mode != KosmosLauncher.ComputerMode.Unreadable) return;
+        string file = KosmosLauncher.computerModeFile();
+        string folder = Path.GetDirectoryName(file);
+        switch (choice)
+        {
+            case "run":
+            case "both":
+                // First run carries on either way; a choice that could not be saved is said, and with no
+                // file the computer counts as run once its first run is done (the page asks only then).
+                KosmosLauncher.ComputerMode chosen = choice == "run" ? KosmosLauncher.ComputerMode.Run : KosmosLauncher.ComputerMode.Both;
+                if (!KosmosLauncher.WriteComputerMode(chosen, file)) Say(KosmosLauncher.ChoiceNotSavedMessage(folder), true);
+                mode = chosen;
+                return;
+            case "connect":
+                if (!KosmosLauncher.WriteComputerMode(KosmosLauncher.ComputerMode.Connect, file))
+                {
+                    // Nothing changed: the board keeps running and the page asks again.
+                    Say(KosmosLauncher.ConnectNotSavedMessage(folder), true);
+                    if (webView != null) webView.Navigate(KosmosLauncher.WithModeQuery("http://127.0.0.1:" + port, mode));
+                    return;
+                }
+                SwitchToConnect();
+                return;
+            default:
+                return;
+        }
+    }
+
+    void Say(string text, bool isError)
+    {
+        BeginInvoke(new Action(() => KosmosLauncher.ShowWindowMessage(text, isError)));
+    }
+
+    // 🛑 CONNECT, IN THE SPEC'S ORDER (#4381 section 3): 1. the board's work in this window stops (the
+    // badge timer, and its overlay is cleared), and the system menu gains the way back; 2 and 3,
+    // off this thread: the logon task is switched off, then the board is ended with its tree
+    // (KosmosLauncher.StopBoardHere); 4. then this window loads Kosmos Plus sign-in. A stop that failed
+    // is said, and sign-in loads anyway.
+    void SwitchToConnect()
+    {
+        mode = KosmosLauncher.ComputerMode.Connect;
+        StopBadge();
+        UpdateRunAgentsItem();
+        StopBoardInBackground(true);
+    }
+
+    void StopBadge()
+    {
+        if (badgeTimer != null) { badgeTimer.Stop(); badgeTimer.Dispose(); badgeTimer = null; }
+        pageSaidWaiting.Reset();
+        badgeWanted = null;
+        ApplyBadge();
+    }
+
+    // Counted in stopsInFlight from the moment it is asked for until its outcome is back on this thread.
+    // Not a background thread: closing the window must not cut a stop off between its steps.
+    void StopBoardInBackground(bool thenSignIn)
+    {
+        stopsInFlight++;
+        int boardPort = port;
+        string task = boardTask;
+        Thread stop = new Thread(() =>
+        {
+            bool stopped = KosmosLauncher.StopBoardHere(boardPort, task);
+            try
+            {
+                BeginInvoke(new Action(() =>
+                {
+                    stopsInFlight--;
+                    if (thenSignIn && mode == KosmosLauncher.ComputerMode.Connect) LoadConnect();
+                    if (!stopped) KosmosLauncher.ShowWindowMessage(KosmosLauncher.BoardStillRunningMessage, true);
+                }));
+            }
+            catch { /* the window closed meanwhile; the next launch stops it again */ }
+        });
+        stop.IsBackground = false;
+        stop.Start();
+    }
+
+    // The system menu's "Run agents on this computer", shown only on a connect computer. It cannot live in
+    // the page's Settings, because on a connect computer the page on screen is the OTHER computer's
+    // (#4356, Liu Kang m2442), and this window has no menu bar or tray icon.
+    //   1. refused while a connect stop is still running, said;
+    //   2. `run` is written; a write that fails is said and changes nothing;
+    //   3. the logon task is switched on again, and Kosmos.exe is opened from this folder, which starts
+    //      the board exactly as a double-click does (the hand-off to the task);
+    //   4. this window loads the board with no ?mode=: first run was never done here, so the wizard
+    //      opens, as on a fresh computer;
+    //   5. the badge starts again.
+    void RunAgentsHere()
+    {
+        if (mode != KosmosLauncher.ComputerMode.Connect) return;
+        if (stopsInFlight > 0) { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillStoppingMessage, false); return; }
+        string file = KosmosLauncher.computerModeFile();
+        if (!KosmosLauncher.WriteComputerMode(KosmosLauncher.ComputerMode.Run, file))
+        {
+            KosmosLauncher.ShowWindowMessage(KosmosLauncher.RunAgentsNotSavedMessage(Path.GetDirectoryName(file)), true);
+            return;
+        }
+        mode = KosmosLauncher.ComputerMode.Run;
+        UpdateRunAgentsItem();
+        connectLoadPending = false;
+        connectLoadFailed = false;
+        navigatedToBoard = false;
+        boardAddress = null;
+        if (webView != null) webView.NavigateToString(KosmosLauncher.StartingPage);
+        string task = boardTask;
+        string exe = Assembly.GetExecutingAssembly().Location;
+        string folder = here;
+        Thread start = new Thread(() =>
+        {
+            KosmosLauncher.EnableBoardTask(task);
+            string problem = KosmosLauncher.startLauncher(exe, folder);
+            try
+            {
+                BeginInvoke(new Action(() =>
+                {
+                    if (problem != null) KosmosLauncher.ShowWindowMessage("Kosmos could not start on this computer (" + problem + "). Double-click Kosmos.exe to try again.", true);
+                    StartBadge();
+                    ResolveBoardAddressInBackground();
+                }));
+            }
+            catch { /* the window closed meanwhile */ }
+        });
+        start.IsBackground = false;
+        start.Start();
+    }
+
+    // Shown only while the mode is connect. Hidden by giving the window its default system menu back.
+    void UpdateRunAgentsItem()
+    {
+        bool want = mode == KosmosLauncher.ComputerMode.Connect;
+        if (want == runAgentsItemShown || !IsHandleCreated) return;
+        try
+        {
+            if (want)
+            {
+                IntPtr menu = GetSystemMenu(Handle, false);
+                if (menu == IntPtr.Zero) return;
+                AppendMenuW(menu, MF_SEPARATOR, UIntPtr.Zero, null);
+                AppendMenuW(menu, MF_STRING, new UIntPtr((uint)RunAgentsMenuId), KosmosLauncher.RunAgentsMenuText);
+            }
+            else
+            {
+                GetSystemMenu(Handle, true);
+            }
+            runAgentsItemShown = want;
+        }
+        catch { /* no system menu to change: the next change tries again */ }
+    }
+
+    const int WM_SYSCOMMAND = 0x0112;
+    const uint MF_STRING = 0x0;
+    const uint MF_SEPARATOR = 0x800;
+
+    [DllImport("user32.dll")]
+    static extern IntPtr GetSystemMenu(IntPtr window, bool revert);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern bool AppendMenuW(IntPtr menu, uint flags, UIntPtr id, string text);
 
     protected override void OnFormClosed(System.Windows.Forms.FormClosedEventArgs e)
     {
@@ -2921,6 +3527,19 @@ public class WebMessageReceived : ICoreWebView2WebMessageReceivedEventHandler
     public int Invoke(ICoreWebView2 sender, ICoreWebView2WebMessageReceivedEventArgs args)
     {
         try { form.OnWebMessage(args); } catch { /* see above */ }
+        return 0;
+    }
+}
+
+// #4381: whether a connect computer's sign-in loaded (BoardWindowForm.OnNavigationCompleted).
+[ComVisible(true), ClassInterface(ClassInterfaceType.None)]
+public class NavigationCompleted : ICoreWebView2NavigationCompletedEventHandler
+{
+    readonly BoardWindowForm form;
+    internal NavigationCompleted(BoardWindowForm form) { this.form = form; }
+    public int Invoke(ICoreWebView2 sender, ICoreWebView2NavigationCompletedEventArgs args)
+    {
+        try { form.OnNavigationCompleted(args); } catch { /* see above */ }
         return 0;
     }
 }
@@ -3219,6 +3838,12 @@ public interface ICoreWebView2NewWindowRequestedEventHandler
     [PreserveSig] int Invoke(ICoreWebView2 sender, ICoreWebView2NewWindowRequestedEventArgs args);
 }
 
+[ComImport, Guid("d33a35bf-1c49-4f98-93ab-006e0533fe1c"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2NavigationCompletedEventHandler
+{
+    [PreserveSig] int Invoke(ICoreWebView2 sender, ICoreWebView2NavigationCompletedEventArgs args);
+}
+
 [ComImport, Guid("79e0aea4-990b-42d9-aa1d-0fcc2e5bc7f1"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 public interface ICoreWebView2ProcessFailedEventHandler
 {
@@ -3280,7 +3905,7 @@ public interface ICoreWebView2
     void _unused_remove_SourceChanged();
     void _unused_add_HistoryChanged();
     void _unused_remove_HistoryChanged();
-    void _unused_add_NavigationCompleted();
+    void add_NavigationCompleted(ICoreWebView2NavigationCompletedEventHandler eventHandler, out long token);
     void _unused_remove_NavigationCompleted();
     void _unused_add_FrameNavigationStarting();
     void _unused_remove_FrameNavigationStarting();
@@ -3329,7 +3954,7 @@ public interface ICoreWebView2Settings
 public interface ICoreWebView2NavigationStartingEventArgs
 {
     void get_Uri([MarshalAs(UnmanagedType.LPWStr)] out string uri);
-    void _unused_get_IsUserInitiated();
+    void get_IsUserInitiated(out int isUserInitiated);
     void _unused_get_IsRedirected();
     void _unused_get_RequestHeaders();
     void _unused_get_Cancel();
@@ -3343,6 +3968,13 @@ public interface ICoreWebView2NewWindowRequestedEventArgs
     void _unused_put_NewWindow();
     void _unused_get_NewWindow();
     void put_Handled(int handled);
+}
+
+[ComImport, Guid("30d68b7d-20d9-4752-a9ca-ec8448fbb5c1"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2NavigationCompletedEventArgs
+{
+    void get_IsSuccess(out int isSuccess);
+    void get_WebErrorStatus(out int webErrorStatus);
 }
 
 [ComImport, Guid("8155a9a4-1474-4a86-8cae-151b0fa6b8ca"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]

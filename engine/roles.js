@@ -243,7 +243,7 @@ const ROLES = [
        step, beside the button that creates it: still the moment of choice, which
        is this engine's stated shipping condition, and no longer competing with
        a comparison (Mona Lisa's ruling, superseding the placement not the rule).
-       ⚠️ NINE ROLES CARRY ONE. This is a pattern rather than one string, and the
+       ⚠️ MANY ROLES CARRY ONE (fewer than half; create.test.js). A pattern, not one string, and the
        last step renders whichever role was chosen. */
     /* #1279: it can now make agents too, so the caution says so (the rule above: a caution must
        never understate an agent's reach). */
@@ -1488,6 +1488,41 @@ const OVERSIGHT_RHYTHM = [
   '  files current. A missing or stale one is a finding to raise, never',
   '  silence.',
 ].join('\n');
+/* #4555 (Josh, 2026-09-29 09:06, #4554: "we probably could easily get that list cranked up to 100
+   different roles, organized into different categories"): the seeded catalogue's roles join the ones
+   above, BEFORE the rhythm below is appended, so every role carries it. The page groups the picker by
+   first appearance (web/index.html), so ROLES is put in the catalogue's group order; within a group
+   the roles above keep their order and the catalogue's follow them. A catalogue key that is already
+   a role here is skipped (engine/catalogue.test.js keeps there being none). Hidden roles stay last.
+   This runs when roles.js loads, so the generated catalogue-roles.js is on the board's boot path. */
+{
+  /* Only LOADING the generated data is guarded: a broken or missing catalogue costs the new roles,
+     never the board (roles.js is on the boot path of the server, create and the setup guide).
+     The merge below is not guarded, so a bug in it fails loudly instead of quietly dropping roles.
+     engine/catalogue.test.js keeps the shipped data loadable; the catch is for a build it did not see. */
+  let loaded = null;
+  try {
+    const catalogue = require('./catalogue');
+    loaded = { order: catalogue.groupOrder(), extra: catalogue.rawRoles() };
+  } catch (err) {
+    const why = err && err.message;
+    process.stderr.write(`kosmos: the ready-made role catalogue did not load (${why}); showing the original roles only\n`);
+  }
+  if (loaded) {
+    const { order, extra } = loaded;
+    const have = new Set(ROLES.map((r) => r.key));
+    const skipped = extra.filter((r) => have.has(r.key)).map((r) => r.key);
+    if (skipped.length) {
+      process.stderr.write(`kosmos: catalogue roles already defined in roles.js were skipped: ${skipped.join(', ')}\n`);
+    }
+    const menu = ROLES.filter((r) => r.menu !== false).concat(extra.filter((r) => !have.has(r.key)));
+    const hidden = ROLES.filter((r) => r.menu === false);
+    const rank = (r) => { const i = order.indexOf(r.group); return i === -1 ? order.length : i; };
+    const sorted = menu.map((r, i) => ({ r, i })).sort((x, y) => (rank(x.r) - rank(y.r)) || (x.i - y.i)).map((x) => x.r);
+    ROLES.length = 0;
+    ROLES.push(...sorted, ...hidden);
+  }
+}
 /* pm and director, exactly (#519): the two roles Josh named. */
 const OVERSEERS = new Set(['pm', 'director']);
 /* #3034: the setup guide answers questions; it has no queue to summarise, and a
