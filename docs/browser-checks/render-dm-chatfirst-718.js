@@ -138,6 +138,9 @@ function navGeo() {
   return { n: bs.length, oneRow: rs.length > 0 && rs.every((r) => Math.abs(r.top - rs[0].top) < 1),
     whole: rs.every((r) => r.left >= -0.5 && r.right <= vw + 0.5), cut, spill, maxLines: Math.max(0, ...lines),
     scrolls: nav.scrollWidth > nav.clientWidth + 1, h: Math.round(Math.max(...rs.map((r) => r.height))),
+    // The row's own height, top of its highest button to bottom of its lowest: `h` is one button, and undercounts a
+    // row that has wrapped.
+    rowH: Math.round(Math.max(...rs.map((r) => r.bottom)) - Math.min(...rs.map((r) => r.top))),
     threadH: document.getElementById('d-dmthread').clientHeight };
 }
 
@@ -471,6 +474,13 @@ function measure() {
         chk(g.oneRow && g.whole && !g.scrolls && g.cut.length === 0 && g.spill.length === 0, `${t} #4661: every section tab is whole, unscrolled, and no label is broken inside a word, clipped, or outside its button`, JSON.stringify(g));
         chk(g.maxLines <= 2, `${t} #4661: no label or status word runs past two lines (counted, not inferred from pixels)`, `maxLines=${g.maxLines} h=${g.h}`);
         chk(g.threadH >= 60, `${t} #4661: the conversation keeps room to read`, `threadH=${g.threadH}`);
+        const dotHits3 = await page.evaluate(() => { const hits = [];
+          for (const b of document.querySelectorAll('#d-nav button')) b.setAttribute('data-dot', '1');
+          for (const b of document.querySelectorAll('#d-nav button')) { if (b.hidden) continue; const d = b.querySelector('.dot'); if (!d) continue; const dr = d.getBoundingClientRect(); if (!dr.width) continue;
+            for (const el of b.querySelectorAll('.dnav-lab')) for (const tr of el.getClientRects()) if (dr.left < tr.right && dr.right > tr.left && dr.top < tr.bottom && dr.bottom > tr.top) hits.push(el.textContent.trim()); }
+          for (const b of document.querySelectorAll('#d-nav button')) b.removeAttribute('data-dot');
+          return hits; });
+        chk(dotHits3.length === 0, `${t} #4661: the needs-you dot is clear of every label in the three-button row`, JSON.stringify(dotHits3));
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
         await page.close();
       }
@@ -509,10 +519,10 @@ function measure() {
         const sg = await page.evaluate(navGeo);
         chk(sg.n === 4 && sg.oneRow && sg.whole && !sg.scrolls && sg.cut.length === 0 && sg.spill.length === 0, `${t} #4661: the four buttons (a swarm's too) are one row, whole, unscrolled, no word cut`, JSON.stringify(sg));
         chk(sg.maxLines <= 2, `${t} #4661: in the swarm row no label or status word runs past two lines`, `maxLines=${sg.maxLines} h=${sg.h}`);
-        // Every status word the row can carry (swarmPillPaint): "Paused (limit)" is the widest. At default text the four
+        // Every status word the row can carry (swarmPillPaint: Active, Stopped, Paused, Paused (limit), the widest). At default text the four
         // stay one row, no word cut, clipped or out of its button, and the needs-you dot touches no text.
         await page.evaluate('window.navGeo = ' + navGeo.toString());   // the same measure, callable inside the page
-        for (const [st, lim] of [['active', false], ['stopped', false], ['paused', true]]) {
+        for (const [st, lim] of [['active', false], ['stopped', false], ['paused', false], ['paused', true]]) {
           const sgw = await page.evaluate(([s0, l0]) => { swarmPillPaint(s0, l0);
             for (const b of document.querySelectorAll('#d-nav button')) b.setAttribute('data-dot', '1');
             return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -529,6 +539,9 @@ function measure() {
           }, [st, lim]);
           chk(sgw.oneRow && sgw.whole && !sgw.scrolls && sgw.cut.length === 0 && sgw.spill.length === 0 && sgw.maxLines <= 2 && sgw.dotHits.length === 0,
             `${t} #4661: status "${sgw.word}": one row, whole, no word cut, clipped or out of its button, at most two lines, the needs-you dot clear of the words`, JSON.stringify(sgw));
+          // Measured ceilings (the plan records them): 70px for the one-line status words, 84 for "Paused (limit)",
+          // which stacks two two-line words; and the conversation keeps its 60px floor at default text.
+          chk(sgw.rowH <= (lim ? 84 : 70) && sgw.threadH >= 60, `${t} #4661: status "${sgw.word}": the row is at most ${lim ? 84 : 70}px and the conversation keeps 60px`, `rowH=${sgw.rowH} threadH=${sgw.threadH}`);
         }
         await page.evaluate(() => swarmPillPaint('active', false));
         // The same row with larger text (browser text size or page zoom): where the words were once broken mid-word
@@ -540,6 +553,9 @@ function measure() {
           // Here four buttons may need two lines (a word wider than a quarter of the screen): wrapped is fine,
           // cut, clipped or spilling is not.
           chk(sg2.whole && !sg2.scrolls && sg2.cut.length === 0 && sg2.spill.length === 0, `${t} #4661: at ${pct}% text every swarm-row button is whole, no word broken, clipped or outside its button (the row may wrap)`, JSON.stringify(sg2));
+          // The accepted cost, with a floor so it cannot quietly get worse: at 150% on a 320x568 phone the four whole
+          // words take two rows and the conversation keeps about one line (measured in the plan).
+          chk(sg2.threadH >= 24, `${t} #4661: at ${pct}% text the conversation keeps at least a line`, `threadH=${sg2.threadH} rowH=${sg2.rowH}`);
         }
         await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
         const swn = await page.evaluate(() => {

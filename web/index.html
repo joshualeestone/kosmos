@@ -10256,9 +10256,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-swarm .swpill i { display: none; }
   /* "Paused (limit)" is two words: it may wrap between them, rather than widen its button until the row wraps. */
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-swarm .swpill { white-space: normal; text-align: center; }
-  /* With the icons gone the label starts at the top, where the needs-you dot sits: the dot moves into the corner and
-     the label starts below it. */
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed:has(#d-nav-swarm:not([hidden])) button { padding-top: 13px; }
+  /* With the icons gone the label starts at the top, where the needs-you dot sits: on a button showing the dot, the
+     dot moves into the corner and the label starts below it. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed:has(#d-nav-swarm:not([hidden])) button[data-dot] { padding-top: 13px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed:has(#d-nav-swarm:not([hidden])) button .dot { top: 3px; right: 3px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-ico svg { width: 18px; height: 18px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button .dot { top: 6px; right: 6px; }

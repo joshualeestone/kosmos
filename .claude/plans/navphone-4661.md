@@ -7,9 +7,10 @@ On a phone with the Direct Message open, the agent's section buttons (Direct Mes
 and a swarm's fourth) sit in one row the page's width, every button whole, no word broken, nothing scrolling.
 At 375 and wider with default text the row keeps its 44px height; narrower, or with larger text, a label may
 wrap to a second line between words (measured, three buttons: 59px at 320 and 360, 67px at 375 with 130% text).
-A swarm's four buttons stay one row at default text for every status word (Active, Stopped, Paused (limit));
-at 130 to 150% text on a 320 phone they wrap to two rows, and at 150% on 320x568 the conversation keeps 46px, the
-real cost of four whole words there. Chromium and WebKit.
+A swarm's four buttons stay one row at default text for every status word, measured (row height, conversation):
+Active, Stopped and Paused 65px (126px at 320x568); Paused (limit) 80px (111px). At 130 to 150% text on a 320 phone
+they wrap to two rows: at 320x568 the row is 102px at 130% (conversation 89px) and 114px at 150% (conversation 46px,
+about one line), the accepted cost of four whole words on the smallest phone at the largest text. Chromium and WebKit.
 
 ## Cause
 The row was a sideways scroller (a 32px fade on the right was its only cue). At 393 and 375 wide the
@@ -23,14 +24,15 @@ third button was cut mid-word ("AI Se"), so it read as broken, not scrollable.
   found; the old scroller hid the same problem. Now only that case wraps to a second row.
 - A swarm's status word keeps its word and drops its colour dot in this row (the dot only repeats the word), and
   may wrap between its own words ("Paused (limit)"), so a long status does not widen its button until the row wraps.
-- With the icons gone (swarm row) the needs-you dot moves into the corner and the buttons' labels start 13px down,
-  below it (review round 3 found the dot drawn over "Direct Message" at 320).
+- With the icons gone (swarm row), on a button showing the needs-you dot, the dot moves into the corner and that
+  button's label starts 13px down, below it (review round 3 found the dot drawn over "Direct Message" at 320). Only
+  dotted buttons get the padding, so the others stay short.
 - When the row does wrap (the extreme text sizes above), a lone button on the second line takes the full width. That
   reads as three tabs and a banner; it is the accepted fallback, not the normal shape.
 - Labels break only between words (overflow-wrap: normal). The first version used overflow-wrap: anywhere, which
   brought back the card's defect as "Messa / ge" at larger text sizes (review round 1).
 - A swarm's fourth button carries its status word under its label; with the icon too the row grew to about 80px,
-  so with four buttons the icons give way (56px measured).
+  so with four buttons the icons give way.
 - Rejected: two rows (Direct Message full width, then the pair). It is the desktop shape, but here it takes
   about 50px from the conversation on the screen people use most (an SE's thread gets about 220px).
 - Rejected: a stronger scroll hint. It still hides one of only three choices.
@@ -46,7 +48,8 @@ it reads as too small, the next step is icon-only for Profile and AI Settings wi
   proxy the grid broke while the row stayed one row), every tab whole, no scroll, and no word broken, measured per
   character (a line change with no space either side). Arms: 375 to 430 at 44 to 52px; 320, 360 and 375 at 130%
   text (at most two label lines, thread at least 60px); the swarm row (four buttons, at most 60px) and the swarm
-  row, at 375 and 320, at 130 and 150% text (may wrap; nothing cut, clipped, or outside its button: a per-button
+  row, at 375 and 320, every status word (row-height ceilings 70 and 84px, conversation at least 60px), and at 130 and
+  150% text (conversation at least 24px, a floor so the accepted cost cannot quietly get worse) (may wrap; nothing cut, clipped, or outside its button: a per-button
   containment measure added in round 2). Red on origin/main (scrolls); red with overflow-wrap: anywhere put back
   (cuts in Direct Message, AI Settings, Swarm Settings); red on the equal-columns grid (words out of their buttons
   by 1 to 6px at 320). Chromium and WebKit.
