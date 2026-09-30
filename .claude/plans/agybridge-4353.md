@@ -21,20 +21,26 @@ The card was then parked "needs-release" on the strength of those tests and the 
 
 ## Change
 - `engine/create.js`: export `agyBridgePath`.
-- `engine/agyrefresh.test.js`: a test that reads `agyrefresh.js`, collects every `create.<name>(` it calls,
-  and asserts `create.js` exports each as a function, with a control that the scan found the calls.
-  It does NOT call `refreshAtBoardStart`: that reads this computer's real launch jobs and would write
-  into real agents' folders from a test.
+- `engine/agyrefresh.js`: the production wiring is its own function, `productionDeps()`, so a test can
+  build it; `refreshAtBoardStart` runs the refresh with it. `existingLaunchDir` returns no folder for a
+  running agent whose launch folder is gone, so the hook writer (which makes the folders above its file)
+  is never handed one.
+- `engine/agyrefresh.test.js`: one test BUILDS the production wiring and runs the parts of it that ask
+  launchd nothing (`workdir`, `hasHook`, `hadToolHooks`, `bridgeExists`), then reads which `create.*` and
+  `agyhooks.*` names the file uses and asks those modules for each. A second test covers the gone folder
+  with the real hook writer.
 
-## Control
-With `create.js` unfixed, the new test fails: "agyrefresh.js calls create.agyBridgePath(), which create.js
-does not export" (12 pass, 1 fail). Fixed: 13 pass.
+## Controls (each on a scratch copy of `engine/`)
+- Export removed: the wiring test is red with `TypeError: create.agyBridgePath is not a function`, the
+  error production logs.
+- Folder guard removed: the gone-folder test is red.
+- The copy has no server.js, so the call-site test is red in both arms for that reason; it is not counted.
 
 ## Decisions
-- CALL: a source scan, not a run of the real wiring. REJECTED: calling `refreshAtBoardStart` under the
-  test's sandbox env; `create.runningJobs` asks launchd, and the sandbox does not fence that.
-  WEAKEST PREMISE: the scan matches `create.name(` only; a call through another spelling
-  (`const { x } = create`) would not be seen. There is none in the file today.
+- CALL: build the real wiring in a test, and do not call `names` or `job` there. REJECTED: calling
+  `refreshAtBoardStart` under the test's sandbox env; `create.runningJobs` asks launchd, and the sandbox
+  does not fence that. WEAKEST PREMISE: the two closures not run are covered only by the name scan, which
+  sees `create.name` and `agyhooks.name` and no other spelling.
 - NOT DONE here: proving the heal on a real Antigravity agent that predates #4106. That needs such an agent
   and a release carrying this; it is what the card's "needs-release" should have waited for.
 
@@ -56,3 +62,15 @@ the plist argument, the bundled node, ensureHooks's signature, the call site's d
      the error production logs.
   B. folder guard removed: the gone-folder test is red.
   In the worktree itself: 14 pass.
+
+## Review iteration 2 (opus): 1 WARNING, 2 CONVENTIONs, 6 NITs
+- W (fixed): the folder guard was tested only through a fake, so putting `launchDir` back in the
+  production wiring reddened nothing, the same shape as the original defect. The wiring test now calls
+  `productionDeps().workdir`, `.hasHook` and `.hadToolHooks` for real.
+- CONVENTIONs fixed: the header said "Never throws", which is true of the refresh and not of building
+  its wiring; this plan's top part described the first design.
+- NITs taken: the gone-folder test uses the real hook writer, so its "not made again" can fail; a
+  self-comparing assertion removed; the scan's comment says what it does not see; release numbers taken
+  out of code comments.
+- NITs not taken: a trailing `//` comment would be read by the scan (the pinned list turns that red); a
+  regular FILE at the launch path passes the existence check (the writer then refuses it).

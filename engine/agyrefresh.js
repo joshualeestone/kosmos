@@ -22,7 +22,8 @@
  * and a later current supervisor would find an entry to leave alone.
  * An entry that is there but broken (a node or bridge gone) is REPAIRED, keeping its ask_question
  * tool hooks if it had them: a current supervisor wrote those after checking agy was new enough.
- * Never throws.
+ * refreshRunningAgyHooks never throws (every dependency call is caught into a row). Building the
+ * production wiring can: refreshAtBoardStart's caller in server.js catches that and says so.
  */
 const fs = require('node:fs');
 const path = require('node:path');
