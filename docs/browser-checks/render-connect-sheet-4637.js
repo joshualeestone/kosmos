@@ -65,7 +65,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       ];
       await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? REMOTE : { ok: true })));
       await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: pending, email: 'you@example.com' })));
-      await page.route('**/api/remote/devices/allow', (route) => { pending = pending.filter((d) => d.device_id !== 'd-pc'); return route.fulfill(json({ ok: true })); });
+      await page.route('**/api/remote/devices/allow', (route, req) => { const id = JSON.parse(req.postData() || '{}').device_id; pending = pending.filter((d) => d.device_id !== id); return route.fulfill(json({ ok: true })); });
       await page.route('**/api/remote/devices', (route) => route.fulfill(json({ on: true, allowed: [], pending })));
       await page.goto(BASE, { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
@@ -78,6 +78,13 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         return { shown: !!(c && !c.hidden && c.getBoundingClientRect().height > 0), text: (c && c.innerText || '').replace(/\s+/g, ' ').trim(), review: !!(c && c.querySelector('[data-ask="open"]')) };
       });
       chk(note.shown && /2 devices want to connect to your Kosmos\./.test(note.text) && note.review && /kosmos\+/i.test(note.text), `${tag} on another page: a Kosmos+ notice with Review`, JSON.stringify(note));
+      /* Review W2: the notice's edges line up with the banner under it (#conn). Fails if the banner is not shown. */
+      const edges = await page.evaluate(() => {
+        const a = document.getElementById('askcard').getBoundingClientRect(), c = document.getElementById('conn');
+        const b = c && !c.hidden && c.getBoundingClientRect().height > 0 ? c.getBoundingClientRect() : null;
+        return b ? { dl: Math.round(a.left - b.left), dr: Math.round(a.right - b.right) } : null;
+      });
+      chk(edges && Math.abs(edges.dl) <= 1 && Math.abs(edges.dr) <= 1, `${tag} the notice lines up with the banner under it`, JSON.stringify(edges));
 
       /* On Kosmos Plus: the sheets. */
       await page.evaluate(() => showTab('settings'));
@@ -96,6 +103,8 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
           /* The headline gets the sheet's width, not the icon's 40px column (a grid slip read one word per line). */
           headShare: (r.querySelector('.askwho') || r).getBoundingClientRect().width / r.getBoundingClientRect().width };
       }));
+      /* Measured while the sheets are there (an empty list would pass every()). */
+      const nowrap = await page.evaluate(() => { const t = [...document.querySelectorAll('#plus-ask-rows .askreq .askwho span')]; return t.length === 2 && t.every((e) => getComputedStyle(e).whiteSpace === 'nowrap'); });
       const pc = sheets.find((x) => /windowsbox/.test(x.head)) || {};
       const ph = sheets.find((x) => /iPhone/.test(x.head)) || {};
       chk(pc.head === 'Your computer "windowsbox" wants to join' && pc.say === 'Allow it if you just signed it in, and it shows this code.',
@@ -114,7 +123,14 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(/windowsbox is connected\. Your computers now trust each other\. You can remove it any time under Devices\./.test(done),
         `${tag} after Allow: "windowsbox is connected." and where to remove it`, done);
       chk(/iPhone wants to connect to your Kosmos/.test(done), `${tag} the other request is still waiting`, done);
+      chk(await page.evaluate(() => !document.getElementById('plus-asks-title').hidden), `${tag} with a request still waiting, the heading shows`);
+      /* Review W1: with nothing left waiting, "Waiting for you" goes; the success lines stand alone. */
+      await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-ph"]');
+      await page.waitForFunction(() => /iPhone is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      const after = await page.evaluate(() => ({ title: !document.getElementById('plus-asks-title').hidden, text: (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' ') }));
+      chk(!after.title && /windowsbox is connected\./.test(after.text) && /iPhone is connected\./.test(after.text), `${tag} nothing waiting: no "Waiting for you" over the success lines`, JSON.stringify(after));
 
+      chk(nowrap, `${tag} "a moment ago" stays on one line`);
       const wide = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
       chk(wide <= 0, `${tag} no sideways scroll`, String(wide));
       chk(errs.length === 0, `${tag} no page errors`, JSON.stringify(errs));

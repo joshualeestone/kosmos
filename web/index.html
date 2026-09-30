@@ -475,7 +475,8 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
      1px line on the light surface (about 5:1) and the dark one (about 3.4:1). */
   /* #4637 (Josh 09-29: "radically redesign... doesn't fit the branding"; Mona Lisa's flow outline, #4754): the notice
      and the sheet are drawn in the Kosmos+ navy, on every page, in both themes. */
-  .askcard { margin: 10px 24px 0; padding: 12px 16px; border: 1px solid #3a68d8;
+  /* #4637 (Mona Lisa's review W2): no side margin of its own, so its edges line up with the banner under it (#conn). */
+  .askcard { margin: 10px 0 0; padding: 12px 16px; border: 1px solid #3a68d8;
              border-radius: 10px;
              background: linear-gradient(160deg,#1b2c50,#0f1d38); font-size: .875rem; color: #c3cde3; }
   .askcard h3 { font: 600 1rem var(--font-ui); color: #fff; margin: 0 0 4px; }
@@ -508,7 +509,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   /* Kosmos+ blue in the panel too (the 09-16 ruling: gold is regular Kosmos only). */
   .askreq .btn.uprime, .askreq .btn.uprime:hover { background: #2f57c4; border-color: #2f57c4; color: #fff; }
   .askreq .askwho b { color: #fff; font-size: 1.05rem; }
-  .askreq .askwho span { color: #9fb0d4; }
+  .askreq .askwho span { color: #9fb0d4; white-space: nowrap; }   /* "a moment ago" stays on one line (review NIT) */
   .askreq .askdev { background: rgba(126,160,240,.14); }
   .askreq .askdev svg { stroke: #dfe6f5; }
   /* The ids keep a Settings text rule (an id-level p style) from shrinking the code, in either place it renders. */
@@ -4477,7 +4478,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      itself, so it kept its inset when the padding went. Matching that
      inset here rather than inventing one keeps the two cards, which
      appear in the same place, agreeing about where the edge is. */
-  html[data-layout="consolidated"] body.consolidated > #conn { margin-left: var(--space-8); margin-right: var(--space-8); }
+  html[data-layout="consolidated"] body.consolidated > #conn,
+  html[data-layout="consolidated"] body.consolidated > #askcard { margin-left: var(--space-8); margin-right: var(--space-8); }
   html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 40; }
   /* #867 (Josh, 2026-08-25 11:02): "hide that scrollbar inside of
      agents." Still scrolls -- scrollbar-width/-ms-overflow-style hide
@@ -42601,6 +42603,8 @@ function paintAsk() {
      card stays the compact "N devices are asking" notice on every other view. */
   const inPanel = onPlus && !!panel;
   if (panel) panel.hidden = !(inPanel && anything);
+  /* #4637 (Mona Lisa's review W1): "Waiting for you" only while something waits; a success line stands alone. */
+  { const t = document.getElementById('plus-asks-title'); if (t) t.hidden = !live.length; }
   const hide = !anything || inPanel || (!onPlus && !live.length);
   card.hidden = hide;
   /* The Plus tab's needs-you dot marks a request waiting, in the nav's own grammar. */
@@ -42618,7 +42622,7 @@ function paintAsk() {
     return;
   }
   if (!anything) return;
-  if (!inPanel) { title.textContent = 'Waiting for you'; lead.hidden = true; }
+  if (!inPanel) { title.textContent = live.length ? 'Waiting for you' : ''; lead.hidden = true; }
   const out = [];
   const seen = new Set();
   const render = (d, e) => {
