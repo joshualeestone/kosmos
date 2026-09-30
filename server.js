@@ -1461,8 +1461,7 @@ function whoamiFor(card, known, live) {
        this line to distrust every live read. */
     if (seen && seen.runner) return seen.runner;
     /* 🛑 POSITIVE EVIDENCE ONLY FROM THE MARKER, because `'claude'` from a card is
-       not a claim, it is a DEFAULT. `status.js` normalises the pane's
-       `@kosmos_runner` as `pane.runner === 'codex' ? 'codex' : 'claude'`, so an
+       not a claim, it is a DEFAULT: `status.js` reads an absent `@kosmos_runner` as claude, so an
        agent whose marker was never recorded is indistinguishable from one
        recorded as claude, and `bin/agent-supervisor.sh` says that failure is real
        in as many words: "could not record $SESSION's runner -- the board will
@@ -1555,6 +1554,7 @@ function whoamiFor(card, known, live) {
              with `configDir` falsy), and cheaper to close than to keep true. */
           name: seen.configDir ? openaiAccounts.readName(seen.configDir) : null,
           isDefault: isDefaultDir(seen.configDir),
+          keyTail: null,   // #4603
         },
         from: 'process',
       };
@@ -1579,7 +1579,7 @@ function whoamiFor(card, known, live) {
       const claudeDir = !seen.runner || seen.runner === 'claude';
       return {
         value: {
-          email: null, label: null, organization: null, dir: seen.configDir,
+          email: null, label: null, organization: null, dir: seen.configDir, keyTail: null,
           /* 🛑 #2811: THE LIVE READER MUST ANSWER THIS THE SAME WAY THE RECORD
              READER DOES. `accountForAgent` computes `readName(dir)`; without it
              here, the SAME named codex account read "Work" when the record
@@ -1604,7 +1604,7 @@ function whoamiFor(card, known, live) {
         /* 🛑 #2811: `rec.name` IS CARRIED. `accountForAgent` computes it on both its
            branches and this projection used to DROP it one function later, which is
            why a NAMED codex account was told "an account we cannot identify". */
-        ? { email: rec.email, label: rec.label, organization: rec.organization || null, dir: rec.dir, name: rec.name || null, isDefault: rec.isDefault }
+        ? { email: rec.email, label: rec.label, organization: rec.organization || null, dir: rec.dir, name: rec.name || null, isDefault: rec.isDefault, keyTail: rec.keyTail || null }
         : null,
       from: 'record',
     };
@@ -1720,18 +1720,18 @@ function whoamiFor(card, known, live) {
          the fallback and not the default is the wrong way round. */
       return { value: { id: rec.model, name: modelDisplayName(rec.model), confidence: rec.confidence }, from: 'record' };
     }
+    /* #4603: the card's own model for a non-Claude agent, only when the card's runner is the resolved runner, and
+       above the launch argument below, as the transcript is for Claude (server.whoami-grok-4603.test.js pins the provider-switch case). */
+    if (foreignRunner && card && card.runner === resolvedRunner && typeof card.model === 'string' && card.model) {
+      return { value: { id: card.model, name: modelDisplayName(card.model), confidence: CONFIDENCE.STRUCTURED }, from: 'session' };
+    }
     if (seen && seen.model) {
       /* ⚠️ NOT `structured`. That tier means "read from a file written for this
          purpose"; this is a process command line, and mislabelling provenance
          in a change about provenance would be the joke writing itself. */
       return { value: { id: seen.model, name: modelDisplayName(seen.model), confidence: CONFIDENCE.SCRAPED }, from: 'process' };
     }
-    /* 📌 `record` when NEITHER answered, and it is a compromise worth naming:
-       `source` means "who answered" everywhere else, and here nobody did. The
-       alternative is a third value, which every consumer would have to learn in
-       order to render the same "we cannot tell" sentence. Kept as `record`
-       because the record is the fallback and therefore the last reader
-       consulted; revisit if a caller ever needs to distinguish them. */
+    /* 📌 `record` when NEITHER answered: `source` means "who answered" everywhere else, and here nobody did. */
     return { value: null, from: 'record' };
   })();
 
@@ -1762,21 +1762,12 @@ function whoamiFor(card, known, live) {
    screen is Codex, so the two agree here and the map exists so a third runner
    cannot be spelled two ways in two places. */
 function runnerDisplayName(runner) {
-  /* 📌 THE FALLBACK RENDERS A THIRD RUNNER LOWERCASE ("this is a gemini
-     agent"), and that is left as-is deliberately rather than "fixed" with a
-     capitalise. `agentUnder` returns only `claude` or `codex`, and this is
-     reached only for a non-claude one.
-     ⚠️ THAT BOUND IS WEAKER THAN AN EARLIER VERSION OF THIS COMMENT CLAIMED, and
-     the change that weakened it is on this branch: `resolvedRunner` also takes
-     the plist's ninth argument VERBATIM, so an unexpected value can reach here
-     from a HAND-EDITED job. Not from the tmux marker, which `status.js` clamps
-     to codex-or-claude before a card ever carries it. Still not a product path, and a raw name is the honest
-     rendering of one. Whoever adds a third
+  /* 📌 AN UNMAPPED RUNNER RENDERS AS ITS RAW NAME, deliberately rather than "fixed" with a capitalise. Whoever adds a
      runner adds its real product name here, which is the point of the map; a
      speculative transform would quietly produce a WRONG name instead of an
      obviously unfinished one, and this file has already deleted one branch for
      describing behaviour the code could not produce. */
-  return runner === 'codex' ? 'Codex' : runner === 'antigravity' ? 'Antigravity' : runner === 'muse' ? 'Meta Muse' : String(runner); // #3568, #3939
+  return runner === 'codex' ? 'Codex' : runner === 'grok' ? 'Grok' : runner === 'gemini' ? 'Gemini' : runner === 'antigravity' ? 'Antigravity' : runner === 'muse' ? 'Meta Muse' : String(runner); // #3568, #3939, #4603
 }
 
 function sentenceForWhoami(account, model, runner) {
@@ -1795,8 +1786,9 @@ function sentenceForWhoami(account, model, runner) {
   const acct = account && account.name ? account.name
     : account && account.email ? account.email
       : account && account.label ? account.label
-        : account && account.dir ? 'an account we cannot identify (' + account.dir + ')'
-          : null;
+        : account && account.keyTail ? 'the API key ending in ' + account.keyTail   // #4603
+          : account && account.dir ? 'an account we cannot identify (' + account.dir + ')'
+            : null;
   const parts = [];
   /* 🛑 ONE FORM, NOT TWO, AND THE SECOND ONE WAS DEAD. This used to branch on
      the source so the reason would match the reader that failed. A reviewer
@@ -1980,6 +1972,7 @@ function accountForAgent(name, known) {
   if (found) {
     return {
       dir: found.dir, email: found.email, label: found.label,
+      keyTail: found.keyTail || null,   // #4603: an xAI/Google key account names itself by its last four
       /* #2225: the human-chosen account name (`.kosmos-name` sidecar), the same
          value the pickers/Settings row have shown since #2095. Read here off the
          dir so the board's `a.account` carries it and the agent-detail runs-on
@@ -2016,7 +2009,7 @@ function accountForAgent(name, known) {
      from whichever list matched, which is that list's own notion and correct for
      both providers. */
   return dir
-    ? { dir, email: null, label: null, name: openaiAccounts.readName(dir), organization: null, isDefault: foreign ? null : accounts.isDefaultDir(dir) }
+    ? { dir, email: null, label: null, name: openaiAccounts.readName(dir), organization: null, isDefault: foreign ? null : accounts.isDefaultDir(dir), keyTail: null }
     : null;
 }
 
@@ -12587,7 +12580,15 @@ const server = http.createServer(async (req, res) => {
         const sender = resolveAgentSender(req, body, roster);
         if (!sender.ok) { sendJson(res, 200, { ok: false, because: sender.because }); return; }
         const who = sender.card.sessionName;
-        const known = (() => { try { return accounts.list(); } catch { return []; } })();
+        /* #4603: the xAI and Google account rows too, so a Grok or Gemini agent is not looked up in the Claude list
+           alone. (/api/status still passes the Claude list only.) */
+        const known = (() => {
+          const rows = [];
+          for (const lister of [() => accounts.list(), () => grokAccounts.list(), () => geminiAccounts.list()]) {
+            try { rows.push(...lister()); } catch { /* one unreadable store must not hide the others */ }
+          }
+          return rows;
+        })();
         /* The tmux session, taken from the roster row rather than rebuilt from
            the board name: `sessionName` is `angel` and the session is
            `angel-discord`, and a second place that knows that convention is a
