@@ -23,24 +23,36 @@ moving is held exactly as before; and no amount of cheap task activity can keep 
    is cheap, one per budget would have meant no valve at all); counting file changes in the project folder (a scan
    of the person's folder on every over-cap post; a later card if the task signal proves too narrow).
 2. Only first-time steps count (review round 1: A to B to A handoffs and close/reopen/close were free resets).
-3. Task files are read only when the room is already over its cap.
+3. Task files are read only when the room is already over its cap AND the limit is on (with it off the room is
+   never held, so the allowance could only suppress the told-only notice, and a busy room would re-read its task
+   files on every post). A held agent that keeps retrying pays one read of this project's task files per refused
+   post.
 WEAKEST PREMISE: the size of the allowance. A quarter of the cap per step, at most double, is a judgement: a busy
 real pipeline may still be held at twice the cap, and a loop that makes tasks gets up to twice the cap before it is
-held. Both are one constant (ROOM_PROGRESS_STEPS) and the cap's own dial. What would change it: a real room held
+held. A "step" is a counted ROW, not a click: closing a task's last open part writes both 'part-closed' and 'closed',
+so one click can earn half a cap (bounded by the same total). Both are one constant (ROOM_PROGRESS_STEPS) and the cap's own dial. What would change it: a real room held
 while tasks were moving, or a loop seen reaching the doubled cap.
 Also: a webhook-made task counts as a step (it is still a real new task); a same-user process writing task files
 directly can add steps, but only up to the same bound.
 
 ## Tests
-- engine/taskchat.progress-4786.test.js (10): each counted and uncounted kind, first-time rules for close, part
-  close, built and handoffs, per-part holders, the future-date clamp, other projects, a real pipeline through
-  engine/tasks (close a part, hand the next on) and the loop shape through the same functions.
-- engine/messages.test.js #4786 (1): held with no work (control); old work, talk and another project's work earn
-  nothing; one step earns exactly a quarter of the cap and the room is held again after; twenty made tasks earn at
-  most one more cap, then held.
-- Nine mutants (repeat close, repeat assign, no seed, wrong seed, no clamp, no cap, no window filter, no credit,
-  full-cap credit) each fail a test. The seven test files touching the valve or taskchat: 186/186.
+- engine/taskchat.progress-4786.test.js (12): each counted and uncounted kind; first-time rules for close, part
+  close, built and handoffs; per-part holders; partless legacy rows are part 1; the future-date clamp; other
+  projects; a real pipeline through engine/tasks (close a part, hand the next on) and the loop shape through the
+  same functions; through engine/tasks, a task's maker holds part 1.
+- engine/messages.test.js #4786 (3): (a) held with no work (control); old work, talk and another project's work earn
+  nothing; one step earns a quarter of the cap and the room is held again after; twenty made tasks earn at most one
+  more cap, then held (arrivals counted from the log, no divisibility assumption). (b) a step before the person's
+  last post earns nothing after it; the same step after does (control arm). (c) with the limit off, a step does not
+  suppress the told-only notice.
+- Mutants, each failing a test: repeat close, repeat assign, no seed, wrong seed, no clamp, no cap, no window
+  filter, no credit, full-cap credit, countFrom replaced by the window start, no legacy part-1 mapping, no limit-on
+  gate. The seven test files touching the valve or taskchat: 190/190.
+  One equivalent mutant (dropping the early kind filter) cannot fail: other kinds already count as nothing.
 
 ## Review
-Round 1: 1 blocker (repeatable events), taken. Round 2: 1 blocker (cheap creation reset the budget) and 2
-should-fix (holder seeding; tests off the real path and no re-trip), taken.
+Round 1: 1 blocker (repeatable events were free resets), taken. Round 2: 1 blocker (cheap creation reset the budget)
+and 2 should-fix (holder seeding; tests off the real path and no re-trip), taken. Round 3: 1 should-fix (scan with
+the limit off), taken; nits taken: before/after-the-person test, divisibility, maker holds part 1 through the
+engine, partless rows. Not taken: the held notice's wording (copy; unchanged for loops). Round 4: 2 should-fix
+(untested limit-off gate; stale plan), taken; nit on rows vs clicks recorded above.

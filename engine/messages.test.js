@@ -3186,3 +3186,34 @@ test('#4786: work done BEFORE the person last spoke earns nothing after it; the 
   assert.equal(run(2), chat.DELIVERY.PLACED, 'CONTROL: a step after the person spoke did not earn room, so the other arm proves nothing');
   assert.equal(run(5), chat.DELIVERY.COULD_NOT, 'a step before the person spoke still earned room after they reset it');
 });
+
+test('#4786: with the limit Off, work moving changes nothing: the room still gets its told-only notice at the cap', () => {
+  const taskchat = require('./taskchat');
+  withFleet(room3(), (board) => {
+    assert.equal(limits.write({ on: false, perHour: 10 }).ok, true);
+    try {
+      const now = Date.now();
+      fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+      fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+      for (let i = 0; i < 20; i += 1) {
+        fs.appendFileSync(messages.LOG, JSON.stringify({
+          kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease',
+          from: 'ghost', to: ['leo', 'mara'], text: 'round ' + i,
+          at: new Date(now - 60000).toISOString(), outcomes: {},
+        }) + '\n');
+      }
+      // A step that, with the limit on, would earn a quarter of the cap and keep this post under it.
+      assert.equal(taskchat.record('henderson-lease', 1, { kind: 'closed' }), true);
+      armSender('leo-discord');
+      arm([]);
+      const post = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'still talking' }, board.agents, MEMBERS);
+      assert.equal(post.state, chat.DELIVERY.PLACED, post.because || '');
+      const valve = messages.record().rows.find((m) => m.kind === 'valve' && m.project === 'henderson-lease');
+      assert.ok(valve, 'the told-only notice was suppressed by work moving, which only the limit-on valve should weigh');
+      assert.equal(valve.stopped, false);
+    } finally {
+      fs.rmSync(limits.FILE, { force: true });
+      fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+    }
+  });
+});
