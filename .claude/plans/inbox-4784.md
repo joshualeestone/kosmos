@@ -102,3 +102,12 @@ Focused: server.inbox-4784 8/8, cli.inbox-4784 6/6.
   (perturbation: dropping it from INBOX_DROP reds the arm).
 - NIT: attachment names are joined with "; " (a name can hold a comma).
 Focused: 36 of 36 (the four #4784 files).
+
+## Review 7 (opus, blind, on 2942e0b45), 17:48 CDT: no BLOCKER, 1 WARNING, 1 NIT, both taken
+- WARNING: the INBOX_BREAK/INBOX_DROP block sat between resolveAgentSender and its doc comment, so the doc bound
+  to INBOX_BREAK. Moved above that doc block; the doc again sits directly on the function. (A second placement
+  I tried split another comment from the function "The same" refers to; not kept.)
+- NIT: a stored `at` reached the row unsanitized (an outbox entry file edited by hand can carry any string
+  Date.parse accepts, newline included). The row prints a time only in the board's ISO shape, else none.
+  Test with the reviewer's own string (control: an ISO time still prints); perturbation reds it.
+Focused: server.inbox-4784 9 of 9.

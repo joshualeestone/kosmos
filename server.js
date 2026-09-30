@@ -1259,6 +1259,12 @@ const os = require('node:os');
    same list and two spellings of it would drift. Pass a fresh read() to
    avoid a second disk read when the caller already holds one. */
 
+/* #4784 (reviews 4 and 5): for `kosmos inbox`'s text rows. INBOX_BREAK is every character a terminal or an agent's
+   context can read as a line break (a message's pieces after the first are indented; a file name's become spaces).
+   INBOX_DROP is C0 and C1 controls (tab kept) plus the bidirectional marks and overrides that can reorder a row. */
+const INBOX_BREAK = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/;
+const INBOX_DROP = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
 /**
  * Who is sending this? One derivation, used by every route that needs it.
  *
@@ -1288,12 +1294,6 @@ const os = require('node:os');
  * would have reported. Worth fixing by storing the original name at mint time
  * if it ever matters; it does not yet.
  */
-/* #4784 (reviews 4 and 5): for `kosmos inbox`'s text rows. INBOX_BREAK is every character a terminal or an agent's
-   context can read as a line break (a message's pieces after the first are indented; a file name's become spaces).
-   INBOX_DROP is C0 and C1 controls (tab kept) plus the bidirectional marks and overrides that can reorder a row. */
-const INBOX_BREAK = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/;
-const INBOX_DROP = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
-
 function resolveAgentSender(req, body, roster, opts) {
   const presented = presentedAgentToken(req, body);
   if (!presented) {
@@ -12968,7 +12968,10 @@ const server = http.createServer(async (req, res) => {
         if (r.attachments.length) notes.push('[attached: ' + r.attachments.join('; ') + ']');   // review 6: "; ", since a name can hold a comma
         if (r.reached === 'no') notes.push('[this did not reach you]');
         if (r.reached === 'maybe') notes.push('[this may not have reached you]');
-        const head = (r.at ? r.at.replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '')
+        // Review 7: a stored `at` is printed only in the ISO shape the board writes; anything else (an outbox entry
+        // file edited by hand can carry any string Date.parse accepts) is left out rather than put in the row.
+        const iso = typeof r.at === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/.test(r.at);
+        const head = (iso ? r.at.replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '')
           + (r.from === 'person' ? 'the person' : 'you') + (notes.length ? ' ' + notes.join(' ') : '') + ': ';
         /* Review 4: every character a terminal or an agent's context can read as a line break starts a new,
            indented piece (INBOX_BREAK), and the controls in INBOX_DROP are dropped, so no typed text can draw a row
