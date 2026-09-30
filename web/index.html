@@ -6910,6 +6910,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    opens on it). */
 @media (max-width: 40rem) { #rolesel { font-size: 16px; } }   /* the New Agent phone layout's breakpoint */
 .dmnone { font-size: .875rem; color: var(--k-ink-2); margin: 0; }
+/* #4612: what a Muse agent answered in its own window when it never replied here. Kept in the person's own reading
+   size, line breaks as written, and bounded so a long answer scrolls instead of pushing the composer away. */
+.dmunsent-text { margin: 6px 0 0; padding: 8px 12px; border-left: 3px solid var(--k-rule); color: var(--k-ink);
+  font-size: .9375rem; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow-y: auto; }
+.dmunsent-text:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }   /* #4612 review: it scrolls, so the keyboard can reach it */
 /* ⚠️ THE SAME DOTS THE CARD USES, not a second animation: `.act` is the
    board's working glyph, and a different one here would be two renderings of
    one fact. It borrows the sibling hint's size and colour so the line reads as
@@ -10240,7 +10245,6 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #s-sec-plus .plus-asks .askreq { max-width: none; }
 #askcard .asknote { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 #plus-state2 h3 { font-size: 1.3rem; margin: 0 0 .25rem; }
-#plus-state2 .plus-si-code { font: 700 2rem/1.2 var(--font-mono, ui-monospace, monospace); letter-spacing: .12em; margin: 8px 0 4px; }   /* #4638: the code to match, large */
 #plus-state2 .plus-si-lead { color: var(--k-ink-2); margin: .5rem 0 0; }
 #plus-state2 .flabel { color: var(--k-ink-2); font-weight: 500; margin-top: 1rem; }
 #plus-state2 .plus-si-lead b { color: #E6EBF7; font-weight: 600; overflow-wrap: anywhere; }
@@ -17201,12 +17205,6 @@ window.kosmosMeasureScrollbarWidth();
            it (the approval lives in Settings > Kosmos+). -->
       <div id="plus-si-done" hidden>
         <p class="plus-si-lead" id="plus-si-done-line">To use Kosmos on another device, sign in at login.kosmosplus.com.</p>
-        <!-- #4638 (Josh, 15:17): a second computer on the account. The other computer is asked to let this one in,
-             with a code; this shows the same code so the person allows the right one. Filled by plusSiSecondDone. -->
-        <div id="plus-si-match" hidden>
-          <p class="plus-si-lead" id="plus-si-match-lead"></p>
-          <p class="plus-si-code" id="plus-si-match-code" aria-label="The code"></p>
-        </div>
         <div class="frow"><button class="btn uprime" type="button" id="plus-si-done-go">Done</button></div>
       </div>
 
@@ -42574,8 +42572,6 @@ let PLUS_SI_LANDED = false;
 let PLUS_SI_REGISTERING = false;
 /* The owned address to retry after an automatic register failed (review: never a dead end). */
 let PLUS_SI_RETRY = '';
-/* #4638: a second computer on the account: {base, tries, code, other, computer}, or null. */
-let PLUS_SI_SECOND = null;
 /* The computer-name format for the sign-in wizard's register step (signin-register requires a
    name). It mirrors the engine's own NAME_RULE; the engine validates too, so this is a fast
    local echo, not the source of truth. (The connected flow's enrol pair also used it until
@@ -43145,10 +43141,6 @@ function plusSiStage(stage, data) {
     return;
   }
   if (stage === 'session') {
-    /* #4638 (Josh, 15:13, a second computer on his account): no address chooser. The engine names the other
-       computer's address when this account already has one; this computer is named after itself and registered
-       now, and the done step shows the code the other computer is asking to match. */
-    if (!data.account_address && data.other_address && plusSiSecondStart(data)) return;
     plusSiRegisterMode(data.account_address);
     plusSiShow('plus-si-register');
     /* #3796 addendum 9: an account that already has an address skips this step: register to it now. */
@@ -43195,11 +43187,6 @@ function plusSiClear() {
   if (typeof PLUS_SI_LANDED !== 'undefined') PLUS_SI_LANDED = false;
   if (typeof PLUS_SI_REGISTERING !== 'undefined') PLUS_SI_REGISTERING = false;
   if (typeof PLUS_SI_RETRY !== 'undefined') PLUS_SI_RETRY = '';
-  /* #4638: a later sign-in starts as a first computer until its own answer says otherwise, with the plain landing. */
-  if (typeof PLUS_SI_SECOND !== 'undefined') PLUS_SI_SECOND = null;
-  const match = typeof document.getElementById === 'function' ? document.getElementById('plus-si-match') : null; if (match) match.hidden = true;
-  const doneLine = typeof document.getElementById === 'function' ? document.getElementById('plus-si-done-line') : null;
-  if (doneLine) doneLine.textContent = 'To use Kosmos on another device, sign in at login.kosmosplus.com.';
 }
 function plusSiEnter(e) {
   if (e) e.preventDefault();
@@ -43698,51 +43685,6 @@ document.getElementById('plus-si-enrol-confirm-go').addEventListener('click', as
    is up, and #1014's "on its way" wording before then). A separate done panel would
    be drawn and then immediately replaced by that same paint, so it could flash for
    well under a round trip or not be seen at all. */
-/* #4638: the name a second computer gets: its own computer name made valid (letters, digits, hyphens, 3 to 32), or
-   the usual private suggestion when nothing usable is left. A clash tries base-2, base-3 ... (plusSiDoRegister). */
-function plusSiSecondName(computer) {
-  const n = plusNameClean(computer).replace(/-+$/, '');
-  return PLUS_NAME_RULE.test(n) ? n : plusNameSuggest();
-}
-function plusSiSecondNext(base, tries) {
-  const tail = '-' + (tries + 1);
-  return base.slice(0, 32 - tail.length).replace(/-+$/, '') + tail;
-}
-function plusSiDomainOf(address) {
-  const m = /^[a-z0-9-]{3,32}\.([a-z0-9.-]{3,253})$/.exec(String(address || ''));
-  return m ? m[1] : '';
-}
-function plusSiSecondStart(data) {
-  const domain = plusSiDomainOf(data.other_address);
-  if (!domain) return false;
-  const base = plusSiSecondName(data.computer);
-  const labels = Array.isArray(data.other_labels) ? data.other_labels.map(String) : [];
-  /* Review round 1: this computer's own name is already one of the account's addresses. That is most likely THIS
-     computer, reinstalled or restored, with its old record still live: registering it again as name-2 would leave
-     an Allow card that nobody can answer. Take today's path instead (the chooser), where the coordinator's own
-     refusal for that name explains what to do. */
-  if (labels.includes(base)) return false;
-  PLUS_SI_SECOND = { base, tries: 0, code: String(data.match_code || ''), other: String(data.other_address), several: labels.length > 1, computer: String(data.computer || ''), domain };
-  plusSiRegisterMode(base + '.' + domain);
-  plusSiShow('plus-si-register');
-  plusSiDoRegister(base, base + '.' + domain);
-  return true;
-}
-/* #4638: the landing for a second computer: where it is now reachable, and the code the other computer shows. */
-function plusSiSecondDone(address) {
-  const sec = PLUS_SI_SECOND;
-  const who = sec.computer || 'This computer';
-  document.getElementById('plus-si-done-line').textContent = who + ' is connected to Kosmos+ as ' + (address || (sec.base + '.' + sec.domain)) + '.';
-  const whose = sec.several ? 'one of your other computers is' : 'your other computer (' + sec.other.replace(/\..*$/, '') + ') is';
-  const box = document.getElementById('plus-si-match');
-  document.getElementById('plus-si-match-lead').textContent = sec.code
-    ? 'Last step: ' + whose + ' asking whether to let this one in. Allow it there if it shows this code:'
-    : 'Last step: ' + whose + ' asking whether to let this one in. Allow it there.';
-  document.getElementById('plus-si-match-code').textContent = sec.code;
-  document.getElementById('plus-si-match-code').hidden = !sec.code;
-  box.hidden = false;
-}
-
 /* #3796 addendum 9: register THIS computer to `name`. Called by the button for a chosen name, and
    automatically for an account that already owns one (`owned` is then its full address, when known). */
 async function plusSiDoRegister(name, owned) {
@@ -43789,18 +43731,6 @@ async function plusSiDoRegister(name, owned) {
      ("your account already owns the name X"). Register to that one instead, once. */
   const owns = !r.ok && !owned ? /already owns the name ([a-z0-9-]{3,32})\b/.exec(String(r.because || '')) : null;
   if (owns) { plusSiRegisterMode('', owns[1]); plusSiDoRegister(owns[1], owns[1]); return; }
-  /* #4638: a second computer's own name is taken by someone else, or kept by Kosmos itself: try the next one, a few
-     times. NOT "already in use by a Mac on this account" (review round 1): that refusal is about THIS account's own
-     computers and says what to do, so the person reads it (below) rather than getting a name-2 they did not ask for. */
-  if (!r.ok && owned && PLUS_SI_SECOND && PLUS_SI_SECOND.tries < 9 && /that name is taken|that name is kept by Kosmos itself/i.test(String(r.because || ''))) {
-    PLUS_SI_SECOND.tries += 1;
-    // name-2 ... name-9, then once the private suggestion (#3842), so a run of clashes never ends on a Try again
-    // that can only resend the same taken name.
-    const next = PLUS_SI_SECOND.tries >= 9 ? plusNameSuggest() : plusSiSecondNext(PLUS_SI_SECOND.base, PLUS_SI_SECOND.tries);
-    plusSiRegisterMode(next + '.' + PLUS_SI_SECOND.domain);
-    plusSiDoRegister(next, next + '.' + PLUS_SI_SECOND.domain);
-    return;
-  }
   if (!r.ok && owned && !/start again from the email/i.test(String(r.because || ''))) {
     /* Review: an automatic register that failed (a second computer on a web-named account is refused
        today, #3796's carded multi-Mac gap) must not leave the person with no control: say so, keep
@@ -43818,7 +43748,6 @@ async function plusSiDoRegister(name, owned) {
   if (owned) {
     /* The landing, not the connected flow: PLUS_SI_LANDED keeps paintPlus from taking the pane. */
     PLUS_SI_LANDED = true;
-    if (PLUS_SI_SECOND) plusSiSecondDone(r.data && r.data.address);
     plusSiShow('plus-si-done');
     document.getElementById('plus-si-done-go').focus();
     return;
@@ -57326,6 +57255,13 @@ function dmOwesLine(owes) {
      ⚠️ THE GRACE: `owes` is true the instant a message lands, so without it every thread accuses the agent for the
      first two minutes of every exchange. `pjOldEnoughToJudge` is the room's own test and refuses an unparseable
      timestamp rather than treating it as long ago. */
+  /* #4612: the agent finished a turn after this message and answered only in its own window (a Muse agent that never
+     ran kosmos reply). Said at once, with no grace: the turn is over, so there is nothing left to wait for. */
+  if (owes.unsent && typeof owes.unsent.text === 'string' && owes.unsent.text) {
+    return '<div class="dmunsent"><p class="dmnone">It finished without replying here. What it said in its own window:</p>'
+      + '<blockquote class="dmunsent-text" tabindex="0" aria-label="What it said in its own window">'   // scrolls, so keyboard-reachable
+      + esc(owes.unsent.text) + '</blockquote></div>';
+  }
   if (!pjOldEnoughToJudge(owes.lastHeardAt)) return '';
   return '<p class="dmnone">Nothing back yet.</p>';
 }

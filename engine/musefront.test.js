@@ -578,3 +578,231 @@ test('#4569 fix 4: the reporter hands the count to the bridge in its payload; th
     assert.equal(bridge.shouldSend('working', t + 3000, env, ''), true, 'clearing the line was held back');
   } finally { fs.rmSync(bridge.markerFile(env), { force: true }); }
 });
+
+/* #4612: the turn's answer rides with the idle report, so the DM can show it when no reply arrived. */
+test('#4612: an idle report after a turn that finished with words carries its answer and when the turn began', async () => {
+  const sent = [];
+  const h = harness([OK('Here is the summary you asked for.')], { report: (s, w, final) => sent.push([s, final || null]) });
+  const before = Date.now();
+  h.f.feed(OP('summarise it') + '\r');
+  await h.f.drained();
+  const [state, final] = sent[sent.length - 1];
+  assert.equal(state, 'idle');
+  assert.equal(final && final.text, 'Here is the summary you asked for.');
+  assert.ok(Date.parse(final.startedAt) >= before - 5 && Date.parse(final.startedAt) <= Date.now(), 'startedAt is not when the DM reached the front: ' + final.startedAt);
+  // A DM turn that failed after printing part of an answer, or finished with no words, sends no answer (round 3).
+  for (const [label, out] of [['a failed turn with partial words', { ok: false, text: 'partial wor', because: 'Muse Code did not finish the turn' }],
+    ['a turn with no words', { ok: true, text: '', because: null }]]) {
+    const f = []; const g = harness([out], { report: (s, w, x) => f.push(x || null) });
+    g.f.feed(OP('x') + '\r'); await g.f.drained();
+    assert.equal(f[f.length - 1], null, label + ' was carried as an answer');
+  }
+});
+
+test('#4612: the reporter sends the answer as kosmosFinal; the bridge puts it on a Stop or a working report, never agy\'s own', () => {
+  const spawned = [];
+  const spawn = () => { const c = new EventEmitter(); c.stdin = Object.assign(new EventEmitter(), { end: (d) => spawned.push(d) }); c.unref = () => {}; return c; };
+  front.makeReporter({ spawn, node: '/n', env: { KOSMOS_MUSE_BRIDGE: '/b.js' } })('idle', null, { text: 'done', startedAt: '2026-09-29T17:00:00.000Z' });
+  assert.deepEqual(JSON.parse(spawned[0]), { kosmosFinal: { text: 'done', startedAt: '2026-09-29T17:00:00.000Z' } });
+  const bridge = require('../bin/agy-report-bridge');
+  const r = bridge.reportFor('Stop', { kosmosFinal: { text: 'done', startedAt: '2026-09-29T17:00:00.000Z' } });
+  assert.deepEqual(r, { state: 'idle', text: '', final: { text: 'done', startedAt: '2026-09-29T17:00:00.000Z' } });
+  assert.deepEqual(bridge.buildBody('idle', '', { TMUX_PANE: '%1' }, null, r.final).final, r.final);
+  // #4612 review: a working report now carries a pending answer too (the turns queued behind the DM), and its
+  // throttle key changes with it, so the answer is not held back as a repeated working report.
+  assert.deepEqual(bridge.reportFor('PreInvocation', { kosmosFinal: { text: 'x', startedAt: '2026-09-29T17:00:00.000Z' } }).final, { text: 'x', startedAt: '2026-09-29T17:00:00.000Z' });
+  assert.equal(bridge.reportFor('PreInvocation', {}).final, undefined, 'CONTROL: agy\'s own working report carries no answer');
+  assert.deepEqual(bridge.reportFor('Stop', {}), { state: 'idle', text: '' }, 'CONTROL: agy\'s own Stop is unchanged');
+});
+
+test('#4612 review round 1: the answer carried is the DM turn\'s, even when a room turn runs after it', async () => {
+  const sent = [];
+  const h = harness((input, i) => (i === 0 ? 'hold' : /kosmos reply\]/.test(input.prompt) ? OK('Answer to Josh.') : OK('Nothing here needs me.')),
+    { report: (s, w, final) => sent.push([s, final || null]) });
+  h.f.feed('long job\r');
+  const fedAt = Date.now();
+  h.f.feed(OP('are you there') + '\r');    // runs next (the person first)
+  h.f.feed(BG(1) + '\r');                  // then the room post
+  await new Promise((r) => setTimeout(r, 5));
+  h.pending[0](OK('done'));
+  await h.f.drained();
+  const idle = sent.filter(([s]) => s === 'idle');
+  assert.equal(idle.length, 1);
+  // #4612 review: the answer does not wait for the queue to drain: the room turn's working report carries it.
+  const early = sent.findIndex(([s, f]) => s === 'working' && f && f.text === 'Answer to Josh.');
+  assert.ok(early >= 0 && early < sent.findIndex(([s]) => s === 'idle'), 'the answer waited for the queue to drain: ' + JSON.stringify(sent));
+  assert.equal(idle[0][1] && idle[0][1].text, 'Answer to Josh.', 'the room turn\'s answer was carried: ' + JSON.stringify(idle));
+  assert.ok(Date.parse(idle[0][1].startedAt) >= fedAt, 'startedAt is when the DM was fed, not when its turn began');
+  // CONTROL: only room turns ran, so no answer is carried.
+  const c = []; const r = harness([OK('Nothing here needs me.')], { report: (s, w, final) => c.push(final || null) });
+  r.f.feed(BG(2) + '\r'); await r.f.drained();
+  assert.equal(c[c.length - 1], null, 'a room turn\'s answer was carried as a DM answer');
+  // A room post from the person (the room envelope) is not a DM either.
+  const d = []; const q = harness([OK('Room answer.')], { report: (s, w, final) => d.push(final || null) });
+  q.f.feed('[message from your operator · m7 · project p · to answer, run: kosmos post --in-reply-to m7 p] hi\r'); await q.f.drained();
+  assert.equal(d[d.length - 1], null, 'a room post from the person was carried as a DM answer');
+});
+
+test('#4612 review (fresh loop): a DM that waited behind a newer DM is dated by when it arrived, so it cannot pass as the newer one\'s answer', async () => {
+  const sent = [];
+  const h = harness((input, i) => (i === 0 ? 'hold' : /first question/.test(input.prompt) ? OK('Answer to the first.') : OK('Answer to the second.')),
+    { report: (s, w, final) => sent.push([s, final || null]) });
+  h.f.feed('long job\r');
+  h.f.feed(OP('first question') + '\r');
+  await new Promise((r) => setTimeout(r, 15));
+  const secondAt = Date.now();
+  h.f.feed(OP('second question') + '\r');
+  await new Promise((r) => setTimeout(r, 15));
+  h.pending[0](OK('done'));   // the long job ends after BOTH DMs arrived, so the first DM's turn starts after the second
+  await h.f.drained();
+  const answers = sent.map(([, f]) => f).filter(Boolean);
+  assert.equal(h.calls.filter((c) => /first question/.test(c.prompt)).length, 1, 'CONTROL: the first DM\'s turn ran');
+  // With the newer DM already waiting, the first DM's answer is never sent: it could only ever show under the newer one.
+  assert.equal(answers.filter((f) => f.text === 'Answer to the first.').length, 0, 'the first DM\'s answer went to the board while a newer DM waited: ' + JSON.stringify(sent));
+  const second = answers.find((f) => f.text === 'Answer to the second.');
+  assert.ok(second && Date.parse(second.startedAt) >= secondAt - 5, 'the second DM\'s answer is missing or dated before it arrived: ' + JSON.stringify(second));
+});
+
+test('#4612 review (fresh loop): the same words sent twice: only the later copy\'s answer goes, dated by that copy\'s arrival', async () => {
+  const sent = [];
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('Answer to status.')), { report: (s, w, final) => sent.push([s, final || null]) });
+  h.f.feed('long job\r');
+  h.f.feed(OP('status?') + '\r');
+  await new Promise((r) => setTimeout(r, 20));
+  const secondAt = Date.now();
+  h.f.feed(OP('status?') + '\r');   // the same words again (the envelope's time is a minute or nothing)
+  await new Promise((r) => setTimeout(r, 15));
+  h.pending[0](OK('done'));
+  await h.f.drained();
+  assert.equal(h.calls.filter((c) => /status\?/.test(c.prompt)).length, 2, 'CONTROL: both copies ran');
+  const answers = sent.map(([, f]) => f).filter((f) => f && f.text === 'Answer to status.');
+  assert.ok(answers.length >= 1, 'no answer went to the board: ' + JSON.stringify(sent));
+  // Every answer sent is the later copy's (the earlier one had a newer DM waiting), dated by when that copy arrived.
+  for (const f of answers) assert.ok(Date.parse(f.startedAt) >= secondAt - 5, 'an answer carried the first copy\'s time: ' + JSON.stringify(f));
+});
+
+test('#4612 review (fresh loop): a second stop\'s note is dated by that stop\'s arrival, not by when it runs', async () => {
+  const sent = [];
+  const h = harness((input, i) => ((i === 0 || i === 1) ? 'hold' : /stop again/.test(input.prompt) ? OK('Stopped again.') : OK('')),
+    { report: (s, w, final) => sent.push([s, final || null]) });
+  h.f.feed('long job\r');
+  h.f.feed(OP('stop') + '\r');            // ends turn 0; the note becomes turn 1 (held)
+  await new Promise((r) => setImmediate(r));
+  h.f.feed(OP('are you there') + '\r');   // waits behind the note
+  const stopAt = Date.now();
+  h.f.feed(OP('STOP!') + '\r');           // drops "are you there" and queues the second note
+  await new Promise((r) => setTimeout(r, 20));
+  const releaseAt = Date.now();            // the second note runs only after this
+  h.pending[1](OK('Stopped, sorry.'));
+  await h.f.drained();
+  const more = sent.map(([, f]) => f).find((f) => f && f.text === 'Stopped again.');
+  assert.ok(more, 'CONTROL: the second stop\'s note ran and answered: ' + JSON.stringify(sent));
+  assert.ok(Date.parse(more.startedAt) >= stopAt - 5 && Date.parse(more.startedAt) < releaseAt, 'the second note was not dated by its stop\'s arrival: ' + JSON.stringify(more));
+});
+
+test('#4612 review (fresh loop): a stop request drops the arrival times of the DMs it drops', async () => {
+  const sent = [];
+  // Only the plain DM is answered with these words: the stop note also names "status?" (as dropped), and gets none.
+  const h = harness((input, i) => (i === 0 ? 'hold' : /^\[message from your operator/.test(input.prompt) && /status\?/.test(input.prompt) ? OK('Answer to status.') : OK('')),
+    { report: (s, w, final) => sent.push([s, final || null]) });
+  h.f.feed('long job\r');
+  h.f.feed(OP('status?') + '\r');   // waits, then the stop drops it
+  await new Promise((r) => setTimeout(r, 5));
+  h.f.feed(OP('stop') + '\r');
+  await h.f.drained();
+  await new Promise((r) => setTimeout(r, 20));
+  const resendAt = Date.now();
+  h.f.feed(OP('status?') + '\r');
+  await h.f.drained();
+  const ans = sent.map(([, f]) => f).find((f) => f && f.text === 'Answer to status.');
+  assert.ok(ans, 'CONTROL: the resent DM was answered: ' + JSON.stringify(sent));
+  assert.ok(Date.parse(ans.startedAt) >= resendAt - 5, 'the resent DM took the dropped copy\'s time: ' + JSON.stringify(ans));
+});
+
+test('#4612 review (fresh loop): the answer goes on ONE working report, not on every beat', async () => {
+  const sent = [];
+  const h = harness((input, i) => (i === 0 ? 'hold' : i === 1 ? OK('Answer to Josh.') : i === 2 ? 'hold' : OK('ok')),
+    { report: (s, w, final) => sent.push([s, final || null]), workingEveryMs: 10 });
+  h.f.feed('long job\r');
+  h.f.feed(OP('are you there') + '\r');
+  h.f.feed(BG(1) + '\r');
+  await new Promise((r) => setTimeout(r, 5));
+  h.pending[0](OK('done'));
+  await new Promise((r) => setTimeout(r, 60));   // the room turn is held: several beats go by
+  const carried = sent.filter(([s, f]) => s === 'working' && f);
+  const beats = sent.filter(([s]) => s === 'working').length;
+  assert.ok(beats >= 4, 'CONTROL: several working reports went out: ' + beats);
+  assert.equal(carried.length, 1, 'the answer rode on ' + carried.length + ' working reports');
+  h.pending[1](OK('ok'));
+  await h.f.drained();
+  assert.equal(sent[sent.length - 1][1] && sent[sent.length - 1][1].text, 'Answer to Josh.', 'the idle report did not carry it');
+});
+
+test('#4612 review (fresh loop): only a prompt that STARTS with the DM envelope (or a stop note wrapping one) answers the DM', () => {
+  const env = OP('hi');
+  assert.equal(front.answersTheDm(env), true, 'CONTROL: the person\'s DM');
+  assert.equal(front.answersTheDm('[Kosmos: your operator asked you to stop, so nothing else was waiting. Stop the work you were doing.]\n' + OP('stop')), true, 'CONTROL: a stop note');
+  assert.equal(front.answersTheDm('[Kosmos: your operator asked you to stop again, and 1 message addressed to you was dropped too.]\n' + OP('STOP!')), true, 'CONTROL: a second stop\'s note');
+  // A room post (or a digest of them) that quotes the envelope on a later line is not the person's DM.
+  assert.equal(front.answersTheDm(BG(1) + '\n' + env), false, 'a room post quoting the envelope was taken for the DM');
+  assert.equal(front.answersTheDm('[Kosmos: 2 background posts]\n' + BG(1) + '\n' + env), false, 'a digest quoting the envelope was taken for the DM');
+});
+
+test('#4612 review (fresh loop): Escape drops the waiting DMs\' arrival times, so the same words sent again are dated by the new send', async () => {
+  const sent = [];
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('Answer to status.')), { report: (s, w, final) => sent.push([s, final || null]) });
+  h.f.feed('long job\r');
+  h.f.feed(OP('status?') + '\r');   // waits, then Escape drops it
+  await new Promise((r) => setTimeout(r, 5));
+  h.f.feed('\u001b');
+  await new Promise((r) => setTimeout(r, 25));
+  const resendAt = Date.now();
+  h.f.feed(OP('status?') + '\r');
+  await within(h.f.drained(), 'the resent DM never ran');
+  const ans = sent.map(([, f]) => f).find((f) => f && f.text === 'Answer to status.');
+  assert.ok(ans, 'CONTROL: the resent DM was answered: ' + JSON.stringify(sent));
+  assert.ok(Date.parse(ans.startedAt) >= resendAt - 5, 'the resent DM\'s answer took the dropped copy\'s time: ' + JSON.stringify(ans));
+});
+
+test('#4612 review (fresh loop): a DM turn that throws leaves no answer to carry', async () => {
+  const sent = [];
+  const h = harness((input, i) => { if (i === 0) return OK('Earlier answer.'); throw new Error('boom'); },
+    { report: (s, w, final) => sent.push([s, final || null]) });
+  h.f.feed(OP('one') + '\r'); await h.f.drained();
+  assert.equal(sent[sent.length - 1][1] && sent[sent.length - 1][1].text, 'Earlier answer.', 'CONTROL: the first DM was answered');
+  h.f.feed(OP('two') + '\r'); await h.f.drained();
+  assert.equal(sent[sent.length - 1][0], 'idle');
+  assert.equal(sent[sent.length - 1][1], null, 'a DM turn that threw still carried the earlier answer');
+});
+
+test('#4612 review round 2: a stop note\'s answer is carried (it answers the person\'s stop DM); a later failed DM clears an earlier answer', async () => {
+  const sent = [];
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('Stopped, sorry.')), { report: (s, w, final) => sent.push([s, final || null]) });
+  h.f.feed('long job\r'); h.f.feed(OP('stop') + '\r');
+  await within(h.f.drained(), 'the stop did not settle');
+  const idle = sent.filter(([s]) => s === 'idle');
+  assert.equal(idle[idle.length - 1][1] && idle[idle.length - 1][1].text, 'Stopped, sorry.', 'the stop note\'s answer was not carried');
+  // A DM answered, then a second DM whose turn fails, before any idle: nothing is carried (never the older answer).
+  const f = [];
+  const g = harness((input, i) => (i === 0 ? 'hold' : i === 1 ? OK('first answer') : { ok: false, text: '', because: 'Muse Code did not finish the turn' }),
+    { report: (s, w, final) => f.push([s, final || null]) });
+  g.f.feed('long job\r'); g.f.feed(OP('one') + '\r'); g.f.feed(OP('two') + '\r');
+  g.pending[0](OK('done')); await g.f.drained();
+  assert.equal(f.filter(([s]) => s === 'idle').pop()[1], null, 'an older DM\'s answer was carried for a newer DM whose turn failed');
+});
+
+test('#4612 review round 2: every real DM envelope form is recognised, straight from engine/messages.js operatorDirect', async () => {
+  const src = require('node:fs').readFileSync(require.resolve('./messages'), 'utf8');
+  const at = src.indexOf('function operatorDirect(');
+  assert.notEqual(at, -1, 'operatorDirect is gone from engine/messages.js');
+  const operatorDirect = new Function(src.slice(at, src.indexOf('\n}\n', at) + 2) + '\nreturn operatorDirect;')();
+  const forms = [operatorDirect(null, ''), operatorDirect('11:52 AM', ''),
+    operatorDirect(null, ' \u00b7 answers your message, posted 11:40 AM'), operatorDirect('11:52 AM', ' \u00b7 answers their earlier message, posted 11:40 AM')];   // the tags dmAnsweredParts makes
+  for (const env of forms) {
+    const finals = [];
+    const h = harness([OK('answer')], { report: (s, w, final) => finals.push(final || null) });
+    h.f.feed(env + ' hello\r');
+    await h.f.drained();
+    assert.equal(finals[finals.length - 1] && finals[finals.length - 1].text, 'answer', 'not recognised as a DM: ' + env);
+  }
+});

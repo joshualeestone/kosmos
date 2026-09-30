@@ -123,6 +123,16 @@ const DIGEST_MAX = 40;
    session ("already in use", muserun.BUSY). The note is tried again this many times, this far apart, before it
    is given up on, so what the stop dropped still reaches the agent. */
 const BUSY_RETRIES = 4;
+/* #4612: the most of a turn's final answer sent to the board (the DM shows it when no reply arrived). */
+const FINAL_MAX = 4000;
+/* #4612 review round 1: a turn that answers the person's DIRECT message (engine/messages.js operatorDirect's envelope,
+   "... to answer, run: kosmos reply]"), alone or inside a stop note. A room post from the person, a colleague's or a
+   background post is not: its answer belongs to the room, never under the person's DM.
+   The envelope must START the prompt, or start the line after a stop note's own first line (a stop note is that line
+   and then the person's stop DM): a room post that quotes the envelope further down is not the person's DM. */
+const DM_ENVELOPE = /^\[message from your operator[^\]\n]*to answer, run: kosmos reply\]/;
+const STOP_NOTE_HEAD = /^\[Kosmos: your operator asked you to stop[^\n]*\]\n/;
+function answersTheDm(prompt) { return DM_ENVELOPE.test(String(prompt).replace(STOP_NOTE_HEAD, '')); }
 /* #4569 fix 4: the window for telling the board a new waiting count (each report starts a node process). */
 const NOTE_EVERY_MS = 1500;
 const BUSY_RETRY_MS = 500;
@@ -142,9 +152,29 @@ const DIGEST_MAX_CHARS = 32 * 1024;
 function createFront({ workspace, sessionId, runTurn, report, write, workingEveryMs = WORKING_EVERY_MS, busyRetryMs = BUSY_RETRY_MS, noteEveryMs = NOTE_EVERY_MS }) {
   let line = '';
   const queue = [];
+  /* #4612 review: when each queued copy of the person's DM reached this front, oldest first per text (the same words
+     can be sent twice, and the envelope's time has minute resolution or none). */
+  const dmReceivedAt = new Map();
+  function received(text, at) {
+    if (!answersTheDm(text)) return;
+    const l = dmReceivedAt.get(text) || [];
+    l.push(at); dmReceivedAt.set(text, l);
+  }
+  function takeReceived(text) {
+    const l = dmReceivedAt.get(text);
+    if (!l || !l.length) return null;
+    const at = l.shift();
+    if (!l.length) dmReceivedAt.delete(text);
+    return at;
+  }
+  /* #4612 review: the answer reaches the board once on a working report (then on the idle one): selfreport carries it
+     from there, and repeating it on every beat would fill the report tail it reads. */
+  let dmAnswerFresh = false;
+  function freshAnswer() { if (!dmAnswerFresh) return null; dmAnswerFresh = false; return dmAnswer; }
   let running = false;
   const STOP_NOTES = new Set();   // #4569: stop notes waiting or running (a second stop leaves them alone)
   let stopNoteRunning = false;
+  let dmAnswer = null;   // #4612: the latest DM turn's answer, until an idle report carries it
   let stopTurn = null;   // ends the turn that is running now, when runTurn handed one over
   let waiters = [];
   const decoder = new StringDecoder('utf8');   // a character split across two reads stays one character
@@ -169,7 +199,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
       noteTimer = null;
       if (!running) return;
       const w = waiting();
-      if (keyOf(w) !== keyOf(noteSent)) { noteSent = w; report('working', w); }
+      if (keyOf(w) !== keyOf(noteSent)) { noteSent = w; report('working', w, freshAnswer()); }
     }, noteEveryMs);
     if (noteTimer.unref) noteTimer.unref();
   }
@@ -201,11 +231,16 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         const prompt = next();
         stopNoteRunning = STOP_NOTES.delete(prompt);
         noteSent = waiting();
-        report('working', noteSent);
-        const beat = setInterval(() => report('working', noteSent), workingEveryMs);
+        // #4612: an answer to the person's DM still pending rides on this turn's working reports.
+        report('working', noteSent, freshAnswer());
+        const beat = setInterval(() => report('working', noteSent, freshAnswer()), workingEveryMs);
         if (beat.unref) beat.unref();
         let r;
         const isNote = stopNoteRunning;
+        /* #4612 review: the answer is dated by when its DM reached this front (a stop note: when its stop arrived), not
+           by the turn's start, which the board compares with the newest DM. The fallback serves prompts that are not the
+           person's DM, whose date nothing reads. */
+        const startedAt = takeReceived(prompt) || new Date().toISOString();
         try {
           for (let tries = 0; ; tries++) {
             r = await runTurn({ workspace, sessionId, prompt, approvalMode: 'never', onStop: (f) => { stopTurn = f; } });
@@ -222,7 +257,18 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         if (text) write(text + '\n');
         if (!r || !r.ok) write('(' + printable((r && r.because) || 'Muse Code did not finish the turn') + ')\n');
         // Idle only once nothing is waiting: a queued message starts its turn at once.
-        if (!queue.length) { noteSent = null; report('idle'); }
+        /* #4612: the answer to the person's latest DM rides with the next reports (the working reports of turns queued
+           behind it, then the idle one), so the DM can show it when the agent answered in its own window but never ran
+           kosmos reply. A later DM turn replaces this copy. */
+        if (answersTheDm(prompt)) {
+          dmAnswer = r && r.ok && text ? { text: Array.from(text).slice(0, FINAL_MAX).join(''), startedAt } : null;
+          /* #4612 review: with a newer DM of the person's already waiting, this answer can never be the one to show
+             (the DM owed is the newer one), so none is carried. DMs that reached the front in one read share a
+             time, which the board's date check alone could not tell apart. */
+          if (queue.some(answersTheDm)) dmAnswer = null;
+          dmAnswerFresh = !!dmAnswer;
+        }
+        if (!queue.length) { noteSent = null; report('idle', null, dmAnswer); dmAnswer = null; dmAnswerFresh = false; }
         write(PROMPT);
       }
     } finally {
@@ -236,7 +282,9 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     line = '';
     write('\n');
     if (!text) { write(PROMPT); return; }
-    if (isStopRequest(text) && (running || queue.length)) { stopFor(text); noteSoon(); return; }
+    const at = new Date().toISOString();
+    if (isStopRequest(text) && (running || queue.length)) { stopFor(text, at); noteSoon(); return; }
+    received(text, at);
     if (kindOf(text) === 'operator') {
       // Behind the person's own earlier messages, ahead of everyone else's.
       let at = 0;
@@ -256,6 +304,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     const dropped = queue.length;
     queue.length = 0;
     STOP_NOTES.clear();        // housekeeping: a stop note Escape drops is no longer waiting (nothing reads a stale one)
+    dmReceivedAt.clear();      // #4612 review: the DMs Escape drops take their arrival times with them
     stopNoteRunning = false;   // a note Escape ends is not "already stopping" for the next stop (review round 5)
     line = '';
     if (dropped) write('\n(' + dropped + (dropped === 1 ? ' waiting message was' : ' waiting messages were') + ' dropped)\n');
@@ -266,13 +315,14 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
   /* #4569: the person asked the agent to stop. Like Escape: the running turn ends and what waits is
      dropped. Then the stop itself runs, with a note saying what was dropped, so the agent tells the
      person it stopped (and which of their own messages it did not get to). */
-  function stopFor(text) {
+  function stopFor(text, at) {
     /* Review round 1: Josh stops twice. A second stop while the first stop's note is running or waiting must
        not end that note or replace it, or the list of what was dropped (and the agent saying it stopped) is lost.
        The rest of what waits is still dropped, and the pane says so. */
     if (stopNoteRunning || queue.some((t) => STOP_NOTES.has(t))) {
       const extra = queue.filter((t) => !STOP_NOTES.has(t));
       queue.splice(0, queue.length, ...queue.filter((t) => STOP_NOTES.has(t)));
+      for (const t of extra) takeReceived(t);   // dropped unread: their receipt times go with them
       write('(already stopping' + (extra.length ? '; ' + extra.length + (extra.length === 1 ? ' more waiting message was' : ' more waiting messages were') + ' dropped' : '') + ')\n');
       /* Review round 3: the person's own messages this drops are named to the agent too, in a short note
          after the first one, never only in the pane (the person reads the DM, not the pane). */
@@ -286,11 +336,12 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         if (mine.length) said.push('these messages from them, sent in between, were dropped unread: ' + mine.map((t) => '"' + shortOf(t) + '"').join(', '));
         if (asked) said.push(asked + (asked === 1 ? ' message addressed to you was' : ' messages addressed to you were') + ' dropped too');
         const more = '[Kosmos: your operator asked you to stop again, and ' + said.join('; ') + '.]\n' + text;
-        if (!queue.includes(more)) { STOP_NOTES.add(more); queue.push(more); }
+        if (!queue.includes(more)) { STOP_NOTES.add(more); queue.push(more); received(more, at); }
       }
       return;
     }
     const waiting = queue.splice(0, queue.length);
+    for (const t of waiting) takeReceived(t);   // dropped unread: their receipt times go with them
     const mine = waiting.filter((t) => kindOf(t) === 'operator');
     const others = waiting.length - mine.length;
     const ended = !!stopTurn;
@@ -303,6 +354,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     const note = '[Kosmos: your operator asked you to stop, so ' + (parts.join('; ') || 'nothing else was waiting') + '. Stop the work you were doing.]\n' + text;
     STOP_NOTES.add(note);
     queue.push(note);
+    received(note, at);   // dated by the stop request's arrival
   }
 
   function feed(chunk) {
@@ -359,14 +411,17 @@ function makeReporter(o = {}) {
   const env = o.env || process.env;
   const bridge = o.bridge || env.KOSMOS_MUSE_BRIDGE || path.join(__dirname, '..', 'bin', 'agy-report-bridge.js');
   const EVENT = { working: 'PreInvocation', idle: 'Stop' };
-  return (state, waitingNow) => {
+  return (state, waitingNow, final) => {
     const ev = EVENT[state];
     if (!ev) return;
     try {
       const child = spawn(o.node || process.execPath, [bridge, ev], { stdio: ['pipe', 'ignore', 'ignore'], env });
       child.on('error', () => { /* a missed report must never stop a turn */ });
       // #4569 fix 4: the queue rides in the payload; agy's own payloads never carry this field.
-      if (child.stdin) { child.stdin.on('error', () => {}); child.stdin.end(JSON.stringify(waitingNow ? { kosmosWaiting: waitingNow } : {})); }
+      const payload = {};
+      if (waitingNow) payload.kosmosWaiting = waitingNow;
+      if (final) payload.kosmosFinal = final;   // #4612
+      if (child.stdin) { child.stdin.on('error', () => {}); child.stdin.end(JSON.stringify(payload)); }
       if (child.unref) child.unref();
     } catch { /* same */ }
   };
@@ -406,4 +461,4 @@ function main(argv = process.argv) {
 
 if (require.main === module) main();
 
-module.exports = { createFront, loadSession, sessionFile, makeReporter, printable, UUID_RE, PROMPT, HELLO, WORKING_EVERY_MS };
+module.exports = { createFront, loadSession, sessionFile, makeReporter, printable, answersTheDm, UUID_RE, PROMPT, HELLO, WORKING_EVERY_MS };
