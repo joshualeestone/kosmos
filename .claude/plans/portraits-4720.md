@@ -164,6 +164,14 @@ showed why.
   3, 4 and 5 each found a test that did not pin what the round before had claimed, each caused
   by my own previous fix.
 
+## The removal sweep, re-run whole after review 5
+
+The counts quoted in reviews 1 and 2 above are what was true then. On the head after review 5 I
+re-ran every one in a single pass: 29 single removals or weakenings in `engine/catalogue.js` and 2
+in the route each turn a test red (31 of 31), and so does keying either map by the hash alone
+(each its own test). Still green when removed, and left: the three defensive lines in the route's
+handler named under review 2.
+
 ## Weakest premise
 
 That a person making a team is online at that moment. They are in practice (the Team screen just
