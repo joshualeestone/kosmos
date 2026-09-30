@@ -65,8 +65,10 @@ test('#4702 a denied request that registered a computer never promises it can as
   const old = denied.indexOf('if (oldAsk) return');
   assert.ok(reg > 0 && old > reg, 'the registered-computer line must come before the generic ones');
   const line = denied.slice(reg, old);
-  assert.match(line, /The computer ' \+ askEsc\(regName\) \+ ' was not let in, and signing in again will not ask again\. If it is not yours, retire it on your account page\./);
+  assert.match(line, /The computer ' \+ askEsc\(regName\) \+ ' was not let in, and signing in again will not ask again\. To let it in later, retire it on your account page \(View account\) and set it up again\./);
   assert.doesNotMatch(line, /can ask again by signing in/);
+  // #3829's rule on this line too: an OLD request is never accused; a fresh one gets the password sentence.
+  assert.match(line, /\(oldAsk \? '' : ' If you did not just set up a computer, someone has a code sent to <b>' \+ askEsc\(ASK\.email \|\| 'your email'\) \+ '<\/b>: change that email\\'s password\.'\)/);
   // CONTROL: the generic old-request line still says it (true for every other denied device).
   assert.match(denied.slice(old), /it can ask again by signing in/);
 });

@@ -272,17 +272,19 @@ const STATES = {
         chk(/Unknown device/.test(v.cardText) && !/\bdevice\b[^s]*\bis asking/.test(v.cardText), `${t} an unnamed request reads "Unknown device"`, v.cardText);
         const frees = (v.cardText.match(/Allowing this also lets the computer Kitchen <b>Mac<\/b> allow devices\./g) || []).length;
         chk(frees === 1, `${t} #4702 the request that registered a computer says Allow also frees it, once, the name shown as text`, v.cardText);
-        /* #4702 (after #4681 review 13): Deny it. A denied request that registered a computer stays denied when it signs
-           in again, so its Denied line must not promise that it can ask again; it names the computer, as text. */
-        await page.click('#plus-asks [data-ask="deny"][data-id="d-old"]');
-        await page.waitForFunction(() => /Denied\./.test(document.getElementById('plus-asks').innerText || ''), null, { timeout: 5000 });
-        const denied = await page.evaluate(() => (document.getElementById('plus-asks').innerText || '').replace(/\s+/g, ' '));
-        chk(/Denied\. The computer Kitchen <b>Mac<\/b> was not let in, and signing in again will not ask again\./.test(denied)
-          && !/can ask again by signing in/.test(denied), `${t} #4702 a denied request that registered a computer never promises it can ask again`, denied);
       }
       chk(!v.listNames.some((n) => n === 'device') && v.listNames.includes('Unknown device'), `${t} an unnamed devices-list row reads "Unknown device", never just "device"`, JSON.stringify(v.listNames));
       chk(v.listNames.includes('This computer (Kosmos app)'), `${t} this Mac's own sign-in row reads "This computer (Kosmos app)" (ICK's finding)`, JSON.stringify(v.listNames));
       if (SHOTS) { await page.setViewportSize({ width: 1400, height: 1300 }); await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(200); await page.screenshot({ path: path.join(SHOTS, `3829-${key}.png`) }); }
+      if (key === 'two') {
+        /* #4702 (after #4681 review 13), after the screenshot so it still shows the two cards: Deny the old request. A denied request that registered a computer stays denied when it signs
+           in again, so its Denied line must not promise that it can ask again; it names the computer, as text, and (old) accuses nobody. */
+        await page.click('#plus-asks [data-ask="deny"][data-id="d-old"]');
+        await page.waitForFunction(() => /Denied\./.test(document.getElementById('plus-asks').innerText || ''), null, { timeout: 5000 });
+        const denied = await page.evaluate(() => (document.getElementById('plus-asks').innerText || '').replace(/\s+/g, ' '));
+        chk(/Denied\. The computer Kitchen <b>Mac<\/b> was not let in, and signing in again will not ask again\. To let it in later, retire it on your account page \(View account\) and set it up again\./.test(denied)
+          && !/can ask again by signing in/.test(denied) && !/password/.test(denied), `${t} #4702 a denied request that registered a computer never promises it can ask again`, denied);
+      }
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();
     }
