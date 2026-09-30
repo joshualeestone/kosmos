@@ -191,7 +191,7 @@ function chk(ok, label, extra) {
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           const view = await page.evaluate(() => ({
-            hello: !document.getElementById('tc-hello').hidden,
+            hello: !(document.getElementById('tc-hello') || { hidden: true }).hidden,
             shown: !document.getElementById('cstep-team').hidden && document.getElementById('cstep-role').hidden,
             title: document.getElementById('tc-title').textContent,
             purpose: document.getElementById('tc-purpose').textContent,
@@ -226,7 +226,7 @@ function chk(ok, label, extra) {
           releaseCheck();
           await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => /Running|Not made/.test(s.textContent)));
           const r1 = await rows(page);
-          chk(!view.hello && await page.isHidden('#tc-hello'), `${E} no Say Hello before the team is made, nor while a member is not made`, String(view.hello));
+          chk(!view.hello && await page.evaluate(() => { const b = document.getElementById('tc-hello'); return !b || b.hidden; }), `${E} no Say Hello before the team is made, nor while a member is not made`, String(view.hello));
           const made = projects.readAll().filter((p) => p.name === wantName);
           chk(projects.readAll().length === projectsBefore + 1 && made.length === 1, `${E} pressing the button made the project, for real`, String(projects.readAll().length - projectsBefore));
           const pid = made[0] && made[0].id;
@@ -252,18 +252,18 @@ function chk(ok, label, extra) {
           /* Review 27: the step ends the way the single create does: the invitation, and one button that
              goes straight to the agent (the lead). And every member got a picture: this team ships no
              portraits, so each is the generated mark, a PNG. */
-          const end = await page.evaluate(() => ({ note: document.getElementById('tc-note').textContent, hello: document.getElementById('tc-hello').textContent,
-            shown: !document.getElementById('tc-hello').hidden, wide: document.documentElement.scrollWidth > innerWidth }));
+          const end = await page.evaluate(() => ({ note: document.getElementById('tc-note').textContent, hello: (document.getElementById('tc-hello') || { textContent: null }).textContent,
+            shown: !(document.getElementById('tc-hello') || { hidden: true }).hidden, wide: document.documentElement.scrollWidth > innerWidth }));
           chk(end.shown && end.hello === 'Say Hello to Maya Okafor' && /Say “hello” to each of them to activate it on Kosmos, starting with Maya Okafor\.$/.test(end.note) && !end.wide,
             `${E} a ready team invites a hello and offers one button, to the lead by its name`, JSON.stringify(end));
-          await settle(page, () => TC_UPLOADING === 0);
+          await settle(page, () => typeof TC_UPLOADING !== 'undefined' && TC_UPLOADING === 0);
           chk(pictures.map((x) => x.name).sort().join() === 'ana,leo-two,maya-okafor' && pictures.every((x) => /^image\/png/.test(x.type)),
             `${E} every member made got a picture (the generated mark), once each`, JSON.stringify(pictures));
           chk(r2.every((r) => !/not set/.test(r.state)), `${E} and no row says its picture was not set`, JSON.stringify(r2.map((r) => r.state)));
           chk(errs.length === 0, `${E} no page errors`, errs.join(' | '));
           const went = await page.evaluate(() => {
             window.openDetail = (who) => { window.__tcOpened = who; };
-            document.getElementById('tc-hello').click();
+            const b = document.getElementById('tc-hello'); if (b) b.click();
             return { opened: window.__tcOpened || null, team: TC === null };
           });
           chk(went.opened === 'maya-okafor' && went.team, `${E} Say Hello goes straight to the lead and leaves no team behind to resume`, JSON.stringify(went));
@@ -272,8 +272,8 @@ function chk(ok, label, extra) {
           await page.route('**/api/teams/seeded/marketing', () => {});
           await page.evaluate(() => { openTeamCreate('marketing'); });
           await settle(page, () => /Loading the team/.test(document.getElementById('tc-title').textContent));
-          const loading = await page.evaluate(() => ({ title: document.getElementById('tc-title').textContent, hello: !document.getElementById('tc-hello').hidden,
-            options: document.getElementById('tc-project').options.length, tell: !document.getElementById('tc-tell').disabled }));
+          const loading = await page.evaluate(() => ({ title: document.getElementById('tc-title').textContent, hello: !(document.getElementById('tc-hello') || { hidden: true }).hidden,
+            options: document.getElementById('tc-project').options.length, tell: !(document.getElementById('tc-tell') || { disabled: true }).disabled }));
           chk(/Loading the team/.test(loading.title) && !loading.hello && loading.options === 0 && !loading.tell, `${E} while another team loads, the finished team's Say Hello, project menu and choice are not on offer`, JSON.stringify(loading));
           await page.close();
         }
@@ -581,15 +581,15 @@ function chk(ok, label, extra) {
           await page.selectOption('#tc-project', 'none');
           /* Review 27: the choice is on THIS step, where the person is (the sheet's own box is on another
              step and hidden here). Ticked to start with, named, and unticking it is what the creates obey. */
-          const tell = await page.evaluate(() => { const b = document.getElementById('tc-tell'); const r = b.getBoundingClientRect();
+          const tell = await page.evaluate(() => { const b = document.getElementById('tc-tell'); if (!b) return { missing: true }; const r = b.getBoundingClientRect();
             return { shown: r.width > 0 && r.height > 0, checked: b.checked, says: document.getElementById('tc-tell-say').textContent, named: b.labels.length === 1 }; });
           chk(tell.shown && tell.checked && tell.named && tell.says === 'Let Kosmos know these agents were created', `${E} the team step shows the Let Kosmos know choice, ticked, with a name`, JSON.stringify(tell));
-          await page.click('#tc-tell');
+          if (!tell.missing) await page.click('#tc-tell');
           chk(await page.evaluate(() => document.getElementById('create-tell').checked === false), `${E} unticking it here unticks the sheet's one box`);
           await page.click('#tc-go');
           await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].length === 3 && [...document.querySelectorAll('#tc-list .tc-state')].every((x) => x.textContent === 'Running'));
           chk(posted.length === 3 && posted.every((b) => b.notifyCreated === false), `${E} with the box unticked, every member is made with notifyCreated false`, JSON.stringify(posted.map((b) => b.notifyCreated)));
-          chk(await page.isDisabled('#tc-tell'), `${E} the choice cannot be changed once the team is being made`);
+          chk(await page.evaluate(() => { const b = document.getElementById('tc-tell'); return !!b && b.disabled; }), `${E} the choice cannot be changed once the team is being made`);
           chk(errs.length === 0, `${E} no page errors (tell-box arm)`, errs.join(' | '));
           await page.close();
         }
