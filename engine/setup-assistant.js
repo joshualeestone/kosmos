@@ -277,7 +277,7 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
       more.push(`Read(${ruleAbs(path.join(base, tokenFile))})`);   // the default world's token
       more.push(`Read(${ruleAbs(path.join(base, '.' + tokenFile))}.*)`);   // and its temporary copy while it is rewritten
       const registry = path.basename(worlds.registryPath(base));
-      more.push(`Read(${ruleAbs(base)}/.*.tmp)`);   // every temporary file Kosmos writes there (a process id in each name)
+      more.push(`Read(${ruleAbs(base)}/.*.tmp)`);   // the dot-named temporary files (the registry's, the token's, the boot guard's)
       let entries = [];
       try { entries = fs.readdirSync(base, { withFileTypes: true }); listed = true; } catch (e) {
         /* Only the entry list is lost: the rules above do not depend on it. A store that is not there (ENOENT)
@@ -310,7 +310,7 @@ function ruleAbs(p) { return '//' + String(p).replace(/^\/+/, ''); }
    baseEntryToName lets through? Built from the same ruleAbs(path.join(...)) as the writer, so it matches on
    Windows too. */
 function wasEntryRule(rule, base) {
-  const prefix = `Read(${ruleAbs(base)}${path.sep}`;
+  const prefix = `Read(${ruleAbs(path.join(base, 'x')).slice(0, -1)}`;   // the writer's own spelling, separator included
   if (!rule.startsWith(prefix) || !rule.endsWith(')')) return false;
   let name = rule.slice(prefix.length, -1);
   if (name.endsWith('/**')) name = name.slice(0, -3);
@@ -321,7 +321,7 @@ function wasEntryRule(rule, base) {
 /* #4752: whether an entry directly in the worlds' base gets a rule of its own. Not the worlds folder or its
    registry (the guide's own folder is under the first), nor the token (it has its own rule). Not a dot-named
    temporary file (`.<name>.<process id>...tmp`) or the registry's lock: the `.board.token.*` and `.*.tmp`
-   pattern rules cover the temporary files, the lock holds nothing, and naming them one by one would add a rule per leftover that never goes away (earlier rules are
+   pattern rules cover those dot-named temporary files, the lock holds nothing, and naming them one by one would add a rule per leftover that never goes away (earlier rules are
    kept on every rewrite). Not a name with a character the rule syntax reads as a pattern or a bracket
    (`* ? [ ] ( ) { } !` or a backslash): such a rule would deny more than the entry or not parse, so the name is
    left readable; Kosmos makes none. */
