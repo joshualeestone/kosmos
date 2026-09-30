@@ -3924,7 +3924,13 @@ function processCaller(req, body, roster, viaScreen, notDone) {
   if (viaScreen) return { card: null, byKey: false };
   const couldNot = [503, 'we could not check which agents are running, so ' + notDone];
   if (roster === null && presentedAgentToken(req, body)) return { refusal: couldNot };
-  const tokenSender = senderFromAgentToken(req, body, roster);
+  /* NEVER THROWS. The close handler calls this outside any try, and the board has no last-resort handler for a
+     throw in a request: it would exit. The token resolver can throw today (engine/sendertoken.js keys every roster
+     row's name before it looks at whose row it is, and a name with no letter or digit cannot be keyed: a tmux
+     session named "!!" sorting ahead of the agent's row does it, #4738), so
+     a token that cannot be checked is answered like a roster that cannot be read. */
+  let tokenSender;
+  try { tokenSender = senderFromAgentToken(req, body, roster); } catch { return { refusal: couldNot }; }
   if (tokenSender && !tokenSender.ok) return { refusal: [403, tokenSender.because] };
   /* A pane with a roster nobody could read names nobody, and the write goes on unnamed, as these two routes
      always did (task message and task built answer 503 there, a slice-3 choice; here it would be a new refusal
@@ -3932,10 +3938,15 @@ function processCaller(req, body, roster, viaScreen, notDone) {
      it cannot be checked, and a credential nobody could check is not waved through. */
   const fromPane = roster !== null && body && typeof body.from_pane === 'string' ? body.from_pane : '';
   /* The pane, as task message reads it: a pane that IS a roster target (session:w.p) and is tied to our agent is
-     that card; otherwise ask resolveSender. */
-  const targetCard = !tokenSender && fromPane ? (roster || []).find((c) => c && c.target === fromPane && c.isNamedOurs === true) || null : null;
-  const byPane = !tokenSender && fromPane && !targetCard ? messages.resolveSender(fromPane, roster) : null;
-  const card = tokenSender ? tokenSender.card : (targetCard || (byPane && byPane.ok ? byPane.card : null));
+     that card; otherwise ask resolveSender. A lookup that throws names nobody, like one that finds nobody. */
+  let card = tokenSender ? tokenSender.card : null;
+  if (!tokenSender && fromPane) {
+    try {
+      const targetCard = (roster || []).find((c) => c && c.target === fromPane && c.isNamedOurs === true) || null;
+      const byPane = targetCard ? null : messages.resolveSender(fromPane, roster);
+      card = targetCard || (byPane && byPane.ok ? byPane.card : null);
+    } catch { card = null; }
+  }
   return { card: card || null, byKey: panelessCaller(tokenSender) };
 }
 /* Slice 5: an identified agent writes only in a project it is on, as task message and task built already require.
@@ -16782,7 +16793,10 @@ const server = http.createServer(async (req, res) => {
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     /* #4491 slice 5: `kosmos task close` presents the agent's own token (the header: this route reads no body). A
        caller that presents one is named by it, and closes or reopens tasks only in a project it is on. A caller
-       with none (the page, the person's terminal, an older CLI) is as before. The roster is read only for a token. */
+       with none (the page, the person's terminal, an older CLI) is as before: this route has never read a pane,
+       so an agent that sends no token is not named here, unlike on task add. The roster is read only for a token.
+       Nothing in this block may throw (it is outside the try below): processCaller and notOnProjectRefusal catch
+       their own, and safeRoster answers null. */
     if (presentedAgentToken(req, {})) {
       const notDone = 'the task was not ' + (taskAct[3] === 'close' ? 'closed' : 'reopened');
       const who = processCaller(req, {}, safeRoster(), false, notDone);

@@ -2,9 +2,9 @@
 
 /**
  * #4491 slice 5: `kosmos task add` and `kosmos task close` answer to the agent's own token. The board names the
- * caller from it (or from its pane) and an identified agent adds and closes tasks only in a project it is on, the
- * line task message and task built already draw. A caller nobody can name (the page, the person's terminal) is as
- * before.
+ * caller from it (task add also from its pane; task close reads no body, so from the token only) and an identified
+ * agent adds and closes tasks only in a project it is on, the line task message and task built already draw. A
+ * caller nobody can name (the page, the person's terminal) is as before.
  *
  * Same harness as server.agent-token-gate-4491.test.js: the board boots fully sandboxed, then enforcement is
  * flipped on in memory, so no real store is touched. The task engine's writes are stubbed, so nothing is written.
@@ -63,8 +63,8 @@ const asAgent = (t) => ({ 'x-kosmos-agent-token': t });
 const withBoard = (h = {}) => ({ 'x-kosmos-board-token': BOARD, ...h });
 
 /* A fleet of two (mara is on p4491, otto is not), the project record, and the task engine's writes recorded, not made. */
-function world(t, { members = ['mara'], unreadable = () => false } = {}) {
-  const board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.agent('otto', { state: 'idle' })]);
+function world(t, { members = ['mara'], unreadable = () => false, extra = [] } = {}) {
+  const board = fleet.install([...extra, fleet.agent('mara', { state: 'idle' }), fleet.agent('otto', { state: 'idle' })]);
   const real = { readAll: projectsEngine.readAll, create: tasksEngine.create, close: tasksEngine.close, reopen: tasksEngine.reopen };
   const made = [];
   const acts = [];
@@ -76,7 +76,7 @@ function world(t, { members = ['mara'], unreadable = () => false } = {}) {
   tasksEngine.close = (id, n) => { acts.push(['close', id, String(n)]); return { number: Number(n), state: 'closed' }; };
   tasksEngine.reopen = (id, n) => { acts.push(['reopen', id, String(n)]); return { number: Number(n), state: 'open' }; };
   t.after(() => { Object.assign(projectsEngine, { readAll: real.readAll }); Object.assign(tasksEngine, { create: real.create, close: real.close, reopen: real.reopen }); board.restore(); });
-  return { made, acts, mara: sendertoken.mint('mara').token, otto: sendertoken.mint('otto').token, roster: board.roster };
+  return { made, acts, mara: sendertoken.mint('mara').token, otto: sendertoken.mint('otto').token, roster: board.roster, agents: board.agents };
 }
 
 test('CONTROL: task add and task close are refused at the gate with no credential and with a token nobody issued', async () => {
@@ -199,6 +199,49 @@ test('a live agent with no roster row (a Windows agent) is matched to the projec
   assert.deepEqual([w.made.map((m) => m.by), w.acts], [['ghost'], [['close', 'p4491', '1']]]);
   /* CONTROL: mara has a roster row, so she is matched by exact name, and "Ghost" is not her. */
   assert.equal((await call('POST', '/api/project/p4491/tasks', { headers: asAgent(w.mara), body: { sentence: 'not on it' } })).code, 403);
+});
+
+test('a roster pane that is not tied to our agent names nobody: no name recorded, and not held to membership', async (t) => {
+  /* A stranger's session sitting under the name "zed" (not ours). Its pane target is a real roster target. */
+  const w = world(t, { extra: [fleet.stranger('zed', { state: 'idle' })] });
+  const zed = w.agents.find((a) => a.sessionName === 'zed');
+  const mara = w.agents.find((a) => a.sessionName === 'mara');
+  assert.ok(zed && zed.target && zed.isNamedOurs !== true, 'the fixture no longer gives an untied roster row with a target; restate this setup');
+  assert.ok(mara && mara.target && mara.isNamedOurs === true, 'control: the tied row is not tied');
+  const realResolve = messagesEngine.resolveSender;
+  messagesEngine.resolveSender = () => ({ ok: false, because: 'not one of ours' });   // what it answers for a stranger's pane
+  t.after(() => { messagesEngine.resolveSender = realResolve; });
+  const untied = await call('POST', '/api/project/p4491/tasks', { headers: withBoard(), body: { sentence: 'from a stranger\'s pane', from_pane: zed.target } });
+  assert.equal(untied.code, 200, 'an untied pane was held to membership as "zed": ' + untied.code + ' ' + untied.text.slice(0, 120));
+  assert.equal(w.made[0].by, null, 'a stranger\'s pane was recorded as our agent');
+  /* CONTROL: the tied row's target still names its agent without asking tmux. */
+  const tied = await call('POST', '/api/project/p4491/tasks', { headers: withBoard(), body: { sentence: 'from mara\'s pane', from_pane: mara.target } });
+  assert.equal(tied.code, 200, tied.text.slice(0, 120));
+  assert.equal(w.made[1].by, 'mara');
+});
+
+test('a token the resolver cannot check (it throws) is a 503 on both writes, and the board keeps answering', async (t) => {
+  /* #4738: a tmux session whose name has no letter or digit AND sorts ahead of the agent's row ("!!" does; a name
+     in Japanese sorts after and does not) makes sendertoken.resolve throw. The close handler names its caller
+     outside any try, so a throw there would end the board's process; it must be answered instead. */
+  const w = world(t, { extra: [fleet.stranger('!!', { state: 'idle' })] });
+  assert.throws(() => sendertoken.resolve(w.mara, w.agents), /invalid agent name/, 'control: the resolver no longer throws on this roster (if #4738 is fixed, make it throw another way, or drop this test\'s premise)');
+  const close = await call('POST', '/api/project/p4491/task/1/close', { headers: asAgent(w.mara) });
+  assert.equal(close.code, 503, 'a throwing resolver was not answered with a 503 on close: ' + close.code + ' ' + close.text.slice(0, 120));
+  const add = await call('POST', '/api/project/p4491/tasks', { headers: asAgent(w.mara), body: { sentence: 'unchecked' } });
+  assert.equal(add.code, 503, 'a throwing resolver was not a 503 on add: ' + add.code + ' ' + add.text.slice(0, 120));
+  assert.deepEqual([w.made, w.acts], [[], []]);
+  /* The board is still there, and a caller with no token is untouched. */
+  assert.equal((await call('POST', '/api/project/p4491/task/2/close', { headers: withBoard() })).code, 200, 'the board stopped answering after the throw');
+});
+
+test('task close: when the projects cannot be read, a token is refused (503) and nothing is closed', async (t) => {
+  let blind = false;
+  const w = world(t, { unreadable: () => blind });
+  assert.equal((await call('POST', '/api/project/p4491/task/1/close', { headers: asAgent(w.mara) })).code, 200, 'control: a member closes while the list is readable');
+  blind = true;
+  assert.equal((await call('POST', '/api/project/p4491/task/2/close', { headers: asAgent(w.mara) })).code, 503);
+  assert.deepEqual(w.acts, [['close', 'p4491', '1']]);
 });
 
 test('task close: a member closes with only its own token; a non-member is refused and nothing is closed', async (t) => {

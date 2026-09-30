@@ -31,7 +31,8 @@
  * identity: an agent here has no tmux pane, so it presents the per-run agent token
  * the supervisor put in its environment (`KOSMOS_AGENT_TOKEN`), which the board
  * resolves on /api/reply, /api/report, /api/whoami, /api/msg, /api/post,
- * /api/react and the task message route (server.js `senderFromAgentToken`).
+ * /api/react and the task message, built, add and close routes (server.js
+ * `senderFromAgentToken`).
  *
  * 🔑 NOTHING ABOUT THE BOARD IS RE-DERIVED HERE. The url, the board token and the
  * agent-token check come from engine/kosmos-report-hook.js, the Windows client

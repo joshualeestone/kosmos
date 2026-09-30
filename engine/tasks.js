@@ -229,7 +229,8 @@ function create(projectId, { sentence, detail, who, parent, made: origin } = {},
       whoSeen: seen,
       /* 🔑 WHO PUT IT THERE. The day this field was seeded for arrived
          (#485, Josh 19:26: agents can create tasks too): 'operator' for the
-         screen, the agent's session name when a pane resolved, null for a
+         screen, the agent's name when its token or its pane resolved (#4491 slice 5;
+         a token with no roster row gives the token store's key), null for a
          process nothing vouched for -- the screen says "an agent" then,
          never "You". addedVia carries HOW separately, because who and how
          are different facts and the valve counts the second. */
