@@ -126,7 +126,7 @@ test('a row carries no remote id, send time or the record\'s own agent field, wh
   writeSent({ [a.id]: { state: 'sent', agent: 'record-only-agent', remoteId: 'remote-123', sentAt: '2026-09-28T08:00:00Z' } });
   const row = mine.mine()[0];
   assert.deepEqual(Object.keys(row).sort(),
-    ['agent', 'agentRefused', 'canDelete', 'deleteRequested', 'deleteRetrying', 'id', 'postedAt', 'state', 'takeDownReason', 'takenDown', 'title']);
+    ['agent', 'agentNameUnclaimed', 'agentRefused', 'canDelete', 'deleteRequested', 'deleteRetrying', 'id', 'postedAt', 'state', 'takeDownReason', 'takenDown', 'title']);
   const text = JSON.stringify(row);
   for (const leak of ['remote-123', 'record-only-agent', '2026-09-28T08:00:00Z']) assert.ok(!text.includes(leak), leak);
 });

@@ -67,6 +67,7 @@ function mine() {
       takenDown: rec.takenDown === true,
       takeDownReason: rec.takeDownReason || null,
       agentRefused: rec.agentRefused === true,
+      agentNameUnclaimed: rec.agentNameUnclaimed === true,   // #4800
       deleteRetrying: rec.deleteRequested === true && typeof rec.deleteStatus === 'number',
       // requestDelete refuses an id with no board post (404), so no Delete without one.
       canDelete: post !== null && canDelete(rec),

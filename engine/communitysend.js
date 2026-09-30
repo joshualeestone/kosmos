@@ -1039,7 +1039,8 @@ function statusOf(id, sent, deletes, keys) {
     state, deleteRequested,
     takenDown: rec.takenDown === true, takeDownReason: rec.takeDownReason || null,
     agentRefused: !!(k && k.refused),
-    agentNameUnclaimed: !!(k && !k.apiKey && k.registering && k.registering.taken),   // #4800
+    // #4800: only when true, so every other status keeps its shape.
+    ...(k && !k.apiKey && k.registering && k.registering.taken ? { agentNameUnclaimed: true } : {}),
     ...(typeof rec.lastStatus === 'number' ? { lastStatus: rec.lastStatus } : {}),
     ...(typeof rec.deleteStatus === 'number' && rec.state === 'sent' ? { deleteStatus: rec.deleteStatus } : {}),
     ...(Array.isArray(rec.reasons) ? { reasons: rec.reasons } : {}),
