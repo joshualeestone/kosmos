@@ -20,7 +20,9 @@ Not changed, deliberately:
 
 ## Guard
 
-`web.done-copy-4583.test.js`: label and aria-label are the same question; the hint starts "Optional.", and names neither "Done not set" nor a character count. Proven to fail on main's page (0/2) and pass on this branch (2/0).
+`web.done-copy-4583.test.js` (source): label and aria-label are the same question; the hint starts "Optional.", and names neither "Done not set" nor a length; the too-long error is "That answer is longer than", the same shape as the description's. Fails on main's page (0/3), passes here (3/3).
+
+`docs/browser-checks/render-project-done-4583.js` (rendered, review 4): on the real form, the label's words and the box's aria-label are both "What does done look like?", and the hint is shown and names neither the row tag nor a length. Control: the same check on main's page must fail.
 
 ## Done when
 

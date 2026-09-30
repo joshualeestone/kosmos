@@ -58,7 +58,19 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
       await p.waitForSelector('#pj-add-view', { state: 'visible', timeout: 5000 });
       await p.fill('#pj-name', name);
       await p.fill('#pj-add-desc', 'What it is for.');
-      ok(name + ': the Done looks like box is on the form and empty', (await p.inputValue('#pj-add-done')) === '');
+      ok(name + ': the done box is on the form and empty', (await p.inputValue('#pj-add-done')) === '');
+      // #4583 follow-up: the rendered label, the box's accessible name and the hint, as a person and a screen reader get them.
+      const said = await p.evaluate(() => {
+        const box = document.getElementById('pj-add-done');
+        const field = box.closest('.field');
+        const lab = field && field.querySelector('.flabel');
+        const hint = document.getElementById('pj-add-done-hint');
+        return { label: lab ? lab.textContent.trim() : null, aria: box.getAttribute('aria-label'), hint: hint ? hint.textContent.trim() : null, hintShown: !!(hint && hint.offsetParent) };
+      });
+      ok(name + ': the done box asks "What does done look like?", on the page and to a screen reader',
+        said.label === 'What does done look like?' && said.aria === said.label, JSON.stringify(said));
+      ok(name + ': the done hint is shown and names neither the row tag nor a length',
+        said.hintShown && /^Optional\./.test(said.hint || '') && !/Done not set|\bchar/i.test(said.hint || ''), JSON.stringify(said));
       if (done) await p.fill('#pj-add-done', done);
       await p.click('#pj-create');
       await p.waitForSelector('#pj-add-view', { state: 'hidden', timeout: 10000 });
