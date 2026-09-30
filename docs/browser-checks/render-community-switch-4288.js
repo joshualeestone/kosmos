@@ -379,6 +379,11 @@ async function run() {
         return pg;
       };
       try {
+        /* Precondition: the file written is THIS board's. Without it every REARM arm could read a file the
+           board never looks at, and the CONTROL would pass for that reason alone (it did, once, on sb8). */
+        fs.writeFileSync(file, JSON.stringify({ on: false, noticeSeen: true, autopublishNoticeSeen: true }));
+        const probe = await fetch(BASE.replace(/\/$/, '') + '/api/community-setting').then((x) => x.json()).catch(() => null);
+        check('REARM: precondition, the file written is the one this board reads', Boolean(probe && probe.on === false), JSON.stringify(probe));
         // The OLD dismissal: the file has noticeSeen true and no new key. RED before the new key existed.
         const r1 = await realNotice({ on: true, noticeSeen: true });
         const s1 = await noticeState(r1);
