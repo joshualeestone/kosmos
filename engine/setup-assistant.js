@@ -202,15 +202,16 @@ function markGuideFolder(agentName) {
  * - Read covers Claude Code's file tools; the Bash rules stop the commands that print secrets by name.
  *   A shell can still reach a file some other way, which is why the first layer (its instructions,
  *   roles.GUIDE_SECRET_LINES) and the third (engine/secretmask.js on everything it says) exist.
- * - Claude only: a Codex, Gemini or Grok guide has no such file, and relies on the other two layers.
+ * - Claude only: the file is written for every guide (create.js does not look at the provider), but
+ *   only Claude Code reads it, so a Codex, Gemini or Grok guide relies on the other two layers.
  * - Kosmos's own data folder is denied whole: the guide's instructions and page file live in its
- *   worker folder. Whether the `kosmos` command it runs can still read the board token there depends
- *   on the sandbox guardGuideFolder adds (#4728, measured on Claude Code 2.1.285 with these guards):
- *     a Claude guide on macOS          no: the sandbox refuses the command's own read of the file
- *     a Claude guide anywhere else     yes: these rules alone do not reach a command's own read
- *     a Codex, Gemini or Grok guide    yes: it has no such file
- *   So "the guide does not hold the board token" is a boundary only in the first row. Code that must
- *   hold for every guide cannot count on it (#4491 is the work that ends the difference).
+ *   worker folder. The `kosmos` command the guide runs reads board.token in that folder as its own
+ *   process, and whether that read is refused differs by guide (#4728):
+ *     a Claude guide on macOS          refused, by the sandbox guardGuideFolder adds (measured)
+ *     a Claude guide anywhere else     not refused: no sandbox is written there (from the code below)
+ *     a Codex, Gemini or Grok guide    not refused: its runner does not read this file (not measured)
+ *   These rules name the data folder and nothing else that can hold the board token: not the older
+ *   folder boardauth.legacyTokenPath names, and not a browser's copy of the board's cookie.
  */
 /* The same home accounts.js and create.js use (a named world or a test sets it). */
 function kosmosHome() { return process.env.AGENT_WORKFORCE_HOME || require('os').homedir(); }

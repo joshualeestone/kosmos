@@ -17,28 +17,36 @@ file itself, `claude -p --dangerously-skip-permissions` told to run `bash reader
 | A (control) | the guards with the `sandbox` block deleted | printed the canary (Angel's result, reproduced) |
 | B | the guards as written on a Mac | `Operation not permitted`, exit 1 (run twice) |
 
-So:
+So, for the `kosmos` command's read of `board.token` in the data folder:
 
-| guide | can a command it runs read the board token? | source |
+| guide | refused? | source |
 |---|---|---|
-| Claude, macOS | no | measured (arm B) |
-| Claude, Windows or Linux | yes | the sandbox block is written on `darwin` only (code); arm A is that shape |
-| Codex, Gemini, Grok | yes | no settings file at all (code, setup-assistant.js) |
+| Claude, macOS | yes | measured (arm B) |
+| Claude, Windows or Linux | no | read from code: the sandbox block is written on `darwin` only. Arm A has that shape but ran on a Mac. Not measured on Windows or Linux. |
+| Codex, Gemini, Grok | no | read from code, not measured: the settings file IS written for every guide (`create.js` calls `guardGuideFolder` for the `setup` role with no provider check), but only Claude Code reads it. |
+
+**This is narrower than "the Mac guide cannot get the board token"** (review round 1). The deny rules name
+the data folder only. Two other places can hold the same token and are not named: the older data folder
+(`boardauth.legacyTokenPath`; boardauth.js records that a box which ran the old mirror may still hold a valid
+token there), and a browser's copy of the board's cookie (`boardauth.cookieHeader`, 400 days). Neither was
+measured. So the comments no longer call the Mac guide's state a boundary at all: they state the one measured
+refusal and what the rules do not cover. Both go on the card as part of the open gap.
 
 The sentence that is false on main is in `engine/setup-assistant.js` above `guideDenyRules` ("the `kosmos`
-command it runs reads the board token as its own process"): it predates the sandbox added in #3769's review,
-and the same file says the opposite 60 lines lower. The three comments the card names are right for the first
-row and too broad for the other two.
+command it runs reads the board token as its own process", with nothing about the sandbox): it predates the
+sandbox added in #3769's review, and the same file says the opposite 60 lines lower. The same comment's "a
+Codex, Gemini or Grok guide has no such file" is also not what the code does, and is corrected.
 
 ## The change (comments only, no behaviour)
-- `engine/setup-assistant.js`: replace the stale sentence with the three-row table and the rule that follows
-  from it (only the first row is a boundary; code that must hold for every guide cannot count on it).
-- `engine/team.js`, above `vetAgentMember`: the guide rule is a real boundary only for a Claude guide on macOS,
-  a cooperative guard for every other guide and agent. Points at the table.
+- `engine/setup-assistant.js`: replace the stale sentence with the three rows (each marked measured or not),
+  what the rules do not name, and the corrected "Claude only" line.
+- `engine/team.js`, above `vetAgentMember`: the guide rule is a cooperative guard; the one measured exception
+  (the Mac Claude guide cannot read the data folder) is named, not called a boundary. Points at that comment.
 - `install/kosmos`, the reply verb (#3769), and the header of `cli.reply-token-3769.test.js`: the same scope.
 - NOT touched: `server.js` and `server.agent-token-gate-4491.test.js` (Angel's #4491 slice 4 branch rewrites
   those comments; told her by message and on the card that her new wording needs the same correction), and the
-  lines of `install/kosmos` her branch changes (2560 and below; mine is at 1557).
+  lines of `install/kosmos` her branch changes (2560 and below; mine is at 1557). Angel has since corrected
+  her branch (ecbc14b3c). Until it lands, main keeps "(the sandboxed setup guide)" in those two files.
 - No rule changes: `fromGuide` and `vetAgentMember` stay as they are.
 
 ## Decisions
