@@ -1840,7 +1840,7 @@ function trueChildName(parent, name) {
  *   which is still fully supported and is the only way to reach work that lives
  *   somewhere else.
  */
-function create({ name, folder, agents, roster, description, made, parent, done } = {}) {
+function create({ name, folder, agents, roster, description, made, parent, done, seedDoneOnly } = {}) {
   const asked = String(folder == null ? '' : folder).trim();
   // ⚠️ On the default path the FOLDER-NAME refusal comes first, because it
   // is the sentence the person has been reading: the preview line under the
@@ -1957,7 +1957,9 @@ function create({ name, folder, agents, roster, description, made, parent, done 
   // project EXISTS from writeAll above, and a folder we could not write a stub into
   // (read-only, or one that already holds the person's own brief) is not a reason to
   // report "we could not create that project".
-  if (!seedBriefStub(given, { name: title, description: desc, done: doneText }) && doneText) fillDone(given, doneText);
+  /* #4583 round 9: only a done a PERSON typed is filled into a brief that already exists. Kosmos's own done (the
+     welcome home's, seedDoneOnly) goes into a new stub only, never into an adopted folder's brief the person wrote. */
+  if (!seedBriefStub(given, { name: title, description: desc, done: doneText }) && doneText && seedDoneOnly !== true) fillDone(given, doneText);
   return project;
 }
 
@@ -2018,7 +2020,17 @@ function doneWrittenIn(folder, done) {
     // a done that was never written.
     const lines = text.split(/\r?\n/);
     const range = require('./brief').doneSectionRange(text);
-    const scope = range ? lines.slice(range.from, range.to) : lines;
+    // Round 9: with no `## Done` section, only under the person's own Done heading when there is one.
+    let scope = lines;
+    if (range) scope = lines.slice(range.from, range.to);
+    else {
+      const own = lines.findIndex((l) => OWN_DONE_HEADING.test(l));
+      if (own !== -1) {
+        let to = own + 1;
+        while (to < lines.length && !/^[ \t]*#{1,6}[ \t]/.test(lines[to])) to += 1;
+        scope = lines.slice(own + 1, to);
+      }
+    }
     return scope.some((l) => l.trim() === doneMarkdown(done));
   } catch { return false; }
 }
@@ -2323,6 +2335,7 @@ function seedWelcomeHome({ roster } = {}) {
     description: WELCOME_DESCRIPTION,
     // #4583: its brief says what done is, so the first project a new person sees is not badged "Done not set".
     done: WELCOME_DONE,
+    seedDoneOnly: true,
     made: { via: 'kosmos' },
   });
 }

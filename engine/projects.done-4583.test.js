@@ -336,6 +336,43 @@ test('#4583 round 5: what is left of a seeded placeholder in an unset section is
   }
 });
 
+test('#4583 round 9: the welcome home never writes Kosmos\'s own done into a brief the person already has', () => {
+  reset();
+  const home = path.join(SANDBOX, 'Getting started');
+  fs.mkdirSync(home, { recursive: true });
+  const mine = '# My notes\n\n## Goal\n\nLearn Kosmos.\n';
+  fs.writeFileSync(path.join(home, projects.BRIEF_STUB_FILENAME), mine);
+  const made = projects.create({ name: 'Adopted', folder: home, done: projects.WELCOME_DONE, seedDoneOnly: true });
+  assert.ok(made, 'fixture: the project was made');
+  assert.equal(brief(home), mine, 'Kosmos\'s own done was written into the person\'s brief');
+  // CONTROL: the same done typed by a person (no seedDoneOnly) is written.
+  const typed = folder('typed');
+  fs.writeFileSync(path.join(typed, projects.BRIEF_STUB_FILENAME), mine);
+  projects.create({ name: 'Typed', folder: typed, done: projects.WELCOME_DONE });
+  assert.ok(brief(typed).includes(projects.WELCOME_DONE));
+});
+
+test('#4583 round 9: seedWelcomeHome itself adopts an existing "Getting started" folder without touching its brief', () => {
+  reset();
+  const home = path.join(process.env.AGENT_WORKFORCE_PROJECTS, projects.WELCOME_NAME);
+  fs.mkdirSync(home, { recursive: true });
+  const mine = '# My notes\n\n## Goal\n\nLearn Kosmos.\n';
+  fs.writeFileSync(path.join(home, projects.BRIEF_STUB_FILENAME), mine);
+  try {
+    const made = projects.seedWelcomeHome({ roster: [] });
+    assert.ok(made && made.folder === home, 'fixture: the welcome home adopted the folder: ' + JSON.stringify(made && made.folder));
+    assert.equal(brief(home), mine);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
+test('#4583 round 9: with no ## Done section, only the person\'s own Done heading can vouch that a done was written', () => {
+  reset();
+  const dir = folder('own-scope');
+  fs.writeFileSync(path.join(dir, projects.BRIEF_STUB_FILENAME), '# Mine\n\n## Goal\n\nShip\n\n### Done when\n\nbig thing\n');
+  assert.equal(projects.doneWrittenIn(dir, 'Ship'), false, 'a Goal line vouched for the done');
+  assert.equal(projects.doneWrittenIn(dir, 'big thing'), true);
+});
+
 test('#4583 round 2: a done with $& or $\' is written as typed, never as a replacement pattern', () => {
   reset();
   const dir = folder('dollar');
