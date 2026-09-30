@@ -169,9 +169,9 @@ function seed() {
        they work, which their own tests already say. */
 
     /* The restart control (#259) and its confirmation (#144's remedy path).
-       Since agent-page-nav it lives in the Memory section as "Fresh start",
-       and Remove has a section of its own, so the page is opened and then the
-       Memory pill is clicked before anything is read; the membership test
+       Since agent-page-nav it lives in the Memory section as "Fresh start";
+       since #4550 Remove folds under AI Settings with Memory (drawn below it), so
+       the page is opened and then that pill is clicked before anything is read; the membership test
        (web.agent-nav.test.js) pins where it lives, this pins that it draws.
        ⚠️ BACK TO THE AGENTS TAB AND THE GRID FIRST, in that order. The checks
        above leave the page on a task, and the layout loop leaves the agents
@@ -190,7 +190,7 @@ function seed() {
        drawn, and passed on a sentence nobody was looking at. The lede is
        painted per agent now (#198), so it must not be the generic once a
        panel is open. */
-    await pg.click('#d-nav button[data-go="instr"]');
+    await pg.click('#d-nav button[data-go="profile"]');
     await pg.waitForTimeout(300);
     const instrLede = await pg.evaluate(() => {
       const el = document.getElementById('d-instr-lede');
@@ -212,20 +212,26 @@ function seed() {
        replacement pins the CURRENT design's own promises: the lede, all
        three buttons drawn in the stack, and (below, on the open dialog)
        the consequence sentence at its new home. */
+    // Remove shows only once its /removal read answers; wait for it rather than trust the sleeps above.
+    await pg.waitForSelector('#d-remove-agent:not([hidden])', { timeout: 8000 }).catch(() => {});
     const rst = await pg.evaluate(() => {
       const box = document.getElementById('d-restart-agent');
       const rm = document.getElementById('d-remove-agent');
       const lede = document.getElementById('d-fresh-lede');
       return {
         shown: box && !box.hidden && box.getBoundingClientRect().height > 0,
-        removeOffscreen: rm && rm.getBoundingClientRect().height === 0,
+        /* #4550 (Josh, 2026-09-29): AI Settings holds Fresh start AND Remove this agent, so they share a
+           screen now. What still holds, and is pinned: Remove is drawn BELOW the restart box, last. */
+        removeBelow: !!rm && rm.getBoundingClientRect().height > 0 && box && rm.getBoundingClientRect().top > box.getBoundingClientRect().bottom,
+        geom: { rmH: rm ? Math.round(rm.getBoundingClientRect().height) : null, rmTop: rm ? Math.round(rm.getBoundingClientRect().top) : null,
+          boxBottom: box ? Math.round(box.getBoundingClientRect().bottom) : null },
         freshLede: lede && lede.getBoundingClientRect().height > 0 ? lede.innerText : null,
         stack: ['d-compact-go', 'd-clear-go', 'd-restart-start']
           .map((id) => { const b = document.getElementById(id); return Boolean(b && b.getBoundingClientRect().height > 0); }),
         saves: [...document.querySelectorAll('#d-instr-save, #d-save')].map((b) => b.getAttribute('aria-label')),
       };
     });
-    chk(rst.shown && rst.removeOffscreen, theme + ': restart draws in the Memory section, and Remove is not on that screen');
+    chk(rst.shown && rst.removeBelow, theme + ': restart draws in the Memory section, and Remove is below it (#4550: same AI Settings screen)', JSON.stringify(rst.geom));
     /* freshStartLabel paints the agent's NAME into the lede on open, so the
        generic "it" appearing here would itself be a regression. */
     chk(/^Three ways to get .{1,40} going again, whatever the reason\./.test(rst.freshLede || ''),

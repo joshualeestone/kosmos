@@ -539,6 +539,20 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
         Say "launcher: the committed Kosmos.exe, Authenticode Valid"
       } else { Say "launcher: the committed Kosmos.exe (Authenticode is checked on Windows only)" }
     } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }   # a scanner may hold it a moment
+    # kosmos#4597: the Plus connector ships in every Windows build, signed, or Kosmos Plus cannot
+    # sign in on Windows. The build refuses one without it; this is the same check at the door.
+    $tun = $archive.GetEntry('app/bin/kosmos-tunnel.exe')
+    if (-not $tun) { Refuse "$ZipPath carries no Plus connector (app/bin/kosmos-tunnel.exe)" }
+    $tmpTun = Join-Path ([IO.Path]::GetTempPath()) ("kosmos-tunnel-" + [Guid]::NewGuid().ToString('N') + '.exe')
+    [IO.Compression.ZipFileExtensions]::ExtractToFile($tun, $tmpTun)
+    try {
+      if (Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue) {
+        $tunSig = Get-AuthenticodeSignature -LiteralPath $tmpTun
+        if ($tunSig.Status.ToString() -cne 'Valid') { Refuse "the Plus connector's Authenticode status on this PC is '$($tunSig.Status)', not Valid" }
+        if ($tunSig.SignerCertificate.Subject -notlike '*CN="Kosmos Agent Manager, Inc."*') { Refuse "the Plus connector is signed by '$($tunSig.SignerCertificate.Subject)', not Kosmos Agent Manager, Inc." }
+        Say "connector: app/bin/kosmos-tunnel.exe, Authenticode Valid"
+      } else { Say "connector: app/bin/kosmos-tunnel.exe present (Authenticode is checked on Windows only)" }
+    } finally { Remove-Item -LiteralPath $tmpTun -Force -ErrorAction SilentlyContinue }
   } finally { $archive.Dispose() }
   Assert-Version 'version' $Version
   $Versioned = "kosmos-$Version-win-$Arch.zip"

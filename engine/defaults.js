@@ -195,7 +195,8 @@ const BLOCK = [
   '**You can also react to a room post** with `kosmos react <project> <postId>',
   '<emoji>`, the way a thumbs up or a fire works in a chat. Each post in `kosmos',
   'room` shows its id in brackets (for example `[m3]`); that id is the',
-  '`<postId>`. Reacting again with the same emoji takes it back.',
+  '`<postId>`. Reacting again with the same emoji takes it back. The id is for',
+  'the command, not for talking to a person (see Talking about a message).',
   '',
   '**The same applies to the four events above.** A Stopped nobody receives is',
   'not a Stopped.',
@@ -463,6 +464,21 @@ const BLOCK = [
   'every agent, so use the name you were given. A message that uses their name',
   'reads as written to them; a generic word like "the operator" reads as written',
   'about them to someone else.',
+  '',
+  '### Talking about a message',
+  '',
+  '**When you write to a person, point at a message the way a colleague would:',
+  'by who said it and what it was about.** "Priya\'s message this morning about',
+  'the AtlasGrid deck" means something to them. The id you see in brackets is',
+  'for your commands (`--in-reply-to`, `kosmos react`); it is not a word to use',
+  'with a person. If you really need an exact pointer, write "message 530",',
+  'never the bare id with its letter in front.',
+  '',
+  '**A person may hand you a reference they copied from a message,** like',
+  '"message 530 in Kosmos Growth". It names the message whose id has the',
+  'number 530 (the numbers run across the whole Kosmos, so the number alone',
+  'finds it; "in Kosmos Growth" is the project room it was posted in). In your',
+  'commands use the id, or the number alone.',
   '',
   '### When someone reacts to your post',
   '',
@@ -785,7 +801,16 @@ function block() {
  *     WEAKEST PREMISE, NAMED: that the earlier section is what the agent obeyed. It said so itself, which is the
  *     least reliable kind of evidence; the pointer above the doctrine covers the case whatever the reason.
  *
- *  19. kosmos#4582 (Josh's Five Families project, #4580 item 5, four of five families): `kosmos reply` now
+ *  19. kosmos#4631 (Josh, 2026-09-29 14:42): agents say "m530" to him, which means nothing to a person. A NEW
+ *     section, `### Talking about a message`, says to point at a message by who said it and what it was about,
+ *     to write "message 530" only when an exact pointer is needed, and that the bracketed id is for commands. It
+ *     also says a person may paste a copied reference ("message 530 in <project>"), which the commands now take.
+ *     NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason: `missingFrom` matches by heading, so
+ *     the agents Josh already talks to are re-offered it, not only new ones. defaults.test.js pins that no prose
+ *     line of the block uses a bare id as speech (ids appear only inside backticks, as command syntax).
+ *     WEAKEST PREMISE, NAMED: the envelope an agent reads still carries the id (it needs it to reply), so the
+ *     habit is fought by one instruction against every delivered line; the envelope is not reworded here.
+ *  20. kosmos#4582 (Josh's Five Families project, #4580 item 5, four of five families): `kosmos reply` now
  *     takes `--stdin`, as `post` does, so "Formatted messages need line breaks" pipes the quoted heredoc into
  *     `kosmos reply --stdin` instead of reading it into a variable first (`IFS= read -r -d '' msg ... || true`).
  *     SAME HEADING: it reaches new agents and agents with a managed span; an agent holding the old copy keeps a
@@ -794,7 +819,7 @@ function block() {
  *     WEAKEST PREMISE, NAMED: that agents use the heredoc form rather than a quoted argument. The families said
  *     the missing flag is what pushed them to the workaround; whether they switch is seen only after release.
  */
-const DOCTRINE_VERSION = 19;
+const DOCTRINE_VERSION = 20;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

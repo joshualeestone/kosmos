@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: 'c236f83d3ad6e06e' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -513,4 +513,23 @@ test('#4475: the block limits removing or changing another agent', () => {
   assert.ok(section, 'sections() does not split it out as its own section');
   assert.deepEqual(defaults.missingFrom(b.replace(section.text, '')).map((x) => x.heading), ['### Removing or changing another agent'],
     'an agent holding every other section would not be offered this one');
+});
+
+/**
+ * #4631 (Josh, 2026-09-29 14:42): agents said "m530" to him. The block now tells an agent to point at a message
+ * by who said it and what it was about, and to write "message 530" at most. Pinned two ways: the section is
+ * there, and no PROSE in the block uses a bare id (a letter m and digits) as speech. An id may appear only inside
+ * backticks, where it is command syntax an agent types, never words it says to a person.
+ */
+test('#4631: the block tells an agent to talk about a message naturally, and never models a bare id as speech', () => {
+  const b = defaults.block();
+  assert.ok(b.includes('### Talking about a message'), 'the section is present');
+  assert.match(b, /write "message 530"/, 'the fallback pointer is "message 530"');
+  const prose = b.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '');   // inline code may wrap onto the next line ('`kosmos\n  room`')
+  const bare = prose.match(/\bm\d+\b/g) || [];
+  assert.deepEqual(bare, [], 'a bare message id in the block\'s prose teaches the habit this section forbids');
+  /* The scan sees ids in this very block (the `[m3]` command example), so the pass is the backticks being
+     stripped, not the scan finding nothing. And it fails on a line written the old way. */
+  assert.ok(/\bm\d+\b/.test(b), 'the block still shows an id as command syntax');
+  assert.deepEqual(('or name the id ("re m12") instead').match(/\bm\d+\b/g), ['m12']);
 });
