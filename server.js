@@ -3803,15 +3803,15 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    for an admitted device and then presents the person's board token anyway (read from
    kosmos-relay crates/tunnel/src/proxy.rs, not this repo). #4491 slice 2 added react, whose handler identifies
    the caller from the token and refuses a non-member. POST /api/community/post is deliberately NOT here: it
-   writes to the public feed, and alone an agent token would let an agent that cannot read the board token
-   (the sandboxed setup guide) publish (#4491).
+   writes to the public feed, so it keeps needing the person's credential as well as the agent's (#4491).
    ⚠️ The gate checks the token STORE, not the roster: a removed agent is cut off by the revoke at
    removal. If that best-effort revoke failed and the agent's process is still alive, its token
    still passes here, exactly as it already does on the exempt report and reply routes.
    A token is only as private as its launch: #4497 moved it off tmux's command line (see
    supervisor.agent-token-argv-4497.test.js). */
 /* #4581: the two project reads (list here, show in the patterns below) let an agent holding only its own token,
-   the sandboxed setup guide included, read every project's folder, members, roles, states and brief. Decided:
+   the setup guide included (see the #4728 rows above guideDenyRules in engine/setup-assistant.js), read every
+   project's folder, members, roles, states and brief. Decided:
    membership is not a boundary (GET /api/projects), and none of it is a credential. */
 /* #4491 slice 4: three more READS an agent already makes with the board token every day (`kosmos agent roles`,
    `kosmos task list`, `kosmos room`), now reachable with its own token, so the CLIs can stop reading the person's
