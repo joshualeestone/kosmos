@@ -502,6 +502,8 @@ function assignPart(projectId, n, partId, who, made) {
       if (made && made.onlyIfFree && x.who) { taken = true; return x; }
       /* #3951 (review round 15): the Assigner picked it before it was marked built; giving it now would drop the mark. */
       if (made && made.onlyIfFree && t.builtAt) { taken = true; return x; }
+      /* #4771: nor one put on hold, or whose project was paused, since it was picked. */
+      if (made && made.onlyIfFree && (isOnHold(t) || projects.isPaused(p))) { taken = true; return x; }
       if (made && typeof made.onlyIfWho === 'string' && x.who !== made.onlyIfWho) { taken = true; return x; }
       moved = (x.who || null) !== whoKey;
       givenOpen = moved && !!whoKey && !x.closedAt;

@@ -53711,7 +53711,8 @@ function paintTaskPage() {
      Prompter interval paint checks it). Empty input means no due date. */
   const due = document.getElementById('tk-due');
   if (due && document.activeElement !== due) due.value = t.dueDate || '';
-  /* #4771: the hold control speaks its current state. */
+  /* #4771: the hold control speaks its current state; a message from another task's hold does not follow it here. */
+  { const hm = document.getElementById('tk-hold-msg'); if (hm && hm.dataset.task !== p.id + '#' + t.number) hm.textContent = ''; }
   const hold = document.getElementById('tk-hold');
   if (hold) hold.textContent = t.onHold === true ? 'Take off hold' : 'Put on hold';
   // A finished task has nothing to hold: no control, no hint.
@@ -54155,7 +54156,7 @@ document.getElementById('tk-hold').addEventListener('click', async () => {
   const btn = document.getElementById('tk-hold');
   const msg = document.getElementById('tk-hold-msg');
   btn.disabled = true;
-  if (msg) msg.textContent = '';
+  if (msg) { msg.textContent = ''; msg.dataset.task = p.id + '#' + t.number; }   // whose message it is (the page repaint clears another's)
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + TK_OPEN + '/hold', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -54984,6 +54985,7 @@ function paintSettingsFacts(p) {
   /* #4771: the pause control speaks its current state. */
   {
     const pl = document.getElementById('pj-one-pause-label'), ph = document.getElementById('pj-one-pause-hint'), pb = document.getElementById('pj-one-pause');
+    { const pm = document.getElementById('pj-one-pause-msg'); if (pm && pm.dataset.project !== p.id) pm.textContent = ''; }
     if (pl && ph && pb) {
       if (p.paused === true) {
         pl.textContent = 'This project is paused';
@@ -62292,6 +62294,7 @@ document.getElementById('pj-one-pause').addEventListener('click', async () => {
   const btn = document.getElementById('pj-one-pause');
   const msg = document.getElementById('pj-one-pause-msg');
   msg.textContent = '';
+  msg.dataset.project = p.id;   // whose message it is (the settings repaint clears another project's)
   btn.disabled = true;
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(p.id), {

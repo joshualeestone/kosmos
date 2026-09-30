@@ -56,6 +56,12 @@ agents onto tasks the person had put on hold and into a project the person had p
 - The instructions say "the person parked it" only for the person's own hold or pause; an agent's reads "do not start
   it until it is taken off hold". The Tasks view's On hold line is neutral.
 
+- A hold covers the task it is on, not its subtasks (#3861): each subtask is a task the person can hold, and a
+  subtask may be real work the parent waits on. Rejected: inheriting the hold down the tree, which every reader
+  (the Prompter, the Assigner, the Tasks view, the instructions) would have to walk. Overridable.
+- The Assigner re-checks the hold and the pause inside its give (made.onlyIfFree), as it does the built mark, so a
+  hold that lands between its read and its give still stops it.
+
 ## Weakest premise
 That skipping held work in the Assigner's busy count is what the person wants: an agent whose only work is held is
 treated as free and may be given something new. If people read "on hold" as "this agent is reserved for it", the

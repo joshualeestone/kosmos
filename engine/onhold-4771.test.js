@@ -306,3 +306,18 @@ test('#4771 review: a task needing the person\'s decision reads decision even he
     assert.equal(tasks.taskState(row()), 'held', 'control: the same paused task without a decision is not held');
   } finally { w.restore(); }
 });
+
+test('#4771 review: the Assigner\'s only-if-free give refuses a task held or paused since it was picked (control: a plain give)', () => {
+  const w = world('holdrace' + seq, false);
+  try {
+    const t = () => tasks.byNumber(projects.readAll().find((p) => p.id === w.pid), w.n);
+    const part = tasks.partsOf(t())[0];
+    tasks.setOnHold(w.pid, w.n, true);   // held between the Assigner's read and its give
+    assert.equal(tasks.assignPart(w.pid, w.n, part.id, w.who, { onlyIfFree: true }).ok, false, 'a task put on hold since the pick was handed out');
+    tasks.setOnHold(w.pid, w.n, false);
+    projects.edit(w.pid, { paused: true });
+    assert.equal(tasks.assignPart(w.pid, w.n, part.id, w.who, { onlyIfFree: true }).ok, false, 'a task whose project was paused since the pick was handed out');
+    projects.edit(w.pid, { paused: false });
+    assert.equal(tasks.assignPart(w.pid, w.n, part.id, w.who, { onlyIfFree: true }).ok, true, 'control: the same give, neither held nor paused, was refused');
+  } finally { w.restore(); }
+});

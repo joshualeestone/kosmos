@@ -16888,7 +16888,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { task: t });
       } catch (err) {
         const msg = String((err && err.message) || '');
-        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : (err && err.status) || 400,
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400,
           { error: msg || 'we could not change that task' });
       }
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
