@@ -199,6 +199,7 @@ test('the create path files to the dialog\'s project and, from Tasks, answers in
 });
 
 test('the Tasks head carries "+ New task" as its primary button', () => {
-  assert.match(PAGE, /<div class="tsk-head"><h2 id="tsk-title">Tasks<\/h2><button class="btn uprime" id="tsk-new" type="button">/);
+  // #4586: the back chevron may lead the head; "+ New task" still follows the title directly.
+  assert.match(PAGE, /<div class="tsk-head">(?:<button class="sub-back" id="tsk-back"[^>]*>(?:(?!<\/button>)[\s\S])*<\/button>)?<h2 id="tsk-title">Tasks<\/h2><button class="btn uprime" id="tsk-new" type="button">/);
   assert.match(SCRIPT, /getElementById\('tsk-new'\)\.addEventListener\('click', openNewTaskFromTasks\)/);
 });
