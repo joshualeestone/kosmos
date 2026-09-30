@@ -212,6 +212,23 @@ function chk(ok, label, extra) {
           await page.context().close();
         }
 
+        /* --- #4719: an account list slower than the 5 s wait still sets the default when it lands ---- */
+        {
+          const { page, errs } = await newPage(1280);
+          const OA = { provider: 'openai', dir: '/acct/openai-late', email: 'me@example.com', isDefault: true, state: 'connected' };
+          await page.route('**/api/accounts*', async (r) => { await new Promise((res) => setTimeout(res, 6500)); return r.fulfill({ status: 200, json: { accounts: [OA] } }); });
+          await page.evaluate(() => { CREATE_ACCOUNTS = []; CREATE_ACCOUNTS_KNOWN = false; });
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          const early = await page.evaluate(() => document.getElementById('tc-provider').value);
+          await page.waitForFunction(() => document.getElementById('tc-provider').value === 'openai', null, { timeout: 8000 }).catch(() => null);
+          const late = await page.evaluate(() => ({ p: document.getElementById('tc-provider').value, a: document.getElementById('tc-account').value }));
+          chk(early === 'anthropic' && late.p === 'openai' && late.a === '/acct/openai-late',
+            `${E} #4719 a slow account list moves the untouched team menu to OpenAI when it lands`, JSON.stringify({ early, late }));
+          chk(errs.length === 0, `${E} no page errors (#4719 slow arm)`, errs.join(' | '));
+          await page.context().close();
+        }
+
         /* --- the step, the happy path with one failure and its retry --------------------------- */
         {
           const { page, errs, posted, script, checkHold, pictures } = await newPage(1280);
