@@ -37,3 +37,9 @@ A subshell orphaned while alive (parent exited first, reparented to 1) is still 
 - (N) FIXED: the #4574 note said #4609 tracked the live-count side; it now points at the fix.
 - (N) FIXED: the plan says the EPERM mutation was measured as a normal user.
 - (N) LEFT: checking existence before the walk would be cheaper; same result in both directions.
+
+## Review iteration 2 (blind, sonnet)
+- (W) FIXED: the ESRCH match was case-sensitive; zsh spells it "no such process". It now takes either case. (Not silent
+  before either: a wording the match missed reds the exited-candidate arm on the box that runs the suite.)
+- (N) LEFT: an orphaned sleep after a SIGKILL (its output now goes to /dev/null, so nothing waits on it); the ancestor
+  probes and the single caller were checked and need no change.
