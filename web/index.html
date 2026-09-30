@@ -9872,8 +9872,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 /* Board notices (the restart note, the could-not-read notes, and the empty notes of the board and the Projects
    list): the project page's grey box. A notice that says something is wrong (.boardfail, which the restart note
    is) KEEPS its solid border: solid means a failure and dashed an empty slot, the one difference that carries
-   meaning there. Only the empty notes lose their border. Not inside a project page: that page's left column is
-   already the grey box, and a grey note in it would vanish; its notes keep today's look. */
+   meaning there. Only the empty notes lose their border. No note is written into a project page today; the
+   exclusion is there so a future one does not turn into a grey box inside that page's grey column. */
 :root[data-look="new"] body:not(.consolidated) .pj-empty:not(#pj-one-view .pj-empty) { background: var(--nl-grey); border-radius: 28px; }
 :root[data-look="new"] body:not(.consolidated) .pj-empty:not(.boardfail):not(#pj-one-view .pj-empty) { border-color: transparent; }
 :root[data-look="new"] body:not(.consolidated) #restart-wrap .pj-empty { margin-bottom: 18px; }

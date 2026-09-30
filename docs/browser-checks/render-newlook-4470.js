@@ -21,8 +21,10 @@
  *  - the Agents page's inks clearing 4.5:1 on the new grounds,
  *  - the Agents page in the new look: the plain idle card and the Agents tile lose their border, New agent is a
  *    40px round grey button, a pressed Messages filter still looks pressed; the working card's stroke and the
- *    current view's gold are the same as with the look off; and with the look off, today's bordered card,
- *    tile and New agent tile (the control),
+ *    current view's gold are the same as with the look off; Issue, Question and could-not-read cards keep their
+ *    strokes; the Messages filter rests on the grey ground and keeps its width under the pointer; a board note is
+ *    the grey box while a could-not-read note keeps its solid border (and a note in a project page keeps today's
+ *    look); and with the look off, today's bordered card, tile and New agent tile (the control),
  *  - light, dark and 390 wide, with no sideways scroll and no page errors.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
