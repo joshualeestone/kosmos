@@ -132,17 +132,23 @@ function launchDir(create, name) {
   return create.workerDir(name);
 }
 
-/** The production wiring: create.js for the agents and bridge, agyhooks for the write. */
-async function refreshAtBoardStart() {
-  // agy hooks are Unix only (agyhooks' sh -c quoting) and Kosmos runs no agy agent on Windows.
-  if (process.platform === 'win32') return [];
+/** `launchDir`, or null when that folder is not there. ensureHooks makes the folders above the file it
+    writes, so a running agent whose folder was deleted or moved would get the folder back, empty. */
+function existingLaunchDir(create, name) {
+  const wd = launchDir(create, name);
+  return (wd && fs.existsSync(wd)) ? wd : null;
+}
+
+/** What the board-start refresh is wired to: create.js for the agents and bridge, agyhooks for the write.
+    Built apart from the run so a test can build it (it asks launchd nothing until `names` is called). */
+function productionDeps() {
   const create = require('./create');
   const agyhooks = require('./agyhooks');
   const bridge = create.agyBridgePath();
-  return refreshRunningAgyHooks({
+  return {
     names: () => create.runningJobs(),
     job: (name) => create.readJob(name),
-    workdir: (name) => launchDir(create, name),
+    workdir: (name) => existingLaunchDir(create, name),
     hasHook: (wd) => hasKosmosHook(wd, agyhooks.HOOK_NAME),
     hadToolHooks: (wd) => hadToolHooks(wd, agyhooks.HOOK_NAME),
     ensureHooks: agyhooks.ensureHooks,
@@ -154,7 +160,14 @@ async function refreshAtBoardStart() {
     nodeBin: require('./allowance').stableNode(),
     bridge,
     bridgeExists: () => fs.existsSync(bridge),
-  });
+  };
 }
 
-module.exports = { refreshRunningAgyHooks, refreshAtBoardStart, hasKosmosHook, hadToolHooks, launchDir };
+/** The production run. */
+async function refreshAtBoardStart() {
+  // agy hooks are Unix only (agyhooks' sh -c quoting) and Kosmos runs no agy agent on Windows.
+  if (process.platform === 'win32') return [];
+  return refreshRunningAgyHooks(productionDeps());
+}
+
+module.exports = { refreshRunningAgyHooks, refreshAtBoardStart, productionDeps, existingLaunchDir, hasKosmosHook, hadToolHooks, launchDir };

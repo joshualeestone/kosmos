@@ -244,15 +244,48 @@ test('#4353 a dead ask_question tool handler is broken too (it would deny ask_qu
   } finally { fs.rmSync(wd, { recursive: true, force: true }); }
 });
 
-test('#4353 the production wiring only calls things create.js really exports', () => {
-  /* The tests above hand in every dependency, so none of them runs refreshAtBoardStart's own wiring, and
-     that wiring called create.agyBridgePath(), which create.js did not export: the refresh threw at every
-     board start in 0.7.07 to 0.7.11 and healed nothing. refreshAtBoardStart itself is not called here: it
-     reads this computer's real launch jobs. So read what it calls, and ask create.js for each. */
-  const src = fs.readFileSync(path.join(__dirname, 'agyrefresh.js'), 'utf8');
-  const called = [...new Set([...src.matchAll(/\bcreate\.([A-Za-z_][A-Za-z0-9_]*)\(/g)].map((m) => m[1]))];
-  // Control: the scan really found the calls (an empty list would pass every assertion below).
-  assert.ok(called.includes('agyBridgePath') && called.includes('readJob') && called.length >= 5, 'the scan found ' + JSON.stringify(called));
-  for (const name of called) assert.equal(typeof create[name], 'function', 'agyrefresh.js calls create.' + name + '(), which create.js does not export');
-  assert.match(create.agyBridgePath(), /agy-report-bridge\.js$/);
+test('#4353 the production wiring builds, and everything it is wired to exists', () => {
+  /* The tests above hand in every dependency, so none of them ran the production wiring, and its first
+     line called create.agyBridgePath(), which create.js did not export: the refresh threw at every board
+     start from 0.7.07 to 0.7.11 and healed nothing. productionDeps() is that wiring, built for real here.
+     Building it asks launchd nothing; `names` (which does) is deliberately not called. */
+  const deps = agyrefresh.productionDeps();
+  for (const k of ['names', 'job', 'workdir', 'hasHook', 'hadToolHooks', 'ensureHooks', 'bridgeExists']) {
+    assert.equal(typeof deps[k], 'function', 'the wiring has no ' + k);
+  }
+  assert.equal(deps.ensureHooks, agyhooks.ensureHooks);
+  assert.equal(typeof deps.nodeBin, 'string');
+  assert.ok(deps.nodeBin.length > 0);
+  assert.equal(deps.bridge, create.agyBridgePath(), 'the hook would name another bridge than the one create installs');
+  assert.match(deps.bridge, /agy-report-bridge\.js$/);
+
+  /* The closures inside it are not run by building it, so read what they call (comments stripped, or a
+     name in a doc comment would stand in for a deleted call) and ask each module for it. */
+  const src = fs.readFileSync(path.join(__dirname, 'agyrefresh.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const used = (mod) => [...new Set([...src.matchAll(new RegExp('\\b' + mod + '\\.([A-Za-z_][A-Za-z0-9_]*)', 'g'))].map((m) => m[1]))];
+  const fromCreate = used('create');
+  const fromHooks = used('agyhooks');
+  // Control: the scan found the calls (an empty list would pass everything below).
+  assert.deepEqual(fromCreate.sort(), ['agyBridgePath', 'plistArgs', 'readJob', 'runningJobs', 'workerDir'], 'agyrefresh.js uses a different set of create functions now: update this list with it');
+  assert.ok(fromHooks.includes('ensureHooks') && fromHooks.includes('HOOK_NAME'), JSON.stringify(fromHooks));
+  for (const name of fromCreate) assert.equal(typeof create[name], 'function', 'agyrefresh.js uses create.' + name + ', which create.js does not export');
+  for (const name of fromHooks) assert.notEqual(agyhooks[name], undefined, 'agyrefresh.js uses agyhooks.' + name + ', which agyhooks.js does not export');
+  assert.equal(typeof require('./allowance').stableNode, 'function');
+});
+
+test('#4353 a running agent whose folder is gone is reported, and the folder is not made again', async () => {
+  const gone = path.join(SANDBOX, 'moved-away');
+  const there = path.join(SANDBOX, 'still-here');
+  fs.mkdirSync(there, { recursive: true });
+  const fakeCreate = (dir) => ({ plistArgs: () => ({ args: ['a', 'b', 'c', dir] }), workerDir: () => dir });
+  assert.equal(agyrefresh.existingLaunchDir(fakeCreate(gone), 'x'), null);
+  assert.equal(agyrefresh.existingLaunchDir(fakeCreate(there), 'x'), there, 'control: a folder that is there is returned');
+  // Through the refresh: no write is asked for, and the row says why.
+  const { deps, calls } = fakes({ x: { runner: 'antigravity' } });
+  deps.workdir = (name) => agyrefresh.existingLaunchDir(fakeCreate(gone), name);
+  const rows = await agyrefresh.refreshRunningAgyHooks(deps);
+  assert.equal(calls.ensure.length, 0);
+  assert.deepEqual(rows.map((r) => [r.name, r.ok, r.why]), [['x', false, 'no working folder']]);
+  assert.equal(fs.existsSync(gone), false);
 });

@@ -14,7 +14,7 @@ calls `create.agyBridgePath()`. `create.js` defines that function and never expo
 - The same is true at the merge commit (527fa600a) and on main today: it has never worked in any build
   (0.7.07 to 0.7.11). Agents launched before #4106 still show "Can't tell".
 
-## Why thirteen tests did not see it
+## Why twelve tests did not see it
 Every test of the refresh hands in all of its dependencies, the bridge path among them. None runs
 `refreshAtBoardStart`'s own wiring, so the one line that was wrong was the one line no test executed.
 The card was then parked "needs-release" on the strength of those tests and the merge.
@@ -37,3 +37,22 @@ does not export" (12 pass, 1 fail). Fixed: 13 pass.
   (`const { x } = create`) would not be seen. There is none in the file today.
 - NOT DONE here: proving the heal on a real Antigravity agent that predates #4106. That needs such an agent
   and a release carrying this; it is what the card's "needs-release" should have waited for.
+
+## Review iteration 1 (sonnet): 2 WARNINGs, 3 NITs
+The reviewer walked the rest of the routine against the real create, agyhooks and allowance functions
+(it has never run in a real install) and found it matches them: a Set from runningJobs, the runner word,
+the plist argument, the bundled node, ensureHooks's signature, the call site's dry-run guard and catch.
+- W (fixed): a running agent whose launch folder was deleted or moved would get that folder made again,
+  empty, because ensureHooks creates the folders above the file it writes. The wiring now returns no
+  folder for one that is not there, and the refresh reports "no working folder". Test, with a control.
+- W (fixed): the first version of the new test scanned only `create.name(` calls, and scanned comments
+  too. The wiring is now `productionDeps()`, which the test BUILDS for real (the line that threw runs in
+  the test), and the scan strips comments, pins the exact set of create functions, and covers agyhooks
+  and allowance.
+- NIT fixed: "thirteen tests" counted the new one; it was twelve.
+- Controls, each on a scratch copy of `engine/` (so one more test is red in BOTH arms for a harness reason:
+  the copy has no server.js for the call-site test to read. It is not counted):
+  A. export removed: the wiring test is red with `TypeError: create.agyBridgePath is not a function`,
+     the error production logs.
+  B. folder guard removed: the gone-folder test is red.
+  In the worktree itself: 14 pass.
