@@ -50,3 +50,11 @@ teamcreate-ui-4557 (PR #4709, not yet on main); rebased onto main once #4709 mer
 - The refusal arm now sees the menu lock at the click before asserting it is open again.
 - Not changed (NIT, recorded): tc-provider is a plain select, so a greyed option's reason shows as the
   option's own text only, not the create form's enhanced combobox pill.
+
+## Review iteration 3 (changes)
+- A read of /api/accounts slower than the 5 s wait is no longer abandoned (on an OpenAI-only machine it
+  left the team on Claude): when it lands, the untouched menu gets the default again, unless the team
+  started. Browser arm: a 6.5 s answer moves the menu from Claude to OpenAI and its account.
+- A Muse answer that disables Meta settles the team menu too (tcProviderSettle), so a Meta pick that is
+  no longer allowed goes back to the default before anything is sent.
+- The Swarm-undo comment says it is defensive (openCreate resets the Kind first).

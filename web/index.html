@@ -23436,6 +23436,7 @@ function museCreateAsk() {
         const cur = id === 'd-provider' && typeof CURRENT !== 'undefined' && CURRENT ? providerOf(CURRENT) : '';
         paintMuseOption(sel, cur);
       }
+      if (typeof tcProviderSettle === 'function') tcProviderSettle();   // #4719: a Meta pick Muse no longer allows
       // A Meta pick this read turned off is undone and said.
       const pv = document.getElementById('create-provider');
       if (pv && pv.value === 'meta') createPickGone(CREATE_ACCOUNTS_KNOWN);
@@ -46692,31 +46693,60 @@ async function openTeamCreate(key) {
 
 /* #4719: the team's provider menu is the single-agent form's own list (copied, so the two cannot drift),
    starting on the form's current choice, and its account menu is filled by the same rules. */
+/* #4719: whether the person has chosen on the team's Model menu (a late account list or a changed Muse
+   answer may then set the default again only while they have not). */
+let TC_PROVIDER_TOUCHED = false;
+/* The team menu's default and its fallback from an option that is not usable here: OpenAI when it is the
+   one usable provider (createPickGone's rule), else Claude. */
+function tcProviderDefault() {
+  const hasClaude = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'anthropic');
+  const hasOpenai = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'openai');
+  return (!hasClaude && hasOpenai) ? 'openai' : 'anthropic';
+}
+/* After any repaint of the team menu: a selected option that is not usable here goes back to the default
+   (and the accounts follow), unless the team has started (its choice is fixed, TC.model). */
+function tcProviderSettle() {
+  const sel = document.getElementById('tc-provider');
+  if (!sel || (TC && (TC.started || TC.busy))) return;
+  const cur = sel.options[sel.selectedIndex];
+  if (!cur || cur.disabled) { sel.value = tcProviderDefault(); fillCreateAccounts(TC_PICKER); }
+}
 async function tcFillProvider(gen) {
   const from = document.getElementById('create-provider');
   const sel = document.getElementById('tc-provider');
   if (!from || !sel) return;
   const stale = () => gen !== undefined && gen !== TC_GEN;   // another team was opened while this one read
+  TC_PROVIDER_TOUCHED = false;
   /* The team step can be opened without the create form (openTeamCreate from the Team path), so the
      account list may not be read yet; read it the way the form does. Without it every member would go to
-     Claude, which is the failure #4719 exists for. */
+     Claude, which is the failure #4719 exists for. /api/accounts checks each account live and can be
+     slow, and the step waits for it before it shows its button, so the wait is bounded at 5 s; a read
+     still going then is NOT abandoned: when it lands, the default is set again, as long as the person has
+     not chosen and the team has not started. */
   if (!CREATE_ACCOUNTS_KNOWN) {
-    try {
-      /* Bounded: /api/accounts checks each account live, and the team step waits for this before it
-         shows its button. A slow answer reads as "could not check", as the form's menus say it. */
-      const ctl = typeof AbortController === 'function' ? new AbortController() : null;
-      const timer = ctl ? setTimeout(() => ctl.abort(), 5000) : null;
-      const r = await fetch('/api/accounts', { cache: 'no-store', ...(ctl ? { signal: ctl.signal } : {}) })
-        .finally(() => { if (timer) clearTimeout(timer); });
-      if (r.ok) { CREATE_ACCOUNTS = ((await r.json()) || {}).accounts || []; CREATE_ACCOUNTS_KNOWN = true; CREATE_ACCOUNTS_FAILED = false; }
-      else CREATE_ACCOUNTS_FAILED = true;
-    } catch { CREATE_ACCOUNTS_FAILED = true; /* the menus say they could not check, as the form's do */ }
+    const read = fetch('/api/accounts', { cache: 'no-store' })
+      .then(async (r) => {
+        if (r.ok) { CREATE_ACCOUNTS = ((await r.json()) || {}).accounts || []; CREATE_ACCOUNTS_KNOWN = true; CREATE_ACCOUNTS_FAILED = false; }
+        else CREATE_ACCOUNTS_FAILED = true;
+        return true;
+      })
+      .catch(() => { CREATE_ACCOUNTS_FAILED = true; return true; });
+    const inTime = await Promise.race([read, new Promise((res) => setTimeout(() => res(false), 5000))]);
     if (stale()) return;
+    if (!inTime) {
+      read.then(() => {
+        if (stale() || TC_PROVIDER_TOUCHED || !TC || TC.started || TC.busy) return;
+        sel.value = tcProviderDefault();
+        fillCreateAccounts(TC_PICKER);
+        tcProviderSettle();
+      });
+    }
   }
   sel.innerHTML = from.innerHTML;
-  /* The copy carries the create form's Swarm gating (Swarms run on Claude for now), which is about that
-     form's Kind, not a team; nothing on this step would undo it, so it is undone here from the state the
-     gate saved, and the form's own choice from before the gate moved it is the starting point. */
+  /* Defensive: the copy could carry the create form's Swarm gating (Swarms run on Claude for now), which
+     is about that form's Kind, not a team. openTeamCreate calls openCreate first, which puts the Kind back
+     to Agent and so removes it, but nothing on this step would undo it if that ever changed, so it is
+     undone here from the state the gate saved. */
   for (const opt of sel.options) {
     if (opt.dataset.swarmGated !== '1') continue;
     opt.disabled = opt.dataset.swarmWasOff === '1';
@@ -46724,17 +46754,12 @@ async function tcFillProvider(gen) {
     delete opt.dataset.swarmGated; delete opt.dataset.swarmWasOff; delete opt.dataset.swarmWasText;
   }
   sel.value = from.dataset.swarmWasValue || from.value;
-  /* The form's own default: OpenAI when it is the one usable provider (createPickGone's rule). */
-  const hasClaude = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'anthropic');
-  const hasOpenai = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'openai');
-  if (sel.value === 'anthropic' && !hasClaude && hasOpenai) sel.value = 'openai';
+  if (sel.value === 'anthropic') sel.value = tcProviderDefault();
   fillCreateAccounts(TC_PICKER);
-  /* After the paint, which is what decides which options are usable here: a choice copied from the form
-     that is not usable on this step goes back to the default, and the accounts follow it. */
-  const cur = sel.options[sel.selectedIndex];
-  if (!cur || cur.disabled) { sel.value = (!hasClaude && hasOpenai) ? 'openai' : 'anthropic'; fillCreateAccounts(TC_PICKER); }
+  // After the paint, which is what decides which options are usable here.
+  tcProviderSettle();
 }
-document.getElementById('tc-provider').addEventListener('change', () => fillCreateAccounts(TC_PICKER));
+document.getElementById('tc-provider').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; fillCreateAccounts(TC_PICKER); });
 
 /* A team is FINISHED when every member is made and seen running. Until then it is live and is resumed. */
 function tcFinished() {
