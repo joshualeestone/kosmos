@@ -38,3 +38,5 @@ extra minute matters to someone.
 ## Review
 Round 1: 1 should-fix (the idle flush's line), taken; nit taken (env to the skip). Round 2: 1 should-fix (no-state
 result logged as told), taken; nits taken (comment, UNCONFIRMED pinned, server wiring test).
+Round 3: CONVERGED (no blocker, no should-fix); nits taken (delivery=none, the wiring check given a control in both
+template and concatenated form, the "same gate" comment scoped to production env).
