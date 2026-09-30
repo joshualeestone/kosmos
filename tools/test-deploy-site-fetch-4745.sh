@@ -25,6 +25,7 @@
 #   m  a 206 with the wrong Content-Range        -> not trusted, full fetch
 #   n  a server ignoring Range (200 + body)      -> "cannot prove", full fetch
 #   o  same size, different first byte          -> not a proof
+#   p  header parse: CRLF/HTTP/1.1/mixed case parses; only the FINAL header block counts
 #
 #   bash tools/test-deploy-site-fetch-4745.sh
 set -uo pipefail
@@ -215,6 +216,15 @@ run_fetch
 [ "$(artifact_calls)" -ge 1 ] && [ "$RC" -ne 0 ] && cmp -s "$T/orig" "$T/site/dist/$NAME" \
   && pass "o: a same-size served artifact with a different first byte is not a proof (fetched, refused, original intact)" \
   || bad "o: skipped or changed on a first-byte mismatch (rc=$RC, downloads $(artifact_calls))"
+
+# ---- p: the header parse reads only the FINAL block (canned curl -D files, fed straight in) -------
+parse() { sh -c '. "$1"; _final_content_range "$2"' _ "$BLOCK" "$1"; }
+printf 'HTTP/1.1 206 Partial Content\r\nContent-Type: application/gzip\r\nContent-Range: bytes 0-0/52555779\r\n\r\n' > "$T/h1"
+printf 'HTTP/1.1 301 Moved Permanently\r\nLocation: /x\r\ncontent-range: bytes 0-0/15\r\n\r\nHTTP/2 206\r\nCONTENT-RANGE: bytes 0-0/52555779\r\n\r\n' > "$T/h2"
+printf 'HTTP/2 206\r\ncontent-range: bytes 0-0/52555779\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 52555779\r\n\r\n' > "$T/h3"
+[ "$(parse "$T/h1")" = "bytes 0-0/52555779" ] && pass "p1: CRLF + HTTP/1.1 + capitalised Content-Range parses" || bad "p1: got '$(parse "$T/h1")'"
+[ "$(parse "$T/h2")" = "bytes 0-0/52555779" ] && pass "p2: a 301 with its own Content-Range, then a final 206: the final one wins" || bad "p2: got '$(parse "$T/h2")'"
+[ -z "$(parse "$T/h3")" ] && pass "p3: a 206 with a Content-Range, then a final 200 with none: empty (cannot prove)" || bad "p3: got '$(parse "$T/h3")'"
 
 # ---- e: one stall, then good: a retry, not a refusal -----------------------------------------------
 setup; STUB_MODE=good STUB_FAIL_FIRST=1 run_fetch

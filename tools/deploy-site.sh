@@ -219,6 +219,15 @@ fetch() {  # <url> <dest>  -- an UNVERIFIED file (no sidecar): atomic, refuse on
   mv -f "$_FETCH_TMP_A" "$2" || _fetch_refuse "$1"
   _FETCH_TMP_A=""
 }
+_final_content_range() {  # <curl -D header file>  -- the FINAL response's Content-Range value, or empty
+  # -L dumps every hop's header block. Reset at each status line (HTTP/...), so only the LAST block
+  # counts: taking the last Content-Range across all blocks would read an earlier hop's value when
+  # the final response has none (206 then 200). CR stripped, header name matched case-insensitively.
+  tr -d '\r' < "$1" 2>/dev/null | awk '
+    /^HTTP\// { v = "" ; next }
+    tolower(substr($0, 1, 14)) == "content-range:" { v = substr($0, 15); sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v) }
+    END { print v }'
+}
 _served_matches_local() {  # <url> <local-file>  -- 0 only when the host PROVABLY serves an artifact
   # of the local file's exact size whose first byte is the local file's first byte (#4745 review).
   # Used by the skip path, which must not trust the served .sha256 alone: a served sidecar says
@@ -235,8 +244,7 @@ _served_matches_local() {  # <url> <local-file>  -- 0 only when the host PROVABL
   _sm_code=$(curl -sS -L -r 0-0 --connect-timeout 15 --max-time 30 --max-filesize 65536 \
       -H 'Cache-Control: no-cache' -D "$_sm_dir/h" -o "$_sm_dir/b" -w '%{http_code}' "$1" 2>/dev/null) || _sm_code=""
   _sm_size=$(wc -c < "$2" | tr -d ' ')
-  # -L dumps every hop's headers; the LAST Content-Range is the final response's.
-  _sm_range=$(tr -d '\r' < "$_sm_dir/h" 2>/dev/null | sed -n 's/^[Cc][Oo][Nn][Tt][Ee][Nn][Tt]-[Rr][Aa][Nn][Gg][Ee]:[[:space:]]*//p' | tail -n 1)
+  _sm_range=$(_final_content_range "$_sm_dir/h")
   _sm_ok=1
   # (Not `cmp -n 1`: BSD cmp on macOS returns 1 for it even on equal bytes, measured, which would
   # make this proof silently never pass. Compare two one-byte files instead.)

@@ -87,3 +87,25 @@ a test). If it does not, the probe fails closed: every run downloads, as before 
   - M9 no first-byte check: o reds.
   - M10 probe never passes: d, l, j red.
   - M11 probe dir not removed: d, h, n red.
+
+## Review round 2
+
+Round 2 (on 2e7ec7a8c) converged: 0 BLOCKER, 0 WARNING. Two NITs taken, one left.
+
+- NIT 1, taken: the probe read the LAST Content-Range across every header block `-L` dumps
+  (`tail -n 1`), so "206 then a final 200 with none" read the earlier hop's value (only the
+  `%{http_code}` check stopped it). The parse is now `_final_content_range`: awk resets at each
+  `HTTP/` status line, so only the final block counts; CR stripped, name matched case-insensitively.
+- NIT 3, taken: arm p feeds canned `curl -D` files straight to the parse: (1) CRLF + HTTP/1.1 +
+  capitalised Content-Range parses; (2) a 301 carrying its own Content-Range, then a final 206:
+  the final one wins; (3) a 206 with a Content-Range, then a final 200 with none: empty.
+- NIT 2, left: the probe fetches one byte. The SIZE is the discriminator (measured by the
+  reviewer: the host's fallback page answers 206 `bytes 0-0/8498`, nowhere near a 55 MB tarball);
+  the first byte only rules out a same-size file of a different type.
+
+Measured: 45 passed, 0 failed. Existing deploy-site tests unchanged.
+- M12, the old `tail -n 1` parse: p3 reds; p2 stays GREEN, because under the old parse the last
+  value in "301 then 206" IS the final block's. The old parse was wrong only when the final block
+  has no Content-Range, so p2 cannot red against it.
+- M13, first Content-Range with no reset: p2 and p3 red, so p2 is armed against the other wrong
+  direction.
