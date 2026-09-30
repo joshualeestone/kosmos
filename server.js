@@ -15846,7 +15846,7 @@ const server = http.createServer(async (req, res) => {
            write already trusts. An agent runs as the operator; this is for
            telling things apart. */
         const viaScreen = isViaScreen(req, body);
-        /* #4491 slice 5b: the maker is named as the task verbs name a caller (the agent token, else the pane as a
+        /* #4740 (built as #4491 slice 5b): the maker is named as the task verbs name a caller (the agent token, else the pane as a
            roster target or through resolveSender; a token that does not resolve is refused, never swapped for
            the pane). Before, only a pane that was exactly a roster target was named, which the CLI's %N never
            is, so a project an agent made recorded no maker. */
@@ -15864,7 +15864,7 @@ const server = http.createServer(async (req, res) => {
             sendJson(res, 429, { error: refusal.because, retry_after_secs: refusal.retryAfterSecs }); return;
           }
         }
-        /* Slice 5b: an agent that makes a project is ON it. Its working rules promise exactly that ("it exists on
+        /* #4740: an agent that makes a project is ON it. Its working rules promise exactly that ("it exists on
            the board with your name on it ... you post to it and hand it work the same way as any other project",
            engine/defaults.js), and until now the project listed nobody, so its own maker could not post in its
            room. Added to whatever members the request names; the page's request is never touched (no maker). */
@@ -15951,7 +15951,10 @@ const server = http.createServer(async (req, res) => {
                records no member change), so a looping agent could type into itself as fast as it can create. Its
                instructions are still synced above, like any member's: that is what lists the project in its own
                instructions. When the sync cannot be done the verdict says so and the membership stands, as for
-               any member (the three-valued verdict below). */
+               any member (the three-valued verdict below).
+               ⚠️ One sentence this leaves loose: a synced member's card can read "Kosmos changed its instructions,
+               and told it on its screen" (projects.toldOverride). For the maker, what was on its screen is the
+               CLI's own "Created project ..." line, not a line Kosmos typed. It does know: it made it. */
             const said = a === makerMember ? null : await projects.speakOfMembershipAsync(a, made, 'joined', roster);
             return { agent: a, ...verdict, said };
           }));

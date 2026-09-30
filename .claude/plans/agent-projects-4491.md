@@ -1,13 +1,14 @@
-# agent-projects-4491: #4491 slice 5b, an agent that makes a project is named as its maker and is on it
+# agent-projects-4491: an agent that makes a project is named as its maker and is on it (#4740)
 
-Card: joshualeestone/kosmos#4491 (claimed:angel). Built on slice 5a (`agent-writes-4491`: task add and task close)
+Card: joshualeestone/kosmos#4740 (claimed:angel), found while building #4491 and first called its "slice 5b". It has
+its own card because it is a change to what an agent-made project IS, not to which token opens a route. Built on slice 5a (`agent-writes-4491`: task add and task close)
 and slice 4 (`agent-reads-4491`: the three reads). Stacked on those until they merge; then rebased onto main.
 
 ## Finished looks like
 1. `POST /api/projects` (`kosmos project create`) names its caller the way the task verbs do (the agent token,
    else the pane as a roster target or through `messages.resolveSender`).
-2. When the caller is an identified agent, the project's record says it made it (`made.by`) and it is ON the
-   project, together with any members the request names.
+2. When the caller is an identified agent, the project's record says it made it (`made.by`). Unless it is the
+   setup guide, it is also ON the project, together with any members the request names.
 3. Both CLIs send the agent's own token on `kosmos project create`, plain hex only, and still send the board token.
 4. The route is still opened by the board token. An agent token alone does not make a project.
 5. The page, and a caller nobody can name (the person's terminal outside tmux), make exactly what they made before.
@@ -50,8 +51,12 @@ and had to carry an exception for these memberless projects. This slice makes th
   it made last week.
 
 ## What changes for callers that work today (stated)
-- A project an agent makes now has that agent on it: it shows on the project's member list on the page, the agent
-  is told about the project like any member, and it can post in its room.
+- A project an agent makes now has that agent on it: it shows on the project's member list on the page, its
+  instructions list the project (it is not typed at), it is sent the posts made in that room, and it can post
+  there.
+- The clock's Assigner does NOT start working such a project: an agent alone on a project it made is not handed
+  its tasks or asked about its goal, exactly as before (when the project listed nobody). With anyone else on the
+  project, the maker is an ordinary member and the Assigner works it as it works any staffed project.
 - As in slice 5a: a stale or unresolvable `KOSMOS_AGENT_TOKEN` now turns `kosmos project create` into a 403, and
   a token with an unreadable roster into a 503, where before the CLI sent no token.
 
@@ -61,6 +66,10 @@ and had to carry an exception for these memberless projects. This slice makes th
 - The person typing `kosmos project create` inside an AGENT's tmux pane is, to the board, that agent: the agent is
   recorded as the maker and put on the project. The board cannot tell the two apart (the same is true of every
   pane-named verb). The person removes it on the project's page if that is not what they wanted.
+
+- The maker's card can read "Kosmos changed its instructions, and told it on its screen" after it makes a
+  project. Nothing was typed by Kosmos; what was on its screen is the CLI's own "Created project ..." line. It
+  does know, so the restart prompt that sentence suppresses would be wrong too. Stated, not changed.
 
 ## Known limits
 - Advisory, as every slice: a caller holding the board token can send no token and no pane and make a project
@@ -83,6 +92,9 @@ nobody has ruled on a lead agent that sets up projects for others and does not w
   and slice 5a's exception keeps its tasks working.
 
 ## Tests
+- `engine/assigner.test.js` (1 new): the maker alone on its own project gets no task and no goal ask; the same
+  project is worked when the person made it, when another agent made it, and once a second member is on it.
+  Measured red with the skip removed.
 - `server.agent-projects-4491.test.js` (new, 9), projects made for real in the sandbox: an agent's token names it
   as the maker and puts it on the project, after which it adds a task and reads the room on its token alone while
   another agent is refused both; a pane names the maker too, and named members are kept with the maker listed
@@ -122,4 +134,18 @@ nobody has ruled on a lead agent that sets up projects for others and does not w
   projects: added.
 - NITs not taken: a trimmed-versus-untrimmed name comparison that cannot differ today; the guide is tested in its
   roster-name form only (the key form resolves the same folder).
+
+## Review round 3 (opus), a pass around the change: 0 BLOCKER, 2 WARNING, 1 CONVENTION, 3 NIT
+- W the Assigner (on by default) works any project an agent is on, so an agent-made project with a goal would now
+  be driven by the clock with no person involved: it skips an agent alone on a project it made. Tested with three
+  controls.
+- W the maker's card can say "told it on its screen" though Kosmos typed nothing: declared (above and in the
+  handler comment). Rejected: typing the join line into the maker's pane to make the sentence literally true
+  (round 1 removed it for the loop it opens), and teaching the override about makers (a second rule about the
+  same sentence in another engine).
+- C "the agent is told about the project like any member" was stale since round 1: reworded.
+- NITs: the guide comment says what its project lists; taken. Not taken: CLI tests for the two refusals on project
+  create (both CLIs print the board's sentence and exit 1 through the same arms the task verbs' tests cover).
+- Moved to its own card, #4740, in this round: the reviews showed this is a change to what an agent-made project
+  is (membership brings the room, the Assigner, the member list), which does not belong inside #4491.
 
