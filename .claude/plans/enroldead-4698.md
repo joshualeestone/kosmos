@@ -47,3 +47,7 @@ for a real cooldown. Test pins it; removing the fix fails it.
   passed by its callers).
 - Two comments that named plus-confirm or setup-complete as live were updated.
 - Web tests: 2204 of 2204 (2208 minus the four #1011 tests).
+
+## Review iteration 3 (changes)
+- The #1011 comment above PLUS_MSG_KIND and the browser-check README row both still described the
+  removed rule and arm; both now say what is true (comment and doc only).

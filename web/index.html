@@ -42232,7 +42232,12 @@ document.getElementById('plus-asks').addEventListener('click', (e) => {
    the Turn on / Turn off switch, and those happen WHILE connected -- wiping
    them would hide a real refusal to trade against a stale one. So the
    message remembers where it came from, and only a SETUP failure is
-   superseded by being connected. */
+   superseded by being connected.
+
+   #4698: that rule is gone with its only source. Setup failures came from the
+   connected flow's enrol pair, which could never show and was removed; the
+   sign-in wizard reports its own failures on its own step. PLUS_MSG_KIND is
+   still set by plusSay (the switch passes 'switch'), and nothing reads it. */
 let PLUS_MSG_KIND = '';
 let PLUS_ADDRESS = '';   // #1014: the address, when there is a real one
 function plusSay(text, kind) {
