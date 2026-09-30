@@ -2029,8 +2029,20 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   };
 
   if (asynchronousDelivery) {
+    /* #4765: every member AT ONCE, not one after another. Most of a delivery is a wait (the paste-to-Enter gap,
+       250 ms at least, 500 ms for Codex, Gemini, Grok and Antigravity), so a room of 20 made the person wait
+       about 6 s after Enter before the post appeared (measured; the page shows it only once this returns).
+       Safe to overlap: each member is its own pane, chat.deliverAsync already queues deliveries to one pane,
+       and what deliverOne shares (outcomes, spilled, the held posts) is keyed by the member's name. Each
+       deliverOne's synchronous part still runs in turn, in the members' order.
+       Every delivery is ALLOWED TO FINISH before the answer, so the person is never told "could not post"
+       while members are still being typed at; then the first failure is thrown, as the old loop threw it.
+       One difference, on purpose: the old loop stopped at a failure, so the members after it were never
+       tried; now they are. */
     const pending = (async () => {
-      for (const name of recipients) await deliverOne(name);
+      const settled = await Promise.allSettled(recipients.map((name) => deliverOne(name)));
+      const failed = settled.find((s) => s.status === 'rejected');
+      if (failed) throw failed.reason;
       return finishDeliveries();
     })();
     return operator === true ? pending : trackInFlight(postKey, pending);
