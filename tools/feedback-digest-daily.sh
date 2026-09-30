@@ -12,9 +12,11 @@
 # filing or commenting on cards, with FEEDBACK_DIGEST_MESSAGE_FILE naming a file that holds its own result. Then THAT
 # text is posted, verbatim, instead of the automatic summary (cut at a line break to fit one Discord message, and it
 # says so when cut). The pull, the card list and the triage are skipped (Echo already did that work); the lock, the
-# watermark (moves on a 200 only), at-least-once delivery, the token handling and the dry run are the same.
+# watermark (moves on a 200 only, to FEEDBACK_DIGEST_WATERMARK, the epoch Echo STARTED its pull, which this mode
+# requires), at-least-once delivery, the token handling and the dry run are the same.
 # The variable set to an empty value, a missing or unreadable file, or an empty one REFUSES (exit 2): falling back to
-# the automatic text would tell #admin nothing was triaged on a day it was.
+# the automatic text would tell #admin nothing was triaged on a day it was. A held lock in this mode exits 3 (not
+# posted), since the run that holds it will not post Echo's text.
 #
 # WHY ONLY SINCE THE LAST POST: over all time the store held 39 reports and about 105 candidates (measured
 # 2026-09-28); a digest of all of them every day would be the same wall each morning. A day's worth is a handful.
@@ -51,7 +53,26 @@ if [ -n "${FEEDBACK_DIGEST_MESSAGE_FILE+x}" ]; then
     log "REFUSED: FEEDBACK_DIGEST_MESSAGE_FILE is set but '${MSG_FILE}' is missing, unreadable or empty; nothing posted, the watermark stays"
     exit 2
   fi
+  # Review (warning 1): the watermark in this mode is the moment ECHO STARTED ITS PULL, not this run's start. A report
+  # that arrived while Echo was triaging is in neither Echo's pull nor, with the run start as watermark, tomorrow's
+  # window. Required, a whole number of seconds, and not in the future.
+  WM="${FEEDBACK_DIGEST_WATERMARK:-}"
+  case "$WM" in ''|*[!0-9]*)
+    log "REFUSED: a message file needs FEEDBACK_DIGEST_WATERMARK=<epoch seconds when the pull started>, got '${WM}'; nothing posted, the watermark stays"
+    exit 2 ;;
+  esac
+  if [ "$WM" -gt "$(date +%s)" ]; then
+    log "REFUSED: FEEDBACK_DIGEST_WATERMARK $WM is in the future; nothing posted, the watermark stays"; exit 2
+  fi
 fi
+# Review (warning 2): a run that steps aside for another one leaves Echo's message UNPOSTED, so in message-file mode it
+# is a failure (exit 3), not a quiet success. The automatic path keeps exit 0: the other run posts the same summary.
+step_aside() {
+  log "$1; this one does nothing"
+  rm -rf "$WORK"
+  if [ -n "$MSG_FILE" ]; then log "FAILED: the digest was NOT posted (another run holds the lock); run it again"; exit 3; fi
+  exit 0
+}
 mkdir -p "$STATE" && chmod 700 "$STATE" || { log "FAILED: no state folder $STATE"; exit 2; }
 WORK="$(mktemp -d)" || { log "FAILED: no temp folder"; exit 2; }
 # One run at a time (review 3: a launchd run and a manual one both posted). The lock holds its owner's pid.
@@ -64,14 +85,14 @@ if ! take_lock; then
   holder=$(cat "$LOCK/pid" 2>/dev/null)
   age=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || date +%s) ))
   if { [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null && [ "$age" -lt 3600 ]; } || { [ -z "$holder" ] && [ "$age" -lt 60 ]; }; then
-    log "another run (${holder:-starting}) is posting; this one does nothing"; rm -rf "$WORK"; exit 0
+    step_aside "another run (${holder:-starting}) is posting"
   fi
   if mv "$LOCK" "$STATE/lock.stale.$$" 2>/dev/null; then
     # If what we moved is not the stale lock we judged (another run took over in between), put it back.
     if [ "$(cat "$STATE/lock.stale.$$/pid" 2>/dev/null)" != "$holder" ] && [ ! -e "$LOCK" ]; then mv "$STATE/lock.stale.$$" "$LOCK" 2>/dev/null; fi
     rm -rf "$STATE/lock.stale.$$"
   fi
-  take_lock || { log "another run took the lock; this one does nothing"; rm -rf "$WORK"; exit 0; }
+  take_lock || step_aside "another run took the lock"
   log "took over a stale lock (${holder:-no pid}, ${age}s old)"
 fi
 trap 'rm -rf "$WORK"; [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"' EXIT
@@ -132,6 +153,7 @@ if (text.length <= MAX) { fs.writeFileSync(dst, text); process.exit(0); }
 let head = text.slice(0, MAX - NOTE.length);
 const nl = head.lastIndexOf('\n');
 if (nl > 0) head = head.slice(0, nl);
+else if (/[\ud800-\udbff]$/.test(head)) head = head.slice(0, -1);   // a mid-line cut never halves an emoji
 fs.writeFileSync(dst, head + NOTE);
 process.stderr.write('cut from ' + text.length + ' to ' + (head.length + NOTE.length) + ' characters\n');
 JS
@@ -167,7 +189,8 @@ fi
 if [ "$code" = 200 ]; then
   # Review 3: written beside and renamed into place, and checked. An unwritable state file used to log "posted" and
   # exit 0 while every later run re-posted everything since the stale watermark.
-  if printf '%s\n' "$RUN_START" > "$STATE/last-posted.tmp" && mv -f "$STATE/last-posted.tmp" "$STATE/last-posted"; then
+  NEW_WM="$RUN_START"; [ -n "$MSG_FILE" ] && NEW_WM="$WM"   # message-file mode: when Echo's pull started
+  if printf '%s\n' "$NEW_WM" > "$STATE/last-posted.tmp" && mv -f "$STATE/last-posted.tmp" "$STATE/last-posted"; then
     log "posted to #admin"; exit 0
   fi
   log "FAILED: posted, but could not record it in $STATE/last-posted; the next run will post these again"; exit 2

@@ -164,13 +164,17 @@ if FEEDBACK_DIGEST_CARDS_CMD="$T/cards2000.sh" run >/dev/null 2>&1; then fail "a
 # 7. #4415 wording: Echo's own result, FEEDBACK_DIGEST_MESSAGE_FILE, is posted VERBATIM instead of the automatic text.
 # The card list is made unreadable on purpose: with a message file the run must not need it (nor the pull).
 unset FEEDBACK_DIGEST_DRY_RUN
+# Echo's pull started ten minutes ago (warning 1: the watermark in this mode is that moment, not the run start).
+export FEEDBACK_DIGEST_WATERMARK=$((now - 600))
 echo "$((now - 3600))" > "$T/state/last-posted"; rm -f "$T/posted.json"; echo 200 > "$T/code"
-printf 'Reports read: 3 from 2 installs.\nCards filed: 1\n- #9001 Room scroll jumps to the top.\nHeld back: 1, `a` *quoted* <@123> line.\n\n' > "$T/echo.txt"
+printf 'Reports read: 3 from 2 installs.\nCards filed: 1\n- #9001 Room scroll jumps to the top.\nHeld back: 1, `a` *quoted* <@123> line.\n@everyone @here see above.\n\n' > "$T/echo.txt"
 out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" FEEDBACK_DIGEST_CARDS_CMD=false run 2>&1)" || fail "a message-file run failed: $out"
 jq -j .content "$T/posted.json" > "$T/posted.txt" || fail "no post for a message file"
 cmp -s "$T/posted.txt" "$T/echo.txt" || fail "the message file was not posted verbatim: $(cat "$T/posted.txt")"
 [ "$(jq -c '.allowed_mentions.parse' "$T/posted.json")" = '[]' ] || fail "a message-file post can mention people"
-w=$(cat "$T/state/last-posted"); [ "$w" -ge "$((now - 1))" ] || fail "the watermark did not move after a 200 with a message file"
+grep -q '@everyone' "$T/posted.txt" || fail "the @everyone line was not posted verbatim"   # ...and cannot ping:
+[ "$(jq -c '.allowed_mentions' "$T/posted.json")" = '{"parse":[]}' ] || fail "a message-file post with @everyone can ping"
+w=$(cat "$T/state/last-posted"); [ "$w" = "$FEEDBACK_DIGEST_WATERMARK" ] || fail "the watermark after a message-file 200 is $w, not Echo's pull start $FEEDBACK_DIGEST_WATERMARK"
 # ...and on a failed post the watermark stays.
 echo "$((now - 3600))" > "$T/state/last-posted"; echo 500 > "$T/code"
 if FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run >/dev/null 2>&1; then fail "a 500 with a message file exited zero"; fi
@@ -187,8 +191,35 @@ for f in "$T/empty.txt" "$T/blank.txt" "$T/no-such-file.txt" ""; do
   [ "$(cat "$T/state/last-posted")" = "$((now - 3600))" ] || fail "the watermark moved on a refused run ('$f')"
 done
 
+# 8b. The watermark: required in message-file mode, a number, not in the future.
+for wm in UNSET "" "yesterday" "12x" "$(( $(date +%s) + 86400 ))"; do
+  rm -f "$T/posted.json"
+  if [ "$wm" = UNSET ]; then out="$(env -u FEEDBACK_DIGEST_WATERMARK FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" bash "$REPO/tools/feedback-digest-daily.sh" 2>&1)"; rc=$?
+  else out="$(FEEDBACK_DIGEST_WATERMARK="$wm" FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?; fi
+  [ "$rc" = 2 ] || fail "a message file with watermark '$wm' exited $rc, not 2: $out"
+  printf '%s' "$out" | grep -q 'REFUSED: .*FEEDBACK_DIGEST_WATERMARK' || fail "no clear refusal for watermark '$wm': $out"
+  [ ! -f "$T/posted.json" ] || fail "a message file with watermark '$wm' posted"
+  [ "$(cat "$T/state/last-posted")" = "$((now - 3600))" ] || fail "the watermark moved on a refused run (watermark '$wm')"
+done
+
+# 8c. Warning 1: a report that arrived AFTER Echo's pull started but before this run is in the NEXT automatic window.
+rm -f "$T/reports/"*.md 2>/dev/null; rm -f "$T/posted.json"
+report 2026-09-30-mid-triage.md $((now - 300)) 'The provider sheet is broken and loses the key while Echo was triaging.'
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)" || fail "the message-file run before the window check failed: $out"
+rm -f "$T/posted.json"; out="$(run 2>&1)" || fail "the automatic run after Echo's post failed: $out"
+jq -r .content "$T/posted.json" 2>/dev/null | grep -q 'loses the key while Echo' || fail "a report that arrived while Echo triaged was skipped for good: $out"
+
+# 8d. Warning 2: a held lock in message-file mode is a failure (Echo's text is NOT posted), never a quiet exit 0.
+echo "$((now - 3600))" > "$T/state/last-posted"; mkdir "$T/state/lock" && echo $$ > "$T/state/lock/pid"; rm -f "$T/posted.json"
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
+[ "$rc" = 3 ] || fail "a message-file run beside a held lock exited $rc, not 3: $out"
+printf '%s' "$out" | grep -q 'the digest was NOT posted' || fail "a locked-out message-file run did not say it was not posted: $out"
+[ ! -f "$T/posted.json" ] || fail "a locked-out message-file run posted"
+out="$(run 2>&1)"; rc=$?; [ "$rc" = 0 ] || fail "the automatic path beside a held lock changed its exit ($rc): $out"
+rm -rf "$T/state/lock"
+
 # 9. A message longer than one Discord message is cut at a line break, and says so.
-: > "$T/long.txt"; for i in $(seq 1 120); do printf 'Line %03d: a card that was filed today, one line each.\n' "$i" >> "$T/long.txt"; done
+: > "$T/long.txt"; for i in $(seq 1 120); do printf 'Line %03d: a card that was filed today, one line each. \360\237\220\233\n' "$i" >> "$T/long.txt"; done
 rm -f "$T/posted.json"
 out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/long.txt" run 2>&1)" || fail "a long message file failed: $out"
 printf '%s' "$out" | grep -q 'longer than one Discord message' || fail "a cut was not logged: $out"
@@ -205,4 +236,4 @@ out="$(FEEDBACK_DIGEST_DRY_RUN=1 FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run)
 printf '%s' "$out" | grep -q '#9001 Room scroll jumps' || fail "the dry run did not print the message file: $out"
 [ ! -f "$T/posted.json" ] || fail "a message-file dry run posted"
 
-echo "PASS: feedback-digest-daily (message file verbatim, refusals, cut at a line break, message-file dry run, nothing new, posted, mid-post arrival once, unwritable watermark, lock races, future watermark, failed post, dry run, no cards, card list at its limit)"
+echo "PASS: feedback-digest-daily (message file verbatim with @everyone unpinged, refusals, watermark required and used, lock refusal, cut at a line break, message-file dry run, nothing new, posted, mid-post arrival once, unwritable watermark, lock races, future watermark, failed post, dry run, no cards, card list at its limit)"
