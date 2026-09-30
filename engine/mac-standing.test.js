@@ -318,7 +318,7 @@ test('#4731, #4743: with the switch OFF an enrolled computer is still heard from
   assert.notDeepEqual(JSON.parse(on.calls[0].stdin).remote, { on: false }, 'the switch ON must not send the off body');
 });
 
-test('#4743: flipping the switch tells the coordinator at once, off and on, not at the next cadence', async () => {
+test('#4743: switching remote access off tells the coordinator at once, not at the next cadence (up to 12 h)', async () => {
   enroll(true);
   // Fresh on this cadence: without the flip hook nothing would be due for a long while.
   const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
