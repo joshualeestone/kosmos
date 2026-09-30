@@ -370,6 +370,7 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
     // Review 5: nor is one made well AFTER it. A lost POST commits within seconds of the try (the client gives up at
     // timeoutMs), so an account made later is somebody's who took the name while ours sat unanswered (a week off, a
     // sleeping Mac, a run of 5xx lookups). Only an account made within the margin either side is taken as ours.
+    // A missing or unreadable registered_at cannot say "not ours", so the name is held: no twin, the safe side.
     const notOurs = Number.isFinite(madeAt) && Number.isFinite(triedAt)
       && (madeAt < triedAt - REGISTER_CLOCK_SKEW_MS || madeAt > triedAt + REGISTER_CLOCK_SKEW_MS);
     if (look.status === 200 && notOurs) {
@@ -395,7 +396,9 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
   }
   const base = reg.name;
   for (let i = 0; i < 3; i++) {
-    keys[agentKey] = { registering: { name: reg.name, at: new Date(now).toISOString() } };
+    // The wall clock at the POST, not the sweep's `now` (review 6): a sweep working through a slow backlog can reach
+    // this register many minutes after it began, and the age check compares this time with the account's.
+    keys[agentKey] = { registering: { name: reg.name, at: new Date().toISOString() } };
     saveJson(keysFile(), keys);                       // written ahead, so a lost answer is looked up, not repeated
     const r = await request('POST', '/agents/register', { ...ctx, body: reg });
     if (r.status === 201 && r.json && typeof r.json.api_key === 'string' && typeof r.json.token === 'string') {

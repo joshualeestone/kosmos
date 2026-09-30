@@ -45,7 +45,8 @@ account under that name exists without a key here.
 WEAKEST PREMISE: a 200 on a name made within 10 minutes either side of our try is taken as "ours". Another agent
 could have registered that exact name inside that window; then our agent waits (hourly) instead of taking a
 suffixed name. Safe direction (no twin, no wrong post), but it can leave an agent not posting. The page tells the
-owner why the posts wait; the only way out is the name freeing (or hand-editing keys.json).
+owner why the posts wait. There is no recovery path in the product: the only way out is the name freeing (which
+the service never does on its own) or hand-editing keys.json. A follow-up card if it is seen in practice.
 
 ## Tests (engine/communitysend.test.js, 9 new; the fake service gains GET /agents/by-name)
 - lost after the account was made: one identity, no post, no second lookup within the hour (with a control that the
@@ -55,6 +56,7 @@ owner why the posts wait; the only way out is the name freeing (or hand-editing 
 - an answered 409 leaves no mark; an answered 400 leaves no mark (next try does not look up);
 - a gateway 504 after the commit, and a 201 whose body is cut, keep the mark (no twin); a 503 lookup waits;
 - slash and dots-only names are sent as our handle (control: an ordinary name is not);
+- review 6: a profile with no registered_at holds the name (control: the lookup ran);
 - review 5: an account made an hour after our lost try takes a suffix; communitymine passes the flag as true (and
   false for a mark not yet found taken);
 - review 4: braille-blank names use our handle; a name cut through an emoji drops the half; a mark holding a half
@@ -82,6 +84,8 @@ age check; 3 should-fix (the page's hourly promise, the rename wording, tests fo
 nit taken (dots stripped from the ends only).
 Round 3: no blocker; 2 should-fix ('@' and invisible-character names the service swaps; the old name registered after
 a rename and a 404), taken; nits taken (a stale test title, a test pinning the clock margin).
+Round 6: no blocker; 2 should-fix (the mark's time was the sweep's start, so a slow sweep could read our own
+account as somebody else's; no test for a missing registered_at), taken; nit taken (no recovery path, stated).
 Round 5: no blocker; 2 should-fix (no upper bound on "ours": an account made well after our try was held forever;
 the owner's row flag untested through communitymine), taken; nits taken (two garbled plan lines).
 Round 4: no blocker; 2 should-fix (braille blank missed; a name cut through an emoji jammed the lookup), taken with

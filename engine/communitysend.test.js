@@ -1115,3 +1115,30 @@ test('#4800 review 5: an account made well AFTER our lost try (the name taken wh
   assert.match(registers().map((x) => x.body.name).at(-1), /^Kit-[0-9a-f]{4}$/, 'a later account was taken for ours and the agent held');
   assert.equal(cs.statuses()[r.id].state, 'sent');
 });
+
+test('#4800 review 6: a lookup whose profile carries no registered_at holds the name rather than register a twin', async () => {
+  await on();
+  store.writeProfile('lux', { displayName: 'Lux' });
+  const r = agentPost('lux', { topic: 't', body: 'b' });
+  loseRegister('before');
+  await cs.sweep();
+  be.st.agents.set('n', { id: 'n', name: 'Lux', key: 'k', token: 't', active: true, registeredAt: null });
+  await cs.sweep();
+  assert.equal(lookups().length, 1, 'CONTROL: the name was not looked up');
+  assert.equal(registers().length, 0, 'a missing registered_at was read as somebody else\'s account');
+  assert.equal(cs.statuses()[r.id].agentNameUnclaimed, true);
+});
+
+test('#4800 review 6: a sweep that reaches the register long after it began still recognises its own lost account', async () => {
+  await on();
+  store.writeProfile('mae', { displayName: 'Mae' });
+  const r = agentPost('mae', { topic: 't', body: 'b' });
+  loseRegister('after');
+  // A sweep that began 30 minutes ago (a slow backlog ahead of this agent) reaches the register now; the service
+  // stamps the account with the real time, 30 minutes after that sweep's `now`.
+  await cs.sweep(Date.now() - 30 * 60 * 1000);
+  assert.equal(be.st.agents.size, 1, 'CONTROL: the lost register did not make the account');
+  await cs.sweep();
+  assert.equal(registers().length, 1, 'our own account was taken for somebody else\'s');
+  assert.equal(cs.statuses()[r.id].agentNameUnclaimed, true);
+});
