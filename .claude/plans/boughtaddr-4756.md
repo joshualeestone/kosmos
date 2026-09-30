@@ -38,3 +38,9 @@ hold ends by itself after 31 minutes) change nothing this branch relies on.
   taken", "already in use by a computer on this account", "needs an address you have bought"); anything else keeps
   Try again on the same address. That includes the engine's "may be held by an earlier sign-in on this computer": the
   address is this person's, and once they remove the stale entry on the account page, Try again works.
+- ROLLOUT ORDER: the coordinator's switch (KOSMOS_BOUGHT_ADDRESSES) must not go on before a Kosmos build whose
+  tunnel binary has `signin addresses` is out. Before that, a second computer still falls back to the old step and
+  is refused by the coordinator's 402, which works but is the degraded path. Recorded on kosmos#4754.
+- Refusal recognition rests on the coordinator's own sentences (and the `address_not_bought` code, if the tunnel
+  prints it). A wording change on the server would turn a refused pick into Try again on the same address: safe,
+  not stuck (Sign out still works), but worth a code in the tunnel's output. Asked on kosmos#4754.

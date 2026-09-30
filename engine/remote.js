@@ -1952,16 +1952,27 @@ function turnOnAfterSignin() {
    Answers { live:false } with the switch off (the wizard is exactly as before), else the rows in their own
    shapes only, the website's buy link (https only), and this computer's own name if it is set up. */
 const BOUGHT_STATES = new Set(['in_use', 'free', 'pending']);
+// Well inside the page's 15 s (PLUS_ASK_TIMEOUT_MS), so a slow but working read is not lost to the page's own timer.
+const ADDR_META_MS = 4000, ADDR_READ_MS = 8000;
+let addressesInFlight = null;   // one read at a time: a second caller shares it rather than spawning another binary
 async function signinAddresses(opts) {
+  if (addressesInFlight && !(opts && (opts.fetch || opts.timeoutMs))) return addressesInFlight;
+  const run = signinAddressesOnce(opts);
+  addressesInFlight = run;
+  try { return await run; } finally { if (addressesInFlight === run) addressesInFlight = null; }
+}
+async function signinAddressesOnce(opts) {
   opts = opts || {};
   const get = typeof opts.fetch === 'function' ? opts.fetch : fetch;
   // No session, no call at all (not even /v1/meta): there is nothing to list without one.
   if (!signinSession || typeof signinSession.token !== 'string') return { ok: false, because: 'finish the code steps first' };
   const token = signinSession.token;   // taken now: a Sign out during the switch read below must not throw here
-  const live = process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES === '1' || (await fetchMetaFlag('bought_addresses', { fetch: get, timeoutMs: opts.timeoutMs })) === true;
+  // AGENT_WORKFORCE_BOUGHT_ADDRESSES=1 is for testing against a coordinator whose switch is off; it only changes what the
+  // step offers (the coordinator still refuses an address not bought).
+  const live = process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES === '1' || (await fetchMetaFlag('bought_addresses', { fetch: get, timeoutMs: opts.timeoutMs || ADDR_META_MS })) === true;
   if (!live) return { ok: true, because: null, data: { live: false } };
   if (!signinSession || signinSession.token !== token) return { ok: false, because: 'the sign-in ended; start again from the email' };
-  const r = parseSaid(await setupRun(['signin', 'addresses', '--coordinator', COORDINATOR()], token, opts.timeoutMs || FED_LIVE_TIMEOUT_MS * 2));
+  const r = parseSaid(await setupRun(['signin', 'addresses', '--coordinator', COORDINATOR()], token, opts.timeoutMs || ADDR_READ_MS));
   if (!r.ok) return { ok: false, because: String(r.because || 'Kosmos+ could not list your addresses').slice(0, 300) };
   const body = r.data;
   const rows = (body && Array.isArray(body.addresses) ? body.addresses : [])
