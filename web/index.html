@@ -43635,7 +43635,7 @@ document.getElementById('plus-si-enrol-confirm-go').addEventListener('click', as
 let PLUS_SI_SESSION = null;
 let PLUS_SI_PICKED = false;   // the register now running came from the bought-address list
 let PLUS_SI_RETRY_FROM_LIST = false;
-let PLUS_SI_REFUSED = [];    // addresses refused in this sign-in: never offered again, whatever a re-read says
+let PLUS_SI_REFUSED = [];    // addresses refused in this sign-in: never offered or registered to again, whatever a re-read says
 let PLUS_SI_UNREAD = false;  // the first read failed (not a switch that is off), so the old step ran without a list
 let PLUS_SI_BOUGHT_SEQ = 0;
 let PLUS_SI_BOUGHT_LAST = null;   // the last list shown, re-shown when a re-read fails
@@ -43714,12 +43714,13 @@ async function plusSiSession(data, again, keep) {
   /* This computer already holds one of the account's addresses (set up before, signing in again): it keeps it. */
   const mine = b && b.this_name ? b.addresses.filter((r) => r.name === b.this_name)[0] : null;
   // A register that goes ahead does not keep a refusal's words beside it (again: after a refused pick).
-  if (mine && !(own && mine.name === own[1])) { if (again) plusSiMsg(''); plusSiRegisterMode(mine.address); plusSiShow('plus-si-register'); plusSiDoRegister(mine.name, mine.name); return; }
+  if (mine && !(own && mine.name === own[1]) && PLUS_SI_REFUSED.indexOf(mine.name) === -1) { if (again) plusSiMsg(''); PLUS_SI_PICKED = true; plusSiRegisterMode(mine.address); plusSiShow('plus-si-register'); plusSiDoRegister(mine.name, mine.name); return; }
   /* As before: no list (switch off, or not readable on the first read), or the account's own address when it is free
      (or absent from the list, failing open) or already this computer's. A PENDING one is not bought yet, and an
      account with no address cannot name one here: both get the list, or the way to buy one. */
-  const asBefore = !b || (own && (!ownRow || ownRow.state === 'free' || b.this_name === own[1]));
-  if (asBefore) { if (again) plusSiMsg(''); plusSiAsBefore(data); return; }
+  const asBefore = !b || (own && PLUS_SI_REFUSED.indexOf(own[1]) === -1 && (!ownRow || ownRow.state === 'free' || b.this_name === own[1]));
+  /* With a list in hand, an automatic register is still a choice from it: a refusal goes back to the list. */
+  if (asBefore) { if (again) plusSiMsg(''); if (b) PLUS_SI_PICKED = true; plusSiAsBefore(data); return; }
   plusSiBoughtPick(b);
 }
 function plusSiBoughtPick(b) {
