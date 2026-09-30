@@ -11131,8 +11131,9 @@ window.kosmosMeasureScrollbarWidth();
         <div id="d-qask-codex" hidden>
           <p class="fhint" id="d-qask-codex-what" style="margin:4px 0 8px;"></p>
           <div class="frow" style="gap:8px;flex-wrap:wrap;">
-            <button class="btn" id="d-qask-codex-trust" type="button">Trust them</button>
-            <button class="btn btn-quiet" id="d-qask-codex-skip" type="button">Continue without them</button>
+            <button class="btn" id="d-qask-codex-skip" type="button">Continue without them</button>
+            <button class="btn btn-quiet" id="d-qask-codex-trust" type="button">Trust all of them</button>
+            <button class="btn" id="d-qask-codex-close" type="button" hidden>Close the list</button>
           </div>
           <p class="fmsg" id="d-qask-codex-msg" role="status" aria-live="polite"></p>
         </div>
@@ -34049,6 +34050,8 @@ async function paintTalk(sessionName, agentName) {
   if (qTrust) qTrust.hidden = true;
   const qCodex = document.getElementById('d-qask-codex');
   if (qCodex) qCodex.hidden = true;
+  /* A line left from an earlier answer goes with the question it answered (review round 1). */
+  if (!(body.asking && body.codexHooks)) { const m = document.getElementById('d-qask-codex-msg'); if (m) m.textContent = ''; }
   if (body.answerNote) {
     /* #2129 folder-trust recovery: the ONLY state that still shows this box. The
        trust-dialog question is itself an ordinary thread bubble now (engine
@@ -34061,14 +34064,25 @@ async function paintTalk(sessionName, agentName) {
     /* #4607: only what the screen says. The count from the menu, the events from the table, the source from one
        hook's page; a missing fact is left out, never guessed. */
     const h = body.codexHooks;
+    const listOpen = h.screen === 'trusted';
     const n = typeof h.count === 'number' && h.count > 0 ? h.count : null;
     const events = Array.isArray(h.events) ? h.events.map((e) => e && e.event).filter(Boolean) : [];
-    qlab.textContent = name + ' needs you to decide about Codex hooks.';
-    document.getElementById('d-qask-codex-what').textContent =
-      'Codex found ' + (n ? n + (n === 1 ? ' hook' : ' hooks') : 'hooks') + ' it has not been told to trust'
-      + (events.length ? ' (' + events.join(', ') + ')' : '')
-      + (h.source ? ', from ' + h.source : '')
-      + '. Trusted hooks run outside the sandbox. If you are not sure, continue without them.';
+    /* The trusted-but-open list (a dropped Escape after trusting): only Close. Otherwise the two choices, and the
+       summary says Trust covers every hook Codex lists (from one hook's page the screen names only that one). */
+    document.getElementById('d-qask-codex-trust').hidden = listOpen;
+    document.getElementById('d-qask-codex-skip').hidden = listOpen;
+    document.getElementById('d-qask-codex-close').hidden = !listOpen;
+    if (listOpen) {
+      qlab.textContent = name + '\u2019s Codex hooks are trusted, and their list is still open.';
+      document.getElementById('d-qask-codex-what').textContent = 'Close the list and Codex carries on.';
+    } else {
+      qlab.textContent = name + ' needs you to decide about Codex hooks.';
+      document.getElementById('d-qask-codex-what').textContent =
+        'Codex found ' + (n ? n + (n === 1 ? ' hook' : ' hooks') : 'hooks') + ' it has not been told to trust'
+        + (events.length ? ' (' + events.join(', ') + ')' : '')
+        + (h.source ? ', from ' + h.source : '')
+        + '. Trusting covers every hook Codex lists, and trusted hooks run outside the sandbox. If you are not sure, continue without them.';
+    }
     qCodex.hidden = false;
   } else {
     /* Every other state -- a regular needs_you question, a stranded "Issue", or
@@ -35278,7 +35292,7 @@ function openDetail(sessionName, section, fromProject) {
      disabled; the leaving agent's own finally re-enable is a harmless no-op). */
   { const b = document.getElementById('d-qask-trust-restart'); if (b) b.disabled = false; }
   /* #4607: the Codex hook buttons, the same way. */
-  for (const id of ['d-qask-codex-trust', 'd-qask-codex-skip']) { const b = document.getElementById(id); if (b) b.disabled = false; }
+  for (const id of ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close']) { const b = document.getElementById(id); if (b) b.disabled = false; }
   { const m = document.getElementById('d-qask-codex-msg'); if (m) m.textContent = ''; }
   /* #2808: re-enable the chat-box dismiss for the agent we are opening, same as
      the trust-restart button above. */
@@ -40899,28 +40913,31 @@ document.getElementById('d-qask-trust-restart').addEventListener('click', async 
 async function answerCodexHooksFromBox(choice) {
   if (!CURRENT) return;
   const forAgent = CURRENT.sessionName;
-  const trust = document.getElementById('d-qask-codex-trust');
-  const skip = document.getElementById('d-qask-codex-skip');
+  const buttons = ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close'].map((id) => document.getElementById(id));
   const msg = document.getElementById('d-qask-codex-msg');
-  trust.disabled = true; skip.disabled = true;
-  msg.textContent = choice === 'trust' ? 'Trusting the hooks…' : 'Continuing without the hooks…';
+  buttons.forEach((b) => { b.disabled = true; });
+  msg.textContent = choice === 'trust' ? 'Trusting the hooks\u2026' : (choice === 'close' ? 'Closing the list\u2026' : 'Continuing without the hooks\u2026');
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/codex-hooks',
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ choice }) });
     const r = await res.json().catch(() => ({}));
     if (CURRENT && CURRENT.sessionName === forAgent) {
+      /* Done means what was seen: its screen stopped asking about hooks (review round 1: not a claim about what
+         Codex does next). */
       msg.textContent = (res.ok && r.ok)
-        ? (choice === 'trust' ? 'Done. The hooks are trusted and Codex is carrying on.' : 'Done. Codex is carrying on without them.')
+        ? (choice === 'trust' ? 'Done. The hooks are trusted, and its screen is no longer asking about them.'
+          : (choice === 'close' ? 'Done. The list is closed.' : 'Done. It is carrying on without the hooks.'))
         : (r.because || r.error || 'We could not answer it. Look at its window.');
     }
   } catch {
     if (CURRENT && CURRENT.sessionName === forAgent) msg.textContent = 'We could not reach Kosmos to answer it.';
   } finally {
-    trust.disabled = false; skip.disabled = false;
+    buttons.forEach((b) => { b.disabled = false; });
   }
 }
 document.getElementById('d-qask-codex-trust').addEventListener('click', () => answerCodexHooksFromBox('trust'));
 document.getElementById('d-qask-codex-skip').addEventListener('click', () => answerCodexHooksFromBox('skip'));
+document.getElementById('d-qask-codex-close').addEventListener('click', () => answerCodexHooksFromBox('close'));
 
 /* Open Terminal (Josh 0.6.44): POST /api/agent/<name>/launch-terminal (Pete's route)
    attaches a Terminal.app window to the agent's live tmux session so the person can watch

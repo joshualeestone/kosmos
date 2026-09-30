@@ -6082,7 +6082,13 @@ const server = http.createServer(async (req, res) => {
      is the person's only: not an agent-token route (AGENT_TOKEN_ROUTES), and refused when the caller presents an agent
      token or is not a browser page (isViaScreen, checked after the body is read so a token in the body counts).
      ADVISORY, as for the board's other person-only routes: a local process holding the board token can send a
-     browser's headers. The answer itself is chat.answerCodexHooks: the screen is read again before every key. */
+     browser's headers, and an agent's own CLI can read the board token today (#4491, open: keep it out of agents'
+     reach). What that leaves, stated: a local agent that takes the board token and forges those headers could trust
+     another Codex agent's hooks. An agent with an unsandboxed shell gains nothing by it (it could write Codex's own
+     config, ~/.codex/config.toml [hooks.state], directly). An agent that can read the token and reach the board but
+     cannot write outside its folder WOULD gain it: Codex's default sandbox denies network, so that needs a loosened
+     sandbox, but the gap is real and #4491 is what closes it (the gate then refuses agents, with no change here). The answer itself is chat.answerCodexHooks:
+     the screen is read again before every key. */
   const codexHooks = pathname.match(/^\/api\/agent\/([^/]+)\/codex-hooks$/);
   if (codexHooks && req.method === 'POST') {
     const name = decodeSegment(codexHooks[1]);
@@ -6093,7 +6099,7 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
         if (!isViaScreen(req, body)) { sendJson(res, 403, { ok: false, because: 'only you can answer this, from the board' }); return; }
         const choice = body.choice;
-        if (choice !== 'trust' && choice !== 'skip') { sendJson(res, 400, { ok: false, because: 'choose to trust the hooks or to continue without them' }); return; }
+        if (choice !== 'trust' && choice !== 'skip' && choice !== 'close') { sendJson(res, 400, { ok: false, because: 'choose to trust the hooks or to continue without them' }); return; }
         const r = await chat.answerCodexHooks(name, choice, safeRoster());
         sendJson(res, 200, { ok: r.ok === true, choice, because: r.ok ? null : r.because });
       })

@@ -1191,6 +1191,9 @@ function answerGeminiQuotaStop(sessionName, roster) {
 /* #4607: how long a Codex screen settles before a key: a key sent the instant a screen draws is dropped (measured
    twice on 0.149.1, a "2" before the menu drew and a "t" as the table drew). */
 const CODEX_HOOK_SETTLE_MS = 1500;
+/* #4607 (review round 1): one answer per agent at a time. Two surfaces (the app and a browser tab) answering at once
+   would each read the menu before Codex redrew, and the second key would land in its composer. */
+const CODEX_HOOK_BUSY = new Set();
 /**
  * #4607: the PERSON answers Codex's "Hooks need review" from the board: choice 'trust' (every hook it lists) or
  * 'skip' (continue without trusting; the hooks do not run). The only caller is the owner-only route; no message path
@@ -1210,7 +1213,13 @@ const CODEX_HOOK_SETTLE_MS = 1500;
 async function answerCodexHooks(sessionName, choice, roster) {
   const keys = [];
   const no = (because) => ({ ok: false, because, keys });
-  if (choice !== 'trust' && choice !== 'skip') return no('choose to trust the hooks or to continue without them');
+  if (choice !== 'trust' && choice !== 'skip' && choice !== 'close') return no('choose to trust the hooks or to continue without them');
+  const lockKey = String(sessionName == null ? '' : sessionName);
+  if (CODEX_HOOK_BUSY.has(lockKey)) return no('an answer to its hook question is already being sent; wait a moment');
+  CODEX_HOOK_BUSY.add(lockKey);
+  try { return await answerCodexHooksOnce(sessionName, choice, roster, keys, no); } finally { CODEX_HOOK_BUSY.delete(lockKey); }
+}
+async function answerCodexHooksOnce(sessionName, choice, roster, keys, no) {
   const allowed = addressable(sessionName, roster);
   if (!allowed.ok) return no(allowed.because);
   const card = allowed.card;
@@ -1223,9 +1232,9 @@ async function answerCodexHooks(sessionName, choice, roster) {
     const text = view && typeof view.text === 'string' ? view.text : null;
     if (text === null) return { unseen: true };
     const seen = status.codexHookReview(text);
-    if (seen) return { screen: seen.screen };
-    if (status.codexHookTrustedTable(text)) return { screen: 'trusted' };
-    return { screen: null };
+    if (seen) return { screen: seen.screen, text };
+    if (status.codexHookTrustedTable(text)) return { screen: 'trusted', text };
+    return { screen: null, text };
   };
   const press = (key) => {
     const got = tmux(['send-keys', '-t', t, key]);
@@ -1236,18 +1245,26 @@ async function answerCodexHooks(sessionName, choice, roster) {
   let now = look();
   if (now.unseen) return no('we could not see its screen just now, so nothing was pressed');
   if (!now.screen) return no('the hook question is not on its screen now, so nothing was pressed');
-  if (now.screen === 'trusted') return no('its hooks are already trusted and their list is open; close it in its window');
+  /* The trusted-but-open list takes only Close (the card offers only that there); anything else is refused, because
+     "continue without" would claim a choice that was already made the other way. */
+  if (now.screen === 'trusted' && choice !== 'close') return no('its hooks are already trusted and their list is still open; close the list');
+  if (now.screen !== 'trusted' && choice === 'close') return no('there is no open hook list to close on its screen now, so nothing was pressed');
   /* At most four keys (hook -> table -> trusted table -> prompt); a screen that does not move stops the loop. */
   for (let step = 0; step < 4; step += 1) {
-    let key;
-    if (now.screen === 'menu') key = choice === 'trust' ? '2' : '3';
-    else if (now.screen === 'table') key = choice === 'trust' ? 't' : 'Escape';
-    else if (now.screen === 'hook') key = 'Escape';
-    else if (now.screen === 'trusted') key = choice === 'trust' ? 'Escape' : null;
-    if (!key) return no('its screen changed to something we did not expect, so nothing more was pressed; look at its window');
-    /* Read again immediately before the key: the screen must still be the one this key was measured on. */
+    /* Read again immediately before the key: the screen must still be the one this key was measured on, and on the
+       menu the key is the digit printed beside the chosen option on THIS read (never its position, review round 1). */
     const before = look();
     if (before.screen !== now.screen) return no('its screen changed before we could answer, so nothing more was pressed; look at its window');
+    let key;
+    if (now.screen === 'menu') {
+      const mk = status.codexHookMenuKeys(before.text);
+      key = choice === 'trust' ? mk.trust : mk.skip;
+      if (!key) return no('the hook question on its screen does not show that choice the way we know it, so nothing was pressed; look at its window');
+    }
+    else if (now.screen === 'table') key = choice === 'trust' ? 't' : 'Escape';
+    else if (now.screen === 'hook') key = 'Escape';
+    else if (now.screen === 'trusted') key = (choice === 'trust' || choice === 'close') ? 'Escape' : null;
+    if (!key) return no('its screen changed to something we did not expect, so nothing more was pressed; look at its window');
     if (!press(key)) return no('we could not press the key; look at its window');
     await wait(CODEX_HOOK_SETTLE_MS);
     const after = look();
@@ -1284,7 +1301,8 @@ function codexScreenRefusal(card, sessionName, roster) {
   const view = viewport(sessionName, roster);
   if (!view || typeof view.text !== 'string') return status.CODEX_UNSEEN_SENTENCE;
   if (!view.text.trim()) return status.CODEX_STARTING_SENTENCE;
-  return status.codexHookReview(view.text) !== null ? status.CODEX_HOOK_DIALOG_SENTENCE : null;
+  /* #4607: the trusted-but-open list too (a typed key there is unmeasured; Close answers it from the board). */
+  return (status.codexHookReview(view.text) !== null || status.codexHookTrustedTable(view.text)) ? status.CODEX_HOOK_DIALOG_SENTENCE : null;
 }
 
 /**

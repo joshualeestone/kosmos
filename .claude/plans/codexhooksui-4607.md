@@ -3,10 +3,10 @@
 Card: kosmos#4607 (follow-up to #4589, merged as PR #4689). Josh does not use a terminal.
 
 ## Done looks like
-With untrusted hooks present, the person answers the dialog from the agent's card (Trust these hooks, or Continue
-without trusting), no terminal, and the agent reaches its prompt. The same answer attempted with an agent token, or
-through any message path (chat, `kosmos msg`, a room post, a task line), is refused (tested both ways). A stale
-button (the dialog gone or changed) presses nothing.
+With untrusted hooks present, the person answers the dialog from the agent page (Continue without them, or Trust all
+of them), no terminal, and the dialog leaves its screen. The same answer attempted with an agent token, or through
+any message path (chat, `kosmos msg`, a room post, a task line), is refused (tested both ways). A stale button (the
+dialog gone or changed) presses nothing. NOT claimed: that no local agent can ever reach the route (see Residual).
 
 ## Keys (measured 2026-09-30 on a live pane, Codex 0.149.1, an isolated CODEX_HOME, a scratch project with one
 ## `true` Stop hook and one `true` SubagentStop hook; every key sent only after its screen's footer was on screen)
@@ -25,15 +25,28 @@ button (the dialog gone or changed) presses nothing.
 - engine/chat.js `answerCodexHooks(session, choice, roster)`, choice `trust` | `skip`, following
   `answerGeminiQuotaStop`: a fresh `status.capturePane` read immediately before each key; act only on a screen
   `status.codexHookReview` recognises; then confirm the screen changed as measured.
-  - trust: MENU -> `2`. TABLE -> `t`, confirm the "view hooks" footer, then Esc. HOOK -> Esc to TABLE, then as TABLE.
-  - skip: MENU -> `3`. TABLE -> Esc. HOOK -> Esc to TABLE, then Esc.
+  - trust: MENU -> the digit beside "Trust all and continue". TABLE -> `t`, confirm the "view hooks" footer, then Esc.
+    HOOK -> Esc to TABLE, then as TABLE.
+  - skip: MENU -> the digit beside "Continue without trusting". TABLE -> Esc. HOOK -> Esc to TABLE, then Esc.
+  - Round 1: menu digits are read from the option text on the same read that precedes the key (a reordered menu got
+    Trust for Continue before); a missing option presses nothing. One answer per agent at a time (two surfaces
+    answering at once typed the second key into the composer). The trusted-but-open list (a dropped Escape after `t`)
+    reads as needs-you, is refused by #4589's message floor, and takes only Close (Escape).
   - Done when the dialog is gone from a fresh read; otherwise it says what it saw and stops (no retry loop).
   - These keys bypass #4589's refusal only inside this function; the message path's floor is unchanged.
 - Route `POST /api/agent/<name>/codex-hooks { choice }`: the person's board credential only (as #2808's grant),
   refused for an agent token. No chat, msg, post or task path reaches it.
-- Card: when an agent reads "waiting on a Codex hook approval", show the question, the hooks named (event and
-  source, from the screen when shown), and two buttons (Trust these hooks / Continue without trusting); leaving it
-  is simply not pressing.
+- Page (the agent page's needs-you box, where the folder-trust recovery lives): the label, a summary of only what the
+  screen said (count, events, source) plus "Trusting covers every hook Codex lists", and two buttons: Continue without
+  them (the main one, the safe choice) and Trust all of them. The open list shows only Close the list. "Done" says what
+  was seen (its screen stopped asking), not what Codex does next.
+
+## Residual (review round 1, stated rather than overclaimed)
+The route refuses an agent token and a caller with no browser headers, and it is not an agent-token route. That is
+advisory: a local process with the board token can send browser headers, and an agent's own CLI can read the board
+token until #4491 lands. An unsandboxed agent gains nothing by it (it could write ~/.codex/config.toml [hooks.state]
+itself). A sandboxed agent that can read the token and reach the board but not write outside its folder would gain
+it; Codex's default sandbox denies network, so that needs a loosened sandbox. #4491 closes it at the gate.
 
 ## Weakest premise
 That 0.149.1's screens and keys hold for the Codex the person runs. A newer Codex (0.159.2 exists) may word the

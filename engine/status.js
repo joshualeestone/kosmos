@@ -1648,7 +1648,7 @@ const CODEX_HOOK_DIALOG_SENTENCE = 'it is waiting on a Codex hook approval: Code
 function isCodexHookEvidence(evidence) {
   return typeof evidence === 'string'
     && (CODEX_HOOK_MENU_TITLE.test(evidence) || CODEX_HOOK_TABLE_WARNING.test(evidence) || CODEX_HOOK_TABLE_FOOTER.test(evidence)
-      || /^Press t to trust; esc to go back$/.test(evidence));
+      || /^Press t to trust; esc to go back$/.test(evidence) || evidence === 'Press enter to view hooks; esc to close');
 }
 
 /* #4607: the table AFTER "t" trusted every hook (measured 2026-09-30 on a live pane, Codex 0.149.1,
@@ -1666,6 +1666,22 @@ function codexHookTrustedTable(paneText) {
   if (!CODEX_HOOK_TRUSTED_FOOTER_END.test(tail.slice(-3).join('').replace(/\s+/g, ''))) return false;
   return tail.slice(0, -1).some((r) => CODEX_HOOK_TABLE_HEADING.test(r));
 }
+/* #4607 (review round 1): the menu key is the number Codex prints beside the exact option, never its position (a
+   Codex that reorders the menu would otherwise get "Trust all" when the person chose to continue without). Rows are
+   read from the menu's own block, the last rows of the screen, as "› 1. Review hooks" / "2. Trust all and continue" /
+   "3. Continue without trusting (hooks won't run)". Returns { trust, skip }, each a digit or null. */
+const CODEX_HOOK_MENU_TRUST = /^\s*(?:›\s*)?(\d)\.\s+Trust all and continue\s*$/;
+const CODEX_HOOK_MENU_SKIP = /^\s*(?:›\s*)?(\d)\.\s+Continue without trusting\b.*$/;
+function codexHookMenuKeys(paneText) {
+  if (!codexHookReview(paneText) || codexHookReview(paneText).screen !== 'menu') return { trust: null, skip: null };
+  const rows = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
+  while (rows.length && !rows[rows.length - 1]) rows.pop();
+  const tail = rows.slice(-CODEX_HOOK_ROWS);
+  const one = (re) => { const hits = tail.map((r) => re.exec(r)).filter(Boolean); return hits.length === 1 ? hits[0][1] : null; };
+  const trust = one(CODEX_HOOK_MENU_TRUST);
+  const skip = one(CODEX_HOOK_MENU_SKIP);
+  return { trust, skip: skip && skip !== trust ? skip : null };
+}
 /* #4607: what the card shows beside its two buttons. From the MENU, the count ("2 hooks are new or changed."); from
    the TABLE, the events with hooks to review (the Review column); from one HOOK, its event and source. Only what the
    screen says: null fields when it does not say them. */
@@ -1673,7 +1689,7 @@ const CODEX_HOOK_MENU_COUNT = /^\s*(\d+) hooks? (?:is|are) new or changed\.\s*$/
 const CODEX_HOOK_TABLE_ROW = /^\s*([A-Za-z]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+\S.*$/;
 function codexHookSummary(paneText) {
   const seen = codexHookReview(paneText);
-  if (!seen) return null;
+  if (!seen) return codexHookTrustedTable(paneText) ? { screen: 'trusted', count: null, events: [], source: null } : null;
   const rows = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
   let count = null;
   const events = [];
@@ -3811,6 +3827,11 @@ function classify(pane, paneText) {
     const hooks = codexHookReview(paneText);
     if (hooks) {
       return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'it is waiting on a Codex hook approval', evidence: hooks.evidence };
+    }
+    /* #4607 (review round 1): the hooks are trusted but their list is still open (a dropped Escape after "t"). Codex
+       waits there for Escape, so the card says so and offers Close, instead of reading as idle. */
+    if (codexHookTrustedTable(paneText)) {
+      return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'its Codex hooks are trusted and their list is still open', evidence: 'Press enter to view hooks; esc to close' };
     }
     const codexTail = paneText.split('\n').slice(-25).join('\n');
     if (CODEX_NEEDS_YOU_MARKERS.some((re) => re.test(codexTail))) {
@@ -8136,7 +8157,7 @@ module.exports = {
   isTrustDialogEvidence,
   TRUST_DIALOG_SENTENCE,
   codexHookReview, // #4589
-  codexHookTrustedTable, codexHookSummary, // #4607
+  codexHookTrustedTable, codexHookSummary, codexHookMenuKeys, // #4607
   isCodexHookEvidence,
   CODEX_HOOK_DIALOG_SENTENCE,
   CODEX_STARTING_SENTENCE,

@@ -1,4 +1,4 @@
-// Browser-check-surface: d-qask d-qask-lab d-qask-codex d-qask-codex-what d-qask-codex-trust d-qask-codex-skip d-qask-codex-msg codexHooks
+// Browser-check-surface: d-qask d-qask-lab d-qask-codex d-qask-codex-what d-qask-codex-trust d-qask-codex-skip d-qask-codex-close d-qask-codex-msg codexHooks
 'use strict';
 
 /**
@@ -11,7 +11,9 @@
  *   2. with body.asking and NO codexHooks, the box stays hidden (it is not a general question box, #3419);
  *   3. Trust POSTs { choice: 'trust' } to /api/agent/<encoded name>/codex-hooks and shows the done line on ok;
  *   4. Continue POSTs { choice: 'skip' } and shows the route's own refusal sentence when it is refused;
- *   5. both buttons are enabled again after the answer, and no page error is thrown.
+ *   5. both buttons are enabled again after the answer, and no page error is thrown;
+ *   6. (review round 1) the trusted-but-open list shows only Close, which POSTs { choice: 'close' };
+ *   7. the summary says Trust covers every hook Codex lists.
  * CONTROL: on origin/main the Codex block does not exist, so arm 1 is red there (measured when this check was made).
  *
  * Run:
@@ -66,6 +68,7 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
         codex: codex ? !codex.hidden : null,
         label: (document.getElementById('d-qask-lab') || {}).textContent || '',
         what: (document.getElementById('d-qask-codex-what') || {}).textContent || '',
+        shown: ['d-qask-codex-trust', 'd-qask-codex-skip', 'd-qask-codex-close'].filter((id) => { const b = document.getElementById(id); return b && !b.hidden; }),
       };
     }, thread);
 
@@ -75,6 +78,11 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
     chk(/Sam needs you to decide about Codex hooks\./.test(a.label), `${t} the label names the agent`, a.label);
     chk(/Codex found 2 hooks it has not been told to trust \(SubagentStop, Stop\)\./.test(a.what) && !/, from /.test(a.what),
       `${t} the summary says the count and events the table showed, and no source it did not show`, a.what);
+    chk(/Trusting covers every hook Codex lists/.test(a.what), `${t} the summary says Trust covers every hook listed`, a.what);
+    chk(JSON.stringify(a.shown) === JSON.stringify(['d-qask-codex-trust', 'd-qask-codex-skip']), `${t} the question offers Trust and Continue, not Close`, JSON.stringify(a.shown));
+    const open = await paint({ ...base, codexHooks: { screen: 'trusted', count: null, events: [], source: null } });
+    chk(open.box && open.codex && JSON.stringify(open.shown) === JSON.stringify(['d-qask-codex-close']) && /hooks are trusted, and their list is still open/.test(open.label),
+      `${t} the trusted-but-open list offers only Close`, JSON.stringify(open));
     const h = await paint({ ...base, codexHooks: HOOK });
     chk(/Codex found hooks it has not been told to trust \(Stop\), from Project config/.test(h.what),
       `${t} from one hook's page: no count it did not show, the event and the source`, h.what);
@@ -103,11 +111,13 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
     const tr = await press('d-qask-codex-trust', { status: 200, body: { ok: true, choice: 'trust', because: null } });
     chk(tr.sent && tr.sent.url === '/api/agent/sam%20doe/codex-hooks' && tr.sent.method === 'POST' && JSON.parse(tr.sent.body || '{}').choice === 'trust',
       `${t} Trust POSTs { choice: 'trust' } to the encoded codex-hooks route`, JSON.stringify(tr.sent));
-    chk(/The hooks are trusted and Codex is carrying on\./.test(tr.msg) && tr.enabled, `${t} Trust shows the done line, buttons enabled again`, tr.msg);
+    chk(/The hooks are trusted, and its screen is no longer asking about them\./.test(tr.msg) && tr.enabled, `${t} Trust shows the done line, buttons enabled again`, tr.msg);
     const sk = await press('d-qask-codex-skip', { status: 200, body: { ok: false, choice: 'skip', because: 'the hook question is not on its screen now, so nothing was pressed' } });
     chk(sk.sent && JSON.parse(sk.sent.body || '{}').choice === 'skip', `${t} Continue POSTs { choice: 'skip' }`, JSON.stringify(sk.sent));
     chk(sk.msg === 'the hook question is not on its screen now, so nothing was pressed' && sk.enabled,
       `${t} a refusal shows the route's own sentence`, sk.msg);
+    const cl = await press('d-qask-codex-close', { status: 200, body: { ok: true, choice: 'close', because: null } });
+    chk(cl.sent && JSON.parse(cl.sent.body || '{}').choice === 'close' && /The list is closed\./.test(cl.msg), `${t} Close POSTs { choice: 'close' }`, JSON.stringify(cl));
     chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
     await browser.close();
   }
