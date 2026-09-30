@@ -177,60 +177,62 @@ function read(projectId, number) {
   return out;
 }
 
-/* #4786: the newest time a project's work MOVED FORWARD FOR THE FIRST TIME. The room's back-and-forth valve
-   treats this as the room landing, the way a person's post already is, so a pipeline handing work along is not
-   held while a loop that only talks still is. Only a first-time step forward counts, because anything that can be
-   repeated could be looped (review round 1: passing a part A to B to A, or closing, reopening and closing again):
+/* #4786: the times this project's work MOVED FORWARD FOR THE FIRST TIME, oldest first. The room's back-and-forth
+   valve gives a bounded extra allowance for each one inside its window (engine/messages.js), so a pipeline handing
+   work along is not held as soon as a loop that only talks. Only a first-time step forward counts, so the same work
+   cannot be counted twice (review round 1: a part passed A to B to A, a task closed, reopened and closed again):
    - a task created, a part added (each makes something new);
    - a task's FIRST close, a part's FIRST close, a task's FIRST built mark (a later one after a reopen or an
      unbuilt does not count);
    - a part given to someone who has NEVER held it (a handoff down a pipeline; giving it back does not count).
+     A pre-assigned task's first holder holds part 1; an added part's first holder is whoever it was added for.
    Talk ('said'), going backwards (reopened, part-reopened, unbuilt), taking someone off, due dates and parents
-   do not count. A time later than `now` is clamped to now, so a row dated in the future cannot switch the valve
-   off. 0 when there is none or nothing can be read (never throws). Reads only this project's task files; the
-   valve calls it only when a room is over its cap. */
+   do not count. Making tasks or parts IS repeatable (review round 2), which is why the valve's allowance per step
+   is bounded and never resets the count: this list is evidence of work, not a key. A time later than `now` is
+   clamped to now. [] when there is none or nothing can be read (never throws). Reads only this project's task
+   files; the valve calls it only when a room is over its cap. */
 const PROGRESS_KINDS = new Set(['created', 'assigned', 'built', 'part-added', 'part-closed', 'closed']);
-function lastProgressAt(projectId, now = Date.now()) {
+function progressTimes(projectId, now = Date.now()) {
+  const out = [];
   try {
     const k = keyOf(projectId);
-    if (!k) return 0;
+    if (!k) return out;
     const prefix = `${k}.task-`;
-    let newest = 0;
     for (const name of fs.readdirSync(taskChatsDir())) {
       if (!name.startsWith(prefix) || !name.endsWith('.jsonl')) continue;
       const n = Number(name.slice(prefix.length, -'.jsonl'.length));
       const seen = new Set();          // 'closed', 'built', 'part-closed:<id>' already counted once
       const held = new Map();          // partId -> everyone who has held it
-      let firstWho = null;             // the task's first holder, from its 'created' row
+      const holders = (partId) => {
+        const key = String(partId);
+        if (!held.has(key)) held.set(key, new Set());
+        return held.get(key);
+      };
       for (const row of read(projectId, n)) {
         if (!PROGRESS_KINDS.has(row.kind)) continue;
         let counts = false;
-        if (row.kind === 'created') {
+        if (row.kind === 'created' || row.kind === 'part-added') {
           counts = true;
-          firstWho = typeof row.who === 'string' && row.who ? row.who : null;
-        } else if (row.kind === 'part-added') {
-          counts = true;
+          const first = row.kind === 'created' ? 1 : row.partId;
+          if (typeof row.who === 'string' && row.who && first != null) holders(first).add(row.who);
         } else if (row.kind === 'closed' || row.kind === 'built' || row.kind === 'part-closed') {
           const key = row.kind === 'part-closed' ? `part-closed:${row.partId}` : row.kind;
           counts = !seen.has(key);
           seen.add(key);
-        } else if (row.kind === 'assigned') {
-          if (typeof row.who === 'string' && row.who) {
-            const who = held.get(String(row.partId)) || new Set(firstWho ? [firstWho] : []);
-            counts = !who.has(row.who);
-            who.add(row.who);
-            held.set(String(row.partId), who);
-          }
+        } else if (row.kind === 'assigned' && typeof row.who === 'string' && row.who) {
+          const who = holders(row.partId);
+          counts = !who.has(row.who);
+          who.add(row.who);
         }
         if (!counts) continue;
         const t = Math.min(Date.parse(row.at), now);
-        if (Number.isFinite(t) && t > newest) newest = t;
+        if (Number.isFinite(t)) out.push(t);
       }
     }
-    return newest;
   } catch {
-    return 0;
+    return out.sort((a, b) => a - b);
   }
+  return out.sort((a, b) => a - b);
 }
 
-module.exports = { record, read, taskChatsDir, taskChatFile, lastProgressAt, PROGRESS_KINDS };
+module.exports = { record, read, taskChatsDir, taskChatFile, progressTimes, PROGRESS_KINDS };

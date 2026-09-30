@@ -3103,7 +3103,7 @@ test('#4580: an outside party speaking in a federated room (an external row) bre
   });
 });
 
-test('#4786: work moving in the project is a landing, so a handoff pipeline is not held; talk, old work and another room\'s work are not', () => {
+test('#4786: work moving in the project earns the room a bounded allowance; talk, old work and another room\'s work earn none, and a loop that makes tasks is still held', () => {
   const taskchat = require('./taskchat');
   withFleet(room3(), (board) => {
     try {
@@ -3117,24 +3117,34 @@ test('#4786: work moving in the project is a landing, so a handoff pipeline is n
           text: 'handing it on ' + i, at: new Date(now - 60000).toISOString(), outcomes: {},
         }) + '\n');
       }
-      const post = () => { chat.resetForTests(); armSender('leo-discord'); arm([]);
-        return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'next step' }, board.agents, MEMBERS); };
+      let seq = 0;   // each post its own words: the same words again within minutes are one post, not a new arrival
+      const post = () => { chat.resetForTests(); armSender('leo-discord'); arm([]); seq += 1;
+        return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'next step ' + seq }, board.agents, MEMBERS); };
+      /* Posts until the room is held; how many got through. Each post costs 2 arrivals (3 members). */
+      const through = () => { let n = 0; while (n < 200 && post().state === chat.DELIVERY.PLACED) n += 1; return n; };
       // CONTROL: over its budget with no work moving, the room is held (the loop the valve exists for).
       assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'the room was not held to begin with, so nothing below proves anything');
-      // Work that moved BEFORE the posts does not release them: the budget counts from that move, and they came after.
-      const oldClose = taskchat.taskChatFile('henderson-lease', 3);
-      fs.mkdirSync(path.dirname(oldClose), { recursive: true });
-      fs.writeFileSync(oldClose, JSON.stringify({ at: new Date(now - 120000).toISOString(), kind: 'closed' }) + '\n');
-      assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'a task closed before the posts released them');
+      // Work that moved BEFORE the budget's window started earns nothing.
+      const old = taskchat.taskChatFile('henderson-lease', 3);
+      fs.mkdirSync(path.dirname(old), { recursive: true });
+      fs.writeFileSync(old, JSON.stringify({ at: new Date(now - 2 * 3600000).toISOString(), kind: 'closed' }) + '\n');
+      assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'a task closed before the window released the room');
       // Talk on a task is not progress.
       assert.equal(taskchat.record('henderson-lease', 1, { kind: 'said', text: 'still on it' }), true);
       assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'a task message released the room: talk counted as work');
       // Work moving in ANOTHER project does not release this room.
       assert.equal(taskchat.record('quarter-close', 1, { kind: 'closed' }), true);
       assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'another project\'s task closing released this room');
-      // A task closed HERE is the room landing: the next post goes through.
+      // One task closed HERE earns a quarter of the cap: the room goes on, and is held again when that runs out.
       assert.equal(taskchat.record('henderson-lease', 2, { kind: 'closed' }), true);
-      assert.equal(post().state, chat.DELIVERY.PLACED, 'a task closed in this project did not count as the room landing');
+      const quarter = ROOM_BUDGET / 4;
+      assert.equal(through(), quarter / 2, 'one step of work did not earn exactly a quarter of the cap');
+      // A loop that keeps making tasks earns at most one more cap in all, then is held.
+      for (let k = 10; k < 30; k += 1) {
+        assert.equal(taskchat.record('henderson-lease', k, { kind: 'created', sentence: 'busywork ' + k }), true);
+      }
+      assert.equal(through(), (ROOM_BUDGET - quarter) / 2, 'making tasks bought more than one more cap');
+      assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'a loop that makes tasks was never held');
     } finally {
       fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
     }
