@@ -80,8 +80,13 @@ connector_verbs_check "$T/no-such-tunnel" "$OPEN" 2>"$T/err" && bad "a missing c
 # before this connector, so an old one breaks nothing that works. It refuses the unlisted
 # federation routes (the board shows that sentence on invite/verify) and has no fed-room
 # verb (its seat exits 2 and ends with an "update Kosmos" note in the room).
+# kosmos#4648 re-decided for engine/account-computers.js (the top-left menu's "Your computers"):
+# the list never worked before this connector, and an old one refuses the unlisted
+# /v1/mac/account-computers route, which the module turns into { ok: false }, so the section
+# stays hidden (engine/account-computers.test.js pins old-tunnel -> ok:false). Nothing that
+# works today breaks.
 callers="$(grep -l "macRequest(" engine/*.js 2>/dev/null | grep -v -e "engine/remote.js" -e "\.test\.js$" | sort | tr '\n' ' ')"
-[ "$callers" = "engine/federation.js engine/fedseats.js engine/mac-standing.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the five the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
+[ "$callers" = "engine/account-computers.js engine/federation.js engine/fedseats.js engine/mac-standing.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the six the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
 
 # The real connector on this Mac, when it is there: an integration line, reported but never failed.
 R="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"

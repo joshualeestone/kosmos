@@ -77,6 +77,7 @@ board-auth model, install/update, multi-world ("Kosmos") switching, and provider
 | Task | Where to Look |
 |------|---------------|
 | Run the test suite the way CI does | `yarn test` -> `tools/run-tests.sh` |
+| Change a ready-made role or a prebuilt team (#4555) | Edit `tools/catalogue/roles-source.js` or `teams-source.js`, then `node tools/catalogue/build.js` regenerates `engine/catalogue-roles.js` / `catalogue-teams.js` (never edit those by hand; `engine/catalogue.test.js` fails when they are stale). `engine/catalogue.js` is the one reader; `roles.js` merges the roles into ROLES |
 | Read a red `windows` check (#1777) | `tools/windows-tests.js` (selection, verdict, `KNOWN_RED`); it runs on windows-latest only |
 | Add or change a test | Most suites are dot-namespaced at the repo root (`web.foo.test.js`); `engine/` mostly colocates in-directory. The runner (`tools/run-tests.sh`) considers every `*.test.js` in the tree (see Repo-Specific Conventions) |
 | Change the board UI | `web/index.html` (single page); a committed change here needs a browser-check assertion or a `Browser-check:` trailer |
