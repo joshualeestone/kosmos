@@ -195,14 +195,16 @@ json_field() { # $1 jq path, $2 sed key fallback
 # without parentheses, pkill with long flags (--signal), and any shape not listed
 # above. Known to be refused although harmless: `pkill -n -u me`, `killall -s -u
 # me` (a dry run), a user-wide pgrep that is filtered (| grep x | xargs kill) or
-# sits beside an unrelated kill in the same text, and a mention inside a command
+# sits beside an unrelated kill in the same text, a kill whose operands run on
+# past a tab, and a mention inside a command
 # (`git commit -m`, `grep`), which the message tells the agent to reword.
 # Reads: with jq, only what runs or is written (tool_input command, cmd, script,
 # code, args, content, new_string, new_source, edits[].new_string), for ANY tool;
 # the written content of a .md or .markdown file is not checked (a document is not
 # run; a .txt can be run with sh, so it is), but a runnable field always is.
-# Without jq, the whole input with its JSON escapes decoded (wider: a mention in a
-# description, or a deleted line, can be refused).
+# Without jq, the whole input except old_string, with its JSON escapes decoded
+# (wider: a mention in any field can be refused, a description or a subagent's
+# prompt included; \uXXXX escapes are not decoded; over 256 KB it is read raw).
 # The operator can turn it off for an agent by starting it with
 # KOSMOS_KILL_GUARD=off; an agent cannot change its own hook's environment.
 # Not guarded at all: Windows agents (the node hook, engine/kosmos-report-hook.js)
@@ -217,9 +219,16 @@ _kg_text() { # what the guard reads
                                    ($t.edits | arrays | .[] | objects | .new_string) ] end)
       | map(strings) | join("\n")' 2>/dev/null
   else
-    # No jq: the raw input, with its JSON string escapes decoded (\\ first, via a placeholder, then \n \r
-    # \t \"), so a multi-line command reads as lines here exactly as it does with jq. awk ships with macOS.
-    printf '%s' "$INPUT" | awk '{ gsub(/\\\\/, "\001"); gsub(/\\n/, "\n"); gsub(/\\r/, "\r"); gsub(/\\t/, "\t");
+    # No jq: the whole input minus every "old_string" (text being REPLACED is not written, so an agent
+    # can repair a dangerous line), with its JSON string escapes decoded (\\ first, via a placeholder,
+    # then \n \r \t \"), so a multi-line command reads as lines here exactly as it does with jq.
+    # ⚠️ awk's gsub is quadratic on one long line (a 1.4 MB escape-heavy Write took 3.3 s, and the hook
+    # has a 15 s timeout), so an input over 256 KB is matched raw instead: linear, and a multi-line
+    # command in it can then read as one line (wider, never narrower for a kill).
+    local _raw
+    _raw="$(printf '%s' "$INPUT" | sed -E 's/"old_string"[[:space:]]*:[[:space:]]*"([^"\\]|\\.)*"//g' 2>/dev/null)" || _raw="$INPUT"
+    if [ "${#_raw}" -gt 262144 ]; then printf '%s' "$_raw"; return; fi
+    printf '%s' "$_raw" | awk '{ gsub(/\\\\/, "\001"); gsub(/\\n/, "\n"); gsub(/\\r/, "\r"); gsub(/\\t/, "\t");
                                  gsub(/\\"/, "\""); gsub(/\001/, "\\"); print }' 2>/dev/null
   fi
 }

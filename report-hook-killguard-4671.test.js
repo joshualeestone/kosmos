@@ -188,6 +188,25 @@ test('#4671 round 5: a multi-line script Write is read as lines on both paths', 
   }
 });
 
+test('#4671 round 6: a large escape-heavy Write finishes well inside the hook\'s 15 s timeout on both paths', () => {
+  // 2 MB of pretty-printed JSON (every quote escaped in the payload) plus backslash-heavy paths.
+  const big = JSON.stringify(Array.from({ length: 35000 }, (_, i) => ({ path: 'C:\\Users\\x\\' + i, re: '^a\\d+$' })), null, 2);
+  assert.ok(big.length > 2e6, 'the fixture is really over 2 MB: ' + big.length);
+  for (const noJq of [false, true]) {
+    const t0 = Date.now();
+    const r = run('Write', { file_path: '/tmp/big.json', content: big + '\nKILL -9 N1\n' }, { noJq });
+    const ms = Date.now() - t0;
+    assert.equal(r.code, 2, 'still blocks the line at the end' + (noJq ? ' (no jq)' : ''));
+    assert.ok(ms < 8000, `${noJq ? 'no jq' : 'jq'}: took ${ms} ms`);
+  }
+});
+
+test('#4671 round 6: without jq, an Edit that REPLACES a dangerous line with a safe one is allowed', () => {
+  const r = run('Edit', { file_path: '/tmp/x.sh', old_string: 'PKILL -u me', new_string: 'PKILL -u me node' }, { noJq: true });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(run('Edit', { file_path: '/tmp/x.sh', old_string: 'echo', new_string: 'PKILL -u me' }, { noJq: true }).code, 2, 'the new text is still read');
+});
+
 test('#4671 only PreToolUse is guarded: the same payload on another event is not blocked', () => {
   assert.equal(run('Bash', { command: 'KILL -9 N1' }, { event: 'PostToolUse' }).code, 0);
 });
