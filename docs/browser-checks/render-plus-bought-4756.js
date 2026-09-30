@@ -79,6 +79,15 @@ const SCENARIOS = {
   'pick-offline': { offline: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
   // A pick that fails for a reason that is not "taken" (a certificate) is not a refusal either: Try again, same address.
   'pick-cert-fail': { certfail: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
+  // The account's own address still waiting for payment is not bought yet: the list with its waiting line, no register.
+  'own-pending': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'pending')] }], auto: null },
+  // A pick that failed offline, then was taken by another computer before Try again: back to the list, not Try again forever.
+  'retry-refused': { refuseSecond: 'spare', lists: [
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] },
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'in_use'), row('other', 'free')] },
+  ], auto: null },
+  // A retire that failed with a 409 is not "that address is taken": Try again on the same address.
+  'pick-retire-409': { retire409: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
   // A pick refused (another computer took it first) returns to the list with the reason, not Try again on the same address.
   'pick-refused': { refuse: 'spare', lists: [
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] },
@@ -134,8 +143,11 @@ const visible = (page, sel) => page.evaluate((s) => {
         }
         if (p === '/api/remote/signin-register') {
           const b = req.postDataJSON(); regs.push(b.name);
-          if (sc.refuse === b.name) return json(400, { error: 'the name ' + b.name + ' is already connected on another computer.' });
-          if (sc.offline === b.name && regs.length === 1) return json(400, { error: 'this computer could not reach the sign-in service' });
+          // The coordinator's own 409 sentence, as the tunnel program passes it on.
+          if (sc.refuse === b.name) return json(400, { error: 'Kosmos+ said no (409): that name is taken.' });
+          if (sc.refuseSecond === b.name && regs.length === 2) return json(400, { error: 'Kosmos+ said no (409): that name is taken.' });
+          if ((sc.offline === b.name || sc.refuseSecond === b.name) && regs.length === 1) return json(400, { error: 'this computer could not reach the sign-in service' });
+          if (sc.retire409 === b.name && regs.length === 1) return json(400, { error: 'an earlier sign-in on this computer could not be removed (the coordinator said no (409): busy); try again in a moment' });
           if (sc.certfail === b.name && regs.length === 1) return json(400, { error: 'the certificate for spare.kosmosplus.com could not be issued; try again in a minute' });
           return json(200, reg(b.name));
         }
@@ -206,7 +218,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         await page.click('#plus-si-bought-list button[data-bought="spare"]');
         await page.waitForFunction(() => /could not be reached/.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});
         const msg = await page.textContent('#plus-signin-msg');
-        chk(/already connected on another computer/.test(msg) && /could not be reached/.test(msg), `[${key}] both the refusal and the failed read are said`, msg);
+        chk(/that name is taken/.test(msg) && /could not be reached/.test(msg), `[${key}] both the refusal and the failed read are said`, msg);
         chk(!/\.\./.test(msg), `[${key}] without a doubled full stop`, msg);
         const btns = await page.$$eval('#plus-si-bought-list button', (b) => b.map((x) => x.getAttribute('data-bought')));
         chk(JSON.stringify(btns) === JSON.stringify(['other']), `[${key}] the refused address is not offered again`, JSON.stringify(btns));
@@ -217,7 +229,21 @@ const visible = (page, sel) => page.evaluate((s) => {
         await page.waitForFunction(() => { const d = document.getElementById('plus-si-done'); return d && !d.hidden; }, null, { timeout: 8000 }).catch(() => {});
         chk(regs.length === 1 && regs[0] === 'first', `[${key}] takes the step as before (registers to the account's address)`, JSON.stringify(regs));
         chk(!(await visible(page, '#plus-si-bought')), `[${key}] with the list gone`);
-      } else if (key === 'pick-offline' || key === 'pick-cert-fail') {
+      } else if (key === 'own-pending') {
+        chk(await visible(page, '#plus-si-bought-none'), `[${key}] the none panel shows`);
+        chk(/waiting for its payment/.test(await page.textContent('#plus-si-bought-none-lead')), `[${key}] with the waiting-for-payment line`);
+        chk(regs.length === 0, `[${key}] and nothing is registered to the unpaid address`, JSON.stringify(regs));
+      } else if (key === 'retry-refused') {
+        await page.click('#plus-si-bought-list button[data-bought="spare"]');
+        await page.waitForSelector('#plus-si-register-go', { state: 'visible', timeout: 8000 }).catch(() => {});
+        await page.click('#plus-si-register-go');
+        await page.waitForFunction(() => /that name is taken/.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+        await page.waitForTimeout(500);
+        chk(JSON.stringify(regs) === JSON.stringify(['spare', 'spare']), `[${key}] the pick, then its retry`, JSON.stringify(regs));
+        const btns = await page.$$eval('#plus-si-bought-list button', (b) => b.map((x) => x.getAttribute('data-bought')));
+        chk(JSON.stringify(btns) === JSON.stringify(['other']), `[${key}] the refused retry goes back to the list, without the taken address`, JSON.stringify(btns));
+        chk(!(await visible(page, '#plus-si-register-go')), `[${key}] not Try again forever`);
+      } else if (key === 'pick-offline' || key === 'pick-cert-fail' || key === 'pick-retire-409') {
         await page.click('#plus-si-bought-list button[data-bought="spare"]');
         await page.waitForSelector('#plus-si-register-go', { state: 'visible', timeout: 8000 }).catch(() => {});
         chk(asked === 1, `[${key}] the list is not re-read (the address was not refused)`, String(asked));
@@ -242,10 +268,10 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(regs.length === 0, `[${key}] it never fell back to registering the account's address`, JSON.stringify(regs));
       } else if (key === 'pick-refused') {
         await page.click('#plus-si-bought-list button[data-bought="spare"]');
-        await page.waitForFunction(() => /already connected/.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+        await page.waitForFunction(() => /that name is taken/.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});
         await page.waitForTimeout(500);
         chk(regs.length === 1 && regs[0] === 'spare', `[${key}] the pick was sent once`, JSON.stringify(regs));
-        chk(/already connected on another computer/.test(await page.textContent('#plus-signin-msg')), `[${key}] the reason is said`);
+        chk(/that name is taken/.test(await page.textContent('#plus-signin-msg')), `[${key}] the reason is said`);
         chk(asked === 2, `[${key}] the list was read again`, String(asked));
         const btns = await page.$$eval('#plus-si-bought-list button', (b) => b.map((x) => x.getAttribute('data-bought')));
         chk(JSON.stringify(btns) === JSON.stringify(['other']), `[${key}] back on the list, now without the taken address`, JSON.stringify(btns));

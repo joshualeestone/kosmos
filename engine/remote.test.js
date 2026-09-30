@@ -2993,9 +2993,11 @@ test('#4756: AGENT_WORKFORCE_BOUGHT_ADDRESSES=1 turns it on without the coordina
       assert.equal(r.ok, false);
       assert.equal(r.because, 'your sign-in has ended; start again from the email');
     });
-    await withCoordinator({ '/v1/account/addresses': { redirectTo: 'http://127.0.0.1:9/steal' } }, async () => {
+    // To this same server, so following it would be SEEN (a dead port would fail either way and prove nothing).
+    await withCoordinator({ '/v1/account/addresses': { redirectTo: '/steal' } }, async (seen) => {
       const r = await remote.signinAddresses();
-      assert.equal(r.ok, false, 'followed a redirect with the session token');
+      assert.equal(r.ok, false);
+      assert.equal(seen.some((x) => x.url === '/steal'), false, 'followed a redirect with the session token');
     });
     await withCoordinator({ '/v1/account/addresses': { html: true } }, async () => {
       const r = await remote.signinAddresses();

@@ -24,3 +24,9 @@ hold ends by itself after 31 minutes) change nothing this branch relies on.
   Rejected: blocking sign-in when the list cannot be read (a coordinator hiccup would strand a first computer).
 - Weakest premise: that the server's refusal exists before the flag is turned on. The flag and the refusal are
   one switch on the server (KOSMOS_BOUGHT_ADDRESSES), so they cannot be on apart.
+- Not changed here, noted: tools/plus-signin-fresh.js (the agent-run sign-in procedure) posts signin-register directly
+  and never reads the list, so once the switch is on it will be refused on a second computer. It is a test tool, not a
+  person's path; it follows when the server half lands.
+- Refused vs failed: a failed pick counts as refused only on the coordinator's own address sentences ("that name is
+  taken", "already in use by a computer on this account", "needs an address you have bought"); anything else keeps
+  Try again on the same address.
