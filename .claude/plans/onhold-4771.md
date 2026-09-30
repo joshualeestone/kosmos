@@ -50,7 +50,10 @@ agents onto tasks the person had put on hold and into a project the person had p
 - An agent whose only work is held sits idle: the Assigner treats it as free and gives it work from other projects,
   and the parked project's goal is not asked (its held tasks keep it from reading as empty). Idle is the person's
   choice there; asking the goal would reopen what they set aside.
-- A finished task cannot be put on hold (409); the page hides the control for one.
+- A finished task cannot be put on hold (409); the page hides the control for one. Closing a held task drops the
+  hold (recorded as "Taken off hold, as it was closed"), as it drops the built mark, so a reopen is not silently held.
+- The instructions say "the person parked it" only for the person's own hold or pause; an agent's reads "do not start
+  it until it is taken off hold". The Tasks view's On hold line is neutral.
 
 ## Weakest premise
 That skipping held work in the Assigner's busy count is what the person wants: an agent whose only work is held is

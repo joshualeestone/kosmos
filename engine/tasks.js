@@ -278,6 +278,7 @@ function create(projectId, { sentence, detail, who, parent, made: origin } = {},
 function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
   let changed;
   let droppedForWork = false;
+  let heldDropped = false;
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
@@ -293,6 +294,9 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
       changed = withoutBuilt(changed);
       droppedForWork = forWork && !closedNow;
     }
+    /* #4771: a hold does not outlive the task either (the same reason: a reopen must not come back silently held,
+       with the control hidden while it was closed). */
+    if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
     /* ⚠️ `who` is DROPPED once parts are stored, not kept in step. Two fields
        answering "who is on this" is two things that disagree the first time
        one of them is edited, and every reader would then have to know which
@@ -300,6 +304,7 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
     delete changed.who;
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
+  if (heldDropped) taskchat.record(projectId, changed.number, { kind: 'hold-cleared', via: 'close' });
   /* The history says why the mark went (review round 1); a close says so itself. The caller records it after its
      own event (part-added, part-reopened), so the history reads cause then effect (review round 2). Carried on the
      returned task, not in module state (review round 3), so nothing can leak to another task's write. */
@@ -669,6 +674,7 @@ function setClosed(projectId, n, closedAt) {
   let changed;
   // #992: +1 just completed, -1 just re-opened, 0 no change (see below).
   let transition = 0;
+  let heldDropped = false;
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
@@ -685,12 +691,15 @@ function setClosed(projectId, n, closedAt) {
     if (before !== after) transition = after ? 1 : -1;
     /* #3951: closing is the person's "it is live": the built mark goes with it, and a reopen does not restore it. */
     if (after) changed = withoutBuilt(changed);
+    // #4771: nor does a hold: a reopen must not come back silently held, its control hidden while it was closed.
+    if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
     };
   });
   if (transition) taskchat.record(projectId, changed.number, { kind: transition > 0 ? 'closed' : 'reopened' });
+  if (heldDropped) taskchat.record(projectId, changed.number, { kind: 'hold-cleared', via: 'close' });
   return changed;
 }
 
@@ -719,9 +728,15 @@ function setOnHold(projectId, n, onHold, { viaScreen = false } = {}) {
     /* The person's own hold is taken off only on the screen: the feature exists to honour it, and an agent that could
        lift it could put itself back on parked work (the built mark's refusePersonMark, the same rule). */
     if (!onHold && isOnHold(t) && t.onHoldByPerson === true && viaScreen !== true) {
-      throw new Error('the person put this task on hold, so only they can take it off, on the screen');
+      const refused = new Error('the person put this task on hold, so only they can take it off, on the screen');
+      refused.status = 403;
+      throw refused;
     }
-    if (onHold && !isOnHold(t) && progressOf(t).closed) throw new Error('a finished task cannot be put on hold');
+    if (onHold && !isOnHold(t) && progressOf(t).closed) {
+      const closed = new Error('a finished task cannot be put on hold');
+      closed.status = 409;
+      throw closed;
+    }
     didChange = isOnHold(t) !== onHold;
     changed = { ...t };
     if (onHold) {

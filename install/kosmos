@@ -2848,8 +2848,8 @@ cmd_task() {
       say "  kosmos task message <project-id> <task-number> \"<what to say>\"  say something in a task's conversation"
       say "  kosmos task built <project-id> <task-number> [\"what is left\"]  mark it built, waiting to be released or checked"
       say "      --clear                                                  take the built mark off"
-      say "  kosmos task hold <project-id> <task-number>  put it on hold (Kosmos stops nudging anyone about it or handing it out)"
-      say "  kosmos task unhold <project-id> <task-number>  take it off hold"
+      say "  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)"
+      say "  kosmos task unhold <project-id> <task-number>                 take it off hold"
       say "  (project ids are in your instructions' Your projects section.)"
       exit 2 ;;
     # Validate the subcommand AND its required args BEFORE the health check, the same order

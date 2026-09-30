@@ -2944,7 +2944,12 @@ function blockBody(projects, sessionName) {
     // #1307: a webhook task's words are marked and quoted as outside text (tasks.forAgent).
     /* #4771: a task on hold, or in a paused project, stays on the agent's list, marked, so the agent does not start
        parked work on its own. */
-    const held = (t) => (isPaused(p) || require('./tasks').isOnHold(t) ? ' [on hold: the person parked it; do not start it]' : '');
+    const held = (t) => {
+      const T = require('./tasks');
+      if (!isPaused(p) && !T.isOnHold(t)) return '';
+      const person = (isPaused(p) && p.pausedByPerson === true) || (T.isOnHold(t) && t.onHoldByPerson === true);
+      return person ? ' [on hold: the person parked it; do not start it]' : ' [on hold: do not start it until it is taken off hold]';
+    };
     return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t)}`)].join('\n');
   });
   return [

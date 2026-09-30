@@ -93,8 +93,8 @@ const USAGE = {
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
     '  kosmos task built <project-id> <task-number> ["what is left"]  mark it built, waiting to be released or checked',
     '      --clear                                                  take the built mark off',
-    '  kosmos task hold <project-id> <task-number>  put it on hold (Kosmos stops nudging anyone about it or handing it out)',
-    '  kosmos task unhold <project-id> <task-number>  take it off hold',
+    '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
+    '  kosmos task unhold <project-id> <task-number>                 take it off hold',
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
   project: [

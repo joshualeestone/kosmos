@@ -52508,7 +52508,7 @@ const TSK_GROUPS = [
   /* #4771: on hold, the task or its whole project (the engine's `held` state): Kosmos neither nudges nor hands these out.
      Placed after Josh's own five open groups and before Completed, so his order is unchanged (decided, overridable). */
   { k: 'held', l: 'On hold', c: 'var(--tsk-held)',
-    why: 'You put these on hold, or paused their project. Kosmos does not nudge anyone about them or hand them out.' },
+    why: 'On hold, or in a paused project. Kosmos does not nudge anyone about them or hand them out.' },
   { k: 'closed', l: 'Completed', c: 'var(--tsk-closed)', why: 'Finished and closed.' },
 ];
 /* #4053 (option C v2, approved): one line icon per tile, drawn in a tinted badge beside the number. */
@@ -53478,7 +53478,7 @@ function tkActPhrase(ev, p) {
     case 'due-set': return ev.dueDate ? 'Due date set to ' + ev.dueDate : 'Due date set';
     case 'due-cleared': return 'Due date cleared';
     case 'hold-set': return ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold';
-    case 'hold-cleared': return ev.via === 'agent' ? 'Taken off hold by an agent' : 'Taken off hold';
+    case 'hold-cleared': return ev.via === 'agent' ? 'Taken off hold by an agent' : ev.via === 'close' ? 'Taken off hold, as it was closed' : 'Taken off hold';
     // #3861: a task put under another task on its project, or taken out from under one.
     case 'parent-set': return ev.parent ? 'Put under task ' + ev.parent : 'Put under another task';
     case 'parent-cleared': return 'Taken out from under its task';

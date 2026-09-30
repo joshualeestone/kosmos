@@ -142,8 +142,8 @@ test('#4771 review: an agent\'s own instructions list held work marked, so it do
     { id: 'parked', name: 'Parked', folder: '/tmp/parked', paused: true, tasks: [task(1)] },
   ], 'ada');
   const line = (proj, n) => body.split('\n').find((l) => l.includes(`task ${n} of ${proj}:`)) || '';
-  assert.match(line('Live', 1), /\[on hold: the person parked it; do not start it\]/, body);
-  assert.match(line('Parked', 1), /\[on hold: the person parked it; do not start it\]/, 'a paused project\'s task is not marked: ' + body);
+  assert.match(line('Live', 1), /\[on hold:[^\]]*do not start it/, body);
+  assert.match(line('Parked', 1), /\[on hold:[^\]]*do not start it/, 'a paused project\'s task is not marked: ' + body);
   assert.ok(line('Live', 2), 'control: the plain task is missing: ' + body);
   assert.doesNotMatch(line('Live', 2), /on hold/, 'control: a task not held is marked held');
 });
@@ -233,4 +233,34 @@ test('#4771 review: the person\'s hold or pause over an agent\'s earlier one bec
     assert.throws(() => tasks.setOnHold(w.pid, w.n, true), /a finished task cannot be put on hold/);
     assert.equal(tasks.isOnHold(stored()), false);
   } finally { w.restore(); }
+});
+
+test('#4771 review: closing a held task drops the hold (recorded), so a reopen is not silently held', () => {
+  const w = world('holdclose' + seq, true);
+  try {
+    const stored = () => tasks.byNumber(projects.readAll().find((p) => p.id === w.pid), w.n);
+    tasks.setOnHold(w.pid, w.n, true, { viaScreen: true });
+    tasks.close(w.pid, w.n);
+    assert.equal(tasks.isOnHold(stored()), false, 'closing kept the hold');
+    assert.equal('onHoldByPerson' in stored(), false, 'closing kept the person mark');
+    const last = taskchat.read(w.pid, w.n).filter((e) => /^hold-/.test(e.kind)).pop();
+    assert.deepEqual([last.kind, last.via], ['hold-cleared', 'close'], 'the dropped hold is not in the activity');
+    tasks.reopen(w.pid, w.n);
+    assert.equal(tasks.isOnHold(stored()), false, 'the reopened task came back held');
+  } finally { w.restore(); }
+});
+
+test('#4771 review: the instructions say "the person parked it" only for the person\'s hold or pause', () => {
+  const task = (number, extra) => Object.assign({ number, sentence: 'task ' + number, who: 'ada' }, extra);
+  const body = projects.blockBody([
+    { id: 'l', name: 'Live', folder: '/tmp/l', tasks: [task(1, { onHold: true, onHoldByPerson: true }), task(2, { onHold: true })] },
+    { id: 'pp', name: 'PersonPaused', folder: '/tmp/pp', paused: true, pausedByPerson: true, tasks: [task(1)] },
+    { id: 'ap', name: 'AgentPaused', folder: '/tmp/ap', paused: true, tasks: [task(1)] },
+  ], 'ada');
+  const line = (proj, n) => body.split('\n').find((l) => l.includes(`task ${n} of ${proj}:`)) || '';
+  assert.match(line('Live', 1), /the person parked it/);
+  assert.match(line('PersonPaused', 1), /the person parked it/);
+  assert.match(line('Live', 2), /\[on hold: do not start it until it is taken off hold\]/, 'an agent\'s hold named the person: ' + body);
+  assert.doesNotMatch(line('AgentPaused', 1), /the person/, 'an agent\'s pause named the person');
+  assert.match(line('AgentPaused', 1), /\[on hold:/);
 });
