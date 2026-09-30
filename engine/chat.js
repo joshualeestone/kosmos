@@ -2863,9 +2863,11 @@ function defaultAgentFor(members) {
   const reportsHere = (m) => list.some((o) => o !== m && same(m.reportsTo, o.sessionName));
   const roots = list.filter((m) => reportedTo(m) && !reportsHere(m));
   if (roots.length === 1) return roots[0].sessionName;
+  // Several tops (two charts on one project): the choice is among THEM, never a middle manager under
+  // one of them. No top at all (a loop): among everyone.
   let head = null;
   let most = 0;
-  for (const m of list) {
+  for (const m of (roots.length ? roots : list)) {
     const n = list.filter((o) => o !== m && same(o.reportsTo, m.sessionName)).length;
     if (n > most) { most = n; head = m; }
   }

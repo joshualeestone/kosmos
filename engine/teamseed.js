@@ -188,7 +188,7 @@ function specs(req, cat, deps) {
     const slug = create.slugFor(raw);
     if (seen.has(slug)) return { ok: false, because: 'the ' + seen.get(slug) + ' and the ' + m.title + ' have the same name; give each one its own' };
     seen.set(slug, m.title);
-    if (req.checkTaken === true && taken(slug)) takenSeats.push({ raw, title: m.title });
+    if (req && req.checkTaken === true && taken(slug)) takenSeats.push({ raw, title: m.title });
     names[m.slot] = raw;
   }
   // Every taken name in one answer: making the same team again takes all of its suggested names.

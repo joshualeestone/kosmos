@@ -3184,6 +3184,10 @@ test('#4557 defaultAgentFor: in a deeper chart the TOP opens the room, not a mid
   assert.equal(chat.defaultAgentFor(deep), 'ceo');
   // Two separate charts on one project (two roots): most direct reports, as before.
   assert.equal(chat.defaultAgentFor(membersFor(['x', 'y', 'x1', 'y1', 'y2'], { x1: 'x', y1: 'y', y2: 'y' })), 'y');
+  // Two tops, and a middle manager under one of them with more direct reports than either: a top opens
+  // the room (the one with more direct reports; a tie keeps the project order), never the middle manager.
+  assert.equal(chat.defaultAgentFor(membersFor(['mid', 'm1', 'm2', 'm3', 'top1', 'top2', 't2a'],
+    { mid: 'top1', m1: 'mid', m2: 'mid', m3: 'mid', t2a: 'top2' })), 'top1');
   // A cycle has no root: it falls to most reports, then list order, and never throws.
   assert.equal(chat.defaultAgentFor(membersFor(['p', 'q'], { p: 'q', q: 'p' })), 'p');
 });

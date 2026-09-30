@@ -168,3 +168,14 @@ DECIDED, NOT FIXED:
 - The browser check still injects its own fixture (no `status`), so no check RENDERS the not-downloaded
   503. The sentence is pinned at the routes, and the page shows any refusal's words as they come.
 - `openTeamCreate` has no caller in the product yet (the dropdown is #4556's). Unchanged.
+
+## Review 20 (sonnet)
+FIXED: with two or more tops on one project, the room opens on one of THEM (most direct reports, a tie in
+project order), never on a middle manager under one of them who has more direct reports. Tested; the old
+fallback picked the middle manager.
+NOT AN ISSUE AS DESCRIBED: "the brief-fits check ignores the blocks added at birth, so the file can go over
+the limit". It cannot: every later block is spliced only if the result still fits (create.js, each
+`<= MAX_BYTES` guard), and a block that does not fit is reported as a step not done, which the team step
+shows on the member's row. A brief near the 32 KiB cap would cost the member its later blocks, not make an
+unreadable file. Real briefs are one or two kilobytes.
+DUPLICATE: the org chart before the role text for every project (decided under review 19).
