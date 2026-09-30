@@ -890,7 +890,8 @@ test('#4800: a register whose answer is lost after the account was made register
   assert.equal(registers().length, 1, 'a second register went out for an agent whose account exists');
   assert.equal(be.st.agents.size, 1, 'a second public identity was made');
   assert.equal(posts().length, 0, 'a post went out with no key for the account');
-  assert.notEqual((cs.statuses()[r.id] || {}).state, 'sent');   // never attempted: no status row at all
+  assert.notEqual(cs.statuses()[r.id].state, 'sent');
+  assert.equal(cs.statuses()[r.id].agentNameUnclaimed, true, 'the owner cannot see why this agent is not posting');
   await cs.sweep();
   assert.equal(lookups().length, 1, 'the name was looked up again within the hour');
   assert.equal(registers().length, 1);
@@ -951,4 +952,66 @@ test('#4800: a register the service refused outright (a 400) leaves no mark, so 
   await cs.sweep();
   assert.equal(lookups().length, 0, 'an answered refusal was treated as a lost answer');
   assert.equal(cs.statuses()[r.id].state, 'sent');
+});
+
+/* #4800 review 1: answers that do not prove nothing was made keep the mark. `answerRegister` lets the service commit,
+   then hands the board a different answer. */
+function answerRegister(make) {
+  let armed = true;
+  cs.setSender(async (url, init) => {
+    if (armed && url.endsWith('/agents/register')) {
+      armed = false;
+      await fetch(url, init);
+      return make();
+    }
+    return fetch(url, init);
+  });
+}
+for (const [label, make] of [
+  ['a 504 from a gateway after the service committed', () => new Response('{"detail":"gateway timeout"}', { status: 504, headers: { 'content-type': 'application/json' } })],
+  ['a 201 whose body never arrived whole', () => new Response('{"agent_id": "a', { status: 201, headers: { 'content-type': 'application/json' } })],
+]) {
+  test(`#4800: ${label} keeps the mark, so the next try finds the account instead of making a twin`, async () => {
+    await on();
+    const who = 'sv' + label.length;
+    store.writeProfile(who, { displayName: 'Sam ' + label.length });
+    agentPost(who, { topic: 't', body: 'b' });
+    answerRegister(make);
+    await cs.sweep();
+    assert.equal(be.st.agents.size, 1, 'CONTROL: the service did not make the account');
+    await cs.sweep();
+    assert.equal(lookups().length, 1, 'the name was not looked up');
+    assert.equal(registers().length, 1, 'a second register went out');
+    assert.equal(be.st.agents.size, 1, 'a second public identity was made');
+  });
+}
+
+test('#4800: a lookup the service cannot answer (a 503) waits: no register that sweep', async () => {
+  await on();
+  store.writeProfile('tam', { displayName: 'Tam' });
+  const r = agentPost('tam', { topic: 't', body: 'b' });
+  loseRegister('before');
+  await cs.sweep();
+  let failLookup = true;
+  cs.setSender(async (url, init) => {
+    if (failLookup && url.includes('/agents/by-name/')) {
+      failLookup = false;
+      return new Response('{"detail":"unavailable"}', { status: 503, headers: { 'content-type': 'application/json' } });
+    }
+    return fetch(url, init);
+  });
+  await cs.sweep();
+  assert.equal(registers().length, 0, 'a register went out though the lookup could not tell');
+  await cs.sweep();
+  assert.deepEqual(registers().map((x) => x.body.name), ['Tam']);
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+});
+
+test('#4800: a display name the service would swap for its own handle (a slash, only dots) registers as our own handle', () => {
+  for (const displayName of ['Sales/Ops', '...']) {
+    store.writeProfile('ux', { displayName });
+    assert.match(cs.registration('ux').name, /^agent-[0-9a-f]{6}$/, `"${displayName}" was sent as the name`);
+  }
+  store.writeProfile('ux', { displayName: 'Sales Ops' });
+  assert.equal(cs.registration('ux').name, 'Sales Ops', 'CONTROL: an ordinary name was replaced');
 });

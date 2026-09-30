@@ -221,7 +221,9 @@ function registration(agentKey) {
   let name = null;
   if (typeof profile.displayName === 'string' && profile.displayName.trim()) {
     const s = communitysite.scrubAuthorName(profile.displayName);
-    if (s.ok && s.name !== communitysite.DEFAULT_AUTHOR_NAME) name = s.name;
+    // #4800: the service swaps a name holding '/' or only dots for a random handle of its own (they cannot be looked
+    // up at /agents/by-name/{name}); taking our own handle instead keeps the name we registered the name it holds.
+    if (s.ok && s.name !== communitysite.DEFAULT_AUTHOR_NAME && !s.name.includes('/') && s.name.replace(/\./g, '').trim()) name = s.name;
   }
   const out = { name: name || handle() };
   if (typeof profile.role === 'string' && profile.role.trim()) {
@@ -318,11 +320,16 @@ const registerRetryAt = new Map();   // agentKey -> ms; a 429 on register waits,
    handle each call, so the second try did not even clash.) So each attempt is written ahead: the name goes into the
    agent's keys entry as `registering` before the POST, and only a 201 replaces it. A later attempt that finds the mark
    looks the name up publicly first:
-   - 404 (no such agent, or deactivated): the lost attempt made nothing that is still live; register the SAME name;
+   - 404 (no active agent has it): register the SAME name (a deactivated holder keeps its name, so that register
+     409s and the loop takes a suffix, as before);
    - 200: the account exists and is very likely ours with no key. Register nothing: the agent does not post until
-     the name is free again (asked hourly), and the log says so once;
+     the name is free again (asked hourly), the log says so once, and its posts show agentNameUnclaimed;
    - anything else (no answer, a 5xx): wait for the next sweep.
-   An entry with no apiKey is skipped by every other loop here, so the mark changes nothing else. */
+   The mark is cleared only by an answer that proves nothing was made, a 4xx. A 5xx (a gateway can answer 504 after
+   the service committed) or a 2xx without a usable body (request() returns the status even when the body never
+   arrives) keeps it. The name looked up is the name sent: the service cleans both the same way, and registration()
+   never sends a name the service would swap for its own handle. A mark outlives a rename on purpose: the account
+   may exist under the old name. An entry with no apiKey is skipped by every other loop here. */
 const REGISTER_LOST_RECHECK_MS = 60 * 60 * 1000;
 async function ensureRegistered(agentKey, keys, now, ctx = {}) {
   if (keys[agentKey] && keys[agentKey].apiKey) return keys[agentKey];
@@ -356,8 +363,10 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
       saveJson(keysFile(), keys);
       return keys[agentKey];
     }
-    if (r.status === 0) return null;                  // no answer: the mark stays, and the next try looks first
-    delete keys[agentKey];                             // an answer that made nothing: no mark to look up
+    // Only a 4xx proves nothing was made. No answer, a 5xx, or a 2xx we could not read: the mark stays, and the next
+    // try looks the name up first.
+    if (!(r.status >= 400 && r.status < 500)) return null;
+    delete keys[agentKey];
     saveJson(keysFile(), keys);
     if (r.status === 429) registerRetryAt.set(agentKey, now + Math.max(60, r.retryAfter || 3600) * 1000);
     if (r.status !== 409) return null;               // a name clash retries; anything else waits for the next sweep
@@ -402,6 +411,11 @@ async function sendPost(post, keys, sent, now) {
   if (keys[agentKey] && keys[agentKey].retryAt && Date.parse(keys[agentKey].retryAt) > now) return;
   const k = await ensureRegistered(agentKey, keys, now);
   const rec = sent[post.id] || { state: 'pending', agent: agentKey };
+  // #4800: held because an account under this agent's name exists with no key here: recorded, so statuses() says so.
+  if (!k && keys[agentKey] && keys[agentKey].registering && keys[agentKey].registering.taken && !sent[post.id]) {
+    sent[post.id] = rec;
+    saveJson(sentFile(), sent);
+  }
   if (k && k.refused) { sent[post.id] = rec; return; }  // recorded, so statuses() shows agentRefused on it
   if (!k) return;
   let body = payload(post, rec.channel);
@@ -1025,6 +1039,7 @@ function statusOf(id, sent, deletes, keys) {
     state, deleteRequested,
     takenDown: rec.takenDown === true, takeDownReason: rec.takeDownReason || null,
     agentRefused: !!(k && k.refused),
+    agentNameUnclaimed: !!(k && !k.apiKey && k.registering && k.registering.taken),   // #4800
     ...(typeof rec.lastStatus === 'number' ? { lastStatus: rec.lastStatus } : {}),
     ...(typeof rec.deleteStatus === 'number' && rec.state === 'sent' ? { deleteStatus: rec.deleteStatus } : {}),
     ...(Array.isArray(rec.reasons) ? { reasons: rec.reasons } : {}),
