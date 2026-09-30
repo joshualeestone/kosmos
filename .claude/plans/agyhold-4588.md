@@ -144,3 +144,18 @@ held needlessly until the reset: the safe direction, it costs only delay.
   (checked: step()'s own peers list is not mutated). poolHeldUntil is marked as the stateless reading.
 - Measured: engine/agyhold-4588.test.js 26/26; the targeted set 291/291. Mutations: working clearing the
   memory again, and strangers counted, each red exactly their own test.
+
+## Review iteration 7 (blind, opus)
+- (W) FIXED: a regression this branch introduced into PR A's path. The resume now waits for the POOL's latest reset,
+  but PR A's six-hour window counted from each agent's own reset, so an agent whose reset came over six hours before
+  another's was never resumed (the reviewer simulated it). plan() now counts from the later of the two, and pool
+  memory is kept MAX_AGE_MS past its release (it holds nobody after an agent's step).
+- (W) FIXED: filtering held peers out of item.peers made the playbook say "No one else is on this project". A held
+  peer is now not asked but stays in item.peers, so it reads as "could not be reached".
+- (C) FIXED: poolPausedUntil's comment named callers it did not have. It and poolHeldUntil (test-only second copies of
+  the pool rule; one counted panes that are not ours) are deleted; tests use notePool with a fresh memory.
+- (N) LEFT: account-notify logs not-delivered each minute while a manager is held (behaviour right, log noisy);
+  stopped agents take a release step (delay only); PR A's resume loop counts any antigravity card while the pool
+  counts only ours (PR A's code, not changed here).
+- Measured: engine/agyhold-4588.test.js 28/28; the targeted set 293/293. Mutations: the resume age ignoring the pool
+  (1 red), held peers asked (2 red), the peer filter reintroduced (1 red: the wording test).
