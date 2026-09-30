@@ -959,16 +959,19 @@ async function run() {
                 errors++;
                 note = 'ERROR ' + String(e.message || e).split('\n')[0];
               }
-              /* A screen that changed the board's state puts it back here, whatever happened above,
-                 so no later screen photographs it (#4545). A failure to is a flag on this row (counted
-                 once: a row whose go() already errored is one errored screen, not two). */
+              // kosmos#4594: a screen's verify says the shot is the screen meant; if not, the shot goes and the row errors.
+              let shotGone = false;
               if (sc.verify && !/ERROR/.test(note)) {
                 try { await sc.verify(page, ctxData); } catch (e) {
                   try { fs.rmSync(path.join(out, file), { force: true }); } catch { /* best effort */ }
+                  shotGone = true;
                   errors++;
                   note += (note ? '; ' : '') + 'ERROR verify (shot deleted): ' + String(e.message || e).split('\n')[0];
                 }
               }
+              /* A screen that changed the board's state puts it back here, whatever happened above,
+                 so no later screen photographs it (#4545). A failure to is a flag on this row (counted
+                 once: a row whose go() already errored is one errored screen, not two). */
               if (sc.after) {
                 try { await sc.after(page, ctxData); } catch (e) { if (!/ERROR/.test(note)) errors++; note += (note ? '; ' : '') + 'ERROR after: ' + String(e.message || e).split('\n')[0]; }
               }
@@ -985,7 +988,7 @@ async function run() {
                 err.leak = true;
                 throw err;
               }
-              rows.push({ file, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields, audited, skipped: null });
+              rows.push({ file: shotGone ? null : file, screen: sc.name, owner: sc.owner, size: sz, theme, engine: en, note, taps: fit.taps, fields: fit.fields, audited, skipped: null });
               console.log((note ? 'FLAG  ' : 'ok    ') + file + (note ? '  ' + note : '')
                 + (!audited ? '  phone audits: n/a'
                   : `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}`));
