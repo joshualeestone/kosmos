@@ -91,8 +91,9 @@ test('#718: paintOrg sizes the chart by orgFit from its own width, and squeezes 
 test('#718: a width change repaints the chart, and a too-big chart scrolls in its own box', () => {
   assert.match(SCRIPT, /function orgResizeRepaint\(\) \{\s*if \(ORG_RESIZE_RAF\) return;\s*ORG_RESIZE_RAF = requestAnimationFrame\(\(\) => \{[\s\S]{0,600}paintOrg\(\);/);
   assert.match(SCRIPT, /window\.addEventListener\('resize', orgResizeRepaint\);/);
-  // Compared with the width the chart was last painted at, not one remembered by the handler.
-  assert.match(SCRIPT, /if \(wrap\.clientWidth === ORG_VIEW_W\) return;\s*paintOrg\(\);/);
+  // Compared with the width the chart was last painted at, not one remembered by the handler. #4506: the only thing
+  // allowed between that check and the paint is the flip-loop guard (a second flip back in a row is a feedback loop).
+  assert.match(SCRIPT, /if \(wrap\.clientWidth === ORG_VIEW_W\) return;\s*if \(orgFlipLoop\(wrap\.clientWidth\)\) return;\s*paintOrg\(\);/);
 });
 
 test('#718: a chart wider than its box lets a finger scroll the box, and the drag box is the fit margin', () => {
