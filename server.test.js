@@ -11679,6 +11679,7 @@ test('#4756: GET /api/remote/signin-addresses needs the held sign-in, answers th
     "if (a[0] === 'signin' && a[1] === 'start') { console.log(JSON.stringify({ stage: 'code_sent' })); process.exit(0); }",
     "if (a[0] === 'signin' && a[1] === 'verify') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.route-addr', account_address: 'first.kosmos.invalid' })); process.exit(0); }",
     // The list through the binary, the session on stdin (recorded, so the test can see where it went).
+    "if (a[0] === 'signin' && a[1] === 'addresses' && process.env.FAKE_ADDR_OLD) { process.stderr.write(\"error: unrecognized subcommand 'addresses'\\n\\nUsage: kosmos-tunnel signin <COMMAND>\\n\"); process.exit(2); }",
     "if (a[0] === 'signin' && a[1] === 'addresses') { const t = require('node:fs').readFileSync(0, 'utf8').trim(); require('node:fs').writeFileSync(process.env.FAKE_ADDR_TOKEN, t); console.log(JSON.stringify({ addresses: [{ name: 'first', address: 'first.kosmos.invalid', state: 'in_use' }, { name: 'spare', address: 'spare.kosmos.invalid', state: 'free' }], buy_url: 'https://login.kosmos.invalid/signin#add-computer' })); process.exit(0); }",
     'process.exit(0);', ''].join('\n'));
   fs.chmodSync(fakeBin, 0o755);
@@ -11689,7 +11690,7 @@ test('#4756: GET /api/remote/signin-addresses needs the held sign-in, answers th
     s2.end(JSON.stringify(q.url === '/v1/meta' ? { bought_addresses: true } : {}));
   });
   await new Promise((r) => coord.listen(0, '127.0.0.1', r));
-  const keys = ['AGENT_WORKFORCE_TUNNEL_BIN', 'AGENT_WORKFORCE_TUNNEL_COORDINATOR', 'AGENT_WORKFORCE_TUNNEL_STATE', 'FAKE_ADDR_TOKEN'];
+  const keys = ['AGENT_WORKFORCE_TUNNEL_BIN', 'AGENT_WORKFORCE_TUNNEL_COORDINATOR', 'AGENT_WORKFORCE_TUNNEL_STATE', 'FAKE_ADDR_TOKEN', 'FAKE_ADDR_OLD'];
   const prev = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
   process.env.AGENT_WORKFORCE_TUNNEL_BIN = fakeBin;
   process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'http://127.0.0.1:' + coord.address().port + '/';
@@ -11722,6 +11723,13 @@ test('#4756: GET /api/remote/signin-addresses needs the held sign-in, answers th
     assert.equal(fs.existsSync(process.env.FAKE_ADDR_TOKEN), false, 'another website made the engine spend the session');
     const same = await req('/api/remote/signin-addresses', { headers: { 'sec-fetch-site': 'same-origin' } });
     assert.equal(same.status, 200, 'the same-origin control was refused too; the 403 above proves nothing: ' + same.body);
+    assert.equal(JSON.parse(same.body).unsupported, undefined, 'control: a list that worked carries unsupported');
+    // A tunnel program older than the verb: the page must be told, so it stops offering a re-read that cannot work.
+    process.env.FAKE_ADDR_OLD = '1';
+    const old = await req('/api/remote/signin-addresses', { headers: { 'sec-fetch-site': 'same-origin' } });
+    assert.equal(old.status, 400, old.body);
+    assert.equal(JSON.parse(old.body).unsupported, true, 'the route dropped unsupported: ' + old.body);
+    assert.match(JSON.parse(old.body).error, /update Kosmos/);
   } finally {
     await postJson('/api/remote/signin-cancel', {});
     for (const k of keys) { if (prev[k] === undefined) delete process.env[k]; else process.env[k] = prev[k]; }

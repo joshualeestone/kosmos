@@ -82,6 +82,9 @@ const SCENARIOS = {
   'app-free-typed-taken': { account: '', refuse: 'mymac', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [] }], auto: null },
   // Check again that finds the switch now off takes the step as before, not a list that can never work.
   'recheck-switched-off': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] }, { ok: true, live: false }], auto: null },
+  // Check again on a tunnel program older than the list: no re-read can ever work, so the step as before.
+  'recheck-unsupported': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] },
+    { error: 'this version of Kosmos cannot list your addresses yet; update Kosmos', unsupported: true }], auto: null },
   // Check again that cannot reach the service stays on the panel and says so; it never falls back to the account's address.
   'recheck-fails': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] }, null], auto: null },
   // The read is slow: the code step is gone at once (its spent code cannot be sent again) and the step says it is checking.
@@ -285,7 +288,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(JSON.stringify(btns) === JSON.stringify(['other']), `[${key}] the refused address is not offered again`, JSON.stringify(btns));
         chk(!(await visible(page, '#plus-si-owned')), `[${key}] no "Connecting this computer as" line left beside it`);
         chk(regs.length === 1, `[${key}] nothing else was registered`, JSON.stringify(regs));
-      } else if (key === 'recheck-switched-off') {
+      } else if (key === 'recheck-switched-off' || key === 'recheck-unsupported') {
         await page.click('#plus-si-bought-recheck');
         await page.waitForFunction(() => { const d = document.getElementById('plus-si-done'); return d && !d.hidden; }, null, { timeout: 8000 }).catch(() => {});
         chk(regs.length === 1 && regs[0] === 'first', `[${key}] takes the step as before (registers to the account's address)`, JSON.stringify(regs));

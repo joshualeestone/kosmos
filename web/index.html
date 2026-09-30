@@ -43779,6 +43779,7 @@ async function plusSiBoughtRead() {
     const j = await res.json().catch(() => null);
     if (res.ok && j && j.live === true && Array.isArray(j.addresses)) return { list: j };
     if (res.ok && j && j.live === false) return { off: true };
+    if (j && j.unsupported === true) return { off: true };   // a tunnel program older than the list: it can never be read here
     return { because: plusWords((j && j.error) || 'Kosmos+ could not list your addresses') };
   } catch {
     return { because: 'this computer could not reach the sign-in service' };

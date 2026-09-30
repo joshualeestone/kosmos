@@ -8278,7 +8278,9 @@ const server = http.createServer(async (req, res) => {
     if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
     remote.signinAddresses()
       .then((got) => {
-        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        // unsupported: this computer's tunnel program predates the list, so no re-read can ever work (the page then
+        // takes the step as before, as for the switch off).
+        if (!got.ok) { sendJson(res, 400, got.unsupported === true ? { error: got.because, unsupported: true } : { error: got.because }); return; }
         sendJson(res, 200, Object.assign({ ok: true }, got.data));
       })
       .catch(() => sendJson(res, 400, { error: 'we could not list your addresses' }));
