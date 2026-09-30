@@ -33250,6 +33250,14 @@ function holdFloorOnResize(el) {
     });
   }).observe(el);
 }
+/* #4639 (Josh, 2026-09-29, "like Discord"): the person's OWN message takes them to
+   the newest row, wherever they were reading. An agent's post never moves them;
+   that rule stays with setThread and paintRoom, untouched. Not while a search is
+   filtering the list. */
+function jumpToOwnSend(el, query) {
+  if (!el || String(query || '').trim()) return;
+  pinToBottom(el);
+}
 function pinToBottom(el) {
   /* 🛑 NOTHING IS ARMED FOR A BOX NOBODY CAN SEE. On a hidden container the
      assignment below is a harmless no-op, but the image listeners are NOT: they
@@ -34410,6 +34418,8 @@ async function sendTalk(text, attachment) {
        TALK_PENDING). Painted from the last thread read, so nothing waits on a fetch. */
     TALK_PENDING[sentName] = { text, startedAt: Date.now(), recorded: false, failed: false, because: null };
     talkPaintPending(sentName, name);
+    /* #4639: after the drawn bubble, so it is the row they land on. */
+    jumpToOwnSend(document.getElementById('d-dmthread'), TALK_QUERY);
     const res = await fetch('/api/agent/' + encodeURIComponent(sentName) + '/thread', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -57863,6 +57873,10 @@ async function pjPostSend(attachment) {
     pjRoomAnnounce(line);
   };
   try {
+    /* #4639: at the press, as the DM does, not when the server answers: a fan-out can take
+       seconds, and a jump that late would pull back someone who scrolled up meanwhile. So a
+       send that then fails has still moved them; its sentence is beside this composer. */
+    jumpToOwnSend(document.getElementById('pj-room'), PJ_ROOM_QUERY);
     const replying = PJ_REPLY[sentProject] || null;   // #3745: the post this answers, if any
     PJ_REPLY_SENDING = replying ? { project: sentProject, id: replying.id } : null;
     const res = await fetch('/api/project/' + encodeURIComponent(sentProject) + '/room', {
