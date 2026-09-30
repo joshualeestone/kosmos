@@ -40,6 +40,7 @@ render-chip-filters-3423
 render-claude-connect-choice-2433
 render-cluster-reorder-2929
 render-codex-account-picker-2811
+render-composer-caret-4585
 render-composer-reset
 render-composer-stroke
 render-conn-ask-4451
@@ -115,6 +116,7 @@ render-model-change
 render-model-restart-interstitial
 render-model-spinners-2365
 render-msg-counter-3403
+render-msgref-4631
 render-muse-signin-3939
 render-nav-badges-3216
 render-needsyou-dealarm-2808
@@ -144,6 +146,7 @@ render-plus-gate-1615
 render-plus-panel-3829
 render-plus-second-computer-4638
 render-plus-signin-3478
+render-plus-signin-enter-0929
 render-plus-stars-3778
 render-profile-field-widths-2697
 render-project-members-3387
