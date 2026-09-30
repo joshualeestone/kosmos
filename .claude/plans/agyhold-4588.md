@@ -81,3 +81,19 @@ held needlessly until the reset: the safe direction, it costs only delay.
   server.js survives; switching regex handling off reds that guard.
 - Measured: 287/287 across the new files and the touched modules' files (connlost-heal added). Mutations: the memory
   only rising, no 8-day cap, the whole tail for everyone, and the resume ignoring the memory each red exactly their test.
+
+## Review iteration 3 (blind, opus)
+- (W) FIXED: the resume and the per-agent sender release ran on two schedules that overlapped (two agents drawing on
+  the refilled pool in one step, a timer line before an agent's own resume, no grace for an agent whose own reset came
+  earlier). The resume now owns the first n slots after the pool's reset and waits the grace after it; the senders
+  come back one per slot after those.
+- (W) FIXED: the memory could not tell a correction from a disappearance (a later card that stopped showing its pause
+  reopened the pool at an earlier card's reset). It is now kept by session.
+- (C) FIXED: the plan said connection heal is gated and gave stale counts.
+- (N) FIXED: givePart checks the hold on the roster it delivers with; the held recommender log cannot grow.
+- (N) LEFT: with the resume switched off (AGENT_WORKFORCE_AGY_QUOTA_RESUME_OFF=1) the memory is fed only by a sender
+  that targets an agy card; the scanner's regex heuristic still cannot see a regex right after `)` (the whole-file
+  guard catches the desync that would cause); a held recommender peer is not asked for that item (decided).
+- Measured: the three new files 24 + 4 + 17, plus the touched modules' files, all green (see the run below). Mutations:
+  memory of only what cards show now (6 tests red), senders sharing the resume's slots (3 red), no pool grace for the
+  resume (1 red).
