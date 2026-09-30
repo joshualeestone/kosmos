@@ -661,8 +661,9 @@ function fedKosmosPlusNow() {
       "federation live" bool from the coordinator (remote.federationLive()), refreshed on
       a TTL from the /api/status poll. This is how a CUSTOMER -- who cannot set an env var
       -- gets the flip: central on/off + rollback-without-a-release. (The real coordinator
-      fetch is a stub pending ICK's endpoint; until wired it returns false, so the env is
-      the only live source and behaviour is unchanged.)
+      read is the coordinator's public /v1/meta `federation_live` (kosmos#4649), asked only by a
+      board whose person turned Kosmos+ remote access on; unknown keeps the last-known value, and
+      only an explicit false switches it off.)
    2. The AGENT_WORKFORCE_FEDERATION_LIVE env override, for an OPERATOR/dev board:
       set it on the launchd job and restart (a live process cannot have its inherited env
       changed from outside, so production needs that one restart; the per-request read is
