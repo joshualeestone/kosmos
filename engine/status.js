@@ -1641,7 +1641,10 @@ function codexHookReview(paneText) {
    characters: rendered through textContent and as JSON. */
 const CODEX_HOOK_DIALOG_SENTENCE = 'it is waiting on a Codex hook approval: Codex found hooks it has not been told to trust '
   + '(often from the Codex desktop app\u2019s plugins) and will not start until someone answers. Typing cannot answer it, '
-  + 'so nothing was typed. Choose in its terminal whether to trust them, then send this again.';
+  + 'so nothing was typed. Answer it on its agent page (the box above the conversation), then send this again.';
+/* #4607 (review round 3): the trusted-but-open list. Its hooks are trusted already; Codex waits for the list to close. */
+const CODEX_HOOK_LIST_SENTENCE = 'its Codex hook list is open on its screen, so nothing was typed: Codex waits for it to be '
+  + 'closed. Close it on its agent page (the box above the conversation), then send this again.';
 /* True when a card's evidence is this dialog's. Only the Codex hook branch of classify writes these rows as
    needs_you evidence. Unlike isTrustDialogEvidence, NO production code keys on it (round 4): the delivery floor
    reads the screen fresh. Its callers are the tests that pin what the card shows. */
@@ -1664,7 +1667,10 @@ function codexHookTrustedTable(paneText) {
   if (!rows.length) return false;
   const tail = rows.slice(-CODEX_HOOK_ROWS);
   if (!CODEX_HOOK_TRUSTED_FOOTER_END.test(tail.slice(-3).join('').replace(/\s+/g, ''))) return false;
-  return tail.slice(0, -1).some((r) => CODEX_HOOK_TABLE_HEADING.test(r));
+  if (!tail.slice(0, -1).some((r) => CODEX_HOOK_TABLE_HEADING.test(r))) return false;
+  /* At least one ACTIVE hook (review round 3): the same viewer with nothing active is Codex's plain /hooks list, and
+     "their hooks are trusted" would be untrue there. Rows: "Event  Installed  Active  Description". */
+  return tail.some((r) => { const m = /^\s*[A-Za-z]+\s+(\d+)\s+(\d+)\s+\S/.exec(r); return !!m && Number(m[2]) > 0; });
 }
 /* #4607 (review round 1): the menu key is the number Codex prints beside the exact option, never its position (a
    Codex that reorders the menu would otherwise get "Trust all" when the person chose to continue without). Rows are
@@ -1676,7 +1682,12 @@ function codexHookMenuKeys(paneText) {
   if (!codexHookReview(paneText) || codexHookReview(paneText).screen !== 'menu') return { trust: null, skip: null };
   const rows = String(paneText == null ? '' : paneText).split('\n').map((r) => r.replace(/\s+$/, ''));
   while (rows.length && !rows[rows.length - 1]) rows.pop();
-  const tail = rows.slice(-CODEX_HOOK_ROWS);
+  /* Only the menu's OWN rows: after its last "Hooks need review" title (review round 3: an option row echoed in the
+     transcript above could otherwise supply a digit when Codex rewords both of its own). */
+  let from = -1;
+  rows.forEach((r, i) => { if (CODEX_HOOK_MENU_TITLE.test(r)) from = i; });
+  if (from < 0) return { trust: null, skip: null };
+  const tail = rows.slice(from + 1);
   const one = (re) => { const hits = tail.map((r) => re.exec(r)).filter(Boolean); return hits.length === 1 ? hits[0][1] : null; };
   const trust = one(CODEX_HOOK_MENU_TRUST);
   const skip = one(CODEX_HOOK_MENU_SKIP);
@@ -8166,6 +8177,7 @@ module.exports = {
   codexHookTrustedTable, codexHookSummary, codexHookMenuKeys, // #4607
   isCodexHookEvidence,
   CODEX_HOOK_DIALOG_SENTENCE,
+  CODEX_HOOK_LIST_SENTENCE, // #4607
   CODEX_STARTING_SENTENCE,
   CODEX_UNSEEN_SENTENCE,
   SELECTOR_GLYPHS,

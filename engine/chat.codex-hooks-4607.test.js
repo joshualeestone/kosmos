@@ -299,3 +299,27 @@ test('#4607 round 2: a blank screen after a key is not taken as the question gon
   assert.match(r.because, /blank when we checked/);
   assert.deepEqual(t.keys(), ['3']);
 }));
+
+/* Review round 3. */
+test('#4607 round 3: an option echoed above a reworded menu cannot supply the digit', () => {
+  const reworded = MENU.replace('2. Trust all and continue', '2. Trust every hook').replace('3. Continue without trusting', "3. Don't trust");
+  const echoed = '• agent output:\n  2. Continue without trusting (hooks won\'t run)\n  3. Trust all and continue\n' + reworded;
+  assert.ok(status.codexHookReview(echoed), 'fixture: still the dialog by title and footer');
+  assert.deepEqual(status.codexHookMenuKeys(echoed), { trust: null, skip: null });
+  assert.deepEqual(status.codexHookMenuKeys(MENU), { trust: '2', skip: '3' }, 'CONTROL: the real menu still reads');
+});
+
+test('#4607 round 3: an open hooks viewer with nothing active is not "trusted"', () => {
+  const empty = TRUSTED.replace(/^(\s*(?:SubagentStop|Stop)\s+)1(\s+)1/gm, '$10$20');
+  assert.equal(status.codexHookTrustedTable(TRUSTED), true, 'CONTROL');
+  assert.equal(status.codexHookTrustedTable(empty), false);
+});
+
+test('#4607 round 3: the open list has its own refusal sentence, pointing at the agent page', () => withCodex(TRUSTED, (board) => {
+  arm([TRUSTED, TRUSTED]);
+  const r = chat.deliver('sam', 'hello', board.agents);
+  assert.equal(r.because, status.CODEX_HOOK_LIST_SENTENCE);
+  assert.match(status.CODEX_HOOK_LIST_SENTENCE, /agent page/);
+  assert.match(status.CODEX_HOOK_DIALOG_SENTENCE, /agent page/);
+  assert.doesNotMatch(status.CODEX_HOOK_DIALOG_SENTENCE + status.CODEX_HOOK_LIST_SENTENCE, /terminal/);
+}));

@@ -79,11 +79,15 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
     chk(/Codex found 2 hooks it has not been told to trust \(SubagentStop, Stop\)\./.test(a.what) && !/, from /.test(a.what),
       `${t} the summary says the count and events the table showed, and no source it did not show`, a.what);
     chk(/Trusting covers every hook Codex lists/.test(a.what), `${t} the summary says Trust covers every hook listed`, a.what);
+    const m = await paint({ ...base, codexHooks: { screen: 'menu', count: 2, events: [], source: null } });
+    chk(/Its screen does not name them or say what they run\./.test(m.what), `${t} from the menu, the page says the screen names no hook`, m.what);
+    chk(!/does not name them/.test(a.what), `${t} and does not say so when events were shown`, a.what);
     chk(JSON.stringify(a.shown) === JSON.stringify(['d-qask-codex-trust', 'd-qask-codex-skip']), `${t} the question offers Trust and Continue, not Close`, JSON.stringify(a.shown));
     const open = await paint({ ...base, codexHooks: { screen: 'trusted', count: null, events: [], source: null } });
     chk(open.box && open.codex && JSON.stringify(open.shown) === JSON.stringify(['d-qask-codex-close']) && /hooks are trusted, and their list is still open/.test(open.label),
       `${t} the trusted-but-open list offers only Close`, JSON.stringify(open));
     const h = await paint({ ...base, codexHooks: HOOK });
+    chk(/agent could have written it/.test(h.what), `${t} a project-folder hook is flagged as writable by the agent`, h.what);
     chk(/Codex found hooks it has not been told to trust \(Stop\), from Project config/.test(h.what),
       `${t} from one hook's page: no count it did not show, the event and the source`, h.what);
     const none = await paint({ ...base, codexHooks: null });

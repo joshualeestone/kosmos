@@ -1305,7 +1305,8 @@ function codexScreenRefusal(card, sessionName, roster) {
   if (!view || typeof view.text !== 'string') return status.CODEX_UNSEEN_SENTENCE;
   if (!view.text.trim()) return status.CODEX_STARTING_SENTENCE;
   /* #4607: the trusted-but-open list too (a typed key there is unmeasured; Close answers it from the board). */
-  return (status.codexHookReview(view.text) !== null || status.codexHookTrustedTable(view.text)) ? status.CODEX_HOOK_DIALOG_SENTENCE : null;
+  if (status.codexHookReview(view.text) !== null) return status.CODEX_HOOK_DIALOG_SENTENCE;
+  return status.codexHookTrustedTable(view.text) ? status.CODEX_HOOK_LIST_SENTENCE : null;
 }
 
 /**

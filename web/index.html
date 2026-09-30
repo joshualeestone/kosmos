@@ -34081,7 +34081,11 @@ async function paintTalk(sessionName, agentName) {
         'Codex found ' + (n ? n + (n === 1 ? ' hook' : ' hooks') : 'hooks') + ' it has not been told to trust'
         + (events.length ? ' (' + events.join(', ') + ')' : '')
         + (h.source ? ', from \u201c' + String(h.source).slice(0, 160) + '\u201d' : '')
-        + '. Trusting covers every hook Codex lists, and trusted hooks run outside the sandbox. If you are not sure, continue without them.';
+        + '.'
+        /* Review round 3: say what the screen does NOT tell, rather than let a count read as enough to trust on. */
+        + (events.length || h.source ? '' : ' Its screen does not name them or say what they run.')
+        + (/^Project config\b/i.test(String(h.source || '')) ? ' This one is in the agent\u2019s own project folder, so the agent could have written it.' : '')
+        + ' Trusting covers every hook Codex lists, and trusted hooks run outside the sandbox. If you are not sure, continue without them.';
     }
     qCodex.hidden = false;
   } else {

@@ -50,6 +50,11 @@ token until #4491 lands. An unsandboxed agent gains nothing by it (it could writ
 itself). A sandboxed agent that can read the token and reach the board but not write outside its folder would gain
 it; Codex's default sandbox denies network, so that needs a loosened sandbox. #4491 closes it at the gate.
 
+Also not covered (review round 3), stated: from the MENU (the screen Codex opens on) the board can show only a count:
+Codex names no hook and no command there, and no screen ever shows the command. The page says so, warns when a hook
+comes from the agent's own project folder, and makes Continue the main button. The single-hook page opened from the
+TRUSTED list (Enter there) was never captured, so it is not recognised: the board shows nothing while Codex waits on it.
+
 ## Weakest premise
 That 0.149.1's screens and keys hold for the Codex the person runs. A newer Codex (0.159.2 exists) may word the
 dialog differently; then codexHookReview reads nothing, the card shows no buttons, and nothing is pressed (fails
