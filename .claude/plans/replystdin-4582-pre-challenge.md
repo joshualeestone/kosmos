@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: replystdin-4582
-diff_hash: f4dfee9cfda1bff6dfe8698780f95600e6840ed19df25a4b95337ca5ed4a770a
+diff_hash: 290661c07bf7f137f6e059635aeea834fe28c0c55550d8b11d49b93df53476f7
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-29T18:48:03Z
+timestamp: 2026-09-30T05:35:28Z
 iterations: 2
 converged: true
 ---
@@ -21,6 +21,11 @@ Note: the 6.0 baseline full validation was not run before iteration 1 (the Mac r
 time and the dispatch asked for the full suite once, at convergence). The 6j final validation ran on the
 converged HEAD and passed: 12001 tests, 11823 pass, 0 fail, validation hash f4dfee9cfda1. Focused tests
 ran each round (136 of 136 pass after iteration 1's fixes).
+
+Re-validated after main was merged in twice (2026-09-29 22:45 and 2026-09-30 00:00). The first merge clashed on the
+agents' doctrine version: main's #4631 took version 19, so this card's entry is 20 (DOCTRINE_VERSION 20, pinned at
+6f0045422d969273, measured from the merged block, which carries both changes). Full validation clean on Mortals,
+recorded for hash 290661c07bf7 at b53cd7827.
 
 ### Per-Iteration Breakdown
 
