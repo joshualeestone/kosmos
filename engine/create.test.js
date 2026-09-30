@@ -56,6 +56,9 @@ process.on('exit', () => {
 });
 
 const create = require('./create');
+// #4632: the ready-made roles are downloaded, not shipped; store the signed fixture as a download
+// would, so the caution and count checks below see the same catalogue a board does.
+require('../test-support/catalogue-fixture').install(SANDBOX);
 
 /**
  * ⚠️ The programs an agent is made of, pinned to something that exists
@@ -678,8 +681,8 @@ test('the roles where being wrong is expensive carry their limit in BOTH places'
     // survives every wording of it: the PM does not attempt work outside
     // its skill -- it briefs the agent who has it.
     pm: /brief the agent who\s+has\s+it rather than attempting it badly/i,
-    // #4555: the seeded catalogue's cautioned roles (engine/catalogue-roles.js, generated
-    // from tools/catalogue/roles-source.js). Each states its boundary once in its own
+    // #4555: the seeded catalogue's cautioned roles (joshualeestone/kosmos-catalogue, stored here
+    // from test-support/catalogue-published/catalogue.json). Each states its boundary once in its own
     // instructions; the patterns allow the line wrap between words.
     cos: /draft,\s+never\s+send\s+or\s+accept/i,
     officemgr: /draft,\s+never\s+send/i,

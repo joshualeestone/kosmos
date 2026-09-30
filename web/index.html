@@ -41043,7 +41043,8 @@ document.getElementById('d-save').addEventListener('click', async () => {
       validators of one fact is the defect this codebase keeps finding.
 ========================================================================== */
 
-let ROLES = null;          // the menu, fetched once
+let ROLES = null;          // the menu, fetched once it includes the downloaded catalogue
+let ROLES_COMPLETE = false; // #4632: false while the board holds only the built-in roles
   /* ---- the K loader, ported from the pack ------------------------------
      🔑 PORTED, NOT REWRITTEN, and the pack's own note below says why: its loop
      never fills toward completion. That is the only reason a loader is allowed
@@ -46500,13 +46501,17 @@ async function loadRoles(initialMode) {
   // Returning early on the second visit left the picker rendered from last
   // time with its old choice still marked, while `openCreate` had just
   // cleared it -- a screen showing a selection the page did not have.
-  if (ROLES && ROLES.length) { updateRecPill(); pickMode(mode); return; }
+  /* #4632: a menu without the downloaded catalogue (offline, or the download not done yet) is asked
+     for again on the next open; the board decides whether to try the network again. */
+  if (ROLES && ROLES.length && ROLES_COMPLETE) { updateRecPill(); pickMode(mode); return; }
   msg.textContent = 'Loading…';
   try {
-    const res = await fetch('/api/roles', { cache: 'no-store' });
+    // ?catalogue=1: opening the picker is what downloads the ready-made roles (#4632).
+    const res = await fetch('/api/roles?catalogue=1', { cache: 'no-store' });
     if (!res.ok) throw new Error('status ' + res.status);
     const data = await res.json();
     ROLES = (data && data.roles) || [];
+    ROLES_COMPLETE = !!(data && data.catalogue && data.catalogue.loaded);
     // Same payload, so the board and this form can never hold different titles.
     learnRoleTitles(ROLES);
     CREATE_MODELS = (data && data.models) || [];

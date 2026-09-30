@@ -861,6 +861,7 @@ function safeAvatarFor(name) {
   try { return store.avatarPath(name); } catch { return null; }
 }
 const roles = require('./engine/roles');
+const catalogue = require('./engine/catalogue'); // #4632: the downloaded roles and teams
 const commitments = require('./engine/commitments');
 const you = require('./engine/you');
 const policyEngine = require('./engine/policy');
@@ -6216,7 +6217,14 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pathname === '/api/roles' && (req.method === 'GET' || req.method === 'HEAD')) {
-    sendJson(res, 200, {
+    /* #4632: the ready-made roles beyond the built-in ones are downloaded, not shipped. The role
+       picker asks with ?catalogue=1 when it opens, and only then does the board fetch the
+       catalogue (engine/catalogue.js: at most once in ten minutes, kept only when its signature
+       verifies). Every other caller (the page's role titles at load, the model menu) answers from
+       what is already held, and never waits on the network. */
+    let wantCatalogue = false;
+    try { wantCatalogue = req.method === 'GET' && new URL(req.url, ROUTING_BASE).searchParams.get('catalogue') === '1'; } catch { wantCatalogue = false; }
+    const answer = () => sendJson(res, 200, {
       // The models an agent can be created on, from the engine's own list,
       // so the menu and the flag the job runs with cannot drift.
       /* ⚠️ `provider` TRAVELS WITH EACH ROW (#1026). The create screen reads
@@ -6256,7 +6264,17 @@ const server = http.createServer(async (req, res) => {
         // is exactly too late for the two roles that have one.
         caution: r.caution || null,
       })),
+      // What the board holds of the downloaded catalogue: whether any, which serial, and why the
+      // last download was not used. The picker reads `loaded` (to ask again on its next open).
+      catalogue: catalogue.status(),
     });
+    // refresh() never rejects; the second handler is for a bug in it, which must not hang the picker.
+    // answer() itself runs inside a promise handler there, so a throw in it is caught and answered
+    // rather than left as an unhandled rejection.
+    const answerSafely = () => {
+      try { answer(); } catch { if (!res.headersSent) sendJson(res, 500, { error: 'we could not list the roles' }); }
+    };
+    if (wantCatalogue) catalogue.refresh().then(answerSafely, answerSafely); else answer();
     return;
   }
 
@@ -6294,6 +6312,15 @@ const server = http.createServer(async (req, res) => {
           // No error code: the catch below answers in our own words whatever
           // this is, and a code nothing reads is a hint that something does.
           throw new Error('we could not read that request');
+        }
+
+        /* #4632: a ready-made role comes from the downloaded catalogue. When the key asked for is not
+           one this board holds (nobody has opened the picker yet, so nothing was downloaded), ask the
+           catalogue first, as the picker would. (This is the create form's route; agents and the CLIs
+           make agents through /api/team, which does the same.) At most once in ten minutes, never
+           throws; an unknown key is still refused below. */
+        if (create.roleKeyOf(body) && !roles.byKey(create.roleKeyOf(body))) {
+          await catalogue.refresh();
         }
 
         /**
@@ -6730,6 +6757,14 @@ const server = http.createServer(async (req, res) => {
               }
             }
           }
+        }
+
+        /* #4632: agents and both CLIs make agents here (`kosmos agent create`). A ready-made role
+           comes from the downloaded catalogue, so when a member names a role this board does not
+           hold, ask the catalogue first, as the picker would. After the caller is known; at most
+           once in ten minutes; never throws; an unknown key is still refused by createTeam. */
+        if (Array.isArray(members) && members.some((m) => m && typeof m === 'object' && create.roleKeyOf(m) && !roles.byKey(create.roleKeyOf(m)))) {
+          await catalogue.refresh();
         }
 
         /* #1279 GLOBAL per-creator active-agent cap: enforced INSIDE the
