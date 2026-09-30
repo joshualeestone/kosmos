@@ -19,22 +19,29 @@ old loop waited for each member before starting the next. The page (pjPostSend) 
 POST returns, so that sum was the wait after Enter.
 
 ## The change
-engine/messages.js, sendPostWithDelivery's asynchronous arm: every member's delivery starts at once
-(Promise.allSettled over recipients.map(deliverOne)); after all have finished, the first failure is thrown, else the
-deliveries are finished as before. The synchronous arm (sendPost) is unchanged.
+engine/messages.js, sendPostWithDelivery's asynchronous arm: each member's delivery starts one turn of the event loop
+after the one before (a setImmediate between starts), without waiting for it to finish; after all have finished
+(Promise.allSettled), the first failure is thrown, else the deliveries are finished as before. The synchronous arm
+(sendPost) is unchanged.
 
 ## Why overlapping is safe
 - Each member is its own pane, and chat.deliverAsync already queues deliveries to one pane (deliveryQueues).
 - What deliverOne shares between members (outcomes, spilled, roomhold's held ids) is keyed by the member's name.
-- deliverOne's synchronous part (the checks, the envelope, the paste) still runs member by member, in order; only
-  the waits overlap. The tmux calls themselves are synchronous (spawnSync), so they never interleave.
+- Each member's checks and envelope, then its paste, run member by member, in the members' order (a member whose
+  pane already has a delivery queued from another request waits behind that one). The tmux calls are synchronous
+  (execFileSync), so no member's Enter can land between another's paste chunks. Only the waits overlap.
 
 ## Decisions
 1. Wait for EVERY member before answering, then throw the first failure (allSettled, not all). Rejected: Promise.all,
    which would answer "could not post" while other members were still being typed at.
 2. On purpose, one change on the failure path: the old loop stopped at a member whose typing THREW, so the members
    after it were never tried; now they are. A throw there is a broken promise in the typing path (chat.deliverAsync
-   reports its failures as verdicts, not throws), so this is rare.
+   reports its failures as verdicts, not throws), so this is rare. What it costs, as before but now for every member
+   rather than only the earlier ones: on a failure the post is not recorded (finishDeliveries is skipped), yet the
+   members who were typed at got an envelope naming its id, and the next post will reuse that id.
+3. One member per turn, not all in the same tick (review 1). Starting all at once ran every member's synchronous tmux
+   calls as one block: measured on 20 members, the board went 599 ms without answering anything else (the old loop:
+   42 ms; now: 72 ms), while the post itself took the same time either way.
 WEAKEST PREMISE: that nothing downstream depended on members being typed at strictly one after another (for
 example an agent reading the room and seeing a colleague's copy arrive first). Every member still gets the same
 envelope; only the gaps overlap.
@@ -46,6 +53,19 @@ envelope; only the gaps overlap.
   reported before the others were reached).
 - 362 of 362 across the room-post and delivery tests (the messages and chat engine suites, the server post and room
   tests, the agent-token sender pins).
+
+## Review round 1 (one blind reviewer, no blocker; one should-fix, three nits, all taken)
+1. All members in one tick blocked the event loop for N members' tmux calls (above, decision 3).
+2. The plan described the synchronous part wrongly (the paste is not in deliverOne's own synchronous part) and named
+   spawnSync for execFileSync. Corrected above.
+3. A SYNCHRONOUS throw from deliverOne escaped the map before allSettled, so the failure was told while earlier
+   members were still being typed at and later ones were never started. Each start is now inside a promise and
+   handled at once. Tested: a member whose delivery throws at once.
+4. The failure path's cost (an unrecorded post whose id reached members) now applies to more members. Named in
+   decision 2.
+Tests added: one member starts per turn (counted with a setImmediate chain, not timed), and the throw-at-once case.
+Both fail against the reviewed commit, which started all members in one tick.
+Bench after the round (20 members): 0.98 s, longest stall 72 ms. 364 of 364 across the room-post and delivery tests.
 
 ## Not done
 - Nothing measured on a real room with real agents (a real post would type into them).

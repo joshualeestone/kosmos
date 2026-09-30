@@ -2038,9 +2038,23 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
        Every delivery is ALLOWED TO FINISH before the answer, so the person is never told "could not post"
        while members are still being typed at; then the first failure is thrown, as the old loop threw it.
        One difference, on purpose: the old loop stopped at a failure, so the members after it were never
-       tried; now they are. */
+       tried; now they are.
+       ⚠️ ONE MEMBER PER TURN OF THE EVENT LOOP. Each delivery's tmux calls are synchronous (execFileSync), so
+       starting every member in the same tick would run all their pastes as one block with the board answering
+       nothing else, and, their waits ending together, all their Enters as a second block (review 1). A
+       setImmediate between starts lets the board answer other requests between members, and the waits still
+       overlap because each start is only one member's tmux calls after the last. A synchronous throw from
+       deliverOne is caught and becomes that member's failure, so it too waits for the others. */
     const pending = (async () => {
-      const settled = await Promise.allSettled(recipients.map((name) => deliverOne(name)));
+      const runs = [];
+      for (let i = 0; i < recipients.length; i++) {
+        if (i > 0) await new Promise((resolve) => setImmediate(resolve));
+        const name = recipients[i];
+        const run = new Promise((resolve) => resolve(deliverOne(name)));
+        run.catch(() => {});   // handled at once, or node reports a rejection that allSettled below collects anyway
+        runs.push(run);
+      }
+      const settled = await Promise.allSettled(runs);
       const failed = settled.find((s) => s.status === 'rejected');
       if (failed) throw failed.reason;
       return finishDeliveries();

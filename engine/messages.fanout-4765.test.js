@@ -113,3 +113,47 @@ test('#4765: when one member fails, the others are still reached, and the failur
     assert.equal(enters(calls).length, MEMBERS.length - 1);
   });
 });
+
+test('#4765 review 1: one member starts per turn of the event loop, so the board answers other requests between them', async () => {
+  /* Each member's tmux calls are synchronous. Started in one tick, every member's paste ran as one block with the
+     board answering nothing else (measured: 20 members, the loop went 599 ms without a turn). A setImmediate
+     chain counts turns; each member's first paste must land on a later turn than the one before it. */
+  await withRoom(async (roster) => {
+    let turn = 0;
+    let ticking = true;
+    const spin = () => { if (!ticking) return; turn += 1; setImmediate(spin); };
+    setImmediate(spin);
+    const pasteTurn = {};
+    chat.setRunner((args) => {
+      if (args[0] === 'paste-buffer') { const t = args[args.indexOf('-t') + 1]; if (!(t in pasteTurn)) pasteTurn[t] = turn; }
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chat.setDryRun(false);
+    chat.setPauser(() => new Promise((r) => setTimeout(r, 5)));
+    try {
+      const d = await post(roster, 'one line for the whole room');
+      assert.equal(d.state, chat.DELIVERY.PLACED);
+    } finally { ticking = false; }
+    const turns = Object.values(pasteTurn);
+    assert.equal(turns.length, MEMBERS.length, 'a member was not pasted into');
+    for (let i = 1; i < turns.length; i++) assert.ok(turns[i] > turns[i - 1], 'two members were started in the same turn: ' + JSON.stringify(turns));
+  });
+});
+
+test('#4765 review 1: a member whose delivery throws at once still lets every other member finish before the failure is told', async () => {
+  await withRoom(async (roster) => {
+    const calls = arm();
+    chat.setPauser(() => new Promise((r) => setTimeout(r, 5)));
+    /* The third member's pane refuses to be typed at by throwing from the typing path itself. */
+    const third = roster[2].session;
+    const realDeliverAsync = chat.deliverAsync;
+    chat.deliverAsync = (name, ...rest) => { if (name === roster[2].sessionName) throw new Error('the third member\'s typing path threw at once'); return realDeliverAsync(name, ...rest); };
+    let enteredBeforeReject = null;
+    try {
+      await assert.rejects(post(roster, 'one line for the whole room').catch((err) => { enteredBeforeReject = enters(calls).length; throw err; }), /threw at once/);
+    } finally { chat.deliverAsync = realDeliverAsync; }
+    assert.equal(enteredBeforeReject, MEMBERS.length - 1, 'the failure was told before the other members had finished');
+    assert.ok(!enters(calls).some((t) => t.includes('=' + third + ':')), 'control: the throwing member was typed at');
+  });
+});
