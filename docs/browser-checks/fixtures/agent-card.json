@@ -25,6 +25,7 @@
   "disruption": null,
   "activeWhileWaiting": false,
   "stateReported": true,
+  "waiting": null,
   "stateReportedBy": null,
   "stateBackgroundWait": false,
   "stateConflict": null,
