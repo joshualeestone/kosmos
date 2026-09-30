@@ -12,7 +12,8 @@ the board token whatever the switch says. With the switch unset (the default) no
 
 ## The change
 - install/kosmos: `agent_board_token`, beside `board_token`. It prints nothing when the switch is exactly `1` and
-  the token is plain hex (the same rule every verb uses to present it); else it is `board_token`. Ten verbs use it:
+  the token is plain lower-case hex (spelled out, not as a range; see review 1); else it is `board_token`. Eleven
+  verb functions use it:
   msg, reply, post, whoami, report, report show, react, room (the read; reopen keeps its own `board_token`), task,
   agent (roles, role-draft, create through /api/team), project (list and show; create reads `board_token` itself).
 - tools/windows/kosmos-cli.js: `headersFor` skips reading the board token under the same rule; `person: true` on
@@ -38,20 +39,44 @@ LOOPBACK_AGENT_ROUTES for the team route and the report read). A verb that sends
 needs the board token fails loudly with the board's refusal, never silently; nothing here was run against a real
 enforcing board.
 
-## What an agent with the switch on can no longer do (the two decisions on the card, now real for that agent)
-- read the room or the task list of a project it is not on;
-- add or close tasks in a project it is not on.
+## What an agent with the switch on can no longer do
+- read the room or the task list of a project it is not on (the two reads narrowed for a caller that came on its
+  token alone, agentTokenOnlyCaller).
+(My first version also listed "add or close tasks in a project it is not on". That was wrong: since slice 5a the
+board identifies the caller from the agent token whether or not the board token is also sent, so that refusal
+already applies with the switch off. Review 1 found it.)
 
 ## Measured
-- Mac: cli.agent-token-verbs-4491.test.js 53 of 53 (every agent verb: switch off sends both, on sends the agent's
+- Mac: cli.agent-token-verbs-4491.test.js 63 of 63 after review 1 (53 before) (every agent verb: switch off sends both, on sends the agent's
   alone; a junk or absent token or a switch other than `1` keeps the board token; three person verbs keep it).
-- Windows: the new file 30 of 30, including that the board token is not READ at all in token-only mode.
+- Windows: the new file 40 of 40 after review 1 (30 before), including that the board token is not READ at all in token-only mode.
 - Neighbours: 80 of 80 across eight CLI test files; 52 of 52 across the four that read the CLI's board_token text.
 - Mutations, each red then restored byte-identical: Mac, msg left on board_token (1 red); project create sending
   the agent verb's token (1 red); the switch ignoring the token check (13 red). Windows, `person` ignored (3 red);
   the switch check removed (26 red).
 
+## Review round 1 (one blind reviewer, no blocker; four should-fix and two nits, all taken)
+1. An agent that runs the tests with the switch on in its own environment turned five tests in OTHER files red
+   (they spread process.env and expect the board token). Fixed at the boundary, as the runner already does for the
+   Codex home: tools/run-tests.sh unsets the switch before the node suite; tools/test-run-tests-codexhome-2858.sh
+   now guards that line (removing it turns the guard red). A focused `node --test` run by hand with the switch on
+   is NOT protected.
+2. Verbs switched but untested: task built, report show, project list and show, agent create (Mac); task built,
+   report show, project show, role-draft, agent create (Windows). All added. Agent create makes no request without
+   a usable token, so it runs only the switch cases.
+3. The plan claimed an off-project task add or close as new; it is not (above).
+4. Automatic status reports do not honour the switch. See Not done.
+5. `[!0-9a-f]` in bash can let upper-case A to E through in a dictionary-ordered locale (measured by the reviewer
+   with macOS bash 3.2 under en_US.UTF-8). The new helper spells the class out. With the range put back, the new
+   ABCDE case turns 17 tests red under en_US.UTF-8. The OLDER per-verb checks that decide whether to present the
+   agent token keep their ranges: not this slice's change, and a token they wrongly present is refused by the board.
+6. "Ten verbs" was eleven.
+
 ## Not done
+- Automatic status reports ignore the switch: the Mac report hook goes through `kosmos report` and so honours it,
+  but the Windows Claude hook (engine/kosmos-report-hook.js) and the Codex, Gemini, Grok and Antigravity bridges
+  read and send the board token regardless. An agent on those, with the switch on, still reads the person's
+  credential on every report. The CLI side is complete; that side is the next slice.
 - No review yet, no full run (the top of the stack validates the stack, #4749 E).
 - Nothing sets the switch. No agent runs with it.
 - Not run against a real enforcing board.

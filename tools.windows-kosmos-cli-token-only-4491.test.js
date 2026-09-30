@@ -45,6 +45,12 @@ const AGENT_VERBS = [
   [['task', 'message', 'p4491', '1', 'hello'], '/api/project/p4491/task/1/message'],
   [['agent', 'roles'], '/api/roles?catalogue=1'],
   [['project', 'list'], '/api/projects/overview'],
+  // Review 1: the verbs the first version switched but did not test.
+  [['task', 'built', 'p4491', '1', 'the tests'], '/api/project/p4491/task/1/built'],
+  [['report', 'show'], '/api/report?as=text&from_pane='],
+  [['project', 'show', 'p4491'], '/api/project/p4491/overview'],
+  [['agent', 'role-draft'], '/api/roles'],
+  [['agent', 'create', 'Nia', 'builder', 'to help'], '/api/team'],
 ];
 const PERSON_VERBS = [
   [['project', 'create', 'My Project', 'C:\\kosmos-4491-no-such-folder'], '/api/projects'],
@@ -69,8 +75,10 @@ for (const [argv, route] of AGENT_VERBS) {
   });
 
   test(`#4491 slice 7, Windows: kosmos ${name(argv)} keeps the board token with no usable agent token, or a switch that is not exactly 1`, async () => {
-    for (const env of [{ KOSMOS_AGENT_TOKEN_ONLY: '1' }, { KOSMOS_AGENT_TOKEN_ONLY: '1', KOSMOS_AGENT_TOKEN: 'not-hex; rm -rf' },
-      { KOSMOS_AGENT_TOKEN: AGENT, KOSMOS_AGENT_TOKEN_ONLY: 'true' }, { KOSMOS_AGENT_TOKEN: AGENT, KOSMOS_AGENT_TOKEN_ONLY: ' 1' }]) {
+    /* `agent create` makes no request at all without a usable token (it is for an agent acting for the person). */
+    const noToken = name(argv) === 'agent create' ? [] : [{ KOSMOS_AGENT_TOKEN_ONLY: '1' }, { KOSMOS_AGENT_TOKEN_ONLY: '1', KOSMOS_AGENT_TOKEN: 'not-hex; rm -rf' },
+      { KOSMOS_AGENT_TOKEN_ONLY: '1', KOSMOS_AGENT_TOKEN: 'ABCDE' }];
+    for (const env of [...noToken, { KOSMOS_AGENT_TOKEN: AGENT, KOSMOS_AGENT_TOKEN_ONLY: 'true' }, { KOSMOS_AGENT_TOKEN: AGENT, KOSMOS_AGENT_TOKEN_ONLY: ' 1' }]) {
       const r = await run(argv, env);
       assert.equal(r.calls[0].headers['x-kosmos-board-token'], BOARD, 'dropped the board token for ' + JSON.stringify(env));
     }

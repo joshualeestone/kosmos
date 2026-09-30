@@ -52,6 +52,8 @@ const ANSWERS = {
   '/api/whoami': { name: 'mara', projects: [] },
   '/api/community/post': { ok: true, state: 'held' },
   '/api/project/p4491/room/reopen': { ok: true },
+  '/api/project/p4491/task/1/built': { ok: true, task: { number: 1 } },
+  '/api/team': { created: [{ name: 'Nia' }], refused: [] },
 };
 
 /* Slice 4: the reads. The room is answered as text (its `?as=text` arm), the others as the JSON each verb parses. */
@@ -59,6 +61,10 @@ const READ_ANSWERS = {
   '/api/project/p4491/room': 'nothing here yet\n',
   '/api/tasks': JSON.stringify({ tasks: [], count: 0 }),
   '/api/roles': JSON.stringify({ roles: [{ key: 'builder', label: 'Builder' }], own: { instructions: 'You are {{NAME}}.' } }),
+  // Slice 7: the reads its token-only list adds.
+  '/api/report': 'working: on it\n',
+  '/api/projects/overview': JSON.stringify({ projects: [] }),
+  '/api/project/p4491/overview': JSON.stringify({ project: { id: 'p4491', name: 'P' } }),
 };
 
 function withStub(fn) {
@@ -166,7 +172,12 @@ const TOKEN_ONLY_VERBS = [
   ...VERBS.filter(([, args]) => verbName(args) !== 'project create'),
   ['/api/reply', ['reply', 'hello']],
   ['/api/report', ['report', 'working', 'on it']],
+  ['/api/report', ['report', 'show']],
   ['/api/whoami', ['whoami']],
+  ['/api/project/p4491/task/1/built', ['task', 'built', 'p4491', '1', 'the tests']],
+  ['/api/projects/overview', ['project', 'list']],
+  ['/api/project/p4491/overview', ['project', 'show', 'p4491']],
+  ['/api/team', ['agent', 'create', 'Nia', 'builder', 'to help']],
 ];
 /* The person's verbs: the board token opens these, whatever the switch says. */
 const PERSON_VERBS = [
@@ -174,7 +185,7 @@ const PERSON_VERBS = [
   ['/api/community/post', ['community', 'post', 'hello']],
   ['/api/project/p4491/room/reopen', ['room', 'reopen', 'p4491']],
 ];
-const longName = (args) => (args[0] === 'community' || args.join(' ').startsWith('room reopen') ? args.slice(0, 2).join(' ') : verbName(args));
+const longName = (args) => (['community', 'report'].includes(args[0]) || args.join(' ').startsWith('room reopen') ? args.slice(0, 2).join(' ') : verbName(args));
 
 for (const [route, args] of TOKEN_ONLY_VERBS) {
   test(`token-only: kosmos ${longName(args)} sends the agent's token and not the board token`, async () => {
@@ -197,9 +208,18 @@ for (const [route, args] of TOKEN_ONLY_VERBS) {
     const home = makeHome();
     try {
       await withStub(async (port, seen) => {
-        for (const token of ['not-hex; rm -rf', 'ABCDEF', '', null]) {
-          const got = await send(port, seen, home, args, token, '1');
-          assert.deepEqual([got.agent, got.board], [undefined, BOARD], `with ${JSON.stringify(token)} as its token, kosmos ${longName(args)} sent no credential the board can use`);
+        /* `agent create` refuses to run at all with no usable token (it is for an agent acting for the person), so it
+           has no request to judge here; its switch cases below still run. */
+        if (verbName(args) !== 'agent create') {
+          for (const token of ['not-hex; rm -rf', 'ABCDEF', '', null]) {
+            const got = await send(port, seen, home, args, token, '1');
+            assert.deepEqual([got.agent, got.board], [undefined, BOARD], `with ${JSON.stringify(token)} as its token, kosmos ${longName(args)} sent no credential the board can use`);
+          }
+          /* ABCDE: upper case with no letter past F, which a locale-ordered [a-f] range lets through (review 1). The
+             board token must stay; whether the verb also presents it as its agent token is each verb's own older
+             rule, not this switch's. */
+          const upper = await send(port, seen, home, args, 'ABCDE', '1');
+          assert.equal(upper.board, BOARD, `with "ABCDE" as its token, kosmos ${longName(args)} dropped the board token`);
         }
         for (const only of ['', '0', 'true', 'yes', ' 1']) {
           const got = await send(port, seen, home, args, TOKEN, only);

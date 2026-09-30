@@ -37,6 +37,15 @@ grep -qE '^[[:space:]]*unset.*[[:space:]]AGENT_WORKFORCE_CODEX_HOME([[:space:]]|
   && pass "run-tests.sh unsets AGENT_WORKFORCE_CODEX_HOME (the sandbox seam)" \
   || fail "run-tests.sh no longer unsets AGENT_WORKFORCE_CODEX_HOME"
 
+# #4491 slice 7: the token-only switch is stripped at the same boundary, before the same node suite.
+tln="$(grep -nE '^[[:space:]]*unset([[:space:]].*)?[[:space:]]KOSMOS_AGENT_TOKEN_ONLY([[:space:]]|$)' "$RT" | head -1 | cut -d: -f1)"
+nln0="$(grep -nE 'node --test.*KOSMOS_TEST_FILES' "$RT" | head -1 | cut -d: -f1)"
+if [ -n "$tln" ] && [ -n "$nln0" ] && [ "$tln" -lt "$nln0" ]; then
+  pass "run-tests.sh unsets KOSMOS_AGENT_TOKEN_ONLY (line $tln) before the node suite (line $nln0)"
+else
+  fail "run-tests.sh no longer unsets KOSMOS_AGENT_TOKEN_ONLY before the node suite (unset=$tln node=$nln0)"
+fi
+
 # The strip must precede the node suite -- the FIRST test invocation, since
 # `yarn -s test:shell` runs after it in run-tests.sh, so preceding the node suite
 # guarantees preceding test:shell too. The node pattern is pinned to the real

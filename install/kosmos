@@ -611,8 +611,11 @@ board_token() {
 # to keep it out of. Call it the same way: _bt="$(agent_board_token || true)".
 agent_board_token() {
   if [ "${KOSMOS_AGENT_TOKEN_ONLY:-}" = "1" ]; then
+    # The digits and letters spelled out, not ranges: in some locales bash reads [a-f] in dictionary order, which
+    # lets upper-case A to E through (measured with macOS bash 3.2 under en_US.UTF-8). A token that is not plain
+    # lower-case hex keeps the board token, and the board says what it makes of the agent's.
     case "${KOSMOS_AGENT_TOKEN:-}" in
-      ''|*[!0-9a-f]*) ;;
+      ''|*[!0123456789abcdef]*) ;;
       *) return 0 ;;
     esac
   fi
