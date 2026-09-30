@@ -94,6 +94,22 @@ test('this computer is marked and not a link; an ONLINE computer is a new-window
   }
 });
 
+test('#4726 a computer still waiting to be allowed is a greyed row that says so, never a link, even when it reads online; an allowed one is a link (control)', () => {
+  const data = { ok: true, domain: 'kosmosplus.com', computers: [
+    { name: 'laptop', address: 'laptop.kosmosplus.com', this: true, online: true, held: false },
+    { name: 'planted', address: 'planted.kosmosplus.com', this: false, online: true, held: true },
+    { name: 'agent1s', address: 'agent1s.kosmosplus.com', this: false, online: true, held: false },
+  ] };
+  const { list } = render(data);
+  const [, held, allowed] = list.children;
+  assert.equal(held.tagName.toLowerCase(), 'div', 'a held computer must never be a link');
+  assert.equal(held.href, undefined);
+  assert.deepEqual(text(held).slice(1), ['planted', 'Waiting for approval on your other computer']);
+  assert.ok(held.className.split(' ').includes('worldsw-row-off'), 'a held computer is greyed');
+  assert.equal(allowed.tagName.toLowerCase(), 'a', 'CONTROL: an allowed online computer is still a link');
+  assert.deepEqual(text(allowed).slice(1), ['agent1s', 'Online']);
+});
+
 test('a row whose address is not one label under the domain (another host, a LAN address, punycode, a URL) is dropped; a name is text, never markup', () => {
   const { list } = render({ ok: true, domain: 'kosmosplus.com', computers: [
     LIST.computers[0],

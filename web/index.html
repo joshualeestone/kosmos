@@ -25879,7 +25879,10 @@ function computersRender(data) {
     /* Only an ONLINE computer is a link. An offline one would open a browser error page (the
        relay closes a computer that is not connected at the TLS handshake, and HSTS keeps it https),
        and an updating one is restarting; each is a plain row that says so instead. */
-    const opens = c.this !== true && c.online === true && c.updating !== true;
+    /* #4726 (#4681): a computer still WAITING to be allowed from another of the owner's computers is never a link and
+       never reads as one of theirs in working order: it says it is waiting, greyed (worldsw-row-off). */
+    const held = c.this !== true && c.held === true;
+    const opens = c.this !== true && !held && c.online === true && c.updating !== true;
     const row = document.createElement(opens ? 'a' : 'div');
     row.className = (opens || c.this === true) ? 'worldsw-row' : 'worldsw-row worldsw-row-off';
     const check = document.createElement('span');
@@ -25895,7 +25898,8 @@ function computersRender(data) {
       row.setAttribute('aria-current', 'true');
       st.textContent = 'This computer';
     } else {
-      const state = c.updating === true ? 'Updating' : (c.online === true ? 'Online' : 'Not connected');
+      const state = held ? 'Waiting for approval on your other computer'
+        : (c.updating === true ? 'Updating' : (c.online === true ? 'Online' : 'Not connected'));
       st.textContent = state;
       if (opens) {
         row.href = 'https://' + c.address + '/';
