@@ -6328,6 +6328,32 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname === '/api/catalogue/portrait' && req.method === 'GET') {
+    /* #4720: a prebuilt team member's portrait, for the Team screen to set as the new agent's
+       picture. The catalogue is downloaded, so its portraits are too: the board fetches the one
+       file the signed catalogue names for this member, keeps it only when it is that exact image
+       (engine/catalogue.js portrait()), and the page reads it from here, never from another
+       address. Nothing in the request chooses what is downloaded: team and slot only pick among
+       the members the held catalogue lists. "No portrait" is a 404 with the reason; the page says
+       so on the member's row and the agent is made all the same. Like the other GETs that make
+       this computer fetch something, it refuses a request that came from another website. */
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
+    let q;
+    try { q = new URL(req.url, ROUTING_BASE).searchParams; } catch { q = new URLSearchParams(); }
+    const none = (because) => { if (!res.headersSent && !res.destroyed) sendJson(res, 404, { error: because }); };
+    catalogue.portrait(q.get('team'), q.get('slot')).then((r) => {
+      // Inside a promise handler: a throw here would be an unhandled rejection, so it is answered.
+      try {
+        if (res.destroyed || res.writableEnded) return;
+        if (!r.ok) { none(r.because); return; }
+        res.writeHead(200, { 'content-type': r.type, 'content-length': r.bytes.length, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+        res.end(r.bytes);
+      } catch { none('we could not read that portrait'); }
+    }, () => none('we could not read that portrait'));
+    return;
+  }
+
   // --- create an agent -----------------------------------------------------
   //
   // ⚠️ The most powerful route here, and the reasoning for shipping it on a
@@ -15452,7 +15478,7 @@ const server = http.createServer(async (req, res) => {
             sendJson(res, 429, { error: refusal.because, retry_after_secs: refusal.retryAfterSecs }); return;
           }
         }
-        const made = projects.create({ name: body.name, folder: body.folder, agents: body.agents, roster, description: body.description,
+        const made = projects.create({ name: body.name, folder: body.folder, agents: body.agents, roster, description: body.description, done: body.done,
           // #2458: the parent chosen on the create page (blank/absent = top-level).
           // The engine validates it through the same cleanParent the edit route
           // uses (a missing parent or a non-string is refused), so a bad parent is
@@ -15540,15 +15566,30 @@ const server = http.createServer(async (req, res) => {
         // AFTER `told`, best-effort (roomNote swallows its own errors): furniture, exactly like
         // WELCOME_ROOM_NOTE, and a note we could not post is never a reason to fail the create.
         try {
+          /* #4583 review rounds 5-8: a done typed on the form that is not what BRIEF.md's Done section now holds, for ANY
+             reason (the person's own Done section, or a brief Kosmos could not read or write), is quoted to the team
+             with its true reason, and the team is then never also told to ask the person for done. */
+          const typedDone = projects.cleanDone(body.done);
+          const doneLost = !!typedDone && !projects.doneWrittenIn(made.folder, typedDone);
           if (made.agents.length > 0 && projects.briefIsPending(made.folder)) {
-            messages.roomNote(made.id, projects.BRIEF_PENDING_NOTE, { audience: messages.NOTE_AUDIENCE_AGENTS });   // agents read it; the person's room does not
+            // #4583: ask for done too only when it is not set; a done typed on the form is never asked for again.
+            const note = (projects.doneIsPending(made.folder) && !doneLost) ? projects.BRIEF_AND_DONE_PENDING_NOTE : projects.BRIEF_PENDING_NOTE;
+            messages.roomNote(made.id, note, { audience: messages.NOTE_AUDIENCE_AGENTS });   // agents read it; the person's room does not
+          } else if (made.agents.length > 0 && projects.doneIsPending(made.folder) && !doneLost) {
+            // #4583: a goal but no "done looks like": the same one-asks note, for done.
+            messages.roomNote(made.id, projects.DONE_PENDING_NOTE, { audience: messages.NOTE_AUDIENCE_AGENTS });
+          }
+          if (made.agents.length > 0 && doneLost) {
+            messages.roomNote(made.id, projects.doneNotWrittenNote(typedDone, projects.doneHeadingIsOwn(made.folder)), { audience: messages.NOTE_AUDIENCE_AGENTS });
           }
         } catch { /* the note is furniture; the project exists regardless */ }
         // The owner's seat waits for a first edge (someone has joined); try now.
         if (federationLinked) fedseats.ensure(made.id).catch(() => {});
         let project = null;
         try { project = projects.get(made.id, roster); } catch { project = null; }
-        sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null, federationLinked });
+        // #4583: made with two coordinators already on it: the same warning as adding the second one.
+        const coordinators = project ? projects.coordinatorWarning(project, null) : null;
+        sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null, federationLinked, ...(coordinators ? { coordinators } : {}) });
       })
       .catch((err) => sendJson(res, (err && err.code === 'UNREADABLE') ? 500 : 400,
         { error: String((err && err.message) || 'we could not read that request') }));
@@ -17413,7 +17454,9 @@ const server = http.createServer(async (req, res) => {
     if (moved && project) {
       said = await projects.speakOfMembershipAsync(name, project, req.method === 'POST' ? 'joined' : 'left', roster);
     }
-    sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null });
+    // #4583: a second coordinator joining is warned about, never refused.
+    const coordinators = (req.method === 'POST' && moved && project) ? projects.coordinatorWarning(project, name) : null;
+    sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null, ...(coordinators ? { coordinators } : {}) });
     return;
   }
 
