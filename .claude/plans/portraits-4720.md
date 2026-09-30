@@ -48,7 +48,10 @@ Rejected:
 
 - **The route is a GET that can start a download.** Another website cannot reach it: `/api/`
   needs the board token, the cookie is SameSite=Strict, and the route calls `crossSiteRead` like
-  the other GETs that make this computer fetch. What is left is a page on another local port.
+  the other GETs that make this computer fetch (it accepts only `same-origin` and `none`, so a
+  page on another local port, which is `same-site`, is refused too). What is left is a client
+  that sends no Sec-Fetch-Site and a loopback Referer, or a program on this computer, on a board
+  that does not enforce the token.
   What it can cause is bounded: a request for a path the signed catalogue names, at the
   catalogue's address, at most two a minute per portrait while it fails (the plain ask and the
   one past the caches), one when it succeeds, and none after that: kept on disk, or held in
@@ -112,6 +115,18 @@ showed why.
 - N, decided and left: redirects are still followed (see the gap above). What would change my
   mind: a measurement, once a real portrait is published, that the live address never redirects;
   then both downloads should refuse redirects together.
+
+## Review 3 (blind, fable): 0 blockers, 1 warning, 4 nits
+
+- W: the route test's "refused before the board fetches anything" could not fail: it asked for a
+  member an earlier test had already failed on, so nothing would have been fetched either way
+  (the reviewer moved the refusal to after the download and the file stayed green). Each
+  downloading test now has its own member, and the control is the same request from the board's
+  own page: answered, and fetched only then. The "second ask" test no longer leans on the first.
+- N, taken: the residual in the first gap named the wrong thing (another local port is refused).
+- N, decided and left: the route answers GET only (the page uses GET; nothing sends HEAD). The
+  kept copy is read without a size check (the folder is the person's own data folder; a check
+  there is a guard no test could turn red). Redirects: as review 2.
 
 ## Weakest premise
 

@@ -50,6 +50,9 @@ function webp(seed) {
 const LEAD = webp('the marketing lead');
 const CONTENT = webp('the content writer');   // named by the catalogue, never served by the address
 const WRONG = webp('somebody else');
+// One member per test that downloads, so no test leans on what an earlier one left behind.
+const SOCIAL = webp('the social lead');
+const EMAIL = webp('the email lead');
 
 // The catalogue's own address, stood in for by a local server: what it serves is this test's to choose.
 const served = new Map();
@@ -76,9 +79,13 @@ test.before(async () => {
   };
   let body = name(text, 'marketing-lead', 'avatars/marketing-lead.webp', sha256(LEAD));
   body = name(body, 'marketing-content', 'avatars/marketing-content.webp', sha256(CONTENT));
+  body = name(body, 'marketing-social', 'avatars/marketing-social.webp', sha256(SOCIAL));
+  body = name(body, 'marketing-email', 'avatars/marketing-email.webp', sha256(EMAIL));
   storeSigned(body, catalogue.MIN_SERIAL);
   served.set('/catalogue/avatars/marketing-lead.webp', LEAD);
   served.set('/catalogue/avatars/marketing-content.webp', WRONG);   // not the image the catalogue names
+  served.set('/catalogue/avatars/marketing-social.webp', SOCIAL);
+  served.set('/catalogue/avatars/marketing-email.webp', EMAIL);
   await start(0);
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -89,6 +96,7 @@ test.after(() => {
 });
 
 test('a member whose portrait the catalogue names is served as that image, from the board', async () => {
+  const before = asked.length;
   const res = await fetch(`${base}/api/catalogue/portrait?team=marketing&slot=lead`);
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('content-type'), 'image/webp');
@@ -96,14 +104,18 @@ test('a member whose portrait the catalogue names is served as that image, from 
   assert.equal(res.headers.get('cache-control'), 'no-store');
   assert.equal(res.headers.get('content-length'), String(LEAD.length));
   assert.ok(Buffer.from(await res.arrayBuffer()).equals(LEAD), 'the board did not serve the portrait');
-  assert.deepEqual(asked, ['/catalogue/avatars/marketing-lead.webp'], 'the board asked the catalogue address for something else');
+  assert.deepEqual(asked.slice(before), ['/catalogue/avatars/marketing-lead.webp'], 'the board asked the catalogue address for something else');
 });
 
 test('a second ask is served from what the board kept: the catalogue address is not asked again', async () => {
+  const first = await fetch(`${base}/api/catalogue/portrait?team=marketing&slot=social`);
+  assert.equal(first.status, 200);
+  await first.arrayBuffer();
   const before = asked.length;
-  const res = await fetch(`${base}/api/catalogue/portrait?team=marketing&slot=lead`);
+  assert.ok(before > 0 && asked[before - 1] === '/catalogue/avatars/marketing-social.webp', 'the precondition: the first ask downloaded it');
+  const res = await fetch(`${base}/api/catalogue/portrait?team=marketing&slot=social`);
   assert.equal(res.status, 200);
-  assert.ok(Buffer.from(await res.arrayBuffer()).equals(LEAD));
+  assert.ok(Buffer.from(await res.arrayBuffer()).equals(SOCIAL));
   assert.equal(asked.length, before);
 });
 
@@ -137,17 +149,21 @@ test('nothing in the request chooses the address: a path or an address as the sl
 });
 
 test('a request that came from another website is refused before the board fetches anything', async () => {
-  // node:http, because fetch will not send these headers as written.
+  // node:http, because fetch will not send these headers as written. The email lead's portrait
+  // is asked for by no other test, so the board has neither kept it nor failed on it: a fetch
+  // here would show in `asked`.
   const ask = (headers) => new Promise((done, fail) => {
-    http.get(`${base}/api/catalogue/portrait?team=marketing&slot=content`, { headers }, (res) => {
+    http.get(`${base}/api/catalogue/portrait?team=marketing&slot=email`, { headers }, (res) => {
       res.resume();
       res.on('end', () => done(res.statusCode));
     }).on('error', fail);
   });
   const before = asked.length;
   assert.equal(await ask({ 'sec-fetch-site': 'cross-site' }), 403);
+  assert.equal(await ask({ 'sec-fetch-site': 'same-site' }), 403);
   assert.equal(await ask({ referer: 'https://example.com/page' }), 403);
   assert.equal(asked.length, before, 'the board fetched for a request from another website');
-  // The control: the same request from the board's own page is answered by the route (a 404 here, as above).
-  assert.equal(await ask({ 'sec-fetch-site': 'same-origin', referer: `${base}/` }), 404);
+  // The control: the same request from the board's own page is answered, and only now is it fetched.
+  assert.equal(await ask({ 'sec-fetch-site': 'same-origin', referer: `${base}/` }), 200);
+  assert.deepEqual(asked.slice(before), ['/catalogue/avatars/marketing-email.webp']);
 });
