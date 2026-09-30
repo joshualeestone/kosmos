@@ -207,6 +207,39 @@ async function run() {
     } else check('STOP: the panel offers a file', false);
     await pst.close();
 
+    /* #4556: leaving the Team screen (Back) or closing the org chart panel while a picture is being read ends the
+       read, so its model call stops too; reopening shows no consent box left armed. */
+    for (const how of ['back', 'close']) {
+      const pl2 = await page();
+      let leftAborted = false;
+      await pl2.route('**/api/orgchart/read*', async (r) => {
+        const consent = new URL(r.request().url()).searchParams.get('consent') === '1';
+        if (!consent) return r.fulfill({ status: 200, json: { needsConsent: true, provider: 'Anthropic (Claude)' } });
+        await new Promise((ok) => setTimeout(ok, 3000));   // a read that takes a while
+        try { await r.fulfill({ status: 200, json: { source: 'model', provider: 'Anthropic (Claude)', rows: PICTURE_ROWS, problems: [] } }); } catch { leftAborted = true; }
+      });
+      await openPanel(pl2);
+      if (await pl2.$('#orgchart-file-btn')) {
+        await pl2.setInputFiles('#orgchart-file', path.join(FIX, 'chart.png'));
+        await pl2.waitForSelector('#orgchart-consent:not([hidden])', { timeout: 8000 });
+        await pl2.click('#orgchart-consent-go');
+        await pl2.waitForSelector('#orgchart-read-stop:not([hidden])', { timeout: 5000 }).catch(() => {});
+        if (how === 'back') await pl2.click('#create-path-back');
+        else await pl2.click('#team-orgchart-open');
+        await pl2.waitForTimeout(3500);   // past the held read's own answer
+        let consentOnReopen = null;
+        if (how === 'back') {
+          await pl2.click('#cstep-kind [data-path="team"]');
+          await pl2.click('#team-orgchart-open');
+        } else await pl2.click('#team-orgchart-open');
+        await pl2.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
+        consentOnReopen = await pl2.evaluate(() => !document.getElementById('orgchart-consent').hidden);
+        check('LEAVE MID-READ (' + how + '): leaving ends the picture read in flight, and reopening shows no consent box',
+          leftAborted && !consentOnReopen, JSON.stringify({ leftAborted, consentOnReopen }));
+      } else check('LEAVE MID-READ (' + how + '): the panel offers a file', false);
+      await pl2.close();
+    }
+
     // PREVIEW: pressing Preview while a picture is being read ends that read too, and its late answer paints nothing.
     const ppv = await page();
     let pvAborted = false;

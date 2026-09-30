@@ -46524,6 +46524,7 @@ let SEEDED_TEAMS = null;
 let SEEDED_GEN = 0;
 function resetTeamStep() {
   ORGCHART_GEN += 1;   // a team create still in flight must not paint over a screen the person has left
+  resetOrgchartPreview();   // and a picture still being read is stopped, with its model call (#4559's leave rule)
   SEEDED_GEN += 1;
   document.getElementById('orgchartpick').hidden = true;
   document.getElementById('team-orgchart-open').setAttribute('aria-expanded', 'false');
@@ -46604,7 +46605,7 @@ document.getElementById('team-orgchart-open').addEventListener('click', () => {
   const panel = document.getElementById('orgchartpick');
   const opening = panel.hidden;
   ORGCHART_GEN += 1;
-  if (opening) resetOrgchartPreview();
+  resetOrgchartPreview();   // closing ends a read in flight too, not only reopening
   panel.hidden = !opening;
   document.getElementById('team-orgchart-open').setAttribute('aria-expanded', opening ? 'true' : 'false');
   if (opening) document.getElementById('orgchart-text').focus();
