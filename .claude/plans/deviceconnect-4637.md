@@ -58,3 +58,15 @@ NIT (accepted): navigating to Kosmos Plus with the sheet on a fresh Allowed resu
 Walked: an allowed device leaves the listing within one tunnel poll (allow list + grant); a kept-out one drops at once; a re-ask gets a new first_seen only from denied; first_seen is NOT NULL and stable. The notice, the inline cards and the sheet read the same state.
 Accepted NIT: an Allow whose coordinator ack FAILED, followed by Remove within the kept window, leaves the re-listed request hidden (same first_seen) until the page reloads; it needs a failed ack plus a Remove of that very device.
 Next: full validation after #4610 lands (stacked), then PR.
+
+## Rebuilt on main (after #4610 was squash-merged as #4680)
+The branch was stacked on #4610's 2d21cef05. Its own diff (2d21cef05..b86369e0c) was applied to main with a 3-way
+apply, cleanly; the five-round history is kept on deviceconnect-4637-stacked. Found while re-checking:
+web.plus-stale.test.js failed with "kpIcon is not defined" (also on the stacked head, which was never validated):
+paintDevices draws icons with the kp helpers, which sit above the slice that test evaluates. The test now lifts them.
+
+## Follow-up folded in: the icon of a minted computer request
+After #4665 a new computer's sign-in waits on an older computer as a coordinator-minted request, id
+`computer:<mac id>`, named "computer <name>". kpWords keyed the icon on the name, so a Mac named "Phone room" drew a
+phone. It now keys on the `computer:` id. Test in web.allow-card.test.js, with the name-keyed and real-phone controls;
+removing the line turns it red.

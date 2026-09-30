@@ -126,3 +126,20 @@ test('#718: the Allow card has no solid coloured left bar (Josh, 2026-09-24), an
   // the touchscreen query unnoticed.
   assert.match(PAGE, /@media \(hover: none\) \{ \.askcard button, \.kp-card button, \.plus-asks button \{ min-height: 44px; \} \}/, 'a touchscreen block gives the Allow buttons 44px');
 });
+
+test('#4637 a request the coordinator minted for a new computer draws a computer by its id, never by its name', () => {
+  const page = require('./test-support/page');
+  const lifted = page.liftConst(SCRIPT, 'KP_KINDS') + '\n' + page.liftAll(SCRIPT, ['askKind', 'kpWords', 'kpIcon']);
+  const { kpWords, kpIcon } = new Function(lifted + '\nreturn { kpWords, kpIcon };')();
+  const phone = kpIcon('phone');
+  const computer = kpIcon('computer');
+  assert.notEqual(phone, computer);
+  const minted = { device_id: 'computer:8f2c', name: 'computer Phone room' };
+  assert.equal(kpWords(minted).icon, 'computer');
+  assert.equal(kpIcon(kpWords(minted).icon), computer, 'a Mac named "Phone room" drew a phone');
+  assert.equal(kpWords(minted).head, 'computer Phone room', 'the name is still what the card says');
+  // CONTROLS: the same name without the minted id is keyed on the name (so the id is what decided above), and a
+  // real phone is still a phone.
+  assert.equal(kpIcon(kpWords({ device_id: 'dev-1', name: 'computer Phone room' }).icon), phone);
+  assert.equal(kpIcon(kpWords({ device_id: 'dev-2', name: 'iPhone' }).icon), phone);
+});

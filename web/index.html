@@ -42245,6 +42245,10 @@ async function pollAsk() {
 const KP_KINDS = /^(iPhone|iPad|Android phone|Android tablet|Windows PC|Chromebook|Mac|Linux computer)(?: · (.+))?$/;
 function kpWords(d) {
   const raw = askKind(d);
+  /* #4637 (after #4665): a new computer's sign-in waits on an older computer as a request the coordinator minted,
+     `computer:<mac id>`, named "computer <its name>". Its icon is a computer by that id, never by the name: a Mac
+     named "Phone room" must not draw a phone. */
+  if (d && typeof d.device_id === 'string' && d.device_id.startsWith('computer:')) return { who: raw, head: raw, sub: '', icon: 'computer' };
   let m = /^(.+?) \(Kosmos app\)$/.exec(raw);
   if (m) return { who: m[1], head: m[1], sub: 'Kosmos app', icon: 'computer' };
   m = KP_KINDS.exec(raw);
