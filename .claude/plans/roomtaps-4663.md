@@ -67,6 +67,8 @@ list scrolls (overflow-y: auto), so nothing is cut off, only one more scroll soo
 - The neighbour arm red on round 3's page (044f6aa73) with the seeded rows, WebKit: pj-doc 3% (phone), 5% (tablet
   tabs), tkcard 6% and pj-doc 6% (one-screen 1024 and 1180). Green on this head, Chromium and WebKit.
 - The phone arm now runs after the focus-turn arm puts back its forced display (round 4: it measured an altered page).
+- Round 11 (converged, no new findings): pointer-events: none on the areas is red in all five reach arms (WebKit),
+  through the fill test.
 - Round 10: an arm on a hover page (1180, tabs and one-screen, both engines) asserts none of the six has an area and
   neither one-screen drawn change applies; red with the touch gate removed (all six listed), which every other arm
   passed. The neighbour set widened to fields and focusable elements (clean in both engines).
