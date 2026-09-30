@@ -215,3 +215,11 @@ held needlessly until the reset: the safe direction, it costs only delay.
 - (N) LEFT: quota-held results in first-reply and the agent nudge are not logged (they are in results); deliverAutomatic
   reads Date.now().
 - Measured: engine/agyhold-4588.test.js + engine/agyquota-4588.test.js 38/38 (comment and plan changes only).
+
+## Review iteration 12 (blind, sonnet): CONVERGED (no new BLOCKER, WARNING or CONVENTION after dedup)
+Its three WARNINGs match ledger entries already DEFERRED with reasons: the roster each caller passes (iteration 8,
+measured: every gated sender passes safeRoster()); a pause the board never observed after a restart (Weakest
+premise); POOL_MEMO shared by modules whose step reads it (iteration 8 NIT). NITs left: ready() reads board() twice;
+quota-held results are not logged; a comment wrap.
+NEXT: the full validation (the closing gate) and the proof, after PR A (agyquota-4588) is validated and merged,
+since this branch is stacked on it.
