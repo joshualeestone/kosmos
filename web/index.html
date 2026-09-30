@@ -46724,6 +46724,20 @@ function tcProviderSettle() {
     try { sel.value = tcProviderDefault(); fillCreateAccounts(TC_PICKER); } finally { TC_SETTLING = false; }
   }
 }
+/* A late account list (slower than the step's 5 s wait), applied only while the choice is open and the
+   person has not chosen: the menus are refilled from it (the accounts, and which providers are usable);
+   the provider itself changes only from the plain default the step started on, never from a choice
+   copied from the form. Called when it lands, and again from tcPaint if it landed during a click or a
+   run (round 9: it was dropped for good then, so a refused lead left the menus on Claude). */
+function tcApplyLateAccounts() {
+  const sel = document.getElementById('tc-provider');
+  if (!sel || !TC || !TC.lateAccounts || tcChoiceFixed()) return;
+  TC.lateAccounts = false;
+  if (TC_PROVIDER_TOUCHED) return;
+  if (sel.value === TC_PROVIDER_START) sel.value = tcProviderDefault();
+  fillCreateAccounts(TC_PICKER);
+  tcProviderSettle();
+}
 async function tcFillProvider(gen) {
   const from = document.getElementById('create-provider');
   const sel = document.getElementById('tc-provider');
@@ -46750,13 +46764,10 @@ async function tcFillProvider(gen) {
     if (stale()) return;
     if (!inTime) {
       read.then(() => {
-        if (stale() || TC_PROVIDER_TOUCHED || !TC || tcChoiceFixed()) return;
-        // The menus are refilled from the list that just landed (the accounts, and which providers are
-        // usable); the provider itself changes only from the plain default the step started on, never
-        // from a choice copied from the form.
-        if (sel.value === TC_PROVIDER_START) sel.value = tcProviderDefault();
-        fillCreateAccounts(TC_PICKER);
-        tcProviderSettle();
+        if (stale() || !TC) return;
+        // It landed during a click or a run: kept, and applied when the choice is next open (tcPaint).
+        TC.lateAccounts = true;
+        tcApplyLateAccounts();
       });
     }
   }
@@ -46900,7 +46911,8 @@ function tcPaint() {
   tell.checked = tellBox ? tellBox.checked === true : true;
   tell.disabled = Boolean(TC.started || TC.busy);
   document.getElementById('tc-tell-say').textContent = n === 1 ? 'Let Kosmos know an agent was created' : 'Let Kosmos know these agents were created';
-  /* #4719: ONE rule (tcChoiceFixed) for the lock, the remembered choice and the settle. */
+  /* #4719: ONE rule (tcChoiceFixed) for the lock, the settle and the late account list. */
+  tcApplyLateAccounts();
   for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = tcChoiceFixed(); }
   /* Back is always allowed now (round 3): leaving no longer resets a live team, it only steps away. */
   document.getElementById('tc-back').disabled = false;
