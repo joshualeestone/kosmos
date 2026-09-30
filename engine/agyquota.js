@@ -43,12 +43,13 @@ function pausedUntil(report) {
 const MAX_POOL_MS = 8 * 24 * 3600 * 1000;
 /* Each antigravity agent's last-seen reset, by session. A card stops carrying quotaUntil once its reset passes, and can
    stop showing its pause before then (its screen changed), while the pool is still empty; so the board remembers.
-   A card that shows a new reset corrects only its own entry; an entry is dropped MAX_AGE_MS after its release. Nothing
+   A card that shows a new reset corrects only its own entry; an entry is dropped MAX_AGE_MS after the last agent's
+   release (counted on the roster of the caller that prunes). `seen` is when each pause was first seen. Nothing
    releases it early: a card reading working is no proof the pool refilled (a resumed agent, an in-flight turn), so a
    hold lasts to its recorded reset, bounded by MAX_POOL_MS.
    In memory only: a board restart forgets it, and the release after that one reset is then lost. */
-const POOL_MEMO = { bySession: new Map() };
-function newPoolMemo() { return { bySession: new Map() }; }
+const POOL_MEMO = { bySession: new Map(), seen: new Map() };
+function newPoolMemo() { return { bySession: new Map(), seen: new Map() }; }
 /* One release step: the resume timer's period (60 s) or its stagger, whichever is longer. */
 const SLOT_MS = Math.max(STAGGER_MS, 60 * 1000);
 /* Our antigravity panes: a pane on this machine that is not ours (isNamedOurs false) is not in our pool or order. */
@@ -72,13 +73,17 @@ function notePool(roster, now, memo = POOL_MEMO) {
   for (const c of cards) {
     if (!isOurAgy(c) || !c.sessionName || typeof c.quotaUntil !== 'string') continue;
     const at = Date.parse(c.quotaUntil);
-    if (Number.isFinite(at) && at > now && at <= cap) memo.bySession.set(String(c.sessionName), at);
+    if (Number.isFinite(at) && at > now && at <= cap) {
+      const k = String(c.sessionName);
+      memo.bySession.set(k, at);
+      if (!memo.seen.has(k)) memo.seen.set(k, now); // when this pause was first seen (a correction keeps it)
+    }
   }
   // Kept past the release: the resume below measures its age window from the pool's reset (see plan()).
   const keep = MAX_AGE_MS + GRACE_MS + SLOT_MS * (agyNames(cards).length + 1);
   let reset = null;
   for (const [k, at] of memo.bySession) {
-    if (now >= at + keep) { memo.bySession.delete(k); continue; }
+    if (now >= at + keep) { memo.bySession.delete(k); memo.seen.delete(k); continue; }
     if (reset === null || at > reset) reset = at;
   }
   return reset;
@@ -102,7 +107,19 @@ function heldForQuota(session, roster, now, memo = POOL_MEMO) {
 const NUDGE_OVER = Object.freeze(['idle', 'unknown', 'rate_limited']);
 
 /* One agent: { act: 'none' | 'wait' | 'nudge', because }. entry is its book entry for this pause, or undefined. */
-function plan(report, entry, now, poolReset) {
+/* The pool reset that held back an agent whose own reset was `own`: the latest remembered one after it whose pause was
+   first seen while the agent's own six hours were still open. A pause that began after that window had closed did not
+   hold this agent back, so it does not reopen a stop PR A leaves alone. Null when none. */
+function heldBackBy(own, memo = POOL_MEMO) {
+  if (!Number.isFinite(own)) return null;
+  let until = null;
+  for (const [k, at] of memo.bySession) {
+    const seen = memo.seen.get(k);
+    if (at > own && Number.isFinite(seen) && seen <= own + MAX_AGE_MS && (until === null || at > until)) until = at;
+  }
+  return until;
+}
+function plan(report, entry, now, heldBackUntil) {
   const at = pausedUntil(report);
   if (at === null) return { act: 'none', because: 'not paused on the quota' };
   if (entry && entry.until === report.until) {
@@ -115,9 +132,9 @@ function plan(report, entry, now, poolReset) {
     }
   }
   if (now < at + GRACE_MS) return { act: 'wait', because: 'its quota resets at ' + new Date(at).toISOString() };
-  /* #4588 PR B: the six hours count from the later of its own reset and the pool's: an agent held back by a later reset
-     elsewhere in the pool must still be resumed once the pool opens. */
-  const since = Number.isFinite(poolReset) && poolReset > at ? poolReset : at;
+  /* #4588 PR B: an agent held back by a later reset elsewhere in the pool (heldBackUntil, see heldBackBy) counts its six
+     hours from that reset, so it is still resumed once the pool opens. */
+  const since = Number.isFinite(heldBackUntil) && heldBackUntil > at ? heldBackUntil : at;
   if (now > since + MAX_AGE_MS) return { act: 'none', because: 'its quota reset more than six hours ago; left alone' };
   return { act: 'nudge', because: 'its quota reset at ' + new Date(at).toISOString() };
 }
@@ -151,7 +168,7 @@ function sweepOnce(o) {
       let report = null;
       try { report = read(session); } catch { report = null; }
       const entry = book.get(session);
-      const p = plan(report, entry, now, poolReset);
+      const p = plan(report, entry, now, heldBackBy(pausedUntil(report), o.memo || POOL_MEMO));
       if (p.act === 'nudge') due.push({ card, session, report, entry, because: p.because, at: pausedUntil(report) });
     }
     if (!due.length) return { results };
@@ -193,4 +210,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, notePool, releaseAfterMs, SLOT_MS, heldForQuota, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };
+module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, notePool, heldBackBy, releaseAfterMs, SLOT_MS, heldForQuota, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };

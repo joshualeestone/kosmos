@@ -18561,8 +18561,8 @@ function start(port = PORT) {
         roster: () => safeRoster(),
         book: CONNLOST_BOOK,
         probe: () => connlostHeal.probeApi(),
-        /* Plain deliver, not deliverAutomatic: it counts a try before delivering (connlost-heal.js), and an agy card
-           never reads connection_lost, so the quota hold would only spend its budget (#4588 PR B review 2). */
+        /* Plain deliver, not deliverAutomatic: it counts a try before delivering (connlost-heal.js), so a quota hold
+           would spend its budget (#4588 PR B review 2). */
         deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
         DELIVERY: chat.DELIVERY,
         log: (r) => process.stdout.write(`connlost-heal: ${r.name} (${r.session}) ${r.act}${r.act === 'nudge' ? ' delivery=' + (r.delivery || '?') : ''} - ${r.because}\n`),

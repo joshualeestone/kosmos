@@ -26,7 +26,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 
 const test = require('node:test');
 // agyquota remembers the latest pool reset it has seen (the release tail); each test starts with none.
-test.beforeEach(() => { require('./engine/agyquota').POOL_MEMO.bySession.clear(); });
+test.beforeEach(() => { require('./engine/agyquota').POOL_MEMO.bySession.clear(); require('./engine/agyquota').POOL_MEMO.seen.clear(); });
 const assert = require('node:assert/strict');
 
 const store = require('./engine/store');
@@ -204,7 +204,7 @@ for (const [name, anchor, re] of AUTOMATIC) {
   });
 }
 
-test('#4588 B pin: the connlost-heal timer stays on chat.deliver (it counts a try before delivering, and an agy card never reads connection_lost)', () => {
+test('#4588 B pin: the connlost-heal timer stays on chat.deliver (it counts a try before delivering)', () => {
   const w = windowAfter('book: CONNLOST_BOOK,');
   assert.match(w, /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliver\(session, text, r,/);
   assert.equal(/deliverAutomatic/.test(w), false, 'a hold would spend connlost-heal\'s counted tries');

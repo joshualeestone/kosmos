@@ -23,7 +23,7 @@ process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 
 const test = require('node:test');
 // agyquota remembers the latest pool reset it has seen (the release tail); each test starts with none.
-test.beforeEach(() => { require('./agyquota').POOL_MEMO.bySession.clear(); });
+test.beforeEach(() => { require('./agyquota').POOL_MEMO.bySession.clear(); require('./agyquota').POOL_MEMO.seen.clear(); });
 const assert = require('node:assert/strict');
 
 const store = require('./store');
@@ -294,7 +294,7 @@ test('#4588 B assigner step: an agy agent held on the pool is neither asked nor 
     const held = run(asAgy.concat([paused]));
     assert.deepEqual(held.asks, [], 'a held agent was asked');
     assert.equal(held.out.next.askLog.length, 0, 'a held agent was charged');
-    agyquota.POOL_MEMO.bySession.clear(); // the held run above recorded the pool's reset (its release)
+    agyquota.POOL_MEMO.bySession.clear(); agyquota.POOL_MEMO.seen.clear(); // the held run above recorded the pool's reset (its release)
     const ctl = run(asAgy);
     assert.deepEqual(ctl.asks, [w.session], 'CONTROL: the unheld agy agent was not asked, so the arm above proves nothing');
   } finally { w.restore(); }
@@ -708,4 +708,21 @@ test('#4588 B recommender: when every peer is held the playbook says they could 
     recommender.runOnce({ prev: seen.next, roster: solo.cards, setting: { on: true }, members, now: T0 + recommender.GRACE_MS, ...d.deps });
     assert.ok(d.sent.map(([, t]) => t).join('\n').includes('No one else is on this project'), 'CONTROL: the no-peers wording is reachable');
   } finally { solo.restore(); }
+});
+
+/* ---- review iteration 9: only a pause that began inside an agent's own window extends it ---- */
+
+test('#4588 B a pool pause that BEGAN after an agent\'s six hours had closed does not revive its old stop; CONTROL: one seen inside the window does', () => {
+  const X = Date.parse('2026-09-26T10:00:00.000Z');             // X's own reset, 50 h before the sweep below
+  const Yreset = X + 50 * 3600e3;
+  const report = { found: true, state: 'idle', by: 'auto', until: new Date(X).toISOString(), because: status.QUOTA_REPORT_PREFIX + ' Google said: ...' };
+  const cardY = (paused) => ({ sessionName: 'hb-y', runner: 'antigravity', state: paused ? 'rate_limited' : 'idle', quotaUntil: paused ? new Date(Yreset).toISOString() : null });
+  const late = agyquota.newPoolMemo();
+  agyquota.notePool([cardY(true)], Yreset - 10 * 60e3, late);     // Y's pause first seen 10 min before its reset: long after X's window
+  assert.equal(agyquota.heldBackBy(X, late), null, 'a pause seen 50 h after X\'s reset was counted as holding X back');
+  assert.equal(agyquota.plan(report, undefined, Yreset + agyquota.GRACE_MS + 60e3, agyquota.heldBackBy(X, late)).act, 'none', 'X\'s old stop was revived');
+  const early = agyquota.newPoolMemo();
+  agyquota.notePool([cardY(true)], X + 3600e3, early);            // CONTROL: the same pause first seen 1 h after X's reset
+  assert.equal(agyquota.heldBackBy(X, early), Yreset);
+  assert.equal(agyquota.plan(report, undefined, Yreset + agyquota.GRACE_MS + 60e3, agyquota.heldBackBy(X, early)).act, 'nudge', 'CONTROL: held back inside its window, X is resumed');
 });

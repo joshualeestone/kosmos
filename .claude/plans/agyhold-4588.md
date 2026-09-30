@@ -38,7 +38,7 @@ held needlessly until the reset: the safe direction, it costs only delay.
 ## Decided, not missed
 - A held recommender peer is not asked for that item, like any unreachable peer.
 - The outbox drain replays an agent's own saved message and is not held, like a live send.
-- Connection heal stays on chat.deliver: it counts a try before delivering, and an agy card never reads connection_lost.
+- Connection heal stays on chat.deliver: it counts a try before delivering.
 
 ## Measured
 - First build: engine/agyhold-4588.test.js 16/16, engine/agyhold-deliver-4588.test.js 4/4, server.agyhold-4588.test.js 15/15
