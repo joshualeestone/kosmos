@@ -42544,10 +42544,6 @@ async function paintPlus() {
      still coming up there is nothing to tell somebody to open, and telling
      them to open "is on its way." would be worse than saying nothing. */
   PLUS_ADDRESS = (stat.state === 'up' && stat.address) ? stat.address : '';
-  /* #1011: being connected supersedes a SETUP failure -- it cannot still be
-     true. A switch failure is left alone; it happens while connected and is
-     the one thing this rule must not eat. */
-  if (stat.state === 'up' && PLUS_MSG_KIND === 'setup') plusSay('');
   /* #567: the list shows once enrolled, on or off (off says so above it). */
   document.getElementById('plus-devices').hidden = r.enrolled !== true;
   /* #733 recovery: only an enrolled Mac can sign the reset, so the control
@@ -43451,8 +43447,7 @@ document.getElementById('plus-si-enrol-confirm-go').addEventListener('click', as
    address lives (its status line reads "Connected. Your address: ..." once the tunnel
    is up, and #1014's "on its way" wording before then). A separate done panel would
    be drawn and then immediately replaced by that same paint, so it could flash for
-   well under a round trip or not be seen at all. This mirrors the enrol flow's own
-   plus-confirm, which likewise ends by handing off to paintPlus(). */
+   well under a round trip or not be seen at all. */
 /* #3796 addendum 9: register THIS computer to `name`. Called by the button for a chosen name, and
    automatically for an account that already owns one (`owned` is then its full address, when known). */
 async function plusSiDoRegister(name, owned) {

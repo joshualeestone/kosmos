@@ -37,3 +37,13 @@ for a real cooldown. Test pins it; removing the fix fails it.
 - The name-cleaning assertion matched exact source whitespace: loosened to the binding's shape.
 - Not changed: the harmless 'plus-enrol' stubs in two older tests' element tables; slicing
   plusSiMsg..plusSiPostRaw as one range in the code-box harness (guarded by its markers).
+
+## Review iteration 2 (changes)
+- MINOR: paintPlus's "being connected clears a stale SETUP failure" line (#1011) could never fire:
+  plus-confirm was the only writer of a setup failure. Removed with its comment. The four #1011
+  tests in web.plus-stale.test.js staged that unreachable state by calling plusSay(..., 'setup')
+  directly; without the rule they would pass whatever the code did, so they were removed too, with
+  a note in the file. PLUS_MSG_KIND is now written and never read; left (plusSay's kind argument is
+  passed by its callers).
+- Two comments that named plus-confirm or setup-complete as live were updated.
+- Web tests: 2204 of 2204 (2208 minus the four #1011 tests).
