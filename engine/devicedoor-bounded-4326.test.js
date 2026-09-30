@@ -23,10 +23,15 @@ function script(name, body) {
   return p;
 }
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+/* #4656: `ms` counts from when the child has been spawned, not from before the spawn: a saturated box can take
+   seconds to spawn a shell, and that time is the box's, not the probe's. (A spawn that fails outright answers
+   inside runBounded, so there the clock never restarts.) */
 const run = (bin, args, opts) => new Promise((resolve) => {
-  const t0 = Date.now();
+  let t0 = Date.now();
   let child = null;
-  child = runBounded(bin, args, opts, (code, text) => resolve({ code, text, ms: Date.now() - t0, pid: child && child.pid }));
+  let answered = false;
+  child = runBounded(bin, args, opts, (code, text) => { answered = true; resolve({ code, text, ms: Date.now() - t0, pid: child && child.pid }); });
+  if (!answered) t0 = Date.now();
 });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -94,34 +99,38 @@ const runSeen = (bin, opts) => new Promise((resolve) => {
   const child = runBounded(bin, [], opts, (code, text) => resolve({ code, text, first: seen[0] }));
   if (child) for (const name of ['stdout', 'stderr']) child[name].on('data', () => { if (!seen.includes(name)) seen.push(name); });
 });
+/* Runs `bin` until the stream `want` was SEEN to arrive first (at most 5 tries), checking the answer on every try. */
+async function answerWhenFirst(bin, want) {
+  let r = null;
+  for (let tries = 0; tries < 5 && !(r && r.first === want); tries += 1) {
+    r = await runSeen(bin, { timeoutMs: NOT_A_SPEED_TEST });
+    assert.equal(r.code, 0);
+    assert.equal(r.text, 'octo\nwarning\n', 'stdout must come before stderr in the answer (first to arrive: ' + r.first + ')');
+  }
+  assert.equal(r.first, want, 'PREMISE: in 5 runs ' + want + ' never arrived first, so that order was never tested');
+}
 
 test('#4326 the answer is stdout THEN stderr, as execFile gave it, whatever order they arrive in', async () => {
   // The Vercel door's loginRe takes the first single-token line; interleaving by arrival would
   // let a one-word stderr line that came first become the "login".
   // #4656: the order is checked both ways round, and the case that matters (stderr ARRIVING first) is repeated
   // until it was seen to arrive first, so neither a slow box nor a lucky order can make this pass without testing it.
-  const errFirst = script('both.sh', 'echo warning >&2; sleep 0.2; echo octo; exit 0');
-  let r = null;
-  for (let tries = 0; tries < 5 && !(r && r.first === 'stderr'); tries += 1) {
-    r = await runSeen(errFirst, { timeoutMs: NOT_A_SPEED_TEST });
-    assert.equal(r.code, 0);
-    assert.equal(r.text, 'octo\nwarning\n', 'stdout must come before stderr in the answer (stderr arrived ' + (r.first === 'stderr' ? 'first' : 'second') + ')');
-  }
-  assert.equal(r.first, 'stderr', 'PREMISE: in 5 runs stderr never arrived first, so the reordering was never tested');
-  const outFirst = script('both-out-first.sh', 'echo octo; sleep 0.2; echo warning >&2; exit 0');
-  const r2 = await runSeen(outFirst, { timeoutMs: NOT_A_SPEED_TEST });
-  assert.equal(r2.code, 0);
-  assert.equal(r2.text, 'octo\nwarning\n', 'stdout must come before stderr in the answer when stdout arrives first too');
+  // Both halves are checked the same way: an answer that puts the LAST stream to arrive first passes the
+  // stderr-first half and is caught only by the stdout-first one (review 1).
+  await answerWhenFirst(script('both.sh', 'echo warning >&2; sleep 0.2; echo octo; exit 0'), 'stderr');
+  await answerWhenFirst(script('both-out-first.sh', 'echo octo; sleep 0.2; echo warning >&2; exit 0'), 'stdout');
 });
 
 test('#4326 a probe that floods past 1 MB is stopped at once, as execFile\'s maxBuffer did', async () => {
   // Prints ~2 MB (of NUL bytes: the tr only maps backslash and 0, which is fine, the size is what
   // counts), then would hang: it must be answered and killed long before the timeout.
   const flood = script('flood.sh', "trap '' TERM\nhead -c 2200000 /dev/zero | tr '\\\\0' 'x'\nwhile :; do sleep 1; done");
-  const r = await run(flood, [], { timeoutMs: 20000, graceMs: 300 });
+  // #4656: the claim is "stopped by the overflow, well before the timeout", so the bound is a third of a long
+  // timeout rather than a fixed speed a saturated box could miss.
+  const r = await run(flood, [], { timeoutMs: NOT_A_SPEED_TEST, graceMs: 300 });
   try {
     assert.equal(r.code, -1, 'an overflow must answer -1');
-    assert.ok(r.ms < 5000, `an overflow must stop the probe at once, not at the timeout: ${r.ms} ms`);
+    assert.ok(r.ms < NOT_A_SPEED_TEST / 3, `an overflow must stop the probe at once, not at the timeout: ${r.ms} ms`);
     assert.ok(r.text.length <= 1024 * 1024, `the answer must be capped at 1 MB: ${r.text.length}`);
     await wait(1000);
     assert.equal(alive(r.pid), false, 'the flooding child was not killed');
@@ -131,7 +140,7 @@ test('#4326 a probe that floods past 1 MB is stopped at once, as execFile\'s max
 });
 
 test('#4326 a binary that cannot be spawned answers -1 once, never hangs', async () => {
-  const r = await run(path.join(DIR, 'does-not-exist'), [], { timeoutMs: 5000 });
+  const r = await run(path.join(DIR, 'does-not-exist'), [], { timeoutMs: NOT_A_SPEED_TEST });
   assert.equal(r.code, -1);
-  assert.ok(r.ms < 2000, `a spawn failure must answer at once: ${r.ms} ms`);
+  assert.ok(r.ms < NOT_A_SPEED_TEST / 3, `a spawn failure must answer at once, not at the timeout: ${r.ms} ms`);
 });
