@@ -29,4 +29,5 @@ hold ends by itself after 31 minutes) change nothing this branch relies on.
   person's path; it follows when the server half lands.
 - Refused vs failed: a failed pick counts as refused only on the coordinator's own address sentences ("that name is
   taken", "already in use by a computer on this account", "needs an address you have bought"); anything else keeps
-  Try again on the same address.
+  Try again on the same address. That includes the engine's "may be held by an earlier sign-in on this computer": the
+  address is this person's, and once they remove the stale entry on the account page, Try again works.

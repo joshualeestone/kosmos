@@ -43652,6 +43652,12 @@ async function plusSiBoughtRead() {
     return { because: 'this computer could not reach the sign-in service' };
   } finally { clearTimeout(timer); }
 }
+/* A re-read that threw (not one that answered badly, which plusSiSession says itself): Check again stays usable. */
+function plusSiReReadFailed() {
+  const recheck = document.getElementById('plus-si-bought-recheck'); if (recheck) recheck.disabled = false;
+  const spin = document.getElementById('plus-si-spin'); if (spin) spin.hidden = true;
+  plusSiMsg('That did not work. Check again in a moment.');
+}
 /* The session step as it was before kosmos#4756. */
 function plusSiAsBefore(data) {
   const spin = document.getElementById('plus-si-spin'); if (spin) spin.hidden = true;
@@ -43720,7 +43726,7 @@ async function plusSiSession(data, again, keep) {
      account with no address cannot name one here: both get the list, or the way to buy one. */
   const asBefore = !b || (own && PLUS_SI_REFUSED.indexOf(own[1]) === -1 && (!ownRow || ownRow.state === 'free' || b.this_name === own[1]));
   /* With a list in hand, an automatic register is still a choice from it: a refusal goes back to the list. */
-  if (asBefore) { if (again) plusSiMsg(''); if (b) PLUS_SI_PICKED = true; plusSiAsBefore(data); return; }
+  if (asBefore) { if (again && !keep) plusSiMsg(''); if (b) PLUS_SI_PICKED = true; plusSiAsBefore(data); return; }
   plusSiBoughtPick(b);
 }
 function plusSiBoughtPick(b) {
@@ -43767,7 +43773,7 @@ function plusSiBoughtPick(b) {
 }
 {
   const again = document.getElementById('plus-si-bought-recheck');
-  if (again) again.addEventListener('click', () => { if (PLUS_SI_SESSION) { plusSiMsg(''); plusSiSession(PLUS_SI_SESSION, true); } });
+  if (again) again.addEventListener('click', () => { if (PLUS_SI_SESSION) { plusSiMsg(''); plusSiSession(PLUS_SI_SESSION, true).catch(plusSiReReadFailed); } });
 }
 
 /* The last step: name this computer -> signin-register, which returns the address.
@@ -43834,7 +43840,7 @@ async function plusSiDoRegister(name, owned) {
   /* Only a refusal that says the address is taken or not this account's: anything else (a timeout, no answer, a
      certificate failure) may be passing, and the address is still this person's, so it keeps Try again on the
      same address (below). */
-  const refused = !r.ok && !r.timeout && /that name is taken|already in use by a (Mac|computer) on this account|may be held by an earlier sign-in|needs an address you have bought/i.test(String(r.because || ''));
+  const refused = !r.ok && !r.timeout && /that name is taken|already in use by a (Mac|computer) on this account|needs an address you have bought/i.test(String(r.because || ''));
   /* Also after the old step ran because the list could not be read: an automatic register to an address another
      computer holds would otherwise offer Try again on it forever. */
   if (refused && (PLUS_SI_PICKED || PLUS_SI_UNREAD) && PLUS_SI_SESSION && !/start again from the email/i.test(String(r.because || ''))) {
@@ -43847,7 +43853,7 @@ async function plusSiDoRegister(name, owned) {
     if (siSpin) siSpin.hidden = false;
     if (PLUS_SI_BOUGHT_LAST) PLUS_SI_BOUGHT_LAST = Object.assign({}, PLUS_SI_BOUGHT_LAST, { addresses: PLUS_SI_BOUGHT_LAST.addresses.filter((x) => x.name !== name) });
     plusSiMsg(r.because);
-    plusSiSession(PLUS_SI_SESSION, true, r.because);
+    plusSiSession(PLUS_SI_SESSION, true, r.because).catch(plusSiReReadFailed);
     return;
   }
   PLUS_SI_RETRY_FROM_LIST = PLUS_SI_PICKED && !r.ok;   // a Try again on a picked address is still a pick

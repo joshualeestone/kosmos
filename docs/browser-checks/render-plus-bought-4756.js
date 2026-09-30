@@ -97,6 +97,9 @@ const SCENARIOS = {
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'free'), row('spare', 'free')] },
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'free'), row('spare', 'free')] },
   ], auto: null },
+  // This computer's own stale sign-in holds the picked address: not a refusal, so Try again on it (after removing the
+  // stale entry on the website) works, and the address is never banished.
+  'pick-own-stale': { stale: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
   // A pick refused (another computer took it first) returns to the list with the reason, not Try again on the same address.
   'pick-refused': { refuse: 'spare', lists: [
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] },
@@ -113,8 +116,13 @@ async function open(page) {
   await page.route('**/api/remote/devices**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ allowed: [], pending: [] }) }));
   await page.goto(page.__url, { waitUntil: 'networkidle' });
   if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
-  await page.evaluate(() => showTab('settings'));
-  await page.waitForSelector('#panel-settings:not([hidden])');
+  // The Settings nav can still be drawing when the panel shows (seen twice under load): wait for the button itself,
+  // and open Settings once more if it has not come.
+  for (let i = 0; i < 2; i += 1) {
+    await page.evaluate(() => showTab('settings'));
+    await page.waitForSelector('#panel-settings:not([hidden])');
+    if (await page.waitForSelector('#s-nav button[data-go="plus"]', { state: 'visible', timeout: 10000 }).then(() => true, () => false)) break;
+  }
   await page.click('#s-nav button[data-go="plus"]');
   await page.waitForFunction(() => { const s1 = document.getElementById('plus-state1'); return s1 && s1.offsetHeight > 0; }, null, { timeout: 5000 });
 }
@@ -157,6 +165,7 @@ const visible = (page, sel) => page.evaluate((s) => {
           if (sc.refuseSecond === b.name && regs.length === 2) return json(400, { error: 'Kosmos+ said no (409): that name is taken.' });
           if ((sc.offline === b.name || sc.refuseSecond === b.name) && regs.length === 1) return json(400, { error: 'this computer could not reach the sign-in service' });
           if (sc.retire409 === b.name && regs.length === 1) return json(400, { error: 'an earlier sign-in on this computer could not be removed (the coordinator said no (409): busy); try again in a moment' });
+          if (sc.stale === b.name && regs.length === 1) return json(400, { error: 'The name spare may be held by an earlier sign-in on this computer. Remove it on your account page, or pick another name.' });
           if (sc.certfail === b.name && regs.length === 1) return json(400, { error: 'the certificate for spare.kosmosplus.com could not be issued; try again in a minute' });
           return json(200, reg(b.name));
         }
@@ -265,7 +274,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         const btns = await page.$$eval('#plus-si-bought-list button', (b) => b.map((x) => x.getAttribute('data-bought')));
         chk(JSON.stringify(btns) === JSON.stringify(['other']), `[${key}] the refused retry goes back to the list, without the taken address`, JSON.stringify(btns));
         chk(!(await visible(page, '#plus-si-register-go')), `[${key}] not Try again forever`);
-      } else if (key === 'pick-offline' || key === 'pick-cert-fail' || key === 'pick-retire-409') {
+      } else if (key === 'pick-offline' || key === 'pick-cert-fail' || key === 'pick-retire-409' || key === 'pick-own-stale') {
         await page.click('#plus-si-bought-list button[data-bought="spare"]');
         await page.waitForSelector('#plus-si-register-go', { state: 'visible', timeout: 8000 }).catch(() => {});
         chk(asked === 1, `[${key}] the list is not re-read (the address was not refused)`, String(asked));
