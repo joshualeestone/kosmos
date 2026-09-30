@@ -10310,8 +10310,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
     /* Equal shares of the row, never narrower than the button's longest word: when four cannot fit (a swarm's,
        at large text on the narrowest phones) the row wraps to a second line rather than cut or spill a word. */
     flex: 1 1 0; width: auto; min-width: min-content; min-height: 44px; flex-direction: column; gap: 2px;
-    /* 2px sides and a 4px column gap leave "Direct Message" (about 92px in CI's macOS font) a column of about 95px
-       at 375 wide with three buttons. With 4px sides and a 6px gap the column was 90 and it wrapped on CI. */
+    /* 2px sides and a 4px column gap leave "Direct Message" (92px) about 95px at 375 wide with three buttons, even
+       when the row is 15px narrower (as on CI, likely a classic scrollbar). With 4px sides and a 6px gap that column
+       was 90 there and it wrapped. */
     /* 12px corners, as the base boxed button (#3500): the label runs close to the sides, and a tighter curve keeps
        its ends clear of the corners. */
     padding: 4px 2px; border-radius: 12px; }
