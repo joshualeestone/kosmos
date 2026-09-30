@@ -332,6 +332,9 @@ function sameToken(a, b) {
   return crypto.timingSafeEqual(x, y);
 }
 
+/* #4763: marks a refusal made because more than one of our running agents shares the token's key. */
+const CLASH = Symbol('kosmos.sendertoken.clash');
+
 /**
  * Who is presenting this token, and which run of them. Returns
  * `{ ok, card, instance }` or `{ ok:false, because }`, the same contract
@@ -372,8 +375,13 @@ function resolve(token, roster) {
        #4763: safeKey is lossy ("Mara" and "mara", "ma.ra" and "mara" share a key, and so one token file), so two
        running agents of ours can both match. Taking the first let one agent's token speak as the other. With
        more than one, NO agent is resolved: the answer is the same as a token we never issued, never a guess.
-       Creation already refuses a key clash with a RUNNING session; this covers the clash it cannot see (one of
-       the two was stopped when the other was made, or a session was made outside Kosmos). */
+       Creation already refuses a key clash with a RUNNING session; this covers a clash it cannot see (a session
+       made outside Kosmos, or two made while one was stopped and now both running). It covers ONLY both running:
+       with one of them stopped there is one row, and the stopped agent's token (same file, no owner field)
+       resolves as the running one. Closing that needs the session name stored on each token at mint time.
+       The refusal carries CLASH (a Symbol: never serialized, so the words stay NO_MATCH) so the caller's
+       paneless fallback, which resolves by key alone, does not re-admit the token as the key. */
+    if (cards.length > 1) return { ok: false, because: NO_MATCH, [CLASH]: true };
     if (cards.length !== 1) return { ok: false, because: NO_MATCH };
     const card = cards[0];
     return { ok: true, card, instance: hit.instance || null };
@@ -431,4 +439,4 @@ function resolveName(token) {
 }
 
 module.exports = {
-  mint, revoke, retire, retireLauncher, live, keys, resolve, resolveName, DIR, MAX_LIVE };
+  mint, revoke, retire, retireLauncher, live, keys, resolve, resolveName, CLASH, DIR, MAX_LIVE };

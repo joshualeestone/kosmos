@@ -1316,6 +1316,9 @@ function resolveAgentSender(req, body, roster, opts) {
 
   const carded = sendertoken.resolve(presented, roster);
   if (carded.ok) return carded;
+  /* #4763: refused because two of our running agents share this token's key. The paneless path below resolves
+     by key alone, so it would re-admit the token as that key; keep the refusal (its words are NO_MATCH). */
+  if (carded[sendertoken.CLASH]) return carded;
 
   const byName = sendertoken.resolveName(presented);
   if (byName.ok && liveness.alive(byName.key) === true) {

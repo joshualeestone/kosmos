@@ -85,6 +85,15 @@ test('#4763: two running agents whose names share a key (Mara / mara): neither t
     for (const t of [a.token, b.token]) {
       const who = sendertoken.resolve(t, board.roster);
       assert.equal(who.ok, false, 'a token resolved while two agents share its key: ' + JSON.stringify(who && who.card && who.card.sessionName));
+      assert.equal(who[sendertoken.CLASH], true, 'the clash refusal is not marked, so the paneless fallback would re-admit it');
+      assert.match(who.because, /could not match that to one of your agents/, 'a clash must read like a token we never issued');
+      assert.equal(JSON.stringify(who).includes('clash'), false, 'the clash mark reached a serialized answer');
+      /* KNOWN LIMIT, pinned so it is not hidden: resolveName is key-level (the file is the key) and still answers
+         for the clash. Its callers (outbox keep-time sender, the token-only read routes) act as the KEY, never as
+         the other agent's name. Tracked as #4792, not this card. */
+      const byName = sendertoken.resolveName(t);
+      assert.equal(byName.ok, true);
+      assert.equal(byName.key, 'mara');
     }
   } finally { board.restore(); }
   // Control: with only one of them running, its token resolves to it.
