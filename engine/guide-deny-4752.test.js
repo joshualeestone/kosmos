@@ -146,7 +146,25 @@ test('#4752 when the base cannot be worked out (preWorldEnv throws), that is sai
   process.stderr.write = (s, ...rest) => { if (String(s).startsWith('#4752')) { said.push(String(s)); return true; } return write.call(process.stderr, s, ...rest); };
   let rules;
   try { rules = setupAssistant.guideDenyRules(); } finally { process.stderr.write = write; worlds.preWorldEnv = was; }
-  assert.ok(rules.includes(`Read(//${store.ROOT.replace(/^\/+/, '')}/**)`), 'the data folder rule was lost');
+  assert.ok(rules.includes(`Read(//${store.ROOT.replace(/^\/+/, '')}/**)`) && rules.includes('Read(~/.ssh/**)'), 'the earlier rules were lost');
   assert.equal(said.length, 1, 'the failure was not said');
   assert.match(said[0], /left out: no pre-world roots/);
+});
+
+test('#4752 the base\'s own passing files are not named one by one, a name the rule syntax would misread is left out, and a link gets both forms', () => {
+  const base = path.join(SANDBOX, 'base-odd');
+  fs.mkdirSync(path.join(base, 'worlds'), { recursive: true });
+  fs.mkdirSync(path.join(base, '.worlds.json.lock'));
+  for (const f of ['.worlds.json.4242.tmp', '.board.token.4242.tmp', 'notes (1).txt', 'a*b', 'My Notes.txt']) fs.writeFileSync(path.join(base, f), 'x');
+  fs.mkdirSync(path.join(SANDBOX, 'elsewhere'), { recursive: true });
+  fs.symlinkSync(path.join(SANDBOX, 'elsewhere'), path.join(base, 'linked'));
+  const abs = (p) => '//' + p.replace(/^\/+/, '');
+  const rules = setupAssistant.guideDenyRules({ dataRoot: path.join(base, 'worlds', 'w1', store.APP), worldsBase: base, legacyRoots: [] });
+  const named = rules.filter((r) => r.startsWith(`Read(${abs(base)}/`));
+  for (const skipped of ['.worlds.json.lock', '.worlds.json.4242.tmp', '.board.token.4242.tmp', 'notes (1).txt', 'a*b']) {
+    assert.ok(!named.some((r) => r.includes(skipped)), 'named one by one: ' + skipped);
+  }
+  assert.ok(named.includes(`Read(${abs(path.join(base, 'My Notes.txt'))})`), 'a name with a space was not named');
+  assert.ok(named.includes(`Read(${abs(path.join(base, 'linked'))})`) && named.includes(`Read(${abs(path.join(base, 'linked'))}/**)`), 'a link did not get both forms');
+  assert.ok(named.includes(`Read(${abs(path.join(base, '.board.token'))}.*)`), 'CONTROL: the pattern rule that covers the temporary copies is gone');
 });

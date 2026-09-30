@@ -254,8 +254,9 @@ function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase
      named too. Not the worlds' base whole: in a named world the guide's own folder is under it
      (<base>/worlds/<id>/workers), and a rule on the base would cut it off from its own instructions. So in the
      base, which IS the default world's store, every entry is named except the worlds folder and its registry.
-     The list is read when the rules are written (a guide's are rewritten at every board start); an entry made
-     later is uncovered until then, except the token and its temporary copies, which are always named. */
+     The list is read when the rules are written (create.js when the guide is made, refreshGuideGuards at every
+     board start); an entry made later is uncovered until the next start, except the token and its temporary
+     copies, which are always named. */
   const same = (a, b) => !!a && !!b && path.resolve(a) === path.resolve(b);
   try {
     const more = [];
@@ -268,16 +269,18 @@ function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase
       const tokenFile = require('./boardauth').TOKEN_FILE;
       more.push(`Read(${abs(path.join(base, tokenFile))})`);   // the default world's token
       more.push(`Read(${abs(path.join(base, '.' + tokenFile))}.*)`);   // and its temporary copy while it is rewritten
-      const keep = new Set([worlds.WORLDS_SUBDIR, path.basename(worlds.registryPath(base))]);
+      const registry = path.basename(worlds.registryPath(base));
       let entries = [];
       try { entries = fs.readdirSync(base, { withFileTypes: true }); } catch (e) { if (e.code !== 'ENOENT') throw e; }
       for (const d of entries) {
-        if (keep.has(d.name)) continue;
+        if (!baseEntryToName(d.name, worlds.WORLDS_SUBDIR, registry, tokenFile)) continue;
         const at = abs(path.join(base, d.name));
-        more.push(d.isDirectory() ? `Read(${at}/**)` : `Read(${at})`);
+        if (d.isFile()) more.push(`Read(${at})`);
+        else more.push(`Read(${at})`, `Read(${at}/**)`);   // a folder, or a link that may be one: both forms
       }
       const worldsDir = path.join(base, worlds.WORLDS_SUBDIR);
-      // every named world's store. On Windows this joins `/` onto a `\` path, as the data folder rule always has; not measured there.
+      // every named world's store: a `*` in the middle of a path, measured refused on Claude Code 2.1.285 only (#4752).
+      // On Windows this joins `/` onto a `\` path, as the data folder rule always has; not measured there.
       for (const leaf of [store.APP, store.LEGACY_APP]) more.push(`Read(${abs(worldsDir)}/*/${leaf}/**)`);
     }
     rules.push(...more);
@@ -287,6 +290,17 @@ function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT, worldsBase
     process.stderr.write(`#4752: the setup guide's rules for the older data folder and the other worlds' stores were left out: ${(err && err.message) || err}\n`);
   }
   return rules;
+}
+/* #4752: whether an entry directly in the worlds' base gets a rule of its own. Not the worlds folder or its
+   registry (the guide's own folder is under the first). Not the registry's lock and temporary files, nor the
+   token's temporary copies: the `.board.token.*` rule covers those, and each carries a process id, so naming
+   them one by one would add a rule per leftover that never goes away (earlier rules are kept on rewrite). Not a
+   name with a character the rule syntax reads as a pattern or a bracket (`* ? [ ] ( ) { } !`): such a rule would
+   deny more than the entry or not parse. Those names are left readable; Kosmos makes none. */
+function baseEntryToName(name, worldsDir, registry, tokenFile) {
+  if (name === worldsDir || name === registry) return false;
+  if (name.startsWith(`.${registry}.`) || name.startsWith(`.${tokenFile}.`)) return false;
+  return !/[*?[\](){}!\\]/.test(name);
 }
 /* #4752: the worlds' base (the default world's data folder), as it was before any world was applied to this
    process; null when it cannot be worked out. */
