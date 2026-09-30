@@ -61,6 +61,12 @@ module's isGuideFolder stub; a future refusal that read the guide's marker some 
 The reviewer RAN three mutations in memory: a guide refusal (red at the guide assertion), the store lookup removed
 (red at the 64 character control), any method admitted (red in the method loop).
 
+## Review round 3 (a third blind reviewer, whole diff): no blocker, nothing to fix but one nit. CONVERGED.
+The nit: the fetch count after the method loop cannot go red from the gate alone, since no other method has a
+handler on this path (each is a 404 with the board token). Kept, with a comment saying what it does guard.
+One precision on round 1's "case is refused": a case change inside /api/ is refused at the gate; `/API/...` is
+outside /api/ altogether and gets the page shell, not the read.
+
 ## Not done
 - No full run yet. This slice will be rebased onto the top of my stack (agent-projects-4491 after its own rebase)
   so that ONE full run of the top validates the stack (#4749 E), instead of taking its own place in the queue.

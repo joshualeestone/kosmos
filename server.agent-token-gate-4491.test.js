@@ -208,7 +208,9 @@ test('community read passes the gate with only an agent token, and only as a GET
     /* The GATE's refusal, not another layer's 403 (a HEAD answer has no body to read). */
     if (method !== 'HEAD') assert.match(await o.text(), GATE_REFUSAL, method + ' was refused, but not by the board-token gate');
   }
-  assert.equal(fetched.length, 1, 'a refused method still made the board ask the service');
+  /* Cannot go red from the gate alone (no other method has a handler here: with the board token each is a 404).
+     It guards the day one of them gets a handler. */
+  assert.equal(fetched.length, 1, 'a method other than GET made the board ask the service');
   /* DECIDED on #4491 (slice 6), and pinned so it cannot flip silently: the setup guide is not treated differently
      from any other agent on this read. If that is ruled the other way, the change is one condition in the handler
      (a guide that came on its token alone is refused) and this assertion becomes a 403. */
