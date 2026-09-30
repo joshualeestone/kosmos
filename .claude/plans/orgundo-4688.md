@@ -32,3 +32,17 @@ the one related check (CLOSE AFTER CREATE) expects Undo kept, which this extends
 - REOPEN BEFORE THE ANSWER: the create is held; the person is back in the idle panel; the late answer paints there.
 - CLOSE, REOPEN AFTER CREATE: a normal create, close, reopen: Undo still offered.
 Each must fail on the base (newagent-4556) and pass here; run on a quiet Mac.
+
+## Blind review round 1 (Sonnet): no blocker; two warnings, both fixed
+- The case that matters most (a late OLD create overwriting a NEWER batch's list, so Undo reaches the wrong agents)
+  was traced and is safe: while a create is answering, Preview, file reads and consent all wait.
+- [WARNING] an Undo left mid-run kept all 7 in the list, so a reopen offered "remove these 7" for agents already
+  removed. FIXED: orgchartUndoLeftMidRun drops the ones answered `removed` and rewrites the kept result, only while the
+  kept list is still the one that run started from. New arm: UNDO LEFT MID-RUN, REOPENED.
+- [WARNING] the kept list now outlived the panel session, and Undo removes by NAME, so a same-named agent made later
+  could be reached. FIXED: a reopen restores it for 15 minutes after the create (ORGCHART_UNDO_KEEP_MS), then drops
+  it. Weakest premise now: a same-named agent re-made inside those 15 minutes. The page holds no agent list to check
+  names against; stated rather than solved.
+- [NIT] the control arm also passes on the old code: by design (it pins that a new batch still drops Undo). Its
+  needless wait removed.
+- [NIT] the post-create paint and orgchartRestoreCreated share about ten lines: left, they agree today.

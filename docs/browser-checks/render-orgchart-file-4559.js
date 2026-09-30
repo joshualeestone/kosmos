@@ -515,7 +515,6 @@ async function run() {
       // CONTROL: a new batch still replaces it (a fresh Preview), so the kept Undo is not sticky forever.
       await plc.fill('#orgchart-text', 'Chief Executive Officer');
       await plc.click('#orgchart-preview');
-      await plc.waitForTimeout(300);
       const fresh = await plc.evaluate(() => ({ created: ORGCHART_CREATED.length, undo: !document.getElementById('orgchart-undo').hidden }));
       check('#4688 CONTROL: a fresh Preview after the reopen is a new batch and drops the old Undo', fresh.created === 0 && !fresh.undo, JSON.stringify(fresh));
     } else check('LEAVE DURING CREATE: the panel offers a file', false);
@@ -552,6 +551,48 @@ async function run() {
         !before.box && !before.undo && after.created === 7 && /remove these 7 agents/.test(after.undo || '') && /Created 7 agents/.test(after.count), JSON.stringify([before, after]));
     } else check('#4688 REOPEN BEFORE THE ANSWER: the panel offers a file', false);
     await prb.close();
+
+    /* #4688 review: an Undo the person leaves mid-run. The first 3 removals answer at once, the 4th is held while
+       they press Back and lands after; on reopen the kept Undo must offer the 3 still on the board, not all 7. */
+    const pud = await page();
+    let deletes = 0;
+    let releaseDel;
+    const delHeld = new Promise((ok) => { releaseDel = ok; });
+    await pud.route('**/api/team', (r) => {
+      const body = JSON.parse(r.request().postData() || '{}');
+      r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } });
+    });
+    await pud.route('**/api/agent/*/removal', async (r) => {
+      const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
+      if (r.request().method() === 'GET') return r.fulfill({ status: 200, json: { ok: true, name, label: name, loses: ['Its place on the board'], keeps: ['Its folder'] } });
+      deletes += 1;
+      if (deletes === 4) await delHeld;
+      r.fulfill({ status: 200, json: { outcome: 'removed', because: name + ' has been removed.' } });
+    });
+    await pud.route('**/api/removed', (r) => r.fulfill({ status: 200, json: { agents: [] } }));
+    await openPanel(pud);
+    if (await pud.$('#orgchart-file-btn')) {
+      await pud.setInputFiles('#orgchart-file', path.join(FIX, 'people.csv'));
+      await pud.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
+      await pud.click('#orgchart-create');
+      await pud.waitForFunction(() => /Created 7 agents/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 8000 });
+      await pud.click('#orgchart-undo');
+      await pud.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
+      await pud.click('#orgchart-undo-go');
+      for (let i = 0; i < 50 && deletes < 4; i++) await pud.waitForTimeout(100);   // the 4th removal is now held
+      await pud.click('#create-path-back');
+      releaseDel();
+      await pud.waitForTimeout(800);   // the held answer lands after the person left
+      await pud.click('#cstep-kind [data-path="team"]');
+      await pud.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
+      await pud.click('#team-orgchart-open');
+      await pud.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
+      const ud = await pud.evaluate(() => ({ created: ORGCHART_CREATED.length, undo: !document.getElementById('orgchart-undo').hidden ? document.getElementById('orgchart-undo').textContent : null,
+        count: document.getElementById('orgchart-count').textContent }));
+      check('#4688 UNDO LEFT MID-RUN, REOPENED: the kept Undo offers only the agents still on the board',
+        deletes === 4 && ud.created === 3 && /remove these 3 agents/.test(ud.undo || '') && /Removed 4 of 7 before you left/.test(ud.count), JSON.stringify([deletes, ud]));
+    } else check('#4688 UNDO LEFT MID-RUN: the panel offers a file', false);
+    await pud.close();
 
     // RENAMED + FAILED: create canonicalises a manager's name (head-of-sales -> head-of-sales-2), so the person
     // under it is re-pointed to the name it was created under; and a profile update that fails is named, not counted.

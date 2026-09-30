@@ -47474,6 +47474,11 @@ let ORGCHART_GEN = 0;
    #4688: NOT by reopening the panel: a created team's Undo stays until it is used or a new batch replaces it,
    including a team whose create was still being answered when the person left the panel. */
 let ORGCHART_CREATED = [];
+/* #4688 review: when ORGCHART_CREATED was last set by a create, and how long a reopen may bring its Undo back. Undo
+   removes by NAME, so a list kept for the rest of the session could reach a same-named agent made later (the first
+   one removed on the board, a new one made under its name). Past this the reopen drops it instead of restoring. */
+let ORGCHART_CREATED_AT = 0;
+const ORGCHART_UNDO_KEEP_MS = 15 * 60 * 1000;
 // The create's result as painted, so Keep them can put it back exactly (refused rows and all).
 let ORGCHART_RESULT = null;
 // True while /api/team is answering: Preview waits, so a late create result is never thrown away.
@@ -47534,6 +47539,7 @@ function resetOrgchartPreview() {
    removed. Used when the panel is reopened, and when a create answered after the person had left lands while the
    panel is open again and idle. A no-op otherwise. */
 function orgchartRestoreCreated() {
+  if (ORGCHART_CREATED.length && Date.now() - ORGCHART_CREATED_AT > ORGCHART_UNDO_KEEP_MS) ORGCHART_CREATED = [];
   if (!ORGCHART_CREATED.length || !ORGCHART_RESULT) return false;
   const box = document.getElementById('orgchart-preview-box');
   if (!box) return false;
@@ -48113,6 +48119,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
        nothing replaces nothing. */
     if (!madeList.length) return;
     ORGCHART_CREATED = madeList;
+    ORGCHART_CREATED_AT = Date.now();
     ORGCHART_RESULT = { count: countText, list: listHtml, msg: msgText };
     const panel = document.getElementById('orgchartpick');
     const box = document.getElementById('orgchart-preview-box');
@@ -48129,6 +48136,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      arms a fresh parse. */
   btn.disabled = true;
   ORGCHART_CREATED = madeList;
+  ORGCHART_CREATED_AT = Date.now();
   ORGCHART_RESULT_SHOWN = true;
   ORGCHART_RESULT = { count: countText, list: listHtml, msg: msgText };
   showOrgchartUndo();
@@ -48241,6 +48249,26 @@ document.getElementById('orgchart-undo-keep').addEventListener('click', () => {
   document.getElementById('orgchart-undo').focus();
 });
 
+/* #4688 review: an Undo the person left mid-run. Nothing is painted (they are elsewhere), but the kept list must stop
+   offering the agents this run already removed, or the reopened panel would offer "remove these 7" for 3 that are
+   gone. Only a clean `removed` answer counts; anything else stays offered (asking the engine again is harmless).
+   Changed only while the kept list is still the one this run started from, so a newer batch is never touched. */
+function orgchartUndoLeftMidRun(runList, todo, answers) {
+  if (ORGCHART_CREATED !== runList) return;
+  const gone = new Set(answers.filter((a) => a.out && a.out.outcome === 'removed').map((a) => a.c.name));
+  if (!gone.size) return;
+  ORGCHART_CREATED = runList.filter((c) => !gone.has(c.name));
+  const left = ORGCHART_CREATED.length;
+  ORGCHART_RESULT = {
+    count: !left ? 'Removed ' + gone.size + (gone.size === 1 ? ' agent.' : ' agents.')
+      + ' Nothing was deleted: Show removed agents on your board puts any of them back.'
+      : 'Removed ' + gone.size + ' of ' + todo.length + ' before you left. '
+        + left + (left === 1 ? ' is still on your board:' : ' are still on your board:'),
+    list: todo.map((c) => '<li>' + esc(c.shownAs) + ' <span class="dhint">' + (gone.has(c.name) ? 'removed' : 'still on your board') + '</span></li>').join(''),
+    msg: '',
+  };
+}
+
 /* #1280: Remove them, pressed after orgchartUndoAsk named the agents. One at a time through the
    board's own removal (DELETE /api/agent/:name/removal). An engine `partial` can mean removed
    but still running, or not removed at all, so after the run the removed list decides: an agent
@@ -48254,6 +48282,7 @@ document.getElementById('orgchart-undo-go').addEventListener('click', async () =
   const listEl = document.getElementById('orgchart-list');
   const msg = document.getElementById('orgchart-msg');
   const todo = ORGCHART_CREATED.slice();
+  const runList = ORGCHART_CREATED;   // #4688: the list this run removes from, to know if it is still the kept one
   document.getElementById('orgchart-undo-go').disabled = true;
   document.getElementById('orgchart-undo-keep').hidden = true;
   countEl.textContent = 'Removing ' + todo.length + (todo.length === 1 ? ' agent…' : ' agents…');
@@ -48270,7 +48299,12 @@ document.getElementById('orgchart-undo-go').addEventListener('click', async () =
       const res = await fetch('/api/agent/' + encodeURIComponent(c.name) + '/removal', { method: 'DELETE' });
       out = await res.json().catch(() => null);
     } catch (err) { reached = false; }
-    if (gen !== ORGCHART_GEN) { if (typeof paintRemoved === 'function') paintRemoved(); return; }
+    if (gen !== ORGCHART_GEN) {
+      answers.push({ c, out, reached });
+      orgchartUndoLeftMidRun(runList, todo, answers);
+      if (typeof paintRemoved === 'function') paintRemoved();
+      return;
+    }
     answers.push({ c, out, reached });
   }
   let onList = null;   // null: the removed list could not be read, so only `removed` counts
@@ -48279,7 +48313,7 @@ document.getElementById('orgchart-undo-go').addEventListener('click', async () =
     const body = res.ok ? await res.json().catch(() => null) : null;
     if (body && Array.isArray(body.agents)) onList = new Set(body.agents.map((a) => a && a.name));
   } catch (err) { onList = null; }
-  if (gen !== ORGCHART_GEN) return;
+  if (gen !== ORGCHART_GEN) { orgchartUndoLeftMidRun(runList, todo, answers); return; }
   const rows = answers.map(({ c, out, reached }) => {
     const clean = Boolean(out && out.outcome === 'removed');
     // A clean removal's `because` only repeats that it was removed; any other answer is worth reading.
