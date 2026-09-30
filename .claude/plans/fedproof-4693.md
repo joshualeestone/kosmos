@@ -53,6 +53,11 @@ log).
 
 ## Measured
 
+- Merged tree 185ba41d7 (after iterations 3 to 5 and the origin/main merge), queued run
+  2026-09-30 12:49:53 to 12:50:47 CDT, clean worktree: VERDICT PASS, 54/54 checks, 36 s. Then a
+  SIGHUP arm: the harness got SIGHUP 15 s in, printed "interrupted (SIGHUP)", VERDICT FAIL, exit 1.
+  Zero processes naming a fedown-4693 sandbox and zero sandbox dirs before, between and after.
+  (Queue wait before the run: 5220 s behind release reservations.)
 - Final run 2026-09-30 06:47 UTC: VERDICT PASS, 33/33 checks, 46 s. Earlier runs under box load
   took 113 s, 124 s and 195 s; one run failed at step 1 when the coordinator did not answer within
   the then 20 s wait (load). The wait is now 60 s and a coordinator that exits at start is
