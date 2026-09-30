@@ -58,6 +58,19 @@ test('#4702 the ask says when Allow also frees a computer, escaped, on the ask o
   assert.ok(done.length > 100 && !/frees/.test(done), 'the Allowed / Denied lines mention it (they are after the decision)');
 });
 
+test('#4702 a denied request that registered a computer never promises it can ask again by signing in', () => {
+  const from = JS.indexOf("if (e && e.state === 'denied')");
+  const denied = JS.slice(from, JS.indexOf('const stale', from));
+  const reg = denied.indexOf('if (regName) return');
+  const old = denied.indexOf('if (oldAsk) return');
+  assert.ok(reg > 0 && old > reg, 'the registered-computer line must come before the generic ones');
+  const line = denied.slice(reg, old);
+  assert.match(line, /The computer ' \+ askEsc\(regName\) \+ ' was not let in, and signing in again will not ask again\. If it is not yours, retire it on your account page\./);
+  assert.doesNotMatch(line, /can ask again by signing in/);
+  // CONTROL: the generic old-request line still says it (true for every other denied device).
+  assert.match(denied.slice(old), /it can ask again by signing in/);
+});
+
 test('#3829 an unnamed request is "Unknown device", never the bare noun', () => {
   assert.match(JS, /return d && typeof d\.name === 'string' && d\.name \? d\.name : 'Unknown device';/);
   // ICK's finding: this computer's own in-app sign-in (no name) is "This computer (Kosmos app)", matched by its own device id.
@@ -70,7 +83,8 @@ test('the change-your-password sentence appears on the Deny branch and the re-as
   const plain = JS.slice(at, JS.indexOf('\n', at));
   assert.ok(at > -1, 'the plain sentence moved; re-anchor');
   assert.doesNotMatch(plain, /password/, 'the plain ask carries the intruder sentence, which the wrong person reads every time');
-  const d0 = JS.indexOf("e.state === 'denied'");
+  // #4702: the registered-computer Denied line comes first; the old and fresh generic lines follow it.
+  const d0 = JS.indexOf("if (oldAsk) return", JS.indexOf("e.state === 'denied'"));
   // Comments stripped: a sentence ABOUT the password line is not the line.
   const oldBranch = JS.slice(d0, JS.indexOf('Got it', d0)).replace(/\/\*[\s\S]*?\*\//g, '');
   const freshBranch = JS.slice(JS.indexOf('Got it', d0) + 1, JS.indexOf('Got it', JS.indexOf('Got it', d0) + 1));
