@@ -42,7 +42,8 @@ const path = require('node:path');
 function tunnelState(state, on, sup, enrolledHere) {
   if (state === 'up') return 'running';
   if (on && !enrolledHere) return 'stopped';
-  if (state === 'connecting') return 'starting';
+  // kosmos#4640: a second computer waiting for the other one's Allow has a live tunnel that keeps asking.
+  if (state === 'connecting' || state === 'waiting-allow') return 'starting';
   if (state === 'restarting') return sup === 'alive' ? 'starting' : 'crashed';
   return on ? 'stopped' : 'off';
 }
@@ -67,6 +68,11 @@ const CODES = [
   // an outage; coordinator.rs writes `Kosmos+ refused this Mac: <why> (HTTP <code> on <path>)` for
   // ANY status whose body parses as a refusal, 5xx included, so the 5xx form is taken first.
   // 408 and 429 are "not now", not "no" (as remote.js RETIRE_TRANSIENT reads them): an outage.
+  // kosmos#4640: a second computer waiting for its other computer's Allow (403, code own_lineage) is
+  // not a failure, so it is taken ahead of every coordinator code. Three spellings: status()'s own
+  // sentence for the waiting-allow state, the tunnel's line with the code, and an older tunnel's line
+  // without one (the same sentence on a 403 for the ticket path). A line with ANOTHER code never matches.
+  ['waiting-allow', /^this computer is not allowed yet; allow it from your other computer first|^Kosmos\+ refused this Mac: .*\(HTTP \d{3} on \S+, code own_lineage\)|^Kosmos\+ refused this Mac: this computer is not allowed yet; allow it from your other computer first.*\(HTTP 403 on \/v1\/mac\/relay-ticket\)/i],
   ['coordinator-unreachable', /^Kosmos\+ (answered (5\d\d|408|429)|unreachable)|^Kosmos\+ refused.*\bHTTP (5\d\d|408|429)\b/i],
   ['coordinator-refused', /^Kosmos\+ (refused|answered 4\d\d)/i],
   // An answer that is not what the coordinator sends (coordinator.rs: not JSON, no ticket field,

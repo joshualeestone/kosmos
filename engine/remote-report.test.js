@@ -155,6 +155,26 @@ test('classify: each known failure kind gets its code, anything else is other, n
   for (const code of report.CODES.map(([c]) => c)) assert.match(code, /^[a-z-]+$/, 'a code is not a fixed token: ' + code);
 });
 
+const ALLOW_SAID = 'this computer is not allowed yet; allow it from your other computer first. If that computer is gone, retire it from your account page, then retire this computer and set it up again';
+test('kosmos#4640: waiting for the other computer\'s Allow is waiting-allow, not coordinator-refused; other refusals are unchanged', () => {
+  const cases = [
+    // retirehold-4681's ticket tunnel (with the code), the relay main tunnel (without), and status()'s own sentence.
+    ['Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)', 'waiting-allow'],
+    ['Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket)', 'waiting-allow'],
+    [ALLOW_SAID, 'waiting-allow'],
+    // CONTROLS: the same words with another code, the same words on another path, and an ordinary refusal stay as before.
+    ['Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code standing_lapsed)', 'coordinator-refused'],
+    ['Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/standing)', 'coordinator-refused'],
+    ['Kosmos+ refused this Mac: standing lapsed (HTTP 403 on /v1/mac/relay-ticket)', 'coordinator-refused'],
+  ];
+  for (const [text, want] of cases) assert.equal(report.classify(text), want, text);
+  report.resetForTests();
+  const dir = stateDir(report.ENROL_FILES);
+  const r = report.build({ remote: fakeRemote({ dir, state: 'waiting-allow', because: ALLOW_SAID }), env: {} });
+  assert.equal(r.tunnel, 'starting', 'a waiting computer\'s live tunnel read as stopped or crashed');
+  assert.equal(r.error, 'waiting-allow');
+});
+
 test('classify: each healthy dialling sentence matches `starting` and no failure pattern', () => {
   // The order of CODES must not be what keeps a healthy board from reading as failed.
   for (const s of ['connecting to the relay', 'starting the connection']) {

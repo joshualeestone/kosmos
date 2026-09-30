@@ -42711,9 +42711,13 @@ async function paintPlus() {
   if (pill) {
     /* Review: on but not running (no relay address yet, not started, unreadable) is NOT "Connecting":
        the engine's sentence below says why, and the pill must not promise progress that is not happening. */
-    const ps = !r.on ? 'off' : (stat.state === 'up' ? 'up' : ((stat.state === 'connecting' || stat.state === 'restarting') ? 'connecting' : 'down'));
+    /* #4640: a second computer waiting for its other computer's Allow is a wait, not a fault and not a dial:
+       a neutral pill (no data-state colour rule, so the plain grey one) and the coordinator's sentence below. */
+    const ps = !r.on ? 'off' : (stat.state === 'up' ? 'up' : (stat.state === 'waiting-allow' ? 'waiting'
+      : ((stat.state === 'connecting' || stat.state === 'restarting') ? 'connecting' : 'down')));
     if (typeof pill.setAttribute === 'function') pill.setAttribute('data-state', ps);   // page-test harness elements have none
-    pill.textContent = ps === 'up' ? 'Connected' : (ps === 'off' ? 'Off' : (ps === 'down' ? 'Not connected' : 'Connecting'));
+    pill.textContent = ps === 'up' ? 'Connected' : (ps === 'off' ? 'Off' : (ps === 'down' ? 'Not connected'
+      : (ps === 'waiting' ? 'Waiting to be allowed' : 'Connecting')));
   }
   const acct = document.getElementById('plus-account'); if (acct && typeof PLUS_ACCOUNT_URL !== 'undefined') acct.href = PLUS_ACCOUNT_URL;
   const chip = document.getElementById('plus-chip');

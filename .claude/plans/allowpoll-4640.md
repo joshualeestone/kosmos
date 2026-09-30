@@ -88,3 +88,29 @@ match could never fire).
 - Controls: keeping the token on a first computer reds the engine control; removing the page poll reds all five
   #4640 browser arms.
 - Not measured: a real two-computer run.
+
+## Board side: waiting to be allowed is not a fault (renettilley, 2026-09-30)
+While a second computer waits for the older computer's Allow, the coordinator (retirehold-4681) refuses its relay
+ticket with 403 code own_lineage, and the page printed "Kosmos+ refused this Mac: ... (HTTP 403 on
+/v1/mac/relay-ticket, code own_lineage)." under a blue Connecting pill.
+- engine/remote.js: allowWaitSentence(line) recognises the refusal (code own_lineage; or, for a tunnel with no code, the
+  coordinator's sentence on a 403 for /v1/mac/relay-ticket). status() returns state 'waiting-allow' with the sentence
+  alone as because, keeps it while the tunnel says only connecting (from lastTunnelFailure), and drops it once up or
+  when the process writes any other failure.
+- web/index.html paintPlus: a neutral "Waiting to be allowed" pill (data-state waiting, the plain grey style) and the
+  sentence. server.js hookPublicLink: its own sentence for waiting-allow. engine/remote-report.js: code 'waiting-allow'
+  ahead of every coordinator code; tunnelState maps waiting-allow to starting.
+- Left deliberately: tools/plus-signin-fresh.js waits for 'up' and would report a waiting computer as not up, which is
+  true for that tool's first-computer flow.
+
+Weakest premise: the match is on another repo's words. The prefix "Kosmos+ refused this Mac: " (kosmos-relay
+crates/tunnel/src/words.rs REFUSED_PREFIX), the parenthesis "(HTTP <n> on <path>[, code <c>])" (crates/tunnel/src/
+coordinator.rs refusal line) and, for the code-less tunnel, the sentence "this computer is not allowed yet; allow it
+from your other computer first" (coordinator/src/macs.rs). A rewording there fails toward today's behaviour (an
+ordinary refusal), never toward hiding a fault.
+
+Measured: remote.test.js 126/126; remote-report.test.js 15/15; server.webhooks-1307 39/39; render-plus-panel-3829 105
+PASS 0 FAIL; the four browser-check guards and web.plus-tab green. Mutations, each restored and compared with cmp:
+no waiting return (1 red), any code counts (the standing_lapsed control reds), code-less spelling dropped (reds), not
+kept through the retry (reds), prefix kept in the sentence (2 reds), report row removed (1 red), tunnelState unmapped
+(1 red), page pill mapping removed (browser check 104 PASS 1 FAIL: "Not connected" on a red pill).
