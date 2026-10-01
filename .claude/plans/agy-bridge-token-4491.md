@@ -35,5 +35,12 @@ whitespace-only token; the fixture setup moved inside the try, so a failed setup
 Left as it is: a saturated machine could make the bridge's own 1500 ms limit fire and the test would blame the
 product; the existing #4043 stub-board test has the same exposure.
 
+## Review round 2 (a second blind reviewer, whole change): no blocker, one should-fix, three nits, all taken
+1. Junk in FRONT of a token ('warning: deadbeef') was not in the bad list, so a regex without its ^ passed (the
+   reviewer's mutant). Added; a dropped .trim() also survived, so a padded good token is now sent and must arrive.
+2. The spawn env clears KOSMOS_AGENT_TOKEN_ONLY, so a direct run in a pane that exports it is not falsely red.
+3. The board-token arm is worded as today's default with the switch off and the control for the absence arm, not
+   as a requirement (the card's goal is to keep the board token out of agents' hands).
+
 ## Validation
 Test only, one file. To be stacked with slice 6 so one full run of the top covers it (#4749 E).

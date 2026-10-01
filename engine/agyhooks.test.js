@@ -267,8 +267,8 @@ test('#4043: what the board actually receives: the route, state, text, auto and 
   assert.equal(seen[3].body.text, 'The turn ended with an error: quota exceeded');
 });
 
-/* #4491: which credentials the bridge presents. The agent's own token always, when it has a well-formed one; the
-   person's board token only when this process can read one. An agy agent that cannot read the board token still
+/* #4491: which credentials the bridge presents. The agent's own token always, when it has a well-formed one (trimmed);
+   the person's board token, with the slice-7 switch off (today's default), only when this process can read one. An agy agent that cannot read the board token still
    reports, as itself. That the BOARD then takes the agent's token with no board token is not measured here (this
    stub answers 200 to anything): server.report-reply-loopback-1968.test.js's AGENT-TOKEN arm pins it. */
 test('#4491: the bridge presents the agent\'s token, and the board token only when it can read one', async () => {
@@ -293,7 +293,9 @@ test('#4491: the bridge presents the agent\'s token, and the board token only wh
     const pane = '%tok-' + process.pid + '-' + panes.length;
     panes.push(pane);
     // #4796: a data root of its own in the literal; every call also names its own in `extra`, which wins.
-    const env = { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_PORT: String(port), TMUX_PANE: pane, ...extra };
+    /* KOSMOS_AGENT_TOKEN_ONLY cleared: an agent that exports it in its own pane must not turn the board-token arm red
+       on a direct `node --test` (tools/run-tests.sh clears it too, a direct run does not). */
+    const env = { ...process.env, KOSMOS_AGENT_TOKEN_ONLY: '', AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_PORT: String(port), TMUX_PANE: pane, ...extra };
     const child = spawn(process.execPath, [BRIDGE_FILE, 'Stop'], { env, stdio: ['pipe', 'ignore', 'ignore'] });
     child.on('error', reject);
     child.on('close', (code) => (code === 0 ? resolve() : reject(new Error('bridge exited ' + code))));
@@ -302,29 +304,32 @@ test('#4491: the bridge presents the agent\'s token, and the board token only wh
   const tok = 'ab12'.repeat(16);
   const none = path.join(SB, 'no-board-token');       // a data folder the board never wrote a token into
   const held = path.join(SB, 'with-board-token');
-  const BAD = ['', ' ', 'not-hex', 'ABCDEF', 'deadbeef warning: x'];
+  // Junk after a token and junk in front of one (review 2: a regex without its ^ let the second through).
+  const BAD = ['', ' ', 'not-hex', 'ABCDEF', 'deadbeef warning: x', 'warning: deadbeef'];
   try {
     fs.mkdirSync(none, { recursive: true });
     fs.mkdirSync(path.join(held, store.APP), { recursive: true });
     fs.writeFileSync(path.join(held, store.APP, 'board.token'), 'abc123boardtoken');
     await stop({ KOSMOS_AGENT_TOKEN: tok, AGENT_WORKFORCE_DATA: none });
     await stop({ KOSMOS_AGENT_TOKEN: tok, AGENT_WORKFORCE_DATA: held });
+    await stop({ KOSMOS_AGENT_TOKEN: ' ' + tok + '\n', AGENT_WORKFORCE_DATA: none });   // as a file read can hand it over
     for (const bad of BAD) await stop({ KOSMOS_AGENT_TOKEN: bad, AGENT_WORKFORCE_DATA: none });
   } finally {
     server.closeAllConnections(); server.close();
     for (const pane of panes) { try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: String(port), TMUX_PANE: pane }), { force: true }); } catch { /* none */ } }
   }
-  assert.equal(seen.length, 2 + BAD.length, 'a report was lost: every Stop must reach the board, with or without a board token');
+  assert.equal(seen.length, 3 + BAD.length, 'a report was lost: every Stop must reach the board, with or without a board token');
   assert.equal(seen[0].headers['x-kosmos-agent-token'], tok, 'the agent\'s token did not reach the board');
   assert.equal(seen[0].headers['x-kosmos-board-token'], undefined, 'no token file, so no board-token header may be sent');
   assert.equal(seen[0].body.state, 'idle', 'with no board token to read, the report itself changed');
-  /* CONTROL: the same run where the board did write a token presents it, so the absence above is the missing
-     file and not a bridge that never reads one. */
+  /* CONTROL for the absence above (today's default with the switch off, not a goal of #4491): the same run where
+     the board did write a token presents it, so the absence is the missing file and not a bridge that never reads one. */
   assert.equal(seen[1].headers['x-kosmos-board-token'], 'abc123boardtoken', 'the board token did not reach the board');
   assert.equal(seen[1].headers['x-kosmos-agent-token'], tok);
+  assert.equal(seen[2].headers['x-kosmos-agent-token'], tok, 'a well-formed token with surrounding whitespace was not trimmed and presented');
   /* No token, or one that is not plain hex, is never presented: the route would refuse it rather than fall back
      to the pane (the other three bridges' rule). */
-  BAD.forEach((bad, i) => assert.equal(seen[2 + i].headers['x-kosmos-agent-token'], undefined, JSON.stringify(bad) + ' was presented as the agent\'s token'));
+  BAD.forEach((bad, i) => assert.equal(seen[3 + i].headers['x-kosmos-agent-token'], undefined, JSON.stringify(bad) + ' was presented as the agent\'s token'));
 });
 /* The merge of main into #4588 put `waiting` (#4569) and `until` (#4588) on one buildBody call: each must reach the
    board in its own field. Dropping either one at the send site reds this test or the next. */
