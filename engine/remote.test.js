@@ -1124,6 +1124,24 @@ test('#4824: a connector from before kosmos#4803 refuses the flag; remove is ask
   assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length, before + 1, 'a refusal that is not the flag was retried');
 });
 
+test('#4824: a Remove whose connector is killed on the timeout is not reported as a failed Remove', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'hung-devices';
+  process.env.FAKE_DEVICE_HANG_MS = '2000';
+  process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '400';
+  try {
+    const r = await remote.deviceRemove('dev-1');
+    assert.equal(r.ok, true, r.because);
+    assert.equal(r.data.timed_out, true);
+    // CONTROL: a refusal that is not a timeout still fails.
+    process.env.FAKE_TUNNEL_MODE = 'devices-fail';
+    assert.equal((await remote.deviceRemove('dev-1')).ok, false);
+  } finally {
+    delete process.env.FAKE_DEVICE_HANG_MS;
+    delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
+  }
+});
+
 test('#4824: what the connector could not do reaches the page in its answer', async () => {
   enrol();
   process.env.FAKE_TUNNEL_MODE = 'remove-not-told,remove-no-cutoff';

@@ -1444,6 +1444,9 @@ async function deviceRemove(id) {
     { const b = busy(); if (b) return b; }
     return parseSaid(await tracked(setupRun(deviceArgs('remove', id, false), null, retireTimeoutMs())));
   }
+  /* Killed on the timeout: the connector writes this Mac's list first and tells Kosmos+ last, so the removal has
+     most likely happened. Not a failed Remove: the page says what it cannot know and points at the list. */
+  if (!r.ok && r.timedOut) return { ok: true, because: null, data: { timed_out: true } };
   return parseSaid(r);
 }
 
