@@ -1,7 +1,8 @@
 # teamprov-4719: one provider and account for the whole prebuilt team
 
 Card kosmos#4719 (found by #4557's blind review; the call is on the card). Built on
-teamcreate-ui-4557 (PR #4709, not yet on main); rebased onto main once #4709 merges.
+teamcreate-ui-4557 (PR #4709); rebased onto main after #4709 merged (e65e899d, 2026-10-01). The review loop
+recorded below ran on the stacked base; a fresh loop runs on the rebased branch (see "After the rebase").
 
 ## What changes
 - engine/teamseed.js `specs`: optional `provider` and `account`, carried by every member's spec the
@@ -25,8 +26,9 @@ teamcreate-ui-4557 (PR #4709, not yet on main); rebased onto main once #4709 mer
   providers are usable; it follows the form's own default rule, which is what the person already sees.
 
 ## Measured
-- engine/teamseed.test.js 20/20 (3 new), teamcreate-structure 14/14, server.teamseed-4557 6/6,
-  all web tests + wiring 2234/2234.
+- On the stacked base: engine/teamseed.test.js 20/20 (3 new), teamcreate-structure 14/14,
+  server.teamseed-4557 6/6, all web tests + wiring 2234/2234. Rebased onto main (2026-10-01): teamseed 26/26,
+  team 16/16, server.teamseed 10/10, teamcreate-structure 7/7, teamprov-settle 9/9, team-route 19/19.
 - Browser check render-teamcreate-4557 gains the #4719 arm (an OpenAI-only board makes the team in one
   press, every member on OpenAI and that account); it runs in PR CI.
 
@@ -133,3 +135,10 @@ teamcreate-ui-4557 (PR #4709, not yet on main); rebased onto main once #4709 mer
   a guard (return when the default is not among the options) would make that explicit.
 - A #245 comment near the create form's POST says no account is sent on OpenAI; both the form and the
   team step send it. Pre-existing, not from this change.
+
+## After the rebase onto main (2026-10-01)
+- Review 1 found a BLOCKER: tcProviderSettle read `cstep-team`, which on main is the team chooser screen; the menu
+  lives on `cstep-teammake` (#4557's final shape), so the guard returned early and nothing ever settled. Fixed, and
+  web.teamprov-settle-4719.test.js now ties the id to the markup (the step must contain #tc-provider; control: the
+  chooser does not). The stub had the same wrong id, which is why the test passed.
+- The settle stops when the default is not usable either (a guard, in place of a comment claiming it never is).

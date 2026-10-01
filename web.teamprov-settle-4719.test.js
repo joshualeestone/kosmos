@@ -22,7 +22,7 @@ function world({ stepHidden, options, selected, tc }) {
     get selectedIndex() { return opts.findIndex((o) => o.value === this.value); },
     value: selected,
   };
-  const els = { 'tc-provider': sel, 'cstep-team': { hidden: stepHidden } };
+  const els = { 'tc-provider': sel, 'cstep-teammake': { hidden: stepHidden } };
   let fills = 0;
   const ctx = {
     document: { getElementById: (id) => els[id] || null },
@@ -66,6 +66,13 @@ test('#4719 CONTROL: an open team step with an unusable choice goes back to the 
   assert.equal(w.fills(), 1);
   w.ctx.settle();   // now usable: nothing more
   assert.equal(w.fills(), 1);
+});
+
+test('#4719 a default that is not usable either is not a correction: no refill', () => {
+  const w = world({ stepHidden: false, options: [['anthropic', true], ['meta', true]], selected: 'meta', tc: { fixed: false } });
+  w.ctx.settle();
+  assert.equal(w.fills(), 0, 'it refilled (and asked Muse) toward a default it cannot use');
+  assert.equal(w.sel.value, 'meta');
 });
 
 /* The ONE rule for when the team's provider and account are fixed (review round 7: the lock, the
@@ -155,4 +162,22 @@ test('#4719 a late account list never moves a choice copied from the form or mad
   const gone = lateWorld({ fixed: false, touched: true, provider: 'anthropic', start: 'anthropic', account: '/a/9', offered: ['/a/1', '/a/2'] });
   gone.ctx.apply();
   assert.equal(gone.acct.value, '/a/1');
+});
+
+/* Review of the rebase onto #4557: the step id the settle reads must be the step that holds the menu in the real
+   page, or the guard returns early on every call and nothing settles (the stub above cannot see that). */
+test('#4719: tcProviderSettle reads the step that actually contains #tc-provider', () => {
+  const html = fs.readFileSync('web/index.html', 'utf8');
+  const fn = SCRIPT.slice(SCRIPT.indexOf('function tcProviderSettle'), SCRIPT.indexOf('function tcApplyLateAccounts'));
+  const m = /const step = document\.getElementById\('([\w-]+)'\)/.exec(fn);
+  assert.ok(m, 'tcProviderSettle no longer reads its step by id; re-anchor');
+  const open = html.indexOf('<div id="' + m[1] + '"');
+  assert.ok(open > 0, 'no element ' + m[1] + ' in the page');
+  const nextStep = html.indexOf('<div id="cstep-', open + 1);
+  const menu = html.indexOf('id="tc-provider"');
+  assert.ok(menu > open && (nextStep < 0 || menu < nextStep), m[1] + ' does not contain #tc-provider');
+  // CONTROL: the chooser screen does not contain the menu, so the same check would refuse the old id.
+  const chooser = html.indexOf('<div id="cstep-team"');
+  const afterChooser = html.indexOf('<div id="cstep-', chooser + 1);
+  assert.ok(!(menu > chooser && menu < afterChooser), 'control: cstep-team unexpectedly contains #tc-provider');
 });

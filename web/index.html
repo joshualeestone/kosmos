@@ -47623,18 +47623,18 @@ function tcProviderDefault() {
 let TC_SETTLING = false;
 function tcProviderSettle() {
   const sel = document.getElementById('tc-provider');
-  const step = document.getElementById('cstep-team');
+  const step = document.getElementById('cstep-teammake');   // the step that holds #tc-provider (#4557)
   /* Only a team step that is open and filled: the Muse answer that calls this comes on every create-form
      paint, and an empty or unopened team menu is not a choice to correct (review round 4: treating it as
      one refilled it, which asked Muse again, which settled again, forever). */
   if (!sel || !sel.options.length || !step || step.hidden || !TC || tcChoiceFixed() || TC_SETTLING) return;
   const cur = sel.options[sel.selectedIndex];
   if (!cur || cur.disabled) {
+    // A default that is not usable either is not a correction: stop rather than refill (and ask Muse) again.
+    const def = tcProviderDefault();
+    if (![...sel.options].some((o) => o.value === def && !o.disabled)) return;
     TC_SETTLING = true;   // fillCreateAccounts asks Muse again; its answer must not re-enter here
-    /* No loop follows the Muse or subscription answer this refill asks for: the default it lands on
-       (Claude, or OpenAI when that is the one usable provider) is never a disabled option, so the next
-       settle finds a usable choice and does nothing. A default that could be disabled would need more. */
-    try { sel.value = tcProviderDefault(); fillCreateAccounts(TC_PICKER); } finally { TC_SETTLING = false; }
+    try { sel.value = def; fillCreateAccounts(TC_PICKER); } finally { TC_SETTLING = false; }
   }
 }
 /* A late account list (slower than the step's 5 s wait), applied only while the choice is open: the
