@@ -23,6 +23,9 @@ const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');
 const { execFile, execFileSync } = require('node:child_process');
+// #4796: a data root of its own, so the CLI never reads this computer's board token.
+const DATA4796 = require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'kosmos-cli-presents-board-token-1968-'));
+process.on('exit', () => { try { require('node:fs').rmSync(DATA4796, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const TOKEN = 'abc123boardtoken';
@@ -94,7 +97,7 @@ function runCli(args, env) {
 
 async function drive(port, seen, which, extraEnv) {
   const before = seen[which].length;
-  const env = { ...process.env, KOSMOS_PORT: String(port), ...extraEnv };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA4796, KOSMOS_PORT: String(port), ...extraEnv };
   const args = which === 'report' ? ['report', 'started'] : ['reply', 'on it'];
   await runCli(args, env);
   for (let i = 0; i < 100 && seen[which].length === before; i += 1) {

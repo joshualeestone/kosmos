@@ -27,6 +27,12 @@ const http = require('node:http');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
+const fs = require('node:fs');
+const os = require('node:os');
+/* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
+   travels to this test's stub board (or into anything the test records). */
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-presents-token-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 const run = promisify(execFile);
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
@@ -64,7 +70,7 @@ function withStub(run) {
    count makes the test assert delivery rather than process exit. */
 const report = async (port, token, seen) => {
   const before = seen.length;
-  const env = { ...process.env, KOSMOS_PORT: String(port) };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port) };
   if (token === null) delete env.KOSMOS_AGENT_TOKEN;
   else env.KOSMOS_AGENT_TOKEN = token;
   /* 🛑 ASYNC, NEVER `execFileSync`. A synchronous child BLOCKS NODE'S EVENT

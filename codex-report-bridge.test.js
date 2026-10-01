@@ -12,6 +12,11 @@ const store = require('./engine/store');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const nodePath = require('node:path');
+/* #4796: the bridge reads the board token from the data root. A fresh one for every run that does not bring
+   its own (a caller's AGENT_WORKFORCE_DATA still wins: it is spread after this), so the live token never
+   travels to this test's stub board. */
+const DATA4796 = require('node:fs').mkdtempSync(nodePath.join(require('node:os').tmpdir(), 'kosmos-codex-bridge-4796-'));
+process.on('exit', () => { try { require('node:fs').rmSync(DATA4796, { recursive: true, force: true }); } catch { /* best effort */ } });
 const { execFileSync, execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 
@@ -54,7 +59,7 @@ function drive(eventJson, env = {}, bridge = BRIDGE) {
     server.listen(0, '127.0.0.1', () => {
       const port = server.address().port;
       execFileAsync(process.execPath, [bridge, eventJson], {
-        env: { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%77', ...env },
+        env: { ...process.env, AGENT_WORKFORCE_DATA: DATA4796, KOSMOS_PORT: String(port), TMUX_PANE: '%77', ...env },
       }).then(
         // The bridge's cardinal rule is to exit 0 no matter what, so a non-zero
         // exit here is a real regression worth surfacing, not swallowing.
@@ -91,7 +96,7 @@ test('a board that is down never becomes a failure the agent can feel', () => {
   // No server at this port; the bridge must exit 0 regardless (execFileSync
   // throws on non-zero, so completing IS the assertion).
   execFileSync(process.execPath, [BRIDGE, JSON.stringify({ type: 'agent-turn-complete', 'last-assistant-message': 'x' })], {
-    env: { ...process.env, KOSMOS_PORT: '1', TMUX_PANE: '%1' },
+    env: { ...process.env, AGENT_WORKFORCE_DATA: DATA4796, KOSMOS_PORT: '1', TMUX_PANE: '%1' },
   });
   assert.ok(true);
 });
