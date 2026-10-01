@@ -266,7 +266,8 @@ async function run() {
         await pk.evaluate(() => { ORGCHART_CREATED = window.__keptList; ORGCHART_RESULT = window.__keptResult; ORGCHART_CREATED_AT = Date.now(); });
         const shownAgain = await reopenAged(0);
         await pk.evaluate(() => { ORGCHART_CREATED_AT = Date.now() - 16 * 60 * 1000; });
-        await pk.click('#orgchart-undo');
+        // Guarded: where the reopen brings nothing back (main), this is one FAIL line, not a thrown click ending the check.
+        if (shownAgain.undoShown) await pk.click('#orgchart-undo');
         const onScreen = await pk.evaluate(() => ({ created: ORGCHART_CREATED.length, undoShown: !document.getElementById('orgchart-undo').hidden,
           asking: !document.getElementById('orgchart-undo-go').hidden, msg: document.getElementById('orgchart-msg').textContent }));
         check('#4688 EXPIRED ON SCREEN: Undo pressed 16 minutes after the create says it is no longer offered and asks nothing',
@@ -274,17 +275,19 @@ async function run() {
           && /Undo is no longer offered/.test(onScreen.msg), JSON.stringify([shownAgain, onScreen]));
         // And past the window between the ask and Remove: nothing is removed and the result, not the ask, is back.
         await pk.evaluate(() => { ORGCHART_CREATED = window.__keptList; ORGCHART_RESULT = window.__keptResult; ORGCHART_CREATED_AT = Date.now(); });
-        await reopenAged(0);
+        const shownForRemove = await reopenAged(0);
         await pk.route('**/api/agent/*/removal', (r) => {
           const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
           r.fulfill({ status: 200, json: { ok: true, name, label: name, loses: ['Its place on the board'], keeps: ['Its folder'] } });
         });
         let pkDeletes = 0;
         pk.on('request', (q) => { if (q.method() === 'DELETE') pkDeletes += 1; });
-        await pk.click('#orgchart-undo');
-        await pk.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
-        await pk.evaluate(() => { ORGCHART_CREATED_AT = Date.now() - 16 * 60 * 1000; });
-        await pk.click('#orgchart-undo-go');
+        if (shownForRemove.undoShown) {
+          await pk.click('#orgchart-undo');
+          await pk.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 }).catch(() => {});
+          await pk.evaluate(() => { ORGCHART_CREATED_AT = Date.now() - 16 * 60 * 1000; });
+          if (await pk.isVisible('#orgchart-undo-go')) await pk.click('#orgchart-undo-go');
+        }
         const atRemove = await pk.evaluate(() => ({ created: ORGCHART_CREATED.length, asking: !document.getElementById('orgchart-undo-go').hidden,
           count: document.getElementById('orgchart-count').textContent, msg: document.getElementById('orgchart-msg').textContent }));
         check('#4688 EXPIRED AT REMOVE: Remove pressed past the window removes nothing and shows the result again, not the ask',
@@ -739,8 +742,11 @@ async function run() {
         await pua.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
         await pua.click('#team-orgchart-open');
         await pua.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
-        await pua.click('#orgchart-undo');
-        await pua.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
+        // Guarded, as above: no Undo after the reopen is a FAIL line, not a thrown click.
+        if (await pua.isVisible('#orgchart-undo')) {
+          await pua.click('#orgchart-undo');
+          await pua.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 }).catch(() => {});
+        }
         const asking = await pua.evaluate(() => document.getElementById('orgchart-undo-go').textContent);
         releaseDelA();
         // A swallowed timeout still fails: the check asserts the same state.

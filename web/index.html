@@ -47565,7 +47565,7 @@ function orgchartSayUndoExpired() {
   if (back) back.focus();
 }
 /* #4688: paint the last create's result and its Undo into the box, if a create made agents that Undo has not
-   removed. Used when the panel is reopened, and when a create answered after the person had left lands while the
+   removed. Used when the panel is reopened (and by openCreate's reset, into the still-hidden panel), and when a create answered after the person had left lands while the
    panel is open again and idle. A no-op otherwise. */
 function orgchartRestoreCreated() {
   if (orgchartDropExpiredUndo()) ORGCHART_RESULT = null;
@@ -48146,7 +48146,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
     /* #4688: the person left the panel (Back, or closed it) while this was answering. Nothing is painted over
        where they are now, but the agents this create made are recorded with their Undo, as a create they had
        watched would be: the next time the panel opens they are there. If the panel is already open again and
-       idle (box hidden, no preview, no file read under way, no Undo running), they are shown now. A batch that made
+       idle (box hidden, no preview, no consent read, no Undo running), they are shown now. A batch that made
        nothing replaces nothing. */
     if (!madeList.length) return;
     /* Overwriting is safe: no newer batch can exist here, because Preview, choosing a file and reading one all
@@ -48286,9 +48286,10 @@ document.getElementById('orgchart-undo-keep').addEventListener('click', () => {
    removed, or the reopened panel would offer "remove these 7" for 3 that are gone. Only a clean `removed` answer
    counts; anything else stays offered (asking the engine again is harmless). Changed only while the kept list is
    still the one this run started from, so a newer batch is never touched. */
-function orgchartUndoLeftMidRun(runList, todo, answers) {
+function orgchartUndoLeftMidRun(runList, todo, answers, onList) {
   if (ORGCHART_CREATED !== runList) return;
-  const gone = new Set(answers.filter((a) => a.out && a.out.outcome === 'removed').map((a) => a.c.name));
+  // As the watched path: a clean `removed`, or (when the run got as far as reading it) on the removed list.
+  const gone = new Set(answers.filter((a) => (a.out && a.out.outcome === 'removed') || (onList && onList.has(a.c.name))).map((a) => a.c.name));
   if (!gone.size) return;
   ORGCHART_CREATED = runList.filter((c) => !gone.has(c.name));
   const left = ORGCHART_CREATED.length;
@@ -48345,7 +48346,10 @@ document.getElementById('orgchart-undo-go').addEventListener('click', async () =
   const listEl = document.getElementById('orgchart-list');
   const msg = document.getElementById('orgchart-msg');
   const todo = ORGCHART_CREATED.slice();
-  const runList = ORGCHART_CREATED;   // #4688: the list this run removes from, to know if it is still the kept one
+  /* #4688: this run's own copy of the kept list, so a left run can tell whether it is still the kept one. A later
+     Remove takes a new copy, so an older left run's late answer no longer changes what the newer run keeps. */
+  ORGCHART_CREATED = todo.slice();
+  const runList = ORGCHART_CREATED;
   document.getElementById('orgchart-undo-go').disabled = true;
   document.getElementById('orgchart-undo-keep').hidden = true;
   countEl.textContent = 'Removing ' + todo.length + (todo.length === 1 ? ' agent…' : ' agents…');
@@ -48376,7 +48380,7 @@ document.getElementById('orgchart-undo-go').addEventListener('click', async () =
     const body = res.ok ? await res.json().catch(() => null) : null;
     if (body && Array.isArray(body.agents)) onList = new Set(body.agents.map((a) => a && a.name));
   } catch (err) { onList = null; }
-  if (gen !== ORGCHART_GEN) { orgchartUndoLeftMidRun(runList, todo, answers); return; }
+  if (gen !== ORGCHART_GEN) { orgchartUndoLeftMidRun(runList, todo, answers, onList); return; }
   const rows = answers.map(({ c, out, reached }) => {
     const clean = Boolean(out && out.outcome === 'removed');
     // A clean removal's `because` only repeats that it was removed; any other answer is worth reading.

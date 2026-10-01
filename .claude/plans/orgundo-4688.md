@@ -163,3 +163,15 @@ Each must fail on the base (main before this branch) and pass here; run on a qui
 - The new arms (prb, pud, pur, pua, pnz) sent the CSV's reporting-line PUTs to the sandbox board, and a late create's
   paint waits on those fix-ups; each now stubs /api/agent/*/profile, as plc does.
 - Not taken: a live-region announcement for a restored result (unchanged from main's box; noted in iteration 5).
+
+## Iteration 11 (Opus): three warnings, fixed
+- A run left after it read /api/removed now passes that list to orgchartUndoLeftMidRun, so an agent the engine answered
+  `partial` but recorded as removed counts as gone, as on the watched path.
+- A second Remove shared the first run's list object, so the first run's late answer could replace it and the second
+  run's own record was then dropped. Each Remove now takes its own copy as the kept list; an older left run's answer
+  no longer touches what a newer run keeps (the newer run counts those agents itself).
+- The expiry and UNDO AGAIN arms clicked Undo unguarded after a reopen; on main (no restore) that throws and ends the
+  whole check, so the base control run would show one exception instead of per-arm FAILs. Guarded.
+- NITs: the late-create idle comment no longer credits ORGCHART_READ_CTL with every read; orgchartRestoreCreated's
+  comment names openCreate's reset. Not taken: Create enabled-but-inert during a create after a reopen (from main,
+  inside a hidden box).
