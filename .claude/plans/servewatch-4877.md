@@ -8,10 +8,12 @@ when anything people download or reach stops answering, and stays silent while h
    Windows) answers 200 with the expected content type, every run; and the served bytes hash to the pointer's
    sha256, at most hourly per artifact.
 2. community.installkosmos.com: /api/health answers 200 {"ok":true}, and the public feed (/api/posts/feed) answers.
-3. The relay: the canary computer address (pizzarama.kosmosplus.com) answers 200, two missed runs in a row before
-   it alarms (the canary is a person's computer).
+3. The relay: a computer name that never exists (serve-watch-canary.kosmosplus.com, over plain http) answers with
+   the relay's own "Mac not connected" page, so the relay process itself is checked whatever computer is on.
 Robustness: a request with no answer or a 5xx is tried once more in the same run; an alarm's identity is the file and
-the class of failure (not the error text), so a changing error does not repost every run. The download site not
+the class of failure (not the error text), so a changing error does not repost every run. A sha or sidecar that
+disagrees with its pointer must be seen on two runs in a row (a promote writes the zip, its sidecar and the pointer
+one by one). The download site not
 answering is an alarm at once, unless nothing else answered either (this computer is offline: could not tell).
 Alerts go to the same two places as gap-alarm: a pane (Splinter, who routes) by claude-msg, and a comment on
 kosmos#4877. Tested against a fake pointer naming a missing file (alarm), a healthy site (silent), and a clear after.
@@ -32,9 +34,11 @@ log line and that a --check is healthy. The job then runs beside coordinator-mon
 - A negative control every run: dist/<a name that never exists> must answer 404. A site that answers 200 for
   everything would otherwise pass every artifact check; then the run is "could not tell", not "healthy".
 - The relay's build is NOT checked: the relay only writes it to its own journal on the box (crates/relay/src/serve.rs
-  "relay up ... build="), with no public route, and this monitor holds no SSH. Said on the card. An unknown name does
-  not help either (the relay drops its TLS handshake), so the canary is a real computer: if pizzarama's Mac is off,
-  the alert says the relay OR that computer, which one cannot be told from outside.
+  "relay up ... build="), with no public route, and this monitor holds no SSH.
+- The relay canary is a name that never exists, answered by the relay's own listener (crates/relay/src/redirect.rs),
+  not a real computer. Rejected: pizzarama (the card's suggestion), which is Josh's Windows PC: it sleeps, and every
+  sleep would alarm. Weakest premise: this checks the relay's http listener, not the https path a person's browser
+  takes through it to their Mac (that path's certificate is #4878).
 - Re-hash on change, not hourly: the card said "at most hourly"; this re-reads the bytes when the pointer's sha or
   the file's etag/length changes, after a failed read, and once a day. Rejected: hourly (about 140 MB an hour of
   download-site egress, about 100 GB a month). Weakest premise: a same-length corruption behind an unchanged etag
@@ -43,3 +47,4 @@ log line and that a --check is healthy. The job then runs beside coordinator-mon
   its own sidecar), because every install fetches them (install/setup.sh). Not watched: a Windows setup.ps1 at the
   site root (none is served there). Pointer names must be the ones the installers derive from version and arch.
 - Pane goes to Splinter (claudebot-discord:0.0) by default: the site and the relay have different owners, and he routes.
+- Note: Vercel's last-modified changes on every site deploy, so every deploy re-hashes every artifact once.

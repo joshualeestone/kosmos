@@ -13,10 +13,10 @@
  *      names must be the ones the installers derive from `version` (and `arch`). Also what every install fetches
  *      whatever the pointers say: /setup, the tmux bundle and the generic fallback tarball (each against its sidecar).
  *   2. community.installkosmos.com: /api/health answers {"ok":true}, and the public feed answers.
- *   3. The relay: the canary computer's address answers (through the system curl; see curlStatus), and an alarm needs
- *      two missed runs in a row (the canary is a person's computer). Its build is NOT checked: the relay writes it only to its own
- *      journal (crates/relay/src/serve.rs), with no public route, and this holds no SSH. If the canary's Mac is off
- *      the alarm says so as "the relay, or that computer": from outside the two look the same.
+ *   3. The relay: a computer name that never exists answers with the relay's own "Mac not connected" page, so the relay
+ *      process itself is checked, whatever computer is on (a person's computer as the canary would alarm every time it
+ *      slept). Its build is NOT checked: the relay writes it only to its own journal (crates/relay/src/serve.rs), with
+ *      no public route, and this holds no SSH.
  *
  * A NEGATIVE CONTROL guards the download checks: a file that never exists must answer 404. A site that answers 200 for
  * everything would pass every artifact check, so then the run is "could not tell", never "healthy". A download site
@@ -43,7 +43,7 @@
  *
  * SEAMS (tests): SERVE_WATCH_SITE, SERVE_WATCH_DIST, SERVE_WATCH_COMMUNITY, SERVE_WATCH_RELAY (base URLs), SERVE_WATCH_NOW (epoch
  * seconds), SERVE_WATCH_STATE, SERVE_WATCH_MSG_CMD, SERVE_WATCH_TO, SERVE_WATCH_GH_CMD, SERVE_WATCH_ISSUE,
- * SERVE_WATCH_TIMEOUT_MS, SERVE_WATCH_CURL. Under the test runner it posts only through seams a test supplies.
+ * SERVE_WATCH_TIMEOUT_MS. Under the test runner it posts only through seams a test supplies.
  */
 
 const { execFileSync } = require('node:child_process');
@@ -63,7 +63,10 @@ const UNKNOWN_GRACE_S = 3600;
 const DIST = (env.SERVE_WATCH_DIST || 'https://installkosmos.com/dist').replace(/\/+$/, '');
 const SITE = (env.SERVE_WATCH_SITE || 'https://installkosmos.com').replace(/\/+$/, '');
 const COMMUNITY = (env.SERVE_WATCH_COMMUNITY || 'https://community.installkosmos.com').replace(/\/+$/, '');
-const RELAY = env.SERVE_WATCH_RELAY || 'https://pizzarama.kosmosplus.com/';
+/* A computer name that never exists: the relay's own listener answers it with its "Mac not connected" page
+   (crates/relay/src/redirect.rs), whatever computer is or is not on, over plain http (no certificate involved). */
+const RELAY = env.SERVE_WATCH_RELAY || 'http://serve-watch-canary.kosmosplus.com/';
+const RELAY_PAGE = '<title>Mac not connected - Kosmos</title>';
 const TIMEOUT_MS = Number(env.SERVE_WATCH_TIMEOUT_MS) || 30000;
 const CONTROL = 'serve-watch-control-never-published.json';
 
@@ -84,19 +87,18 @@ const FIXED = Object.freeze([
   { url: () => DIST + '/tmux-arm64.tar.gz', name: 'tmux-arm64.tar.gz', type: 'tarball', bySidecar: true },
   { url: () => DIST + '/kosmos-arm64.tar.gz', name: 'kosmos-arm64.tar.gz', type: 'tarball', bySidecar: true },
 ]);
-const TYPES = Object.freeze({
-  script: /^(text\/plain|text\/x-shellscript|application\/x-sh|application\/octet-stream)\b/,
-  tarball: /^application\/(gzip|x-gzip|x-tar|octet-stream)\b/,
-  manifest: /^application\/json\b/,
-  sidecar: /^(text\/plain|application\/octet-stream)\b/,
-  zip: /^application\/(zip|x-zip-compressed|octet-stream)\b/,
+const TYPES = Object.freeze({   // media types are case-insensitive (RFC 9110)
+  script: /^(text\/plain|text\/x-shellscript|application\/x-sh|application\/octet-stream)\b/i,
+  tarball: /^application\/(gzip|x-gzip|x-tar|octet-stream)\b/i,
+  manifest: /^application\/json\b/i,
+  sidecar: /^(text\/plain|application\/octet-stream)\b/i,
+  zip: /^application\/(zip|x-zip-compressed|octet-stream)\b/i,
 });
 /* A pointer field must be a bare file name: a value with a slash or a dot-dot would make this fetch some other path. */
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$/;
 const BODY_CAP = 1024 * 1024;   // a pointer, sidecar, health or feed answer; anything bigger is not one
 const HASH_CAP = 512 * 1024 * 1024;   // a download read for its sha256; past this it is not one of ours
 const REHASH_S = 24 * 3600;     // a file whose headers have not changed is still hashed once a day
-const RELAY_FAILS_TO_ALARM = 2; // the canary is a person's computer: one missed run is not an outage
 
 /* The artifacts a pointer names: each with the content type it must have, whether its bytes are hashed against the
    pointer (`hashed`), and whether its .sha256 sidecar is read and compared (`sidecar`). null when the pointer does not
@@ -191,7 +193,7 @@ async function shaOf(url) {
     let n = 0;
     for await (const chunk of r.res.body) {
       n += chunk.length;
-      if (n > HASH_CAP) return { error: 'over ' + Math.round(HASH_CAP / 1048576) + ' MB, so not one of ours' };
+      if (n > HASH_CAP) { try { await r.res.body.cancel(); } catch { /* gone */ } return { error: 'over ' + Math.round(HASH_CAP / 1048576) + ' MB, so not one of ours' }; }
       h.update(chunk);
     }
     return { sha: h.digest('hex') };
@@ -200,20 +202,6 @@ async function shaOf(url) {
   } finally { r.clear(); }
 }
 
-/* The relay canary through the system curl, not Node's fetch: on a Mac it uses Apple's TLS, which fetches a missing
-   intermediate the way the app (WKWebView) and an iPhone do. A computer address serves its certificate without the
-   intermediate today (#4878), which Node rejects, so a fetch here would alarm on every run for a defect that has its own
-   card, and drown a real outage. What this asks is "does the relay answer the people who use it". */
-function curlStatus(url) {
-  try {
-    const out = execFileSync(env.SERVE_WATCH_CURL || '/usr/bin/curl', ['-sS', '-o', '/dev/null', '-w', '%{http_code}', '-m', String(Math.round(TIMEOUT_MS / 1000)), '-A', 'kosmos-serve-watch', url],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: TIMEOUT_MS + 5000 });
-    const status = Number(String(out).trim());
-    return Number.isInteger(status) && status > 0 ? { status } : { status: 0, error: 'no answer' };
-  } catch (err) {
-    return { status: 0, error: String((err && err.stderr && String(err.stderr).trim()) || (err && err.message) || err).split('\n')[0].slice(0, 160) };
-  }
-}
 const why = (r) => String(r.status || r.error);
 /* A server's own words, before they reach a pane as typed text: short, and no control characters. */
 const shown = (t) => String(t || 'no type').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 60);
@@ -226,6 +214,11 @@ async function gather(prev, now) {
   const add = (key, text) => problems.push({ key, text });
   const sha = {};
   const prevSha = (prev && prev.sha && typeof prev.sha === 'object') ? prev.sha : {};
+  /* A sha or sidecar that disagrees with its pointer must be seen on two runs in a row: a promote writes the zip, its
+     sidecar and the pointer as separate objects, and a run that lands between them sees one half-written moment. */
+  const prevPending = Array.isArray(prev && prev.pending) ? prev.pending.filter((k) => typeof k === 'string') : [];
+  const pending = [];
+  const mismatch = (key, text) => { if (prevPending.includes(key)) add(key, text); else pending.push(key); };
 
   // The community site and the relay first: they also tell whether THIS computer can reach the internet.
   const health = await getJson(COMMUNITY + '/api/health');
@@ -233,10 +226,9 @@ async function gather(prev, now) {
   if (!healthOk) add('community-health', 'the community site\'s /api/health did not answer ok (' + why(health) + ')');
   const feed = await getJson(COMMUNITY + '/api/posts/feed');
   if (!(feed.status === 200 && feed.json && typeof feed.json === 'object')) add('community-feed', 'the community feed did not answer (' + why(feed) + ')');
-  const relay = curlStatus(RELAY);
-  const prevRelayFails = Number(prev && prev.relayFails) || 0;
-  const relayFails = relay.status === 200 ? 0 : prevRelayFails + 1;
-  if (relayFails >= RELAY_FAILS_TO_ALARM) add('relay', 'the relay, or the canary computer behind ' + RELAY + ', did not answer for ' + relayFails + ' runs in a row (' + why(relay) + ')');
+  const relay = await twice(() => getText(RELAY));
+  const relayUp = relay.status === 503 && typeof relay.text === 'string' && relay.text.includes(RELAY_PAGE);
+  if (!relayUp) add('relay', 'the relay did not answer with its own page at ' + RELAY + ' (' + why(relay) + '): no computer address can be reached');
 
   // The negative control: a file that never exists must answer 404. A 2xx means the site answers anything, so nothing
   // below can be believed: could not tell. No answer, or a 5xx: the download site is down, which is the outage this
@@ -247,17 +239,16 @@ async function gather(prev, now) {
     // The community and relay answers above do not depend on the download site: a problem there is still an alarm.
     if (problems.length) {
       add('dist-unverifiable', 'the downloads could not be checked: ' + why2);
-      return { now, unknown: false, alarm: true, problems, artifacts: 0, sha: prevSha, relayFails };
+      return { now, unknown: false, alarm: true, problems, artifacts: 0, sha: prevSha, pending: prevPending };
     }
-    return { now, unknown: true, why: why2, problems: [], sha: prevSha, relayFails };
+    return { now, unknown: true, why: why2 + '; the community site and the relay answer', problems: [], sha: prevSha, pending: prevPending };
   }
   if (control.status !== 404) {
     if (control.status === 0 && health.status === 0 && relay.status === 0) {
-      // Nothing reached anything, so this run says nothing about the canary either: its count is not advanced.
-      return { now, unknown: true, why: 'nothing answered (this computer may be offline: ' + why(control) + ')', problems: [], sha: prevSha, relayFails: prevRelayFails };
+      return { now, unknown: true, why: 'nothing answered (this computer may be offline: ' + why(control) + ')', problems: [], sha: prevSha, pending: prevPending };
     }
     add('dist-down', 'installkosmos.com is not answering (' + why(control) + '): no download or update can start');
-    return { now, unknown: false, alarm: true, problems, artifacts: 0, sha: prevSha, relayFails };
+    return { now, unknown: false, alarm: true, problems, artifacts: 0, sha: prevSha, pending: prevPending };
   }
 
   const urls = new Map();   // one check per artifact URL, even when two pointers name it
@@ -290,7 +281,7 @@ async function gather(prev, now) {
       const s = await getJson(url + '.sha256');
       const said = s.status === 200 && s.text ? String(s.text).trim().split(/\s+/)[0].toLowerCase() : null;
       if (s.status !== 200) add('sidecar-missing:' + a.name, a.name + '.sha256' + by + ' is not served (' + why(s) + '): installers refuse the download without it');
-      else if (said !== want) add('sidecar-sha:' + a.name, a.name + '.sha256 says ' + String(said).slice(0, 12) + ', the pointer says ' + want.slice(0, 12) + ': installers refuse the download');
+      else if (said !== want) mismatch('sidecar-sha:' + a.name, a.name + '.sha256 says ' + shown(said).slice(0, 12) + ', the pointer says ' + want.slice(0, 12) + ': installers refuse the download');
     }
     if (!a.hashed || !want) continue;
     const was = prevSha[url];
@@ -305,7 +296,7 @@ async function gather(prev, now) {
     }
     sha[url] = rec;
     if (rec.error) add('unreadable:' + a.name, a.name + by + ' could not be read whole to check its sha256 (' + rec.error + ')');
-    else if (rec.got !== want) add('sha:' + a.name, a.name + by + ' does not match: served sha256 ' + String(rec.got).slice(0, 12) + ', pointer says ' + want.slice(0, 12));
+    else if (rec.got !== want) mismatch('sha:' + a.name, a.name + by + ' does not match: served sha256 ' + String(rec.got).slice(0, 12) + ', pointer says ' + want.slice(0, 12));
   }
   for (const f of FIXED) {
     const url = f.url();
@@ -326,9 +317,9 @@ async function gather(prev, now) {
     }
     sha[url] = rec;
     if (rec.error) add('unreadable:' + f.name, f.name + ' could not be read whole to check its sha256 (' + rec.error + ')');
-    else if (rec.got !== want) add('sha:' + f.name, f.name + ' does not match its own .sha256: served ' + String(rec.got).slice(0, 12) + ', sidecar says ' + want.slice(0, 12));
+    else if (rec.got !== want) mismatch('sha:' + f.name, f.name + ' does not match its own .sha256: served ' + String(rec.got).slice(0, 12) + ', sidecar says ' + want.slice(0, 12));
   }
-  return { now, unknown: false, alarm: problems.length > 0, problems, artifacts: urls.size + FIXED.length, sha, relayFails };
+  return { now, unknown: false, alarm: problems.length > 0, problems, artifacts: urls.size + FIXED.length, sha, pending };
 }
 
 /* Whether to post now, and what kind, from the verdict and this channel's last post. Pure. */
@@ -343,10 +334,10 @@ function decidePost(v, last, now) {
 function message(kind, v) {
   const head = 'serve watch (kosmos#4877): ';
   const all = 'every live download (' + v.artifacts + ' files), the community site and the relay answer.';
-  if (kind === 'unknown') return head + 'could not tell (' + v.why + '). This is not a pass: nothing was checked.';
+  if (kind === 'unknown') return head + 'could not tell (' + v.why + '). This is not a pass: the downloads were not checked.';
   if (kind === 'watching') return head + 'still watching: ' + all;
   if (kind === 'cleared') return head + (v.after === 'unknown' ? 'able to check again: ' : 'back to healthy: ') + all;
-  const downloads = v.problems.some((p) => !/^(community-|relay)/.test(p.key));
+  const downloads = v.problems.some((p) => !/^(community-|relay|dist-unverifiable)/.test(p.key));
   return head + v.problems.length + ' problem' + (v.problems.length === 1 ? '' : 's') + ':\n- ' + v.problems.map((p) => p.text).join('\n- ')
     + '\nThis monitor only reads; nothing was changed.' + (downloads ? ' People installing or updating now get the download failure above.' : '');
 }
@@ -498,18 +489,20 @@ async function main(argv) {
     return v.unknown ? 2 : v.alarm ? 1 : 0;
   }
   const noState = stateProblem();
+  /* No state to keep: run (and download) at most once a day, in one fixed 15-minute window of the UTC day, as
+     gap-alarm posts. Checked BEFORE gathering: with no record every file looks due for a re-hash, and running every
+     15 minutes would download every build each time. */
+  if (noState && now % 86400 >= INTERVAL_S) {
+    process.stderr.write('serve-watch: cannot keep state (' + noState + '); checking only in the first 15 minutes of the UTC day\n');
+    return 2;
+  }
   const state = noState ? null : readState();
   const v = await gather(state, now);
   const code = v.unknown ? 2 : v.alarm ? 1 : 0;
-  /* No state to keep: say it at most once a day, in one fixed 15-minute window of the UTC day, as gap-alarm does. */
-  if (noState && now % 86400 >= INTERVAL_S) {
-    process.stderr.write('serve-watch: cannot keep state (' + noState + '); posting only in the first 15 minutes of the UTC day\n');
-    return code;
-  }
   const since = state ? Number(state.unknownSince) : NaN;
   const unknownSince = v.unknown ? (Number.isFinite(since) && since > 0 && since <= now ? since : now) : null;
   if (!noState && v.unknown && now - unknownSince < UNKNOWN_GRACE_S) {
-    writeState({ pane: lastFor(state, 'pane', now), card: lastFor(state, 'card', now), lastRunAt: now, unknownSince, sha: v.sha, relayFails: v.relayFails });
+    writeState({ pane: lastFor(state, 'pane', now), card: lastFor(state, 'card', now), lastRunAt: now, unknownSince, sha: v.sha, pending: v.pending });
     return code;
   }
   const next = {};
@@ -547,7 +540,7 @@ async function main(argv) {
     const sentTo = CHANNELS.filter((ch) => want[ch] && went[ch]).map((ch) => (unsure[ch] ? ch + ' (unconfirmed)' : ch));
     process.stdout.write(new Date(now * 1000).toISOString() + ' ' + (sentTo.length ? 'posted to ' + sentTo.join(' and ') : 'posted NOWHERE') + ': ' + text + '\n');
   }
-  writeState({ pane: next.pane, card: next.card, lastRunAt: now, unknownSince, sha: v.sha, relayFails: v.relayFails });
+  writeState({ pane: next.pane, card: next.card, lastRunAt: now, unknownSince, sha: v.sha, pending: v.pending });
   return code;
 }
 
