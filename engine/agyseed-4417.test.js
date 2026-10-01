@@ -104,8 +104,12 @@ test('#4417: the supervisor seeds idle AFTER claiming the session, only for an a
     'the seed is sent with no hook in place, or while agy asks to trust the folder: an idle that never decays');
   assert.match(gate, /require\(process\.argv\[1\] \+ "\/agystatus"\)\.lastKnown\(\); if \(r && r\.signedIn === true\)/, 'the seed is sent for an agy never signed in on this Mac');
   assert.match(gate, /if \[ "\$_AGY_SIGNED" = signed-in \]; then/);
-  assert.match(gate, /case "\$_x" in KOSMOS_\*=\*\|AGENT_WORKFORCE_\*=\*\|HOME=\*\) _AGY_SEED_ENV\+=\("\$_x"\) ;; esac/,
+  // #4491 slice 9: the pane's empty KOSMOS_AGENT_TOKEN_ONLY pin is skipped (the seed is handed this launch's own value
+  // after the list), so the one arm that keeps anything is still exactly the three the bridge reads.
+  assert.match(gate, /case "\$_x" in\s+KOSMOS_AGENT_TOKEN_ONLY=\*\) ;;[^\n]*\n\s+KOSMOS_\*=\*\|AGENT_WORKFORCE_\*=\*\|HOME=\*\) _AGY_SEED_ENV\+=\("\$_x"\) ;;\s+esac/,
     'the seed adds more of the pane\'s env list than the bridge reads (the list also carries API keys)');
+  assert.equal((gate.match(/_AGY_SEED_ENV\+=/g) || []).length, 1, 'a second arm adds to the seed env');
+  assert.match(gate, /KOSMOS_AGENT_TOKEN_ONLY="\$\{_LAUNCH_TOKEN_ONLY:-\}" TMUX_PANE="\$_AGY_PANE"/, 'the seed does not carry this launch\'s own token-only switch');
   assert.ok(sh.indexOf('unset _AGY_BRIDGE') > seed, 'the bridge path is unset before the seed can use it');
 });
 
