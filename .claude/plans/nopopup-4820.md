@@ -85,3 +85,18 @@ cover lifting, so 10 s is wide; a future notice with different wording would not
   Settings switch is still there; the diagnostics switch behaves the same way.
 - NIT (d) RECORDED: on a FR_FORCED re-run, a could-not-read (failed request or throw) leaves the switch drawn ON even
   over a saved Off. Harmless direction: nothing is sent because of the drawing, and a click saves Off.
+
+## Review round 3 (converged)
+0 BLOCKER, 0 WARNING.
+- NIT TAKEN: the FIRST-RUN OFF arm counted PUTs right after the optimistic aria-checked flip, while the PUT could still
+  be in flight. It now waits for the PUT's response (waitForResponse registered before the click), then counts.
+- NIT TAKEN: only the Community half of round 2's fix was pinned. A FIRST-RUN OFF (Daily report) arm now presses
+  Screen 6's #fr-s6-feedback Off (exactly one PUT {"on":false} to /api/feedback-setting, held in a route), Escapes,
+  opens Automation and asserts #feedback-toggle reads "false". Red in a git-archive copy with refreshFeedback()
+  removed from settingsGo (only that assertion failed, reading "true"); green on the real tree.
+- DECIDED, NOT BUILT: Settings ignoring a first-run save still in flight when Automation opens. Reaching it needs a
+  person faster than a local PUT; the next open re-reads.
+- DECIDED, NOT BUILT: the tab view does not re-read when Settings is reopened by a tab click while Automation is already
+  the section. Pre-existing for the mine and held lists too; one fix for all three belongs on its own card.
+- DECIDED, NOT BUILT: the knob briefly shows the old position while the re-read is in flight. It settles on the
+  board's answer within one local request.

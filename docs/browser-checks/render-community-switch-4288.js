@@ -20,6 +20,8 @@
  *   CLICK-FAIL  a refused save shows its message and leaves the knob where it was.
  *   FIRST-RUN OFF  (#4820 review 2) the switch turned Off on first run's Screen 6 reads Off, with the
  *             OFF note, when Settings > Automation is opened afterwards in the same session.
+ *   FIRST-RUN OFF (Daily report)  (#4820 review 3) the same for Screen 6's diagnostics switch: turned
+ *             Off there, Settings' Daily report switch (#feedback-toggle) reads Off afterwards.
  *   NO-NOTICE (#4820, Josh 2026-09-30: no pop-up for existing users) an existing install with sharing
  *             on and the old one-time notice never seen (the answer the old board gave it) gets NO
  *             community dialog and posts nothing, while the switch still reads ON in Settings. The #4288
@@ -48,6 +50,7 @@ function sandboxedData(d) {
 
 const BASE = process.argv[2] || process.env.KOSMOS_URL || 'http://127.0.0.1:17461';
 const ROUTE = '**/api/community-setting';
+const FEEDBACK = '**/api/feedback-setting';   // the Daily report (diagnostics) setting, FIRST-RUN OFF (Daily report)
 const SEEN = '**/api/community-setting/notice-seen';   // the removed route: anything sent there is counted
 
 const fails = [];
@@ -237,7 +240,11 @@ async function run() {
     await p7.waitForFunction(() => { const t = document.getElementById('community-share'); return t && t.textContent.length > 0; }, null, { timeout: 30000 });
     const before = await p7.evaluate(() => document.getElementById('community-toggle').getAttribute('aria-checked'));
     check('FIRST-RUN OFF: precondition, Settings read the switch ON at page load', before === 'true', String(before));
+    /* The knob flips optimistically before its PUT goes out, so wait for the PUT's answer before counting
+       (round 3 NIT: counting on the flip alone could read 0 while the save was still in flight). */
+    const frPut = p7.waitForResponse((r) => r.request().method() === 'PUT' && /\/api\/community-setting$/.test(new URL(r.url()).pathname), { timeout: 15000 });
     await p7.click('#fr-s6-community');
+    await frPut;
     await p7.waitForFunction(() => document.getElementById('fr-s6-community').getAttribute('aria-checked') === 'false', null, { timeout: 10000 });
     check('FIRST-RUN OFF: Screen 6 PUT on:false once', frPuts.length === 1 && JSON.parse(frPuts[0]).on === false, JSON.stringify(frPuts));
     await p7.keyboard.press('Escape');
@@ -250,6 +257,41 @@ async function run() {
     check('FIRST-RUN OFF: Settings > Automation re-reads and the knob reads Off', fo.hidden === false && fo.checked === 'false', JSON.stringify(fo));
     check('FIRST-RUN OFF: and the OFF note shows', fo.offNoteHidden === false, String(fo.offNoteHidden));
     await p7.close();
+
+    /* #4820 round 3, FIRST-RUN OFF (Daily report): the other half of round 2's fix. The diagnostics switch
+       on Screen 6 (#fr-s6-feedback) and Settings' Daily report switch (#feedback-toggle) are the same
+       setting, /api/feedback-setting, held here the way frState holds the community one. Same steps as
+       the community arm; it reds with refreshFeedback() removed from settingsGo. */
+    const p8 = await page();
+    const fbState = { on: true, ok: true };
+    const fbPuts = [];
+    await p8.route(FEEDBACK, (route) => {
+      const req = route.request();
+      if (req.method() === 'PUT') { fbPuts.push(req.postData()); try { fbState.on = JSON.parse(req.postData()).on === true; } catch { /* keep */ } }
+      return answer(fbState)(route);
+    });
+    await p8.goto(BASE.replace(/\/$/, '') + '/?first-run=1&fr-step=6', { waitUntil: 'load', timeout: 60000 });
+    await p8.waitForFunction(() => typeof showTab === 'function' && typeof refreshFeedback === 'function', null, { timeout: 30000 });
+    await p8.waitForSelector('#boot-cover', { state: 'hidden', timeout: 60000 });
+    await p8.waitForSelector('#fr-s6-feedback', { state: 'visible', timeout: 30000 });
+    // Precondition: Settings painted its load-time read (ON), so the arm measures a re-read, not a first read.
+    await p8.waitForFunction(() => document.getElementById('feedback-toggle').getAttribute('aria-checked') === 'true', null, { timeout: 30000 }).catch(() => {});
+    const fbBefore = await p8.evaluate(() => { const t = document.getElementById('feedback-toggle'); return { hidden: t.hidden, checked: t.getAttribute('aria-checked') }; });
+    check('FIRST-RUN OFF (Daily report): precondition, Settings read the switch ON at page load', fbBefore.hidden === false && fbBefore.checked === 'true', JSON.stringify(fbBefore));
+    const fbPut = p8.waitForResponse((r) => r.request().method() === 'PUT' && /\/api\/feedback-setting$/.test(new URL(r.url()).pathname), { timeout: 15000 });
+    await p8.click('#fr-s6-feedback');
+    await fbPut;
+    await p8.waitForFunction(() => document.getElementById('fr-s6-feedback').getAttribute('aria-checked') === 'false', null, { timeout: 10000 });
+    check('FIRST-RUN OFF (Daily report): Screen 6 PUT on:false once', fbPuts.length === 1 && JSON.parse(fbPuts[0]).on === false, JSON.stringify(fbPuts));
+    await p8.keyboard.press('Escape');
+    await p8.waitForSelector('#firstrun', { state: 'hidden', timeout: 30000 });
+    await p8.evaluate(() => showTab('settings'));
+    await p8.waitForTimeout(400);
+    await p8.click('#s-nav button[data-go="automation"]');
+    await p8.waitForTimeout(600);
+    const fbAfter = await p8.evaluate(() => { const t = document.getElementById('feedback-toggle'); return { hidden: t.hidden, checked: t.getAttribute('aria-checked') }; });
+    check('FIRST-RUN OFF (Daily report): Settings > Automation re-reads and #feedback-toggle reads Off', fbAfter.hidden === false && fbAfter.checked === 'false', JSON.stringify(fbAfter));
+    await p8.close();
 
     /* #4820 NO-NOTICE. The removed notice opened within about a second of the boot cover lifting, so a
        dialog is polled for up to 10 s (and the poll stops early if one appears, so a red is quick). A
