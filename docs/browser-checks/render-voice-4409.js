@@ -228,7 +228,7 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       const out = {};
       for (const b of document.querySelectorAll('.micbtn.fieldmic')) {
         const box = document.getElementById(b.getAttribute('data-voice-for'));
-        out[box.id] = { pad: parseFloat(getComputedStyle(box).paddingRight) };
+        out[box.id] = { pad: parseFloat(getComputedStyle(box).paddingRight), disabled: box.disabled };
       }
       const name = document.getElementById('pj-name'), row = name.closest('.frow');
       const nm = name.getBoundingClientRect(), mic = document.querySelector('.fieldmic[data-voice-for="pj-name"]').getBoundingClientRect();
@@ -237,7 +237,8 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       return { pads: out, nameW: nm.width, rowW: row.getBoundingClientRect().width, others,
         centred: Math.abs((mic.top + mic.height / 2) - (nm.top + nm.height / 2)), micTopGap: tm.top - ta.top, micBottomGap: ta.bottom - tm.bottom };
     });
-    const padsOk = Object.values(geo.pads).every((x) => x.pad >= 36);
+    // An enabled box makes room for its mic; a disabled one shows no mic and takes no room (#d-instr before it loads).
+    const padsOk = Object.values(geo.pads).every((x) => (x.disabled ? x.pad < 36 : x.pad >= 36));
     chk(padsOk, 'V12 every box with a mic leaves room on its right, so its text never runs under the mic', JSON.stringify(geo.pads));
     chk(geo.nameW >= geo.rowW - geo.others - 24, 'V12 the Name field still fills its row (the wrapper takes its place in the flex row)', JSON.stringify({ nameW: geo.nameW, rowW: geo.rowW, others: geo.others }));
     chk(geo.centred <= 3 && geo.micTopGap <= 10 && geo.micBottomGap >= 12, 'V12 a one-line mic is centred; a textarea\'s mic is at its top, clear of the resize grip', JSON.stringify(geo));
@@ -334,6 +335,13 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     const v16c = await page.evaluate((n) => ({ ops: window.__voice.slice(n).map((m) => m.op), on: document.getElementById('d-mic').getAttribute('aria-pressed') }), n8);
     await page.evaluate(() => { document.getElementById('d-mic').click(); window.kosmosVoiceEvent({ kind: 'stopped' }); });
     chk(JSON.stringify(v16c.ops) === '["start"]' && v16c.on === 'true', 'V16 a composer keeps listening through a button other than Send, as in slice 1', JSON.stringify(v16c));
+    // ...and through focus moving to another field (V14's rule is for dialogs only).
+    const n9 = await page.evaluate(() => window.__voice.length);
+    await page.evaluate(() => { document.getElementById('d-mic').click(); window.kosmosVoiceEvent({ kind: 'listening' });
+      const i = document.createElement('input'); i.id = 'v16-field'; document.getElementById('d-say').parentElement.appendChild(i); i.focus(); i.remove(); });
+    const v16f = await page.evaluate((n) => window.__voice.slice(n).map((m) => m.op), n9);
+    await page.evaluate(() => { document.getElementById('d-mic').click(); window.kosmosVoiceEvent({ kind: 'stopped' }); });
+    chk(JSON.stringify(v16f) === '["start"]', 'V16 a composer keeps listening when focus moves to another field, as in slice 1', JSON.stringify(v16f));
 
     // V7: read aloud, on a freshly painted thread (V5's send left a "Sending" row of the person's).
     await page.evaluate(() => { for (const k of Object.keys(TALK_PENDING)) delete TALK_PENDING[k]; });

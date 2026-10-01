@@ -7323,10 +7323,10 @@ html.has-voice .micbtn { display: grid; }
 .micwrap > .fieldmic { position: absolute; right: calc(8px + var(--scrollbar-width, 0px)); top: 6px; width: 28px; height: 28px; }   /* clear of a classic scrollbar */
 .micwrap.line > .fieldmic { top: 50%; right: 8px; transform: translateY(-50%); }
 .micwrap > :disabled + .fieldmic { display: none; }   /* a box that takes no words (instructions still loading) shows no mic */
-html.has-voice .micwrap > textarea, html.has-voice .micwrap > input,
-html.has-voice .micwrap > #d-instr, html.has-voice .micwrap > #create-instr { padding-right: 44px; }   /* the two ID rules set their own padding */
-html.has-voice .micwrap:not(.line) > textarea,
-html.has-voice .micwrap > #d-instr, html.has-voice .micwrap > #create-instr { padding-right: calc(44px + var(--scrollbar-width, 0px)); }   /* the mic moves left by it */
+html.has-voice .micwrap > textarea:not(:disabled), html.has-voice .micwrap > input:not(:disabled),
+html.has-voice .micwrap > #d-instr:not(:disabled), html.has-voice .micwrap > #create-instr:not(:disabled) { padding-right: 44px; }   /* the two ID rules set their own padding */
+html.has-voice .micwrap:not(.line) > textarea:not(:disabled),
+html.has-voice .micwrap > #d-instr:not(:disabled), html.has-voice .micwrap > #create-instr:not(:disabled) { padding-right: calc(44px + var(--scrollbar-width, 0px)); }   /* the mic moves left by it */
 .micbtn:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
 .micbtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .micbtn[aria-pressed="true"] { color: #c62828; background: rgba(198,40,40,.1); }
@@ -60347,10 +60347,11 @@ document.addEventListener('pointercancel', voiceRelease, true);
 document.addEventListener('contextmenu', () => { VOICE_PRESS = null; VOICE_PRESSED = null; }, true);
 /* The window losing focus mid-press (Cmd-Tab) ends the press as a release: a hold stops, a tap keeps listening. */
 window.addEventListener('blur', () => { if (VOICE_PRESS) voiceRelease({ pointerId: VOICE_PRESS.pointer }); VOICE_PRESSED = null; });
-/* Slice 2: a dialog has several boxes. Focus moving to another field means the person moved on: stop, keep the words
+/* Slice 2: a dialog has several boxes. Focus moving to another of its fields means the person moved on: stop, keep the words
    (the keydown guard only sees the box being dictated into, and Escape works only there). */
 document.addEventListener('focusin', (e) => {
-  if (!VOICE.btn || e.target === VOICE.box || !e.target.closest || e.target.closest('.micbtn')) return;
+  if (!VOICE.btn || !VOICE.btn.classList.contains('fieldmic')) return;   // a composer keeps slice 1's rules
+  if (e.target === VOICE.box || !e.target.closest || e.target.closest('.micbtn')) return;
   if (e.target.matches && e.target.matches('input, textarea, select, [contenteditable="true"]')) voiceCancel();
 }, true);
 document.addEventListener('click', (e) => {

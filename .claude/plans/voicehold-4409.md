@@ -12,9 +12,9 @@ dialogues". Splinter handed it to me at 17:03.
 2. A mic inside the dialogs' text boxes: New project (name, description, what done looks like), New task
    (`nt-detail`), New agent (`create-instr`), the agent's instructions editor (`d-instr`), and the project settings
    (`pjs-name`, `pjs-desc`). Each is a `.micbtn.fieldmic` with `data-voice-for` in a `.micwrap`, at the box's bottom
-   right at first, moved to the top right in review 1 (centred in a one-line input); each says its lines in that dialog's own message line.
+   right (top right of a textarea, clear of its resize grip; centred in a one-line input); each says its lines in that dialog's own message line.
 3. While listening in a dialog, focus moving to another field, or any button (Save, Create), stops it, keeping the
-   words. A composer keeps slice 1's rule: Send stops it, its other buttons (attach, read aloud) do not.
+   words. A composer keeps slice 1's rules: Send stops it; its other buttons and other fields do not.
 4. Mac app only, as slice 1 (drawn only with the on-device bridge, `html.has-voice`). Same bridge, no native change:
    `stop` already ends the audio and lets the recognizer deliver its final result.
 
@@ -76,4 +76,9 @@ the pointer's click as well reds V2, V10, V11, V12. web.voice-4409.test.js 20/20
   only, and composers keep Send-only (V16, the round-2 rule reds it; the unit test pins both arms). DEFERRED W
   (duplicate of round 2's): a hold let go before the bridge says listening is a tap. FIXED NIT: the textareas are not
   made block (it moved the spacing below them for everyone; the mic at the top no longer needs it).
+- Round 4 (sonnet): FIXED W (mine, round 2): the focus-moved rule was not limited to dialogs, so it stopped a
+  composer when focus reached any other field, which slice 1 never did; it is dialog mics only now (V16's composer
+  arm; the ungated rule reds it). DUPLICATE W: the scrollbar offset uses the page's measured gutter, unexercised
+  headless (round 3). DUPLICATE W: a hold let go before listening is a tap (deferred, round 2). FIXED NIT: a disabled
+  box takes no mic padding. FIXED NIT: the plan's Change section describes the code, not its history.
 
