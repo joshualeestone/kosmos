@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: revokename-4844
-diff_hash: 1a448b83d4bb7aa94881179ff21a2b6f78ed8300ab40f1d196255c05196a1fc8
+diff_hash: 6ec666e0e2d0004180158f664013587d3e5031a46b7f1aae96dad3b8165f75d8
 validation: focused at this head (stacked on tokenname-4792, PR #4841): engine/sendertoken.test.js with the revoke callers' tests (remove, create, delete-leftover, supervisor retire, win32create) and the #4796 guard, 404/404; the full run of tokenname-4792 is queued on Agent1s; CI runs the full suite on the merge ref
 subdir_audit: passed
 timestamp: 2026-10-01T05:37:46Z
@@ -27,3 +27,5 @@ converged: true
 ### Iteration 3: 0 BLOCKER, 0 SHOULD-FIX (CONVERGED)
 - [NIT] the size<2 arm is a short-cut; "Windows create" corrected to adopt; plan Tests section current --> FIXED
 - Mutants on copies: no narrowing 2 red, unnamed guard 1 red, absent arm 1 red, narrowed revoke 1 red
+
+Rebased 2026-10-01 01:27 CDT onto tokenname-4792 4a7c5233c (its fixture fix); patches unchanged; with fixture-discipline 78+ tests pass; hash recomputed.
