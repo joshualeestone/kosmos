@@ -59,3 +59,8 @@ stored role lower case on GET /api/projects; the option must read "taskmate · P
 - NIT (stated): an open picker is not rebuilt if the titles arrive after it opens; it reads "Project manager"
   until reopened (the board's documented fail-open). The check waits for networkidle, so a miss is a false red.
 - NIT (stated): a whitespace-only role prints as stored, as on main.
+
+### Review 3 (blind): CONVERGED (0 BLOCKER, 0 WARNING), 2 NITs not taken
+- NIT: the "option carries a role" precondition matches any " · "; the final "· Project Manager$" check still holds.
+- NIT: `require('./roles')` sits inside the member map (cached, cheap).
+- Also measured by the reviewer: server.project-overview-4581.test.js 9/9 with the added field.
