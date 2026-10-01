@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: report-token-only-4491
-diff_hash: 9fa9e6b0cd668f1f3e0c9e88a5e3b7a46a9433b329a333607c91f32ea8cfc0c3
+diff_hash: 86f9b0aeedfcffc1b468ee0e6008b68452cdf73edde23a7d11719292cad7b65b
 validation: passed (Mortals, this branch at be5555c23, hash 798376dfea0e, the top of the #4491 stack); rebased since with the stack onto main (a hand-resolved conflict in engine/assigner.js, in #4740) and onto the reviewed agy-bridge test; the whole stack's changed test files at this head 694/694, the agy test also 39/39 with the switch exported; a fresh full run of this head is queued on Agent1s; CI runs the full suite on the merge ref
 subdir_audit: passed
 timestamp: 2026-10-01T04:39:27Z
@@ -34,3 +34,5 @@ converged: true
 - It now sits on the reviewed agy-bridge test (#4839, 3 rounds), whose spawn env clears the switch too; that test
   passes 39/39 here with the switch exported in the shell, the case its round-2 nit named.
 - The whole stack's changed test files: 694/694 at this head. A fresh full run of this head is queued on Agent1s.
+
+Rebased 2026-10-01 01:31 CDT onto main after the rest of the stack merged (patches unchanged; this branch at a913ff793 is the head that PASSED on Agent1s); focused with the file-scanning guards; hash recomputed.
