@@ -25792,6 +25792,8 @@ let COMPUTERS_FAILS = 0;
    the name or whether there is anywhere to go (review round 1): a failed read keeps the last good answer, so one
    relay hiccup cannot lock the menu shut, and says so inside the menu. */
 function worldswComputersSeen(rows, good) {
+  // With several Kosmoses on, today's menu is untouched: it hides the section on any failure (review round 5).
+  if (MULTI_KOSMOS) return;
   if (good) {
     const me = rows.find((c) => c.this === true);
     THIS_COMPUTER_NAME = me ? me.name : '';
@@ -25817,7 +25819,7 @@ function worldswComputersSeen(rows, good) {
     COMPUTERS_FAILS = good ? 0 : COMPUTERS_FAILS + 1;
     /* Failures back off, 15 s doubling to 5 min, since some never clear on their own (an old connector, a refused
        computer) and each read is a signed call to Kosmos+ (review round 4). */
-    const first = typeof window.__kosmosComputersRetryMs === 'number' ? Math.max(100, window.__kosmosComputersRetryMs) : 15000;
+    const first = Number.isFinite(window.__kosmosComputersRetryMs) ? Math.max(100, window.__kosmosComputersRetryMs) : 15000;
     const wait = !good ? Math.min(5 * 60 * 1000, first * 2 ** (COMPUTERS_FAILS - 1)) : (!COMPUTERS_OPENABLE ? 5 * 60 * 1000 : 0);
     /* Either way, a hidden tab waits (it reads when it is next looked at, the visibility listener below), and an
        open menu is not repainted under the person (it reads when the menu is next opened). */
@@ -26880,7 +26882,9 @@ async function worldHideSubmit() {
   if (!MULTI_KOSMOS) {
     computersFetch().catch(() => {});
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && COMPUTERS_STALE_WHILE_HIDDEN) { COMPUTERS_STALE_WHILE_HIDDEN = false; computersFetch().catch(() => {}); }
+      const menu = document.getElementById('worldsw-menu');
+      // Back in view: read now, unless the menu is open (it read when it opened; never repaint it under the person).
+      if (!document.hidden && COMPUTERS_STALE_WHILE_HIDDEN && !(menu && !menu.hidden)) { COMPUTERS_STALE_WHILE_HIDDEN = false; computersFetch().catch(() => {}); }
     });
   }
 })();

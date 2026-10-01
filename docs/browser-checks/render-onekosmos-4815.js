@@ -16,6 +16,7 @@
  *     SLOW read shows "Checking your computers..." rather than an empty menu (review round 1);
  *   - at BOOT, with nothing called by hand: four computers name this one and open; no answer starts as plain
  *     "This computer" and recovers on the page's own re-read (review round 2);
+ *   - failed reads back off, and a hidden tab waits and reads when it is looked at again (review round 5);
  *   - CONTROL, the answer this check must be able to give: with the switch back on (localStorage
  *     kosmos.multiKosmos = 1), the same board shows the Kosmoses list, New Kosmos and "Kosmos 1".
  *
@@ -151,6 +152,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
               const real = window.fetch;
               window.fetch = (url, opts) => {
                 if (String(url).indexOf('/api/remote/computers') !== -1) {
+                  window.__calls = (window.__calls || 0) + 1;
                   if (window.__which === 'fail') return Promise.reject(new TypeError('the relay did not answer'));
                   return Promise.resolve(new Response(JSON.stringify(window.__answers[window.__which]), { status: 200, headers: { 'content-type': 'application/json' } }));
                 }
@@ -180,6 +182,30 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           ok(`${t} at boot, Kosmos+ not answering: plain "This computer", then the page reads again and recovers on its own`,
             bfBefore.name === 'This computer' && bfBefore.fixed && bfAfter.name === 'studio-laptop' && !bfAfter.fixed, JSON.stringify({ bfBefore, bfAfter }));
           await bf.close();
+          /* The retries back off (review round 5): with a 200 ms first wait, Kosmos+ down for 1.1 s is read at boot, then
+             at 200, 600 (and 1400) ms: about 3 reads. A flat 200 ms would make about 6. */
+          const bb = await boot('down', 200);
+          await bb.waitForTimeout(1100);
+          const calls = await bb.evaluate(() => window.__calls || 0);
+          ok(`${t} retries back off rather than keep the same pace`, calls >= 2 && calls <= 4, String(calls));
+          await bb.close();
+          /* A hidden tab does not read; it reads when it is looked at again (review round 5). */
+          const bh = await boot('down', 200);
+          await bh.evaluate(() => {
+            window.__hid = true;
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => window.__hid });
+            Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (window.__hid ? 'hidden' : 'visible') });
+          });
+          await bh.waitForTimeout(500);
+          await bh.evaluate(() => { window.__which = 'four'; });
+          await bh.waitForTimeout(500);
+          const hiddenLook = await look(bh);
+          await bh.evaluate(() => { window.__hid = false; document.dispatchEvent(new Event('visibilitychange')); });
+          await bh.waitForTimeout(300);
+          const shownLook = await look(bh);
+          ok(`${t} a hidden tab waits, and reads (and recovers) when it is looked at again`,
+            hiddenLook.fixed && hiddenLook.name === 'This computer' && !shownLook.fixed && shownLook.name === 'studio-laptop', JSON.stringify({ hiddenLook, shownLook }));
+          await bh.close();
         } else {
           const c = await read('one');
           ok(`${t} CONTROL: with the switch on, the Kosmoses list, New Kosmos and "Kosmos 1" are back`,
@@ -192,6 +218,6 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
   }
   console.log(problems.length ? `FAIL ${problems.length}:\n  ${problems.join('\n  ')}` : 'all checks passed');
   console.log(`${pass}/${pass + problems.length} passed`);
-  // 2 engines x 2 themes x (11 arms off + 1 control) = 48.
-  process.exit(problems.length || pass + problems.length < 48 ? 1 : 0);
+  // 2 engines x 2 themes x (13 arms off + 1 control) = 56.
+  process.exit(problems.length || pass + problems.length < 56 ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
