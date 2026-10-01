@@ -163,3 +163,16 @@ test('on a board that enforces its token, an agent token alone moves a task for 
   assert.match(outsider.json.error, /not on this project, so it cannot move its tasks/);
   assert.deepEqual(ownerOf(n), ['otto'], 'a refused move changed the owner');
 });
+
+test('an empty who is refused (nobody is the one word for no owner); a done task is not given to anyone', async () => {
+  const n = fresh('Empty who', 'mara');
+  const empty = await assign(n, { who: '' }, asAgent('mara'));
+  assert.equal(empty.code, 400, empty.text.slice(0, 200));
+  assert.match(empty.json.error, /say who the task goes to/);
+  assert.deepEqual(ownerOf(n), ['mara'], 'an empty who took the owner off');
+  tasks.close(projectId, n);
+  const done = await assign(n, { who: 'otto' }, asAgent('mara'));
+  assert.equal(done.code, 400, done.text.slice(0, 200));
+  assert.match(done.json.error, /is done, so it is not given to anyone/);
+  assert.deepEqual(ownerOf(n), ['mara'], 'a done task was moved');
+});

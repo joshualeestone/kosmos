@@ -4030,6 +4030,16 @@ function processCaller(req, body, roster, viaScreen, notDone) {
    the store (removing a member keeps `made`), so it is open too. Accepted: nobody is on it to be spoken for.
    `made` is an advisory record (engine/projects.js says so), used here only to keep something working, never to
    let a caller into a project that has members. */
+function notOnProjectRefusal(who, id, verb, notDone) {
+  if (!who || !who.card) return null;
+  let stored;
+  try { stored = projects.readAll().filter((x) => x && x.id === id); }
+  catch { return [503, 'we could not read the projects, so ' + notDone]; }
+  if (!stored.length) return null;
+  const agentMadeAndEmpty = (x) => Array.isArray(x.agents) && x.agents.length === 0 && !!x.made && x.made.via === 'process';
+  return stored.every((x) => agentMadeAndEmpty(x) || projectHasAgent(x, who.card.sessionName, who.byKey)) ? null
+    : [403, 'that agent is not on this project, so it cannot ' + verb];
+}
 /* #4887, shared with #4914's `task assign`: the agent a CLI's `who` names on project `id`. For an agent caller
    (`card`), `me` is that agent unless a member is named exactly what was typed; the page sends member names, so
    `me` is a name there. With `nobody: true`, `nobody` (same exact-member rule) is no agent: `who` null. A name is
@@ -4054,16 +4064,6 @@ function resolveWhoAsked(id, who, { viaScreen, card, nobody } = {}) {
   }
   const found = members.filter((m) => sameAgentName(m, String(who).trim(), true));
   return { who: found.length === 1 ? found[0] : who };
-}
-function notOnProjectRefusal(who, id, verb, notDone) {
-  if (!who || !who.card) return null;
-  let stored;
-  try { stored = projects.readAll().filter((x) => x && x.id === id); }
-  catch { return [503, 'we could not read the projects, so ' + notDone]; }
-  if (!stored.length) return null;
-  const agentMadeAndEmpty = (x) => Array.isArray(x.agents) && x.agents.length === 0 && !!x.made && x.made.via === 'process';
-  return stored.every((x) => agentMadeAndEmpty(x) || projectHasAgent(x, who.card.sessionName, who.byKey)) ? null
-    : [403, 'that agent is not on this project, so it cannot ' + verb];
 }
 function agentTokenOk(req) {
   const t = req && req.headers && req.headers['x-kosmos-agent-token'];
@@ -17976,7 +17976,7 @@ const server = http.createServer(async (req, res) => {
       let body = null;
       try { body = JSON.parse(raw.toString('utf8') || 'null'); } catch { body = null; }
       if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-      if (typeof body.who !== 'string') { sendJson(res, 400, { error: 'say who the task goes to: an agent on the project, me, or nobody' }); return; }
+      if (typeof body.who !== 'string' || !body.who) { sendJson(res, 400, { error: 'say who the task goes to: an agent on the project, me, or nobody' }); return; }
       const roster = safeRoster();
       const viaScreen = isViaScreen(req, body);
       const caller = processCaller(req, body, roster, viaScreen, 'the task was not moved');
@@ -18007,6 +18007,10 @@ const server = http.createServer(async (req, res) => {
       const partOk = (typeof partId === 'number' && Number.isInteger(partId)) || (typeof partId === 'string' && /^[0-9]+$/.test(partId));
       if (!partOk || !parts.some((x) => Number(x.id) === Number(partId))) {
         sendJson(res, 400, { error: 'task ' + task.number + ' has no part ' + (partOk ? String(partId) : 'like that') }); return;
+      }
+      /* A part that is done is not given to anyone: the new owner would be told about finished work. */
+      if (parts.find((x) => Number(x.id) === Number(partId)).closedAt) {
+        sendJson(res, 400, { error: 'task ' + task.number + (parts.length > 1 ? ', part ' + Number(partId) + ',' : '') + ' is done, so it is not given to anyone' }); return;
       }
       const toSelf = !viaScreen && !!caller.card && !!asked.who && sameAgentName(asked.who, caller.card.sessionName, caller.byKey);
       try {
