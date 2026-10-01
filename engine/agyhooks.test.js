@@ -709,3 +709,46 @@ test('#4588: the bridge writes the exact sentence the board keys on (status.QUOT
   assert.match(r.until, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, 'the strict ISO form status.js requires');
 });
 
+/* #4491 slice 8: the Antigravity bridge honours KOSMOS_AGENT_TOKEN_ONLY like the other three bridges: exactly '1'
+   with the agent's own token sends that token alone and does not read the board token. */
+test('#4491: token-only, the Antigravity bridge sends the agent\'s token alone; anything else keeps the board token', async () => {
+  const http = require('node:http');
+  const { spawn } = require('node:child_process');
+  const store = require('./store');
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => { seen.push(req.headers); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"recorded":true}'); });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  const panes = [];
+  const stop = (extra) => new Promise((resolve, reject) => {
+    const pane = '%only-' + process.pid + '-' + panes.length;
+    panes.push(pane);
+    // #4796: a data root of its own in the literal; every call also names its own in `extra`, which wins.
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_AGENT_TOKEN_ONLY: '', KOSMOS_PORT: String(port), TMUX_PANE: pane, ...extra };
+    const child = spawn(process.execPath, [BRIDGE_FILE, 'Stop'], { env, stdio: ['pipe', 'ignore', 'ignore'] });
+    child.on('error', reject);
+    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error('bridge exited ' + code))));
+    child.stdin.end(JSON.stringify({ fullyIdle: true }));
+  });
+  const tok = 'ab12'.repeat(16);
+  const data = path.join(SB, 'token-only-board');
+  const CASES = [['', '1'], ['NOT-HEX', '1'], [tok, 'true'], [tok, ' 1']];
+  try {
+    fs.mkdirSync(path.join(data, store.APP), { recursive: true });
+    fs.writeFileSync(path.join(data, store.APP, 'board.token'), 'abc123boardtoken');
+    await stop({ AGENT_WORKFORCE_DATA: data, KOSMOS_AGENT_TOKEN: tok });                               // control: off
+    await stop({ AGENT_WORKFORCE_DATA: data, KOSMOS_AGENT_TOKEN: tok, KOSMOS_AGENT_TOKEN_ONLY: '1' });   // on
+    for (const [t, only] of CASES) await stop({ AGENT_WORKFORCE_DATA: data, KOSMOS_AGENT_TOKEN: t, KOSMOS_AGENT_TOKEN_ONLY: only });
+  } finally {
+    server.closeAllConnections(); server.close();
+    for (const pane of panes) { try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: String(port), TMUX_PANE: pane }), { force: true }); } catch { /* none */ } }
+  }
+  assert.equal(seen.length, 2 + CASES.length, 'a report was lost');
+  assert.deepEqual([seen[0]['x-kosmos-agent-token'], seen[0]['x-kosmos-board-token']], [tok, 'abc123boardtoken'], 'control: the switch off did not send both');
+  assert.equal(seen[1]['x-kosmos-agent-token'], tok);
+  assert.equal(seen[1]['x-kosmos-board-token'], undefined, 'token-only: the board token was still sent');
+  CASES.forEach(([t, only], i) => assert.equal(seen[2 + i]['x-kosmos-board-token'], 'abc123boardtoken', `the board token was dropped with token ${JSON.stringify(t)} and switch ${JSON.stringify(only)}`));
+});
