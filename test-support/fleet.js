@@ -346,7 +346,9 @@ function strict(value, producer, opts) {
  */
 function install(specs, opts = {}) {
   const list = Array.isArray(specs) ? specs : [specs];
-  const wrap = opts.strict === false ? (v) => v : strict;
+  /* opts.freeForm reaches strict() (kosmos#4557): the documented way for a caller to name a free-form
+     record (e.g. ['profile']) whose absent keys mean nothing, as the page reads them. */
+  const wrap = opts.strict === false ? (v) => v : (v, producer) => strict(v, producer, { freeForm: opts.freeForm });
 
   for (const spec of list) {
     if (spec.displayName) writeIdentity(spec);

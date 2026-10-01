@@ -152,8 +152,10 @@ test('#4474: every field create reads is either one an agent may send or one it 
   const path = require('node:path');
   const src = fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8');
   const read = new Set([...src.matchAll(/\bopts(?:\s*&&\s*opts)?\.([a-zA-Z]+)/g)].map((m) => m[1]));
+  // teamInstructions (kosmos#4557): only the person's seeded-team step sends it; an agent's team member
+  // never carries it (AGENT_MEMBER_KEYS strips it), so a brief cannot be layered in by an agent.
   const NOT_FROM_AN_AGENT = ['platform', 'configDir', 'accountDir', 'pickedByPerson', 'runner', 'createdBy', 'purpose',
-    'claudeBin', 'codexBin', 'tmuxBin', 'museBin', 'grokBin', 'geminiBin', 'antigravityBin'];
+    'claudeBin', 'codexBin', 'tmuxBin', 'museBin', 'grokBin', 'geminiBin', 'antigravityBin', 'teamInstructions'];
   assert.ok(read.has('claudeBin') && read.has('reportsTo'), 'CONTROL: the scan of create.js found nothing');
   const unsorted = [...read].filter((k) => !team.AGENT_MEMBER_KEYS.includes(k) && !NOT_FROM_AN_AGENT.includes(k));
   assert.deepEqual(unsorted, [], 'create reads a field nobody decided whether an agent may send: ' + unsorted.join(', '));
