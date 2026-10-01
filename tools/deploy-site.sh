@@ -64,7 +64,11 @@
 #                                     # version, the same version with different bytes, or replacing
 #                                     # a live staging pointer that names no build. Without it each
 #                                     # of those is refused. Pass it inline on the one command, never
-#                                     # export it: it is a decision about one deploy.
+#                                     # export it: it is a decision about one deploy. NOT caught: a
+#                                     # checkout still committing the newer staging AFTER a deliberate
+#                                     # rollback deploys it again (it reads as a publish not yet
+#                                     # deployed); sync the site checkout after a staging rollback.
+#   KOSMOS_DEPLOY_RETRY_SLEEP=<s>     # seconds between retries of a live read (default 3; tests use 0).
 #
 # NOTE ON THE SHELL: this is #!/bin/sh but sources two #!/bin/bash libraries (site-deploy.sh,
 # pkg-inputs.sh) that use `local` and ${var:0:2} substrings, so it needs a bash-compatible /bin/sh.
@@ -476,7 +480,7 @@ fi
 # Three attempts, retrying only a transport failure (000), a 429 or a 5xx; a 404 is an answer ("absent"),
 # unlike the artifact fetches, which retry any failure.
 _csm_read() {  # <url>
-  _FETCH_TMP_P=$(mktemp "${TMPDIR:-/tmp}/deploy-site-staged.XXXXXX") || { _FETCH_TMP_P=""; echo "deploy-site: could not make a temp file -- refusing (#4819)"; exit 1; }
+  _FETCH_TMP_P=$(mktemp "${TMPDIR:-/tmp}/deploy-site-staged.XXXXXX") || { _FETCH_TMP_P=""; echo "deploy-site: could not make a temp file to read $1 -- stopping (#4819)"; exit 1; }
   for _csm_try in 1 2 3; do
     _CSM_CODE=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o "$_FETCH_TMP_P" -w '%{http_code}' "$1" 2>/dev/null) || _CSM_CODE=000
     case "$_CSM_CODE" in ''|*[!0-9]*) _CSM_CODE=000 ;; esac
@@ -581,7 +585,7 @@ carry_staged_mac() {
       # would ship it unchecked under the name the pointer names.
       [ ! -e "$SITE/dist/$_csm_art" ] || { echo "deploy-site: $SITE/dist/$_csm_art is not the build the committed latest-staging.json names, and the export would ship it unchecked -- refusing; move it aside (the build is superseded, so nothing needs it) and retry (#4819)"; exit 1; }
       [ -z "${_CSM_MOVES:-}" ] || { echo "deploy-site: this deploy would publish a staging pointer naming $_csm_art, which neither $SITE/dist/ nor live has -- refusing; staging-channel installs would fail on it. Deploy from a machine that has the tarball, or point staging at a served build (tools/publish-staging-pointer.sh) (#4819)"; exit 1; }
-      echo "deploy-site: WARNING (#4819): latest-staging.json names $_csm_art, which is not newer than the prod build $ART, and neither $SITE/dist/ nor live has it. It is superseded, so nothing is carried for it. Staging-channel installs ALREADY fail on it (the pointer names a tarball nobody serves) and this deploy does not change that; to fix them now, point staging at the prod build (tools/publish-staging-pointer.sh) and deploy." >&2
+      echo "deploy-site: WARNING (#4819): latest-staging.json names $_csm_art, which is not newer than the prod build $ART; $SITE/dist/ has no copy of it and live serves no $_csm_art.sha256. It is superseded, so nothing is carried for it. Staging-channel installs ALREADY fail on it (the pointer names a tarball nobody serves) and this deploy does not change that; to fix them now, point staging at the prod build (tools/publish-staging-pointer.sh) and deploy." >&2
       return 0
     fi
     [ -n "$_csm_served" ] || { echo "deploy-site: $SITE/dist/ has no copy of the staged Mac build $_csm_art and live does not serve $_csm_art.sha256 either -- refusing; deploying would drop the build latest-staging.json names. Deploy from the machine that cut it (its dist/ has the bytes), or after that machine has published it (#4819)"; exit 1; }
@@ -800,11 +804,12 @@ else
   # A mismatch is read again twice before it fails: an edge can serve the old pointer briefly.
   for _csm_ptry in 1 2 3; do   # not _csm_try: _csm_read's own loop uses that name
     _csm_read "$HOST/dist/latest-staging.json"   # itself three tries on a transport failure
-    [ "$_CSM_CODE" = 200 ] || { echo "deploy-site: could not re-read the served latest-staging.json after deploy (HTTP $_CSM_CODE) -- the deploy already ran; re-check it (#4819)."; exit 1; }
-    [ "$_CSM_BODY" != "$_csm_committed" ] || break
+    # A 404 is the old answer when there was no pointer before: retried like a mismatch.
+    case "$_CSM_CODE" in 200|404) : ;; *) echo "deploy-site: could not re-read the served latest-staging.json after deploy (HTTP $_CSM_CODE) -- the deploy already ran; re-check it (#4819)."; exit 1 ;; esac
+    [ "$_CSM_CODE" != 200 ] || [ "$_CSM_BODY" != "$_csm_committed" ] || break
     [ "$_csm_ptry" = 3 ] || sleep "${KOSMOS_DEPLOY_RETRY_SLEEP:-3}"
   done
-  [ "$_CSM_BODY" = "$_csm_committed" ] || { echo "deploy-site: the served latest-staging.json is not the committed one -- investigate (#4819)."; exit 1; }
+  [ "$_CSM_CODE" = 200 ] && [ "$_CSM_BODY" = "$_csm_committed" ] || { echo "deploy-site: the served latest-staging.json is not the committed one (HTTP $_CSM_CODE) -- the deploy already ran; investigate (#4819)."; exit 1; }
 fi
 # the served latest.json (tracked, committed) must still name $ART after the deploy.
 sj=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: could not re-read the served latest.json after deploy -- investigate."; exit 1; }

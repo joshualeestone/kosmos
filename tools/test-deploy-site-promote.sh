@@ -55,6 +55,12 @@ rel="${url#"$HOST_URL"/}"
 # NB: not `path=` -- in zsh `path` is tied to PATH, and tools/test-zsh-tied-names.sh
 # statically refuses any shell file that writes it (a file sourced into zsh would clobber PATH).
 served_file="$LIVE_DIR/$rel"
+# An edge that is late (#4819): a file held back as <name>.late answers 404 once, then is served.
+if [ ! -f "$served_file" ] && [ -f "$served_file.late" ]; then
+  mv "$served_file.late" "$served_file"
+  if [ -n "$wfmt" ]; then printf '404'; exit 0; fi
+  exit 22
+fi
 if [ -n "$wfmt" ]; then
   if [ -f "$served_file" ]; then [ -n "$dest" ] && cp "$served_file" "$dest"; printf '200'; else printf '404'; fi
   exit 0
@@ -75,6 +81,7 @@ for f in setup index.html vercel.json; do [ -f "./$f" ] && cp "./$f" "$LIVE_DIR/
 [ -n "${DROP_FROM_DEPLOY:-}" ] && rm -f "$LIVE_DIR/dist/$DROP_FROM_DEPLOY"
 # A deploy that serves DIFFERENT bytes for one file than the export held (#4819).
 [ -n "${MANGLE_ON_DEPLOY:-}" ] && printf ' ' >> "$LIVE_DIR/dist/$MANGLE_ON_DEPLOY"
+[ -n "${LATE_ON_DEPLOY:-}" ] && mv "$LIVE_DIR/dist/$LATE_ON_DEPLOY" "$LIVE_DIR/dist/$LATE_ON_DEPLOY.late"
 exit 0
 VERCEL
 chmod +x "$BIN/vercel"
@@ -346,6 +353,13 @@ export MANGLE_ON_DEPLOY=latest-staging.json
 run_deploy "$S16" "$L16" --promote
 unset MANGLE_ON_DEPLOY
 [ "$RC" = 1 ] && has "$out" "the served latest-staging.json is not the committed one" && pass "mac staged: a deploy serving a different staging pointer than committed fails the post-deploy check" || bad "mac staged pointer mangled (rc=$RC) out=$out"
+
+# 19) a staging pointer published where there was none: the edge answers 404 once after the deploy,
+#     and the post-deploy check reads again rather than failing a good deploy.
+read -r S19 L19 <<<"$(make_scenario)"; add_staged_mac "$S19" "$L19"
+LATE_ON_DEPLOY=latest-staging.json run_deploy "$S19" "$L19" --promote
+{ [ "$RC" = 0 ] && cmp -s "$L19/dist/latest-staging.json" "$S19/dist/latest-staging.json"; } \
+  && pass "mac staged: a staging pointer the edge serves late (404 once) does not fail a good deploy" || bad "mac staged late pointer (rc=$RC) out=$out"
 
 # 17) THE INCIDENT'S PATH: a plain site-copy --publish (live latest.json == committed), from a checkout
 #     whose dist/ lacks the staged tarball, carries it from LIVE and deploys.

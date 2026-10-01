@@ -107,6 +107,10 @@ staged WINDOWS build; it had no Mac twin.
   prod (a prod hotfix cut while staging is ahead) can drop it the same way (review 9). Closing that
   is the card's ask 2 (one artifact list both paths read), recorded on the card as the follow-up.
 - Only the arm64 staged build: the pointer names one artifact.
+- A site checkout that has not pulled after a deliberate staging ROLLBACK still commits the newer
+  staging pointer, and its next deploy puts it back: by version it looks exactly like a publish not
+  yet deployed (review 17). Closing it needs a freshness check against the site checkout's remote;
+  the usage header tells the operator to sync the site checkout after a staging rollback.
 
 - A local copy whose bytes match the committed pointer is deployed even if live serves other bytes
   under the same name while its pointer is unchanged (review 12). It can only put back the bytes the
@@ -129,7 +133,7 @@ statically (measured: 200 application/json from installkosmos.com).
   refuses as "could not read", one transport blip and one 503 are retried, an empty 200 for the live pointer refuses, a superseded build whose sidecar read fails refuses; a path name and a
   missing sha refuse before any fetch; the wiring (call before the export, export checks, post-deploy
   served-verify).
-- `bash tools/test-deploy-site-promote.sh` arms 12-18, the real script end to end: carried from live
+- `bash tools/test-deploy-site-promote.sh` arms 12-19, the real script end to end: carried from live
   and deployed; a deploy that drops it fails the served-verify; no copy anywhere refuses before the
   deploy with live untouched; a checkout behind live's staging refuses with live untouched, and the
   same checkout deploys with KOSMOS_STAGING_ROLLBACK (and nothing was downloaded before the refusal);
@@ -153,6 +157,9 @@ statically (measured: 200 application/json from installkosmos.com).
   the reader's own loop (the "last try" check read the inner value; no arm, it changes only a sleep);
   the empty-200 refusal disabled (st11 red); 5xx no longer retried (st10 red). Review 16: the
   rewritten sidecar is mode 644 like the fetched ones (mktemp made it 0600); without the chmod, g red.
+  Review 17: the post-deploy re-read retries a 404 like a mismatch (a stale edge answers 404 when
+  there was no pointer before; e2e arm 19 holds the pointer back once, and without the 404 retry it
+  is red).
   (A post-fetch pointer-sha check remains as a backstop. `fetch_verified` re-reads the served
   sidecar itself, so it fires only if the sidecar changed between the two reads, a concurrent
   publish; no test reaches it.)
