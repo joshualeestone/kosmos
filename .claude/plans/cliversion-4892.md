@@ -35,4 +35,6 @@ while stdout stays the version. Mutation (comparison disabled) reds it.
   copy's commands "may not match this version" (a dev checkout can be newer); the identical-copy test checks the
   exit code; the new comment wraps at the file's width. Left NIT: a missing cmp would warn falsely (macOS always has
   /usr/bin/cmp; this file is Mac only).
+- Round 2 (sonnet): its W restates the weakest premise above and calls the behaviour correct (DUPLICATE). NITs only
+  otherwise (the link test pins behaviour, not resolution, as noted; a missing cmp; say's indent). CONVERGED.
 
