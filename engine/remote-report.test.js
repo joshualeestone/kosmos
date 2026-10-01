@@ -294,3 +294,26 @@ test('commitHeal only moves forward: a slow send committing an older baseline do
   report.commitHeal(older);   // the slow one lands last
   assert.equal(mk(5).heal, 'none', 'a late, older commit rolled the baseline back and re-reported a relaunch');
 });
+
+test('kosmos#4640 review 8: classify and remote.js allowWaitSentence agree on every raw line (one rule, not two copies)', () => {
+  const remote = require('./remote');
+  const SAID = 'this computer is not allowed yet; allow it from your other computer first. If that computer is gone, retire it from your account page, then retire this computer and set it up again';
+  const lines = [
+    'Kosmos+ refused this Mac: ' + SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)',
+    'Kosmos+ refused this Mac: ' + SAID + ' (HTTP 403 on /v1/mac/relay-ticket)',
+    'Kosmos+ refused this computer: ' + SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage).',
+    'Kosmos+ refused this Mac: ' + SAID + ' extra words (HTTP 403 on /v1/mac/relay-ticket)',
+    'Kosmos+ refused this Mac: ' + SAID + ' (HTTP 403 on /v1/mac/relay-ticket) and then more',
+    'Kosmos+ refused this Mac: This' + SAID.slice(4) + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)',
+    'Kosmos+ refused this Mac: ' + SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code standing_lapsed)',
+    'Kosmos+ refused this Mac: ' + SAID + ' (HTTP 403 on /v1/mac/standing)',
+    'Kosmos+ refused this Mac: this computer was not allowed on your account; retire this computer and set it up again (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)',
+  ];
+  let waits = 0;
+  for (const l of lines) {
+    const engine = remote.allowWaitSentence(l) !== null;
+    if (engine) waits += 1;
+    assert.equal(report.classify(l) === 'waiting-allow', engine, 'the board and the report disagree about: ' + l);
+  }
+  assert.ok(waits >= 3 && waits < lines.length, 'fixture: the table must hold both waits and non-waits (' + waits + ')');
+});
