@@ -35,6 +35,7 @@ const projects = require('./engine/projects');
 const tasks = require('./engine/tasks');
 const nudge = require('./engine/agentnudge');
 const messages = require('./engine/messages');
+const sendertoken = require('./engine/sendertoken');
 const fleet = require('./test-support/fleet');
 
 const AGENT = 'cd'.repeat(16);
@@ -121,5 +122,22 @@ test('#4771 reading 2: a pause made as the screen makes it takes the task out of
     assert.equal(nudge.openParts(who, projects.readAll()).length, 1, 'control: resumed, it is open work again');
     assert.equal((await asAgent(p.id, true)).status, 200);
     assert.deepEqual(nudge.openParts(who, projects.readAll()), []);
+  } finally { board.restore(); }
+});
+
+test('#4771 review 5: an agent whose token says exactly which agent it is is named in the room by its display name', async () => {
+  const board = fleet.install([fleet.agent('pz-named', { state: 'idle', displayName: 'Pete Pause' })]);
+  try {
+    const who = (board.agents.find((c) => (c.sessionName || '').startsWith('pz-named')) || {}).sessionName;
+    assert.ok(who, 'the fleet gave no card');
+    const minted = sendertoken.mint(who);
+    assert.equal(minted.ok, true, 'fixture: no token was minted');
+    const p = projects.create({ name: 'Pause Named' });
+    const r = await fetch(`${base}/api/project/${p.id}`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': minted.token }, body: JSON.stringify({ paused: true }) });
+    assert.equal(r.status, 200, await r.text());
+    const said = messages.record().rows.filter((m) => m.kind === 'note' && m.project === p.id).map((m) => m.text);
+    assert.equal(said.length, 1, JSON.stringify(said));
+    assert.match(said[0], /^Pete Pause paused this project: /, 'the note did not use the display name: ' + said[0]);
+    assert.doesNotMatch(said[0], new RegExp(who), 'the raw session name reached the person\'s room');
   } finally { board.restore(); }
 });

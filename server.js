@@ -16244,7 +16244,9 @@ const server = http.createServer(async (req, res) => {
             // Only a token that names exactly one agent (#4792: an older key-only token, or twins, does not).
             const session = (r && r.ok === true && typeof r.name === 'string' && r.name && r.twins !== true) ? r.name : null;
             const card = session ? ((safeRoster() || []).find((a) => a && a.sessionName === session) || null) : null;
-            who = session ? ((card && typeof card.displayName === 'string' && card.displayName.trim()) || session) : null;
+            // The card's display name is `name` (engine/status.js). No card, no name: "Someone", never a raw session
+            // name in the person's room (review 5).
+            who = (card && typeof card.name === 'string' && card.name.trim()) || null;
           } catch { who = null; }
           messages.roomNote(id, fields.paused
             ? (who || 'Someone') + ' paused this project: nobody is nudged about its tasks or handed them. The person can resume it on the project\'s page.'

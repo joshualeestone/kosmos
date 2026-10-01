@@ -109,3 +109,10 @@ taught line pinned in engine/tasks.test.js and the Recommender arm in engine/rec
 - N8 three store reads per PUT: FIXED, wasPaused reuses the existence check's read.
 - N9 timeout exit codes differ Mac/Windows: kept, the same split as project create.
 - N10 an all-dots id passed the nudge's check: FIXED.
+
+## Review 5 (Sonnet, blind, source-only): 0 blockers, 1 warning, 3 nits
+- W1 the note read `card.displayName`, which roster cards do not carry (it is `name`, engine/status.js), so it always
+  fell back to the session: FIXED, and an arm mints a real token for a fleet agent with a distinct display name.
+- N2 a missing card put the raw session name in the room: FIXED, "Someone".
+- N3 safeRoster twice on a non-screen pause: kept (only on a change, and it fails soft to "Someone").
+- N4 the rename and refused-pause arms pass on main: they are controls by design (the note must not appear).
