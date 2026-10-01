@@ -279,11 +279,13 @@ if (args[0] === 'run') {
     w({ state: 'connecting', because: null });
     setTimeout(() => w({ state: 'restarting', because: process.env.FAKE_TUNNEL_BECAUSE || 'relay refused the tunnel: bad ticket' }), 100);
     setTimeout(() => w({ state: 'connecting', because: null }), 2500);
-    // kosmos#4640: a later, different failure from the same process.
-    if (mode.includes('then-fail')) setTimeout(() => w({ state: 'restarting', because: 'relay refused the tunnel: bad ticket' }), 2900);
+    // kosmos#4640: a later, different failure from the same process. The #4640 runs (FAKE_TUNNEL_BECAUSE set) get a wider
+    // gap after the second connecting, so asserting the wait is kept there is not a race against a busy machine.
+    const late = process.env.FAKE_TUNNEL_BECAUSE ? 4500 : 2900;
+    if (mode.includes('then-fail')) setTimeout(() => w({ state: 'restarting', because: 'relay refused the tunnel: bad ticket' }), late);
     if (mode.includes('then-up')) {
       const address = fs.readFileSync(path.join(flag('--state-dir'), 'address'), 'utf8').trim();
-      setTimeout(() => w({ state: 'up', address, because: null }), 2900);
+      setTimeout(() => w({ state: 'up', address, because: null }), late);
     }
     setInterval(() => {}, 1000);
     process.on('SIGTERM', () => process.exit(0));

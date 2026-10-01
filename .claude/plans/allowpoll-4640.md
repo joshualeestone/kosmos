@@ -224,3 +224,7 @@ is that review.
   check). Its only producer is status(), which writes that sentence only after allowWaitSentence checked the code; the
   tunnel's own lines always start "Kosmos+ refused this <device>:". Would change my mind: a second producer of the bare
   sentence. NITs left (CSS comment for the grey pill; the fixture's relay wording).
+- Round 7 (opus): FIXED a timing race in the status() test (about 400 ms between the second connecting and up/then-fail;
+  a busy machine could red a correct wait). The #4640 runs now get 4500 ms; the #4277 runs keep 2900. FIXED (SELF prose,
+  deleted rather than reworded): my comment's claim that the two matchers "never disagree about one line", which their
+  end anchors do not guarantee. NITs left as before.
