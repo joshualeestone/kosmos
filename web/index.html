@@ -60165,7 +60165,7 @@ function repaintReactions(box, list) {
 
    HEARING: speechSynthesis, measured working in the app's web view with 68 voices, all on-device. Only an
    on-device voice is used; a page with none says so rather than using a network voice. */
-const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '', listening: false };
+const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '', listening: false, dlgSaid: '' };
 /* #4409 (review 1 BLOCKER): which conversation the page is showing. Opening another agent or room does NOT fire
    hashchange (the URL follows the view through history.replaceState), and #d-say / #pj-post are ONE shared box each,
    so a word heard after a switch would land in the next agent's box, be parked as THEIR draft, and go to them on
@@ -60272,6 +60272,7 @@ function voicePhoneBridge() {
              reach. Kept here, not rebuilt from the list each time, so a list that starts again (iOS after a pause is
              reported to) cannot take back words already said. */
           const finals = [];
+          const raw = [];   // the current list's final results as they arrived, by position, before any repeat merge
           let doneIdx = 0;
           const fail = () => { rec = null; emit({ kind: 'error', reason: 'recognizer' }); emit({ kind: 'stopped' }); };
           try {
@@ -60290,16 +60291,14 @@ function voicePhoneBridge() {
                resultIndex below what is kept means a new list (or the old one sent again): keep what was said, read on. */
             const from = typeof e.resultIndex === 'number' ? e.resultIndex : 0;
             if (from < doneIdx) {
-              /* A list that starts again. If it opens by sending back the last finals we kept, in order, they are ours
-                 already: skip them. Otherwise it is a fresh list and every final in it is new. */
-              doneIdx = from;
-              let run = 0;
-              while (doneIdx + run < e.results.length && e.results[doneIdx + run].isFinal) run += 1;
-              for (let n = Math.min(run, finals.length); n > 0; n -= 1) {
-                const sent = [], kept = finals.slice(finals.length - n);
-                for (let k = 0; k < n; k += 1) sent.push(fold(e.results[doneIdx + k][0].transcript));
-                if (sent.join('|') === kept.map(fold).join('|')) { doneIdx += n; break; }
-              }
+              /* A list that starts again. Results it sends back that match, position by position, the finals this list
+                 already gave us (as they arrived, not as merged) are ours already: skip them. The first that differs
+                 starts a fresh list, and what came before it is kept as said. A one-word result said again right after
+                 a restart cannot be told from one sent back, and is taken as sent back: a known loss of one word. */
+              let j = from;
+              while (j < e.results.length && j < raw.length && e.results[j].isFinal && fold(e.results[j][0].transcript) === raw[j]) j += 1;
+              raw.length = j;
+              doneIdx = j;
             }
             const repeats = (part) => {
               const fl = fold(finals.length ? finals[finals.length - 1] : ''), fp = fold(part);
@@ -60308,13 +60307,14 @@ function voicePhoneBridge() {
             const interim = [];
             for (let i = doneIdx; i < e.results.length; i += 1) {
               const part = tidy(e.results[i][0].transcript);
-              if (!part) { if (e.results[i].isFinal && i === doneIdx) doneIdx = i + 1; continue; }
+              if (!part) { if (e.results[i].isFinal && i === doneIdx) { raw[i] = ''; doneIdx = i + 1; } continue; }
               if (e.results[i].isFinal && i === doneIdx) {
                 /* Android Chrome is reported to repeat the previous result inside the next ("call the", then "call the
                    client"). Compared with the PREVIOUS result only, never with everything so far, so one miss cannot
                    cascade; at a word boundary, punctuation aside; and only when that result is two words or more: "a"
                    then "apple pie", "no" then "no thanks", and "no" then "no" are real speech and are kept. */
                 if (repeats(part)) finals[finals.length - 1] = part; else finals.push(part);
+                raw[i] = fold(part);
                 doneIdx = i + 1;
               } else interim.push(part);   // a phone does not always lead a later result with a space: joined below
             }
@@ -60406,7 +60406,7 @@ function voiceUnsayOwn(btn) {
   if (el && (el.textContent === VOICE_LISTENING || el.textContent === voiceListeningLine() || Object.values(VOICE_SAYS).includes(el.textContent) || Object.values(VOICE_SAYS_PHONE).includes(el.textContent))) el.textContent = '';
 }
 function voiceUnsay(btn) {
-  voiceWho('');   // also on a switch between mics (voiceToggle cancels first); the new start says it again at once
+  voiceWho('', btn);   // also on a switch between mics (voiceToggle cancels first); the new start says it again at once
   const el = btn && document.getElementById(btn.getAttribute('data-voice-msg') || '');
   if (el && (el.textContent === VOICE_LISTENING || el.textContent === voiceListeningLine())) el.textContent = '';
 }
@@ -60422,22 +60422,30 @@ function voiceWhoPlace() {
   try { bar.style.top = 'calc(' + Math.round((window.visualViewport && window.visualViewport.offsetTop) || 0) + 'px + 12px + env(safe-area-inset-top, 0px))'; } catch { /* the default */ }
 }
 let VOICE_WHO_FOLLOW = false;
-function voiceWho(line) {
+function voiceWho(line, forBtn) {
   const bar = document.getElementById('voice-who');   // made at load on a phone, empty, so a screen reader hears each line
   if (!bar) return;
+  /* In a modal dialog a screen reader cannot reach the bar, so a dialog mic's own line says it too: only a line that is
+     empty or one the bar put there, never over another message. */
+  const btn = forBtn || VOICE.btn, el = btn && btn.closest && btn.closest('[aria-modal="true"]') && voiceMsgEl(btn);
+  if (el && (!el.textContent || el.textContent === VOICE.dlgSaid)) { el.textContent = line || ''; VOICE.dlgSaid = line || ''; }
   const vv = window.visualViewport;
   if (line && !VOICE_WHO_FOLLOW && vv) { vv.addEventListener('scroll', voiceWhoPlace); vv.addEventListener('resize', voiceWhoPlace); VOICE_WHO_FOLLOW = true; }
   if (!line && VOICE_WHO_FOLLOW && vv) { vv.removeEventListener('scroll', voiceWhoPlace); vv.removeEventListener('resize', voiceWhoPlace); VOICE_WHO_FOLLOW = false; }
   voiceWhoPlace();
   bar.textContent = line || '';
 }
+/* Every stop goes through here (a second tap, letting go of a hold, Escape). Slice 3: on a phone the audio may still be
+   on its way until the last words come back, so the bar stays, saying so. */
+function voiceStop(h) {
+  if (h.phone) voiceWho('Finishing. ' + voicePhoneWho() + ' is turning the last of this audio into words.');
+  h.postMessage({ op: 'stop' });
+}
 function voiceToggle(btn) {
   const h = voiceBridge();
   if (!h || !btn) return;
   if (VOICE.btn === btn) {   // the second press: stop, keep the words
-    // Slice 3: the audio may still be on its way until the last words come back, so the bar stays, saying so.
-    if (h.phone) voiceWho('Finishing. ' + voicePhoneWho() + ' is turning the last of this audio into words.');
-    h.postMessage({ op: 'stop' });
+    voiceStop(h);
     return;
   }
   if (h.phone && !document.getElementById('voice-who')) return;   // slice 3: nowhere to say who hears the audio, so no audio
@@ -60480,10 +60488,8 @@ function voiceOnEvent(ev) {
     VOICE.listening = true;
     voicePaint(btn, 'on');
     const hb = voiceBridge();
-    if (hb && hb.phone) voiceWho(voiceListeningLine());   // slice 3: on a phone the line is the bar
-    /* Never over another message's line. On a phone, a mic inside a modal dialog says it there too: a screen reader
-       treats everything outside an aria-modal dialog, the bar included, as hidden. */
-    if (voiceMsgEmpty(btn) && (!(hb && hb.phone) || (btn && btn.closest && btn.closest('[aria-modal="true"]')))) voiceSay(btn, voiceListeningLine());
+    if (hb && hb.phone) voiceWho(voiceListeningLine());   // slice 3: on a phone the line is the bar (and a dialog's line)
+    else if (voiceMsgEmpty(btn)) voiceSay(btn, voiceListeningLine());   // never over another message's line
     return;
   }   // review 5: focus is in the box, so the line is said there
   if ((ev.kind === 'partial' || ev.kind === 'final') && VOICE.box) {
@@ -60561,7 +60567,7 @@ function voiceRelease(e) {
      would drop the start, so it is taken as a tap, and the next tap stops. */
   if (!VOICE.listening) return;
   const h = voiceBridge();
-  if (h) h.postMessage({ op: 'stop' });   // a hold: let go and it stops, keeping what it heard
+  if (h) voiceStop(h);   // a hold: let go and it stops, keeping what it heard
 }
 /* Keep focus (and the caret) in the box: the mic's own mousedown is prevented (a real or a touch-emulated one), which
    stops the focus move and nothing else, so the document's close-on-mousedown-outside listeners (the emoji panel, a custom select) still run. Preventing
@@ -60611,7 +60617,7 @@ document.addEventListener('click', (e) => {
 }, true);
 document.addEventListener('keydown', (e) => {
   if (!VOICE.btn || e.target !== VOICE.box) return;
-  if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); const h = voiceBridge(); if (h) h.postMessage({ op: 'stop' }); return; }
+  if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); const h = voiceBridge(); if (h) voiceStop(h); return; }
   if (['Shift', 'Meta', 'Control', 'Alt', 'CapsLock'].includes(e.key)) return;
   voiceCancel();   // typing (or Enter to send) takes the box back; the words heard so far stay
 }, true);

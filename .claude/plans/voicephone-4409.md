@@ -30,8 +30,9 @@ hold, tap and dialog mics, so it merges after it.
 ## Weakest premise
 That the browser's recognizer works inside the Kosmos+ page on a real iPhone at all (permissions, a page reached
 through the relay, Safari's continuous mode). NOT MEASURED: it needs a real iPhone and a person speaking. The check
-drives a recording stand-in on an emulated iPhone in Chromium. Second premise: Android Chrome's results list
-behaves as the stand-in's (no repeated finals), also unmeasured.
+drives a recording stand-in on an emulated iPhone in Chromium. Second premise: the exact shapes in which Android
+Chrome repeats results and iOS restarts its list (and whether either resends a list from index 0); the rules keep
+finals once by resultIndex and handle the reported shapes, each pinned both ways, but none is measured.
 
 ## Tests
 docs/browser-checks/render-voice-4409.js P1-P4 on an emulated iPhone (touch, coarse pointer, iPhone user agent, a
@@ -121,5 +122,15 @@ pinning that the recognizer is reached only in the phone shim and the Mac bridge
   and starts again at once and the new session survives the old one's late events (removing either rec !== mine
   guard reds it). FIXED W: after a stop the bar said "tap the mic to stop"; it now says Finishing until the last words
   come back (P13). NITs taken: one stop wait at a time, cleared on every end (not pinned: no visible behaviour); the
-  once-built shim's limits stated both ways.
+  once-built shim's limits stated both ways.- Round 9 (opus): FIXED W: a resent list was compared with the MERGED finals, so after an Android repeat merge it
+  doubled ("call the client call the client tomorrow"); the current list's finals are now kept as they arrived, by
+  position, and a resend is matched against those (P2d mergedResend; comparing with the merged list reds it). DECIDED
+  (W): one word said again right after a list restart cannot be told from one sent back, and is taken as sent back,
+  a known loss of one word, written in the code and pinned (P2d noAcrossReset). FIXED W: Escape on a phone stopped
+  without saying Finishing; every stop (tap, letting go, Escape) now goes through voiceStop (P16). FIXED W: inside a
+  modal dialog only the Listening line reached a screen reader; the Starting and Finishing lines now reach the
+  dialog's own line too, only when it is empty or ours, and it clears when listening ends, including by a stop
+  (P11; my first P11 ended by a cancel, which could not see the stop path's clearing, found by a mutation). NITs
+  taken: the stand-in's stop result carries a resultIndex; the plan's second premise states what is actually
+  unmeasured now. LEFT NIT: the bar covers the header and passes taps through to it while listening.
 
