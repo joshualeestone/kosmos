@@ -41,11 +41,18 @@ closed (rc 1, a cryptic error), never open; normal zsh records it correctly (mea
   re-ran under bash; CONTROL: under bash, no re-run.
 - Review 1: in both files, settings given as plain zsh variables still refuse, and a POSITIVE control (a compliant
   change) passes through the re-run, so a broken re-run cannot read as a refusal. Mutants, each failing a test in both
-  gates: no explicit forwarding; a broken recorded path.
+  gates: no explicit forwarding at all; a broken recorded path.
+- Review 2: an arm per forwarded setting, where only that value (a plain zsh variable) flips the verdict:
+  KOSMOS_BCG_MSGS (a trailer or override excuses), KOSMOS_BCSG_DIR (an empty checks folder maps nothing),
+  KOSMOS_BCG_BASE (a throwaway repo where the default base refuses and HEAD passes, with a control). Dropping each
+  forward ALONE fails a test in every gate that reads that setting (the coarse gate does not read the two
+  KOSMOS_BCSG_* settings, so dropping those there changes nothing, as expected).
 - Run from the repo directory (the gates read docs/browser-checks relative to it): both files pass in full.
   test-bc-surface-map.sh, test-ci-gate-armed-2518.sh and test-browser-check-surface-map.sh pass.
 
 ## Review
+Round 2: no blocker; 2 should-fix (three forwards unpinned by any test; the plan overstated the mutant coverage),
+taken; nit noted (a clearer message when the recorded path is wrong under emulate sh: it already fails closed).
 Round 1: 1 blocker (plain zsh variables did not reach the re-run), taken; 1 should-fix (no positive control through
 the re-run), taken; nits recorded above (path under emulate sh fails closed; bash 3.2 vs CI's; dash never could
 source these libs).
