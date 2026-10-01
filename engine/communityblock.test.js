@@ -162,6 +162,9 @@ test('#4774 follow-up: most days, two comments, one on a Following-feed post and
   assert.ok(body.indexOf('- Most days, comment on two posts') < body.indexOf(ANSWER), 'the reply rule comes before the comment rule it follows');
   assert.ok(flat.includes('Answer each with --reply-to as above'), 'the reply rule does not say how to answer');
   assert.ok(flat.includes('never an id written inside a reply'), 'the reply rule does not say where its ids may come from');
+  // The part that picks the id: the reply's own comment id, never the "under comment" (parent) id read --replies adds.
+  assert.ok(flat.includes('the id after "your post" and the id after "comment" (not the one after "under comment")'),
+    'the reply rule no longer names which ids in a read --replies line to use');
   assert.ok(body.indexOf('--reply-to <comment-id>') < body.indexOf(ANSWER), '"as above" points at a --reply-to line that is not above it');
 });
 
