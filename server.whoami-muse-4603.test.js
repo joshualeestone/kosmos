@@ -38,7 +38,7 @@ test('#4603 N12: a Muse agent\'s card and whoami name the model its last turn na
   assert.equal(create.readJob('mia').runner, 'muse', 'fixture: the job does not read back as muse');
   t.after(() => { try { fs.unlinkSync(create.plistPath('mia')); } catch { /* not written */ } });
   const card = () => {
-    const board = fleet.install([fleet.agent('mia', { state: 'idle', runner: 'muse', command: 'node' })]);
+    const board = fleet.install([fleet.agent('mia', { state: 'unknown', runner: 'muse', command: 'node' })]);
     try { return board.agents.find((a) => a.name === 'mia' || a.sessionName === 'mia'); } finally { board.restore(); }
   };
   // CONTROL: no turn has named a model yet, so the card says none and whoami claims none.
@@ -69,7 +69,7 @@ test('#4603 N12 review 1: a fifo at the model file neither hangs the board nor n
   fs.mkdirSync(path.dirname(musefront.modelFile(dir)), { recursive: true });
   try { require('node:child_process').execFileSync('mkfifo', [musefront.modelFile(dir)]); }
   catch { t.skip('mkfifo is not available here'); return; }
-  const board = fleet.install([fleet.agent('mib', { state: 'idle', runner: 'muse', command: 'node' })]);
+  const board = fleet.install([fleet.agent('mib', { state: 'unknown', runner: 'muse', command: 'node' })]);
   try {
     const c = board.agents.find((a) => a.name === 'mib' || a.sessionName === 'mib');
     assert.ok(c, 'the fleet gave no card');
