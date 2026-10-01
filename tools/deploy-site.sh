@@ -57,7 +57,10 @@
 #                                     # fetching the stale live one. Run promote-channel.sh (#2036,
 #                                     # which runs the experience + agent-spawn gates and refreshes
 #                                     # the alias LOCALLY) and COMMIT latest.json first; this is the
-#                                     # deploy that publishes it.
+#                                     # deploy that publishes it. The staging checks below
+#                                     # run here too (#4819): a checkout committing an
+#                                     # older staging than live is refused in this mode as
+#                                     # well, since the deploy would move staging back.
 #   KOSMOS_STAGING_ROLLBACK=<version> tools/deploy-site.sh --publish
 #                                     # deploy the committed staging pointer (naming <version>) over
 #                                     # live on purpose (#4819): a staging ROLLBACK to an older
@@ -463,9 +466,9 @@ fi
 # restores a dropped one), else the copy live serves now, fetched and checked against the served
 # .sha256 AND the committed pointer's sha. Refuse when neither exists, naming the tarball, unless
 # the staged build is not newer than prod (superseded, as #3600 decides for Windows): then warn and
-# carry nothing, since nobody will promote it. Two exceptions refuse instead: a local copy with other
-# bytes (the glob would ship it unchecked), and a deploy that would MOVE the live staging pointer to
-# that build (the skip would then break staging on its own). A superseded build that IS present
+# carry nothing, since nobody will promote it. Two exceptions refuse instead: a local copy (tarball or
+# .sha256) with other bytes, which the glob would ship unchecked, and a deploy that would MOVE the live
+# staging pointer to that build (the skip would then break staging on its own). A superseded build that IS present
 # (locally or live) is still carried and checked.
 # Sets STAGED_ART, empty when nothing extra is carried.
 # Before any fetch, check_staging_not_stale refuses: a committed staging pointer that is malformed (a
@@ -494,8 +497,6 @@ _csm_read() {  # <url>
 # Seconds between retries of a live read; a value that is not a whole number falls back to 3.
 case "${KOSMOS_DEPLOY_RETRY_SLEEP:-3}" in ''|*[!0-9]*) _CSM_SLEEP=3 ;; *) _CSM_SLEEP=${KOSMOS_DEPLOY_RETRY_SLEEP:-3} ;; esac
 _csm_version() { printf '%s' "$1" | sed -n 's/^kosmos-\(.*\)-arm64\.tar\.gz$/\1/p'; }
-# Runs BEFORE any artifact is fetched, so a stale checkout is refused before it downloads anything
-# or touches the shared dist/.
 # The committed pointer's name and sha, checked before either is used in a path, a URL or a
 # comparison. Sets _csm_art, _csm_sha and _csm_show from _csm_ptr; refuses on anything malformed.
 _csm_validate_committed() {
@@ -510,6 +511,8 @@ _csm_validate_committed() {
   case "$_csm_sha" in ''|*[!0-9a-f]*) echo "deploy-site: the committed latest-staging.json names $_csm_art without a lowercase hex sha256 -- refusing (#4819)"; exit 1 ;; esac
   [ ${#_csm_sha} -eq 64 ] || { echo "deploy-site: the committed latest-staging.json's sha256 for $_csm_art is not 64 characters -- refusing (#4819)"; exit 1; }
 }
+# Runs BEFORE any artifact is fetched, so a stale checkout is refused before it downloads anything
+# or touches the shared dist/.
 check_staging_not_stale() {
   _csm_ptr=$(git -C "$SITE" show "$H:dist/latest-staging.json" 2>/dev/null) || _csm_ptr=""
   [ -z "$_csm_ptr" ] || _csm_validate_committed
