@@ -314,7 +314,8 @@ function refresh(sessionName, roster, opts) {
     /* The write: the SAME fileNext the plan composed and the dialog hashed.
        spliceBlock already preserved every byte outside the markers. */
     instructions.write(sessionName, plan.fileNext, current.version, undefined,
-      { who: 'kosmos', because: plan.replacing ? 'replaced its older working rules with the current ones, with your OK' : 'added the working rules, with your OK' });
+      { who: 'kosmos', because: plan.replacing ? 'replaced its older working rules with the current ones, with your OK'
+        : plan.updating ? 'updated the working rules, with your OK' : 'added the working rules, with your OK' });
     try {
       store.writeProfile(sessionName, { doctrineVersion: defaults.DOCTRINE_VERSION });
     } catch { /* the file is the truth; the record catches up on the next write */ }

@@ -41,7 +41,9 @@ behaviour that had changed (#4627 links, #4582 `reply --stdin`) because their in
 That most existing agents carry an unedited copy, of a block that was COMMITTED: the table is built from
 engine/defaults.js's git history, so a block that was only ever shipped from an uncommitted tree cannot be matched
 (and unreleased intermediate commits add harmless extra rows). Also a copy saved with Windows line endings (CRLF)
-never matches the \n-only fingerprints: nothing is overwritten, it keeps today's missing-headings rule. 3 of 3 here did (v15 twice, v18 once), a small sample. A person
+never matches the \n-only fingerprints, and neither does a copy followed directly by a `###` heading of the person's
+own (indistinguishable from a later block's appended section): nothing is overwritten, each keeps today's
+missing-headings rule. 3 of 3 here did (v15 twice, v18 once), a small sample. A person
 who edited theirs is offered only missing headings, as before; birth in the span is the lasting fix.
 
 ## Tests
@@ -83,4 +85,10 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   the restart line says "This restarts" when nothing is added. FIXED (mine, deleted): a dialog comment saying the
   copy is replaced "where it stands". Left NITs: near the cap, the frame's bytes are spent before the connections
   and files blocks (each still says so when it does not fit); long docstring line.
+- Round 7 (sonnet): FIXED W: after an update or replace, the done lines and the undo note say "Updated" rather than
+  "Added" (the add flow is unchanged; render-autohello-2686 drives it). FIXED W: a person's own `###` heading right
+  after an unedited copy keeps it unmatched; named in the weakest premise and pinned as an accepted miss. DEFERRED W:
+  sectionContentOf ignores any line starting with the dated opener's words inside a span; that predates this branch
+  and the click rewrites the whole span, which the dialog says. Left NITs: the import birth line says "set up"; the
+  kept-sections list in the copy-only case; doctrine-past.js would skip a defaults.js that gains a relative require.
 

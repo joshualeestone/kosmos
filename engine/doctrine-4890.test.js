@@ -224,3 +224,11 @@ test('#4890 review 6: an update to an existing span has its own title and senten
   assert.ok(page.includes("? 'Your words stay exactly as they are. The working rules in the marked block are brought up to date. '"));
   assert.ok(page.includes("+ ((plan.replacing || plan.updating) ? 'This restarts ' : 'Adding them restarts ')"));
 });
+
+test('#4890 review 7: a heading of the person\'s own right after an unedited copy keeps it unmatched (safe, named)', () => {
+  // Accepted miss, pinned so it is a decision: the copy-goes-on rule cannot tell their heading from an appended
+  // section, and it errs toward leaving the copy as it is (today's missing-headings rule).
+  const plan = doctrine.planFor(`# Mine\n\n${OLD}\n\n### My own notes\nSomething.\n`, NOW, OLD_TABLE);
+  assert.notEqual(plan.replacing, true);
+  assert.ok(!plan.fileNext || plan.fileNext.includes('### My own notes\nSomething.'));
+});

@@ -39077,7 +39077,8 @@ document.getElementById('doc-go').addEventListener('click', async () => {
       document.getElementById('d-doctrine-note').hidden = true;
       loadInstructions(plan.sessionName); // the box below shows the file that now exists
       const who2 = (CURRENT && CURRENT.name) || plan.sessionName;
-      msg.textContent = 'Added. Restarting ' + who2 + ' to read them…';
+      const did = (plan.replacing || plan.updating) ? 'Updated' : 'Added';   // #4890: the verb the title used
+      msg.textContent = did + '. Restarting ' + who2 + ' to read them…';
       try {
         const rr = await fetch('/api/agent/' + encodeURIComponent(plan.sessionName) + '/restart', { method: 'POST' });
         const rout = await rr.json().catch(() => null);
@@ -39086,7 +39087,7 @@ document.getElementById('doc-go').addEventListener('click', async () => {
              person to say hello by hand. Guard the receipt on the open agent still
              being this one (like the trust-restart handlers) so a mid-wait switch
              does not land the line in another agent's dialog. */
-          msg.textContent = 'Added and restarted. Waking ' + who2 + '…';
+          msg.textContent = did + ' and restarted. Waking ' + who2 + '…';
           const forAgent = plan.sessionName;
           // #4008: the Sweep loader in front of the waiting line; the report's textContent write replaces it.
           if (CURRENT && CURRENT.sessionName === forAgent && msg.isConnected && typeof msg.insertAdjacentHTML === 'function') msg.insertAdjacentHTML('afterbegin', WAKE_SPIN_HTML);
@@ -39096,13 +39097,13 @@ document.getElementById('doc-go').addEventListener('click', async () => {
           // regenerated-away node a clean no-op rather than a throw.
           autoHelloAfterRestart(forAgent,
             (t) => { if (CURRENT && CURRENT.sessionName === forAgent && msg.isConnected) msg.textContent = t; },
-            'Added and restarted, and said hello to wake ' + who2 + '.',
-            'Added and restarted. You will need to say ‘hello’ to ' + who2 + ' to wake them.');
+            did + ' and restarted, and said hello to wake ' + who2 + '.',
+            did + ' and restarted. You will need to say ‘hello’ to ' + who2 + ' to wake them.');
         } else {
-          msg.textContent = 'Added, but the restart did not take. ' + restartFailureLine(rout);
+          msg.textContent = did + ', but the restart did not take. ' + restartFailureLine(rout);
         }
       } catch {
-        msg.textContent = 'Added, but we could not reach Kosmos to restart ' + who2
+        msg.textContent = did + ', but we could not reach Kosmos to restart ' + who2
           + '. They will read the new rules on their next restart.';
       }
       keep.textContent = 'Close';
