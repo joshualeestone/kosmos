@@ -10,7 +10,7 @@ Hovering or tabbing to a task on the Tasks tab shows an active state; a browser 
 - **A see-through tint** `color-mix(in srgb, var(--k-ink) 5%, transparent)` over the row's own ground. First attempt mixed toward `--k-surface`, which on the old look's cream list read as a cooler grey (wrong direction for Josh's warm-cream preference). A tint over the ground keeps cream warm, shades white softly, and lifts dark.
 - **Keyboard focus as well as hover** (`:has(:focus-visible)`, changed from `:focus-within` in review round 1), so a keyboard user sees the same state.
 - **A ticked row keeps its gold wash** (`:not(.sel)`).
-- **The row itself opens the task on click** (empty parts only). A row that lights up but does nothing when clicked would be an affordance it cannot honour; only the title opened the task before. Controls keep their own action; a click ending a text selection does not navigate.
+- **The row itself opens the task on click** (anywhere outside the row's controls, its text included). A row that lights up but does nothing when clicked would be an affordance it cannot honour; only the title opened the task before. Controls keep their own action; a click ending a text selection does not navigate.
 - Weakest premise: that Josh wants the whole row clickable, not just a visual cue. If not, drop the click handler; the hover stays.
 
 ## Check
