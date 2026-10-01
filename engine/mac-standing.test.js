@@ -528,6 +528,9 @@ test('#4743: an off flip whose ask could not go out is still told after a restar
   await settleStanding();
   remote.resetForTests();
   enroll(true);
+  // A fresh stamp first: without the set-back, nothing would be due for the whole off cadence.
+  const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(cur, { standing_at: Date.now() })) + '\n');
   unenroll();                                   // its own ask stops early
   fake.reset();
   process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
