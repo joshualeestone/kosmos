@@ -74,3 +74,12 @@ different ones) and a caller's own is kept; every board boot in the runner names
   real-home ancestor case is the operator's choice; doubled slashes kept). N7 tests: all three refusals pinned before
   the run folder, the helper run under set -u, a caller's home not seeded. N8 a seed copy failure inside a check read
   as that check failing: FIXED, its own message and exit code 97.
+
+## Review 4 (Sonnet, blind, source-only): 0 blockers, 2 warnings, 4 nits
+- Answered: the markers are set only by the process that makes RUN_DIR (the frozen child), so the top unset loses
+  nothing; the absolutised seed is exported before the re-exec.
+- W1 a seed folder that exists but cannot be entered became an empty (unseeded) value with no refusal: FIXED, refused.
+- W2 run_one did not know exit 97, so a seed failure inside a check was retried, named as that check, and its line
+  was lost from the reasons: FIXED, 97 is handled before the retry, named kosmos-4909-seed-copy:<check>, never retried.
+- N3 board_home runs in the background subshell for backgrounded boots: kept (the seed completes before node starts;
+  no reader before wait_up). N4 the pseudo-label in FAILED-LIST: kept (CI never seeds). N5, N6: confirmed fine.

@@ -69,7 +69,9 @@ set -uo pipefail
 # re-exec, so a relative one means where the operator typed it, at both copy sites.
 unset KOSMOS_BC_RUN_HOME KOSMOS_BC_RUN_SKILLS
 if [ -n "${KOSMOS_BC_SEED_HOME:-}" ] && [ -d "$KOSMOS_BC_SEED_HOME" ]; then
-  KOSMOS_BC_SEED_HOME="$(cd "$KOSMOS_BC_SEED_HOME" && pwd -P)"; export KOSMOS_BC_SEED_HOME
+  # Review 4: a folder that exists but cannot be entered must refuse, never become an empty (unseeded) value.
+  _seed_abs="$(cd "$KOSMOS_BC_SEED_HOME" && pwd -P)" || { echo "browser-checks: KOSMOS_BC_SEED_HOME=$KOSMOS_BC_SEED_HOME cannot be entered; refusing a run that would only look seeded" >&2; exit 1; }
+  KOSMOS_BC_SEED_HOME="$_seed_abs"; export KOSMOS_BC_SEED_HOME
 fi
 # #3633: no board this script boots may download the agents' browser into the real
 # runners folder (engine/agentbrowser.js); the #1573 pair below does not set
@@ -831,6 +833,15 @@ run_one() {
     log "COULD NOT RUN  $label (exit $rc: a program it needs is missing or not executable; this is not an assertion failing)"
     FAILED+=("$label")
     REASONS+=("$label:"$'\n'"           exit $rc: could not run, a program it needs is missing or not executable. Read the line above the exit, not the assertions.")
+    rm -f "$cap"
+    return 1
+  fi
+  # kosmos#4909: 97 is lib-sandbox-home.js saying the control's SEED could not be copied into this check's home. Not
+  # the check: no retry, and named as the seed, so a control run never reads it as "this check reads unset state".
+  if [ "$rc" -eq 97 ]; then
+    log "SEED NOT COPIED  $label (exit 97: the kosmos#4909 control's seed could not be copied into its home; not the check)"
+    FAILED+=("kosmos-4909-seed-copy:$label")
+    REASONS+=("kosmos-4909-seed-copy:$label:"$'\n'"           exit 97: the seed could not be copied into this check's own home; the check itself did not run.")
     rm -f "$cap"
     return 1
   fi
