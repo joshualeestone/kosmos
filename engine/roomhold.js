@@ -236,10 +236,28 @@ async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver,
       /* Review round 6: a member nothing can type into (stopped, no agent process, no target) is skipped, so its ids
          wait for the next typed arrival instead of a COULD_NOT, and a room-hold log line, every minute. */
       if (require('./chat').addressable(name, roster).ok !== true) continue;
+      /* #4797: while the shared Google quota still holds this member, a try is refused and its ids put back: the held
+         file rewritten twice and a COULD_NOT log line, every minute of the pause, with nothing told. Skip it until the
+         hold lifts; its ids wait untouched. The same gate flushOnIdle's delivery applies (same function, card and memo;
+         the same env in production, where the server passes process.env), so nothing reachable after the reset is
+         skipped. */
+      const agyquota = require('./agyquota');
+      if (agyquota.heldForQuota(name, roster, now, agyquota.POOL_MEMO, env || process.env) != null) continue;
       for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env })) out.push({ name, ...d });
     } catch { /* the posts stay held for the next minute */ }
   }
   return out;
 }
 
-module.exports = { HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, clauseFor, flushOnIdle, addressedId, plainId, flushReleased };
+/* #4797: the server's log line for one flush result. "told of" only when something was: a refused try (COULD_NOT,
+   nothing reached the pane) or a result with no state says it was not told, the same two cases flushOnIdle puts the
+   ids back for. UNCONFIRMED is logged as told (flushOnIdle clears those ids; the line ends delivery=unconfirmed).
+   `after` is appended to a told line (the quota retry says "after the quota hold"). */
+function toldLine(name, d, after = '') {
+  const DELIVERY = require('./chat').DELIVERY;
+  return !d.state || d.state === DELIVERY.COULD_NOT
+    ? `room-hold: ${name} could not yet be told of ${d.n} held post(s) in ${d.projectId} (delivery=${d.state || 'none'})\n`
+    : `room-hold: ${name} told of ${d.n} held post(s) in ${d.projectId}${after ? ' ' + after : ''}, delivery=${d.state}\n`;
+}
+
+module.exports = { HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, toldLine };

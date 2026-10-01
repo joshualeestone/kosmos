@@ -13439,7 +13439,7 @@ const server = http.createServer(async (req, res) => {
               deliver: chat.deliverAutomaticAsync, roster, DELIVERY: chat.DELIVERY, env: process.env,
               shownOf: (id) => { const p = projects.get(id, roster); return p ? p.name : null; },
             }).then((done) => {
-              for (const d of done) process.stdout.write(`room-hold: ${who} told of ${d.n} held post(s) in ${d.projectId} delivery=${d.state}\n`);
+              for (const d of done) process.stdout.write(roomhold.toldLine(who, d));   // #4797: no "told of" for a refused try
             }).catch(() => { /* best-effort: the posts are in the room, and the next typed arrival carries the line */ });
           });
         }
@@ -18897,7 +18897,7 @@ function start(port = PORT) {
             deliver: chat.deliverAutomaticAsync, DELIVERY: chat.DELIVERY, env: process.env,
             shownOf: (id) => { const p = projects.get(id, r); return p ? p.name : null; },
           }).then((done) => {
-            for (const d of done) process.stdout.write(`room-hold: ${d.name} told of ${d.n} held post(s) in ${d.projectId} after the quota hold, delivery=${d.state}\n`);
+            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold'));   // #4797
           }).catch(() => { /* the posts stay held for the next minute */ });
         } catch { /* the posts stay held for the next minute */ }
       }, 60 * 1000);
