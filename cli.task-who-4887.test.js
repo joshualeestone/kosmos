@@ -146,6 +146,9 @@ test('Mac `task add` refuses a bad --who before the board; a non-member and an u
   assert.equal((await mac(['task', 'add', projectId, 'x', '--who=otto'])).code, 2);
   assert.equal((await mac(['task', 'add', projectId, 'x', '--who', '   '])).code, 2, 'a name of only spaces went to the board');
   assert.equal((await mac(['task', 'add', projectId, '--who', 'otto'])).code, 2);
+  const ctl = await mac(['task', 'add', projectId, 'x', '--who', 'zed\u0001']);
+  assert.equal(ctl.code, 1, ctl.out);
+  assert.match(ctl.out, /not on this project/, 'a control byte in the name broke the request instead of reaching the board: ' + ctl.out);
   const zed = await mac(['task', 'add', projectId, 'x', '--who', 'zed']);
   assert.equal(zed.code, 1);
   assert.match(zed.out, /not on this project/);

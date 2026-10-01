@@ -3315,7 +3315,7 @@ cmd_task() {
       # Leading zeros off, so "007" is said back as task 7 (the Windows command does the same).
       if [ -n "$parent" ]; then parent=$(printf '%s' "$parent" | sed 's/^0*//'); parent="${parent:-0}"; fi
       local esc_sentence esc_detail esc_pane esc_who
-      esc_who=$(printf '%s' "$who" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      esc_who=$(printf '%s' "$who" | tr -d '\001-\037\177' | sed 's/\\/\\\\/g; s/"/\\"/g')
       esc_sentence=$(printf '%s' "$sentence" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
       esc_detail=$(printf '%s' "$detail" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
       esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
