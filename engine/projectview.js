@@ -275,7 +275,9 @@ function renderShow(payload) {
     const sum = (SUMMARY_WORDS[m.summary && m.summary.state] || SUMMARY_WORDS.unreadable)(m.summary || {});
     /* Round 2: when the board could not read its agents, "not running" would be a claim nobody checked. */
     const where = payload.agentsUnreadable ? 'state unknown' : (m.present ? one(m.state).replace(/_/g, ' ') : 'not running');
-    out.push('  ' + one(m.name) + (m.role ? ', ' + one(m.role) : '') + '  | ' + fam + '  | ' + where
+    /* #4896: the role as the board says it (roles.roleTitle), so two spellings of one title read as one. */
+    const role = m.role ? require('./roles').roleTitle(m.role) : '';
+    out.push('  ' + one(m.name) + (role ? ', ' + one(role) : '') + '  | ' + fam + '  | ' + where
       + '  | summary: ' + sum);
   }
   return out;

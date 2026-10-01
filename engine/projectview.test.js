@@ -258,3 +258,29 @@ test('round 5: runs of joiners or variation selectors (a zero-width channel) go;
   assert.equal(lines[0], rainbow + ' okx  (id: ff)', JSON.stringify(lines[0]));
   assert.equal(lines[1], 'Folder: /x/???y', 'a carrier in the path was not shown as ?');
 });
+
+test('#4896: renderShow says a menu title one way whatever its case, and leaves any other role to its own words', () => {
+  const view = v.overviewOf(DESCRIBED, ROSTER, opts({ goal: null, done: null, found: true }));
+  const base = view.members[0];
+  view.members = [
+    Object.assign({}, base, { name: 'Ann', sessionName: 'ann', role: 'project manager' }),   // parsed from its instructions
+    Object.assign({}, base, { name: 'Bo', sessionName: 'bo', role: 'Project Manager' }),     // chosen off the menu
+    Object.assign({}, base, { name: 'Cy', sessionName: 'cy', role: 'data wrangler' }),       // not a menu title
+    Object.assign({}, base, { name: 'Di', sessionName: 'di', role: 'seo specialist' }),      // a menu title with an acronym
+  ];
+  const text = v.renderShow({ project: view }).join('\n');
+  assert.match(text, /^ {2}Ann, Project Manager {2}\|/m, text);
+  assert.match(text, /^ {2}Bo, Project Manager {2}\|/m, text);
+  assert.match(text, /^ {2}Cy, Data wrangler {2}\|/m, 'a role that is not a menu title is not title-cased: ' + text);
+  assert.match(text, /^ {2}Di, SEO Specialist {2}\|/m, 'the menu says SEO Specialist: ' + text);
+});
+
+test('#4896: roleTitle is the board\'s roleLine rule (a lookup on the menu titles, else the first letter only)', () => {
+  const { roleTitle } = require('./roles');
+  assert.equal(roleTitle('PROJECT MANAGER'), 'Project Manager');
+  assert.equal(roleTitle('  project manager '), 'Project Manager');
+  assert.equal(roleTitle('SEO specialist lead'), 'SEO specialist lead', 'a role that is not a title keeps its own capitals');
+  assert.equal(roleTitle(''), '');
+  assert.equal(roleTitle(null), '');
+  assert.equal(roleTitle('own'), 'Own', 'the own role is not a menu role, so it is not looked up');
+});
