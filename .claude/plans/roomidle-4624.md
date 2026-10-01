@@ -77,3 +77,15 @@ never-reported one; ride-on carriers are @-addressed posts. engine/roomhold-agyh
 - N5 the production-shape arm's last assertion was weaker than its title: FIXED, the line must use the asked form for
   the addressed id and not list the plain id as asked.
 - N6 usage suffix after the parenthesis: kept (both CLIs equal).
+
+## Review 4 (Opus, blind, source-only): 0 blockers, 2 warnings, 2 nits
+- Checked and fine: the new heading is offered to existing agents (missingFrom by heading; the person's consent click,
+  per agent or fleet-wide); nothing else is keyed to the version number; no test pins the heading list; the reviewer
+  recomputed fingerprint 21 independently (2211bf1f791a9399).
+- W1 no test pinned the new section's content or its delivery: ADDED, the three-part test the other new-heading
+  sections have (content, offered to an agent holding every other section, the complete-file control).
+- W2 the room block (engine/messages.js) still said everyone on the project "receives it marked as background":
+  FIXED, it says an idle colleague may not be woken and to name whoever you need.
+- N3 the answering example uses plain `kosmos post`: kept (an in-section edit reaches only new agents; the envelope
+  already carries --in-reply-to).
+- N4 the id regexes had no boundary: FIXED.

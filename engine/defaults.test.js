@@ -533,3 +533,19 @@ test('#4631: the block tells an agent to talk about a message naturally, and nev
   assert.ok(/\bm\d+\b/.test(b), 'the block still shows an id as command syntax');
   assert.deepEqual(('or name the id ("re m12") instead').match(/\bm\d+\b/g), ['m12']);
 });
+
+/* #4624 follow-up (doctrine 21): a NEW heading, so the agents already posting in rooms are offered it. Content pinned,
+   delivery to an agent holding every other section, and the control that a complete file is offered nothing. */
+test('#4624 doctrine 21: "Who a room post wakes" says an un-named post may not wake an idle colleague, and reaches existing agents', () => {
+  const all = defaults.sections();
+  const owner = all.filter((s) => s.heading === '### Who a room post wakes');
+  assert.equal(owner.length, 1, 'the section is missing or duplicated');
+  assert.match(defaults.block(), /names nobody may not wake a colleague who is idle/, 'the rule itself is gone from the block');
+  assert.match(defaults.block(), /kosmos post --in-reply-to <id> <project>/, 'the way to wake the asker is gone');
+  const legacy = all.filter((s) => s.heading !== '### Who a room post wakes').map((s) => s.heading + '\n' + s.text).join('\n\n');
+  assert.ok(defaults.missingFrom(legacy).some((s) => s.heading === '### Who a room post wakes'),
+    'an existing agent is never offered the room-wake rule');
+  const complete = all.map((s) => s.heading + '\n' + s.text).join('\n\n');
+  assert.ok(!defaults.missingFrom(complete).some((s) => s.heading === '### Who a room post wakes'),
+    'CONTROL: missingFrom offers the section to an agent that already has it');
+});
