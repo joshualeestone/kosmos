@@ -72,8 +72,9 @@ const CODES = [
   // not a failure, so it is taken ahead of every coordinator code. Three spellings: status()'s own
   // sentence for the waiting-allow state, the tunnel's line with the code, and an older tunnel's line
   // without one (the same sentence on a 403 for the ticket path). A line with ANOTHER code never matches.
-  // The device word is not matched ("this Mac" today), the same as remote.js ALLOW_WAIT_LINE.
-  ['waiting-allow', /^this computer is not allowed yet; allow it from your other computer first|^Kosmos\+ refused this \S+: this computer is not allowed yet; allow it from your other computer first.*\(HTTP \d{3} on \S+, code own_lineage\)|^Kosmos\+ refused this \S+: this computer is not allowed yet; allow it from your other computer first.*\(HTTP 403 on \/v1\/mac\/relay-ticket\)/i],
+  // The device word is not matched ("this Mac" today), and case IS matched, both the same as remote.js ALLOW_WAIT_LINE
+  // and allowWaitSentence, so the board and this report never disagree about one line.
+  ['waiting-allow', /^this computer is not allowed yet; allow it from your other computer first|^Kosmos\+ refused this \S+: this computer is not allowed yet; allow it from your other computer first.*\(HTTP \d{3} on \S+, code own_lineage\)|^Kosmos\+ refused this \S+: this computer is not allowed yet; allow it from your other computer first.*\(HTTP 403 on \/v1\/mac\/relay-ticket\)/],
   ['coordinator-unreachable', /^Kosmos\+ (answered (5\d\d|408|429)|unreachable)|^Kosmos\+ refused.*\bHTTP (5\d\d|408|429)\b/i],
   ['coordinator-refused', /^Kosmos\+ (refused|answered 4\d\d)/i],
   // An answer that is not what the coordinator sends (coordinator.rs: not JSON, no ticket field,

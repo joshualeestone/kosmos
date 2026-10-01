@@ -19,7 +19,23 @@ main on its own (see "Rebased onto main after the #4638 revert" below).
   blind rounds raised it). It is in git history (b68b8d3ca and before) if #4754 wants it.
 - History: the rounds below record the earlier design and how it got here; they are not the current state.
 
-## Decisions
+## Decisions (current)
+- A wait, not a fault: a second computer refused with the coordinator's wait sentence and code own_lineage (or the
+  older code-less 403 on the ticket path) shows its own 'waiting-allow' state and a neutral pill, never a refusal.
+- Match on the sentence AND the code, never the code alone: own_lineage also carries two FINAL refusals.
+- The device word is not matched, and case IS matched, identically in remote.js and remote-report.js, so the board and
+  the report never disagree about one line (pinned with one recased line fed to both).
+- Removed the unused auto-advance engine half (see Change).
+- DEFERRED (round 5): the wait is kept while the tunnel only says connecting, so a dial that hangs right after the
+  Allow still reads "Waiting to be allowed". Bounded by the tunnel's own timeouts (its next failure replaces it), and
+  cleared on up or a new process. Would change my mind: a report of the pill outliving an Allow by minutes.
+
+## Weakest premise (current)
+That the relay keeps these exact words (coordinator.rs refusal line, words.rs REFUSED_PREFIX, macs.rs own_lineage
+sentence). A rewording falls back to today's behaviour (an ordinary refusal), never to hiding a fault.
+
+## History (the removed auto-advance design and its rounds)
+### Decisions (the removed auto-advance design)
 - Reuse the register session (the coordinator answers it after register; pinned in kosmos-relay
   coordinator/tests/api.rs kosmos4640_register_keeps_the_session_and_it_sees_the_allow). Rejected: a new poll
   token (coordinator change); polling from the page (the token must never reach it).
@@ -28,14 +44,14 @@ main on its own (see "Rebased onto main after the #4638 revert" below).
 - Extend Pete's browser check rather than a new file (a new file needs four hand-maintained wiring guards, and his
   branch lands first).
 
-## Weakest premise
+### Weakest premise (the removed design)
 That the coordinator answers 401 (and only 401) for a session it no longer accepts on /v1/account/me. A 403 is
 treated as retryable (pinned), so a wrong guess costs retries until the 15-minute window, never a false stop.
 The old-tunnel stop is MEASURED, not assumed: a shipped kosmos-tunnel prints clap's error on the FIRST stderr line
 and "For more information" last, so the engine matches the whole stderr (review iteration 2 found the last-line
 match could never fire).
 
-## Review changes (iterations 1 and 2)
+### Review changes (iterations 1 and 2, the removed design)
 - The window is enforced by an unref'd timer; Done tells the engine to drop the token (signin-cancel at first,
   signin-allowed-done from iteration 7).
 - 401 is final. An old answer never tells a new watch to stop. Denied says "<computer> was not let in." and how
@@ -83,7 +99,7 @@ match could never fire).
   /v1/account/me refuses bad, expired and deleted sessions with 401 (session_claims), so any other refusal costs
   retries within the window, never a wrong answer.
 
-## Validation
+### Validation (the removed design; render-plus-second-computer-4638.js left with the #4638 revert)
 - node --test engine/remote.test.js (118/118); #4640 tests x4; server.test.js in-app sign-in route test.
 - docs/browser-checks/render-plus-second-computer-4638.js: 20/20.
 - Controls: keeping the token on a first computer reds the engine control; removing the page poll reds all five
@@ -199,3 +215,8 @@ is that review.
   with it); "the wait may not survive a tunnel exit": the real tunnel does not exit on a session error, run_forever
   (kosmos-relay crates/tunnel/src/lib.rs) writes restarting with the refusal, then connecting, and loops with backoff,
   which is the retry the status() test drives. NITs left: the case rule differs (remote.js exact, remote-report /i).
+- Round 4 (sonnet): the coordinator stores the report's `error` as bounded free text (kosmos-relay coordinator/src/
+  macremote.rs `text(remote.get("error"), ERROR_MAX_CHARS, |_| true)`), so 'waiting-allow' is stored, not refused.
+- Round 5 (opus): FIXED the case rule (remote-report.js /i removed; a recased line pinned in both files; mutation: /i
+  back reds only that pin). DEFERRED the sticky wait (Decisions). FIXED the plan: the removed design's sections now sit
+  under History.

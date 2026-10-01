@@ -829,6 +829,8 @@ test('kosmos#4640: the waiting-to-be-allowed refusal is recognised in both spell
   assert.equal(remote.allowWaitSentence(ALLOW_LINE + ')'), ALLOW_SAID, 'relay main tunnel (no code)');
   // The device word is not read: the relay's line may say "this computer" once it follows the app's rename.
   assert.equal(remote.allowWaitSentence('Kosmos+ refused this computer: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)'), ALLOW_SAID, 'the relay line after its own rename');
+  // Review: case is matched exactly, as remote-report.js's waiting-allow row now also does (pinned there with this line).
+  assert.equal(remote.allowWaitSentence(ALLOW_LINE.replace(': this computer', ': This computer') + ', code own_lineage)'), null, 'a recased sentence read as the wait');
   assert.equal(remote.allowWaitSentence('Kosmos+ refused: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)'), null, 'CONTROL: a line with no "this <device>:" is not the relay\'s shape');
   // CONTROLS: each must stay an ordinary refusal.
   assert.equal(remote.allowWaitSentence(ALLOW_LINE + ', code standing_lapsed)'), null, 'the same words with another code');
