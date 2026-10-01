@@ -3704,6 +3704,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 #panel-tasks { --tsk-c: var(--k-ink-2); --tsk-nobody: var(--k-ink-2); --tsk-assigned: var(--gold-deep); --tsk-working: var(--ok);
   --tsk-decision: var(--danger);
   --tsk-built: var(--pj-mention);
+  --tsk-held: var(--k-ink-2);   /* #4771: on hold, set aside by the person */
   --tsk-closed: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule));
   --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink); }
 /* #3949: one column, the full width (the Projects rail is gone; its choice is the dropdown). */
@@ -15437,6 +15438,12 @@ window.kosmosMeasureScrollbarWidth();
           <input type="date" id="tk-due" class="tk-due-input" aria-label="Due date, optional">
         </div>
         <p class="fmsg" id="tk-due-msg" aria-live="polite" style="margin:2px 0 0;"></p>
+        <!-- #4771: on hold. Kosmos never nudges an agent about a held task or hands it out; it stays on its owner's list. -->
+        <div class="tmeta" id="tk-hold-row"><span>On hold</span>
+          <button class="btn" id="tk-hold" type="button">Put on hold</button>
+        </div>
+        <p class="fmsg" id="tk-hold-msg" aria-live="polite" style="margin:2px 0 0;"></p>
+        <p class="dhint" id="tk-hold-hint" style="margin:4px 0 0;">Kosmos does not nudge anyone about a task on hold, or hand it out.</p>
         <p class="dhint" style="margin:12px 0 0;">Anything written here is part of the task, so an agent picking it up later reads the whole thing rather than just the title.</p>
       </aside>
     </div>
@@ -15673,8 +15680,14 @@ window.kosmosMeasureScrollbarWidth();
     </div>
 
     <!-- The one rule Josh kept (#762): "Archive and Remove are kind of below
-         Saving All the Actual Changes above it." -->
+         Saving All the Actual Changes above it." #4771's Pause sits here too: like
+         Archive it acts at once, not through Save, and it is undone the same way. -->
     <div class="field pjs-rule-above">
+      <!-- #4771: pause. Nothing in a paused project is nudged or handed out; resuming brings its tasks back. -->
+      <span class="flabel" id="pj-one-pause-label">Pause this project</span>
+      <p class="fhint" id="pj-one-pause-hint">Kosmos stops nudging agents about its tasks and stops handing them out. Nothing else changes.</p>
+      <button class="btn" id="pj-one-pause" type="button">Pause it</button>
+      <p class="fmsg" id="pj-one-pause-msg" aria-live="polite"></p>
       <span class="flabel" id="pj-one-archive-label">Archive this project</span>
       <p class="fhint" id="pj-one-archive-hint">Hides it from the projects list and stops it counting.
          Everything stays, and you can restore it whenever you like.</p>
@@ -16801,7 +16814,7 @@ window.kosmosMeasureScrollbarWidth();
            an agent climbs the trust ladder, so without this list held-by-default was held-forever.
            Rows the safety check stopped (quarantined) say why and can only be discarded. -->
       <h4 class="dlab" id="community-held-head" style="margin:14px 0 4px;">Waiting for you</h4>
-      <p class="dhint" id="community-held-off" style="margin:0 0 6px;" hidden>The community switch is off, so a post you release now stays on this computer and is not sent to the community.</p>
+      <p class="dhint" id="community-held-off" style="margin:0 0 6px;" hidden>The community switch is off, so a post or comment you release now stays on this computer and is not sent to the community, even after you turn it on.</p>
       <p class="dhint" id="community-held-empty" style="margin:0;">Nothing is waiting for you.</p>
       <ul class="community-mine" id="community-held-list" aria-labelledby="community-held-head" hidden></ul>
       <!-- #4313: what this board's agents put in the public community, each with Delete while
@@ -29940,16 +29953,18 @@ function communityHeldPaint(rows, full) {
     meta.className = 'dhint';
     meta.style.margin = '2px 0 0';
     meta.textContent = [communityHeldAgent(r), stopped ? 'Stopped by the safety check' : (underStopped || underHeld) ? 'Waiting for you' : 'Waiting for you to release it'].filter(Boolean).join(' · ')
-      /* The send sweep sends posts only, so a released comment is published on this board and
-         goes no further yet. The row must not promise the community. */
+      /* What releasing does, said before the person does it. A comment on a post in the PUBLIC community
+         (remotePostId, #4373 part B) is sent there by the sweep, at most once, only if it was released while
+         Community was on (communitysend's window: releasedAt >= the ON period's start), and the community has
+         no way to take a comment back. A comment on this board's own post goes no further. */
       + (underStopped ? '. Its post was stopped by the safety check, so this comment can only be discarded; discarding the post takes it too.'
         : underHeld ? '. Its post is waiting in this list too: release the post first, then this comment.'
+        : isComment && !stopped && !r.postId && typeof r.remotePostId === 'string' && r.remotePostId ? '. Releasing it while Community is on sends it to the public community, and once sent it cannot be taken back. Released while Community is off, it is never sent.'
         : isComment && !stopped ? '. Comments are not sent to the community yet.' : '');
     text.append(title, body);
     /* A comment on a post in the public community has no post on this board to show, only the
        service's id for it, so the row links out to that post. Only a plain id is linked.
-       ⚠️ `remotePostId` is #4373 part B's field and is not on main yet (its branch stores it on the
-       comment row); if part B lands with another name, this link is silently never drawn. */
+       `remotePostId` is #4373 part B's field, stored on the comment row by feedpublish.publishServiceComment. */
     if (!r.postId && typeof r.remotePostId === 'string' && /^[0-9a-f-]{8,64}$/i.test(r.remotePostId)) {
       const a = document.createElement('a');
       a.className = 'community-held-post';
@@ -53070,6 +53085,10 @@ const TSK_GROUPS = [
      live, which clears the mark. */
   { k: 'built', l: 'Built but waiting', c: 'var(--tsk-built)',
     why: 'An agent marked these built. They are waiting to be released or checked; close each one once it is live.' },
+  /* #4771: on hold, the task or its whole project (the engine's `held` state): Kosmos neither nudges nor hands these out.
+     Placed after Josh's own five open groups and before Completed, so his order is unchanged (decided, overridable). */
+  { k: 'held', l: 'On hold', c: 'var(--tsk-held)',
+    why: 'On hold, or in a paused project. Kosmos does not nudge anyone about them or hand them out.' },
   { k: 'closed', l: 'Completed', c: 'var(--tsk-closed)', why: 'Finished and closed.' },
 ];
 /* #4053 (option C v2, approved): one line icon per tile, drawn in a tinted badge beside the number. */
@@ -53080,6 +53099,7 @@ const TSK_ICON = {
   nobody: '<path d="M3.5 13 6.3 5.5h11.4l2.8 7.5v5.5h-17z"/><path d="M3.5 13h5l1.2 2.2h4.6l1.2-2.2h5"/>',
   built: '<path d="M3.5 7.5 12 3.3l8.5 4.2v9L12 20.7l-8.5-4.2z"/><path d="M3.5 7.5 12 11.8l8.5-4.3"/><path d="M12 11.8v8.9"/>',
   closed: '<circle cx="12" cy="12" r="8.5"/><path d="m8.3 12.3 2.6 2.6 5-5.2"/>',
+  held: '<circle cx="12" cy="12" r="8.5"/><path d="M10 9v6"/><path d="M14 9v6"/>',
 };
 function tskBadge(k) {
   return '<span class="tsk-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'
@@ -53881,6 +53901,16 @@ function paintTaskPage() {
      Prompter interval paint checks it). Empty input means no due date. */
   const due = document.getElementById('tk-due');
   if (due && document.activeElement !== due) due.value = t.dueDate || '';
+  /* #4771: the hold control speaks its current state; a message from another task's hold does not follow it here. */
+  { const hm = document.getElementById('tk-hold-msg'); if (hm && hm.dataset.task !== p.id + '#' + t.number) hm.textContent = ''; }
+  const hold = document.getElementById('tk-hold');
+  if (hold) hold.textContent = t.onHold === true ? 'Take off hold' : 'Put on hold';
+  // A finished task has nothing to hold: no control, no hint.
+  for (const hid of ['tk-hold-row', 'tk-hold-hint']) { const el = document.getElementById(hid); if (el) el.hidden = TK_ACT === 'reopen'; }
+  const holdHint = document.getElementById('tk-hold-hint');
+  if (holdHint) holdHint.textContent = p.paused === true
+    ? 'This project is paused, so Kosmos does not nudge anyone about its tasks or hand them out.'
+    : 'Kosmos does not nudge anyone about a task on hold, or hand it out.';
 
   /**
    * Who is on it: the task's PARTS, one row each (#206 step 2).
@@ -54028,6 +54058,8 @@ function tkActPhrase(ev, p) {
     case 'part-reopened': return 'A part put back';
     case 'due-set': return ev.dueDate ? 'Due date set to ' + ev.dueDate : 'Due date set';
     case 'due-cleared': return 'Due date cleared';
+    case 'hold-set': return ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold';
+    case 'hold-cleared': return ev.via === 'agent' ? 'Taken off hold by an agent' : ev.via === 'close' ? 'Taken off hold, as it was closed' : 'Taken off hold';
     // #3861: a task put under another task on its project, or taken out from under one.
     case 'parent-set': return ev.parent ? 'Put under task ' + ev.parent : 'Put under another task';
     case 'parent-cleared': return 'Taken out from under its task';
@@ -54304,6 +54336,32 @@ async function saveTaskDue(value) {
   }
 }
 document.getElementById('tk-due').addEventListener('change', (e) => { saveTaskDue(e.target.value); });
+
+/* #4771: put the open task on hold, or take it off. The button acts on the state as last read from the server. */
+document.getElementById('tk-hold').addEventListener('click', async () => {
+  const p = pjById(PJ_CURRENT);
+  if (!p || TK_OPEN === null) return;
+  const t = (p.tasks || []).find((x) => String(x.number) === String(TK_OPEN));
+  if (!t) return;
+  const btn = document.getElementById('tk-hold');
+  const msg = document.getElementById('tk-hold-msg');
+  btn.disabled = true;
+  if (msg) { msg.textContent = ''; msg.dataset.task = p.id + '#' + t.number; }   // whose message it is (the page repaint clears another's)
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + TK_OPEN + '/hold', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ onHold: t.onHold !== true }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) { if (msg) msg.textContent = (out && out.error) || 'we could not change that task'; return; }
+    await pjReload();
+    paintTaskActivity(TK_OPEN);
+  } catch {
+    if (msg) msg.textContent = 'we could not reach Kosmos to change that task';
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 /* #768: send a message to the open task's conversation. The server records it and
    delivers it to the agents assigned to the task; this handler then refreshes the
@@ -55114,6 +55172,23 @@ function paintSettingsFacts(p) {
   // the pack's settings sentence (the old project-page sentence used to be
   // repainted over it every poll tick, which kept the pack's words from
   // ever being seen).
+  /* #4771: the pause control speaks its current state. */
+  {
+    const pl = document.getElementById('pj-one-pause-label'), ph = document.getElementById('pj-one-pause-hint'), pb = document.getElementById('pj-one-pause');
+    { const pm = document.getElementById('pj-one-pause-msg'); if (pm && pm.dataset.project !== p.id) pm.textContent = ''; }
+    if (pl && ph && pb) {
+      if (p.paused === true) {
+        pl.textContent = 'This project is paused';
+        ph.textContent = (p.pausedByPerson === true ? '' : 'An agent paused it. ')
+          + 'Kosmos is not nudging agents about its tasks or handing them out. Resume it to bring them back.';
+        pb.textContent = 'Resume it';
+      } else {
+        pl.textContent = 'Pause this project';
+        ph.textContent = 'Kosmos stops nudging agents about its tasks and stops handing them out. Nothing else changes.';
+        pb.textContent = 'Pause it';
+      }
+    }
+  }
   const archLabel = document.getElementById('pj-one-archive-label');
   const archHint = document.getElementById('pj-one-archive-hint');
   const archBtn = document.getElementById('pj-one-archive');
@@ -62399,6 +62474,30 @@ document.getElementById('pj-one-remove-go').addEventListener('click', async () =
       : '';
   } catch (err) {
     msg.textContent = err.message;
+  }
+});
+
+/* #4771: pause or resume the open project, from its state as last read. */
+document.getElementById('pj-one-pause').addEventListener('click', async () => {
+  const p = pjById(PJ_CURRENT);
+  if (!p) return;
+  const btn = document.getElementById('pj-one-pause');
+  const msg = document.getElementById('pj-one-pause-msg');
+  msg.textContent = '';
+  msg.dataset.project = p.id;   // whose message it is (the settings repaint clears another project's)
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paused: p.paused !== true }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) { msg.textContent = body.error || 'we could not change that project'; return; }
+    if (!(await loadProjects())) await loadProjects();
+  } catch {
+    msg.textContent = 'we could not reach Kosmos to change that project';
+  } finally {
+    btn.disabled = false;
   }
 });
 

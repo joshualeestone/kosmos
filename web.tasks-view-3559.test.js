@@ -79,13 +79,15 @@ test('scope: project, window and search combine', () => {
   assert.deepEqual(pick({ win: 2, q: 'rex' }), [2, 7]);
 });
 
-test('#3949/#3951 Josh\'s six groups, in his order, one label each, every one from a state the engine records', () => {
+test('#3949/#3951/#4771 Josh\'s six groups in his order, then On hold before Completed, one label each, every one from a state the engine records', () => {
   const m = SCRIPT.match(/const TSK_GROUPS = \[([\s\S]*?)\n\];/);
   assert.ok(m, 'TSK_GROUPS moved; update this test');
   const keys = [...m[1].matchAll(/\bk: '([a-z]+)'/g)].map((x) => x[1]);
-  assert.deepEqual(keys, ['decision', 'working', 'assigned', 'nobody', 'built', 'closed']);
+  assert.deepEqual(keys, ['decision', 'working', 'assigned', 'nobody', 'built', 'held', 'closed']);
   const labels = [...m[1].matchAll(/\bl: '([^']+)'/g)].map((x) => x[1]);
-  assert.deepEqual(labels, ['Needs Your Decision', 'In progress', 'Assigned but not started', 'Unassigned', 'Built but waiting', 'Completed']);
+  assert.deepEqual(labels, ['Needs Your Decision', 'In progress', 'Assigned but not started', 'Unassigned', 'Built but waiting', 'On hold', 'Completed']);
+  /* #4771: On hold is drawn because the engine records it (tasks.setOnHold, projects.edit's paused, taskState 'held'). */
+  assert.match(m[1], /k: 'held', l: 'On hold', c: 'var\(--tsk-held\)'/);
   assert.doesNotMatch(m[1], /\bs: '/, 'a group carries a byline again');
   assert.doesNotMatch(m[1], /Waiting on you|Done, check it/, 'an unprovable group is drawn');
   /* #3951: Built but waiting is drawn now because the engine records it (tasks.setBuilt, taskState 'built'). */
