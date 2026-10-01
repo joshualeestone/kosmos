@@ -53,6 +53,9 @@ closed (rc 1, a cryptic error), never open; normal zsh records it correctly (mea
   test-bc-surface-map.sh, test-ci-gate-armed-2518.sh and test-browser-check-surface-map.sh pass.
 
 ## Review
+Round 4: no blocker; 1 should-fix taken: an aliased grep re-runs too. Nit taken: CDPATH= on the self-path cd (a
+bash cd that echoes under CDPATH corrupted it; tested, fails with the old line). Noted: exported git/sed/awk
+functions still reach the child; the child is whichever bash is first on PATH.
 Round 3: no blocker; 2 should-fix taken: a bash whose grep is a function re-runs too, and the child's environment is
 cleaned (BASH_ENV, an exported grep function). Found while fixing: in bash the old ${X+X="$X"} forwarding split a value
 with spaces, so the settings are now forwarded with set --, one word each in both shells. Nits taken: none needed for
