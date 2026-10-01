@@ -237,13 +237,19 @@ test('#4820 community toggle: a refused or thrown PUT reverts to ON, never a fal
   }
 });
 
-test('#4820 community refresh: a read Off paints Off; a non-ok GET, ok:false or a throw leaves the default ON', async () => {
+test('#4820 community refresh: a read Off paints Off, ok:false included (it is not sharing); a non-ok GET or a throw leaves the default ON', async () => {
   const off = load();
   off.setFetch(async () => ({ ok: true, json: async () => ({ on: false, ok: true, share: null }) }));
   await off.api.frRefreshCommunity();
   assert.equal(off.els['fr-s6-community'].getAttribute('aria-checked'), 'false', 'refresh did not paint the saved Off');
   assert.equal(off.calls[0][0], '/api/community-setting', 'the refresh read somewhere else');
-  for (const impl of [async () => ({ ok: false, json: async () => ({}) }), async () => ({ ok: true, json: async () => ({ on: false, ok: false, share: null }) }), async () => { throw new Error('down'); }]) {
+  // #4820 review 1: ok:false still carries the true on:false (an unreadable file means nothing is shared), so it paints Off,
+  // as the diagnostics switch does; the consent screen must not show ON while nothing is shared.
+  const bad = load();
+  bad.setFetch(async () => ({ ok: true, json: async () => ({ on: false, ok: false, share: null }) }));
+  await bad.api.frRefreshCommunity();
+  assert.equal(bad.els['fr-s6-community'].getAttribute('aria-checked'), 'false', 'an unreadable setting was shown ON on the consent screen while nothing is shared');
+  for (const impl of [async () => ({ ok: false, json: async () => ({}) }), async () => { throw new Error('down'); }]) {
     const c = load();
     c.setFetch(impl);
     await c.api.frRefreshCommunity();

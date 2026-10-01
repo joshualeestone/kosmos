@@ -63094,7 +63094,10 @@ async function frRefreshCommunity() {
     const res = await fetch('/api/community-setting', { cache: 'no-store' });
     if (!res.ok) return;                       // could-not-read: leave the default-ON markup position
     const r = await res.json();
-    if (mine === FR_CM_EPOCH && r && r.ok === true && typeof r.on === 'boolean') frSwSet(el, r.on);
+    /* #4820 review 1: an answer with ok:false (community.json unreadable) still says on:false, which is TRUE: the engine is
+       not sharing. Painted, as the diagnostics switch above paints its own ok:false answer; a click then saves ON, which is
+       the person's explicit choice. Only no answer at all (a failed request or a throw) leaves the default. */
+    if (mine === FR_CM_EPOCH && r && typeof r.on === 'boolean') frSwSet(el, r.on);
   } catch { /* leave the default */ }
 }
 async function frCommunityToggle() {

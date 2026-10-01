@@ -58,3 +58,14 @@ cover lifting, so 10 s is wide; a future notice with different wording would not
 - render-community-switch-4288.js: NOTICE, HELD, STALE, BOOT and REARM arms removed with the notice;
   NO-NOTICE (routed, the old board's "owed" answer) and NO-NOTICE REAL (the board's own answer on a
   sandboxed data root, file restored after) added.
+
+## Review round 1, 2026-09-30: 0 BLOCKER, 1 WARNING, 3 NIT
+- [WARNING] FIXED, and it overturns the weakest premise above. ok:false (an unreadable community.json) left the first-run
+  switch ON while the engine shares nothing. That did NOT match the feedback switch: /api/feedback-setting answers
+  {on:false, ok:false} and frRefreshFeedback paints it Off. Now the community switch paints the answer's on:false too. A
+  failed request or a throw still leaves the default ON. Test flipped; it reds with the ok check restored.
+- Verified by the reviewer: an existing user's explicit OFF stands (migrate writes ON only when the file is MISSING; no
+  version ever wrote off without a person); old page with new server opens nothing (no noticeSeen field).
+- NITs decided: write() dropping unknown keys only matters on a downgrade (the old notice shows once); the no-dialog check
+  matches the notice's wording (a future pop-up with other words would pass; named in the plan); existing users who saw
+  the old "held until you release" notice now publish straight away untold (the #4781 behaviour; Josh's "no big message").
