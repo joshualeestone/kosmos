@@ -181,6 +181,23 @@ if command -v zsh >/dev/null 2>&1; then
   else
     pass "#4811: in a bash with a grep that matches nothing, the gate still refuses"
   fi
+  # Review 4: an ALIASED grep in an interactive bash (alias expanded into the gate when it is sourced) re-runs too.
+  if bash -c 'shopt -s expand_aliases; alias grep="false"; . "$1" && KOSMOS_BCSG_WEBDIFF="$2" KOSMOS_BCG_FILES="$3" KOSMOS_BCG_MSGS="$4" KOSMOS_BCSG_DIR="$5" kosmos_browser_check_surface_gate' _ \
+       "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811" "$TMP/m-4811" "$BCDIR_ABS" >/dev/null 2>&1; then
+    fail "#4811: in a bash with grep aliased to something that matches nothing, the gate passed"
+  else
+    pass "#4811: in a bash with grep aliased to something that matches nothing, the gate still refuses"
+  fi
+  # Review 4: a CDPATH under which bash's cd ECHOES the directory it found must not corrupt the recorded path. Bash,
+  # sourcing by a relative path from the repo root with CDPATH set to it, and a grep function so the re-run is used.
+  printf 'M\tdocs/browser-checks/render-alltasks.js\n' > "$TMP/f-4811ok"
+  REPO_4811="$(cd "$HERE/.." && pwd)"
+  if ( cd "$REPO_4811" && CDPATH="$REPO_4811" bash -c 'grep() { command grep "$@"; }; . tools/lib/browser-check-surface-gate.sh && KOSMOS_BCSG_WEBDIFF="$1" KOSMOS_BCG_FILES="$2" KOSMOS_BCG_MSGS="$3" kosmos_browser_check_surface_gate' _ \
+       "$TMP/wd-4811" "$TMP/f-4811ok" "$TMP/m-4811" ) >/dev/null 2>&1; then
+    pass "#4811: with CDPATH set, the gate still finds itself and passes a compliant change through the re-run"
+  else
+    fail "#4811: with CDPATH set, the re-run could not source the gate (a corrupted recorded path)"
+  fi
   # Review 1: settings given as PLAIN zsh variables (not exported) must reach the bash re-run too, or it would check
   # the real branch instead and could pass. And a POSITIVE control through the re-run: the same change with its check
   # updated passes (rc 0), so a broken re-run (a bad path, lost settings) cannot read as a refusal.
