@@ -89,8 +89,16 @@ function spanBody(sectionsList, now, opening) {
  */
 function atBirth(text, now, maxBytes) {
   const body = String(text == null ? '' : text);
-  if (body.includes(defaults.RULES_PHRASE)) return body;
   if (body.includes(START) || body.includes(END)) return defaults.appendTo(body);
+  if (body.includes(defaults.RULES_PHRASE)) {
+    /* A role template that carries today's block inline (roles.js `own`, `setup`): that copy is Kosmos's own and
+       nobody has edited it yet, so it is framed in place. Anything else carrying the rules is left as it is. */
+    const at = plainCurrentAt(body);
+    if (at < 0) return body;
+    const end = at + defaults.block().length;
+    const framed = body.slice(0, at) + `${START}\n${spanBody(defaults.sections(), now, birthLine(now))}\n${END}` + body.slice(end);
+    return maxBytes && Buffer.byteLength(framed, 'utf8') > maxBytes ? body : framed;
+  }
   const spanned = projects.spliceBlock(body, spanBody(defaults.sections(), now, birthLine(now)), START, END);
   /* The frame costs a few hundred bytes. Where only the plain block fits under the caller's cap, the agent gets
      the plain block (as before #4890) rather than none. */
@@ -98,14 +106,17 @@ function atBirth(text, now, maxBytes) {
   return spanned;
 }
 
-/** #4890: today's block as plain text, at a line start and ending at a line end. */
-function hasPlainCurrent(body) {
+/** #4890: where today's block sits as plain text, at a line start and ending at a line end, or -1. */
+function plainCurrentAt(body) {
   const current = defaults.block();
   for (let at = body.indexOf(current); at >= 0; at = body.indexOf(current, at + 1)) {
     const after = body[at + current.length];
-    if ((at === 0 || body[at - 1] === '\n') && (after === undefined || after === '\n' || after === '\r')) return true;
+    if ((at === 0 || body[at - 1] === '\n') && (after === undefined || after === '\n' || after === '\r')) return at;
   }
-  return false;
+  return -1;
+}
+function hasPlainCurrent(body) {
+  return plainCurrentAt(body) >= 0;
 }
 
 /**
@@ -120,11 +131,15 @@ function pastBlockIn(body, past, skip) {
   for (let at = body.indexOf(first); at >= 0; at = body.indexOf(first, at + 1)) {
     if (at > 0 && body[at - 1] !== '\n') continue;
     if (skip && at < skip.end && at >= skip.start) continue;   // earlier rules inside a span are the span path's
+    if (body.startsWith(current, at)) continue;   // today's block, which an earlier one can be a prefix of
     for (const row of rows) {
       const slice = body.slice(at, at + row.length);
       if (slice.length !== row.length || slice === current) continue;
       const after = body[at + row.length];
       if (after !== undefined && after !== '\n' && after !== '\r') continue;   // words typed onto its last line are an edit
+      // A later block only appended sections, so an earlier one can match as its prefix: a copy that goes on into
+      // another section is not this one.
+      if (/^(?:[ \t]*\r?\n)*### /.test(body.slice(at + row.length + 1))) continue;
       if (crypto.createHash('sha256').update(slice).digest('hex') === row.sha256) return { start: at, end: at + row.length, version: row.version };
     }
   }

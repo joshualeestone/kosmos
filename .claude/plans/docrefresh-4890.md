@@ -45,7 +45,7 @@ never matches the \n-only fingerprints: nothing is overwritten, it keeps today's
 who edited theirs is offered only missing headings, as before; birth in the span is the lasting fix.
 
 ## Tests
-engine/doctrine-4890.test.js (16): birth span and current-at-birth; the card's case (a same-heading change reaches an
+engine/doctrine-4890.test.js (19): birth span and current-at-birth; the card's case (a same-heading change reaches an
 agent born before it); replace in place with a control; an edited, a one-character-edited and today's copy are not
 replaced; marker fallback; the shipped table's pairing guard; server flag and dialog copy. Mutations: dropping the
 past-block match, the today's-copy skip, or the line-start check each red a test. create.test.js: the verbatim test
@@ -75,4 +75,12 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   sentence shows only when the click rewrites an existing span (`updating`). DEFERRED W: the fleet click can now cut
   a plain copy with no wording for it; no fleet screen exists, the list route sends `replacing`, and the fleet click
   is name-level consent by Mona Lisa's ruling. Whoever builds that screen should read `replacing`.
+- Round 6 (opus): FIXED W: an earlier block can be a prefix of a later one (v11 to v14 only appended sections), so a
+  match is refused where today's block starts, or where the copy goes on into another `###` section; each rule has
+  its own fixture and its own mutation red (the first fixture let one rule mask the other; caught by the mutation
+  run). FIXED W: the `own` and `setup` role templates carry today's block inline, so atBirth frames that copy in place
+  rather than leaving it plain. FIXED W: an update to an existing span has its own title ("Update") and sentence, and
+  the restart line says "This restarts" when nothing is added. FIXED (mine, deleted): a dialog comment saying the
+  copy is replaced "where it stands". Left NITs: near the cap, the frame's bytes are spent before the connections
+  and files blocks (each still says so when it does not fit); long docstring line.
 

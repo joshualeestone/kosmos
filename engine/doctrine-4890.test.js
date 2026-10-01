@@ -143,7 +143,7 @@ test('#4890 review 3: where only the plain block fits under the cap, birth write
 
 test('#4890 review 3: the dialog title says Update when it replaces', () => {
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
-  assert.match(page, /textContent = plan\.replacing\n\s*\? 'Update the working rules in ' \+ who/);
+  assert.match(page, /textContent = \(plan\.replacing \|\| plan\.updating\)\n\s*\? 'Update the working rules in ' \+ who/);
 });
 
 test('#4890 review 4: two plain copies settle in ONE click, to one copy of the current rules', () => {
@@ -177,4 +177,50 @@ test('#4890 review 4: the dialog says an edit inside the marked block is set to 
   const born = doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD);
   assert.equal(doctrine.planFor(born, NOW).updating, true, 'an existing span\'s update does not say so');
   assert.notEqual(doctrine.planFor('# Mine\n', NOW).updating, true, 'a file with no span claims a marked block');
+});
+
+test('#4890 review 6: an earlier block that is a PREFIX of a longer copy does not match it', () => {
+  const sections = defaults.sections();
+  const prefix = BLOCK.slice(0, BLOCK.lastIndexOf('\n' + sections[sections.length - 1].heading));
+  const table = [{ version: 1, length: prefix.length, sha256: sha(prefix) }];
+  assert.equal(doctrine.planFor(`# Mine\n\n${BLOCK}\n`, NOW, table).state, 'current', 'today\'s plain copy was offered for nothing');
+  // Edited in the MIDDLE of the appended section, so the file does not start with today's block: only the
+  // goes-on-into-another-section rule can refuse it.
+  const lastText = sections[sections.length - 1].text;
+  const cut = lastText.indexOf('\n', lastText.indexOf('\n') + 1);
+  const longerEdited = prefix + '\n' + lastText.slice(0, cut) + ' My own edit.' + lastText.slice(cut);
+  assert.ok(!longerEdited.startsWith(BLOCK) && cut > 0);
+  assert.notEqual(doctrine.planFor(`# Mine\n\n${longerEdited}\n`, NOW, table).replacing, true, 'an edited longer copy was cut at its prefix');
+  // An earlier block that is today's minus its last LINE (not a section): only the today's-block rule refuses it.
+  const minusLine = BLOCK.slice(0, BLOCK.lastIndexOf('\n'));
+  assert.ok(!/^\s*### /.test(BLOCK.slice(minusLine.length + 1)), 'this fixture needs a last line that is not a heading');
+  const t2 = [{ version: 1, length: minusLine.length, sha256: sha(minusLine) }];
+  assert.equal(doctrine.planFor(`# Mine\n\n${BLOCK}\n`, NOW, t2).state, 'current', 'today\'s copy was matched as an earlier prefix');
+  // CONTROL: the prefix alone still matches.
+  assert.equal(doctrine.planFor(`# Mine\n\n${prefix}\n`, NOW, table).replacing, true);
+});
+
+test('#4890 review 6: a role template carrying today\'s block inline is framed in the span at birth', () => {
+  const own = 'You are Sam.\n\n## Make this yours\n\nEverything above this line is a starting point.\n\n' + BLOCK;
+  const born = doctrine.atBirth(own, NOW);
+  assert.ok(born.startsWith('You are Sam.\n'), 'the template text moved');
+  assert.ok(projects.findBlock(born, doctrine.START, doctrine.END), 'the inline rules were left plain');
+  assert.equal(born.split(defaults.sections()[1].heading).length - 1, 1, 'the rules are in the file twice');
+  assert.equal(doctrine.planFor(born, NOW).state, 'current');
+  // The real templates, through roles.js.
+  const roles = require('./roles');
+  for (const key of ['own', 'setup']) {
+    const r = (roles.ROLES || []).find((x) => x.key === key);
+    const text = r && r.instructions;
+    assert.equal(typeof text, 'string', 'the ' + key + ' template is not where this test looks');
+    assert.ok(projects.findBlock(doctrine.atBirth(text, NOW), doctrine.START, doctrine.END), key + ' was born with plain rules');
+  }
+  const edited = own.replace('## How you work', () => '## How I work');
+  assert.equal(doctrine.atBirth(edited + '\n' + defaults.RULES_PHRASE, NOW), edited + '\n' + defaults.RULES_PHRASE, 'text carrying the phrase but not today\'s block was changed');
+});
+
+test('#4890 review 6: an update to an existing span has its own title and sentence', () => {
+  const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  assert.ok(page.includes("? 'Your words stay exactly as they are. The working rules in the marked block are brought up to date. '"));
+  assert.ok(page.includes("+ ((plan.replacing || plan.updating) ? 'This restarts ' : 'Adding them restarts ')"));
 });
