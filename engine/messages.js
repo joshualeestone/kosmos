@@ -2056,8 +2056,36 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   };
 
   if (asynchronousDelivery) {
+    /* #4765: every member AT ONCE, not one after another. Most of a delivery is a wait (the paste-to-Enter gap,
+       250 ms at least, 500 ms for Codex, Gemini, Grok and Antigravity), so a room of 20 made the person wait
+       about 6 s after Enter before the post appeared (measured; the page shows it only once this returns).
+       Safe to overlap: each member is its own pane, chat.deliverAsync already queues deliveries to one pane,
+       and what deliverOne shares (outcomes, spilled, the held posts) is keyed by the member's name. Each
+       deliverOne's synchronous part still runs in turn, in the members' order.
+       Every delivery is ALLOWED TO FINISH before the answer, so the person is never told "could not post"
+       while members are still being typed at; then the first failure is thrown, as the old loop threw it.
+       One difference, on purpose: the old loop stopped at a failure, so the members after it were never
+       tried; now they are.
+       ⚠️ ONE MEMBER PER TURN OF THE EVENT LOOP. Each delivery's tmux calls are synchronous (execFileSync), so
+       starting every member in the same tick would run all their pastes as one block with the board answering
+       nothing else, and, their waits ending together, all their Enters as a second block (review 1). A
+       setImmediate between starts lets the board answer other requests between members, and the waits still
+       overlap because each start is only one member's tmux calls after the last. The Enters are spread only as
+       far as the starts were: waits that come due together still end in one turn (review 2 measured two or
+       three members' Enters per turn on 20 members), which is short of one block of all of them. A synchronous throw from
+       deliverOne is caught and becomes that member's failure, so it too waits for the others. */
     const pending = (async () => {
-      for (const name of recipients) await deliverOne(name);
+      const runs = [];
+      for (let i = 0; i < recipients.length; i++) {
+        if (i > 0) await new Promise((resolve) => setImmediate(resolve));
+        const name = recipients[i];
+        const run = new Promise((resolve) => resolve(deliverOne(name)));
+        run.catch(() => {});   // handled at once, or node reports a rejection that allSettled below collects anyway
+        runs.push(run);
+      }
+      const settled = await Promise.allSettled(runs);
+      const failed = settled.find((s) => s.status === 'rejected');
+      if (failed) throw failed.reason;
       return finishDeliveries();
     })();
     return operator === true ? pending : trackInFlight(postKey, pending);
