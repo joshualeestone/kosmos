@@ -161,7 +161,13 @@ function chk(ok, label, extra) {
     await page.evaluate(() => showTab('tasks'));
     await page.waitForSelector('#tsk-groups .tsk-row .tl', { timeout: 10000 });
     const b2 = await page.locator('#tsk-groups .tsk-row', { hasText: S }).first().boundingBox();
-    await page.mouse.click(b2.x + b2.width - 6, b2.y + b2.height - 4);
+    const px = b2.x + b2.width - 6, py = b2.y + b2.height - 4;
+    const under = await page.evaluate(([x, y]) => {
+      const t = document.elementFromPoint(x, y);
+      return { inRow: !!(t && t.closest('.tsk-row')), control: !!(t && t.closest('button, a, input, label, select, summary, textarea, [role], [tabindex], [contenteditable]')) };
+    }, [px, py]);
+    chk(under.inRow && !under.control, T + 'CONTROL: the spot clicked next is inside the row and on no control', JSON.stringify(under));
+    await page.mouse.click(px, py);
     await page.waitForTimeout(1000);
     const opened = await taskOpen();
     chk(opened.task && opened.title.includes(S), T + 'a click on an empty part of the row opens that task\'s page', JSON.stringify(opened));

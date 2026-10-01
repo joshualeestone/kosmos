@@ -29,3 +29,10 @@ Wiring: README row, `docs/browser-checks/gated.txt`, reason-grep EXPECTED_SITES 
 - The control guard only counts a control INSIDE the row (`row.contains`), so an ancestor control can never swallow the row click.
 - The checkbox guard covers everything left of the checkbox's right edge (the row's left padding and an indent too). Intended: that strip is the tick's territory.
 - Check: desktop passes in Chromium AND WebKit (the Mac app is WebKit); one consolidated-layout pass (Tasks in the display column).
+
+## Review rounds 4 to 6 changes
+- The control guard also skips `[role]`, `[tabindex]` and `[contenteditable]` inside the row (never the row itself).
+- The selection guard counts only a selection that touches this row (`containsNode(row, true)`), so a leftover selection elsewhere on the page cannot make a row dead.
+- Comments say what the code does: any click in the row outside its controls opens the task; the gate is a hovering main pointer.
+- Check: before the row click, a CONTROL line asserts the spot is inside the row and on no control, so a layout change fails loudly instead of misleadingly. Two header claims the script did not assert were removed.
+- Accepted, not changed: the pointer and tint also show over the strip left of the checkbox's right edge, where a click does nothing (it is the tick's territory, and the box itself is a click target there).

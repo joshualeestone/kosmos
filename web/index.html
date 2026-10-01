@@ -55442,7 +55442,7 @@ document.getElementById('panel-tasks').addEventListener('click', (e) => {
   if ((b = el('[data-agent]'))) { openDetail(b.dataset.agent); return; }
   /* #4880 (Josh 10/01): a click anywhere in a row outside its controls (its text included) opens the task, as its
      title does. Only where the main pointer can hover, not left of the checkbox's right edge, and not when a drag
-     left text selected. */
+     left text selected in this row. */
   const row = el('.tsk-row[data-key]');
   if (!row) return;
   const ctl = el('button, a, input, label, select, summary, textarea, [role], [tabindex], [contenteditable]');
@@ -55450,7 +55450,8 @@ document.getElementById('panel-tasks').addEventListener('click', (e) => {
   if (window.matchMedia && !window.matchMedia('(hover: hover)').matches) return;
   const hit = row.querySelector('.tsk-hit');
   if (hit && e.clientX <= hit.getBoundingClientRect().right + 6) return;
-  if (String(window.getSelection ? window.getSelection() : '').trim()) return;
+  const sel = window.getSelection ? window.getSelection() : null;
+  if (sel && !sel.isCollapsed && String(sel).trim() && sel.containsNode(row, true)) return;
   tskOpenTask(row.dataset.key);
 });
 document.getElementById('panel-tasks').addEventListener('change', (e) => {
