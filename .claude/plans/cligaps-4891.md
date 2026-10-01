@@ -33,6 +33,19 @@ role text is each agent's own profile role, so it is not a CLI string.
 ## Weakest premise
 That nothing reads /api/tasks?project=<id> expecting 200 for a missing project. Searched: the two CLIs and the Tasks
 view are the readers; the CLIs already handle an error body (exit 1).
+- Review 1 (Sonnet, source-only) found the one I missed: server.tasks-all-1382.test.js pinned the empty list. My
+  search excluded test files. Updated to the 404, keeping its intent (never the global set).
+
+## Review 1 (Sonnet, blind, source-only): 1 blocker, 3 warnings, 2 nits
+- B1 tasks-all-1382 pinned the old answer: FIXED (above).
+- W2 the outside cap was 0 at n=1, so `-n 1` hid a newest outside row or said "Nothing has been said": FIXED,
+  at least 1; test added with an outside row newest.
+- W3 the two CLI N6 arms cannot fail on old code (the CLIs already said a refusal): retitled as wiring checks;
+  server.gaps-4891 is the arm that proves N6.
+- W4 the 40-row control assumed the notes were the only rows: compared as text against n=40 now.
+- N5 a project id starting with "-" is now refused by `room` on both CLIs (it is a flag there). Accepted: both
+  agree, and ids made by Kosmos do not start with "-".
+- N6 Windows strips odd characters where the Mac refuses: predates this, not this card.
 
 ## Verification
 cli.gaps-4891.test.js (Mac CLI against a stub board recording every request), tools.windows-kosmos-cli-gaps-4891

@@ -105,7 +105,7 @@ test('#4891 N8: a value that is not a whole number from 1 to 200 is refused befo
     }
   }));
 
-test('#4891 N6: task list on an unknown project says so and exits 1; a known empty one still says no tasks', () =>
+test('#4891 N6: the CLI says the board\'s 404 and exits 1 (wiring only: the CLI already did; server.gaps-4891 proves the change)', () =>
   withBoard(async (port) => {
     const missing = await runCli(['task', 'list', 'nosuch'], envFor(port));
     assert.equal(missing.code, 1, missing.stdout + missing.stderr);

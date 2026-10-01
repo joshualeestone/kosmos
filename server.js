@@ -16563,7 +16563,9 @@ const server = http.createServer(async (req, res) => {
            peer cannot push every local post out of the view agents read. #4891: of `textRows`. */
         const tail = [];
         let outside = 0;
-        const outsideCap = Math.floor(textRows / 2);
+        /* At least one, so `-n 1` on a room whose newest row came from outside shows that row rather than an older
+           local one, or "nothing has been said" in a room where something was (#4891 review 1). */
+        const outsideCap = Math.max(1, Math.floor(textRows / 2));
         for (let i = rows.length - 1; i >= 0 && tail.length < textRows; i--) {
           if (rows[i] && rows[i].kind === 'external') { if (outside >= outsideCap) continue; outside += 1; }
           tail.unshift(rows[i]);

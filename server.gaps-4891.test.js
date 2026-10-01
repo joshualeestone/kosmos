@@ -55,10 +55,23 @@ test('#4891 N8: n chooses how many of the last rows the room text shows; without
   assert.deepEqual(await shown(p.id, '&n=5'), range(46, 50));
   assert.deepEqual(await shown(p.id, '&n=1'), [50]);
   assert.deepEqual(await shown(p.id, '&n=200'), range(1, 50));
-  // CONTROL: no n, and every out-of-range or malformed n, is the old 40.
+  // CONTROL: no n, and every out-of-range or malformed n, is the old 40: the same text as n=40, which is shorter
+  // than the whole room (so the comparison is not the whole room both times). Compared as text, so it does not
+  // depend on which other rows a new project's room holds.
+  const forty = await (await fetch(`${base}/api/project/${p.id}/room?as=text&n=40`)).text();
+  assert.notEqual(forty, await (await fetch(`${base}/api/project/${p.id}/room?as=text&n=200`)).text());
   for (const q of ['', '&n=0', '&n=201', '&n=abc', '&n=05', '&n=']) {
-    assert.deepEqual(await shown(p.id, q), range(11, 50), 'n given as ' + JSON.stringify(q));
+    assert.equal(await (await fetch(`${base}/api/project/${p.id}/room?as=text${q}`)).text(), forty, 'n given as ' + JSON.stringify(q));
   }
+});
+
+test('#4891 review 1: -n 1 on a room whose newest row came from outside shows that row', async () => {
+  const p = projects.create({ name: 'Gaps Outside' });
+  messages.roomNote(p.id, 'note 01');
+  messages.externalPost(p.id, { from: 'Peer', fromKind: 'person', text: 'outside 4891' });
+  const one = await (await fetch(`${base}/api/project/${p.id}/room?as=text&n=1`)).text();
+  assert.match(one, /outside 4891/);
+  assert.doesNotMatch(one, /Nothing has been said/);
 });
 
 test('#4891 N6: tasks for an unknown project is a 404 that says so; a real empty project is an empty list', async () => {

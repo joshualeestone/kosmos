@@ -49,7 +49,7 @@ test('#4891 N8 Windows: a value that is not 1 to 200 is refused and sends nothin
   }
 });
 
-test('#4891 N6 Windows: task list on an unknown project says so and exits 1; a known empty one still says no tasks', async () => {
+test('#4891 N6 Windows: the CLI says the board\'s 404 and exits 1 (wiring only: the CLI already did; server.gaps-4891 proves the change)', async () => {
   const missing = await run(['task', 'list', 'nosuch'], () => ({ status: 404, body: JSON.stringify({ error: 'there is no project by that name' }) }));
   assert.equal(missing.code, 1, missing.out + missing.err);
   assert.match(missing.err, /there is no project by that name/);
