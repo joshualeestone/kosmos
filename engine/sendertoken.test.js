@@ -120,10 +120,22 @@ test('#4792: with Mara stopped, Mara\'s token is refused, never resolved as runn
   } finally { one.restore(); }
 });
 
+/* #4792: the REAL paneless row status.snapshot() lists for a key (session null, the key as its name), taken through the
+   fleet harness rather than typed (fixture-discipline). The key needs a token and a live beat to be listed. */
+function realPanelessRows(key) {
+  require('./liveness').seen(key);
+  const board = fleet.install([]);
+  try {
+    const rows = board.agents.filter((a) => a.paneless === true && a.sessionName === key);
+    assert.equal(rows.length, 1, 'CONTROL: the board did not list a paneless row for ' + key);
+    assert.equal(rows[0].session, null, 'CONTROL: a paneless row carries no session');
+    return rows;
+  } finally { board.restore(); }
+}
+
 test('#4792: a paneless row (listed by key) is matched by key only while one name holds tokens under it', () => {
-  // status.js lists a paneless agent with session null and its key as sessionName. Plain rows: no pane fixture can say this.
-  const paneless = [{ sessionName: 'kip4792', session: null, isNamedOurs: true }];
   const remote = sendertoken.mint('Kip4792', { launcher: 'remote' });
+  const paneless = realPanelessRows('kip4792');
   const alone = sendertoken.resolve(remote.token, paneless);
   assert.equal(alone.ok, true, 'a remote agent with a capitalised name lost its paneless row: ' + JSON.stringify(alone));
   assert.equal(alone.card.sessionName, 'kip4792');
@@ -189,7 +201,7 @@ test('#4792 review 1: two named twins with only a key-listed row are refused, an
   try {
     const big = sendertoken.mint('Lux4792').token;
     sendertoken.mint('lux4792');
-    const paneless = [{ sessionName: 'lux4792', session: null, isNamedOurs: true }];
+    const paneless = realPanelessRows('lux4792');
     assert.equal(sendertoken.resolve(big, paneless).ok, false);
     assert.equal(sendertoken.resolve(big, paneless).ok, false);
     assert.equal(warned.filter((w) => w.includes('"lux4792"')).length, 1, 'not logged exactly once: ' + JSON.stringify(warned));
