@@ -156,3 +156,11 @@ PR B added the quota-hold brake (AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF=1) after par
 held and the resume restarts each agent on its own reset, so the card's "shared quota was reported paused" line would
 be false. FIXED: status.js asks agyquota.quotaHoldOff first; a test with the brake on reds without the check.
 Focused set on the rebased head: 106 files, 1625 tests, 0 fail.
+
+## Review after the rebase (blind), 2026-09-30: 0 BLOCKER, 0 WARNING, 4 NIT. CONVERGED
+Verified: the brake check is the same function and env the hold and the sweep read; a STOPPED agy pane returns at rule 2
+before the quota block (matches PR B, which refuses a stopped pane); the card's window is a subset of the hold's, so the
+card can say Paused for less time than the hold, never more; the release stagger falls to PR A's line, which stays true;
+no account identity in any line. NIT 2 TAKEN: a test pins the stopped case (reds with rule 2 disabled). Decided not built:
+naming the pool's past reset in PR A's fallback line (it is not always wrong); a redundant isFinite guard; paneless cards
+(PR A's own recorded gap; an agy agent always has a pane).

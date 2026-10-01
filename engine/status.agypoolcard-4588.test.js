@@ -39,6 +39,15 @@ test('#4588 part 3 + PR B brake: with AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF=1 nothi
   } finally { delete process.env.AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF; }
 });
 
+test('#4588 part 3 + PR B: a STOPPED agy agent never says it waits for the shared quota (nothing can be typed to it; PR B refuses, not holds)', () => {
+  colleague(OWN + 3600e3, OWN - 10 * 60e3);
+  const STOPPED = { state: status.STATE.STOPPED, confidence: status.CONFIDENCE.STRUCTURED, because: 'its pane is a shell' };
+  const r = status.reconcileReport(quota(), STOPPED, OWN + 60e3);
+  assert.equal(r.state, status.STATE.STOPPED);
+  assert.equal(r.poolUntil == null, true, 'a stopped agent was given the pool line');
+  assert.doesNotMatch(String(r.because || ''), /shared quota/);
+});
+
 test('#4588 part 3 CONTROLS: an empty memory, or a pool reset no later than its own, keeps the post-reset wording', () => {
   const after = OWN + 60e3;
   let r = status.reconcileReport(quota(), UNKNOWN, after);
