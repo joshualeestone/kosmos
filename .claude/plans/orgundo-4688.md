@@ -175,3 +175,12 @@ Each must fail on the base (main before this branch) and pass here; run on a qui
 - NITs: the late-create idle comment no longer credits ORGCHART_READ_CTL with every read; orgchartRestoreCreated's
   comment names openCreate's reset. Not taken: Create enabled-but-inert during a create after a reopen (from main,
   inside a hidden box).
+
+## Iteration 12 (Sonnet): no blocker; no NEW findings after dedup
+- Late-create idle test vs a consent box: same concern as the deferral in iterations 6 and 8 (unreachable while
+  ORGCHART_CREATING). Duplicate.
+- Announcement of a restored or late-painted result: DEFERRED as not a gap; #orgchart-count is role="status"
+  aria-live="polite", and both paths set its text.
+- Left-run repaint relying on box visibility: DEFERRED; the condition is in the code (box.hidden), no claim needed.
+- NIT taken: LEAVE DURING CREATE, REOPENED waits on the create having recorded rather than on a fixed 2.5 s margin
+  alone. Code changed, so one more blind iteration runs.

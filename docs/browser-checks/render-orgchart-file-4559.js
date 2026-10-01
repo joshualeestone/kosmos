@@ -570,6 +570,8 @@ async function run() {
       await plc.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
       await plc.click('#team-orgchart-open');
       await plc.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
+      // The held create has answered and recorded (the 2.5 s above is a margin, this is the order).
+      await plc.waitForFunction(() => ORGCHART_CREATING === false && ORGCHART_CREATED.length > 0, null, { timeout: 8000 }).catch(() => {});
       const back = await plc.evaluate(() => ({ created: ORGCHART_CREATED.length, box: !document.getElementById('orgchart-preview-box').hidden,
         undo: !document.getElementById('orgchart-undo').hidden ? document.getElementById('orgchart-undo').textContent : null,
         count: document.getElementById('orgchart-count').textContent, create: document.getElementById('orgchart-create').disabled }));
