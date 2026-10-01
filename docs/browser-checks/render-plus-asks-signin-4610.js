@@ -8,7 +8,7 @@
  *
  * 🔑 WHAT ONLY A BROWSER CAN SAY: which box the cards land in and where it sits. The sign-in step is set the way the
  * wizard sets it (plusSiShow), with #plus-flow hidden as paintPlus leaves it during a sign-in, then the requests are
- * painted (paintAsk). CONTROL: on another view the top card is still the compact "N devices are asking" notice.
+ * painted (paintAsk). CONTROL: on another view the top card is still the compact "N devices want to connect" notice.
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-plus-asks-signin-4610.js
  */
@@ -111,7 +111,7 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       await page.evaluate(async () => { showTab('agents'); paintAsk(); });
       await page.waitForTimeout(200);
       const other = await page.evaluate(() => ({ shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ').trim(), cards: document.querySelectorAll('#askcard .askreq').length }));
-      chk(other.shown && /2 devices are asking to use this Kosmos\./.test(other.text) && other.cards === 0, '[' + W + '] CONTROL: elsewhere the top card is the one-line notice, not the cards', JSON.stringify(other));
+      chk(other.shown && /2 devices want to connect to your Kosmos\./.test(other.text) && other.cards === 0, '[' + W + '] CONTROL: elsewhere the top card is the one-line notice, not the cards', JSON.stringify(other));
       chk(errs.length === 0, '[' + W + '] no page errors', errs.join(' | '));
       await page.close();
     }

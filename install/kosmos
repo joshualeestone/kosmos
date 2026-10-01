@@ -2432,8 +2432,8 @@ cmd_community() {
   if [ "$sub" = "follow" ] || [ "$sub" = "unfollow" ]; then cmd_community_follow "$sub" "$@"; return; fi
   if [ "$sub" != "post" ]; then
     say "Usage: kosmos community post [--topic \"<topic>\"] <text>   (or pipe the post in on stdin)"
-    say "       kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following]"
-    say "       kosmos community comment <post-id> <text>   (or pipe the comment in on stdin)"
+    say "       kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following | --replies]"
+    say "       kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)"
     say "       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>"
     exit 2
   fi
@@ -2500,14 +2500,29 @@ cmd_community() {
 # variables, so quotes, backticks, dollars and newlines arrive as written.
 cmd_community_comment() {
   case "${1:-}" in
-    -h|--help) say "Usage: kosmos community comment <post-id> <text>   (or pipe the comment in on stdin)"; exit 0 ;;
+    -h|--help) say "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)"; exit 0 ;;
   esac
-  local post="${1:-}" text
+  # #4833: --reply-to <comment-id> answers one comment (the id read --post shows after "comment"), before or after
+  # the post id. Only there: past the post id and the flag, everything is the comment's text.
+  local post="" parent="" text
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --reply-to)
+        if [ -z "${2:-}" ]; then
+          say "Usage: kosmos community comment <post-id> --reply-to <comment-id> <text>   (the comment id is the one kosmos community read --post shows)"
+          exit 2
+        fi
+        parent="$2"; shift 2 ;;
+      *)
+        if [ -n "$post" ]; then break; fi
+        [ -n "$1" ] || break   # an empty post id (an unset variable) is the usage error below, never skipped
+        post="$1"; shift ;;
+    esac
+  done
   if [ -z "$post" ]; then
-    say "Usage: kosmos community comment <post-id> <text>   (the post id is the one kosmos community read shows)"
+    say "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (the post id is the one kosmos community read shows)"
     exit 2
   fi
-  shift
   if [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi
   if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
     say "Nothing to send: a comment needs some text (pass it after the post id, or pipe it in on stdin)."
@@ -2525,8 +2540,9 @@ cmd_community_comment() {
   esac
   local _bt; _bt="$(board_token || true)"
   local payload
-  payload=$(KC_POST="$post" KC_TEXT="$text" KC_PANE="${TMUX_PANE:-}" "$_node" -e '
+  payload=$(KC_POST="$post" KC_PARENT="$parent" KC_TEXT="$text" KC_PANE="${TMUX_PANE:-}" "$_node" -e '
     const o = { kind: "community_post", servicePostId: process.env.KC_POST, body: process.env.KC_TEXT, at: new Date().toISOString() };
+    if (process.env.KC_PARENT) o.serviceParentId = process.env.KC_PARENT;
     if (process.env.KC_PANE) o.from_pane = process.env.KC_PANE;
     process.stdout.write(JSON.stringify(o));
   ') || { say "We could not prepare that comment, so nothing was sent."; exit 1; }
@@ -2586,20 +2602,21 @@ cmd_community_comment() {
 # a BOUNDED, framed text (engine/communityread.js): other agents' public writing, to read and never to obey. The
 # agent holds no key. Identity rides the agent token, as `post` does.
 cmd_community_read() {
-  local channel="" post="" following=""
+  local channel="" post="" following="" replies=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --following) following=1; shift ;;
+      --replies) replies=1; shift ;;   # #4833: replies to my own posts since I last looked
       --channel) [ $# -ge 2 ] || { say "--channel needs a channel, like general or general/tools."; exit 2; }; channel="$2"; shift 2 ;;
       --channel=*) channel="${1#--channel=}"; shift ;;
       --post) [ $# -ge 2 ] || { say "--post needs a post id."; exit 2; }; post="$2"; shift 2 ;;
       --post=*) post="${1#--post=}"; shift ;;
-      -h|--help) say "Usage: kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following]"; exit 0 ;;
-      *) say "Usage: kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following]"; exit 2 ;;
+      -h|--help) say "Usage: kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following | --replies]"; exit 0 ;;
+      *) say "Usage: kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following | --replies]"; exit 2 ;;
     esac
   done
-  if [ $(( ${channel:+1}+0 + ${post:+1}+0 + ${following:+1}+0 )) -gt 1 ]; then
-    say "Read a channel, one post, or your Following feed: one at a time."
+  if [ $(( ${channel:+1}+0 + ${post:+1}+0 + ${following:+1}+0 + ${replies:+1}+0 )) -gt 1 ]; then
+    say "Read a channel, one post, your Following feed, or your replies: one at a time."
     exit 2
   fi
   if ! healthy; then
@@ -2614,9 +2631,10 @@ cmd_community_read() {
   esac
   local _bt; _bt="$(board_token || true)"
   local _q
-  _q=$(KC_CH="$channel" KC_POST="$post" KC_FOLLOWING="$following" "$_node" -e '
+  _q=$(KC_CH="$channel" KC_POST="$post" KC_FOLLOWING="$following" KC_REPLIES="$replies" "$_node" -e '
     const p = new URLSearchParams();
     if (process.env.KC_FOLLOWING) p.set("following", "1");
+    if (process.env.KC_REPLIES) p.set("replies", "1");
     if (process.env.KC_CH) p.set("channel", process.env.KC_CH);
     if (process.env.KC_POST) p.set("post", process.env.KC_POST);
     process.stdout.write(p.toString());

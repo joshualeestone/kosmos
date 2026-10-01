@@ -55,6 +55,12 @@ rel="${url#"$HOST_URL"/}"
 # NB: not `path=` -- in zsh `path` is tied to PATH, and tools/test-zsh-tied-names.sh
 # statically refuses any shell file that writes it (a file sourced into zsh would clobber PATH).
 served_file="$LIVE_DIR/$rel"
+# An edge that is late (#4819): a file held back as <name>.late answers 404 once, then is served.
+if [ ! -f "$served_file" ] && [ -f "$served_file.late" ]; then
+  mv "$served_file.late" "$served_file"
+  if [ -n "$wfmt" ]; then printf '404'; exit 0; fi
+  exit 22
+fi
 if [ -n "$wfmt" ]; then
   if [ -f "$served_file" ]; then [ -n "$dest" ] && cp "$served_file" "$dest"; printf '200'; else printf '404'; fi
   exit 0
@@ -73,6 +79,9 @@ mkdir -p "$LIVE_DIR/dist"
 for f in setup index.html vercel.json; do [ -f "./$f" ] && cp "./$f" "$LIVE_DIR/$f"; done
 # A deploy that silently drops one file (the #1669 shape): the post-deploy served-verify must catch it.
 [ -n "${DROP_FROM_DEPLOY:-}" ] && rm -f "$LIVE_DIR/dist/$DROP_FROM_DEPLOY"
+# A deploy that serves DIFFERENT bytes for one file than the export held (#4819).
+[ -n "${MANGLE_ON_DEPLOY:-}" ] && printf ' ' >> "$LIVE_DIR/dist/$MANGLE_ON_DEPLOY"
+[ -n "${LATE_ON_DEPLOY:-}" ] && mv "$LIVE_DIR/dist/$LATE_ON_DEPLOY" "$LIVE_DIR/dist/$LATE_ON_DEPLOY.late"
 exit 0
 VERCEL
 chmod +x "$BIN/vercel"
@@ -133,7 +142,7 @@ make_scenario() {  # [committed_sha_override]
 run_deploy() {  # <site> <live> <flag...> ; echoes output, sets RC
   local s="$1" live="$2"; shift 2
   out="$(PATH="$BIN:$PATH" LIVE_DIR="$live" HOST_URL="$HOSTURL" \
-    KOSMOS_SITE="$s" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" \
+    KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$s" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" \
     bash "$DEPLOY" "$@" 2>&1)"
   RC=$?
 }
@@ -289,6 +298,91 @@ export DROP_FROM_DEPLOY=latest-win-staging.json
 run_deploy "$S11" "$L11" --promote
 unset DROP_FROM_DEPLOY
 [ "$RC" = 1 ] && has "$out" "latest-win-staging.json failed served-verify" && pass "win staged: a deploy that drops the staging pointer fails the served-verify" || bad "win staged dropped pointer (rc=$RC) out=$out"
+
+# =============================================================================================
+# #4819: the STAGED MAC build. A committed latest-staging.json names a third version, served by
+# LIVE but absent from the checkout's dist/ (the 2026-09-30 19:52 shape). The real deploy-site.sh
+# must carry it (fetched from LIVE), deploy it, and served-verify it.
+STG=0.6.32
+STGART="kosmos-$STG-arm64.tar.gz"
+add_staged_mac() {  # <site> <live> [not-served]
+  printf 'STAGED-MAC-BYTES-%s\n' "$STG" > "$T/stg-bytes"
+  write_ptr "$1/dist/latest-staging.json" "$STG" "$(sha_of "$T/stg-bytes")" "$STGART"
+  git -C "$1" add dist/latest-staging.json && git -C "$1" commit -q -m "staging at $STG"
+  if [ "${3:-}" != not-served ]; then
+    cp "$T/stg-bytes" "$2/dist/$STGART"
+    ( cd "$2/dist" && shasum -a 256 "$STGART" > "$STGART.sha256" )
+  fi
+}
+
+# 12) carried from LIVE, deployed, served-verified.
+read -r S12 L12 <<<"$(make_scenario)"; add_staged_mac "$S12" "$L12"
+run_deploy "$S12" "$L12" --promote
+{ [ "$RC" = 0 ] && has "$out" "fetching the one live serves" && [ -f "$S12/dist/$STGART" ] && [ -f "$S12/dist/$STGART.sha256" ]; } \
+  && pass "mac staged: a checkout without the staged Mac build fetches it from LIVE and the deploy succeeds" || bad "mac staged carry (rc=$RC) out=$out"
+
+# 13) a deploy that drops it is caught by the post-deploy served-verify (the pair is checked).
+read -r S13 L13 <<<"$(make_scenario)"; add_staged_mac "$S13" "$L13"
+export DROP_FROM_DEPLOY="$STGART"
+run_deploy "$S13" "$L13" --promote
+unset DROP_FROM_DEPLOY
+[ "$RC" = 1 ] && has "$out" "SERVED dist/$STGART could not be fetched after deploy" && pass "mac staged: a deploy that drops the staged Mac build fails the served-verify" || bad "mac staged dropped (rc=$RC) out=$out"
+
+# 14) neither the checkout nor LIVE has it: refuse BEFORE the deploy, naming it, LIVE untouched.
+read -r S14 L14 <<<"$(make_scenario)"; add_staged_mac "$S14" "$L14" not-served
+run_deploy "$S14" "$L14" --promote
+{ [ "$RC" = 1 ] && has "$out" "live does not serve $STGART.sha256 either" && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L14/dist/latest.json")" = "$OLD" ]; } \
+  && pass "mac staged: no copy anywhere refuses before any deploy, naming $STGART, LIVE left on OLD" || bad "mac staged not served (rc=$RC) out=$out"
+
+# 15) a checkout committing an OLDER staging than LIVE serves refuses before any deploy, LIVE
+#     untouched; the same checkout with KOSMOS_STAGING_ROLLBACK naming its version goes through.
+read -r S15 L15 <<<"$(make_scenario)"; add_staged_mac "$S15" "$L15"
+write_ptr "$L15/dist/latest-staging.json" 0.6.33 "$(sha_of "$T/stg-bytes")" kosmos-0.6.33-arm64.tar.gz
+cp "$L15/dist/latest-staging.json" "$T/live-staging-before"
+run_deploy "$S15" "$L15" --promote
+{ [ "$RC" = 1 ] && has "$out" "live staging is 0.6.33" && cmp -s "$L15/dist/latest-staging.json" "$T/live-staging-before" && [ ! -e "$S15/dist/$NEWART" ] \
+  && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L15/dist/latest.json")" = "$OLD" ]; } \
+  && pass "mac staged: a checkout behind LIVE's staging refuses before any fetch or deploy, LIVE untouched" || bad "mac staged stale checkout (rc=$RC) out=$out"
+KOSMOS_STAGING_ROLLBACK="$STG" run_deploy "$S15" "$L15" --promote   # inline, as the usage says
+{ [ "$RC" = 0 ] && has "$out" "rolling staging back from 0.6.33 to $STG" && has "$(cat "$L15/dist/latest-staging.json")" "$STGART"; } \
+  && pass "mac staged: KOSMOS_STAGING_ROLLBACK=$STG deploys the deliberate rollback" || bad "mac staged rollback (rc=$RC) out=$out"
+
+# 16) the served staging pointer must be the committed one after the deploy.
+read -r S16 L16 <<<"$(make_scenario)"; add_staged_mac "$S16" "$L16"
+export MANGLE_ON_DEPLOY=latest-staging.json
+run_deploy "$S16" "$L16" --promote
+unset MANGLE_ON_DEPLOY
+[ "$RC" = 1 ] && has "$out" "the served latest-staging.json is not the committed one" && pass "mac staged: a deploy serving a different staging pointer than committed fails the post-deploy check" || bad "mac staged pointer mangled (rc=$RC) out=$out"
+
+# 19) a staging pointer published where there was none: the edge answers 404 once after the deploy,
+#     and the post-deploy check reads again rather than failing a good deploy.
+read -r S19 L19 <<<"$(make_scenario)"; add_staged_mac "$S19" "$L19"
+LATE_ON_DEPLOY=latest-staging.json run_deploy "$S19" "$L19" --promote
+{ [ "$RC" = 0 ] && cmp -s "$L19/dist/latest-staging.json" "$S19/dist/latest-staging.json"; } \
+  && pass "mac staged: a staging pointer the edge serves late (404 once) does not fail a good deploy" || bad "mac staged late pointer (rc=$RC) out=$out"
+
+# 20) a malformed committed staging pointer, live serving none: refused before any artifact is
+#     downloaded into the shared dist/.
+read -r S20 L20 <<<"$(make_scenario)"
+write_ptr "$S20/dist/latest-staging.json" 0.6.32 "$(printf 'x' | shasum -a 256 | awk '{print $1}')" not-a-build.zip
+git -C "$S20" add dist/latest-staging.json && git -C "$S20" commit -q -m "malformed staging"
+run_deploy "$S20" "$L20" --promote
+{ [ "$RC" = 1 ] && has "$out" "repair the committed pointer" && [ ! -e "$S20/dist/$NEWART" ]; } \
+  && pass "mac staged: a malformed committed staging pointer refuses before any fetch" || bad "mac staged malformed (rc=$RC) out=$out"
+
+# 17) THE INCIDENT'S PATH: a plain site-copy --publish (live latest.json == committed), from a checkout
+#     whose dist/ lacks the staged tarball, carries it from LIVE and deploys.
+read -r S17 L17 <<<"$(make_scenario)"; cp "$S17/dist/latest.json" "$L17/dist/latest.json"; add_staged_mac "$S17" "$L17"
+run_deploy "$S17" "$L17" --publish
+{ [ "$RC" = 0 ] && has "$out" "fetching the one live serves" && [ -f "$S17/dist/$STGART" ] && cmp -s "$L17/dist/latest-staging.json" "$S17/dist/latest-staging.json"; } \
+  && pass "mac staged (--publish): a site-copy deploy from a checkout without the staged build carries it and deploys" || bad "mac staged publish carry (rc=$RC) out=$out"
+
+# 18) the same site-copy --publish from a checkout behind LIVE's staging refuses before any fetch.
+read -r S18 L18 <<<"$(make_scenario)"; cp "$S18/dist/latest.json" "$L18/dist/latest.json"; add_staged_mac "$S18" "$L18"
+write_ptr "$L18/dist/latest-staging.json" 0.6.33 "$(sha_of "$T/stg-bytes")" kosmos-0.6.33-arm64.tar.gz
+run_deploy "$S18" "$L18" --publish
+{ [ "$RC" = 1 ] && has "$out" "live staging is 0.6.33" && [ ! -e "$S18/dist/$NEWART" ] && has "$(cat "$L18/dist/latest-staging.json")" "0.6.33"; } \
+  && pass "mac staged (--publish): a site-copy deploy from a checkout behind LIVE's staging refuses before any fetch" || bad "mac staged publish stale (rc=$RC) out=$out"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

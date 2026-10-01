@@ -254,6 +254,13 @@ if (args[0] === 'devices') {
     process.stderr.write('the coordinator said no (404): no such pending device\\n');
     process.exit(1);
   }
+  if (verb === 'list' && mode === 'list-allowed-on') { console.log(JSON.stringify({ devices: [
+    { device_id: 'dev-1', name: 'iPhone', allowed_at: 1756000000, last_seen: 0, code: 'K7-3M', allowed_on: 'windowsbox' },
+    { device_id: 'dev-2', name: 'iPad', allowed_at: 1756000000, last_seen: 0, code: 'Q2-8P', allowed_on: null },
+    { device_id: 'dev-3', name: 'Mac', allowed_at: 1756000000, last_seen: 0, code: 'Z9-4T', allowed_on: 42 },
+    { device_id: 'dev-4', name: 'Pixel', allowed_at: 1756000000, last_seen: 0, code: 'W3-1N', allowed_on: '   ' },
+    { device_id: 'dev-5', name: 'Phone', allowed_at: 1756000000, last_seen: 0, code: 'R5-6V', allowed_on: 'x'.repeat(80) },
+  ] })); process.exit(0); }
   if (verb === 'list') { console.log(JSON.stringify({ devices: [{ device_id: 'dev-1', name: 'iPhone', allowed_at: 1756000000, last_seen: 0, code: 'K7-3M' }] })); process.exit(0); }
   if (verb === 'pending') { console.log(JSON.stringify({ devices: [] })); process.exit(0); }
   console.log(JSON.stringify({ [verb === 'allow' ? 'allowed' : verb === 'deny' ? 'denied' : 'removed']: true, device_id: flag('--device-id') }));
@@ -1031,6 +1038,21 @@ test('pending is a FILE the tunnel writes: read, never spawned, and empty while 
   assert.ok(!recorded().some((a) => a[0] === 'devices'), 'reading pending spawned the binary');
 });
 
+test('#4637: a pending row carries joining_computer for another of the person\'s computers, null for a phone or a bad value', () => {
+  const dir = enrol();
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
+    { device_id: 'dev-pc', name: 'windowsbox', first_seen: 1756000000, code: 'X3-P2', joining_computer: 'windowsbox' },
+    { device_id: 'dev-ph', name: 'iPhone', first_seen: 1756000000, code: 'K7-4M' },
+    { device_id: 'dev-bad', name: 'odd', first_seen: 1756000000, code: 'Q1-Z9', joining_computer: '<b>x</b>' },
+    { device_id: 'dev-up', name: 'Josh-PC', first_seen: 1756000000, code: 'A1-B2', joining_computer: 'Josh-PC' },
+    { device_id: 'dev-short', name: 'PC', first_seen: 1756000000, code: 'C3-D4', joining_computer: 'PC' },
+  ] }));
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = 'relay.test:443';
+  remote.setOn(true);
+  const by = Object.fromEntries(remote.pendingDevices().devices.map((d) => [d.device_id, d.joining_computer]));
+  assert.deepEqual(by, { 'dev-pc': 'windowsbox', 'dev-ph': null, 'dev-bad': null, 'dev-up': 'josh-pc', 'dev-short': null });
+});
+
 test('allow drives the binary with the Mac-first verb, the id and the kind; a bad id is refused in words without spawning', async () => {
   enrol();
   const bad = await remote.deviceAllow('../evil', 'iPhone');
@@ -1079,6 +1101,23 @@ test('list joins the sidecar for the screen, and unenrolled is an empty list wit
   assert.equal(got.ok, true, got.because);
   assert.equal(got.data.devices[0].name, 'iPhone');
   assert.equal(got.data.devices[0].code, 'K7-3M');
+  /* #4794: a tunnel without part C sends no allowed_on, and the list reads it as this computer (null). */
+  assert.equal(got.data.devices[0].allowed_on, null);
+});
+
+test('#4794: allowed_on carries the name of the computer that allowed a device, null for this computer or a bad value', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'list-allowed-on';
+  try {
+    const got = await remote.devicesList();
+    assert.equal(got.ok, true, got.because);
+    const by = Object.fromEntries(got.data.devices.map((d) => [d.device_id, d.allowed_on]));
+    assert.equal(by['dev-1'], 'windowsbox');
+    assert.equal(by['dev-2'], null, 'null is this computer');
+    assert.equal(by['dev-3'], null, 'a number is not a computer name');
+    assert.equal(by['dev-4'], null, 'a blank name is not a computer name');
+    assert.equal(by['dev-5'], 'x'.repeat(60), 'a long name is cut to its first 60 characters, like a device name');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
 });
 
 test('#648: with nothing set, the Mac dials the real relay and coordinator, and bakes no CA', () => {

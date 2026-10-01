@@ -460,7 +460,8 @@ function resolve(token, roster) {
        #4763: safeKey is lossy ("Mara" and "mara", "ma.ra" and "mara" share a key, and so one token file), so two
        running agents of ours can both match. Taking the first let one agent's token speak as the other. With
        more than one, NO agent is resolved: the answer is the same as a token we never issued, never a guess.
-       Creating an agent and POST /api/agent-token refuse a key clash with a RUNNING pane agent; this covers a
+       Creating an agent and POST /api/agent-token refuse a key clash with a RUNNING pane agent (and, since #4845, the
+       token route refuses any created agent's key at issuance); this covers a
        clash they cannot see (a session made outside Kosmos, or two made while one was stopped and now both
        running). It covers ONLY two ROWS: with one of them stopped, or with a remote twin whose paneless row
        dedupes against the pane row, there is one row and the other's token (same file, no owner field)
@@ -534,5 +535,22 @@ function resolveName(token) {
   return no;
 }
 
+/**
+ * #4491: the agents that launch with KOSMOS_AGENT_TOKEN_ONLY=1, so their CLIs, report hook and bridges present
+ * their own token alone and never read the board token. Read by the Mac supervisor's launch (bin/agent-supervisor.sh)
+ * only: a Windows launch or an adopted agent does not read it yet. The pilot setting, one agent first: a file beside the
+ * token store, `{ "agents": ["<roster name>", ...] }`, matched EXACTLY (not by safeKey, which two names can
+ * share, #4792). Under the agent's OWN store root: a named-world agent reads its world's file, not the default's.
+ * Anything else (no file, unreadable, a wrong shape) is false, today's behaviour: the switch only
+ * ever narrows an agent, so failing toward off is failing toward what every agent does now.
+ */
+function tokenOnlyFile() { return path.join(store.ROOT, 'agent-token-only.json'); }
+function tokenOnlyFor(name) {
+  if (typeof name !== 'string' || !name) return false;
+  let j;
+  try { j = JSON.parse(fs.readFileSync(tokenOnlyFile(), 'utf8')); } catch { return false; }
+  return !!(j && Array.isArray(j.agents) && j.agents.some((a) => a === name));
+}
+
 module.exports = {
-  mint, revoke, retire, retireLauncher, live, keys, resolve, resolveName, CLASH, DIR, MAX_LIVE };
+  mint, revoke, retire, retireLauncher, live, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyFile, CLASH, DIR, MAX_LIVE };

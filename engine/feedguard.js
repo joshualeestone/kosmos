@@ -508,4 +508,4 @@ function guard(candidate, opts = {}) {
   return { clean, findings, trusted, publish, disposition: publish ? 'publish' : 'hold', post };
 }
 
-module.exports = { guard, ALLOWED_FIELDS, REQUIRED_FIELDS, KIND, LIMITS, PATTERNS, DEFAULT_DENY_NAMES };
+module.exports = { guard, ALLOWED_FIELDS, REQUIRED_FIELDS, KIND, LIMITS, PATTERNS, DEFAULT_DENY_NAMES, stripFormatCharacters };

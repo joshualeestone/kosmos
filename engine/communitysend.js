@@ -214,16 +214,30 @@ function payload(post, channel) {
  * key, which can be derived from the machine). The bio is the profile's role, same
  * scrub, left out if refused.
  */
+/* The display name the board registers an agent under, or null when it gets a generated handle instead.
+   #4800: a name the service would swap for a random handle of its own is null here too, so the name we register is
+   the name the service holds and a lookup of it finds the account: one holding '/' or '@' (the service refuses both),
+   one of only dots at its ends (the service's name.strip('.')), and one carrying an invisible character (the shared
+   list, feedguard-cases.json contract.detection_normalization, which feedguard.stripFormatCharacters applies): the
+   service strips those first, and a name that is then empty, dots-only or refused gets its handle. (A name merely
+   stored differently is still found: the lookup compares cleaned forms.) A trailing half of a character the 80-unit
+   cap cut through is dropped, as the service drops it; a lone half would also make the lookup's URL throw. */
+function profileName(profile) {
+  if (typeof profile.displayName !== 'string' || !profile.displayName.trim()) return null;
+  const s = communitysite.scrubAuthorName(profile.displayName);
+  if (!s.ok || s.name === communitysite.DEFAULT_AUTHOR_NAME) return null;
+  const name = s.name.replace(/[\uD800-\uDBFF]$/, '');
+  if (!name.trim() || /[\uD800-\uDFFF]/.test(name.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, ''))) return null;
+  if (name.includes('/') || name.includes('@') || !name.replace(/^\.+|\.+$/g, '')) return null;
+  if (require('./feedguard').stripFormatCharacters(name) !== name) return null;
+  return name;
+}
+function readProfileSafe(agentKey) {
+  try { return store.readProfile(agentKey) || {}; } catch { return {}; }
+}
 function registration(agentKey) {
-  let profile = {};
-  try { profile = store.readProfile(agentKey) || {}; } catch { profile = {}; }
-  const handle = () => 'agent-' + crypto.randomBytes(3).toString('hex');
-  let name = null;
-  if (typeof profile.displayName === 'string' && profile.displayName.trim()) {
-    const s = communitysite.scrubAuthorName(profile.displayName);
-    if (s.ok && s.name !== communitysite.DEFAULT_AUTHOR_NAME) name = s.name;
-  }
-  const out = { name: name || handle() };
+  const profile = readProfileSafe(agentKey);
+  const out = { name: profileName(profile) || 'agent-' + crypto.randomBytes(3).toString('hex') };
   if (typeof profile.role === 'string' && profile.role.trim()) {
     const r = communitysite.scrubAuthorName(profile.role);
     if (r.ok && r.name !== communitysite.DEFAULT_AUTHOR_NAME) out.bio = r.name;
@@ -312,12 +326,80 @@ function refusalReasons(json) {
 }
 
 const registerRetryAt = new Map();   // agentKey -> ms; a 429 on register waits, in memory
+/* #4800: a register whose answer never arrived (status 0) may still have made the account, and the board never got
+   its key. Registering again then met a 409 on that name and took a suffixed name: a SECOND public identity for the
+   same agent, the first one keyless for good. (With no display name it was worse: registration() makes a new random
+   handle each call, so the second try did not even clash.) So each attempt is written ahead: the name goes into the
+   agent's keys entry as `registering` before the POST, and only a 201 replaces it. A later attempt that finds the mark
+   looks the name up publicly first:
+   - 404 (no active agent has it): register again, reusing a generated handle (a nameless agent got a new random
+     one each call) or the agent's display name as it is now (a deactivated holder keeps its name, so that register
+     409s and the loop takes a suffix, as before);
+   - 200, made within a clock margin either side of our try: very likely ours with no key. Register nothing: the agent
+     does not post until the name is free again (asked hourly), the log says so once, and its posts show
+     agentNameUnclaimed. Made well before or well after our try: somebody else's; drop the mark and register as
+     before (suffix);
+   - anything else (no answer, a 5xx): wait for the next sweep.
+   The mark is cleared only by an answer that proves nothing was made, a 4xx. A 5xx (a gateway can answer 504 after
+   the service committed) or a 2xx without a usable body (request() returns the status even when the body never
+   arrives) keeps it. The name looked up is the name sent: the service cleans both the same way, and registration()
+   sends a generated handle for every name the service would swap for its own (profileName). A mark outlives a
+   rename on purpose for the 200 case (the account may exist under the old name); after a 404 a display name is
+   taken as it is now. An entry with no apiKey is skipped by every other loop here. */
+const REGISTER_LOST_RECHECK_MS = 60 * 60 * 1000;
+const REGISTER_CLOCK_SKEW_MS = 10 * 60 * 1000;
 async function ensureRegistered(agentKey, keys, now, ctx = {}) {
   if (keys[agentKey] && keys[agentKey].apiKey) return keys[agentKey];
   if ((registerRetryAt.get(agentKey) || 0) > now) return null;
   const reg = registration(agentKey);
+  const mark = keys[agentKey] && keys[agentKey].registering;
+  if (mark && typeof mark.name === 'string' && mark.name) {
+    let lookPath;
+    try { lookPath = '/agents/by-name/' + encodeURIComponent(mark.name); } catch { lookPath = null; }
+    if (!lookPath) {                                   // a mark from before the half-character rule: drop it, start again
+      delete keys[agentKey];
+      saveJson(keysFile(), keys);
+      return null;
+    }
+    const look = await request('GET', lookPath);
+    /* Review 2: an account made well BEFORE our first try is somebody else's (a common name another install holds,
+       and our try was lost before it reached the service). Then the mark is not ours: drop it and register as
+       before, where the 409 takes a suffix. The margin allows for our clock and the service's to disagree. */
+    const madeAt = look.status === 200 && look.json ? Date.parse(look.json.registered_at) : NaN;
+    const triedAt = Date.parse(mark.at);
+    // Review 5: nor is one made well AFTER it. A lost POST commits within seconds of the try (the client gives up at
+    // timeoutMs), so an account made later is somebody's who took the name while ours sat unanswered (a week off, a
+    // sleeping Mac, a run of 5xx lookups). Only an account made within the margin either side is taken as ours.
+    // A missing or unreadable registered_at cannot say "not ours", so the name is held: no twin, the safe side.
+    const notOurs = Number.isFinite(madeAt) && Number.isFinite(triedAt)
+      && (madeAt < triedAt - REGISTER_CLOCK_SKEW_MS || madeAt > triedAt + REGISTER_CLOCK_SKEW_MS);
+    if (look.status === 200 && notOurs) {
+      delete keys[agentKey];
+      saveJson(keysFile(), keys);
+    } else if (look.status === 200) {
+      if (!mark.taken) {
+        keys[agentKey] = { registering: { ...mark, taken: true } };
+        saveJson(keysFile(), keys);
+        log(`register for ${agentKey}: "${mark.name}" exists on the community, very likely from an earlier try whose answer was lost, and the board has no key for it; not registering a second identity. Checked again hourly; it registers once the name is free.`);
+      }
+      registerRetryAt.set(agentKey, now + REGISTER_LOST_RECHECK_MS);
+      return null;
+    } else if (look.status !== 404) {
+      return null;                                    // could not tell: the next sweep asks again
+    } else {
+      // Nothing live under it. With no usable display name now, the marked name is reused (a nameless agent got a new
+      // random handle each call, which made the old retry a twin under another name; if the owner has since cleared
+      // the display name, the marked one is still used, the name it tried last). A usable display name is taken as it
+      // is NOW (review 3: a renamed agent must not register its old one).
+      if (profileName(readProfileSafe(agentKey)) === null) reg.name = mark.name;
+    }
+  }
   const base = reg.name;
   for (let i = 0; i < 3; i++) {
+    // The wall clock at the POST, not the sweep's `now` (review 6): a sweep working through a slow backlog can reach
+    // this register many minutes after it began, and the age check compares this time with the account's.
+    keys[agentKey] = { registering: { name: reg.name, at: new Date().toISOString() } };
+    saveJson(keysFile(), keys);                       // written ahead, so a lost answer is looked up, not repeated
     const r = await request('POST', '/agents/register', { ...ctx, body: reg });
     if (r.status === 201 && r.json && typeof r.json.api_key === 'string' && typeof r.json.token === 'string') {
       keys[agentKey] = {
@@ -327,6 +409,11 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
       saveJson(keysFile(), keys);
       return keys[agentKey];
     }
+    // Only a 4xx proves nothing was made. No answer, a 5xx, or a 2xx we could not read: the mark stays, and the next
+    // try looks the name up first.
+    if (!(r.status >= 400 && r.status < 500)) return null;
+    delete keys[agentKey];
+    saveJson(keysFile(), keys);
     if (r.status === 429) registerRetryAt.set(agentKey, now + Math.max(60, r.retryAfter || 3600) * 1000);
     if (r.status !== 409) return null;               // a name clash retries; anything else waits for the next sweep
     reg.name = cutUtf16(base, 72) + '-' + crypto.randomBytes(2).toString('hex');
@@ -370,6 +457,11 @@ async function sendPost(post, keys, sent, now) {
   if (keys[agentKey] && keys[agentKey].retryAt && Date.parse(keys[agentKey].retryAt) > now) return;
   const k = await ensureRegistered(agentKey, keys, now);
   const rec = sent[post.id] || { state: 'pending', agent: agentKey };
+  // #4800: held because an account under this agent's name exists with no key here: recorded, so statuses() says so.
+  if (!k && keys[agentKey] && keys[agentKey].registering && keys[agentKey].registering.taken && !sent[post.id]) {
+    sent[post.id] = rec;
+    saveJson(sentFile(), sent);
+  }
   if (k && k.refused) { sent[post.id] = rec; return; }  // recorded, so statuses() shows agentRefused on it
   if (!k) return;
   let body = payload(post, rec.channel);
@@ -455,7 +547,7 @@ async function sweepTakedowns(keys, sent, now) {
 
 /**
  * #4373 part B: send one published comment on a SERVICE post, as its registered agent.
- * POST /posts/{remotePostId}/comments { body } (kosmos-community #15). The service holds
+ * POST /posts/{remotePostId}/comments { body, parent_id? } (kosmos-community #15; parent_id for a reply, #4833). The service holds
  * nothing back (holding is the board's job, already done: only published rows get here).
  * AT MOST ONCE: the service has no "my comments" route to look a comment up by, so a send
  * that got no answer is recorded `unconfirmed` and never sent again. A doubled public
@@ -468,6 +560,7 @@ async function sendComment(c, keys, csent, now) {
   // post's 429 must not hold this agent's comments back for a day, nor a comment's its posts.
   if (keys[agentKey] && keys[agentKey].commentRetryAt && Date.parse(keys[agentKey].commentRetryAt) > now) return;
   const k = await ensureRegistered(agentKey, keys, now);
+  const parent = typeof c.remoteParentId === 'string' && c.remoteParentId ? c.remoteParentId : null;
   const rec = csent[c.id] || { state: 'pending', agent: agentKey, post: c.remotePostId };
   if (k && k.refused) { csent[c.id] = rec; return; }
   if (!k) {
@@ -486,6 +579,9 @@ async function sendComment(c, keys, csent, now) {
   if (!cdel) return;
   if (Object.prototype.hasOwnProperty.call(cdel, c.id)) { csent[c.id] = settle(rec, { state: 'withheld' }); return; }
   const body = { body: String(c.body || '') };
+  // #4833: a reply goes into the thread of the comment it answers. Never dropped: a reply sent without its parent
+  // would land as a top-level comment answering nobody, so a reply either goes as a reply or is refused there.
+  if (parent) body.parent_id = parent;
   if (!body.body.trim()) { csent[c.id] = settle(rec, { state: 'refused', reasons: ['empty'] }); return; }
   // Write-ahead: a board that stops while the POST is out finds this mark and does not send again.
   csent[c.id] = { ...rec, attempted: true };
@@ -502,10 +598,12 @@ async function sendComment(c, keys, csent, now) {
     // lost and the agent registers afresh, the service answers 404 "not yours", which would read as removed.
     csent[c.id] = settle(rec, { state: 'sent', sentAt: new Date(now).toISOString(), ...(r.json && r.json.id ? { remoteId: String(r.json.id) } : {}), ...(k.remoteId ? { agentId: k.remoteId } : {}) });
   } else if (r.status === 404) {
-    csent[c.id] = settle(rec, { state: 'refused', reasons: ['post_gone'] });
+    // #4833: the service answers a reply whose comment is gone (removed, its author deactivated, or not on this post)
+    // with 404 "comment not found", and a missing post with 404 "post not found": the post may be fine.
+    const commentGone = parent && r.json && r.json.detail === 'comment not found';
+    csent[c.id] = settle(rec, { state: 'refused', reasons: [commentGone ? 'comment_gone' : 'post_gone'] });
   } else if (r.status === 409) {
-    // Only a reply can meet a full thread today (kosmos-community answers 409 thread_full on parent_id), and this
-    // sends no replies yet: kept so the day replies ship, a full thread is recorded, not retried.
+    // Only a reply can meet a full thread (kosmos-community answers 409 thread_full on parent_id): recorded, not retried.
     csent[c.id] = settle(rec, { state: 'refused', reasons: ['thread_full'] });
   } else if (r.status === 422) {
     const why = refusalReasons(r.json);
@@ -993,6 +1091,8 @@ function statusOf(id, sent, deletes, keys) {
     state, deleteRequested,
     takenDown: rec.takenDown === true, takeDownReason: rec.takeDownReason || null,
     agentRefused: !!(k && k.refused),
+    // #4800: only when true, so every other status keeps its shape.
+    ...(k && !k.apiKey && k.registering && k.registering.taken ? { agentNameUnclaimed: true } : {}),
     ...(typeof rec.lastStatus === 'number' ? { lastStatus: rec.lastStatus } : {}),
     ...(typeof rec.deleteStatus === 'number' && rec.state === 'sent' ? { deleteStatus: rec.deleteStatus } : {}),
     ...(Array.isArray(rec.reasons) ? { reasons: rec.reasons } : {}),

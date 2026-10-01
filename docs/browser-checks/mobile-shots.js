@@ -172,6 +172,14 @@ const consAgentsStill = (want) => async (page) => {
   if (!got.panel || !got.inView || got.on !== want) throw new Error('the shot is not the Agents view with ' + want + ' chosen: ' + JSON.stringify(got));
 };
 
+/* #4637: two waiting requests for the connect screens, and an Allow that answers. */
+async function connectPending(page) {
+  let devices = [
+    { device_id: 'd-sample-pc', name: 'windowsbox', code: 'X3-P2', first_seen: Math.floor(Date.now() / 1000) - 30, denied_at: 0, joining_computer: 'windowsbox' },
+    { device_id: 'd-sample-ph', name: 'iPhone', code: 'K7-4M', first_seen: Math.floor(Date.now() / 1000) - 90, denied_at: 0, joining_computer: null }];
+  await page.route('**/api/remote/pending', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ email: 'owner@example.com', snapshot: true, devices }) }));
+  await page.route('**/api/remote/devices/allow', (r) => { devices = devices.filter((d) => d.device_id !== 'd-sample-pc'); return r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
+}
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
@@ -289,11 +297,11 @@ const SCREENS = [
         const cs = getComputedStyle(card), r = card.getBoundingClientRect();
         const left = r.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft);
         const right = r.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight);
-        const cells = [...card.querySelectorAll('.devcode-cell')];
-        if (!cells.length) return 'no code boxes in a request card';   // the stub's request always has a code
+        const cells = [...card.querySelectorAll('.askcodebig')];   // #4637: one large code line, was a box per character
+        if (!cells.length) return 'no code in a request card';   // the stub's request always has a code
         const over = cells.map((c) => { const b = c.getBoundingClientRect(); return Math.max(b.right - right, left - b.left); });
         const out = over.filter((d) => d > 0.5);
-        if (out.length) return out.length + ' of ' + cells.length + ' code boxes leave the card, the farthest by ' + Math.round(Math.max(...out)) + 'px';
+        if (out.length) return out.length + ' of ' + cells.length + ' codes leave the card, the farthest by ' + Math.round(Math.max(...out)) + 'px';
       }
       return '';
     };
@@ -303,6 +311,21 @@ const SCREENS = [
       await page.waitForTimeout(200);
     }
     if (spill) throw new Error('the code does not fit its card: ' + spill);
+  } },
+  /* #4637: the "wants to connect" sheet (Mona Lisa's flow outline, #4754). Two requests: another of the person's
+     computers joining (#4773's joining_computer) and a phone. connect-connected is after Allow on the computer;
+     connect-notice is the strip on another page. Each asserts its words, so a wrong screen fails the shot. */
+  { name: 'connect-sheet', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await connectPending(page); await at(page, '?tab=settings&sec=plus');
+    await page.waitForFunction(() => /Your computer "windowsbox" wants to join/.test((document.getElementById('plus-ask-rows') || {}).innerText || ''), null, { timeout: 8000 });
+  } },
+  { name: 'connect-connected', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await connectPending(page); await at(page, '?tab=settings&sec=plus');
+    await page.waitForSelector('#plus-ask-rows [data-ask="allow"][data-id="d-sample-pc"]', { state: 'visible', timeout: 8000 });
+    await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-sample-pc"]');
+    await page.waitForFunction(() => /windowsbox is connected\./.test((document.getElementById('plus-ask-rows') || {}).innerText || ''), null, { timeout: 8000 });
+  } },
+  { name: 'connect-notice', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await connectPending(page); await at(page, '');
+    await page.evaluate(() => { if (typeof pollAsk === 'function') return pollAsk(); });
+    await page.waitForFunction(() => /want to connect to your Kosmos/.test((document.getElementById('askcard') || {}).innerText || ''), null, { timeout: 8000 });
   } },
   // Sonya: settings.
   { name: 'settings', owner: 'Sonya', go: async (page) => {

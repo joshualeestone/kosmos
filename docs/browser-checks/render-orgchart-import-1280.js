@@ -385,7 +385,8 @@ function check(name, pass, detail) {
   check('duplicate titles de-duplicate to distinct names within the length cap (no hang)',
     dedup.count === 4 && dedup.distinct === 4 && dedup.maxLen <= 32, JSON.stringify(dedup));
 
-  // ---- Leaving the panel while Undo is removing: the old run paints nothing on return ----
+  // ---- Leaving the panel while Undo is removing: the old run's progress is not painted on return. #4688: the
+  // reopened panel shows what it removed before the person left, and offers Undo for the one still on the board ----
   await page.fill('#orgchart-text', 'Marketing Lead\nEngineer');
   await page.click('#orgchart-preview');
   await page.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 5000 });
@@ -403,15 +404,19 @@ function check(name, pass, detail) {
   await page.click('#create-path-back');
   await page.click('#cstep-kind [data-path="team"]');
   await page.click('#team-orgchart-open');
-  await page.waitForTimeout(1500);
+  // A swallowed timeout still fails: the check asserts the same state.
+  await page.waitForFunction(() => /before you left/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 5000 }).catch(() => {});
   removalDelayMs = 0;
   const superseded = await page.evaluate(() => ({
     count: document.getElementById('orgchart-count').textContent,
     boxHidden: document.getElementById('orgchart-preview-box').hidden,
     previewDisabled: document.getElementById('orgchart-preview').disabled,
+    undo: document.getElementById('orgchart-undo').hidden ? null : document.getElementById('orgchart-undo').textContent,
+    asking: !document.getElementById('orgchart-undo-go').hidden,
   }));
-  check('an Undo left mid-run does not paint over the panel it left, and Preview works again',
-    !/Removed|Removing/.test(superseded.count) && superseded.boxHidden && !superseded.previewDisabled, JSON.stringify(superseded));
+  check('an Undo left mid-run: the reopened panel shows what it removed, offers Undo for the rest, and Preview works (#4688)',
+    !/Removing/.test(superseded.count) && /Removed 1 of 2 before you left\. 1 is still on your board/.test(superseded.count)
+    && !superseded.boxHidden && !superseded.asking && /remove this agent/.test(superseded.undo || '') && !superseded.previewDisabled, JSON.stringify(superseded));
   check('and it stops sending removals once left: one of two was asked, never the second',
     removeCalls.length === 1, JSON.stringify(removeCalls));
 

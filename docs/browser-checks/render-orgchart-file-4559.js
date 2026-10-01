@@ -1,4 +1,4 @@
-// Browser-check-surface: team-orgchart-open cstep-team orgchartpick orgchart-read-stop orgchart-edit orgchart-file-btn orgchart-file orgchart-file-note orgchart-consent orgchart-consent-say orgchart-consent-go orgchart-consent-no orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-msg orgchart-usenames
+// Browser-check-surface: orgchart-undo orgchart-undo-go orgchart-undo-keep orgchart-preview create-path-back team-orgchart-open cstep-team orgchartpick orgchart-read-stop orgchart-edit orgchart-file-btn orgchart-file orgchart-file-note orgchart-consent orgchart-consent-say orgchart-consent-go orgchart-consent-no orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-msg orgchart-usenames
 'use strict';
 
 /*
@@ -207,10 +207,17 @@ async function run() {
     } else check('STOP: the panel offers a file', false);
     await pst.close();
 
-    /* #4556: closing the panel after a create keeps the result and its Undo (only the file flow ends on close; the
-       full reset is on reopening, as it was when the org chart was chosen again on main). */
+    /* #4556: closing the panel after a create keeps the result and its Undo (only the file flow ends on close).
+       #4688: reopening keeps them too, for ORGCHART_UNDO_KEEP_MS after the create. */
     {
       const pk = await page();
+      await pk.route('**/api/agent/*/profile', (r) => r.fulfill({ status: 200, json: { ok: true } }));   // #4688: off the sandbox board
+      // #4688: the Undo ask's plan reads, mocked (a later arm on this page adds its own removal route over this one).
+      await pk.route('**/api/agent/*/removal', (r) => {
+        const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
+        if (r.request().method() !== 'GET') return r.fulfill({ status: 200, json: { outcome: 'removed' } });
+        r.fulfill({ status: 200, json: { ok: true, name, label: name, loses: ['Its place on the board'], keeps: ['Its folder'] } });
+      });
       await pk.route('**/api/team', (r) => {
         const body = JSON.parse(r.request().postData() || '{}');
         r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } });
@@ -221,10 +228,71 @@ async function run() {
         await pk.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 10000 });
         await pk.click('#orgchart-create');
         await pk.waitForFunction(() => /Created 7 agents/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 8000 });
+        /* #4688 review CONTROL: the 15-minute window is for a result brought back by a reopen. A result the person never
+           left keeps its Undo (as before #4688): aged 16 minutes, Undo still asks. */
+        await pk.evaluate(() => { ORGCHART_CREATED_AT = Date.now() - 16 * 60 * 1000; });
+        await pk.click('#orgchart-undo');
+        await pk.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 }).catch(() => {});
+        const neverLeft = await pk.evaluate(() => ({ asking: !document.getElementById('orgchart-undo-go').hidden, created: ORGCHART_CREATED.length }));
+        check('#4688 CONTROL: a result never left still offers Undo past 15 minutes', neverLeft.asking && neverLeft.created === 7, JSON.stringify(neverLeft));
+        if (neverLeft.asking) await pk.click('#orgchart-undo-keep');
+        await pk.evaluate(() => { ORGCHART_CREATED_AT = Date.now(); });
         await pk.click('#team-orgchart-open');   // close the panel
         await pk.waitForSelector('#orgchartpick', { state: 'hidden', timeout: 5000 });
         const kept = await pk.evaluate(() => ({ created: ORGCHART_CREATED.length, undoShown: !document.getElementById('orgchart-undo').hidden, count: document.getElementById('orgchart-count').textContent }));
         check('CLOSE AFTER CREATE: closing the panel keeps the created team and its Undo', kept.created === 7 && kept.undoShown && /Created 7 agents/.test(kept.count), JSON.stringify(kept));
+        // #4688: and reopening it still offers that Undo (the reopen used to clear it).
+        await pk.click('#team-orgchart-open');
+        await pk.waitForSelector('#orgchartpick', { state: 'visible', timeout: 5000 });
+        const re = await pk.evaluate(() => ({ created: ORGCHART_CREATED.length, undoShown: !document.getElementById('orgchart-undo').hidden, box: !document.getElementById('orgchart-preview-box').hidden }));
+        check('#4688 CLOSE, REOPEN AFTER CREATE: reopening the panel still offers the team\'s Undo', re.created === 7 && re.undoShown && re.box, JSON.stringify(re));
+        /* #4688 review: the kept Undo lasts ORGCHART_UNDO_KEEP_MS (15 minutes) from the create. The create's age is
+           set from the page rather than waited out. */
+        const reopenAged = async (ageMs) => {
+          await pk.evaluate((a) => { ORGCHART_CREATED_AT = Date.now() - a; }, ageMs);
+          await pk.click('#team-orgchart-open');   // close
+          await pk.waitForSelector('#orgchartpick', { state: 'hidden', timeout: 5000 });
+          await pk.click('#team-orgchart-open');   // reopen
+          await pk.waitForSelector('#orgchartpick', { state: 'visible', timeout: 5000 });
+          return pk.evaluate(() => ({ created: ORGCHART_CREATED.length, undoShown: !document.getElementById('orgchart-undo').hidden,
+            box: !document.getElementById('orgchart-preview-box').hidden }));
+        };
+        const inside = await reopenAged(14 * 60 * 1000);
+        check('#4688 CONTROL: a reopen 14 minutes after the create still offers the Undo', inside.created === 7 && inside.undoShown && inside.box, JSON.stringify(inside));
+        await pk.evaluate(() => { window.__keptList = ORGCHART_CREATED.slice(); window.__keptResult = ORGCHART_RESULT; });
+        const past = await reopenAged(16 * 60 * 1000);
+        check('#4688 EXPIRED ON REOPEN: a reopen 16 minutes after the create drops the Undo', past.created === 0 && !past.undoShown && !past.box, JSON.stringify(past));
+        // The same list back with a fresh create time, shown on screen, then aged past the window before Undo is pressed.
+        await pk.evaluate(() => { ORGCHART_CREATED = window.__keptList; ORGCHART_RESULT = window.__keptResult; ORGCHART_CREATED_AT = Date.now(); });
+        const shownAgain = await reopenAged(0);
+        await pk.evaluate(() => { ORGCHART_CREATED_AT = Date.now() - 16 * 60 * 1000; });
+        // Guarded: where the reopen brings nothing back (main), this is one FAIL line, not a thrown click ending the check.
+        if (shownAgain.undoShown) await pk.click('#orgchart-undo');
+        const onScreen = await pk.evaluate(() => ({ created: ORGCHART_CREATED.length, undoShown: !document.getElementById('orgchart-undo').hidden,
+          asking: !document.getElementById('orgchart-undo-go').hidden, msg: document.getElementById('orgchart-msg').textContent }));
+        check('#4688 EXPIRED ON SCREEN: Undo pressed 16 minutes after the create says it is no longer offered and asks nothing',
+          shownAgain.created === 7 && shownAgain.undoShown && onScreen.created === 0 && !onScreen.undoShown && !onScreen.asking
+          && /Undo is no longer offered/.test(onScreen.msg), JSON.stringify([shownAgain, onScreen]));
+        // And past the window between the ask and Remove: nothing is removed and the result, not the ask, is back.
+        await pk.evaluate(() => { ORGCHART_CREATED = window.__keptList; ORGCHART_RESULT = window.__keptResult; ORGCHART_CREATED_AT = Date.now(); });
+        const shownForRemove = await reopenAged(0);
+        await pk.route('**/api/agent/*/removal', (r) => {
+          const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
+          r.fulfill({ status: 200, json: { ok: true, name, label: name, loses: ['Its place on the board'], keeps: ['Its folder'] } });
+        });
+        let pkDeletes = 0;
+        pk.on('request', (q) => { if (q.method() === 'DELETE') pkDeletes += 1; });
+        if (shownForRemove.undoShown) {
+          await pk.click('#orgchart-undo');
+          await pk.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 }).catch(() => {});
+          await pk.evaluate(() => { ORGCHART_CREATED_AT = Date.now() - 16 * 60 * 1000; });
+          if (await pk.isVisible('#orgchart-undo-go')) await pk.click('#orgchart-undo-go');
+        }
+        const atRemove = await pk.evaluate(() => ({ created: ORGCHART_CREATED.length, asking: !document.getElementById('orgchart-undo-go').hidden,
+          count: document.getElementById('orgchart-count').textContent, msg: document.getElementById('orgchart-msg').textContent }));
+        check('#4688 EXPIRED AT REMOVE: Remove pressed past the window removes nothing and shows the result again, not the ask',
+          pkDeletes === 0 && atRemove.created === 0 && !atRemove.asking && /Created 7 agents/.test(atRemove.count)
+          && /Undo is no longer offered/.test(atRemove.msg), JSON.stringify([pkDeletes, atRemove]));
       } else check('CLOSE AFTER CREATE: the panel offers a file', false);
       await pk.close();
     }
@@ -496,8 +564,247 @@ async function run() {
       const sortedL = putsL.slice().sort();
       check('LEAVE DURING CREATE: the reporting-line fix-up still lands after the person left the panel',
         JSON.stringify(sortedL) === JSON.stringify(['account-executive={"reportsTo":"head-of-sales-2"}', 'sales-engineer={"reportsTo":"head-of-sales-2"}']), JSON.stringify(sortedL));
+      /* #4688: the team made after they left comes back with the panel, with its Undo, not a blank panel and 4
+         agents to remove one by one. FOUR: this arm's read is mocked with PICTURE_ROWS (4 people), not the CSV's 7. */
+      await plc.click('#cstep-kind [data-path="team"]');
+      await plc.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
+      await plc.click('#team-orgchart-open');
+      await plc.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
+      // The held create has answered and recorded (the 2.5 s above is a margin, this is the order).
+      await plc.waitForFunction(() => ORGCHART_CREATING === false && ORGCHART_CREATED.length > 0, null, { timeout: 8000 }).catch(() => {});
+      const back = await plc.evaluate(() => ({ created: ORGCHART_CREATED.length, box: !document.getElementById('orgchart-preview-box').hidden,
+        undo: !document.getElementById('orgchart-undo').hidden ? document.getElementById('orgchart-undo').textContent : null,
+        count: document.getElementById('orgchart-count').textContent, create: document.getElementById('orgchart-create').disabled }));
+      check('#4688 LEAVE DURING CREATE, REOPENED: the team made after the person left comes back with its result and Undo',
+        back.created === 4 && back.box && /remove these 4 agents/.test(back.undo || '') && /Created 4 agents/.test(back.count) && back.create, JSON.stringify(back));
+      // CONTROL: a new batch still replaces it (a fresh Preview), so the kept Undo is not sticky forever.
+      await plc.fill('#orgchart-text', 'Chief Executive Officer');
+      await plc.click('#orgchart-preview');
+      const fresh = await plc.evaluate(() => ({ created: ORGCHART_CREATED.length, undo: !document.getElementById('orgchart-undo').hidden }));
+      check('#4688 CONTROL: a fresh Preview after the reopen is a new batch and drops the old Undo', fresh.created === 0 && !fresh.undo, JSON.stringify(fresh));
     } else check('LEAVE DURING CREATE: the panel offers a file', false);
     await plc.close();
+
+    /* #4688: the person leaves while the team is being made and is BACK in the panel before the answer lands. The
+       late answer shows its result and Undo in the idle panel, rather than recording it for a reopen that already
+       happened. The create is held until released, so the order is certain. */
+    const prb = await page();
+    await prb.route('**/api/agent/*/profile', (r) => r.fulfill({ status: 200, json: { ok: true } }));   // #4688: the fix-ups stay off the sandbox board
+    let releaseTeam;
+    const teamHeld = new Promise((ok) => { releaseTeam = ok; });
+    await prb.route('**/api/team', async (r) => {
+      const body = JSON.parse(r.request().postData() || '{}');
+      await teamHeld;
+      r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } });
+    });
+    await openPanel(prb);
+    if (await prb.$('#orgchart-file-btn')) {
+      await prb.setInputFiles('#orgchart-file', path.join(FIX, 'people.csv'));
+      await prb.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
+      await prb.click('#orgchart-create');
+      await prb.waitForFunction(() => ORGCHART_CREATING === true, null, { timeout: 5000 });   // the held create is in flight
+      await prb.click('#create-path-back');
+      await prb.click('#cstep-kind [data-path="team"]');
+      await prb.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
+      await prb.click('#team-orgchart-open');
+      await prb.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
+      const before = await prb.evaluate(() => ({ box: !document.getElementById('orgchart-preview-box').hidden, undo: !document.getElementById('orgchart-undo').hidden,
+        msg: document.getElementById('orgchart-msg').hidden ? '' : document.getElementById('orgchart-msg').textContent }));
+      releaseTeam();
+      await prb.waitForFunction(() => !document.getElementById('orgchart-undo').hidden, null, { timeout: 5000 }).catch(() => {});
+      const after = await prb.evaluate(() => ({ created: ORGCHART_CREATED.length, undo: !document.getElementById('orgchart-undo').hidden ? document.getElementById('orgchart-undo').textContent : null,
+        count: document.getElementById('orgchart-count').textContent }));
+      check('#4688 REOPEN BEFORE THE ANSWER: the panel is idle while it waits, then the late create shows its result and Undo',
+        !before.box && !before.undo && /Your team is still being created/.test(before.msg) && after.created === 7 && /remove these 7 agents/.test(after.undo || '') && /Created 7 agents/.test(after.count), JSON.stringify([before, after]));
+    } else check('#4688 REOPEN BEFORE THE ANSWER: the panel offers a file', false);
+    await prb.close();
+
+    /* #4688 review: an Undo the person leaves mid-run. The first 3 removals answer at once, the 4th is held while
+       they press Back and lands after; on reopen the kept Undo must offer the 3 still on the board, not all 7. */
+    const pud = await page();
+    await pud.route('**/api/agent/*/profile', (r) => r.fulfill({ status: 200, json: { ok: true } }));   // #4688: the fix-ups stay off the sandbox board
+    let deletes = 0;
+    let releaseDel;
+    const delHeld = new Promise((ok) => { releaseDel = ok; });
+    await pud.route('**/api/team', (r) => {
+      const body = JSON.parse(r.request().postData() || '{}');
+      r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } });
+    });
+    await pud.route('**/api/agent/*/removal', async (r) => {
+      const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
+      if (r.request().method() === 'GET') return r.fulfill({ status: 200, json: { ok: true, name, label: name, loses: ['Its place on the board'], keeps: ['Its folder'] } });
+      deletes += 1;
+      if (deletes === 4) await delHeld;
+      r.fulfill({ status: 200, json: { outcome: 'removed', because: name + ' has been removed.' } });
+    });
+    await pud.route('**/api/removed', (r) => r.fulfill({ status: 200, json: { agents: [] } }));
+    await openPanel(pud);
+    if (await pud.$('#orgchart-file-btn')) {
+      await pud.setInputFiles('#orgchart-file', path.join(FIX, 'people.csv'));
+      await pud.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
+      await pud.click('#orgchart-create');
+      await pud.waitForFunction(() => /Created 7 agents/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 8000 });
+      await pud.click('#orgchart-undo');
+      await pud.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
+      await pud.click('#orgchart-undo-go');
+      for (let i = 0; i < 50 && deletes < 4; i++) await pud.waitForTimeout(100);   // the 4th removal is now held
+      await pud.click('#create-path-back');
+      releaseDel();
+      await pud.waitForFunction(() => ORGCHART_CREATED.length === 3, null, { timeout: 5000 }).catch(() => {});   // the held answer lands after the person left
+      await pud.click('#cstep-kind [data-path="team"]');
+      await pud.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
+      await pud.click('#team-orgchart-open');
+      await pud.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
+      const ud = await pud.evaluate(() => ({ created: ORGCHART_CREATED.length, undo: !document.getElementById('orgchart-undo').hidden ? document.getElementById('orgchart-undo').textContent : null,
+        count: document.getElementById('orgchart-count').textContent }));
+      check('#4688 UNDO LEFT MID-RUN, REOPENED: the kept Undo offers only the agents still on the board',
+        deletes === 4 && ud.created === 3 && /remove these 3 agents/.test(ud.undo || '') && /Removed 4 of 7 before you left/.test(ud.count), JSON.stringify([deletes, ud]));
+    } else check('#4688 UNDO LEFT MID-RUN: the panel offers a file', false);
+    await pud.close();
+
+    /* #4688 review: the same, but the person is BACK in the panel before the held removal answers. The reopen shows
+       the kept list as it stood (7); the late answer must repaint it to the 3 still on the board. */
+    const pur = await page();
+    await pur.route('**/api/agent/*/profile', (r) => r.fulfill({ status: 200, json: { ok: true } }));   // #4688: the fix-ups stay off the sandbox board
+    let deletesR = 0;
+    let releaseDelR;
+    const delHeldR = new Promise((ok) => { releaseDelR = ok; });
+    await pur.route('**/api/team', (r) => {
+      const body = JSON.parse(r.request().postData() || '{}');
+      r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } });
+    });
+    await pur.route('**/api/agent/*/removal', async (r) => {
+      const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
+      if (r.request().method() === 'GET') return r.fulfill({ status: 200, json: { ok: true, name, label: name, loses: ['Its place on the board'], keeps: ['Its folder'] } });
+      deletesR += 1;
+      if (deletesR === 4) await delHeldR;
+      r.fulfill({ status: 200, json: { outcome: 'removed', because: name + ' has been removed.' } });
+    });
+    await pur.route('**/api/removed', (r) => r.fulfill({ status: 200, json: { agents: [] } }));
+    await openPanel(pur);
+    if (await pur.$('#orgchart-file-btn')) {
+      await pur.setInputFiles('#orgchart-file', path.join(FIX, 'people.csv'));
+      await pur.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
+      await pur.click('#orgchart-create');
+      await pur.waitForFunction(() => /Created 7 agents/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 8000 });
+      await pur.click('#orgchart-undo');
+      await pur.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
+      await pur.click('#orgchart-undo-go');
+      for (let i = 0; i < 50 && deletesR < 4; i++) await pur.waitForTimeout(100);   // the 4th removal is now held
+      await pur.click('#create-path-back');
+      await pur.click('#cstep-kind [data-path="team"]');
+      await pur.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
+      await pur.click('#team-orgchart-open');
+      await pur.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
+      const readUd = () => pur.evaluate(() => ({ created: ORGCHART_CREATED.length, undo: !document.getElementById('orgchart-undo').hidden ? document.getElementById('orgchart-undo').textContent : null,
+        count: document.getElementById('orgchart-count').textContent }));
+      const beforeR = await readUd();
+      releaseDelR();
+      await pur.waitForFunction(() => /remove these 3 agents/.test(document.getElementById('orgchart-undo').textContent), null, { timeout: 5000 }).catch(() => {});
+      const afterR = await readUd();
+      check('#4688 UNDO LEFT MID-RUN, BACK BEFORE THE ANSWER: the open panel is repainted to the agents still on the board',
+        deletesR === 4 && /remove these 7 agents/.test(beforeR.undo || '') && afterR.created === 3 && /remove these 3 agents/.test(afterR.undo || '')
+        && /Removed 4 of 7 before you left/.test(afterR.count), JSON.stringify([deletesR, beforeR, afterR]));
+    } else check('#4688 UNDO LEFT MID-RUN, BACK BEFORE THE ANSWER: the panel offers a file', false);
+    await pur.close();
+
+    /* #4688 review: back in the panel, the person presses Undo again before the old run's held removal answers. The
+       answer takes the removed agents off the kept list and ends the open ask, showing what is still on the board
+       with an Undo that asks afresh. Run twice: the held answer is the 4th of 7 (3 left) and the 7th (none left). */
+    const undoAgain = async (heldAt) => {
+      const pua = await page();
+      await pua.route('**/api/agent/*/profile', (r) => r.fulfill({ status: 200, json: { ok: true } }));   // #4688: the fix-ups stay off the sandbox board
+      let deletesA = 0;
+      let releaseDelA;
+      const delHeldA = new Promise((ok) => { releaseDelA = ok; });
+      await pua.route('**/api/team', (r) => {
+        const body = JSON.parse(r.request().postData() || '{}');
+        r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } });
+      });
+      await pua.route('**/api/agent/*/removal', async (r) => {
+        const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
+        if (r.request().method() === 'GET') return r.fulfill({ status: 200, json: { ok: true, name, label: name, loses: ['Its place on the board'], keeps: ['Its folder'] } });
+        deletesA += 1;
+        if (deletesA === heldAt) await delHeldA;
+        r.fulfill({ status: 200, json: { outcome: 'removed', because: name + ' has been removed.' } });
+      });
+      await pua.route('**/api/removed', (r) => r.fulfill({ status: 200, json: { agents: [] } }));
+      await openPanel(pua);
+      let out = null;
+      if (await pua.$('#orgchart-file-btn')) {
+        await pua.setInputFiles('#orgchart-file', path.join(FIX, 'people.csv'));
+        await pua.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
+        await pua.click('#orgchart-create');
+        await pua.waitForFunction(() => /Created 7 agents/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 8000 });
+        await pua.click('#orgchart-undo');
+        await pua.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
+        await pua.click('#orgchart-undo-go');
+        for (let i = 0; i < 50 && deletesA < heldAt; i++) await pua.waitForTimeout(100);   // the held removal is in flight
+        await pua.click('#create-path-back');
+        await pua.click('#cstep-kind [data-path="team"]');
+        await pua.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
+        await pua.click('#team-orgchart-open');
+        await pua.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
+        // Guarded, as above: no Undo after the reopen is a FAIL line, not a thrown click.
+        if (await pua.isVisible('#orgchart-undo')) {
+          await pua.click('#orgchart-undo');
+          await pua.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 }).catch(() => {});
+        }
+        const asking = await pua.evaluate(() => document.getElementById('orgchart-undo-go').textContent);
+        releaseDelA();
+        // A swallowed timeout still fails: the check asserts the same state.
+        await pua.waitForFunction(() => document.getElementById('orgchart-undo-go').hidden, null, { timeout: 5000 }).catch(() => {});
+        out = await pua.evaluate(() => ({ created: ORGCHART_CREATED.length, asking: !document.getElementById('orgchart-undo-go').hidden,
+          undo: !document.getElementById('orgchart-undo').hidden ? document.getElementById('orgchart-undo').textContent : null,
+          back: !document.getElementById('orgchart-edit').hidden, preview: !document.getElementById('orgchart-preview').disabled,
+          count: document.getElementById('orgchart-count').textContent, msg: document.getElementById('orgchart-msg').textContent }));
+        out.firstAsk = asking;
+        out.deletes = deletesA;
+      }
+      await pua.close();
+      return out;
+    };
+    const ua3 = await undoAgain(4);
+    check('#4688 UNDO AGAIN BEFORE THE OLD ANSWER (3 left): the open ask ends and the panel offers the 3 still on the board',
+      !!ua3 && ua3.deletes === 4 && /Remove these 7 agents/.test(ua3.firstAsk) && !ua3.asking && ua3.created === 3 && /remove these 3 agents/.test(ua3.undo || '')
+      && /Removed 4 of 7 before you left/.test(ua3.count) && /The Undo you left removed some of these first\. Press Undo again/.test(ua3.msg) && ua3.back && ua3.preview, JSON.stringify(ua3));
+    const ua0 = await undoAgain(7);
+    check('#4688 UNDO AGAIN BEFORE THE OLD ANSWER (none left): the open ask ends with nothing left to offer, and the panel is usable',
+      !!ua0 && ua0.deletes === 7 && !ua0.asking && ua0.created === 0 && ua0.undo === null && /Removed 7 agents\./.test(ua0.count)
+      && /The Undo you left removed all of these first\.$/.test(ua0.msg) && ua0.back && ua0.preview, JSON.stringify(ua0));
+
+    /* #4688 review: a late create that made NOTHING (every row refused) replaces nothing: the reopened, idle panel stays
+       empty rather than showing a result with no Undo. */
+    const pnz = await page();
+    await pnz.route('**/api/agent/*/profile', (r) => r.fulfill({ status: 200, json: { ok: true } }));   // #4688: the fix-ups stay off the sandbox board
+    let releaseNone;
+    const noneHeld = new Promise((ok) => { releaseNone = ok; });
+    await pnz.route('**/api/team', async (r) => {
+      const body = JSON.parse(r.request().postData() || '{}');
+      await noneHeld;
+      r.fulfill({ status: 200, json: { outcome: 'created', created: [], refused: body.members.map((m) => ({ name: m.name, because: 'taken' })) } });
+    });
+    await openPanel(pnz);
+    if (await pnz.$('#orgchart-file-btn')) {
+      await pnz.setInputFiles('#orgchart-file', path.join(FIX, 'people.csv'));
+      await pnz.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
+      await pnz.click('#orgchart-create');
+      await pnz.waitForFunction(() => ORGCHART_CREATING === true, null, { timeout: 5000 });
+      await pnz.click('#create-path-back');
+      await pnz.click('#cstep-kind [data-path="team"]');
+      await pnz.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
+      await pnz.click('#team-orgchart-open');
+      await pnz.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
+      releaseNone();
+      await pnz.waitForFunction(() => ORGCHART_CREATING === false, null, { timeout: 5000 }).catch(() => {});
+      await pnz.waitForTimeout(300);   // an ABSENCE check: let anything the answer would paint land first
+      const nz = await pnz.evaluate(() => ({ creating: ORGCHART_CREATING, created: ORGCHART_CREATED.length,
+        box: !document.getElementById('orgchart-preview-box').hidden, undo: !document.getElementById('orgchart-undo').hidden,
+        msg: document.getElementById('orgchart-msg').hidden ? '' : document.getElementById('orgchart-msg').textContent }));
+      check('#4688 LATE CREATE THAT MADE NOTHING: the reopened panel shows no result and no Undo, and says nothing was created',
+        !nz.creating && nz.created === 0 && !nz.box && !nz.undo && /No agents were created/.test(nz.msg) && !/still being created/.test(nz.msg), JSON.stringify(nz));
+    } else check('#4688 LATE CREATE THAT MADE NOTHING: the panel offers a file', false);
+    await pnz.close();
 
     // RENAMED + FAILED: create canonicalises a manager's name (head-of-sales -> head-of-sales-2), so the person
     // under it is re-pointed to the name it was created under; and a profile update that fails is named, not counted.

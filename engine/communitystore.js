@@ -300,6 +300,9 @@ function insertServiceComment(rec) {
     id: newId(),
     postId: null,
     remotePostId: String(rec.remotePostId),
+    // #4833: the SERVICE comment this one answers (a UUID feedpublish checked), or null for a top-level comment.
+    // Not parentId, which names a comment on this board's own posts: two id spaces, two fields.
+    remoteParentId: rec.remoteParentId ? String(rec.remoteParentId) : null,
     parentId: null,
     status,
     author: normalizeAuthor(rec),

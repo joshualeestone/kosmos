@@ -73,9 +73,11 @@ const fs = require('node:fs');
  * @param {object} [opts.store] the store module (default the real one). Uses
  *   safeKey -- the board's dedup keyspace.
  * @param {typeof fs} [opts.fs] the fs module, injectable for tests.
- * @returns {(excludeKeys?: Set<string>) => string[]} a source: the safeKey'd names
- *   of Kosmos-created-never-run agents NOT already in `excludeKeys`. Never throws;
- *   returns [] on any read failure or in an inconsistent sandbox.
+ * @returns {(excludeKeys?: Set<string>, callOpts?: {includeRemoved?: boolean}) => string[]} a source: the
+ *   safeKey'd names of Kosmos-created agents (running or not; the board passes the live keys to exclude, which is
+ *   why its rows are the never-run ones) NOT already in `excludeKeys`. Never throws; returns [] on any read failure
+ *   or in an inconsistent sandbox. `callOpts.includeRemoved` (#4845) also lists agents on the removed list, whose
+ *   plist and folder are kept so Restore can bring them back; the removed list is then not read at all.
  */
 function make(opts) {
   const o = opts || {};
@@ -85,7 +87,8 @@ function make(opts) {
   const status = o.status || require('./status');
   const store = o.store || require('./store');
   const launchidentity = o.launchidentity || require('./launchidentity'); // #1704: this board's Kosmos
-  return function createdRoster(excludeKeys) {
+  return function createdRoster(excludeKeys, callOpts) {
+    const includeRemoved = !!(callOpts && callOpts.includeRemoved);
     // A failed look must refuse honestly, exactly like the discover sources. Every
     // external read here is wrapped so the "never throws -> []" contract in the
     // docblock is TRUE for any caller, not merely because today's sole caller
@@ -96,9 +99,11 @@ function make(opts) {
     if (inconsistent) return [];
     // FAIL CLOSED: an unreadable removed list surfaces nothing rather than risk
     // resurrecting a removed agent onto the board.
-    let removed;
-    try { removed = remove.removedNames(); } catch { return []; }
-    if (!removed || !removed.ok) return [];
+    let removed = { ok: true, names: [] };
+    if (!includeRemoved) {
+      try { removed = remove.removedNames(); } catch { return []; }
+      if (!removed || !removed.ok) return [];
+    }
     // Normalize both sides with create.cleanName -- the SAME transform remove.js keys
     // its own record under (recordRemoval stores cleanName(name); isRemoved compares
     // cleanName(name)), so this skip matches remove.js's own notion of "removed". The
