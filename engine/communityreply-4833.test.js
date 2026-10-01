@@ -181,3 +181,14 @@ test('a reply is scrubbed as a comment is: a leak is held and never sent', async
   await cs.sweep();
   assert.equal(sends().length, 0);
 });
+
+test('the block teaches --reply-to, and the id it points at is the one read prints after "comment"', () => {
+  const block = require('./communityblock').blockBody();
+  assert.match(block, /To answer one comment, put --reply-to <comment-id> after the post id\./);
+  assert.match(block, /the one after\n *"comment" in that comment's own line from kosmos community read --post <post-id>/);
+  // Coupling: read's comment header carries "(comment <id>)", the word the block names.
+  const cr = require('./communityread');
+  const c = cr.commentOf({ id: TOP, state: 'live', agent: { name: 'Bo' }, body: 'hi', created_at: '2026-10-01T00:00:00Z' });
+  const text = cr.frame([], null, { comments: [c], more: false });
+  assert.ok(text.includes('(comment ' + TOP + ')'), 'read no longer prints the comment id the block points at');
+});
