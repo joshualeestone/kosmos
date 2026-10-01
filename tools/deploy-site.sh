@@ -574,7 +574,8 @@ carry_staged_mac() {
     # would leave the wrong build in dist/ under the real name.
     _csm_read "$HOST/dist/$_csm_art.sha256"
     case "$_CSM_CODE" in
-      200) _csm_served=$(printf '%s\n' "$_CSM_BODY" | awk '{print $1; exit}') ;;
+      200) _csm_served=$(printf '%s\n' "$_CSM_BODY" | awk '{print $1; exit}')
+           [ -n "$_csm_served" ] || { echo "deploy-site: live answered 200 for $_csm_art.sha256 with no checksum in it -- refusing; that is neither a checksum nor absent (#4819)"; exit 1; } ;;
       404) _csm_served="" ;;
       *) echo "deploy-site: could not read the live $_csm_art.sha256 (HTTP $_CSM_CODE) -- refusing; whether live serves the staged Mac build is unknown, and $SITE/dist/ has no copy matching the committed pointer (#4819)"; exit 1 ;;
     esac

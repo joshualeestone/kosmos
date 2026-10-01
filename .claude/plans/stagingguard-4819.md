@@ -69,7 +69,7 @@ staged WINDOWS build; it had no Mac twin.
   read again twice on a mismatch before it fails, since an edge can serve the old pointer briefly
   (review 14; a persistent mismatch is arm 16, the brief one has no arm).
 - DRY RUN summary names the staged build when one was carried.
-- `tools/test-deploy-site-staged-mac-4819.sh` (32 checks), wired into `test:shell`; end-to-end
+- `tools/test-deploy-site-staged-mac-4819.sh` (33 checks), wired into `test:shell`; end-to-end
   arms in `tools/test-deploy-site-promote.sh` that run the real script.
 
 ## Decided, and why
@@ -111,6 +111,9 @@ staged WINDOWS build; it had no Mac twin.
   staging pointer, and its next deploy puts it back: by version it looks exactly like a publish not
   yet deployed (review 17). Closing it needs a freshness check against the site checkout's remote;
   the usage header tells the operator to sync the site checkout after a staging rollback.
+- A staging cut that publishes a newer pointer between this deploy's pre-check and its post-deploy
+  check makes the post-deploy comparison fail ("investigate") after a good deploy (review 18). The
+  window is a few minutes and the failure is loud, not silent.
 
 - A local copy whose bytes match the committed pointer is deployed even if live serves other bytes
   under the same name while its pointer is unchanged (review 12). It can only put back the bytes the
@@ -123,14 +126,14 @@ one's tarball and not see the served one. Today the Mac staging pointer is track
 statically (measured: 200 application/json from installkosmos.com).
 
 ## Tests
-- `bash tools/test-deploy-site-staged-mac-4819.sh`, 32 checks on the extracted block: nothing
+- `bash tools/test-deploy-site-staged-mac-4819.sh`, 33 checks on the extracted block: nothing
   committed; staged == prod; local copy carried (control); the incident (no local copy, live serves
   it); no copy anywhere refuses; wrong local bytes; local without its sidecar (carried, sidecar written); a wrong
   local sidecar rewritten; live serving other bytes refuses before fetching; a refusal leaves the
   local file byte-identical; superseded, served nowhere, with a stray local copy refuses; superseded with no
   copy warns when the pointer is unchanged and refuses when the deploy moves it, superseded but served is carried, 9.9.10 over 9.9.9 is newer; live staging newer than
   the checkout's refuses, the rollback opt-in passes only for the committed version, older proceeds (control), live-only pointer refuses, an unparsable live pointer refuses and the opt-in replaces it, same version with different bytes refuses and the opt-in deploys it, a malformed committed pointer refuses with "repair it", live unreachable
-  refuses as "could not read", one transport blip and one 503 are retried, an empty 200 for the live pointer refuses, a superseded build whose sidecar read fails refuses; a path name and a
+  refuses as "could not read", one transport blip and one 503 are retried, an empty 200 for the live pointer or the staged .sha256 refuses, a superseded build whose sidecar read fails refuses; a path name and a
   missing sha refuse before any fetch; the wiring (call before the export, export checks, post-deploy
   served-verify).
 - `bash tools/test-deploy-site-promote.sh` arms 12-19, the real script end to end: carried from live
@@ -159,7 +162,8 @@ statically (measured: 200 application/json from installkosmos.com).
   rewritten sidecar is mode 644 like the fetched ones (mktemp made it 0600); without the chmod, g red.
   Review 17: the post-deploy re-read retries a 404 like a mismatch (a stale edge answers 404 when
   there was no pointer before; e2e arm 19 holds the pointer back once, and without the 404 retry it
-  is red).
+  is red). Review 18: an empty 200 for the staged .sha256 refuses (st12; without it, the superseded
+  skip is taken, red).
   (A post-fetch pointer-sha check remains as a backstop. `fetch_verified` re-reads the served
   sidecar itself, so it fires only if the sidecar changed between the two reads, a concurrent
   publish; no test reaches it.)
