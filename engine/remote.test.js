@@ -151,6 +151,21 @@ if (args[0] === 'signin') {
     console.log(JSON.stringify({ stage: 'session', token: 'kst1.enrol-session-fake' }));
     process.exit(0);
   }
+  if (verb === 'addresses') {
+    // kosmos#4756: the session token on stdin (never argv); the answer is the coordinator's JSON, from a file a test writes.
+    // 'OLDBIN' in that file plays a tunnel binary older than the verb (clap's own two-part error).
+    let first = '';
+    try { first = fs.readFileSync(${JSON.stringify(RECORD)} + '.addresses', 'utf8'); } catch { first = ''; }
+    if (first === 'OLDBIN') { process.stderr.write("error: unrecognized subcommand 'addresses'\\n\\nUsage: kosmos-tunnel signin <COMMAND>\\n\\nFor more information, try '--help'.\\n"); process.exit(2); }
+    const token = fs.readFileSync(0, 'utf8').trim();
+    fs.writeFileSync(${JSON.stringify(RECORD)} + '.addresses-token', token);
+    if (!token) { process.stderr.write('no session token on stdin\\n'); process.exit(1); }
+    let ans = '';
+    try { ans = fs.readFileSync(${JSON.stringify(RECORD)} + '.addresses', 'utf8'); } catch { ans = ''; }
+    if (ans.startsWith('ERR ')) { process.stderr.write(ans.slice(4) + '\\n'); process.exit(1); }
+    console.log(ans || JSON.stringify({ addresses: [] }));
+    process.exit(0);
+  }
   if (verb === 'register') {
     // A child that exits BEFORE reading stdin, so the engine's EPIPE-swallow path
     // (setupRun's stdin.on('error')) is exercised rather than crashing the write.
@@ -2905,4 +2920,227 @@ test('#4610 round 2: a grant still out when the identity changes cannot mark the
     remote.ensure(4600);
     await until(() => allows().length > before, 'the tick to grant it again: the old answer must not count for the new identity');
   } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_DEVICE_HANG_MS; remote.setOn(false); }
+});
+
+/* ---- kosmos#4756: a second computer signs in to a BOUGHT address (#4754 contract) ------------------ */
+// The switch (/v1/meta) is a plain request, so a local server answers it; the list comes through the fake binary.
+async function withMetaServer(meta, fn) {
+  const http = require('node:http');
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    seen.push({ url: req.url, auth: req.headers.authorization || null });
+    if (req.url === '/v1/meta' && meta) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(meta)); return; }
+    res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":"no"}');
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
+  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'http://127.0.0.1:' + server.address().port + '/';
+  try { return await fn(seen); } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR; else process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = was;
+    server.closeAllConnections(); await new Promise((r) => server.close(r));
+  }
+}
+const ADDR_ANSWER = RECORD + '.addresses';
+const ADDR_TOKEN = RECORD + '.addresses-token';
+const addressesArgv = () => fs.readFileSync(RECORD, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((a) => a[0] === 'signin' && a[1] === 'addresses');
+const BOUGHT = { addresses: [
+  { name: 'first', address: 'first.kosmos.invalid', state: 'in_use', computer: { name: 'first', last_seen: 1 } },
+  { name: 'spare', address: 'spare.kosmos.invalid', state: 'free', computer: null },
+  { name: 'paying', address: 'paying.kosmos.invalid', state: 'pending', computer: null },
+  { name: 'Bad Name', address: 'bad.kosmos.invalid', state: 'free' },
+  { name: 'other', address: 'notother.kosmos.invalid', state: 'free' },
+  { name: 'weird', address: 'weird.kosmos.invalid', state: 'retired' },
+], buy_url: 'https://login.kosmos.invalid/signin#add-computer', price: null };
+async function signedIn() { remote.resetForTests(); await remote.signinStart('her@example.com'); await remote.signinVerify('her@example.com', '262626'); }
+
+test('#4756: with bought addresses switched off, signinAddresses answers live:false and never reads the list', async () => {
+  delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES;
+  try {
+    await signedIn();
+    fs.writeFileSync(ADDR_ANSWER, JSON.stringify(BOUGHT));
+    for (const meta of [{ bought_addresses: false }, { build: 'x' }]) {
+      const before = addressesArgv().length;
+      await withMetaServer(meta, async (seen) => {
+        const r = await remote.signinAddresses();
+        assert.deepEqual(r, { ok: true, because: null, data: { live: false } });
+        assert.equal(addressesArgv().length, before, 'read the list with the switch off');
+        assert.equal(seen.some((x) => x.url === '/v1/meta'), true, 'never asked /v1/meta; the zero above proves nothing');
+        assert.equal(seen.some((x) => x.auth), false, 'the switch read carried a credential');
+      });
+    }
+  } finally { remote.resetForTests(); }
+});
+
+test('#4756 review: a switch read that fails is not the switch off: the read fails, and the list is not asked', async () => {
+  delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES;
+  try {
+    await signedIn();
+    fs.writeFileSync(ADDR_ANSWER, JSON.stringify(BOUGHT));
+    const before = addressesArgv().length;
+    await withMetaServer(null, async (seen) => {   // /v1/meta answers 404
+      const r = await remote.signinAddresses();
+      assert.equal(r.ok, false, JSON.stringify(r));
+      assert.match(r.because, /could not be reached to check for bought addresses/);
+      assert.equal(seen.some((x) => x.url === '/v1/meta'), true, 'never asked /v1/meta; the failure above proves nothing');
+    });
+    const r2 = await remote.signinAddresses({ fetch: async () => { throw new Error('offline'); } });
+    assert.equal(r2.ok, false, 'a switch read that threw read as off');
+    assert.equal(addressesArgv().length, before, 'read the list with the switch unknown');
+    assert.equal(await remote.fetchMetaFlag('bought_addresses', { fetch: async () => { throw new Error('offline'); } }), null, 'a caller that passes no unread still gets null');
+  } finally { remote.resetForTests(); }
+});
+
+test('#4756: live, the list is read through the tunnel binary with the session on stdin (never argv), and rows pass only in their own shapes', async () => {
+  delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES;
+  try {
+    remote.resetForTests();
+    await withMetaServer({ bought_addresses: true }, async (seen) => {
+      const none = await remote.signinAddresses();
+      assert.equal(none.ok, false);
+      assert.match(none.because, /finish the code steps first/);
+      assert.equal(seen.length, 0, 'called the coordinator with no session');
+      await remote.signinStart('her@example.com');
+      await remote.signinVerify('her@example.com', '262626');
+      fs.writeFileSync(ADDR_ANSWER, JSON.stringify(Object.assign({}, BOUGHT, { buy_url: 'javascript:alert(1)' })));
+      fs.rmSync(ADDR_TOKEN, { force: true });
+      const r = await remote.signinAddresses();
+      assert.equal(r.ok, true, r.because);
+      assert.equal(fs.readFileSync(ADDR_TOKEN, 'utf8'), 'kst1.session-owned', 'the session did not reach the binary on stdin');
+      const argv = addressesArgv().pop();
+      assert.ok(argv, 'the binary was not asked');
+      assert.ok(!argv.join(' ').includes('kst1.session-owned'), 'the session token was on argv');
+      assert.equal(seen.filter((x) => x.url !== '/v1/meta').length, 0, 'the list was fetched directly, not through the binary');
+      assert.deepEqual(r.data.addresses, [
+        { name: 'first', address: 'first.kosmos.invalid', state: 'in_use', first_free: false },
+        { name: 'spare', address: 'spare.kosmos.invalid', state: 'free', first_free: false },
+        { name: 'paying', address: 'paying.kosmos.invalid', state: 'pending', first_free: false },
+      ], 'a row with a bad name, a mismatched address or an unknown state was passed through');
+      assert.equal(r.data.buy_url, '', 'a buy link that is not https was passed to the page');
+    });
+  } finally { remote.resetForTests(); }
+});
+
+test('#4756 review: first_free reaches the page, from the server field when sent, else only from bought_at null and grandfathered false', async () => {
+  process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES = '1';
+  const r = (name, extra) => Object.assign({ name, address: name + '.kosmos.invalid', state: 'in_use' }, extra);
+  try {
+    await signedIn();
+    fs.writeFileSync(ADDR_ANSWER, JSON.stringify({ addresses: [
+      r('unbought', { bought_at: null, grandfathered: false }),
+      r('bought', { bought_at: 1790000000, grandfathered: false }),
+      r('kept', { bought_at: null, grandfathered: true }),
+      r('halfsaid', { bought_at: null }),
+      r('unsaid', {}),
+      r('serveryes', { bought_at: 1790000000, grandfathered: false, first_free: true }),
+      r('serverno', { bought_at: null, grandfathered: false, first_free: false }),
+      r('serverodd', { bought_at: 1790000000, grandfathered: false, first_free: 'yes' }),
+    ] }));
+    await withMetaServer({ bought_addresses: false }, async () => {
+      const got = await remote.signinAddresses();
+      assert.equal(got.ok, true, got.because);
+      const seen = Object.fromEntries(got.data.addresses.map((x) => [x.name, x.first_free]));
+      assert.deepEqual(seen, { unbought: true, bought: false, kept: false, halfsaid: false, unsaid: false, serveryes: true, serverno: false, serverodd: false });
+      assert.equal(got.data.addresses.some((x) => 'bought_at' in x || 'grandfathered' in x), false, 'the raw fields were passed through beside first_free');
+    });
+  } finally { delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES; remote.resetForTests(); }
+});
+
+test('#4756 review: two callers of the same sign-in share one read of the list; the next call after it ends reads again', async () => {
+  process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES = '1';
+  try {
+    await signedIn();
+    fs.writeFileSync(ADDR_ANSWER, JSON.stringify(BOUGHT));
+    const before = addressesArgv().length;
+    const [one, two] = await Promise.all([remote.signinAddresses(), remote.signinAddresses()]);
+    assert.equal(one.ok && two.ok, true, JSON.stringify([one, two]));
+    assert.deepEqual(one, two, 'the second caller got a different answer from the shared read');
+    assert.equal(addressesArgv().length - before, 1, 'two callers of one sign-in each ran the binary');
+    await remote.signinAddresses();
+    assert.equal(addressesArgv().length - before, 2, 'control: a call after the shared read ended did not read again');
+  } finally { delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES; remote.resetForTests(); }
+});
+
+test('#4756 review: the switch read, the list read and the close grace together leave a second of the page timeout', () => {
+  const page = fs.readFileSync(require('node:path').join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  const m = /const PLUS_ASK_TIMEOUT_MS = (\d+);/.exec(page);
+  assert.ok(m, 'PLUS_ASK_TIMEOUT_MS not found in web/index.html');
+  assert.ok(remote.ADDR_META_MS + remote.ADDR_READ_MS + remote.SETUP_CLOSE_GRACE_MS + 1000 <= Number(m[1]),
+    remote.ADDR_META_MS + ' + ' + remote.ADDR_READ_MS + ' + ' + remote.SETUP_CLOSE_GRACE_MS + ' leaves under a second of ' + m[1]);
+});
+
+test('#4756: AGENT_WORKFORCE_BOUGHT_ADDRESSES=1 turns it on without the coordinator; a refusal keeps its sentence; a list that is not a list gives no rows', async () => {
+  process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES = '1';
+  try {
+    await signedIn();
+    await withMetaServer({ bought_addresses: false }, async () => {
+      fs.writeFileSync(ADDR_ANSWER, JSON.stringify(BOUGHT));
+      const r = await remote.signinAddresses();
+      assert.equal(r.ok, true, r.because);
+      assert.equal(r.data.live, true);
+      assert.equal(r.data.buy_url, 'https://login.kosmos.invalid/signin#add-computer');
+      fs.writeFileSync(ADDR_ANSWER, 'ERR Kosmos+ said no (401): your sign-in has ended; start again from the email');
+      const refused = await remote.signinAddresses();
+      assert.equal(refused.ok, false);
+      assert.match(refused.because, /your sign-in has ended; start again from the email/);
+      fs.writeFileSync(ADDR_ANSWER, JSON.stringify({ addresses: 'first,spare' }));
+      const odd = await remote.signinAddresses();
+      assert.equal(odd.ok, true);
+      assert.deepEqual(odd.data.addresses, []);
+    });
+  } finally { delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES; remote.resetForTests(); }
+});
+
+test('#4756: a sign-out during the switch read stops before the binary is asked', async () => {
+  delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES;
+  try {
+    await signedIn();
+    await withMetaServer({ bought_addresses: true }, async () => {
+      const before = addressesArgv().length;
+      const cancelDuring = (url, o) => { remote.signinCancel(); return fetch(url, o); };
+      const r = await remote.signinAddresses({ fetch: cancelDuring });
+      assert.equal(r.ok, false);
+      assert.match(r.because, /sign-in ended/);
+      assert.equal(addressesArgv().length, before, 'asked the binary with a session that had ended');
+    });
+  } finally { remote.resetForTests(); }
+});
+
+test('#4756: a computer already set up says which of the account\'s addresses it holds (this_name)', async () => {
+  delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES;
+  fs.writeFileSync(ADDR_ANSWER, JSON.stringify(BOUGHT));
+  try {
+    remote.resetForTests();
+    await remote.setupStart('her@example.com');
+    const set = await remote.setupComplete('123456', 'spare');
+    assert.equal(set.ok, true, set.because);
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '262626');
+    await withMetaServer({ bought_addresses: true }, async () => {
+      const r = await remote.signinAddresses();
+      assert.equal(r.ok, true, r.because);
+      assert.equal(r.data.this_name, 'spare');
+    });
+    await remote.forget();
+    // Control: after the forget nothing is set up here, so the same read names no address.
+    await signedIn();
+    await withMetaServer({ bought_addresses: true }, async () => {
+      const r = await remote.signinAddresses();
+      assert.equal(r.data.this_name, '', 'named an address for a computer that holds none');
+    });
+  } finally { remote.resetForTests(); }
+});
+
+test('#4756: a tunnel binary older than the verb reads as "update Kosmos", not clap\'s usage line', async () => {
+  delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES;
+  try {
+    await signedIn();
+    fs.writeFileSync(ADDR_ANSWER, 'OLDBIN');
+    await withMetaServer({ bought_addresses: true }, async () => {
+      const r = await remote.signinAddresses();
+      assert.equal(r.ok, false);
+      assert.equal(r.unsupported, true);
+      assert.equal(r.because, 'this version of Kosmos cannot list your addresses yet; update Kosmos');
+      assert.doesNotMatch(r.because, /--help/);
+    });
+  } finally { fs.writeFileSync(ADDR_ANSWER, JSON.stringify({ addresses: [] })); remote.resetForTests(); }
 });
