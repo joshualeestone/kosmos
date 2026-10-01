@@ -335,7 +335,8 @@ async function refreshStandingIfStale(opts) {
   const s = read();
   if (s.ok !== true) return;
   // #4731: off, the cadence is OFF_STANDING_TTL_MS whatever the caller asked (a 0 TTL included).
-  // kosmos#4743: a flip not yet told (its first ask was stopped by busy(), a sign-in or a Forget) is due
+  // kosmos#4743: a flip not yet told (its first ask stopped early: busy() during a sign-in or a Forget, not
+  // enrolled yet, or a refresh already out) is due
   // at once, whatever stamp another writer left meanwhile.
   const due = flipPending ? 0 : (s.on === true ? ttl : Math.max(ttl, OFF_STANDING_TTL_MS));
   // Math.abs (kosmos#4277): a wall clock stepped backwards (a wrong Mac clock being
@@ -344,8 +345,8 @@ async function refreshStandingIfStale(opts) {
   if (Math.abs(now - (s.standing_at || 0)) < due) return;   // still fresh
   standingRefreshInFlight = true;
   // This refresh reads the switch as it is now (mac-standing reads it at send time). Cleared when an ask
-  // starts: one that then stops early (unreadable settings, not enrolled) falls back to the off retry
-  // stamp (OFF_RETRY_MS), not to an at-once re-ask.
+  // starts. One that then stops early is not re-asked at once: not enrolled writes no stamp (the next
+  // poll decides), and an unreadable settings file leaves the stamp the switch's last known state gives.
   flipPending = false;
   // The answer is about the identity on disk when it was asked: a Forget, or a
   // Forget and a new sign-in, while it was out means it is about one that is gone,
@@ -622,7 +623,9 @@ function setOn(on) {
   /* kosmos#4743: tell the coordinator about a real flip now, not at the next cadence (up to
      OFF_STANDING_TTL_MS when off), or the account page reads the old state for hours ("Answering
      now" for a computer just switched off). If a refresh is already out it carries the old state, so
-     the flip is told when it ends (flipPending). Best-effort and never awaited. */
+     the flip is told when it ends (flipPending). Best-effort and never awaited. Asked at once here, unlike
+     turnOnAfterSignin: this is the person's own toggle, and a Forget straight after it waits at most one
+     signed call's bound (MAC_REQUEST_TIMEOUT_MS, 20 s) for it. */
   if (was !== on) { flipPending = true; askAfterFlip(); }
   return { ok: true };
 }
@@ -1717,6 +1720,7 @@ function cancelledAfter(result, before, addressBefore, startedAt) {
   // that was on, on.
   if ((result && result.ok) || (enrolled() && macIdHere() !== before)) {
     try { write({ on: false }, { repair: true }); } catch { /* status says what happened */ }
+    flipPending = true;   // kosmos#4743: an off written here is told at the next standing poll too
     stopChild();
     // Another identity now: the previous account's cached standing must not
     // carry over to it (the fed gate reads it).

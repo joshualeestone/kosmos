@@ -76,6 +76,23 @@ remote-unreadable-4308, engine.reachable, fixture-discipline) pass.
 - Run: engine/mac-standing.test.js 24/24, engine/remote.test.js 120/120, engine/remote-standing-refresh.test.js
   12/12.
 
+## Review 8 (opus, blind): 0 blockers, 3 warnings, 1 convention, 5 nits
+- W (process, held): nothing in code enforces the shipping order. Held by sequencing: this board PR is opened
+  only after the coordinator half is merged AND deployed, with a probe of the live coordinator recorded on the
+  card (an `{"remote":{"on":false}}` standing from a test computer sets the mark on the account page's row).
+- W, taken: rebased on main (#4767 / kosmos#4756 touched resetForTests and the lines after
+  turnOnAfterSignin); resetForTests keeps main's addressesInFlight and this branch's two flags.
+- W, taken: the "on, no report" body had no test; new test (report build throws, switch on: body is exactly
+  `{"remote":{"on":true}}`), red when that case sends `{}`.
+- C, taken: the comment on an ask that stops early now says what each case leaves (not enrolled: no stamp;
+  unreadable: the last known state's stamp), not "the off retry".
+- Nits taken: the early-stop list names its real cases; cancelledAfter's off write marks the flip too;
+  turnOnAfterSignin is exported only as turnOnAfterSigninForTests; setOn says why it may ask at once (the
+  person's own toggle; a Forget after it waits at most one signed call, 20 s) while the sign-in does not.
+  Left: a reset at the start of each #4743 test (a leak would fail loudly, not pass).
+- Run: engine/mac-standing.test.js 25/25, engine/remote.test.js 130/130 (main added tests),
+  engine/remote-standing-refresh.test.js 12/12.
+
 ## Weakest premise
 That one bit about remote access is not something #4731 meant to keep back. #4731's comment says "no
 remote report" while off; this sends no report FIELDS, only the switch's state, which the computer's owner

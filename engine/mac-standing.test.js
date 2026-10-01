@@ -318,6 +318,19 @@ test('#4731, #4743: with the switch OFF an enrolled computer is still heard from
   assert.notDeepEqual(JSON.parse(on.calls[0].stdin).remote, { on: false }, 'the switch ON must not send the off body');
 });
 
+test('#4743: with the switch ON and no report built, the body says exactly that remote access is on', async () => {
+  const rr = require('../engine/remote-report');
+  const realBuild = rr.build;
+  rr.build = () => { throw new Error('could not build'); };
+  try {
+    enroll(true);
+    const r = await run('ok:{"standing":"good"}', () => macStanding.fetchStanding());
+    assert.equal(r.calls.length, 1);
+    assert.deepEqual(JSON.parse(r.calls[0].stdin), { remote: { on: true } },
+      'on with no report must still say on (it is what clears the coordinator\'s off mark), and nothing more');
+  } finally { rr.build = realBuild; }
+});
+
 test('#4743: switching remote access off tells the coordinator at once, not at the next cadence (up to 12 h)', async () => {
   enroll(true);
   // Fresh on this cadence: without the flip hook nothing would be due for a long while.
