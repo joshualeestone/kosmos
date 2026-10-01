@@ -1370,8 +1370,9 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
    Kosmos menu, the person's name and the tab menu go (the two lines open #pnav instead), and Log out moves into the
    menu's Settings. A local window at the same width keeps today's header: it has no Kosmos+ session or brand.
    Numbers are measured off Josh's mock at 3x: mark 14px tall at 16px, lines 17px wide 9px apart at 16px.
-   "A phone" is the board's own definition (PHONE_WIDTH, #3969): 40rem, or a phone held sideways, so turning the
-   phone does not bring the old header back (review round 3). */
+   "A phone" is the board's own definition (PHONE_WIDTH, #3969): 40rem, or a touch screen held sideways up to 56rem
+   wide and 30rem tall, so turning most phones does not bring the old header back (review round 3). The widest phones
+   sideways (over 56rem) are past that definition, here as everywhere else on the board. */
 .kplus-bar-menu { display: none; }
 @media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
   html.kremote .kplus-bar { height: 48px; min-height: 48px; padding: 0 16px; border-bottom: 0; margin-bottom: 0; }
@@ -18247,7 +18248,9 @@ function pnavBuild() {
      level carries the same words, kept in step as the status poll rewrites them (review round 3). */
   const stampSrc = document.getElementById('checked'), stamp = document.getElementById('pnav-stamp');
   if (stampSrc && stamp) {
-    const sync = () => { stamp.textContent = stampSrc.textContent.replace(/\s+/g, ' ').trim(); };
+    /* Its parts are separate elements with no space between them ("Agent status" then the time), so they are joined
+       with one (review round 4). */
+    const sync = () => { stamp.textContent = [...stampSrc.childNodes].map((n) => n.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' '); };
     sync();
     if (typeof MutationObserver === 'function') new MutationObserver(sync).observe(stampSrc, { childList: true, characterData: true, subtree: true });
   }
@@ -18293,7 +18296,7 @@ function pnavBuild() {
   document.addEventListener('keydown', (e) => {
     /* A key another layer already handled is not ours, and neither is any key while a screen above (first run, the
        update screen) has made the menu inert (review round 3). */
-    if (nav.hidden || e.defaultPrevented || nav.inert || nav.closest('[inert]')) return;
+    if (nav.hidden || e.defaultPrevented || nav.closest('[inert]')) return;   // closest() includes the menu itself
     if (e.key === 'Escape') { e.preventDefault(); if (nav.classList.contains('deep')) pnavBack(); else pnavClose(true); return; }
     const opt = e.target.closest && e.target.closest('.pnav-themeopt');
     if (opt && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
@@ -30069,7 +30072,7 @@ function cnHeld() {
   if (document.getElementById('whatsnew')) return true;
   // The same covering set as tipModalOpen, less this notice itself, plus the boot cover: it sits over
   // everything until first run's check answers, and a notice under it would be recorded as seen unseen.
-  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open], #boot-cover:not([hidden]), #pnav:not([hidden])');   // #43; #4823 the phone menu43: not behind the restart screen
+  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open], #boot-cover:not([hidden]), #pnav:not([hidden])');   // #4343: not behind the restart screen; #4823: nor the phone menu
 }
 function cnOpen() {
   if (document.getElementById('cmnotice')) return;

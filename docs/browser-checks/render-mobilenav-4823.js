@@ -199,6 +199,18 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         for (let i = 0; i < 9; i++) await page.keyboard.press('Shift+Tab');
         l = await look(page);
         chk(l.nav && l.nav.focusIn, T + 'M6 Shift+Tab stays inside the menu', JSON.stringify({ focus: l.focus }));
+        // The board's other layers treat the open menu as covering (What's New, the community notice, tips), the
+        // menu's keys stand down while a screen above makes it inert, and the status stamp reads as the page's does.
+        const cov = await page.evaluate(() => ({ tip: tipModalOpen(), wn: wnCovered(), cn: cnHeld() }));
+        chk(cov.tip && cov.wn && cov.cn, T + 'K1 with the menu open, tips, What\'s New and the community notice wait', JSON.stringify(cov));
+        const stamp = await page.evaluate(() => ({ menu: document.getElementById('pnav-stamp').textContent,
+          page: [...document.getElementById('checked').childNodes].map((n) => n.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' ') }));
+        chk(stamp.menu !== '' && stamp.menu === stamp.page && !/[a-z][A-Z]/.test(stamp.menu), T + 'K2 the menu carries the Agent status stamp, its parts spaced', JSON.stringify(stamp));
+        await page.evaluate(() => { document.getElementById('pnav').inert = true; });
+        await page.keyboard.press('Escape');
+        const inertOpen = await page.evaluate(() => !document.getElementById('pnav').hidden);
+        await page.evaluate(() => { document.getElementById('pnav').inert = false; });
+        chk(inertOpen, T + 'K3 while a screen above makes the menu inert, its Escape does nothing', String(inertOpen));
 
         // Settings, one level deeper, opened from the Agents tab (the Settings panel itself is hidden then).
         await page.click('[data-pnav-go="settings"]');
@@ -275,6 +287,8 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         await page.keyboard.press('Escape');
         l = await look(page);
         chk(l.nav && !l.nav.shown && l.focus === 'kplus-menu' && l.expanded === 'false', T + 'T2 Escape closes it and focus goes back to the two lines', JSON.stringify({ shown: l.nav && l.nav.shown, focus: l.focus, exp: l.expanded }));
+        const cov2 = await page.evaluate(() => ({ tip: tipModalOpen(), wn: wnCovered() }));
+        chk(!cov2.tip && !cov2.wn, T + 'K4 CONTROL: with the menu closed, tips and What\'s New are not held by it', JSON.stringify(cov2));
 
         // Wider while a level deep: the menu goes, and the board is today's again (the grid comes back).
         await page.click('#kplus-menu');

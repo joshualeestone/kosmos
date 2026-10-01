@@ -63,3 +63,8 @@ the board's own PHONE_WIDTH query, arm O1); the "Agent status" stamp had no home
 level, kept in step). NITs taken: computers refill keeps focus. NITs left: one grey pill for every state (Josh's mock
 shows one state); the tour's Your Profile step points at the hidden avatar (the tour is a desktop-first flow, noted on
 the card).
+R4 (sonnet) 0B 4W 0C 3N: the stamp's parts ran together (now joined with a space, K2); nothing pinned the covering
+checks, the inert stand-down or the stamp (K1, K3, K4 control); the sideways query stops at 56rem, the board's own
+definition (comment now says so instead of claiming every phone); a phone left with the menu open defers the silent
+update reload until it closes (kept: reloading under an open menu would yank it; the update chip still shows). NITs:
+a comment my anchor had cut (#4343) restored; redundant inert test dropped. Left: A6 cannot see a pulse in dark.
