@@ -31,6 +31,7 @@
 #   st2 CONTROL committed staging newer than live   -> proceeds
 #   st3 live has a staging pointer, none committed  -> refuses (would unpublish it)
 #   st4 live unreachable                            -> refuses "could not read", not "absent"
+#   st6 live pointer names no parsable tarball     -> refuses (cannot tell which is newer)
 #   st5 superseded, the sidecar read fails in transport -> refuses, does not take the skip
 #   i  the pointer names a path, not a file         -> refuses before any fetch
 #   j  the pointer has no sha                       -> refuses before any fetch
@@ -109,6 +110,7 @@ run_carry() {  # <site> <live dir>
     }
     . "$LIB"
     trap 'echo "RC=$? STAGED_ART=${STAGED_ART:-} FETCHED=[$(tr "\n" " " < "$FETCH_LOG")]"' EXIT
+    check_staging_not_stale
     carry_staged_mac
   ) 2>&1
 }
@@ -198,6 +200,9 @@ if has "$out" "RC=1 " && has "$out" "commits none"; then pass "st3: live serves 
 S="$T/st4"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-st4"; : > "$T/live-st4/.down"
 out=$(run_carry "$S" "$T/live-st4")
 if has "$out" "RC=1 " && has "$out" "could not read the live latest-staging.json (HTTP 000)"; then pass "st4: live unreachable refuses as 'could not read', not as absent"; else bad "st4: $out"; fi
+S="$T/st6"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-st6"; ptr "$SHA" "something-else.zip" > "$T/live-st6/latest-staging.json"
+out=$(run_carry "$S" "$T/live-st6")
+if has "$out" "RC=1 " && has "$out" "which is newer cannot be told"; then pass "st6: a live staging pointer naming no kosmos-<version>-arm64.tar.gz refuses rather than skipping the stale check"; else bad "st6: $out"; fi
 # A transport failure on the SIDECAR read of a superseded build must refuse, not take the skip.
 S="$T/st5"; mksite "$S" "$(ptr "$SHA" "$OLDSTG")"; mkdir -p "$T/live-st5"; cp "$BYTES" "$T/live-st5/$OLDSTG"; : > "$T/live-st5/.down-sidecar"
 out=$(run_carry "$S" "$T/live-st5")
@@ -219,6 +224,8 @@ if has "$out" "RC=1 " && has "$out" "without a lowercase hex sha256" && has "$ou
 OUTSIDE=$(sed '/^# >>> staged Mac carry (#4819)/,/^# <<< staged Mac carry (#4819)/d' "$DEPLOY")
 k_ok=1
 for want in '^carry_staged_mac$' \
+            '^check_staging_not_stale$' \
+            '\[ "\$_csm_served_ptr" = "\$_csm_committed" \]' \
             '\[ -f "\$EXPORT/dist/\$STAGED_ART" \]' \
             '\[ -f "\$EXPORT/dist/\$STAGED_ART.sha256" \]' \
             'served_matches "\$STAGED_ART" ' \
@@ -226,11 +233,14 @@ for want in '^carry_staged_mac$' \
   n=$(printf '%s\n' "$OUTSIDE" | grep -cE "$want")
   [ "$n" = 1 ] || { bad "k: expected one line matching /$want/ in deploy-site.sh outside the block, found $n"; k_ok=0; }
 done
+# The stale check must come before the first prod fetch (nothing downloaded for a refused checkout).
+chk=$(grep -n '^check_staging_not_stale$' "$DEPLOY" | cut -d: -f1); first_fetch=$(grep -n '^fetch_verified "\$HOST/dist/\$ART"' "$DEPLOY" | head -1 | cut -d: -f1)
+if [ -n "$chk" ] && [ -n "$first_fetch" ] && [ "$chk" -lt "$first_fetch" ]; then :; else bad "k: check_staging_not_stale (line ${chk:-none}) must run before the first prod fetch (line ${first_fetch:-none})"; k_ok=0; fi
 # The call must come before the export is built, or the carry is too late to be carried.
 call=$(grep -n '^carry_staged_mac$' "$DEPLOY" | cut -d: -f1); export_at=$(grep -n '^site_deploy_export ' "$DEPLOY" | cut -d: -f1)
 if [ -n "$call" ] && [ -n "$export_at" ] && [ "$call" -lt "$export_at" ]; then :; else bad "k: carry_staged_mac (line ${call:-none}) must run before site_deploy_export (line ${export_at:-none})"; k_ok=0; fi
-[ "$k_ok" = 1 ] && pass "k: deploy-site.sh runs the carry before the export, checks the export for the pair, and served-verifies the pair"
+[ "$k_ok" = 1 ] && pass "k: deploy-site.sh checks staging staleness before any fetch, runs the carry before the export, checks the export for the pair, and served-verifies the pair and the pointer"
 
 echo
-if [ "$fail" = 0 ] && [ "$npass" = 22 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
-echo "FAILED ($npass passed, expected 22)"; exit 1
+if [ "$fail" = 0 ] && [ "$npass" = 23 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
+echo "FAILED ($npass passed, expected 23)"; exit 1

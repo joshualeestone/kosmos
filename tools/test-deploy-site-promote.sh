@@ -73,6 +73,8 @@ mkdir -p "$LIVE_DIR/dist"
 for f in setup index.html vercel.json; do [ -f "./$f" ] && cp "./$f" "$LIVE_DIR/$f"; done
 # A deploy that silently drops one file (the #1669 shape): the post-deploy served-verify must catch it.
 [ -n "${DROP_FROM_DEPLOY:-}" ] && rm -f "$LIVE_DIR/dist/$DROP_FROM_DEPLOY"
+# A deploy that serves DIFFERENT bytes for one file than the export held (#4819).
+[ -n "${MANGLE_ON_DEPLOY:-}" ] && printf ' ' >> "$LIVE_DIR/dist/$MANGLE_ON_DEPLOY"
 exit 0
 VERCEL
 chmod +x "$BIN/vercel"
@@ -331,14 +333,21 @@ read -r S15 L15 <<<"$(make_scenario)"; add_staged_mac "$S15" "$L15"
 write_ptr "$L15/dist/latest-staging.json" 0.6.33 "$(sha_of "$T/stg-bytes")" kosmos-0.6.33-arm64.tar.gz
 cp "$L15/dist/latest-staging.json" "$T/live-staging-before"
 run_deploy "$S15" "$L15" --promote
-{ [ "$RC" = 1 ] && has "$out" "live staging is 0.6.33" && cmp -s "$L15/dist/latest-staging.json" "$T/live-staging-before" \
+{ [ "$RC" = 1 ] && has "$out" "live staging is 0.6.33" && cmp -s "$L15/dist/latest-staging.json" "$T/live-staging-before" && [ ! -e "$S15/dist/$NEWART" ] \
   && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L15/dist/latest.json")" = "$OLD" ]; } \
-  && pass "mac staged: a checkout behind LIVE's staging refuses before any deploy, LIVE untouched" || bad "mac staged stale checkout (rc=$RC) out=$out"
+  && pass "mac staged: a checkout behind LIVE's staging refuses before any fetch or deploy, LIVE untouched" || bad "mac staged stale checkout (rc=$RC) out=$out"
 export KOSMOS_STAGING_ROLLBACK="$STG"
 run_deploy "$S15" "$L15" --promote
 unset KOSMOS_STAGING_ROLLBACK
 { [ "$RC" = 0 ] && has "$out" "rolling staging back from 0.6.33 to $STG" && has "$(cat "$L15/dist/latest-staging.json")" "$STGART"; } \
   && pass "mac staged: KOSMOS_STAGING_ROLLBACK=$STG deploys the deliberate rollback" || bad "mac staged rollback (rc=$RC) out=$out"
+
+# 16) the served staging pointer must be the committed one after the deploy.
+read -r S16 L16 <<<"$(make_scenario)"; add_staged_mac "$S16" "$L16"
+export MANGLE_ON_DEPLOY=latest-staging.json
+run_deploy "$S16" "$L16" --promote
+unset MANGLE_ON_DEPLOY
+[ "$RC" = 1 ] && has "$out" "the served latest-staging.json is not the committed one" && pass "mac staged: a deploy serving a different staging pointer than committed fails the post-deploy check" || bad "mac staged pointer mangled (rc=$RC) out=$out"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

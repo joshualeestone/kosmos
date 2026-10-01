@@ -11,14 +11,18 @@ redeployed from the cut box (Mortals) at 20:44. deploy-site.sh already refused a
 staged WINDOWS build; it had no Mac twin.
 
 ## The change
-- `tools/deploy-site.sh`, new block `carry_staged_mac` (between `>>> staged Mac carry (#4819)`
-  markers), run after the prod artifacts are fetched and before the export is built:
-  - first reads the LIVE `latest-staging.json` and refuses a stale checkout: one that commits none
+- `tools/deploy-site.sh`, a new block between `>>> staged Mac carry (#4819)` markers, defining two
+  functions:
+  - `check_staging_not_stale`, run right after the site-copy `latest.json` guard and BEFORE any
+    artifact is fetched (review 5: a refused checkout must not download anything or touch the
+    shared dist/ first), reads the LIVE `latest-staging.json` and refuses a stale checkout: one that commits none
     while live serves one, or commits an older staging version than live (deploying either would
     move staging back and drop the newer tarball, the incident one version over; review 3). A
     committed staging NEWER than live (a publish not yet deployed) proceeds. A deliberate staging
     ROLLBACK (publish-staging-pointer.sh to an older version, then this deploy, the recorded way to
-    put staging back) passes only with `KOSMOS_STAGING_ROLLBACK=<the committed version>` (review 4);
+    put staging back) passes only with `KOSMOS_STAGING_ROLLBACK=<the committed version>` (review 4;
+    publish-staging-pointer.sh now says so). A live pointer whose name does not parse refuses;
+  - `carry_staged_mac`, run after the prod artifacts are fetched and before the export is built:
   - every live read records the HTTP status; only a 404 counts as absent, anything else that is not
     a 200 refuses as "could not read" (review 3: a network blip must not read as "not served", and
     must never take the superseded skip);
@@ -33,9 +37,10 @@ staged WINDOWS build; it had no Mac twin.
     (`sort -V` on the versions in the two names), when it is superseded: warn and carry nothing.
 - Pre-deploy: the export must hold `$STAGED_ART` and `$STAGED_ART.sha256` (literal checks, like the
   other honest-marker lines).
-- Post-deploy: `served_matches` on the pair, like the prod tarball.
+- Post-deploy: `served_matches` on the pair, like the prod tarball, and the served
+  `latest-staging.json` must equal the committed one (as the Windows staging pointer already is).
 - DRY RUN summary names the staged build when one was carried.
-- `tools/test-deploy-site-staged-mac-4819.sh` (22 checks), wired into `test:shell`; three end-to-end
+- `tools/test-deploy-site-staged-mac-4819.sh` (23 checks), wired into `test:shell`; three end-to-end
   arms in `tools/test-deploy-site-promote.sh` that run the real script.
 
 ## Decided, and why
@@ -72,26 +77,28 @@ one's tarball and not see the served one. Today the Mac staging pointer is track
 statically (measured: 200 application/json from installkosmos.com).
 
 ## Tests
-- `bash tools/test-deploy-site-staged-mac-4819.sh`, 22 checks on the extracted block: nothing
+- `bash tools/test-deploy-site-staged-mac-4819.sh`, 23 checks on the extracted block: nothing
   committed; staged == prod; local copy carried (control); the incident (no local copy, live serves
   it); no copy anywhere refuses; wrong local bytes; local without its sidecar; live serving other
   bytes refuses before fetching; a refusal leaves the local copy byte-identical; superseded with no
   copy warns, superseded but served is carried, 9.9.10 over 9.9.9 is newer; live staging newer than
-  the checkout's refuses, the rollback opt-in passes only for the committed version, older proceeds (control), live-only pointer refuses, live unreachable
+  the checkout's refuses, the rollback opt-in passes only for the committed version, older proceeds (control), live-only pointer refuses, an unparsable live pointer refuses, live unreachable
   refuses as "could not read", a superseded build whose sidecar read fails refuses; a path name and a
   missing sha refuse before any fetch; the wiring (call before the export, export checks, post-deploy
   served-verify).
 - `bash tools/test-deploy-site-promote.sh` arms 12-15, the real script end to end: carried from live
   and deployed; a deploy that drops it fails the served-verify; no copy anywhere refuses before the
   deploy with live untouched; a checkout behind live's staging refuses with live untouched, and the
-  same checkout deploys with KOSMOS_STAGING_ROLLBACK.
+  same checkout deploys with KOSMOS_STAGING_ROLLBACK (and nothing was downloaded before the refusal);
+  arm 16: a deploy serving a different staging pointer than committed fails the post-deploy check.
 - Red-checked by sabotage, each turning its arm red then restored: no call; no fetch; no bare-name
   check; local carry ignoring the sidecar; no export check; no post-deploy served_matches; the
   pre-fetch sidecar check disabled; the superseded branch disabled; `sort -V` replaced by `sort`.
   Review 3 added: stale-pointer refusal disabled; a failed pointer read treated as absent; a failed
   sidecar read treated as absent. Each turned its arm (st1, st4, st5) red. Review 4: the stale
   guard disabled (st1, st1r and both e2e arm-15 checks red); the rollback opt-in disabled (st1r and
-  the e2e rollback check red).
+  the e2e rollback check red). Review 5: the stale check called after the prod fetch (k and e2e
+  arm 15 red); the post-deploy pointer comparison made tautological (e2e arm 16 red).
   (A post-fetch pointer-sha check remains as a backstop. `fetch_verified` re-reads the served
   sidecar itself, so it fires only if the sidecar changed between the two reads, a concurrent
   publish; no test reaches it.)
