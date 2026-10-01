@@ -278,6 +278,35 @@ function chk(ok, label, extra) {
           await page.close();
         }
 
+        /* --- #4557 round 30: the REAL way in (New Agent > Team > pick > Create, no page.evaluate), focus, Back idle -- */
+        {
+          const { page, errs } = await newPage(1280);
+          await page.evaluate(() => openCreate());
+          await page.click('#cstep-kind [data-path="team"]');
+          await settle(page, () => [...document.getElementById('team-seeded').options].some((o) => o.value === 'marketing'));
+          await page.selectOption('#team-seeded', 'marketing');
+          await page.click('#team-seeded-go');
+          await settle(page, () => !document.getElementById('cstep-teammake').hidden && document.querySelectorAll('#tc-list li').length === 3);
+          const real = await page.evaluate(() => ({
+            shown: !document.getElementById('cstep-teammake').hidden, pick: !document.getElementById('cstep-team').hidden,
+            focus: (document.activeElement || {}).id || '', rows: document.querySelectorAll('#tc-list li').length,
+            oneBack: document.getElementById('create-back').hidden && document.getElementById('create-path-back').hidden,
+          }));
+          chk(real.shown && !real.pick && real.rows === 3, `${E} Create on the Team screen opens the team step for real (not a stub)`, JSON.stringify(real));
+          chk(real.focus === 'tc-title', `${E} arriving on the team step puts focus on its title, not the page`, JSON.stringify(real));
+          chk(real.oneBack, `${E} the team step has one back control (its own Back), not All agents beside it`, JSON.stringify(real));
+          // Back while idle (nothing started): the team is dropped and the Team screen is back, with its title focused.
+          await page.click('#tc-back');
+          await settle(page, () => !document.getElementById('cstep-team').hidden);
+          const idle = await page.evaluate(() => ({
+            pick: !document.getElementById('cstep-team').hidden, gone: document.getElementById('cstep-teammake').hidden,
+            focus: (document.activeElement || {}).id || '', dropped: (typeof TC === 'undefined') || TC === null,
+          }));
+          chk(idle.pick && idle.gone && idle.dropped && idle.focus === 'cstep-team-title', `${E} Back while idle returns to the Team screen and drops the unstarted team`, JSON.stringify(idle));
+          chk(errs.length === 0, `${E} no page errors (real-path arm)`, errs.join(' | '));
+          await page.close();
+        }
+
         /* --- a lead that fails holds the others until it is made -------------------------------- */
         {
           const { page, errs, posted, script } = await newPage(1280);

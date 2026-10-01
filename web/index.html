@@ -14359,7 +14359,7 @@ window.kosmosMeasureScrollbarWidth();
        per agent, made in order through POST /api/agents (the lead first, because the others report to
        it), each with its own Try again. Its step is `teammake`: #4556's Team path pick screen is `team`. -->
   <div id="cstep-teammake" hidden>
-    <h2 class="tc-h" id="tc-title"></h2>
+    <h2 class="tc-h" id="tc-title" tabindex="-1"></h2>
     <p class="rolehelp" id="tc-purpose"></p>
     <ol class="tc-list" id="tc-list" aria-labelledby="tc-title"></ol>
     <label class="flabel" for="tc-project">Project</label>
@@ -47085,17 +47085,12 @@ let TC = null;       // { key, team, leadSlot, members:[{slot,title,name,firstNa
 let TC_UPLOADING = 0;   // pictures going up; not on TC, because they outlive it (review 28)
 let TC_GEN = 0;      // bumped when the step is left or reopened, so a late answer cannot paint over it
 
-/* Mona's review: a server refusal is shown as a sentence (capital first, full stop last), as written otherwise. */
-function tcSentence(t) {
-  const s = String(t || '').trim();
-  if (!s) return s;
-  const head = s.charAt(0).toUpperCase() + s.slice(1);
-  return /[.!?]$/.test(head) ? head : head + '.';
-}
-
 async function openTeamCreate(key) {
   openCreate();
   cstep('teammake');
+  /* Round 30: Create on #4556's Team screen is hidden by this step change, so focus would fall to the page. The
+     step's title takes it, as every other step's title does on arrival. */
+  document.getElementById('tc-title').focus();
   /* Rounds 2 and 3: a team that was started and is not finished is RESUMED, never reset, however the person
      left it (Back, closing the sheet, picking a team again). Resetting dropped in-flight answers, failed
      rows with their Try again, and the watcher that sets portraits and project tells. Coming back also
@@ -47237,7 +47232,7 @@ function tcPaint() {
       note.textContent = 'The teammates made before this still know it as ' + m.renamedFrom + '. Tell them in chat if it matters.';
       row.append(note);
     }
-    if (m.state === 'failed' && m.why) { const why = document.createElement('p'); why.className = 'tc-why'; why.textContent = tcSentence(m.why); row.append(why); }
+    if (m.state === 'failed' && m.why) { const why = document.createElement('p'); why.className = 'tc-why'; why.textContent = pjSentence(m.why);   // Mona's review: shown as a sentence row.append(why); }
     /* Round 3: what create reported as not done (its non-fatal steps, a project it could not add) is said
        on the row, as the single create says it, never folded into "Running". */
     for (const w of (m.warn || [])) { const p = document.createElement('p'); p.className = 'tc-why'; p.textContent = w; row.append(p); }
@@ -47331,7 +47326,8 @@ function tcLeadShown() {
 function tcSay(err, fallback) {
   // Only the fetch failures (Chrome, Safari, Firefox wordings): any other TypeError is a page bug and stays visible.
   if (err instanceof TypeError && /failed to fetch|load failed|networkerror/i.test(String(err.message))) return 'Kosmos could not be reached. Try again in a moment.';
-  return (err && err.message) ? String(err.message) : fallback;
+  // Round 30: every refusal on this step reads as a sentence (Mona's review), the server's own words included.
+  return pjSentence((err && err.message) ? String(err.message) : fallback);
 }
 
 function tcNames() {
@@ -47508,7 +47504,7 @@ async function tcRunOnce(gen) {
       m.state = 'made'; m.seen = null; m.maybeMade = null;
       m.made = { name: out.name, shownAs: out.shownAs || m.name.trim(), image: (s.avatar && s.avatar.image) || null, projects: out.projects || [] };
       m.warn = (Array.isArray(out.steps) ? out.steps : []).filter((st) => st && st.ok === false && st.label).map((st) => String(st.label));
-      for (const pr of m.made.projects) if (pr && pr.added === false) m.warn.push('It was not added to the project' + (pr.because ? ': ' + pr.because : '.'));
+      for (const pr of m.made.projects) if (pr && pr.added === false) m.warn.push('It was not added to the project' + (pr.because ? ': ' + pjSentence(pr.because) : '.'));
       if (m.firstName && m.firstName !== m.made.shownAs && TC.members.some((o) => o !== m && o.state === 'made')) m.renamedFrom = m.firstName;
     } else {
       m.state = 'failed';
@@ -47620,8 +47616,9 @@ function cstep(which) {
   });
   /* #4556: Back to the three-way choice, only from a path's second screen. */
   document.getElementById('create-path-back').hidden = !(which === 'role' || which === 'team');
-  /* Mona's review: one back link on a second screen, "Choose another kind"; All agents is one step further back. */
-  document.getElementById('create-back').hidden = (which === 'role' || which === 'team');
+  /* Mona's review: one back link on a second screen, "Choose another kind"; All agents is one step further back.
+     #4557 round 30: the same on the team step, whose own Back (#tc-back) returns to the Team screen. */
+  document.getElementById('create-back').hidden = (which === 'role' || which === 'team' || which === 'teammake');
 }
 
 /* #4556: which of New Agent's three paths the person chose on the first screen: 'single', 'team' or 'swarm'.
@@ -47649,8 +47646,9 @@ function chooseCreatePath(path) {
 }
 
 /* #4556: the Team screen. The ready-made teams come from the seeded catalogue (GET /api/teams/seeded, #4555),
-   and creating one is #4557's openTeamCreate(key). Until each exists, the screen says so rather than offering a
-   control that does nothing. The org chart (#1280) opens its existing panel, moved here from the Single screen. */
+   and creating one is #4557's openTeamCreate(key), which this page now always defines. A catalogue that is missing
+   or empty reads as "coming soon" rather than offering a control that does nothing; the openTeamCreate guard below
+   stays as a belt for a page assembled without it. The org chart (#1280) opens its existing panel, moved here from the Single screen. */
 let SEEDED_TEAMS = null;
 let SEEDED_GEN = 0;
 function resetTeamStep() {

@@ -353,3 +353,18 @@ failed row's name to replace it while the watcher repaints (every 2 s) hits the 
 Fixed: the whole selection (start and end) is put back. A new arm forces the repaint between the select
 and the typing, so it no longer depends on timing to show; its control is the same check with the fix
 reverted. The control tree (13:xx, 18 FAILs on purpose) proved the check's older arms can fail.
+
+## Review 30 (opus, blind, on bd362e5bf: the main merges, the cstep-teammake rename, Mona's design fixes), 20:02 CDT
+1 BLOCKER, 2 WARNINGs, 5 NITs.
+- BLOCKER, taken: #4556's gated check (render-newagent-paths-4556 K5b control) did `delete window.openTeamCreate`. Now that
+  openTeamCreate is a top-level function declaration it is a non-configurable global, so delete is a no-op and the arm goes red.
+  The control sets it to undefined instead (the binding is writable). The browser checks on the merged tree had not run yet.
+- WARNING, taken: web.create-ids.test.js listed cstep()'s panes by hand without teammake. The test now reads cstep()'s own
+  list (control: the list must hold >= 6 steps including teammake); perturbation (pane id renamed) reds it.
+- WARNING, taken: Create on #4556's Team screen hid the focused button and left focus on the page. #tc-title is tabindex -1
+  and is focused on arrival. A new check arm goes the REAL way (New Agent > Team > pick > Create; every other arm calls
+  openTeamCreate through page.evaluate) and asserts the step, the focus and one back control.
+- NITs taken: one back control on the team step (create-back hidden there too, Mona's own #4556 rule); pjSentence reused
+  (tcSentence removed); every tc-msg refusal and the "not added to the project" warning read as sentences (tcSay); the Team
+  screen comment no longer says openTeamCreate may not exist; Back while idle has an arm.
+- NIT noted: the .tc-leads nowrap and the 16px gap are not asserted (styling; Mona measured both on bd362e5bf).
