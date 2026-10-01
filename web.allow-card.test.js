@@ -75,7 +75,10 @@ test('the change-your-password sentence appears on the Deny branch and the re-as
 /* #3829: "Not now" and "Not me" are gone (Mona Lisa's review: Allow / Deny only); a request that is left
    alone fades after an hour instead. Requests show ONCE, as cards, not again in the devices list. */
 test('Remove confirms inline with the sentence the tunnel makes true; Allow / Deny only, and requests show once', () => {
-  assert.match(JS, /Remove this ' \+ askEsc\(name\) \+ '\? It stops right away\. It can ask again by signing in\./);
+  assert.match(JS, /Remove this ' \+ askEsc\(name\) \+ '\? It stops right away, here and on your other computers\. It can ask again by signing in\./);
+  // #4824: what the connector could not do is said, and only when its answer says so.
+  assert.match(JS, /said\.signed_out === false\s*\? 'Removed here\. Kosmos\+ could not be reached/);
+  assert.match(JS, /said\.local_cutoff === false\s*\? 'Removed\. If you let it in again/);
   assert.equal((JS.match(/data-ask="later"/g) || []).length, 0, 'a Not now dismiss is back');
   assert.doesNotMatch(JS, />Not me</, 'a Not me button is back');
   assert.doesNotMatch(JS, /devrow pending/, 'pending requests are painted in the devices list too');

@@ -43135,7 +43135,7 @@ async function paintDevices() {
     const confirming = ASK.confirm === d.device_id;
     out.push('<div class="devrow"><div class="devbody"><div class="devname">' + askEsc(name) + '</div><div class="devmeta">' + meta + '</div></div>' +
       '<div class="acts"><button class="btn" type="button" data-dev="remove" data-id="' + askEsc(d.device_id) + '"' + (confirming ? ' disabled' : '') + '>Remove</button></div>' +
-      (confirming ? '<div class="confirm">Remove this ' + askEsc(name) + '? It stops right away. It can ask again by signing in.' +
+      (confirming ? '<div class="confirm">Remove this ' + askEsc(name) + '? It stops right away, here and on your other computers. It can ask again by signing in.' +
         '<div class="acts"><button class="btn" type="button" data-dev="removeyes" data-id="' + askEsc(d.device_id) + '">Remove</button>' +
         '<button class="btn" type="button" data-dev="keep">Keep</button></div></div>' : '') + '</div>');
   }
@@ -43184,6 +43184,15 @@ document.getElementById('plus-devlist').addEventListener('click', async (e) => {
     let res = null;
     try { res = await fetch('/api/remote/devices/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device_id: id }) }); } catch { res = null; }
     if (!res || !res.ok) { const said = res ? await res.json().catch(() => null) : null; msg.textContent = plusWords((said && said.error) || 'we could not remove that'); }
+    else {
+      /* #4824: the removal here always stands; say what did not happen as well (kosmos#4803's answer). */
+      const said = await res.json().catch(() => null);
+      msg.textContent = said && said.signed_out === false
+        ? 'Removed here. Kosmos+ could not be reached, so it may still open your other computers until you remove it there too.'
+        : said && said.local_cutoff === false
+          ? 'Removed. If you let it in again, have it sign in again first: its old sign-in could come back here.'
+          : '';
+    }
     paintDevices();
   }
 });
