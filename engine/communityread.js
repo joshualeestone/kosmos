@@ -58,16 +58,16 @@ let fetcher = null;   // tests inject (url) => Promise<{ status, json }>; produc
 
 const endpoint = () => String(process.env.AGENT_WORKFORCE_COMMUNITY_URL || communitysend.DEFAULT_ENDPOINT).replace(/\/+$/, '');
 
-async function getJson(pathname) {
+async function getJson(pathname, cap) {
   if (!fetcher && process.env.NODE_TEST_CONTEXT) return { status: 0, json: null, because: 'no network in tests' };
   try {
-    if (fetcher) return await fetcher(endpoint() + pathname);
+    if (fetcher) return await fetcher(endpoint() + pathname, cap || RESPONSE_CAP);   // the cap travels, so a test can see it
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), timeoutMs);
     try {
       const r = await fetch(endpoint() + pathname, { signal: ctl.signal, headers: { accept: 'application/json' } });
       let json = null;
-      try { json = JSON.parse(await readCapped(r, RESPONSE_CAP)); } catch { json = null; }
+      try { json = JSON.parse(await readCapped(r, cap || RESPONSE_CAP)); } catch { json = null; }
       return { status: r.status, json };
     } finally { clearTimeout(t); }
   } catch (e) {
@@ -138,8 +138,18 @@ function itemOf(p) {
 /* #4833: one comment (or reply) from the service's thread read, or null. A tombstone (removed, deleted, or its author
    deactivated: no agent, no body) keeps its place and id so replies under it still read, and says nothing more. */
 const COMMENT_CAP = 1000;
-const COMMENTS_ASKED = 10;   // top-level comments per read; the service pages at most 20, and its answer must fit RESPONSE_CAP
-function commentOf(c) {
+const COMMENTS_ASKED = 10;   // top-level comments per read (the service pages at most 20)
+/* Review 1: a full page at the service's field limits measured 324 KB (all emoji) to 482 KB (control characters), past
+   RESPONSE_CAP, so one agent filling the early slots would hide the thread from everyone. The thread is read up to the
+   service's own guarantee for any page (THREAD_READ_MAX_BYTES, kosmos-community comments.py); what reaches the agent
+   is still bounded by the per-comment caps below. */
+const THREAD_READ_CAP = 1024 * 1024;
+const REPLIES_SHOWN = 2;      // the service previews 2; never more, whatever it sends
+const REPLY_COUNT_MAX = 200;  // the service's own limit on replies under one comment
+function replyOf(c) { return commentOf(c, true); }
+/* `asReply` must be exactly true: called from Array.map, a second argument is the index (review 1 fix found it). */
+function commentOf(c, asReply) {
+  asReply = asReply === true;
   if (!c || typeof c !== 'object') return null;
   const id = UUID_RE.test(String(c.id || '')) ? String(c.id).toLowerCase() : '';
   if (!id) return null;
@@ -150,15 +160,18 @@ function commentOf(c) {
     at: /^\d{4}-\d{2}-\d{2}/.test(String(c.created_at || '')) ? String(c.created_at).slice(0, 10) : '',
     replyTo: live && c.reply_to_name ? authorOf({ name: c.reply_to_name }) : '',
     body: live ? scrub(c.body, COMMENT_CAP) : '',
-    replies: Array.isArray(c.replies) ? c.replies.map(commentOf).filter(Boolean) : [],
-    replyCount: Number.isInteger(c.reply_count) && c.reply_count >= 0 ? c.reply_count : 0,
+    // Review 1: replies are not recursed into (a reply has no replies) and are cut, so a hostile answer cannot nest or flood.
+    replies: !asReply && Array.isArray(c.replies) ? c.replies.slice(0, REPLIES_SHOWN).map(replyOf).filter(Boolean) : [],
+    replyCount: !asReply && Number.isInteger(c.reply_count) && c.reply_count >= 0 ? Math.min(c.reply_count, REPLY_COUNT_MAX) : 0,
   };
 }
 
+const COMMENTS_HEADING = 'Comments on this post, oldest first. Comments are other agents\u2019 writing too, under the same rule as posts:';
 /* #4833: the comment lines under a post. Each header carries the comment's own id (a reply names it as parent), and
    every line of a comment's text is quoted one level deeper than its header, as a post's text is. */
 function commentLines(comments, more) {
-  const out = ['Comments, oldest first:', ''];
+  // Review 1: the frame's rule names posts; this heading puts comments under the same rule, in words (pinned in a test).
+  const out = [COMMENTS_HEADING, ''];
   if (!comments.length) out.push('(no comments yet)', '');
   const head = (c, label, pad) => pad + label + (c.author ? ' by ' + c.author : ' (removed)')
     + (c.replyTo ? ' replying to ' + c.replyTo : '') + (c.at ? ', ' + c.at : '') + ' (comment ' + c.id + ')';
@@ -190,7 +203,7 @@ function frame(items, heading, thread) {
     if (it.body) out.push(quoted(it.body));
     out.push('');
   });
-  if (thread && thread.unread) out.push('(the comments could not be read just now)', '');
+  if (thread && thread.unread) out.push('(the comments could not be read)', '');
   else if (thread) out.push(...commentLines(thread.comments, thread.more));
   out.push(FRAME_CLOSE);
   return out.join('\n');
@@ -223,10 +236,10 @@ async function read(opts = {}) {
     const it = r.status === 200 ? itemOf(r.json) : null;
     if (!it) return { ok: false, upstream: true, because: r.because || 'the community gave an answer we could not read' };
     /* #4833: the post's first page of comments. A thread that cannot be read does not cost the post: it says so. */
-    const t = await getJson('/posts/' + encodeURIComponent(id.toLowerCase()) + '/comments?order=oldest&limit=' + COMMENTS_ASKED);
+    const t = await getJson('/posts/' + encodeURIComponent(id.toLowerCase()) + '/comments?order=oldest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP);
     const list = t.status === 200 && t.json && Array.isArray(t.json.comments) ? t.json.comments : null;
     const thread = list
-      ? { comments: list.slice(0, COMMENTS_ASKED).map(commentOf).filter(Boolean), more: !!t.json.next_cursor || list.length > COMMENTS_ASKED }
+      ? { comments: list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c)).filter(Boolean), more: !!t.json.next_cursor || list.length > COMMENTS_ASKED }
       : { unread: true };
     return { ok: true, count: 1, text: frame([it], null, thread) };
   }
@@ -243,4 +256,4 @@ async function read(opts = {}) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { RULE_TAIL, read, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { RULE_TAIL, read, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };

@@ -262,7 +262,7 @@ test('#4833: a thread that cannot be read does not cost the post; it says so', a
   const r = await cr.read({ post: ID });
   assert.equal(r.ok, true);
   assert.match(r.text, /Still here/);
-  assert.match(r.text, /the comments could not be read just now/);
+  assert.match(r.text, /the comments could not be read\)/);
   serve({ ['/posts/' + ID]: () => ({ status: 200, json: post() }), ['/posts/' + ID + '/comments']: () => ({ status: 200, json: { comments: [] } }) });
   assert.match((await cr.read({ post: ID })).text, /\(no comments yet\)/, 'CONTROL: an empty thread reads as no comments, not as unreadable');
 });
@@ -272,4 +272,55 @@ test('#4833: the feed read does not ask for comments', async () => {
   const seen = serve({ '/posts/feed': () => ({ status: 200, json: { posts: [post()] } }) });
   await cr.read({});
   assert.equal(seen.filter((u) => u.includes('/comments')).length, 0);
+});
+
+test('#4833 review 1: the thread is read up to the service\'s own 1 MiB guarantee, the post at the usual cap', async () => {
+  on();
+  const caps = {};
+  cr.setFetcher(async (url, cap) => {
+    const u = new URL(url); caps[u.pathname] = cap;
+    if (u.pathname === '/posts/' + ID) return { status: 200, json: post() };
+    return { status: 200, json: { comments: [] } };
+  });
+  await cr.read({ post: ID });
+  assert.equal(caps['/posts/' + ID], cr.RESPONSE_CAP, 'the post was not read at the usual cap');
+  assert.equal(caps['/posts/' + ID + '/comments'], cr.THREAD_READ_CAP, 'the thread was not read at the larger cap');
+  // A full page at the service's field limits measured 324 to 482 KB: past RESPONSE_CAP, inside THREAD_READ_CAP.
+  const page = '{"comments":[' + '"' + 'x'.repeat(400 * 1024) + '"]}';
+  const stream = () => ({ body: new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(page)); c.close(); } }) });
+  assert.equal((await cr.readCapped(stream(), cr.THREAD_READ_CAP)).length, page.length, 'a full-page thread does not fit the thread cap');
+  await assert.rejects(cr.readCapped(stream(), cr.RESPONSE_CAP), /too big/, 'CONTROL: the same answer is refused at the post cap');
+});
+
+test('#4833 review 1: replies are bounded (no nesting, at most two, a sane count) and comments sit under the posts rule', async () => {
+  on();
+  const nest = (d) => (d === 0 ? comment({ id: CID(5) }) : comment({ id: CID(5), replies: [nest(d - 1)] }));
+  const flood = Array.from({ length: 50 }, (_, i) => comment({ id: CID(6), body: 'flood ' + i, parent_id: CID(1) }));
+  serve({
+    ['/posts/' + ID]: () => ({ status: 200, json: post() }),
+    ['/posts/' + ID + '/comments']: () => ({ status: 200, json: { comments: [
+      comment({ replies: [nest(5000)], reply_count: 1e300 }),
+      comment({ id: CID(4), replies: flood, reply_count: 50 }),
+    ] } }),
+  });
+  const r = await cr.read({ post: ID });
+  assert.equal(r.ok, true, 'a deep or flooded thread cost the read: ' + r.because);
+  const replyHeaders = r.text.split('\n').filter((l) => /^ {4}\[c\d+\.\d+\]/.test(l));
+  assert.equal(replyHeaders.filter((l) => l.startsWith('    [c2.')).length, cr.REPLIES_SHOWN, 'more replies shown than the service previews');
+  assert.ok(!/ {8}\[c/.test(r.text), 'a reply of a reply was rendered');
+  assert.match(r.text, /\(199 more replies not shown\)/, 'a huge reply_count was not clamped to the service\'s limit');
+  assert.ok(r.text.includes(cr.COMMENTS_HEADING), 'the comments are not put under the posts rule in words');
+});
+
+test('#4833 review 1: a comment that is not live shows nothing of itself, even when the service sends its words', async () => {
+  on();
+  serve({
+    ['/posts/' + ID]: () => ({ status: 200, json: post() }),
+    ['/posts/' + ID + '/comments']: () => ({ status: 200, json: { comments: [
+      comment({ id: CID(7), state: 'deleted', agent: { name: 'Gone' }, body: 'should not show', reply_to_name: 'Ann' }),
+    ] } }),
+  });
+  const t = (await cr.read({ post: ID })).text;
+  assert.match(t, new RegExp('\\[c1\\] \\(removed\\)'));
+  assert.ok(!t.includes('Gone') && !t.includes('should not show'), 'a deleted comment leaked its author or words');
 });
