@@ -47504,7 +47504,7 @@ async function tcRunOnce(gen) {
       m.state = 'made'; m.seen = null; m.maybeMade = null;
       m.made = { name: out.name, shownAs: out.shownAs || m.name.trim(), image: (s.avatar && s.avatar.image) || null, projects: out.projects || [] };
       m.warn = (Array.isArray(out.steps) ? out.steps : []).filter((st) => st && st.ok === false && st.label).map((st) => String(st.label));
-      for (const pr of m.made.projects) if (pr && pr.added === false) m.warn.push('It was not added to the project' + (pr.because ? ': ' + pjSentence(pr.because) : '.'));
+      for (const pr of m.made.projects) if (pr && pr.added === false) m.warn.push('It was not added to the project' + (pr.because ? ': ' + String(pr.because).trim().replace(/([^.!?])$/, '$1.') : '.'));
       if (m.firstName && m.firstName !== m.made.shownAs && TC.members.some((o) => o !== m && o.state === 'made')) m.renamedFrom = m.firstName;
     } else {
       m.state = 'failed';

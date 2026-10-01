@@ -376,3 +376,13 @@ reverted. The control tree (13:xx, 18 FAILs on purpose) proved the check's older
 - WARNING: no test parsed the page's scripts; every focused test reads the page as text. New web.script-parses-4557.test.js
   compiles every inline classic script (vm.Script, never run). Control: the exact defect fails. Measured: green on the
   fix, red on c9db77398's page ("web/index.html:17815 does not parse: Unexpected token ')'").
+
+## Review 32 (fable, blind, on 99b3d85fc), 20:14 CDT: 1 BLOCKER, 1 WARNING, 3 NITs
+- BLOCKER, taken: round 30 made every tc-msg refusal a sentence (tcSay -> pjSentence), but the gated check's "name already
+  taken" arm still compared #tc-msg to the server's raw lowercase text, so it would go red. The expectation is now the
+  exact sentence form (capital, full stop), so the rule is measured.
+- WARNING, taken as the gate: nothing after round 28 has run in a browser. render-teamcreate-4557 and
+  render-newagent-paths-4556 run on HEAD before this PR leaves draft; their PASS/FAIL counts go here.
+- NITs taken: web.create-ids's title has no count and its step regex takes any quoted name; the "not added to the
+  project" reason keeps its own case after the colon and only gains a full stop; the parse test asserts one script per
+  <script> opener (a </script> inside a string can no longer drop coverage silently).

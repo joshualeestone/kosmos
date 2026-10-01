@@ -39,6 +39,10 @@ test('#4557 review 31: every inline classic script in web/index.html compiles', 
   // CONTROL on the reader: the page has its main script and more, and the main one is large.
   assert.ok(scripts.length >= 2, 'found ' + scripts.length + ' inline scripts; the reader is broken, not the page');
   assert.ok(scripts.some((s) => s.code.length > 100000), 'the main board script was not found by the reader');
+  /* Review 32: a `</script>` inside a JS string would end a match early and drop the rest of that script from coverage
+     without anything failing; every opener must have produced exactly one script (none here has a src or a non-JS type). */
+  const openers = (PAGE.match(/<script\b/gi) || []).length;
+  assert.equal(scripts.length, openers, 'the page has ' + openers + ' <script> openers but the reader found ' + scripts.length + ' scripts');
   for (const s of scripts) {
     try {
       new vm.Script(s.code, { filename: 'web/index.html:' + s.line });

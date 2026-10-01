@@ -480,7 +480,7 @@ function chk(ok, label, extra) {
           await page.click('#tc-go');
           await settle(page, () => !document.getElementById('tc-msg').hidden);
           const msg = await page.textContent('#tc-msg');
-          chk(msg === 'there is already an agent called Ada on this computer; give the Content Writer another name. If you were making this team a moment ago, those agents are already on your board' && posted.length === 0 && projects.readAll().length === before,
+          chk(msg === 'There is already an agent called Ada on this computer; give the Content Writer another name. If you were making this team a moment ago, those agents are already on your board.' && posted.length === 0 && projects.readAll().length === before,
             `${E} a name already taken on this computer is refused before any project or agent is made`, msg + ' | posted ' + posted.length);
           chk(errs.length === 0, `${E} no page errors (taken arm)`, errs.join(' | '));
           await page.close();
