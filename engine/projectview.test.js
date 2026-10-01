@@ -300,6 +300,8 @@ test('#4581 N10: an idle member whose summary was current when it went idle read
   // The edge: idle exactly four hours after the summary is still current when it stopped (to the millisecond; the
   // freshness rule rounds to the minute, so the two can differ by under a minute).
   assert.equal(show(idleAt(360)).m.summary.state, 'idle');
+  // And one minute past it is not (review 7: pins the strict comparison from the other side).
+  assert.equal(show(idleAt(359)).m.summary.state, 'stale');
   // CONTROL: a current summary is untouched by any report.
   const fresh = agentFolder('ida-fresh', [['2026-09-29-16.md', 30]]);
   const o = { now: NOW, folderOf: () => fresh, readBrief: () => ({ found: false }), readReport: () => idleAt(420) };
@@ -351,7 +353,7 @@ test('#4581 N10 review 5: only a runner known to report working is excused; a pa
   const stale = { state: 'stale', file: 'summaries/2026-09-29-07.md', at: new Date(NOW - 600 * 60000).toISOString(), ageMinutes: 600 };
   const report = () => ({ found: true, state: 'idle', at: new Date(NOW - 420 * 60000).toISOString() });
   const member = (runner) => ({ present: true, tied: true, state: 'idle', sessionName: 'x', runner });
-  // CONTROL: a Claude member is excused.
+  // The positive arm: a Claude member is excused.
   assert.equal(v.idleExcused(stale, member('claude'), report, NOW).state, 'idle');
   for (const runner of [null, undefined, 'codex', 'someday-runner']) {
     assert.equal(v.idleExcused(stale, member(runner), report, NOW).state, 'stale', 'excused a member with runner ' + runner);

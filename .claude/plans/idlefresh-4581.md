@@ -86,3 +86,7 @@ through the real selfreport reader.
   hours of work outside a running board (Kosmos agents run under it).
 - N2 a missing report hook reads as a long "idle since": kept (the printed idle-since makes it visible).
 - N3 the member summary's 'idle' shape: documented on overviewOf. N4 the plan's Tests section: updated.
+
+## Review 7 (Sonnet, blind, source-only): 0 blockers, 0 warnings, 7 nits. CONVERGED.
+- N2 the JSDoc note split the @returns list: moved above the function. N3 the Claude arm relabelled the positive arm.
+- N6 the strict four-hour edge pinned only one side: ADDED the 241-minute arm. N1, N4, N5, N7: kept.

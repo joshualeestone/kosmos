@@ -30,12 +30,12 @@ const FUTURE_SLACK_MINUTES = 5;
  * How current an agent's running summary is: the newest summaries/YYYY-MM-DD-HH.md in its folder, by the
  * time it was last written. Never throws.
  * @returns {{ state: 'current'|'stale'|'future'|'none'|'nofolder'|'unreadable', file: string|null, at: string|null, ageMinutes: number|null }}
- *   (overviewOf may then mark a stale one 'idle', with idleKind ('idle' or 'started'), idleSince and idleMinutes:
- *   #4581 N10, idleExcused. Not the member's own state, which also reads 'idle'.)
  *   current: written within the four-hour rhythm; stale: longer ago (an agent that has been idle is not
  *   expected to write, so stale is a fact to read, not a fault); none: no summaries yet; unreadable: we
  *   could not look (the reader must not take that as none).
  */
+/* overviewOf may then mark a stale summary 'idle', with idleKind ('idle' or 'started'), idleSince and idleMinutes
+   (#4581 N10, idleExcused). Not the member's own state, which also reads 'idle'. */
 function summaryFreshness(folder, nowMs) {
   const none = { state: 'none', file: null, at: null, ageMinutes: null };
   /* No usable folder at all (none recorded, or not absolute) is "we do not know where it is" (round 4), not "we
