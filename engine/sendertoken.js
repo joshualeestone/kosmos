@@ -230,6 +230,7 @@ function othersTokens(held, sessionName) {
   try { key = store.safeKey(sessionName); } catch { return null; }
   const names = new Set();
   for (const t of held) { const n = tokenName(t, key); if (n) names.add(n); }
+  // The second arm (this name absent) is defensive: the kept run always carries this name today. Tested below.
   if (names.size < 2 || !names.has(String(sessionName))) return null;
   return (t) => { const n = tokenName(t, key); return n !== null && n !== String(sessionName); };
 }
@@ -283,6 +284,7 @@ function retire(sessionName, instance) {
  * when the -discord twin, which shares this token file, has no session: never when adopting
  * a live run, whose own pre-#4530 token is untagged. Remote agents' tokens are tagged
  * `remote` from #4530 on, so this never reaches them.
+ * #4844: with `untagged`, another name's NAMED tokens under the same key are kept (othersTokens); unnamed ones are not.
  */
 function retireLauncher(sessionName, launcher, keepInstance, opts = {}) {
   if (typeof launcher !== 'string' || !launcher) return { ok: false, because: 'name the launcher whose runs to retire' };
@@ -292,8 +294,8 @@ function retireLauncher(sessionName, launcher, keepInstance, opts = {}) {
       const all = readTokens(sessionName);
       const untagged = !!(opts && opts.untagged);
       /* #4844: the untagged sweep never takes another agent's NAMED tokens when that agent shares this key (adopt and
-         Windows create mint with no launcher). Same rule as revoke: narrowed only when the file names this agent among
-         others; tokens with no name are swept as before. */
+         Windows create mint with no launcher). Narrowed only when the file names this agent among others (othersTokens);
+         tokens with no name are swept as before. revoke deliberately does NOT narrow: see othersTokens. */
       const theirs = untagged ? othersTokens(all, sessionName) : null;
       const left = all.filter((t) => t.instance === keepInstance
         || (theirs !== null && theirs(t))

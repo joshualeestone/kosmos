@@ -258,6 +258,28 @@ test('#4844: one name\'s untagged sweep keeps another name\'s tokens under the s
   assert.equal(sendertoken.resolveName(theirs).ok, true, 'Zia4844\'s sweep took zia4844\'s token');
 });
 
+test('#4844 review 2: the narrowed sweep still takes an unnamed older token, and takes all when this name is absent', () => {
+  const fs = require('node:fs');
+  const mine = sendertoken.mint('Oak4844', { launcher: 'supervisor:Oak4844' });
+  const theirs = sendertoken.mint('oak4844').token;
+  const file = path.join(sendertoken.DIR, 'oak4844.json');
+  const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const old = require('node:crypto').randomBytes(32).toString('hex');
+  kept.tokens.push({ token: old, instance: 'old' });   // a past run's token from before names were kept: no name, no launcher
+  fs.writeFileSync(file, JSON.stringify(kept), { mode: 0o600 });
+  sendertoken.retireLauncher('Oak4844', 'supervisor:Oak4844', mine.instance, { untagged: true });
+  const after = JSON.parse(fs.readFileSync(file, 'utf8')).tokens.map((t) => t.token);
+  assert.equal(after.includes(old), false, 'the unnamed older token survived the sweep (it would resolve by key once the other name is gone)');
+  assert.equal(after.includes(theirs), true, 'CONTROL: the other name\'s token is still kept');
+  // A sweep under a spelling no token carries does not narrow: every untagged token goes, as before #4844.
+  const a = sendertoken.mint('Elm4844', { launcher: 'supervisor:ELM4844' });
+  const b = sendertoken.mint('elm4844').token;
+  const c = sendertoken.mint('Elm4844').token;
+  sendertoken.retireLauncher('ELM4844', 'supervisor:ELM4844', a.instance, { untagged: true });
+  const left = JSON.parse(fs.readFileSync(path.join(sendertoken.DIR, 'elm4844.json'), 'utf8')).tokens.map((t) => t.token);
+  assert.equal(left.includes(b) || left.includes(c), false, 'a sweep by an absent spelling narrowed anyway');
+});
+
 test('#4763 review 3: a clash logs once per clash, and a clean resolve re-arms it', () => {
   const warned = [];
   const orig = console.warn;

@@ -26,6 +26,9 @@ WEAKEST PREMISE: that the sweep's caller and the mint always share token_roster_
 bin/agent-supervisor.sh); a future caller that sweeps under another spelling would only fail to narrow (the old
 behaviour), since narrowing needs an exact name match among two or more.
 Not changed: mint's MAX_LIVE cap is per file, so one name's restart loop can still evict the other name's tokens.
+Residual: an agent renamed only by case (adopted as "mara", relaunched as "Mara") keeps its old "mara"-named adopt
+tokens through "Mara"'s sweep. They cannot resolve while "Mara" holds tokens (a clash, and pane rows match exactly);
+after that they can resolve by key through a paneless or never-run row. Low likelihood; revoke on removal takes them.
 
 ## Tests (engine/sendertoken.test.js)
 - One name's untagged sweep keeps the other name's untagged token and still takes its own.
@@ -37,3 +40,7 @@ Not changed: mint's MAX_LIVE cap is per file, so one name's restart loop can sti
 ## Review
 Round 1 (blind): BLOCKER, the narrowed revoke (above), reproduced by the reviewer in a sandboxed store. Taken by
 removing it. The reviewer confirmed the -discord twin and the lock are unaffected.
+Round 2 (blind): no blocker, two should-fix, both taken. The unnamed-token arm of the predicate had no test (a
+mutant dropping it survived): a test now sweeps an unnamed older token beside two names and checks it goes while
+the other name's stays. A stale comment said the sweep follows revoke's rule; it now says revoke does not narrow.
+Nits taken: the absent-spelling arm is tested; retireLauncher's doc names #4844; the case-rename residual above.
