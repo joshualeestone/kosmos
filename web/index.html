@@ -60160,7 +60160,7 @@ function repaintReactions(box, list) {
 
    HEARING: speechSynthesis, measured working in the app's web view with 68 voices, all on-device. Only an
    on-device voice is used; a page with none says so rather than using a network voice. */
-const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '', listening: false };
+const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '', listening: false, displaced: null };
 /* #4409 (review 1 BLOCKER): which conversation the page is showing. Opening another agent or room does NOT fire
    hashchange (the URL follows the view through history.replaceState), and #d-say / #pj-post are ONE shared box each,
    so a word heard after a switch would land in the next agent's box, be parked as THEIR draft, and go to them on
@@ -60212,10 +60212,15 @@ function voiceBridge() {
    kept browser recognition out on privacy grounds; that was an agent's call, and Josh's ruling is that he does not mind
    (Splinter, on the card). The listening line says who hears it. The Mac app keeps its on-device bridge, and a
    computer's browser (a fine pointer) gets no mic. */
-let VOICE_PHONE = undefined;   // the shim, built once; null where there is none
+let VOICE_PHONE = undefined;   // the shim, built once at load (an iPad that later gains a trackpad keeps it); null where none
 function voicePhoneWho() {
   const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
-  return /Android/i.test(ua) ? 'Google' : /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document) ? 'Apple' : '';
+  /* Named only where we know who it is: every iPhone and iPad browser is Safari's engine (Apple's recognizer), and on
+     Android only Chrome itself is Google's. Another Android browser (Samsung Internet, Edge, Opera, Firefox) may send
+     the audio elsewhere, so it gets no mic rather than a guess. */
+  if (/iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document)) return 'Apple';
+  if (/Android/i.test(ua) && /Chrome\//.test(ua) && !/SamsungBrowser|EdgA|OPR|Firefox|YaBrowser|UCBrowser|; wv\)/i.test(ua)) return 'Google';
+  return '';
 }
 function voicePhoneBridge() {
   if (VOICE_PHONE !== undefined) return VOICE_PHONE;
@@ -60325,7 +60330,9 @@ function voiceUnsayOwn(btn) {
 }
 function voiceUnsay(btn) {
   const el = btn && document.getElementById(btn.getAttribute('data-voice-msg') || '');
-  if (el && (el.textContent === VOICE_LISTENING || el.textContent === voiceListeningLine())) el.textContent = '';
+  const back = VOICE.displaced && VOICE.displaced.btn === btn ? VOICE.displaced.text : '';
+  VOICE.displaced = null;
+  if (el && (el.textContent === VOICE_LISTENING || el.textContent === voiceListeningLine())) el.textContent = back;
 }
 function voiceToggle(btn) {
   const h = voiceBridge();
@@ -60371,7 +60378,12 @@ function voiceOnEvent(ev) {
     /* Never over another message's line, EXCEPT on a phone: there the line says who hears the audio, and that is a
        disclosure, not a hint (slice 3). The other line is a passing status; the person sees it again when it matters. */
     const hb = voiceBridge();
-    if (voiceMsgEmpty(btn) || (hb && hb.phone)) voiceSay(btn, voiceListeningLine());
+    if (voiceMsgEmpty(btn)) voiceSay(btn, voiceListeningLine());
+    else if (hb && hb.phone) {   // the other line comes back when listening ends (voiceUnsay)
+      const el = document.getElementById(btn.getAttribute('data-voice-msg') || '');
+      VOICE.displaced = { btn, text: el ? el.textContent : '' };
+      voiceSay(btn, voiceListeningLine());
+    }
     return;
   }   // review 5: focus is in the box, so the line is said there
   if ((ev.kind === 'partial' || ev.kind === 'final') && VOICE.box) {
@@ -70579,6 +70591,8 @@ function asbLayerEnsure() {
     +   '<button type="submit" id="asp-send" aria-label="Send">&uarr;</button></form>'
     + '</div>';
   document.body.appendChild(layer);
+  // #4409 slice 3: built after the page's mics were labelled, so label this one too (on a phone it says who hears).
+  try { if (typeof voicePaint === 'function' && voiceBridge()) voicePaint(document.getElementById('asp-mic'), 'off'); } catch { /* no voice */ }
   document.getElementById('asb').addEventListener('click', () => asbOpen());
   asbCloseWire();
   document.getElementById('asb-nudge-go').addEventListener('click', () => asbOpen());

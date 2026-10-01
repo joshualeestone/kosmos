@@ -454,7 +454,23 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     await phone.goto(PAGE);
     await openDm(phone);
     const p1 = { cls: await phone.evaluate(() => document.documentElement.classList.contains('has-voice')), shown: await shown(phone, '#d-mic'),
-      label: await phone.getAttribute('#d-mic', 'aria-label') };
+      label: await phone.getAttribute('#d-mic', 'aria-label'),
+      // The Guide is built when first needed, after load labelled the page's mics: build it now, as opening it does.
+      guide: await phone.evaluate(() => { asbLayerEnsure(); const m = document.getElementById('asp-mic'); return m ? m.getAttribute('aria-label') : 'no Guide mic'; }) };
+    // Android: Chrome is Google's recognizer and is named; another Android browser is not guessed at and gets no mic.
+    const android = async (ua) => {
+      const c = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, userAgent: ua });
+      const pg = await c.newPage();
+      await pg.addInitScript(harness(false), [false]);
+      await pg.addInitScript(SR);
+      await pg.goto(PAGE);
+      const r = await pg.evaluate(() => ({ cls: document.documentElement.classList.contains('has-voice'), label: document.getElementById('d-mic').getAttribute('aria-label') }));
+      await c.close();
+      return r;
+    };
+    const chrome = await android('Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36');
+    const samsung = await android('Mozilla/5.0 (Linux; Android 14; SM-S921B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/25.0 Chrome/121.0.0.0 Mobile Safari/537.36');
+    chk(chrome.cls && /\(Google hears the audio\)/.test(chrome.label) && !samsung.cls, 'P1b Android Chrome names Google; another Android browser gets no mic, not a guess', JSON.stringify({ chrome, samsung }));
     // A touch-screen computer (a Windows tablet: coarse pointer, no hover, the same recognizer) is not a phone.
     const tabCtx = await browser.newContext({ viewport: { width: 1200, height: 800 }, isMobile: true, hasTouch: true,
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36 Edg/129.0' });
@@ -464,7 +480,7 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     await tab.goto(PAGE);
     const tabMic = await tab.evaluate(() => document.documentElement.classList.contains('has-voice'));
     await tabCtx.close();
-    chk(p1.cls && p1.shown && !deskMic && !tabMic && /\(Apple hears the audio\)/.test(p1.label), 'P1 a phone draws the mic through the browser\'s recognizer, its label saying who hears it; a computer\'s browser and a touch-screen computer do not', JSON.stringify({ ...p1, deskMic, tabMic }));
+    chk(p1.cls && p1.shown && !deskMic && !tabMic && /\(Apple hears the audio\)/.test(p1.label) && /\(Apple hears the audio\)/.test(p1.guide), 'P1 a phone draws the mic through the browser\'s recognizer, its label saying who hears it; a computer\'s browser and a touch-screen computer do not', JSON.stringify({ ...p1, deskMic, tabMic }));
     await phone.fill('#d-say', '');
     await phone.evaluate(() => document.activeElement && document.activeElement.blur());   // as after the keyboard is put away
     await phone.tap('#d-mic');
@@ -495,9 +511,10 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     await phone.tap('#d-mic');
     await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
     const over = await phone.evaluate(() => document.getElementById('d-say-msg').textContent);
-    chk(/Apple hears this audio/.test(over), 'P5 on a phone, who hears the audio is said even over another line', over);
     await phone.tap('#d-mic');
     await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'false');
+    const back = await phone.evaluate(() => document.getElementById('d-say-msg').textContent);
+    chk(/Apple hears this audio/.test(over) && back === 'Still sending your last message.', 'P5 on a phone, who hears the audio is said even over another line, and that line comes back after', JSON.stringify({ over, back }));
     await phone.evaluate(() => { window.__recThrow = true; });
     await phone.tap('#d-mic');
     await phone.waitForTimeout(100);

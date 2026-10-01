@@ -12,7 +12,8 @@ hold, tap and dialog mics, so it merges after it.
   `voiceBridge` returns the Mac bridge first, then the phone shim. So every mic (composers, dialogs, hold, tap) works on
   a phone unchanged, except that on a phone the mic is a TAP started from its click (a user activation; a touch press
   is not one, and a held finger opens the long-press menu), so hold-to-talk is a computer feature.
-- On a phone the listening line says who hears the audio ("Apple" on iPhone or iPad, "Google" on Android) and "Tap the
+- On a phone the listening line says who hears the audio ("Apple" on any iPhone or iPad browser, all Safari's engine;
+  "Google" on Android Chrome only; another Android browser gets no mic rather than a guess) and "Tap the
   mic to stop" (no Escape); a refused microphone or speech recognition points at the phone's settings.
 - Read aloud: already drawn wherever the page can speak (speechSynthesis), phones included; the check now proves it.
 
@@ -54,4 +55,12 @@ pinning that the recognizer is reached only in the phone shim and the Mac bridge
   P2). Every fix was mutated and each mutation reds its check with a non-zero exit. LEFT: Android Chrome's continuous
   mode is reported to repeat earlier finals in later events; not measurable without an Android phone, named here as
   a premise beside the iPhone one. "Tap the mic to stop" kept (a screen reader user knows their own activation).
+- Round 2 (sonnet): FIXED W: the Guide's mic is built after load labelled the page's mics, so on a phone it never said
+  who hears the audio before a tap; labelled where it is built (P1 builds the Guide; removing the call reds it). FIXED
+  W: "Google" was claimed for any Android browser; now only Android Chrome is named, and any other Android browser gets
+  no mic (P1b, with a Samsung Internet control). FIXED W: the who-hears line overwrote another message's line for
+  good; that line now comes back when listening ends (P5). NOTED (premise, already named): real recognizers on iOS
+  and Android, including Android's repeated finals. NIT taken: the once-built shim's limit (an iPad gaining a
+  trackpad) is named in its comment. Left NITs: a soft keyboard's own input stops dictation quietly through the
+  box-changed guard (safe); the node pins are source matches, the browser checks carry the behaviour.
 
