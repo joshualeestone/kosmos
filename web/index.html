@@ -43120,8 +43120,9 @@ async function paintDevices() {
   const msg = document.getElementById('plus-devmsg');
   if (!r || !Array.isArray(r.allowed)) { msg.textContent = plusWords((r && r.error) || 'we could not read the devices'); return; }
   /* #4824: what the last Remove said stays through every repaint (the 5 s poll included) until the next
-     Remove or Keep in this list, so the warning that matters most is not gone before it is read. */
-  msg.textContent = ASK.said;
+     Remove or Keep in this list, so the warning that matters most is not gone before it is read.
+     An unchanged line is not rewritten: the element is an assertive alert, and the poll runs every 5 s. */
+  if (msg.textContent !== ASK.said) msg.textContent = ASK.said;
   ASK.allowed = r.allowed;
   document.getElementById('plus-devices-off').hidden = r.on !== false;
   /* #3829: a pending request shows ONCE, as its card at the top of the app (#askcard), not again here.
@@ -43180,8 +43181,9 @@ function removedWords(said) {
   const here = s.removed === false ? 'It was not on this computer\'s list.' : told ? 'Removed.' : 'Removed here.';
   const out = [here + (told
     ? ' Its sign-in on your other computers ends too.'
-    : ' Kosmos+ was not told, so it may still open your other computers until you remove it there too.')];
-  if (s.local_cutoff === false) out.push('This computer could not record the end of its current sign-in, so if you let it in again, that old sign-in could come back.');
+    : ' Kosmos+ could not confirm it, so it may still open your other computers until you remove it there too.')];
+  // An older connector answers no local_cutoff, and records none either.
+  if (s.local_cutoff !== true) out.push('This computer could not record the end of its current sign-in, so if you let it in again, that old sign-in could come back.');
   return out.join(' ');
 }
 document.getElementById('plus-devlist').addEventListener('click', async (e) => {

@@ -264,6 +264,10 @@ if (args[0] === 'devices') {
   if (verb === 'list') { console.log(JSON.stringify({ devices: [{ device_id: 'dev-1', name: 'iPhone', allowed_at: 1756000000, last_seen: 0, code: 'K7-3M' }] })); process.exit(0); }
   if (verb === 'pending') { console.log(JSON.stringify({ devices: [] })); process.exit(0); }
   // #4824: a connector from before kosmos#4803 (clap's own words and exit code, measured on that build).
+  if (verb === 'remove' && mode.includes('flag-words-exit1') && args.includes('--coordinator')) {
+    process.stderr.write("error: unexpected argument '--coordinator' found\\n");
+    process.exit(1);
+  }
   if (verb === 'remove' && mode.includes('old-remove') && args.includes('--coordinator')) {
     process.stderr.write("error: unexpected argument '--coordinator' found\\n\\nUsage: kosmos-tunnel devices remove --state-dir <STATE_DIR> --device-id <DEVICE_ID>\\n\\nFor more information, try '--help'.\\n");
     process.exit(2);
@@ -1100,6 +1104,11 @@ test('#4824: a connector from before kosmos#4803 refuses the flag; remove is ask
   const calls = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove');
   assert.equal(calls.length, 2);
   assert.ok(calls[0].includes('--coordinator') && !calls[1].includes('--coordinator'));
+  // CONTROL: the same words with another exit code are not clap's refusal; not retried.
+  process.env.FAKE_TUNNEL_MODE = 'flag-words-exit1';
+  const n0 = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length;
+  assert.equal((await remote.deviceRemove('dev-1')).ok, false);
+  assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length, n0 + 1, 'a non-clap refusal quoting the flag was retried');
   // CONTROL: any other refusal is not retried; it surfaces as before.
   process.env.FAKE_TUNNEL_MODE = 'devices-fail';
   const before = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length;

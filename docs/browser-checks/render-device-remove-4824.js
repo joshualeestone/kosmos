@@ -1,12 +1,14 @@
-// Browser-check-surface: plus-devlist
+// Browser-check-surface: plus-devlist plus-devmsg
+// Browser-check-functions: removedWords paintDevices
 'use strict';
 /**
  * #4824: after Remove on the Devices list, the person is told what the Remove reached, from the connector's
  * answer (kosmos#4803), and the line is still there after the list repaints (it used to be cleared by it).
  * Three answers, each through a real click on Remove then the confirm's Remove:
  *   told      -> signed_out true:  "Removed. Its sign-in also ends on your other computers ..."
- *   not told  -> signed_out false: "Removed here. Kosmos+ was not told ..."
- *   old       -> no signed_out (a connector from before kosmos#4803): the same "not told" line
+ *   not told  -> signed_out false: "Removed here. Kosmos+ could not confirm it ..."
+ *   old       -> no signed_out, no local_cutoff (a connector from before kosmos#4803): the same line, plus
+ *                "could not record the end of its current sign-in" 
  * The line must still be there after one of the page's own 5 s polls has repainted the list.
  * CONTROL: the next Remove click clears it, so a line that never clears cannot pass.
  *
@@ -80,7 +82,9 @@ async function open(browser, BASE, answer) {
       const said = (await page.textContent('#plus-devmsg') || '').trim();
       const visible = await page.evaluate(() => { const e = document.getElementById('plus-devmsg'); return !!(e && e.getBoundingClientRect().height > 0); });
       if (key === 'told') chk(/^Removed\. Its sign-in on your other computers ends too\./.test(said) && visible, key + ': says the other computers are reached, and it is still showing after the repaint', JSON.stringify(said));
-      else chk(/^Removed here\. Kosmos\+ was not told/.test(said) && visible, key + ': says Kosmos+ was not told, still showing after the repaint', JSON.stringify(said));
+      else chk(/^Removed here\. Kosmos\+ could not confirm it/.test(said) && visible, key + ': says Kosmos+ could not confirm it, still showing after the repaint', JSON.stringify(said));
+      if (key === 'old') chk(/could not record the end of its current sign-in/.test(said), 'old: says the old sign-in could come back if let in again', JSON.stringify(said));
+      else chk(!/could not record/.test(said), key + ': no cutoff line when the connector recorded one', JSON.stringify(said));
       chk(!/[—]/.test(said), key + ': no em dash');
       chk(errs.length === 0, key + ': no page errors', errs.join(' | '));
       if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'device-remove-4824-' + key + '.png') }); }
