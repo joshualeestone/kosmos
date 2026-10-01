@@ -37,6 +37,9 @@ async function withBoard(answer, fn) {
     req.on('data', (c) => { raw += c; });
     req.on('end', () => {
       if (!req.url.startsWith('/api/')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<title>Kosmos</title>Agent Workforce'); return; }
+      /* The CLI's health probe asks /api/health first (install/kosmos, the probe near line 289); it is the board being
+         looked for, not the action under test, so it answers as a board does and is not counted. */
+      if (req.url === '/api/health') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ app: 'kosmos' })); return; }
       hits.push({ method: req.method, url: req.url, body: raw, agentToken: req.headers['x-kosmos-agent-token'] || null });
       const [status, body] = answer(req);
       res.writeHead(status, { 'content-type': 'application/json' });
