@@ -768,10 +768,9 @@ async function taskBuilt(ctx, args) {
 }
 
 /* kosmos#3388, as install/kosmos cmd_project create: make a project from one
-   command. A board write, so it presents the board token, not the agent token
-   ({agent:false}; task add and task close present the agent token since #4491
-   slice 5, this one not yet); from_pane is empty because a Windows
-   agent has no tmux pane and the board tags it as a process caller. The success
+   command. A board write: the board token is what opens the route. The agent
+   token rides too (#4491 slice 5b), so the board names the maker and puts it on
+   the project; from_pane is empty because a Windows agent has no tmux pane. The success
    answer carries the id ({project,told,id,...}); an answer with neither an error
    nor an id is not a create. */
 async function projectCreate(ctx, args) {
@@ -781,7 +780,7 @@ async function projectCreate(ctx, args) {
   if (!name || !folder) { ctx.err(USAGE.project); return 2; }
   const body = { name, folder, from_pane: '' };
   if (description) body.description = description;
-  const r = await ctx.call('POST', '/api/projects', body, { agent: false });
+  const r = await ctx.call('POST', '/api/projects', body);   // #4491 slice 5b: with the agent's own token, which names the maker
   if (!r.reached) return ctx.unreachable('create that project');
   const id = r.json && (r.json.id || (r.json.project && r.json.project.id));
   if (id) { ctx.out('Created project "' + name + '" (id: ' + id + '). It\'s on your board now.'); return 0; }
