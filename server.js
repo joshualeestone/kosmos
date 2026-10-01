@@ -18008,8 +18008,9 @@ const server = http.createServer(async (req, res) => {
       if (!partOk || !parts.some((x) => Number(x.id) === Number(partId))) {
         sendJson(res, 400, { error: 'task ' + task.number + ' has no part ' + (partOk ? String(partId) : 'like that') }); return;
       }
-      /* A part that is done is not given to anyone: the new owner would be told about finished work. */
-      if (parts.find((x) => Number(x.id) === Number(partId)).closedAt) {
+      /* Work that is done is not given to anyone: the new owner would be told about finished work. A closed task
+         (`task close` sets the task's closedAt and leaves stored parts open) counts, as progressOf reads it. */
+      if (tasks.progressOf(task).closed || parts.find((x) => Number(x.id) === Number(partId)).closedAt) {
         sendJson(res, 400, { error: 'task ' + task.number + (parts.length > 1 ? ', part ' + Number(partId) + ',' : '') + ' is done, so it is not given to anyone' }); return;
       }
       const toSelf = !viaScreen && !!caller.card && !!asked.who && sameAgentName(asked.who, caller.card.sessionName, caller.byKey);

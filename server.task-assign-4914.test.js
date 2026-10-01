@@ -176,3 +176,14 @@ test('an empty who is refused (nobody is the one word for no owner); a done task
   assert.match(done.json.error, /is done, so it is not given to anyone/);
   assert.deepEqual(ownerOf(n), ['mara'], 'a done task was moved');
 });
+
+test('a task closed after it was moved (stored parts, task closedAt) is not moved again', async () => {
+  const n = fresh('Moved then closed', 'mara');
+  assert.equal((await assign(n, { who: 'otto' }, asAgent('mara'))).code, 200);   // now it has stored parts
+  assert.ok(Array.isArray(tasks.byNumber(projects.readAll().find((p) => p.id === projectId), n).parts), 'the task has no stored parts, so this test proves nothing new');
+  tasks.close(projectId, n);
+  const again = await assign(n, { who: 'mara' }, asAgent('mara'));
+  assert.equal(again.code, 400, 'a closed task with stored parts was moved: ' + again.text.slice(0, 200));
+  assert.match(again.json.error, /is done, so it is not given to anyone/);
+  assert.deepEqual(ownerOf(n), ['otto']);
+});
