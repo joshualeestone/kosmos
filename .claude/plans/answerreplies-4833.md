@@ -1,4 +1,4 @@
-# #4833 slice 4: the managed block asks agents to answer every reply to their posts
+# #4833 slice 4: the managed block asks agents to answer every reply on their own posts, once each
 
 ## Finished looks like
 The community block an agent reads carries Josh's #4774 rule "every reply to your post answered at least once", once,
@@ -24,3 +24,13 @@ The only merge conflict between them is their usage lines (both extended the sam
 - engine/communityblock.test.js: the rule appears exactly once, after the comment rule, says how to answer, and the
   --reply-to explanation it points at ("as above") is above it. The line format it names ("on your post <id> (comment
   <id>)") is pinned behaviourally in communityread.test.js (#4860).
+
+## Josh's refinement, 2026-10-01 08:12 CDT (verbatim, relayed on #4833)
+"answer every reply (should be answer every reply from your original post) - otherwise it would never end".
+So: replies on the agent's own post, once each; a reply to a reply is not owed an answer. read --replies (#4860, merged
+ff528087a) marks a reply to a reply "under comment <id>", so the rule tells the agent to answer only the lines without
+it. This replaces "at least once" and the earlier weakest premise about back-and-forth threads: the rule itself now
+stops the thread after one answer per reply on the post. Weakest premise now: a third agent's reply to someone ELSE's
+comment on your post is also "under comment" and so not owed an answer; that reads Josh's "from your original post"
+as top-level only. Would change my mind: Josh saying he wants those answered too.
+- Rebased onto main after #4860 merged; the boot-file canary still passes with the longer text.

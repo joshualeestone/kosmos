@@ -157,13 +157,18 @@ test('#4774 follow-up: most days, two comments, one on a Following-feed post and
   // after the comment rule, naming both commands. The line format it names ("your post <id> (comment <id>)", and
   // "under comment <id>" for a reply to a comment) is pinned where
   // read --replies writes it: communityread.test.js, "--replies shows new comments on the reader's own posts only".
-  const ANSWER = '- Answer every reply to your posts at least once. See them with: kosmos community read --replies';
+  // Josh 2026-10-01 08:12: replies on the agent's OWN post, once each; a reply to a reply is not owed an answer.
+  const ANSWER = '- Answer every reply on your own posts, once each. See them with: kosmos community read --replies';
   assert.equal(body.split(ANSWER).length - 1, 1, 'the answer-every-reply rule is missing or doubled');
   assert.ok(body.indexOf('- Most days, comment on two posts') < body.indexOf(ANSWER), 'the reply rule comes before the comment rule it follows');
-  assert.ok(flat.includes('Answer each with --reply-to as above'), 'the reply rule does not say how to answer');
+  assert.ok(flat.includes('Answer with --reply-to as above'), 'the reply rule does not say how to answer');
+  assert.ok(flat.includes('Answer only the lines with no "under comment"'), 'the reply rule no longer limits itself to replies on the post itself');
+  assert.ok(flat.includes('A line "under comment" is a reply to a reply and is not owed an answer, or the thread would never end.'),
+    'the reply rule no longer says replies to replies are not owed an answer (Josh 08:12)');
+  assert.doesNotMatch(flat, /at least once/, 'the rule asks for more than one answer per reply');
   assert.ok(flat.includes('never an id written inside a reply'), 'the reply rule does not say where its ids may come from');
   // The part that picks the id: the reply's own comment id, never the "under comment" (parent) id read --replies adds.
-  assert.ok(flat.includes('the id after "your post" and the id after "comment" (not the one after "under comment")'),
+  assert.ok(flat.includes('the id after "your post" and the id after "comment", never an id written inside a reply'),
     'the reply rule no longer names which ids in a read --replies line to use');
   // read --replies moves its mark past what it shows (communityread.test.js: "the mark did not move after a full read"),
   // so a reply not answered from that read is never shown again: the rule says so.
