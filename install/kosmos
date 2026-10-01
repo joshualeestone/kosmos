@@ -3193,11 +3193,13 @@ cmd_task() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos task <list|add|close|message|built|hold|unhold>"
+      say "Usage: kosmos task <list|add|assign|close|message|built|hold|unhold>"
       say "  kosmos task list <project-id>                                 list this project's tasks"
       say "  kosmos task add  <project-id> \"<what the task is>\" [\"more detail\"]  add one (quote each part)"
       say "      --parent <task-number>                                   make it a subtask of that task"
       say "      --who <agent>                                            give it to that agent (--who me: to you)"
+      say "  kosmos task assign <project-id> <task-number> <agent|me|nobody>  give it to that agent, to you, or to nobody"
+      say "      --part <part-number>                                     which part, when the task has several"
       say "  kosmos task close <project-id> <task-number>                  close one (number is from list)"
       say "  kosmos task message <project-id> <task-number> \"<what to say>\"  say something in a task's conversation"
       say "  kosmos task built <project-id> <task-number> [\"what is left\"]  mark it built, waiting to be released or checked"
@@ -3250,11 +3252,33 @@ cmd_task() {
     built)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task built <project-id> <task-number> [\"what is left\"]   (or --clear to take the mark off)"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac ;;
+    assign)
+      # #4914: <project> <task-number> <agent|me|nobody> [--part <n>], checked before the board as --parent is.
+      local _usage="Usage: kosmos task assign <project-id> <task-number> <agent|me|nobody> [--part <part-number>]"
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "$_usage"; exit 2; }
+      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
+      local _a _wantp=0 _whos=0
+      for _a in "${@:3}"; do
+        if [ "$_wantp" = 1 ]; then
+          case "$_a" in ''|*[!0-9]*) say "--part needs a part number; the board lists them if you leave it out."; exit 2 ;; esac
+          _wantp=2; continue
+        fi
+        case "$_a" in
+          --part) _wantp=1 ;;
+          --part=*) say "Write it as --part <part-number>, with a space."; exit 2 ;;
+          *)
+            _whos=$((_whos + 1))
+            case "$_a" in -*) say "Say who the task goes to: an agent on the project, me, or nobody. $_usage"; exit 2 ;; esac
+            [ -n "$(printf '%s' "$_a" | tr -d '[:space:]\001-\037\177')" ] || { say "Say who the task goes to: an agent on the project, me, or nobody. $_usage"; exit 2; } ;;
+        esac
+      done
+      [ "$_wantp" != 1 ] || { say "--part needs a part number; the board lists them if you leave it out."; exit 2; }
+      [ "$_whos" = 1 ] || { say "$_usage"; exit 2; } ;;
     hold|unhold)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task $sub <project-id> <task-number>"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac ;;
     *)
-      say "Unknown: kosmos task $sub. Try: list | add | close | message | built | hold | unhold"
+      say "Unknown: kosmos task $sub. Try: list | add | assign | close | message | built | hold | unhold"
       exit 2 ;;
   esac
   if ! healthy; then
@@ -3345,6 +3369,40 @@ cmd_task() {
           say "Kosmos refused that task: ${because:-it did not say why}."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when adding that task."; exit 1 ;;
       esac
+      ;;
+    assign)
+      # #4914: give a task to an agent, to the caller (me), or to nobody. The board picks the part (the only one, or
+      # --part) and resolves the name, so this sends what was typed. Validated before the health check above.
+      local project num who="" part="" _arg _nextp=0
+      project="${1:-}"; num="${2:-}"
+      for _arg in "${@:3}"; do
+        if [ "$_nextp" = 1 ]; then part=$(printf '%s' "$_arg" | sed 's/^0*//'); part="${part:-0}"; _nextp=0; continue; fi
+        if [ "$_arg" = "--part" ]; then _nextp=1; continue; fi
+        who="$_arg"
+      done
+      local esc_who esc_pane
+      esc_who=$(printf '%s' "$who" | tr -d '\001-\037\177' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      local _atok=""   # the agent's own token (plain hex only), so the board knows who `me` is
+      case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _atok="$KOSMOS_AGENT_TOKEN" ;; esac
+      local rc=0 body
+      body=$(kosmos_curl "$_bt" "$_atok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/assign" \
+        -H 'content-type: application/json' \
+        --data "{\"who\":\"$esc_who\",\"from_pane\":\"$esc_pane\"${part:+,\"part\":$part}}" 2>/dev/null) || rc=$?
+      [ "$rc" -eq 0 ] || { say_unreached "move that task" "$rc" write; exit 1; }
+      # The board puts the new owner first: {"who":"<name>"|null,"part":<n>,"task":...}.
+      local _now="" _w
+      case "$body" in
+        '{"who":null,'*) _now="now has nobody on it" ;;
+        '{"who":"'*)
+          _w="${body#\{\"who\":\"}"; _w="${_w%%\"*}"
+          case "$_w" in *\\*|'') _now="has moved" ;; *) _now="is now with $_w" ;; esac ;;
+        '{"error":'*)
+          local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+          say "Kosmos could not move that task: ${because:-it did not say why}."; exit 1 ;;
+        *) say "Kosmos gave an answer we could not read when moving that task."; exit 1 ;;
+      esac
+      say "Task $num${part:+, part $part,} on ${project:-the project} $_now. See it with: kosmos task list ${project:-<project-id>}"
       ;;
     hold|unhold)
       # #4771: put a task on hold (the Prompter never nudges an agent about it and the Assigner never hands it out), or
