@@ -278,8 +278,8 @@ let standingRefreshInFlight = false;
 let flipPending = false;
 function askAfterFlip() {
   const cur = read();
-  // flipPending makes the refresh below due. Off: the stamp is also set back, so if this ask's answer is
-  // thrown away (a Forget or new identity while it is out) the next poll asks again.
+  // flipPending makes the refresh below due. Off (enrolled or not): the stamp is also set back, so if this
+  // ask's answer is thrown away (a Forget or new identity while it is out) the next poll asks again.
   if (cur.ok === true && cur.on !== true) write({ standing_at: Date.now() - OFF_STANDING_TTL_MS - 1 });
   try { Promise.resolve(module.exports.refreshStandingIfStale({ ttlMs: 0 })).catch(() => {}); } catch { /* best-effort */ }
 }
@@ -2281,8 +2281,9 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  turnOnAfterSigninForTests: turnOnAfterSignin,
-  standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it   // kosmos#4743: tests only (it skips setOn's busy() check)
+  turnOnAfterSigninForTests: turnOnAfterSignin,   // kosmos#4743: tests only (it skips setOn's busy() check)
+  standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
+  standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
   resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */

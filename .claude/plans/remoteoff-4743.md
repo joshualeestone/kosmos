@@ -124,6 +124,13 @@ remote-unreadable-4308, engine.reachable, fixture-discipline) pass.
 - Nits: the plan's earlier run counts are marked as of then. Left: cancelledAfter's flag after a failed write
   (one spare check-in); no test drives cancelledAfter's flag or a Forget-then-enrol flag (stated).
 
+## Review 12 (opus, blind): 0 blockers, 2 warnings, 3 nits
+- W, taken as a class: any #4743 test could leave an ask out that nothing awaits (a flip's ask, a re-ask when
+  a refresh ends), and the next test's reset forgot it was out. Every #4743 test now starts by waiting until
+  no refresh is out (settleStanding, asserted), then resets. The ON test's clean-up asserts it settled.
+- W, duplicate (review 11, stated): no test drives forgetNow's clear or cancelledAfter's mark.
+- Nits taken: a comment that sat on the wrong export line; askAfterFlip's comment covers the unenrolled case.
+
 ## Weakest premise
 That one bit about remote access is not something #4731 meant to keep back. #4731's comment says "no
 remote report" while off; this sends no report FIELDS, only the switch's state, which the computer's owner

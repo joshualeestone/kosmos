@@ -302,6 +302,15 @@ test('fetchStanding: NULL and NO tunnel call when not enrolled', async () => {
   assert.equal(r.calls.length, 0);
 });
 
+/* kosmos#4743: a refresh another test left out (an ask started by a flip, which nothing awaits) must end
+   before the next test resets the flags, or its re-ask lands in that test. Waits for it, at most 5 s. */
+async function settleStanding() {
+  for (const t0 = Date.now(); remote.standingOutForTests() && Date.now() - t0 < 5000;) {
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  assert.ok(!remote.standingOutForTests(), 'a refresh left by an earlier test never ended');
+}
+
 test('#4731, #4743: with the switch OFF an enrolled computer is still heard from: one signed standing call whose body says only that remote access is off', async () => {
   enroll(false);
   const r = await run('ok:{"standing":"good"}', () => macStanding.fetchStanding());
@@ -319,6 +328,7 @@ test('#4731, #4743: with the switch OFF an enrolled computer is still heard from
 });
 
 test('#4743: with the switch ON and no report built, the body says exactly that remote access is on', async () => {
+  await settleStanding();
   remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
   const rr = require('../engine/remote-report');
   const realBuild = rr.build;
@@ -333,6 +343,7 @@ test('#4743: with the switch ON and no report built, the body says exactly that 
 });
 
 test('#4743: switching remote access off tells the coordinator at once, not at the next cadence (up to 12 h)', async () => {
+  await settleStanding();
   remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
   enroll(true);
   // Fresh on this cadence: without the flip hook nothing would be due for a long while.
@@ -354,6 +365,7 @@ test('#4743: switching remote access off tells the coordinator at once, not at t
 });
 
 test('#4743: switching remote access ON tells the coordinator at once too (it clears the off mark)', async () => {
+  await settleStanding();
   remote.resetForTests();
   enroll(false);
   const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
@@ -373,11 +385,13 @@ test('#4743: switching remote access ON tells the coordinator at once too (it cl
     for (const t0 = Date.now(); !remote.standingQuietForTests() && Date.now() - t0 < 5000;) {
       await new Promise((r) => setTimeout(r, 20));
     }
+    assert.ok(remote.standingQuietForTests(), 'the clean-up flip never settled: it would leak into the next test');
     delete process.env.FAKE_MAC_REQUEST_MODE;
   }
 });
 
 test('#4743: a flip while a refresh is already out is told when that refresh ends', async () => {
+  await settleStanding();
   remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
   enroll(true);
   let release;
@@ -404,6 +418,7 @@ test('#4743: a flip while a refresh is already out is told when that refresh end
 });
 
 test('#4743: signing in with the switch off makes the next standing poll tell the coordinator, whatever its stamp (turnOnAfterSignin)', async () => {
+  await settleStanding();
   remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
   enroll(false);
   const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
@@ -433,6 +448,7 @@ test('#4743: signing in with the switch off makes the next standing poll tell th
 });
 
 test('#4743: saving the switch at the value it already has sends nothing', async () => {
+  await settleStanding();
   remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
   enroll(false);
   const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
@@ -449,6 +465,7 @@ test('#4743: saving the switch at the value it already has sends nothing', async
 });
 
 test('#4743: a flip whose first ask was stopped is told by the next refresh, even after another writer stamped the standing fresh', async () => {
+  await settleStanding();
   remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
   // The flip is made while the board is not enrolled (as during a sign-in), so its own ask stops early.
   enroll(true);
@@ -480,6 +497,7 @@ test('#4743: a flip whose first ask was stopped is told by the next refresh, eve
 });
 
 test('#4743: a flip told to a board that cannot ask yet is not dropped when the refresh that was out ends', async () => {
+  await settleStanding();
   remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
   enroll(true);
   let release;
