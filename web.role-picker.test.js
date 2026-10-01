@@ -93,6 +93,12 @@ test('a role\'s limit is said on step one, under the dropdown, the moment it is 
   assert.match(SCRIPT, /PICKED = document\.getElementById\('rolesel'\)\.value;\n  paintPickLimit\(\);/);
   // #4871: repainting the path's options repaints the line, so the swarm rule does not wait on a later loadRoles paint.
   assert.match(SCRIPT, /paintTeamOrgchartNote\(\);\n  paintPickLimit\(\);[^\n]*\n\}/, 'paintPathOptions no longer repaints the line under the menu');
+  // #4871 review: a superseded roles answer that keeps the old menu keeps the old line under it too.
+  const kc = SCRIPT.slice(SCRIPT.indexOf('const keepChoice = () => {'), SCRIPT.indexOf('if (chosen) sel.value = chosen;'));
+  assert.ok(kc.length > 0 && kc.indexOf('oldLimit = limit.textContent') < kc.indexOf('paintPathOptions()'),
+    'keepChoice no longer saves the line before repainting');
+  assert.match(kc, /sel\.innerHTML = oldHtml; sel\.dataset\.menu = oldSig;\n\s*limit\.textContent = oldLimit; limit\.hidden = oldLimitHidden;/,
+    'keepChoice puts the old menu back without its line');
   assert.match(SCRIPT, /getElementById\('role-next'\)\.disabled = importing;\n  paintPickLimit\(\);\n\}/);   // #4556: the org chart moved to the Team screen
 });
 

@@ -22,8 +22,8 @@ That a word pattern sorts disclaimers from operational lines. Measured on the li
 comment); a future caution that disclaims advice in other words would be hidden on the swarm path only.
 
 ## Tests
-web.role-picker.test.js: the swarm path hides Office Manager's line, single keeps it, and six advice disclaimers stay on
-the swarm path. Mutations: dropping the swarm rule reds it; dropping the advice exception reds it.
+web.role-picker.test.js: the swarm path hides Office Manager's line, single keeps it, and the pinned advice disclaimers
+(and every built-in role's caution) stay on the swarm path. Mutations: dropping the swarm rule reds it; dropping the advice exception reds it.
 
 ## Review rounds
 - Round 1 (opus): FIXED W: the advice pattern erred toward hiding; widened (counsel, legal, tax, financial planner,

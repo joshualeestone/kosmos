@@ -48429,9 +48429,15 @@ async function loadRoles(initialMode, opening) {
     msg.textContent = '';
     const sel = document.getElementById('rolesel');
     const chosen = sel.value, oldHtml = sel.innerHTML, oldSig = sel.dataset.menu;
+    /* #4871: paintPathOptions repaints the line under the menu from the NEW roles, where the kept choice is missing,
+       so it is put back with the old menu (a Legal pick keeps its "Not a lawyer"). */
+    const limit = document.getElementById('pick-limit'), oldLimit = limit.textContent, oldLimitHidden = limit.hidden;
     if (!ROLES_BUILT) { buildPicker(); ROLES_BUILT = true; } else paintPathOptions();
     updateRecPill();
-    if (chosen && ![...sel.options].some((o) => o.value === chosen)) { sel.innerHTML = oldHtml; sel.dataset.menu = oldSig; }
+    if (chosen && ![...sel.options].some((o) => o.value === chosen)) {
+      sel.innerHTML = oldHtml; sel.dataset.menu = oldSig;
+      limit.textContent = oldLimit; limit.hidden = oldLimitHidden;
+    }
     if (chosen) sel.value = chosen;
   };
   /* #4632: a menu without the downloaded catalogue (offline, or the download not done yet) is asked
