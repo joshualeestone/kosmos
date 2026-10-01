@@ -70,7 +70,7 @@ staged WINDOWS build; it had no Mac twin.
   read again twice on a mismatch before it fails, since an edge can serve the old pointer briefly
   (review 14; a persistent mismatch is arm 16, the brief one has no arm).
 - DRY RUN summary names the staged build when one was carried.
-- `tools/test-deploy-site-staged-mac-4819.sh` (33 checks), wired into `test:shell`; end-to-end
+- `tools/test-deploy-site-staged-mac-4819.sh` (35 checks), wired into `test:shell`; end-to-end
   arms in `tools/test-deploy-site-promote.sh` that run the real script.
 
 ## Decided, and why
@@ -127,7 +127,7 @@ one's tarball and not see the served one. Today the Mac staging pointer is track
 statically (measured: 200 application/json from installkosmos.com).
 
 ## Tests
-- `bash tools/test-deploy-site-staged-mac-4819.sh`, 33 checks on the extracted block: nothing
+- `bash tools/test-deploy-site-staged-mac-4819.sh`, 35 checks on the extracted block: nothing
   committed; staged == prod; local copy carried (control); the incident (no local copy, live serves
   it); no copy anywhere refuses; wrong local bytes; local without its sidecar (carried, sidecar written); a wrong
   local sidecar rewritten; live serving other bytes refuses before fetching; a refusal leaves the
@@ -137,7 +137,7 @@ statically (measured: 200 application/json from installkosmos.com).
   refuses as "could not read", one transport blip and one 503 are retried, an empty 200 for the live pointer or the staged .sha256 refuses, a superseded build whose sidecar read fails refuses; a path name and a
   missing sha refuse before any fetch; the wiring (call before the export, export checks, post-deploy
   served-verify).
-- `bash tools/test-deploy-site-promote.sh` arms 12-19, the real script end to end: carried from live
+- `bash tools/test-deploy-site-promote.sh` arms 12-20, the real script end to end: carried from live
   and deployed; a deploy that drops it fails the served-verify; no copy anywhere refuses before the
   deploy with live untouched; a checkout behind live's staging refuses with live untouched, and the
   same checkout deploys with KOSMOS_STAGING_ROLLBACK (and nothing was downloaded before the refusal);
@@ -167,7 +167,10 @@ statically (measured: 200 application/json from installkosmos.com).
   skip is taken, red). Review 20: a superseded build whose tarball is live but whose .sha256 is not
   is skipped, which drops the tarball: accepted, since staging installs already fail on a pair with no
   served checksum (setup.sh verify_download refuses a download whose .sha256 is not served), so
-  the skip changes nothing for them.
+  the skip changes nothing for them. Review 21: the committed pointer's name and sha are validated
+  in check_staging_not_stale, before any fetch, in every case (it was only before the fetch when live
+  differed): e2e arm 20 and st13; without the early call, arm 20 red. An orphan local .sha256 in the
+  superseded skip refuses like a stray tarball (s6; red without it).
   (A post-fetch pointer-sha check remains as a backstop. `fetch_verified` re-reads the served
   sidecar itself, so it fires only if the sidecar changed between the two reads, a concurrent
   publish; no test reaches it.)

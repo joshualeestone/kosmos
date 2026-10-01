@@ -361,6 +361,15 @@ LATE_ON_DEPLOY=latest-staging.json run_deploy "$S19" "$L19" --promote
 { [ "$RC" = 0 ] && cmp -s "$L19/dist/latest-staging.json" "$S19/dist/latest-staging.json"; } \
   && pass "mac staged: a staging pointer the edge serves late (404 once) does not fail a good deploy" || bad "mac staged late pointer (rc=$RC) out=$out"
 
+# 20) a malformed committed staging pointer, live serving none: refused before any artifact is
+#     downloaded into the shared dist/.
+read -r S20 L20 <<<"$(make_scenario)"
+write_ptr "$S20/dist/latest-staging.json" 0.6.32 "$(printf 'x' | shasum -a 256 | awk '{print $1}')" not-a-build.zip
+git -C "$S20" add dist/latest-staging.json && git -C "$S20" commit -q -m "malformed staging"
+run_deploy "$S20" "$L20" --promote
+{ [ "$RC" = 1 ] && has "$out" "repair the committed pointer" && [ ! -e "$S20/dist/$NEWART" ]; } \
+  && pass "mac staged: a malformed committed staging pointer refuses before any fetch" || bad "mac staged malformed (rc=$RC) out=$out"
+
 # 17) THE INCIDENT'S PATH: a plain site-copy --publish (live latest.json == committed), from a checkout
 #     whose dist/ lacks the staged tarball, carries it from LIVE and deploys.
 read -r S17 L17 <<<"$(make_scenario)"; cp "$S17/dist/latest.json" "$L17/dist/latest.json"; add_staged_mac "$S17" "$L17"
