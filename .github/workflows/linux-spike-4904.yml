@@ -56,3 +56,32 @@ jobs:
         run: |
           cat "$RUNNER_TEMP/spike-summary.txt" || true
           for f in "$RUNNER_TEMP"/board-*.log; do echo "===== $f ====="; cat "$f"; done 2>/dev/null || true
+  suite:
+    # E: the node test suite as it is, on Linux, to size how much of it assumes a Mac. Measurement only.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: tmux, then block outbound (logged)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq tmux >/dev/null
+          sudo iptables -A OUTPUT -o lo -j ACCEPT
+          sudo iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+          sudo iptables -A OUTPUT -j LOG --log-prefix "SPIKE-OUT " --log-level 4
+          sudo iptables -A OUTPUT -j REJECT
+      - name: "E: the node suite on Linux"
+        run: |
+          set +e
+          KOSMOS_TEST_PART=node KOSMOS_NO_WAIT=1 timeout 40m bash tools/run-tests.sh --test-reporter=tap > "$RUNNER_TEMP/suite.tap" 2>&1
+          echo "suite rc=$?"
+          echo "== totals"; grep -E "^# (tests|suites|pass|fail|cancelled|skipped|todo|duration_ms)" "$RUNNER_TEMP/suite.tap" | tail -9
+          echo "== failing top-level tests (file : test)"
+          grep -nE "^not ok [0-9]+ - " "$RUNNER_TEMP/suite.tap" | head -400
+          echo "== tail"; tail -40 "$RUNNER_TEMP/suite.tap"
+          true
+      - name: what tried to go out
+        if: always()
+        run: sudo dmesg | grep -E "SPIKE-OUT" | sed -E 's/.*(SPIKE-OUT ).*(DST=[^ ]+).*(DPT=[0-9]+).*/\1\2 \3/' | sort | uniq -c || true
