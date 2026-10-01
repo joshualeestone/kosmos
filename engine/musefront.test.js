@@ -806,3 +806,20 @@ test('#4612 review round 2: every real DM envelope form is recognised, straight 
     assert.equal(finals[finals.length - 1] && finals[finals.length - 1].text, 'answer', 'not recognised as a DM: ' + env);
   }
 });
+
+test('#4603 N12: the model a turn names is kept beside the session id; a turn without one, or an unsafe one, changes nothing', async () => {
+  const ws = mkTemp('muse-model-');
+  const h = harness([{ ok: true, text: 'a', model: 'muse-spark-1' }, { ok: true, text: 'b' }, { ok: true, text: 'c', model: 'bad model; rm' }, { ok: true, text: 'd', model: 'muse-spark-2' }], { workspace: ws });
+  const kept = () => { try { return fs.readFileSync(front.modelFile(ws), 'utf8').trim(); } catch { return null; } };
+  assert.equal(kept(), null, 'CONTROL: nothing kept before a turn');
+  h.f.feed('one\r'); await h.f.drained();
+  assert.equal(kept(), 'muse-spark-1');
+  assert.equal(path.dirname(front.modelFile(ws)), path.dirname(front.sessionFile(ws)), 'kept beside the session id');
+  h.f.feed('two\r'); await h.f.drained();
+  assert.equal(kept(), 'muse-spark-1', 'a turn that named no model erased the last one');
+  h.f.feed('three\r'); await h.f.drained();
+  assert.equal(kept(), 'muse-spark-1', 'an unsafe model string was kept');
+  h.f.feed('four\r'); await h.f.drained();
+  assert.equal(kept(), 'muse-spark-2', 'a changed model was not kept');
+  assert.equal((fs.statSync(front.modelFile(ws)).mode & 0o777).toString(8), '600');
+});

@@ -39,6 +39,23 @@ const HELLO = 'Meta Muse, run by Kosmos. Messages typed here go to Muse one turn
 /** Where this agent's Muse session id is kept, inside its own folder. */
 function sessionFile(workspace) { return path.join(workspace, '.kosmos', 'muse-session'); }
 
+/* #4603 N12 (0.7.15 diagnostic, a Meta agent): whoami and the board could not name a Muse agent's model, because Muse
+   says it only inside each turn (muserun: run.model.configured). The front keeps the latest one here, beside the
+   session id, and engine/status.js readMuseSession reads it as every other runner's own record is read. */
+function modelFile(workspace) { return path.join(workspace, '.kosmos', 'muse-model'); }
+
+/** Keep the model a turn named, when it changed. Never throws: a model that cannot be kept is only not shown. */
+function keepModel(workspace, model) {
+  if (typeof model !== 'string' || !/^[A-Za-z0-9._:/-]{1,120}$/.test(model)) return false;
+  const file = modelFile(workspace);
+  try { if (fs.readFileSync(file, 'utf8').trim() === model) return true; } catch { /* not kept yet */ }
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, model + '\n', { mode: 0o600 });
+    return true;
+  } catch { return false; }
+}
+
 /**
  * This agent's session id: the one kept in its folder, or a new one written there. { id, note } where
  * note says, in words, when a new one had to be made over an unreadable one. Never throws: if the id
@@ -253,6 +270,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         }
         catch { r = { ok: false, text: '', because: 'Kosmos could not run Muse Code just now' }; }
         finally { clearInterval(beat); stopTurn = null; stopNoteRunning = false; }
+        if (r && r.model) keepModel(workspace, r.model);   // #4603 N12
         const text = r && typeof r.text === 'string' ? printable(r.text).trim() : '';
         if (text) write(text + '\n');
         if (!r || !r.ok) write('(' + printable((r && r.because) || 'Muse Code did not finish the turn') + ')\n');
@@ -461,4 +479,4 @@ function main(argv = process.argv) {
 
 if (require.main === module) main();
 
-module.exports = { createFront, loadSession, sessionFile, makeReporter, printable, answersTheDm, UUID_RE, PROMPT, HELLO, WORKING_EVERY_MS };
+module.exports = { createFront, loadSession, sessionFile, modelFile, keepModel, makeReporter, printable, answersTheDm, UUID_RE, PROMPT, HELLO, WORKING_EVERY_MS };
