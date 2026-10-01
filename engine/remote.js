@@ -271,8 +271,10 @@ const OFF_STANDING_TTL_MS = 12 * 60 * 60 * 1000;
    not after the whole 12 h, so one failed attempt cannot use up the slot and two cannot cross the one-day line. */
 const OFF_RETRY_MS = 30 * 60 * 1000;
 let standingRefreshInFlight = false;
-/* kosmos#4743: a switch flip that could not be told at once (a refresh was already out, carrying the old
-   state) is told when that refresh ends. */
+/* kosmos#4743: a switch flip the coordinator has not been told yet. Set by setOn (which also asks at once),
+   by a sign-in that switches on and by a cancelled sign-in that switches off (neither asks inside the sign-in:
+   see turnOnAfterSignin). While set, the next standing poll is due whatever its stamp, and a refresh that
+   was already out re-asks when it ends. */
 let flipPending = false;
 function askAfterFlip() {
   const cur = read();
@@ -335,9 +337,9 @@ async function refreshStandingIfStale(opts) {
   const s = read();
   if (s.ok !== true) return;
   // #4731: off, the cadence is OFF_STANDING_TTL_MS whatever the caller asked (a 0 TTL included).
-  // kosmos#4743: a flip not yet told (its first ask stopped early: busy() during a sign-in or a Forget, not
-  // enrolled yet, or a refresh already out) is due
-  // at once, whatever stamp another writer left meanwhile.
+  // kosmos#4743: a flip not yet told (no ask has started since it was made) is due at once, whatever stamp
+  // another writer left meanwhile. Once an ask starts the flag is cleared; if that ask then fails, the flip
+  // is retried on the ordinary cadence (OFF_RETRY_MS off, the TTL on), not at once.
   const due = flipPending ? 0 : (s.on === true ? ttl : Math.max(ttl, OFF_STANDING_TTL_MS));
   // Math.abs (kosmos#4277): a wall clock stepped backwards (a wrong Mac clock being
   // corrected) leaves standing_at in the future; without it every refresh read as fresh, the early
@@ -1720,7 +1722,7 @@ function cancelledAfter(result, before, addressBefore, startedAt) {
   // that was on, on.
   if ((result && result.ok) || (enrolled() && macIdHere() !== before)) {
     try { write({ on: false }, { repair: true }); } catch { /* status says what happened */ }
-    flipPending = true;   // kosmos#4743: an off written here is told at the next standing poll too
+    flipPending = true;   // kosmos#4743: told at the next standing poll, not here (inside the sign-in, like turnOnAfterSignin)
     stopChild();
     // Another identity now: the previous account's cached standing must not
     // carry over to it (the fed gate reads it).

@@ -93,6 +93,18 @@ remote-unreadable-4308, engine.reachable, fixture-discipline) pass.
 - Run: engine/mac-standing.test.js 25/25, engine/remote.test.js 130/130 (main added tests),
   engine/remote-standing-refresh.test.js 12/12.
 
+## Review 9 (sonnet, blind): 0 blockers, 4 warnings, 4 nits
+- W, stated: a cancelled sign-in's off write (cancelledAfter) is told at the next standing poll (60 s with the
+  page open, up to 10 min without), not at once: it runs inside the sign-in, where an ask would hold up a
+  Forget, as for turnOnAfterSignin. No test drives cancelledAfter's flip itself (the flag's effect is the one
+  the sign-in test pins).
+- W, duplicate: the stale "Remote access off" window after a sign-in (review 7 decided it; accepted).
+- W, duplicate: the older-coordinator body (review 8: held by sequencing).
+- W, taken: the comment on a due flip no longer promises a flip is always told at once; one whose ask starts
+  and then fails is retried on the ordinary cadence.
+- Nit taken: the flag's own comment names every writer. Left: two stamp writes in one flow (correct);
+  the off-at-once test also passes through the set-back stamp (the flag has its own red tests).
+
 ## Weakest premise
 That one bit about remote access is not something #4731 meant to keep back. #4731's comment says "no
 remote report" while off; this sends no report FIELDS, only the switch's state, which the computer's owner
