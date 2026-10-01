@@ -229,7 +229,7 @@ test('a pointer sha256 in capitals is refused, as the Windows installer refuses 
   const j = JSON.parse(site.files.get('latest-win.json')[1]); j.sha256 = j.sha256.toUpperCase();
   site.files.set('latest-win.json', ['application/json', JSON.stringify(j)]);
   assert.equal((await run(base, dir, st, { now: T0 })).code, 1);
-  assert.match(st.card(), /latest-win\.json carries no sha256 in the lowercase form);
+  assert.match(st.card(), /latest-win\.json carries no sha256 in the lowercase form/);
 }));
 
 test('a failed whole-file read is retried on the next run, not held for a day', () => withSite(async ({ site, base, dir, st }) => {
