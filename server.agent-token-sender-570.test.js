@@ -161,7 +161,8 @@ test('msg, post and react: never exempt for a network peer or with NO credential
      every caller the same, so it has no caller to identify; every WRITE here still must. */
   /* #4491 slice 4 added two more READS (`kosmos agent roles`, `kosmos task list`). The task list is narrowed in its
      handler for a caller on its agent token alone (agentTokenOnlyCaller), as the room read in the patterns is. */
-  assert.deepEqual(routes, ['GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/whoami'],
+  /* #4491 slice 6 added `kosmos community read`: public writing, framed; its handler needs a token the board issued. */
+  assert.deepEqual(routes, ['GET /api/community/read', 'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/whoami'],
     'AGENT_TOKEN_ROUTES changed: every write added here must be checked to identify its caller from the header token');
   /* #4491 slice 3: the parameterized routes, pinned exactly like the set. */
   const patterns = (src.match(/const AGENT_TOKEN_ROUTE_PATTERNS = \[[^\n]*\];/) || [''])[0];
