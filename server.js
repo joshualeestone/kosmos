@@ -1271,6 +1271,12 @@ const os = require('node:os');
    same list and two spellings of it would drift. Pass a fresh read() to
    avoid a second disk read when the caller already holds one. */
 
+/* #4784 (reviews 4 and 5): for `kosmos inbox`'s text rows. INBOX_BREAK is every character a terminal or an agent's
+   context can read as a line break (a message's pieces after the first are indented; a file name's become spaces).
+   INBOX_DROP is C0 and C1 controls (tab kept) plus the bidirectional marks and overrides that can reorder a row. */
+const INBOX_BREAK = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/;
+const INBOX_DROP = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
 /**
  * Who is sending this? One derivation, used by every route that needs it.
  *
@@ -3825,7 +3831,7 @@ const REMOTE_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply']);
    The /api/team handler re-enforces auth itself (a valid agent token OR the board
    token; no-credential refused on an enforcing board), exactly as report/reply do
    one layer down -- see that handler. */
-const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
+const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET /api/inbox']);
 /* #4491 (proof of concept): agent routes a loopback caller may reach with ONLY its own agent
    token, in the `x-kosmos-agent-token` header, instead of the board token. So an agent need not
    hold the person's credential for its everyday verbs, and a request carrying only an agent
@@ -13058,6 +13064,104 @@ const server = http.createServer(async (req, res) => {
         });
       })
       .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read that request' }));
+    return;
+  }
+  if (pathname === '/api/inbox' && req.method === 'GET') {
+    /* #4784: `kosmos inbox`, an agent's own recent direct messages with the person. An agent can be told a
+       message arrived (the first-reply nudge, #3226, carries no text; a paste can be lost in the pane or a
+       restart) with no way to read it but asking the person to send it again. The board keeps every DM
+       (chat DIRECT, stored even when delivery failed), so this reads it back. ONLY the caller's own thread:
+       the caller is resolved exactly as GET /api/report resolves it (token first, then pane; a bare pane is
+       refused on an enforcing board), and there is no agent parameter, so an agent holding only its own token
+       reads only its own thread. A caller holding the BOARD token (the person, or an agent whose CLI can read
+       it) can name any pane and so any agent: that is no new reach, since GET /api/agent/<name>/thread already
+       serves every thread to the board token. */
+    let asText = false;
+    let fromPane = null;
+    let limit = 10;
+    try {
+      const q = new URL(req.url, ROUTING_BASE).searchParams;
+      asText = q.get('as') === 'text';
+      fromPane = q.get('from_pane');
+      const n = Number.parseInt(q.get('limit') || '', 10);
+      if (Number.isFinite(n) && n > 0) limit = Math.min(n, 50);
+    } catch { asText = false; fromPane = null; }
+    const fail = (status, msg) => {
+      if (asText) { res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(msg + '\n'); }
+      else sendJson(res, status, { ok: false, because: msg });
+    };
+    try {
+      const roster = safeRoster();
+      if (roster === null) { fail(503, 'we could not check which agents are running, so we could not tell who is asking'); return; }
+      const denyPaneFallback = boardAuthState.on
+        && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
+      const sender = resolveAgentSender(req, { from_pane: fromPane }, roster, {
+        denyPaneFallback,
+        denyBecause: 'this board only shows an agent its messages with its own agent token; run `kosmos inbox` as that agent',
+      });
+      if (!sender.ok) { fail(403, sender.because); return; }
+      let thread;
+      try { thread = chat.readThread(chat.DIRECT, sender.card.sessionName); }
+      catch { fail(503, 'we cannot read your conversation with the person on this computer right now'); return; }
+      /* Review 1 of #4784:
+         - Kosmos's own words stored in the agent's name (the daily-limit notice, `kosmos: true`) are not the
+           agent's, so they are left out rather than printed as "you:".
+         - The setup guide's thread is masked as the thread route masks it (#3769), every row: a key the person
+           pasted to it is not shown back, here either.
+         - An attachment and a menu choice are said, and a message of the person's that never reached the
+           agent is marked: that is the message this verb most often exists to recover. */
+      const kept = (thread && Array.isArray(thread.messages) ? thread.messages : [])
+        .filter((m) => m && m.kosmos !== true && (typeof m.text === 'string' || m.attachment || m.attachments))
+        .slice(-limit);
+      const masked = guideMaskedRows(kept, isSetupGuide(sender.card.sessionName) ? true : null);
+      const rows = masked.map((m) => {
+        const person = !(typeof m.from === 'string' && m.from);
+        const files = (Array.isArray(m.attachments) ? m.attachments : (m.attachment ? [m.attachment] : []))
+          // Review 2: a name is the person's, printed into a terminal: brackets (the markers' own delimiters) out.
+          // Review 5: and every line break (as a space) and dropped control, by the same rule as the text.
+          .map((a) => (a && typeof a.name === 'string'
+            ? a.name.split(INBOX_BREAK).join(' ').replace(INBOX_DROP, '').replace(/[\[\]]/g, '') || 'a file'
+            : 'a file'));
+        return {
+          at: typeof m.at === 'string' ? m.at : null,
+          from: person ? 'person' : 'you',
+          text: typeof m.text === 'string' ? m.text : '',
+          attachments: files,
+          chose: person && m.wire != null,
+          // Review 2: could_not is "did not reach you"; unconfirmed (pasted, Enter not confirmed) often did.
+          reached: !person || !m.delivery || m.delivery.state === chat.DELIVERY.PLACED
+            ? 'yes'
+            : (m.delivery.state === chat.DELIVERY.COULD_NOT ? 'no' : 'maybe'),
+        };
+      });
+      if (!asText) { sendJson(res, 200, { ok: true, messages: rows }); return; }
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      if (!rows.length) { res.end('No messages between you and the person yet.\n'); return; }
+      /* One row per message; a message's own further lines are INDENTED, so text a person typed can never read
+         as another row ("<time> you: ...") in the agent's context. */
+      /* Review 2: the markers sit BEFORE the colon, so nothing the person typed (it all comes after it) can
+         pass for one. */
+      const lines = rows.map((r) => {
+        const notes = [];
+        if (r.chose) notes.push('[chose this from a menu]');
+        if (r.attachments.length) notes.push('[attached: ' + r.attachments.join('; ') + ']');   // review 6: "; ", since a name can hold a comma
+        if (r.reached === 'no') notes.push('[this did not reach you]');
+        if (r.reached === 'maybe') notes.push('[this may not have reached you]');
+        // Review 7: a stored `at` is printed only in the ISO shape the board writes; anything else (an outbox entry
+        // file edited by hand can carry any string Date.parse accepts) is left out rather than put in the row.
+        const iso = typeof r.at === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/.test(r.at);
+        const head = (iso ? r.at.replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '')
+          + (r.from === 'person' ? 'the person' : 'you') + (notes.length ? ' ' + notes.join(' ') : '') + ': ';
+        /* Review 4: every character a terminal or an agent's context can read as a line break starts a new,
+           indented piece (INBOX_BREAK), and the controls in INBOX_DROP are dropped, so no typed text can draw a row
+           of its own. Attachment names go through the same two sets above. */
+        const body = r.text.split(INBOX_BREAK).map((l) => l.replace(INBOX_DROP, ''));
+        return [head + body[0], ...body.slice(1).map((l) => '    ' + l)].join('\n');
+      });
+      res.end(lines.join('\n') + '\n');
+    } catch (err) {
+      fail(500, 'Kosmos could not read your messages just now');
+    }
     return;
   }
   if (pathname === '/api/report' && req.method === 'GET') {
