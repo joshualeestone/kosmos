@@ -13,7 +13,12 @@ const UNKNOWN = { state: status.STATE.UNKNOWN, confidence: status.CONFIDENCE.NON
 // agent's own six hours).
 const colleague = (at, seen) => { agyquota.POOL_MEMO.bySession.set('colleague', at); agyquota.POOL_MEMO.seen.set('colleague', seen); };
 const quota = () => ({ found: true, state: 'idle', by: 'auto', until: RESET, because: status.QUOTA_REPORT_PREFIX + ' Google said: ...' });
-test.beforeEach(() => { agyquota.POOL_MEMO.bySession.clear(); agyquota.POOL_MEMO.seen.clear(); });
+// Review 12: a shell that exports the PR B brake would red the held cases as if the product had regressed. Each test
+// starts with it unset (the brake test sets its own), and the shell's value is put back after the file.
+const BRAKE = 'AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF';
+const shellBrake = process.env[BRAKE];
+test.beforeEach(() => { agyquota.POOL_MEMO.bySession.clear(); agyquota.POOL_MEMO.seen.clear(); delete process.env[BRAKE]; });
+test.after(() => { if (shellBrake === undefined) delete process.env[BRAKE]; else process.env[BRAKE] = shellBrake; });
 
 test('#4588 part 3: own reset passed, pool still paused by a colleague: Paused, with poolUntil and NOT quotaUntil', () => {
   const later = OWN + 3600e3;

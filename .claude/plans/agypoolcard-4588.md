@@ -164,3 +164,8 @@ card can say Paused for less time than the hold, never more; the release stagger
 no account identity in any line. NIT 2 TAKEN: a test pins the stopped case (reds with rule 2 disabled). Decided not built:
 naming the pool's past reset in PR A's fallback line (it is not always wrong); a redundant isFinite guard; paneless cards
 (PR A's own recorded gap; an agy agent always has a pane).
+
+## Re-review after the merge of main (iterations 11 and 12)
+- FIXED (review 12, W1): engine/status.agypoolcard-4588.test.js assumed AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF was unset, so a shell that exports the brake reds it as if the product regressed (measured: 1 of 6 red with it set). beforeEach now clears it and after() restores the shell's value; 6/6 with it set and unset.
+- DEFERRED (review 12, W2): after the pool refills, the card falls back to PR A's line with the agent's OWN, earlier reset time, so the time it shows can step backwards one sweep after the Paused line. Decided earlier ("not always wrong"); the PR body says so.
+- DEFERRED (review 11): the plan's name has no timestamp; the PR hook requires .claude/plans/<branch>.md.
