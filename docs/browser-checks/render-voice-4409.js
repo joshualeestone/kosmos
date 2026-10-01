@@ -646,11 +646,11 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       cumulativeAtZero: await session([{ i: 0, r: [['call the client', true]] }, { i: 0, r: [['call the client', true], ['tomorrow', false]] }]),
     };
     chk(merge.wordPrefix === 'a apple pie' && merge.oneWordRepeat === 'no no thanks' && merge.midWord === 'go to go tomorrow' && merge.noNo === 'no no',
-      'P2e a result that only starts with the same letters, or repeats one word, is real speech and is kept', JSON.stringify(merge));
+      'P2e a result that only starts with the same letters, or repeats one word, is real speech and is kept', JSON.stringify({ wordPrefix: merge.wordPrefix, oneWordRepeat: merge.oneWordRepeat, midWord: merge.midWord, noNo: merge.noNo }));
     chk(merge.cascade === 'call call the client' && merge.punctuated === 'call the client tomorrow',
-      'P2f a repeat is compared with the previous result only, so one doubled word cannot cascade, and punctuation does not hide it', JSON.stringify(merge));
+      'P2f a repeat is compared with the previous result only, so one doubled word cannot cascade, and punctuation does not hide it', JSON.stringify({ cascade: merge.cascade, punctuated: merge.punctuated }));
     chk(merge.iosReset === 'call the client tomorrow' && merge.continuing === 'call the client tomorrow' && merge.cumulativeAtZero === 'call the client tomorrow' && merge.iosResetRepeats === 'call the client tomorrow' && merge.multiResend === 'call the client now tomorrow' && merge.resetShown === 'call the client tomorrow' && merge.mergedResend === 'call the client tomorrow' && merge.noAcrossReset === 'no',
-      'P2d a fresh results list after a pause keeps the words before it, and an ordinary or cumulative list does not double them', JSON.stringify(merge));
+      'P2d a fresh results list after a pause keeps the words before it, and an ordinary or cumulative list does not double them', JSON.stringify({ iosReset: merge.iosReset, continuing: merge.continuing, cumulativeAtZero: merge.cumulativeAtZero, iosResetRepeats: merge.iosResetRepeats, multiResend: merge.multiResend, resetShown: merge.resetShown, mergedResend: merge.mergedResend, noAcrossReset: merge.noAcrossReset }));
     // P11: a mic inside a modal dialog also says it in the dialog's own line (a screen reader cannot see past aria-modal).
     const dlg = await phone.evaluate(() => {
       const m = document.getElementById('nt-modal'); m.hidden = false;

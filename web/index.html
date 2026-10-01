@@ -60212,11 +60212,12 @@ function voiceBridge() {
   return voicePhoneBridge();
 }
 /* #4409 slice 3 (Josh, 2026-10-01 17:16: "Can we do it in mobile too?"): on a PHONE with no app bridge, the browser's
-   own recognizer, behind the same interface as the Mac's (postMessage {op} in, kosmosVoiceEvent out), so holding,
-   tapping and the dialogs work unchanged. On iPhone Safari Apple hears the audio; on Android Chrome, Google. Slice 1
-   kept browser recognition out on privacy grounds; that was an agent's call, and Josh's ruling is that he does not mind
-   (Splinter, on the card). The listening line says who hears it. The Mac app keeps its on-device bridge, and a
-   computer's browser (a fine pointer) gets no mic. */
+   own recognizer, behind the same interface as the Mac's (postMessage {op} in, kosmosVoiceEvent out), so tapping and
+   the dialogs work unchanged. On iPhone Safari Apple hears the audio; on Android Chrome, Google. Slice 1 kept browser
+   recognition out on privacy grounds, an agent's call. Sending phone audio to Apple or Google is Splinter's call on the
+   card (overridable by Josh), resting on Josh's standing ruling of 2026-09-14 that he does not care about privacy;
+   Josh's 17:16 question asked for voice on phones, not for this. The bar says who hears it. The Mac app keeps its
+   on-device bridge, and a computer's browser (a fine pointer) gets no mic. */
 const VOICE_PHONE_STOP_MS = 5000;   // as long as the Mac app waits for the last words after a stop
 let VOICE_PHONE = undefined;   // the shim, built once at load and never rebuilt: an iPad that later gains a trackpad keeps it, and one that starts with a trackpad never gets it, until the page reloads; null where none
 function voicePhoneWho() {
@@ -60491,7 +60492,7 @@ function voiceOnEvent(ev) {
     if (hb && hb.phone) voiceWho(voiceListeningLine());   // slice 3: on a phone the line is the bar (and a dialog's line)
     else if (voiceMsgEmpty(btn)) voiceSay(btn, voiceListeningLine());   // never over another message's line
     return;
-  }   // review 5: focus is in the box, so the line is said there
+  }
   if ((ev.kind === 'partial' || ev.kind === 'final') && VOICE.box) {
     const box = VOICE.box;
     /* 🛑 The view moved (another agent, room, the Guide closed, the window hidden): these words were meant for the

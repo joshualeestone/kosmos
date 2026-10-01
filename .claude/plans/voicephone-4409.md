@@ -133,4 +133,11 @@ pinning that the recognizer is reached only in the phone shim and the Mac bridge
   (P11; my first P11 ended by a cancel, which could not see the stop path's clearing, found by a mutation). NITs
   taken: the stand-in's stop result carries a resultIndex; the plan's second premise states what is actually
   unmeasured now. LEFT NIT: the bar covers the header and passes taps through to it while listening.
+- Round 10 (sonnet): FIXED W: the shim's comment credited Josh with a ruling on sending phone audio to Apple and
+  Google; it is Splinter's call (overridable), resting on Josh's standing 09-14 ruling, and the comment now says so
+  and that his 17:16 question asked for voice on phones, not for this. DUPLICATE W: real recognizers' result shapes
+  unmeasured (the second premise above; a re-recognised resend that differs counts as a new list, inside the declared
+  loss). NITs taken: a stale comment from slice 2 deleted; P2d, P2e and P2f each print only their own arms. LEFT
+  NITs: a same-task abort-then-start across mics on a real browser (P15 is a stand-in); no listening time cap on a
+  phone (the browser's own, and the bar stays up); the node pins are source matches.
 
