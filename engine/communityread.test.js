@@ -617,7 +617,8 @@ test('#4833 slice 2 review 3: a post that always fails holds only its own mark; 
   const second = await cr.readReplies('Hld4833', { now: NOW + 1000 });
   assert.ok(!second.text.includes('on the good post'), 'the failing post froze the good post\'s mark (it was shown again)');
   const marks = JSON.parse(fs.readFileSync(seenPath('Hld4833'), 'utf8')).posts;
-  assert.equal(marks[RP(1)], undefined, 'the unreachable post got a mark it never read');
+  // Review 8: an unreachable post keeps only the first-look floor, never a mark past what it never read.
+  assert.ok(!marks[RP(1)] || marks[RP(1)].at <= NOW - 7 * 24 * 3600 * 1000, 'the unreachable post got a mark past what it never read');
 });
 
 test('#4833 slice 2 review 3/4: a full read of an empty thread sets no mark, so a reply stamped before it that appears later still comes', async () => {
@@ -867,4 +868,20 @@ test('#4833 slice 2 review 7: a post that is no longer the agent\'s loses its ma
   serve({ ['/posts/' + RP(5) + '/comments']: () => ({ status: 200, json: { comments: [] } }) });
   await cr.readReplies('Drp4833', { now: NOW + 1000 });
   assert.equal(JSON.parse(fs.readFileSync(seenPath('Drp4833'), 'utf8')).posts[RP(4)], undefined, 'a taken-down post\'s mark stayed in the file');
+});
+
+test('#4833 slice 2 review 8: a post with nothing to set a mark from keeps the window it was first read in (empty, unreachable)', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Flo4833', remoteId: RP(1), sentAt: '2026-09-30T10:00:00Z' },
+    b: { state: 'sent', agent: 'Flo4833', remoteId: RP(2), sentAt: '2026-09-30T11:00:00Z' } }, {});
+  const DAY = 24 * 3600 * 1000;
+  let a = { status: 200, json: { comments: [] } }; let b = { status: 500, json: null };
+  cr.setFetcher(async (url) => (url.includes(RP(1)) ? a : b));
+  await cr.readReplies('Flo4833', { now: NOW });   // A empty, B unreachable
+  // A gets a comment on day 1; B's thread holds one from day -5. Next read on day 10: the window has slid past both.
+  a = { status: 200, json: { comments: [comment({ id: CID(1), created_at: new Date(NOW + DAY).toISOString(), body: 'on the empty post' })] } };
+  b = { status: 200, json: { comments: [comment({ id: CID(2), created_at: new Date(NOW - 5 * DAY).toISOString(), body: 'on the unreachable post' })] } };
+  const later = (await cr.readReplies('Flo4833', { now: NOW + 10 * DAY })).text;
+  assert.match(later, /on the empty post/, 'a reply on a post that was empty at the first read was lost when the window slid');
+  assert.match(later, /on the unreachable post/, 'a reply on a post that was unreachable was lost when the window slid');
 });

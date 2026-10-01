@@ -278,8 +278,9 @@ async function read(opts = {}) {
    in (time, id) order. After a read it is the last item shown on that post when the 30-cap cut it, else the newest
    item from its FIRST-round page (review 5: the extra reply pages are fetched seconds later and could hold a reply newer
    than a comment that landed in between), and the ids shown above that mark are kept with it ("seen") so they are not
-   shown twice. So a burst in one second is never shown twice or skipped, and the board's clock is never compared with
-   the service's. Limits, said in the output when they bite: a post's pages hold its newest 10 top-level comments by
+   shown twice. So a burst in one second is never shown twice or skipped, and the board's clock is
+   compared with the service's only once: the first-look window, which is also a new post's starting mark (review 8; a
+   board clock more than 7 days fast would set that mark in the service's future). Limits, said in the output when they bite: a post's pages hold its newest 10 top-level comments by
    when they were WRITTEN with 2 replies each, plus the oldest 20 more replies under the newest 3 of them that have more,
    (times are read to the millisecond: the service's microseconds are a late-commit case below)
    so a new reply under an older comment, or deep in a long thread, will not appear in this list. Not said, and rare: a
@@ -370,7 +371,7 @@ async function repliesFor(sessionName, opts) {
   if (!posts.length) {
     return { ok: true, count: 0, text: frame([], null, { lines: [REPLIES_HEADING, '', '(you have no posts in the community yet)', ''] }) };
   }
-  const marks = readMarks(sessionName);   // service time: never compared with the board's clock
+  const marks = readMarks(sessionName);   // service time, apart from a new post's first-look floor
   const me = ownName(sessionName);
   let longer = 0;
   // Round 1: each post's newest top-level comments with their first replies, in parallel. 404/410: gone, not a failure.
@@ -434,6 +435,11 @@ async function repliesFor(sessionName, opts) {
   const next = {};
   for (const [pid, m] of Object.entries(marks)) if (all.has(pid)) next[pid] = m;
   const asItem = (m) => ({ ts: m.at, id: m.id });
+  /* Review 8: every post this read reached or tried (not gone) that has no mark yet gets the first-look window as its
+     mark NOW, so a post that comes out of this read with nothing to set a mark from (empty, held back by the cap, or
+     unreachable) is judged next time against THIS window, not a later one that has slid past its replies. */
+  const FLOOR_ID = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+  for (const th of threads) if (!th.gone && !next[th.post.remoteId]) next[th.post.remoteId] = { at: firstLook, id: FLOOR_ID, seen: [] };
   for (const th of threads) {
     const pid = th.post.remoteId;
     if (th.failed || th.gone) continue;
@@ -446,7 +452,7 @@ async function repliesFor(sessionName, opts) {
     if (!top) continue;
     /* Never back. Review 7: a post with no mark yet takes the first-look window as its floor, so a reply older than the
        window that this read held back is never shown as new next time (else the window leaks on the second read). */
-    const old = next[pid] || { at: firstLook, id: 'ffffffff-ffff-ffff-ffff-ffffffffffff', seen: [] };
+    const old = next[pid];
     const base = old && byPos(top, asItem(old)) <= 0 ? asItem(old) : top;
     const keep = (old && old.seen ? old.seen : []).slice();
     for (const { x, post } of shownItems) if (post === pid && byPos(x, base) > 0 && !keep.includes(x.id)) keep.push(x.id);
