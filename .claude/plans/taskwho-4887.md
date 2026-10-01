@@ -47,7 +47,7 @@ project); only the two CLIs never send it.
   unassigned task's answer has none either); neither CLI reads it, and the page never takes this path
   (the screen is not a process caller).
 - **An agent named "me"** cannot be named with `--who`: `me` is always the caller. Accepted (no agent is
-  named that today); `--who` with its exact session name in another case would still reach it.
+  named that today).
 
 ## Tests
 
