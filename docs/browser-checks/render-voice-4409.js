@@ -1,4 +1,4 @@
-// Browser-check-surface: micbtn d-mic pj-mic asp-mic rxn-speak asp-speak d-say d-send d-dmthread has-voice has-speak
+// Browser-check-surface: micbtn d-mic pj-mic asp-mic rxn-speak asp-speak d-say d-send d-dmthread has-voice has-speak fieldmic micwrap pj-name pj-add-desc pj-add-done pj-add-msg nt-detail create-instr d-instr pjs-name pjs-desc
 'use strict';
 
 /**
@@ -16,6 +16,10 @@
  *       label), a code block announced; the person's own row offers no read-aloud
  *   V8  a second press stops reading
  *   V9  no page errors
+ *   V10 (slice 2) HOLD the mic to talk: the words land while held, and letting go asks the bridge to stop
+ *   V11 (slice 2) a short TAP still toggles: letting go keeps listening, and the next tap stops
+ *   V12 (slice 2) the dialogs' text boxes carry a mic (every one listed), and holding the New project
+ *       description's mic puts the spoken sentence in that box
  *
  * Harness: file:// with fetch answered here (render-dm-reply-4256.js's posture), the real paintTalk. The
  * bridge and speechSynthesis are stand-ins that RECORD what the page asked of them: a microphone and a voice
@@ -156,6 +160,67 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     await page.evaluate(() => { window.kosmosVoiceEvent({ kind: 'error', reason: 'mic-denied' }); window.kosmosVoiceEvent({ kind: 'stopped' }); });
     const said = await page.evaluate(() => document.getElementById('d-say-msg').textContent);
     chk(/not allowed to use the microphone/.test(said) && /System Settings, Privacy & Security, Microphone/.test(said), 'V6 a refused microphone is said under the box, with where to turn it on', said);
+
+    // V10: hold to talk. A real pointer press, the words while held, and the release.
+    await page.evaluate(() => { const b = document.getElementById('d-say'); b.value = ''; b.focus(); });
+    const micBox = await page.locator('#d-mic').boundingBox();
+    await page.mouse.move(micBox.x + micBox.width / 2, micBox.y + micBox.height / 2);
+    const n0 = await page.evaluate(() => window.__voice.length);
+    await page.mouse.down();
+    await page.evaluate(() => { window.kosmosVoiceEvent({ kind: 'listening' }); window.kosmosVoiceEvent({ kind: 'partial', text: 'hold to talk works' }); });
+    await page.waitForTimeout(450);
+    await page.mouse.up();
+    const v10 = await page.evaluate((n) => ({ ops: window.__voice.slice(n).map((m) => m.op), box: document.getElementById('d-say').value, focus: document.activeElement && document.activeElement.id }), n0);
+    chk(JSON.stringify(v10.ops) === '["start","stop"]' && v10.box === 'hold to talk works' && v10.focus === 'd-say',
+      'V10 holding the mic starts it, the words land while held, letting go asks the bridge to stop, and the caret stays in the box', JSON.stringify(v10));
+    await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'stopped' }));
+
+    // V11: a short tap still toggles. Found again: V10's words grew the box, which moved the mic.
+    const micBox2 = await page.locator('#d-mic').boundingBox();
+    await page.mouse.move(micBox2.x + micBox2.width / 2, micBox2.y + micBox2.height / 2);
+    const n1 = await page.evaluate(() => window.__voice.length);
+    await page.mouse.down();
+    await page.mouse.up();
+    await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'listening' }));
+    await page.waitForTimeout(450);
+    const tapOps = await page.evaluate((n) => window.__voice.slice(n).map((m) => m.op), n1);
+    const tapOn = await page.getAttribute('#d-mic', 'aria-pressed');
+    // The listening line pushes the composer up, so the mic is found again where it is now.
+    const micBox3 = await page.locator('#d-mic').boundingBox();
+    await page.mouse.move(micBox3.x + micBox3.width / 2, micBox3.y + micBox3.height / 2);
+    await page.mouse.down();
+    await page.mouse.up();
+    const tap2 = await page.evaluate((n) => window.__voice.slice(n).map((m) => m.op), n1);
+    chk(JSON.stringify(tapOps) === '["start"]' && tapOn === 'true' && JSON.stringify(tap2) === '["start","stop"]',
+      'V11 a short tap starts and keeps listening after letting go, and the next tap stops', JSON.stringify({ tapOps, tapOn, tap2 }));
+    await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'stopped' }));
+
+    // V12: the dialogs' text boxes carry a mic, and the New project description's takes a held dictation.
+    const wired = await page.evaluate(() => [...document.querySelectorAll('.micbtn.fieldmic')].map((b) => b.getAttribute('data-voice-for')).sort());
+    const want = ['create-instr', 'd-instr', 'nt-detail', 'pj-add-desc', 'pj-add-done', 'pj-name', 'pjs-desc', 'pjs-name'];
+    chk(JSON.stringify(wired) === JSON.stringify(want), 'V12 every dialog text box in scope carries its own mic', JSON.stringify(wired));
+    await page.evaluate(() => {
+      document.getElementById('panel-detail').hidden = true;
+      const pp = document.getElementById('panel-projects'); if (pp) pp.hidden = false;
+      if (typeof openAddProject === 'function') openAddProject();
+      const view = document.getElementById('pj-add-view'); if (view) view.hidden = false;
+    });
+    const descMic = page.locator('.fieldmic[data-voice-for="pj-add-desc"]');
+    const dm = await descMic.boundingBox();
+    const descBox = await page.locator('#pj-add-desc').boundingBox();
+    const inside = !!dm && !!descBox && dm.x >= descBox.x && dm.x + dm.width <= descBox.x + descBox.width + 1 && dm.y >= descBox.y && dm.y + dm.height <= descBox.y + descBox.height + 1;
+    const n2 = await page.evaluate(() => window.__voice.length);
+    await page.mouse.move(dm.x + dm.width / 2, dm.y + dm.height / 2);
+    await page.mouse.down();
+    await page.evaluate(() => { window.kosmosVoiceEvent({ kind: 'listening' }); window.kosmosVoiceEvent({ kind: 'final', text: 'A shared plan for the spring launch.' }); });
+    await page.waitForTimeout(450);
+    await page.mouse.up();
+    const v12 = await page.evaluate((n) => ({ ops: window.__voice.slice(n).map((m) => m.op), desc: document.getElementById('pj-add-desc').value, listening: document.getElementById('pj-add-msg').textContent }), n2);
+    chk(inside && JSON.stringify(v12.ops) === '["start","stop"]' && v12.desc === 'A shared plan for the spring launch.',
+      'V12 the New project description\'s mic sits inside its box, and holding it puts the spoken sentence in the box', JSON.stringify({ inside, ...v12 }));
+    await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'stopped' }));
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'voice-newproject.png') });
+    await page.evaluate(() => { const pp = document.getElementById('panel-projects'); if (pp) pp.hidden = true; document.getElementById('pj-add-view').hidden = true; document.getElementById('panel-detail').hidden = false; });
 
     // V7: read aloud, on a freshly painted thread (V5's send left a "Sending" row of the person's).
     await page.evaluate(() => { for (const k of Object.keys(TALK_PENDING)) delete TALK_PENDING[k]; });
