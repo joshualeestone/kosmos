@@ -57,6 +57,25 @@ remote-unreadable-4308, engine.reachable, fixture-discipline) pass.
   the next on-cadence refresh (60 s with the page open, up to 10 min), not at once. Tried a hook there; it
   broke remote.test.js's Forget-during-retire test, so it was backed out rather than forced.
 
+## Review 7 (sonnet, blind, after a restart; ledger of reviews 1-6 is in this file only): 0 blockers, 3 warnings, 5 nits
+- W, taken: resetForTests did not clear flipPending or standingRefreshInFlight, and the two slow-fetcher tests
+  could leave a refresh out on a failed assertion. Both cleared in resetForTests; both tests release in finally.
+- W, taken (stated): with the switch ON and no report, the board sends `{"remote":{"on":true}}`, which an OLDER
+  coordinator stores over the last diagnosis (before this, that case sent `{}` and stored nothing). Order of
+  shipping, required: the coordinator half (kosmos-relay `remoteoff-4743`) is deployed before any cut carries
+  this board half. Both halves are mine; the coordinator deploys from the relay repo independently of a cut.
+- W, taken (replaces review 6's "stated, not built"): a sign-in that switches the switch on (turnOnAfterSignin)
+  now marks the flip pending, so the NEXT standing poll is due at once whatever its stamp. It does not ask
+  inside the sign-in: an immediate ask there is a signed call in flight, and Forget waits for those before it
+  switches off (remote.test.js "Forget switches off before it waits on the retire" goes red with it: measured
+  again tonight, as in review 6). New test, with a control (already on: the poll stays on its cadence); red
+  without the flag.
+- Nits taken: the off stamp is set back one millisecond past the cadence (no equality edge); the comment on
+  clearing the pending flip says what holds (cleared when an ask starts; one that stops early falls back to
+  the 30-minute off retry), which is narrower than review 5's sentence above.
+- Run: engine/mac-standing.test.js 24/24, engine/remote.test.js 120/120, engine/remote-standing-refresh.test.js
+  12/12.
+
 ## Weakest premise
 That one bit about remote access is not something #4731 meant to keep back. #4731's comment says "no
 remote report" while off; this sends no report FIELDS, only the switch's state, which the computer's owner

@@ -358,6 +358,35 @@ test('#4743: a flip while a refresh is already out is told when that refresh end
     assert.ok(off, 'the flip made during a refresh was never told');
     assert.deepEqual(JSON.parse(off.stdin), { remote: { on: false } });
   } finally {
+    if (release) release();   // a failed assertion above must not leave the refresh out for later tests
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+  }
+});
+
+test('#4743: signing in with the switch off makes the next standing poll tell the coordinator, whatever its stamp (turnOnAfterSignin)', async () => {
+  enroll(false);
+  const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(cur, { standing_at: Date.now() })) + '\n');
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    remote.turnOnAfterSigninForTests();
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(fake.calls().length, 0, 'the sign-in itself started a signed call (it would hold up a Forget)');
+    await remote.refreshStandingIfStale({ ttlMs: 10 * 60 * 1000 });   // the next poll, on a fresh stamp
+    await waitForFakeCalls(fake, 1, 5000);
+    const on = fake.calls().find((c) => fake.flag(c, '--path') === '/v1/mac/standing');
+    assert.ok(on, 'the sign-in switched it on and the next poll told nothing');
+    assert.equal(JSON.parse(on.stdin).remote.on, true);
+    // CONTROL: already on, a sign-in leaves the next poll on its cadence (fresh stamp: nothing sent).
+    fake.reset();
+    const now = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+    fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(now, { standing_at: Date.now() })) + '\n');
+    remote.turnOnAfterSigninForTests();
+    await remote.refreshStandingIfStale({ ttlMs: 10 * 60 * 1000 });
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(fake.calls().length, 0, 'control: a sign-in with the switch already on made the poll ask early');
+  } finally {
     delete process.env.FAKE_MAC_REQUEST_MODE;
   }
 });
@@ -433,6 +462,7 @@ test('#4743: a flip told to a board that cannot ask yet is not dropped when the 
     assert.ok(off, 'the flip was dropped');
     assert.deepEqual(JSON.parse(off.stdin), { remote: { on: false } });
   } finally {
+    if (release) release();
     delete process.env.FAKE_MAC_REQUEST_MODE;
   }
 });

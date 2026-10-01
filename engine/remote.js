@@ -278,7 +278,7 @@ function askAfterFlip() {
   const cur = read();
   // flipPending makes the refresh below due. Off: the stamp is also set back, so if this ask's answer is
   // thrown away (a Forget or new identity while it is out) the next poll asks again.
-  if (cur.ok === true && cur.on !== true) write({ standing_at: Date.now() - OFF_STANDING_TTL_MS });
+  if (cur.ok === true && cur.on !== true) write({ standing_at: Date.now() - OFF_STANDING_TTL_MS - 1 });
   try { Promise.resolve(module.exports.refreshStandingIfStale({ ttlMs: 0 })).catch(() => {}); } catch { /* best-effort */ }
 }
 const FED_LIVE_TTL_MS = 60 * 1000;   // mirrors STANDING_TTL_MS; a launch flag changes rarely, but a lapse/rollback should still reach a board within ~one TTL
@@ -343,7 +343,10 @@ async function refreshStandingIfStale(opts) {
   // tick's TTL 0 included, until the clock caught up. The same guard as reportNotEnrolledIfDue.
   if (Math.abs(now - (s.standing_at || 0)) < due) return;   // still fresh
   standingRefreshInFlight = true;
-  flipPending = false;   // this refresh reads the switch as it is now (mac-standing reads it at send time)
+  // This refresh reads the switch as it is now (mac-standing reads it at send time). Cleared when an ask
+  // starts: one that then stops early (unreadable settings, not enrolled) falls back to the off retry
+  // stamp (OFF_RETRY_MS), not to an at-once re-ask.
+  flipPending = false;
   // The answer is about the identity on disk when it was asked: a Forget, or a
   // Forget and a new sign-in, while it was out means it is about one that is gone,
   // and it must not be written onto another (#3827).
@@ -2017,8 +2020,14 @@ function busy() {
    Kosmos+ on. A failed save is logged: the Mac is registered either way, and the
    switch then still says off. */
 function turnOnAfterSignin() {
+  const before = read();
   const wrote = write({ on: true }, { repair: true });
-  if (!wrote.ok) process.stderr.write('remote: signed in, but could not switch Kosmos+ on: ' + wrote.because + '\n');
+  if (!wrote.ok) { process.stderr.write('remote: signed in, but could not switch Kosmos+ on: ' + wrote.because + '\n'); return; }
+  // kosmos#4743: an off-to-on flip made by signing in makes the NEXT standing poll due at once, whatever
+  // its stamp (the account page would otherwise read "Remote access off" until the next on-cadence
+  // refresh). Not asked here: a signed call started inside the sign-in would hold up a Forget right
+  // after it, which waits for signed calls in flight before it switches off.
+  if (!(before.ok === true && before.on === true)) flipPending = true;
 }
 
 /* kosmos#4754 / #4756 (Josh 2026-09-30, ruling "A"): a new computer is a purchase. Once the coordinator
@@ -2261,7 +2270,8 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  turnOnAfterSigninForTests: turnOnAfterSignin,   // kosmos#4743: tests only (it skips setOn's busy() check)
+  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,
