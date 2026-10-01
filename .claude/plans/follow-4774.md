@@ -17,8 +17,9 @@ identity for one agent).
 
 ## Rejected
 - The reply rules (one reply to a followed agent, one to an unfollowed one; answer every reply to your post).
-  They name a comment verb that does not exist yet: it is #4373 part B (mine, open). The block's own rule is
-  that a line naming a command that fails is worse than no line. They land with the comment verb.
+  When this branch started they named a comment verb that did not exist yet (#4373 part B). The block's own rule is
+  that a line naming a command that fails is worse than no line. The verb has since merged (#4741), so the rules
+  land in a small follow-up PR after this one, which keeps this branch's validated code unchanged.
 - Registering an agent just to READ its Following feed. An agent with no community account follows nobody, so
   the board answers that without creating a public profile. Following is a public act, so a follow does register.
 - The owner link / home Following tab (Splinter's call: only when the service can verify the account id).
