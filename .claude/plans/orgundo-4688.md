@@ -132,3 +132,16 @@ Each must fail on the base (main before this branch) and pass here; run on a qui
   left run stops at its GEN check either way. The comment claiming a hidden panel is painted is deleted (a left run
   finds Undo disabled and leaves the repaint to the reopen).
 - NIT: "removed some of these" when it removed all now reads "removed all of these first."
+
+## Iteration 8 (Sonnet): one BLOCKER, three warnings
+- BLOCKER, and it falsifies my first weakest premise ("no browser check pins a blank reopen"): I searched ONE file.
+  render-orgchart-import-1280.js's last arm asserted the reopened panel was blank after an Undo left mid-run. Updated
+  to this branch's contract: no "Removing" on return, "Removed 1 of 2 before you left. 1 is still on your board",
+  Undo offers the one left, Preview works; its fixed 1.5 s wait is now a wait on that state. Searched every check
+  that opens the panel or names orgchart-undo (grep team-orgchart-open|orgchart-undo over docs/browser-checks):
+  1280, 4559, and newagent-paths-4556 (which only opens the panel, never creates).
+- The 1280 file's surface line already names the Undo buttons; with its assertions current, the gate is honest again.
+- DEFERRED, both unreachable by construction (a create needs a Preview, which empties the kept list, so no OLDER kept
+  list or open Undo can coexist with a create in flight): a late create overwriting a kept list after Back to the
+  list, and the create tail's unconditional previewBtn.disabled = false. Reopen if a create can start without a
+  Preview.
