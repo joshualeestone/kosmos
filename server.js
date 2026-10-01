@@ -17244,8 +17244,28 @@ const server = http.createServer(async (req, res) => {
             sendJson(res, 429, { error: refusal.because, retry_after_secs: refusal.retryAfterSecs }); return;
           }
         }
+        /* #4887: `kosmos task add --who <agent>`. `me` is the caller, named the way "added by" is (the screen
+           and a caller nobody could name have no "me"), and a name is matched to a member exactly, else by
+           store key, so `April` finds `april`. No match goes through as typed, and tasks.create refuses it. */
+        let whoAsked = body.who;
+        if (typeof whoAsked === 'string' && whoAsked.trim().toLowerCase() === 'me') {
+          if (!paneCard) {
+            sendJson(res, 400, { error: 'Kosmos could not tell which agent you are, so it cannot give the task to you; name the agent instead' }); return;
+          }
+          whoAsked = paneCard.sessionName;
+        }
+        if (typeof whoAsked === 'string' && whoAsked.trim()) {
+          const asked = whoAsked.trim();
+          let members = [];
+          try { members = ((projects.readAll() || []).find((x) => x && x.id === id) || {}).agents || []; }
+          catch { members = []; }   // an unreadable store is tasks.create's to refuse, with its own answer
+          if (Array.isArray(members) && !members.includes(asked)) {
+            const found = members.filter((m) => sameAgentName(m, asked, true));
+            if (found.length === 1) whoAsked = found[0];
+          }
+        }
         try {
-          const made = tasks.create(id, { sentence: body.sentence, detail: body.detail, who: body.who,
+          const made = tasks.create(id, { sentence: body.sentence, detail: body.detail, who: whoAsked,
             parent: body.parent,
             made: { via: viaScreen ? 'screen' : 'process', by: paneCard ? paneCard.sessionName : null } }, roster);
           // The assignee's managed block now lists this task in the exact
