@@ -58,7 +58,7 @@ const chk = (ok, label, extra) => {
 
   const server = await srv.start(0);
   const BASE = 'http://127.0.0.1:' + server.address().port;
-  // Chromium at four window sizes, and WebKit (the engine of the Mac app's window, where Josh saw both) at one.
+  // Chromium at five window sizes, and WebKit (the engine of the Mac app's window, where Josh saw both) at one.
   const runs = [['chromium', chromium, [[1400, 950], [1280, 800], [1024, 700], [1024, 640], [1920, 1080]]], ['webkit', webkit, [[1400, 950]]]];
   for (const [engine, kind, sizes] of runs) {
   const browser = await kind.launch({ headless: process.env.HEADED === '0' });
@@ -125,11 +125,12 @@ const chk = (ok, label, extra) => {
       if (bub.missing) chk(false, t + ' [' + unread + '] an agent row to carry the bubble', JSON.stringify(bub));
       else {
         const f = bub.folded, o = bub.open;
-        chk(f.folded === true, t + ' [' + unread + '] the agents column folds (precondition)', JSON.stringify(f));
-        chk(f.badge.r <= f.strip.r + 0.5 && f.badge.l >= f.strip.l - 0.5 && f.badge.t >= f.strip.t - 0.5,
+        chk(f.folded === true && f.text === (unread > 99 ? '99+' : String(unread)), t + ' [' + unread + '] the agents column folds, and the bubble reads ' + (unread > 99 ? '99+' : unread) + ' (precondition)', JSON.stringify(f));
+        chk(f.badge.r <= f.strip.r + 0.5 && f.badge.l >= f.strip.l - 0.5 && f.badge.t >= f.strip.t + 0.5,
           t + ' [' + unread + '] folded: the whole bubble is inside the strip (none of it cut off)', JSON.stringify(f));
-        const overlap = f.warn && f.badge.l < f.warn.r - 0.5 && f.badge.r > f.warn.l + 0.5 && f.badge.t < f.warn.b - 0.5 && f.badge.b > f.warn.t + 0.5;
-        chk(!!f.warn && !overlap, t + ' [' + unread + '] folded: the bubble leaves the needs-you triangle clear', JSON.stringify(f));
+        // At least 1px of clear space where they share a column (the 99+ bubble reaches over the triangle's x range).
+        const sideBySide = f.warn && (f.badge.r <= f.warn.l || f.badge.l >= f.warn.r);
+        chk(!!f.warn && (sideBySide || f.badge.b <= f.warn.t - 1), t + ' [' + unread + '] folded: the bubble leaves the needs-you triangle clear', JSON.stringify(f));
         chk(o.folded === false && Math.abs(o.badge.r - (o.row.r + 6)) <= 1.5 && Math.abs(o.badge.t - (o.row.t - 6)) <= 1.5,
           t + ' [' + unread + '] unfolded: the bubble keeps its place at the row\'s top-right corner (#3339)', JSON.stringify(o));
       }

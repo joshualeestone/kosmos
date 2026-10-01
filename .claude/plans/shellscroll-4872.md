@@ -8,7 +8,9 @@ both, with controls, in Chromium at four sizes and in WebKit.
 
 ## Findings that shaped it
 - Bubble: folded, each row fills the 48px strip edge to edge (#3187 follow-up), so the bubble's -6px hang past the
-  row corner put it at x 53 on a 48px strip and 2px above it; #alist clips it. Fix: folded only, right 1px, top -2px.
+  row corner put it at x 53 on a 48px strip and 2px above it; #alist clips it. Fix (folded only): a compact 16px
+  bubble in the row's top-right corner (right 0, top -3px), and the face 2px lower in the same 42px row (padding
+  6px over, 2px under), so it clears the strip's top (about 1px) and the needs-you triangle (about 2px) at 2 and 99+.
 - Scroll: measured in a populated room (members, tasks, posts, new look) at 1024x700 to 1920x1080: the document is
   EXACTLY the window tall, nothing overflows. Josh's scrolled screenshot shows an empty gap below the content, which
   is the Mac's elastic overscroll (it drags a page that cannot scroll). Fix: overscroll-behavior none on the root and
@@ -25,5 +27,8 @@ both, with controls, in Chromium at four sizes and in WebKit.
 ## Tests
 - docs/browser-checks/render-shell-noscroll-4872.js (gated): per size, the room opens in the consolidated view,
   root and body scrollHeight == clientHeight, overscroll none on both; the bubble drawn by the real dmBadge() on the
-  first row lies inside the strip when folded (the real fold button) and keeps -6/-6 when open (measured truly open).
-  Reverting either CSS fix fails 5 checks (measured).
+  first row lies inside the strip with at least 0.5px to its top when folded (the real fold button), clears the
+  needs-you triangle (the app's LROW_WARN) by at least 1px, reads "2" and "99+", and keeps -6/-6 when open (measured
+  truly open). Chromium at five sizes (one short, 1024x640) and WebKit. Reverting either CSS fix fails the check
+  (measured). Limits stated in the check: the bounce is read as computed style (headless engines do not rubber-band;
+  the Mac app is the real test), and the no-overflow assertion is a regression guard that passed before the fix.
