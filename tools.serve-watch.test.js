@@ -22,6 +22,7 @@ const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
 const TAR = Buffer.from('a mac tarball\n');
 const ZIP = Buffer.from('a windows zip\n');
 const TMUX = Buffer.from('a tmux bundle\n');
+const PKG = Buffer.from('a mac installer package\n');
 
 /* A healthy site: four pointers and every artifact they name. `files` maps a /dist name to [type, body]; a test
    deletes or replaces entries to break it. Anything not listed answers 404 (so the negative control holds). */
@@ -43,6 +44,8 @@ function healthySite() {
   put('tmux-arm64.tar.gz.sha256', 'application/octet-stream', sha(TMUX) + '  tmux-arm64.tar.gz\n');
   put('kosmos-arm64.tar.gz', 'application/gzip', TAR);
   put('kosmos-arm64.tar.gz.sha256', 'application/octet-stream', sha(TAR) + '  kosmos-arm64.tar.gz\n');
+  put('Kosmos.pkg', 'application/octet-stream', PKG);
+  put('Kosmos.pkg.sha256', 'text/plain', sha(PKG) + '  Kosmos.pkg\n');
   return { files, setup: true, health: { ok: true }, feedStatus: 200, relayUp: true, relayStatus: 502, catchAll: false, distDown: 0, failOnce: new Set(), failGet: new Map(), hits: [] };
 }
 
@@ -70,7 +73,7 @@ function serve(site) {
       if (site.feedFailGet > 0 && req.method === 'GET') { site.feedFailGet--; return send(502, 'text/plain', 'bad gateway'); }
       return send(site.feedStatus, 'application/json', site.feedBig ? JSON.stringify({ items: 'x'.repeat(2 * 1024 * 1024) }) : JSON.stringify({ items: [] }));
     }
-    // The relay's own answer for a computer that is not connected (crates/relay/src/redirect.rs).
+    // The relay's own answer for a computer that is not connected (kosmos-relay: crates/relay/src/redirect.rs).
     if (u.pathname === '/relay/') return site.relayUp ? send(503, 'text/html; charset=utf-8', '<!doctype html><title>Mac not connected - Kosmos</title>') : send(site.relayStatus, 'text/html', 'a proxy error page');
     return send(404, 'text/plain', 'not found');
   });
@@ -129,7 +132,7 @@ test('a healthy site is silent, every artifact is checked and hashed, and the st
   }
   assert.ok(site.hits.includes('HEAD /dist/' + sw.CONTROL), 'the negative control was not asked');
   const state = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
-  assert.equal(Object.keys(state.sha).length, 5, 'the tarball, both zips, tmux and the fallback tarball are hashed: ' + JSON.stringify(state.sha));
+  assert.equal(Object.keys(state.sha).length, 6, 'the tarball, both zips, tmux, the fallback tarball and Kosmos.pkg are hashed: ' + JSON.stringify(state.sha));
   assert.ok(site.hits.includes('HEAD /site/setup'), 'the installer script was not checked');
 }));
 
@@ -210,6 +213,23 @@ test('a fallback tarball left on the previous release alarms (on its second sigh
   site.failGet.set('/dist/kosmos-arm64.tar.gz.sha256', 2);
   await run(base, dir, st, { now: T0 + 1800 });
   assert.equal((await run(base, dir, st, { now: T0 + 2700 })).code, 1, 'a confirmed stale fallback was forgotten after one short run');
+}));
+
+test('the home page\'s Mac download (Kosmos.pkg) is watched: missing, or not matching its sidecar, alarms', () => withSite(async ({ site, base, dir, st }) => {
+  site.files.delete('Kosmos.pkg');
+  assert.equal((await run(base, dir, st, { now: T0 })).code, 1);
+  assert.match(st.card(), /Kosmos\.pkg is not served \(404\): it is the home page's Mac download button/);
+  site.files.set('Kosmos.pkg', ['application/octet-stream', Buffer.from('other bytes')]);
+  await run(base, dir, st, { now: T0 + 900 });
+  assert.equal((await run(base, dir, st, { now: T0 + 1800 })).code, 1);
+  assert.match(st.card(), /Kosmos\.pkg does not match its own \.sha256/);
+}));
+
+test('a pointer sha256 in capitals is refused, as the Windows installer refuses it', () => withSite(async ({ site, base, dir, st }) => {
+  const j = JSON.parse(site.files.get('latest-win.json')[1]); j.sha256 = j.sha256.toUpperCase();
+  site.files.set('latest-win.json', ['application/json', JSON.stringify(j)]);
+  assert.equal((await run(base, dir, st, { now: T0 })).code, 1);
+  assert.match(st.card(), /latest-win\.json carries no sha256 in the lowercase form);
 }));
 
 test('a failed whole-file read is retried on the next run, not held for a day', () => withSite(async ({ site, base, dir, st }) => {

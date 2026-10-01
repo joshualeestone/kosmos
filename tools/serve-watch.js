@@ -15,7 +15,7 @@
  *   2. community.installkosmos.com: /api/health answers {"ok":true}, and the public feed answers.
  *   3. The relay: a computer name that never exists answers with the relay's own "Mac not connected" page, so the relay
  *      process itself is checked, whatever computer is on (a person's computer as the canary would alarm every time it
- *      slept). Its build is NOT checked: the relay writes it only to its own journal (crates/relay/src/serve.rs), with
+ *      slept). Its build is NOT checked: the relay writes it only to its own journal (kosmos-relay: crates/relay/src/serve.rs), with
  *      no public route, and this holds no SSH.
  *
  * A NEGATIVE CONTROL guards the download checks: a file that never exists must answer 404 (and a second one of the
@@ -72,7 +72,7 @@ const DIST = (env.SERVE_WATCH_DIST || 'https://installkosmos.com/dist').replace(
 const SITE = (env.SERVE_WATCH_SITE || 'https://installkosmos.com').replace(/\/+$/, '');
 const COMMUNITY = (env.SERVE_WATCH_COMMUNITY || 'https://community.installkosmos.com').replace(/\/+$/, '');
 /* A computer name that never exists: the relay's own listener answers it with its "Mac not connected" page
-   (crates/relay/src/redirect.rs), whatever computer is or is not on, over plain http (no certificate involved). */
+   (kosmos-relay: crates/relay/src/redirect.rs), whatever computer is or is not on, over plain http (no certificate involved). */
 const RELAY = env.SERVE_WATCH_RELAY || 'http://serve-watch-canary.kosmosplus.com/';
 const RELAY_PAGE = '<title>Mac not connected - Kosmos</title>';
 const TIMEOUT_MS = Number(env.SERVE_WATCH_TIMEOUT_MS) || 30000;
@@ -93,17 +93,21 @@ const POINTERS = Object.freeze([
 /* What every install fetches whatever the pointers say (install/setup.sh): the curl-to-sh script, the tmux bundle, and
    the generic tarball it falls back to. Each tarball is held to its own .sha256 sidecar, and the fallback also to the
    release latest.json names (tools/deploy-site.sh: it "must track the CURRENT prod version"; a stale one is #1669),
-   as the Windows fixed-name zip is held to latest-win.json. */
+   as the Windows fixed-name zip is held to latest-win.json. Also Kosmos.pkg, the home page's Mac download button
+   (tools/deploy-site.sh refuses a deploy without it), against its sidecar. */
+const INSTALLS = 'every install fetches it';
 const FIXED = Object.freeze([
-  { url: () => SITE + '/setup', name: 'the installer script (/setup)', type: 'script' },
-  { url: () => DIST + '/tmux-arm64.tar.gz', name: 'tmux-arm64.tar.gz', type: 'tarball', bySidecar: true },
-  { url: () => DIST + '/kosmos-arm64.tar.gz', name: 'kosmos-arm64.tar.gz', type: 'tarball', bySidecar: true, tracks: 'latest.json' },
+  { url: () => SITE + '/setup', name: 'the installer script (/setup)', type: 'script', need: INSTALLS },
+  { url: () => DIST + '/tmux-arm64.tar.gz', name: 'tmux-arm64.tar.gz', type: 'tarball', bySidecar: true, need: INSTALLS },
+  { url: () => DIST + '/kosmos-arm64.tar.gz', name: 'kosmos-arm64.tar.gz', type: 'tarball', bySidecar: true, tracks: 'latest.json', need: INSTALLS },
+  { url: () => DIST + '/Kosmos.pkg', name: 'Kosmos.pkg', type: 'pkg', bySidecar: true, need: 'it is the home page\'s Mac download button' },
 ]);
 const TYPES = Object.freeze({   // media types are case-insensitive (RFC 9110)
   script: /^(text\/plain|text\/x-shellscript|application\/x-sh|application\/octet-stream)\b/i,
   tarball: /^application\/(gzip|x-gzip|x-tar|octet-stream)\b/i,
   manifest: /^application\/json\b/i,
   zip: /^application\/(zip|x-zip-compressed|octet-stream)\b/i,
+  pkg: /^application\/(octet-stream|x-newton-compatible-pkg|vnd\.apple\.installer\+xml)\b/i,
 });
 /* A pointer field must be a bare file name: a value with a slash or a dot-dot would make this fetch some other path. */
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$/;
@@ -286,8 +290,9 @@ async function gather(prev, now) {
     if (!g.json) { pointerFailed = true; add('pointer-json:' + pt.file, pt.file + ' is served but is not valid JSON'); continue; }
     const arts = artifactsOf(g.json, pt);
     if (!arts) { pointerFailed = true; add('pointer-shape:' + pt.file, pt.file + ' does not name its artifacts the way the app reads them'); continue; }
-    const want = typeof g.json.sha256 === 'string' && /^[0-9a-f]{64}$/i.test(g.json.sha256) ? g.json.sha256.toLowerCase() : null;
-    if (!want) add('pointer-sha:' + pt.file, pt.file + ' carries no sha256, so its download cannot be checked');
+    // Lowercase only, as the installers read it (setup.ps1 refuses any other form; setup.sh compares case-sensitively).
+    const want = typeof g.json.sha256 === 'string' && /^[0-9a-f]{64}$/.test(g.json.sha256) ? g.json.sha256 : null;
+    if (!want) add('pointer-sha:' + pt.file, pt.file + ' carries no sha256 in the lowercase form the installers read, so its download cannot be checked');
     else pointerSha[pt.file] = want;
     for (const a of arts) {
       const url = DIST + '/' + a.name;
@@ -311,7 +316,7 @@ async function gather(prev, now) {
     if (a.sidecar && want) {
       // What the installers compare against (install/setup.sh verify_download, setup.ps1): cheap, so every run.
       const s = await getJson(url + '.sha256');
-      const said = s.status === 200 && s.text ? String(s.text).trim().split(/\s+/)[0].toLowerCase() : null;
+      const said = s.status === 200 && s.text ? String(s.text).trim().split(/\s+/)[0] : null;
       if (s.status === 200 && said && /^[0-9a-f]{64}$/.test(said)) evaluated.add('sidecar-sha:' + a.name);
       if (s.status === 200 && !(said && /^[0-9a-f]{64}$/.test(said))) add('sidecar-missing:' + a.name, a.name + '.sha256' + by + ' is served but holds no sha256: installers refuse the download');
       else if (s.status !== 200) add('sidecar-missing:' + a.name, a.name + '.sha256' + by + ' is not served (' + why(s) + '): installers refuse the download without it');
@@ -341,11 +346,11 @@ async function gather(prev, now) {
     if (f.bySidecar) owed.add('sha:' + f.name);
     if (f.tracks) owed.add('alias:' + f.name);
     const h = await head(url);
-    if (h.status !== 200) { add('missing:' + f.name, f.name + ' is not served (' + why(h) + '): every install fetches it'); continue; }
+    if (h.status !== 200) { add('missing:' + f.name, f.name + ' is not served (' + why(h) + '): ' + f.need); continue; }
     if (!TYPES[f.type].test(h.type)) { add('type:' + f.name, f.name + ' is served as "' + shown(h.type) + '", not a ' + f.type); continue; }
     if (!f.bySidecar) continue;
     const s = await getJson(url + '.sha256');
-    const want = s.status === 200 && s.text ? String(s.text).trim().split(/\s+/)[0].toLowerCase() : null;
+    const want = s.status === 200 && s.text ? String(s.text).trim().split(/\s+/)[0] : null;
     if (!want || !/^[0-9a-f]{64}$/.test(want)) { add('sidecar-missing:' + f.name, f.name + '.sha256 is not served or not a sha256 (' + why(s) + '): installers refuse the download'); continue; }
     // Through mismatch(), so the moment mid-promote when the fallback and the pointer are written apart is not an alarm.
     const track = f.tracks && pointerSha[f.tracks];
@@ -478,7 +483,7 @@ function post(text, want = { pane: true, card: true }) {
       if (err && err.status === 7) {
         went.pane = true;
         unsure.pane = true;
-        paneUnsure = 'claude-msg exit 7: the message is in the pane\'s composer, not yet submitted (one Enter sends it)';
+        paneUnsure = 'claude-msg exit 7: the message is in the pane\'s composer, not yet submitted (look at the composer, then one Enter sends it)';
       } else {
         paneFailed = String((err && err.stderr && String(err.stderr).trim()) || (err && err.message) || err).split('\n')[0];
         process.stderr.write('serve-watch: the pane message to ' + to + ' did not go: ' + paneFailed + '\n');
