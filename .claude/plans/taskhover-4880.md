@@ -17,3 +17,10 @@ Hovering or tabbing to a task on the Tasks tab shows an active state; a browser 
 `docs/browser-checks/render-taskhover-4880.js`: painted pixels at the row's empty right end (rest vs hover vs focus), box unchanged, cursor pointer, ticked row unchanged under hover, project-name click opens the project (control), empty-part click opens the task. Old and new look, light and dark. Control: fails on main (hover, cursor, focus, row-click lines).
 
 Wiring: README row, `docs/browser-checks/gated.txt`, reason-grep EXPECTED_SITES 227 -> 228 (measured).
+
+## Review round 1 (opus) changes
+- Touchscreen: no tint, no pointer, and the row does not open on tap (`@media (hover: hover)` for the CSS; a `(hover: hover)` test in the handler). Its 44px tap areas sit close together (#4226), so a near-miss must not leave the view.
+- The checkbox's column never opens the task (a click just below the 16px box is a missed tick).
+- Keyboard state is `:has(:focus-visible)`, not `:focus-within`, so a mouse tick does not leave the row tinted.
+- Known limit, accepted: the first click of a double-click on row text opens the task before the word can be selected. Selecting by drag still works. Text in a row can also be read on the task page.
+- Check: project-open control now asserts the project page opened; a theme CONTROL; a phone pass (390, touch). Mutations removing the touch guard and the checkbox-column guard each turn their lines red.

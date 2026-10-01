@@ -3902,10 +3902,14 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 12px; padding: 11px 14px; border-top: 1px solid var(--k-rule); align-items: start; }
 .tsk-row:first-child { border-top: 0; }
 .tsk-row.sel { background: var(--tsk-wash); }
-/* #4880 (Josh 10/01): a row reads as clickable, the way a project room's task cards do: the room's subtle ground on
-   hover, and the same while a keyboard is inside the row. Background only, so nothing moves. A picked row keeps its wash. */
-.tsk-row { cursor: pointer; }
-.tsk-row:not(.sel):is(:hover, :focus-within) { background: var(--tsk-hover); }
+/* #4880 (Josh 10/01): a row reads as clickable, as a project room's task cards do: a faint ink tint over the row's own
+   ground under a mouse, and while the keyboard focus is inside the row. Background only. A ticked row keeps its wash.
+   A touchscreen gets neither the tint nor the pointer: it has no hover to show, and the row opens nothing there. */
+@media (hover: hover) {
+  .tsk-row { cursor: pointer; }
+  .tsk-row:not(.sel):hover { background: var(--tsk-hover); }
+}
+.tsk-row:not(.sel):has(:focus-visible) { background: var(--tsk-hover); }
 .tsk-row input { margin: 3px 0 0; width: 16px; height: 16px; accent-color: var(--gold-deep); }
 .tsk-row .tsk-hit { display: block; line-height: 0; }
 /* #4226 (Raiden's #718 phone sweep): on a touchscreen, every field in the Tasks view is 16px, because iOS zooms into a
@@ -54955,10 +54959,16 @@ document.getElementById('panel-tasks').addEventListener('click', (e) => {
   if ((b = el('[data-open-task]'))) { tskOpenTask(b.dataset.openTask); return; }
   if ((b = el('[data-open-project]'))) { tskOpenProject(b.dataset.openProject); return; }
   if ((b = el('[data-agent]'))) { openDetail(b.dataset.agent); return; }
-  /* #4880 (Josh 10/01): a row shows a hover, so a click anywhere on it opens the task, as its title does. A control
-     inside the row keeps its own action, and a click that ends a text selection selects, it does not navigate. */
+  /* #4880 (Josh 10/01): with a mouse, a click on an empty part of a row opens the task, as its title does. Not on a
+     touchscreen (no hover is shown there, and its tap areas sit close together), not in the checkbox's column, not on
+     a control, and not when the press leaves text selected. */
   const row = el('.tsk-row[data-key]');
-  if (row && !el('button, a, input, label, select, summary, textarea') && !String(window.getSelection ? window.getSelection() : '').trim()) tskOpenTask(row.dataset.key);
+  if (!row || el('button, a, input, label, select, summary, textarea')) return;
+  if (window.matchMedia && !window.matchMedia('(hover: hover)').matches) return;
+  const hit = row.querySelector('.tsk-hit');
+  if (hit && e.clientX <= hit.getBoundingClientRect().right + 6) return;
+  if (String(window.getSelection ? window.getSelection() : '').trim()) return;
+  tskOpenTask(row.dataset.key);
 });
 document.getElementById('panel-tasks').addEventListener('change', (e) => {
   const box = e.target.closest('input[type="checkbox"][data-key]');

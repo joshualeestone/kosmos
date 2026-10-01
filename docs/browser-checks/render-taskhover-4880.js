@@ -15,6 +15,8 @@
  *    do something when clicked; a click on the project name inside the row still opens the PROJECT,
  *    not the task (a control keeps its own action),
  *  - a picked (ticked) row keeps its own wash under the mouse,
+ *  - a click in the checkbox column, just below the box, does not open the task,
+ *  - on a touchscreen (390 wide) there is no tint or pointer and a tap on the row opens nothing,
  *  - light and dark, with the new look off and on.
  * CONTROL: run against main before #4880, the rest and hover grounds are the same (the first line
  * fails), and the empty-part click opens nothing.
@@ -90,6 +92,7 @@ function chk(ok, label, extra) {
     await page.evaluate(() => showTab('tasks'));
     await page.waitForSelector('#tsk-groups .tsk-row .tl', { timeout: 10000 });
     chk(await page.evaluate((n) => (document.documentElement.getAttribute('data-look') === 'new') === n, newLook), T + 'CONTROL: the look is the one this pass is for');
+    chk(await page.evaluate((dark) => { const m = getComputedStyle(document.body).backgroundColor.match(/[\d.]+/g).map(Number); return ((m[0] + m[1] + m[2]) / 3 < 128) === dark; }, theme === 'dark'), T + 'CONTROL: the page is painted in the theme this pass is for');
 
     const S = 'Book the podcast tour';
     await page.mouse.move(2, 2);
@@ -105,12 +108,21 @@ function chk(ok, label, extra) {
     chk(rest && hover && JSON.stringify(rest.box) === JSON.stringify(hover.box), T + 'nothing moves: the row keeps its place and size under the mouse', JSON.stringify({ rest: rest && rest.box, hover: hover && hover.box }));
     chk(hover && hover.cursor === 'pointer', T + 'the row shows a pointing cursor', hover && hover.cursor);
 
-    // Keyboard: mouse away, focus on the title.
+    // Keyboard: mouse away, then Tab from the row's checkbox onto its title (a real key, so the focus is :focus-visible).
     await page.mouse.move(2, 2);
-    await page.locator('#tsk-groups .tsk-row .tl', { hasText: S }).first().focus();
+    await page.locator('#tsk-groups .tsk-row', { hasText: S }).first().locator('input[type="checkbox"]').focus();
+    await page.keyboard.press('Tab');
     await page.waitForTimeout(250);
+    const onTitle = await page.evaluate(() => !!document.activeElement && document.activeElement.classList.contains('tl'));
+    chk(onTitle, T + 'CONTROL: Tab from the checkbox lands on the row\'s title');
     const focused = await look(page, S);
     chk(same(focused, hover) && !same(focused, rest), T + 'with the keyboard on the row\'s title, the row is painted as under the mouse, not as at rest');
+    // A mouse click on the checkbox (no keyboard) must not leave the row tinted once the mouse moves away.
+    await page.locator('#tsk-groups .tsk-row', { hasText: S }).first().locator('input[type="checkbox"]').click();
+    await page.locator('#tsk-groups .tsk-row', { hasText: S }).first().locator('input[type="checkbox"]').click();
+    await page.mouse.move(2, 2);
+    await page.waitForTimeout(250);
+    chk(same(await look(page, S), rest), T + 'after a mouse tick and untick, with the mouse away, the row is back at rest (no tint from a mouse-given focus)');
 
     // A picked row keeps its wash under the mouse.
     const P = 'Pick the launch date';
@@ -129,22 +141,56 @@ function chk(ok, label, extra) {
     await page.locator('#tsk-groups .tsk-row', { hasText: S }).first().locator('[data-open-project]').click();
     await page.waitForTimeout(800);
     const projOpen = await page.evaluate(() => {
+      const tv = document.getElementById('pj-task-view'), pv = document.getElementById('pj-one-view');
+      return { task: !!tv && !tv.hidden && tv.getClientRects().length > 0, project: !!pv && !pv.hidden && pv.getClientRects().length > 0 && pv.innerText.includes('Spring launch') };
+    });
+    chk(!projOpen.task && projOpen.project, T + 'CONTROL: the project name inside a row opens the project, not the task', JSON.stringify(projOpen));
+
+    const taskOpen = () => page.evaluate(() => {
       const tv = document.getElementById('pj-task-view');
       return { task: !!tv && !tv.hidden && tv.getClientRects().length > 0, title: (document.getElementById('tk-title') || {}).textContent || '' };
     });
-    chk(!projOpen.task, T + 'CONTROL: the project name inside a row opens the project, not the task', JSON.stringify(projOpen));
-
+    // A click just below the checkbox, in its column, is a missed tick, not "open the task".
+    await page.evaluate(() => showTab('tasks'));
+    await page.waitForSelector('#tsk-groups .tsk-row .tl', { timeout: 10000 });
+    const cb = await page.locator('#tsk-groups .tsk-row', { hasText: S }).first().locator('input[type="checkbox"]').boundingBox();
+    const b1 = await page.locator('#tsk-groups .tsk-row', { hasText: S }).first().boundingBox();
+    await page.mouse.click(cb.x + cb.width / 2, b1.y + b1.height - 3);
+    await page.waitForTimeout(800);
+    chk(!(await taskOpen()).task, T + 'a click in the checkbox\'s column, just below the box, does not open the task');
     // A click on an empty part of the row opens that task.
     await page.evaluate(() => showTab('tasks'));
     await page.waitForSelector('#tsk-groups .tsk-row .tl', { timeout: 10000 });
     const b2 = await page.locator('#tsk-groups .tsk-row', { hasText: S }).first().boundingBox();
     await page.mouse.click(b2.x + b2.width - 6, b2.y + b2.height - 4);
     await page.waitForTimeout(1000);
-    const opened = await page.evaluate(() => {
-      const tv = document.getElementById('pj-task-view');
-      return { task: !!tv && !tv.hidden && tv.getClientRects().length > 0, title: (document.getElementById('tk-title') || {}).textContent || '' };
-    });
+    const opened = await taskOpen();
     chk(opened.task && opened.title.includes(S), T + 'a click on an empty part of the row opens that task\'s page', JSON.stringify(opened));
+    await ctx.close();
+  }
+  /* A touchscreen (390 wide): no tint and no pointer, and a tap on the row's empty part opens nothing (its tap areas
+     sit close together, so a near-miss must not leave the view). */
+  for (const theme of ['light', 'dark']) {
+    const T = 'phone ' + theme + ': ';
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: theme, hasTouch: true, isMobile: true });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errs.push(T + e.message));
+    await page.goto(URL, { waitUntil: 'networkidle' });
+    if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+    await page.evaluate(() => showTab('tasks'));
+    await page.waitForSelector('#tsk-groups .tsk-row .tl', { timeout: 10000 });
+    chk(await page.evaluate(() => matchMedia('(hover: none)').matches), T + 'CONTROL: the page is a touchscreen to the page (hover: none)');
+    const S = 'Book the podcast tour';
+    await page.locator('#tsk-groups .tsk-row', { hasText: S }).first().scrollIntoViewIfNeeded();
+    await page.waitForTimeout(300);
+    const rest = await look(page, S);
+    const b = await page.locator('#tsk-groups .tsk-row', { hasText: S }).first().boundingBox();
+    await page.touchscreen.tap(b.x + b.width - 6, b.y + b.height - 4);
+    await page.waitForTimeout(800);
+    const tv = await page.evaluate(() => { const v = document.getElementById('pj-task-view'); return !!v && !v.hidden && v.getClientRects().length > 0; });
+    chk(!tv, T + 'a tap on an empty part of a row does not open the task');
+    const after = await look(page, S);
+    chk(after && after.cursor !== 'pointer' && same(after, rest), T + 'no pointer and no tint on a touchscreen, before or after a tap', after && after.cursor);
     await ctx.close();
   }
   chk(errs.length === 0, 'no page errors', JSON.stringify(errs.slice(0, 3)));
