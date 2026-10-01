@@ -371,3 +371,9 @@ test('#4409 CI: speakCan, which runs at boot, never reads window.speechSynthesis
   assert.equal(speakCan({ SpeechSynthesisUtterance: function () {} })(), false, 'CONTROL: no speechSynthesis property is no speech');
   assert.equal(speakCan({ speechSynthesis: {} })(), false, 'CONTROL: no SpeechSynthesisUtterance is no speech');
 });
+
+test('#4409 slice 2: the New task mic line is cleared each time the dialog opens, like every other dialog mic line', () => {
+  const open = fn('openNewTask');
+  assert.match(open, /getElementById\('nt-voice-msg'\)\.textContent = '';/, 'a mic refusal would be shown again when New task reopens');
+});
+

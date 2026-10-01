@@ -110,4 +110,12 @@ the pointer's click as well reds V2, V10, V11, V12. web.voice-4409.test.js 20/20
   wait). FIXED W: New task's message line is role=alert, assertive, so "Listening" interrupted screen readers; that
   mic has its own polite line (V18, routing it back to the alert reds it). FIXED NITs: the blur comments merged; the
   mousedown comment names touch-emulated mousedowns. DUPLICATE NIT: a hold let go before listening is a tap.
+- Round 9 (opus): FIXED W (mine, round 8): the new #nt-voice-msg line took about 23 px for everyone, mic or not; it
+  takes no room while empty (V1b, removing the rule reds it). FIXED W (mine, round 8): it was the one mic line not
+  cleared when its dialog opens, so a refusal would reappear; openNewTask clears it (unit test, removing the clear
+  reds it). FIXED NITs: role="status" beside aria-live; textareas in a wrapper resize vertically only (a box dragged
+  narrower would leave the mic outside it); a bare modifier key no longer clears the pointer's click mark mid-press.
+  REFUTED NIT (measured): the mic is not misplaced in .tk-inp boxes; their top margin collapses through the wrapper,
+  so the textarea mic is 6 px inside and pjs-name's mic is centred to the pixel. A first fix built on the claim put
+  the mic 12 px down and V12 caught it; reverted.
 

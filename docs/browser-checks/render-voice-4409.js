@@ -128,6 +128,8 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       const others = [...row.children].filter((c) => !c.contains(name)).reduce((w, c) => w + c.getBoundingClientRect().width, 0);
       return { nameW: name.getBoundingClientRect().width, rowW: row.getBoundingClientRect().width, others, mic: getComputedStyle(document.querySelector('.fieldmic')).display, pad: getComputedStyle(name).paddingRight };
     });
+    const ntGap = await plain.evaluate(() => getComputedStyle(document.getElementById('nt-voice-msg')).display);
+    chk(ntGap === 'none', 'V1b in a browser the New task mic line takes no room', ntGap);
     chk(plainName.mic === 'none' && plainName.nameW >= plainName.rowW - plainName.others - 24 && parseFloat(plainName.pad) < 36,
       'V1b in a browser the Name field still fills its row, with no mic and no extra padding', JSON.stringify(plainName));
     await plain.close();

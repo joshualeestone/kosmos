@@ -7322,7 +7322,9 @@ html.has-voice .micbtn { display: grid; }
 .micwrap.line > input { width: 100%; box-sizing: border-box; }
 .micwrap > .fieldmic { position: absolute; right: calc(8px + var(--scrollbar-width, 0px)); top: 6px; width: 28px; height: 28px; }   /* clear of a classic scrollbar */
 .micwrap.line > .fieldmic { top: 50%; right: 8px; transform: translateY(-50%); }
-.micwrap > :disabled + .fieldmic { display: none; }   /* a box that takes no words (instructions still loading) shows no mic */
+.micwrap > :disabled + .fieldmic { display: none; }
+.micwrap > textarea { resize: vertical; }   /* a box dragged narrower would leave the mic outside it */
+#nt-voice-msg:empty { display: none; }   /* takes no room unless the mic says something (and never without a mic) */   /* a box that takes no words (instructions still loading) shows no mic */
 html.has-voice .micwrap > textarea:not(:disabled), html.has-voice .micwrap > input:not(:disabled),
 html.has-voice .micwrap > #d-instr:not(:disabled), html.has-voice .micwrap > #create-instr:not(:disabled) { padding-right: 44px; }   /* the two ID rules set their own padding */
 html.has-voice .micwrap:not(.line) > textarea:not(:disabled),
@@ -12707,7 +12709,7 @@ window.kosmosMeasureScrollbarWidth();
     <div class="field">
       <label class="flabel tk-lab" for="nt-detail">Anything they should know</label>
       <div class="micwrap"><textarea class="tk-inp" id="nt-detail" rows="3" maxlength="2000" placeholder="Optional. What it is for, what done looks like, anything you already tried."></textarea><button class="micbtn fieldmic" type="button" data-voice-for="nt-detail" data-voice-name="Anything they should know" data-voice-msg="nt-voice-msg" aria-label="Talk instead of typing: Anything they should know" title="Talk instead of typing: Anything they should know" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
-      <p class="fmsg" id="nt-voice-msg" aria-live="polite"></p><!-- #4409 slice 2: the mic's own polite line; #nt-msg is an assertive alert -->
+      <p class="fmsg" id="nt-voice-msg" role="status" aria-live="polite"></p><!-- #4409 slice 2: the mic's own polite line; #nt-msg is an assertive alert -->
     </div>
     <!-- #3861 part 2: optional, none by default. The open tasks of the project the dialog is aimed
          at; "+ Add subtask" on a task page opens this with that task already picked. -->
@@ -56435,6 +56437,7 @@ function openNewTask(projectId, origin, parent) {
   if (!p) return;
   ntAimAt(p);
   document.getElementById('nt-msg').textContent = '';
+  document.getElementById('nt-voice-msg').textContent = '';   // #4409 slice 2: the mic's line, like every dialog's
   document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim();
   document.getElementById('nt-modal').hidden = false;
   /* With the picker showing, focus starts on it: its chosen project is heard first, before any
@@ -60366,7 +60369,7 @@ window.addEventListener('blur', () => {
   VOICE_PRESSED = { mic: press.btn, until: Date.now() + 15000 };
 });
 /* A key pressed after the pointer is the keyboard acting: its click is its own, never the pointer's. */
-document.addEventListener('keydown', () => { VOICE_PRESSED = null; }, true);
+document.addEventListener('keydown', (e) => { if (!['Shift', 'Meta', 'Control', 'Alt', 'CapsLock'].includes(e.key)) VOICE_PRESSED = null; }, true);
 /* Slice 2: a dialog has several boxes. Focus moving to another of its fields means the person moved on: stop, so what
    is already in the box stays and words still coming are dropped. The keydown guard only sees the box being
    dictated into, and Escape works only there. */
