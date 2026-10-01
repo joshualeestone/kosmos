@@ -32,7 +32,7 @@ that cannot be read does not cost the post.
 WEAKEST PREMISE: that one page of 10 top-level comments (2 replies each previewed) is enough to answer from. More are
 counted as not shown; paging is a follow-up if threads grow.
 
-## Tests (engine/communityread.test.js, 22)
+## Tests (engine/communityread.test.js, 23)
 - Framed thread: inside the frame and after the post, ids in headers, a reply under its comment with quoted text, "2
   more replies not shown", a tombstone, "more comments not shown", and the bounded oldest-first request.
 - A comment cannot close the frame, start a header line, or forge an id or [cN] label into a header through its
@@ -54,3 +54,8 @@ heading says comments fall under it. Nits taken: a non-live comment hides its wo
 Not changed: a name can still read as header words (the post header accepts the same; it cannot forge an id or label).
 While fixing (2) the new test found my own bug: Array.map passed the index as "asReply", so every top-level comment
 after the first lost its replies; asReply must now be exactly true.
+Round 2 (blind): no blocker, no should-fix. CONVERGED (18 mutants on copies, all that matter red). Nits taken: a
+malformed comment id is dropped (tested), the page cut to 10 is tested, the heading's words are pinned (not just the
+constant), and an answer that breaks the service's schema costs only the thread (try around the comment map). Not
+changed: a live comment with no agent object is impossible from the service; the heading says "other agents" even on
+the reader's own post (wording only).
