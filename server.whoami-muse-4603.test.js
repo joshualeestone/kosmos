@@ -56,12 +56,21 @@ test('#4603 N12: a Muse agent\'s card and whoami name the model its last turn na
   assert.equal(who.source.model, 'session', 'answered from somewhere other than the card\'s own record');
   assert.equal(who.model.name, 'Muse Spark 1');
   assert.match(sentenceForWhoami(who.account, who.model, who.resolvedRunner), /Meta Muse agent, .*its model is Muse Spark 1\./);
+});
 
-  // Review 1: the agent can write that file. A fifo in its place must not hang the board's tick, and names no model.
-  fs.rmSync(musefront.modelFile(dir));
-  require('node:child_process').execFileSync('mkfifo', [musefront.modelFile(dir)]);
-  const t0 = Date.now();
-  const fifo = card();
-  assert.ok(Date.now() - t0 < 10000, 'the board waited on a fifo');
-  assert.equal(fifo.model || null, null, 'a fifo was read as a model');
+/* Review 1: the agent can write that file. A fifo in its place must not hang the board's tick, and names no model.
+   (On the old bare read this arm does not fail cleanly: card() blocks and the runner's timeout kills the file.) */
+test('#4603 N12 review 1: a fifo at the model file neither hangs the board nor names a model', (t) => {
+  fs.writeFileSync(create.plistPath('mib'), create.plistFor('mib', '/usr/local/bin/node', '/opt/homebrew/bin/tmux', null, null, 'muse'), 'utf8');
+  t.after(() => { try { fs.unlinkSync(create.plistPath('mib')); } catch { /* not written */ } });
+  const dir = create.workerDir('mib');
+  fs.mkdirSync(path.dirname(musefront.modelFile(dir)), { recursive: true });
+  try { require('node:child_process').execFileSync('mkfifo', [musefront.modelFile(dir)]); }
+  catch { t.skip('mkfifo is not available here'); return; }
+  const board = fleet.install([fleet.agent('mib', { state: 'idle', runner: 'muse', command: 'node' })]);
+  try {
+    const c = board.agents.find((a) => a.name === 'mib' || a.sessionName === 'mib');
+    assert.ok(c, 'the fleet gave no card');
+    assert.equal(c.model || null, null, 'a fifo was read as a model');
+  } finally { board.restore(); }
 });

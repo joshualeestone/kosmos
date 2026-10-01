@@ -48,18 +48,23 @@ function modelFile(workspace) { return path.join(workspace, '.kosmos', 'muse-mod
 function keepModel(workspace, model) {
   if (typeof model !== 'string' || !/^[A-Za-z0-9._:/-]{1,120}$/.test(model)) return false;
   const file = modelFile(workspace);
-  // Only a regular file is read or replaced (review 1): a link or a fifo in its place is left alone, not followed.
+  // A `.kosmos` that is a link is not written through (review 2), nor a link or fifo at the file (review 1).
+  try { if (fs.lstatSync(path.dirname(file)).isSymbolicLink()) return false; } catch { /* made below */ }
   let st = null;
   try { st = fs.lstatSync(file); } catch { st = null; }
   if (st && !st.isFile()) return false;
-  try { if (st && fs.readFileSync(file, 'utf8').trim() === model) return true; } catch { /* rewritten below */ }
+  if (st) {
+    // The same bounded, non-blocking read the board uses (review 2), so a swap in the window cannot hang this front.
+    const got = require('./workerfile').readWorkerFile(file, workspace);
+    if (got && got.ok && got.buf.toString('utf8').trim() === model) return true;
+  }
+  const tmp = file + '.' + process.pid + '.tmp';
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    const tmp = file + '.' + process.pid + '.tmp';
     fs.writeFileSync(tmp, model + '\n', { mode: 0o600 });
     fs.renameSync(tmp, file);
     return true;
-  } catch { return false; }
+  } catch { try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ } return false; }
 }
 
 /* At the front's start the last life's model is forgotten (review 1): a Muse agent moved to another provider and back,

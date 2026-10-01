@@ -41,3 +41,14 @@ server.whoami-muse-4603.test.js (no model claimed before a turn, then the card a
 - N4 readMuseSession sat under the Grok comment: FIXED, moved above it.
 - N5 test pins: FIXED, source 'session' and the display name "Muse Spark 1".
 - N6 keepModel followed links: FIXED, lstat; only a regular file is read or replaced, written via a temp + rename.
+
+## Review 2 (Sonnet, blind, source-only): 0 blockers, 2 warnings, 5 nits
+- Checked: readWorkerFile accepts the nested file, refuses a `.kosmos` link (outside or inside), returns fast on a fifo
+  (lstat refusal; O_NONBLOCK in the swap window), caps at 256 KiB.
+- W1 the fifo arm failed hard where mkfifo is missing: FIXED, its own test, skipped without mkfifo (the
+  instructions/commitments pattern).
+- W2 forgetModel at start blanks the model until the next turn after any front restart: ACCEPTED (staleness traded
+  for a short gap, the W3 ruling); said on the card.
+- N3 keepModel's lstat-then-read window: FIXED, the same bounded non-blocking reader. N4 a linked `.kosmos`: FIXED,
+  refused; a failed rename's temp file is removed. N5 a display-style id is dropped: kept (Muse emits ids).
+  N6, N7: kept.
