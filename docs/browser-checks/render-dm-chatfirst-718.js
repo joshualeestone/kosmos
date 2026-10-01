@@ -579,8 +579,9 @@ function measure() {
           // 0.7.15 cut (#4822): the top-left names this computer, and on a phone it truncates on the K mark's row rather
           // than taking a second row (which is what cost the line above). The name must stay there: on the K mark's row,
           // inside the screen, and wider than an ellipsis alone. Measured on Mortals at 674288bc7: 33px at 130% and 45px
-          // at 150% ("Th..."), so the floor is 1.25em: about one letter plus the ellipsis passes, the ellipsis alone
-          // (about 1em) does not. The narrowest phone at large text shows about two letters; that is the cost.
+          // at 150% ("Th..."); #4847 then gave it the person's name's room (their face alone on a phone), and with a long
+          // person's name beside it, it measured 62px at 320 wide (130 and 150%) and 85px at 375. The floor is 2.5em,
+          // a few letters: 52px at 130%, 60px at 150%.
           // #4847: measured with a long person's name in the menu beside it (their name used to take the room).
           await page.evaluate(() => { const u = document.getElementById('userpop-name'); if (u) u.textContent = 'Alexandria Montgomery-Fitzwilliam'; });
           await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
@@ -588,7 +589,7 @@ function measure() {
             const sw = document.getElementById('worldsw'); if (!n || !k || !sw || sw.hidden) return { shown: false };
             const a = n.getBoundingClientRect(), b = k.getBoundingClientRect();
             return { shown: true, w: Math.round(a.width), sameRow: Math.abs((a.top + a.height / 2) - (b.top + b.height / 2)) <= 8, inside: a.right <= innerWidth + 0.5, text: n.textContent }; });
-          chk(nm.shown && nm.w >= 1.25 * 16 * pct / 100 && nm.sameRow && nm.inside, `${t} at ${pct}% text the top-left computer name stays on the K mark's row, on screen, and is more than an ellipsis`, JSON.stringify(nm));
+          chk(nm.shown && nm.w >= 2.5 * 16 * pct / 100 && nm.sameRow && nm.inside, `${t} at ${pct}% text the top-left computer name stays on the K mark's row, on screen, and shows a few letters`, JSON.stringify(nm));
         }
         await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
         const swn = await page.evaluate(() => {
