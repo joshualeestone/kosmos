@@ -1,4 +1,4 @@
-# signedout-4879 (app half): Log out lands on "You're signed out" (the goal; on Josh's phone it depends on the relay plan's unmeasured premise)
+# signedout-4879 (app half): Log out lands on "You're signed out" (measured in Chromium and WebKit: both premises hold; Josh's phone is the real check)
 
 Card: kosmos#4879. Relay half: kosmos-relay `signedout-4879` (its plan holds the reasoning and the measurement).
 
@@ -28,3 +28,9 @@ Main (#4853, kosmos#4823) moved Log out into one shared `kplusLogout(out, msg)`,
 phone menu's. The redirect now lives there, unchanged, so the phone menu's Log out gets it too. A blind review of the
 resolution CONVERGED (0 BLOCKER, 0 WARNING). Its one gap NIT was taken: render-mobilenav-4823.js S5 presses the phone
 menu's Log out with a working answer and asserts it lands on '/' + '#signed-out', reloaded (S4 covers the refusal).
+
+## Measured and validated (2026-10-01, after the outage)
+- p-4879 (the probe): both premises hold in Chromium and WebKit (see kosmos-relay plan signedout-4879).
+- b1-4879 on 6a95c3e40 (rebased): render-plus-bar-3837 P4 and P4b PASS; render-mobilenav-4823 PASS in chromium and
+  webkit, including the new phone-menu Log out arm (renamed LO1 after the run: the check already had an S5).
+- After the run, label and comment only: the arm's name, and the index.html comment that still said "unmeasured".

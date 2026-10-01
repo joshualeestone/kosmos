@@ -341,12 +341,13 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
       }
       // kosmos#4879: the phone menu's Log out, when it works, lands where the bar's does (P4 in render-plus-bar-3837):
       // the address's start, '#signed-out', reloaded. Its own context, since it leaves the board. S4 covers the refusal.
+      // (LO1, not S5: S5 is the Settings-section arm above.)
       {
         const { ctx, page } = await open('remote.test', 'light');
         await page.unroute('**/_kosmos/logout');
         let asked = 0;
         await page.route('**/_kosmos/logout', (r) => { asked++; return r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
-        chk(await page.evaluate(() => location.pathname === '/' && location.search === ''), E + 'S5 precondition: the board\'s address is a bare /', await page.evaluate(() => location.href));
+        chk(await page.evaluate(() => location.pathname === '/' && location.search === ''), E + 'LO1 precondition: the board\'s address is a bare /', await page.evaluate(() => location.href));
         await page.click('#kplus-menu');
         await page.evaluate(() => document.querySelector('[data-pnav-go="settings"]').click());
         await page.waitForFunction(() => { const b = document.getElementById('pnav-logout'); return b && b.offsetParent !== null; }, null, { timeout: 5000 }).catch(() => {});
@@ -355,7 +356,7 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         await page.waitForFunction(() => !window.__before, null, { timeout: 8000 }).catch(() => {});
         const s5 = await page.evaluate(() => ({ reloaded: !window.__before, path: location.pathname, hash: location.hash, host: location.hostname }));
         chk(asked === 1 && s5.reloaded && s5.path === '/' && s5.hash === '#signed-out' && s5.host === 'remote.test',
-          E + 'S5 the phone menu\'s Log out that works posts once and lands on the address\'s start, signed out', JSON.stringify({ asked, s5 }));
+          E + 'LO1 the phone menu\'s Log out that works posts once and lands on the address\'s start, signed out', JSON.stringify({ asked, lo1: s5 }));
         await ctx.close();
       }
     } finally {
