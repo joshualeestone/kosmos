@@ -43,12 +43,19 @@ test('control: the same desktop-only screen at the desktop size is planned', () 
 /* kosmos#4524: a mistyped cover control would arm nothing and pass, so it is refused before the plan. The correctly
  * spelled name is the control, showing the refusal is about the name. */
 test('a mistyped MSHOTS_COVER_CONTROL is refused with exit 2, before a browser starts', () => {
-  const r = run(['--sizes', 'se', '--screens', 'home'], { MSHOTS_COVER_CONTROL: 'cmnotic' });
+  const r = run(['--sizes', 'se', '--screens', 'allow-card'], { MSHOTS_COVER_CONTROL: 'overlai' });
   assert.equal(r.status, 2, r.stderr);
-  assert.match(r.stderr, /MSHOTS_COVER_CONTROL must be cmnotice, overlay or spill, not cmnotic/);
+  assert.match(r.stderr, /MSHOTS_COVER_CONTROL must be overlay or spill, not overlai/);
 });
 
-for (const [name, screen] of [['cmnotice', 'home'], ['overlay', 'allow-card'], ['spill', 'allow-card']]) {
+/* kosmos#4820: the cmnotice control went with the Community notice; asking for it is refused, not armed with nothing. */
+test('MSHOTS_COVER_CONTROL=cmnotice is refused now that the notice is gone', () => {
+  const r = run(['--sizes', 'se', '--screens', 'home'], { MSHOTS_COVER_CONTROL: 'cmnotice' });
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /MSHOTS_COVER_CONTROL must be overlay or spill, not cmnotice/);
+});
+
+for (const [name, screen] of [['overlay', 'allow-card'], ['spill', 'allow-card']]) {
   test(`control: MSHOTS_COVER_CONTROL=${name} on ${screen} is accepted and the plan is made`, () => {
     const r = run(['--sizes', 'se', '--screens', screen, '--themes', 'light', '--engines', 'chromium'], { MSHOTS_COVER_CONTROL: name });
     assert.equal(r.status, 0, r.stderr);
@@ -56,11 +63,17 @@ for (const [name, screen] of [['cmnotice', 'home'], ['overlay', 'allow-card'], [
   });
 }
 
-/* kosmos#4524: the COVERED check looks for #cmnotice by id, and only the full gate runs its control arm. A rename
- * would pass every per-PR run with the check reading nothing, so the id is pinned here, where every run sees it. */
-test('the Community notice is still built with id="cmnotice", the id the COVERED check reads', () => {
-  const html = require('node:fs').readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
-  assert.match(html, /const CN_HTML = '<div[^'>]* id="cmnotice"/);
+/* kosmos#4820: the Community notice is gone (Josh, 2026-09-30: no pop-up for existing users), and with it the
+ * COVERED check that read #cmnotice. Pinned here so neither comes back half-way. */
+test('#4820: the page no longer builds the Community notice, and mobile-shots no longer looks for it', () => {
+  const fs = require('node:fs');
+  const html = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.doesNotMatch(html, /cmnotice|communityNoticeCheck|notice-seen/);
+  const shots = fs.readFileSync(path.join(__dirname, 'docs', 'browser-checks', 'mobile-shots.js'), 'utf8');
+  assert.doesNotMatch(shots, /#cmnotice|markNoticeSeen|#cn-ok/);
+  // CONTROL: the same read finds a string that is there, so the two absences above are not a failed read.
+  assert.match(html, /id="fr-s6-community"/);
+  assert.match(shots, /MSHOTS_COVER_CONTROL/);
 });
 
 test('MSHOTS_COVER_CONTROL=overlay without the allow-card screen is refused: it would plant nothing and pass', () => {
