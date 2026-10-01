@@ -1391,6 +1391,104 @@ html:has(> body > #firstrun:not([hidden])), html:has(> body > .upd-back) { overf
 .kplus-bar-out:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .kplus-bar-out:disabled { opacity: .6; cursor: default; }
 html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { margin: 0; }
+/* #4823 (Josh 2026-09-30 20:54, mockups navigation-mock.png and agents-listview-mock.png): on a phone viewing the board
+   through Kosmos+ (html.kremote, set by kplusBar, AND the 40rem phone width) the navy bar IS the header: apple.com's
+   48px, the Kosmos+ mark left, two lines right. The board's own header row keeps only its notices: the K mark, the
+   Kosmos menu, the person's name and the tab menu go (the two lines open #pnav instead), and Log out moves into the
+   menu's Settings. A local window at the same width keeps today's header: it has no Kosmos+ session or brand.
+   Numbers are measured off Josh's mock at 3x: mark 14px tall at 16px, lines 17px wide 9px apart at 16px.
+   "A phone" is the board's own definition (PHONE_WIDTH, #3969): 40rem, or a touch screen held sideways up to 56rem
+   wide and 30rem tall, so turning most phones does not bring the old header back (review round 3). The widest phones
+   sideways (over 56rem) are past that definition, here as everywhere else on the board. */
+.kplus-bar-menu { display: none; }
+@media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
+  html.kremote .kplus-bar { height: 48px; min-height: 48px; padding: 0 16px; border-bottom: 0; margin-bottom: 0; }
+  html.kremote .kplus-bar-out, html.kremote .kplus-bar-msg { display: none; }
+  html.kremote .kplus-bar-menu { display: flex; align-items: center; justify-content: center; width: 48px; height: 48px;
+    margin-right: -16px; padding: 0; border: 0; background: none; color: #fff; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  html.kremote .kplus-bar-menu:focus-visible { outline: 2px solid #fff; outline-offset: -7px; }
+  html.kremote .kplus-bar-menu svg { display: block; }
+  html.kremote .apphead header .klink, html.kremote .apphead header .worldsw, html.kremote .apphead header .userpop,
+  html.kremote .apphead header .burger, html.kremote .apphead .tabs { display: none; }
+  /* With those gone the header row holds only notices, which are empty on a quiet board: no gap, no padding, no rule,
+     so the navy bar is the whole header (the mock). A notice that shows still takes its own row. */
+  html.kremote .apphead { border-bottom: 0; }
+  html.kremote .apphead header { padding: 0; gap: 0; }
+  html.kremote .apphead header .headleft { gap: 8px; }
+  html.kremote .apphead header:has(.headleft > [id$="-slot"]:not(:empty)) { padding: 8px 0; }
+}
+/* #4823: the phone menu, Josh's navigation-mock.png ("copied almost identically from Apple's website"): full screen,
+   Kosmos+ navy in both themes, large white type, red bubbles, an X where the two lines were. Settings goes one level
+   deeper the way apple.com's menu does (Josh 20:56), measured from apple.com's own globalheader.css: the words of the
+   level you leave fade while drifting 8px left (240ms), the next level fades in from 8px right 160ms later, a back
+   chevron fades in with it, and back is the mirror; every move on cubic-bezier(.4,0,.6,1). Only the board builds
+   #pnav, and only through a Kosmos+ address (kplusBar). */
+.pnav { position: fixed; inset: 0; z-index: 55; background: #17233d; color: #fff; overflow-y: auto;
+  overscroll-behavior: contain; padding: var(--safe-top) var(--safe-right) 0 var(--safe-left, 0px); }
+.pnav[hidden] { display: none; }
+/* Above tips and toasts (40-50), below the first-run, update and restart screens (60, 61), which must stay on top.
+   The page under it does not scroll or reserve a gutter, as with the other full-screen layers (#4494). */
+html.pnav-up { overflow: hidden; scrollbar-gutter: auto; }
+.pnav-top { position: sticky; top: 0; height: 48px; display: flex; align-items: center; justify-content: space-between;
+  background: #17233d; z-index: 1; }
+.pnav-x, .pnav-back { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
+  padding: 0; border: 0; background: none; color: #fff; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.pnav-x { margin-right: 4px; }
+.pnav-back { margin-left: 4px; visibility: hidden; opacity: 0; transform: translateX(4px); }
+.pnav.deep .pnav-back { visibility: visible; opacity: 1; transform: none;
+  transition: opacity .24s cubic-bezier(.4,0,.6,1) .16s, transform .24s cubic-bezier(.4,0,.6,1) .16s; }
+.pnav-x:focus-visible, .pnav-back:focus-visible, .pnav-item:focus-visible, .pnav-small:focus-visible { outline: 2px solid #fff; outline-offset: 2px; border-radius: 6px; }
+.pnav-level { padding: 0 24px 92px 0; }   /* the first word's capitals 61px from the top, as in the mock (measured on render) */
+.pnav-level[hidden] { display: none; }
+.pnav-list { list-style: none; margin: 0; padding: 0; }
+.pnav-item { position: relative; display: flex; align-items: center; width: 100%; min-height: 47px; margin: 0;
+  padding: 0 0 0 63px; border: 0; background: none; color: #fff; text-align: left; text-decoration: none; cursor: pointer;
+  font: 400 28px/1.15 var(--font-ui); letter-spacing: .007em; -webkit-tap-highlight-color: transparent; }
+.pnav-item[hidden] { display: none; }
+.pnav-text { display: block; }
+/* The bubble sits in the 63px gutter, left of the word (the mock): 28px, 99+ at most, a larger number style for one digit. */
+.pnav-badge { position: absolute; left: 22px; top: 50%; transform: translateY(-50%); min-width: 28px; height: 28px;
+  padding: 0 3px; box-sizing: border-box; border-radius: 100px; background: #db1515; color: #fff;
+  display: flex; align-items: center; justify-content: center; font: 700 13px/1 var(--font-ui); letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; }
+.pnav-badge.one { font-size: 18px; }
+.pnav-badge[hidden] { display: none; }
+.pnav-group { margin-top: 40px; }
+.pnav-small { display: block; margin: 0 0 0 63px; padding: 8px 0; border: 0; background: none; color: rgba(255,255,255,.72);
+  font: 400 17px/1.47 var(--font-ui); text-align: left; text-decoration: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.pnav-small[hidden] { display: none; }
+.pnav-small:disabled { opacity: .6; cursor: default; }
+.pnav-msg { margin: 6px 24px 0 63px; font-size: 15px; color: #f2b8ae; }
+.pnav-level:focus { outline: none; }
+.pnav-level:focus-visible { outline: 2px solid rgba(255,255,255,.5); outline-offset: -2px; }
+.pnav-stamp { margin: 32px 24px 0 63px; font-size: 15px; color: rgba(255,255,255,.55); }
+.pnav-stamp:empty { display: none; }
+/* A Settings section that needs the person (the Settings page's own data-dot) shows the same red dot here. */
+.pnav-dot { width: 10px; height: 10px; border-radius: 50%; background: #db1515; margin-left: 12px; flex: none; }
+.pnav-theme { display: flex; align-items: baseline; gap: 16px; margin-left: 63px; }
+.pnav-theme-l { font-size: 17px; color: rgba(255,255,255,.55); }
+.pnav-theme .pnav-small { margin: 0; }
+.pnav-themeopt[aria-checked="true"] { color: #fff; text-decoration: underline; text-underline-offset: 4px; }
+.pnav-msg:empty { display: none; }
+.pnav-state { display: block; font-size: 15px; color: rgba(255,255,255,.62); margin-top: 2px; }
+.pnav-item.pnav-comp { flex-direction: column; align-items: flex-start; justify-content: center; padding-top: 6px; padding-bottom: 6px; }
+.pnav-item.pnav-off { color: rgba(255,255,255,.55); cursor: default; }
+@keyframes pnav-fwd-out { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(-8px); } }
+@keyframes pnav-fwd-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes pnav-back-out { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(8px); } }
+@keyframes pnav-back-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
+.pnav-level.fwd-out :is(.pnav-text, .pnav-small, .pnav-badge, .pnav-dot, .pnav-stamp, .pnav-theme-l) { animation: pnav-fwd-out .24s cubic-bezier(.4,0,.6,1) both; }
+.pnav-level.fwd-in { animation: pnav-fwd-in .24s cubic-bezier(.4,0,.6,1) both; }
+.pnav-level.back-out { animation: pnav-back-out .24s cubic-bezier(.4,0,.6,1) both; }
+.pnav-level.back-in :is(.pnav-text, .pnav-small, .pnav-badge, .pnav-dot, .pnav-stamp, .pnav-theme-l) { animation: pnav-back-in .24s cubic-bezier(.4,0,.6,1) both; }
+/* Opening: the words drop in 8px, 20ms apart from 200ms (apple.com's first level). */
+@keyframes pnav-drop { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+.pnav.opening .pnav-level:not([hidden]) .pnav-list > li { animation: pnav-drop .24s cubic-bezier(.4,0,.6,1) both;
+  animation-delay: calc(.2s + var(--i, 0) * 20ms); }
+/* apple.com has no reduced-motion version; this one keeps the change and drops the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .pnav *, .pnav .pnav-level { animation: none !important; transition: none !important; }
+}
 .apphead { position: sticky; top: 0; z-index: 20; background: var(--k-bg);
            margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) var(--space-6);
            padding: var(--space-8) var(--space-8) 0;
@@ -10834,6 +10932,60 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-sec-instr button,
   #d-sec-skills :is(input, textarea, select, button) { min-height: 44px; }
 }
+/* #4823: the phone's Agents page, Josh's agents-listview-mock.png (on a phone through Kosmos+, html.kremote, the same
+   gate as the phone header). The toolbar rules carry two ids so they win over the new look's (one id, up to six
+   classes) in any order; the row rules carry one id, which beats the base .lrow rules and the 56rem one. Measured off the mock at 3x: controls 44px, rows 74px rings, text 11px under a 17px name.
+   - No count tiles (Josh: "Remove all the count tiles").
+   - No grid view on a phone: List and Org chart (the saved choice is kept; boardPhoneView shows a grid choice as
+     the list here and gives it back on a wider screen).
+   - New agent is a plus in a square the height of the view controls; its name stays "New agent" for a screen reader.
+   - Rows: white, the grid card's larger avatar with the context ring and the availability dot, the name, the title
+     smaller, the model, and the state in a pill that grows to the right. No memory bar, no percentage, no task line.
+     White replaces the state grounds here by Josh's newer word ("White background for each agent"); the needs-you
+     edge stays, since the stroke is not the ground. The computer line waits for #4812. */
+.lav .lpres, .lpill { display: none; }
+/* The phone pill's word is drawn from its data-word, not written into the row: on the desktop list the state is a
+   colour and its word lives only in .vh (#3131), which render-agent-lines checks against the row's text. The pill is
+   aria-hidden; a screen reader still hears the .vh word. */
+.lpill::after { content: attr(data-word); }
+@media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
+  html.kremote #boardbar.boardbar { grid-template-columns: auto minmax(0, 1fr); margin-top: 16px; margin-bottom: 20px; }
+  html.kremote #boardbar.boardbar > .stats { display: none; }
+  html.kremote #boardbar > #new-agent { width: 44px; height: 44px; min-height: 44px; padding: 0; gap: 0; justify-content: center; }
+  html.kremote #boardbar > #new-agent .plus { width: auto; height: auto; background: none; font-size: 1.5rem; font-weight: 300; }
+  html.kremote #boardbar > #new-agent .slab { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  html.kremote #boardbar.boardbar > .viewctl { flex-wrap: nowrap; gap: 12px; }
+  /* Two ids: the new look's toolbar rules carry one id and up to six classes, and two ids beat any of them. */
+  html.kremote #boardbar#boardbar .sortctl select { height: 44px; padding: 0 36px 0 14px; border-radius: 10px; }
+  html.kremote #boardbar#boardbar .viewtoggle { border-radius: 10px; }
+  html.kremote #boardbar#boardbar .viewtoggle .vt { width: 44px; height: 44px; border-radius: 0; }
+  /* With the grid button gone the list button is the first one shown, so it loses the separator it drew from it. */
+  html.kremote #boardbar#boardbar .viewtoggle .vt[data-layout="list"] { border-left: 0; }
+  html.kremote #boardbar.boardbar .viewtoggle .vt[data-layout="grid"] { display: none; }
+  html.kremote #alist .lrow { grid-template-columns: 74px minmax(0, 1fr); column-gap: 14px; row-gap: 0;
+    align-items: start; padding: 22px 16px 18px 6px; border-radius: 10px;
+    background: var(--k-surface); border-color: var(--k-rule); }
+  html.kremote #alist .lrow.attn { border-color: rgba(179,38,30,.42); }
+  /* The working pulse animates the ground colour, which would beat the white above (review round 3); the pill's
+     moving dots carry "working" here. */
+  html.kremote #alist .lrow.working { animation: none; }
+  html.kremote #alist .lrow > .lav { grid-column: 1; grid-row: 1 / span 4; width: 52px; height: 52px; margin: 11px;
+    align-self: start; position: relative; overflow: visible; font-size: 1.125rem; }
+  html.kremote #alist .lrow > .lav > img, html.kremote #alist .lrow > .lav > .lavtint { border-radius: 50%; overflow: hidden; }
+  html.kremote #alist .lrow > .lav > .lring { display: block; position: absolute; inset: -11px; width: 74px; height: 74px; pointer-events: none; }
+  html.kremote #alist .lrow > .lav > .lring circle { stroke-width: 1.7; }
+  html.kremote #alist .lrow > .lav > .lpres { display: block; right: -9px; bottom: -9px; }
+  html.kremote #alist .lrow > .lname { grid-column: 2; grid-row: 1; }
+  html.kremote #alist .lrow > .lname b { font-size: 17px; line-height: 1.2; }
+  html.kremote #alist .lrow > .ltitle { grid-column: 2; grid-row: 2; font-size: 11px; line-height: 1.15; margin-top: 3px; }
+  html.kremote #alist .lrow > .lmodel { grid-column: 2; grid-row: 3; font-size: 11px; line-height: 1.15; margin-top: 2px; }
+  html.kremote #alist .lrow > .lstate { grid-column: 2; grid-row: 4; margin-top: 9px; flex-wrap: wrap; justify-self: start; }
+  html.kremote #alist .lrow > .ltask, html.kremote #alist .lrow > .lmem { display: none; }
+  html.kremote #alist .lrow .lpill, html.kremote #alist .lrow.notrunning > .lstate {
+    display: inline-flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 16px; box-sizing: border-box;
+    border: 1.5px solid #b8b8ba; border-radius: 999px; font-size: 15px; font-weight: 700; color: var(--k-ink); }
+  html.kremote #alist .lrow.notrunning > .lstate { justify-self: start; }
+}
 /* The canvases honour prefers-reduced-motion in JS (a single static frame, no
    rAF loop); this makes that intent visible to a source reader too. */
 </style>
@@ -18273,8 +18425,12 @@ function kplusBar() {
   bar.setAttribute('role', 'region'); bar.setAttribute('aria-label', 'Kosmos+ remote session');
   bar.innerHTML = '<canvas class="kplus-bar-mark" role="img" aria-label="Kosmos+"></canvas>'
     + '<span class="kplus-bar-end"><span class="kplus-bar-msg" id="kplus-bar-msg" role="status"></span>'
-    + '<button type="button" class="kplus-bar-out" id="kplus-logout">Log out</button></span>';
+    + '<button type="button" class="kplus-bar-out" id="kplus-logout">Log out</button>'
+    /* #4823: the two lines that open the phone menu (#pnav). Shown only at phone width, by CSS. */
+    + '<button type="button" class="kplus-bar-menu" id="kplus-menu" aria-label="Menu" aria-haspopup="dialog" aria-expanded="false" aria-controls="pnav">'
+    + '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M.5 4.5h17M.5 13.5h17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></span>';
   head.insertBefore(bar, head.firstChild);
+  document.documentElement.classList.add('kremote');   // #4823: the phone header and menu key on this
   try { kplusBarDrawMark(bar.querySelector('canvas')); } catch { /* the words still say Kosmos+ to a screen reader */ }
   kplusBarFit();
   window.addEventListener('resize', kplusBarFit);
@@ -18289,23 +18445,328 @@ function kplusBar() {
     new ResizeObserver(kplusBarFit).observe(head);
   }
   const out = bar.querySelector('#kplus-logout'), msg = bar.querySelector('#kplus-bar-msg');
-  out.addEventListener('click', async () => {
-    out.disabled = true; msg.textContent = '';
-    let status = 0;
-    const ac = new AbortController(), cut = setTimeout(() => ac.abort(), 10000);   // not AbortSignal.timeout: Safari before 16 lacks it
-    try { status = (await fetch('/_kosmos/logout', { method: 'POST', credentials: 'same-origin', signal: ac.signal })).status; } catch { status = 0; }
-    clearTimeout(cut);
-    if (status >= 200 && status < 300) {
-      /* The board's page is kept by the offline worker; logged out, it must not come back from there without the
-         network, so this browser's copies go with the session. */
-      try { if (typeof caches !== 'undefined') for (const k of await caches.keys()) if (k.startsWith('kosmos-shell')) await caches.delete(k); } catch { /* the session is gone either way */ }   // sw.js's SHELL_CACHE, any version
-      location.replace('/');
+  out.addEventListener('click', () => kplusLogout(out, msg));
+  pnavBuild();
+}
+/* Log out of this browser's Kosmos+ session. One function for both doors, the bar's button and the phone menu's
+   (#4823), so they cannot come to disagree about what logging out does or says. */
+async function kplusLogout(out, msg) {
+  out.disabled = true; msg.textContent = '';
+  let status = 0;
+  const ac = new AbortController(), cut = setTimeout(() => ac.abort(), 10000);   // not AbortSignal.timeout: Safari before 16 lacks it
+  try { status = (await fetch('/_kosmos/logout', { method: 'POST', credentials: 'same-origin', signal: ac.signal })).status; } catch { status = 0; }
+  clearTimeout(cut);
+  if (status >= 200 && status < 300) {
+    /* The board's page is kept by the offline worker; logged out, it must not come back from there without the
+       network, so this browser's copies go with the session. */
+    try { if (typeof caches !== 'undefined') for (const k of await caches.keys()) if (k.startsWith('kosmos-shell')) await caches.delete(k); } catch { /* the session is gone either way */ }   // sw.js's SHELL_CACHE, any version
+    location.replace('/');
+    return;
+  }
+  out.disabled = false;
+  /* A 404 or 405 is a tunnel without the log out route (or a proxy the owner set up): trying again will not help. */
+  msg.textContent = status === 404 || status === 405 ? 'Log out is not available on this Kosmos yet.' : 'Could not log out just now. Try again.';
+}
+/* #4823: the phone menu (Josh, navigation-mock.png, and 20:56 for the second level). Every item drives the control
+   it stands for rather than a copy of it: the tabs are the real tab buttons, the Settings list is read from the
+   Settings page's own section list each time it opens, Log out is kplusLogout, and the computers are the rows the
+   top-left menu already built from /api/remote/computers (with its address checks). The bubbles are set where the
+   tab bubbles are (setNavBadge). So nothing here can offer a door the board does not have. */
+const PNAV_SVG_X = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M.75 .75l10.5 10.5M11.25 .75L.75 11.25" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+const PNAV_SVG_BACK = '<svg width="10" height="18" viewBox="0 0 10 18" aria-hidden="true"><path d="M9 1L1.5 9 9 17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function pnavBuild() {
+  if (document.getElementById('pnav')) return;
+  const nav = document.createElement('div');
+  nav.id = 'pnav'; nav.className = 'pnav'; nav.hidden = true;
+  nav.setAttribute('role', 'dialog'); nav.setAttribute('aria-modal', 'true'); nav.setAttribute('aria-label', 'Menu');
+  nav.innerHTML = '<div class="pnav-top">'
+    + '<button type="button" class="pnav-back" id="pnav-back" aria-label="Main menu" tabindex="-1">' + PNAV_SVG_BACK + '</button>'
+    + '<button type="button" class="pnav-x" id="pnav-x" aria-label="Close menu">' + PNAV_SVG_X + '</button></div>'
+    + '<div class="pnav-level" data-level="main" tabindex="-1"><ul class="pnav-list">'
+    + '<li><button type="button" class="pnav-item" data-pnav-tab="agents"><span class="pnav-badge" id="nav-badge-agents-m" aria-hidden="true" hidden></span><span class="pnav-text">Agents</span></button></li>'
+    + '<li><button type="button" class="pnav-item" data-pnav-tab="projects"><span class="pnav-badge" id="nav-badge-projects-m" aria-hidden="true" hidden></span><span class="pnav-text">Projects</span></button></li>'
+    + '<li><button type="button" class="pnav-item" data-pnav-tab="tasks"><span class="pnav-text">Tasks</span></button></li>'
+    + '<li><button type="button" class="pnav-item" data-pnav-go="settings" aria-haspopup="menu"><span class="pnav-text">Settings</span></button></li>'
+    + '</ul><p class="pnav-stamp" id="pnav-stamp"></p></div>'
+    + '<div class="pnav-level" data-level="settings" tabindex="-1" hidden><ul class="pnav-list" id="pnav-settings"></ul>'
+    + '<div class="pnav-group"><button type="button" class="pnav-small" id="pnav-computers" data-pnav-go="computers" aria-haspopup="menu" hidden>Switch Computers</button>'
+    /* The light/dark choice lives in the person's menu, which the phone header does not show, and in no Settings
+       section; so it comes here (review round 1). The page's own [data-theme-set] handler and painter serve it. */
+    + '<div class="pnav-theme" role="radiogroup" aria-label="Appearance"><span class="pnav-theme-l" aria-hidden="true">Appearance</span>'
+    + '<button type="button" class="pnav-small pnav-themeopt" data-theme-set="light" role="radio" aria-checked="false">Light</button>'
+    + '<button type="button" class="pnav-small pnav-themeopt" data-theme-set="dark" role="radio" aria-checked="false">Dark</button></div>'
+    + '<button type="button" class="pnav-small" id="pnav-logout">Log out</button>'
+    + '<p class="pnav-msg" id="pnav-msg" role="status"></p></div></div>'
+    + '<div class="pnav-level" data-level="computers" tabindex="-1" hidden><ul class="pnav-list" id="pnav-computer-list"></ul></div>';
+  document.body.appendChild(nav);
+  /* "Agent status" freshness (#checked) lives in the person's menu, which the phone header hides; the menu's first
+     level carries the same words, kept in step as the status poll rewrites them (review round 3). */
+  const stampSrc = document.getElementById('checked'), stamp = document.getElementById('pnav-stamp');
+  if (stampSrc && stamp) {
+    /* Its parts are separate elements with no space between them ("Agent status" then the time), so they are joined
+       with one (review round 4). */
+    const sync = () => { stamp.textContent = [...stampSrc.childNodes].map((n) => n.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' '); };
+    sync();
+    if (typeof MutationObserver === 'function') new MutationObserver(sync).observe(stampSrc, { childList: true, characterData: true, subtree: true });
+  }
+  /* The bubbles start as the tab bubbles are now (setNavBadge keeps them together from here on). */
+  for (const k of ['agents', 'projects']) {
+    const src = document.getElementById('nav-badge-' + k);
+    if (src && !src.hidden) setNavBadge('nav-badge-' + k, src.textContent === '99+' ? 100 : Number(src.textContent));
+  }
+  document.getElementById('kplus-menu').addEventListener('click', pnavOpen);
+  document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('.pnav-themeopt')) pnavThemeRove(); });
+  boardPhoneView();
+  /* Widened past the phone width (a rotated tablet, a resized window), the menu's button is gone, so the menu goes too. */
+  if (window.matchMedia) {
+    const mq = window.matchMedia(PNAV_PHONE_MQ);
+    const off = () => { if (!mq.matches) pnavClose(false); boardPhoneView(); };
+    if (mq.addEventListener) mq.addEventListener('change', off); else if (mq.addListener) mq.addListener(off);
+  }
+  document.getElementById('pnav-x').addEventListener('click', () => pnavClose(true));
+  document.getElementById('pnav-back').addEventListener('click', pnavBack);
+  document.getElementById('pnav-logout').addEventListener('click', () => kplusLogout(document.getElementById('pnav-logout'), document.getElementById('pnav-msg')));
+  nav.addEventListener('click', (e) => {
+    const tab = e.target.closest('[data-pnav-tab]');
+    if (tab) {
+      const real = document.querySelector('#tabs .tab[data-tab="' + tab.dataset.pnavTab + '"]');
+      pnavClose(false);
+      if (real) real.click();
+      document.getElementById('kplus-menu').focus({ preventScroll: true });
       return;
     }
-    out.disabled = false;
-    /* A 404 or 405 is a tunnel without the log out route (or a proxy the owner set up): trying again will not help. */
-    msg.textContent = status === 404 || status === 405 ? 'Log out is not available on this Kosmos yet.' : 'Could not log out just now. Try again.';
+    const go = e.target.closest('[data-pnav-go]');
+    /* The item itself, not document.activeElement: Safari does not focus a button it taps (review round 2). */
+    if (go) { pnavTo(go.dataset.pnavGo, go); return; }
+    const sec = e.target.closest('[data-pnav-sec]');
+    if (sec) {
+      pnavClose(false);
+      showTab('settings');
+      settingsOpen(sec.dataset.pnavSec);
+      document.getElementById('kplus-menu').focus({ preventScroll: true });
+    }
   });
+  /* On the document, not the menu: focus can sit on a level itself (a level with nothing to press), and a key there
+     must still reach this (review round 1). Only while the menu is open. */
+  document.addEventListener('keydown', (e) => {
+    /* A key another layer already handled is not ours, and neither is any key while a screen above (first run, the
+       update screen) has made the menu inert (review round 3). */
+    if (nav.hidden || e.defaultPrevented || nav.closest('[inert]')) return;   // closest() includes the menu itself
+    if (e.key === 'Escape') { e.preventDefault(); if (nav.classList.contains('deep')) pnavBack(); else pnavClose(true); return; }
+    const opt = e.target.closest && e.target.closest('.pnav-themeopt');
+    if (opt && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+      /* Two radios: an arrow moves to the other and chooses it (the radio-group keys, as on the page's own pickers). */
+      e.preventDefault();
+      const other = [...nav.querySelectorAll('.pnav-themeopt')].find((b) => b !== opt);
+      if (other) { other.focus(); other.click(); }
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    /* A modal: Tab stays inside it. */
+    const f = [...nav.querySelectorAll('button, a[href]')].filter((el) => !el.disabled && el.getClientRects().length && el.tabIndex !== -1);
+    /* Every Tab is moved here, not only at the ends: Safari's default Tab skips buttons, so between the ends it would
+       leave the menu for a field behind it (measured in WebKit). */
+    e.preventDefault();
+    if (!f.length) return;
+    const i = f.indexOf(document.activeElement);
+    const next = i === -1 ? (e.shiftKey ? f.length - 1 : 0) : (i + (e.shiftKey ? -1 : 1) + f.length) % f.length;
+    f[next].focus();
+  });
+}
+/* #4823: a phone through Kosmos+ has no grid view (Josh: "On mobile: no grid view, only List and Org chart"). A saved
+   grid is shown as the list here and NOT written back, so the same person's wider screen still opens on the grid.
+   Choosing List or Org chart on the phone saves as it always has. */
+let BOARD_PHONE_LIST = false;
+function boardPhoneView() {
+  if (typeof layoutApply !== 'function' || typeof BOARD_LAYOUT === 'undefined') return;
+  const phone = document.documentElement.classList.contains('kremote') && !!window.matchMedia && window.matchMedia(PNAV_PHONE_MQ).matches;
+  if (phone && BOARD_LAYOUT === 'grid') { layoutApply('agents', 'list'); BOARD_PHONE_LIST = true; return; }
+  if (!phone && BOARD_PHONE_LIST) {
+    BOARD_PHONE_LIST = false;
+    let saved = null;
+    try { saved = localStorage.getItem('kosmos.layout.agents'); } catch { saved = null; }
+    /* Read the way boot reads it: nothing saved (or a value not ours) means the default, which is the grid. */
+    const want = LAYOUTS.agents.layouts.includes(saved) ? saved : LAYOUTS.agents.fallback;
+    if (want === 'grid' && BOARD_LAYOUT === 'list') layoutApply('agents', 'grid');
+  }
+}
+/* The opening drop is over once the person moves to another level; left on, its delays would replay on the next
+   level's items and show it empty for a moment (review round 2). */
+function pnavOpened() {
+  clearTimeout(PNAV_OPENING_T);
+  const nav = document.getElementById('pnav');
+  if (nav) nav.classList.remove('opening');
+}
+/* The Appearance pair is one tab stop, on the choice in use (a radio group's roving tabindex). */
+function pnavThemeRove() {
+  const opts = [...document.querySelectorAll('#pnav .pnav-themeopt')];
+  const on = opts.find((b) => b.getAttribute('aria-checked') === 'true') || opts[0];
+  for (const b of opts) b.tabIndex = b === on ? 0 : -1;
+}
+/* The board's phone (PHONE_WIDTH, #3969), the same query as this menu's CSS. */
+const PNAV_PHONE_MQ = '(max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem)';
+/* The level on screen, and the trail back to the first one. */
+let PNAV_TRAIL = ['main'];
+let PNAV_OPENING_T = 0;
+/* The item that opened each deeper level, so Back returns focus to it (as apple.com's menu does). */
+let PNAV_FROM = [];
+function pnavLevel(name) { return document.querySelector('#pnav .pnav-level[data-level="' + name + '"]'); }
+function pnavOpen() {
+  const nav = document.getElementById('pnav');
+  if (!nav || !nav.hidden) return;
+  pnavSettle();
+  /* Tasks is offered when its tab is (#3559: after 25 tasks). */
+  const tasks = document.querySelector('#tabs .tab[data-tab="tasks"]');
+  nav.querySelector('[data-pnav-tab="tasks"]').closest('li').hidden = !tasks || tasks.hidden;
+  PNAV_TRAIL = ['main'];
+  if (typeof paintThemePicker === 'function') paintThemePicker();
+  pnavThemeRove();
+  for (const lv of nav.querySelectorAll('.pnav-level')) { lv.hidden = lv.dataset.level !== 'main'; lv.className = 'pnav-level'; }
+  nav.classList.remove('deep');
+  document.getElementById('pnav-back').tabIndex = -1;
+  [...nav.querySelectorAll('.pnav-level[data-level="main"] .pnav-list > li')].filter((li) => !li.hidden).forEach((li, i) => li.style.setProperty('--i', i));
+  nav.hidden = false;
+  nav.classList.add('opening');
+  clearTimeout(PNAV_OPENING_T);
+  PNAV_OPENING_T = setTimeout(() => nav.classList.remove('opening'), 700);
+  document.documentElement.classList.add('pnav-up');
+  document.getElementById('kplus-menu').setAttribute('aria-expanded', 'true');
+  const first = nav.querySelector('.pnav-level[data-level="main"] .pnav-item');
+  if (first) first.focus({ preventScroll: true });
+  PNAV_FROM = [];
+}
+function pnavClose(refocus) {
+  const nav = document.getElementById('pnav');
+  if (!nav || nav.hidden) return;
+  pnavSettle();
+  pnavOpened();
+  nav.hidden = true;
+  document.documentElement.classList.remove('pnav-up');
+  const btn = document.getElementById('kplus-menu');
+  btn.setAttribute('aria-expanded', 'false');
+  if (refocus) btn.focus();
+}
+/* Fill a level from the board as it is now, then move to it the way apple.com does. */
+function pnavFill(name) {
+  if (name === 'settings') {
+    const ul = document.getElementById('pnav-settings');
+    ul.textContent = '';
+    for (const b of document.querySelectorAll('#s-nav button[data-go]')) {
+      /* Hidden within the section list only: the whole Settings panel is hidden whenever another tab is showing,
+         which is exactly when this menu is used (review round 1). */
+      if (b.hidden || b.closest('#s-nav [hidden]')) continue;
+      /* The words without the button's needs-you parts: its " (needs you)" is always in the DOM and shown only
+         while the button carries data-dot, which this mirrors below. */
+      const c = b.cloneNode(true);
+      c.querySelectorAll('.vh, .dot').forEach((el) => el.remove());
+      const label = c.textContent.replace(/\s+/g, ' ').trim();
+      if (!label) continue;
+      const li = document.createElement('li');
+      const it = document.createElement('button');
+      it.type = 'button'; it.className = 'pnav-item'; it.dataset.pnavSec = b.dataset.go;
+      const t = document.createElement('span'); t.className = 'pnav-text'; t.textContent = label;
+      it.appendChild(t);
+      if (b.hasAttribute('data-dot')) {
+        const d = document.createElement('span'); d.className = 'pnav-dot'; d.setAttribute('aria-hidden', 'true');
+        const v = document.createElement('span'); v.className = 'vh'; v.textContent = ' (needs you)';
+        it.append(d, v);
+      }
+      li.appendChild(it); ul.appendChild(li);
+    }
+    document.getElementById('pnav-computers').hidden = !(typeof COMPUTERS_OPENABLE !== 'undefined' && COMPUTERS_OPENABLE);
+    document.getElementById('pnav-msg').textContent = '';
+  }
+  if (name === 'computers') {
+    const ul = document.getElementById('pnav-computer-list');
+    ul.textContent = '';
+    for (const row of document.querySelectorAll('#worldsw-computers-list > .worldsw-row')) {
+      const li = document.createElement('li');
+      const nm = row.querySelector('.worldsw-rowname'), st = row.querySelector('.worldsw-state');
+      const it = document.createElement(row.tagName === 'A' ? 'a' : 'div');
+      it.className = 'pnav-item pnav-comp' + (row.tagName === 'A' || row.getAttribute('aria-current') === 'true' ? '' : ' pnav-off');
+      if (row.tagName === 'A') { it.href = row.href; it.target = '_blank'; it.rel = 'noopener noreferrer'; it.setAttribute('aria-label', row.getAttribute('aria-label') || ''); }
+      if (row.getAttribute('aria-current') === 'true') it.setAttribute('aria-current', 'true');
+      const t = document.createElement('span'); t.className = 'pnav-text'; t.textContent = nm ? nm.textContent : row.textContent;
+      it.appendChild(t);
+      if (st) { const s2 = document.createElement('span'); s2.className = 'pnav-state'; s2.textContent = st.textContent; it.appendChild(s2); }
+      li.appendChild(it); ul.appendChild(li);
+    }
+    /* A fresh answer can leave only this computer (another one removed meanwhile): say so rather than show an empty
+       level (review round 6). */
+    if (!ul.children.length) {
+      const li = document.createElement('li'), it = document.createElement('div');
+      it.className = 'pnav-item pnav-comp pnav-off';
+      const t = document.createElement('span'); t.className = 'pnav-text'; t.textContent = 'Only this computer is on your account now.';
+      it.appendChild(t); li.appendChild(it); ul.appendChild(li);
+    }
+  }
+}
+/* A move still waiting to put its level in place: a second tap inside those 160ms finishes it first, so two
+   levels can never be left on screen, or none. */
+let PNAV_PENDING = null;
+function pnavSettle() { if (PNAV_PENDING) { const f = PNAV_PENDING; PNAV_PENDING = null; clearTimeout(f.t); f(); } }
+function pnavMove(from, to, dir) {
+  pnavSettle();
+  const a = pnavLevel(from), b = pnavLevel(to), nav = document.getElementById('pnav');
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  a.className = 'pnav-level'; b.className = 'pnav-level';
+  const back = dir === 'back' ? PNAV_FROM.pop() : null;
+  const swap = () => { a.hidden = true; a.className = 'pnav-level'; b.hidden = false; b.className = 'pnav-level ' + dir + '-in'; nav.scrollTop = 0;
+    /* Back lands on the item that went forward; forward on the first thing to press, or the level itself when it has
+       nothing to press (a computers list of one plain row), so focus never falls out of the menu. */
+    const f = (back && b.contains(back) && back.getClientRects().length) ? back : b.querySelector('button.pnav-item, a.pnav-item, .pnav-small:not([hidden])');
+    (f || b).focus({ preventScroll: true }); };
+  nav.classList.toggle('deep', PNAV_TRAIL.length > 1);
+  const backBtn = document.getElementById('pnav-back');
+  backBtn.tabIndex = PNAV_TRAIL.length > 1 ? 0 : -1;
+  /* It says where it goes: from Switch Computers that is Settings (review round 2). */
+  backBtn.setAttribute('aria-label', PNAV_TRAIL.length > 2 ? 'Back to Settings' : 'Main menu');
+  if (reduce) { swap(); return; }
+  /* The level you leave fades out (240ms); the next one takes its place 160ms in and fades in over 240ms, so the
+     change lands at 400ms, as on apple.com (whose two levels overlap; here the leaving one is cut at 160ms, by then
+     two thirds faded, because the two cannot share the screen in one column). */
+  a.classList.add(dir + '-out');
+  PNAV_PENDING = swap;
+  swap.t = setTimeout(() => { if (PNAV_PENDING === swap) PNAV_PENDING = null; swap(); }, 160);
+}
+function pnavTo(name, opener) {
+  pnavSettle();
+  const from = PNAV_TRAIL[PNAV_TRAIL.length - 1];
+  if (from === name) return;
+  pnavOpened();
+  PNAV_FROM.push(opener || document.activeElement);
+  /* The computers are read when Switch Computers is opened, as the top-left menu reads them when it opens (each read
+     is a signed call to Kosmos+). The read starts BEFORE the copy: computersFetch clears the old rows at once (to
+     "Checking your computers..."), so an hours-old "Online" link is never offered while the answer is on its way
+     (review round 5). Whether to offer it at all comes from the board's own background read (COMPUTERS_OPENABLE,
+     #4815), and computersRender refills the level whenever an answer lands (pnavRefresh). */
+  if (name === 'computers' && typeof computersFetch === 'function') computersFetch().catch(() => {});
+  pnavFill(name);
+  PNAV_TRAIL.push(name);
+  pnavMove(from, name, 'fwd');
+}
+/* Refill the level on screen from the board as it is now (the computers' answer has landed). Settings refills only
+   the Switch Computers line, so a person mid-list does not lose their place. */
+function pnavRefresh() {
+  const nav = document.getElementById('pnav');
+  if (!nav || nav.hidden) return;
+  const on = PNAV_TRAIL[PNAV_TRAIL.length - 1];
+  if (on === 'settings') document.getElementById('pnav-computers').hidden = !(typeof COMPUTERS_OPENABLE !== 'undefined' && COMPUTERS_OPENABLE);
+  if (on === 'computers') {
+    const had = nav.contains(document.activeElement) && document.activeElement.closest('.pnav-level[data-level="computers"]');
+    const href = had && document.activeElement.getAttribute('href');
+    pnavFill('computers');
+    /* Focus stays where it was: on the same computer if it is still listed, else on the level (review round 3). */
+    if (had) { const lv = pnavLevel('computers'); const same = href && [...lv.querySelectorAll('a.pnav-item')].find((a) => a.getAttribute('href') === href); (same || lv).focus({ preventScroll: true }); }
+  }
+}
+function pnavBack() {
+  pnavSettle();
+  if (PNAV_TRAIL.length < 2) return;
+  pnavOpened();
+  const from = PNAV_TRAIL.pop();
+  pnavFill(PNAV_TRAIL[PNAV_TRAIL.length - 1]);
+  pnavMove(from, PNAV_TRAIL[PNAV_TRAIL.length - 1], 'back');
 }
 function plusEaseOut(t) { return 1 - Math.pow(1 - t, 3); }
 function plusMarkFit() { var w = plusMarkCv.clientWidth || 480; plusMarkCv.width = w * PLUS_DPR; plusMarkCv.height = w * (plusMd().VBH / plusMd().VBW) * PLUS_DPR; return w; }
@@ -19978,7 +20439,7 @@ function lrow(a) {
         ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
         : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
       return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
-      <div class="lav">${tav}</div>${dmBadge(a)}
+      <div class="lav">${tav}<span class="pres lpres unsure" aria-hidden="true"></span></div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate st-attn"><span class="haz" aria-hidden="true">!</span>${esc(STATE_COPY.needs_trust.label)}</div>
@@ -19991,7 +20452,7 @@ function lrow(a) {
       ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
     return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
-      <div class="lav">${off}</div>${dmBadge(a)}
+      <div class="lav">${off}<span class="pres lpres off" aria-hidden="true"></span></div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}">${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}</div>
@@ -20050,7 +20511,7 @@ function lrow(a) {
     ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">${memu.word}</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
   return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
-    <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}</div>${dmBadge(a)}
+    <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}<span class="pres lpres ${m.pres}" aria-hidden="true"></span></div>${dmBadge(a)}
     <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
     <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <!-- #569: the said line stacks INSIDE the state cell -- the seven-slot
@@ -20069,7 +20530,7 @@ function lrow(a) {
          .lav above) still marks needs-you visually, and answerBtn/alsowork stay
          because they are actions, not status text. This supersedes the #1191
          text line (Josh 2026-08-27) per his own 6.70 direction. -->
-    <div class="lstate"><span class="vh">${glyphOf(a)}${esc(copy.label)}</span>${answerBtn(a)}${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
+    <div class="lstate"><span class="vh">${glyphOf(a)}${esc(copy.label)}</span><span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}">${glyphOf(a)}</span>${answerBtn(a)}${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
     <div class="ltask">${esc(taskLine(a, { noQuote: true }))}</div>
     <div class="lmodel">${esc(modelLine(a))}</div>
     <div class="lmem">${mem}</div>
@@ -26527,7 +26988,7 @@ function computersRender(data) {
      one-Kosmos helpers do not exist; a lifted copy behaves as before. */
   const good = !!data && (data.ok === true || data.signedIn === false);
   // Only this computer (or nothing): there is nowhere else to go, so the section stays hidden.
-  if (rows.length < 2) { list.textContent = ''; box.hidden = true; if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows, good); return; }
+  if (rows.length < 2) { list.textContent = ''; box.hidden = true; if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows, good); if (typeof pnavRefresh === 'function') pnavRefresh(); return; }
   list.textContent = '';
   for (const c of rows) {
     /* Only an ONLINE computer is a link. An offline one would open a browser error page (the
@@ -26563,6 +27024,8 @@ function computersRender(data) {
   }
   box.hidden = false;
   if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows, good);
+  /* #4823: the phone menu's computers level copies these rows; refill it from whichever answer this was. */
+  if (typeof pnavRefresh === 'function') pnavRefresh();
 }
 function worldswToggle() {
   const menu = document.getElementById('worldsw-menu');
@@ -37608,8 +38071,8 @@ function wnWire(back) {
 /* A window drawn over this one (first run, the update overlay) owns the keys and focus. */
 function wnCovered() {
   // Only windows drawn OVER this one (round 3): the other .rm-back dialogs sit under it at the same layer.
-  // #4343: and the restart screen.
-  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back');
+  // #4343: and the restart screen. #4823: and the phone menu.
+  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, #pnav:not([hidden])');
 }
 /* In the capture phase, and stopped once handled (round 12): a dialog open UNDER the window keeps its own
    document-level Escape and Tab handlers, and one Escape must not close both. */
@@ -53565,12 +54028,16 @@ function unreadBadge(n) {
    text keeps its own accessible name; the badge is aria-hidden (the count is decorative
    reinforcement of the list badges, which carry the per-item aria-labels). */
 function setNavBadge(id, n) {
-  const el = document.getElementById(id);
-  if (!el) return;
   const k = Number(n);
-  if (!Number.isFinite(k) || k <= 0) { el.hidden = true; el.textContent = ''; return; }
-  el.textContent = k > 99 ? '99+' : String(k);
-  el.hidden = false;
+  /* #4823: the phone menu's bubble (id + '-m') is set in the same call, so the two cannot disagree. A single digit
+     takes the larger number style (Josh: "a larger number style is fine for single digits"). */
+  for (const el of [document.getElementById(id), document.getElementById(id + '-m')]) {
+    if (!el) continue;
+    if (!Number.isFinite(k) || k <= 0) { el.hidden = true; el.textContent = ''; continue; }
+    el.textContent = k > 99 ? '99+' : String(k);
+    if (el.id === id + '-m') el.classList.toggle('one', k < 10);
+    el.hidden = false;
+  }
 }
 /* #2487: the full ancestry name chain, root-first, for the tree "mouseprint".
    Walks parent ids up via pjById. When the immediate parent record is not yet
@@ -68970,7 +69437,7 @@ function tipMenuOpen() {
 
 function tipModalOpen() {
   // #4356: the first screen (.frc-back) covers the board as first run does; no tip opens under it.
-  return !!document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open]');
+  return !!document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open], #pnav:not([hidden])');   // #4823 the phone menu
 }
 
 function tipVisibleAny(sel) {
