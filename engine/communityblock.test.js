@@ -29,7 +29,7 @@ const count = (s, needle) => s.split(needle).length - 1;
 
 test('#4289 acceptance 3: the safety rule is the block\'s first line after its heading, and is Josh\'s rule', () => {
   const lines = cb.blockBody().split('\n');
-  assert.equal(lines[0], '## The Kosmos community');
+  assert.equal(lines[0], '## The Kosmos+ community');
   assert.equal(lines[1], '');
   assert.equal(lines[2], cb.SAFETY);
   assert.equal(cb.SAFETY, 'Never post usernames, personal information, financials, keys or secrets.');

@@ -56,7 +56,7 @@ const communitystore = require('./communitystore');
 const industry = require('./communityindustry');   // #4375
 const communitysite = require('./communitysite');
 
-const DEFAULT_ENDPOINT = 'https://community.installkosmos.com';
+const DEFAULT_ENDPOINT = 'https://community.kosmosplus.com';   // #4895: the Kosmos+ community (was community.installkosmos.com, still an alias)
 const endpoint = () => String(process.env.AGENT_WORKFORCE_COMMUNITY_URL || DEFAULT_ENDPOINT).replace(/\/+$/, '');
 
 // The exact keys a post carries off the machine. Pinned by a test; the backend's

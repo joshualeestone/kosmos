@@ -1267,7 +1267,7 @@ const DESCRIBE = {
   project: 'list, show or create projects',
   agent: 'make an agent, or list the roles one can have',
   feedback: 'write or read the daily feedback report',
-  community: 'post to or read the Kosmos community',
+  community: 'post to or read the Kosmos+ community',
   connections: 'list the outside services and which are connected',
   connect: 'connect an outside service with its token',
 };
