@@ -4,9 +4,11 @@
 A scheduled job on Agent1s (every 15 minutes, launchd, beside coordinator-monitor) that alerts within one interval
 when anything people download or reach stops answering, and stays silent while healthy:
 1. installkosmos.com: for each live pointer (latest.json, latest-staging.json, latest-win.json, latest-win-staging.json)
-   every artifact it names (the tarball and its manifest and .sha256 for the Mac; the zip and the versioned zip for
-   Windows) answers 200 with the expected content type, every run; and the served bytes hash to the pointer's
-   sha256, at most hourly per artifact.
+   every artifact it names (the tarball and its manifest for the Mac; the versioned zip, and for latest-win.json the
+   fixed-name zip, for Windows) answers 200 with the expected content type and its .sha256 sidecar agrees with the
+   pointer, every run; the names are the ones the installers derive from version and arch; and the served bytes hash
+   to the pointer's sha256, re-read when the pointer or the file's headers change, after a failed read, and daily.
+   Also /setup, the tmux bundle and the generic fallback tarball, which every install fetches.
 2. community.installkosmos.com: /api/health answers 200 {"ok":true}, and the public feed (/api/posts/feed) answers.
 3. The relay: a computer name that never exists (serve-watch-canary.kosmosplus.com, over plain http) answers with
    the relay's own "Mac not connected" page, so the relay process itself is checked whatever computer is on.
