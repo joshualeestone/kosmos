@@ -17291,7 +17291,7 @@ const server = http.createServer(async (req, res) => {
           let heard;
           /* #4887: an agent that gave the task to itself (`--who me`, or its own name) is not paged about it: the
              line would land in its own screen, mid-turn, and spend its own hourly allowance. Nothing to tell. */
-          const toSelf = !viaScreen && !!paneCard && !!made.who && sameAgentName(made.who, paneCard.sessionName, true);
+          const toSelf = !viaScreen && !!paneCard && !!made.who && sameAgentName(made.who, paneCard.sessionName, who.byKey);
           if (toSelf) {
             heard = undefined;
           } else if (viaScreen || heardBudgetAllows(made.who, roster)) {

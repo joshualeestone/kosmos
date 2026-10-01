@@ -210,7 +210,7 @@ test('both lists say who added a task when an agent did and it is not the owner,
 
 test('the instructions each agent reads on a project teach --who me', () => {
   const body = projects.blockBody([projects.get(projectId)], 'mara');
-  assert.match(body, /A task for yourself: `[^`]* task add [^`]* "what needs doing" --who me` \(or `--who <name>` for another agent on it\)\. Without it, Kosmos gives it to whoever is free/);
+  assert.match(body, /A task for yourself: `[^`]* task add [^`]* "what needs doing" --who me` \(or `--who <name>` for another agent on it\)$/m);
 });
 
 test('the board answers with the task\'s who before told and heard (the Mac CLI reads the first "who":)', async () => {

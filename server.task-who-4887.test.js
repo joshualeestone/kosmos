@@ -125,3 +125,15 @@ test('a member named "Me" is a name: the page gives it the task, and so does an 
   assert.equal((await add(asAgent(w.mara), { sentence: 'me, not exactly', who: 'me' })).code, 200);
   assert.deepEqual(w.made.map((m) => m.who), ['Me', 'Me', 'mara'], 'an exact member name lost to the me alias, or the alias stopped working');
 });
+
+test('a paneless agent (token, no roster row) is matched by key: `me` lands on its member spelling and it is not paged', async (t) => {
+  const w = world(t, { members: ['mara', 'Ghost'] });
+  const liveness = require('./engine/liveness');
+  const realAlive = liveness.alive;
+  liveness.alive = (key) => (key === 'ghost' ? true : realAlive(key));   // a live agent with no roster row
+  t.after(() => { liveness.alive = realAlive; });
+  const r = await add(asAgent(sendertoken.mint('ghost').token), { sentence: 'mine, paneless', who: 'me' });
+  assert.equal(r.code, 200, 'a paneless member could not give itself a task: ' + r.text.slice(0, 160));
+  assert.deepEqual(w.made.map((m) => m.who), ['Ghost'], '`me` did not become the member spelling of the paneless caller');
+  assert.equal(JSON.parse(r.text).heard, undefined, 'a paneless agent was paged about a task it gave itself');
+});
