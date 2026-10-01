@@ -39,8 +39,10 @@
  *       left alone; P6 a start that throws leaves the mic off; P7 a session that ends by itself leaves it off;
  *       P8 an error with no end after it ends it (P8b a phone-side abort too); P9 a recognizer that cannot be built
  *       leaves it off; P10 the bar follows the visible area while up; P2c repeated results do not double the words;
- *       P2d a fresh list after a pause keeps earlier words; P2e prefix and one-word repeats are kept; P11 a dialog mic
- *       says who hears inside the dialog; P12 no bar, no audio
+ *       P2d a fresh list after a pause keeps earlier words, repeated or not; P2e prefix and one-word repeats are kept;
+ *       P2f a repeat cannot cascade or hide behind punctuation; P11 a dialog mic
+ *       says who hears inside the dialog; P12 no bar, no audio; P13 a stop with no end still ends; P14 the composer
+ *       fits a phone with the mic in it
  *   P4 (slice 3) read aloud is offered and speaks on a phone
  *   V1b in a browser (no bridge) the Name field fills its row exactly as with no wrapper: wrapping changes nothing
  *
@@ -440,7 +442,7 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
           setTimeout(() => this.onstart && this.onstart(), 0);
         }
         // Two results, the second with no leading space, as a phone's recognizer sends them.
-        stop() { window.__rec.push('stop'); setTimeout(() => { this.onresult && this.onresult({ results: [Object.assign([{ transcript: 'call the' }], { isFinal: true }), Object.assign([{ transcript: 'client' }], { isFinal: true })] }); this.onend && this.onend(); }, 0); }
+        stop() { window.__rec.push('stop'); if (window.__recNoEnd) return; setTimeout(() => { this.onresult && this.onresult({ results: [Object.assign([{ transcript: 'call the' }], { isFinal: true }), Object.assign([{ transcript: 'client' }], { isFinal: true })] }); this.onend && this.onend(); }, 0); }
         abort() { window.__rec.push('abort'); } };
     };
     const desk = await browser.newPage({ viewport: { width: 1200, height: 800 } });
@@ -595,7 +597,12 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     await phone.evaluate(() => document.activeElement && document.activeElement.blur());
     await phone.tap('#d-mic');
     await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
-    await phone.evaluate(() => window.__recLast.onresult({ results: [Object.assign([{ transcript: 'call the' }], { isFinal: true }), Object.assign([{ transcript: 'call the client' }], { isFinal: false })] }));
+    // Android's reported pattern: the next final result carries the previous one again, the list growing by one.
+    await phone.evaluate(() => {
+      const R = (t, f) => Object.assign([{ transcript: t }], { isFinal: f });
+      window.__recLast.onresult({ resultIndex: 0, results: [R('call the', true)] });
+      window.__recLast.onresult({ resultIndex: 1, results: [R('call the', true), R('call the client', true)] });
+    });
     const rep2c = await phone.evaluate(() => document.getElementById('d-say').value);
     await phone.evaluate(() => window.__recLast.onend());
     chk(rep2c === 'call the client', 'P2c a result that repeats the earlier ones replaces them rather than doubling the words', rep2c);
@@ -614,17 +621,24 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'false');
       return got;
     };
+    const F = (t) => [t, true], N = (t) => [t, false];
     const merge = {
-      wordPrefix: await session([{ i: 0, r: [['a', true], ['apple pie', false]] }]),
-      oneWordRepeat: await session([{ i: 0, r: [['no', true], ['no thanks', false]] }]),
-      midWord: await session([{ i: 0, r: [['go to', true], ['go tomorrow', false]] }]),
+      // Android, three results deep: "call" is one word, so it may double once, but the doubling must not cascade.
+      cascade: await session([{ i: 0, r: [F('call')] }, { i: 1, r: [F('call'), F('call the')] }, { i: 2, r: [F('call'), F('call the'), F('call the client')] }]),
+      punctuated: await session([{ i: 0, r: [F('call the client.')] }, { i: 1, r: [F('call the client.'), F('call the client tomorrow')] }]),
+      iosResetRepeats: await session([{ i: 0, r: [F('call the client')] }, { i: 0, r: [N('call the client tomorrow')] }, { i: 0, r: [F('call the client tomorrow')] }]),
+      wordPrefix: await session([{ i: 0, r: [F('a'), N('apple pie')] }]),
+      oneWordRepeat: await session([{ i: 0, r: [F('no')] }, { i: 1, r: [F('no'), F('no thanks')] }]),
+      midWord: await session([{ i: 0, r: [F('go to')] }, { i: 1, r: [F('go to'), F('go tomorrow')] }]),
       iosReset: await session([{ i: 0, r: [['call the client', true]] }, { i: 0, r: [['tomorrow', false]] }]),
       continuing: await session([{ i: 0, r: [['call the client', true]] }, { i: 1, r: [['call the client', true], ['tomorrow', false]] }]),
       cumulativeAtZero: await session([{ i: 0, r: [['call the client', true]] }, { i: 0, r: [['call the client', true], ['tomorrow', false]] }]),
     };
     chk(merge.wordPrefix === 'a apple pie' && merge.oneWordRepeat === 'no no thanks' && merge.midWord === 'go to go tomorrow',
       'P2e a result that only starts with the same letters, or repeats one word, is real speech and is kept', JSON.stringify(merge));
-    chk(merge.iosReset === 'call the client tomorrow' && merge.continuing === 'call the client tomorrow' && merge.cumulativeAtZero === 'call the client tomorrow',
+    chk(merge.cascade === 'call call the client' && merge.punctuated === 'call the client tomorrow',
+      'P2f a repeat is compared with the previous result only, so one doubled word cannot cascade, and punctuation does not hide it', JSON.stringify(merge));
+    chk(merge.iosReset === 'call the client tomorrow' && merge.continuing === 'call the client tomorrow' && merge.cumulativeAtZero === 'call the client tomorrow' && merge.iosResetRepeats === 'call the client tomorrow',
       'P2d a fresh results list after a pause keeps the words before it, and an ordinary or cumulative list does not double them', JSON.stringify(merge));
     // P11: a mic inside a modal dialog also says it in the dialog's own line (a screen reader cannot see past aria-modal).
     const dlg = await phone.evaluate(() => {
@@ -649,6 +663,28 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       return r;
     });
     chk(noBar.started === 0 && !noBar.btn, 'P12 with no bar to say who hears the audio, a tap starts nothing', JSON.stringify(noBar));
+    // P13: a stop the browser never answers with onend still ends listening (after the 5 s the Mac app also waits).
+    await phone.tap('#d-mic');
+    await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
+    await phone.evaluate(() => { window.__recNoEnd = true; });
+    await phone.tap('#d-mic');
+    const held = await phone.evaluate(() => !!VOICE.btn);   // waiting for the last words, as it should
+    await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'false', null, { timeout: 8000 }).catch(() => {});
+    const ended = await phone.evaluate(() => ({ btn: !!VOICE.btn, bar: (() => { const b = document.getElementById('voice-who'); return !!b && !b.hidden && getComputedStyle(b).display !== 'none' && b.getBoundingClientRect().height > 0; })() }));
+    await phone.evaluate(() => { window.__recNoEnd = false; });
+    chk(held && !ended.btn && !ended.bar, 'P13 a stop with no end after it still ends listening after a wait, and the bar goes', JSON.stringify({ held, ended }));
+    // P14: the composer row still fits a phone with the mic in it: nothing overflows, and the mic is on screen.
+    const fit = await phone.evaluate(() => {
+      const mic = document.getElementById('d-mic'), row = mic.parentElement;
+      const m = mic.getBoundingClientRect(), r = row.getBoundingClientRect();
+      const out = { overflow: row.scrollWidth - row.clientWidth, micRight: Math.round(m.right), rowRight: Math.round(r.right), vw: innerWidth, w: Math.round(m.width) };
+      // Control, in the same state: squeezed to 120 px the same row DOES overflow, so a zero above is a measurement.
+      const was = row.style.cssText; row.style.width = '120px'; row.style.minWidth = '0'; row.style.flexWrap = 'nowrap';
+      out.control = row.scrollWidth - row.clientWidth;
+      row.style.cssText = was;
+      return out;
+    });
+    chk(fit.control > 0 && fit.overflow <= 0 && fit.micRight <= fit.rowRight && fit.micRight <= fit.vw && fit.w >= 30, 'P14 at 390 px the DM composer still fits with the mic in it', JSON.stringify(fit));
     // P9: a recognizer that cannot even be built leaves the mic off and the bar gone.
     await phone.evaluate(() => { window.__recCtorThrow = true; document.getElementById('d-mic').click(); window.__recCtorThrow = false; });
     const ctor = await phone.evaluate(() => ({ btn: !!VOICE.btn, pressed: document.getElementById('d-mic').getAttribute('aria-pressed'), bar: (() => { const b = document.getElementById('voice-who'); return !!b && !b.hidden && getComputedStyle(b).display !== 'none' && b.getBoundingClientRect().height > 0; })() }));

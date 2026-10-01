@@ -102,4 +102,15 @@ pinning that the recognizer is reached only in the phone shim and the Mac bridge
   when it is empty (P11). FIXED W: the disclosure failed open if the bar was missing; the bar is built before the mic
   is drawn, and a tap with no bar starts nothing (P12). NIT taken: the speech-denied line also names a page added to
   the home screen. NOT MEASURED: either recognizer's real list behaviour; the rules are the reports, guarded both ways.
+- Round 7 (opus): FIXED W x2, by REPLACING rather than patching: rounds 5 and 6 rebuilt the text from the whole list each
+  event and merged repeats against everything so far, and each round found another way that doubled or dropped words
+  (one repeated first word cascaded; a reset that repeated itself doubled). Now the Web Speech way: a final result is
+  kept once, in order, from resultIndex, so a list that starts again cannot take back what was said; and one repeat
+  rule compares a new final with the PREVIOUS one only (word boundary, punctuation aside, two words or more, or the
+  very same words). P2c, P2d (four arms), P2e and P2f; each guard reddened alone. A one-word first result may still
+  double once ("call call the client"), on purpose: merging it would drop real one-word speech. FIXED W: a stop the
+  browser never answers with onend kept the mic on; it now ends after 5 s, as the Mac app waits (P13). FIXED W
+  (coverage): the DM composer is measured at 390 px with the mic in it (P14, with an in-state control that does
+  overflow; my first control ran on a hidden composer and measured nothing). LEFT NITs: a pinch-zoomed page can
+  shift the bar (offsetLeft and scale are ignored); the node harness stubs the phone lines it never reaches.
 

@@ -60217,6 +60217,7 @@ function voiceBridge() {
    kept browser recognition out on privacy grounds; that was an agent's call, and Josh's ruling is that he does not mind
    (Splinter, on the card). The listening line says who hears it. The Mac app keeps its on-device bridge, and a
    computer's browser (a fine pointer) gets no mic. */
+const VOICE_PHONE_STOP_MS = 5000;   // as long as the Mac app waits for the last words after a stop
 let VOICE_PHONE = undefined;   // the shim, built once at load (an iPad that later gains a trackpad keeps it); null where none
 function voicePhoneWho() {
   const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
@@ -60265,7 +60266,11 @@ function voicePhoneBridge() {
           if (rec) { try { rec.abort(); } catch { /* already ended */ } }
           id = m.id;
           let mine;
-          let base = '', lastText = '', lastFirst = null, lastAllFinal = false;   // this session's words across a list reset
+          /* This session's words: the finished results kept so far, and how far into the recognizer's current list they
+             reach. Kept here, not rebuilt from the list each time, so a list that starts again (iOS after a pause is
+             reported to) cannot take back words already said. */
+          const finals = [];
+          let doneIdx = 0;
           const fail = () => { rec = null; emit({ kind: 'error', reason: 'recognizer' }); emit({ kind: 'stopped' }); };
           try {
             mine = new Rec();
@@ -60277,25 +60282,29 @@ function voicePhoneBridge() {
           mine.onstart = () => { if (rec === mine) emit({ kind: 'listening' }); };
           mine.onresult = (e) => {
             if (rec !== mine) return;
-            let text = '', done = true;
             const tidy = (t) => String(t || '').replace(/\s+/g, ' ').trim();
-            for (let i = 0; i < e.results.length; i += 1) {
+            const fold = (t) => tidy(t).toLowerCase().replace(/[.,!?;:]+/g, '');
+            /* The Web Speech way: a result is final once and stays so, and resultIndex is the first one that changed. A
+               resultIndex below what is kept means a new list (or the old one sent again): keep what was said, read on. */
+            const from = typeof e.resultIndex === 'number' ? e.resultIndex : 0;
+            if (from < doneIdx) doneIdx = from;
+            const interim = [];
+            for (let i = doneIdx; i < e.results.length; i += 1) {
               const part = tidy(e.results[i][0].transcript);
-              if (!e.results[i].isFinal) done = false;
-              /* Android Chrome in continuous mode is reported to repeat the earlier results inside a later one ("call the",
-                 "call the client"): a result that starts with everything so far, at a word boundary, replaces it rather
-                 than doubling it. Only when "so far" is two words or more: "a" then "apple", or "no" then "no thanks",
-                 are real speech, and a one-word repeat costs a word where a wrong merge would lose one. */
-              const so = text.toLowerCase(), pl = part.toLowerCase();
-              if (text.includes(' ') && pl.startsWith(so) && (pl.length === so.length || pl[so.length] === ' ')) text = part;
-              else text = text ? text + ' ' + part : part;   // a phone does not always lead a later result with a space
+              if (!part) { if (e.results[i].isFinal && i === doneIdx) doneIdx = i + 1; continue; }
+              if (e.results[i].isFinal && i === doneIdx) {
+                /* Android Chrome is reported to repeat the previous result inside the next ("call the", then "call the
+                   client"). Compared with the PREVIOUS result only, never with everything so far, so one miss cannot
+                   cascade; at a word boundary, punctuation aside; and only when that result is two words or more, or is
+                   the very same words: "a" then "apple pie", or "no" then "no thanks", are real speech. */
+                const last = finals.length ? finals[finals.length - 1] : '';
+                const fl = fold(last), fp = fold(part);
+                const repeat = fl && (fp === fl || (fl.includes(' ') && fp.startsWith(fl) && fp[fl.length] === ' '));
+                if (repeat) finals[finals.length - 1] = part; else finals.push(part);
+                doneIdx = i + 1;
+              } else interim.push(part);   // a phone does not always lead a later result with a space: joined below
             }
-            /* iOS is reported to start a fresh results list after a pause. A list that starts again at index 0 with a
-               different first result, after an all-final one, is a new list: the words before it are kept, not replaced. */
-            const first = e.results.length ? tidy(e.results[0][0].transcript) : '';
-            if (e.resultIndex === 0 && lastAllFinal && lastText && lastFirst !== null && first !== lastFirst) base = tidy(base + ' ' + lastText);
-            lastText = text; lastFirst = first; lastAllFinal = done;
-            emit({ kind: done ? 'final' : 'partial', text: tidy(base + ' ' + text) });
+            emit({ kind: interim.length ? 'partial' : 'final', text: tidy(finals.concat(interim).join(' ')) });
           };
           /* An error ends the session here and now: a browser need not follow it with onend, and without a stopped the mic
              would stay on and who-hears-the-audio would stay up. A late onend is then not ours (rec !== mine). */
@@ -60310,7 +60319,11 @@ function voicePhoneBridge() {
           mine.onend = () => { if (rec === mine) { rec = null; emit({ kind: 'stopped' }); } };
           try { mine.start(); } catch { fail(); }   // in the tap's click: a phone starts the microphone only from a gesture
         } else if (op === 'stop') {
-          if (rec) { try { rec.stop(); } catch { const was = rec; rec = null; try { was.abort(); } catch { /* ended */ } emit({ kind: 'stopped' }); } }   // the last words come as a final result, then stopped
+          const was = rec;
+          if (!was) return;
+          const end = () => { if (rec === was) { rec = null; try { was.abort(); } catch { /* ended */ } emit({ kind: 'stopped' }); } };
+          try { was.stop(); } catch { end(); return; }   // the last words come as a final result, then stopped
+          setTimeout(end, VOICE_PHONE_STOP_MS);   // a browser that never sends onend after a stop does not keep the mic on
         } else if (op === 'cancel') {
           const was = rec; rec = null;
           if (was) { try { was.abort(); } catch { /* already ended */ } }
