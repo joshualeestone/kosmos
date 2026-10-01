@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: updaterestart-4818
-diff_hash: 91e0543b5018a75181756c7e922b41758c3b5fdedc4d3f307699ea87ffe05a3a
+diff_hash: 05976abac6de2afaf50bade0b90c7129dc990a4b0bba4fafd2f8b7b0a7cbda71
 validation: focused at a3dd1d5dd - tools/test-update-putback-4818.sh 17/17 (the shipped lines, a fake kosmos on a real port, signals), the installer shell tests near the pause (#2055 10/10, #964 12/12, install-static 23/23 and its control, runnable guard, progress emit, resolve user, zsh tied names) and the wiring tests (every-test-runs, shell shard, install reachable, local board: 64/64); a Mortals full run is queued at 7c05525f3 (code-identical but for this test and the plan); GitHub CI runs the full suite on the merge ref and is the merge gate
 subdir_audit: passed
 timestamp: 2026-10-01T02:33:53Z
@@ -45,3 +45,5 @@ update pause, and the test-wiring tests, all green. A Mortals full run is queued
 - [NIT] a failed final start prints a second line after the die --> RECORDED in the plan
 
 Rebased 2026-09-30 22:30 CDT onto main 3b4aa7670 (past the #4796 fix 3b4aa7670): clean, git range-diff shows all 16 commits patch-identical, so the reviewed change is unchanged; the hash is recomputed for the new base.
+
+After the PR (2026-09-30 23:09 CDT): CI found the put-back test's signal arms too tight for a loaded runner; fixed (sleep 120, bound 60, named lookup failure, -s pause wait, reaping fail path). One blind review: no blocker; its should-fix and nits taken. Local 17/17; both mutants behave. Hash recomputed.
