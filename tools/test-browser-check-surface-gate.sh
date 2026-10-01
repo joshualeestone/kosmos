@@ -152,6 +152,109 @@ else
   echo "SKIP  zsh not available for the self-defending zsh arm"
 fi
 
+# 9b. kosmos#4811: sourced into a zsh whose `grep` is not grep (the agent's own shell runs a function that calls
+#     ugrep with --ignore-files and -I), the gate PASSED a branch CI refused. A grep that matches nothing stands in
+#     for it; the gate must re-run itself under bash and still refuse.
+if command -v zsh >/dev/null 2>&1; then
+  printf '%s\n' '--- a/web/index.html' '+++ b/web/index.html' '@@ -1 +1 @@' \
+    '-  <p id="tsk-crumb">3</p>' '+  <p id="tsk-crumb">4</p>' > "$TMP/wd-4811"
+  : > "$TMP/f-4811"; : > "$TMP/m-4811"
+  BCDIR_ABS="$(cd "$HERE/.." && pwd)/docs/browser-checks"
+  # CONTROL: a gate that believes the lying grep passes this change. KOSMOS_BCG_REEXEC=1 forces the in-process answer
+  # (the re-run's own marker), so this shows what the guard below protects against.
+  if KOSMOS_BCG_REEXEC=1 bash -c 'grep() { return 1; }; . "$1" && KOSMOS_BCSG_WEBDIFF="$2" KOSMOS_BCG_FILES="$3" KOSMOS_BCG_MSGS="$4" KOSMOS_BCSG_DIR="$5" kosmos_browser_check_surface_gate' _ \
+       "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811" "$TMP/m-4811" "$BCDIR_ABS" >/dev/null 2>&1; then
+    pass "#4811 control: a gate that believes a grep matching nothing passes the change"
+  else
+    fail "#4811 control: the lying grep did not make the gate pass, so the arm below proves nothing"
+  fi
+  if zsh -c 'grep() { return 1; }; . "$1" && KOSMOS_BCSG_WEBDIFF="$2" KOSMOS_BCG_FILES="$3" KOSMOS_BCG_MSGS="$4" KOSMOS_BCSG_DIR="$5" kosmos_browser_check_surface_gate' _ \
+       "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811" "$TMP/m-4811" "$BCDIR_ABS" >/dev/null 2>&1; then
+    fail "#4811: sourced into zsh with a grep that matches nothing, the gate passed (it must run itself under bash)"
+  else
+    pass "#4811: sourced into zsh with a grep that matches nothing, the gate still refuses"
+  fi
+  # Review 3: a BASH whose `grep` is a shell function (a Claude Code session running bash) is not trusted either.
+  if bash -c 'grep() { return 1; }; . "$1" && KOSMOS_BCSG_WEBDIFF="$2" KOSMOS_BCG_FILES="$3" KOSMOS_BCG_MSGS="$4" KOSMOS_BCSG_DIR="$5" kosmos_browser_check_surface_gate' _ \
+       "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811" "$TMP/m-4811" "$BCDIR_ABS" >/dev/null 2>&1; then
+    fail "#4811: in a bash with a grep that matches nothing, the gate passed (it must re-run in a fresh bash)"
+  else
+    pass "#4811: in a bash with a grep that matches nothing, the gate still refuses"
+  fi
+  # Review 4: an ALIASED grep in an interactive bash (alias expanded into the gate when it is sourced) re-runs too.
+  if bash -c 'shopt -s expand_aliases; alias grep="false"; . "$1" && KOSMOS_BCSG_WEBDIFF="$2" KOSMOS_BCG_FILES="$3" KOSMOS_BCG_MSGS="$4" KOSMOS_BCSG_DIR="$5" kosmos_browser_check_surface_gate' _ \
+       "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811" "$TMP/m-4811" "$BCDIR_ABS" >/dev/null 2>&1; then
+    fail "#4811: in a bash with grep aliased to something that matches nothing, the gate passed"
+  else
+    pass "#4811: in a bash with grep aliased to something that matches nothing, the gate still refuses"
+  fi
+  # Review 4: a CDPATH under which bash's cd ECHOES the directory it found must not corrupt the recorded path. Bash,
+  # sourcing by a relative path from the repo root with CDPATH set to it, and a grep function so the re-run is used.
+  printf 'M\tdocs/browser-checks/render-alltasks.js\n' > "$TMP/f-4811ok"
+  REPO_4811="$(cd "$HERE/.." && pwd)"
+  if ( cd "$REPO_4811" && CDPATH="$REPO_4811" bash -c 'grep() { command grep "$@"; }; . tools/lib/browser-check-surface-gate.sh && KOSMOS_BCSG_WEBDIFF="$1" KOSMOS_BCG_FILES="$2" KOSMOS_BCG_MSGS="$3" kosmos_browser_check_surface_gate' _ \
+       "$TMP/wd-4811" "$TMP/f-4811ok" "$TMP/m-4811" ) >/dev/null 2>&1; then
+    pass "#4811: with CDPATH set, the gate still finds itself and passes a compliant change through the re-run"
+  else
+    fail "#4811: with CDPATH set, the re-run could not source the gate (a corrupted recorded path)"
+  fi
+  # Review 1: settings given as PLAIN zsh variables (not exported) must reach the bash re-run too, or it would check
+  # the real branch instead and could pass. And a POSITIVE control through the re-run: the same change with its check
+  # updated passes (rc 0), so a broken re-run (a bad path, lost settings) cannot read as a refusal.
+  if zsh -c '. "$1" && KOSMOS_BCSG_WEBDIFF="$2"; KOSMOS_BCG_FILES="$3"; KOSMOS_BCG_MSGS="$4"; KOSMOS_BCSG_DIR="$5"; kosmos_browser_check_surface_gate' _ \
+       "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811" "$TMP/m-4811" "$BCDIR_ABS" >/dev/null 2>&1; then
+    fail "#4811: settings given as plain zsh variables did not reach the bash re-run (the gate passed)"
+  else
+    pass "#4811: settings given as plain zsh variables reach the bash re-run (still refused)"
+  fi
+  # From the repo root with the default checks folder: the gate matches an updated check by the same relative path
+  # the file list carries (an absolute KOSMOS_BCSG_DIR would never match it, under bash too).
+  printf 'M\tdocs/browser-checks/render-alltasks.js\n' > "$TMP/f-4811ok"
+  if zsh -c 'cd "$5" && . "$1" && KOSMOS_BCSG_WEBDIFF="$2"; KOSMOS_BCG_FILES="$3"; KOSMOS_BCG_MSGS="$4"; kosmos_browser_check_surface_gate' _ \
+       "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811ok" "$TMP/m-4811" "$(cd "$HERE/.." && pwd)" >/dev/null 2>&1; then
+    pass "#4811 positive control: through the re-run, the same change with its check updated passes"
+  else
+    fail "#4811 positive control: a compliant change was refused through the re-run (a broken re-run reads as a refusal)"
+  fi
+  # Review 2: EACH setting must reach the re-run; an arm per setting where only that value flips the verdict.
+  # KOSMOS_BCSG_DIR: a checks folder with no annotated check maps no token, so the same change passes.
+  mkdir -p "$TMP/emptybc-4811"
+  if zsh -c '. "$1" && KOSMOS_BCSG_WEBDIFF="$2"; KOSMOS_BCG_FILES="$3"; KOSMOS_BCG_MSGS="$4"; KOSMOS_BCSG_DIR="$5"; kosmos_browser_check_surface_gate' _ \
+       "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811" "$TMP/m-4811" "$TMP/emptybc-4811" >/dev/null 2>&1; then
+    pass "#4811: a plain zsh KOSMOS_BCSG_DIR reaches the re-run (an empty checks folder maps nothing)"
+  else
+    fail "#4811: a plain zsh KOSMOS_BCSG_DIR did not reach the re-run"
+  fi
+  # KOSMOS_BCG_MSGS: a per-check override trailer in the given messages excuses render-alltasks.js.
+  printf 'x\n\nBrowser-check-surface: render-alltasks.js excused for this test\n' > "$TMP/m-4811ok"
+  if zsh -c '. "$1" && KOSMOS_BCSG_WEBDIFF="$2"; KOSMOS_BCG_FILES="$3"; KOSMOS_BCG_MSGS="$4"; KOSMOS_BCSG_DIR="$5"; kosmos_browser_check_surface_gate' _ \
+       "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811" "$TMP/m-4811ok" "$BCDIR_ABS" >/dev/null 2>&1; then
+    pass "#4811: a plain zsh KOSMOS_BCG_MSGS reaches the re-run (its override excuses the check)"
+  else
+    fail "#4811: a plain zsh KOSMOS_BCG_MSGS did not reach the re-run"
+  fi
+  # KOSMOS_BCG_BASE: a throwaway repo with one annotated check whose token the branch changes. The default base
+  # (origin/main) sees the change; HEAD as the given base sees none. No seams, so the gate diffs real git.
+  g4811="$TMP/repo4811"; mkdir -p "$g4811/web" "$g4811/docs/browser-checks"
+  printf '// Browser-check-surface: zz-tok-4811\n' > "$g4811/docs/browser-checks/render-zz.js"
+  printf '<p id="zz-tok-4811">1</p>\n' > "$g4811/web/index.html"
+  ( cd "$g4811" && git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -q -m base \
+      && git update-ref refs/remotes/origin/main HEAD && printf '<p id="zz-tok-4811">2</p>\n' > web/index.html \
+      && git -c user.email=t@t -c user.name=t commit -q -am web ) >/dev/null 2>&1
+  if zsh -c 'cd "$2" && . "$1" && kosmos_browser_check_surface_gate' _ "$HERE/lib/browser-check-surface-gate.sh" "$g4811" >/dev/null 2>&1; then
+    fail "#4811 control: in the throwaway repo the default base did not refuse, so the base arm proves nothing"
+  else
+    pass "#4811 control: in the throwaway repo the default base refuses the mapped change"
+  fi
+  if zsh -c 'cd "$2" && . "$1" && KOSMOS_BCG_BASE=HEAD; kosmos_browser_check_surface_gate' _ "$HERE/lib/browser-check-surface-gate.sh" "$g4811" >/dev/null 2>&1; then
+    pass "#4811: a plain zsh KOSMOS_BCG_BASE reaches the re-run (HEAD as base sees no change)"
+  else
+    fail "#4811: a plain zsh KOSMOS_BCG_BASE did not reach the re-run"
+  fi
+else
+  echo "SKIP  #4811: zsh not available"
+fi
+
 # 10. #3893: a PR MERGED INTO BASE before CI checked out (two merge bases, a criss-cross).
 #     Built with real git: main gains M1 (changes tok-x, updates render-x.js, excuses
 #     render-y.js by trailer), the PR (an unrelated file) is merged into main as M2, and CI's
