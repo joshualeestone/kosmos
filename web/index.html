@@ -10013,6 +10013,20 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .composer { background: var(--k-bg); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .composer .composerbox { margin-left: 0; margin-right: 0; border-radius: 24px; padding: 6px 6px 6px 8px; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .composer .composerbox:not(.dragging) { background: var(--nl-grey); }
+/* #4470, an agent's page in the new look: the agent's conversation in the project room's language above (Josh's v9
+   drawing): on the page's own ground with no box (the talk box painted the surface, which the new look makes grey),
+   your messages in the one grey, an agent's with no bubble, and the composer the same grey pill with no stroke. The
+   DM uses the same thread component (.msg / .msg-bd), so these are the room's rules pointed at the DM; nothing new.
+   The DM's composer is ONE element carrying both classes (dmbar and composerbox), unlike the room's nested pair (review
+   round 1: a descendant selector matched nothing). The outside-sender dash and "Could not deliver" are untouched.
+   The detail panel's id on the first rule is weight, not scope: it lifts the rule over the dark and forced-dark rules
+   that paint the same box with one id, whatever their place in the sheet. */
+:root[data-look="new"] body:not(.consolidated) #panel-detail #d-talk-box { background: var(--k-bg); }
+:root[data-look="new"] body:not(.consolidated) #d-dmthread .msg.you .msg-bd { background-color: var(--nl-grey); }
+:root[data-look="new"] body:not(.consolidated) #d-dmthread .msg:not(.you) .msg-bd { background-color: var(--k-bg); }
+:root[data-look="new"] body:not(.consolidated) #d-dmthread .msg .msg-bd::after { background: var(--k-bg); }
+:root[data-look="new"] body:not(.consolidated) #d-talk-box .dmbar.composerbox { border: 0; border-radius: 24px; padding: 6px 6px 6px 8px; }
+:root[data-look="new"] body:not(.consolidated) #d-talk-box .dmbar.composerbox:not(.dragging) { background: var(--nl-grey); }
 /* #4470: the header in the new look: the back chevron as a round button, then "Projects /
    <ancestors> / <name>" large, as the conversation's own header. The project name's h2 is
    visually hidden (still the page's heading for a screen reader), since the crumb now shows it. */
