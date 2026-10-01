@@ -1,6 +1,6 @@
 # orgundo-4688: a team created while the person left the panel keeps its Undo (kosmos#4688)
 
-Stacked on newagent-4556 (PR #4625), where the org chart panel moved onto the Team screen. PR once #4625 merges.
+Was stacked on newagent-4556 (PR #4625, now merged); rebased onto main 2026-09-30 evening.
 
 ## The defect
 A create still being answered when the person leaves the panel (Back to the three-way choice, or closing the panel)
