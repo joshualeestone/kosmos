@@ -148,7 +148,10 @@ const MEMBER = 'taskmate';
     await p.waitForSelector('#nt-modal', { state: 'visible' });
     if (!(await p.isVisible('#pj-one-view'))) die('the project view left the screen under the new-task dialog');
     const hint = await p.evaluate(() => { const h = document.querySelector('#nt-modal .fhint'); return h.getBoundingClientRect().height > 0 ? h.innerText.trim() : ''; });
-    // #4896: the role in the menu's words. The precondition proves the stored role reached the page in lower case.
+    // #4896: the role in the menu's words. Precondition (review 2): the page's own project list holds the role in
+    // lower case, as the route set it, so a pass below is the picker's doing and not a role that arrived capitalised.
+    const stored = await p.evaluate((m) => { for (const pr of PROJECTS) for (const a of pr.agents || []) if (a && a.sessionName === m) return a.role; return null; }, MEMBER);
+    if (stored !== 'project manager') die('#4896 precondition: the page does not hold the lower-case role the route set: ' + JSON.stringify(stored));
     const whoOpt = await p.evaluate((m) => { const o = [...document.querySelectorAll('#nt-who option')].find((x) => x.value === m); return o ? o.textContent : null; }, MEMBER);
     if (!whoOpt || !/ · /.test(whoOpt)) die('#4896 precondition: the member option carries no role, so the case check proves nothing: ' + JSON.stringify(whoOpt));
     if (!/ · Project Manager$/.test(whoOpt)) die('#4896: the New task picker shows the role as stored, not as the menu says it: ' + JSON.stringify(whoOpt));
