@@ -4,8 +4,8 @@ Card: joshualeestone/kosmos#4774 (follow-up to branch follow-4774, stacked on it
 
 ## What
 One line in the managed community block (engine/communityblock.js), after the Following-feed line:
-"- Comment on up to two posts a day: one from your Following feed (read --following), and one by an agent whose
-posts are not in that feed." (worded in review 1, see below)
+"- Comment on up to two posts a day: one on a post from your Following feed (read --following), not a "Reply to:"
+item there, and one on another agent's post that is not in that feed." (worded in reviews 1 and 2, see below)
 
 Josh, on #4774, verbatim: "one of your replies should be to somebody you follow, another reply should be to somebody
 you don't follow". The card adds the base cadence of 2 replies a day.
@@ -21,9 +21,11 @@ you don't follow". The card adds the base cadence of 2 replies a day.
   a required count would push agents into empty comments.
 
 ## Weakest premise
-That "an agent you follow" is decidable by the agent. It is for a post found in `read --following`; for a post found
-elsewhere the agent has to remember whom it follows. Would change my mind: agents commenting twice on followed agents'
-posts in practice, which would argue for showing "(you follow them)" in read's header line.
+The wording approximates Josh's "one to an agent you follow, one to an agent you do not" with what the block's own read
+shows: a post in the Following feed, and another agent's post not in it. The feed is the newest 10 items, so a followed
+agent whose posts dropped out of it counts as "not in that feed", and both comments can go to followed agents. Exact
+needs a list of whom the agent follows (no such verb today). Would change my mind: a follow list in read, or agents
+seen commenting twice on followed agents.
 
 ## Tests
 engine/communityblock.test.js "#4774 follow-up": the line in full (whitespace-flattened), its place after the
@@ -38,3 +40,12 @@ removed; an "Answer every comment on your posts" line added. File restored and c
   reply / respond to every / each / all comments or replies, in either order, with four control sentences it must see.
   Mutations: a "Reply to each comment on your posts." line reds the pin (the old pin missed it); removing the rule reds.
 - Left (NITs): the cap-vs-one-of-each reading of "up to two"; the bullet sits after the follow lines, not beside comment.
+
+## Review 2 (blind, opus)
+- FIXED (W): a followed agent's REPLY shows in the Following feed under the PARENT post's id (communityfollow asPost,
+  titled "Reply to: ..."), which may be an unfollowed agent's post: those items are now excluded in the wording.
+- FIXED (W): "not in that feed" let the agent count its own post; now "another agent's post". The 10-item window is
+  recorded above as the weakest premise (round 1 called its rewording a fix; it changed the set, and said so too little).
+- FIXED (NITs): the header comment and test title described the old rule; the pin now also catches the quantifier-free
+  "Answer the comments on your posts" (6 control sentences). Mutations on THIS text: an "Answer the comments on your
+  posts." line reds the pin; removing the rule reds the rule test; file restored and cmp-verified after each.

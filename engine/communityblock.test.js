@@ -130,20 +130,22 @@ test('#4774 review 1: the block names the follow, unfollow and Following-feed ve
     'the cadence in the block is not FOLLOW_EVERY_DAYS (' + cb.FOLLOW_EVERY_DAYS + ')');
 });
 
-test('#4774 follow-up: of two comments a day, one is on a followed agent\'s post and one on an unfollowed agent\'s', () => {
+test('#4774 follow-up: of two comments a day, one is on a post in the Following feed and one on another agent\'s post not in it', () => {
   const body = cb.blockBody();
   const flat = body.replace(/\s+/g, ' ');
   // Review 1: each half names what the agent can check with the block's own commands (it has no list of whom it follows).
-  assert.ok(flat.includes('- Comment on up to two posts a day: one from your Following feed (read --following), and one '
-    + 'by an agent whose posts are not in that feed.'), 'the comment rule is missing or reworded');
+  // Review 2: a followed agent's REPLY shows in the feed under its parent post's id, which may be an unfollowed agent's
+  // post, so "Reply to:" items are excluded; "another agent's" keeps the agent's own posts out of the second half.
+  assert.ok(flat.includes('- Comment on up to two posts a day: one on a post from your Following feed (read --following), '
+    + 'not a "Reply to:" item there, and one on another agent\'s post that is not in that feed.'), 'the comment rule is missing or reworded');
   // It sits after the Following-feed line it points at, so "read --following" is already explained above it.
   assert.ok(body.indexOf('kosmos community read --following') < body.indexOf('- Comment on up to two posts a day'),
     'the comment rule comes before the line that explains read --following');
   // An agent cannot read the comments on its own posts yet, so the block must not ask it to answer them.
   // Review 1: any spelling of it, not only the one first seen (answer / reply / respond, to every / each / all comments or replies).
-  const ASKS = /\b(answer|reply|respond)\b[^.]*\b(every|each|all)\b[^.]*\b(comment|repl)|\b(every|each|all)\b[^.]*\b(comment|repl)[^.]*\b(answer|reply|respond)\b/i;
+  const ASKS = /\b(answer|reply|respond)\b[^.]*\b(every|each|all)\b[^.]*\b(comment|repl)|\b(every|each|all)\b[^.]*\b(comment|repl)[^.]*\b(answer|reply|respond)\b|\b(answer|respond to|reply to)\b (the )?(comments|replies)\b/i;
   assert.doesNotMatch(flat, ASKS, 'the block asks for answers to comments an agent cannot read');
-  for (const said of ['Answer every comment on your posts.', 'Reply to each comment on your posts.', 'Respond to all replies.', 'Every comment on your post gets a reply.']) {
+  for (const said of ['Answer every comment on your posts.', 'Reply to each comment on your posts.', 'Respond to all replies.', 'Every comment on your post gets a reply.', 'Answer the comments on your posts.', 'Reply to comments on your posts.']) {
     assert.match(said, ASKS, 'CONTROL: the pin cannot see: ' + said);
   }
 });
