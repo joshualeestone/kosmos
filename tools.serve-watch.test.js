@@ -156,8 +156,7 @@ test('a pointer naming a missing artifact alarms within one run, on the pane and
 }));
 
 test('a site that answers 200 for everything is "could not tell", never healthy, and is said only after an hour', () => withSite(async ({ site, base, dir, st }) => {
-  site.catchAll = true;
-  site.files.delete('kosmos-win-x64.zip');   // would pass as 200 through the catch-all
+  site.catchAll = true;   // every file is still served: only the passes are in doubt (a failure would alarm, below)
   const r = await run(base, dir, st, { now: T0 });
   assert.equal(r.code, 2, r.out + r.err);
   assert.equal(st.card(), '', 'could-not-tell was said before its grace');
@@ -320,9 +319,16 @@ test('a card post that fails is retried after an hour, not every run; a busy pan
   // Within the hour: the card is not retried (the stub would fail again; nothing new recorded).
   await run(base, dir, broken, { now: T0 + 900 });
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')).card.failedAt, T0, 'the card was retried within the hour');
-  // An hour on, with a working card and the pane still busy: it goes, and says the pane may not have.
+  // An hour on, with a working card: it goes (the pane was told at T0, so it is not posted to again here).
   assert.equal((await run(base, dir, { msg: busyMsg, gh: st.gh, pane: st.pane, card: st.card }, { now: T0 + 3600 })).code, 1);
   assert.match(st.card(), /kosmos-win-x64\.zip/);
+}));
+
+test('a card post beside an exit-8 pane says the pane message may not have gone', () => withSite(async ({ site, base, dir, st }) => {
+  const busyMsg = path.join(dir, 'msg-busy.sh');
+  fs.writeFileSync(busyMsg, '#!/bin/sh\ncat > /dev/null\nexit 8\n'); fs.chmodSync(busyMsg, 0o755);
+  site.files.delete('kosmos-win-x64.zip');
+  assert.equal((await run(base, dir, { msg: busyMsg, gh: st.gh, pane: st.pane, card: st.card }, { now: T0 })).code, 1);
   assert.match(st.card(), /may not have gone: claude-msg exit 8/);
 }));
 
@@ -490,10 +496,11 @@ test('while a pointer cannot be read, earlier records are kept: a confirmed mism
   site.files.delete('latest-win.json'); site.files.delete('latest-win-staging.json');
   await run(base, dir, st, { now: T0 + 1800 });   // both Windows pointers missing
   site.files.set('latest-win.json', keepWin); site.files.set('latest-win-staging.json', keepStg);
-  await run(base, dir, st, { now: T0 + 2700 });
+  // Exit 1, not 2: the mismatch alarms at once when the pointers return, not as a new first sighting. (It is not
+  // posted again: it never left the standing alarm, which a problem leaves only after two runs gone.)
+  assert.equal((await run(base, dir, st, { now: T0 + 2700 })).code, 1, 'the mismatch was a first sighting again');
   const state = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
   assert.ok(state.pending.includes('sidecar-sha:kosmos-1.0.0-win-x64.zip'), 'a confirmed mismatch was forgotten across a pointer outage');
-  assert.match(st.card(), /kosmos-1\.0\.0-win-x64\.zip\.sha256 says 000000000000[^\n]*\n[\s\S]*kosmos-1\.0\.0-win-x64\.zip\.sha256 says 000000000000/, 'the mismatch did not alarm again at once when the pointers returned');
 }));
 
 test('a feed that refuses HEAD and has grown past a megabyte is healthy, judged by its status', () => withSite(async ({ site, base, dir, st }) => {

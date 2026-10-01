@@ -267,7 +267,8 @@ async function gather(prev, now) {
     return { now, unknown: false, alarm: true, problems, artifacts: 0, sha: prevSha, pending: prevPending };
   }
 
-  const winControl = await head(DIST + '/' + WIN_CONTROL);
+  // Under a catch-all at /dist the Windows control answers 200 for the same reason, which says nothing more.
+  const winControl = blind ? { status: 404 } : await head(DIST + '/' + WIN_CONTROL);
   if (winControl.status >= 200 && winControl.status < 300) add('win-unverifiable', 'the Windows downloads\' host answered ' + winControl.status + ' for a file that does not exist, so its answers prove nothing');
   let pointerFailed = false;
   const urls = new Map();   // one check per artifact URL, even when two pointers name it
