@@ -30,6 +30,7 @@ const FUTURE_SLACK_MINUTES = 5;
  * How current an agent's running summary is: the newest summaries/YYYY-MM-DD-HH.md in its folder, by the
  * time it was last written. Never throws.
  * @returns {{ state: 'current'|'stale'|'future'|'none'|'nofolder'|'unreadable', file: string|null, at: string|null, ageMinutes: number|null }}
+ *   (overviewOf may then mark a stale one 'idle', with idleSince and idleMinutes: #4581 N10, idleExcused.)
  *   current: written within the four-hour rhythm; stale: longer ago (an agent that has been idle is not
  *   expected to write, so stale is a fact to read, not a fault); none: no summaries yet; unreadable: we
  *   could not look (the reader must not take that as none).
@@ -110,14 +111,35 @@ function openTasks(tasks) {
   return { total: list.length, open: open.length, built: open.filter((t) => t.builtAt).length };
 }
 
+/* #4581 N10 (0.7.15 diagnostic, a Claude agent): "freshness counts idle overnight hours, so a quiet night marks three of
+   five agents as behind". The rhythm is a summary every four hours WHILE WORKING (roles.js SUMMARY_RHYTHM). So a stale
+   summary of a member that is idle now, written within the rhythm of when it went idle, was current when it stopped:
+   state 'idle', with when it went idle. A summary already stale when it went idle stays 'stale'. When it went idle is
+   its latest report, an `idle` (the time of that report); any other state, or none, leaves the summary as it was. */
+function idleExcused(summary, member, readReport, nowMs) {
+  if (!summary || summary.state !== 'stale' || !summary.at) return summary;
+  if (!member || !member.present || !member.tied || member.state !== 'idle') return summary;
+  let rep = null;
+  try { rep = readReport(member.sessionName); } catch { rep = null; }
+  if (!rep || rep.found !== true || rep.state !== 'idle') return summary;
+  const idleAt = Date.parse(rep.at);
+  const wroteAt = Date.parse(summary.at);
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  if (!Number.isFinite(idleAt) || !Number.isFinite(wroteAt) || idleAt > now) return summary;
+  if (idleAt - wroteAt > SUMMARY_RHYTHM_HOURS * 3600000) return summary;
+  return { ...summary, state: 'idle', idleSince: new Date(idleAt).toISOString(), idleMinutes: Math.max(0, Math.round((now - idleAt) / 60000)) };
+}
+
 /**
  * The payload for one project, from a projects.list() entry (already described against the roster).
  * @param {object} p      one element of projects.list(roster)
  * @param {Array} roster  the cards the list was described against (for each member's model)
- * @param {{ now?: number, folderOf?: (sessionName: string) => string|null, readBrief?: (folder: string) => object }} [o]
+ * @param {{ now?: number, folderOf?: (sessionName: string) => string|null, readBrief?: (folder: string) => object,
+ *   readReport?: (sessionName: string) => object }} [o]
  */
 function overviewOf(p, roster, o) {
   const opts = o || {};
+  const readReport = opts.readReport || ((name) => { try { return require('./selfreport').read(name); } catch { return null; } });
   const folderOf = opts.folderOf || ((name) => { try { return require('./create').workerDir(name); } catch { return null; } });
   const readBrief = opts.readBrief || require('./brief').readBrief;
   const cards = Array.isArray(roster) ? roster : [];
@@ -136,7 +158,7 @@ function overviewOf(p, roster, o) {
          derived from that name reported as this member's summary. */
       /* Round 2: only a live pane that is NOT this member (a stranger holding the name) is kept off its folder. A
          member that is not running is still this member, and its last summary is exactly what a PM checks. */
-      summary: (m.present && !m.tied) ? { state: 'nofolder', file: null, at: null, ageMinutes: null } : summaryFreshness(folderOf(m.sessionName), opts.now),
+      summary: (m.present && !m.tied) ? { state: 'nofolder', file: null, at: null, ageMinutes: null } : idleExcused(summaryFreshness(folderOf(m.sessionName), opts.now), m, readReport, opts.now),
     };
   });
   return {
@@ -241,6 +263,8 @@ function renderList(payload) {
 const SUMMARY_WORDS = {
   current: (s) => 'current (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
   stale: (s) => 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
+  // #4581 N10: the rhythm is while working; this one was current when the member went idle.
+  idle: (s) => 'current when it went idle (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; idle since ' + ago(s.idleMinutes) + ')',
   none: () => 'none yet',
   nofolder: () => 'we do not know where its folder is',
   future: (s) => 'dated in the future (' + one(s.file) + '), so we cannot tell how current it is',

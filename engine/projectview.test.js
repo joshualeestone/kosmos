@@ -76,6 +76,7 @@ const CODEX_ASKING = '  Do you want to run this?\n› 1. Yes\n  2. No';
 const BOARD = fleet.install([
   fleet.agent('mark', { state: 'working', role: 'Project Manager' }),
   fleet.agent('sam', { state: 'needs_you', runner: 'codex', command: 'node', screen: CODEX_ASKING }),
+  fleet.agent('ida', { state: 'idle' }),   // #4581 N10: an idle member, on its own project below
 ]);
 test.after(() => BOARD.restore());
 const RAW = {
@@ -257,4 +258,37 @@ test('round 5: runs of joiners or variation selectors (a zero-width channel) go;
   const lines = v.renderShow({ project: view });
   assert.equal(lines[0], rainbow + ' okx  (id: ff)', JSON.stringify(lines[0]));
   assert.equal(lines[1], 'Folder: /x/???y', 'a carrier in the path was not shown as ?');
+});
+
+/* #4581 N10 (0.7.15 diagnostic): the four-hour rhythm is while WORKING, so a summary that was current when the member
+   went idle is not "behind" after a quiet night. Real member rows (fleet + describe); the report is injected. */
+test('#4581 N10: an idle member whose summary was current when it went idle reads so, with idle since; otherwise stale', () => {
+  const raw = { id: 'ii', name: 'Idle Night', folder: '/p/ii', agents: ['ida'], tasks: [] };
+  const described = projects.describe(raw, BOARD.agents, [raw]);
+  const ida = described.agents.find((m) => m.sessionName === 'ida');
+  assert.ok(ida && ida.present && ida.tied && ida.state === 'idle', 'fixture: ida is not an idle member: ' + JSON.stringify(ida));
+  const folder = agentFolder('ida', [['2026-09-29-07.md', 600]]);   // written 10h ago
+  const show = (report) => {
+    const o = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => report };
+    const view = v.overviewOf(described, BOARD.agents, o);
+    return { m: view.members[0], text: v.renderShow({ project: view }).join('\n') };
+  };
+  const idleAt = (minAgo) => ({ found: true, state: 'idle', at: new Date(NOW - minAgo * 60000).toISOString() });
+
+  // Went idle 7h ago, 3h after the summary: current when it stopped.
+  const quiet = show(idleAt(420));
+  assert.equal(quiet.m.summary.state, 'idle');
+  assert.match(quiet.text, /summary: current when it went idle \(summaries\/2026-09-29-07\.md, 10h 0m ago; idle since 7h 0m ago\)$/m);
+  assert.doesNotMatch(quiet.text, /older than the 4-hour rhythm/);
+
+  // Went idle 2h ago, 8h after the summary: it was already behind when it stopped.
+  assert.equal(show(idleAt(120)).m.summary.state, 'stale');
+  // CONTROL: a working report, a report that is not found, and one dated in the future leave it stale.
+  assert.equal(show({ found: true, state: 'working', at: new Date(NOW - 420 * 60000).toISOString() }).m.summary.state, 'stale');
+  assert.equal(show({ found: false }).m.summary.state, 'stale');
+  assert.equal(show({ found: true, state: 'idle', at: new Date(NOW + 60000).toISOString() }).m.summary.state, 'stale');
+  // CONTROL: a current summary is untouched by any report.
+  const fresh = agentFolder('ida-fresh', [['2026-09-29-16.md', 30]]);
+  const o = { now: NOW, folderOf: () => fresh, readBrief: () => ({ found: false }), readReport: () => idleAt(420) };
+  assert.equal(v.overviewOf(described, BOARD.agents, o).members[0].summary.state, 'current');
 });
