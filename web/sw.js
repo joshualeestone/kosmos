@@ -15,16 +15,20 @@
 
 /* v2 (#4103): a phone whose offline copy of '/' became the relay's sign-in page drops it on activate (the old cache
    is deleted below) and re-caches the board, now checked, at install. */
-const SHELL_CACHE = 'kosmos-shell-v2';
+/* v3 (#4798): the manifest gained the maskable icons; the manifest is served from this cache, so a phone that
+   already had v2 would keep the old manifest until the version changes. */
+const SHELL_CACHE = 'kosmos-shell-v3';
 
-/* The shell is the one HTML file (served at /) plus the manifest and the two
-   install icons the manifest names. Everything else is live data over the
-   network. */
+/* The shell is the one HTML file (served at /) plus the manifest and the
+   install icons the manifest names (the two "any" and, #4798, the two maskable).
+   Everything else is live data over the network. */
 const SHELL_ASSETS = [
   '/',
   '/manifest.webmanifest',
   '/icons/kosmos-192.png',
   '/icons/kosmos-512.png',
+  '/icons/kosmos-maskable-192.png',
+  '/icons/kosmos-maskable-512.png',
 ];
 
 /* #4103: only the BOARD may become the offline copy of '/'. A signed-out phone's navigation through the relay comes

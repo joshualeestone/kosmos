@@ -6610,8 +6610,8 @@ test('the reveal-app route opens Finder through the engine and honours nothing f
 test('the tab icons are served as images, and a wrong icon path cannot fall through to the page', async () => {
   // The page fallthrough serves HTML for every unmatched path, so without
   // the explicit route an icon URL would answer HTML at 200 -- a browser
-  // shows a broken tab icon while the server reports success. The four
-  // shipped sizes answer as PNGs; anything else under /icons/ is a JSON
+  // shows a broken tab icon while the server reports success. The shipped
+  // icons answer as PNGs; anything else under /icons/ is a JSON
   // 404, never the page dressed as an image.
   for (const size of [16, 32, 48, 180, 'touch-180', 'maskable-192', 'maskable-512']) {   // kosmos#4798: the full-bleed three
     const res = await req(`/icons/kosmos-${size}.png`);

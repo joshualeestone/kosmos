@@ -18106,8 +18106,8 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  /* The tab icons (#45, Josh 2026-08-17). An explicit allowlist of the six
-     shipped sizes (192 and 512 joined for the manifest, #718), because everything else below falls through to the page:
+  /* The tab icons (#45, Josh 2026-08-17). An explicit allowlist of the shipped
+     icons (192 and 512 joined for the manifest, #718; the touch and maskable squares, #4798), because everything else below falls through to the page:
      without this route, /icons/kosmos-32.png would answer HTML at 200 with
      the wrong content type, the same silent-success signature the API guard
      above exists to stop. A name outside the allowlist 404s as JSON rather
@@ -18149,7 +18149,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   // /favicon.ico 404s BY DESIGN, matching the site: the icon set is the
-  // four explicit PNGs above, and a probe for the .ico must not receive
+  // explicit PNGs above, and a probe for the .ico must not receive
   // the page dressed as an icon (the silent-success signature again).
   if (apiPath === '/favicon.ico') {
     sendJson(res, 404, { error: 'no favicon.ico: the icons are /icons/kosmos-<size>.png' });

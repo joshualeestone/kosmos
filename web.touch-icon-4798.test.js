@@ -2,8 +2,8 @@
 /**
  * kosmos#4798 (Josh, 2026-09-30 17:53): "if I save the icon as a bookmark for my home screen, it has a big black
  * stroke around it." iOS fills a touch icon's transparent pixels with black and then applies its own rounded mask,
- * so the Mac icon (already rounded, inside a clear margin) got a black frame. Android's maskable icons have the
- * same rule. So every home-screen icon the page declares must be a FULL-BLEED OPAQUE square: no alpha channel, and
+ * so the Mac icon (already rounded, inside a clear margin) got a black frame. A maskable icon
+ * must be opaque by its own spec (what a launcher draws in a transparent pixel is not ours to choose). So every home-screen icon the page declares must be a FULL-BLEED OPAQUE square: no alpha channel, and
  * gold at all four corners (no drawn rounding either).
  *
  * Read from the PNG bytes, not from a picture of them: the header's colour type says whether there is an alpha
@@ -25,20 +25,23 @@ const WEB = path.join(__dirname, 'web');
 function readPng(file) {
   const buf = fs.readFileSync(file);
   assert.equal(buf.toString('latin1', 1, 4), 'PNG', `${file} is not a PNG`);
-  let off = 8; const idat = []; let ihdr = null;
+  let off = 8; const idat = []; let ihdr = null; let trns = false;
   while (off < buf.length) {
     const len = buf.readUInt32BE(off); const type = buf.toString('latin1', off + 4, off + 8);
     const data = buf.subarray(off + 8, off + 8 + len);
     if (type === 'IHDR') ihdr = { w: data.readUInt32BE(0), h: data.readUInt32BE(4), depth: data[8], colour: data[9], interlace: data[12] };
     if (type === 'IDAT') idat.push(data);
+    if (type === 'tRNS') trns = true;   // an RGB PNG can still mark a colour transparent with this chunk
     off += 12 + len;
   }
   const bpp = ihdr.colour === 6 ? 4 : ihdr.colour === 2 ? 3 : 0;
-  if (!bpp || ihdr.depth !== 8 || ihdr.interlace) return { ...ihdr, corners: null };
+  if (!bpp || ihdr.depth !== 8 || ihdr.interlace) return { ...ihdr, trns, corners: null };
   const raw = zlib.inflateSync(Buffer.concat(idat)); const stride = ihdr.w * bpp;
-  let prev = Buffer.alloc(stride); const rows = [];
+  let prev = Buffer.alloc(stride); const rows = []; let light = 0;
   for (let y = 0; y < ihdr.h; y++) {
-    const f = raw[y * (stride + 1)]; const line = Buffer.from(raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1)));
+    const f = raw[y * (stride + 1)];
+    if (f > 4) return { ...ihdr, trns, corners: null, badFilter: f };   // not a PNG row filter: refuse, never guess
+    const line = Buffer.from(raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1)));
     for (let i = 0; i < stride; i++) {
       const a = i >= bpp ? line[i - bpp] : 0; const b = prev[i]; const c = i >= bpp ? prev[i - bpp] : 0;
       const p = a + b - c; const pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
@@ -46,11 +49,15 @@ function readPng(file) {
       line[i] = (line[i] + pred) & 0xff;
     }
     if (y === 0 || y === ihdr.h - 1) rows.push(Buffer.from(line));
+    for (let x = 0; x < ihdr.w; x++) { const o = x * bpp; if (line[o] > 200 && line[o + 1] > 200 && line[o + 2] > 200) light++; }
     prev = line;
   }
   const px = (row, x) => [...row.subarray(x * bpp, x * bpp + bpp)];
   const last = ihdr.w - 1;
-  return { ...ihdr, corners: [px(rows[0], 0), px(rows[0], last), px(rows[1], 0), px(rows[1], last)] };
+  /* The K's white dots are about 6% of each icon (measured: 6.0, 6.1 and 7.2%); a plain gold square or a black fill
+     has none, and still has gold corners, so the corners alone would pass it. */
+  const lightShare = light / (ihdr.w * ihdr.h);
+  return { ...ihdr, trns, lightShare, corners: [px(rows[0], 0), px(rows[0], last), px(rows[1], 0), px(rows[1], last)] };
 }
 
 /* Opaque, square at the declared size, gold at every corner. Returns the problems, empty when it is right. */
@@ -58,6 +65,9 @@ function homeScreenProblems(file, size) {
   const p = readPng(file); const out = [];
   if (p.w !== size || p.h !== size) out.push(`${p.w}x${p.h}, not ${size}x${size}`);
   if (p.colour !== 2) out.push(`colour type ${p.colour} (${p.colour === 6 ? 'has an alpha channel' : 'not RGB'})`);
+  if (p.trns) out.push('a tRNS chunk (a transparent colour)');
+  if (p.badFilter !== undefined) out.push(`row filter ${p.badFilter} is not a PNG filter`);
+  if (p.corners && !(p.lightShare >= 0.03)) out.push(`no K drawn (${(100 * p.lightShare).toFixed(1)}% light pixels, under 3%)`);
   for (const c of p.corners || [[0, 0, 0, 0]]) {
     const [r, g, b, a = 255] = c;
     if (a < 255 || r < 180 || g < 120 || b > 90) out.push(`a corner is not opaque gold: ${c.join(',')}`);
