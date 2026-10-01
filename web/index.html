@@ -7318,11 +7318,11 @@ html.has-voice .micbtn { display: grid; }
    one-line input. The wrapper takes the box's place in its row (a .frow is a flex row that sized the input itself), so
    no box changes size where the mic is not drawn; the box gets room on the right only where it is (the Mac app). */
 .micwrap { position: relative; }
-.frow > .micwrap { flex: 1; min-width: 220px; }
+.frow > .micwrap { flex: 1; min-width: 220px; }   /* the input's own .frow sizing, which it no longer gets as a child */
 .micwrap > textarea { display: block; }
-.micwrap.one > input { width: 100%; box-sizing: border-box; }
-.micwrap > .fieldmic { position: absolute; right: 8px; top: 6px; width: 28px; height: 28px; }
-.micwrap.one > .fieldmic { top: 50%; transform: translateY(-50%); }
+.micwrap.line > input { width: 100%; box-sizing: border-box; }
+.micwrap > .fieldmic { position: absolute; right: calc(8px + var(--scrollbar-width, 0px)); top: 6px; width: 28px; height: 28px; }   /* clear of a classic scrollbar */
+.micwrap.line > .fieldmic { top: 50%; right: 8px; transform: translateY(-50%); }
 .micwrap > :disabled + .fieldmic { display: none; }   /* a box that takes no words (instructions still loading) shows no mic */
 html.has-voice .micwrap > textarea, html.has-voice .micwrap > input,
 html.has-voice .micwrap > #d-instr, html.has-voice .micwrap > #create-instr { padding-right: 44px; }   /* the two ID rules set their own padding */
@@ -15934,7 +15934,7 @@ window.kosmosMeasureScrollbarWidth();
 
     <div class="field">
       <label class="flabel" for="pjs-name">Name</label>
-      <div class="micwrap one"><input class="tk-inp" type="text" id="pjs-name" maxlength="120"><button class="micbtn fieldmic" type="button" data-voice-for="pjs-name" data-voice-name="Name" data-voice-msg="pjs-msg" aria-label="Talk instead of typing: Name" title="Talk instead of typing: Name" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
+      <div class="micwrap line"><input class="tk-inp" type="text" id="pjs-name" maxlength="120"><button class="micbtn fieldmic" type="button" data-voice-for="pjs-name" data-voice-name="Name" data-voice-msg="pjs-msg" aria-label="Talk instead of typing: Name" title="Talk instead of typing: Name" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
       <!-- #1305 (Josh, 2026-08-28): "if we change a project name, do agents lose
            context of that?" He was avoiding a rename because nothing on this
            screen said whether it was destructive. It is not, twice over: the
@@ -16163,7 +16163,7 @@ window.kosmosMeasureScrollbarWidth();
              would refuse a legitimate name on that path, and the live line
              below is the real gate either way -- it shows the exact path, or
              the refusal, before anything is made. -->
-        <div class="micwrap one"><input type="text" id="pj-name" maxlength="120" placeholder="Henderson lease"
+        <div class="micwrap line"><input type="text" id="pj-name" maxlength="120" placeholder="Henderson lease"
                aria-label="What you call this project"><button class="micbtn fieldmic" type="button" data-voice-for="pj-name" data-voice-name="Name" data-voice-msg="pj-add-msg" aria-label="Talk instead of typing: Name" title="Talk instead of typing: Name" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
       </div>
       <!-- ⚠️ THE PATH IS SHOWN BEFORE ANYTHING IS MADE. The folder name is
@@ -60315,12 +60315,14 @@ function voiceSpeakWatch() {
    A keyboard press (Enter or Space) has no pointer and still toggles through the click. */
 const VOICE_HOLD_MS = 300;
 let VOICE_PRESS = null;   // { btn, at, stopping, pointer } while a pointer is down on a mic
+let VOICE_PRESSED = null;   // the mic the pointer just handled; its own click is then ignored, any other click toggles
 document.addEventListener('pointerdown', (e) => {
   const mic = e.button === 0 && !e.ctrlKey && e.target.closest && e.target.closest('.micbtn');   // Ctrl+click opens a menu on a Mac
   if (!mic) return;
   e.preventDefault();   // keep focus (and the caret) in the box
   const stopping = VOICE.btn === mic;   // pressing a mic that is listening stops it, as a tap always did
   VOICE_PRESS = { btn: mic, at: Date.now(), stopping, pointer: e.pointerId };
+  VOICE_PRESSED = mic;
   voiceToggle(mic);
 }, true);
 function voiceRelease(e) {
@@ -60338,13 +60340,29 @@ function voiceRelease(e) {
 document.addEventListener('pointerup', voiceRelease, true);
 document.addEventListener('pointercancel', voiceRelease, true);
 /* A release the page never hears (a menu or a system sheet takes the mouse) must not arm a later click as a hold. */
-document.addEventListener('contextmenu', () => { VOICE_PRESS = null; }, true);
-window.addEventListener('blur', () => { VOICE_PRESS = null; });
+document.addEventListener('contextmenu', () => { VOICE_PRESS = null; VOICE_PRESSED = null; }, true);
+/* The window losing focus mid-press (Cmd-Tab) ends the press as a release: a hold stops, a tap keeps listening. */
+window.addEventListener('blur', () => { if (VOICE_PRESS) voiceRelease({ pointerId: VOICE_PRESS.pointer }); VOICE_PRESSED = null; });
+/* Slice 2: a dialog has several boxes. Focus moving to another field means the person moved on: stop, keep the words
+   (the keydown guard only sees the box being dictated into, and Escape works only there). */
+document.addEventListener('focusin', (e) => {
+  if (!VOICE.btn || e.target === VOICE.box || !e.target.closest || e.target.closest('.micbtn')) return;
+  if (e.target.matches && e.target.matches('input, textarea, select, [contenteditable="true"]')) voiceCancel();
+}, true);
 document.addEventListener('click', (e) => {
   const mic = e.target.closest && e.target.closest('.micbtn');
-  if (mic) { e.preventDefault(); if (e.detail === 0) voiceToggle(mic); return; }   // e.detail 0: the keyboard, no pointer
-  /* Send while listening: what is in the box is what goes, and nothing arrives after it. */
-  if (VOICE.btn && e.target.closest && e.target.closest('#d-send, #pj-post-go, #asp-send')) voiceCancel();
+  if (mic) {
+    e.preventDefault();
+    /* The pointer already acted on this mic; a click with no press before it (the keyboard, VoiceOver, Switch Control,
+       a script) toggles, whatever its detail says. */
+    if (VOICE_PRESSED === mic) { VOICE_PRESSED = null; return; }
+    VOICE_PRESSED = null;
+    voiceToggle(mic);
+    return;
+  }
+  /* Send, Save, Create or any other button while listening: what is in the box is what goes, and nothing arrives
+     after it (slice 2: a dialog's Save is as final as a composer's Send). */
+  if (VOICE.btn && e.target.closest && e.target.closest('button, [role="button"], input[type="submit"]')) voiceCancel();
 }, true);
 document.addEventListener('keydown', (e) => {
   if (!VOICE.btn || e.target !== VOICE.box) return;

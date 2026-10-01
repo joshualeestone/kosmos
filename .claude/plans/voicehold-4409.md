@@ -8,12 +8,13 @@ dialogues". Splinter handed it to me at 17:03.
 1. Press and hold any mic to talk; let go to stop (it keeps what it heard). A press shorter than 300 ms is a tap and
    toggles as in slice 1, so a long dictation needs no held finger. The pointer does the work on press and release
    (pointerdown starts, or stops a mic that is listening; pointerup after 300 ms or more stops); the pointer's own click
-   is then ignored. A keyboard press (Enter or Space, click with detail 0) still toggles.
+   is then ignored. Any click with no press before it (the keyboard, VoiceOver, Switch Control, a script) toggles.
 2. A mic inside the dialogs' text boxes: New project (name, description, what done looks like), New task
    (`nt-detail`), New agent (`create-instr`), the agent's instructions editor (`d-instr`), and the project settings
    (`pjs-name`, `pjs-desc`). Each is a `.micbtn.fieldmic` with `data-voice-for` in a `.micwrap`, at the box's bottom
    right at first, moved to the top right in review 1 (centred in a one-line input); each says its lines in that dialog's own message line.
-3. Mac app only, as slice 1 (drawn only with the on-device bridge, `html.has-voice`). Same bridge, no native change:
+3. While listening, focus moving to another field, or any button (Save, Create), stops it, keeping the words.
+4. Mac app only, as slice 1 (drawn only with the on-device bridge, `html.has-voice`). Same bridge, no native change:
    `stop` already ends the audio and lets the recognizer deliver its final result.
 
 ## Decided, not missed
@@ -51,4 +52,18 @@ the pointer's click as well reds V2, V10, V11, V12. web.voice-4409.test.js 20/20
   Name"), kept when it changes to "Stop listening"; textareas in the wrapper are block. NOT MEASURED: WKWebView's
   click detail (the keyboard test) and VoiceOver; Chromium only here. Mutations: the flex rule, the ID padding and
   the listening gate each red their check.
+- Round 2 (sonnet): FIXED W: the keyboard path keyed on click detail 0, untested and fragile (an assistive press can
+  arrive with detail 1 and no pointer, which would have broken the composers' mics too); a click is now ignored only
+  when the pointer just handled that same mic; V13 drives Enter, a script click() and a detail-1 click (the old
+  detail test reds it). FIXED W: in a dialog with several boxes, moving to another field kept dictating into the
+  first; focus landing on any other field now cancels (V14). FIXED W: Save, Create and other dialog buttons did not
+  stop listening, so late words could land after a save; any button now cancels (V15, isolated with a button that
+  moves no focus; the old Send-only list reds it). FIXED W: the textarea mic sat over a classic scrollbar; it is
+  offset by the page's measured --scrollbar-width (0 with overlay scrollbars, so NOT exercised by the headless check).
+  DEFERRED W: a long press let go before the bridge says listening is taken as a tap (round 1's first-use fix); the
+  mic shows its asking state meanwhile, and the next tap stops. FIXED NITs: a hold ends on window blur (Cmd-Tab);
+  `.one` renamed `.line`; the .frow min-width rule says why. Left NIT: only the New project description's mic gets a
+  held dictation in the check; the other seven are checked for presence, padding and placement.
+- Josh, 17:16 ("Can we do it in mobile too?"): phones are SLICE 3, a separate branch: it changes slice 1's privacy
+  rule (the browser's recognizer, Josh: "I don't care about privacy") and needs its own iPhone measurement.
 

@@ -22,6 +22,9 @@
  *       description's mic puts the spoken sentence in that box; each box's text clears its mic, the Name field
  *       still fills its row, a one-line mic is centred, a textarea's mic is clear of its resize grip, a disabled box
  *       shows no mic, and letting go before the bridge is listening (first use asks macOS) does not stop it
+ *   V13 (slice 2) the keyboard (Enter on the focused mic) and a script's click() still toggle, with no pointer
+ *   V14 (slice 2) in a dialog, focus moving to another field stops listening, keeping the words
+ *   V15 (slice 2) Save, Create or any other button while listening stops it, so nothing arrives after it
  *   V1b in a browser (no bridge) the Name field fills its row exactly as with no wrapper: wrapping changes nothing
  *
  * Harness: file:// with fetch answered here (render-dm-reply-4256.js's posture), the real paintTalk. The
@@ -266,6 +269,41 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     await page.mouse.move(dm3.x + dm3.width / 2, dm3.y + dm3.height / 2);
     await page.mouse.down(); await page.mouse.up();
     await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'stopped' }));
+    // V13: no pointer at all: the keyboard and a script's click() toggle.
+    const n4 = await page.evaluate(() => window.__voice.length);
+    await page.focus('.fieldmic[data-voice-for="pj-add-desc"]');
+    await page.keyboard.press('Enter');
+    await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'listening' }));
+    await page.focus('.fieldmic[data-voice-for="pj-add-desc"]');
+    await page.keyboard.press('Enter');
+    await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'stopped' }));
+    await page.evaluate(() => document.querySelector('.fieldmic[data-voice-for="pj-add-desc"]').click());
+    await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'listening' }));
+    await page.evaluate(() => document.querySelector('.fieldmic[data-voice-for="pj-add-desc"]').click());
+    await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'stopped' }));
+    // An assistive press (VoiceOver, Switch Control) can arrive as a click with detail 1 and no pointer before it.
+    await page.evaluate(() => { const m = document.querySelector('.fieldmic[data-voice-for="pj-add-desc"]'); m.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 })); });
+    await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'listening' }));
+    await page.evaluate(() => { const m = document.querySelector('.fieldmic[data-voice-for="pj-add-desc"]'); m.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 })); });
+    await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'stopped' }));
+    const kb = await page.evaluate((n) => window.__voice.slice(n).map((m) => m.op), n4);
+    chk(JSON.stringify(kb) === '["start","stop","start","stop","start","stop"]', 'V13 the keyboard, a script\'s click() and an assistive click (detail 1, no pointer) all toggle the mic', JSON.stringify(kb));
+    // V14: focus moving to another field in the dialog stops it, keeping the words.
+    const n5 = await page.evaluate(() => window.__voice.length);
+    await page.evaluate(() => { document.getElementById('pj-add-desc').value = ''; document.querySelector('.fieldmic[data-voice-for="pj-add-desc"]').click(); window.kosmosVoiceEvent({ kind: 'listening' }); window.kosmosVoiceEvent({ kind: 'partial', text: 'first words' }); });
+    await page.focus('#pj-name');
+    await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'final', text: 'first words and more' }));
+    const v14 = await page.evaluate((n) => ({ ops: window.__voice.slice(n).map((m) => m.op), desc: document.getElementById('pj-add-desc').value, pressed: document.querySelector('.fieldmic[data-voice-for="pj-add-desc"]').getAttribute('aria-pressed') }), n5);
+    chk(JSON.stringify(v14.ops) === '["start","cancel"]' && v14.desc === 'first words' && v14.pressed === 'false',
+      'V14 focus moving to another field stops listening and keeps the words heard so far', JSON.stringify(v14));
+    // V15: a dialog button while listening stops it.
+    const n6 = await page.evaluate(() => window.__voice.length);
+    await page.evaluate(() => { document.querySelector('.fieldmic[data-voice-for="pj-add-done"]').click(); window.kosmosVoiceEvent({ kind: 'listening' }); });
+    // A button that moves no focus, so only the button rule can stop it (Add an agent focuses a field, which V14 covers).
+    await page.evaluate(() => { const b = document.createElement('button'); b.type = 'button'; b.id = 'v15-btn'; b.textContent = 'Save';
+      document.getElementById('pj-add-view').appendChild(b); b.click(); b.remove(); });
+    const v15 = await page.evaluate((n) => window.__voice.slice(n).map((m) => m.op), n6);
+    chk(JSON.stringify(v15) === '["start","cancel"]', 'V15 any other button while listening (Save, Create, Add) stops it', JSON.stringify(v15));
     // V12 a disabled box shows no mic (the agent's instructions before they load).
     const dis = await page.evaluate(() => { const b = document.getElementById('d-instr'); const was = b.disabled; b.disabled = true;
       const m = document.querySelector('.fieldmic[data-voice-for="d-instr"]'); const shownMic = getComputedStyle(m).display !== 'none';
