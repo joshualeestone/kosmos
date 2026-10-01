@@ -38,8 +38,8 @@ Decisions (each reversible in a commit):
 
 - Appearance (light/dark) moves into the Settings level: its only tab-view home is the person's menu, which the phone
   header hides (review round 1).
-- The computers are read when Settings is entered, not on every open (each read is a signed Kosmos+ call), and the
-  level refills when the answer lands.
+- The computers are read when Switch Computers is opened (as the top-left menu reads them when it opens), and the
+  level refills whenever any answer lands; whether to offer it comes from the board's own background read.
 
 Validation: render-mobilenav-4823.js, Chromium and WebKit, light and dark, at 430x932 through remote.test: the header,
 all three menu levels, Tab, Escape, a double tap mid-move, reduced motion, the needs-you dot, Log out, the Agents page.
@@ -49,3 +49,10 @@ Review: R1 (opus) 2B 9W 1C 7N: Settings level empty from other tabs; "(needs you
 the menu on a plain row; computers list frozen and fetched on every open; 16px band under the bar; Appearance lost;
 false specificity comment (fixed by doubling the id); A5 could not fail; Chromium only; risky paths unexercised; fixed
 sleeps. All fixed in round 1's commit.
+R2 (sonnet) 0B 10W 0C 7N: menu above the update/restart screens (now 55, under 60/61); Escape ignored defaultPrevented
+(and aria-haspopup=dialog); Back focus used activeElement, which Safari does not set on tap (now the tapped item);
+the opening drop replayed on the next level (ended on any move); no scrollbar-gutter reset; the computers level only
+refilled from its own fetch (now computersRender refills it from any answer); a signed read on every Settings entry
+(now only on opening Switch Computers, as the top-left menu does); Back's name; Appearance radios had no arrow keys
+or roving tab stop; check gaps (close mid-move, reopen, Back's focus, a theme click, Shift+Tab, swallowed waits).
+All fixed in round 2's commit.

@@ -99,7 +99,8 @@ const settled = (page) => page.waitForFunction(() => {
   return !n.classList.contains('opening') && typeof PNAV_PENDING !== 'undefined' && PNAV_PENDING === null
     && n.getAnimations({ subtree: true }).filter((a) => a.playState === 'running').length === 0
     && document.getAnimations().filter((a) => a.playState === 'running' && a.effect && a.effect.target && n.contains(a.effect.target)).length === 0;
-}, null, { timeout: 5000 }).catch(() => {});
+}, null, { timeout: 5000 }).then(() => true, () => { unsettled++; return false; });
+let unsettled = 0;   // a wait that timed out is reported, never swallowed (review round 2)
 
 (async () => {
   fleet.install([
@@ -189,6 +190,9 @@ const settled = (page) => page.waitForFunction(() => {
         for (let i = 0; i < 9; i++) await page.keyboard.press('Tab');
         l = await look(page);
         chk(l.nav && l.nav.focusIn, T + 'M5 Tab stays inside the menu', JSON.stringify({ focus: l.focus }));
+        for (let i = 0; i < 9; i++) await page.keyboard.press('Shift+Tab');
+        l = await look(page);
+        chk(l.nav && l.nav.focusIn, T + 'M6 Shift+Tab stays inside the menu', JSON.stringify({ focus: l.focus }));
 
         // Settings, one level deeper, opened from the Agents tab (the Settings panel itself is hidden then).
         await page.click('[data-pnav-go="settings"]');
@@ -216,12 +220,28 @@ const settled = (page) => page.waitForFunction(() => {
         await settled(page);
         l = await look(page);
         chk(l.nav && l.nav.shown && JSON.stringify(l.nav.level) === '["settings"]', T + 'C2 Escape one level deep goes back a level, not out', JSON.stringify(l.nav && l.nav.level));
+        // Escape left focus on Switch Computers (it came back to the item that went forward).
+        const backTo = await page.evaluate(() => document.activeElement && document.activeElement.id);
+        chk(backTo === 'pnav-computers', T + 'C3 coming back, focus is on the item that went forward', JSON.stringify(backTo));
+        // Appearance: choosing the other theme applies it, and the pair shows it.
+        const other = theme === 'light' ? 'dark' : 'light';
+        await page.click('.pnav-themeopt[data-theme-set="' + other + '"]');
+        const th = await page.evaluate(() => ({ attr: document.documentElement.getAttribute('data-theme'),
+          opts: [...document.querySelectorAll('#pnav .pnav-themeopt')].map((b) => b.dataset.themeSet + ':' + b.getAttribute('aria-checked') + ':' + b.tabIndex) }));
+        chk(th.attr === other && th.opts.includes(other + ':true:0') && th.opts.includes(theme + ':false:-1'), T + 'P1 Appearance applies the theme chosen and moves the tab stop to it', JSON.stringify(th));
+        await page.click('.pnav-themeopt[data-theme-set="' + theme + '"]');
         await page.click('#pnav-back');
         await settled(page);
         l = await look(page);
         chk(l.nav && JSON.stringify(l.nav.level) === '["main"]' && !l.nav.back, T + 'B1 back returns to the first level and the chevron goes', JSON.stringify(l.nav && { level: l.nav.level, back: l.nav.back }));
 
         // A needs-you section shows its dot; a second tap inside the 160ms move leaves exactly one level.
+        // Closed in the middle of a move, then opened again: it opens on the first level, one level, nothing hanging.
+        await page.evaluate(() => { document.querySelector('[data-pnav-go="settings"]').click(); document.getElementById('pnav-x').click(); });
+        await page.click('#kplus-menu');
+        await settled(page);
+        l = await look(page);
+        chk(l.nav && l.nav.shown && JSON.stringify(l.nav.level) === '["main"]' && !l.nav.back, T + 'B3 closed mid-move and reopened, the menu is on its first level', JSON.stringify(l.nav && { level: l.nav.level, back: l.nav.back }));
         await page.evaluate(() => document.querySelector('#s-nav button[data-go="plus"]').setAttribute('data-dot', '1'));
         await page.evaluate(() => { document.querySelector('[data-pnav-go="settings"]').click(); document.getElementById('pnav-back').click(); });
         await settled(page);
@@ -278,6 +298,7 @@ const settled = (page) => page.waitForFunction(() => {
     }
   }
   chk(errs.length === 0, 'no page errors', JSON.stringify(errs.slice(0, 3)));
+  chk(unsettled === 0, 'every wait for the menu to settle settled', String(unsettled));
   server.close();
   for (const d of ROOTS) fs.rmSync(d, { recursive: true, force: true });
   console.log(`\nrender-mobilenav-4823: ${pass} passed, ${fail.length} failed`);

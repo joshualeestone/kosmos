@@ -1393,10 +1393,12 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
    level you leave fade while drifting 8px left (240ms), the next level fades in from 8px right 160ms later, a back
    chevron fades in with it, and back is the mirror; every move on cubic-bezier(.4,0,.6,1). Only the board builds
    #pnav, and only through a Kosmos+ address (kplusBar). */
-.pnav { position: fixed; inset: 0; z-index: 70; background: #17233d; color: #fff; overflow-y: auto;
+.pnav { position: fixed; inset: 0; z-index: 55; background: #17233d; color: #fff; overflow-y: auto;
   overscroll-behavior: contain; padding: var(--safe-top) var(--safe-right) 0 var(--safe-left, 0px); }
 .pnav[hidden] { display: none; }
-html.pnav-up { overflow: hidden; }
+/* Above tips and toasts (40-50), below the first-run, update and restart screens (60, 61), which must stay on top.
+   The page under it does not scroll or reserve a gutter, as with the other full-screen layers (#4494). */
+html.pnav-up { overflow: hidden; scrollbar-gutter: auto; }
 .pnav-top { position: sticky; top: 0; height: 48px; display: flex; align-items: center; justify-content: space-between;
   background: #17233d; z-index: 1; }
 .pnav-x, .pnav-back { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
@@ -18162,7 +18164,7 @@ function kplusBar() {
     + '<span class="kplus-bar-end"><span class="kplus-bar-msg" id="kplus-bar-msg" role="status"></span>'
     + '<button type="button" class="kplus-bar-out" id="kplus-logout">Log out</button>'
     /* #4823: the two lines that open the phone menu (#pnav). Shown only at phone width, by CSS. */
-    + '<button type="button" class="kplus-bar-menu" id="kplus-menu" aria-label="Menu" aria-expanded="false" aria-controls="pnav">'
+    + '<button type="button" class="kplus-bar-menu" id="kplus-menu" aria-label="Menu" aria-haspopup="dialog" aria-expanded="false" aria-controls="pnav">'
     + '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M.5 4.5h17M.5 13.5h17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></span>';
   head.insertBefore(bar, head.firstChild);
   document.documentElement.classList.add('kremote');   // #4823: the phone header and menu key on this
@@ -18240,6 +18242,7 @@ function pnavBuild() {
     if (src && !src.hidden) setNavBadge('nav-badge-' + k, src.textContent === '99+' ? 100 : Number(src.textContent));
   }
   document.getElementById('kplus-menu').addEventListener('click', pnavOpen);
+  document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('.pnav-themeopt')) pnavThemeRove(); });
   boardPhoneView();
   /* Widened past the phone width (a rotated tablet, a resized window), the menu's button is gone, so the menu goes too. */
   if (window.matchMedia) {
@@ -18260,7 +18263,8 @@ function pnavBuild() {
       return;
     }
     const go = e.target.closest('[data-pnav-go]');
-    if (go) { pnavTo(go.dataset.pnavGo); return; }
+    /* The item itself, not document.activeElement: Safari does not focus a button it taps (review round 2). */
+    if (go) { pnavTo(go.dataset.pnavGo, go); return; }
     const sec = e.target.closest('[data-pnav-sec]');
     if (sec) {
       pnavClose(false);
@@ -18272,8 +18276,16 @@ function pnavBuild() {
   /* On the document, not the menu: focus can sit on a level itself (a level with nothing to press), and a key there
      must still reach this (review round 1). Only while the menu is open. */
   document.addEventListener('keydown', (e) => {
-    if (nav.hidden) return;
+    if (nav.hidden || e.defaultPrevented) return;   // a key another layer already handled is not ours
     if (e.key === 'Escape') { e.preventDefault(); if (nav.classList.contains('deep')) pnavBack(); else pnavClose(true); return; }
+    const opt = e.target.closest && e.target.closest('.pnav-themeopt');
+    if (opt && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+      /* Two radios: an arrow moves to the other and chooses it (the radio-group keys, as on the page's own pickers). */
+      e.preventDefault();
+      const other = [...nav.querySelectorAll('.pnav-themeopt')].find((b) => b !== opt);
+      if (other) { other.focus(); other.click(); }
+      return;
+    }
     if (e.key !== 'Tab') return;
     /* A modal: Tab stays inside it. */
     const f = [...nav.querySelectorAll('button, a[href]')].filter((el) => !el.disabled && el.getClientRects().length && el.tabIndex !== -1);
@@ -18301,6 +18313,19 @@ function boardPhoneView() {
     if (want === 'grid' && BOARD_LAYOUT === 'list') layoutApply('agents', 'grid');
   }
 }
+/* The opening drop is over once the person moves to another level; left on, its delays would replay on the next
+   level's items and show it empty for a moment (review round 2). */
+function pnavOpened() {
+  clearTimeout(PNAV_OPENING_T);
+  const nav = document.getElementById('pnav');
+  if (nav) nav.classList.remove('opening');
+}
+/* The Appearance pair is one tab stop, on the choice in use (a radio group's roving tabindex). */
+function pnavThemeRove() {
+  const opts = [...document.querySelectorAll('#pnav .pnav-themeopt')];
+  const on = opts.find((b) => b.getAttribute('aria-checked') === 'true') || opts[0];
+  for (const b of opts) b.tabIndex = b === on ? 0 : -1;
+}
 /* The level on screen, and the trail back to the first one. */
 let PNAV_TRAIL = ['main'];
 let PNAV_OPENING_T = 0;
@@ -18316,6 +18341,7 @@ function pnavOpen() {
   nav.querySelector('[data-pnav-tab="tasks"]').closest('li').hidden = !tasks || tasks.hidden;
   PNAV_TRAIL = ['main'];
   if (typeof paintThemePicker === 'function') paintThemePicker();
+  pnavThemeRove();
   for (const lv of nav.querySelectorAll('.pnav-level')) { lv.hidden = lv.dataset.level !== 'main'; lv.className = 'pnav-level'; }
   nav.classList.remove('deep');
   document.getElementById('pnav-back').tabIndex = -1;
@@ -18333,6 +18359,8 @@ function pnavOpen() {
 function pnavClose(refocus) {
   const nav = document.getElementById('pnav');
   if (!nav || nav.hidden) return;
+  pnavSettle();
+  pnavOpened();
   nav.hidden = true;
   document.documentElement.classList.remove('pnav-up');
   const btn = document.getElementById('kplus-menu');
@@ -18402,7 +18430,10 @@ function pnavMove(from, to, dir) {
     const f = (back && b.contains(back) && back.getClientRects().length) ? back : b.querySelector('button.pnav-item, a.pnav-item, .pnav-small:not([hidden])');
     (f || b).focus({ preventScroll: true }); };
   nav.classList.toggle('deep', PNAV_TRAIL.length > 1);
-  document.getElementById('pnav-back').tabIndex = PNAV_TRAIL.length > 1 ? 0 : -1;
+  const backBtn = document.getElementById('pnav-back');
+  backBtn.tabIndex = PNAV_TRAIL.length > 1 ? 0 : -1;
+  /* It says where it goes: from Switch Computers that is Settings (review round 2). */
+  backBtn.setAttribute('aria-label', PNAV_TRAIL.length > 2 ? 'Back to Settings' : 'Main menu');
   if (reduce) { swap(); return; }
   /* The level you leave fades out (240ms); the next one takes its place 160ms in and fades in over 240ms, so the
      change lands at 400ms, as on apple.com (whose two levels overlap; here the leaving one is cut at 160ms, by then
@@ -18411,17 +18442,19 @@ function pnavMove(from, to, dir) {
   PNAV_PENDING = swap;
   swap.t = setTimeout(() => { if (PNAV_PENDING === swap) PNAV_PENDING = null; swap(); }, 160);
 }
-function pnavTo(name) {
+function pnavTo(name, opener) {
   pnavSettle();
   const from = PNAV_TRAIL[PNAV_TRAIL.length - 1];
   if (from === name) return;
-  PNAV_FROM.push(document.activeElement);
+  pnavOpened();
+  PNAV_FROM.push(opener || document.activeElement);
   pnavFill(name);
   PNAV_TRAIL.push(name);
   pnavMove(from, name, 'fwd');
-  /* The computers are read when Settings is entered, not on every open (each read is a signed call to Kosmos+, which
-     #4815 backs off), and the levels refill when the answer lands, so neither shows a stale list. */
-  if (name === 'settings' && typeof computersFetch === 'function') computersFetch().then(pnavRefresh, () => {});
+  /* The computers are read when Switch Computers is opened, as the top-left menu reads them when it opens (each read
+     is a signed call to Kosmos+). Whether to offer it at all comes from the board's own background read
+     (COMPUTERS_OPENABLE, #4815). computersRender refills the level whenever an answer lands (pnavRefresh). */
+  if (name === 'computers' && typeof computersFetch === 'function') computersFetch().catch(() => {});
 }
 /* Refill the level on screen from the board as it is now (the computers' answer has landed). Settings refills only
    the Switch Computers line, so a person mid-list does not lose their place. */
@@ -18439,6 +18472,7 @@ function pnavRefresh() {
 function pnavBack() {
   pnavSettle();
   if (PNAV_TRAIL.length < 2) return;
+  pnavOpened();
   const from = PNAV_TRAIL.pop();
   pnavFill(PNAV_TRAIL[PNAV_TRAIL.length - 1]);
   pnavMove(from, PNAV_TRAIL[PNAV_TRAIL.length - 1], 'back');
@@ -26651,7 +26685,7 @@ function computersRender(data) {
      one-Kosmos helpers do not exist; a lifted copy behaves as before. */
   const good = !!data && (data.ok === true || data.signedIn === false);
   // Only this computer (or nothing): there is nowhere else to go, so the section stays hidden.
-  if (rows.length < 2) { list.textContent = ''; box.hidden = true; if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows, good); return; }
+  if (rows.length < 2) { list.textContent = ''; box.hidden = true; if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows, good); if (typeof pnavRefresh === 'function') pnavRefresh(); return; }
   list.textContent = '';
   for (const c of rows) {
     /* Only an ONLINE computer is a link. An offline one would open a browser error page (the
@@ -26687,6 +26721,8 @@ function computersRender(data) {
   }
   box.hidden = false;
   if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows, good);
+  /* #4823: the phone menu's computers level copies these rows; refill it from whichever answer this was. */
+  if (typeof pnavRefresh === 'function') pnavRefresh();
 }
 function worldswToggle() {
   const menu = document.getElementById('worldsw-menu');
