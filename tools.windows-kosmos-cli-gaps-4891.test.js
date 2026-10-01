@@ -72,6 +72,12 @@ test('#4891 review 2/3 Windows: `report clear --auto` is refused by name; a note
     assert.match(r.err, /takes no --auto/, argv.join(' '));
     assert.equal(r.calls.length, 0, argv.join(' ') + ' sent a request');
   }
+  // CONTROL: the hook's own path, `report working --auto`, is untouched (review 4).
+  const hook = await run(['report', 'working', '--auto', 'x'], () => ({ body: JSON.stringify({ recorded: true }) }));
+  assert.equal(hook.code, 0, hook.err);
+  const hookBody = JSON.parse(hook.calls.find((c) => c.method === 'POST').body);
+  assert.equal(hookBody.state, 'working');
+  assert.equal(hookBody.auto, true);
   const note = await run(['report', 'clear', 'back', 'to', 'it,', 'dropped', '--auto'], () => ({ body: JSON.stringify({ recorded: true }) }));
   assert.equal(note.code, 0, note.err);
   const body = JSON.parse(note.calls.find((c) => c.method === 'POST').body);

@@ -149,6 +149,13 @@ test('#4891 review 2/3: `report clear --auto` is refused by name before any requ
       assert.match(out.stdout + out.stderr, /takes no --auto/, args.join(' '));
       assert.equal(hits.length, 0, args.join(' ') + ' reached the board');
     }
+    // CONTROL: the hook's own path, `report working --auto`, is untouched (review 4: keyed on clear, not on working).
+    hits.length = 0;
+    const hook = await runCli(['report', 'working', '--auto', 'x'], envFor(port));
+    assert.equal(hook.code, 0, hook.stdout + hook.stderr);
+    const hookBody = JSON.parse(hits.find((h) => h.url.startsWith('/api/report')).body);
+    assert.equal(hookBody.state, 'working');
+    assert.equal(hookBody.auto, true);
     // CONTROL: --auto after the note is note text, as it is for every other state.
     hits.length = 0;
     const note = await runCli(['report', 'clear', 'back', 'to', 'it,', 'dropped', '--auto'], envFor(port));

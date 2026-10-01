@@ -16543,7 +16543,7 @@ const server = http.createServer(async (req, res) => {
       rows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
       /* Plain text on ?as=text, for `kosmos room <id>` (#314): the CLI runs on
          stock bash 3.2 with no JSON parser, so the server does the shaping.
-         The tail only (last 40), oldest first, one line per row, and the
+         The tail only (the last 40, or the last `n` the CLI asks for, #4891), oldest first, one line per row, and the
          unreadable case says so rather than printing an empty room.
          #2702: `asText` is computed once at the top of this route now and reused
          here, so the reject arm and this render arm cannot disagree. */

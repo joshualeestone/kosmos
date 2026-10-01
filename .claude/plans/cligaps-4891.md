@@ -68,3 +68,9 @@ cli.gaps-4891.test.js (Mac CLI against a stub board recording every request), to
 - N2 the --auto arms could pass on main (clear was an invalid state there): they now assert the sentence.
 - N3 `room proj -n 5 extra` says "one project at a time": kept (no caller passes extra words).
 - N4 the /api/tasks header did not mention the 404: FIXED.
+
+## Review 4 (Opus, blind, source-only): 0 blockers, 0 warnings, 4 nits. CONVERGED.
+- N1 no test pinned the hook's `report working --auto`: arm added on both CLIs.
+- N2 stale "last 40" comment: FIXED.
+- N3 a flag with no value before the note differs Mac/Windows for every state: pre-existing, noted on the card.
+- N4 `room proj extra` now exits 2: kept (as review 3).
