@@ -22,7 +22,8 @@
  * everything would pass every artifact check, so then the run is "could not tell", never "healthy". A download site
  * that does not answer at all is an alarm, unless nothing else answered either (this computer is offline). A request
  * that gets no answer or a 5xx is tried once more before it counts. A run can outlast its 15 minutes when several
- * builds are re-hashed at once; launchd does not overlap runs, so the next one simply starts late.
+ * builds are re-hashed at once (measured: about 40 s with every file hashed; the bound, every hash read timing out
+ * twice, is near 50 minutes); launchd does not overlap runs, so the next one simply starts late.
  *
  * Where it posts, the same two places as tools/gap-alarm.js (whose alert loop this follows; review history there):
  *   - a pane by claude-msg (SERVE_WATCH_TO, default Splinter, who routes: the site and the relay have different
@@ -91,7 +92,6 @@ const TYPES = Object.freeze({   // media types are case-insensitive (RFC 9110)
   script: /^(text\/plain|text\/x-shellscript|application\/x-sh|application\/octet-stream)\b/i,
   tarball: /^application\/(gzip|x-gzip|x-tar|octet-stream)\b/i,
   manifest: /^application\/json\b/i,
-  sidecar: /^(text\/plain|application\/octet-stream)\b/i,
   zip: /^application\/(zip|x-zip-compressed|octet-stream)\b/i,
 });
 /* A pointer field must be a bare file name: a value with a slash or a dot-dot would make this fetch some other path. */
@@ -218,7 +218,9 @@ async function gather(prev, now) {
      sidecar and the pointer as separate objects, and a run that lands between them sees one half-written moment. */
   const prevPending = Array.isArray(prev && prev.pending) ? prev.pending.filter((k) => typeof k === 'string') : [];
   const pending = [];
-  const mismatch = (key, text) => { if (prevPending.includes(key)) add(key, text); else pending.push(key); };
+  /* Every run that still sees a mismatch keeps its key, so one that lasts stays an alarm (dropping it once said would
+     flap: alarm, "healthy", alarm). With no state at all (prev.noState) nothing could be remembered: first sight. */
+  const mismatch = (key, text) => { pending.push(key); if (prevPending.includes(key) || (prev && prev.noState)) add(key, text); };
 
   // The community site and the relay first: they also tell whether THIS computer can reach the internet.
   const health = await getJson(COMMUNITY + '/api/health');
@@ -484,6 +486,7 @@ async function main(argv) {
   if (argv.includes('--install')) { process.stdout.write('installed ' + install() + '\n'); return 0; }
   const now = Number(env.SERVE_WATCH_NOW) || Math.floor(Date.now() / 1000);
   if (argv.includes('--check')) {   // read-only: no state written, nothing created
+    // One run: a sha or sidecar mismatch seen for the first time is listed under `pending`, not yet an alarm.
     const v = await gather(readState(), now);
     process.stdout.write(JSON.stringify(Object.assign({}, v, { sha: undefined })) + '\n');
     return v.unknown ? 2 : v.alarm ? 1 : 0;
@@ -496,7 +499,7 @@ async function main(argv) {
     process.stderr.write('serve-watch: cannot keep state (' + noState + '); checking only in the first 15 minutes of the UTC day\n');
     return 2;
   }
-  const state = noState ? null : readState();
+  const state = noState ? { noState: true } : readState();
   const v = await gather(state, now);
   const code = v.unknown ? 2 : v.alarm ? 1 : 0;
   const since = state ? Number(state.unknownSince) : NaN;

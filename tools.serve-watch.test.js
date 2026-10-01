@@ -373,3 +373,11 @@ test('nothing answering at all is "could not tell" (this computer is offline), n
   assert.equal(r.code, 2, r.out + r.err);
   assert.equal(st.card() + st.pane(), '', 'an offline computer posted before the grace');
 });
+
+test('a mismatch that lasts stays an alarm: no "back to healthy" between sightings', () => withSite(async ({ site, base, dir, st }) => {
+  site.files.set('kosmos-1.0.0-win-x64.zip.sha256', ['text/plain', '0'.repeat(64) + '  kosmos-1.0.0-win-x64.zip\n']);
+  const codes = [];
+  for (let i = 0; i < 4; i++) codes.push((await run(base, dir, st, { now: T0 + i * 900 })).code);
+  assert.deepEqual(codes, [0, 1, 1, 1], 'a standing mismatch flapped');
+  assert.doesNotMatch(st.card(), /back to healthy/, 'a standing mismatch posted an all-clear');
+}));
