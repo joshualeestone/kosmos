@@ -207,3 +207,18 @@ test('the instructions each agent reads on a project teach --who me', () => {
   const body = projects.blockBody([projects.get(projectId)], 'mara');
   assert.match(body, /A task for yourself: add `--who me` \(or `--who <name>` for another agent on it\)\. Without it, Kosmos gives it to whoever is free/);
 });
+
+test('the board answers with the task\'s who before told and heard (the Mac CLI reads the first "who":)', async () => {
+  const res = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/tasks`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sentence: 'Order check', who: 'otto' }),
+  });
+  const raw = await res.text();
+  assert.equal(res.status, 200, raw.slice(0, 160));
+  const at = raw.indexOf('"who":');
+  assert.ok(raw.startsWith('{"task":{'), 'the answer no longer starts with the task: ' + raw.slice(0, 80));
+  assert.ok(at > 0 && raw.startsWith('"who":"otto"', at), 'the first "who": is not the task\'s own: ' + raw.slice(0, 200));
+  for (const k of ['"told":', '"heard":']) {
+    const k_at = raw.indexOf(k);
+    assert.ok(k_at > at, k + ' comes before the task\'s who (or is missing), so the Mac read would pick it up: ' + raw.slice(0, 240));
+  }
+});
