@@ -152,6 +152,31 @@ else
   echo "SKIP  zsh not available for the self-defending zsh arm"
 fi
 
+# 9b. kosmos#4811: sourced into a zsh whose `grep` is not grep (the agent's own shell runs a function that calls
+#     ugrep with --ignore-files and -I), the gate PASSED a branch CI refused. A grep that matches nothing stands in
+#     for it; the gate must re-run itself under bash and still refuse.
+if command -v zsh >/dev/null 2>&1; then
+  printf '%s\n' '--- a/web/index.html' '+++ b/web/index.html' '@@ -1 +1 @@' \
+    '-  <p id="tsk-crumb">3</p>' '+  <p id="tsk-crumb">4</p>' > "$TMP/wd-4811"
+  : > "$TMP/f-4811"; : > "$TMP/m-4811"
+  BCDIR_ABS="$(cd "$HERE/.." && pwd)/docs/browser-checks"
+  # CONTROL: a gate that believes the lying grep passes this change (under bash the function is used in-process).
+  if bash -c 'grep() { return 1; }; . "$1" && KOSMOS_BCSG_WEBDIFF="$2" KOSMOS_BCG_FILES="$3" KOSMOS_BCG_MSGS="$4" KOSMOS_BCSG_DIR="$5" kosmos_browser_check_surface_gate' _ \
+       "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811" "$TMP/m-4811" "$BCDIR_ABS" >/dev/null 2>&1; then
+    pass "#4811 control: a gate that believes a grep matching nothing passes the change"
+  else
+    fail "#4811 control: the lying grep did not make the gate pass, so the arm below proves nothing"
+  fi
+  if zsh -c 'grep() { return 1; }; . "$1" && KOSMOS_BCSG_WEBDIFF="$2" KOSMOS_BCG_FILES="$3" KOSMOS_BCG_MSGS="$4" KOSMOS_BCSG_DIR="$5" kosmos_browser_check_surface_gate' _ \
+       "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811" "$TMP/m-4811" "$BCDIR_ABS" >/dev/null 2>&1; then
+    fail "#4811: sourced into zsh with a grep that matches nothing, the gate passed (it must run itself under bash)"
+  else
+    pass "#4811: sourced into zsh with a grep that matches nothing, the gate still refuses"
+  fi
+else
+  echo "SKIP  #4811: zsh not available"
+fi
+
 # 10. #3893: a PR MERGED INTO BASE before CI checked out (two merge bases, a criss-cross).
 #     Built with real git: main gains M1 (changes tok-x, updates render-x.js, excuses
 #     render-y.js by trailer), the PR (an unrelated file) is merged into main as M2, and CI's

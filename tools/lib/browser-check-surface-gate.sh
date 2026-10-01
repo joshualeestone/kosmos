@@ -61,7 +61,19 @@ bcg_anchor_base() {  # <base> -> prints the merge base, or returns 1
   return 1
 }
 
+# kosmos#4811: where this lib lives, taken when it is sourced, so the gate can re-run itself under bash.
+_KOSMOS_BCSG_SELF="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/$(basename "${BASH_SOURCE[0]:-$0}")"
+
 kosmos_browser_check_surface_gate() {
+  # kosmos#4811: ONLY BASH ANSWERS. Sourced into another shell (the agent's own zsh, whose `grep` is a function
+  # that runs ugrep with --ignore-files and -I), the same lines matched differently and this gate passed a branch
+  # CI refused. So outside bash it runs itself under bash (a fresh bash, which has no such function) and returns
+  # that answer; the caller's KOSMOS_BCG_* / KOSMOS_BCSG_* settings travel as exported variables.
+  if [ -z "${BASH_VERSION:-}" ]; then
+    echo "browser check surface gate: not running under bash; running it under bash (kosmos#4811)" >&2
+    bash -c '. "$1" && kosmos_browser_check_surface_gate' _ "$_KOSMOS_BCSG_SELF"
+    return $?
+  fi
   # dstat/dpath NOT status/path: zsh ties `path`->PATH and `status`->$?, and this lib
   # is sourced, sometimes into zsh.
   local base mb bcdir files msgs webdiff changed tab

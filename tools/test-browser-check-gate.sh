@@ -190,6 +190,26 @@ check "#3893 positive control: a PR's own web change with no check and no traile
 ( cd "$tmp/dx" && unset KOSMOS_BCG_FILES KOSMOS_BCG_MSGS; KOSMOS_BCG_BASE="$D_M2" kosmos_browser_check_gate ) >/dev/null 2>&1
 check "#3893 criss-cross positive control: the PR's own unexcused web change is refused even when base contains the PR" 1 "$?"
 
+# kosmos#4811: this gate's verdict does not run through grep (its only grep picks the merge base, and only without
+# the seams), so unlike the surface gate it cannot be fooled by the agent shell's grep function. It still re-runs
+# itself under bash outside bash, for the same reason; this pins that the re-run happens and still refuses.
+ns M web/index.html > "$tmp/f4811"; : > "$tmp/m4811"
+if command -v zsh >/dev/null 2>&1; then
+  err4811="$(zsh -c '. "$1" && KOSMOS_BCG_FILES="$2" KOSMOS_BCG_MSGS="$3" kosmos_browser_check_gate' _ \
+    "$HERE/lib/browser-check-gate.sh" "$tmp/f4811" "$tmp/m4811" 2>&1 >/dev/null)"
+  rc4811=$?
+  check "#4811: sourced into zsh, an unchecked web change is still refused" 1 "$rc4811"
+  case "$err4811" in *"running it under bash (kosmos#4811)"*) r=0 ;; *) r=1 ;; esac
+  check "#4811: sourced into zsh, the gate says it re-ran itself under bash" 0 "$r"
+else
+  echo "SKIP  #4811: zsh not available"
+fi
+# CONTROL: under bash it answers itself and says nothing about re-running.
+err4811b="$(bash -c '. "$1" && KOSMOS_BCG_FILES="$2" KOSMOS_BCG_MSGS="$3" kosmos_browser_check_gate' _ \
+  "$HERE/lib/browser-check-gate.sh" "$tmp/f4811" "$tmp/m4811" 2>&1 >/dev/null)"
+case "$err4811b" in *"kosmos#4811"*) r=1 ;; *) r=0 ;; esac
+check "#4811 control: under bash the gate does not re-run itself" 0 "$r"
+
 echo "---"
 if [ "$fails" -eq 0 ]; then
   echo "browser-check-gate: all checks passed"
