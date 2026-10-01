@@ -444,6 +444,7 @@ async function repliesFor(sessionName, opts) {
     }
     if (!top) continue;
     const old = next[pid];
+    // Never back: defensive (a candidate only falls below the old mark if the service dropped its newest items).
     const base = old && byPos(top, asItem(old)) <= 0 ? asItem(old) : top;
     const keep = (old && old.seen ? old.seen : []).slice();
     for (const { x, post } of shownItems) if (post === pid && byPos(x, base) > 0 && !keep.includes(x.id)) keep.push(x.id);

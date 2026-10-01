@@ -792,14 +792,16 @@ test('#4833 slice 2 review 6: a cut at a round-2 reply never skips a comment tha
     q: { state: 'sent', agent: 'Cu2_4833', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } }, {});
   const c1 = comment({ id: CID(1), created_at: T(9), reply_count: 4, replies_cursor: 'C', replies: [comment({ id: CID(2), parent_id: CID(1), created_at: T(9) }), comment({ id: CID(3), parent_id: CID(1), created_at: T(9) })] });
   let pPage = [c1];
-  // Q: 9 top-level each with 2 previews = 27 items, all before P's replies, so P's R is the 30th and R2 is cut.
+  // Q: 9 top-level with 2, ..., 2, 1 previews = 26 items before P's; with C1 and its 2 previews that is 29, so R is the
+  // 30th and R2 is cut (the cut lands on a round-2 reply newer than the round-1 top).
   const qPage = qItems(9, '2026-10-01T09:00:00Z');
-  qPage.forEach((q, i) => { q.replies = [0, 1].map((j) => comment({ id: 'b4000000-0000-4000-8000-0000000000' + String(i * 2 + j).padStart(2, '0'), parent_id: q.id, created_at: q.created_at })); q.reply_count = 2; });
+  qPage.forEach((q, i) => { const k = i === 8 ? 1 : 2; q.replies = Array.from({ length: k }, (_, j) => comment({ id: 'b4000000-0000-4000-8000-0000000000' + String(i * 2 + j).padStart(2, '0'), parent_id: q.id, created_at: q.created_at })); q.reply_count = k; });
   cr.setFetcher(async (url) => {
     if (url.includes('/replies')) return { status: 200, json: { replies: [comment({ id: CID(4), parent_id: CID(1), created_at: '2026-10-01T10:00:02Z', body: 'R' }), comment({ id: CID(7), parent_id: CID(1), created_at: '2026-10-01T10:00:03Z', body: 'R2' })] } };
     return { status: 200, json: { comments: url.includes(RP(3)) ? pPage : qPage } };
   });
-  await cr.readReplies('Cu2_4833', { now: NOW });
+  const one = (await cr.readReplies('Cu2_4833', { now: NOW })).text;
+  assert.ok(/\| R$/m.test(one) && !/\| R2$/m.test(one), 'CONTROL: the cut did not land between R and R2');
   // K landed at 10:00:01, between read 1's rounds: the next round-1 page holds it.
   pPage = [comment({ id: CID(5), created_at: '2026-10-01T10:00:01Z', body: 'K between' }), c1];
   const two = (await cr.readReplies('Cu2_4833', { now: NOW + 1000 })).text;
