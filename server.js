@@ -1335,8 +1335,9 @@ function resolveAgentSender(req, body, roster, opts) {
   if (carded[sendertoken.CLASH]) return carded;
 
   const byName = sendertoken.resolveName(presented);
-  /* #4792: only while the key says which agent (no second name has tokens under it; resolve marks a named token whose
-     key is held by a pane row of another name, above). The card is the KEY, as status.js lists a paneless row: the
+  /* #4792: only while the key says which agent (no second name has tokens under it). resolve already marks every twin
+     case CLASH, so this check is reached only if a second name was minted between the two reads; it is kept for that.
+     resolve also marks a named token whose key is held by a pane row of another name. The card is the KEY, as status.js lists a paneless row: the
      board addresses, delivers and keeps records for such an agent by its key (review 2: the token's own spelling
      here would miss them). */
   if (byName.ok && byName.twins !== true && liveness.alive(byName.key) === true) {
@@ -4032,7 +4033,7 @@ function agentTokenOk(req) {
    token names nobody. For the READ handlers only: they have no body, and the gate has already checked the token,
    so this is the same header read twice.
    #4792: a token minted with its agent's name is matched by that exact name, as the slice-3 writes compare a
-   carded caller. An older token carries only its key (store.safeKey of the name) and is matched BY KEY, as before:
+   carded caller, or by the stored key while no second name holds a named token (tokenOnlyOnProject's key arm). An older token carries only its key (store.safeKey of the name) and is matched BY KEY, as before:
    a project that lists "a.b" admits it when its key is "ab". That older path is refused when a second name has
    tokens under the same key, because the key then no longer says which agent. */
 function agentTokenOnlyCaller(req) {

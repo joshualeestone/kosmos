@@ -412,7 +412,7 @@ function resolve(token, roster) {
         /* Two names under one key with no row of their own: both go mute, so log it once per key. */
         if (twins && !NAMED_CLASH_LOGGED.has(key)) {
           NAMED_CLASH_LOGGED.add(key);
-          console.warn(`[sendertoken] #4792: tokens for more than one name are filed under the key "${key}"; a row listed by that key answers for none of them until one is removed or renamed`);
+          console.warn(`[sendertoken] #4792: tokens for more than one name are filed under the key "${key}"; each is refused unless its own pane row is running, until one is removed or renamed`);
         }
         return { ok: false, because: NO_MATCH, ...((twins || paneTwin) ? { [CLASH]: true } : {}) };
       }

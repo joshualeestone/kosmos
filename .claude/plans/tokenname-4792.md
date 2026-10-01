@@ -36,15 +36,20 @@ tokens under it (residual below).
   - An older token (no name) in a file where at most one name holds named tokens is matched by key as before: it
     resolves as whichever single pane row holds the key, which need not be that name (remote "Mara"'s older token
     resolves as pane "mara" when no "Mara" row runs). Older tokens age out as agents relaunch.
-  - Token-only reads have no roster, so a named token whose key is held by a running pane agent of another
-    spelling, on a token with no name, still reads that agent's key-stored projects (the roster paths refuse it).
+  - Token-only reads have no roster: while no second NAME holds a named token under the key, a named token reads
+    every project that lists the key spelling, whoever that is (a running pane agent on older tokens, a stopped or
+    never-run agent, a legacy agent with no token). The roster paths refuse the running-pane case; the reads cannot
+    see it.
   - A row with no session (paneless remote, or created-never-run) is listed and stored by its KEY, and the board
     addresses and delivers to it by that key, so the card stays under the key. Such a row cannot tell remote "Kip"
-    from a stopped Mac agent "kip" that holds no tokens (its run token is retired when it stops): Kip's token would
+    from a stopped Mac agent "kip" that holds no NAMED token (its run token is retired when it stops, and a twin
+    holding only older tokens is just as invisible to the twin check): Kip's token would
     speak there as "kip". Renaming the card to the token's spelling was rejected: delivery and every key-keyed
     record would then miss for every remote agent whose name has capitals or punctuation. Closing it needs a
     paneless row that carries its own name (status.js), a separate change.
-  - revoke(name) drops every name under the key (predates this; per-name revoke is now possible, a follow-up).
+  - revoke(name) drops every name under the key, and retireLauncher(..., { untagged: true }) from one name's
+    supervisor drops the other name's untagged tokens (adopt and win32 mints carry no launcher). Both predate this;
+    names now make a per-name filter possible, a follow-up.
   - POST /api/agent-token's 409 sees only RUNNING pane rows (predates this).
 
 ## Tests
@@ -53,8 +58,7 @@ tokens under it (residual below).
   #4763's refusal; a hand-edited name is ignored; #4763's log test moved to an older token.
 - engine/outbox.test.js, server.agent-reads-4491.test.js, server.paneless-sender.test.js: each caller, with its
   older-token arm and control.
-- Mutants, each caught: no name at mint (4 red); pane rows by key (2 red); paneless fallback without the twin
-  check (1 red, after adding the older-token test: it survived before); token-only reads by key (1 red); outbox
+- Mutants, each caught: no name at mint (4 red); pane rows by key (2 red); token-only reads by key (1 red); outbox
   by key (1 red).
 - Every test file that touches the token store: 99 files, 2161 pass, 0 fail, 15 skipped.
 
@@ -71,3 +75,9 @@ by the reviewer, now a test with a no-row control). The clash logs no longer re-
 success cleared the #4763 set): the #4792 log has its own set, cleared by nothing; tested over five alternations.
 Nits taken: residual 1 restated precisely, plus the token-only residual; the fallback card is the KEY (as status.js
 lists a paneless row), not the token's spelling, so delivery and records match.
+Round 3 (blind): no blocker; CONVERGED on the code (14 mutants on copies, 13 caught). One should-fix in this plan
+only, taken: residual 2 restated (a named token reads every project listing its key spelling while no second name
+holds a named token) and residual 3's "no tokens" made "no NAMED token". Nits taken: the surviving mutant is the
+paneless fallback's own twin check, now reached only if a second name is minted between resolve and resolveName
+(resolve already marks every twin case), said in server.js and here; agentTokenOnlyCaller's comment points at the
+key arm; the #4792 log line says what is refused; retireLauncher's untagged sweep added to the follow-ups.
