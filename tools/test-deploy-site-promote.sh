@@ -349,5 +349,19 @@ run_deploy "$S16" "$L16" --promote
 unset MANGLE_ON_DEPLOY
 [ "$RC" = 1 ] && has "$out" "the served latest-staging.json is not the committed one" && pass "mac staged: a deploy serving a different staging pointer than committed fails the post-deploy check" || bad "mac staged pointer mangled (rc=$RC) out=$out"
 
+# 17) THE INCIDENT'S PATH: a plain site-copy --publish (live latest.json == committed), from a checkout
+#     whose dist/ lacks the staged tarball, carries it from LIVE and deploys.
+read -r S17 L17 <<<"$(make_scenario)"; cp "$S17/dist/latest.json" "$L17/dist/latest.json"; add_staged_mac "$S17" "$L17"
+run_deploy "$S17" "$L17" --publish
+{ [ "$RC" = 0 ] && has "$out" "fetching the one live serves" && [ -f "$S17/dist/$STGART" ] && cmp -s "$L17/dist/latest-staging.json" "$S17/dist/latest-staging.json"; } \
+  && pass "mac staged (--publish): a site-copy deploy from a checkout without the staged build carries it and deploys" || bad "mac staged publish carry (rc=$RC) out=$out"
+
+# 18) the same site-copy --publish from a checkout behind LIVE's staging refuses before any fetch.
+read -r S18 L18 <<<"$(make_scenario)"; cp "$S18/dist/latest.json" "$L18/dist/latest.json"; add_staged_mac "$S18" "$L18"
+write_ptr "$L18/dist/latest-staging.json" 0.6.33 "$(sha_of "$T/stg-bytes")" kosmos-0.6.33-arm64.tar.gz
+run_deploy "$S18" "$L18" --publish
+{ [ "$RC" = 1 ] && has "$out" "live staging is 0.6.33" && [ ! -e "$S18/dist/$NEWART" ] && has "$(cat "$L18/dist/latest-staging.json")" "0.6.33"; } \
+  && pass "mac staged (--publish): a site-copy deploy from a checkout behind LIVE's staging refuses before any fetch" || bad "mac staged publish stale (rc=$RC) out=$out"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

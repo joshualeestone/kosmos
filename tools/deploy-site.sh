@@ -458,9 +458,9 @@ fi
 # restores a dropped one), else the copy live serves now, fetched and checked against the served
 # .sha256 AND the committed pointer's sha. Refuse when neither exists, naming the tarball, unless
 # the staged build is not newer than prod (superseded, as #3600 decides for Windows): then warn and
-# neither fetch nor check it, since nobody will promote it (a local copy without a matching
-# sidecar, if any, still ships by the glob, unchecked). Sets STAGED_ART, empty when nothing extra
-# is carried.
+# carry nothing, since nobody will promote it (a local copy with other bytes refuses instead, as the
+# glob would ship it unchecked). A superseded build that is present is still carried and checked.
+# Sets STAGED_ART, empty when nothing extra is carried.
 # It also refuses a checkout whose committed staging pointer is OLDER than the one live serves (or
 # that commits none while live serves one): deploying it would move staging back and drop the newer
 # tarball, the same incident one version over. A deliberate staging ROLLBACK
@@ -470,7 +470,7 @@ fi
 # One read of a live file: sets _CSM_CODE (the HTTP status, 000 when the request never completed)
 # and _CSM_BODY. Only a 404 means absent; anything else that is not a 200 is "could not check".
 _csm_read() {  # <url>
-  _csm_tmp=$(mktemp "${TMPDIR:-/tmp}/deploy-site-staged.XXXXXX")
+  _csm_tmp=$(mktemp "${TMPDIR:-/tmp}/deploy-site-staged.XXXXXX") || { echo "deploy-site: could not make a temp file -- refusing (#4819)"; exit 1; }
   _CSM_CODE=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o "$_csm_tmp" -w '%{http_code}' "$1" 2>/dev/null) || _CSM_CODE=000
   case "$_CSM_CODE" in ''|*[!0-9]*) _CSM_CODE=000 ;; esac
   _CSM_BODY=$(cat "$_csm_tmp" 2>/dev/null); rm -f "$_csm_tmp"
@@ -536,10 +536,16 @@ carry_staged_mac() {
   _csm_v=$(_csm_version "$_csm_art"); _csm_pv=$(_csm_version "$ART")
   _csm_superseded=""
   [ -z "$_csm_pv" ] || [ "$(printf '%s\n%s\n' "$_csm_v" "$_csm_pv" | sort -V | tail -1)" != "$_csm_pv" ] || _csm_superseded=1
-  if [ -f "$SITE/dist/$_csm_art" ] && [ -f "$SITE/dist/$_csm_art.sha256" ] \
-     && [ "$(_sha256_of "$SITE/dist/$_csm_art")" = "$_csm_sha" ] \
-     && [ "$(awk '{print $1; exit}' "$SITE/dist/$_csm_art.sha256")" = "$_csm_sha" ]; then
-    echo "deploy-site: carrying the staged Mac build $_csm_art from $SITE/dist/ (its bytes and its .sha256 match the committed latest-staging.json) (#4819)"
+  if [ -f "$SITE/dist/$_csm_art" ] && [ "$(_sha256_of "$SITE/dist/$_csm_art")" = "$_csm_sha" ]; then
+    # The bytes are the pointer's build. A missing or wrong local .sha256 is rewritten from them
+    # (right after a cut, on the cut box, live may not serve the pair yet).
+    if [ "$(awk '{print $1; exit}' "$SITE/dist/$_csm_art.sha256" 2>/dev/null)" != "$_csm_sha" ]; then
+      _csm_side=$(mktemp "$SITE/dist/.$_csm_art.sha256.XXXXXX") || { echo "deploy-site: could not make a temp file in $SITE/dist -- refusing (#4819)"; exit 1; }
+      printf '%s  %s\n' "$_csm_sha" "$_csm_art" > "$_csm_side" && mv -f "$_csm_side" "$SITE/dist/$_csm_art.sha256" \
+        || { rm -f "$_csm_side"; echo "deploy-site: could not write $SITE/dist/$_csm_art.sha256 -- refusing (#4819)"; exit 1; }
+      echo "deploy-site: wrote $SITE/dist/$_csm_art.sha256 from the verified local bytes (#4819)"
+    fi
+    echo "deploy-site: carrying the staged Mac build $_csm_art from $SITE/dist/ (its bytes match the committed latest-staging.json) (#4819)"
   else
     echo "deploy-site: $SITE/dist/ has no copy of the staged Mac build $_csm_art matching the committed latest-staging.json; fetching the one live serves (#4819)"
     # Read the served sidecar FIRST and refuse before anything is fetched when it names other
@@ -554,6 +560,9 @@ carry_staged_mac() {
     # Superseded and served nowhere: skip. A served sidecar that names other bytes still refuses
     # below, superseded or not: that is live disagreeing with the committed pointer.
     if [ -z "$_csm_served" ] && [ -n "$_csm_superseded" ]; then
+      # A local copy here has OTHER bytes (a matching one was carried above), and the export's glob
+      # would ship it unchecked under the name the pointer names.
+      [ ! -e "$SITE/dist/$_csm_art" ] || { echo "deploy-site: $SITE/dist/$_csm_art is not the build the committed latest-staging.json names, and the export would ship it unchecked -- refusing; move it aside (the build is superseded, so nothing needs it) and retry (#4819)"; exit 1; }
       echo "deploy-site: WARNING (#4819): latest-staging.json names $_csm_art, which is not newer than the prod build $ART, and neither $SITE/dist/ nor live has it. It is superseded, so nothing is carried for it; the next staging publish replaces the pointer." >&2
       return 0
     fi
