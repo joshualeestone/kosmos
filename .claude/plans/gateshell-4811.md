@@ -53,6 +53,9 @@ closed (rc 1, a cryptic error), never open; normal zsh records it correctly (mea
   test-bc-surface-map.sh, test-ci-gate-armed-2518.sh and test-browser-check-surface-map.sh pass.
 
 ## Review
+Round 5: CONVERGED (no blocker, no should-fix; "would merge"). Nits noted: zsh posix_argzero still records a wrong
+self path (fails closed, pre-existing for the sibling source); a different grep binary earlier on PATH is not covered
+(type -t says file); a caller with KOSMOS_BCG_REEXEC already set skips the guard on purpose.
 Round 4: no blocker; 1 should-fix taken: an aliased grep re-runs too. Nit taken: CDPATH= on the self-path cd (a
 bash cd that echoes under CDPATH corrupted it; tested, fails with the old line). Noted: exported git/sed/awk
 functions still reach the child; the child is whichever bash is first on PATH.
