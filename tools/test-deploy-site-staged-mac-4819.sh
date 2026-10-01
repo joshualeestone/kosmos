@@ -37,6 +37,7 @@
 #   st6r ...with KOSMOS_STAGING_ROLLBACK=<committed version> -> proceeds
 #   st7 same version, different bytes             -> refuses; the opt-in deploys it
 #   st8 malformed committed pointer, live differs  -> refuses with 'repair it'
+#   st9 one transport blip on the live read        -> retried, proceeds
 #   st5 superseded, the sidecar read fails in transport -> refuses, does not take the skip
 #   i  the pointer names a path, not a file         -> refuses before any fetch
 #   j  the pointer has no sha                       -> refuses before any fetch
@@ -86,7 +87,7 @@ ptr() { printf '{"version":"9.9.02","sha256":"%s","artifact":"%s","manifest":"x"
 # "RC=<n> STAGED_ART=<v> FETCHED=<urls>".
 run_carry() {  # <site> <live dir>
   (
-    SITE="$1"; LIVE_DIR="$2"; HOST="https://site.invalid"; ART="$PROD"
+    SITE="$1"; LIVE_DIR="$2"; HOST="https://site.invalid"; ART="$PROD"; KOSMOS_DEPLOY_RETRY_SLEEP=0
     H=$(git -C "$SITE" rev-parse HEAD)
     FETCH_LOG="$T/fetch.log"; : > "$FETCH_LOG"
     # Stub: like the real one, it refuses (exit 1) when live does not serve the URL, else installs
@@ -106,6 +107,8 @@ run_carry() {  # <site> <live dir>
       while [ $# -gt 0 ]; do case "$1" in -o) _o="$2"; shift 2;; -w) _w="$2"; shift 2;; -H|--connect-timeout|--max-time) shift 2;; http*) _u="$1"; shift;; *) shift;; esac; done
       _f="${_u##*/}"; _body=""; _code=404
       [ ! -e "$LIVE_DIR/.down" ] || { [ -z "$_w" ] || printf '000'; return 7; }
+      # .flaky-once: the first request fails in transport, the rest are served normally.
+      if [ -e "$LIVE_DIR/.flaky-once" ]; then rm -f "$LIVE_DIR/.flaky-once"; [ -z "$_w" ] || printf '000'; return 7; fi
       case "$_f" in *.sha256) [ ! -e "$LIVE_DIR/.down-sidecar" ] || { [ -z "$_w" ] || printf '000'; return 7; };; esac
       if [ -f "$LIVE_DIR/$_f" ]; then _body=$(cat "$LIVE_DIR/$_f"); _code=200
       else case "$_f" in *.sha256) [ ! -f "$LIVE_DIR/${_f%.sha256}" ] || { _body="$(sha_of "$LIVE_DIR/${_f%.sha256}")  ${_f%.sha256}"; _code=200; };; esac; fi
@@ -231,6 +234,11 @@ if has "$out" "RC=1 " && has "$out" "both name 9.9.02 but different bytes" && ha
 S="$T/st8"; mksite "$S" "$(ptr "$SHA" "not-a-build.zip")"; mkdir -p "$T/live-st8"; ptr "$SHA" "$STAGED" > "$T/live-st8/latest-staging.json"
 out=$(run_carry "$S" "$T/live-st8")
 if has "$out" "RC=1 " && has "$out" "repair the committed pointer" && ! has "$out" "KOSMOS_STAGING_ROLLBACK"; then pass "st8: a malformed committed pointer refuses with 'repair it', not an opt-in nothing could satisfy"; else bad "st8: $out"; fi
+# One transport blip is retried, not refused.
+S="$T/st9"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-st9"; ptr "$SHA" "$STAGED" > "$T/live-st9/latest-staging.json"; : > "$T/live-st9/.flaky-once"
+cp "$BYTES" "$S/dist/$STAGED"; printf '%s  %s\n' "$SHA" "$STAGED" > "$S/dist/$STAGED.sha256"
+out=$(run_carry "$S" "$T/live-st9")
+if has "$out" "RC=0 STAGED_ART=$STAGED" && [ ! -e "$T/live-st9/.flaky-once" ]; then pass "st9: one transport failure on the live pointer read is retried, not refused"; else bad "st9: $out"; fi
 # A transport failure on the SIDECAR read of a superseded build must refuse, not take the skip.
 S="$T/st5"; mksite "$S" "$(ptr "$SHA" "$OLDSTG")"; mkdir -p "$T/live-st5"; cp "$BYTES" "$T/live-st5/$OLDSTG"; : > "$T/live-st5/.down-sidecar"
 out=$(run_carry "$S" "$T/live-st5")
@@ -270,5 +278,5 @@ if [ -n "$call" ] && [ -n "$export_at" ] && [ "$call" -lt "$export_at" ]; then :
 [ "$k_ok" = 1 ] && pass "k: deploy-site.sh checks staging staleness before any fetch, runs the carry before the export, checks the export for the pair, and served-verifies the pair and the pointer"
 
 echo
-if [ "$fail" = 0 ] && [ "$npass" = 28 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
-echo "FAILED ($npass passed, expected 28)"; exit 1
+if [ "$fail" = 0 ] && [ "$npass" = 29 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
+echo "FAILED ($npass passed, expected 29)"; exit 1
