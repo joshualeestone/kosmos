@@ -767,6 +767,7 @@ async function run() {
       await pnz.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
       releaseNone();
       await pnz.waitForFunction(() => ORGCHART_CREATING === false, null, { timeout: 5000 }).catch(() => {});
+      await pnz.waitForTimeout(300);   // an ABSENCE check: let anything the answer would paint land first
       const nz = await pnz.evaluate(() => ({ creating: ORGCHART_CREATING, created: ORGCHART_CREATED.length,
         box: !document.getElementById('orgchart-preview-box').hidden, undo: !document.getElementById('orgchart-undo').hidden }));
       check('#4688 LATE CREATE THAT MADE NOTHING: the reopened panel stays empty, with no Undo',

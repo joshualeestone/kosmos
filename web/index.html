@@ -47546,6 +47546,7 @@ function orgchartDropExpiredUndo() {
 function orgchartSayUndoExpired() {
   orgchartUndoAsking(false);
   if (ORGCHART_RESULT) orgchartPaintKeptResult();
+  ORGCHART_RESULT = null;   // painted once more here; nothing is kept to restore
   showOrgchartUndo();
   const msg = document.getElementById('orgchart-msg');
   msg.textContent = 'Undo is no longer offered: more than ' + Math.round(ORGCHART_UNDO_KEEP_MS / 60000)
@@ -47559,7 +47560,7 @@ function orgchartSayUndoExpired() {
    removed. Used when the panel is reopened, and when a create answered after the person had left lands while the
    panel is open again and idle. A no-op otherwise. */
 function orgchartRestoreCreated() {
-  orgchartDropExpiredUndo();
+  if (orgchartDropExpiredUndo()) ORGCHART_RESULT = null;
   if (!ORGCHART_CREATED.length || !ORGCHART_RESULT) return false;
   const box = document.getElementById('orgchart-preview-box');
   if (!box) return false;
@@ -48352,8 +48353,8 @@ document.getElementById('orgchart-undo-go').addEventListener('click', async () =
     } catch (err) { reached = false; }
     if (gen !== ORGCHART_GEN) {
       answers.push({ c, out, reached });
-      orgchartUndoLeftMidRun(runList, todo, answers);
       if (typeof paintRemoved === 'function') paintRemoved();
+      orgchartUndoLeftMidRun(runList, todo, answers);
       return;
     }
     answers.push({ c, out, reached });

@@ -112,3 +112,11 @@ Each must fail on the base (main before this branch) and pass here; run on a qui
   the expiry sentence builds its minutes from ORGCHART_UNDO_KEEP_MS.
 - Not taken: using /api/removed (onList) in a left run (a second removal is harmless, as said above); a live region
   for the idle late-create paint (the box's existing announcement behaviour is unchanged by this branch).
+
+## Iteration 6 (Sonnet): three warnings, two fixed, one deferred
+- Fixed: ORGCHART_RESULT is cleared once the kept list expires (after the expiry's one repaint), so no later caller can
+  paint a dead result. LATE CREATE THAT MADE NOTHING settles 300 ms before its absence read. NIT: a left run paints
+  the removed list before updating the kept one.
+- DEFERRED: hardening the late-create idle test against a visible result. Unreachable by construction (Preview, file
+  choice and file read return early while ORGCHART_CREATING, named at the code); a repaint for a state that cannot
+  occur would be untested code. Reopen if any of those early returns is relaxed.
