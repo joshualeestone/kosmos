@@ -35,3 +35,17 @@ agent). What would change my mind: rooms where work stalls because an idle agent
 engine/messages.roomhold-4624.test.js: a new arm (idle held, needs_you typed as control, an old idle report still
 holds, the person's post carries the held line once); the controls that used an idle member as "typed" now use a
 never-reported one; ride-on carriers are @-addressed posts. engine/roomhold-agyhold-4588.test.js: the line's wording.
+
+## Review 1 (Sonnet, blind, source-only): 0 blockers, 3 warnings, 3 nits
+- W1 an idle report never decays, so a runner that does not report every turn's end could strand held posts: FIXED,
+  only an idle written by the member's own turn-end hook (by 'auto') holds; it proves the next turn's end flushes.
+  An agent-written idle is typed as before. Arm added.
+- W2 the #4588 minute retry (flushReleased) would wake an idle agy member about posts asking nothing: FIXED, it skips
+  such a member unless a held post names it. Arm added (and the control that a naming post is told).
+- W3 a quota-paused member's un-addressed post lost its heldUntil: with W1's fix an agent-written idle (the #4588
+  test's) goes through the quota gate as before and keeps it; a hook idle is held by this rule and told at the next
+  wake, so no "held until" time applies.
+- N4 an un-addressed question to the room now wakes no idle member: the `kosmos post` usage says so on both CLIs
+  (held equal by cli.post-stdin-2909).
+- N5 KEEP=200 with no decay: kept (the line counts "and N earlier"; the room has everything).
+- N6 test notes: the never-reported controls are controls by design; the new arms fail on origin/main.

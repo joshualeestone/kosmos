@@ -11,7 +11,7 @@
  * and lands after the turn, by which time the room may already have answered it.
  *
  * What this does, and only this. An AGENT's post that does not @-name you, arriving while your own
- * latest report is a fresh `working` or an `idle` (the #4624 follow-up, 0.7.15 diagnostic H7: idle members were still
+ * latest report is a fresh `working` or an `idle` written by your turn-end hook (the #4624 follow-up, 0.7.15 diagnostic H7: idle members were still
  * woken by every colleague's post, a turn each that ended in "not addressed to me"), is HELD instead of typed: its id is kept in a small file of
  * yours. The post is still in the room and still lists you in `to` (you are told about it, below).
  * You hear about held posts in ONE line, at whichever comes first:
@@ -84,12 +84,15 @@ function workingNow(readReport, name, now, decayMs) {
   return age >= 0 && age <= decayMs;
 }
 
-/* #4624 follow-up (0.7.15 diagnostic, H7): the member's latest report is `idle`, at any age: its last turn ended and
-   it is waiting. Typing a colleague's un-addressed post there starts a turn that ends in "not addressed to me". */
+/* #4624 follow-up (0.7.15 diagnostic, H7): the member's latest report is an `idle` written by its own turn-end hook
+   (by 'auto'), at any age: its last turn ended and it is waiting. Typing a colleague's un-addressed post there starts a
+   turn that ends in "not addressed to me". Only a hook's idle (review 1): it proves this runner reports the END of
+   every turn, so the idle flush will tell the member when its next turn ends, whatever woke it. An idle the agent wrote
+   itself proves nothing of the kind (an idle report never decays), so its posts are typed as before. */
 function idleNow(readReport, name) {
   let rep;
   try { rep = readReport(name); } catch { return false; }
-  return !!(rep && rep.found === true && rep.state === 'idle');
+  return !!(rep && rep.found === true && rep.state === 'idle' && rep.by === 'auto');
 }
 
 /* Whether this post is held for this member instead of typed. Pure apart from the injected read. */
@@ -245,6 +248,9 @@ async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver,
       const name = String(card.sessionName);
       if (!heldProjects(name).length) continue;
       if (workingNow(readReport, name, now, decayMs)) continue;
+      /* #4624 follow-up (review 1): an idle member holding only posts that ask nothing of it waits for its next wake,
+         as on every other runner; this minute retry is for posts the quota held that name it. */
+      if (idleNow(readReport, name) && !heldProjects(name).some((p) => heldIn(name, p).some((x) => plainId(x) !== x))) continue;
       /* Review round 6: a member nothing can type into (stopped, no agent process, no target) is skipped, so its ids
          wait for the next typed arrival instead of a COULD_NOT, and a room-hold log line, every minute. */
       if (require('./chat').addressable(name, roster).ok !== true) continue;

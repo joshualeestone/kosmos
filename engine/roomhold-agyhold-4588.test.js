@@ -457,3 +457,20 @@ test('#4797: both server log lines for a flush go through toldLine (no inline "t
   assert.ok(inline.test("write('room-hold: ' + who + ' told of ' + n)"), 'the check cannot see a concatenated line');
   assert.equal(inline.test(src), false, 'an inline "told of" log line is back in server.js');
 });
+
+test('#4624 follow-up review 1: the minute retry skips an agy member whose hook said idle while it holds only posts asking nothing; one naming it is told', async () => {
+  await withFleetAsync(room3(), async (board) => {
+    assert.equal(selfreport.record('mara', { state: 'idle', because: 'turn ended', auto: true }).recorded, true);
+    assert.equal(roomhold.hold('mara', PROJECT, 'm900010'), true);
+    let tmux = arm();
+    const r = rosterOf(board, null);
+    assert.deepEqual(await roomhold.flushReleased(r, releasedDeps(r, Date.now())), [], 'an idle member was woken about posts that ask nothing of it');
+    assert.deepEqual(tmux.pastedSends(), []);
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), ['m900010']);
+    // CONTROL: once a held post names her, the retry tells her (the #4588 purpose).
+    assert.equal(roomhold.hold('mara', PROJECT, roomhold.addressedId('m900011')), true);
+    tmux = arm();
+    const done = await roomhold.flushReleased(r, releasedDeps(r, Date.now()));
+    assert.deepEqual(done.map((d) => [d.name, d.state]), [['mara', chat.DELIVERY.PLACED]]);
+  });
+});

@@ -139,7 +139,8 @@ test('#4624 with #4580: the same post sent again while it is held is folded into
 
 test('#4624 follow-up (0.7.15 diagnostic H7): an IDLE member is not typed a colleague\'s un-addressed post either; it is told on its next typed arrival', () => {
   withFleet(room3(), (board) => {
-    report('mara', 'idle');
+    // The turn-end hook's idle (auto), as the Claude Stop hook writes it.
+    assert.equal(selfreport.record('mara', { state: 'idle', because: 'turn ended', auto: true }).recorded, true);
     report('april', 'needs_you');
     armSender('leo-discord');
     let tmux = arm();
@@ -149,6 +150,14 @@ test('#4624 follow-up (0.7.15 diagnostic H7): an IDLE member is not typed a coll
     assert.deepEqual(roomhold.heldIn('mara', PROJECT), [a.id]);
     // CONTROL: a member whose report is neither working nor idle (here needs_you) is typed as before.
     assert.equal(typedTo(tmux, sessionOf(board, 'april')).length, 1, 'CONTROL: a needs_you member is not held');
+    // Review 1: an idle the agent wrote itself (not its hook) proves nothing about turn ends, so it is typed as before.
+    report('april', 'idle');
+    tmux = arm();
+    const self = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'one more thought' }, board.agents, MEMBERS);
+    assert.notEqual(self.outcomes.april, roomhold.HELD, 'an agent-written idle held a post');
+    assert.equal(typedTo(tmux, sessionOf(board, 'april')).length, 1);
+    roomhold.take('mara', PROJECT);   // reset mara's list to the two posts the rest of this arm counts
+    roomhold.hold('mara', PROJECT, a.id);
     // An idle report of any age holds (the turn ended; nothing decays it), unlike a stale working one.
     report('mara', 'idle', new Date(Date.now() - 24 * 3600 * 1000).toISOString());
     const b = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'still thinking' }, board.agents, MEMBERS);
