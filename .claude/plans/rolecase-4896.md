@@ -9,20 +9,24 @@ Card: kosmos#4896 (split from #4891 item N11, the 0.7.15 diagnostic run by agent
   (/api/roles), else raises only the first letter. So on the board both read "Project Manager".
 - The CLI does not. `kosmos project show` (engine/projectview.js renderShow, used by the Mac and Windows CLIs)
   printed `m.role` raw, so an agent saw "project manager" beside "Project Manager". The diagnostic was run by
-  agents through the CLI, which is where the report's two spellings came from (reasoned: the board could not have
-  shown them).
-- One more raw site on the board: the task assignee picker's `<option>` ("Name · role", web/index.html). Slice 2.
+  agents through the CLI, so that is the likeliest source.
+- The board has ONE raw site too (review 1, measured): the New task assignee picker builds `esc(m.role)`
+  (web/index.html), so a person on that project sees "Ann · project manager" beside "Bo · Project Manager".
+  That is slice 2, and it is a second possible source of the report.
 
 ## The change
 - engine/roles.js `roleTitle(role)`: the board's roleLine rule (a lookup on the `menu !== false` titles, any
   case; else the first letter only), exported.
-- engine/projectview.js renderShow: the member line uses it. The payload (JSON) keeps the raw role.
+- engine/projectview.js overviewOf (which runs in the board) adds `roleTitle` beside the raw `role`; renderShow
+  prints `roleTitle`, falling back to `role` from an older board. Review 1: the first version required roles.js in
+  the CLI's own process, which reads the store there and can print a catalogue line on stderr; computing it in
+  the board also uses the same downloaded catalogue the page learns its titles from.
 - Tests: engine/projectview.test.js (two spellings of one title render as one; a non-title keeps its words; an
   acronym title comes from the menu) and roleTitle's rule.
 
 ## Decided
-- Render-time, not at the source (engine/projects.js member.role): chat.defaultAgentFor and the room read the
-  raw role, and the page normalises on its own; changing the payload would change every reader to fix one text view.
+- An added field, not a changed one: `role` stays as stored (chat.defaultAgentFor and the room read it raw, and
+  the page normalises on its own), and `roleTitle` is new.
 - Rejected: title-casing (would print "Seo Specialist").
 - Same known quirk as the board, kept for parity: "iOS engineer" reads "IOS engineer".
 
@@ -34,7 +38,14 @@ Card: kosmos#4896 (split from #4891 item N11, the 0.7.15 diagnostic run by agent
   or a per-project role that does not exist yet). Recorded on the card; the card stays open.
 
 ## Weakest premise
-That the report's two spellings came from the CLI view. If they were seen on the board, the source is elsewhere
-(the board's own roleLine already folds them) and slice 2 or a third surface is where to look.
+That the CLI view and the assignee picker are the only two places the two spellings can be seen. Searched (review 1
+measured): renderList, both CLIs, the room and chat code print no member role; the board's member rows fold it.
 
 ## Reviews
+
+### Review 1 (blind): 0 BLOCKER, 1 WARNING, 3 NITs, all taken
+- WARNING: the plan said the board could not have shown the two spellings; the assignee picker does. Corrected
+  above; slice 2 covers it.
+- NIT: the CLI loaded roles.js (store read, possible stderr line on Windows). Now the board works it out.
+- NIT: no test proved the `menu !== false` filter; `kosmos guide` (setup, menu: false) now does.
+- NIT (stated, not built): no test covers a title only the downloaded catalogue has (node --test loads none).
