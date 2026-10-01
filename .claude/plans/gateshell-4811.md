@@ -16,8 +16,10 @@ handled, see test arm 9.)
 ## The change
 - tools/lib/browser-check-surface-gate.sh and tools/lib/browser-check-gate.sh record their own absolute path when
   sourced. Each gate function, when BASH_VERSION is empty, says so on stderr and runs itself in a fresh bash
-  (`bash -c '. <lib> && <gate>'`), returning that answer. KOSMOS_BCG_* and KOSMOS_BCSG_* settings reach it as
-  exported variables (a zsh prefix assignment exports for the call; measured with KOSMOS_BCG_BASE=no-such-ref).
+  (`env <settings> bash -c '. <lib> && <gate>'`), returning that answer. The five KOSMOS_BCG_* / KOSMOS_BCSG_*
+  settings are handed over explicitly, each only when set (review 1: a plain unexported zsh variable did not reach
+  the child bash, which then checked the real branch and could pass). Measured: plain, exported and prefix settings
+  all refuse an unchecked change and pass a compliant one.
 - Under bash nothing changes.
 
 ## Decisions
@@ -27,8 +29,9 @@ handled, see test arm 9.)
    programs and should run as bash).
 2. Both gates get the guard. The coarse gate's verdict does not run through grep (its one grep picks a merge base,
    only without the seams), so it was not wrong on #4805; the guard is for consistency and the next difference.
-WEAKEST PREMISE: that `bash` on PATH is a sane bash. On this macOS fleet it is /bin/bash (3.2) or Homebrew bash,
-both of which run these libs today under CI and run-tests.sh.
+WEAKEST PREMISE: that `bash` on PATH is a sane bash. On this Mac it is /bin/bash 3.2 while CI runs a newer bash; both
+pass the gate tests. Under `setopt nofunctionargzero` or `emulate sh` the recorded path is wrong and the re-run fails
+closed (rc 1, a cryptic error), never open; normal zsh records it correctly (measured by review 1).
 
 ## Tests
 - tools/test-browser-check-surface-gate.sh 9b: sourced into zsh with a grep that matches nothing, the gate still
@@ -36,4 +39,13 @@ both of which run these libs today under CI and run-tests.sh.
   guard removed, the arm fails (checked).
 - tools/test-browser-check-gate.sh: sourced into zsh, an unchecked web change is still refused and the gate says it
   re-ran under bash; CONTROL: under bash, no re-run.
+- Review 1: in both files, settings given as plain zsh variables still refuse, and a POSITIVE control (a compliant
+  change) passes through the re-run, so a broken re-run cannot read as a refusal. Mutants, each failing a test in both
+  gates: no explicit forwarding; a broken recorded path.
 - Run from the repo directory (the gates read docs/browser-checks relative to it): both files pass in full.
+  test-bc-surface-map.sh, test-ci-gate-armed-2518.sh and test-browser-check-surface-map.sh pass.
+
+## Review
+Round 1: 1 blocker (plain zsh variables did not reach the re-run), taken; 1 should-fix (no positive control through
+the re-run), taken; nits recorded above (path under emulate sh fails closed; bash 3.2 vs CI's; dash never could
+source these libs).
