@@ -214,3 +214,18 @@ test('the found list consults the roster and marks a running agent as already in
     status.configRoots = hadRoots;
   }
 });
+
+test('#4890: an import that adds the working rules records their version, as creation does', () => {
+  const defaults = require('./defaults');
+  const doctrine = require('./doctrine');
+  const projects = require('./projects');
+  const dir = theirAgent('nadia', 'You are **Nadia**, a planner.\n');
+  assert.equal(discover.connect(dir).ok, true);
+  const text = fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8');
+  assert.ok(projects.findBlock(text, doctrine.START, doctrine.END), 'the import did not add the rules in the span');
+  assert.equal(store.readProfile('nadia').doctrineVersion, defaults.DOCTRINE_VERSION, 'the import recorded no rules version');
+  // CONTROL: a file that already carries the rules gets nothing written, and no version is claimed for it.
+  const had = theirAgent('omar', 'You are **Omar**, a planner.\n\n' + defaults.block() + '\n');
+  assert.equal(discover.connect(had).ok, true);
+  assert.equal(store.readProfile('omar').doctrineVersion, undefined, 'a version was claimed for rules the import did not write');
+});

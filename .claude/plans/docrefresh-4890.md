@@ -123,4 +123,9 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   earlier carried version is still brought current. FIXED W: the update sentence says "Your words outside the
   marked block stay exactly as they are". NOTE: the table's second v21 row is this branch's unreleased first v21;
   after the merge, rerunning tools/doctrine-past.js on main drops it (harmless either way).
+- Round 14 (opus): FIXED W: an import that writes the rules records `doctrineVersion`, as creation does, so the
+  carried-version rule protects an imported agent's edits too (connect-agent.test.js, with a control: a file that
+  already had the rules gets no version claimed; mutation reds it). Left NITs: the cut-only case's empty fold and
+  extra blank line; the carried-version rule also holds back a section the person deleted OUTSIDE the span until
+  the next version; plainCurrentAt assumes no earlier block has today's as a prefix (true for all 27 rows).
 
