@@ -166,3 +166,10 @@ the candidate is the round-1 newest item, or on a cut the earlier of that and th
 control that the cut lands between R and R2: the first fixture could not fail). The never-back guard is defensive (only
 reachable if the service drops its newest items), so its mutant survives by design. Nit taken: marks of posts that are
 no longer the agent's drop, so the file stays bounded.
+Round 7 (blind, with a model checker: 1,900 simulated runs of mixed bursts, mid-read arrivals, failures and cuts against
+the service's real paging, none shown twice or lost beyond the stated late-commit case): two should-fix, taken. (1) The
+7-day first look leaked once: a reply older than the window held back on a post's first read sat above the saved mark
+and came "new" on the second read; a post with no mark now takes the window as its never-back floor (the guard is no
+longer purely defensive). (2) The nothing-shown guard on a cut post had no test: tested. Nits taken: a dropped post's
+mark leaving the file is tested; comments note that "seen" may keep passed ids (bounded) and that times are read to
+the millisecond (the service's microseconds fall in the late-commit case). All three mutants red.
