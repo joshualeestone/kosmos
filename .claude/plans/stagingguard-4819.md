@@ -56,8 +56,8 @@ staged WINDOWS build; it had no Mac twin.
   script already does for the prod tarball, tmux and the alias. A refusal remains when neither copy
   exists (the card's "refuses with a line naming the artifact").
 - **The local copy wins when it is the pointer's bytes**, so a redeploy from the cut box restores a
-  dropped tarball (live would 404). The local copy must ALSO have a matching .sha256, because the
-  installer verifies against the served sidecar.
+  dropped tarball (live would 404). Its `.sha256` is written from those bytes when missing or wrong
+  (review 8), and the installer verifies against that served sidecar.
 - **A superseded staged build is skipped with a warning, not refused** (review 2), as #3600 does
   for Windows: a pointer naming a build older than prod (or equal) names something nobody will
   promote, and refusing would block every deploy from a checkout without that old tarball. Still
@@ -76,7 +76,10 @@ staged WINDOWS build; it had no Mac twin.
 
 ## Not covered
 - Historical rollback tarballs stay out of scope (as before).
-- The release path (`release.sh`) is unchanged; it does not use deploy-site.sh.
+- The release path (`release.sh`) is unchanged; it does not use deploy-site.sh. Its export carries
+  tarballs by the same glob, so a cut on a box without a staged tarball that is still newer than
+  prod (a prod hotfix cut while staging is ahead) can drop it the same way (review 9). Closing that
+  is the card's ask 2 (one artifact list both paths read), recorded on the card as the follow-up.
 - Only the arm64 staged build: the pointer names one artifact.
 
 ## Weakest premise

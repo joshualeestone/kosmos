@@ -71,4 +71,4 @@ KM_LJ_VERSION="$V" KM_LJ_SHA="$SHA" KM_LJ_ARTIFACT="$ARTIFACT" KM_LJ_MANIFEST="$
 echo "publish-staging: wrote $SITE/dist/latest-staging.json (prod latest.json untouched):"
 echo "   -> $(cat "$SITE/dist/latest-staging.json")"
 echo "publish-staging: the next site deploy carries it; verify on a FRESH-state machine, then promote-channel.sh."
-echo "publish-staging: if $V is OLDER than the staging live serves (a rollback), deploy-site.sh refuses it unless run with KOSMOS_STAGING_ROLLBACK=$V (#4819)."
+echo "publish-staging: if $V is OLDER than the staging live serves (a rollback), or the same version with different bytes, deploy-site.sh refuses it unless run with KOSMOS_STAGING_ROLLBACK=$V (#4819)."

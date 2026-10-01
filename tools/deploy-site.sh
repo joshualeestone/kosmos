@@ -490,7 +490,8 @@ check_staging_not_stale() {
     echo "deploy-site: live serves a latest-staging.json but $H commits none -- refusing; the deploy would unpublish staging. Sync $SITE to the current release, then retry. (Unpublishing staging on purpose has no path through this script: point staging at a build instead, publish-staging-pointer.sh.) (#4819)"; exit 1
   fi
   if [ -n "$_csm_live" ] && [ "$_csm_live" != "$_csm_ptr" ]; then
-    _csm_lv=$(_csm_version "$(ptr_artifact "$_csm_live")"); _csm_cv=$(_csm_version "$(ptr_artifact "$_csm_ptr")")
+    # Printable-only: the live pointer comes from outside this repo and its version is printed below.
+    _csm_lv=$(_csm_version "$(ptr_artifact "$_csm_live")" | tr -cd '[:print:]'); _csm_cv=$(_csm_version "$(ptr_artifact "$_csm_ptr")")
     [ -n "$_csm_cv" ] || { echo "deploy-site: the committed latest-staging.json at $H names no kosmos-<version>-arm64.tar.gz -- refusing; repair the committed pointer (publish-staging-pointer.sh) and retry (#4819)"; exit 1; }
     if [ -z "$_csm_lv" ]; then
       if [ "${KOSMOS_STAGING_ROLLBACK:-}" = "$_csm_cv" ]; then
@@ -642,8 +643,9 @@ carry_staged_mac
 echo "deploy-site: fetched and verified the current live GITIGNORED artifacts into $SITE/dist/"
 # ⚠️ This wrote into the SHARED site checkout's dist/ (also the live board, also shared with
 # tools/release.sh), but ONLY gitignored artifacts (the tarball, pkg triple, tmux, alias, and the
-# staged Mac build when it was fetched rather than already present, #4819) -- each sha-verified
-# (against live; a staged Mac build already in dist/ against the committed pointer), and none of
+# staged Mac build when it was fetched rather than already present, and its .sha256 when it was
+# rewritten from present bytes, #4819) -- each sha-verified (against live; a staged Mac build
+# already in dist/ against the committed pointer, its rewritten sidecar from those bytes), and none of
 # them tracked, so `git status` stays clean and no later
 # `git commit -a` can sweep them up. It is still not side-effect-free on the filesystem, so do not
 # run a --publish concurrently with a release cut populating the same dist/.
