@@ -97,7 +97,7 @@ test('#4891 N8: -n, --limit and --limit= reach the board as &n=, either side of 
 test('#4891 N8: a value that is not a whole number from 1 to 200 is refused before any request', () =>
   withBoard(async (port, hits) => {
     for (const args of [['room', 'proj', '-n', '0'], ['room', 'proj', '-n', '201'], ['room', 'proj', '-n', 'abc'], ['room', 'proj', '-n', '05'],
-      ['room', 'proj', '-n', '99999999999999999999999'], ['room', 'proj', '-n'], ['room', 'proj', '--limit='], ['room', 'a', 'b'], ['report', 'clear', '--auto'], ['report', 'clear', 'back', '--auto']]) {
+      ['room', 'proj', '-n', '99999999999999999999999'], ['room', 'proj', '-n'], ['room', 'proj', '--limit='], ['room', 'a', 'b']]) {
       hits.length = 0;
       const out = await runCli(args, envFor(port));
       assert.equal(out.code, 2, args.join(' ') + ' should be a usage error: ' + out.stdout + out.stderr);
@@ -138,6 +138,24 @@ test('#4891 N4: `kosmos report clear` records working, with the note when one is
     await runCli(['report', 'idle'], envFor(port));
     const idle = hits.filter((h) => h.method === 'POST' && h.url.startsWith('/api/report'));
     assert.equal(JSON.parse(idle[0].body).state, 'idle');
+  }));
+
+test('#4891 review 2/3: `report clear --auto` is refused by name before any request; a note mentioning --auto is a note', () =>
+  withBoard(async (port, hits) => {
+    for (const args of [['report', 'clear', '--auto'], ['report', 'clear', '--on', 'x', '--auto', 'back']]) {
+      hits.length = 0;
+      const out = await runCli(args, envFor(port));
+      assert.equal(out.code, 2, args.join(' '));
+      assert.match(out.stdout + out.stderr, /takes no --auto/, args.join(' '));
+      assert.equal(hits.length, 0, args.join(' ') + ' reached the board');
+    }
+    // CONTROL: --auto after the note is note text, as it is for every other state.
+    hits.length = 0;
+    const note = await runCli(['report', 'clear', 'back', 'to', 'it,', 'dropped', '--auto'], envFor(port));
+    assert.equal(note.code, 0, note.stdout + note.stderr);
+    const body = JSON.parse(hits.find((h) => h.url.startsWith('/api/report')).body);
+    assert.equal(body.state, 'working');
+    assert.match(body.text, /dropped --auto/);
   }));
 
 test('#4891 N9: agents --help is its own usage; report --help names show and clear; neither sends anything', () =>

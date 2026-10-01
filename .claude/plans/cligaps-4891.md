@@ -61,3 +61,10 @@ cli.gaps-4891.test.js (Mac CLI against a stub board recording every request), to
 - N5 "the last N rows" with outside rows is at most half outside: kept, the server comment says so; not in the
   usage line (one more clause on a line agents read for the common case).
 - N6 two answers for an unknown project (view=tasks kept 200): exemption DROPPED, one answer, pinned by a test.
+
+## Review 3 (Sonnet, blind, source-only): 0 blockers, 1 warning, 3 nits
+- W1 the --auto refusal scanned every word, so a note mentioning --auto was refused: FIXED, judged from the parsed
+  flag on both CLIs; arms for refused-by-name and for the note.
+- N2 the --auto arms could pass on main (clear was an invalid state there): they now assert the sentence.
+- N3 `room proj -n 5 extra` says "one project at a time": kept (no caller passes extra words).
+- N4 the /api/tasks header did not mention the 404: FIXED.

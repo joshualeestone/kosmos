@@ -42,7 +42,7 @@ test('#4891 N8 Windows: -n, --limit and --limit= reach the board as &n=; without
 
 test('#4891 N8 Windows: a value that is not 1 to 200 is refused and sends nothing', async () => {
   for (const argv of [['room', 'proj', '-n', '0'], ['room', 'proj', '-n', '201'], ['room', 'proj', '-n', 'abc'], ['room', 'proj', '-n', '05'],
-    ['room', 'proj', '-n'], ['room', 'proj', '--limit='], ['room', 'a', 'b'], ['report', 'clear', '--auto'], ['report', 'clear', 'back', '--auto']]) {
+    ['room', 'proj', '-n'], ['room', 'proj', '--limit='], ['room', 'a', 'b']]) {
     const r = await run(argv, () => ({ body: '' }));
     assert.equal(r.code, 2, argv.join(' '));
     assert.equal(r.calls.length, 0, argv.join(' ') + ' sent a request');
@@ -63,6 +63,20 @@ test('#4891 N6 Windows: the CLI says the board\'s 404 and exits 1 (wiring only: 
   const empty = await run(['task', 'list', 'proj'], () => ({ body: JSON.stringify({ tasks: [] }) }));
   assert.equal(empty.code, 0, empty.err);
   assert.match(empty.out, /No tasks for this project yet/);
+});
+
+test('#4891 review 2/3 Windows: `report clear --auto` is refused by name; a note mentioning --auto is a note', async () => {
+  for (const argv of [['report', 'clear', '--auto'], ['report', 'clear', '--on', 'x', '--auto', 'back']]) {
+    const r = await run(argv, () => ({ body: JSON.stringify({ recorded: true }) }));
+    assert.equal(r.code, 2, argv.join(' '));
+    assert.match(r.err, /takes no --auto/, argv.join(' '));
+    assert.equal(r.calls.length, 0, argv.join(' ') + ' sent a request');
+  }
+  const note = await run(['report', 'clear', 'back', 'to', 'it,', 'dropped', '--auto'], () => ({ body: JSON.stringify({ recorded: true }) }));
+  assert.equal(note.code, 0, note.err);
+  const body = JSON.parse(note.calls.find((c) => c.method === 'POST').body);
+  assert.equal(body.state, 'working');
+  assert.match(body.text, /dropped --auto/);
 });
 
 test('#4891 N4 Windows: `kosmos report clear` records working, with the note', async () => {

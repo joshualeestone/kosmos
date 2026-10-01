@@ -15764,6 +15764,7 @@ const server = http.createServer(async (req, res) => {
    * computed separately is exactly #1346: three rows under a heading that said
    * six, because one number came from the data and the other from the DOM.
    */
+  /* #4891: `?project=<id>` naming no project is a 404 "there is no project by that name", in every form. */
   if (pathname === '/api/tasks' && (req.method === 'GET' || req.method === 'HEAD')) {
     let everyProject;
     try {

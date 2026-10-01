@@ -541,7 +541,7 @@ async function reportShow(ctx) {
   return r.status >= 400 ? 1 : 0;
 }
 
-async function verbReport(ctx, args) {
+async function verbReport(ctx, args, opts) {
   const state = args.shift();
   const f = { on: '', owner: '', until: '', project: '', auto: false };
   while (args.length) {
@@ -552,6 +552,9 @@ async function verbReport(ctx, args) {
     args.shift();
     f[m[1]] = args.shift() || '';
   }
+  /* #4891: an automatic working cannot replace a needs_you (#900), so `clear --auto` could only be refused. Judged
+     from the parsed flag, as on the Mac, so a note that mentions --auto is still a note. */
+  if (opts && opts.clear && f.auto) { ctx.err('kosmos report clear is something you do yourself, so it takes no --auto.'); return 2; }
   const text = args.join(' ');
   if (!state) { ctx.err(USAGE.report); return 2; }
   /* #2001, as install/kosmos: the two states that summon a person need something
@@ -1236,11 +1239,8 @@ const SUBCOMMAND_HANDLERS = {
   report: {
     show: reportShow,
     status: reportShow,
-    // An automatic working cannot replace a needs_you (#900), so `clear --auto` could only be refused, as on the Mac.
-    clear: (ctx, args) => {
-      if (args.includes('--auto')) { ctx.err('kosmos report clear is something you do yourself, so it takes no --auto.'); return 2; }
-      return verbReport(ctx, ['working', ...args]);
-    },
+    // #4891: clear is reporting working, and refuses --auto (see verbReport), as on the Mac.
+    clear: (ctx, args) => verbReport(ctx, ['working', ...args], { clear: true }),
   },
   room: { reopen: roomReopen },
   task: { list: taskList, add: taskAdd, close: taskClose, message: taskMessage, built: taskBuilt, hold: taskHoldAs(true), unhold: taskHoldAs(false) },

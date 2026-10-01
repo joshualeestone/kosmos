@@ -2210,6 +2210,7 @@ cmd_whoami() {
 # hook), not one the agent chose to send. An automatic `idle` will not erase a
 # standing `blocked` or `needs_you` (#900).
 cmd_report() {
+  local _clear=0
   # #2709: `report show` (alias `status`) is the READ-BACK -- an agent checking
   # its own current board state (esp. a stale needs_you it was told to clear).
   # Handled before the state parse so the write path below is unchanged.
@@ -2218,13 +2219,7 @@ cmd_report() {
     # #4891 N4: nothing said how to take a needs_you (or blocked) back off the board. Reporting any other state
     # by hand replaces it (#900 only stops an AUTOMATIC idle from doing so), and working is the honest one: you
     # are back at it. `clear` is that, by a name a person or an agent would guess.
-    clear)
-      shift 2>/dev/null || true
-      # An automatic working cannot replace a needs_you (#900), so `clear --auto` could only be refused (review 2).
-      local _ca; for _ca in "$@"; do
-        [ "$_ca" = --auto ] && { say "kosmos report clear is something you do yourself, so it takes no --auto."; exit 2; }
-      done
-      set -- working "$@" ;;
+    clear) _clear=1; shift 2>/dev/null || true; set -- working "$@" ;;
   esac
   local state text body because on="" owner="" until="" project="" auto=0
   state="${1:-}"
@@ -2242,6 +2237,12 @@ cmd_report() {
     esac
   done
   text="$*"
+  # #4891 review 2/3: an automatic working cannot replace a needs_you (#900), so `clear --auto` could only be
+  # refused by the board. Judged from the parsed flag, so a note that mentions --auto is still a note.
+  if [ "$_clear" = 1 ] && [ "$auto" = 1 ]; then
+    say "kosmos report clear is something you do yourself, so it takes no --auto."
+    exit 2
+  fi
   if [ -z "$state" ]; then
     say "Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]"
     say "  kosmos report show     (what the board has for you now; kosmos report status is the same)"
