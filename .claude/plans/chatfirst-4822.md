@@ -34,3 +34,9 @@ Baron on Mortals at 674288bc7: six header checks green; render-dm-chatfirst-718 
 1.25em (passes one letter plus the ellipsis, fails the ellipsis alone). Accepted cost: about two letters of the name on
 a 320-wide phone at large text. Possible follow-up (not in a cut fix): hide the person's name beside their avatar on a
 phone to give the computer name room.
+Review R2 (sonnet) 0B 2W 0C 2N: a long person's name on the right could still push the computer name to a second row at
+320 and 150% text; the 2.25rem floor leaves almost no letters (the new arm then fails, as intended). Both filed on #4847
+(claimed: Mona Lisa) on Splinter's ruling (00:40): ship the conversation-height fix for the 0.7.15 cut, file the rest.
+Final validation on 9f7402842 (Baron, Mortals): render-dm-chatfirst-718 413/0 twice; web/ unchanged since 674288bc7,
+where render-onekosmos-4815 56/56, render-tophead-stable-2624 OK, render-worldsw-lockout-3055 1/0,
+render-plus-bar-3837 19/0, render-worldsw-height-2350 0 FAIL, render-computers-4648 88/0.
