@@ -47232,7 +47232,7 @@ function tcPaint() {
       note.textContent = 'The teammates made before this still know it as ' + m.renamedFrom + '. Tell them in chat if it matters.';
       row.append(note);
     }
-    if (m.state === 'failed' && m.why) { const why = document.createElement('p'); why.className = 'tc-why'; why.textContent = pjSentence(m.why);   // Mona's review: shown as a sentence row.append(why); }
+    if (m.state === 'failed' && m.why) { const why = document.createElement('p'); why.className = 'tc-why'; why.textContent = pjSentence(m.why); row.append(why); }   // Mona's review: shown as a sentence
     /* Round 3: what create reported as not done (its non-fatal steps, a project it could not add) is said
        on the row, as the single create says it, never folded into "Running". */
     for (const w of (m.warn || [])) { const p = document.createElement('p'); p.className = 'tc-why'; p.textContent = w; row.append(p); }

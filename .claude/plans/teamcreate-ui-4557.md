@@ -368,3 +368,11 @@ reverted. The control tree (13:xx, 18 FAILs on purpose) proved the check's older
   (tcSentence removed); every tc-msg refusal and the "not added to the project" warning read as sentences (tcSay); the Team
   screen comment no longer says openTeamCreate may not exist; Back while idle has an arm.
 - NIT noted: the .tc-leads nowrap and the 16px gap are not asserted (styling; Mona measured both on bd362e5bf).
+
+## Review 31 (sonnet, blind, on c9db77398), 20:03 CDT: 1 BLOCKER, 1 WARNING, both taken
+- BLOCKER (mine, in review 30's commit): replacing tcSentence, I put a `//` comment mid-line, and it swallowed
+  `row.append(why); }`: the page's MAIN script stopped parsing (the whole board dead in a browser). Pushed at c9db77398,
+  never merged or deployed. Fixed: the comment moved to the end of the statement.
+- WARNING: no test parsed the page's scripts; every focused test reads the page as text. New web.script-parses-4557.test.js
+  compiles every inline classic script (vm.Script, never run). Control: the exact defect fails. Measured: green on the
+  fix, red on c9db77398's page ("web/index.html:17815 does not parse: Unexpected token ')'").
