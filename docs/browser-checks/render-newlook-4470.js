@@ -1,4 +1,4 @@
-// Browser-check-surface: look-toggle look-row tsk-tile tsk-list
+// Browser-check-surface: look-toggle look-row tsk-tile tsk-list d-talk-box d-dmthread
 'use strict';
 /**
  * The new look's hidden switch (#4470, Josh 2026-09-28), on a real board in a real browser.
@@ -25,6 +25,8 @@
  *    strokes (the could-not-read dash at least 1.5:1 off its ground, measured by EDGE_RATIO); the Messages filter rests on the grey ground and keeps its width under the pointer; a board note is
  *    the grey box while a could-not-read note keeps its solid border (and a note in a project page keeps today's
  *    look); and with the look off, today's bordered card, tile and New agent tile (the control),
+ *  - an agent's page in the new look (DM_LOOK): the conversation on the page's ground, your message grey, an agent's
+ *    with no bubble, the composer a grey pill with no stroke; with the look off, today's (the control),
  *  - the Tasks page in the new look (tasksLook): a plain tile and the task list lose their border and take 16px corners;
  *    Needs Your Decision holding tasks keeps a red edge (red in both looks; its grey half is remapped) and a filtering
  *    tile its gold; at zero it is drawn like the others; a tile under the pointer shows its border;
@@ -121,6 +123,21 @@ const BUBBLES = `(() => {
   const mk = (you) => { const m = document.createElement('div'); m.className = 'msg' + (you ? ' you' : ''); m.innerHTML = '<div class="msg-b"><div class="msg-bd">x</div></div>'; room.appendChild(m); return m; };
   const a = mk(true), b = mk(false);
   const out = { you: getComputedStyle(a.querySelector('.msg-bd')).backgroundColor, agent: getComputedStyle(b.querySelector('.msg-bd')).backgroundColor };
+  a.remove(); b.remove();
+  return out;
+})()`;
+/* #4470, an agent's page: its conversation read off the DM's own elements (they exist, hidden, before any agent is
+   opened, and computed style still answers): the talk box's ground, a hand-made message of yours and of an agent's,
+   and the composer box (in .dmbar). Messages are removed after. */
+const DM_LOOK = `(() => {
+  const th = document.getElementById('d-dmthread'), box = document.getElementById('d-talk-box');
+  const cb = document.querySelector('#d-talk-box .dmbar .composerbox');
+  if (!th || !box || !cb) return { found: false };
+  const mk = (you) => { const m = document.createElement('div'); m.className = 'msg' + (you ? ' you' : ''); m.innerHTML = '<div class="msg-b"><div class="msg-bd">x</div></div>'; th.appendChild(m); return m; };
+  const a = mk(true), b = mk(false);
+  const cs = getComputedStyle(cb);
+  const out = { found: true, box: getComputedStyle(box).backgroundColor, you: getComputedStyle(a.querySelector('.msg-bd')).backgroundColor,
+    agent: getComputedStyle(b.querySelector('.msg-bd')).backgroundColor, composer: cs.backgroundColor, composerBorder: cs.borderTopColor, composerRadius: cs.borderTopLeftRadius };
   a.remove(); b.remove();
   return out;
 })()`;
@@ -384,9 +401,14 @@ const AGENTS_LOOK = `(() => {
         const tabs = await page.evaluate(TABS);
         chk(tabs.onUnderline === 'rgba(0, 0, 0, 0)' && tabs.onColor !== tabs.offColor && tabs.onWeight > tabs.offWeight, `${tag} On: the current tab is marked by ink and weight, not an underline`, JSON.stringify(tabs));
       }
+      const dmOn = await page.evaluate(DM_LOOK);
       const bub = await page.evaluate(BUBBLES);
       const PAGE_OF = { light: 'rgb(255, 255, 255)', dark: 'rgb(0, 0, 0)' };
       chk(bub.you === GREY_OF[theme] && bub.agent === PAGE_OF[theme], `${tag} On: your message is grey, an agent's is the page's own ground (no bubble)`, JSON.stringify(bub));
+      chk(dmOn.found && dmOn.box === PAGE_OF[theme] && dmOn.you === GREY_OF[theme] && dmOn.agent === PAGE_OF[theme],
+        `${tag} On, an agent's page: the conversation on the page's ground, your message grey, an agent's with no bubble`, JSON.stringify(dmOn));
+      chk(dmOn.found && dmOn.composer === GREY_OF[theme] && dmOn.composerBorder === 'rgba(0, 0, 0, 0)' && dmOn.composerRadius === '24px',
+        `${tag} On, an agent's page: the composer is the grey pill with no stroke`, JSON.stringify(dmOn));
       const tk = await page.evaluate(TASK_ROWS);
       chk(tk.rows >= 3 && tk.boxed === 0 && tk.hashShown && tk.wordHidden && tk.claimShown,
         `${tag} On: tasks are compact rows (the number with a hash sign, no box), and the agent's claim line still shows`, JSON.stringify(tk));
@@ -581,6 +603,11 @@ const AGENTS_LOOK = `(() => {
       const agOff = await page.evaluate(AGENTS_LOOK);
       chk(agOff.idle !== 'rgba(0, 0, 0, 0)' && agOff.idle !== 'absent' && agOff.tile !== 'rgba(0, 0, 0, 0)' && agOff.plus && agOff.plus.round !== '50%',
         `${tag} Off, Agents page: today's bordered idle card, Agents tile and New agent tile`, JSON.stringify(agOff));
+      /* Control for the agent-page arms: with the look off, today's conversation (the surface behind it, a tinted bubble of
+         yours, a bordered composer box with 12px corners). */
+      const dmOff = await page.evaluate(DM_LOOK);
+      chk(dmOff.found && dmOff.you !== GREY_OF[theme] && dmOff.composerBorder !== 'rgba(0, 0, 0, 0)' && dmOff.composerRadius === '12px',
+        `${tag} Off, an agent's page: today's conversation and bordered composer (the control)`, JSON.stringify(dmOff));
       const listOff = await listLook(page);
       chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px' && listOff.nameAlign === 'center',
         `${tag} Off, Agents list: today's bordered row with 12px corners and today's centred name button`, JSON.stringify(listOff));
