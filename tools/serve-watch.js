@@ -91,11 +91,13 @@ const POINTERS = Object.freeze([
   { file: 'latest-win-staging.json', kind: 'win', alias: false },
 ]);
 /* What every install fetches whatever the pointers say (install/setup.sh): the curl-to-sh script, the tmux bundle, and
-   the generic tarball it falls back to. Each tarball is held to its own .sha256 sidecar. */
+   the generic tarball it falls back to. Each tarball is held to its own .sha256 sidecar, and the fallback also to the
+   release latest.json names (tools/deploy-site.sh: it "must track the CURRENT prod version"; a stale one is #1669),
+   as the Windows fixed-name zip is held to latest-win.json. */
 const FIXED = Object.freeze([
   { url: () => SITE + '/setup', name: 'the installer script (/setup)', type: 'script' },
   { url: () => DIST + '/tmux-arm64.tar.gz', name: 'tmux-arm64.tar.gz', type: 'tarball', bySidecar: true },
-  { url: () => DIST + '/kosmos-arm64.tar.gz', name: 'kosmos-arm64.tar.gz', type: 'tarball', bySidecar: true },
+  { url: () => DIST + '/kosmos-arm64.tar.gz', name: 'kosmos-arm64.tar.gz', type: 'tarball', bySidecar: true, tracks: 'latest.json' },
 ]);
 const TYPES = Object.freeze({   // media types are case-insensitive (RFC 9110)
   script: /^(text\/plain|text\/x-shellscript|application\/x-sh|application\/octet-stream)\b/i,
@@ -277,6 +279,7 @@ async function gather(prev, now) {
   let pointerFailed = false;
   const urls = new Map();   // one check per artifact URL, even when two pointers name it
   const owed = new Set();   // the mismatch keys this run owes a comparison, whether or not it got that far
+  const pointerSha = {};   // each pointer read this run: the sha256 it names
   for (const pt of POINTERS) {
     const g = await getJson(DIST + '/' + pt.file);
     if (g.status !== 200) { pointerFailed = true; add('pointer:' + pt.file, pt.file + ' is not served (' + why(g) + ')'); continue; }
@@ -285,6 +288,7 @@ async function gather(prev, now) {
     if (!arts) { pointerFailed = true; add('pointer-shape:' + pt.file, pt.file + ' does not name its artifacts the way the app reads them'); continue; }
     const want = typeof g.json.sha256 === 'string' && /^[0-9a-f]{64}$/i.test(g.json.sha256) ? g.json.sha256.toLowerCase() : null;
     if (!want) add('pointer-sha:' + pt.file, pt.file + ' carries no sha256, so its download cannot be checked');
+    else pointerSha[pt.file] = want;
     for (const a of arts) {
       const url = DIST + '/' + a.name;
       const e = urls.get(url) || { a: Object.assign({}, a, { hashed: false, sidecar: false }), from: [], expect: new Set() };
@@ -335,6 +339,7 @@ async function gather(prev, now) {
   for (const f of FIXED) {
     const url = f.url();
     if (f.bySidecar) owed.add('sha:' + f.name);
+    if (f.tracks) owed.add('alias:' + f.name);
     const h = await head(url);
     if (h.status !== 200) { add('missing:' + f.name, f.name + ' is not served (' + why(h) + '): every install fetches it'); continue; }
     if (!TYPES[f.type].test(h.type)) { add('type:' + f.name, f.name + ' is served as "' + shown(h.type) + '", not a ' + f.type); continue; }
@@ -342,6 +347,12 @@ async function gather(prev, now) {
     const s = await getJson(url + '.sha256');
     const want = s.status === 200 && s.text ? String(s.text).trim().split(/\s+/)[0].toLowerCase() : null;
     if (!want || !/^[0-9a-f]{64}$/.test(want)) { add('sidecar-missing:' + f.name, f.name + '.sha256 is not served or not a sha256 (' + why(s) + '): installers refuse the download'); continue; }
+    // Through mismatch(), so the moment mid-promote when the fallback and the pointer are written apart is not an alarm.
+    const track = f.tracks && pointerSha[f.tracks];
+    if (track) {
+      evaluated.add('alias:' + f.name);
+      if (want !== track) mismatch('alias:' + f.name, f.name + ' is not the release ' + f.tracks + ' names: its .sha256 says ' + want.slice(0, 12) + ', ' + f.tracks + ' says ' + track.slice(0, 12) + ' (installers that fall back to it get another build)');
+    }
     const was = prevSha[url];
     const due = !was || was.expect !== want || h.stamp === '||' || was.stamp !== h.stamp || !!was.error || !(Number(was.at) <= now) || now - Number(was.at) >= REHASH_S
       || (was.got !== want && !was.confirmed);
@@ -467,7 +478,7 @@ function post(text, want = { pane: true, card: true }) {
       if (err && err.status === 7) {
         went.pane = true;
         unsure.pane = true;
-        paneUnsure = 'claude-msg exit ' + err.status + ', which usually means the pane was busy and the message landed (#1909)';
+        paneUnsure = 'claude-msg exit 7: the message is in the pane\'s composer, not yet submitted (one Enter sends it)';
       } else {
         paneFailed = String((err && err.stderr && String(err.stderr).trim()) || (err && err.message) || err).split('\n')[0];
         process.stderr.write('serve-watch: the pane message to ' + to + ' did not go: ' + paneFailed + '\n');

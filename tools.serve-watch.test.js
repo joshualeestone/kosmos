@@ -190,11 +190,22 @@ test('the bytes are hashed once, again only when the pointer changes, after a fa
   const NEW = Buffer.from('a new build\n');
   site.files.set('kosmos-1.0.0-arm64.tar.gz', ['application/gzip', NEW]);
   site.files.set('kosmos-1.0.0-arm64.tar.gz.sha256', ['application/octet-stream', sha(NEW) + '\n']);
+  site.files.set('kosmos-arm64.tar.gz', ['application/gzip', NEW]);   // the fallback tracks the release
+  site.files.set('kosmos-arm64.tar.gz.sha256', ['application/octet-stream', sha(NEW) + '  kosmos-arm64.tar.gz\n']);
   for (const p of ['latest.json', 'latest-staging.json']) {
     const j = JSON.parse(site.files.get(p)[1]); j.sha256 = sha(NEW); site.files.set(p, ['application/json', JSON.stringify(j)]);
   }
   assert.equal((await run(base, dir, st, { now: T0 + 24 * 3600 + 900 })).code, 0);
   assert.equal(gets(), 3, 'a changed pointer sha was not re-checked at once');
+}));
+
+test('a fallback tarball left on the previous release alarms (on its second sighting), though it matches its own sidecar', () => withSite(async ({ site, base, dir, st }) => {
+  const OLD = Buffer.from('the previous build\n');
+  site.files.set('kosmos-arm64.tar.gz', ['application/gzip', OLD]);
+  site.files.set('kosmos-arm64.tar.gz.sha256', ['application/octet-stream', sha(OLD) + '  kosmos-arm64.tar.gz\n']);
+  assert.equal((await run(base, dir, st, { now: T0 })).code, 2, 'CONTROL: a first sighting');
+  assert.equal((await run(base, dir, st, { now: T0 + 900 })).code, 1);
+  assert.match(st.card(), /kosmos-arm64\.tar\.gz is not the release latest\.json names/);
 }));
 
 test('a failed whole-file read is retried on the next run, not held for a day', () => withSite(async ({ site, base, dir, st }) => {
@@ -334,12 +345,12 @@ test('a card post that fails is retried after an hour, not every run; a pane lef
   assert.match(st.card(), /kosmos-win-x64\.zip/);
 }));
 
-test('a card post beside an exit-8 pane says the pane message may not have gone', () => withSite(async ({ site, base, dir, st }) => {
+test('a card post beside an exit-7 pane says the pane message may not have gone', () => withSite(async ({ site, base, dir, st }) => {
   const busyMsg = path.join(dir, 'msg-busy.sh');
   fs.writeFileSync(busyMsg, '#!/bin/sh\ncat > /dev/null\nexit 7\n'); fs.chmodSync(busyMsg, 0o755);
   site.files.delete('kosmos-win-x64.zip');
   assert.equal((await run(base, dir, { msg: busyMsg, gh: st.gh, pane: st.pane, card: st.card }, { now: T0 })).code, 1);
-  assert.match(st.card(), /may not have gone: claude-msg exit 7/);
+  assert.match(st.card(), /may not have gone: claude-msg exit 7: the message is in the pane's composer/);
 }));
 
 test('a possible loss on the pane (claude-msg exit 8) is a failure, tried again an hour on', () => withSite(async ({ site, base, dir, st }) => {
