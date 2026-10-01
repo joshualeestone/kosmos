@@ -33,6 +33,8 @@
 #   st4 live unreachable                            -> refuses "could not read", not "absent"
 #   st6 live pointer names no parsable tarball     -> refuses (cannot tell which is newer)
 #   st6r ...with KOSMOS_STAGING_ROLLBACK=<committed version> -> proceeds
+#   st7 same version, different bytes             -> refuses; the opt-in deploys it
+#   st8 malformed committed pointer, live differs  -> refuses with 'repair it'
 #   st5 superseded, the sidecar read fails in transport -> refuses, does not take the skip
 #   i  the pointer names a path, not a file         -> refuses before any fetch
 #   j  the pointer has no sha                       -> refuses before any fetch
@@ -207,6 +209,17 @@ if has "$out" "RC=1 " && has "$out" "which is newer cannot be told"; then pass "
 cp "$BYTES" "$S/dist/$STAGED"; printf '%s  %s\n' "$SHA" "$STAGED" > "$S/dist/$STAGED.sha256"
 out=$(KOSMOS_STAGING_ROLLBACK=9.9.02 run_carry "$S" "$T/live-st6")
 if has "$out" "RC=0 STAGED_ART=$STAGED" && has "$out" "replacing a live latest-staging.json"; then pass "st6r: KOSMOS_STAGING_ROLLBACK naming the committed version replaces an unparsable live pointer"; else bad "st6r: $out"; fi
+# Same version, different bytes: refuse (cannot tell which build is newer); the opt-in deploys it.
+OTHERSHA=$(sha_of "$OTHER")
+S="$T/st7"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-st7"; ptr "$OTHERSHA" "$STAGED" > "$T/live-st7/latest-staging.json"
+cp "$BYTES" "$S/dist/$STAGED"; printf '%s  %s\n' "$SHA" "$STAGED" > "$S/dist/$STAGED.sha256"
+out=$(run_carry "$S" "$T/live-st7")
+out2=$(KOSMOS_STAGING_ROLLBACK=9.9.02 run_carry "$S" "$T/live-st7")
+if has "$out" "RC=1 " && has "$out" "both name 9.9.02 but different bytes" && has "$out2" "RC=0 STAGED_ART=$STAGED"; then pass "st7: same version, different bytes refuses; KOSMOS_STAGING_ROLLBACK deploys the committed build"; else bad "st7: $out // $out2"; fi
+# A committed pointer that names no build, live differing: the refusal says to repair it (no opt-in offered).
+S="$T/st8"; mksite "$S" "$(ptr "$SHA" "not-a-build.zip")"; mkdir -p "$T/live-st8"; ptr "$SHA" "$STAGED" > "$T/live-st8/latest-staging.json"
+out=$(run_carry "$S" "$T/live-st8")
+if has "$out" "RC=1 " && has "$out" "repair the committed pointer" && ! has "$out" "KOSMOS_STAGING_ROLLBACK"; then pass "st8: a malformed committed pointer refuses with 'repair it', not an opt-in nothing could satisfy"; else bad "st8: $out"; fi
 # A transport failure on the SIDECAR read of a superseded build must refuse, not take the skip.
 S="$T/st5"; mksite "$S" "$(ptr "$SHA" "$OLDSTG")"; mkdir -p "$T/live-st5"; cp "$BYTES" "$T/live-st5/$OLDSTG"; : > "$T/live-st5/.down-sidecar"
 out=$(run_carry "$S" "$T/live-st5")
@@ -246,5 +259,5 @@ if [ -n "$call" ] && [ -n "$export_at" ] && [ "$call" -lt "$export_at" ]; then :
 [ "$k_ok" = 1 ] && pass "k: deploy-site.sh checks staging staleness before any fetch, runs the carry before the export, checks the export for the pair, and served-verifies the pair and the pointer"
 
 echo
-if [ "$fail" = 0 ] && [ "$npass" = 24 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
-echo "FAILED ($npass passed, expected 24)"; exit 1
+if [ "$fail" = 0 ] && [ "$npass" = 26 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
+echo "FAILED ($npass passed, expected 26)"; exit 1

@@ -59,8 +59,11 @@
 #                                     # the alias LOCALLY) and COMMIT latest.json first; this is the
 #                                     # deploy that publishes it.
 #   KOSMOS_STAGING_ROLLBACK=<version> tools/deploy-site.sh --publish
-#                                     # a deliberate staging ROLLBACK (#4819): without it a checkout
-#                                     # committing an older staging version than live is refused.
+#                                     # deploy the committed staging pointer (naming <version>) over
+#                                     # live on purpose (#4819): a staging ROLLBACK to an older
+#                                     # version, the same version with different bytes, or replacing
+#                                     # a live staging pointer that names no build. Without it each
+#                                     # of those is refused.
 #
 # NOTE ON THE SHELL: this is #!/bin/sh but sources two #!/bin/bash libraries (site-deploy.sh,
 # pkg-inputs.sh) that use `local` and ${var:0:2} substrings, so it needs a bash-compatible /bin/sh.
@@ -488,18 +491,27 @@ check_staging_not_stale() {
   fi
   if [ -n "$_csm_live" ] && [ "$_csm_live" != "$_csm_ptr" ]; then
     _csm_lv=$(_csm_version "$(ptr_artifact "$_csm_live")"); _csm_cv=$(_csm_version "$(ptr_artifact "$_csm_ptr")")
+    [ -n "$_csm_cv" ] || { echo "deploy-site: the committed latest-staging.json at $H names no kosmos-<version>-arm64.tar.gz -- refusing; repair the committed pointer (publish-staging-pointer.sh) and retry (#4819)"; exit 1; }
     if [ -z "$_csm_lv" ]; then
-      if [ -n "$_csm_cv" ] && [ "${KOSMOS_STAGING_ROLLBACK:-}" = "$_csm_cv" ]; then
+      if [ "${KOSMOS_STAGING_ROLLBACK:-}" = "$_csm_cv" ]; then
         echo "deploy-site: KOSMOS_STAGING_ROLLBACK=$_csm_cv: replacing a live latest-staging.json that names no kosmos-<version>-arm64.tar.gz, on purpose (#4819)"
         return 0
       fi
-      echo "deploy-site: the live latest-staging.json differs from the committed one and names no kosmos-<version>-arm64.tar.gz -- refusing; which is newer cannot be told. To replace it with the committed staging ${_csm_cv:-pointer}, re-run with KOSMOS_STAGING_ROLLBACK=${_csm_cv:-<version>} (#4819)"; exit 1
+      echo "deploy-site: the live latest-staging.json differs from the committed one and names no kosmos-<version>-arm64.tar.gz -- refusing; which is newer cannot be told. To replace it with the committed staging $_csm_cv, re-run with KOSMOS_STAGING_ROLLBACK=$_csm_cv (#4819)"; exit 1
+    fi
+    # Same version, different bytes (a same-version re-cut): which build is newer cannot be told.
+    if [ "$_csm_lv" = "$_csm_cv" ] && [ "$(ptr_sha "$_csm_live")" != "$(ptr_sha "$_csm_ptr")" ]; then
+      if [ "${KOSMOS_STAGING_ROLLBACK:-}" = "$_csm_cv" ]; then
+        echo "deploy-site: KOSMOS_STAGING_ROLLBACK=$_csm_cv: replacing the live $_csm_lv staging build with the committed one of the same version, on purpose (#4819)"
+      else
+        echo "deploy-site: live staging and $H both name $_csm_lv but different bytes (sha256 differs) -- refusing; this checkout may hold an older build of that version. Sync $SITE to the current release and retry, or, to deploy the committed build on purpose, re-run with KOSMOS_STAGING_ROLLBACK=$_csm_cv (#4819)"; exit 1
+      fi
     fi
     if [ "$_csm_lv" != "$_csm_cv" ] && [ "$(printf '%s\n%s\n' "$_csm_lv" "$_csm_cv" | sort -V | tail -1)" = "$_csm_lv" ]; then
-      if [ -n "$_csm_cv" ] && [ "${KOSMOS_STAGING_ROLLBACK:-}" = "$_csm_cv" ]; then
+      if [ "${KOSMOS_STAGING_ROLLBACK:-}" = "$_csm_cv" ]; then
         echo "deploy-site: KOSMOS_STAGING_ROLLBACK=$_csm_cv: rolling staging back from $_csm_lv to $_csm_cv on purpose (#4819)"
       else
-        echo "deploy-site: live staging is $_csm_lv but $H commits staging ${_csm_cv:-(unreadable)} -- refusing; the deploy would move staging back and drop the newer build. Sync $SITE to the current release and retry, or, for a deliberate staging rollback, re-run with KOSMOS_STAGING_ROLLBACK=${_csm_cv:-<version>} (#4819)"; exit 1
+        echo "deploy-site: live staging is $_csm_lv but $H commits staging $_csm_cv -- refusing; the deploy would move staging back and drop the newer build. Sync $SITE to the current release and retry, or, for a deliberate staging rollback, re-run with KOSMOS_STAGING_ROLLBACK=$_csm_cv (#4819)"; exit 1
       fi
     fi
   fi
