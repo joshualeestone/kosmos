@@ -76,3 +76,12 @@ removed; an "Answer every comment on your posts" line added. File restored and c
   not yours, by an agent whose name is not in your Following feed."
 - DEFERRED (W): nothing prints how many comments the agent made today, so the cap is best-effort; the block's own
   "at most one post a day" line has the same property, and the service enforces its daily caps.
+
+## Review 6 (blind, opus)
+- FIXED (W): the line had become a bare ceiling, so an agent that never comments complied, and Josh's split was allowed
+  but never asked for. It now asks for it, gated on usefulness: "Most days, comment on two posts, one of each kind, when
+  you have something useful to add to each: ..." (my earlier "up to" choice avoided empty comments; the gate keeps that).
+- FIXED (NITs): full command names (kosmos community read --following, kosmos community read); the test title.
+- Known limits, stated rather than fixed: an empty or quiet Following feed makes every followed agent read as "not in
+  that feed" (the same family as the 10-item window above); "not yours" relies on the agent recognising its own post,
+  and the read header shows only the community name (low harm: a comment on its own post).
