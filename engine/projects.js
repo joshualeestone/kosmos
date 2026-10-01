@@ -239,6 +239,18 @@ const POLICY_END = '<!-- kosmos:policy:end -->';
 /* #4289: the Kosmos community block (engine/communityblock.js), written at birth and at restart. */
 const COMMUNITY_START = '<!-- kosmos:community:start -->';
 const COMMUNITY_END = '<!-- kosmos:community:end -->';
+// #4557: a seeded team member's own brief, layered INTO its role's standard instructions at birth
+// (Josh: never written raw in place of them). Defined beside the others for the same reason.
+const TEAM_START = '<!-- kosmos:team:start -->';
+const TEAM_END = '<!-- kosmos:team:end -->';
+/** #4557: 'none', 'whole' (one start, then one end) or 'broken' (anything else: a lone marker, two, out of order). */
+function teamBlockState(text) {
+  const t = String(text || '');
+  const starts = t.split(TEAM_START).length - 1;
+  const ends = t.split(TEAM_END).length - 1;
+  if (!starts && !ends) return 'none';
+  return (starts === 1 && ends === 1 && t.indexOf(TEAM_START) < t.indexOf(TEAM_END)) ? 'whole' : 'broken';
+}
 
 /**
  * Every managed-block marker in the product, in one list.
@@ -265,7 +277,7 @@ const COMMUNITY_END = '<!-- kosmos:community:end -->';
  */
 function ALL_MARKERS() {
   const mm = require('./messages');
-  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, mm.START, mm.END];
+  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, TEAM_START, TEAM_END, mm.START, mm.END];
 }
 
 /**
@@ -611,6 +623,14 @@ function profileRole(card) {
   return Object.prototype.hasOwnProperty.call(profile, 'role') ? profile.role : null;
 }
 
+/* #4557: the profile's reportsTo, read like profileRole (the profile is a bag; an absent key means none). */
+function profileReportsTo(card) {
+  const profile = card && card.profile;
+  if (!profile || typeof profile !== 'object' || !Object.prototype.hasOwnProperty.call(profile, 'reportsTo')) return null;
+  const to = profile.reportsTo;
+  return (typeof to === 'string' && to.trim()) ? to.trim() : null;
+}
+
 /**
  * Attach the commitments claim to each assigned open task.
  *
@@ -915,6 +935,10 @@ function describe(project, roster, all) {
       // the gate-bites test in chat.test.js holds it with a produced card
       // whose tie flag is deliberately flipped).
       role: (card && card.isNamedOurs) ? (profileRole(card) || card.role || null) : null,
+      // #4557: who this member reports to (the session name the org chart stores), under the same
+      // isNamedOurs gate as role. chat.defaultAgentFor prefers the member others report to, so a
+      // seeded team's room opens on its lead, not on whichever role text says "manager".
+      reportsTo: (card && card.isNamedOurs) ? profileReportsTo(card) : null,
       // ⚠️ `unknown` for an untied pane, for the same reason the board refuses
       // to read its model or its transcript: whatever that pane is doing, we
       // have not established it is this agent doing it.
@@ -1915,7 +1939,12 @@ function create({ name, folder, agents, roster, description, made, parent, done,
   // written to the store since, and one read keeps the duplicate check and the id
   // derivation looking at the same snapshot.
   const already = all.find((p) => folderState(p.folder).real === state.real);
-  if (already) throw new Error(`that folder is already the project "${already.name}"`);
+  if (already) {
+    // The code is for a caller that can pick another name (the Team step, #4557); the sentence is the person's.
+    const taken = new Error(`that folder is already the project "${already.name}"`);
+    taken.code = 'FOLDER_TAKEN';
+    throw taken;
+  }
 
   // ⚠️ Coerced, not trusted. A caller handing `agents` a string or an object
   // put a raw TypeError through the route's catch and out to the person as
@@ -3279,7 +3308,7 @@ function toldOverride(verdict, sessionName, known) {
 
 module.exports = {
   joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
-  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, ALL_MARKERS, neutralise,
+  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, TEAM_START, TEAM_END, teamBlockState, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,

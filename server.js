@@ -861,6 +861,7 @@ const setupAssistant = require('./engine/setup-assistant'); // #3034: the once-e
    seam so tests never open a window. */
 const terminal = require('./engine/terminal');
 const team = require('./engine/team'); // #1279: the authoring seam calls createTeam (engine core merged in #2247)
+const teamseed = require('./engine/teamseed'); // #4557: a seeded team's members as create specs
 const orgchartfile = require('./engine/orgchartfile'); // #4559: an org chart FILE into the New Agent preview
 const agentfile = require('./engine/agentfile');
 const register = require('./engine/register');
@@ -1172,6 +1173,8 @@ function hookPublicLink(id, secret) {
   if (!settingsOk) return why('Kosmos could not read the Kosmos+ settings just now, so there is no internet link this time.');
   if (!on) return why('Kosmos+ can also give a link that works from the internet.');
   if (!signedIn) return why('Finish signing in to Kosmos+ in Settings to also get a link that works from the internet.');
+  // kosmos#4640: a second computer waiting for its other computer's Allow is not a fault either.
+  if (st && st.state === 'waiting-allow') return why('Kosmos+ is waiting for your other computer to allow this one; make a new webhook once it is connected to also get a link that works from the internet.');
   if (!st || st.state !== 'up') {
     return why(st && (st.state === 'connecting' || st.state === 'restarting')
       ? 'Kosmos+ is still connecting; make a new webhook once it is connected to also get a link that works from the internet.'
@@ -6707,6 +6710,8 @@ const server = http.createServer(async (req, res) => {
         const result = create.createAgent({
           name: body.name, role: body.role,
           label: body.label, instructions: body.instructions, model: body.model,
+          // #4557: a seeded team member's brief, layered into its role's instructions (never replacing them).
+          teamInstructions: body.teamInstructions,
           // Which provider it runs on (#245). Absent means Anthropic, which
           // is what every existing caller means; the engine validates and
           // refuses anything it does not know.
@@ -6819,6 +6824,54 @@ const server = http.createServer(async (req, res) => {
       // much as its happy path does.
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
+  }
+
+  /* #4557 (umbrella #4554): the prebuilt teams, read only. The Team dropdown lists them, the confirm
+     screen shows one, and `specs` returns every member as the body POST /api/agents takes, lead first,
+     for the names the person chose. The page makes each member through that route, one request per
+     member, so each gets a single agent's full birth and can be retried alone. Nothing here creates. */
+  if (pathname === '/api/teams/seeded' && req.method === 'GET') {
+    // #4632: opening the Team screen is what downloads the catalogue the teams come from. refresh()
+    // never rejects; the second handler is for a bug in it, which must not hang the screen.
+    const answer = () => {
+      try {
+        const r = teamseed.list();
+        if (!r.ok) { sendJson(res, 503, { error: r.because }); return; }
+        sendJson(res, 200, { teams: r.teams });
+      } catch { if (!res.headersSent) sendJson(res, 500, { error: 'we could not list the teams' }); }
+    };
+    teamseed.refresh().then(answer, answer);
+    return;
+  }
+  {
+    const m = /^\/api\/teams\/seeded\/([a-z0-9-]{1,64})(\/specs)?$/.exec(pathname);
+    if (m && ((!m[2] && req.method === 'GET') || (m[2] && req.method === 'POST'))) {
+      const key = m[1];
+      if (!m[2]) {
+        // The page can open one team directly (openTeamCreate), so this read downloads too (#4632).
+        const answer = () => {
+          try {
+            const r = teamseed.detail(key);
+            if (!r.ok) { sendJson(res, r.unavailable ? 503 : (r.notFound ? 404 : 400), { error: r.because }); return; }
+            sendJson(res, 200, { team: r.team, members: r.members });
+          } catch { if (!res.headersSent) sendJson(res, 500, { error: 'we could not load that team' }); }
+        };
+        teamseed.refresh().then(answer, answer);
+        return;
+      }
+      readBody(req).then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const r = teamseed.specs({ team: key, names: body.names, project: body.project, checkTaken: body.check === true });
+        if (!r.ok) {
+          const code = r.unavailable ? 503 : (r.notFound ? 404 : 400);   // flags, never the English (round 1)
+          sendJson(res, code, { error: r.because });
+          return;
+        }
+        sendJson(res, 200, { team: r.team, specs: r.specs });
+      }).catch(() => { if (!res.headersSent) sendJson(res, 400, { error: 'we could not read that request' }); });
+      return;
+    }
   }
 
   /* #4559: an org chart FILE for the New Agent org chart preview. The raw file is the body and its name
@@ -8086,6 +8139,15 @@ const server = http.createServer(async (req, res) => {
     const q = new URL(req.url, ROUTING_BASE).searchParams;
     /* #4774: `?following=1` is the reader's own Following feed. It is read AS the reader (the service needs the agent's
        bearer), so it is keyed on the authenticated session, never on anything in the query. */
+    /* #4833 slice 2: `?replies=1` is the replies to the reader's OWN posts, keyed on the authenticated session like
+       Following, never on anything in the query. */
+    if (q.get('replies') === '1') {
+      if (q.get('channel') || q.get('post') || q.get('following')) { sendJson(res, 400, { error: 'read your replies, your Following feed, a channel or one post: one at a time' }); return; }
+      communityread.readReplies(reader.card.sessionName)
+        .then((r) => sendJson(res, r.ok ? 200 : (r.busy ? 409 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
+        .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
+      return;
+    }
     if (q.get('following') === '1') {
       if (q.get('channel') || q.get('post')) { sendJson(res, 400, { error: 'read your Following feed, a channel or one post, not two at once' }); return; }
       communityfollow.readFollowing(reader.card.sessionName)
@@ -13614,8 +13676,8 @@ const server = http.createServer(async (req, res) => {
         try { key = store.safeKey(name); } catch { const bad = new Error('that is not a name we can key a token on'); bad.status = 400; throw bad; }
         /* #4763: safeKey is lossy and the token file is keyed on it, so issuing for "mara" while an agent of ours
            called "Mara" runs in a pane puts a token in Mara's file that resolves as Mara. Refuse, as creating an
-           agent does. Only PANE rows can be told apart by spelling: a paneless or created row is named by its key,
-           so re-issuing for a remote agent under its own name still works. An unreadable roster is refused (503),
+           agent does. Only PANE rows can be told apart by spelling: a paneless row is named by its key, so re-issuing for
+           a remote agent under its own name still works (a CREATED row's key is refused below, #4845). An unreadable roster is refused (503),
            as creating an agent and this file's other roster routes refuse it: we cannot say there is no clash.
            #4792 (the name on each token) closes this without a roster. */
         const tokenRoster = safeRoster();
@@ -13629,6 +13691,18 @@ const server = http.createServer(async (req, res) => {
         });
         if (clash) {
           sendJson(res, 409, { issued: false, because: `an agent called ${clash.sessionName} has a session on this computer, and a token for ${name} would be filed under the same name` });
+          return;
+        }
+        /* #4845: the check above sees only RUNNING pane rows. An agent created on this computer and not running now
+           (stopped, or never run) is listed by its key, and Kosmos keys everything about an agent by that key (its
+           reports, its heartbeat, its profile, its tokens). Issuing a remote token under that key would merge a second
+           agent into the first: its posts and reports would land as the local agent. Refused whatever the spelling,
+           since even the same spelling would be two runtimes behind one identity. A REMOVED agent counts too: its plist
+           and folder are kept so Restore can bring it back under the same key. Its weakest point: the created list
+           answers [] when it cannot read the LaunchAgents folder or a job, in an inconsistent sandbox, or on Windows (no
+           created source there), so this check fails OPEN then: no worse than before #4845, and the running-pane check above still stands. */
+        if (require('./engine/status').createdKeys().includes(key)) {
+          sendJson(res, 409, { issued: false, because: `an agent called ${key} was created on this computer, and a token for ${name} would be filed under the same name; choose another name, or delete that agent first to free it` });
           return;
         }
         // #4530: tagged remote, so a Mac supervisor's sweep of untagged tokens skips a token minted here.
@@ -16071,7 +16145,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null, federationLinked, ...(coordinators ? { coordinators } : {}) });
       })
       .catch((err) => sendJson(res, (err && err.code === 'UNREADABLE') ? 500 : 400,
-        { error: String((err && err.message) || 'we could not read that request') }));
+        { error: String((err && err.message) || 'we could not read that request'), ...(err && err.code === 'FOLDER_TAKEN' ? { code: 'folder_taken' } : {}) }));
     return;
   }
 

@@ -157,3 +157,28 @@ test('#4774 review 1: the real engine behind the route: switched off is a 400 (a
   assert.equal(over.status, 429);
   assert.deepEqual(await over.json(), { error: 'you have followed or unfollowed 20 times in the last hour, so Kosmos is pausing it. Do not try again this hour' });
 });
+
+/* #4833 slice 2: replies=1 is the authenticated reader's own replies, alone, keyed on the session, never the query. */
+test('#4833: replies=1 reads the authenticated agent\'s own replies; alone only; without a token 403', async (t) => {
+  const b = fleet.install([fleet.agent('Reader', { state: 'idle' }), fleet.agent('Other', { state: 'idle' })]);
+  const realReplies = communityread.readReplies;
+  const asked = [];
+  communityread.readReplies = async (who) => { asked.push(who); return { ok: true, count: 1, text: 'FRAMED REPLIES' }; };
+  t.after(() => { communityread.readReplies = realReplies; b.restore(); });
+  stub();
+  readCalls = 0;
+  const tok = sendertoken.mint('Reader').token;
+  const r = await readAs(tok, '?replies=1&agent=Other');
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { ok: true, count: 1, text: 'FRAMED REPLIES' });
+  assert.deepEqual(asked, ['Reader'], 'the replies were not read as the authenticated agent (or a name in the query was used)');
+  for (const q of ['?replies=1&channel=general', '?replies=1&post=1b2c3d4e-0000-4000-8000-000000000001', '?replies=1&following=1']) {
+    const bad = await readAs(tok, q);
+    assert.equal(bad.status, 400, q);
+    assert.match((await bad.json()).error, /one at a time/);
+  }
+  assert.equal((await readAs(null, '?replies=1')).status, 403);
+  assert.equal(asked.length, 1, 'a combined or unverified request read replies');
+  assert.equal(readCalls, 0, 'a channel or post read ran as well');
+  assert.equal(calls.length, 0, 'the Following feed was read');
+});

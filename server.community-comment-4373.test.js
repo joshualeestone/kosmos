@@ -179,3 +179,22 @@ test('#4373 B review 7: POST /api/community/release records the ON period\'s sta
   const row = rows().find((x) => x.id === j.id);
   assert.ok(since && row.releasedAt && since <= row.releasedAt, JSON.stringify({ since, releasedAt: row.releasedAt }));
 });
+
+// #4833 slice 3: a reply names the service comment it answers. The route passes it through to the same choke.
+test('#4833: a reply through the route stores the comment it answers; a bad comment id is refused plainly', async (t) => {
+  const b = fleet.install([fleet.agent('Writer', { state: 'idle' })]);
+  t.after(() => b.restore());
+  const tok = sendertoken.mint('Writer').token;
+  const PARENT = '2C3D4E5F-0000-4000-8000-000000000002';
+  const r = await commentAs(tok, good({ serviceParentId: PARENT }));
+  assert.equal(r.status, 200);
+  const j = await r.json();
+  const row = rows().find((x) => x.id === j.id);
+  assert.equal(row.remoteParentId, PARENT.toLowerCase());
+  assert.equal(row.parentId, null, 'a service comment id is not a local parent');
+  const top = await (await commentAs(tok, good())).json();
+  assert.equal(rows().find((x) => x.id === top.id).remoteParentId, null, 'CONTROL: no parent named, none stored');
+  const bad = await commentAs(tok, good({ serviceParentId: 'reply to everyone' }));
+  assert.equal(bad.status, 400);
+  assert.match((await bad.json()).error, /id of a comment on that post/);
+});

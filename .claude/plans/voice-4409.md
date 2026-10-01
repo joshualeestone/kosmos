@@ -1,0 +1,114 @@
+# voice-4409: talk to agents and hear them, built in (slice 1, Mac)
+
+## Why
+Josh 2026-09-28 15:02: "it would be so great to be able to get an agent to speak and to be able to speak to them
+through Kosmos.. I mean I use wisp flow but if it was just built in that would be awesome".
+
+## Measured first (card #4409, 15:20 CDT)
+A probe app with our WKWebView set up as main.swift makeWebView does: isSecureContext true on http://127.0.0.1;
+speechSynthesis works with 68 voices, all on-device; webkitSpeechRecognition present; getUserMedia undefined; native
+SFSpeechRecognizer(en-US) supportsOnDeviceRecognition true. The mic was never started (no prompt left on a shared Mac).
+
+## Call
+- Hear: in the page, speechSynthesis, on-device voices only (no local voice = no button). A speaker button in an agent
+  message's hover bar (DM and room, before Reply, which #4358 keeps last) and on the Guide's answers. Code blocks
+  (span.mdcb) are said as "code block", links read as their text, <br> lines kept apart, long text in pieces; one
+  message at a time, a second press stops it.
+- Talk: a native kosmosVoice bridge in the Mac app. SFSpeechRecognizer with requiresOnDeviceRecognition = true; a
+  language with no on-device model is REFUSED, never sent to the network. Audio from an AVAudioEngine tap, nothing
+  written to disk. Only the board's own main frame can use the bridge. Partial text lands in the box at the caret;
+  nothing is sent. Click to start, click / Send / Escape to stop; the button says it is listening (screen reader too).
+- The mic is drawn only where the bridge exists (the Mac app). In a browser it is hidden: Chrome's
+  webkitSpeechRecognition sends audio to Google.
+- The app signs with com.apple.security.device.audio-input (hardened runtime blocks the mic without it; read back from
+  the signature at build) and install/setup.sh's Info.plist carries NSMicrophoneUsageDescription and
+  NSSpeechRecognitionUsageDescription. The bridge refuses rather than crashing when either is missing.
+
+- Review iteration 1: (BLOCKER) opening another agent or room fires no hashchange (history.replaceState) and #d-say /
+  #pj-post are shared boxes, so a word heard after a switch landed in the next agent's box and was parked as their
+  draft. Dictation is now bound to the view it started in (voiceWhere: box, agent, room, box on screen, page not
+  hidden); a word arriving after any change cancels instead, and a 500 ms watch stops the mic when nothing is heard.
+  The window closing or minimising cancels natively (hostCancel). The recognizer is held for the task's life; a stop
+  with no final answer ends after 5 s. Read-aloud is keyed on the message's words and view, follows its message
+  through a repaint, and stops on a switch or when the message leaves the screen. Paste or drop takes the box back.
+  A browser whose voice list loads late waits for it once. Driven by web.voice-4409.test.js (switch, closed Guide,
+  hidden page, repaint); removing the view check or the repaint hand-off reds them. The native changes are read from
+  source and typecheck at the floor target; they need a person at a Mac to be seen working (same as the mic itself).
+- Review iteration 2: (WARNING) moving from one mic to another is cancel-then-start in one turn, and the cancel's
+  "stopped" arrived after the new start and ended it: mic on, button off. The page now tags each start with an id,
+  the app echoes it on every event, and the page ignores another session's events (an app without ids is taken as
+  before). NITs: a window hidden during the permission prompt now cancels the pending start; two messages with the
+  same words keep read-aloud on the one it started on; the tests now drive voiceToggle and the watch itself.
+- Review iteration 3: (WARNING) a crashed page process, or a reload, left the Mac listening while the new page drew
+  every mic off. The app now cancels on webViewWebContentProcessDidTerminate and on each main-frame commit. NIT: the
+  idle stop clears the pending flag. The test harness now runs on the page's own VOICE, SPEAK and VOICE_WATCH.
+  ACCEPTED (not changed): if the bridge were to drop a start without a word (an origin mismatch, not seen on a normal
+  board load), the button stays "asking" until a reload. Clearing it on the page alone could say off while the mic
+  is on, which is the one thing this card must not do. The native half of the id protocol is pinned by source
+  reads; its ordering (cancel emits before a new start sets the id) holds because WebKit delivers the page's
+  messages in order on the main thread.
+- Review iteration 4 (converged): NIT fixed, the box gets focus back when listening starts, so Escape (a promise on
+  the card) works after clicking the mic. ACCEPTED: no AVAudioEngineConfigurationChange observer, so an unplugged mic
+  leaves the button on until the recognizer errors or the 300 s cap; that is the safe direction (on while off).
+- Review iteration 5: (WARNING) the Guide ends a chat with readOnly, not disabled, and the mic still wrote into it:
+  words the person could not delete, sent when the chat came back. The mic now refuses a read-only box, and a box
+  that closes mid-dictation (read-only, or #d-say disabled when an agent goes offline) counts as a move and stops it.
+  NIT: with focus in the box, a screen reader heard nothing about listening; the box's message line now says
+  "Listening. Press Escape to stop." (cleared when it ends), and #pj-room-msg became a live region (role=status).
+- Review iteration 6: (WARNING) the box is rebuilt from the before/after read at the start, so any other write while
+  listening (an emoji from the picker, Reply's @mention, undo, autocorrect) was wiped by the next word. Dictation now
+  remembers what it last left in the box; if the box holds anything else, the person changed it, and dictation stops
+  and keeps their text. NIT: starting the mic no longer clears another message's line (only the mic's own), and the
+  listening line is written only into an empty line. ACCEPTED: #d-say-msg is role=alert (assertive), so "Listening"
+  interrupts a screen reader; #pj-room-msg is display:none while empty, and a live region shown with its text in one
+  step can be announced unreliably by VoiceOver. Both are existing elements' semantics, not changed here.
+- Review iteration 7: (WARNING) at the box's 10,000 cap the joined text was cut from its end, deleting what the
+  person had typed after the caret. Now the heard words give way (trimmed to the room left, or none at all).
+  ACCEPTED: an arrow, Home or End key stops dictation (any key does). That loses nothing and says so; re-reading the
+  caret mid-dictation would be a different design.
+- Review iteration 8: (WARNING) text the person had SELECTED when the mic started was deleted when the first
+  result was empty, or when there was no room. The selection is now kept and given back in both cases; it is
+  replaced only when words land. NITs: the cut at the cap never splits an emoji (a lone surrogate) and drops a trailing
+  space.
+- Review iteration 9 (converged: nothing new at BLOCKER or WARNING). ACCEPTED NITs: a selection given back after an
+  empty or no-room result keeps its text but the highlight collapses to a caret; at the cap the heard words are cut
+  or dropped with no line saying why (safe direction); a multi-part emoji (a flag, a family) can still be cut between
+  its parts at the cap, leaving valid text.
+- Full validation v0 (after convergence) was red on ONE test, mine: fixture-discipline forbids a hand-built agent card,
+  and the voice harness set CURRENT to { sessionName }. The harness now takes REAL cards from test-support/fleet
+  (sandboxed data root). The view-check mutation still reds 3 tests with real cards.
+- The #2518 browser-check SURFACE gate was red on v1 (masked in v0 by the fixture red). Running its checks alone
+  found a real defect it named, render-room-msgbox-2806, mine: read aloud made an agent's reaction bar six buttons,
+  and at 375px it ran 49..336px in a 297px thread, so Reply was off the edge and took no tap (main fit by about a
+  pixel). Fixed (e19a4193a): pjRxnFitWidth caps the bar at the thread's width and slides it inside, on the tap and
+  focus paths; the touch CSS lets it wrap only when the thread is narrower than the bar; the check counts SHOWN
+  buttons (5, plus 1 with read aloud). The other 16 checks the gate names ran alone on e19a4193a, all clean, and
+  carry per-check Browser-check-surface trailers (c52c5d4f6). render-no-conflict-3729 red twice here is NOT this
+  branch: one tree hash passed at 03:52 and failed at 04:07 (filed #4520).
+- Review iteration 10 (a blind review of the width fix): 0 BLOCKER, 1 WARNING (the phone arms would pass on the
+  narrow bar if read aloud stopped showing; a precondition now pins want === 6), plus the focus arm's full count, no
+  inline style left after focusout, the thread's inner box, the fit after the early close, and a refit of a
+  focus-opened bar on resize (b92cb2e99). ACCEPTED: no arm pins that the shifted bar stays near its post (the fit
+  moves only by the overflow). Each new guard reds under its mutation; the six bar checks ran clean on b92cb2e99.
+- DEFERRED: the browser check covers the DM composer only; the room and Guide mics share the same functions.
+## Rejected
+- The page's webkitSpeechRecognition: needs the same permissions and entitlement, and the page cannot demand
+  on-device recognition, so it costs the same and gives up the guarantee.
+- SpeechTranscriber (macOS 26 only): the floor stays 13.5; later.
+
+## Not done (later slices)
+Windows (Homer), a per-agent "read replies aloud" switch, SpeechTranscriber.
+
+## Weakest premise
+The mic path has not been seen working end to end: that needs a person at a Mac to allow both prompts and speak.
+The mechanism, entitlement and plist keys are checked in the build and by --kosmos-app-voice-selftest (14/14); the
+page side by web.voice-4409.test.js and the render-voice-4409 browser check. Behaviour is measured on a person's
+Mac after release.
+- Merged origin/main (196 commits) as d4040c653: PR #4536 could not run CI while it conflicted. native-app/main.swift
+  (main's ModeMessageProxy #4356 at the same place as VoiceBridge) and tools/build-kosmos-bundle.sh were resolved as
+  main's file with this branch's own patch re-applied. Every line either side added survives; the merged main.swift
+  type-checks at the macOS floor (rc 0; a type-error control reds). A blind review of the resolution: no BLOCKER or
+  WARNING (both sides' added and removed lines match exactly). ACCEPTED NIT: selftests build a web view with a
+  throwaway delegate, so each makes a VoiceBridge that is never started. After the merge the surface gate also names
+  render-rename-4421 (main's; token d-dmthread): ran alone on d4040c653, 22 PASS; and the bar and voice checks ran
+  alone there too, all clean (voice 14, msgbox 180, room-reply 67, dm-reply 23, reactions 47, dm-tapreact 79).

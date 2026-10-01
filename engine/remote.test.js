@@ -254,6 +254,13 @@ if (args[0] === 'devices') {
     process.stderr.write('the coordinator said no (404): no such pending device\\n');
     process.exit(1);
   }
+  if (verb === 'list' && mode === 'list-allowed-on') { console.log(JSON.stringify({ devices: [
+    { device_id: 'dev-1', name: 'iPhone', allowed_at: 1756000000, last_seen: 0, code: 'K7-3M', allowed_on: 'windowsbox' },
+    { device_id: 'dev-2', name: 'iPad', allowed_at: 1756000000, last_seen: 0, code: 'Q2-8P', allowed_on: null },
+    { device_id: 'dev-3', name: 'Mac', allowed_at: 1756000000, last_seen: 0, code: 'Z9-4T', allowed_on: 42 },
+    { device_id: 'dev-4', name: 'Pixel', allowed_at: 1756000000, last_seen: 0, code: 'W3-1N', allowed_on: '   ' },
+    { device_id: 'dev-5', name: 'Phone', allowed_at: 1756000000, last_seen: 0, code: 'R5-6V', allowed_on: 'x'.repeat(80) },
+  ] })); process.exit(0); }
   if (verb === 'list') { console.log(JSON.stringify({ devices: [{ device_id: 'dev-1', name: 'iPhone', allowed_at: 1756000000, last_seen: 0, code: 'K7-3M' }] })); process.exit(0); }
   if (verb === 'pending') { console.log(JSON.stringify({ devices: [] })); process.exit(0); }
   console.log(JSON.stringify({ [verb === 'allow' ? 'allowed' : verb === 'deny' ? 'denied' : 'removed']: true, device_id: flag('--device-id') }));
@@ -292,11 +299,15 @@ if (args[0] === 'run') {
   } else if (mode.includes('retry-loop')) {
     const w = (o) => fs.writeFileSync(statusFile, JSON.stringify(Object.assign({ address: null, pid: process.pid }, o)) + '\\n');
     w({ state: 'connecting', because: null });
-    setTimeout(() => w({ state: 'restarting', because: 'relay refused the tunnel: bad ticket' }), 100);
+    setTimeout(() => w({ state: 'restarting', because: process.env.FAKE_TUNNEL_BECAUSE || 'relay refused the tunnel: bad ticket' }), 100);
     setTimeout(() => w({ state: 'connecting', because: null }), 2500);
+    // kosmos#4640: a later, different failure from the same process. The #4640 runs (FAKE_TUNNEL_BECAUSE set) get a wider
+    // gap after the second connecting, so asserting the wait is kept there is not a race against a busy machine.
+    const late = process.env.FAKE_TUNNEL_BECAUSE ? 4500 : 2900;
+    if (mode.includes('then-fail')) setTimeout(() => w({ state: 'restarting', because: 'relay refused the tunnel: bad ticket' }), late);
     if (mode.includes('then-up')) {
       const address = fs.readFileSync(path.join(flag('--state-dir'), 'address'), 'utf8').trim();
-      setTimeout(() => w({ state: 'up', address, because: null }), 2900);
+      setTimeout(() => w({ state: 'up', address, because: null }), late);
     }
     setInterval(() => {}, 1000);
     process.on('SIGTERM', () => process.exit(0));
@@ -835,6 +846,72 @@ test('#4277: the remembered failure belongs to one tunnel process: a new process
   } finally { delete process.env.FAKE_TUNNEL_MODE; remote.resetForTests(); }
 });
 
+const ALLOW_SAID = 'this computer is not allowed yet; allow it from your other computer first. If that computer is gone, retire it from your account page, then retire this computer and set it up again';
+const ALLOW_LINE = 'Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket';
+test('kosmos#4640: the waiting-to-be-allowed refusal is recognised in both spellings; another code or an ordinary refusal is not', () => {
+  assert.equal(remote.allowWaitSentence(ALLOW_LINE + ', code own_lineage)'), ALLOW_SAID, 'retirehold-4681 ticket tunnel (with the code)');
+  assert.equal(remote.allowWaitSentence(ALLOW_LINE + ')'), ALLOW_SAID, 'relay main tunnel (no code)');
+  // The device word is not read: the relay's line may say "this computer" once it follows the app's rename.
+  assert.equal(remote.allowWaitSentence('Kosmos+ refused this computer: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)'), ALLOW_SAID, 'the relay line after its own rename');
+  // Review: case is matched exactly, as remote-report.js's waiting-allow row now also does (pinned there with this line).
+  assert.equal(remote.allowWaitSentence(ALLOW_LINE.replace(': this computer', ': This computer') + ', code own_lineage)'), null, 'a recased sentence read as the wait');
+  assert.equal(remote.allowWaitSentence('Kosmos+ refused: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)'), null, 'CONTROL: a line with no "this <device>:" is not the relay\'s shape');
+  // CONTROLS: each must stay an ordinary refusal.
+  assert.equal(remote.allowWaitSentence(ALLOW_LINE + ', code standing_lapsed)'), null, 'the same words with another code');
+  // CONTROLS (#4640 review): own_lineage's two FINAL sentences stay refusals.
+  for (const final of ['this computer was not allowed on your account; retire this computer and set it up again',
+    'this computer is still waiting to be allowed, and no other computer on your account is left to allow it; retire this computer and set it up again']) {
+    assert.equal(remote.allowWaitSentence('Kosmos+ refused this Mac: ' + final + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)'), null, 'a final own_lineage refusal read as a wait: ' + final);
+  }
+  assert.equal(remote.allowWaitSentence('Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/standing)'), null, 'the same words on another path, no code');
+  assert.equal(remote.allowWaitSentence('Kosmos+ refused this Mac: standing lapsed (HTTP 403 on /v1/mac/relay-ticket)'), null, 'an ordinary refusal');
+  assert.equal(remote.allowWaitSentence('relay refused the tunnel: bad ticket'), null);
+  assert.equal(remote.allowWaitSentence(null), null);
+});
+
+test('kosmos#4640: status() reads a waiting computer as waiting-allow, keeps it through the retry, and drops it on up or another failure', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9458';
+  remote.setOn(true);
+  await remote.setupStart('her@example.com');
+  await remote.setupComplete('123456', 'hers');
+  const statusFile = () => { try { return JSON.parse(fs.readFileSync(nodePath.join(DATA_ROOT, 'remote-status.json'), 'utf8')); } catch { return null; } };
+  const waiting = () => until(() => remote.status().state === 'waiting-allow', 'the refusal to read as waiting-allow', 15000);
+  try {
+    for (const spelling of [ALLOW_LINE + ', code own_lineage)', ALLOW_LINE + ')']) {
+      remote.resetForTests();
+      process.env.FAKE_TUNNEL_MODE = 'retry-loop then-up';
+      process.env.FAKE_TUNNEL_BECAUSE = spelling;
+      remote.ensure(4390);
+      await waiting();
+      const st = remote.status();
+      assert.equal(st.because, ALLOW_SAID, 'the reason is not the coordinator\'s sentence alone');
+      assert.ok(!/refused|HTTP|\/v1\//.test(st.because), 'the reason carries refusal words or a path');
+      await until(() => { const f = statusFile(); return f && f.state === 'connecting'; }, 'the tunnel to retry (connecting, no reason)', 15000);
+      assert.equal(remote.status().state, 'waiting-allow', 'the wait was lost while the tunnel dialled again');
+      await until(() => remote.status().state === 'up', 'the tunnel to come up once allowed', 15000);
+      assert.equal(remote.status().because, null);
+    }
+    // Another failure from the same process replaces the wait.
+    remote.resetForTests();
+    process.env.FAKE_TUNNEL_MODE = 'retry-loop then-fail';
+    process.env.FAKE_TUNNEL_BECAUSE = ALLOW_LINE + ', code own_lineage)';
+    remote.ensure(4390);
+    await waiting();
+    await until(() => remote.status().because === 'relay refused the tunnel: bad ticket', 'the later failure to show', 15000);
+    assert.equal(remote.status().state, 'restarting', 'a different failure still read as waiting');
+    // CONTROL: the same words with another code are an ordinary restart, as before.
+    remote.resetForTests();
+    process.env.FAKE_TUNNEL_MODE = 'retry-loop';
+    process.env.FAKE_TUNNEL_BECAUSE = ALLOW_LINE + ', code standing_lapsed)';
+    remote.ensure(4390);
+    await until(() => remote.status().state !== 'connecting', 'the control refusal to be seen', 15000);
+    assert.equal(remote.status().state, 'restarting', 'another code read as waiting');
+    assert.match(remote.lastTunnelFailure(), /code standing_lapsed/, 'fixture: the control refusal was not the one sampled');
+    await until(() => { const f = statusFile(); return f && f.state === 'connecting'; }, 'the control tunnel to retry', 15000);
+    assert.equal(remote.status().state, 'connecting', 'another code was kept as a wait through the retry');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; delete process.env.FAKE_TUNNEL_BECAUSE; remote.resetForTests(); }
+});
+
 test('#4419: status says the connector admits webhooks only when the running connector wrote admits_hooks: true', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9455';
   remote.setOn(true);
@@ -1024,6 +1101,23 @@ test('list joins the sidecar for the screen, and unenrolled is an empty list wit
   assert.equal(got.ok, true, got.because);
   assert.equal(got.data.devices[0].name, 'iPhone');
   assert.equal(got.data.devices[0].code, 'K7-3M');
+  /* #4794: a tunnel without part C sends no allowed_on, and the list reads it as this computer (null). */
+  assert.equal(got.data.devices[0].allowed_on, null);
+});
+
+test('#4794: allowed_on carries the name of the computer that allowed a device, null for this computer or a bad value', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'list-allowed-on';
+  try {
+    const got = await remote.devicesList();
+    assert.equal(got.ok, true, got.because);
+    const by = Object.fromEntries(got.data.devices.map((d) => [d.device_id, d.allowed_on]));
+    assert.equal(by['dev-1'], 'windowsbox');
+    assert.equal(by['dev-2'], null, 'null is this computer');
+    assert.equal(by['dev-3'], null, 'a number is not a computer name');
+    assert.equal(by['dev-4'], null, 'a blank name is not a computer name');
+    assert.equal(by['dev-5'], 'x'.repeat(60), 'a long name is cut to its first 60 characters, like a device name');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
 });
 
 test('#648: with nothing set, the Mac dials the real relay and coordinator, and bakes no CA', () => {

@@ -54,15 +54,21 @@ test('every id the create flow reads is an element the page renders', () => {
     'the create flow reads elements that are not in the page: ' + missing.join(', '));
 });
 
-test('the step switcher\'s three panes exist under the prefix it builds', () => {
+test('every pane the step switcher builds an id for exists', () => {
   /* The one place an id is composed rather than written out. Pinned separately
      because the check above cannot see it, and a missing pane here is the same
      failure with a different spelling. */
   assert.match(SCRIPT, /getElementById\('cstep-' \+ s\)/,
     'the step switcher changed shape; re-point this');
   const have = idsInMarkup();
-  for (const pane of ['cstep-kind', 'cstep-role', 'cstep-team', 'cstep-name', 'cstep-made']) {   // #4556: kind and team
-    assert.ok(have.has(pane), `${pane} is not in the page, so switching to it throws`);
+  /* #4557 round 30: the panes are read out of cstep()'s own list, so a step added there (teammake) is covered without
+     anyone remembering to add it here. */
+  const fn = SCRIPT.match(/function cstep\(which\) \{\s*\[([^\]]+)\]\.forEach/);
+  assert.ok(fn, 'cstep() no longer starts with its list of steps; re-point this');
+  const steps = [...fn[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  assert.ok(steps.length >= 6 && steps.includes('teammake'), 'CONTROL: the step list read as ' + JSON.stringify(steps));
+  for (const s of steps) {
+    assert.ok(have.has('cstep-' + s), `cstep-${s} is not in the page, so switching to it throws`);
   }
 });
 

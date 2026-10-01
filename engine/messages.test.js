@@ -3102,3 +3102,119 @@ test('#4580: an outside party speaking in a federated room (an external row) bre
     assert.notEqual(again.id, first.id);
   });
 });
+
+test('#4786: work moving in the project earns the room a bounded allowance; talk, old work and another room\'s work earn none, and a loop that makes tasks is still held', () => {
+  const taskchat = require('./taskchat');
+  withFleet(room3(), (board) => {
+    try {
+      const now = Date.now();
+      fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+      fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+      for (let i = 0; i < ROOM_BUDGET / 2; i += 1) {
+        fs.appendFileSync(messages.LOG, JSON.stringify({
+          kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease',
+          from: MEMBERS[i % 3], to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]),
+          text: 'handing it on ' + i, at: new Date(now - 60000).toISOString(), outcomes: {},
+        }) + '\n');
+      }
+      let seq = 0;   // each post its own words: the same words again within minutes are one post, not a new arrival
+      const post = () => { chat.resetForTests(); armSender('leo-discord'); arm([]); seq += 1;
+        return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'next step ' + seq }, board.agents, MEMBERS); };
+      /* Posts until the room is held; how many got through. Each post costs 2 arrivals (3 members). */
+      const through = () => { let n = 0; while (n < 200 && post().state === chat.DELIVERY.PLACED) n += 1; return n; };
+      // CONTROL: over its budget with no work moving, the room is held (the loop the valve exists for).
+      assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'the room was not held to begin with, so nothing below proves anything');
+      // Work that moved BEFORE the budget's window started earns nothing.
+      const old = taskchat.taskChatFile('henderson-lease', 3);
+      fs.mkdirSync(path.dirname(old), { recursive: true });
+      fs.writeFileSync(old, JSON.stringify({ at: new Date(now - 2 * 3600000).toISOString(), kind: 'closed' }) + '\n');
+      assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'a task closed before the window released the room');
+      // Talk on a task is not progress.
+      assert.equal(taskchat.record('henderson-lease', 1, { kind: 'said', text: 'still on it' }), true);
+      assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'a task message released the room: talk counted as work');
+      // Work moving in ANOTHER project does not release this room.
+      assert.equal(taskchat.record('quarter-close', 1, { kind: 'closed' }), true);
+      assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'another project\'s task closing released this room');
+      // One task closed HERE earns a quarter of the cap: the room goes on, and is held again when that runs out.
+      assert.equal(taskchat.record('henderson-lease', 2, { kind: 'closed' }), true);
+      /* Arrivals the room now holds in its window, counted from the log itself, so nothing below assumes the
+         budget divides evenly. Each post costs 2, so a room held at `cap` holds more than cap - 2 and at most cap. */
+      // Every post in the log counts: this test's log starts empty (wiped before each test) and all of it is in the window.
+      const held = () => messages.record().rows.filter((m) => m.kind === 'post' && !m.operator
+        && m.project === 'henderson-lease').reduce((n, m) => n + m.to.length, 0);
+      const credit = Math.ceil(ROOM_BUDGET / 4);
+      assert.ok(through() > 0, 'one step of work earned nothing');
+      assert.ok(held() <= ROOM_BUDGET + credit && held() > ROOM_BUDGET + credit - 2,
+        `one step of work should earn a quarter of the cap: held at ${held()}, cap ${ROOM_BUDGET}`);
+      // A loop that keeps making tasks earns at most one more cap in all, then is held.
+      for (let k = 10; k < 30; k += 1) {
+        assert.equal(taskchat.record('henderson-lease', k, { kind: 'created', sentence: 'busywork ' + k }), true);
+      }
+      assert.ok(through() > 0, 'twenty made tasks earned nothing');
+      assert.ok(held() <= 2 * ROOM_BUDGET && held() > 2 * ROOM_BUDGET - 2,
+        `making tasks should buy at most one more cap: held at ${held()}, cap ${ROOM_BUDGET}`);
+      assert.equal(post().state, chat.DELIVERY.COULD_NOT, 'a loop that makes tasks was never held');
+    } finally {
+      fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+    }
+  });
+});
+
+test('#4786: work done BEFORE the person last spoke earns nothing after it; the same work after does', () => {
+  const taskchat = require('./taskchat');
+  const run = (stepMinutesAgo) => withFleet(room3(), (board) => {
+    try {
+      const now = Date.now();
+      const ago = (min) => new Date(now - min * 60000).toISOString();
+      fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+      fs.rmSync(messages.LOG, { force: true });   // each arm starts from an empty room: the two runs share one log
+      fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+      const step = taskchat.taskChatFile('henderson-lease', 1);
+      fs.mkdirSync(path.dirname(step), { recursive: true });
+      fs.writeFileSync(step, JSON.stringify({ at: ago(stepMinutesAgo), kind: 'closed' }) + '\n');
+      fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'op', project: 'henderson-lease', operator: true,
+        from: 'operator', to: MEMBERS, text: 'carry on', at: ago(4), outcomes: {} }) + '\n');
+      for (let i = 0; i < Math.ceil(ROOM_BUDGET / 2); i += 1) {
+        fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease',
+          from: MEMBERS[i % 3], to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]), text: 'on it ' + i, at: ago(1), outcomes: {} }) + '\n');
+      }
+      chat.resetForTests(); armSender('leo-discord'); arm([]);
+      return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'next' }, board.agents, MEMBERS).state;
+    } finally {
+      fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+    }
+  });
+  assert.equal(run(2), chat.DELIVERY.PLACED, 'CONTROL: a step after the person spoke did not earn room, so the other arm proves nothing');
+  assert.equal(run(5), chat.DELIVERY.COULD_NOT, 'a step before the person spoke still earned room after they reset it');
+});
+
+test('#4786: with the limit Off, work moving changes nothing: the room still gets its told-only notice at the cap', () => {
+  const taskchat = require('./taskchat');
+  withFleet(room3(), (board) => {
+    assert.equal(limits.write({ on: false, perHour: 10 }).ok, true);
+    try {
+      const now = Date.now();
+      fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+      fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+      for (let i = 0; i < 20; i += 1) {
+        fs.appendFileSync(messages.LOG, JSON.stringify({
+          kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease',
+          from: 'ghost', to: ['leo', 'mara'], text: 'round ' + i,
+          at: new Date(now - 60000).toISOString(), outcomes: {},
+        }) + '\n');
+      }
+      // A step that, with the limit on, would earn a quarter of the cap and keep this post under it.
+      assert.equal(taskchat.record('henderson-lease', 1, { kind: 'closed' }), true);
+      armSender('leo-discord');
+      arm([]);
+      const post = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'still talking' }, board.agents, MEMBERS);
+      assert.equal(post.state, chat.DELIVERY.PLACED, post.because || '');
+      const valve = messages.record().rows.find((m) => m.kind === 'valve' && m.project === 'henderson-lease');
+      assert.ok(valve, 'the told-only notice was suppressed by work moving, which only the limit-on valve should weigh');
+      assert.equal(valve.stopped, false);
+    } finally {
+      fs.rmSync(limits.FILE, { force: true });
+      fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+    }
+  });
+});

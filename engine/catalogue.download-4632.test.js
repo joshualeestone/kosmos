@@ -63,7 +63,7 @@ function server(payload, opts = {}) {
 
 test('with nothing downloaded yet there is no catalogue: the built-in roles only, and no teams', () => {
   fresh();
-  assert.deepEqual(catalogue.status(), { loaded: false, serial: null, roles: 0, teams: 0, error: null });
+  assert.deepEqual(catalogue.status(), { loaded: false, serial: null, roles: 0, teams: 0, error: null, refused: false });
   assert.equal(roles.ROLES.length, BUILT_IN);
   assert.deepEqual(catalogue.teams(), []);
   assert.match(catalogue.memberProblem('marketing', 'lead'), /no prebuilt team/);
@@ -100,6 +100,7 @@ test('a changed byte, another key, or a catalogue this version cannot read is re
     const st = await catalogue.refresh({ fetcher: server(payload).fetcher, force: true });
     assert.equal(st.loaded, false, name);
     assert.match(st.error, /was refused/, name);
+    assert.equal(st.refused, true, `${name}: status says the copy was refused (the Team step reads this flag, not the words)`);
     assert.equal(fs.existsSync(catalogue.cacheFile()), false, `${name}: stored`);
   }
   assert.equal(roles.ROLES.length, BUILT_IN);
@@ -125,6 +126,7 @@ test('offline, a missing file or an oversized one keeps what is held and says wh
     const st = await catalogue.refresh({ fetcher: server(signed(31), opts).fetcher, force: true });
     assert.equal(st.serial, catalogue.MIN_SERIAL + 30);
     assert.ok(st.error, JSON.stringify(opts));
+    assert.equal(st.refused, false, 'a download that did not arrive is not a refused copy: ' + JSON.stringify(opts));
   }
   const huge = { body: 'x'.repeat(8 * 1024 * 1024 + 1), sig: 'AA==' };
   const st = await catalogue.refresh({ fetcher: server(huge).fetcher, force: true });

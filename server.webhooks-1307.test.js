@@ -200,6 +200,8 @@ test('#4419: the internet link is given only when Kosmos Plus is up and the runn
       ['not signed in yet', await make({ state: 'connecting', address: null, because: 'waiting for the sign-in in Settings' }, { signedIn: false }), /Finish signing in to Kosmos\+/],
       ['connecting', await make({ state: 'connecting', address: null, because: 'x' }), /still connecting/],
       ['restarting', await make({ state: 'restarting', address: null, because: 'x' }), /still connecting/],
+      // kosmos#4640: a second computer waiting for its other computer's Allow is told so, not that Kosmos Plus is down.
+      ['waiting-allow', await make({ state: 'waiting-allow', address: null, because: 'x' }), /waiting for your other computer to allow this one/],
       ['on but not started', await make({ state: 'off', address: null, because: 'the board has not started the tunnel' }), /not connected right now/],
       ['an older connector', await make({ ...UP, admitsHooks: false }), /does not take webhooks from the internet\./],
       ['no admitsHooks at all', await make({ state: 'up', address: 'hers.kosmosplus.com', because: null }), /does not take webhooks from the internet\./],

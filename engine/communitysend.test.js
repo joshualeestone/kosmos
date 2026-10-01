@@ -43,9 +43,15 @@ function backend() {
       if (req.method === 'POST' && req.url === '/agents/register') {
         if ([...st.agents.values()].some((a) => a.name.toLowerCase() === body.name.toLowerCase())) return send(409, { detail: 'that name is taken' });
         const id = 'a' + (++st.n);
-        const a = { id, name: body.name, bio: body.bio, key: 'kc_key_' + id, token: 'tok_' + id + '_1', active: true };
+        const a = { id, name: body.name, bio: body.bio, key: 'kc_key_' + id, token: 'tok_' + id + '_1', active: true, registeredAt: new Date().toISOString() };
         st.agents.set(id, a);
         return send(201, { agent_id: id, name: a.name, name_replaced: false, api_key: a.key, token: a.token });
+      }
+      // #4800: the public profile, by name, case ignored; 404 for a name no ACTIVE agent has (the service's rule).
+      if (req.method === 'GET' && req.url.startsWith('/agents/by-name/')) {
+        const name = decodeURIComponent(req.url.slice('/agents/by-name/'.length)).toLowerCase();
+        const a = [...st.agents.values()].find((x) => x.active && x.name.toLowerCase() === name);
+        return a ? send(200, { name: a.name, bio: a.bio || null, registered_at: a.registeredAt || null, counts: {} }) : send(404, { detail: 'agent not found' });
       }
       if (req.method === 'POST' && req.url === '/agents/login') {
         const a = [...st.agents.values()].find((x) => x.name === body.name && x.key === body.api_key && x.active);
@@ -853,4 +859,286 @@ test('#4774 review 2: a full /agents/me/posts (200 posts x 4000 characters) stil
     { takenDown: cs.statuses()[r.id].takenDown, reason: cs.statuses()[r.id].takeDownReason },
     { takenDown: true, reason: 'off topic' },
   );
+});
+
+/* #4800: a register whose answer is lost. `loseRegister` makes the next register's answer never arrive: 'after' lets
+   the server make the account first (the case the card is about), 'before' fails it before it reaches the server. */
+function loseRegister(when) {
+  let armed = true;
+  cs.setSender(async (url, init) => {
+    if (armed && url.endsWith('/agents/register')) {
+      armed = false;
+      if (when === 'after') await fetch(url, init);   // the service commits; the answer is dropped on the way back
+      throw new Error('socket hang up');
+    }
+    return fetch(url, init);
+  });
+}
+const registers = () => be.st.seen.filter((s) => s.method === 'POST' && s.url === '/agents/register');
+const lookups = () => be.st.seen.filter((s) => s.method === 'GET' && s.url.startsWith('/agents/by-name/'));
+
+test('#4800: a register whose answer is lost after the account was made registers no second identity', async () => {
+  await on();
+  store.writeProfile('nia', { displayName: 'Nia' });
+  const r = agentPost('nia', { topic: 't', body: 'b' });
+  loseRegister('after');
+  await cs.sweep();
+  assert.equal(be.st.agents.size, 1, 'CONTROL: the lost register did not make the account, so nothing below is tested');
+  assert.equal(posts().length, 0);
+  await cs.sweep();
+  assert.equal(lookups().length, 1, 'the name was not looked up before registering again');
+  assert.equal(registers().length, 1, 'a second register went out for an agent whose account exists');
+  assert.equal(be.st.agents.size, 1, 'a second public identity was made');
+  assert.equal(posts().length, 0, 'a post went out with no key for the account');
+  assert.notEqual(cs.statuses()[r.id].state, 'sent');
+  assert.equal(cs.statuses()[r.id].agentNameUnclaimed, true, 'the owner cannot see why this agent is not posting');
+  await cs.sweep();
+  assert.equal(lookups().length, 1, 'the name was looked up again within the hour');
+  assert.equal(registers().length, 1);
+});
+
+test('#4800: a register whose answer is lost BEFORE the account was made looks the name up, then registers the same name', async () => {
+  await on();
+  store.writeProfile('oda', { displayName: 'Oda' });
+  const r = agentPost('oda', { topic: 't', body: 'b' });
+  loseRegister('before');
+  await cs.sweep();
+  assert.equal(be.st.agents.size, 0);
+  await cs.sweep();
+  assert.equal(lookups().length, 1);
+  assert.deepEqual(registers().map((x) => x.body.name), ['Oda'], 'the retry did not take the same name');
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+});
+
+test('#4800: with no display name, a lost register retries the SAME generated handle, not a new one', async () => {
+  await on();
+  const r = agentPost('pax', { topic: 't', body: 'b' });
+  loseRegister('before');
+  await cs.sweep();
+  await cs.sweep();
+  const names = registers().map((x) => x.body.name);
+  assert.equal(names.length, 1, 'expected one register to reach the server (the first was lost before it)');
+  assert.equal(lookups().length, 1);
+  assert.equal(decodeURIComponent(lookups()[0].url.slice('/agents/by-name/'.length)), names[0],
+    'the retry registered a different handle from the one the lost try used');
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+});
+
+test('#4800: a register the service answered (a 409 retried with a suffix) leaves no mark to look up', async () => {
+  await on();
+  be.st.agents.set('y', { id: 'y', name: 'Qi', key: 'k', token: 't', active: true });
+  store.writeProfile('qi', { displayName: 'Qi' });
+  agentPost('qi', { topic: 't', body: 'b' });
+  await cs.sweep();
+  assert.equal(lookups().length, 0, 'a lookup went out with no lost answer');
+  const k = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8')).qi;
+  assert.ok(k.apiKey && !k.registering, 'the registered agent kept a write-ahead mark');
+});
+
+test('#4800: a register the service refused outright (a 400) leaves no mark, so the next try does not look it up', async () => {
+  await on();
+  store.writeProfile('rho', { displayName: 'Rho' });
+  const r = agentPost('rho', { topic: 't', body: 'b' });
+  let refused = false;
+  cs.setSender(async (url, init) => {
+    if (!refused && url.endsWith('/agents/register')) {
+      refused = true;
+      return new Response('{"detail":"bad request"}', { status: 400, headers: { 'content-type': 'application/json' } });
+    }
+    return fetch(url, init);
+  });
+  await cs.sweep();
+  assert.equal(refused, true);
+  await cs.sweep();
+  assert.equal(lookups().length, 0, 'an answered refusal was treated as a lost answer');
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+});
+
+/* #4800 review 1: answers that do not prove nothing was made keep the mark. `answerRegister` lets the service commit,
+   then hands the board a different answer. */
+function answerRegister(make) {
+  let armed = true;
+  cs.setSender(async (url, init) => {
+    if (armed && url.endsWith('/agents/register')) {
+      armed = false;
+      await fetch(url, init);
+      return make();
+    }
+    return fetch(url, init);
+  });
+}
+for (const [label, make] of [
+  ['a 504 from a gateway after the service committed', () => new Response('{"detail":"gateway timeout"}', { status: 504, headers: { 'content-type': 'application/json' } })],
+  ['a 201 whose body never arrived whole', () => new Response('{"agent_id": "a', { status: 201, headers: { 'content-type': 'application/json' } })],
+]) {
+  test(`#4800: ${label} keeps the mark, so the next try finds the account instead of making a twin`, async () => {
+    await on();
+    const who = 'sv' + label.length;
+    store.writeProfile(who, { displayName: 'Sam ' + label.length });
+    agentPost(who, { topic: 't', body: 'b' });
+    answerRegister(make);
+    await cs.sweep();
+    assert.equal(be.st.agents.size, 1, 'CONTROL: the service did not make the account');
+    await cs.sweep();
+    assert.equal(lookups().length, 1, 'the name was not looked up');
+    assert.equal(registers().length, 1, 'a second register went out');
+    assert.equal(be.st.agents.size, 1, 'a second public identity was made');
+  });
+}
+
+test('#4800: a lookup the service cannot answer (a 503) waits: no register that sweep', async () => {
+  await on();
+  store.writeProfile('tam', { displayName: 'Tam' });
+  const r = agentPost('tam', { topic: 't', body: 'b' });
+  loseRegister('before');
+  await cs.sweep();
+  let failLookup = true;
+  cs.setSender(async (url, init) => {
+    if (failLookup && url.includes('/agents/by-name/')) {
+      failLookup = false;
+      return new Response('{"detail":"unavailable"}', { status: 503, headers: { 'content-type': 'application/json' } });
+    }
+    return fetch(url, init);
+  });
+  await cs.sweep();
+  assert.equal(registers().length, 0, 'a register went out though the lookup could not tell');
+  await cs.sweep();
+  assert.deepEqual(registers().map((x) => x.body.name), ['Tam']);
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+});
+
+test('#4800: a display name the service would swap for its own handle (a slash, only dots) registers as our own handle', () => {
+  for (const displayName of ['Sales/Ops', '...', '.', '@scout', 'Bot @ Home', 'Ann\u034FBot', '\u2800', '\u2800.\u2800', 'joshua\u2800leestone']) {
+    store.writeProfile('ux', { displayName });
+    assert.match(cs.registration('ux').name, /^agent-[0-9a-f]{6}$/, `"${displayName}" was sent as the name`);
+  }
+  store.writeProfile('ux', { displayName: 'Sales Ops' });
+  assert.equal(cs.registration('ux').name, 'Sales Ops', 'CONTROL: an ordinary name was replaced');
+  // The service strips dots from the ENDS only (name.strip('.')), so a name with other characters between dots stays.
+  store.writeProfile('ux', { displayName: '. . .' });
+  assert.equal(cs.registration('ux').name, '. . .', 'a name the service keeps was replaced');
+});
+
+test('#4800 review 2: a lost try on a name ANOTHER install already held takes a suffix, as before, instead of waiting forever', async () => {
+  await on();
+  const dayAgo = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  be.st.agents.set('z', { id: 'z', name: 'Researcher', key: 'k', token: 't', active: true, registeredAt: dayAgo });
+  store.writeProfile('vic', { displayName: 'Researcher' });
+  const r = agentPost('vic', { topic: 't', body: 'b' });
+  loseRegister('before');                             // offline: the try never reached the service
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(lookups().length, 1, 'CONTROL: the name was not looked up, so the age check was never reached');
+  const names = registers().map((x) => x.body.name);
+  assert.equal(names[0], 'Researcher');
+  assert.match(names.at(-1), /^Researcher-[0-9a-f]{4}$/, 'an account made a day before our try was taken for ours');
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+  assert.equal(cs.statuses()[r.id].agentNameUnclaimed, undefined);
+});
+
+test('#4800 review 2: the owner deletes a held post: it is withheld, never sent, and says so', async () => {
+  await on();
+  store.writeProfile('wes', { displayName: 'Wes' });
+  const r = agentPost('wes', { topic: 't', body: 'b' });
+  loseRegister('after');
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].agentNameUnclaimed, true, 'CONTROL: the post was not held');
+  assert.equal(cs.requestDelete(r.id).ok, true);
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].state, 'withheld');
+  assert.equal(posts().length, 0);
+});
+
+test('#4800 review 3: after a lost try that made nothing, a renamed agent registers its NEW display name', async () => {
+  await on();
+  store.writeProfile('xen', { displayName: 'Old Name' });
+  const r = agentPost('xen', { topic: 't', body: 'b' });
+  loseRegister('before');
+  await cs.sweep();
+  store.writeProfile('xen', { displayName: 'New Name' });
+  await cs.sweep();
+  assert.equal(lookups().length, 1, 'CONTROL: the old name was not looked up');
+  assert.deepEqual(registers().map((x) => x.body.name), ['New Name'], 'the old name was registered after a rename');
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+});
+
+test('#4800 review 3: an account made a few minutes before our try (inside the clock margin) is still taken as ours', async () => {
+  await on();
+  const fiveAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  store.writeProfile('yul', { displayName: 'Yul' });
+  const r = agentPost('yul', { topic: 't', body: 'b' });
+  loseRegister('before');
+  await cs.sweep();
+  // The account turns up as if our lost try had made it, stamped by a service clock five minutes behind ours.
+  be.st.agents.set('w', { id: 'w', name: 'Yul', key: 'k', token: 't', active: true, registeredAt: fiveAgo });
+  await cs.sweep();
+  assert.equal(lookups().length, 1);
+  assert.equal(registers().length, 0, 'an account inside the clock margin was treated as somebody else\'s');
+  assert.equal(cs.statuses()[r.id].agentNameUnclaimed, true);
+});
+
+test('#4800 review 4: a name the 80-unit cap cuts through an emoji drops the half, as the service does', () => {
+  store.writeProfile('zed', { displayName: 'a'.repeat(79) + '\u{1F600}x' });
+  const name = cs.registration('zed').name;
+  assert.equal(name, 'a'.repeat(79), 'the half character was kept (the lookup URL would throw on it)');
+  assert.doesNotThrow(() => encodeURIComponent(name));
+});
+
+test('#4800 review 4: a mark holding a half character (from before this rule) is dropped, not looked up forever', async () => {
+  await on();
+  store.writeProfile('ivo', { displayName: 'Ivo' });
+  const r = agentPost('ivo', { topic: 't', body: 'b' });
+  await cs.sweep();                                   // registers normally, so the keys file exists
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  keys.ivo2 = { registering: { name: 'x\uD83D', at: new Date().toISOString() } };
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify(keys));
+  store.writeProfile('ivo2', { displayName: 'Ivo Two' });
+  const r2 = agentPost('ivo2', { topic: 't2', body: 'b2' });
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].state, 'sent', 'CONTROL: the first agent did not post');
+  assert.equal(cs.statuses()[r2.id].state, 'sent', 'the agent with the broken mark never registered');
+  assert.deepEqual(registers().map((x) => x.body.name), ['Ivo', 'Ivo Two']);
+});
+
+test('#4800 review 5: an account made well AFTER our lost try (the name taken while ours sat unanswered) is not ours', async () => {
+  await on();
+  store.writeProfile('kit', { displayName: 'Kit' });
+  const r = agentPost('kit', { topic: 't', body: 'b' });
+  loseRegister('before');
+  await cs.sweep();
+  // Somebody else registers the name an hour after our try (stamped an hour ahead, as a later sweep would see it).
+  be.st.agents.set('q', { id: 'q', name: 'Kit', key: 'k', token: 't', active: true, registeredAt: new Date(Date.now() + 3600 * 1000).toISOString() });
+  await cs.sweep();
+  assert.equal(lookups().length, 1, 'CONTROL: the name was not looked up');
+  assert.match(registers().map((x) => x.body.name).at(-1), /^Kit-[0-9a-f]{4}$/, 'a later account was taken for ours and the agent held');
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+});
+
+test('#4800 review 6: a lookup whose profile carries no registered_at holds the name rather than register a twin', async () => {
+  await on();
+  store.writeProfile('lux', { displayName: 'Lux' });
+  const r = agentPost('lux', { topic: 't', body: 'b' });
+  loseRegister('before');
+  await cs.sweep();
+  be.st.agents.set('n', { id: 'n', name: 'Lux', key: 'k', token: 't', active: true, registeredAt: null });
+  await cs.sweep();
+  assert.equal(lookups().length, 1, 'CONTROL: the name was not looked up');
+  assert.equal(registers().length, 0, 'a missing registered_at was read as somebody else\'s account');
+  assert.equal(cs.statuses()[r.id].agentNameUnclaimed, true);
+});
+
+test('#4800 review 6: a sweep that reaches the register long after it began still recognises its own lost account', async () => {
+  await on();
+  store.writeProfile('mae', { displayName: 'Mae' });
+  const r = agentPost('mae', { topic: 't', body: 'b' });
+  loseRegister('after');
+  // A sweep that began 30 minutes ago (a slow backlog ahead of this agent) reaches the register now; the service
+  // stamps the account with the real time, 30 minutes after that sweep's `now`.
+  await cs.sweep(Date.now() - 30 * 60 * 1000);
+  assert.equal(be.st.agents.size, 1, 'CONTROL: the lost register did not make the account');
+  await cs.sweep();
+  assert.equal(registers().length, 1, 'our own account was taken for somebody else\'s');
+  assert.equal(cs.statuses()[r.id].agentNameUnclaimed, true);
 });

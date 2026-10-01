@@ -177,4 +177,73 @@ function read(projectId, number) {
   return out;
 }
 
-module.exports = { record, read, taskChatsDir, taskChatFile };
+/* #4786: the times this project's work MOVED FORWARD FOR THE FIRST TIME, oldest first. The room's back-and-forth
+   valve gives a bounded extra allowance for each one inside its window (engine/messages.js), so a pipeline handing
+   work along is not held as soon as a loop that only talks. Only a first-time step forward counts, so the same work
+   cannot be counted twice (review round 1: a part passed A to B to A, a task closed, reopened and closed again):
+   - a task created, a part added (each makes something new);
+   - a task's FIRST close, a part's FIRST close, a task's FIRST built mark (a later one after a reopen or an
+     unbuilt does not count);
+   - a part given to someone who has NEVER held it (a handoff down a pipeline; giving it back does not count).
+     A pre-assigned task's first holder holds part 1; an added part's first holder is whoever it was added for.
+   Talk ('said'), going backwards (reopened, part-reopened, unbuilt), taking someone off, due dates and parents
+   do not count. Making tasks or parts IS repeatable (review round 2), which is why the valve's allowance per step
+   is bounded and never resets the count: this list is evidence of work, not a key. A row dated after `now` is
+   skipped (review round 5: clamped to now it would count in every later window, past the person's reset). A task
+   file last written before `since` is not read at all: it can hold no step at or after `since`, which is all the
+   valve asks about. [] when there is none or nothing can be read (never throws). Reads only this project's task
+   files; the valve calls it only when a room is over its cap and the limit is on. */
+const PROGRESS_KINDS = new Set(['created', 'assigned', 'built', 'part-added', 'part-closed', 'closed']);
+function progressTimes(projectId, now = Date.now(), since = 0) {
+  const out = [];
+  try {
+    const k = keyOf(projectId);
+    if (!k) return out;
+    const prefix = `${k}.task-`;
+    for (const name of fs.readdirSync(taskChatsDir())) {
+      if (!name.startsWith(prefix) || !name.endsWith('.jsonl')) continue;
+      const n = Number(name.slice(prefix.length, -'.jsonl'.length));
+      /* record() stamps `at` and then appends, so a file's mtime is at or after its newest row. Where that fails (a
+         filesystem that rounds mtime down, the clock stepping back, a restore keeping old mtimes) a real step is
+         skipped: stricter, never more lenient. A file that cannot be stat'ed is skipped alone, not the rest. */
+      if (since > 0) {
+        const file = taskChatFile(projectId, n);
+        let mtime = 0;
+        try { mtime = file ? fs.statSync(file).mtimeMs : 0; } catch { mtime = 0; }
+        if (mtime < since) continue;
+      }
+      const seen = new Set();          // 'closed', 'built', 'part-closed:<id>' already counted once
+      const held = new Map();          // partId -> everyone who has held it
+      const holders = (partId) => {
+        const key = String(partId);
+        if (!held.has(key)) held.set(key, new Set());
+        return held.get(key);
+      };
+      for (const row of read(projectId, n)) {
+        if (!PROGRESS_KINDS.has(row.kind)) continue;
+        let counts = false;
+        if (row.kind === 'created' || row.kind === 'part-added') {
+          counts = true;
+          const first = row.kind === 'created' ? 1 : row.partId;
+          if (typeof row.who === 'string' && row.who && first != null) holders(first).add(row.who);
+        } else if (row.kind === 'closed' || row.kind === 'built' || row.kind === 'part-closed') {
+          const key = row.kind === 'part-closed' ? `part-closed:${row.partId}` : row.kind;
+          counts = !seen.has(key);
+          seen.add(key);
+        } else if (row.kind === 'assigned' && typeof row.who === 'string' && row.who) {
+          const who = holders(row.partId == null ? 1 : row.partId);   // a row from before parts named the task's one part
+          counts = !who.has(row.who);
+          who.add(row.who);
+        }
+        if (!counts) continue;
+        const t = Date.parse(row.at);
+        if (Number.isFinite(t) && t <= now) out.push(t);
+      }
+    }
+  } catch {
+    return out.sort((a, b) => a - b);
+  }
+  return out.sort((a, b) => a - b);
+}
+
+module.exports = { record, read, taskChatsDir, taskChatFile, progressTimes, PROGRESS_KINDS };
