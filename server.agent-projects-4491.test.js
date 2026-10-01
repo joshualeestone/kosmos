@@ -154,6 +154,34 @@ test('the maker is not typed at and not told to ask for a brief; a member it nam
   assert.deepEqual([spoken.slice(1), notes.slice(1)], [['mara'], [page.id]], 'the page\'s create stopped telling a member, or stopped posting the note');
 });
 
+test('a maker alone is not told to ask what done looks like either, and is still told when its done was not written', async (t) => {
+  /* #4583 added two more notes to a new project's room: "ask what done looks like" (an ask, like the brief one)
+     and "the done you typed was not written" (a fact). The maker alone gets the fact and never the ask. */
+  const real = { note: messagesEngine.roomNote, speak: projectsEngine.speakOfMembershipAsync, written: projectsEngine.doneWrittenIn };
+  const notes = [];
+  messagesEngine.roomNote = (id, text) => { notes.push([id, text]); return { ok: true }; };
+  projectsEngine.speakOfMembershipAsync = async () => ({ state: 'placed' });
+  t.after(() => { messagesEngine.roomNote = real.note; projectsEngine.speakOfMembershipAsync = real.speak; projectsEngine.doneWrittenIn = real.written; });
+  /* A goal and no done: the brief is not pending, done is. */
+  const alone = await make('Maker Alone With A Goal', withBoard({ 'x-kosmos-agent-token': mara }), { description: 'Ship the thing.' });
+  assert.equal(alone.r.code, 200, alone.r.text.slice(0, 200));
+  assert.deepEqual(notes, [], 'a maker alone on its new project was told to ask what done looks like');
+  /* CONTROL: the same request with a member to coordinate with does post the done ask, so the silence above is
+     the maker rule and not a project that needs no note. */
+  const withOtto = await make('Maker And Otto With A Goal', withBoard({ 'x-kosmos-agent-token': mara }), { description: 'Ship the thing.', agents: ['otto'] });
+  assert.equal(withOtto.r.code, 200, withOtto.r.text.slice(0, 200));
+  assert.deepEqual(notes, [[withOtto.id, projectsEngine.DONE_PENDING_NOTE]], 'a staffed project with a goal and no done was not asked for done');
+  /* A done the maker typed that did not reach the brief: said to the maker alone, and it is not an ask. */
+  notes.length = 0;
+  projectsEngine.doneWrittenIn = () => false;
+  const lost = await make('Maker Alone Done Lost', withBoard({ 'x-kosmos-agent-token': mara }), { description: 'Ship the thing.', done: 'Every page loads.' });
+  assert.equal(lost.r.code, 200, lost.r.text.slice(0, 200));
+  assert.equal(notes.length, 1, 'a maker alone was not told its done was not written, or was told more than that');
+  assert.equal(notes[0][0], lost.id);
+  assert.ok(notes[0][1].includes('Every page loads.'), 'the note does not quote the done that was lost: ' + notes[0][1].slice(0, 160));
+  assert.ok(![projectsEngine.DONE_PENDING_NOTE, projectsEngine.BRIEF_PENDING_NOTE, projectsEngine.BRIEF_AND_DONE_PENDING_NOTE].includes(notes[0][1]));
+});
+
 test('the setup guide is recorded as the maker of a project it makes, and is NOT put on it', async (t) => {
   const was = { isGuideFolder: setupAssistant.isGuideFolder, guideName: setupAssistant.guideName };
   setupAssistant.guideName = () => 'otto';
