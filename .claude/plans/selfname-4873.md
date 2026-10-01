@@ -38,8 +38,8 @@ writing a nickname ("D: ...") keeps it.
   inside the prefix leaves the post as written; two tests in web.quoteb.test.js, and drawing without the shift reds one.
   FIXED W: leading blank lines after the drop ("**Dario:**\n\nhello"); the em dash as a separator (written as an escape,
   so the file holds none); the room tries the header's own name (pjNameOf, which also names a former member) first.
-  NOTED NIT: an external post's own leading name is dropped too (its header shows that name; "person's post" in the plan
-  means the operator's).
+  NOTED (corrected in round 5): an external post (kind 'external') is drawn by pjRoomRow's own early branch as plain
+  text and never reaches pjRoomBody, so nothing is dropped from it.
 - Round 2 (sonnet): FIXED W: a dash separator needs a space on both sides, so "Dario -- hello" and "Dario -5 degrees"
   are left whole (controls added). FIXED W: only blank lines are removed after the drop, so an indented first line keeps
   its indent. DEFERRED W: the Ask Kosmos guide panel (.asp-m) is Kosmos's own assistant drawn as plain text, not a named
@@ -55,3 +55,6 @@ writing a nickname ("D: ...") keeps it.
   room renderer without the helper does not throw. FIXED W: a tight colon does not count when a slash or a digit follows
   ("Dario://host", "Dario:30 minutes" are kept). FIXED NIT: a name followed only by spaces is kept whole. 135/135 across
   the new tests and the renderers' lifted tests.
+- Round 5 (opus): FIXED W: the blank-line cleanup after the drop takes Windows line endings too (\r\n), with a test.
+  Left NITs: a bare bold name with no separator ("**Dario**\n\nhello") is kept (conservative); pjMentionKeys twice; the
+  source pins' fixed window.

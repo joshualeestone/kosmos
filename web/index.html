@@ -57898,7 +57898,7 @@ function pjDropSelfName(words, names) {
     const sep = '(?:[ \\t]*:(?![/\\d])|[ \\t]+[\u2013\u2014-](?=[ \\t]))';   // a colon, or a hyphen, en or em dash with a space on both sides
     const re = new RegExp('^[ \\t]*(\\*\\*|__)?' + q + '(?:' + sep + '[ \\t]*\\1|\\1' + sep + ')[ \\t]*', 'i');
     const m = re.exec(text);
-    const rest = m ? text.slice(m[0].length).replace(/^(?:[ \t]*\n)+/, '') : '';   // and the blank lines a name on its own line leaves (not an indent)
+    const rest = m ? text.slice(m[0].length).replace(/^(?:[ \t]*\r?\n)+/, '') : '';   // and the blank lines a name on its own line leaves (not an indent)
     if (rest.trim()) return rest;
   }
   return text;

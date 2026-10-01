@@ -29,6 +29,7 @@ test('#4873: the sender\'s own name at the start is dropped, in the shapes agent
   assert.equal(drop('Dario: line one\nline two', who), 'line one\nline two', 'the rest of the message is kept whole');
   assert.equal(drop('Dario \u2014 hello', who), 'hello', 'an em dash');
   assert.equal(drop('**Dario:**\n\nhello', who), 'hello', 'a name on its own line left blank lines');
+  assert.equal(drop('Dario: \r\n\r\nhello', who), 'hello', 'Windows line endings left blank lines');
 });
 
 test('#4873 CONTROLS: another name, a name later on, a bare name and a longer word are all left alone', () => {
