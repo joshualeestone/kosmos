@@ -10,6 +10,7 @@
  *
  *   node --test engine/taskchat.progress-4786.test.js
  */
+require('../test-support/tmpscope'); // #4273: this file's temp dirs go with the process
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
