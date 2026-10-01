@@ -385,10 +385,13 @@ function resolve(token, roster) {
        session sorted ahead of the agents broke every agent's token, with a message that blamed the agent. */
     const keyOf = (name) => { try { return store.safeKey(name); } catch { return null; } };
     /* #4792: a token that carries its agent's name answers for THAT agent only. A row with a tmux session must have
-       exactly that name. A paneless row (status.js: session null, sessionName the key) is matched by key, and only
-       while no other name has tokens in this file. So "Mara"'s token never resolves as running "mara", whether Mara
-       is running too or stopped. `session` and not `paneless`: paneRoster() rows carry no `paneless` field, and
-       both producers carry `session`. A token minted before names were kept has none and falls through below. */
+       exactly that name, so "Mara"'s token never resolves as pane agent "mara", running or stopped. A row with no
+       session (status.js: a paneless or never-run agent, listed with the KEY as its sessionName) is matched by key,
+       and only while no other name has tokens in this file: the board knows such an agent only by its key, so the
+       card stays under the key (its messages are addressed and delivered by it). ⚠️ Residual: such a row cannot
+       tell remote "Kip" from a stopped "kip" that holds no tokens; see the plan. `session` and not `paneless`:
+       paneRoster() rows carry no `paneless` field, and both producers carry `session`. A token minted before names
+       were kept has none and falls through below. */
     const named = tokenName(hit, key);
     if (named !== null) {
       const twins = namesClash(held, key);
@@ -397,9 +400,21 @@ function resolve(token, roster) {
           ? a.sessionName === named
           : !twins && keyOf(a.sessionName) === key))
         : [];
-      if (rows.length !== 1) return { ok: false, because: NO_MATCH, ...(twins ? { [CLASH]: true } : {}) };
+      if (rows.length !== 1) {
+        /* Two names under one key with no row of their own: both go mute, so log it once, as #4763 does below. */
+        if (twins && !CLASH_LOGGED.has(key)) {
+          CLASH_LOGGED.add(key);
+          console.warn(`[sendertoken] #4792: tokens for more than one name are filed under the key "${key}"; a row listed by that key answers for none of them until one is removed or renamed`);
+        }
+        return { ok: false, because: NO_MATCH, ...(twins ? { [CLASH]: true } : {}) };
+      }
+      CLASH_LOGGED.delete(key);
       return { ok: true, card: rows[0], instance: hit.instance || null };
     }
+    /* #4792: an older token in a file where two names now hold tokens: the key no longer says whose it is. Refused
+       here as on the key-only paths (the paneless fallback, the token-only reads, the outbox), marked so the
+       fallback does not re-admit it. */
+    if (namesClash(held, key)) return { ok: false, because: NO_MATCH, [CLASH]: true };
     const cards = Array.isArray(roster)
       ? roster.filter((a) => a && a.isNamedOurs === true && a.sessionName && keyOf(a.sessionName) === key)
       : [];

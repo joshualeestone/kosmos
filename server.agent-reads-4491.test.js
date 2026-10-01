@@ -207,6 +207,18 @@ test('#4792: two names that share a key: each token reads only the projects that
   assert.equal((await call('GET', '/api/project/p4491/room?as=text', asAgent(small.token))).code, 200, 'control: mara4792 must read its own project');
 });
 
+test('#4792 review 1: a remote agent the board stored by its key still reads its project', async (t) => {
+  /* The board lists a paneless agent by its key and stores its membership the same way, so remote "Kip4792" sits in
+     a project as "kip4792". Its named token must still read there while no other name holds tokens under that key. */
+  const kip = sendertoken.mint('Kip4792');
+  assert.ok(kip.ok);
+  t.after(() => sendertoken.revoke('kip4792'));
+  withProject(t, ['kip4792']);
+  assert.equal((await call('GET', '/api/project/p4491/room?as=text', asAgent(kip.token))).code, 200, 'a remote agent lost its own project, stored by its key');
+  assert.equal((await call('GET', '/api/tasks?project=p4491', asAgent(kip.token))).code, 200);
+  assert.equal((await call('GET', '/api/project/other4491/room?as=text', asAgent(kip.token))).code, 403, 'control: it is still refused a project that does not list it');
+});
+
 test('#4792: a token minted before names were kept still reads by key, unless a second name holds tokens under it', async (t) => {
   const fs = require('node:fs');
   const crypto = require('node:crypto');

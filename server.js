@@ -1298,13 +1298,9 @@ const INBOX_DROP = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\u061c\u200e\u200f\u
  * agent has no heartbeat record, so path 2 simply never fires for them and
  * they keep taking path 1 exactly as before. That is what makes this additive.
  *
- * 📌 LIMITATION, STATED RATHER THAN HIDDEN: the token store is keyed by
- * `store.safeKey(sessionName)`, so a paneless card carries the SAFEKEY'D name,
- * not the original. For every name that survives safeKey unchanged they are
- * the same string. A name that does not survive it would key its records under
- * the safe form -- correct and consistent, but not identical to what a pane
- * would have reported. Worth fixing by storing the original name at mint time
- * if it ever matters; it does not yet.
+ * 📌 #4792: tokens now carry the name they were minted for, and this fallback
+ * names its card by it (an older token, by the key as before). It refuses when
+ * two names hold tokens under one key, since the key then says neither.
  */
 function resolveAgentSender(req, body, roster, opts) {
   const presented = presentedAgentToken(req, body);
@@ -3903,8 +3899,8 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
 const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
-   `byKey` is only for a caller whose token resolved without a roster row (`paneless`, on the result or its card): its
-   name is store.safeKey's, not the stored spelling, so that one compares keys. Shared by task message and task
+   `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
+   board lists and stores such an agent by its key (store.safeKey), so that one compares keys. Shared by task message and task
    built, for membership and (task message) for leaving the sender off its own notification. */
 function sameAgentName(a, b, byKey) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
@@ -4030,7 +4026,7 @@ function agentTokenOk(req) {
 }
 /* #4491 slice 4: did this request get past the board-token gate on its agent token ALONE? Returns null when it did
    not (the board is not enforcing, or the caller also holds the person's credential: the page, the person's
-   terminal, every agent's CLI today), else { name, byKey } for projectHasAgent(stored, name, byKey), or '' when the
+   terminal, every agent's CLI today), else the caller for tokenOnlyOnProject (below), or '' when the
    token names nobody. For the READ handlers only: they have no body, and the gate has already checked the token,
    so this is the same header read twice.
    #4792: a token minted with its agent's name is matched by that exact name, as the slice-3 writes compare a
@@ -4045,9 +4041,17 @@ function agentTokenOnlyCaller(req) {
   /* #4792: a token that carries its agent's name is that agent, matched by exact spelling like the slice-3 writes.
      An older token has only the key: matched by key as before, unless another name now has tokens under that key,
      when the key no longer says which agent and the caller is nobody. */
-  if (typeof who.name === 'string' && who.name) return { name: who.name, byKey: false };
+  if (typeof who.name === 'string' && who.name) return { name: who.name, key: who.key, twins: who.twins === true };
   if (who.twins === true) return '';
-  return { name: who.key, byKey: true };
+  return { name: who.key, key: who.key, byKey: true };
+}
+/* #4792: is the token-only caller on this stored project? Its exact name; or, while no second name holds tokens under
+   its key, the KEY as stored: the board stores a paneless agent's membership by its key (its roster sessionName), so
+   remote "Kip" is listed as "kip". An older token is matched by key as before. */
+function tokenOnlyOnProject(stored, caller) {
+  if (!caller) return false;
+  if (caller.byKey) return projectHasAgent(stored, caller.name, true);
+  return projectHasAgent(stored, caller.name, false) || (!caller.twins && projectHasAgent(stored, caller.key, false));
 }
 /* #1307: a project webhook's call, POST /hooks/<id>/<secret>. It carries its own secret (checked
    against a hash by engine/webhooks.js in the handler), not the board token, so it is exempt from
@@ -15666,7 +15670,7 @@ const server = http.createServer(async (req, res) => {
          list the agent on each one). */
       const stored = (everyProject || []).filter((x) => x && x.id === projectScope);
       if (!stored.length) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
-      if (!tokenOnly || !stored.every((x) => projectHasAgent(x, tokenOnly.name, tokenOnly.byKey))) {
+      if (!tokenOnly || !stored.every((x) => tokenOnlyOnProject(x, tokenOnly))) {
         sendJson(res, 403, { error: 'that agent is not on this project, so it cannot read its tasks' });
         return;
       }
@@ -16283,7 +16287,7 @@ const server = http.createServer(async (req, res) => {
       const everyProject = projects.readAll();
       const stored = everyProject.filter((p) => p && p.id === id);   // every one with that id, as the task read does
       projectKnown = stored.length > 0;
-      if (tokenOnly !== null && stored.length && (!tokenOnly || !stored.every((p) => projectHasAgent(p, tokenOnly.name, tokenOnly.byKey)))) {
+      if (tokenOnly !== null && stored.length && (!tokenOnly || !stored.every((p) => tokenOnlyOnProject(p, tokenOnly)))) {
         roomRefusal = [403, 'that agent is not on this project, so it cannot read its room'];
       }
     } catch {

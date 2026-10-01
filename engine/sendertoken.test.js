@@ -170,6 +170,33 @@ test('#4792: a name that does not key to its file is read as no name (a hand-edi
   } finally { board.restore(); }
 });
 
+test('#4792 review 1: an older token is refused once two names hold tokens under its key, even with one row', () => {
+  const [old] = legacyTokens('ann4792', 1);
+  sendertoken.mint('Ann4792');
+  sendertoken.mint('ann4792');
+  const one = fleet.install([fleet.agent('ann4792', { state: 'idle' })]);
+  try {
+    const who = sendertoken.resolve(old, one.roster);
+    assert.equal(who.ok, false, 'an older token spoke as ann4792 though Ann4792 may hold it: ' + JSON.stringify(who && who.card && who.card.sessionName));
+    assert.equal(who[sendertoken.CLASH], true, 'unmarked, so the paneless fallback would admit it by key');
+  } finally { one.restore(); }
+});
+
+test('#4792 review 1: two named twins with only a key-listed row are refused, and that is logged once', () => {
+  const warned = [];
+  const orig = console.warn;
+  console.warn = (m) => { warned.push(String(m)); };
+  try {
+    const big = sendertoken.mint('Lux4792').token;
+    sendertoken.mint('lux4792');
+    const paneless = [{ sessionName: 'lux4792', session: null, isNamedOurs: true }];
+    assert.equal(sendertoken.resolve(big, paneless).ok, false);
+    assert.equal(sendertoken.resolve(big, paneless).ok, false);
+    assert.equal(warned.filter((w) => w.includes('"lux4792"')).length, 1, 'not logged exactly once: ' + JSON.stringify(warned));
+    assert.ok(!warned.join('\n').includes(big), 'the log line carried the token');
+  } finally { console.warn = orig; }
+});
+
 test('#4763 review 3: a clash logs once per clash, and a clean resolve re-arms it', () => {
   const warned = [];
   const orig = console.warn;
