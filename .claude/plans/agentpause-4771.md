@@ -129,3 +129,16 @@ taught line pinned in engine/tasks.test.js and the Recommender arm in engine/rec
 - N4 the person's hold in an agent-paused project did not name the pause: FIXED.
 - N5 wrongWorld (421) reads as unreadable: kept, as create.
 - N6 the hint's 80-character cap is not the CLIs': FIXED in the comment.
+
+## Review 7 (Sonnet, blind, source-only): 0 blockers, 3 warnings, 4 nits
+- W1 the paneless path (the reason for using sendertoken.resolve) was not driven: ADDED, a real paneless row made as
+  engine/sendertoken.test.js makes it (token + live beat), named in the note; twins under one key read "Someone".
+- W2 any agent can pause any project: already decided (review 1 W1, review 3 W2): the #4491 route work.
+- W3 the nudge hint as a prompt to pause: already decided (review 4 W2), with the reasons and the condition that
+  would change it.
+- N4 a person's own terminal pause reads "Someone": kept (honest: the board cannot tell).
+- N5 two concurrent PUTs both noting: not reachable. The existence read, the edit and the note run in one synchronous
+  tick of one handler, so a second request cannot interleave (review 4 confirmed the same).
+- N6 the person's hold in the person's pause names only "parked": kept, both are the person's and the words are true.
+- N7 the Recommender's inline rule: kept, pinned to projects.isPaused by its test.
+Rounds 6 and 7 found nothing new in the verb, the engine rules or the CLIs; the remaining items are decided above.

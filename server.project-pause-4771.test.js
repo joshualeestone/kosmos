@@ -142,3 +142,25 @@ test('#4771 review 5: an agent whose token says exactly which agent it is is nam
     assert.doesNotMatch(said[0], new RegExp(who), 'the raw session name reached the person\'s room');
   } finally { board.restore(); }
 });
+
+test('#4771 review 7: a paneless agent (every Windows agent, listed by key) is named; two names under one key are not', async () => {
+  // The REAL paneless row, made as engine/sendertoken.test.js makes it: a token plus a live beat (no typed card).
+  const remote = sendertoken.mint('Kip4771', { launcher: 'remote' });
+  assert.equal(remote.ok, true, 'fixture: no token was minted');
+  require('./engine/liveness').seen('kip4771');
+  const notesFor = (pid) => messages.record().rows.filter((m) => m.kind === 'note' && m.project === pid).map((m) => m.text);
+  const pauseWith = (pid, token) => fetch(`${base}/api/project/${pid}`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': token }, body: JSON.stringify({ paused: true }) });
+
+  const a = projects.create({ name: 'Pause Paneless' });
+  assert.equal((await pauseWith(a.id, remote.token)).status, 200);
+  const said = notesFor(a.id);
+  assert.equal(said.length, 1, JSON.stringify(said));
+  assert.doesNotMatch(said[0], /^Someone /, 'a paneless agent was not named: ' + said[0]);
+  assert.match(said[0], / paused this project: /);
+
+  // A second name with tokens under the same key: the board cannot say which agent it was, so "Someone".
+  sendertoken.mint('kip4771');
+  const b = projects.create({ name: 'Pause Paneless Twin' });
+  assert.equal((await pauseWith(b.id, remote.token)).status, 200);
+  assert.match(notesFor(b.id)[0] || '', /^Someone paused this project/);
+});
