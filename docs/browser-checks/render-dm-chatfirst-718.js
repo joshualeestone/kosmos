@@ -580,16 +580,18 @@ function measure() {
           // than taking a second row (which is what cost the line above). The name must stay there: on the K mark's row,
           // inside the screen, and wider than an ellipsis alone. Measured on Mortals at 674288bc7: 33px at 130% and 45px
           // at 150% ("Th..."); #4847 then gave it the person's name's room (their face alone on a phone), and with a long
-          // person's name beside it, it measured 62px at 320 wide (130 and 150%) and 85px at 375. The floor is 2.5em,
-          // a few letters: 52px at 130%, 60px at 150%.
+          // person's name beside it, it measured 62px at 320 wide (130 and 150%) and 85px at 375 on Agent1s. The room is now
+          // fixed pixels (every other item in the row is), so the floor is fixed too: 40px, a few letters, with slack for
+          // CI's fonts (CI measured 3px narrower than Agent1s at 130% on #4848's run).
           // #4847: measured with a long person's name in the menu beside it (their name used to take the room).
-          await page.evaluate(() => { const u = document.getElementById('userpop-name'); if (u) u.textContent = 'Alexandria Montgomery-Fitzwilliam'; });
+          const nm0 = await page.evaluate(() => { const u = document.getElementById('userpop-name'); const was = u ? u.textContent : null; if (u) u.textContent = 'Alexandria Montgomery-Fitzwilliam'; return was; });
           await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
           const nm = await page.evaluate(() => { const n = document.getElementById('worldsw-name'), k = document.getElementById('klink');
             const sw = document.getElementById('worldsw'); if (!n || !k || !sw || sw.hidden) return { shown: false };
             const a = n.getBoundingClientRect(), b = k.getBoundingClientRect();
             return { shown: true, w: Math.round(a.width), sameRow: Math.abs((a.top + a.height / 2) - (b.top + b.height / 2)) <= 8, inside: a.right <= innerWidth + 0.5, text: n.textContent }; });
-          chk(nm.shown && nm.w >= 2.5 * 16 * pct / 100 && nm.sameRow && nm.inside, `${t} at ${pct}% text the top-left computer name stays on the K mark's row, on screen, and shows a few letters`, JSON.stringify(nm));
+          await page.evaluate((was) => { const u = document.getElementById('userpop-name'); if (u && was !== null) u.textContent = was; }, nm0);   // put back
+          chk(nm.shown && nm.w >= 40 && nm.sameRow && nm.inside, `${t} at ${pct}% text the top-left computer name stays on the K mark's row, on screen, and shows a few letters`, JSON.stringify(nm));
         }
         await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
         const swn = await page.evaluate(() => {
