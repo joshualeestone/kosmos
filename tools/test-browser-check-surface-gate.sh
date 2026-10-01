@@ -160,8 +160,9 @@ if command -v zsh >/dev/null 2>&1; then
     '-  <p id="tsk-crumb">3</p>' '+  <p id="tsk-crumb">4</p>' > "$TMP/wd-4811"
   : > "$TMP/f-4811"; : > "$TMP/m-4811"
   BCDIR_ABS="$(cd "$HERE/.." && pwd)/docs/browser-checks"
-  # CONTROL: a gate that believes the lying grep passes this change (under bash the function is used in-process).
-  if bash -c 'grep() { return 1; }; . "$1" && KOSMOS_BCSG_WEBDIFF="$2" KOSMOS_BCG_FILES="$3" KOSMOS_BCG_MSGS="$4" KOSMOS_BCSG_DIR="$5" kosmos_browser_check_surface_gate' _ \
+  # CONTROL: a gate that believes the lying grep passes this change. KOSMOS_BCG_REEXEC=1 forces the in-process answer
+  # (the re-run's own marker), so this shows what the guard below protects against.
+  if KOSMOS_BCG_REEXEC=1 bash -c 'grep() { return 1; }; . "$1" && KOSMOS_BCSG_WEBDIFF="$2" KOSMOS_BCG_FILES="$3" KOSMOS_BCG_MSGS="$4" KOSMOS_BCSG_DIR="$5" kosmos_browser_check_surface_gate' _ \
        "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811" "$TMP/m-4811" "$BCDIR_ABS" >/dev/null 2>&1; then
     pass "#4811 control: a gate that believes a grep matching nothing passes the change"
   else
@@ -172,6 +173,13 @@ if command -v zsh >/dev/null 2>&1; then
     fail "#4811: sourced into zsh with a grep that matches nothing, the gate passed (it must run itself under bash)"
   else
     pass "#4811: sourced into zsh with a grep that matches nothing, the gate still refuses"
+  fi
+  # Review 3: a BASH whose `grep` is a shell function (a Claude Code session running bash) is not trusted either.
+  if bash -c 'grep() { return 1; }; . "$1" && KOSMOS_BCSG_WEBDIFF="$2" KOSMOS_BCG_FILES="$3" KOSMOS_BCG_MSGS="$4" KOSMOS_BCSG_DIR="$5" kosmos_browser_check_surface_gate' _ \
+       "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811" "$TMP/m-4811" "$BCDIR_ABS" >/dev/null 2>&1; then
+    fail "#4811: in a bash with a grep that matches nothing, the gate passed (it must re-run in a fresh bash)"
+  else
+    pass "#4811: in a bash with a grep that matches nothing, the gate still refuses"
   fi
   # Review 1: settings given as PLAIN zsh variables (not exported) must reach the bash re-run too, or it would check
   # the real branch instead and could pass. And a POSITIVE control through the re-run: the same change with its check

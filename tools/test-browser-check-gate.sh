@@ -199,7 +199,7 @@ if command -v zsh >/dev/null 2>&1; then
     "$HERE/lib/browser-check-gate.sh" "$tmp/f4811" "$tmp/m4811" 2>&1 >/dev/null)"
   rc4811=$?
   check "#4811: sourced into zsh, an unchecked web change is still refused" 1 "$rc4811"
-  case "$err4811" in *"running it under bash (kosmos#4811)"*) r=0 ;; *) r=1 ;; esac
+  case "$err4811" in *"running it in a fresh bash (kosmos#4811)"*) r=0 ;; *) r=1 ;; esac
   check "#4811: sourced into zsh, the gate says it re-ran itself under bash" 0 "$r"
   # Review 1: plain (unexported) zsh variables reach the re-run; and a POSITIVE control through it, so a broken
   # re-run cannot pass as a refusal.
@@ -229,6 +229,11 @@ if command -v zsh >/dev/null 2>&1; then
 else
   echo "SKIP  #4811: zsh not available"
 fi
+# Review 3: a bash whose `grep` is a shell function (a Claude Code session running bash carries one) re-runs too.
+err4811f="$(bash -c 'grep() { command grep "$@"; }; . "$1" && KOSMOS_BCG_FILES="$2" KOSMOS_BCG_MSGS="$3" kosmos_browser_check_gate' _ \
+  "$HERE/lib/browser-check-gate.sh" "$tmp/f4811" "$tmp/m4811" 2>&1 >/dev/null)"
+case "$err4811f" in *"running it in a fresh bash (kosmos#4811)"*) r=0 ;; *) r=1 ;; esac
+check "#4811: in a bash whose grep is a shell function, the gate re-runs in a fresh bash" 0 "$r"
 # CONTROL: under bash it answers itself and says nothing about re-running.
 err4811b="$(bash -c '. "$1" && KOSMOS_BCG_FILES="$2" KOSMOS_BCG_MSGS="$3" kosmos_browser_check_gate' _ \
   "$HERE/lib/browser-check-gate.sh" "$tmp/f4811" "$tmp/m4811" 2>&1 >/dev/null)"
