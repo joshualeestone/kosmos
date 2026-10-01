@@ -3332,7 +3332,12 @@ cmd_task() {
       case "$body" in
         '{"task":'*)
           # #4887: say who it went to, from the board's answer (the name as stored, so `me` reads as the agent).
-          local _for; _for=$(printf '%s' "$body" | sed -n 's/^{"task":{[^}]*"who":"\([^"\\]*\)".*/\1/p')
+          # The FIRST "who": is the task's own (it comes before told and heard, and a quote inside the sentence is
+          # escaped, so it cannot spell one); a name with a backslash in it is not said rather than half said.
+          local _for="" _rest; _rest="${body#*\"who\":}"
+          if [ "$_rest" != "$body" ]; then
+            case "$_rest" in '"'*) _for="${_rest#\"}"; _for="${_for%%\"*}"; case "$_for" in *\\*) _for="" ;; esac ;; esac
+          fi
           say "Task added to ${project:-the project}${parent:+, under task $parent}${_for:+, for $_for}. See it with: kosmos task list ${project:-<project-id>}" ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')

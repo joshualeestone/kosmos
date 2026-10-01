@@ -35,6 +35,8 @@ const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const projects = require('./engine/projects');
 const cli = require('./tools/windows/kosmos-cli');
+const sendertoken = require('./engine/sendertoken');
+const fleet = require('./test-support/fleet');
 
 let base;
 let projectId;
@@ -53,11 +55,11 @@ const rows = async () => (await (await fetch(`${base}/api/tasks?project=${encode
 const bySentence = async (s) => (await rows()).find((t) => t.sentence === s);
 
 // ── Windows: tools/windows/kosmos-cli.js ────────────────────────────────────
-async function win(argv) {
+async function win(argv, agentToken = null) {
   const out = []; const err = [];
   const code = await cli.main(argv, {
     env: {}, url: base,
-    hook: { resolveUrl: () => base, readBoardToken: () => null, agentToken: () => null },
+    hook: { resolveUrl: () => base, readBoardToken: () => null, agentToken: () => agentToken },
     out: (s) => out.push(s), err: (s) => err.push(s),
   });
   return { code, out: out.join('\n'), err: err.join('\n') };
@@ -100,8 +102,8 @@ test('Windows `task add` refuses a bad --who before the board; a non-member and 
 const MAC_HOME = path.join(SANDBOX, 'kosmos-home');
 fs.mkdirSync(path.join(MAC_HOME, 'runtime', 'bin'), { recursive: true });
 fs.symlinkSync(process.execPath, path.join(MAC_HOME, 'runtime', 'bin', 'node'));
-function mac(args) {
-  const env = { ...process.env, KOSMOS_HOME: MAC_HOME, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1' };
+function mac(args, agentToken = '') {
+  const env = { ...process.env, KOSMOS_HOME: MAC_HOME, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_AGENT_TOKEN: agentToken };
   return new Promise((resolve, reject) => {
     execFile(path.join(__dirname, 'install', 'kosmos'), args, { env, timeout: 20000 }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code: ' + (stderr || err.signal))); return; }
@@ -149,6 +151,25 @@ test('Mac `task add` refuses a bad --who before the board; a non-member and an u
   assert.equal(me.code, 1);
   assert.match(me.out, /could not tell which agent you are/);
   assert.equal((await rows()).length, before, 'a refused add still made a task');
+});
+
+// ── --who me, from an agent the board can name ──────────────────────────────
+/* The agent's own token, as an installed agent sends it. A brace and a quoted "who":"zed" in the words: the
+   Mac CLI reads the owner out of the board's answer with shell string cuts, and the sentence comes first. */
+test('both CLIs: `--who me` from an agent with its token gives the task to that agent, and the answer names it', async (t) => {
+  /* The board names a token's agent from the roster; mara has to be running for her token to be hers. */
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  t.after(() => board.restore());
+  const mara = sendertoken.mint('mara').token;
+  const tricky = (label) => label + ': fix {x} where "who":"zed" was said';
+  for (const [label, run, text] of [['Windows', (a) => win(a, mara), (r) => r.out + r.err], ['Mac', (a) => mac(a, mara), (r) => r.out]]) {
+    const r = await run(['task', 'add', projectId, tricky(label), '--who', 'me']);
+    assert.equal(r.code, 0, label + ': ' + text(r));
+    assert.match(text(r), /, for mara\. See it with/, label + ': the answer did not say who it went to: ' + text(r));
+    const made = await bySentence(tricky(label));
+    assert.ok(made, label + ': the task was not made');
+    assert.deepEqual(made.whoNames, ['mara'], label + ': `me` did not become the calling agent');
+  }
 });
 
 // ── task list: who added it, when that is not the owner ─────────────────────

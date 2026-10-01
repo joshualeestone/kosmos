@@ -44,6 +44,7 @@ project); only the two CLIs never send it.
 
 `server.task-who-4887.test.js`: the route resolves `me` (token caller), refuses `me` from an unidentified
 caller with nothing made, matches a case-different name to the member, keeps the non-member refusal, and a
-control without `who` stays unassigned. Both CLIs: `--who` sends it, `--who me` reaches the board as `me`,
+control without `who` stays unassigned. Both CLIs: `--who` sends it, `--who me` from an agent with its token lands on that agent and the answer
+names it (with a brace and a quoted `"who":"zed"` in the title, which the Mac CLI's read of the answer must survive),
 the flag is not folded into the detail, bad forms exit 2 before the board, the list shows `[added by ...]`
 only when added-by differs from the owner.
