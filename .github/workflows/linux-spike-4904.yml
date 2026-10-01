@@ -31,17 +31,21 @@ jobs:
           sudo ip6tables -A OUTPUT -j REJECT
           ( curl -sS -m 5 https://installkosmos.com/ >/dev/null && echo "CONTROL FAILED: outbound still open" ) || echo "control: outbound blocked, as intended"
       - name: "A: the board as it is today"
-        run: SPIKE_LABEL=A node spike/run.js; tmux kill-server 2>/dev/null; true
+        run: SPIKE_LABEL=A node spike/run.js; tmux kill-server 2>/dev/null || true
       - name: "B: Linux added to the platform gate (a local edit on the runner, never committed)"
+        if: always()
         run: |
           sed -i "s/const SUPPORTED = Object.freeze(\['darwin', 'win32'\]);/const SUPPORTED = Object.freeze(['darwin', 'win32', 'linux']);/" engine/platform.js
           grep -n "const SUPPORTED" engine/platform.js
-          SPIKE_LABEL=B node spike/run.js; tmux kill-server 2>/dev/null; true
+          SPIKE_LABEL=B node spike/run.js; tmux kill-server 2>/dev/null || true
       - name: "B2: as B, with tmux at its Linux path"
-        run: SPIKE_LABEL=B2 AGENT_WORKFORCE_TMUX_BIN="$(command -v tmux)" node spike/run.js; tmux kill-server 2>/dev/null; true
+        if: always()
+        run: SPIKE_LABEL=B2 AGENT_WORKFORCE_TMUX_BIN="$(command -v tmux)" node spike/run.js; tmux kill-server 2>/dev/null || true
       - name: "C: the agent keep-alive as a systemd user unit"
+        if: always()
         run: bash spike/systemd.sh
       - name: "D: the real Claude Code CLI in tmux"
+        if: always()
         run: bash spike/claude-pane.sh
       - name: what tried to go out
         if: always()
