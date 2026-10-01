@@ -1,22 +1,22 @@
-# allowpoll-4640: a second computer moves on by itself once the other computer allows it
+# allowpoll-4640: a second computer waiting for its other computer's Allow says so (the auto-advance engine half is kept for #4754)
 
-Card: #4640 (follow-up to #4638). Owner: renettilley. Stacked on secondmac-4638 (PigeonPete) until it merges.
-Needs kosmos-relay signinstatus-4640 (`signin status` tunnel verb) for the live path; without it the page keeps
-today's behaviour (the code and a Done button).
+Card: #4640 (follow-up to #4638). Owner: renettilley. #4638 was reverted on main, so this branch is merged onto
+main on its own (see "Rebased onto main after the #4638 revert" below).
 
-## Change
-- engine/remote.js: absorbSession marks a second computer (`second` = the answer named another computer's
-  address). signinRegister keeps the session token after a successful register ONLY then, as
-  allowWatch = { token, until: now + 15 min }. signinAllowStatus() runs `signin status` with the token on stdin,
-  returns { device_status } in pending/acked/denied, clears the watch on acked/denied, and returns
-  { stop: true } when there is nothing to wait for or the tunnel predates the verb (clap's "unrecognized
-  subcommand"). A down coordinator is { stop: false }: ask again. Dropped by signinCancel, signinStart, forget,
-  resetForTests.
-- server.js: GET /api/remote/signin-allowed -> { ok, device_status } or { ok: false, stop }.
-- web/index.html: plusSiSecondDone starts a 4 s poll (plusSiWatchAllow). acked: "Allowed. <computer> is in.",
-  then after 3 s the Done button's own handler. denied: "Your other computer said no to letting this one in to it."
-  with how to ask again, and stop asking; the "connected as" line stays, since this computer IS on Kosmos+.
-  plusSiClear and Done stop the poll. (Current state; the review notes below record how it got here.)
+## Change (what this branch ships, rewritten after the 2026-10-01 re-review)
+- A second computer waiting for its other computer's Allow is a state of its own, not a failure:
+  engine/remote.js allowWaitSentence() reads the tunnel's refusal (the wait sentence plus code own_lineage, or the
+  older code-less 403 on /v1/mac/relay-ticket); status() returns state 'waiting-allow' with that sentence.
+  engine/remote-report.js classifies it 'waiting-allow' ahead of every coordinator code. Neither matches the
+  device word, so the relay renaming "this Mac" does not break either.
+- web/index.html paintPlus: a neutral "Waiting to be allowed" pill and the sentence. server.js hookPublicLink: its
+  own sentence for the state.
+- The ENGINE half of the auto-advance is kept, tested, with NO caller: signinAllowStatus / signinAllowDone, the
+  awaitAllow opt-in on signinRegister, and the routes GET /api/remote/signin-allowed and POST
+  /api/remote/signin-allowed-done. No page sends awaitAllow, so no session token is ever kept today. The page poll
+  described in the earlier rounds below (plusSiWatchAllow, "Allowed. <computer> is in.") was dropped with the
+  #4638 revert; #4754 (the sign-in that replaces it) inherits this half and the premise below.
+- History: the rounds below record the earlier design and how it got here; they are not the current state.
 
 ## Decisions
 - Reuse the register session (the coordinator answers it after register; pinned in kosmos-relay

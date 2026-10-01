@@ -162,6 +162,9 @@ test('kosmos#4640: waiting for the other computer\'s Allow is waiting-allow, not
     ['Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)', 'waiting-allow'],
     ['Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket)', 'waiting-allow'],
     [ALLOW_SAID, 'waiting-allow'],
+    // Review: the device word is not part of the match, as in remote.js ALLOW_WAIT_LINE.
+    ['Kosmos+ refused this computer: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage).', 'waiting-allow'],
+    ['Kosmos+ refused this computer: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket).', 'waiting-allow'],
     // CONTROLS: the same words with another code, the same words on another path, and an ordinary refusal stay as before.
     ['Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code standing_lapsed)', 'coordinator-refused'],
     // #4640 review: own_lineage's FINAL sentences (denied; no computer left to allow) are refusals, not a wait.
