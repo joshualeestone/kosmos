@@ -279,7 +279,8 @@ let flipPending = false;
 function askAfterFlip() {
   const cur = read();
   // flipPending makes the refresh below due. Off (enrolled or not): the stamp is also set back, so if this
-  // ask's answer is thrown away (a Forget or new identity while it is out) the next poll asks again.
+  // ask's answer is thrown away by a Forget while it is out, the next poll asks again (a new identity comes
+  // from a sign-in, which stamps fresh; there the flag set by the sign-in paths is what re-asks).
   if (cur.ok === true && cur.on !== true) write({ standing_at: Date.now() - OFF_STANDING_TTL_MS - 1 });
   try { Promise.resolve(module.exports.refreshStandingIfStale({ ttlMs: 0 })).catch(() => {}); } catch { /* best-effort */ }
 }
@@ -347,8 +348,8 @@ async function refreshStandingIfStale(opts) {
   if (Math.abs(now - (s.standing_at || 0)) < due) return;   // still fresh
   standingRefreshInFlight = true;
   // This refresh reads the switch as it is now (mac-standing reads it at send time). Cleared when an ask
-  // starts. One that then stops early is not re-asked at once: not enrolled writes no stamp (the next
-  // poll decides), and an unreadable settings file leaves the stamp the switch's last known state gives.
+  // starts. One that then stops early is not re-asked at once, and writes no stamp of its own: the stamp
+  // already there decides the next poll.
   flipPending = false;
   // The answer is about the identity on disk when it was asked: a Forget, or a
   // Forget and a new sign-in, while it was out means it is about one that is gone,
@@ -1722,9 +1723,7 @@ function cancelledAfter(result, before, addressBefore, startedAt) {
   // only a NEW identity: a register that failed and changed nothing leaves a Mac
   // that was on, on.
   if ((result && result.ok) || (enrolled() && macIdHere() !== before)) {
-    // kosmos#4743: the stamp is set back past the off cadence in the same write, so the off is told by the
-    // next standing poll even after a restart (flipPending below lives in memory only).
-    try { write({ on: false, standing_at: Date.now() - OFF_STANDING_TTL_MS - 1 }, { repair: true }); } catch { /* status says what happened */ }
+    try { write({ on: false }, { repair: true }); } catch { /* status says what happened */ }
     // kosmos#4743: told at the next standing poll, not here (inside the sign-in, like turnOnAfterSignin).
     // Set even if the switch was already off: one extra off check-in, which also tells a new identity.
     flipPending = true;
@@ -1732,6 +1731,9 @@ function cancelledAfter(result, before, addressBefore, startedAt) {
     // Another identity now: the previous account's cached standing must not
     // carry over to it (the fed gate reads it).
     if (macIdHere() !== before) { fedSetStanding(''); forgetPendingSnapshot(); }   // #4610
+    // kosmos#4743: AFTER fedSetStanding (which stamps standing_at fresh): the stamp is set back past the off
+    // cadence, so the off is told by the next standing poll even after a restart (flipPending lives in memory).
+    try { write({ standing_at: Date.now() - OFF_STANDING_TTL_MS - 1 }); } catch { /* best-effort */ }
   }
   return SIGNIN_CANCELLED;
 }
@@ -2283,7 +2285,8 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  turnOnAfterSigninForTests: turnOnAfterSignin,   // kosmos#4743: tests only (it skips setOn's busy() check)
+  turnOnAfterSigninForTests: turnOnAfterSignin,
+  cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only   // kosmos#4743: tests only (it skips setOn's busy() check)
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
   resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },

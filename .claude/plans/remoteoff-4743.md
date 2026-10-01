@@ -140,6 +140,15 @@ remote-unreadable-4308, engine.reachable, fixture-discipline) pass.
   cancelledAfter lines.
 - Nit taken: the flag's comment says setOn sets it only when the value changes.
 
+## Review 14 (opus, blind): 0 blockers, 2 warnings (1 duplicate: shipping order), 4 nits
+- W, taken: review 13's restart fix never held: cancelledAfter set the stamp back, then fedSetStanding('')
+  (same branch, a new identity) stamped it fresh. The set-back now comes AFTER fedSetStanding. New test drives
+  cancelledAfter (exported cancelledAfterForTests): switch off and stamp past the off cadence; red with the
+  set-back moved back before fedSetStanding.
+- Nits taken: askAfterFlip's comment names the real re-ask mechanism for a new identity; the early-stop comment
+  says it writes no stamp. Left: switching off then Forget can now wait up to 20 s for the flip's ask (stated
+  in setOn's comment; recorded on the card with the PR); the off-at-once test is not the flag's guard (others are).
+
 ## Weakest premise
 That one bit about remote access is not something #4731 meant to keep back. #4731's comment says "no
 remote report" while off; this sends no report FIELDS, only the switch's state, which the computer's owner

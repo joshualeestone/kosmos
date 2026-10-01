@@ -447,6 +447,19 @@ test('#4743: signing in with the switch off makes the next standing poll tell th
   }
 });
 
+test('#4743: a sign-in cancelled after it registered leaves the switch off AND the standing stamp due (it survives a restart)', async () => {
+  await settleStanding();
+  remote.resetForTests();
+  enroll(true);   // the register's new identity is on disk (mac_id 'x'), so the identity changed from 'old-id'
+  const r = remote.cancelledAfterForTests({ ok: true }, 'old-id', 'old.example', Date.now());
+  assert.ok(r, 'cancelledAfter answered nothing');
+  const after = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  assert.equal(after.on, false, 'a cancelled sign-in left the switch on');
+  assert.ok(Date.now() - after.standing_at > remote.OFF_STANDING_TTL_MS,
+    'the standing stamp is fresh, so after a restart the off would wait the whole off cadence: ' + after.standing_at);
+  remote.resetForTests();   // the flag it set must not reach the next test
+});
+
 test('#4743: saving the switch at the value it already has sends nothing', async () => {
   await settleStanding();
   remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
