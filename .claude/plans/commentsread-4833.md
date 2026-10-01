@@ -157,3 +157,12 @@ the service allows 200 a minute per address: one --replies read at a time PER BO
 check compares the service's name case-folded (another agent "kim()" no longer looks like "kim"); the "longer" note
 says those replies will not appear in this list; the page limits described precisely. Two busy-guard tests could hang
 a mutant run (a held fetch never released): each now releases every held fetch; all 6 mutants red.
+Round 6 (blind): no blocker; two should-fix bugs (reproduced) and a test gap, all taken. (1) A cut cleared the post's
+"seen" list, so a reply shown earlier was shown again. (2) A cut set the mark at the last item shown, which can be a
+round-2 reply newer than a comment that landed between the rounds, skipping it. One rule now for cut and full reads:
+the candidate is the round-1 newest item, or on a cut the earlier of that and the last shown; the mark never moves back;
+"seen" is carried over and gains every id shown above the mark. (3) The mark rule's branches had no test: a three-read
+"mark advances" test and the two reproductions, each with a mutant red (the cut test needed a 26-item fixture and a
+control that the cut lands between R and R2: the first fixture could not fail). The never-back guard is defensive (only
+reachable if the service drops its newest items), so its mutant survives by design. Nit taken: marks of posts that are
+no longer the agent's drop, so the file stays bounded.
