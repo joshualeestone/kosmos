@@ -10,9 +10,11 @@ The board's Remove passed none.
   the pre-#4803 build at ~/work/kosmos-relay/dist/kosmos-tunnel), so on exactly that refusal it is asked again
   without the flag (exit 2 and that wording, both required). Any other refusal surfaces as before.
 - web/index.html, the Devices list: after a Remove, `removedWords` says what it reached, from the answer: "Its
-  sign-in also ends on your other computers" only when `signed_out` is true; otherwise (false, or absent from an
-  older connector) "Kosmos+ was not told"; plus a line when `local_cutoff` is false. `paintDevices(keepMsg)` keeps
-  that line through the repaint that follows (it used to be cleared, with the error line on a failed Remove too).
+  sign-in on your other computers ends too" only when `signed_out` is true; otherwise (false, or absent from an
+  older connector) "Kosmos+ was not told"; "It was not on this computer's list" when `removed` is false; plus a
+  line when `local_cutoff` is false. The line lives in `ASK.said` and is repainted by every `paintDevices` (the
+  5 s `paintPlus` poll included) until the next Remove or Keep click; it used to be cleared by the very next repaint,
+  as was the error line of a failed Remove. No timing is promised: the other computers end it on their next poll.
   The confirm keeps its old sentence, which is true whatever connector is installed.
 
 ## Decided (overridable)
@@ -33,7 +35,7 @@ and the test pins the measured wording.
 - engine/remote.test.js: remove passes `--coordinator` once and passes the answer through; an old connector (fake
   in `old-remove` mode, clap's measured words and exit 2) is asked again without it and still removes (control:
   any other refusal is not retried); `signed_out` / `local_cutoff` false reach the page.
-- web.allow-card.test.js: `removedWords` run on each answer shape (told / false / absent / both false), and the
-  keepMsg repaint wiring.
+- web.allow-card.test.js: `removedWords` run on each answer shape (told / false / absent / not on the list / both
+  false), and the `ASK.said` wiring.
 - docs/browser-checks/render-device-remove-4824.js: a real click on Remove for each answer; the line is still
-  showing after the repaint; CONTROL: a plain repaint clears it.
+  showing after one of the page's own 5 s polls; CONTROL: the next Remove click clears it.

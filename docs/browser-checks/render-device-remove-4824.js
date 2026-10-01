@@ -7,7 +7,8 @@
  *   told      -> signed_out true:  "Removed. Its sign-in also ends on your other computers ..."
  *   not told  -> signed_out false: "Removed here. Kosmos+ was not told ..."
  *   old       -> no signed_out (a connector from before kosmos#4803): the same "not told" line
- * CONTROL: a plain repaint (no Remove) leaves the line empty, so a line that never clears cannot pass.
+ * The line must still be there after one of the page's own 5 s polls has repainted the list.
+ * CONTROL: the next Remove click clears it, so a line that never clears cannot pass.
  *
  *   HEADED=0 node docs/browser-checks/render-device-remove-4824.js [shotsDir]
  */
@@ -74,25 +75,28 @@ async function open(browser, BASE, answer) {
       const confirm = await page.textContent('#plus-devlist .confirm');
       chk(/It stops right away\. It can ask again by signing in\./.test(confirm || ''), key + ': the confirm says only what Remove always does', JSON.stringify(confirm));
       await page.click('#plus-devlist [data-dev="removeyes"]');
-      // Past the repaint the Remove triggers (one fetch of the list), and past one more for good measure.
-      await page.waitForTimeout(800);
-      await page.evaluate(() => paintDevices(true));
-      await page.waitForTimeout(300);
+      // Past the repaint the Remove triggers AND past one of the page's own 5 s polls (paintPlus repaints the list).
+      await page.waitForTimeout(6500);
       const said = (await page.textContent('#plus-devmsg') || '').trim();
       const visible = await page.evaluate(() => { const e = document.getElementById('plus-devmsg'); return !!(e && e.getBoundingClientRect().height > 0); });
-      if (key === 'told') chk(/^Removed\. Its sign-in also ends on your other computers/.test(said) && visible, key + ': says the other computers are reached, and it is still showing after the repaint', JSON.stringify(said));
+      if (key === 'told') chk(/^Removed\. Its sign-in on your other computers ends too\./.test(said) && visible, key + ': says the other computers are reached, and it is still showing after the repaint', JSON.stringify(said));
       else chk(/^Removed here\. Kosmos\+ was not told/.test(said) && visible, key + ': says Kosmos+ was not told, still showing after the repaint', JSON.stringify(said));
       chk(!/[—]/.test(said), key + ': no em dash');
       chk(errs.length === 0, key + ': no page errors', errs.join(' | '));
       if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'device-remove-4824-' + key + '.png') }); }
       await page.close();
     }
-    // CONTROL: a plain repaint clears the line, so the arms above are not passing on a line that never clears.
+    // CONTROL: the next Remove click clears the line, so the arms above are not passing on a line nothing clears.
     {
-      const { page } = await open(browser, BASE, null);
-      await page.evaluate(() => { document.getElementById('plus-devmsg').textContent = 'stale'; return paintDevices(); });
-      await page.waitForTimeout(300);
-      chk((await page.textContent('#plus-devmsg') || '').trim() === '', 'control: a repaint that is not after a Remove clears the line');
+      const { page } = await open(browser, BASE, ANSWERS.told);
+      await page.click('#plus-devlist [data-dev="remove"]');
+      await page.click('#plus-devlist [data-dev="removeyes"]');
+      await page.waitForTimeout(800);
+      const before = (await page.textContent('#plus-devmsg') || '').trim();
+      await page.click('#plus-devlist [data-dev="remove"]');
+      await page.waitForTimeout(800);
+      const after = (await page.textContent('#plus-devmsg') || '').trim();
+      chk(before.length > 0 && after === '', 'control: the next Remove clears what the last one said', JSON.stringify({ before, after }));
       await page.close();
     }
   } finally {
