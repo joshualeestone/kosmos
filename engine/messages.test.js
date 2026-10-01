@@ -3218,3 +3218,57 @@ test('#4786: with the limit Off, work moving changes nothing: the room still get
     }
   });
 });
+
+test('#4888: two DIFFERENT messages whose deliveries overlap get different ids, in the reply and in the log', async () => {
+  // Rows are appended when a delivery finishes, so the second send starts before the first is in the log.
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const slow = () => gate.then(() => ({ state: chat.DELIVERY.PLACED, because: null }));
+  armSender('leo-discord');
+  await withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], async (board) => {
+    const p1 = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'first thing' }, board.agents, slow);
+    const p2 = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'second thing' }, board.agents, slow);
+    release();
+    const [a, b] = await Promise.all([p1, p2]);
+    assert.equal(a.state, chat.DELIVERY.PLACED, JSON.stringify(a));
+    assert.equal(b.state, chat.DELIVERY.PLACED, JSON.stringify(b));
+    assert.equal(b.duplicate, undefined, 'different words were folded as a retry: ' + JSON.stringify(b));
+    assert.notEqual(a.id, b.id, 'two overlapping messages shared one id');
+    const ids = messages.record().rows.filter((m) => m.kind === 'message').map((m) => m.id);
+    assert.equal(ids.length, 2, JSON.stringify(ids));
+    assert.equal(new Set(ids).size, 2, 'the log holds one id twice: ' + JSON.stringify(ids));
+  });
+});
+
+test('#4888: two room posts from two agents at the same moment get different ids', async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const slow = () => gate.then(() => ({ state: chat.DELIVERY.PLACED, because: null }));
+  await withFleet(room3(), async (board) => {
+    armSender('mara-discord');
+    const p1 = messages._sendPostWithDelivery({ fromPane: '%7', project: 'henderson-lease', text: 'draft is up' }, board.agents, MEMBERS, slow, true);
+    armSender('leo-discord');
+    const p2 = messages._sendPostWithDelivery({ fromPane: '%7', project: 'henderson-lease', text: 'numbers are in' }, board.agents, MEMBERS, slow, true);
+    release();
+    const [a, b] = await Promise.all([p1, p2]);
+    assert.ok(a.id && b.id, JSON.stringify([a, b]));
+    assert.notEqual(a.id, b.id, 'two overlapping posts shared one id');
+    const ids = messages.record().rows.filter((m) => m.kind === 'post').map((m) => m.id);
+    assert.equal(new Set(ids).size, ids.length, 'the log holds one id twice: ' + JSON.stringify(ids));
+    assert.equal(ids.length, 2, JSON.stringify(ids));
+  });
+});
+
+test('#4888: a send that was refused does not hand its id to the next one', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    const refused = () => ({ state: chat.DELIVERY.COULD_NOT, because: 'the pane closed' });
+    const first = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'will not land' }, board.agents, refused);
+    assert.equal(first.state, chat.DELIVERY.COULD_NOT);
+    const placed = () => ({ state: chat.DELIVERY.PLACED, because: null });
+    const a = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'lands' }, board.agents, placed);
+    const b = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'lands too' }, board.agents, placed);
+    assert.equal(a.state, chat.DELIVERY.PLACED, JSON.stringify(a));
+    assert.notEqual(a.id, b.id);
+  });
+});
