@@ -41,3 +41,6 @@ the swarm path. Mutations: dropping the swarm rule reds it; dropping the advice 
 - Round 4 (sonnet): FIXED W: paintPathOptions now calls paintPickLimit, so the path-keyed line does not depend on a
   later loadRoles paint. DUPLICATE W: the word pattern (the named weakest premise). FIXED NIT: the .rolelimit CSS comment
   that still said the last step is the only place a caution shows.
+- Round 5 (opus): DUPLICATE W (the partial-removal call; it goes to Josh through Splinter with the card comment).
+  FIXED W: the paintPickLimit call in paintPathOptions is pinned in the test; deleting it reds the test (mutation run,
+  file restored and cmp-verified; the browser run in flight was frozen at aab1af746 and could not see it).

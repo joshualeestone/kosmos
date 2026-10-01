@@ -79,6 +79,8 @@ test('a role\'s limit is said on step one, under the dropdown, the moment it is 
     assert.equal(l.hidden, false, 'a professional-advice disclaimer was hidden on the swarm path: ' + c); assert.equal(l.textContent, c);
   }
   assert.match(SCRIPT, /PICKED = document\.getElementById\('rolesel'\)\.value;\n  paintPickLimit\(\);/);
+  // #4871: repainting the path's options repaints the line, so the swarm rule does not wait on a later loadRoles paint.
+  assert.match(SCRIPT, /paintTeamOrgchartNote\(\);\n  paintPickLimit\(\);[^\n]*\n\}/, 'paintPathOptions no longer repaints the line under the menu');
   assert.match(SCRIPT, /getElementById\('role-next'\)\.disabled = importing;\n  paintPickLimit\(\);\n\}/);   // #4556: the org chart moved to the Team screen
 });
 
