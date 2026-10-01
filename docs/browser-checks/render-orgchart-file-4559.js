@@ -207,8 +207,8 @@ async function run() {
     } else check('STOP: the panel offers a file', false);
     await pst.close();
 
-    /* #4556: closing the panel after a create keeps the result and its Undo (only the file flow ends on close; the
-       full reset is on reopening, as it was when the org chart was chosen again on main). */
+    /* #4556: closing the panel after a create keeps the result and its Undo (only the file flow ends on close).
+       #4688: reopening keeps them too, for ORGCHART_UNDO_KEEP_MS after the create. */
     {
       const pk = await page();
       await pk.route('**/api/team', (r) => {
@@ -230,6 +230,32 @@ async function run() {
         await pk.waitForSelector('#orgchartpick', { state: 'visible', timeout: 5000 });
         const re = await pk.evaluate(() => ({ created: ORGCHART_CREATED.length, undoShown: !document.getElementById('orgchart-undo').hidden, box: !document.getElementById('orgchart-preview-box').hidden }));
         check('#4688 CLOSE, REOPEN AFTER CREATE: reopening the panel still offers the team\'s Undo', re.created === 7 && re.undoShown && re.box, JSON.stringify(re));
+        /* #4688 review: the kept Undo lasts ORGCHART_UNDO_KEEP_MS (15 minutes) from the create. The create's age is
+           set from the page rather than waited out. */
+        const reopenAged = async (ageMs) => {
+          await pk.evaluate((a) => { ORGCHART_CREATED_AT = Date.now() - a; }, ageMs);
+          await pk.click('#team-orgchart-open');   // close
+          await pk.waitForSelector('#orgchartpick', { state: 'hidden', timeout: 5000 });
+          await pk.click('#team-orgchart-open');   // reopen
+          await pk.waitForSelector('#orgchartpick', { state: 'visible', timeout: 5000 });
+          return pk.evaluate(() => ({ created: ORGCHART_CREATED.length, undoShown: !document.getElementById('orgchart-undo').hidden,
+            box: !document.getElementById('orgchart-preview-box').hidden }));
+        };
+        const inside = await reopenAged(14 * 60 * 1000);
+        check('#4688 CONTROL: a reopen 14 minutes after the create still offers the Undo', inside.created === 7 && inside.undoShown && inside.box, JSON.stringify(inside));
+        await pk.evaluate(() => { window.__keptList = ORGCHART_CREATED.slice(); });
+        const past = await reopenAged(16 * 60 * 1000);
+        check('#4688 EXPIRED ON REOPEN: a reopen 16 minutes after the create drops the Undo', past.created === 0 && !past.undoShown && !past.box, JSON.stringify(past));
+        // The same list back with a fresh create time, shown on screen, then aged past the window before Undo is pressed.
+        await pk.evaluate(() => { ORGCHART_CREATED = window.__keptList; ORGCHART_CREATED_AT = Date.now(); });
+        const shownAgain = await reopenAged(0);
+        await pk.evaluate(() => { ORGCHART_CREATED_AT = Date.now() - 16 * 60 * 1000; });
+        await pk.click('#orgchart-undo');
+        const onScreen = await pk.evaluate(() => ({ created: ORGCHART_CREATED.length, undoShown: !document.getElementById('orgchart-undo').hidden,
+          asking: !document.getElementById('orgchart-undo-go').hidden, msg: document.getElementById('orgchart-msg').textContent }));
+        check('#4688 EXPIRED ON SCREEN: Undo pressed 16 minutes after the create says it is no longer offered and asks nothing',
+          shownAgain.created === 7 && shownAgain.undoShown && onScreen.created === 0 && !onScreen.undoShown && !onScreen.asking
+          && /Undo is no longer offered/.test(onScreen.msg), JSON.stringify([shownAgain, onScreen]));
       } else check('CLOSE AFTER CREATE: the panel offers a file', false);
       await pk.close();
     }
@@ -582,7 +608,7 @@ async function run() {
       for (let i = 0; i < 50 && deletes < 4; i++) await pud.waitForTimeout(100);   // the 4th removal is now held
       await pud.click('#create-path-back');
       releaseDel();
-      await pud.waitForTimeout(800);   // the held answer lands after the person left
+      await pud.waitForFunction(() => ORGCHART_CREATED.length === 3, null, { timeout: 5000 }).catch(() => {});   // the held answer lands after the person left
       await pud.click('#cstep-kind [data-path="team"]');
       await pud.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
       await pud.click('#team-orgchart-open');
@@ -593,6 +619,51 @@ async function run() {
         deletes === 4 && ud.created === 3 && /remove these 3 agents/.test(ud.undo || '') && /Removed 4 of 7 before you left/.test(ud.count), JSON.stringify([deletes, ud]));
     } else check('#4688 UNDO LEFT MID-RUN: the panel offers a file', false);
     await pud.close();
+
+    /* #4688 review: the same, but the person is BACK in the panel before the held removal answers. The reopen shows
+       the kept list as it stood (7); the late answer must repaint it to the 3 still on the board. */
+    const pur = await page();
+    let deletesR = 0;
+    let releaseDelR;
+    const delHeldR = new Promise((ok) => { releaseDelR = ok; });
+    await pur.route('**/api/team', (r) => {
+      const body = JSON.parse(r.request().postData() || '{}');
+      r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } });
+    });
+    await pur.route('**/api/agent/*/removal', async (r) => {
+      const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
+      if (r.request().method() === 'GET') return r.fulfill({ status: 200, json: { ok: true, name, label: name, loses: ['Its place on the board'], keeps: ['Its folder'] } });
+      deletesR += 1;
+      if (deletesR === 4) await delHeldR;
+      r.fulfill({ status: 200, json: { outcome: 'removed', because: name + ' has been removed.' } });
+    });
+    await pur.route('**/api/removed', (r) => r.fulfill({ status: 200, json: { agents: [] } }));
+    await openPanel(pur);
+    if (await pur.$('#orgchart-file-btn')) {
+      await pur.setInputFiles('#orgchart-file', path.join(FIX, 'people.csv'));
+      await pur.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
+      await pur.click('#orgchart-create');
+      await pur.waitForFunction(() => /Created 7 agents/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 8000 });
+      await pur.click('#orgchart-undo');
+      await pur.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
+      await pur.click('#orgchart-undo-go');
+      for (let i = 0; i < 50 && deletesR < 4; i++) await pur.waitForTimeout(100);   // the 4th removal is now held
+      await pur.click('#create-path-back');
+      await pur.click('#cstep-kind [data-path="team"]');
+      await pur.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
+      await pur.click('#team-orgchart-open');
+      await pur.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
+      const readUd = () => pur.evaluate(() => ({ created: ORGCHART_CREATED.length, undo: !document.getElementById('orgchart-undo').hidden ? document.getElementById('orgchart-undo').textContent : null,
+        count: document.getElementById('orgchart-count').textContent }));
+      const beforeR = await readUd();
+      releaseDelR();
+      await pur.waitForFunction(() => /remove these 3 agents/.test(document.getElementById('orgchart-undo').textContent), null, { timeout: 5000 }).catch(() => {});
+      const afterR = await readUd();
+      check('#4688 UNDO LEFT MID-RUN, BACK BEFORE THE ANSWER: the open panel is repainted to the agents still on the board',
+        deletesR === 4 && /remove these 7 agents/.test(beforeR.undo || '') && afterR.created === 3 && /remove these 3 agents/.test(afterR.undo || '')
+        && /Removed 4 of 7 before you left/.test(afterR.count), JSON.stringify([deletesR, beforeR, afterR]));
+    } else check('#4688 UNDO LEFT MID-RUN, BACK BEFORE THE ANSWER: the panel offers a file', false);
+    await pur.close();
 
     // RENAMED + FAILED: create canonicalises a manager's name (head-of-sales -> head-of-sales-2), so the person
     // under it is re-pointed to the name it was created under; and a profile update that fails is named, not counted.

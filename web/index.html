@@ -47535,11 +47535,28 @@ function resetOrgchartPreview() {
   // #4688: a created team's result and Undo come back with the panel (ORGCHART_CREATED is kept).
   orgchartRestoreCreated();
 }
+// #4688 review: drops the kept list once ORGCHART_UNDO_KEEP_MS has passed since its create; true when it did.
+function orgchartDropExpiredUndo() {
+  if (!ORGCHART_CREATED.length || Date.now() - ORGCHART_CREATED_AT <= ORGCHART_UNDO_KEEP_MS) return false;
+  ORGCHART_CREATED = [];
+  return true;
+}
+// #4688 review: Undo pressed on a result left on screen past ORGCHART_UNDO_KEEP_MS.
+function orgchartSayUndoExpired() {
+  orgchartUndoAsking(false);
+  showOrgchartUndo();
+  const msg = document.getElementById('orgchart-msg');
+  msg.textContent = 'Undo is no longer offered: more than 15 minutes have passed since these agents were made. '
+    + 'Remove any of them from its own page.';
+  msg.hidden = false;
+  const back = document.getElementById('orgchart-edit');
+  if (back) back.focus();
+}
 /* #4688: paint the last create's result and its Undo into the box, if a create made agents that Undo has not
    removed. Used when the panel is reopened, and when a create answered after the person had left lands while the
    panel is open again and idle. A no-op otherwise. */
 function orgchartRestoreCreated() {
-  if (ORGCHART_CREATED.length && Date.now() - ORGCHART_CREATED_AT > ORGCHART_UNDO_KEEP_MS) ORGCHART_CREATED = [];
+  orgchartDropExpiredUndo();
   if (!ORGCHART_CREATED.length || !ORGCHART_RESULT) return false;
   const box = document.getElementById('orgchart-preview-box');
   if (!box) return false;
@@ -48186,6 +48203,7 @@ function orgchartLosesDiffer(plan) {
 }
 
 async function orgchartUndoAsk() {
+  if (orgchartDropExpiredUndo()) { orgchartSayUndoExpired(); return; }
   const n = ORGCHART_CREATED.length;
   if (!n) return;
   const gen = ORGCHART_GEN;
@@ -48240,7 +48258,7 @@ document.getElementById('orgchart-undo').addEventListener('click', orgchartUndoA
 document.getElementById('orgchart-undo-keep').addEventListener('click', () => {
   orgchartUndoAsking(false);
   const msg = document.getElementById('orgchart-msg');
-  msg.textContent = ''; msg.hidden = true;
+  msg.textContent = (ORGCHART_RESULT && ORGCHART_RESULT.msg) || ''; msg.hidden = !msg.textContent;
   if (ORGCHART_RESULT) {
     document.getElementById('orgchart-count').textContent = ORGCHART_RESULT.count;
     document.getElementById('orgchart-list').innerHTML = ORGCHART_RESULT.list;
@@ -48249,9 +48267,9 @@ document.getElementById('orgchart-undo-keep').addEventListener('click', () => {
   document.getElementById('orgchart-undo').focus();
 });
 
-/* #4688 review: an Undo the person left mid-run. Nothing is painted (they are elsewhere), but the kept list must stop
-   offering the agents this run already removed, or the reopened panel would offer "remove these 7" for 3 that are
-   gone. Only a clean `removed` answer counts; anything else stays offered (asking the engine again is harmless).
+/* #4688 review: an Undo the person left mid-run. The kept list must stop offering the agents this run already
+   removed, or the reopened panel would offer "remove these 7" for 3 that are gone. If they are already back in the
+   panel and it is idle, it is repainted from the updated list. Only a clean `removed` answer counts; anything else stays offered (asking the engine again is harmless).
    Changed only while the kept list is still the one this run started from, so a newer batch is never touched. */
 function orgchartUndoLeftMidRun(runList, todo, answers) {
   if (ORGCHART_CREATED !== runList) return;
@@ -48259,14 +48277,14 @@ function orgchartUndoLeftMidRun(runList, todo, answers) {
   if (!gone.size) return;
   ORGCHART_CREATED = runList.filter((c) => !gone.has(c.name));
   const left = ORGCHART_CREATED.length;
-  ORGCHART_RESULT = {
-    count: !left ? 'Removed ' + gone.size + (gone.size === 1 ? ' agent.' : ' agents.')
-      + ' Nothing was deleted: Show removed agents on your board puts any of them back.'
-      : 'Removed ' + gone.size + ' of ' + todo.length + ' before you left. '
-        + left + (left === 1 ? ' is still on your board:' : ' are still on your board:'),
+  ORGCHART_RESULT = !left ? null : {
+    count: 'Removed ' + gone.size + ' of ' + todo.length + ' before you left. '
+      + left + (left === 1 ? ' is still on your board:' : ' are still on your board:'),
     list: todo.map((c) => '<li>' + esc(c.shownAs) + ' <span class="dhint">' + (gone.has(c.name) ? 'removed' : 'still on your board') + '</span></li>').join(''),
     msg: '',
   };
+  const panel = document.getElementById('orgchartpick');
+  if (panel && !panel.hidden && !ORGCHART_PARSED && !ORGCHART_READ_CTL && !ORGCHART_UNDO_BUSY) resetOrgchartPreview();
 }
 
 /* #1280: Remove them, pressed after orgchartUndoAsk named the agents. One at a time through the
@@ -48276,6 +48294,7 @@ function orgchartUndoLeftMidRun(runList, todo, answers) {
    is offered again. If the panel is left mid-run the loop stops sending and paints nothing; what
    it already removed shows under Show removed agents. */
 document.getElementById('orgchart-undo-go').addEventListener('click', async () => {
+  if (orgchartDropExpiredUndo()) { orgchartSayUndoExpired(); return; }
   if (!ORGCHART_CREATED.length) return;
   const gen = ORGCHART_GEN;
   const countEl = document.getElementById('orgchart-count');
@@ -48903,8 +48922,9 @@ function openCreate(initialMode) {
   document.getElementById('import-load').disabled = false;
   const importMsgEl = document.getElementById('import-msg');
   importMsgEl.textContent = ''; importMsgEl.hidden = true;
-  /* #1280: org-chart panel back to closed and empty -- text, the names toggle,
-     and the preview must not carry over from a previous open. */
+  /* #1280: org-chart panel back to closed -- the text, the names toggle and any
+     preview do not carry over from a previous open. #4688: a created team's result
+     and Undo do (resetOrgchartPreview restores them). */
   document.getElementById('orgchartpick').hidden = true;
   document.getElementById('orgchart-text').value = '';
   document.getElementById('orgchart-usenames').checked = false;

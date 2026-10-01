@@ -31,7 +31,7 @@ the one related check (CLOSE AFTER CREATE) expects Undo kept, which this extends
 - CONTROL: a fresh Preview after the reopen drops the old Undo.
 - REOPEN BEFORE THE ANSWER: the create is held; the person is back in the idle panel; the late answer paints there.
 - CLOSE, REOPEN AFTER CREATE: a normal create, close, reopen: Undo still offered.
-Each must fail on the base (newagent-4556) and pass here; run on a quiet Mac.
+Each must fail on the base (main before this branch) and pass here; run on a quiet Mac.
 
 ## Blind review round 1 (Sonnet): no blocker; two warnings, both fixed
 - The case that matters most (a late OLD create overwriting a NEWER batch's list, so Undo reaches the wrong agents)
@@ -46,3 +46,14 @@ Each must fail on the base (newagent-4556) and pass here; run on a quiet Mac.
 - [NIT] the control arm also passes on the old code: by design (it pins that a new batch still drops Undo). Its
   needless wait removed.
 - [NIT] the post-create paint and orgchartRestoreCreated share about ten lines: left, they agree today.
+
+## Challenge loop after the rebase, iteration 1 (Opus): three warnings, two conventions, all fixed
+- A late Undo answer landing while the person was BACK in the panel left the reopened result stale ("remove these 7"
+  with 4 gone). orgchartUndoLeftMidRun now repaints an open, idle panel (the late-create path's rule). New arm:
+  UNDO LEFT MID-RUN, BACK BEFORE THE ANSWER.
+- The 15-minute expiry had no arm and ran only on a reopen. One helper (orgchartDropExpiredUndo) now runs on reopen,
+  on Undo, and on Remove; Undo pressed past the window says so and asks nothing. Arms: CONTROL at 14 minutes,
+  EXPIRED ON REOPEN and EXPIRED ON SCREEN at 16. The window is measured from the create, not from the last showing.
+- Two comments said a reopen resets; corrected. NITs taken: a fixed 800 ms wait is now a wait on the state; the
+  all-removed result that could never be painted is gone (ORGCHART_RESULT null); Keep them restores the result's
+  own message, as a reopen does.
