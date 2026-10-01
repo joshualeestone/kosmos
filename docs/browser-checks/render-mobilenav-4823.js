@@ -228,8 +228,15 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         l = await look(page);
         chk(l.nav && l.nav.msg === 'Log out is not available on this Kosmos yet.', T + 'S4 Log out runs the Kosmos+ log out and says what happened', JSON.stringify(l.nav && l.nav.msg));
 
-        // Switch Computers, a third level.
+        // Switch Computers, a third level. Its read is slowed here, so the arm can see the level BEFORE the answer: an
+        // earlier read's "Online" link must not be offered while a fresh one is on its way (review round 5).
+        await page.unroute('**/api/remote/computers*');
+        await page.route('**/api/remote/computers*', async (r) => { await new Promise((res) => setTimeout(res, 1500)); return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TWO) }); });
         await page.click('#pnav-computers');
+        await page.waitForTimeout(400);
+        const early = await page.evaluate(() => [...document.querySelectorAll('#pnav .pnav-level[data-level="computers"] a.pnav-item')].length);
+        chk(early === 0, T + 'C0 before the fresh answer lands the level offers no link', String(early));
+        await page.waitForFunction(() => document.querySelectorAll('#pnav .pnav-level[data-level="computers"] a.pnav-item').length > 0, null, { timeout: 6000 }).catch(() => {});
         await settled(page);
         l = await look(page);
         chk(l.nav && JSON.stringify(l.nav.level) === '["computers"]' && JSON.stringify(l.nav.comps) === JSON.stringify(['DIV:studio-laptop', 'A:desk-mini']) && l.nav.focusIn,

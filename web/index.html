@@ -1437,6 +1437,7 @@ html.pnav-up { overflow: hidden; scrollbar-gutter: auto; }
 .pnav-small:disabled { opacity: .6; cursor: default; }
 .pnav-msg { margin: 6px 24px 0 63px; font-size: 15px; color: #f2b8ae; }
 .pnav-level:focus { outline: none; }
+.pnav-level:focus-visible { outline: 2px solid rgba(255,255,255,.5); outline-offset: -2px; }
 .pnav-stamp { margin: 32px 24px 0 63px; font-size: 15px; color: rgba(255,255,255,.55); }
 .pnav-stamp:empty { display: none; }
 /* A Settings section that needs the person (the Settings page's own data-dot) shows the same red dot here. */
@@ -10761,8 +10762,6 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-sec-instr button,
   #d-sec-skills :is(input, textarea, select, button) { min-height: 44px; }
 }
-/* The canvases honour prefers-reduced-motion in JS (a single static frame, no
-   rAF loop); this makes that intent visible to a source reader too. */
 /* #4823: the phone's Agents page, Josh's agents-listview-mock.png (on a phone through Kosmos+, html.kremote, the same
    gate as the phone header). The toolbar rules carry two ids so they win over the new look's (one id, up to six
    classes) in any order; the row rules carry one id, which beats the base .lrow rules and the 56rem one. Measured off the mock at 3x: controls 44px, rows 74px rings, text 11px under a 17px name.
@@ -10813,6 +10812,8 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
     border: 1.5px solid #b8b8ba; border-radius: 999px; font-size: 15px; font-weight: 700; color: var(--k-ink); }
   html.kremote #alist .lrow.notrunning > .lstate { justify-self: start; }
 }
+/* The canvases honour prefers-reduced-motion in JS (a single static frame, no
+   rAF loop); this makes that intent visible to a source reader too. */
 </style>
 <!-- ⚠️ THE id HERE IS LOAD-BEARING, NOT DECORATION. Every page test in this
      repo lifts the app's source with a regex for an ATTRIBUTE-LESS script tag,
@@ -18271,10 +18272,10 @@ function pnavBuild() {
     + '<li><button type="button" class="pnav-item" data-pnav-tab="agents"><span class="pnav-badge" id="nav-badge-agents-m" aria-hidden="true" hidden></span><span class="pnav-text">Agents</span></button></li>'
     + '<li><button type="button" class="pnav-item" data-pnav-tab="projects"><span class="pnav-badge" id="nav-badge-projects-m" aria-hidden="true" hidden></span><span class="pnav-text">Projects</span></button></li>'
     + '<li><button type="button" class="pnav-item" data-pnav-tab="tasks"><span class="pnav-text">Tasks</span></button></li>'
-    + '<li><button type="button" class="pnav-item" data-pnav-go="settings"><span class="pnav-text">Settings</span></button></li>'
+    + '<li><button type="button" class="pnav-item" data-pnav-go="settings" aria-haspopup="menu"><span class="pnav-text">Settings</span></button></li>'
     + '</ul><p class="pnav-stamp" id="pnav-stamp"></p></div>'
     + '<div class="pnav-level" data-level="settings" tabindex="-1" hidden><ul class="pnav-list" id="pnav-settings"></ul>'
-    + '<div class="pnav-group"><button type="button" class="pnav-small" id="pnav-computers" data-pnav-go="computers" hidden>Switch Computers</button>'
+    + '<div class="pnav-group"><button type="button" class="pnav-small" id="pnav-computers" data-pnav-go="computers" aria-haspopup="menu" hidden>Switch Computers</button>'
     /* The light/dark choice lives in the person's menu, which the phone header does not show, and in no Settings
        section; so it comes here (review round 1). The page's own [data-theme-set] handler and painter serve it. */
     + '<div class="pnav-theme" role="radiogroup" aria-label="Appearance"><span class="pnav-theme-l" aria-hidden="true">Appearance</span>'
@@ -18386,9 +18387,9 @@ function pnavThemeRove() {
   const on = opts.find((b) => b.getAttribute('aria-checked') === 'true') || opts[0];
   for (const b of opts) b.tabIndex = b === on ? 0 : -1;
 }
-/* The level on screen, and the trail back to the first one. */
 /* The board's phone (PHONE_WIDTH, #3969), the same query as this menu's CSS. */
 const PNAV_PHONE_MQ = '(max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem)';
+/* The level on screen, and the trail back to the first one. */
 let PNAV_TRAIL = ['main'];
 let PNAV_OPENING_T = 0;
 /* The item that opened each deeper level, so Back returns focus to it (as apple.com's menu does). */
@@ -18510,13 +18511,15 @@ function pnavTo(name, opener) {
   if (from === name) return;
   pnavOpened();
   PNAV_FROM.push(opener || document.activeElement);
+  /* The computers are read when Switch Computers is opened, as the top-left menu reads them when it opens (each read
+     is a signed call to Kosmos+). The read starts BEFORE the copy: computersFetch clears the old rows at once (to
+     "Checking your computers..."), so an hours-old "Online" link is never offered while the answer is on its way
+     (review round 5). Whether to offer it at all comes from the board's own background read (COMPUTERS_OPENABLE,
+     #4815), and computersRender refills the level whenever an answer lands (pnavRefresh). */
+  if (name === 'computers' && typeof computersFetch === 'function') computersFetch().catch(() => {});
   pnavFill(name);
   PNAV_TRAIL.push(name);
   pnavMove(from, name, 'fwd');
-  /* The computers are read when Switch Computers is opened, as the top-left menu reads them when it opens (each read
-     is a signed call to Kosmos+). Whether to offer it at all comes from the board's own background read
-     (COMPUTERS_OPENABLE, #4815). computersRender refills the level whenever an answer lands (pnavRefresh). */
-  if (name === 'computers' && typeof computersFetch === 'function') computersFetch().catch(() => {});
 }
 /* Refill the level on screen from the board as it is now (the computers' answer has landed). Settings refills only
    the Switch Computers line, so a person mid-list does not lose their place. */
