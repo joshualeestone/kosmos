@@ -34,3 +34,8 @@ menu's Log out with a working answer and asserts it lands on '/' + '#signed-out'
 - b1-4879 on 6a95c3e40 (rebased): render-plus-bar-3837 P4 and P4b PASS; render-mobilenav-4823 PASS in chromium and
   webkit, including the new phone-menu Log out arm (renamed LO1 after the run: the check already had an S5).
 - After the run, label and comment only: the arm's name, and the index.html comment that still said "unmeasured".
+- Convergence run on the rebased head (18:22): both browser checks PASS (mobilenav 171/171); full suite 13576/1.
+  The one failure was browser-checks-selectors.test.js: it reads every quoted '#name' in a check as an element id,
+  and '#signed-out' is a URL fragment. The three comparisons now test path and fragment together
+  ('/#signed-out'), the form the guard reads as a URL (as '/#settings'). Same assertion, slightly stronger.
+  The guard: 4/4 after, failing before. Both checks re-run after the edit.
