@@ -29,6 +29,7 @@
  *       listening through its other buttons (attach), as in slice 1
  *   V17 (slice 2) pressing a mic still closes an open emoji panel (its close-on-mousedown-outside runs), as in slice 1
  *   V18 (slice 2) Escape in a dialog's box stops listening and does not close the dialog
+ *   V19 (slice 2) a press whose release the page never heard does not block the next press of the same pointer
  *   V1b in a browser (no bridge) the Name field fills its row exactly as with no wrapper: wrapping changes nothing
  *
  * Harness: file:// with fetch answered here (render-dm-reply-4256.js's posture), the real paintTalk. The
@@ -376,9 +377,25 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       document.querySelector('.fieldmic[data-voice-for="nt-detail"]').click(); window.kosmosVoiceEvent({ kind: 'listening' }); });
     await page.focus('#nt-detail');
     await page.keyboard.press('Escape');
-    const v18 = await page.evaluate((n) => ({ ops: window.__voice.slice(n).map((m) => m.op), open: !document.getElementById('nt-modal').hidden }), n10);
+    const v18 = await page.evaluate((n) => ({ ops: window.__voice.slice(n).map((m) => m.op), open: !document.getElementById('nt-modal').hidden,
+      polite: document.getElementById('nt-voice-msg').getAttribute('aria-live'), alertLine: document.getElementById('nt-msg').textContent }), n10);
     await page.evaluate(() => { window.kosmosVoiceEvent({ kind: 'stopped' }); document.getElementById('nt-modal').hidden = true; });
     chk(JSON.stringify(v18.ops) === '["start","stop"]' && v18.open, 'V18 Escape in a dialog\'s box stops listening and does not close the dialog', JSON.stringify(v18));
+    chk(v18.polite === 'polite' && !/Listening/.test(v18.alertLine), 'V18 the New task mic speaks in its own polite line, never the dialog\'s assertive alert', JSON.stringify(v18));
+    // V19: a press whose release the page never heard does not block the next press of the same pointer.
+    await page.evaluate(() => { document.getElementById('nt-modal').hidden = true; document.getElementById('panel-detail').hidden = true;
+      const pp = document.getElementById('panel-projects'); if (pp) pp.hidden = false; document.getElementById('pj-add-view').hidden = false; });
+    const n11 = await page.evaluate(() => window.__voice.length);
+    await page.evaluate(() => { const m = document.querySelector('.fieldmic[data-voice-for="pj-add-desc"]');
+      m.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 1, isPrimary: true, button: 0 })); });
+    await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'listening' }));
+    const dm6 = await descMic.boundingBox();
+    await page.mouse.move(dm6.x + dm6.width / 2, dm6.y + dm6.height / 2);
+    await page.mouse.down(); await page.mouse.up();
+    await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'stopped' }));
+    const v19 = await page.evaluate((n) => window.__voice.slice(n).map((m) => m.op), n11);
+    chk(JSON.stringify(v19) === '["start","stop"]', 'V19 a press whose release was never heard does not block the next press', JSON.stringify(v19));
+    await page.evaluate(() => { const pp = document.getElementById('panel-projects'); if (pp) pp.hidden = true; document.getElementById('pj-add-view').hidden = true; document.getElementById('panel-detail').hidden = false; });
 
     // V7: read aloud, on a freshly painted thread (V5's send left a "Sending" row of the person's).
     await page.evaluate(() => { for (const k of Object.keys(TALK_PENDING)) delete TALK_PENDING[k]; });

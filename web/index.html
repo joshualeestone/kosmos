@@ -12706,7 +12706,8 @@ window.kosmosMeasureScrollbarWidth();
     </div>
     <div class="field">
       <label class="flabel tk-lab" for="nt-detail">Anything they should know</label>
-      <div class="micwrap"><textarea class="tk-inp" id="nt-detail" rows="3" maxlength="2000" placeholder="Optional. What it is for, what done looks like, anything you already tried."></textarea><button class="micbtn fieldmic" type="button" data-voice-for="nt-detail" data-voice-name="Anything they should know" data-voice-msg="nt-msg" aria-label="Talk instead of typing: Anything they should know" title="Talk instead of typing: Anything they should know" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
+      <div class="micwrap"><textarea class="tk-inp" id="nt-detail" rows="3" maxlength="2000" placeholder="Optional. What it is for, what done looks like, anything you already tried."></textarea><button class="micbtn fieldmic" type="button" data-voice-for="nt-detail" data-voice-name="Anything they should know" data-voice-msg="nt-voice-msg" aria-label="Talk instead of typing: Anything they should know" title="Talk instead of typing: Anything they should know" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
+      <p class="fmsg" id="nt-voice-msg" aria-live="polite"></p><!-- #4409 slice 2: the mic's own polite line; #nt-msg is an assertive alert -->
     </div>
     <!-- #3861 part 2: optional, none by default. The open tasks of the project the dialog is aimed
          at; "+ Add subtask" on a task page opens this with that task already picked. -->
@@ -60321,7 +60322,10 @@ let VOICE_PRESS = null;   // { btn, at, stopping, pointer } while a pointer is d
 let VOICE_PRESSED = null;   // { mic, until }
 document.addEventListener('pointerdown', (e) => {
   const mic = e.button === 0 && !e.ctrlKey && e.isPrimary !== false && e.target.closest && e.target.closest('.micbtn');   // Ctrl+click opens a menu on a Mac
-  if (!mic || VOICE_PRESS) return;   // one press at a time: a second pointer does not take over the first
+  if (!mic) return;
+  /* One press at a time: a second pointer does not take over the first. A press whose release the page never heard (let
+     go over a menu or the title bar) does not block for good: the same pointer pressing again, or 10 s, ends it. */
+  if (VOICE_PRESS && VOICE_PRESS.pointer !== e.pointerId && Date.now() - VOICE_PRESS.at < 10000) return;
   const stopping = VOICE.btn === mic;   // pressing a mic that is listening stops it, as a tap always did
   VOICE_PRESS = { btn: mic, at: Date.now(), stopping, pointer: e.pointerId };
   VOICE_PRESSED = { mic, until: Infinity };   // until the release says when its click may come
@@ -60343,23 +60347,23 @@ function voiceRelease(e) {
   const h = voiceBridge();
   if (h) h.postMessage({ op: 'stop' });   // a hold: let go and it stops, keeping what it heard
 }
-/* Keep focus (and the caret) in the box: the mic's own mousedown is prevented, which stops the focus move and nothing
-   else, so the document's close-on-mousedown-outside listeners (the emoji panel, a custom select) still run. Preventing
+/* Keep focus (and the caret) in the box: the mic's own mousedown is prevented (a real or a touch-emulated one), which
+   stops the focus move and nothing else, so the document's close-on-mousedown-outside listeners (the emoji panel, a custom select) still run. Preventing
    pointerdown instead would suppress the mousedown altogether and leave them open. */
 document.addEventListener('mousedown', (e) => { if (e.target.closest && e.target.closest('.micbtn')) e.preventDefault(); }, true);
 document.addEventListener('pointerup', voiceRelease, true);
 document.addEventListener('pointercancel', voiceRelease, true);
 /* A release the page never hears (a menu or a system sheet takes the mouse) must not arm a later click as a hold. */
 document.addEventListener('contextmenu', () => { VOICE_PRESS = null; VOICE_PRESSED = null; }, true);
-/* The window losing focus mid-press (Cmd-Tab) ends the press as a release: a hold stops, a tap keeps listening. */
-/* Not cleared outright: on first use macOS's microphone sheet takes focus while the mic is held, and the mouse-up and
-   its click can still reach the page afterwards. That click is the press's own, so the mark stays armed for it until
-   the next press or key (taking it as a new press would stop the start the sheet is asking about). */
+/* The window losing focus mid-press (Cmd-Tab, or on first use macOS's microphone sheet) ends the press as a release: a
+   hold stops, a tap or a press not yet listening keeps listening. The mark is not cleared outright: the mouse-up and its
+   click can still reach the page after the sheet, and that click is the press's own (taken as a new press, it would
+   stop the start the sheet is asking about). Bounded, so a click that never comes cannot swallow a later one for good. */
 window.addEventListener('blur', () => {
   const press = VOICE_PRESS;
   if (!press) return;
   voiceRelease({ pointerId: press.pointer });
-  VOICE_PRESSED = { mic: press.btn, until: Infinity };
+  VOICE_PRESSED = { mic: press.btn, until: Date.now() + 15000 };
 });
 /* A key pressed after the pointer is the keyboard acting: its click is its own, never the pointer's. */
 document.addEventListener('keydown', () => { VOICE_PRESSED = null; }, true);

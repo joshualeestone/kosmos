@@ -13,7 +13,8 @@ dialogues". Splinter handed it to me at 17:03.
 2. A mic inside the dialogs' text boxes: New project (name, description, what done looks like), New task
    (`nt-detail`), New agent (`create-instr`), the agent's instructions editor (`d-instr`), and the project settings
    (`pjs-name`, `pjs-desc`). Each is a `.micbtn.fieldmic` with `data-voice-for` in a `.micwrap`, inside the box
-   (top right of a textarea, clear of its resize grip; centred in a one-line input); each says its lines in that dialog's own message line.
+   (top right of a textarea, clear of its resize grip; centred in a one-line input); each says its lines in that dialog's own message line, except New task, whose message line is an assertive alert: its
+   mic has its own polite line (#nt-voice-msg) under the box.
 3. While listening in a dialog, focus moving to another field, or any button (Save, Create), stops it, keeping the
    words. A composer keeps slice 1's rules: Send stops it; its other buttons and other fields do not.
 4. Mac app only, as slice 1 (drawn only with the on-device bridge, `html.has-voice`). Same bridge, no native change:
@@ -103,4 +104,10 @@ the pointer's click as well reds V2, V10, V11, V12. web.voice-4409.test.js 20/20
   click now and pins the exact ops (treating the drag-off as on the mic reds it). FIXED NITs: the .frow comment; V12
   measures #d-instr's padding enabled (44); the plan says every mic now acts on the press, so a composer's mic pressed
   and dragged off starts listening, unlike slice 1.
+- Round 8 (sonnet): FIXED W: a press whose release the page never heard (let go over a menu or the title bar) blocked
+  every later press; the same pointer pressing again, or 10 s, ends it now (V19, the old guard reds it). FIXED W: the
+  blur's mark had no end; it is bounded at 15 s, long enough to answer the permission sheet (NOT tested: a 15 s
+  wait). FIXED W: New task's message line is role=alert, assertive, so "Listening" interrupted screen readers; that
+  mic has its own polite line (V18, routing it back to the alert reds it). FIXED NITs: the blur comments merged; the
+  mousedown comment names touch-emulated mousedowns. DUPLICATE NIT: a hold let go before listening is a tap.
 
