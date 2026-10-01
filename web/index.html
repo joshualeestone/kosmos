@@ -3884,7 +3884,8 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   --tsk-built: var(--pj-mention);
   --tsk-held: var(--k-ink-2);   /* #4771: on hold, set aside by the person */
   --tsk-closed: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule));
-  --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink); }
+  --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink);
+  --tsk-hover: color-mix(in srgb, var(--k-ink) 5%, transparent); }   /* #4880: a tint OVER the row's own ground, so a cream list stays warm */
 /* #3949: one column, the full width (the Projects rail is gone; its choice is the dropdown). */
 /* #3949 (Josh, 09-26 16:18: "lose the outer thin rounded box stroke that's on this page for no reason"): no frame on
    the tab view either (#3880 had dropped it only in the consolidated column). The tiles and rows keep their boxes. */
@@ -3999,6 +4000,14 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 12px; padding: 11px 14px; border-top: 1px solid var(--k-rule); align-items: start; }
 .tsk-row:first-child { border-top: 0; }
 .tsk-row.sel { background: var(--tsk-wash); }
+/* #4880 (Josh 10/01): a row reads as clickable, as a project room's task cards do: a faint ink tint over the row's own
+   ground under a mouse, and while a keyboard-focused control is inside the row. Background only. A ticked row keeps its wash.
+   Where the main pointer cannot hover there is neither the hover tint nor the pointer, and the row opens nothing there. */
+@media (hover: hover) {
+  .tsk-row { cursor: pointer; }
+  .tsk-row:not(.sel):hover { background: var(--tsk-hover); }
+}
+.tsk-row:not(.sel):has(:focus-visible) { background: var(--tsk-hover); }
 .tsk-row input { margin: 3px 0 0; width: 16px; height: 16px; accent-color: var(--gold-deep); }
 .tsk-row .tsk-hit { display: block; line-height: 0; }
 /* #4226 (Raiden's #718 phone sweep): on a touchscreen, every field in the Tasks view is 16px, because iOS zooms into a
@@ -55632,6 +55641,19 @@ document.getElementById('panel-tasks').addEventListener('click', (e) => {
   if ((b = el('[data-open-task]'))) { tskOpenTask(b.dataset.openTask); return; }
   if ((b = el('[data-open-project]'))) { tskOpenProject(b.dataset.openProject); return; }
   if ((b = el('[data-agent]'))) { openDetail(b.dataset.agent); return; }
+  /* #4880 (Josh 10/01): a click anywhere in a row outside its controls (its text included) opens the task, as its
+     title does. Only where the main pointer can hover, not left of the checkbox's right edge, and not when a drag
+     left text selected in this row. */
+  const row = el('.tsk-row[data-key]');
+  if (!row) return;
+  const ctl = el('button, a, input, label, select, summary, textarea, [role], [tabindex], [contenteditable]');
+  if (ctl && ctl !== row && row.contains(ctl)) return;
+  if (window.matchMedia && !window.matchMedia('(hover: hover)').matches) return;
+  const hit = row.querySelector('.tsk-hit');
+  if (hit && e.clientX <= hit.getBoundingClientRect().right + 6) return;
+  const sel = window.getSelection ? window.getSelection() : null;
+  if (sel && !sel.isCollapsed && String(sel).trim() && sel.containsNode(row, true)) return;
+  tskOpenTask(row.dataset.key);
 });
 document.getElementById('panel-tasks').addEventListener('change', (e) => {
   const box = e.target.closest('input[type="checkbox"][data-key]');
