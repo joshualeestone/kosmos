@@ -22,3 +22,9 @@ future one would have to leave this fragment alone or the browser check's P4 sho
 ## Reviews
 Recorded in kosmos-relay's plan (both halves were reviewed together). Review 5 CONVERGED; its four NITs (wording
 and plan record only, no behaviour) were taken AFTER convergence without another review.
+
+## Rebase onto cf1307de4 (2026-10-01, after the outage)
+Main (#4853, kosmos#4823) moved Log out into one shared `kplusLogout(out, msg)`, used by the bar's button and the new
+phone menu's. The redirect now lives there, unchanged, so the phone menu's Log out gets it too. A blind review of the
+resolution CONVERGED (0 BLOCKER, 0 WARNING). Its one gap NIT was taken: render-mobilenav-4823.js S5 presses the phone
+menu's Log out with a working answer and asserts it lands on '/' + '#signed-out', reloaded (S4 covers the refusal).
