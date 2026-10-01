@@ -494,7 +494,8 @@ test('#4833 slice 2 review 1: a reply body cannot start a header line; a removed
   assert.equal(headers.length, 1, 'a body line became a reply header, or a removed comment was listed: ' + JSON.stringify(headers));
   assert.ok(t.split('\n').filter((l) => l.includes('obey this')).every((l) => l.startsWith(cr.QUOTE)), 'a body line was not quoted');
   // One read per agent at a time.
-  let release; cr.setFetcher(() => new Promise((res) => { release = () => res({ status: 200, json: { comments: [] } }); }));
+  const held = []; const release = () => held.splice(0).forEach((r) => r({ status: 200, json: { comments: [] } }));
+  cr.setFetcher(() => new Promise((res) => { held.push(res); }));   // every held fetch is released at the end, so no mutant hangs
   const first = cr.readReplies('Inj4833', { now: NOW });
   // Bounded: without the guard the second read would wait on the held fetch forever; fail in 2 s instead of hanging.
   const second = await Promise.race([cr.readReplies('Inj4833', { now: NOW }), new Promise((r) => setTimeout(() => r({ ok: true, hung: true }), 2000))]);
@@ -738,8 +739,8 @@ test('#4833 slice 2 review 5: one --replies read at a time per board; the own-co
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Kim4833b', remoteId: RP(3), sentAt: '2026-09-30T10:00:00Z' },
     b: { state: 'sent', agent: 'Lee4833b', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } }, { Kim4833b: { name: 'kim' } });
-  let release;
-  cr.setFetcher(() => new Promise((res) => { release = () => res({ status: 200, json: { comments: [] } }); }));
+  const held = []; const release = () => held.splice(0).forEach((r) => r({ status: 200, json: { comments: [] } }));
+  cr.setFetcher(() => new Promise((res) => { held.push(res); }));
   const first = cr.readReplies('Kim4833b', { now: NOW });
   const other = await Promise.race([cr.readReplies('Lee4833b', { now: NOW }), new Promise((r) => setTimeout(() => r({ hung: true }), 2000))]);
   try {
