@@ -1914,6 +1914,10 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
   .apphead .headleft > .worldsw { flex: 1 1 0; min-width: 2.25rem; }
   .apphead .headleft > .worldsw > .worldsw-btn { max-width: min(220px, 100%); min-width: 0; }
   .apphead .headleft > [id$="-slot"]:not(:empty) { flex-basis: 100%; }
+  /* #4847: on a phone the person's menu shows just their face (and the arrow): their name, which they know, gives its
+     room to the computer's name, which is the one that tells them where they are. The name stays the button's
+     accessible name (hidden visually, not removed), and the menu it opens still says who is signed in. */
+  .apphead .userpop-btn .userpop-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 }
 .worldsw-chev { flex: none; color: var(--k-ink-2); transition: transform .12s ease; }
 .worldsw-btn[aria-expanded="true"] .worldsw-chev { transform: rotate(180deg); }

@@ -581,6 +581,9 @@ function measure() {
           // inside the screen, and wider than an ellipsis alone. Measured on Mortals at 674288bc7: 33px at 130% and 45px
           // at 150% ("Th..."), so the floor is 1.25em: about one letter plus the ellipsis passes, the ellipsis alone
           // (about 1em) does not. The narrowest phone at large text shows about two letters; that is the cost.
+          // #4847: measured with a long person's name in the menu beside it (their name used to take the room).
+          await page.evaluate(() => { const u = document.getElementById('userpop-name'); if (u) u.textContent = 'Alexandria Montgomery-Fitzwilliam'; });
+          await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
           const nm = await page.evaluate(() => { const n = document.getElementById('worldsw-name'), k = document.getElementById('klink');
             const sw = document.getElementById('worldsw'); if (!n || !k || !sw || sw.hidden) return { shown: false };
             const a = n.getBoundingClientRect(), b = k.getBoundingClientRect();
