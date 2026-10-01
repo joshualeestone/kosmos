@@ -59,6 +59,7 @@ function serve(site) {
       // As a real host does: the length and an etag of the bytes, so a file replaced behind the same name looks changed.
       if (f) { res.writeHead(200, { 'content-type': f[0], 'content-length': f[1].length, etag: '"' + sha(f[1]).slice(0, 16) + '"' }); return res.end(req.method === 'HEAD' ? undefined : f[1]); }
       if (site.catchAll) return send(200, 'text/html', '<html>the home page</html>');
+      if (site.winCatchAll && /-win-x64\.zip$/.test(u.pathname)) return send(200, 'application/zip', 'anything');
       return send(404, 'text/plain', 'not found');
     }
     if (u.pathname === '/site/setup') return site.setup ? send(200, 'text/plain; charset=utf-8', '#!/bin/sh\n') : send(404, 'text/html', 'not found');
@@ -427,4 +428,26 @@ test('a pending mismatch for a file no pointer names any more is dropped, not ca
   const state = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
   assert.deepEqual(state.pending, []);
   assert.ok(!Object.keys(state.sha).some((u) => u.includes('kosmos-1.0.0-win-x64.zip')), 'a hash record for an unnamed file was kept');
+}));
+
+test('the Windows host has its own negative control: answering 200 for anything there is an alarm', () => withSite(async ({ site, base, dir, st }) => {
+  site.winCatchAll = true;
+  const r = await run(base, dir, st, { now: T0 });
+  assert.equal(r.code, 1, r.out + r.err);
+  assert.match(st.card(), /the Windows downloads' host answered 200 for a file that does not exist/);
+  assert.ok(site.hits.includes('HEAD /dist/kosmos-0.0.0-win-x64.zip'));
+}));
+
+test('while a pointer cannot be read, earlier records are kept: a confirmed mismatch alarms at once when it returns', () => withSite(async ({ site, base, dir, st }) => {
+  site.files.set('kosmos-1.0.0-win-x64.zip.sha256', ['text/plain', '0'.repeat(64) + '  x\n']);
+  await run(base, dir, st, { now: T0 });
+  assert.equal((await run(base, dir, st, { now: T0 + 900 })).code, 1, 'CONTROL: confirmed on the second sighting');
+  const keepWin = site.files.get('latest-win.json'); const keepStg = site.files.get('latest-win-staging.json');
+  site.files.delete('latest-win.json'); site.files.delete('latest-win-staging.json');
+  await run(base, dir, st, { now: T0 + 1800 });   // both Windows pointers missing
+  site.files.set('latest-win.json', keepWin); site.files.set('latest-win-staging.json', keepStg);
+  await run(base, dir, st, { now: T0 + 2700 });
+  const state = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
+  assert.ok(state.pending.includes('sidecar-sha:kosmos-1.0.0-win-x64.zip'), 'a confirmed mismatch was forgotten across a pointer outage');
+  assert.match(st.card(), /kosmos-1\.0\.0-win-x64\.zip\.sha256 says 000000000000[^\n]*\n[\s\S]*kosmos-1\.0\.0-win-x64\.zip\.sha256 says 000000000000/, 'the mismatch did not alarm again at once when the pointers returned');
 }));

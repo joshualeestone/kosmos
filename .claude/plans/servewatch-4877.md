@@ -48,5 +48,11 @@ log line and that a --check is healthy. The job then runs beside coordinator-mon
 - Also watched, beyond the pointers: /setup, the tmux bundle and the generic fallback tarball (each tarball against
   its own sidecar), because every install fetches them (install/setup.sh). Not watched: a Windows setup.ps1 at the
   site root (none is served there). Pointer names must be the ones the installers derive from version and arch.
+- Two hosts: the Windows files (pointers, zips, sidecars) are redirected to R2, so a second negative control of the
+  Windows zip shape (kosmos-0.0.0-win-x64.zip) must 404 there too.
+- Records are kept, not pruned, in a run where any pointer could not be read (which files it names is unknown then).
+  A file served with no etag, last-modified or length is re-hashed every run (a replaced file could not be told apart).
+- Not covered: the installers fetch the tmux bundle and the fallback tarball with a `?v=<version>` cache-buster; this
+  fetches the bare URL, so a CDN copy stale at only one of the two would show in only one.
 - Pane goes to Splinter (claudebot-discord:0.0) by default: the site and the relay have different owners, and he routes.
 - Note: Vercel's last-modified changes on every site deploy, so every deploy re-hashes every artifact once.

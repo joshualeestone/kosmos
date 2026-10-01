@@ -18,7 +18,8 @@
  *      slept). Its build is NOT checked: the relay writes it only to its own journal (crates/relay/src/serve.rs), with
  *      no public route, and this holds no SSH.
  *
- * A NEGATIVE CONTROL guards the download checks: a file that never exists must answer 404. A site that answers 200 for
+ * A NEGATIVE CONTROL guards the download checks: a file that never exists must answer 404 (and a second one of the
+ * Windows zip shape, which the site redirects to the R2 host the Windows files live on, must answer 404 there). A site that answers 200 for
  * everything would pass every artifact check, so then the run is "could not tell", never "healthy". A download site
  * that does not answer at all is an alarm, unless nothing else answered either (this computer is offline). A request
  * that gets no answer or a 5xx is tried once more before it counts. A run can outlast its 15 minutes when several
@@ -72,6 +73,8 @@ const RELAY = env.SERVE_WATCH_RELAY || 'http://serve-watch-canary.kosmosplus.com
 const RELAY_PAGE = '<title>Mac not connected - Kosmos</title>';
 const TIMEOUT_MS = Number(env.SERVE_WATCH_TIMEOUT_MS) || 30000;
 const CONTROL = 'serve-watch-control-never-published.json';
+/* The Windows files are redirected to a second host (R2): a name of their shape that never exists must 404 THERE too. */
+const WIN_CONTROL = 'kosmos-0.0.0-win-x64.zip';
 
 /* The four live pointers. `kind` says which artifacts a pointer names; `alias` says whether this pointer owns the
    fixed-name Windows zip. Both Windows pointers name kosmos-win-x64.zip, but it serves the RELEASED bytes until a
@@ -181,6 +184,7 @@ async function head(url) {
     if (!r.res) return { status: 0, error: r.error };
     r.clear();
     const h = r.res.headers;
+    // '||' (no etag, last-modified or length) means a replaced file cannot be told from the old one: always re-hashed.
     return { status: r.res.status, type: h.get('content-type') || '', stamp: [h.get('etag'), h.get('last-modified'), h.get('content-length')].join('|') };
   });
 }
@@ -259,13 +263,16 @@ async function gather(prev, now) {
     return { now, unknown: false, alarm: true, problems, artifacts: 0, sha: prevSha, pending: prevPending };
   }
 
+  const winControl = await head(DIST + '/' + WIN_CONTROL);
+  if (winControl.status >= 200 && winControl.status < 300) add('win-unverifiable', 'the Windows downloads\' host answered ' + winControl.status + ' for a file that does not exist, so its answers prove nothing');
+  let pointerFailed = false;
   const urls = new Map();   // one check per artifact URL, even when two pointers name it
   for (const pt of POINTERS) {
     const g = await getJson(DIST + '/' + pt.file);
-    if (g.status !== 200) { add('pointer:' + pt.file, pt.file + ' is not served (' + why(g) + ')'); continue; }
-    if (!g.json) { add('pointer-json:' + pt.file, pt.file + ' is served but is not valid JSON'); continue; }
+    if (g.status !== 200) { pointerFailed = true; add('pointer:' + pt.file, pt.file + ' is not served (' + why(g) + ')'); continue; }
+    if (!g.json) { pointerFailed = true; add('pointer-json:' + pt.file, pt.file + ' is served but is not valid JSON'); continue; }
     const arts = artifactsOf(g.json, pt);
-    if (!arts) { add('pointer-shape:' + pt.file, pt.file + ' does not name its artifacts the way the app reads them'); continue; }
+    if (!arts) { pointerFailed = true; add('pointer-shape:' + pt.file, pt.file + ' does not name its artifacts the way the app reads them'); continue; }
     const want = typeof g.json.sha256 === 'string' && /^[0-9a-f]{64}$/i.test(g.json.sha256) ? g.json.sha256.toLowerCase() : null;
     if (!want) add('pointer-sha:' + pt.file, pt.file + ' carries no sha256, so its download cannot be checked');
     for (const a of arts) {
@@ -297,7 +304,7 @@ async function gather(prev, now) {
     const was = prevSha[url];
     // Hashed again when the pointer's sha or the file's headers change, after a failed read, or once a day; otherwise
     // the last answer stands (a tarball is tens of megabytes, and an unchanged file hashes the same).
-    const due = !was || was.expect !== want || was.stamp !== h.stamp || !!was.error || !(Number(was.at) <= now) || now - Number(was.at) >= REHASH_S;
+    const due = !was || was.expect !== want || h.stamp === '||' || was.stamp !== h.stamp || !!was.error || !(Number(was.at) <= now) || now - Number(was.at) >= REHASH_S;
     let rec = was;
     if (due) {
       let s = await shaOf(url);
@@ -319,7 +326,7 @@ async function gather(prev, now) {
     const want = s.status === 200 && s.text ? String(s.text).trim().split(/\s+/)[0].toLowerCase() : null;
     if (!want || !/^[0-9a-f]{64}$/.test(want)) { add('sidecar-missing:' + f.name, f.name + '.sha256 is not served or not a sha256 (' + why(s) + '): installers refuse the download'); continue; }
     const was = prevSha[url];
-    const due = !was || was.expect !== want || was.stamp !== h.stamp || !!was.error || !(Number(was.at) <= now) || now - Number(was.at) >= REHASH_S;
+    const due = !was || was.expect !== want || h.stamp === '||' || was.stamp !== h.stamp || !!was.error || !(Number(was.at) <= now) || now - Number(was.at) >= REHASH_S;
     let rec = was;
     if (due) {
       let r = await shaOf(url);
@@ -338,8 +345,10 @@ async function gather(prev, now) {
   // (an old version) is dropped, so it can neither linger as pending forever nor grow the state with every release.
   const named = new Set([...[...urls.values()].map((e) => e.a.name), ...FIXED.map((f) => f.name)]);
   const namedUrls = new Set([...urls.keys(), ...FIXED.map((f) => f.url())]);
-  for (const k of prevPending) if (!evaluated.has(k) && !pending.includes(k) && named.has(k.slice(k.indexOf(':') + 1))) pending.push(k);
-  for (const [url, rec] of Object.entries(prevSha)) if (!(url in sha) && namedUrls.has(url)) sha[url] = rec;
+  // While a pointer could not be read, which files it names is unknown, so nothing earlier is dropped this run.
+  const keep = (name) => pointerFailed || named.has(name);
+  for (const k of prevPending) if (!evaluated.has(k) && !pending.includes(k) && keep(k.slice(k.indexOf(':') + 1))) pending.push(k);
+  for (const [url, rec] of Object.entries(prevSha)) if (!(url in sha) && (pointerFailed || namedUrls.has(url))) sha[url] = rec;
   return { now, unknown: false, alarm: problems.length > 0, problems, artifacts: urls.size + FIXED.length, sha, pending };
 }
 
