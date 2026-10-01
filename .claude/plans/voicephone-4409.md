@@ -64,14 +64,16 @@ pinning that the recognizer is reached only in the phone shim and the Mac bridge
   good; that line now comes back when listening ends (P5). NOTED (premise, already named): real recognizers on iOS
   and Android, including Android's repeated finals. NIT taken: the once-built shim's limit (an iPad gaining a
   trackpad) is named in its comment. Left NITs: a soft keyboard's own input stops dictation quietly through the
-  box-changed guard (safe); the node pins are source matches, the browser checks carry the behaviour.- Round 3 (opus): FIXED W: round 2's "put the covered line back" revived lines their owners had since retired (a
+  box-changed guard (safe); the node pins are source matches, the browser checks carry the behaviour.
+- Round 3 (opus): FIXED W: round 2's "put the covered line back" revived lines their owners had since retired (a
   search note, a load error the next poll had cleared). Replaced, not patched: on a phone who hears the audio is said
   in a bar of its own (#voice-who), so no message line is covered or restored (P5 retires the other line mid-listen
   and it stays retired). FIXED W: the disclosure appeared only once audio was flowing; the bar shows in the tap
   itself (P2a reads it in the click's own task). FIXED W: Brave on Android sends Chrome's exact user agent and was
   named Google; navigator.brave now excludes it, and DuckDuckGo and Vivaldi by name (P1b's Brave control; removing
   the guard reds it). NITs taken: the EU's other iOS engines are named in the comment; a session that ends by itself
-  is pinned (P7).- Round 4 (sonnet): FIXED W: the bar sat at the foot of the screen, where the composer, the mic and an on-screen
+  is pinned (P7).
+- Round 4 (sonnet): FIXED W: the bar sat at the foot of the screen, where the composer, the mic and an on-screen
   keyboard are; it is now at the top of the visible screen (the visual viewport's top, which iOS pans with the
   keyboard). P2a asserts it is in the top half and clear of the mic; the old placement reds it (and "clear of the
   mic" alone did not, because this file:// page cannot lay the composer at the foot: found by mutating, noted in the
@@ -80,7 +82,8 @@ pinning that the recognizer is reached only in the phone shim and the Mac bridge
   its text changes. NOT MEASURED: a real screen reader announcing it. FIXED W: "Google" was a denylist over Chrome's
   user agent; it now also requires the "Google Chrome" brand, failing closed (P1b's rebranded-Chromium control).
   FIXED W: a recognizer constructor that throws (P9) and an error with no onend after it (P8) both left the mic and
-  the bar stuck; both now end the session. NIT taken: a comment on the bar clearing during a switch between mics.- Round 5 (opus): FIXED W: the bar was placed once and stayed put while the visible area moved (keyboard, scroll); it
+  the bar stuck; both now end the session. NIT taken: a comment on the bar clearing during a switch between mics.
+- Round 5 (opus): FIXED W: the bar was placed once and stayed put while the visible area moved (keyboard, scroll); it
   now follows visualViewport scroll and resize while it says something, and stops after (P10, both halves reddened by
   their mutations). FIXED W: an 'aborted' that is still ours came from the phone (a call) and relied on onend; it now
   ends the session like any error (P8b). FIXED W: any iPhone user agent was named Apple although the EU allows other
@@ -90,4 +93,13 @@ pinning that the recognizer is reached only in the phone shim and the Mac bridge
   report is left as a premise. FIXED CONVENTION: a comment my round-3 insertion displaced is back on its rule. NITs
   taken: Brave's exclusion on iOS is said to be deliberate, stop() is guarded, the bar's colours have no stray
   fallback.
+- Round 6 (sonnet): FIXED W: round 5's repeat merge was a bare prefix match and could drop real speech ("a" then "apple
+  pie", "go to" then "go tomorrow"); it now needs a word boundary and an earlier text of two words or more (P2e, with
+  each guard reddened alone). FIXED W: an iOS list reset after a pause would have overwritten the words already said;
+  a list starting again at index 0 with a different first result after an all-final one now keeps the words before
+  it, and an ordinary or cumulative list is not doubled (P2d, three arms). FIXED W: a screen reader cannot see the bar
+  from inside an aria-modal dialog, so a dialog mic on a phone also says who hears the audio in the dialog's own line
+  when it is empty (P11). FIXED W: the disclosure failed open if the bar was missing; the bar is built before the mic
+  is drawn, and a tap with no bar starts nothing (P12). NIT taken: the speech-denied line also names a page added to
+  the home screen. NOT MEASURED: either recognizer's real list behaviour; the rules are the reports, guarded both ways.
 

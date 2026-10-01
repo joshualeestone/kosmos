@@ -60201,7 +60201,7 @@ const VOICE_SAYS = {
 /* Slice 3: on a phone the refusals point at the phone's settings, not the Mac's. */
 const VOICE_SAYS_PHONE = {
   'mic-denied': 'This browser is not allowed to use the microphone. Allow it in this browser\'s settings for this site, or in the phone\'s Settings app under the browser.',
-  'speech-denied': 'Speech recognition is turned off for this browser. Allow it in the phone\'s Settings app under the browser.',
+  'speech-denied': 'Speech recognition is turned off for this browser (allow it in the phone\'s Settings app under the browser), or not available in a page added to the home screen (open it in the browser instead).',
   network: 'The speech service could not be reached. Check the connection and try again.',
 };
 function voiceBridge() {
@@ -60265,6 +60265,7 @@ function voicePhoneBridge() {
           if (rec) { try { rec.abort(); } catch { /* already ended */ } }
           id = m.id;
           let mine;
+          let base = '', lastText = '', lastFirst = null, lastAllFinal = false;   // this session's words across a list reset
           const fail = () => { rec = null; emit({ kind: 'error', reason: 'recognizer' }); emit({ kind: 'stopped' }); };
           try {
             mine = new Rec();
@@ -60282,11 +60283,19 @@ function voicePhoneBridge() {
               const part = tidy(e.results[i][0].transcript);
               if (!e.results[i].isFinal) done = false;
               /* Android Chrome in continuous mode is reported to repeat the earlier results inside a later one ("call the",
-                 "call the client"): a result that starts with everything so far replaces it rather than doubling it. */
-              if (text && part.toLowerCase().startsWith(text.toLowerCase())) text = part;
+                 "call the client"): a result that starts with everything so far, at a word boundary, replaces it rather
+                 than doubling it. Only when "so far" is two words or more: "a" then "apple", or "no" then "no thanks",
+                 are real speech, and a one-word repeat costs a word where a wrong merge would lose one. */
+              const so = text.toLowerCase(), pl = part.toLowerCase();
+              if (text.includes(' ') && pl.startsWith(so) && (pl.length === so.length || pl[so.length] === ' ')) text = part;
               else text = text ? text + ' ' + part : part;   // a phone does not always lead a later result with a space
             }
-            emit({ kind: done ? 'final' : 'partial', text: tidy(text) });
+            /* iOS is reported to start a fresh results list after a pause. A list that starts again at index 0 with a
+               different first result, after an all-final one, is a new list: the words before it are kept, not replaced. */
+            const first = e.results.length ? tidy(e.results[0][0].transcript) : '';
+            if (e.resultIndex === 0 && lastAllFinal && lastText && lastFirst !== null && first !== lastFirst) base = tidy(base + ' ' + lastText);
+            lastText = text; lastFirst = first; lastAllFinal = done;
+            emit({ kind: done ? 'final' : 'partial', text: tidy(base + ' ' + text) });
           };
           /* An error ends the session here and now: a browser need not follow it with onend, and without a stopped the mic
              would stay on and who-hears-the-audio would stay up. A late onend is then not ours (rec !== mine). */
@@ -60395,6 +60404,7 @@ function voiceToggle(btn) {
   const h = voiceBridge();
   if (!h || !btn) return;
   if (VOICE.btn === btn) { h.postMessage({ op: 'stop' }); return; }   // the second press: stop, keep the words
+  if (h.phone && !document.getElementById('voice-who')) return;   // slice 3: nowhere to say who hears the audio, so no audio
   if (VOICE.btn) voiceCancel();
   const box = document.getElementById(btn.getAttribute('data-voice-for') || '');
   if (!box || box.disabled || box.readOnly) return;   // review 5: a read-only box (an ended Guide chat) takes no words, spoken ones included
@@ -60434,8 +60444,10 @@ function voiceOnEvent(ev) {
     VOICE.listening = true;
     voicePaint(btn, 'on');
     const hb = voiceBridge();
-    if (hb && hb.phone) voiceWho(voiceListeningLine());   // slice 3: on a phone the line is the bar, never a message line
-    else if (voiceMsgEmpty(btn)) voiceSay(btn, voiceListeningLine());   // never over another message's line
+    if (hb && hb.phone) voiceWho(voiceListeningLine());   // slice 3: on a phone the line is the bar
+    /* Never over another message's line. On a phone, a mic inside a modal dialog says it there too: a screen reader
+       treats everything outside an aria-modal dialog, the bar included, as hidden. */
+    if (voiceMsgEmpty(btn) && (!(hb && hb.phone) || (btn && btn.closest && btn.closest('[aria-modal="true"]')))) voiceSay(btn, voiceListeningLine());
     return;
   }   // review 5: focus is in the box, so the line is said there
   if ((ev.kind === 'partial' || ev.kind === 'final') && VOICE.box) {
@@ -60576,16 +60588,17 @@ window.addEventListener('hashchange', () => voiceCancel());
 window.addEventListener('popstate', () => voiceCancel());
 try {
   const vb = voiceBridge();
-  if (vb) document.documentElement.classList.add('has-voice');
-  // Slice 3: on a phone every mic's label says who hears the audio from the start, not only once it is used.
+  // Slice 3: on a phone every mic's label says who hears the audio from the start, not only once it is used, and the
+  // bar that says it while listening is built FIRST: no bar, no mic (voiceToggle also refuses to start without it).
   if (vb && vb.phone) {
-    document.querySelectorAll('.micbtn').forEach((m) => voicePaint(m, 'off'));
     const bar = document.createElement('p');   // voiceWho's bar, empty (and so invisible) until a mic is tapped
     bar.id = 'voice-who';
     bar.setAttribute('role', 'status');
     bar.setAttribute('aria-live', 'polite');
     document.body.appendChild(bar);
+    document.querySelectorAll('.micbtn').forEach((m) => voicePaint(m, 'off'));
   }
+  if (vb) document.documentElement.classList.add('has-voice');
 } catch { /* no page root (the node harnesses): nothing to draw */ }
 
 /* ---- read aloud ---- */
