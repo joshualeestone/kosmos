@@ -60218,7 +60218,7 @@ function voiceBridge() {
    (Splinter, on the card). The listening line says who hears it. The Mac app keeps its on-device bridge, and a
    computer's browser (a fine pointer) gets no mic. */
 const VOICE_PHONE_STOP_MS = 5000;   // as long as the Mac app waits for the last words after a stop
-let VOICE_PHONE = undefined;   // the shim, built once at load (an iPad that later gains a trackpad keeps it); null where none
+let VOICE_PHONE = undefined;   // the shim, built once at load and never rebuilt: an iPad that later gains a trackpad keeps it, and one that starts with a trackpad never gets it, until the page reloads; null where none
 function voicePhoneWho() {
   const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
   /* Named only where we know who it is: every iPhone and iPad browser is Safari's engine (Apple's recognizer; outside
@@ -60255,7 +60255,8 @@ function voicePhoneBridge() {
        (which says Macintosh, with touch) or Android. And a secure page: elsewhere the recognizer refuses every start,
        which would read as a refused microphone. */
     if (voicePhoneWho() === '' || window.isSecureContext === false) return null;
-    let rec = null, id = null;
+    let rec = null, id = null, stopTimer = 0;
+    const unwait = () => { if (stopTimer) { clearTimeout(stopTimer); stopTimer = 0; } };
     const emit = (ev) => { if (typeof window.kosmosVoiceEvent === 'function') window.kosmosVoiceEvent(Object.assign({ id }, ev)); };
     const REASON = { 'not-allowed': 'mic-denied', 'service-not-allowed': 'speech-denied', 'audio-capture': 'no-mic', 'no-speech': 'nothing-heard', network: 'network' };
     VOICE_PHONE = {
@@ -60263,6 +60264,7 @@ function voicePhoneBridge() {
       postMessage(m) {
         const op = m && m.op;
         if (op === 'start') {
+          unwait();
           if (rec) { try { rec.abort(); } catch { /* already ended */ } }
           id = m.id;
           let mine;
@@ -60287,7 +60289,22 @@ function voicePhoneBridge() {
             /* The Web Speech way: a result is final once and stays so, and resultIndex is the first one that changed. A
                resultIndex below what is kept means a new list (or the old one sent again): keep what was said, read on. */
             const from = typeof e.resultIndex === 'number' ? e.resultIndex : 0;
-            if (from < doneIdx) doneIdx = from;
+            if (from < doneIdx) {
+              /* A list that starts again. If it opens by sending back the last finals we kept, in order, they are ours
+                 already: skip them. Otherwise it is a fresh list and every final in it is new. */
+              doneIdx = from;
+              let run = 0;
+              while (doneIdx + run < e.results.length && e.results[doneIdx + run].isFinal) run += 1;
+              for (let n = Math.min(run, finals.length); n > 0; n -= 1) {
+                const sent = [], kept = finals.slice(finals.length - n);
+                for (let k = 0; k < n; k += 1) sent.push(fold(e.results[doneIdx + k][0].transcript));
+                if (sent.join('|') === kept.map(fold).join('|')) { doneIdx += n; break; }
+              }
+            }
+            const repeats = (part) => {
+              const fl = fold(finals.length ? finals[finals.length - 1] : ''), fp = fold(part);
+              return fl.includes(' ') && fp.startsWith(fl) && (fp.length === fl.length || fp[fl.length] === ' ');
+            };
             const interim = [];
             for (let i = doneIdx; i < e.results.length; i += 1) {
               const part = tidy(e.results[i][0].transcript);
@@ -60295,36 +60312,37 @@ function voicePhoneBridge() {
               if (e.results[i].isFinal && i === doneIdx) {
                 /* Android Chrome is reported to repeat the previous result inside the next ("call the", then "call the
                    client"). Compared with the PREVIOUS result only, never with everything so far, so one miss cannot
-                   cascade; at a word boundary, punctuation aside; and only when that result is two words or more, or is
-                   the very same words: "a" then "apple pie", or "no" then "no thanks", are real speech. */
-                const last = finals.length ? finals[finals.length - 1] : '';
-                const fl = fold(last), fp = fold(part);
-                const repeat = fl && (fp === fl || (fl.includes(' ') && fp.startsWith(fl) && fp[fl.length] === ' '));
-                if (repeat) finals[finals.length - 1] = part; else finals.push(part);
+                   cascade; at a word boundary, punctuation aside; and only when that result is two words or more: "a"
+                   then "apple pie", "no" then "no thanks", and "no" then "no" are real speech and are kept. */
+                if (repeats(part)) finals[finals.length - 1] = part; else finals.push(part);
                 doneIdx = i + 1;
               } else interim.push(part);   // a phone does not always lead a later result with a space: joined below
             }
-            emit({ kind: interim.length ? 'partial' : 'final', text: tidy(finals.concat(interim).join(' ')) });
+            // Shown, not kept: words still being heard that repeat the last kept result stand in for it, as they will.
+            const shown = interim.length && repeats(interim[0]) ? finals.slice(0, -1) : finals;
+            emit({ kind: interim.length ? 'partial' : 'final', text: tidy(shown.concat(interim).join(' ')) });
           };
           /* An error ends the session here and now: a browser need not follow it with onend, and without a stopped the mic
              would stay on and who-hears-the-audio would stay up. A late onend is then not ours (rec !== mine). */
           mine.onerror = (e) => {
             if (rec !== mine) return;   // ours to ignore: our own cancel or a newer start set rec first, aborted included
             // An 'aborted' that is still ours came from the browser or the phone (a call, another app taking the mic).
+            unwait();
             rec = null;
             try { mine.abort(); } catch { /* already ended */ }
             emit({ kind: 'error', reason: REASON[e.error] || 'recognizer' });
             emit({ kind: 'stopped' });
           };
-          mine.onend = () => { if (rec === mine) { rec = null; emit({ kind: 'stopped' }); } };
+          mine.onend = () => { if (rec === mine) { unwait(); rec = null; emit({ kind: 'stopped' }); } };
           try { mine.start(); } catch { fail(); }   // in the tap's click: a phone starts the microphone only from a gesture
         } else if (op === 'stop') {
           const was = rec;
-          if (!was) return;
-          const end = () => { if (rec === was) { rec = null; try { was.abort(); } catch { /* ended */ } emit({ kind: 'stopped' }); } };
+          if (!was || stopTimer) return;   // already stopping: one wait, not one per tap
+          const end = () => { stopTimer = 0; if (rec === was) { rec = null; try { was.abort(); } catch { /* ended */ } emit({ kind: 'stopped' }); } };
           try { was.stop(); } catch { end(); return; }   // the last words come as a final result, then stopped
-          setTimeout(end, VOICE_PHONE_STOP_MS);   // a browser that never sends onend after a stop does not keep the mic on
+          stopTimer = setTimeout(end, VOICE_PHONE_STOP_MS);   // a browser that never sends onend after a stop does not keep the mic on
         } else if (op === 'cancel') {
+          unwait();
           const was = rec; rec = null;
           if (was) { try { was.abort(); } catch { /* already ended */ } }
         }
@@ -60416,7 +60434,12 @@ function voiceWho(line) {
 function voiceToggle(btn) {
   const h = voiceBridge();
   if (!h || !btn) return;
-  if (VOICE.btn === btn) { h.postMessage({ op: 'stop' }); return; }   // the second press: stop, keep the words
+  if (VOICE.btn === btn) {   // the second press: stop, keep the words
+    // Slice 3: the audio may still be on its way until the last words come back, so the bar stays, saying so.
+    if (h.phone) voiceWho('Finishing. ' + voicePhoneWho() + ' is turning the last of this audio into words.');
+    h.postMessage({ op: 'stop' });
+    return;
+  }
   if (h.phone && !document.getElementById('voice-who')) return;   // slice 3: nowhere to say who hears the audio, so no audio
   if (VOICE.btn) voiceCancel();
   const box = document.getElementById(btn.getAttribute('data-voice-for') || '');

@@ -113,4 +113,13 @@ pinning that the recognizer is reached only in the phone shim and the Mac bridge
   (coverage): the DM composer is measured at 390 px with the mic in it (P14, with an in-state control that does
   overflow; my first control ran on a hidden composer and measured nothing). LEFT NITs: a pinch-zoomed page can
   shift the bar (offsetLeft and scale are ignored); the node harness stubs the phone lines it never reaches.
+- Round 8 (sonnet): FIXED W: a list sent again from index 0 with several kept finals doubled them (only one kept final
+  was ever tested); a restarting list that opens with the last kept finals, in order, now skips them (P2d multi-final
+  arm), and while a reset's repeat is still being heard the box shows it once (P2d resetShown). FIXED W: "no" then
+  "no" lost a word to an equality rule; the repeat rule is now two words or more, nothing else ("no no" in P2e). FIXED
+  W: the stand-in's abort only recorded; it now fires 'aborted' and an end later, as a real one does, and P15 cancels
+  and starts again at once and the new session survives the old one's late events (removing either rec !== mine
+  guard reds it). FIXED W: after a stop the bar said "tap the mic to stop"; it now says Finishing until the last words
+  come back (P13). NITs taken: one stop wait at a time, cleared on every end (not pinned: no visible behaviour); the
+  once-built shim's limits stated both ways.
 

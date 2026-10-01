@@ -42,7 +42,7 @@
  *       P2d a fresh list after a pause keeps earlier words, repeated or not; P2e prefix and one-word repeats are kept;
  *       P2f a repeat cannot cascade or hide behind punctuation; P11 a dialog mic
  *       says who hears inside the dialog; P12 no bar, no audio; P13 a stop with no end still ends; P14 the composer
- *       fits a phone with the mic in it
+ *       fits a phone with the mic in it; P15 a cancel then a new start survives the old one's late events
  *   P4 (slice 3) read aloud is offered and speaks on a phone
  *   V1b in a browser (no bridge) the Name field fills its row exactly as with no wrapper: wrapping changes nothing
  *
@@ -443,7 +443,8 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
         }
         // Two results, the second with no leading space, as a phone's recognizer sends them.
         stop() { window.__rec.push('stop'); if (window.__recNoEnd) return; setTimeout(() => { this.onresult && this.onresult({ results: [Object.assign([{ transcript: 'call the' }], { isFinal: true }), Object.assign([{ transcript: 'client' }], { isFinal: true })] }); this.onend && this.onend(); }, 0); }
-        abort() { window.__rec.push('abort'); } };
+        // As a real one: an abort is followed, later, by an 'aborted' error and an end.
+        abort() { window.__rec.push('abort'); setTimeout(() => { this.onerror && this.onerror({ error: 'aborted' }); this.onend && this.onend(); }, 0); } };
     };
     const desk = await browser.newPage({ viewport: { width: 1200, height: 800 } });
     desk.on('pageerror', (e) => errs.push(e.message));
@@ -607,23 +608,28 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     await phone.evaluate(() => window.__recLast.onend());
     chk(rep2c === 'call the client', 'P2c a result that repeats the earlier ones replaces them rather than doubling the words', rep2c);
     /* P2d/P2e: merging results. Each runs one session on an emptied box and reads what landed. R(t, final) is a result. */
-    const session = async (events) => {
+    const session = async (events, steps) => {
       await phone.fill('#d-say', '');
       await phone.evaluate(() => document.activeElement && document.activeElement.blur());
       await phone.tap('#d-mic');
       await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
       const got = await phone.evaluate((evs) => {
         const R = (t, f) => Object.assign([{ transcript: t }], { isFinal: f });
-        for (const ev of evs) window.__recLast.onresult({ resultIndex: ev.i, results: ev.r.map(([t, f]) => R(t, f)) });
-        return document.getElementById('d-say').value;
+        const seen = [];
+        for (const ev of evs) { window.__recLast.onresult({ resultIndex: ev.i, results: ev.r.map(([t, f]) => R(t, f)) }); seen.push(document.getElementById('d-say').value); }
+        return seen;
       }, events);
       await phone.evaluate(() => window.__recLast.onend());
       await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'false');
-      return got;
+      return steps ? got : got[got.length - 1];   // every step's box, or the last
     };
     const F = (t) => [t, true], N = (t) => [t, false];
     const merge = {
       // Android, three results deep: "call" is one word, so it may double once, but the doubling must not cascade.
+      multiResend: await session([{ i: 0, r: [F('call the')] }, { i: 1, r: [F('call the'), F('client now')] }, { i: 0, r: [F('call the'), F('client now'), N('tomorrow')] }]),
+      noNo: await session([{ i: 0, r: [F('no')] }, { i: 1, r: [F('no'), F('no')] }]),
+      // While the reset's repeat is still being heard, the box shows it once, not after the words it repeats.
+      resetShown: (await session([{ i: 0, r: [F('call the client')] }, { i: 0, r: [N('call the client tomorrow')] }], true))[1],
       cascade: await session([{ i: 0, r: [F('call')] }, { i: 1, r: [F('call'), F('call the')] }, { i: 2, r: [F('call'), F('call the'), F('call the client')] }]),
       punctuated: await session([{ i: 0, r: [F('call the client.')] }, { i: 1, r: [F('call the client.'), F('call the client tomorrow')] }]),
       iosResetRepeats: await session([{ i: 0, r: [F('call the client')] }, { i: 0, r: [N('call the client tomorrow')] }, { i: 0, r: [F('call the client tomorrow')] }]),
@@ -634,11 +640,11 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       continuing: await session([{ i: 0, r: [['call the client', true]] }, { i: 1, r: [['call the client', true], ['tomorrow', false]] }]),
       cumulativeAtZero: await session([{ i: 0, r: [['call the client', true]] }, { i: 0, r: [['call the client', true], ['tomorrow', false]] }]),
     };
-    chk(merge.wordPrefix === 'a apple pie' && merge.oneWordRepeat === 'no no thanks' && merge.midWord === 'go to go tomorrow',
+    chk(merge.wordPrefix === 'a apple pie' && merge.oneWordRepeat === 'no no thanks' && merge.midWord === 'go to go tomorrow' && merge.noNo === 'no no',
       'P2e a result that only starts with the same letters, or repeats one word, is real speech and is kept', JSON.stringify(merge));
     chk(merge.cascade === 'call call the client' && merge.punctuated === 'call the client tomorrow',
       'P2f a repeat is compared with the previous result only, so one doubled word cannot cascade, and punctuation does not hide it', JSON.stringify(merge));
-    chk(merge.iosReset === 'call the client tomorrow' && merge.continuing === 'call the client tomorrow' && merge.cumulativeAtZero === 'call the client tomorrow' && merge.iosResetRepeats === 'call the client tomorrow',
+    chk(merge.iosReset === 'call the client tomorrow' && merge.continuing === 'call the client tomorrow' && merge.cumulativeAtZero === 'call the client tomorrow' && merge.iosResetRepeats === 'call the client tomorrow' && merge.multiResend === 'call the client now tomorrow' && merge.resetShown === 'call the client tomorrow',
       'P2d a fresh results list after a pause keeps the words before it, and an ordinary or cumulative list does not double them', JSON.stringify(merge));
     // P11: a mic inside a modal dialog also says it in the dialog's own line (a screen reader cannot see past aria-modal).
     const dlg = await phone.evaluate(() => {
@@ -668,7 +674,7 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
     await phone.evaluate(() => { window.__recNoEnd = true; });
     await phone.tap('#d-mic');
-    const held = await phone.evaluate(() => !!VOICE.btn);   // waiting for the last words, as it should
+    const held = await phone.evaluate(() => !!VOICE.btn && /^Finishing\. Apple/.test(document.getElementById('voice-who').textContent));   // waiting for the last words, and saying so
     await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'false', null, { timeout: 8000 }).catch(() => {});
     const ended = await phone.evaluate(() => ({ btn: !!VOICE.btn, bar: (() => { const b = document.getElementById('voice-who'); return !!b && !b.hidden && getComputedStyle(b).display !== 'none' && b.getBoundingClientRect().height > 0; })() }));
     await phone.evaluate(() => { window.__recNoEnd = false; });
@@ -685,6 +691,15 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       return out;
     });
     chk(fit.control > 0 && fit.overflow <= 0 && fit.micRight <= fit.rowRight && fit.micRight <= fit.vw && fit.w >= 30, 'P14 at 390 px the DM composer still fits with the mic in it', JSON.stringify(fit));
+    // P15: a cancel and an immediate new start: the old recognizer's late 'aborted' and end do not end the new session.
+    await phone.evaluate(() => { document.getElementById('d-mic').click(); });
+    await phone.waitForFunction(() => VOICE.listening === true);
+    await phone.evaluate(() => { voiceCancel(); document.getElementById('d-mic').click(); });
+    await phone.waitForTimeout(100);
+    const fresh = await phone.evaluate(() => ({ btn: !!VOICE.btn, listening: VOICE.listening, who: document.getElementById('voice-who').textContent }));
+    await phone.evaluate(() => voiceCancel());
+    await phone.waitForTimeout(50);
+    chk(fresh.btn && fresh.listening && /Apple hears this audio/.test(fresh.who), 'P15 a cancel then an immediate start: the old recognizer\'s late abort and end leave the new session on', JSON.stringify(fresh));
     // P9: a recognizer that cannot even be built leaves the mic off and the bar gone.
     await phone.evaluate(() => { window.__recCtorThrow = true; document.getElementById('d-mic').click(); window.__recCtorThrow = false; });
     const ctor = await phone.evaluate(() => ({ btn: !!VOICE.btn, pressed: document.getElementById('d-mic').getAttribute('aria-pressed'), bar: (() => { const b = document.getElementById('voice-who'); return !!b && !b.hidden && getComputedStyle(b).display !== 'none' && b.getBoundingClientRect().height > 0; })() }));
