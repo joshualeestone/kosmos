@@ -271,7 +271,7 @@ const OFF_STANDING_TTL_MS = 12 * 60 * 60 * 1000;
    not after the whole 12 h, so one failed attempt cannot use up the slot and two cannot cross the one-day line. */
 const OFF_RETRY_MS = 30 * 60 * 1000;
 let standingRefreshInFlight = false;
-/* kosmos#4743: a switch flip the coordinator has not been told yet. Set by setOn (which also asks at once),
+/* kosmos#4743: a switch flip the coordinator has not been told yet. Set by setOn when the value changes (it also asks at once),
    by a sign-in that switches on and by a cancelled sign-in that switches off (neither asks inside the sign-in:
    see turnOnAfterSignin). While set, the next standing poll is due whatever its stamp, and a refresh that
    was already out re-asks when it ends. */
@@ -1722,7 +1722,9 @@ function cancelledAfter(result, before, addressBefore, startedAt) {
   // only a NEW identity: a register that failed and changed nothing leaves a Mac
   // that was on, on.
   if ((result && result.ok) || (enrolled() && macIdHere() !== before)) {
-    try { write({ on: false }, { repair: true }); } catch { /* status says what happened */ }
+    // kosmos#4743: the stamp is set back past the off cadence in the same write, so the off is told by the
+    // next standing poll even after a restart (flipPending below lives in memory only).
+    try { write({ on: false, standing_at: Date.now() - OFF_STANDING_TTL_MS - 1 }, { repair: true }); } catch { /* status says what happened */ }
     // kosmos#4743: told at the next standing poll, not here (inside the sign-in, like turnOnAfterSignin).
     // Set even if the switch was already off: one extra off check-in, which also tells a new identity.
     flipPending = true;

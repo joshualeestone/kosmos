@@ -131,6 +131,15 @@ remote-unreadable-4308, engine.reachable, fixture-discipline) pass.
 - W, duplicate (review 11, stated): no test drives forgetNow's clear or cancelledAfter's mark.
 - Nits taken: a comment that sat on the wrong export line; askAfterFlip's comment covers the unenrolled case.
 
+## Review 13 (sonnet, blind): 0 blockers, 4 warnings (3 duplicates), 4 nits
+- W, taken: flipPending lives in memory, so a board restarted before a cancelled sign-in's off was told
+  would have waited for the 12 h off cadence. cancelledAfter now sets the standing stamp back in the same
+  write as the off, so the next poll after a restart asks too. (The sign-in's ON needs nothing: after a
+  restart the first poll asks at once.) No test drives cancelledAfter (stated since review 9).
+- Duplicates: the shipping order; cancelledAfter's flag after a failed write; the untested forgetNow /
+  cancelledAfter lines.
+- Nit taken: the flag's comment says setOn sets it only when the value changes.
+
 ## Weakest premise
 That one bit about remote access is not something #4731 meant to keep back. #4731's comment says "no
 remote report" while off; this sends no report FIELDS, only the switch's state, which the computer's owner
