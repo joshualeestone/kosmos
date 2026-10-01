@@ -25751,7 +25751,8 @@ async function worldsFetch() {
    (WORLDSW_STALE), so a switch/manual-restart banner is never wiped. */
 function worldswSetStale(stale) {
   // #4815: the note is about a list of Kosmoses, which is not shown when MULTI_KOSMOS is off (typeof: lifted by tests).
-  if (typeof MULTI_KOSMOS !== 'undefined' && MULTI_KOSMOS === false) { WORLDSW_STALE = false; return; }
+  // Still tracked, so the 8 s retry does not re-render the hidden list every time; only the note is not shown.
+  if (typeof MULTI_KOSMOS !== 'undefined' && MULTI_KOSMOS === false) { WORLDSW_STALE = !!stale; return; }
   const banner = document.getElementById('worldsw-restart');
   const bmsg = document.getElementById('worldsw-restart-msg');
   if (stale) {
@@ -25779,16 +25780,31 @@ function worldswSetStale(stale) {
    menu holding just Your computers. A board that already has several Kosmoses keeps running the one it booted;
    nothing is moved or deleted, and /api/worlds is unchanged. Change the default below to bring it all back. */
 /* The default is OFF. A browser can turn it back on with localStorage 'kosmos.multiKosmos' = '1' (nothing on a
-   screen offers that): the browser checks that pin the kept structure (#1704, #2238, #2563, #2935, #3055, #4648)
-   set it, so the code stays tested while nobody sees it. */
+   screen offers that): the browser checks that pin the kept structure (#1704, #2238, #2350, #2563, #2628, #2935,
+   #3055, #4648, and #718's phone frame) set it, so the code stays tested while nobody sees it. */
 const MULTI_KOSMOS = (() => { try { return localStorage.getItem('kosmos.multiKosmos') === '1'; } catch { return false; } })();
 let THIS_COMPUTER_NAME = '';
 let COMPUTERS_OPENABLE = false;
-/* Called by computersRender with the rows it kept (each a valid address; one may be this computer). */
-function worldswComputersSeen(rows) {
-  const me = rows.find((c) => c.this === true);
-  THIS_COMPUTER_NAME = me ? me.name : '';
-  COMPUTERS_OPENABLE = rows.length >= 2;
+/* Called by computersRender with the rows it kept and whether an answer arrived. Only an ANSWER changes
+   the name or whether there is anywhere to go (review round 1): a failed read keeps the last good answer, so one
+   relay hiccup cannot lock the menu shut, and says so inside the menu. */
+function worldswComputersSeen(rows, good) {
+  if (good) {
+    const me = rows.find((c) => c.this === true);
+    THIS_COMPUTER_NAME = me ? me.name : '';
+    COMPUTERS_OPENABLE = rows.length >= 2;
+  } else if (COMPUTERS_OPENABLE) {
+    const box = document.getElementById('worldsw-computers');
+    const list = document.getElementById('worldsw-computers-list');
+    if (box && list) {
+      list.textContent = '';
+      const note = document.createElement('div');
+      note.className = 'worldsw-row worldsw-row-off';
+      note.textContent = 'Kosmos could not reach your computers just now. Try again in a moment.';
+      list.appendChild(note);
+      box.hidden = false;
+    }
+  }
   worldswOneKosmos();
 }
 function worldswOneKosmos() {
@@ -25802,15 +25818,23 @@ function worldswOneKosmos() {
   nameEl.textContent = name;
   sw.classList.add('worldsw-onekosmos');
   sw.classList.toggle('worldsw-fixed', !COMPUTERS_OPENABLE);
+  sw.hidden = false;   // the name no longer depends on the Kosmoses read (review round 1)
+  const menu = document.getElementById('worldsw-menu');
   if (COMPUTERS_OPENABLE) {
     btn.removeAttribute('aria-disabled');
+    btn.removeAttribute('tabindex');
+    btn.setAttribute('aria-controls', 'worldsw-menu');
+    btn.setAttribute('aria-expanded', menu && !menu.hidden ? 'true' : 'false');
     btn.setAttribute('aria-label', 'Your computers. This computer: ' + name);
   } else {
-    // Nothing to open: say the name and nothing else, and close a menu left open from before.
+    /* Plain text, as the card asks: nothing to expand, so no expanded state, no controls and no Tab stop (a screen
+       reader would otherwise announce a collapsed button that never opens). Close a menu left open from before. */
+    if (menu && !menu.hidden) menu.hidden = true;
+    btn.removeAttribute('aria-expanded');
+    btn.removeAttribute('aria-controls');
     btn.setAttribute('aria-disabled', 'true');
+    btn.setAttribute('tabindex', '-1');
     btn.setAttribute('aria-label', name);
-    const menu = document.getElementById('worldsw-menu');
-    if (menu && !menu.hidden) { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); }
   }
 }
 function worldswRender(data, opts) {
@@ -26166,8 +26190,16 @@ async function computersFetch() {
      must never be shown as current (a probe can take seconds). */
   const box = document.getElementById('worldsw-computers');
   const list = document.getElementById('worldsw-computers-list');
-  if (box) box.hidden = true;
   if (list) list.textContent = '';
+  /* #4815: with one Kosmos this section is the whole menu, so it says it is reading rather than leaving an empty box
+     (typeof: lifted alone by web.computers-switcher-4648, where the hide below is what it pins). */
+  if (typeof MULTI_KOSMOS !== 'undefined' && MULTI_KOSMOS === false && box && list) {
+    const note = document.createElement('div');
+    note.className = 'worldsw-row worldsw-row-off';
+    note.textContent = 'Checking your computers...';
+    list.appendChild(note);
+    box.hidden = false;
+  } else if (box) box.hidden = true;
   let data = null;
   try {
     const res = await fetch('/api/remote/computers', { cache: 'no-store' });
@@ -26186,9 +26218,11 @@ function computersRender(data) {
   /* #4815: this computer's name for the top-left button, and whether there is anywhere else to go. Reached
      through typeof because tests lift this function alone (web.computers-switcher-4648), where the page's
      one-Kosmos helpers do not exist; a lifted copy then behaves exactly as before. */
-  if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows);
+  /* #4815: an ANSWER, { ok: false } (not signed in) included, is good; only no answer at all (a failed read, null)
+     keeps the last good name and menu. */
+  const good = data !== null && typeof data === 'object';
   // Only this computer (or nothing): there is nowhere else to go, so the section stays hidden.
-  if (rows.length < 2) { list.textContent = ''; box.hidden = true; return; }
+  if (rows.length < 2) { list.textContent = ''; box.hidden = true; if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows, good); return; }
   list.textContent = '';
   for (const c of rows) {
     /* Only an ONLINE computer is a link. An offline one would open a browser error page (the
@@ -26223,6 +26257,7 @@ function computersRender(data) {
     list.appendChild(row);
   }
   box.hidden = false;
+  if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows, good);
 }
 function worldswToggle() {
   const menu = document.getElementById('worldsw-menu');

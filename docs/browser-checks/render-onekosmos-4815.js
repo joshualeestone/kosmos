@@ -11,6 +11,9 @@
  *   - not signed in (the route's { ok: false }): it says "This computer", the same way;
  *   - four computers: it names this one, opens, and the menu holds ONLY Your computers (no Kosmoses list, no New
  *     Kosmos, and no separator above the section, since nothing sits above it);
+ *   - a screen reader hears the plain name as text (no expanded state, no Tab stop), the openable one as a menu;
+ *   - after a good read, a FAILED read keeps the name and the menu and says it could not reach the computers, and a
+ *     SLOW read shows "Checking your computers..." rather than an empty menu (review round 1);
  *   - CONTROL, the answer this check must be able to give: with the switch back on (localStorage
  *     kosmos.multiKosmos = 1), the same board shows the Kosmoses list, New Kosmos and "Kosmos 1".
  *
@@ -53,7 +56,11 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           const real = window.fetch;
           window.fetch = (url, opts) => {
             if (String(url).indexOf('/api/remote/computers') !== -1) {
-              return Promise.resolve(new Response(JSON.stringify(window.__answers[window.__which]), { status: 200, headers: { 'content-type': 'application/json' } }));
+              const which = window.__which;
+              if (which === 'fail') return Promise.reject(new TypeError('the relay did not answer'));
+              const body = () => new Response(JSON.stringify(window.__answers[which === 'slow' ? 'four' : which]), { status: 200, headers: { 'content-type': 'application/json' } });
+              if (which === 'slow') return new Promise((r) => setTimeout(() => r(body()), 800));
+              return Promise.resolve(body());
             }
             return real(url, opts);
           };
@@ -76,6 +83,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             chev: !!chev && getComputedStyle(chev).display !== 'none',
             border: getComputedStyle(btn).borderTopColor,
             listShown: vis('worldsw-list'), newShown: vis('worldsw-new'),
+            expanded: btn.getAttribute('aria-expanded'), tab: btn.getAttribute('tabindex'),
           };
           btn.click();
           await new Promise((r) => setTimeout(r, 50));
@@ -99,6 +107,36 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           ok(`${t} four computers: it names this one and opens`, four.name === 'studio-laptop' && four.chev && four.opened, JSON.stringify(four));
           ok(`${t} four computers: the menu holds only Your computers, with no separator above it`,
             four.computers && !four.listInMenu && !four.newInMenu && four.sepAbove === '0px' && !four.plural, JSON.stringify(four));
+          ok(`${t} a screen reader: the plain-text name has no expanded state and is not a Tab stop; the openable one has one`,
+            one.expanded === null && one.tab === '-1' && four.expanded === 'false' && four.tab === null, JSON.stringify({ one: [one.expanded, one.tab], four: [four.expanded, four.tab] }));
+          /* After a good read of four, a read that FAILS must not lock the menu or lose the name (review round 1). */
+          const after = await page.evaluate(async () => {
+            window.__which = 'fail';
+            const btn = document.getElementById('worldsw-btn');
+            btn.click();
+            await new Promise((r) => setTimeout(r, 120));
+            const list = document.getElementById('worldsw-computers-list');
+            const out = { name: document.getElementById('worldsw-name').textContent, fixed: document.getElementById('worldsw').classList.contains('worldsw-fixed'),
+              opened: !document.getElementById('worldsw-menu').hidden, says: list.textContent };
+            worldswClose();
+            return out;
+          });
+          ok(`${t} a failed read after a good one keeps the name and the menu, and says it could not reach them`,
+            after.name === 'studio-laptop' && !after.fixed && after.opened && /could not reach your computers/.test(after.says), JSON.stringify(after));
+          /* A slow read: the open menu is never an empty box. */
+          const slow = await page.evaluate(async () => {
+            window.__which = 'slow';
+            document.getElementById('worldsw-btn').click();
+            await new Promise((r) => setTimeout(r, 150));
+            const box = document.getElementById('worldsw-computers');
+            const during = { shown: !box.hidden, says: document.getElementById('worldsw-computers-list').textContent };
+            await new Promise((r) => setTimeout(r, 1000));
+            const rows = document.querySelectorAll('#worldsw-computers-list a.worldsw-row, #worldsw-computers-list div.worldsw-row[aria-current]').length;
+            worldswClose();
+            return { during, rows };
+          });
+          ok(`${t} a slow read: the open menu says it is checking, then shows the computers`,
+            slow.during.shown && /Checking your computers/.test(slow.during.says) && slow.rows >= 2, JSON.stringify(slow));
         } else {
           const c = await read('one');
           ok(`${t} CONTROL: with the switch on, the Kosmoses list, New Kosmos and "Kosmos 1" are back`,
@@ -111,6 +149,6 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
   }
   console.log(problems.length ? `FAIL ${problems.length}:\n  ${problems.join('\n  ')}` : 'all checks passed');
   console.log(`${pass}/${pass + problems.length} passed`);
-  // 2 engines x 2 themes x (6 arms off + 1 control) = 28.
-  process.exit(problems.length || pass + problems.length < 28 ? 1 : 0);
+  // 2 engines x 2 themes x (9 arms off + 1 control) = 40.
+  process.exit(problems.length || pass + problems.length < 40 ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
