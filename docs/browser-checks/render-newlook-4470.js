@@ -494,10 +494,13 @@ const AGENTS_LOOK = `(() => {
       const listOff = await listLook(page);
       chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px',
         `${tag} Off, Agents list: today's bordered row with 12px corners`, JSON.stringify(listOff));
-      chk(listOn.found && listOff.found && listOn.groundImg === listOff.groundImg && listOn.groundColor === listOff.groundColor && listOn.groundImg !== 'none',
-        `${tag} the plain row's ground is today's grey with the look on (only its border goes)`, JSON.stringify({ on: [listOn.groundImg, listOn.groundColor], off: [listOff.groundImg, listOff.groundColor] }));
-      chk(listOn.strokes && listOff.strokes && listOn.strokes.attn.color === listOff.strokes.attn.color && listOn.strokes.unk.color === listOff.strokes.unk.color,
-        `${tag} the needs-you and could-not-read edges are today's colours with the look on`, JSON.stringify({ on: listOn.strokes, off: listOff.strokes }));
+      /* The new look remaps the colour tokens (its surface and rule greys differ from today's), so the row's own
+         colour and the dash's colour are the new look's, not today's. What must NOT change is the state wash laid
+         over the surface, and the needs-you red, which is a fixed colour in both looks. */
+      chk(listOn.found && listOff.found && listOn.groundImg === listOff.groundImg && listOn.groundImg !== 'none' && listOn.groundColor !== 'rgba(0, 0, 0, 0)',
+        `${tag} the plain row keeps today's state wash with the look on, on an opaque surface (only its border goes)`, JSON.stringify({ on: [listOn.groundImg, listOn.groundColor], off: [listOff.groundImg, listOff.groundColor] }));
+      chk(listOn.strokes && listOff.strokes && listOn.strokes.attn.color === listOff.strokes.attn.color && listOn.strokes.unk.style === listOff.strokes.unk.style,
+        `${tag} the needs-you edge is today's red, and the could-not-read edge still dashed, with the look on`, JSON.stringify({ on: listOn.strokes, off: listOff.strokes }));
       /* What the new look must NOT change, compared on the same board: the working card's stroke (state owns the
          stroke) and the current view's gold (Josh 2026-08-17: selected is gold). */
       chk(agOn.working === agOff.working, `${tag} the working card's stroke is the same with the look on as off`, JSON.stringify({ on: agOn.working, off: agOff.working }));
