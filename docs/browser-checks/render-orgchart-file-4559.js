@@ -211,6 +211,13 @@ async function run() {
        #4688: reopening keeps them too, for ORGCHART_UNDO_KEEP_MS after the create. */
     {
       const pk = await page();
+      await pk.route('**/api/agent/*/profile', (r) => r.fulfill({ status: 200, json: { ok: true } }));   // #4688: off the sandbox board
+      // #4688: the Undo ask's plan reads, mocked (a later arm on this page adds its own removal route over this one).
+      await pk.route('**/api/agent/*/removal', (r) => {
+        const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
+        if (r.request().method() !== 'GET') return r.fulfill({ status: 200, json: { outcome: 'removed' } });
+        r.fulfill({ status: 200, json: { ok: true, name, label: name, loses: ['Its place on the board'], keeps: ['Its folder'] } });
+      });
       await pk.route('**/api/team', (r) => {
         const body = JSON.parse(r.request().postData() || '{}');
         r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } });
@@ -577,6 +584,7 @@ async function run() {
        late answer shows its result and Undo in the idle panel, rather than recording it for a reopen that already
        happened. The create is held until released, so the order is certain. */
     const prb = await page();
+    await prb.route('**/api/agent/*/profile', (r) => r.fulfill({ status: 200, json: { ok: true } }));   // #4688: the fix-ups stay off the sandbox board
     let releaseTeam;
     const teamHeld = new Promise((ok) => { releaseTeam = ok; });
     await prb.route('**/api/team', async (r) => {
@@ -608,6 +616,7 @@ async function run() {
     /* #4688 review: an Undo the person leaves mid-run. The first 3 removals answer at once, the 4th is held while
        they press Back and lands after; on reopen the kept Undo must offer the 3 still on the board, not all 7. */
     const pud = await page();
+    await pud.route('**/api/agent/*/profile', (r) => r.fulfill({ status: 200, json: { ok: true } }));   // #4688: the fix-ups stay off the sandbox board
     let deletes = 0;
     let releaseDel;
     const delHeld = new Promise((ok) => { releaseDel = ok; });
@@ -650,6 +659,7 @@ async function run() {
     /* #4688 review: the same, but the person is BACK in the panel before the held removal answers. The reopen shows
        the kept list as it stood (7); the late answer must repaint it to the 3 still on the board. */
     const pur = await page();
+    await pur.route('**/api/agent/*/profile', (r) => r.fulfill({ status: 200, json: { ok: true } }));   // #4688: the fix-ups stay off the sandbox board
     let deletesR = 0;
     let releaseDelR;
     const delHeldR = new Promise((ok) => { releaseDelR = ok; });
@@ -697,6 +707,7 @@ async function run() {
        with an Undo that asks afresh. Run twice: the held answer is the 4th of 7 (3 left) and the 7th (none left). */
     const undoAgain = async (heldAt) => {
       const pua = await page();
+      await pua.route('**/api/agent/*/profile', (r) => r.fulfill({ status: 200, json: { ok: true } }));   // #4688: the fix-ups stay off the sandbox board
       let deletesA = 0;
       let releaseDelA;
       const delHeldA = new Promise((ok) => { releaseDelA = ok; });
@@ -756,6 +767,7 @@ async function run() {
     /* #4688 review: a late create that made NOTHING (every row refused) replaces nothing: the reopened, idle panel stays
        empty rather than showing a result with no Undo. */
     const pnz = await page();
+    await pnz.route('**/api/agent/*/profile', (r) => r.fulfill({ status: 200, json: { ok: true } }));   // #4688: the fix-ups stay off the sandbox board
     let releaseNone;
     const noneHeld = new Promise((ok) => { releaseNone = ok; });
     await pnz.route('**/api/team', async (r) => {

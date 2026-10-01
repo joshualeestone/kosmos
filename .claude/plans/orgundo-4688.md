@@ -156,3 +156,10 @@ Each must fail on the base (main before this branch) and pass here; run on a qui
   check"; the reset's GEN comment names the in-place exception); the 4559 surface line names the Undo ask buttons
   and Preview. Not taken: a later return after a left run removed ALL shows a blank panel rather than "Removed 7
   agents" (nothing is left to offer, so blank is the honest idle state).
+
+## Iteration 10 (Sonnet): no blocker; two test-robustness warnings, fixed
+- The never-left CONTROL arm's Undo ask read plans from the sandbox board; the pk page now mocks the removal route
+  (GET plans) before it, and stubs the profile PUTs.
+- The new arms (prb, pud, pur, pua, pnz) sent the CSV's reporting-line PUTs to the sandbox board, and a late create's
+  paint waits on those fix-ups; each now stubs /api/agent/*/profile, as plc does.
+- Not taken: a live-region announcement for a restored result (unchanged from main's box; noted in iteration 5).
