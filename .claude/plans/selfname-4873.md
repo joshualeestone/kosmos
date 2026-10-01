@@ -22,7 +22,8 @@ every time?" (screenshot: "Dario: Anthropic, ..." under a header that already sa
 
 ## Weakest premise
 That the room's header name and the name the agent writes are the same string (display name or machine name). An agent
-writing a nickname ("D: ...") keeps it.
+writing a nickname ("D: ...") keeps it. And an agent named with an ordinary word ("Update", "Note") loses that word
+at the start of a message; the stored text is unchanged and the header still shows the name, so it costs a label.
 
 ## Tests
 - engine/defaults.test.js: the section by content, its own heading, offered to an agent missing it; fingerprint v21.
@@ -58,3 +59,4 @@ writing a nickname ("D: ...") keeps it.
 - Round 5 (opus): FIXED W: the blank-line cleanup after the drop takes Windows line endings too (\r\n), with a test.
   Left NITs: a bare bold name with no separator ("**Dario**\n\nhello") is kept (conservative); pjMentionKeys twice; the
   source pins' fixed window.
+- Round 6 (sonnet): its one W (the ordinary-word name) repeats round 3's noted case; now named in the weakest premise. Converged.
