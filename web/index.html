@@ -7318,7 +7318,7 @@ html.has-voice .micbtn { display: grid; }
    one-line input. The wrapper takes the box's place in its row (a .frow is a flex row that sized the input itself), so
    no box changes size where the mic is not drawn; the box gets room on the right only where it is (the Mac app). */
 .micwrap { position: relative; }
-.frow > .micwrap { flex: 1; min-width: 220px; }   /* the input's own .frow sizing, which it no longer gets as a child */
+.frow > .micwrap { flex: 1; min-width: 220px; }   /* the input's .frow flex sizing, which has no effect now it is not the flex item */
 .micwrap.line > input { width: 100%; box-sizing: border-box; }
 .micwrap > .fieldmic { position: absolute; right: calc(8px + var(--scrollbar-width, 0px)); top: 6px; width: 28px; height: 28px; }   /* clear of a classic scrollbar */
 .micwrap.line > .fieldmic { top: 50%; right: 8px; transform: translateY(-50%); }
@@ -60352,7 +60352,15 @@ document.addEventListener('pointercancel', voiceRelease, true);
 /* A release the page never hears (a menu or a system sheet takes the mouse) must not arm a later click as a hold. */
 document.addEventListener('contextmenu', () => { VOICE_PRESS = null; VOICE_PRESSED = null; }, true);
 /* The window losing focus mid-press (Cmd-Tab) ends the press as a release: a hold stops, a tap keeps listening. */
-window.addEventListener('blur', () => { if (VOICE_PRESS) voiceRelease({ pointerId: VOICE_PRESS.pointer }); VOICE_PRESSED = null; });
+/* Not cleared outright: on first use macOS's microphone sheet takes focus while the mic is held, and the mouse-up and
+   its click can still reach the page afterwards. That click is the press's own, so the mark stays armed for it until
+   the next press or key (taking it as a new press would stop the start the sheet is asking about). */
+window.addEventListener('blur', () => {
+  const press = VOICE_PRESS;
+  if (!press) return;
+  voiceRelease({ pointerId: press.pointer });
+  VOICE_PRESSED = { mic: press.btn, until: Infinity };
+});
 /* A key pressed after the pointer is the keyboard acting: its click is its own, never the pointer's. */
 document.addEventListener('keydown', () => { VOICE_PRESSED = null; }, true);
 /* Slice 2: a dialog has several boxes. Focus moving to another of its fields means the person moved on: stop, so what

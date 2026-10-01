@@ -317,17 +317,29 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     await page.mouse.move(dm4.x - 200, dm4.y + 120);
     await page.mouse.up();
     await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'listening' }));
-    await page.waitForTimeout(50);
-    await page.focus('.fieldmic[data-voice-for="pj-add-desc"]');
-    await page.keyboard.press('Enter');
+    // A click with no key before it (VoiceOver, Switch Control), inside the window the pointer's own click would have.
+    await page.evaluate(() => document.querySelector('.fieldmic[data-voice-for="pj-add-desc"]').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 })));
     await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'stopped' }));
     const v16 = await page.evaluate((n) => window.__voice.slice(n).map((m) => m.op), n7);
-    chk(v16[0] === 'start' && v16[v16.length - 1] === 'stop', 'V16 a press dragged off the mic does not swallow the next keyboard press', JSON.stringify(v16));
+    chk(JSON.stringify(v16) === '["start","stop"]', 'V16 a press dragged off the mic does not swallow the next assistive click', JSON.stringify(v16));
+    // A permission sheet taking focus mid-press: the blur ends the press, and the click that follows is still its own.
+    const n7b = await page.evaluate(() => window.__voice.length);
+    const dm5 = await descMic.boundingBox();
+    await page.mouse.move(dm5.x + dm5.width / 2, dm5.y + dm5.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(400);
+    await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+    await page.waitForTimeout(800);
+    await page.mouse.up();
+    const sheet = await page.evaluate((n) => window.__voice.slice(n).map((m) => m.op), n7b);
+    await page.evaluate(() => { window.kosmosVoiceEvent({ kind: 'listening' }); document.querySelector('.fieldmic[data-voice-for="pj-add-desc"]').click(); window.kosmosVoiceEvent({ kind: 'stopped' }); });
+    chk(JSON.stringify(sheet) === '["start"]', 'V16 a permission sheet taking focus mid-press does not stop the start it is asking about', JSON.stringify(sheet));
     // V12 a disabled box shows no mic (the agent's instructions before they load).
     const dis = await page.evaluate(() => { const b = document.getElementById('d-instr'); const was = b.disabled; b.disabled = true;
       const m = document.querySelector('.fieldmic[data-voice-for="d-instr"]'); const shownMic = getComputedStyle(m).display !== 'none';
-      b.disabled = false; const shownOn = getComputedStyle(m).display !== 'none'; b.disabled = was; return { shownMic, shownOn }; });
-    chk(!dis.shownMic && dis.shownOn, 'V12 a disabled box shows no mic; enabled, it does', JSON.stringify(dis));
+      b.disabled = false; const shownOn = getComputedStyle(m).display !== 'none'; const padOn = parseFloat(getComputedStyle(b).paddingRight);
+      b.disabled = was; return { shownMic, shownOn, padOn }; });
+    chk(!dis.shownMic && dis.shownOn && dis.padOn >= 36, 'V12 a disabled box shows no mic; enabled, it does, with room for it (beating #d-instr\'s own padding)', JSON.stringify(dis));
     await page.evaluate(() => { const pp = document.getElementById('panel-projects'); if (pp) pp.hidden = true; document.getElementById('pj-add-view').hidden = true; document.getElementById('panel-detail').hidden = false; });
 
     // V16: a composer keeps listening through its other buttons (attach), as in slice 1.

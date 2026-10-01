@@ -6,7 +6,8 @@ dialogues". Splinter handed it to me at 17:03.
 
 ## Change
 1. Press and hold any mic to talk; let go to stop (it keeps what it heard). A press shorter than 300 ms is a tap and
-   toggles as in slice 1, so a long dictation needs no held finger. The pointer does the work on press and release
+   toggles as in slice 1, so a long dictation needs no held finger. Every mic now acts on the press, not the click, so a
+   composer's mic pressed and dragged off starts listening (slice 1's did nothing); the next tap stops it. The pointer does the work on press and release
    (pointerdown starts, or stops a mic that is listening; pointerup after 300 ms or more stops); the pointer's own click
    is then ignored. Any click with no press before it (the keyboard, VoiceOver, Switch Control, a script) toggles.
 2. A mic inside the dialogs' text boxes: New project (name, description, what done looks like), New task
@@ -95,4 +96,11 @@ the pointer's click as well reds V2, V10, V11, V12. web.voice-4409.test.js 20/20
   suppression reds the tap and hold checks. FIXED W: a second pointer no longer takes over a press in progress (one
   press at a time, primary pointer only); NOT tested (Playwright drives one mouse). FIXED NITs: the focus-moved
   comment reflowed; the unit test pins the composer and dialog cancel arms separately, not their line layout.
+- Round 7 (opus): FIXED W: on first use macOS's microphone sheet takes focus mid-press; the blur cleared the click
+  mark, so the press's own late click toggled and stopped the start the sheet was asking about; the blur now ends the
+  press and keeps the mark armed for that click (V16 sheet arm; nulling it reds). FIXED W (mine, round 3): V16's
+  drag-off arm used Enter, whose keydown clears the mark anyway, so it could not fail; it uses a key-free assistive
+  click now and pins the exact ops (treating the drag-off as on the mic reds it). FIXED NITs: the .frow comment; V12
+  measures #d-instr's padding enabled (44); the plan says every mic now acts on the press, so a composer's mic pressed
+  and dragged off starts listening, unlike slice 1.
 
