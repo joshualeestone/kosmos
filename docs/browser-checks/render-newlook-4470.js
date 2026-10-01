@@ -138,12 +138,13 @@ const DM_LOOK = `(() => {
   try {
   const mk = (you) => { const m = document.createElement('div'); m.className = 'msg' + (you ? ' you' : ''); m.innerHTML = '<div class="msg-b"><div class="msg-bd">x</div></div>'; th.appendChild(m); return m; };
   const a = mk(true), b = mk(false);
+  try {
   const cs = getComputedStyle(cb);
   const out = { found: true, box: getComputedStyle(box).backgroundColor, you: getComputedStyle(a.querySelector('.msg-bd')).backgroundColor,
     agent: getComputedStyle(b.querySelector('.msg-bd')).backgroundColor, tail: getComputedStyle(b.querySelector('.msg-bd'), '::after').backgroundColor,
     composer: cs.backgroundColor, composerBorderW: cs.borderTopWidth, composerRadius: cs.borderTopLeftRadius };
-  a.remove(); b.remove();
   return out;
+  } finally { a.remove(); b.remove(); }
   } finally { if (panel) panel.hidden = wasHidden; }
 })()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */

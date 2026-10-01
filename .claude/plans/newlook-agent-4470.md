@@ -37,3 +37,8 @@ values are now pinned too (your bubble not the look's grey, an agent's not the b
 NIT taken: border 0 like the room's pill (no 2px difference), so the arms read the border WIDTH (a removed border still
 reports a colour). CONVENTION: d-dmthread is in 16 other checks' surfaces; the PR's CI selects them (bc-pr-select).
 Left: the agent page's terminal composer keeps today's look; it belongs to the AI Settings slice.
+Review R3 (opus) 1B 0W 0C 3N: the surface gate names 16 DM checks (the new rules carry d-talk-box, d-dmthread,
+panel-detail, dmbar, msg, msg-bd) and no trailer: added, citing this PR's CI, which selects all 16 (bc-pr-select,
+measured), with the merge waiting for its green. NITs taken: why the detail panel's id is in the selector (weight over
+the one-id dark rules); the hand-made rows removed in finally. Left: the chosen-Dark box and tail already read #000
+without this slice (the arm still catches regressions through the messages and the composer).

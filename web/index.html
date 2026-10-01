@@ -9874,7 +9874,9 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    your messages in the one grey, an agent's with no bubble, and the composer the same grey pill with no stroke. The
    DM uses the same thread component (.msg / .msg-bd), so these are the room's rules pointed at the DM; nothing new.
    The DM's composer is ONE element carrying both classes (dmbar and composerbox), unlike the room's nested pair (review
-   round 1: a descendant selector matched nothing). The outside-sender dash and "Could not deliver" are untouched. */
+   round 1: a descendant selector matched nothing). The outside-sender dash and "Could not deliver" are untouched.
+   The detail panel's id on the first rule is weight, not scope: it lifts the rule over the dark and forced-dark rules
+   that paint the same box with one id, whatever their place in the sheet. */
 :root[data-look="new"] body:not(.consolidated) #panel-detail #d-talk-box { background: var(--k-bg); }
 :root[data-look="new"] body:not(.consolidated) #d-dmthread .msg.you .msg-bd { background-color: var(--nl-grey); }
 :root[data-look="new"] body:not(.consolidated) #d-dmthread .msg:not(.you) .msg-bd { background-color: var(--k-bg); }
