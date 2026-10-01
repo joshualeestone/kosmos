@@ -157,4 +157,9 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   FIXED NIT: the generator drops an earlier row only when the later block continues on a NEW line (a same-line
   extension is already refused at runtime). Left NITs: the overlap guard in planFor is defensive and cannot fire
   today; the cut-only case's empty fold and blank line.
+- Round 19 (sonnet): DEFERRED W: an agent with no recorded version cannot get the carried-version rule, but its
+  edited span is still left by fleetLeaves (`edited` does not depend on the version); the reviewer could not build an
+  overwrite. NITs only otherwise. CONVERGED.
+- NEXT: #4873 also takes doctrine v21. Whichever merges second renumbers to v22, re-pins defaults.test.js,
+  regenerates engine/doctrine-past.js and gets one more blind round before its final validation.
 
