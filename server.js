@@ -17252,7 +17252,7 @@ const server = http.createServer(async (req, res) => {
         let members = [];
         if (typeof whoAsked === 'string' && whoAsked.trim()) {
           try { members = ((projects.readAll() || []).find((x) => x && x.id === id) || {}).agents || []; }
-          catch { members = []; }   // an unreadable store is tasks.create's to refuse, with its own answer
+          catch { members = []; }
           if (!Array.isArray(members)) members = [];
         }
         if (!viaScreen && typeof whoAsked === 'string' && whoAsked.trim().toLowerCase() === 'me' && !members.includes(whoAsked.trim())) {
