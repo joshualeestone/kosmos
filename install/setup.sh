@@ -2711,9 +2711,10 @@ _kosmos_put_board_back() {
   _kosmos_board_decide 2>/dev/null || true
   [ "${_kosmos_board_off:-no}" = yes ] && return 0
   rm -f "$KOSMOS_HOME/board.stopped" 2>/dev/null || true
+  # The start's own verdict (review 5): it waits for the board itself, and a second short probe here told a busy
+  # board's person it "could not be started" while it was running.
   if [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ] \
-     && KOSMOS_RECLAIM_BUSY=1 "$KOSMOS_HOME/bin/kosmos" start --force >/dev/null 2>&1 \
-     && curl -fsS -m 5 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; then
+     && KOSMOS_RECLAIM_BUSY=1 "$KOSMOS_HOME/bin/kosmos" start --force >/dev/null 2>&1; then
     _kosmos_back_v="$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$KOSMOS_HOME/app/package.json" 2>/dev/null | head -1)" || _kosmos_back_v=""
     # The version on disk, which after a failure past the file swap may not be the one from before the update.
     printf '  Kosmos is running again (%s). This update did not finish; it is safe to paste the install line again.\n\n' "${_kosmos_back_v:-version unrecorded}" >&2
@@ -2734,17 +2735,13 @@ trap 'exit 1' HUP TERM
 _kosmos_board_decide
 if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
   if _kosmos_mode_keeps_board_off; then info "making sure Kosmos is paused for the update"; else info "pausing Kosmos for the update"; fi
-  # #4818: running before the pause, so a failed run puts it back. OUR board by its pid file and its command line
-  # (the same test as _ourboard below), not by an HTTP answer (review 4): a board busy with many agents can take more
-  # than a probe's 2 s to answer and was read as off, and another install's board answering on this port is not ours.
-  if ! _kosmos_mode_keeps_board_off && [ ! -e "$KOSMOS_HOME/board.stopped" ] && [ -f "$KOSMOS_HOME/board.pid" ]; then
-    _kosmos_wr_pid="$(cat "$KOSMOS_HOME/board.pid" 2>/dev/null || true)"
-    case "$_kosmos_wr_pid" in
-      ''|*[!0-9]*) ;;
-      *) case "$(/bin/ps -ww -p "$_kosmos_wr_pid" -o command= 2>/dev/null)" in
-           *"$KOSMOS_HOME/app/server.js"*) _kosmos_was_running=yes ;;
-         esac ;;
-    esac
+  # #4818: MEANT to be running before the pause, so a failed run puts it back: no board.stopped and a mode that runs
+  # it here, the person's own settings (review 5). Not whether it answers or has a live pid: a board busy with many
+  # agents misses a probe (review 4), and one crash-looping or mid-restart under launchd has no live pid for a moment,
+  # yet `kosmos stop` writes board.stopped either way, so a later failure left it off. Another install's board or
+  # another app on the port cannot use this: the put-back is armed only after those dies, below.
+  if ! _kosmos_mode_keeps_board_off && [ ! -e "$KOSMOS_HOME/board.stopped" ]; then
+    _kosmos_was_running=yes
   fi
   "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
   # Did the stop actually work? A POST-CONDITION of the line above, which is

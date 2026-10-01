@@ -18,7 +18,7 @@ BLOCK="$(awk '/^# BEGIN #4818 put-back$/{f=1; next} /^# END #4818 put-back$/{f=0
 case "$BLOCK" in *"_kosmos_put_board_back()"*"trap '_kosmos_on_exit' EXIT"*) : ;;
   *) echo "FAIL: could not extract the #4818 put-back block (anchor drift?)" >&2; exit 1 ;; esac
 WASRUN="$(awk '/if ! _kosmos_mode_keeps_board_off && \[ ! -e "\$KOSMOS_HOME\/board.stopped" \]/{f=1} f{print} f && /^  fi$/{exit}' "$SETUP")"
-case "$WASRUN" in *"_kosmos_was_running=yes"*"app/server.js"*|*"app/server.js"*"_kosmos_was_running=yes"*) : ;;
+case "$WASRUN" in *"_kosmos_was_running=yes"*) : ;;
   *) echo "FAIL: could not extract the #4818 was-running check (anchor drift?)" >&2; exit 1 ;; esac
 PAUSED="$(awk '/^  _kosmos_paused_board="\$_kosmos_was_running"$/{print; exit}' "$SETUP")"
 case "$PAUSED" in *'_kosmos_paused_board="$_kosmos_was_running"'*) : ;;
@@ -140,20 +140,16 @@ echo \$_kosmos_was_running")
 kill "$(cat "$H/board.pid")" 2>/dev/null; rm -f "$H/board.pid"
 if [ "$r" = yes ]; then pass "a busy board that does not answer still counts as running (by pid and path)"; else fail "a busy board read as not running (got '$r')"; fi
 
-# 1c. Review 4: another install's board answering on the port, with our board.pid pointing at something else, is NOT
-#     ours: the put-back is not armed for it.
-P=$(free_port); O=$(home other); export PORT=$P
-"$O/bin/kosmos" start
-H=$(home notours)
-sleep 60 & echo $! > "$H/board.pid"
-r=$(KOSMOS_HOME="$H" PORT=$P sh -c "set -eu
+# 1c. Review 5: a board MEANT to run but down at the moment of the pause (crash-looping, mid-restart under launchd: no
+#     live pid, nothing answering) still counts, because the person's settings say it runs here.
+H=$(home down)
+r=$(KOSMOS_HOME="$H" PORT=1 sh -c "set -eu
 $MODEFNS
 _kosmos_board_decide
 _kosmos_was_running=no
 $WASRUN
 echo \$_kosmos_was_running")
-kill "$(cat "$H/board.pid")" 2>/dev/null; rm -f "$H/board.pid"
-if [ "$r" = no ]; then pass "another install's board answering on the port does not count as ours"; else fail "another install's answering board counted as ours (got '$r')"; fi
+if [ "$r" = yes ]; then pass "a board meant to run but down at the pause still counts as running"; else fail "a board meant to run but momentarily down read as not running (got '$r')"; fi
 
 # 2. CONTROL: the board was stopped before the run (board.stopped present, nothing answering): it stays stopped.
 P=$(free_port); H=$(home stopped); export PORT=$P
