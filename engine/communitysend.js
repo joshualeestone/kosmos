@@ -809,6 +809,16 @@ function requestCommentDelete(id) {
   // #4801 review 2: comments-sent.json unreadable: what happened to this comment is unknown, so nothing is recorded.
   if (!recs) return { ok: false, retryable: true, because: 'Kosmos could not read its record of sent comments just now' };
   const before = recs[id];
+  // #4801 review 3: refused up front, in plain words, for every comment the owner's list never offers a removal for:
+  // nothing is recorded, so no row can say "Removing" for something that is not out or cannot be taken down.
+  if (before) {
+    const no = (because) => ({ ok: false, notEligible: true, because });
+    if (before.state === 'refused') return no('The community did not accept this comment, so there is nothing to remove');
+    if (before.state === 'deleted') return no('This comment has already been removed from the community');
+    if (before.state === 'withheld') return no('This comment was removed before it was sent');
+    if (before.state === 'not_sent') return no('This comment was never sent, so there is nothing to remove');
+    if (before.state === 'sent' && before.agentRefused) return no('The community refused this agent, so Kosmos cannot remove its comments');
+  }
   // #4801 review 1: out on the network right now. Not "never learned": it has an answer within a minute.
   if (before && !cdel[id] && before.state === 'sending') {
     return { ok: false, busy: true, because: 'It is being sent right now; try again in a minute' };
@@ -820,7 +830,9 @@ function requestCommentDelete(id) {
   if (before && !cdel[id] && (before.state === 'unconfirmed' || (before.state === 'sent' && !before.traceable))) {
     return { ok: false, notEligible: true, because: before.state === 'unconfirmed'
       ? 'Kosmos never learned whether this comment arrived, so it cannot remove it'
-      : 'Kosmos has no way to find this comment again, so it cannot remove it' };
+      : before.untraceableReason === 'other-registration'
+        ? 'Kosmos no longer holds the registration that sent this comment, so it cannot remove it'
+        : 'Kosmos has no way to find this comment again, so it cannot remove it' };
   }
   if (!cdel[id]) {
     cdel[id] = new Date().toISOString();
@@ -966,6 +978,10 @@ function commentRecords() {
       // Sent, with the id the service answered, by the registration this board still holds (sameServiceAgent);
       // null when that cannot be told because keys.json is unreadable.
       traceable: hasHandle && !keysRead ? null : hasHandle && sameServiceAgent(rec, k),
+      // #4801 review 3: why a sent comment cannot be found again, without any id: the service gave no id ('no-id'),
+      // or the registration that sent it is not the one this board holds now ('other-registration'). Null otherwise.
+      untraceableReason: state !== 'sent' ? null : !hasHandle ? 'no-id'
+        : keysRead && !sameServiceAgent(rec, k) ? 'other-registration' : null,
     };
   }
   return out;

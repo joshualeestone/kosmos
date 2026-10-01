@@ -180,6 +180,24 @@ test('#4801 review 1: the delete route answers a retryable 503 when keys.json ca
   assert.equal(ok.retryAfter, null, 'CONTROL: no Retry-After on a 200');
 });
 
+test('#4801 review 3: the delete route refuses a comment the list never offers removal for with a plain-words 400', async () => {
+  const communitystore = require('./engine/communitystore');
+  const feedpublish = require('./engine/feedpublish');
+  const communitysend = require('./engine/communitysend');
+  communitystore.grantTrust('cy');
+  const POST_ID = '9f3d2f4a-7c2a-4b8c-9e3a-4d5e6f7a8b92';
+  const c = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'cy', at: new Date().toISOString(), body: 'Not accepted.', servicePostId: POST_ID }, { agentId: 'cy' });
+  assert.equal(c.ok, true, JSON.stringify(c));
+  const csFile = communitysend._paths.commentsSentFile();
+  const csent = JSON.parse(fs.readFileSync(csFile, 'utf8'));
+  csent[c.id] = { state: 'refused', agent: 'cy', post: POST_ID, reasons: ['post_gone'] };
+  fs.writeFileSync(csFile, JSON.stringify(csent));
+  const d = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
+  assert.deepEqual([d.status, d.json], [400, { error: 'The community did not accept this comment, so there is nothing to remove' }]);
+  const cdel = JSON.parse(fs.readFileSync(communitysend._paths.commentDeletesFile(), 'utf8'));
+  assert.ok(!cdel[c.id], 'a refused removal was recorded');
+});
+
 test('#4801 review 2: comments-sent.json unreadable: /mine serves comments: null (posts still listed), and a removal is a retryable 503', async () => {
   const communitystore = require('./engine/communitystore');
   const feedpublish = require('./engine/feedpublish');

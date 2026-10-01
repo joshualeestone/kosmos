@@ -58,8 +58,10 @@ the base is now main at 84540d310.
     weakest premise below: keys.json's corrupt-file message says it may be "repaired or removed", and a removed
     keys.json registers the agent afresh as a NEW service agent. That agent's DELETE gets 404 ("not yours"), which
     sweepCommentDeletes would settle as removed while the comment is still public. Now such a comment is
-    untraceable: no Delete, the row says Kosmos has no way to find it again, and the sweep never asks. A record
-    with no agentId (none exist outside this unmerged stack) is treated as the current registration.
+    untraceable: no Delete, the row says Kosmos no longer holds the registration that sent it (review 3), and the
+    sweep never asks. A record with no agentId is NOT rare: #4741 is on main (84540d310), so every board on main
+    sends comments without agentId until this merges. Such a record counts as the current registration only when
+    `keys[agent].registeredAt <= rec.sentAt` (review 1 NIT e); that fallback is what covers those boards.
 
 ## Rejected
 
@@ -142,8 +144,9 @@ today (server.js runs `communitysend.sweep()` on its own timer). If the sweep ev
 comment mid-POST would read `unconfirmed` and its removal would be refused as "never learned", the pre-round-1
 behaviour, not a wrong removal. Also: a legacy record (no agentId) sent in the same sweep that first registered its
 agent compares a real-time `registeredAt` with the sweep-start `sentAt`, so it reads untraceable (no Delete) rather
-than wrongly removable; only records from this unmerged stack lack agentId, and sendComment writes it whenever the
-service answered `agent_id`.
+than wrongly removable. Records without agentId are every comment a board on main sends until this merges (#4741
+is on main), so this fallback is load-bearing, not legacy; from this branch on, sendComment writes agentId whenever
+the service answered `agent_id`.
 
 ## Review round 2
 
@@ -191,3 +194,55 @@ says "only if", which promises no more than is true, and the list below says why
 - Red arms: W2 engine arm red with commentRecords' null reverted (comments-sent.json arm) and, separately, with only
   the comment-deletes.json null reverted. NIT a red both ways: always month-and-day reds the other-year arm, always
   with-year reds the this-year arm.
+
+## Review round 3
+
+- **W (the OFF note promised every comment could be deleted).** `#community-off-note` now ends "Posts and comments
+  already in the community stay up. You can delete them in the list below, which says when one cannot be removed."
+  (an unconfirmed comment, one with no id, or one from a registration the board no longer holds can never be
+  removed). render-community-switch-4288.js's regex moved with it, on its one line only (nopopup-4820 edits the same
+  file and page; nothing else in either was touched for this).
+- **NIT 1.** The ask for a PENDING comment reads "It will not be sent. It cannot be undone." Sent comments and all
+  posts keep "This comes down from community.installkosmos.com within a few minutes." Browser: the COMMENT arm opens
+  c5's ask and asserts the exact text.
+- **NIT 2.** A pending comment's row reads "Not sent yet." with no retry promise (comments only; the post wording is
+  unchanged). Browser: c5 says "Not sent yet." and not "tries again".
+- **NIT 3.** `commentRecords` and `mineComments` carry `untraceableReason`: `'no-id'` (the service gave no id) or
+  `'other-registration'` (sent by a registration keys.json no longer holds, by agentId or the registeredAt fallback),
+  null otherwise (an unconfirmed row's own state says why). No id of any kind. The row for the latter says "In the
+  community. Kosmos no longer holds the registration that sent it, so it cannot remove it."; `requestCommentDelete`
+  refuses it with "Kosmos no longer holds the registration that sent this comment, so it cannot remove it". Engine
+  test covers agentId mismatch and a no-agentId record older than the registration; browser c11 asserts the row.
+- **NIT 4.** Decision 12 and the round-1 weakest premise now say records without agentId are what every board on
+  main writes until this merges, and the registeredAt fallback is what covers them.
+- **NIT 5.** `requestCommentDelete` refuses up front (`notEligible`, 400) every comment the list never offers removal
+  for, with nothing recorded: refused ("The community did not accept this comment, so there is nothing to remove"),
+  deleted ("This comment has already been removed from the community"), withheld ("This comment was removed before
+  it was sent"), not sent ("This comment was never sent, so there is nothing to remove"), and sent by an agent the
+  community refused ("The community refused this agent, so Kosmos cannot remove its comments"). Engine test per
+  state with a control that sent and pending are still taken; route test for the 400.
+
+### Decided in round 3 (beyond the brief)
+
+1. **A comment a moderator took down on the service still reads "In the community" with Delete.** The service has no
+   route to read a comment's take-down, so the board cannot know. Delete then gets 404 from the service, and
+   sweepCommentDeletes settles it as Removed. The row ends right; only its wording before the removal is stale.
+2. **A second request for a removal already on record still answers ok** for a sent comment (the "asking twice is
+   harmless" pin), but a deleted or withheld one is now refused, since the list never offers it again.
+3. **A pending comment of a refused agent is not in the refusal list** (the brief named only the sent one). The list
+   offers it no Delete; asked through the API, the removal records a withhold, which is harmless and true.
+
+### Weakest premise (round 3)
+
+That `untraceableReason` is decidable from what the board holds. 'other-registration' compares the record's agentId
+(or its sentAt, for a record without one) with keys.json's current entry. If keys.json is hand-repaired to an older
+registration's remoteId, a comment sent by the newer one would read "no longer holds" when the service would in
+fact still answer it; the row is wrong but conservative (no Delete), never a false removal.
+
+### Verified (round 3)
+
+- engine/communitycommentmine-4801.test.js 23/23; server.community-gate.test.js 22/22. All engine/community*.test.js
+  and server.community*.test.js (19 files): 275 tests, 273 pass, 0 fail, 2 skipped (the contract tests).
+- Red arms: NIT 3 red with the reason computation reverted (rows read 'no-id' for other-registration) and,
+  separately, with only the refusal wording reverted. NIT 5 red with the whole up-front block removed (engine and
+  route), and with each of its five branches removed on its own.

@@ -16799,7 +16799,7 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" id="community-industry-hint" style="margin:4px 0 0;">Optional. A profile reads “Works for” and what you pick; with none picked it leaves the line out.</p>
       <p class="dhint" id="community-industry-msg" role="status" style="margin:4px 0 0;"></p>
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
-      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None. Posts and comments already in the community stay up until you delete them below.</p>
+      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None. Posts and comments already in the community stay up. You can delete them in the list below, which says when one cannot be removed.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #4525: what the agents wrote that is held for the person, each with Release and Discard.
            Since #3485 (2026-09-30) an agent's clean post publishes straight away, so this list holds
@@ -29625,13 +29625,16 @@ function communityMineCommentWord(r) {
   if (r.state === 'unconfirmed') return 'Sent, not confirmed. Kosmos never learned whether this arrived, so it cannot remove it.';
   /* review 1: keys.json unreadable is not "another registration": unknown, so no Delete for now, and no false "never". */
   if (r.traceUnknown) return 'In the community. Kosmos could not read its community registrations just now.';
+  /* review 3: the board re-registered since this was sent, so the registration that could remove it is gone. */
+  if (r.untraceable && r.untraceableReason === 'other-registration') return 'In the community. Kosmos no longer holds the registration that sent it, so it cannot remove it.';
   if (r.untraceable) return 'In the community. Kosmos has no way to find this comment again, so it cannot remove it.';
   if (r.agentRefused) return 'In the community. The community refused this agent, so Kosmos cannot remove its comments.';
   if (r.deleteRetrying) return 'Removing. The community has not taken it down yet; Kosmos tries again every few minutes.';
   if (r.deleteRequested) return 'Removing. It comes down from the community within a few minutes.';
   switch (r.state) {
     case 'sent': return 'In the community';
-    case 'pending': return 'Not sent yet. Kosmos tries again every few minutes.';
+    /* review 3: no promise of when it goes (a send can wait on the switch, the daily cap or a held release). */
+    case 'pending': return 'Not sent yet.';
     default: return '';
   }
 }
@@ -29751,8 +29754,10 @@ function openCommunityDelete(r, li) {
   say.className = 'dhint';
   say.style.margin = '0 0 6px';
   /* A comment on a community post is not shown on this board, so it does not "stay" here. */
-  say.textContent = 'This comes down from community.installkosmos.com within a few minutes.'
-    + (r.kind === 'comment' ? '' : ' It stays on this board.') + ' It cannot be undone.';
+  /* review 3: a pending comment is not out, so a removal stops it going rather than taking it down. */
+  say.textContent = r.kind === 'comment' && r.state === 'pending' ? 'It will not be sent. It cannot be undone.'
+    : 'This comes down from community.installkosmos.com within a few minutes.'
+      + (r.kind === 'comment' ? '' : ' It stays on this board.') + ' It cannot be undone.';
   const keep = document.createElement('button');
   keep.className = 'btn community-mine-keep';
   keep.type = 'button';

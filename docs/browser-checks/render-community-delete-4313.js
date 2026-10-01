@@ -93,7 +93,7 @@ const answer = (body, status = 200) => (route) => route.fulfill({ status, conten
 const row = (id, over) => ({ id, title: 'Post ' + id, agent: 'Ava', postedAt: '2026-09-28T08:00:00Z', state: 'sent', deleteRequested: false, takenDown: false, takeDownReason: null, agentRefused: false, deleteRetrying: false, canDelete: true, ...over });
 // #4801: communitymine.mineComments()'s row shape.
 const CPOST = '7d1b0d2e-5a0e-4f6a-9c1e-2b3c4d5e6f70';   // the community post the comments are on
-const crow = (id, over) => ({ id, kind: 'comment', text: 'Reply ' + id, agent: 'Bo', postedAt: '2026-09-28T09:00:00Z', remotePostId: CPOST, state: 'sent', deleteRequested: false, deleteRetrying: false, agentRefused: false, untraceable: false, traceUnknown: false, canDelete: true, ...over });
+const crow = (id, over) => ({ id, kind: 'comment', text: 'Reply ' + id, agent: 'Bo', postedAt: '2026-09-28T09:00:00Z', remotePostId: CPOST, state: 'sent', deleteRequested: false, deleteRetrying: false, agentRefused: false, untraceable: false, untraceableReason: null, traceUnknown: false, canDelete: true, ...over });
 
 async function run() {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
@@ -212,13 +212,15 @@ async function run() {
       comments: [
         cdeleted ? crow('c1', { deleteRequested: true, canDelete: false }) : crow('c1', { postedAt: C1_AT }),
         crow('c2', { state: 'unconfirmed', untraceable: true, canDelete: false, postedAt: '2026-09-28T07:00:00Z' }),
-        crow('c3', { untraceable: true, canDelete: false, postedAt: '2026-09-28T06:00:00Z' }),   // sent, the service gave no id
+        crow('c3', { untraceable: true, untraceableReason: 'no-id', canDelete: false, postedAt: '2026-09-28T06:00:00Z' }),   // sent, the service gave no id
         crow('c4', { state: 'deleted', deleteRequested: true, canDelete: false, postedAt: '2026-09-28T05:00:00Z' }),
         crow('c5', { state: 'pending', postedAt: '2026-09-28T04:00:00Z' }),
         crow('c6', { state: 'sending', canDelete: false, postedAt: '2026-09-28T03:00:00Z' }),   // its POST is out now
         crow('c7', { traceUnknown: true, canDelete: false, postedAt: '2026-09-28T02:00:00Z' }),  // keys.json unreadable
         crow('c9', { remotePostId: 'not/a plain id', postedAt: '2026-09-28T01:00:00Z' }),   // review 2 NIT b: no link
         crow('c10', { remotePostId: null, postedAt: '2026-09-28T00:30:00Z' }),               // review 2 NIT b: no link
+        // review 3: sent by a registration the board no longer holds.
+        crow('c11', { untraceable: true, untraceableReason: 'other-registration', canDelete: false, postedAt: '2026-09-28T00:10:00Z' }),
         crow('c8', { postedAt: '2019-09-28T10:00:00Z' }),   // review 2 NIT a: another year, so the date says the year
       ],
     })(route));
@@ -226,7 +228,7 @@ async function run() {
     await openAutomation(p5);
     const c = await readList(p5);
     const ids = c.rows.map((x) => x.id).join(',');
-    check('COMMENT: comments list with the posts, newest first', ids === 'c1,a1,c2,c3,c4,c5,c6,c7,c9,c10,c8', ids);
+    check('COMMENT: comments list with the posts, newest first', ids === 'c1,a1,c2,c3,c4,c5,c6,c7,c9,c10,c11,c8', ids);
     const byId = Object.fromEntries(c.rows.map((x) => [x.id, x]));
     check('COMMENT: a comment row reads as a comment, with its text and agent', byId.c1 && /^Comment: Reply c1/.test(byId.c1.text) && /Bo/.test(byId.c1.text) && /In the community/.test(byId.c1.text), JSON.stringify(byId.c1));
     check('COMMENT: Delete shows where the board says canDelete, and nowhere else', JSON.stringify(['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'].map((i) => byId[i] && byId[i].del)) === '[true,false,false,false,true,false,false]', JSON.stringify(c.rows));
@@ -254,6 +256,15 @@ async function run() {
     check('COMMENT: a comment from another year says the year (review 2 NIT a)', where.oldDay === where.expectOld, JSON.stringify(where));
     check('COMMENT: an unconfirmed comment says why it cannot be removed', byId.c2 && /never learned whether this arrived, so it cannot remove it/.test(byId.c2.text), JSON.stringify(byId.c2));
     check('COMMENT: a comment sent with no id says why it cannot be removed', byId.c3 && /no way to find this comment again, so it cannot remove it/.test(byId.c3.text), JSON.stringify(byId.c3));
+    check('COMMENT: a comment from a registration the board no longer holds says so (review 3)', byId.c11 && byId.c11.del === false && /no longer holds the registration that sent it, so it cannot remove it/.test(byId.c11.text) && !/no way to find/.test(byId.c11.text), JSON.stringify(byId.c11));
+    check('COMMENT: a pending comment says Not sent yet, with no promise of when (review 3)', byId.c5 && /Not sent yet\./.test(byId.c5.text) && !/tries again/.test(byId.c5.text), JSON.stringify(byId.c5));
+    // Review 3: the ask for a PENDING comment says it will not be sent, never that it comes down from the community.
+    await p5.click('li[data-id="c5"] .community-mine-start');
+    await p5.waitForTimeout(200);
+    const pk = await p5.evaluate(() => { const ask = document.querySelector('li[data-id="c5"] .community-mine-ask'); return ask ? ask.querySelector('p').textContent : ''; });
+    check('COMMENT: the ask for a pending comment says it will not be sent (review 3)', pk === 'It will not be sent. It cannot be undone.', pk);
+    await p5.click('li[data-id="c5"] .community-mine-keep');
+    await p5.waitForTimeout(100);
     check('COMMENT: a removed comment says removed', byId.c4 && /Removed from the community/.test(byId.c4.text), JSON.stringify(byId.c4));
     await p5.click('li[data-id="c1"] .community-mine-start');
     await p5.waitForTimeout(200);
