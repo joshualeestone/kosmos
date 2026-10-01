@@ -188,7 +188,7 @@ async function shaOf(url) {
   const r = await request(url, { timeoutMs: Math.max(TIMEOUT_MS, 300000) });
   if (!r.res) return { error: r.error };
   try {
-    if (r.res.status !== 200) return { error: 'answered ' + r.res.status };
+    if (r.res.status !== 200) { try { await r.res.body.cancel(); } catch { /* gone */ } return { error: 'answered ' + r.res.status }; }
     const h = crypto.createHash('sha256');
     let n = 0;
     for await (const chunk of r.res.body) {
@@ -220,6 +220,7 @@ async function gather(prev, now) {
   const pending = [];
   /* Every run that still sees a mismatch keeps its key, so one that lasts stays an alarm (dropping it once said would
      flap: alarm, "healthy", alarm). With no state at all (prev.noState) nothing could be remembered: first sight. */
+  const evaluated = new Set();   // the mismatch keys this run got as far as comparing, matching or not
   const mismatch = (key, text) => { pending.push(key); if (prevPending.includes(key) || (prev && prev.noState)) add(key, text); };
 
   // The community site and the relay first: they also tell whether THIS computer can reach the internet.
@@ -282,6 +283,7 @@ async function gather(prev, now) {
       // What the installers compare against (install/setup.sh verify_download, setup.ps1): cheap, so every run.
       const s = await getJson(url + '.sha256');
       const said = s.status === 200 && s.text ? String(s.text).trim().split(/\s+/)[0].toLowerCase() : null;
+      if (s.status === 200) evaluated.add('sidecar-sha:' + a.name);
       if (s.status !== 200) add('sidecar-missing:' + a.name, a.name + '.sha256' + by + ' is not served (' + why(s) + '): installers refuse the download without it');
       else if (said !== want) mismatch('sidecar-sha:' + a.name, a.name + '.sha256 says ' + shown(said).slice(0, 12) + ', the pointer says ' + want.slice(0, 12) + ': installers refuse the download');
     }
@@ -297,6 +299,7 @@ async function gather(prev, now) {
       rec = { at: now, expect: want, stamp: h.stamp, got: s.sha || null, error: s.error || null };
     }
     sha[url] = rec;
+    if (!rec.error) evaluated.add('sha:' + a.name);
     if (rec.error) add('unreadable:' + a.name, a.name + by + ' could not be read whole to check its sha256 (' + rec.error + ')');
     else if (rec.got !== want) mismatch('sha:' + a.name, a.name + by + ' does not match: served sha256 ' + String(rec.got).slice(0, 12) + ', pointer says ' + want.slice(0, 12));
   }
@@ -318,9 +321,15 @@ async function gather(prev, now) {
       rec = { at: now, expect: want, stamp: h.stamp, got: r.sha || null, error: r.error || null };
     }
     sha[url] = rec;
+    if (!rec.error) evaluated.add('sha:' + f.name);
     if (rec.error) add('unreadable:' + f.name, f.name + ' could not be read whole to check its sha256 (' + rec.error + ')');
     else if (rec.got !== want) mismatch('sha:' + f.name, f.name + ' does not match its own .sha256: served ' + String(rec.got).slice(0, 12) + ', sidecar says ' + want.slice(0, 12));
   }
+  /* What this run did not get as far as comparing (its HEAD or sidecar failed, its pointer was not served) keeps its
+     earlier record: a mismatch still standing is not forgotten by one run that stopped short, and a hash is not
+     downloaded again for it. */
+  for (const k of prevPending) if (!evaluated.has(k) && !pending.includes(k)) pending.push(k);
+  for (const [url, rec] of Object.entries(prevSha)) if (!(url in sha)) sha[url] = rec;
   return { now, unknown: false, alarm: problems.length > 0, problems, artifacts: urls.size + FIXED.length, sha, pending };
 }
 
@@ -328,7 +337,13 @@ async function gather(prev, now) {
 function decidePost(v, last, now) {
   const key = v.unknown ? 'unknown' : v.alarm ? 'alarm:' + v.problems.map((p) => p.key).sort().join(',') : 'clear';
   const due = !last || now - (last.at || 0) >= REPOST_S;
-  if (key === 'clear') return last && last.key && last.key !== 'clear' ? { post: 'cleared', key } : { post: null, key };
+  if (key === 'clear') {
+    if (!(last && last.key && last.key !== 'clear')) return { post: null, key };
+    /* All-clear only after TWO clean runs in a row: a problem that comes and goes is one standing alarm, not an alarm
+       and an all-clear every 15 minutes. The first clean run keeps the last key, so the same alarm returning is not
+       reposted either. */
+    return (v.cleanRuns || 0) >= 2 ? { post: 'cleared', key } : { post: null, key: last.key, hold: true };
+  }
   if (!last || last.key !== key || due) return { post: v.unknown ? 'unknown' : 'alarm', key };
   return { post: null, key };
 }
@@ -489,7 +504,8 @@ async function main(argv) {
     // One run: a sha or sidecar mismatch seen for the first time is listed under `pending`, not yet an alarm.
     const v = await gather(readState(), now);
     process.stdout.write(JSON.stringify(Object.assign({}, v, { sha: undefined })) + '\n');
-    return v.unknown ? 2 : v.alarm ? 1 : 0;
+    if (v.alarm) return 1;
+    return v.unknown || (v.pending && v.pending.length) ? 2 : 0;   // a first sighting is not yet healthy
   }
   const noState = stateProblem();
   /* No state to keep: run (and download) at most once a day, in one fixed 15-minute window of the UTC day, as
@@ -502,10 +518,11 @@ async function main(argv) {
   const state = noState ? { noState: true } : readState();
   const v = await gather(state, now);
   const code = v.unknown ? 2 : v.alarm ? 1 : 0;
+  v.cleanRuns = code === 0 ? (Number(state && state.cleanRuns) || 0) + 1 : 0;
   const since = state ? Number(state.unknownSince) : NaN;
   const unknownSince = v.unknown ? (Number.isFinite(since) && since > 0 && since <= now ? since : now) : null;
   if (!noState && v.unknown && now - unknownSince < UNKNOWN_GRACE_S) {
-    writeState({ pane: lastFor(state, 'pane', now), card: lastFor(state, 'card', now), lastRunAt: now, unknownSince, sha: v.sha, pending: v.pending });
+    writeState({ pane: lastFor(state, 'pane', now), card: lastFor(state, 'card', now), lastRunAt: now, unknownSince, sha: v.sha, pending: v.pending, cleanRuns: v.cleanRuns });
     return code;
   }
   const next = {};
@@ -515,7 +532,7 @@ async function main(argv) {
     next[ch] = last;
     const d = decidePost(v, last, now);
     due[ch] = d;
-    if (!d.post && (!last || last.key !== d.key)) next[ch] = { key: d.key, at: now };
+    if (!d.post && !d.hold && (!last || last.key !== d.key)) next[ch] = { key: d.key, at: now };
   }
   const cardLast = next.card;
   if (!due.card.post && due.card.key === 'clear' && cardLast && cardLast.key === 'clear' && now - (cardLast.at || 0) >= WATCHING_S) {
@@ -543,7 +560,7 @@ async function main(argv) {
     const sentTo = CHANNELS.filter((ch) => want[ch] && went[ch]).map((ch) => (unsure[ch] ? ch + ' (unconfirmed)' : ch));
     process.stdout.write(new Date(now * 1000).toISOString() + ' ' + (sentTo.length ? 'posted to ' + sentTo.join(' and ') : 'posted NOWHERE') + ': ' + text + '\n');
   }
-  writeState({ pane: next.pane, card: next.card, lastRunAt: now, unknownSince, sha: v.sha, pending: v.pending });
+  writeState({ pane: next.pane, card: next.card, lastRunAt: now, unknownSince, sha: v.sha, pending: v.pending, cleanRuns: v.cleanRuns });
   return code;
 }
 

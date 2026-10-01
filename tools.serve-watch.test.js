@@ -139,12 +139,14 @@ test('a pointer naming a missing artifact alarms within one run, on the pane and
   const before = st.card();
   assert.equal((await run(base, dir, st, { now: T0 + 1800 })).code, 1);
   assert.equal(st.card(), before, 'the same alarm was reposted within the hour');
-  // Put back: one all-clear, then silence.
+  // Put back: one all-clear after two clean runs in a row, then silence.
   site.files.set('kosmos-1.0.0-arm64.tar.gz', ['application/gzip', TAR]);
   assert.equal((await run(base, dir, st, { now: T0 + 2700 })).code, 0);
+  assert.doesNotMatch(st.card(), /back to healthy/, 'cleared after a single clean run');
+  assert.equal((await run(base, dir, st, { now: T0 + 3600 })).code, 0);
   assert.match(st.card(), /back to healthy/);
   const after = st.card();
-  assert.equal((await run(base, dir, st, { now: T0 + 3600 })).code, 0);
+  assert.equal((await run(base, dir, st, { now: T0 + 4500 })).code, 0);
   assert.equal(st.card(), after, 'the all-clear was repeated');
 }));
 
@@ -325,6 +327,7 @@ test('after "could not tell", the all-clear says it is able to check again', () 
   assert.match(st.card(), /could not tell/);
   site.catchAll = false;
   assert.equal((await run(base, dir, st, { now: T0 + 4500 })).code, 0);
+  assert.equal((await run(base, dir, st, { now: T0 + 5400 })).code, 0);
   assert.match(st.card(), /able to check again: every live download/);
 }));
 
@@ -380,4 +383,32 @@ test('a mismatch that lasts stays an alarm: no "back to healthy" between sightin
   for (let i = 0; i < 4; i++) codes.push((await run(base, dir, st, { now: T0 + i * 900 })).code);
   assert.deepEqual(codes, [0, 1, 1, 1], 'a standing mismatch flapped');
   assert.doesNotMatch(st.card(), /back to healthy/, 'a standing mismatch posted an all-clear');
+}));
+
+test('a problem that comes and goes is one standing alarm, not an alarm and an all-clear every run', () => withSite(async ({ site, base, dir, st }) => {
+  const posts = () => (st.card().match(/serve watch \(kosmos#4877\)/g) || []).length;
+  for (let i = 0; i < 6; i++) {
+    site.relayUp = i % 2 === 1;   // down, up, down, up...
+    await run(base, dir, st, { now: T0 + i * 900 });
+  }
+  assert.equal(posts(), 1, 'a flapping relay posted ' + posts() + ' times: ' + st.card());
+  assert.doesNotMatch(st.card(), /back to healthy/);
+}));
+
+test('a lasting mismatch survives a run that stopped short of comparing it', () => withSite(async ({ site, base, dir, st }) => {
+  const bad = ['text/plain', '0'.repeat(64) + '  kosmos-1.0.0-win-x64.zip\n'];
+  site.files.set('kosmos-1.0.0-win-x64.zip.sha256', bad);
+  await run(base, dir, st, { now: T0 });
+  assert.equal((await run(base, dir, st, { now: T0 + 900 })).code, 1, 'CONTROL: the mismatch alarms on its second sighting');
+  site.failGet.set('/dist/kosmos-1.0.0-win-x64.zip.sha256', 2);
+  await run(base, dir, st, { now: T0 + 1800 });   // the sidecar read fails both tries: this run cannot compare it
+  assert.equal((await run(base, dir, st, { now: T0 + 2700 })).code, 1, 'the mismatch was forgotten after one short run');
+  assert.doesNotMatch(st.card(), /back to healthy/);
+}));
+
+test('--check calls a first sighting "could not tell", not healthy', () => withSite(async ({ site, base, dir, st }) => {
+  site.files.set('kosmos-1.0.0-win-x64.zip.sha256', ['text/plain', '0'.repeat(64) + '  kosmos-1.0.0-win-x64.zip\n']);
+  const r = await run(base, dir, st, { now: T0, args: ['--check'] });
+  assert.equal(r.code, 2, r.out);
+  assert.ok(JSON.parse(r.out).pending.includes('sidecar-sha:kosmos-1.0.0-win-x64.zip'));
 }));
