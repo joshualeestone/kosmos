@@ -66,3 +66,14 @@ never-reported one; ride-on carriers are @-addressed posts. engine/roomhold-agyh
   DOCUMENTED in its comment (consistent with the idle rule).
 - N5 stale comments (messages.js "mid-turn", roomhold.js "proves every turn"): FIXED. N7 `report idle --auto` by an
   agent: DOCUMENTED. N6, N8, N9: kept.
+
+## Review 3 (Sonnet, blind, source-only): 1 blocker, 1 warning, 2 nits
+- B1 the defaults block changed with no DOCTRINE_VERSION bump or pinned fingerprint (defaults.test.js would go red,
+  and existing agents are never offered the change): FIXED, version 21 with a log entry, fingerprint 2211bf1f791a9399
+  pinned (computed from the block on this branch). And moved under a NEW heading, `### Who a room post wakes`, so the
+  agents already posting in rooms are re-offered it (the version 5/6/7/8 delivery reason), not only new agents.
+- W2 "does not wake" was broader than the rule (never-reported or self-idle members are still typed): FIXED, "may
+  not wake", in the doctrine and both usage lines.
+- N5 the production-shape arm's last assertion was weaker than its title: FIXED, the line must use the asked form for
+  the addressed id and not list the plain id as asked.
+- N6 usage suffix after the parenthesis: kept (both CLIs equal).

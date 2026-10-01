@@ -492,6 +492,8 @@ test('#4624 follow-up review 2: the production shape, a quota-paused agy member 
     const done = await roomhold.flushReleased(r, releasedDeps(r, Date.now()));
     assert.deepEqual(done.map((d) => [d.name, d.state]), [['mara', chat.DELIVERY.PLACED]]);
     const line = typedTo(tmux, 'mara')[0] || '';
-    assert.match(line, new RegExp(asked.id), 'the addressed post was not told after the reset');
+    // The retry ran because a held post names her, and the line asks for that answer only (review 3).
+    assert.match(line, new RegExp('names you and asks for your answer \\(' + asked.id + '\\)'), 'the addressed post was not told as asked: ' + line);
+    assert.doesNotMatch(line, new RegExp('asks for your answer \\([^)]*' + plain.id), 'the un-addressed post was told as asked');
   });
 });
