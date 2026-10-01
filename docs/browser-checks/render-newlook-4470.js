@@ -22,9 +22,13 @@
  *  - the Agents page in the new look: the plain idle card and the Agents tile lose their border, New agent is a
  *    40px round grey button, a pressed Messages filter still looks pressed; the working card's stroke and the
  *    current view's gold are the same as with the look off; Issue, Question and could-not-read cards keep their
- *    strokes; the Messages filter rests on the grey ground and keeps its width under the pointer; a board note is
+ *    strokes (the could-not-read dash at least 1.5:1 off its ground, measured by EDGE_RATIO); the Messages filter rests on the grey ground and keeps its width under the pointer; a board note is
  *    the grey box while a could-not-read note keeps its solid border (and a note in a project page keeps today's
  *    look); and with the look off, today's bordered card, tile and New agent tile (the control),
+ *  - the Agents LIST in the new look (listLook): a plain row with no border, 16px corners and its name button left;
+ *    a border under the pointer with the ground unchanged; a needs-you row's red and a could-not-read row's dash
+ *    you can see (1.5:1); and against the look off, today's state wash, red and dash, and today's bordered row
+ *    with a centred name (the control),
  *  - light, dark and 390 wide, with no sideways scroll and no page errors.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -205,6 +209,9 @@ async function listLook(page) {
    and its words); the floor exists to catch a dash that has vanished (1.04:1 was measured before #4470's fix). */
 const EDGE_RATIO = `(el) => {
   const cs = getComputedStyle(el);
+  /* Only rgb()/rgba() is read (0-255 channels). Anything else (color(srgb ...), oklch) would be misread as near
+     black and could pass falsely, so it returns 0, which fails every floor. */
+  if (![cs.backgroundColor, cs.borderTopColor].every((v) => /^rgba?\\(/.test(v))) return 0;
   const rgba = (v) => { const m = v.match(/[\\d.]+/g).map(Number); return { r: m[0], g: m[1], b: m[2], a: m.length > 3 ? m[3] : 1 }; };
   const over = (t, u) => ({ r: t.r * t.a + u.r * (1 - t.a), g: t.g * t.a + u.g * (1 - t.a), b: t.b * t.a + u.b * (1 - t.a), a: 1 });
   const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
@@ -514,7 +521,7 @@ const AGENTS_LOOK = `(() => {
       /* The new look remaps the colour tokens (its surface and rule greys differ from today's), so the row's own
          colour and the dash's colour are the new look's, not today's. What must NOT change is the state wash laid
          over the surface, and the needs-you red, which is a fixed colour in both looks. */
-      chk(listOn.found && listOff.found && listOn.groundImg === listOff.groundImg && listOn.groundImg !== 'none' && listOn.groundColor !== 'rgba(0, 0, 0, 0)',
+      chk(listOn.found && listOff.found && listOn.groundImg === listOff.groundImg && listOn.groundImg !== 'none' && /^rgb\(/.test(listOn.groundColor),   // rgb(), never rgba(): an opaque surface
         `${tag} the plain row keeps today's state wash with the look on, on an opaque surface (only its border goes)`, JSON.stringify({ on: [listOn.groundImg, listOn.groundColor], off: [listOff.groundImg, listOff.groundColor] }));
       chk(listOn.strokes && listOff.strokes && listOn.strokes.attn.color === listOff.strokes.attn.color && listOn.strokes.unk.style === listOff.strokes.unk.style,
         `${tag} the needs-you edge is today's red, and the could-not-read edge still dashed, with the look on`, JSON.stringify({ on: listOn.strokes, off: listOff.strokes }));
