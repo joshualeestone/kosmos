@@ -583,8 +583,11 @@ test('#4833 slice 2 review 3: a burst in one second is read 30 then the rest, no
     b: { state: 'sent', agent: 'Bur4833', remoteId: RP(2), sentAt: '2026-09-30T11:00:00Z' } }, {});
   // On each of two posts, 10 top-level comments with 2 replies each, ALL in the same second: 60 items, one timestamp.
   let n = 0; const id = () => 'd1000000-0000-4000-8000-0000000000' + String(n++).padStart(2, '0');
-  const page = () => Array.from({ length: 10 }, () => { const t = comment({ id: id(), created_at: T(9) }); t.replies = [0, 1].map(() => comment({ id: id(), parent_id: t.id, created_at: T(9) })); t.reply_count = 2; return t; });
-  const pa = page(); const pb = page();
+  // Ids INTERLEAVED across the two posts, so the 30-cap cuts both posts mid-way and each gets a (time, id) mark: the
+  // case where an overlapping mark would re-show the same second's items forever.
+  const one3 = () => { const t = comment({ id: id(), created_at: T(9) }); t.replies = [0, 1].map(() => comment({ id: id(), parent_id: t.id, created_at: T(9) })); t.reply_count = 2; return t; };
+  const pa = []; const pb = [];
+  for (let i = 0; i < 10; i += 1) { pa.push(one3()); pb.push(one3()); }
   const all = new Set([...pa, ...pb].flatMap((t) => [t.id, ...t.replies.map((x) => x.id)]));
   assert.equal(all.size, 60, 'CONTROL: the fixture holds 60 distinct items');
   serve({ ['/posts/' + RP(1) + '/comments']: () => ({ status: 200, json: { comments: pa } }), ['/posts/' + RP(2) + '/comments']: () => ({ status: 200, json: { comments: pb } }) });
@@ -596,6 +599,8 @@ test('#4833 slice 2 review 3: a burst in one second is read 30 then the rest, no
   assert.equal(two.length, 30, 'the second read did not carry the other 30 (the burst jammed)');
   assert.equal(new Set([...one, ...two]).size, 60, 'something was shown twice or lost across the two reads');
   assert.equal(three.length, 0, 'a third read repeated what was shown');
+  const marks = JSON.parse(fs.readFileSync(seenPath('Bur4833'), 'utf8')).posts;
+  assert.ok(Object.values(marks).length === 2, 'CONTROL: both posts carry a mark');
 });
 
 test('#4833 slice 2 review 3: a post that always fails holds only its own mark; the others move on', async () => {
