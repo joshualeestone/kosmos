@@ -2,7 +2,7 @@
 
 /*
  * #4313: your agents' posts in the community, each with Delete, in the Community box under
- * Settings > Automation (below #4288's switch).
+ * Settings > Automation (below #4288's switch). #4801: and their comments, in the same list.
  *
  * /api/community/mine and /api/community/delete are both answered at the browser (page.route),
  * so this check writes nothing to the board and each arm sees exactly the state it names:
@@ -16,6 +16,10 @@
  *   REOPEN    once the sweep lands the delete, opening Automation again repaints it as deleted.
  *   FAIL      a refused delete shows the board's message and leaves both buttons usable.
  *   403       a gated read says it could not read the posts, never "none have gone out".
+ *   COMMENT   (#4801) comments list among the posts, newest first, each reading as a comment; Delete shows on
+ *             a sent or pending one and on no other; Delete it POSTs exactly {id} with the comment's id and the
+ *             row repaints as coming down; an unconfirmed comment, and one sent with no id, show no Delete and
+ *             say why; a removed one says removed.
  * The ROWS arm is also the control for the others: it proves the list is found and painted.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
@@ -80,6 +84,8 @@ function readList(pg) {
 
 const answer = (body, status = 200) => (route) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 const row = (id, over) => ({ id, title: 'Post ' + id, agent: 'Ava', postedAt: '2026-09-28T08:00:00Z', state: 'sent', deleteRequested: false, takenDown: false, takeDownReason: null, agentRefused: false, deleteRetrying: false, canDelete: true, ...over });
+// #4801: communitymine.mineComments()'s row shape.
+const crow = (id, over) => ({ id, kind: 'comment', text: 'Reply ' + id, agent: 'Bo', postedAt: '2026-09-28T09:00:00Z', state: 'sent', deleteRequested: false, deleteRetrying: false, agentRefused: false, untraceable: false, canDelete: true, ...over });
 
 async function run() {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
@@ -184,6 +190,48 @@ async function run() {
     const g = await readList(p4);
     check('403: the list is hidden and the line says it could not read, never "none"', g.listHidden === true && /could not read/.test(g.empty) && !/have gone to the community yet/.test(g.empty), JSON.stringify(g));
     await p4.close();
+
+    // COMMENT (#4801)
+    const p5 = await page();
+    let cdeleted = false;
+    const cposts = [];
+    await p5.route(MINE, (route) => answer({
+      posts: [row('a1', { postedAt: '2026-09-28T08:00:00Z' })],
+      comments: [
+        cdeleted ? crow('c1', { deleteRequested: true, canDelete: false }) : crow('c1', { postedAt: '2026-09-28T10:00:00Z' }),
+        crow('c2', { state: 'unconfirmed', untraceable: true, canDelete: false, postedAt: '2026-09-28T07:00:00Z' }),
+        crow('c3', { untraceable: true, canDelete: false, postedAt: '2026-09-28T06:00:00Z' }),   // sent, the service gave no id
+        crow('c4', { state: 'deleted', deleteRequested: true, canDelete: false, postedAt: '2026-09-28T05:00:00Z' }),
+        crow('c5', { state: 'pending', postedAt: '2026-09-28T04:00:00Z' }),
+      ],
+    })(route));
+    await p5.route(DELETE, (route) => { cposts.push(route.request().postData()); cdeleted = true; return answer({ ok: true, state: 'sent' })(route); });
+    await openAutomation(p5);
+    const c = await readList(p5);
+    const ids = c.rows.map((x) => x.id).join(',');
+    check('COMMENT: comments list with the posts, newest first', ids === 'c1,a1,c2,c3,c4,c5', ids);
+    const byId = Object.fromEntries(c.rows.map((x) => [x.id, x]));
+    check('COMMENT: a comment row reads as a comment, with its text and agent', byId.c1 && /^Comment: Reply c1/.test(byId.c1.text) && /Bo/.test(byId.c1.text) && /In the community/.test(byId.c1.text), JSON.stringify(byId.c1));
+    check('COMMENT: Delete shows on ONLY the sent and pending comments', JSON.stringify(['c1', 'c2', 'c3', 'c4', 'c5'].map((i) => byId[i] && byId[i].del)) === '[true,false,false,false,true]', JSON.stringify(c.rows));
+    check('COMMENT: an unconfirmed comment says why it cannot be removed', byId.c2 && /never learned whether this arrived, so it cannot remove it/.test(byId.c2.text), JSON.stringify(byId.c2));
+    check('COMMENT: a comment sent with no id says why it cannot be removed', byId.c3 && /no way to find this comment again, so it cannot remove it/.test(byId.c3.text), JSON.stringify(byId.c3));
+    check('COMMENT: a removed comment says removed', byId.c4 && /Removed from the community/.test(byId.c4.text), JSON.stringify(byId.c4));
+    await p5.click('li[data-id="c1"] .community-mine-start');
+    await p5.waitForTimeout(200);
+    const ck = await p5.evaluate(() => {
+      const ask = document.querySelector('li[data-id="c1"] .community-mine-ask');
+      return { ask: Boolean(ask), say: ask ? ask.querySelector('p').textContent : '', keep: ask ? ask.querySelector('.community-mine-keep').textContent : '', del: ask ? ask.querySelector('.community-mine-del').textContent : '' };
+    });
+    check('COMMENT: Delete asks inside the row with Delete it and Keep it', ck.ask && ck.keep === 'Keep it' && ck.del === 'Delete it', JSON.stringify(ck));
+    check('COMMENT: the ask does not say a comment stays on this board', /within a few minutes\. It cannot be undone\.$/.test(ck.say) && !/stays on this board/.test(ck.say), ck.say);
+    check('COMMENT: nothing is sent before Delete it', cposts.length === 0, String(cposts.length));
+    await p5.click('li[data-id="c1"] .community-mine-del');
+    await p5.waitForTimeout(500);
+    const cd = await readList(p5);
+    const c1 = cd.rows.find((x) => x.id === 'c1');
+    check('COMMENT: exactly one POST, carrying only the comment id', cposts.length === 1 && cposts[0] === JSON.stringify({ id: 'c1' }), JSON.stringify(cposts));
+    check('COMMENT: the row repaints as coming down, with no Delete', Boolean(c1) && /Removing\. It comes down/.test(c1.text) && c1.del === false && c1.ask === false, JSON.stringify(c1));
+    await p5.close();
   } finally {
     await browser.close();
   }

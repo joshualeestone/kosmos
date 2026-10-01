@@ -15,6 +15,8 @@
  *   GET /agents/me/posts                       200 [{id, taken_down, take_down_reason, ...}]
  *   POST /posts/{id}/comments {body}           201 {id, ...}; 404 post gone, 409 thread full, 422 refused,
  *                                              429 daily comment cap (#4370; #4373 part B, sendComment)
+ *   DELETE /posts/{id}/comments/{comment_id}   204, or 404 when it is gone or not this agent's (kosmos-community #24;
+ *                                              #4801, sweepCommentDeletes)
  * payload() is the single source of the post shape; a test pins its keys, and the
  * server refuses any key it does not know (400), so the two sides cannot drift quietly.
  *
@@ -82,6 +84,9 @@ function deletesFile() { return path.join(dir(), 'deletes.json'); } // written O
 // #4373 part B: comments' own record, never sent.json: the delete, take-down and settle passes walk
 // sent.json as POSTS, and must never meet a comment row.
 function commentsSentFile() { return path.join(endpointDir(), 'comments-sent.json'); } // written ONLY by the sweep
+// #4801: the owner's removals of COMMENTS, beside deletes.json and never in it: sweepDeletes walks deletes.json as POSTS
+// (DELETE /posts/{id}), and a comment id there would ask the service to delete a post. Written ONLY by requestDelete.
+function commentDeletesFile() { return path.join(dir(), 'comment-deletes.json'); }
 
 function saveJson(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
@@ -444,7 +449,9 @@ async function sendComment(c, keys, csent, now) {
   saveJson(commentsSentFile(), csent);
   const r = await asAgent(agentKey, keys, 'POST', '/posts/' + encodeURIComponent(c.remotePostId) + '/comments', body);
   if (r.status === 201) {
-    csent[c.id] = settle(rec, { state: 'sent', sentAt: new Date(now).toISOString(), ...(r.json && r.json.id ? { remoteId: String(r.json.id) } : {}) });
+    // #4801: which service agent stored it (agentId), so a removal is only ever asked by that same agent: after keys.json is
+    // lost and the agent registers afresh, the service answers 404 "not yours", which would read as removed.
+    csent[c.id] = settle(rec, { state: 'sent', sentAt: new Date(now).toISOString(), ...(r.json && r.json.id ? { remoteId: String(r.json.id) } : {}), ...(k.remoteId ? { agentId: k.remoteId } : {}) });
   } else if (r.status === 404) {
     csent[c.id] = settle(rec, { state: 'refused', reasons: ['post_gone'] });
   } else if (r.status === 409) {
@@ -496,12 +503,55 @@ async function sweepComments(keys, from, now) {
     // this sweep was on the network leave a new start, or none yet, and the old window no longer holds (review).
     const cur = loadJson(stateFile());
     if (!cur || cur.since !== from) break;
+    // #4801: re-read the owner's comment removals before each send, as the post pass does: one can arrive while this
+    // sweep waits. Unreadable, send nothing more: a comment the owner removed must never go out.
+    const cdel = loadJson(commentDeletesFile());
+    if (!cdel) break;
     try {
-      await sendComment(c, keys, csent, now);
+      if (Object.prototype.hasOwnProperty.call(cdel, c.id)) {
+        // Removed before it was sent: withheld, never sent (due only lists comments never attempted).
+        csent[c.id] = settle(csent[c.id] || { agent: c.agent, post: c.remotePostId }, { state: 'withheld' });
+      } else {
+        await sendComment(c, keys, csent, now);
+      }
       saveJson(commentsSentFile(), csent);
     } catch (e) {
       log(`comment ${c.id}: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`);
     }
+  }
+}
+
+/**
+ * #4801: the owner removed a comment that went out. DELETE /posts/{post}/comments/{remoteId} as the agent that sent it
+ * (kosmos-community #24: the service lets only the comment's own agent remove it). 204, or 404 (already gone), settles
+ * it as deleted; anything else keeps deleteStatus and is tried again next sweep, like sweepDeletes. Only a comment the
+ * service answered with its id can be found: an unconfirmed one, or a sent one with no id, is never asked about, since
+ * the service has no list of an agent's comments to look it up in. Runs whatever the switch says.
+ */
+async function sweepCommentDeletes(keys) {
+  const cdel = loadJson(commentDeletesFile());
+  if (!cdel) return;
+  const first = loadJson(commentsSentFile());
+  if (!first) return;
+  for (const id of Object.keys(cdel)) {
+    const rec = first[id];
+    if (!rec || rec.state !== 'sent' || !rec.remoteId || !rec.post) continue;
+    const k = keys[rec.agent];
+    if (!k || !k.apiKey || k.refused) continue;
+    if (!sameServiceAgent(rec, k)) continue;          // another registration: its 404 would not mean "gone"
+    const r = await asAgent(rec.agent, keys, 'DELETE',
+      '/posts/' + encodeURIComponent(rec.post) + '/comments/' + encodeURIComponent(rec.remoteId));
+    // Saved against a fresh read, so a "will not go" record markNotSent added while this DELETE was out is kept.
+    const csent = loadJson(commentsSentFile());
+    if (!csent || !csent[id] || csent[id].state !== 'sent') continue;
+    if (r.status === 204 || r.status === 404) {
+      const { deleteStatus: _d, ...rest } = csent[id];
+      csent[id] = settle(rest, { state: 'deleted' });
+    } else {
+      csent[id] = { ...csent[id], deleteStatus: r.status };
+      log(`removal of comment ${id}: no success (status ${r.status || 'none'}); retrying next sweep`);
+    }
+    saveJson(commentsSentFile(), csent);
   }
 }
 
@@ -657,6 +707,8 @@ async function sweepOnce(now) {
     if (deletes) await sweepDeletes(keys, sent, deletes);
     saveJson(sentFile(), sent);
   } catch (e) { log(`deletes: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  try { await sweepCommentDeletes(keys); }   // #4801
+  catch (e) { log(`comment removals: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   try {
     await sweepTakedowns(keys, sent, now);
     saveJson(sentFile(), sent);
@@ -706,13 +758,15 @@ function sweep(now = Date.now()) {
  * The owner deleted a post on the board. Recorded in deletes.json, which only this
  * function writes; the sweep sends a DELETE for a post already sent, and never sends
  * one that was not.
+ * #4801: or a comment on a service post, recorded in comment-deletes.json instead (never deletes.json). The id is
+ * looked up as a post first, then as a service comment.
  */
 function requestDelete(localId) {
   const id = typeof localId === 'string' ? localId : '';
   if (!id) return { ok: false, because: 'a post id is required' };
   try {
     const meta = communitystore.postMeta(id);
-    if (!meta) return { ok: false, missing: true, because: 'there is no such post' };
+    if (!meta) return requestCommentDelete(id);
     if (meta.authorType !== 'agent') return { ok: false, notEligible: true, because: 'the board never sends that post' };
     const deletes = loadJson(deletesFile());
     if (!deletes) return { ok: false, because: 'we could not read the list of deleted posts' };
@@ -724,6 +778,28 @@ function requestDelete(localId) {
   } catch {
     return { ok: false, because: 'we could not save that' };
   }
+}
+
+function requestCommentDelete(id) {
+  const meta = communitystore.commentMeta(id);
+  if (!meta) return { ok: false, missing: true, because: 'there is no such post or comment' };
+  if (meta.authorType !== 'agent') return { ok: false, notEligible: true, because: 'the board never sends that comment' };
+  const cdel = loadJson(commentDeletesFile());
+  if (!cdel) return { ok: false, because: 'we could not read the list of removed comments' };
+  // A comment that may be out but cannot be found again is refused rather than recorded: recorded, the owner's list
+  // would say "coming down" forever, since sweepCommentDeletes has no id to ask the service about.
+  const before = commentRecords()[id];
+  if (before && !cdel[id] && (before.state === 'unconfirmed' || (before.state === 'sent' && !before.traceable))) {
+    return { ok: false, notEligible: true, because: before.state === 'unconfirmed'
+      ? 'Kosmos never learned whether this comment arrived, so it cannot remove it'
+      : 'Kosmos has no way to find this comment again, so it cannot remove it' };
+  }
+  if (!cdel[id]) {
+    cdel[id] = new Date().toISOString();
+    saveJson(commentDeletesFile(), cdel);
+  }
+  const rec = commentRecords()[id];
+  return { ok: true, state: rec ? rec.state : 'withheld' };
 }
 
 function statusOf(id, sent, deletes, keys) {
@@ -771,7 +847,8 @@ function willSend(agentKey, now = Date.now()) {
   const keys = loadJson(keysFile());
   // Every file the sweep refuses to run without (review 6): with any of them unreadable nothing is sent, so the agent
   // is not told "next pass". Checked BEFORE recording anything.
-  if (!st || !keys || !loadJson(sentFile()) || !loadJson(deletesFile()) || !loadJson(commentsSentFile())) return no;
+  if (!st || !keys || !loadJson(sentFile()) || !loadJson(deletesFile()) || !loadJson(commentsSentFile())
+    || !loadJson(commentDeletesFile())) return no;   // #4801: unreadable, sweepComments sends nothing
   const k = agentKey && keys[agentKey];
   if (k && k.refused) return no;
   if (!sinceForOnPeriod(st)) return no;
@@ -825,6 +902,38 @@ function commentStatuses() {
 }
 
 /**
+ * #4801: each comment the board has a record for or the owner asked to remove, for the owner's own list
+ * (engine/communitymine.js). No keys and no remote ids: `traceable` says only whether the service answered with the
+ * comment's id, which is what a removal needs. A pending comment the owner removed reads withheld, as a post does.
+ */
+function sameServiceAgent(rec, k) {
+  return !rec.agentId || Boolean(k && k.remoteId === rec.agentId);
+}
+function commentRecords() {
+  const csent = loadJson(commentsSentFile()) || {};
+  const cdel = loadJson(commentDeletesFile()) || {};
+  const keys = loadJson(keysFile()) || {};
+  const out = {};
+  for (const id of new Set([...Object.keys(csent), ...Object.keys(cdel)])) {
+    const rec = csent[id] || {};
+    const deleteRequested = Object.prototype.hasOwnProperty.call(cdel, id);
+    let state = rec.state || 'pending';
+    if (state === 'pending' && rec.attempted) state = 'unconfirmed';
+    else if (deleteRequested && state === 'pending') state = 'withheld';
+    const k = rec.agent && keys[rec.agent];
+    out[id] = {
+      state, deleteRequested,
+      deleteRetrying: deleteRequested && state === 'sent' && typeof rec.deleteStatus === 'number',
+      agentRefused: !!(k && k.refused),
+      // Sent, with the id the service answered, by the registration this board still holds (sameServiceAgent).
+      traceable: state === 'sent' && typeof rec.remoteId === 'string' && rec.remoteId !== '' && Boolean(rec.post)
+        && sameServiceAgent(rec, k),
+    };
+  }
+  return out;
+}
+
+/**
  * #4375: how many registered agents still show an industry on their profile that the board can no longer change,
  * because the service refused their key. The page says so when the owner takes the industry off.
  */
@@ -843,7 +952,7 @@ function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
 
 module.exports = {
-  switchOn, willSend, markNotSent, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, requestDelete, statuses, commentStatuses, payload, titleFor, registration, underTest,
+  switchOn, willSend, markNotSent, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, requestDelete, statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   setSender, setTimeoutMs, setSwitch, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
-  _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile },
+  _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile },
 };

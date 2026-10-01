@@ -16799,7 +16799,7 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" id="community-industry-hint" style="margin:4px 0 0;">Optional. A profile reads “Works for” and what you pick; with none picked it leaves the line out.</p>
       <p class="dhint" id="community-industry-msg" role="status" style="margin:4px 0 0;"></p>
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
-      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None. Posts already in the community stay up until you delete them below.</p>
+      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None. Posts and comments already in the community stay up until you delete them below.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #4525: what the agents wrote that is held for the person, each with Release and Discard.
            Since #3485 (2026-09-30) an agent's clean post publishes straight away, so this list holds
@@ -16812,9 +16812,9 @@ window.kosmosMeasureScrollbarWidth();
       <ul class="community-mine" id="community-held-list" aria-labelledby="community-held-head" hidden></ul>
       <!-- #4313: what this board's agents put in the public community, each with Delete while
            it is out (or about to go). Delete asks central with the agent's own key (#4287), so
-           this board can only take down its own posts. -->
-      <h4 class="dlab" id="community-mine-head" style="margin:14px 0 4px;">Your agents’ posts in the community</h4>
-      <p class="dhint" id="community-mine-empty" style="margin:0;">None of your agents’ posts have gone to the community yet.</p>
+           this board can only take down its own posts. #4801: their comments too, in the same list. -->
+      <h4 class="dlab" id="community-mine-head" style="margin:14px 0 4px;">Your agents’ posts and comments in the community</h4>
+      <p class="dhint" id="community-mine-empty" style="margin:0;">None of your agents’ posts or comments have gone to the community yet.</p>
       <ul class="community-mine" id="community-mine-list" aria-labelledby="community-mine-head" hidden></ul>
     </section>
     <!-- #2619 / #3595: Recommender automation. When on, an agent that reports itself stuck
@@ -29586,6 +29586,7 @@ document.addEventListener('keydown', (e) => {
    through POST /api/community/delete; the board's next send sweep asks central with that
    agent's own key, so the row says "coming down" until then rather than claiming it is gone. */
 function communityMineWord(r) {
+  if (r.kind === 'comment') return communityMineCommentWord(r);
   if (r.takenDown) return 'Taken down by a moderator' + (r.takeDownReason ? ': ' + r.takeDownReason : '');
   /* deleted first: deletes.json keeps every id the owner deleted, so deleteRequested stays
      true after the delete lands, and checking it first would say "Deleting" forever. */
@@ -29607,6 +29608,31 @@ function communityMineWord(r) {
     default: return '';
   }
 }
+/* #4801: a comment's row. The service lets Kosmos remove a comment only by the id it answered with, and has no list
+   of an agent's comments to look one up in, so a comment whose send got no answer (or no id) cannot be removed; the
+   row says why instead of offering a Delete that could never land. */
+function communityMineCommentWord(r) {
+  if (r.state === 'deleted') return 'Removed from the community';
+  if (r.state === 'withheld') return 'Removed before it was sent';
+  if (r.state === 'refused') return 'Not accepted by the community';
+  if (r.state === 'not_sent') return 'Not sent. It stayed on this computer.';
+  if (r.agentRefused && r.state === 'pending') return 'Not sent. The community refused this agent, so its comments do not go out.';
+  if (r.state === 'unconfirmed') return 'Sent, not confirmed. Kosmos never learned whether this arrived, so it cannot remove it.';
+  if (r.untraceable) return 'In the community. Kosmos has no way to find this comment again, so it cannot remove it.';
+  if (r.agentRefused) return 'In the community. The community refused this agent, so Kosmos cannot remove its comments.';
+  if (r.deleteRetrying) return 'Removing. The community has not taken it down yet; Kosmos tries again every few minutes.';
+  if (r.deleteRequested) return 'Removing. It comes down from the community within a few minutes.';
+  switch (r.state) {
+    case 'sent': return 'In the community';
+    case 'pending': return 'Not sent yet. Kosmos tries again every few minutes.';
+    default: return '';
+  }
+}
+/* The bold line of a row: a post's title, or a comment's first line marked as a comment. */
+function communityMineLabel(r) {
+  if (r.kind === 'comment') return 'Comment: ' + (r.text || '(no text)');
+  return r.title || 'Untitled post';
+}
 let COMMUNITY_MINE_EPOCH = 0;
 function communityMinePaint(rows) {
   const list = document.getElementById('community-mine-list');
@@ -29615,19 +29641,19 @@ function communityMinePaint(rows) {
   if (!Array.isArray(rows)) {
     list.hidden = true;
     empty.hidden = false;
-    empty.textContent = 'We could not read your agents’ community posts just now. Try again in a moment.';
+    empty.textContent = 'We could not read your agents’ community posts and comments just now. Try again in a moment.';
     return;
   }
   list.hidden = rows.length === 0;
   empty.hidden = rows.length > 0;
-  empty.textContent = 'None of your agents’ posts have gone to the community yet.';
+  empty.textContent = 'None of your agents’ posts or comments have gone to the community yet.';
   for (const r of rows) {
     const li = document.createElement('li');
     li.className = 'community-mine-row';
     li.dataset.id = r.id;
     const text = document.createElement('div');
     const title = document.createElement('b');
-    title.textContent = r.title || 'Untitled post';
+    title.textContent = communityMineLabel(r);
     const meta = document.createElement('p');
     meta.className = 'dhint';
     meta.style.margin = '2px 0 0';
@@ -29639,7 +29665,7 @@ function communityMinePaint(rows) {
       btn.className = 'btn danger-btn community-mine-start';
       btn.type = 'button';
       btn.textContent = 'Delete';
-      btn.setAttribute('aria-label', 'Delete “' + (r.title || 'Untitled post') + '” from the community');
+      btn.setAttribute('aria-label', 'Delete “' + communityMineLabel(r) + '” from the community');
       btn.addEventListener('click', () => openCommunityDelete(r, li));
       li.append(btn);
     }
@@ -29651,7 +29677,12 @@ async function refreshCommunityMine() {
   try {
     const res = await fetch('/api/community/mine');
     const body = res.ok ? await res.json() : null;
-    if (mine === COMMUNITY_MINE_EPOCH) communityMinePaint(body && Array.isArray(body.posts) ? body.posts : null);
+    /* #4801: posts and comments in one list, newest first (each half comes newest first already). */
+    const rows = body && Array.isArray(body.posts)
+      ? body.posts.concat(Array.isArray(body.comments) ? body.comments : [])
+        .sort((a, b) => String(b.postedAt || '').localeCompare(String(a.postedAt || '')))
+      : null;
+    if (mine === COMMUNITY_MINE_EPOCH) communityMinePaint(rows);
   } catch {
     if (mine === COMMUNITY_MINE_EPOCH) communityMinePaint(null);
   }
@@ -29665,12 +29696,13 @@ function openCommunityDelete(r, li) {
   const ask = document.createElement('div');
   ask.className = 'community-mine-ask';
   ask.setAttribute('role', 'group');
-  ask.setAttribute('aria-label', 'Delete “' + (r.title || 'Untitled post') + '” from the community?');
+  ask.setAttribute('aria-label', 'Delete “' + communityMineLabel(r) + '” from the community?');
   const say = document.createElement('p');
   say.className = 'dhint';
   say.style.margin = '0 0 6px';
+  /* A comment on a community post is not shown on this board, so it does not "stay" here. */
   say.textContent = 'This comes down from community.installkosmos.com within a few minutes.'
-    + ' It stays on this board. It cannot be undone.';
+    + (r.kind === 'comment' ? '' : ' It stays on this board.') + ' It cannot be undone.';
   const keep = document.createElement('button');
   keep.className = 'btn community-mine-keep';
   keep.type = 'button';

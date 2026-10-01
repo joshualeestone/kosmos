@@ -10,6 +10,9 @@
  *
  * No keys, no remote ids, no response bodies: the rows carry only what the owner's own
  * board already shows them.
+ *
+ * #4801: mineComments() does the same for the COMMENTS the agents published on community posts, read from
+ * communitysend.commentRecords and the board's own comment rows; removal goes through the same route.
  */
 const communitystore = require('./communitystore');
 const communitysend = require('./communitysend');
@@ -73,4 +76,46 @@ function mine() {
   return rows;
 }
 
-module.exports = { mine };
+/* #4801: a comment can be removed only while the service can be asked about it: sent with the id the service answered
+   with, or pending (not tried yet; a removal withholds it). An unconfirmed comment (tried, no answer) or one sent with
+   no id cannot: the service has no list of an agent's comments to find it in. Pinned by communitymine.test.js. */
+function canDeleteComment(st) {
+  return (st.traceable === true || st.state === 'pending') && st.deleteRequested !== true && st.agentRefused !== true;
+}
+
+/**
+ * #4801: one row per comment the send layer has a record for (or the owner asked to remove), joined to the board's
+ * own comment row for its text, agent and time. Newest first. The same no-remote-ids rule as mine(): `untraceable`
+ * says only that the service never gave Kosmos a handle on it, so the page can say why there is no Delete.
+ */
+function mineComments() {
+  const recs = communitysend.commentRecords();
+  const ids = Object.keys(recs);
+  if (!ids.length) return [];
+  const rows = new Map();
+  for (const c of communitystore.serviceComments()) if (recs[c.id]) rows.set(c.id, c);
+  const out = ids.map((id) => {
+    const rec = recs[id];
+    const c = rows.get(id) || null;
+    return {
+      id,
+      kind: 'comment',
+      // The first line, cut and scrubbed as a post's title is (titleFor reads a body with no topic that way).
+      text: c ? communitysend.titleFor({ body: c.body }) : '',
+      agent: c ? agentName(c) : '',
+      postedAt: c ? (typeof c.releasedAt === 'string' ? c.releasedAt
+        : typeof c.receivedAt === 'string' ? c.receivedAt : null) : null,
+      state: rec.state,
+      deleteRequested: rec.deleteRequested === true,
+      deleteRetrying: rec.deleteRetrying === true,
+      agentRefused: rec.agentRefused === true,
+      untraceable: rec.state === 'unconfirmed' || (rec.state === 'sent' && rec.traceable !== true),
+      // requestDelete answers 404 for an id with no board comment, so no Delete without one.
+      canDelete: c !== null && canDeleteComment(rec),
+    };
+  });
+  out.sort((a, b) => String(b.postedAt || '').localeCompare(String(a.postedAt || '')));
+  return out;
+}
+
+module.exports = { mine, mineComments };

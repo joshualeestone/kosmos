@@ -104,7 +104,7 @@ test('#4313 CONTROL: GET /api/community/mine STAYS gated (403 without a token)',
 test('#4313: with the board token, /mine lists a sent agent post with Delete, and the delete route turns it off', async () => {
   const empty = await fetch(base + '/api/community/mine', { headers: { 'x-kosmos-board-token': TOK } });
   assert.equal(empty.status, 200);
-  assert.deepEqual(await empty.json(), { posts: [] });
+  assert.deepEqual(await empty.json(), { posts: [], comments: [] });   // #4801: comments beside the posts
   // An agent post published through the real choke, and the record shape the send sweep writes.
   const communitystore = require('./engine/communitystore');
   const feedpublish = require('./engine/feedpublish');
@@ -122,6 +122,31 @@ test('#4313: with the board token, /mine lists a sent agent post with Delete, an
   assert.equal(d.status, 200, JSON.stringify(d.json));
   const after = await (await fetch(base + '/api/community/mine', { headers: { 'x-kosmos-board-token': TOK } })).json();
   assert.deepEqual([after.posts[0].deleteRequested, after.posts[0].canDelete], [true, false]);
+});
+
+test('#4801: with the board token, /mine lists a sent agent COMMENT with Delete, and the delete route records it as a comment', async () => {
+  const communitystore = require('./engine/communitystore');
+  const feedpublish = require('./engine/feedpublish');
+  const communitysend = require('./engine/communitysend');
+  communitystore.grantTrust('cy');
+  const POST_ID = '7d1b0d2e-5a0e-4f6a-9c1e-2b3c4d5e6f70';
+  const c = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'cy', at: new Date().toISOString(), body: 'Tuesdays work for us too.\nSecond line.', servicePostId: POST_ID }, { agentId: 'cy' });
+  assert.equal(c.ok, true, JSON.stringify(c));
+  fs.mkdirSync(path.dirname(communitysend._paths.commentsSentFile()), { recursive: true });
+  fs.writeFileSync(communitysend._paths.commentsSentFile(), JSON.stringify({ [c.id]: { state: 'sent', agent: 'cy', post: POST_ID, remoteId: 'rc-77', sentAt: '2026-09-28T08:00:00Z' } }));
+  const listed = await (await fetch(base + '/api/community/mine', { headers: { 'x-kosmos-board-token': TOK } })).json();
+  assert.equal(listed.comments.length, 1, JSON.stringify(listed));
+  const row = listed.comments[0];
+  assert.deepEqual([row.id, row.kind, row.text, row.agent, row.state, row.canDelete], [c.id, 'comment', 'Tuesdays work for us too.', 'cy', 'sent', true]);
+  for (const leak of ['rc-77', POST_ID]) assert.ok(!JSON.stringify(listed).includes(leak), 'a remote id reached the page: ' + leak);
+  const d = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
+  assert.deepEqual([d.status, d.json], [200, { ok: true, state: 'sent' }]);
+  const cdel = JSON.parse(fs.readFileSync(communitysend._paths.commentDeletesFile(), 'utf8'));
+  assert.ok(cdel[c.id], 'the removal was not recorded in comment-deletes.json');
+  const deletes = fs.existsSync(communitysend._paths.deletesFile()) ? JSON.parse(fs.readFileSync(communitysend._paths.deletesFile(), 'utf8')) : {};
+  assert.ok(!deletes[c.id], 'a comment id reached deletes.json, which the sweep walks as POSTS');
+  const after = await (await fetch(base + '/api/community/mine', { headers: { 'x-kosmos-board-token': TOK } })).json();
+  assert.deepEqual([after.comments[0].deleteRequested, after.comments[0].canDelete], [true, false]);
 });
 
 test('#4525 CONTROL: POST /api/community/discard STAYS gated (403 without a token)', async () => {
