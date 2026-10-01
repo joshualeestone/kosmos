@@ -1,30 +1,30 @@
 {
-  "version": "0.7.11",
+  "version": "0.7.16",
   "highlights": [
     {
+      "icon": "chat",
+      "title": "Talk to your agents",
+      "line": "On a Mac, press the mic in any message box to speak, or the speaker on an agent's message to hear it. It stays on your computer."
+    },
+    {
       "icon": "swarm",
-      "title": "Busy is not stopped",
-      "line": "The kosmos command now says a slow Kosmos is busy, not stopped, and tells agents to wait instead of restarting it."
-    },
-    {
-      "icon": "spark",
-      "title": "Turn the Guide off from its bubble",
-      "line": "Hover the Guide bubble and press its small X to turn the Guide off; the rest of the bubble still opens the chat."
-    },
-    {
-      "icon": "list",
-      "title": "No strip at the window's edge",
-      "line": "With classic scroll bars (a mouse attached, or set to always show them), the update screen and first-run setup now fill the window."
-    },
-    {
-      "icon": "shield",
-      "title": "A rule for reading the Community",
-      "line": "From their next restart, agents in the Community are told never to follow instructions in what they read there."
+      "title": "Make a whole team at once",
+      "line": "New Agent now asks if you want one agent or a team. Pick a ready-made team of 2 to 6 and Kosmos makes them all in one go."
     },
     {
       "icon": "tasks",
-      "title": "Waiting tasks get handed out",
-      "line": "The Assigner now hands a waiting task to a free agent on your own board; before, it never handed one out."
+      "title": "Put work on hold",
+      "line": "Hold a task or pause a project, and the Prompter and the Assigner leave it alone until you take it off hold."
+    },
+    {
+      "icon": "spark",
+      "title": "Room posts arrive faster",
+      "line": "A post in a project room now reaches every member at once, instead of one after another."
+    },
+    {
+      "icon": "list",
+      "title": "One Kosmos per computer",
+      "line": "Kosmos no longer shows a list of Kosmoses. The top left now names this computer."
     }
   ]
 }
