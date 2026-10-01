@@ -151,6 +151,7 @@ render-pjsettings
 render-plus-asks-signin-4610
 render-plus-bar-3837
 render-plus-blue-1615
+render-plus-bought-4756
 render-plus-gate-1615
 render-plus-gutter-4542
 render-plus-panel-3829

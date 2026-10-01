@@ -8431,6 +8431,23 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, { ok: true, stage: got.data.stage });
     return;
   }
+  /* kosmos#4756: the account's bought addresses for the session step (engine/remote.js signinAddresses). The
+     session token stays in the engine; the page gets the rows, the buy link and this computer's own name. */
+  if (pathname === '/api/remote/signin-addresses' && req.method === 'GET') {
+    // A GET, so crossSiteWrite does not see it: refused here, so a page on another site cannot make the engine read
+    // the account's addresses with the held session.
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
+    remote.signinAddresses()
+      .then((got) => {
+        // unsupported: this computer's tunnel program predates the list, so no re-read can ever work (the page then
+        // takes the step as before, as for the switch off).
+        if (!got.ok) { sendJson(res, 400, got.unsupported === true ? { error: got.because, unsupported: true } : { error: got.because }); return; }
+        sendJson(res, 200, Object.assign({ ok: true }, got.data));
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not list your addresses' }));
+    return;
+  }
   if (pathname === '/api/remote/signin-register' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {
