@@ -164,7 +164,8 @@ test('piece four: the row draws its ring only with a known memory and its warnin
   assert.match(fn, /if \(pct === null\) return '';/, 'a ring is drawn for an unknown memory');
   assert.match(fn, /class="gf \$\{band\}"/, 'the ring does not use the gauge\'s own band classes');
   assert.match(SCRIPT, /\$\{av\}\$\{lrowRing\(a\)\}\$\{m\.st === 'attn' \? LROW_WARN : ''\}/, 'the warning is not gated on the needs-you state');
-  assert.match(SCRIPT, /<div class="lav">\$\{off\}<\/div>/, 'a stopped row reads a memory the route does not emit for it');
+  /* #4823: the stopped row's .lav holds only the avatar and the phone's grey dot (.lpres off), never a ring. */
+  assert.match(SCRIPT, /<div class="lav">\$\{off\}<span class="pres lpres off" aria-hidden="true"><\/span><\/div>/, 'a stopped row reads a memory the route does not emit for it');
   assert.match(PAGE, /\.lav \.lring, \.lav \.lwarn, \.lav \.lreach \{ display: none; \}/, 'the ring, warning or cannot-reach badge shows in the tabs\' list layout');
   assert.match(PAGE, /body\.consolidated \.lrow > \.lav > \.lwarn \{ display: block/);
 });
