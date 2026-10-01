@@ -89,3 +89,10 @@ never-reported one; ride-on carriers are @-addressed posts. engine/roomhold-agyh
 - N3 the answering example uses plain `kosmos post`: kept (an in-section edit reaches only new agents; the envelope
   already carries --in-reply-to).
 - N4 the id regexes had no boundary: FIXED.
+
+## Review 5 (Sonnet, blind, source-only): 0 blockers, 0 warnings, 3 nits. CONVERGED.
+- N1 "told of it as background" overstated a held member's one-line note: FIXED, "told of it in a short note".
+- N2 a card number in agent-facing text: FIXED, dropped.
+- N3 single-line content regexes: FIXED, \s+ between words.
+- The room block reaches existing agents only on an instruction-file write (healColleagues); the substantive rule
+  reaches them through the new doctrine heading. A lag, stated.

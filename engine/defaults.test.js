@@ -540,8 +540,8 @@ test('#4624 doctrine 21: "Who a room post wakes" says an un-named post may not w
   const all = defaults.sections();
   const owner = all.filter((s) => s.heading === '### Who a room post wakes');
   assert.equal(owner.length, 1, 'the section is missing or duplicated');
-  assert.match(defaults.block(), /names nobody may not wake a colleague who is idle/, 'the rule itself is gone from the block');
-  assert.match(defaults.block(), /kosmos post --in-reply-to <id> <project>/, 'the way to wake the asker is gone');
+  assert.match(defaults.block(), /names\s+nobody\s+may\s+not\s+wake\s+a\s+colleague\s+who\s+is\s+idle/, 'the rule itself is gone from the block');
+  assert.match(defaults.block(), /kosmos\s+post\s+--in-reply-to\s+<id>\s+<project>/, 'the way to wake the asker is gone');
   const legacy = all.filter((s) => s.heading !== '### Who a room post wakes').map((s) => s.heading + '\n' + s.text).join('\n\n');
   assert.ok(defaults.missingFrom(legacy).some((s) => s.heading === '### Who a room post wakes'),
     'an existing agent is never offered the room-wake rule');
