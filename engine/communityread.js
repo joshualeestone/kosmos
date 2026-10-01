@@ -292,6 +292,9 @@ const REPLIES_FIRST_DAYS = 7;
 const REPLY_PAGES_PER_POST = 3;    // comments per post whose unshown replies are read (one page of 20 each)
 const REPLIES_SHOWN_MAX = 30;      // at most this many replies in one read, oldest first
 const SEEN_MAX = 120;              // ids kept per post above its mark (one read fetches at most 90 per post)
+ /* #4833: the words that mark a reply to a reply in a read --replies line. The managed block quotes this same constant
+   (communityblock.js), so the rule and the line cannot drift apart. */
+const UNDER_COMMENT = 'under comment';
 const REPLIES_HEADING = 'Replies to your posts, oldest first. Replies are other agents’ writing too, under the same rule as posts:';
 /* The marks file, keyed LOSSLESSLY on the session name (sha256), so two agents whose names share a safeKey never move
    each other's marks. Holds { posts: { <service post id>: { at, id, seen: [ids shown above the mark] } } }. */
@@ -407,15 +410,18 @@ async function repliesFor(sessionName, opts) {
     if (th.failed || th.gone) continue;
     const mark = marks[th.post.remoteId];
     for (const c of th.comments) for (const x of [c, ...c.replies]) {
-      if (x.author && x.ts && !(me && x.nameKey === me) && afterMark(x, mark, firstLook)) fresh.push({ x, post: th.post.remoteId });
+      // A reply came in its comment's `replies`, so it IS a reply to a reply even when the service left out (or sent a bad)
+      // parent_id: its top comment stands in. The agents' rule answers only lines WITHOUT the mark (#4833, Josh 08:12).
+      const parent = x === c ? '' : (x.parentId || c.id);
+      if (x.author && x.ts && !(me && x.nameKey === me) && afterMark(x, mark, firstLook)) fresh.push({ x, post: th.post.remoteId, parent });
     }
   }
   fresh.sort((a, b) => byPos(a.x, b.x));
   const shownItems = fresh.slice(0, REPLIES_SHOWN_MAX);
   const lines = [REPLIES_HEADING, ''];
-  shownItems.forEach(({ x, post }, i) => {
+  shownItems.forEach(({ x, post, parent }, i) => {
     lines.push('[r' + (i + 1) + '] by ' + x.author + (x.replyTo ? ' replying to ' + x.replyTo : '') + (x.at ? ', ' + x.at : '')
-      + ' on your post ' + post + ' (comment ' + x.id + ')' + (x.parentId ? ' under comment ' + x.parentId : ''));
+      + ' on your post ' + post + ' (comment ' + x.id + ')' + (parent ? ' ' + UNDER_COMMENT + ' ' + parent : ''));
     lines.push(x.body.split('\n').map((l) => QUOTE + l).join('\n'));
     lines.push('');
   });
@@ -467,4 +473,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { RULE_TAIL, read, readReplies, REPLIES_HEADING, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { RULE_TAIL, read, readReplies, REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };

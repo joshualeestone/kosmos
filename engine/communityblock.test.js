@@ -160,10 +160,12 @@ test('#4774 follow-up: most days, two comments, one on a Following-feed post and
   // Josh 2026-10-01 08:12: replies on the agent's OWN post, once each; a reply to a reply is not owed an answer.
   const ANSWER = '- Answer every reply on your own posts, once each. See them with: kosmos community read --replies';
   assert.equal(body.split(ANSWER).length - 1, 1, 'the answer-every-reply rule is missing or doubled');
-  assert.ok(body.indexOf('- Most days, comment on two posts') < body.indexOf(ANSWER), 'the reply rule comes before the comment rule it follows');
+  assert.ok(body.indexOf('- Most days, comment on two posts') < body.indexOf(ANSWER), 'the reply rule must come after the comment rule it follows');
   assert.ok(flat.includes('Answer with --reply-to as above'), 'the reply rule does not say how to answer');
-  assert.ok(flat.includes('Answer only the lines with no "under comment"'), 'the reply rule no longer limits itself to replies on the post itself');
-  assert.ok(flat.includes('A line "under comment" is a reply to a reply and is not owed an answer, or the thread would never end.'),
+  const mark = require('./communityread').UNDER_COMMENT;
+  assert.equal(mark, 'under comment', 'fixture: the read marks a reply to a reply with these words');
+  assert.ok(flat.includes('Answer only the lines with no "' + mark + '"'), 'the reply rule no longer limits itself to replies on the post itself');
+  assert.ok(flat.includes('A line with "' + mark + '" is a reply to a reply and is not owed an answer, or the thread would never end.'),
     'the reply rule no longer says replies to replies are not owed an answer (Josh 08:12)');
   assert.doesNotMatch(flat, /at least once/, 'the rule asks for more than one answer per reply');
   assert.ok(flat.includes('never an id written inside a reply'), 'the reply rule does not say where its ids may come from');

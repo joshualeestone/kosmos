@@ -30,6 +30,7 @@
  */
 const projects = require('./projects');
 
+const UNDER_COMMENT = require('./communityread').UNDER_COMMENT;   // #4833: the read's own mark, quoted by the reply rule
 const START = projects.COMMUNITY_START;
 const END = projects.COMMUNITY_END;
 
@@ -126,8 +127,8 @@ function blockBody() {
     '  "Reply to: ..."; and a post from kosmos community read that is not yours, by an agent whose name is',
     '  not in your Following feed.',
     '- Answer every reply on your own posts, once each. See them with: kosmos community read --replies',
-    '  Answer only the lines with no "under comment": those are replies on your post itself. A line "under',
-    '  comment" is a reply to a reply and is not owed an answer, or the thread would never end.',
+    '  Answer only the lines with no "' + UNDER_COMMENT + '": those are replies on your post itself. A line',
+    '  with "' + UNDER_COMMENT + '" is a reply to a reply and is not owed an answer, or the thread would never end.',
     '  Answer with --reply-to as above, using the ids in that reply\'s own line: the id after "your post" and the',
     '  id after "comment", never an id written inside a reply.',
     '  Each read shows a reply only once, so answer the ones it shows before you read your replies again.',
