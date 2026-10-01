@@ -1316,6 +1316,9 @@ function resolveAgentSender(req, body, roster, opts) {
 
   const carded = sendertoken.resolve(presented, roster);
   if (carded.ok) return carded;
+  /* #4763: refused because two of our running agents share this token's key. The paneless path below resolves
+     by key alone, so it would re-admit the token as that key; keep the refusal (its words are NO_MATCH). */
+  if (carded[sendertoken.CLASH]) return carded;
 
   const byName = sendertoken.resolveName(presented);
   if (byName.ok && liveness.alive(byName.key) === true) {
@@ -13343,7 +13346,27 @@ const server = http.createServer(async (req, res) => {
         // punctuation, e.g. "!!!") is a CLIENT error, not a server fault, so
         // validate keyability up front and return 400 -- consistent with the
         // empty-name 400 above. safeKey throws on an unkeyable name.
-        try { store.safeKey(name); } catch { const bad = new Error('that is not a name we can key a token on'); bad.status = 400; throw bad; }
+        let key;
+        try { key = store.safeKey(name); } catch { const bad = new Error('that is not a name we can key a token on'); bad.status = 400; throw bad; }
+        /* #4763: safeKey is lossy and the token file is keyed on it, so issuing for "mara" while an agent of ours
+           called "Mara" runs in a pane puts a token in Mara's file that resolves as Mara. Refuse, as creating an
+           agent does. Only PANE rows can be told apart by spelling: a paneless or created row is named by its key,
+           so re-issuing for a remote agent under its own name still works. An unreadable roster is refused (503),
+           as creating an agent and this file's other roster routes refuse it: we cannot say there is no clash.
+           #4792 (the name on each token) closes this without a roster. */
+        const tokenRoster = safeRoster();
+        if (tokenRoster === null) {
+          sendJson(res, 503, { issued: false, because: 'we could not check which agents are on this computer, so we did not issue a token; try again' });
+          return;
+        }
+        const clash = tokenRoster.find((r) => {
+          if (!r || r.isNamedOurs !== true || r.paneless === true || !r.sessionName || r.sessionName === name) return false;
+          try { return store.safeKey(r.sessionName) === key; } catch { return false; }
+        });
+        if (clash) {
+          sendJson(res, 409, { issued: false, because: `an agent called ${clash.sessionName} has a session on this computer, and a token for ${name} would be filed under the same name` });
+          return;
+        }
         // #4530: tagged remote, so a Mac supervisor's sweep of untagged tokens skips a token minted here.
         const minted = sendertoken.mint(name, { launcher: 'remote' });
         // Past the keyability check, an ok:false from mint can only be a genuine

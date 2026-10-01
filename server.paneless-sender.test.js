@@ -134,6 +134,23 @@ test('a carded agent is unaffected, and needs no heartbeat', () => {
   board.restore();
 });
 
+/* #4763: two running agents of ours share a key (Mara / mara), so `resolve` refuses. The paneless path resolves by
+   key alone; with a heartbeat on that key it would re-admit the token as "mara". */
+test('#4763: a key clash is not re-admitted by the paneless path, even with a live heartbeat on the key', () => {
+  const tok = sendertoken.mint('mara').token;
+  sendertoken.mint('Mara');
+  liveness.seen('mara');
+  const board = fleet.install([fleet.agent('Mara'), fleet.agent('mara')]);
+  try {
+    const r = resolveAgentSender(hdr(tok), {}, board.roster);
+    assert.equal(r.ok, false, 'a clashed token was admitted as ' + JSON.stringify(r.card && r.card.sessionName) + (r.paneless ? ' via the paneless path' : ''));
+    // Control: the same token and heartbeat with an empty roster (no clash) IS admitted by the paneless path.
+    const control = resolveAgentSender(hdr(tok), {}, []);
+    assert.equal(control.ok, true, 'CONTROL: the paneless path did not admit the beating key at all, so the arm above proves nothing');
+    assert.equal(control.paneless, true);
+  } finally { board.restore(); }
+});
+
 test('no token still falls back to the pane, unchanged', () => {
   assert.equal(resolveAgentSender(hdr(null), { from_pane: '%1' }, []).ok, true);
   assert.equal(resolveAgentSender(hdr(null), {}, []).ok, false);
