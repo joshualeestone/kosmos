@@ -60316,22 +60316,25 @@ function voiceSpeakWatch() {
    A keyboard press (Enter or Space) has no pointer and still toggles through the click. */
 const VOICE_HOLD_MS = 300;
 let VOICE_PRESS = null;   // { btn, at, stopping, pointer } while a pointer is down on a mic
-let VOICE_PRESSED = null;   // the mic the pointer just handled; its own click is then ignored, any other click toggles
+/* The mic the pointer just handled, and until when its own click may still arrive: that click is ignored, any other click
+   toggles. A window, not a zero timer: a browser need not dispatch the release's click in the same task as pointerup. */
+let VOICE_PRESSED = null;   // { mic, until }
 document.addEventListener('pointerdown', (e) => {
-  const mic = e.button === 0 && !e.ctrlKey && e.target.closest && e.target.closest('.micbtn');   // Ctrl+click opens a menu on a Mac
-  if (!mic) return;
+  const mic = e.button === 0 && !e.ctrlKey && e.isPrimary !== false && e.target.closest && e.target.closest('.micbtn');   // Ctrl+click opens a menu on a Mac
+  if (!mic || VOICE_PRESS) return;   // one press at a time: a second pointer does not take over the first
   const stopping = VOICE.btn === mic;   // pressing a mic that is listening stops it, as a tap always did
   VOICE_PRESS = { btn: mic, at: Date.now(), stopping, pointer: e.pointerId };
-  VOICE_PRESSED = mic;
+  VOICE_PRESSED = { mic, until: Infinity };   // until the release says when its click may come
   voiceToggle(mic);
 }, true);
 function voiceRelease(e) {
   const press = VOICE_PRESS;
   if (!press || (e && e.pointerId !== press.pointer)) return;
   VOICE_PRESS = null;
-  /* The release's own click (if it lands on the mic) is dispatched before this timer runs; a press dragged off the mic
-     gets no click, and the mark must not swallow the next keyboard or assistive press. */
-  setTimeout(() => { VOICE_PRESSED = null; }, 0);
+  /* Let go on the mic: its own click follows, so it is ignored for a short window. Let go elsewhere (dragged off): no
+     click follows, and the mark must not swallow the next keyboard or assistive press. */
+  const onMic = !!(e && e.target && e.target.closest && e.target.closest('.micbtn') === press.btn);
+  VOICE_PRESSED = onMic ? { mic: press.btn, until: Date.now() + 600 } : null;
   if (press.stopping || VOICE.btn !== press.btn) return;
   if (Date.now() - press.at < VOICE_HOLD_MS) return;   // a tap: keep listening until the next tap
   /* Not listening yet (the first use asks macOS for the microphone, and the person lets go to answer): a release now
@@ -60350,9 +60353,11 @@ document.addEventListener('pointercancel', voiceRelease, true);
 document.addEventListener('contextmenu', () => { VOICE_PRESS = null; VOICE_PRESSED = null; }, true);
 /* The window losing focus mid-press (Cmd-Tab) ends the press as a release: a hold stops, a tap keeps listening. */
 window.addEventListener('blur', () => { if (VOICE_PRESS) voiceRelease({ pointerId: VOICE_PRESS.pointer }); VOICE_PRESSED = null; });
-/* Slice 2: a dialog has several boxes. Focus moving to another of its fields means the person moved on: stop; what is
-   already in the box stays, and words still coming are dropped
-   (the keydown guard only sees the box being dictated into, and Escape works only there). */
+/* A key pressed after the pointer is the keyboard acting: its click is its own, never the pointer's. */
+document.addEventListener('keydown', () => { VOICE_PRESSED = null; }, true);
+/* Slice 2: a dialog has several boxes. Focus moving to another of its fields means the person moved on: stop, so what
+   is already in the box stays and words still coming are dropped. The keydown guard only sees the box being
+   dictated into, and Escape works only there. */
 document.addEventListener('focusin', (e) => {
   if (!VOICE.btn || !VOICE.btn.classList.contains('fieldmic')) return;   // a composer keeps slice 1's rules
   if (e.target === VOICE.box || !e.target.closest || e.target.closest('.micbtn')) return;
@@ -60364,8 +60369,9 @@ document.addEventListener('click', (e) => {
     e.preventDefault();
     /* The pointer already acted on this mic; a click with no press before it (the keyboard, VoiceOver, Switch Control,
        a script) toggles, whatever its detail says. */
-    if (VOICE_PRESSED === mic) { VOICE_PRESSED = null; return; }
+    const own = VOICE_PRESSED && VOICE_PRESSED.mic === mic && Date.now() <= VOICE_PRESSED.until;
     VOICE_PRESSED = null;
+    if (own) return;
     voiceToggle(mic);
     return;
   }

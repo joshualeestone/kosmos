@@ -88,4 +88,11 @@ the pointer's click as well reds V2, V10, V11, V12. web.voice-4409.test.js 20/20
   pointerdown preventDefault reds it). FIXED W: Escape in a dialog's box stopping dictation without closing the
   dialog was unpinned (V18). FIXED NITs: the focus-moved comment says words still coming are dropped; the plan's
   placement and Tests lines. DUPLICATE NITs: hold before listening is a tap; the scrollbar offset.
+- Round 6 (sonnet): FIXED W: the "pointer handled this mic" mark was cleared by a 0 ms timer, which assumes the
+  release's click lands in the same task as pointerup (WKWebView is unmeasured); the reviewer saw V12 flake once in
+  three runs. The mark is now a window: let go on the mic and its own click is ignored for up to 600 ms; let go off it,
+  or press a key, and the mark clears at once. Five consecutive runs of the voice check passed. Disabling the
+  suppression reds the tap and hold checks. FIXED W: a second pointer no longer takes over a press in progress (one
+  press at a time, primary pointer only); NOT tested (Playwright drives one mouse). FIXED NITs: the focus-moved
+  comment reflowed; the unit test pins the composer and dialog cancel arms separately, not their line layout.
 
