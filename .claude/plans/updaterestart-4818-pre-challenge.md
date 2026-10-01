@@ -43,3 +43,5 @@ update pause, and the test-wiring tests, all green. A Mortals full run is queued
 ### Iteration 6: 0 BLOCKER, 0 WARNING (CONVERGED)
 - [NIT] the failed-start message was untested --> FIXED: tested
 - [NIT] a failed final start prints a second line after the die --> RECORDED in the plan
+
+Rebased 2026-09-30 22:30 CDT onto main 3b4aa7670 (past the #4796 fix 3b4aa7670): clean, git range-diff shows all 16 commits patch-identical, so the reviewed change is unchanged; the hash is recomputed for the new base.
