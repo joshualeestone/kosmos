@@ -105,7 +105,12 @@ old .696, new .698.
 Mona Lisa APPROVED (2026-09-30 17:26, #4765 comment 5920801968): a pixel diff of the shots against main differs only
 in the pulse's moment.
 
-## Not done
-- /design-shots (light and dark, desktop and phone) for a design review: the set taken at 16:02 predates review
-  round 1 and is NOT to be reviewed; shoot again.
-- Review rounds, both browser-check gates, a full run.
+## Validation (before the PR)
+- Full run on Mortals PASSED at dafb30f7d. After rebasing twice (the second time past main's #4796 fix 3b4aa7670),
+  git range-diff shows the same six patches; only a hunk header moved with main.
+- render-working-pulse-3956: 56 of 56 at 8f4336b4f. render-newlook-4470: 143 of 143 at 8f4336b4f (same patches).
+- At the final head: both browser-check gates rc 0; server.test.js, web.not-running, web.pill-remembered-3958: 372 of 372.
+
+## Design review scope
+Mona Lisa's shots were at 09132933a, after review round 1. Round 2 moved the one-screen layer onto the box (under a
+pixel, at the edge of borderless boxes); round 3 changed a page comment only. Her approval is taken to cover both.
