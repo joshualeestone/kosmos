@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: heldcert-4737
-diff_hash: d119aca971436a7fbbfa835ff9261dff98b98f49e4f4687829a0525b9c30fff0
+diff_hash: 86e821eaeb218a9f97364ea3518b6570db68af2eb21a06c6a45e47f99d3dca54
 validation: focused, on b4810eed3 (the converged head before the rebase onto f939828c4): node --test engine/enrolment.test.js engine/remote-report.test.js engine/remote.test.js, 158 run, 158 passed, 0 failed, every #4737 arm and both controls among them (Agent1s, queued-heavy, 09:22 to 09:24 CDT); the rebase was clean, and main's own changes since then to engine/remote.test.js (15 lines) and web/index.html are NOT covered by that run, they are covered by this PR's CI (the full node suite), and the PR merges only on its green
 subdir_audit: passed
 timestamp: 2026-10-01T14:25:23Z
@@ -66,3 +66,8 @@ fail by name); a scratch copy without the new `cert-first-fetch` pattern turns e
 
 Inert alone: nothing writes the `held` mark until the relay half (kosmos-relay `heldcert-4737`) ships, and that half
 reaches people only in an app cut, which by then carries this one. Merge order: this branch first.
+
+**Rebased 2026-10-01 15:50 CDT onto main 0c6290975** (clean). The diff hash changed only because main moved
+the context lines around the change; the change itself is the same. The first PR run's only failure was the
+browser-check gate: the one web/index.html change is two lines inside an existing block comment, so the branch
+carries the gate's `Browser-check:` override with that reason. Its node suite was otherwise 13565 pass, 0 fail.
