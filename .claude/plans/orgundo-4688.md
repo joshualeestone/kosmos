@@ -71,3 +71,20 @@ Each must fail on the base (main before this branch) and pass here; run on a qui
   reopen within 15 minutes shows the result and Undo again. Consistent with "until used or replaced"; stated, not
   changed. What would change it: Josh or Mona saying Back to the list should end the Undo.
 - REOPEN BEFORE THE ANSWER now waits on ORGCHART_CREATING instead of a fixed 300 ms.
+
+## Iteration 3 (Opus): three warnings; the iteration-2 counter RETRACTED
+- The iteration-2 run counter (ORGCHART_UNDO_RUN) made it worse: a left run's update, skipped once under a newer ask,
+  was never applied, so Keep them brought back "remove these 7" with 4 gone. Removed. The kept list's DATA is now
+  always updated by a left run (only the newer-batch identity guard remains). The iteration-2 case stays bounded:
+  a removal run takes the list as it stands when Remove is pressed, and counts an agent on the removed list as done.
+- The repaint used resetOrgchartPreview, which bumps ORGCHART_GEN and ends the file flow, so a late Undo answer could
+  drop a CSV read in flight or hide a consent box (ORGCHART_READ_CTL is null for those). Now it repaints IN PLACE
+  (orgchartPaintKeptResult: count, list, Undo button), only when the box is visible showing a create's result
+  (ORGCHART_RESULT_SHOWN, which orgchartPaint clears for any preview or file result) and no Undo is asking or
+  removing. No generation bump, no file-flow end. The all-removed text is back, since an in-place paint can show it.
+- Remove pressed past the window left the ask's count and rows on screen under "no longer offered". The expiry now
+  paints the result back, as Keep them does. New arm: EXPIRED AT REMOVE (also asserts no DELETE is sent).
+- UNDO AGAIN BEFORE THE OLD ANSWER rewritten as a positive check: the ask stays as drawn, the data drops to 3, and
+  Keep them then offers 3 with "Removed 4 of 7 before you left".
+- NITs taken: the ORGCHART_CREATED comment names the expiry; the Remove handler's comment no longer says a left run
+  "paints nothing".
