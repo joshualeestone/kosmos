@@ -509,9 +509,37 @@ fi
 # neither exists, naming the tarball, unless the staged build is not newer than prod (superseded,
 # as #3600 decides for Windows): then warn and carry nothing, since nobody will promote it.
 # Sets STAGED_ART, empty when nothing extra is carried.
+# It also refuses a checkout whose committed staging pointer is OLDER than the one live serves (or
+# that commits none while live serves one): deploying it would move staging back and drop the newer
+# tarball, the same incident one version over.
+#
+# One read of a live file: sets _CSM_CODE (the HTTP status, 000 when the request never completed)
+# and _CSM_BODY. Only a 404 means absent; anything else that is not a 200 is "could not check".
+_csm_read() {  # <url>
+  _csm_tmp=$(mktemp "${TMPDIR:-/tmp}/deploy-site-staged.XXXXXX")
+  _CSM_CODE=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o "$_csm_tmp" -w '%{http_code}' "$1" 2>/dev/null) || _CSM_CODE=000
+  case "$_CSM_CODE" in ''|*[!0-9]*) _CSM_CODE=000 ;; esac
+  _CSM_BODY=$(cat "$_csm_tmp" 2>/dev/null); rm -f "$_csm_tmp"
+}
+_csm_version() { printf '%s' "$1" | sed -n 's/^kosmos-\(.*\)-arm64\.tar\.gz$/\1/p'; }
 carry_staged_mac() {
   STAGED_ART=""
   _csm_ptr=$(git -C "$SITE" show "$H:dist/latest-staging.json" 2>/dev/null) || _csm_ptr=""
+  _csm_read "$HOST/dist/latest-staging.json"
+  case "$_CSM_CODE" in
+    200) _csm_live=$_CSM_BODY ;;
+    404) _csm_live="" ;;
+    *) echo "deploy-site: could not read the live latest-staging.json (HTTP $_CSM_CODE) -- refusing; without it this cannot tell whether the checkout's staging pointer is stale (#4819)"; exit 1 ;;
+  esac
+  if [ -n "$_csm_live" ] && [ -z "$_csm_ptr" ]; then
+    echo "deploy-site: live serves a latest-staging.json but $H commits none -- refusing; the deploy would unpublish staging. Sync $SITE to the current release, then retry (#4819)"; exit 1
+  fi
+  if [ -n "$_csm_live" ] && [ "$_csm_live" != "$_csm_ptr" ]; then
+    _csm_lv=$(_csm_version "$(ptr_artifact "$_csm_live")"); _csm_cv=$(_csm_version "$(ptr_artifact "$_csm_ptr")")
+    if [ -n "$_csm_lv" ] && [ "$_csm_lv" != "$_csm_cv" ] && [ "$(printf '%s\n%s\n' "$_csm_lv" "$_csm_cv" | sort -V | tail -1)" = "$_csm_lv" ]; then
+      echo "deploy-site: live staging is $_csm_lv but $H commits staging ${_csm_cv:-(unreadable)} -- refusing; the deploy would move staging back and drop the newer build. Sync $SITE to the current release, then retry (#4819)"; exit 1
+    fi
+  fi
   [ -n "$_csm_ptr" ] || { echo "deploy-site: no committed dist/latest-staging.json at $H, so no staged Mac build to carry (#4819)"; return 0; }
   _csm_art=$(ptr_artifact "$_csm_ptr"); _csm_sha=$(ptr_sha "$_csm_ptr")
   _csm_show=$(printf '%s' "$_csm_art" | tr -cd '[:print:]')
@@ -526,8 +554,7 @@ carry_staged_mac() {
   # The staged build is the prod one (a promote, or staging not ahead): fetched and checked above.
   [ "$_csm_art" != "$ART" ] || { echo "deploy-site: the staged Mac build is the prod one ($ART), already carried (#4819)"; return 0; }
   # Superseded: the staged version (from its NAME, as for Windows) is not newer than prod's.
-  _csm_v=$(printf '%s' "$_csm_art" | sed -n 's/^kosmos-\(.*\)-arm64\.tar\.gz$/\1/p')
-  _csm_pv=$(printf '%s' "$ART" | sed -n 's/^kosmos-\(.*\)-arm64\.tar\.gz$/\1/p')
+  _csm_v=$(_csm_version "$_csm_art"); _csm_pv=$(_csm_version "$ART")
   _csm_superseded=""
   [ -z "$_csm_pv" ] || [ "$(printf '%s\n%s\n' "$_csm_v" "$_csm_pv" | sort -V | tail -1)" != "$_csm_pv" ] || _csm_superseded=1
   if [ -f "$SITE/dist/$_csm_art" ] && [ -f "$SITE/dist/$_csm_art.sha256" ] \
@@ -539,8 +566,14 @@ carry_staged_mac() {
     # Read the served sidecar FIRST and refuse before anything is fetched when it names other
     # bytes: fetch_verified renames what it fetched over the local copy, so a refusal after it
     # would leave the wrong build in dist/ under the real name.
-    _csm_served=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/$_csm_art.sha256" 2>/dev/null) || _csm_served=""
-    _csm_served=$(printf '%s\n' "$_csm_served" | awk '{print $1; exit}')
+    _csm_read "$HOST/dist/$_csm_art.sha256"
+    case "$_CSM_CODE" in
+      200) _csm_served=$(printf '%s\n' "$_CSM_BODY" | awk '{print $1; exit}') ;;
+      404) _csm_served="" ;;
+      *) echo "deploy-site: could not read the live $_csm_art.sha256 (HTTP $_CSM_CODE) -- refusing; whether live serves the staged Mac build is unknown, and $SITE/dist/ has no copy matching the committed pointer (#4819)"; exit 1 ;;
+    esac
+    # Superseded and served nowhere: skip. A served sidecar that names other bytes still refuses
+    # below, superseded or not: that is live disagreeing with the committed pointer.
     if [ -z "$_csm_served" ] && [ -n "$_csm_superseded" ]; then
       echo "deploy-site: WARNING (#4819): latest-staging.json names $_csm_art, which is not newer than the prod build $ART, and neither $SITE/dist/ nor live has it. It is superseded, so nothing is carried for it; the next staging publish replaces the pointer." >&2
       return 0
@@ -548,7 +581,9 @@ carry_staged_mac() {
     [ -n "$_csm_served" ] || { echo "deploy-site: $SITE/dist/ has no copy of the staged Mac build $_csm_art and live does not serve $_csm_art.sha256 either -- refusing; deploying would drop the build latest-staging.json names (#4819)"; exit 1; }
     [ "$_csm_served" = "$_csm_sha" ] || { echo "deploy-site: live serves a $_csm_art.sha256 (or a page that is not a checksum) that does not name the build the committed latest-staging.json names -- refusing before fetching, so $SITE/dist/ is untouched (#4819)"; exit 1; }
     fetch_verified "$HOST/dist/$_csm_art" "$SITE/dist/$_csm_art"
-    # Backstop: unreachable while fetch_verified checks the bytes against the sidecar read above.
+    # fetch_verified reads the served .sha256 again itself. Only if it changed between that read
+    # and the one above (a concurrent publish) does this fire, and then the newer served pair is
+    # already in dist/; the refusal still stops the deploy.
     [ "$(_sha256_of "$SITE/dist/$_csm_art")" = "$_csm_sha" ] || { echo "deploy-site: the served $_csm_art is not the build the committed latest-staging.json names (sha differs) -- refusing; deploying would point staging at bytes nobody verified (#4819)"; exit 1; }
   fi
   STAGED_ART="$_csm_art"

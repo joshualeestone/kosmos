@@ -322,7 +322,7 @@ unset DROP_FROM_DEPLOY
 # 14) neither the checkout nor LIVE has it: refuse BEFORE the deploy, naming it, LIVE untouched.
 read -r S14 L14 <<<"$(make_scenario)"; add_staged_mac "$S14" "$L14" not-served
 run_deploy "$S14" "$L14" --promote
-{ [ "$RC" = 1 ] && has "$out" "$STGART" && has "$out" "refusing" && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L14/dist/latest.json")" = "$OLD" ]; } \
+{ [ "$RC" = 1 ] && has "$out" "live does not serve $STGART.sha256 either" && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L14/dist/latest.json")" = "$OLD" ]; } \
   && pass "mac staged: no copy anywhere refuses before any deploy, naming $STGART, LIVE left on OLD" || bad "mac staged not served (rc=$RC) out=$out"
 
 echo ""

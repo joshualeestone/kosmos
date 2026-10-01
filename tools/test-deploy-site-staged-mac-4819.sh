@@ -26,6 +26,11 @@
 #   s1 superseded (not newer than prod), no copy    -> warns, carries nothing
 #   s2 superseded, live serves it                   -> still carried
 #   s3 9.9.10 over 9.9.9 (version, not string, order) -> not superseded, refuses
+#   st1 live staging newer than the committed one   -> refuses (would roll staging back)
+#   st2 CONTROL committed staging newer than live   -> proceeds
+#   st3 live has a staging pointer, none committed  -> refuses (would unpublish it)
+#   st4 live unreachable                            -> refuses "could not read", not "absent"
+#   st5 superseded, the sidecar read fails in transport -> refuses, does not take the skip
 #   i  the pointer names a path, not a file         -> refuses before any fetch
 #   j  the pointer has no sha                       -> refuses before any fetch
 #   k  the wiring: deploy-site.sh calls the block, checks the export for the pair, and
@@ -85,12 +90,21 @@ run_carry() {  # <site> <live dir>
       [ -f "$src" ] || { echo "deploy-site: could not fetch $1 -- refusing (stub)"; exit 1; }
       cp "$src" "$2"; printf '%s  %s\n' "$(sha_of "$src")" "${1##*/}" > "$2.sha256"
     }
-    # Stub: the block reads the served .sha256 itself before fetching; serve it from $LIVE_DIR,
-    # exit 22 (curl -f's failure) when the artifact is not served.
+    # Stub for the block's own reads (curl -o <file> -w '%{http_code}' <url>): serves
+    # $LIVE_DIR/<name>, and a <tarball>.sha256 computed from $LIVE_DIR/<tarball>. 404 when absent.
+    # $LIVE_DIR/.down makes every request a transport failure (exit 7, code 000), as curl does;
+    # $LIVE_DIR/.down-sidecar does it for .sha256 requests only.
     curl() {
-      _u=""; for _a in "$@"; do case "$_a" in http*) _u="$_a";; esac; done
-      _f="${_u##*/}"; _src="$LIVE_DIR/${_f%.sha256}"
-      case "$_f" in *.sha256) [ -f "$_src" ] || return 22; printf '%s  %s\n' "$(sha_of "$_src")" "${_f%.sha256}";; *) return 22;; esac
+      _u=""; _o=""; _w=""
+      while [ $# -gt 0 ]; do case "$1" in -o) _o="$2"; shift 2;; -w) _w="$2"; shift 2;; -H|--connect-timeout|--max-time) shift 2;; http*) _u="$1"; shift;; *) shift;; esac; done
+      _f="${_u##*/}"; _body=""; _code=404
+      [ ! -e "$LIVE_DIR/.down" ] || { [ -z "$_w" ] || printf '000'; return 7; }
+      case "$_f" in *.sha256) [ ! -e "$LIVE_DIR/.down-sidecar" ] || { [ -z "$_w" ] || printf '000'; return 7; };; esac
+      if [ -f "$LIVE_DIR/$_f" ]; then _body=$(cat "$LIVE_DIR/$_f"); _code=200
+      else case "$_f" in *.sha256) [ ! -f "$LIVE_DIR/${_f%.sha256}" ] || { _body="$(sha_of "$LIVE_DIR/${_f%.sha256}")  ${_f%.sha256}"; _code=200; };; esac; fi
+      [ -z "$_o" ] || printf '%s\n' "$_body" > "$_o"
+      [ -z "$_w" ] || printf '%s' "$_code"
+      return 0
     }
     . "$LIB"
     trap 'echo "RC=$? STAGED_ART=${STAGED_ART:-} FETCHED=[$(tr "\n" " " < "$FETCH_LOG")]"' EXIT
@@ -163,6 +177,27 @@ S="$T/s3"; mksite "$S" "$(ptr "$SHA" "kosmos-9.9.10-arm64.tar.gz")"; mkdir -p "$
 out=$( PROD=kosmos-9.9.9-arm64.tar.gz run_carry "$S" "$T/live-s3")
 if has "$out" "RC=1 " && ! has "$out" "superseded"; then pass "s3: 9.9.10 staged over 9.9.9 prod is newer (sort -V), so a missing copy still refuses"; else bad "s3: $out"; fi
 
+# ---- st: the checkout's staging pointer against the one live serves ----------------------------------
+NEWER=kosmos-9.9.03-arm64.tar.gz
+S="$T/st1"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-st1"; ptr "$SHA" "$NEWER" > "$T/live-st1/latest-staging.json"
+cp "$BYTES" "$S/dist/$STAGED"; printf '%s  %s\n' "$SHA" "$STAGED" > "$S/dist/$STAGED.sha256"
+out=$(run_carry "$S" "$T/live-st1")
+if has "$out" "RC=1 " && has "$out" "live staging is 9.9.03" && has "$out" "move staging back"; then pass "st1: live staging newer than the checkout's refuses (the deploy would roll staging back)"; else bad "st1: $out"; fi
+S="$T/st2"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-st2"; ptr "$SHA" "$OLDSTG" > "$T/live-st2/latest-staging.json"
+cp "$BYTES" "$S/dist/$STAGED"; printf '%s  %s\n' "$SHA" "$STAGED" > "$S/dist/$STAGED.sha256"
+out=$(run_carry "$S" "$T/live-st2")
+if has "$out" "RC=0 STAGED_ART=$STAGED FETCHED=[]"; then pass "st2: CONTROL: a checkout committing a NEWER staging than live (a publish not yet deployed) proceeds"; else bad "st2: $out"; fi
+S="$T/st3"; mksite "$S" ""; mkdir -p "$T/live-st3"; ptr "$SHA" "$STAGED" > "$T/live-st3/latest-staging.json"
+out=$(run_carry "$S" "$T/live-st3")
+if has "$out" "RC=1 " && has "$out" "commits none"; then pass "st3: live serves a staging pointer the checkout does not commit: refuses (it would unpublish staging)"; else bad "st3: $out"; fi
+S="$T/st4"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-st4"; : > "$T/live-st4/.down"
+out=$(run_carry "$S" "$T/live-st4")
+if has "$out" "RC=1 " && has "$out" "could not read the live latest-staging.json (HTTP 000)"; then pass "st4: live unreachable refuses as 'could not read', not as absent"; else bad "st4: $out"; fi
+# A transport failure on the SIDECAR read of a superseded build must refuse, not take the skip.
+S="$T/st5"; mksite "$S" "$(ptr "$SHA" "$OLDSTG")"; mkdir -p "$T/live-st5"; cp "$BYTES" "$T/live-st5/$OLDSTG"; : > "$T/live-st5/.down-sidecar"
+out=$(run_carry "$S" "$T/live-st5")
+if has "$out" "RC=1 " && has "$out" "could not read the live $OLDSTG.sha256 (HTTP 000)" && ! has "$out" "superseded"; then pass "st5: a superseded build whose sidecar read fails in transport refuses, it is not skipped"; else bad "st5: $out"; fi
+
 # ---- i: a path, not a file --------------------------------------------------------------------------
 S="$T/i"; mksite "$S" "$(ptr "$SHA" "kosmos-9/../../etc-arm64.tar.gz")"; mkdir -p "$T/live-i"
 out=$(run_carry "$S" "$T/live-i")
@@ -192,5 +227,5 @@ if [ -n "$call" ] && [ -n "$export_at" ] && [ "$call" -lt "$export_at" ]; then :
 [ "$k_ok" = 1 ] && pass "k: deploy-site.sh runs the carry before the export, checks the export for the pair, and served-verifies the pair"
 
 echo
-if [ "$fail" = 0 ] && [ "$npass" = 16 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
-echo "FAILED ($npass passed, expected 16)"; exit 1
+if [ "$fail" = 0 ] && [ "$npass" = 21 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
+echo "FAILED ($npass passed, expected 21)"; exit 1
