@@ -15,7 +15,9 @@ had stopped stays stopped.
   failure too (review 2: both ran the EXIT trap with status 0).
 - At the pause: `_kosmos_was_running=yes` only if the mode runs the board here, there is no board.stopped, and the board
   answers on its port BEFORE the stop.
-- After the pause holds (the existing #2055 "got past the pause" point): `_kosmos_paused_board="$_kosmos_was_running"`.
+- Armed (`_kosmos_paused_board="$_kosmos_was_running"`) once the board stops answering, AFTER the three pause dies that
+  must not restart (our board still running, another install's board, another app on the port) and BEFORE the port wait
+  (review 3: a survivor still holding the port, or a hang-up during that wait, used to leave the board off).
 - After the new board starts (the existing `kosmos start --force || die`): `_kosmos_paused_board=no`.
 
 ## Decisions
@@ -37,7 +39,8 @@ stopped; a failure after the new board started (the shipped line), and a success
 through the shipped die() puts it back; a switch to connect during the run keeps it off. The harness takes the shipped
 mode readers and calls _kosmos_board_decide where setup does. Review 2: a set -e failure with no die, and HUP and
 TERM delivered to the running shell and its children, each put the board back (with guards that the arm reached the
-pause and the signal really ended the run). 13/13. Without the HUP/TERM trap both signal arms fail (checked). Mutants, each failing a test:
+pause and the signal really ended the run; the arms wait for the shell's child before signalling). Review 3: the
+arming position is pinned by line order in the shipped file. 14/14, three runs in a row. Without the HUP/TERM trap both signal arms fail (checked). Mutants, each failing a test:
 trap neutered, any exit restarts, the marker ignored, the marker kept, the mode not re-read (any edit to the
 anchored lines also fails the test, by design). The installer shell tests near the pause
 (#2055, #964, install-static and its control, runnable guard, progress emit, resolve user, zsh tied names) and the
@@ -51,3 +54,7 @@ changed: a Ctrl-C also stops the log reader, so the trap's line can be lost whil
 Round 2: no blocker. 1 should-fix taken: HUP and TERM end the run as a failure. Nits taken: a set -e test, the
 comment names an unreadable mode file too. Noted: the stop line and the pause post-checks are re-typed in the harness,
 not extracted (the four extractions are exact and fail loudly on drift).
+Round 3: no blocker. 2 should-fix taken: armed before the port wait, not after it; the signal arms wait for the child.
+Noted, not changed: a new board that "would not start" makes the put-back try one more start of the same tree (a
+second wait and message after the die); `_kosmos_was_running` is one 2 s probe, so a board mid-restart under launchd
+at that moment reads as not running.
