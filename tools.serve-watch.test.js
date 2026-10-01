@@ -35,8 +35,10 @@ function healthySite() {
   put('kosmos-1.0.0-arm64.manifest.json', 'application/json; charset=utf-8', '{}');
   put('kosmos-1.0.0-arm64.tar.gz.sha256', 'application/octet-stream', sha(TAR) + '\n');
   put('kosmos-win-x64.zip', 'application/zip', ZIP);
+  put('kosmos-win-x64.zip.sha256', 'text/plain; charset=utf-8', sha(ZIP) + '  kosmos-win-x64.zip\n');
   put('kosmos-1.0.0-win-x64.zip', 'application/zip', ZIP);
-  return { files, health: { ok: true }, feedStatus: 200, relayStatus: 200, catchAll: false, hits: [] };
+  put('kosmos-1.0.0-win-x64.zip.sha256', 'text/plain; charset=utf-8', sha(ZIP) + '  kosmos-1.0.0-win-x64.zip\n');
+  return { files, health: { ok: true }, feedStatus: 200, relayStatus: 200, catchAll: false, distDown: 0, failOnce: new Set(), failGet: new Map(), hits: [] };
 }
 
 function serve(site) {
@@ -44,9 +46,13 @@ function serve(site) {
     const u = new URL(req.url, 'http://x');
     site.hits.push(req.method + ' ' + u.pathname);
     const send = (status, type, body) => { res.writeHead(status, { 'content-type': type }); res.end(req.method === 'HEAD' ? undefined : body); };
+    if (site.failOnce.has(u.pathname)) { site.failOnce.delete(u.pathname); return send(502, 'text/plain', 'bad gateway'); }
     if (u.pathname.startsWith('/dist/')) {
+      if (site.distDown) return send(site.distDown, 'text/plain', 'down');
       const f = site.files.get(u.pathname.slice('/dist/'.length));
-      if (f) return send(200, f[0], f[1]);
+      if (f && req.method === 'GET' && site.failGet.get(u.pathname) > 0) { site.failGet.set(u.pathname, site.failGet.get(u.pathname) - 1); return send(500, 'text/plain', 'read failed'); }
+      // As a real host does: the length and an etag of the bytes, so a file replaced behind the same name looks changed.
+      if (f) { res.writeHead(200, { 'content-type': f[0], 'content-length': f[1].length, etag: '"' + sha(f[1]).slice(0, 16) + '"' }); return res.end(req.method === 'HEAD' ? undefined : f[1]); }
       if (site.catchAll) return send(200, 'text/html', '<html>the home page</html>');
       return send(404, 'text/plain', 'not found');
     }
@@ -102,8 +108,11 @@ test('a healthy site is silent, every artifact is checked and hashed, and the st
   assert.equal(r.code, 0, r.out + r.err);
   assert.equal(st.pane() + st.card(), '', 'a healthy run posted');
   for (const name of ['latest.json', 'latest-staging.json', 'latest-win.json', 'latest-win-staging.json']) assert.ok(site.hits.includes('GET /dist/' + name), name + ' was not read');
-  for (const name of ['kosmos-1.0.0-arm64.tar.gz', 'kosmos-1.0.0-arm64.manifest.json', 'kosmos-1.0.0-arm64.tar.gz.sha256', 'kosmos-win-x64.zip', 'kosmos-1.0.0-win-x64.zip']) {
+  for (const name of ['kosmos-1.0.0-arm64.tar.gz', 'kosmos-1.0.0-arm64.manifest.json', 'kosmos-win-x64.zip', 'kosmos-1.0.0-win-x64.zip']) {
     assert.ok(site.hits.includes('HEAD /dist/' + name), name + ' was not checked');
+  }
+  for (const name of ['kosmos-1.0.0-arm64.tar.gz.sha256', 'kosmos-win-x64.zip.sha256', 'kosmos-1.0.0-win-x64.zip.sha256']) {
+    assert.ok(site.hits.includes('GET /dist/' + name), name + ' (what the installers check) was not read');
   }
   assert.ok(site.hits.includes('HEAD /dist/' + sw.CONTROL), 'the negative control was not asked');
   const state = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
@@ -115,8 +124,8 @@ test('a pointer naming a missing artifact alarms within one run, on the pane and
   site.files.delete('kosmos-1.0.0-arm64.tar.gz');   // the 0.7.14 outage: the pointer names a file the site dropped
   const r = await run(base, dir, st, { now: T0 + 900 });
   assert.equal(r.code, 1, r.out + r.err);
-  assert.match(st.pane(), /kosmos-1\.0\.0-arm64\.tar\.gz \(named by latest\.json\) is not served \(404\)/);
-  assert.match(st.card(), /kosmos-1\.0\.0-arm64\.tar\.gz \(named by latest\.json\) is not served \(404\)/);
+  assert.match(st.pane(), /kosmos-1\.0\.0-arm64\.tar\.gz \(named by latest\.json and latest-staging\.json\) is not served \(404\)/);
+  assert.match(st.card(), /kosmos-1\.0\.0-arm64\.tar\.gz \(named by latest\.json and latest-staging\.json\) is not served \(404\)/);
   assert.match(st.card(), /^999999$/m, 'the card comment went to another issue');
   // The next run, same problem: silent (it reposts only after 6 h).
   const before = st.card();
@@ -146,27 +155,38 @@ test('a served file whose bytes do not match the pointer alarms; a wrong content
   site.files.set('kosmos-1.0.0-arm64.manifest.json', ['text/html', '<html>a 404 page served as 200</html>']);
   const r = await run(base, dir, st, { now: T0 });
   assert.equal(r.code, 1, r.out + r.err);
-  assert.match(st.card(), /kosmos-1\.0\.0-win-x64\.zip does not match latest-win\.json: served sha256 [0-9a-f]{12}, pointer says [0-9a-f]{12}/);
-  assert.match(st.card(), /kosmos-1\.0\.0-arm64\.manifest\.json \(named by latest\.json\) is served as "text\/html", not a manifest/);
+  assert.match(st.card(), /kosmos-1\.0\.0-win-x64\.zip \(named by latest-win\.json and latest-win-staging\.json\) does not match: served sha256 [0-9a-f]{12}, pointer says [0-9a-f]{12}/);
+  assert.match(st.card(), /kosmos-1\.0\.0-arm64\.manifest\.json \(named by latest\.json and latest-staging\.json\) is served as "text\/html", not a manifest/);
 }));
 
-test('the sha is re-read at most hourly, and at once when the pointer changes', () => withSite(async ({ site, base, dir, st }) => {
+test('the bytes are hashed once, again only when the pointer changes, after a failed read, or a day later', () => withSite(async ({ site, base, dir, st }) => {
   assert.equal((await run(base, dir, st, { now: T0 })).code, 0);
   const gets = () => site.hits.filter((h) => h === 'GET /dist/kosmos-1.0.0-arm64.tar.gz').length;
-  const first = gets();
-  assert.equal(first, 1, 'the tarball was not hashed once');
+  assert.equal(gets(), 1, 'the tarball was not hashed once');
   await run(base, dir, st, { now: T0 + 900 });
-  assert.equal(gets(), first, 'the tarball was hashed again within the hour');
-  await run(base, dir, st, { now: T0 + 3600 });
-  assert.equal(gets(), first + 1, 'the tarball was not hashed again after an hour');
+  await run(base, dir, st, { now: T0 + 3 * 3600 });
+  assert.equal(gets(), 1, 'an unchanged tarball was hashed again within the day');
+  await run(base, dir, st, { now: T0 + 24 * 3600 });
+  assert.equal(gets(), 2, 'the tarball was not hashed again after a day');
   // A new build behind the same name: the pointer's sha changes, so it is hashed at once.
   const NEW = Buffer.from('a new build\n');
   site.files.set('kosmos-1.0.0-arm64.tar.gz', ['application/gzip', NEW]);
+  site.files.set('kosmos-1.0.0-arm64.tar.gz.sha256', ['application/octet-stream', sha(NEW) + '\n']);
   for (const p of ['latest.json', 'latest-staging.json']) {
     const j = JSON.parse(site.files.get(p)[1]); j.sha256 = sha(NEW); site.files.set(p, ['application/json', JSON.stringify(j)]);
   }
-  assert.equal((await run(base, dir, st, { now: T0 + 3700 })).code, 0);
-  assert.equal(gets(), first + 2, 'a changed pointer sha was not re-checked at once');
+  assert.equal((await run(base, dir, st, { now: T0 + 24 * 3600 + 900 })).code, 0);
+  assert.equal(gets(), 3, 'a changed pointer sha was not re-checked at once');
+}));
+
+test('a failed whole-file read is retried on the next run, not held for a day', () => withSite(async ({ site, base, dir, st }) => {
+  site.failGet.set('/dist/kosmos-1.0.0-arm64.tar.gz', 2);   // both tries of the hash read fail this run
+  assert.equal((await run(base, dir, st, { now: T0 })).code, 1);
+  assert.match(st.card(), /kosmos-1\.0\.0-arm64\.tar\.gz \(named by latest\.json and latest-staging\.json\) could not be read whole/);
+  const gets = () => site.hits.filter((h) => h === 'GET /dist/kosmos-1.0.0-arm64.tar.gz').length;
+  const first = gets();
+  assert.equal((await run(base, dir, st, { now: T0 + 900 })).code, 0, 'the next run did not read it again and clear');
+  assert.ok(gets() > first, 'a read that failed was not tried again on the next run');
 }));
 
 test('the community site and the relay canary are watched too', () => withSite(async ({ site, base, dir, st }) => {
@@ -175,9 +195,12 @@ test('the community site and the relay canary are watched too', () => withSite(a
   site.relayStatus = 502;
   const r = await run(base, dir, st, { now: T0 });
   assert.equal(r.code, 1, r.out + r.err);
+  assert.doesNotMatch(st.card(), /the relay/, 'the canary alarmed on its first miss (it is a person\'s computer)');
+  await run(base, dir, st, { now: T0 + 900 });
   assert.match(st.card(), /the community site's \/api\/health did not answer ok \(503\)/);
   assert.match(st.card(), /the community feed did not answer \(500\)/);
-  assert.match(st.card(), /the relay, or the canary computer behind .*\/relay\/, did not answer \(502\)/);
+  assert.match(st.card(), /the relay, or the canary computer behind .*\/relay\/, did not answer for 2 runs in a row \(502\)/);
+  assert.doesNotMatch(st.card(), /People installing or updating/, 'a community or relay problem was called a download failure');
 }));
 
 test('a pointer naming a path outside /dist, or missing a field, is refused, not fetched', () => withSite(async ({ site, base, dir, st }) => {
@@ -205,7 +228,7 @@ test('--check prints the verdict and posts nothing; --plist runs every 15 minute
   assert.equal(r.code, 1);
   const v = JSON.parse(r.out);
   assert.equal(v.alarm, true);
-  assert.ok(v.problems.some((p) => p.startsWith('kosmos-win-x64.zip')), r.out);
+  assert.ok(v.problems.some((p) => p.key === 'missing:kosmos-win-x64.zip' && p.text.startsWith('kosmos-win-x64.zip')), r.out);
   assert.equal(st.pane() + st.card(), '', '--check posted');
   const pl = sw.plist({ node: '/opt/homebrew/bin/node', script: '/x/tools/serve-watch.js', home: '/Users/person' });
   assert.match(pl, /<key>Label<\/key><string>com\.kosmos\.serve-watch<\/string>/);
@@ -215,7 +238,76 @@ test('--check prints the verdict and posts nothing; --plist runs every 15 minute
 
 test('the pointers watched are the four the app reads', () => {
   assert.deepEqual(sw.POINTERS.map((p) => p.file), ['latest.json', 'latest-staging.json', 'latest-win.json', 'latest-win-staging.json']);
-  assert.equal(sw.artifactsOf({ artifact: 'a.tar.gz', manifest: 'a.manifest.json' }, 'mac').length, 3);
+  assert.equal(sw.artifactsOf({ artifact: 'a.tar.gz', manifest: 'a.manifest.json' }, 'mac').length, 2);
   assert.equal(sw.artifactsOf({ artifact: 'a.zip', versioned: 'a-1-win-x64.zip' }, 'win').length, 2);
   assert.equal(sw.artifactsOf({ artifact: 'a/b.zip', versioned: 'x.zip' }, 'win'), null);
+  // Only the released Windows pointer is held to the fixed-name zip's bytes and sidecar.
+  const staging = sw.artifactsOf({ artifact: 'a.zip', versioned: 'a-2-win-x64.zip' }, sw.POINTERS[3]);
+  assert.deepEqual(staging.map((a) => [a.name, a.hashed, a.sidecar]), [['a-2-win-x64.zip', true, true], ['a.zip', false, false]]);
 });
+
+test('Windows staging ahead of release is healthy: the fixed-name zip still holds the released bytes', () => withSite(async ({ site, base, dir, st }) => {
+  const NEXT = Buffer.from('the next windows build\n');
+  site.files.set('kosmos-2.0.0-win-x64.zip', ['application/zip', NEXT]);
+  site.files.set('kosmos-2.0.0-win-x64.zip.sha256', ['text/plain', sha(NEXT) + '  kosmos-2.0.0-win-x64.zip\n']);
+  site.files.set('latest-win-staging.json', ['application/json', JSON.stringify({ version: '2.0.0', sha256: sha(NEXT), artifact: 'kosmos-win-x64.zip', versioned: 'kosmos-2.0.0-win-x64.zip', arch: 'x64' })]);
+  const r = await run(base, dir, st, { now: T0 });
+  assert.equal(r.code, 0, 'a normal staging window alarmed: ' + r.out + r.err + st.card());
+  // CONTROL: staging's own versioned zip IS held to its pointer.
+  site.files.set('kosmos-2.0.0-win-x64.zip', ['application/zip', Buffer.from('wrong')]);
+  assert.equal((await run(base, dir, st, { now: T0 + 3600 })).code, 1);
+  assert.match(st.card(), /kosmos-2\.0\.0-win-x64\.zip \(named by latest-win-staging\.json\) does not match/);
+}));
+
+test('the download site down while the rest answers is an alarm at once, not "could not tell"', () => withSite(async ({ site, base, dir, st }) => {
+  site.distDown = 503;
+  const r = await run(base, dir, st, { now: T0 });
+  assert.equal(r.code, 1, r.out + r.err);
+  assert.match(st.card(), /installkosmos\.com is not answering \(503\): no download or update can start/);
+}));
+
+test('one dropped request is tried again, so a blip is not an alarm', () => withSite(async ({ site, base, dir, st }) => {
+  site.failOnce.add('/dist/latest.json');
+  site.failOnce.add('/community/api/health');
+  const r = await run(base, dir, st, { now: T0 });
+  assert.equal(r.code, 0, 'a single 502 alarmed: ' + r.out + r.err + st.card());
+  assert.equal(st.card(), '');
+}));
+
+test('a sidecar that disagrees with its pointer alarms (the installers would refuse the download)', () => withSite(async ({ site, base, dir, st }) => {
+  site.files.set('kosmos-1.0.0-win-x64.zip.sha256', ['text/plain', '0'.repeat(64) + '  kosmos-1.0.0-win-x64.zip\n']);
+  site.files.delete('kosmos-1.0.0-arm64.tar.gz.sha256');
+  const r = await run(base, dir, st, { now: T0 });
+  assert.equal(r.code, 1, r.out + r.err);
+  assert.match(st.card(), /kosmos-1\.0\.0-win-x64\.zip\.sha256 says 000000000000, the pointer says [0-9a-f]{12}: installers refuse the download/);
+  assert.match(st.card(), /kosmos-1\.0\.0-arm64\.tar\.gz\.sha256 \(named by latest\.json and latest-staging\.json\) is not served \(404\)/);
+}));
+
+test('a card post that fails is retried after an hour, not every run; an unconfirmed pane is said on the card', () => withSite(async ({ site, base, dir, st }) => {
+  const failGh = path.join(dir, 'gh-fail.sh');
+  fs.writeFileSync(failGh, '#!/bin/sh\necho "HTTP 401" >&2\nexit 1\n'); fs.chmodSync(failGh, 0o755);
+  const busyMsg = path.join(dir, 'msg-busy.sh');
+  fs.writeFileSync(busyMsg, '#!/bin/sh\ncat > /dev/null\nexit 8\n'); fs.chmodSync(busyMsg, 0o755);
+  site.files.delete('kosmos-win-x64.zip');
+  const broken = { msg: busyMsg, gh: failGh, pane: st.pane, card: st.card };
+  assert.equal((await run(base, dir, broken, { now: T0 })).code, 1);
+  const state1 = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
+  assert.ok(state1.card.failedAt === T0 && state1.card.failedKey, 'the failed card post was not recorded: ' + JSON.stringify(state1.card));
+  assert.ok(state1.pane.key && state1.pane.at === T0, 'an exit-8 pane was not counted as told: ' + JSON.stringify(state1.pane));
+  // Within the hour: the card is not retried (the stub would fail again; nothing new recorded).
+  await run(base, dir, broken, { now: T0 + 900 });
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')).card.failedAt, T0, 'the card was retried within the hour');
+  // An hour on, with a working card and the pane still busy: it goes, and says the pane may not have.
+  assert.equal((await run(base, dir, { msg: busyMsg, gh: st.gh, pane: st.pane, card: st.card }, { now: T0 + 3600 })).code, 1);
+  assert.match(st.card(), /kosmos-win-x64\.zip/);
+}));
+
+test('after "could not tell", the all-clear says it is able to check again', () => withSite(async ({ site, base, dir, st }) => {
+  site.catchAll = true;
+  await run(base, dir, st, { now: T0 });
+  await run(base, dir, st, { now: T0 + 3600 });
+  assert.match(st.card(), /could not tell/);
+  site.catchAll = false;
+  assert.equal((await run(base, dir, st, { now: T0 + 4500 })).code, 0);
+  assert.match(st.card(), /able to check again: every live download/);
+}));

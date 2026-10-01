@@ -7,15 +7,20 @@
  * does, every 15 minutes, READ-ONLY:
  *
  *   1. installkosmos.com: each live pointer (latest.json, latest-staging.json, latest-win.json,
- *      latest-win-staging.json) is served, and every artifact it names answers 200 with the right content type
- *      (every run); the served bytes hash to the pointer's sha256 (at most hourly per artifact).
+ *      latest-win-staging.json) is served, every artifact it names answers 200 with the right content type, and its
+ *      .sha256 sidecar (what the installers check) agrees with the pointer, every run; the served bytes hash to the
+ *      pointer's sha256, re-read when the pointer or the file's headers change, after a failed read, and daily.
  *   2. community.installkosmos.com: /api/health answers {"ok":true}, and the public feed answers.
- *   3. The relay: the canary computer's address answers (through the system curl; see curlStatus). Its build is NOT checked: the relay writes it only to its own
+ *   3. The relay: the canary computer's address answers (through the system curl; see curlStatus), and an alarm needs
+ *      two missed runs in a row (the canary is a person's computer). Its build is NOT checked: the relay writes it only to its own
  *      journal (crates/relay/src/serve.rs), with no public route, and this holds no SSH. If the canary's Mac is off
  *      the alarm says so as "the relay, or that computer": from outside the two look the same.
  *
- * Before any of that, a NEGATIVE CONTROL: a file that never exists must answer 404. A site that answers 200 for
- * everything would pass every artifact check, so then the run is "could not tell", never "healthy".
+ * A NEGATIVE CONTROL guards the download checks: a file that never exists must answer 404. A site that answers 200 for
+ * everything would pass every artifact check, so then the run is "could not tell", never "healthy". A download site
+ * that does not answer at all is an alarm, unless nothing else answered either (this computer is offline). A request
+ * that gets no answer or a 5xx is tried once more before it counts. A run can outlast its 15 minutes when several
+ * builds are re-hashed at once; launchd does not overlap runs, so the next one simply starts late.
  *
  * Where it posts, the same two places as tools/gap-alarm.js (whose alert loop this follows; review history there):
  *   - a pane by claude-msg (SERVE_WATCH_TO, default Splinter, who routes: the site and the relay have different
@@ -48,7 +53,6 @@ const path = require('node:path');
 const env = process.env;
 const LABEL = 'com.kosmos.serve-watch';
 const INTERVAL_S = 900;
-const SHA_EVERY_S = 3600;
 const REPOST_S = 6 * 3600;
 const RETRY_S = 3600;
 const WATCHING_S = 7 * 24 * 3600;
@@ -60,12 +64,15 @@ const RELAY = env.SERVE_WATCH_RELAY || 'https://pizzarama.kosmosplus.com/';
 const TIMEOUT_MS = Number(env.SERVE_WATCH_TIMEOUT_MS) || 30000;
 const CONTROL = 'serve-watch-control-never-published.json';
 
-/* The four live pointers. `kind` says which artifacts a pointer names and what each must look like. */
+/* The four live pointers. `kind` says which artifacts a pointer names; `alias` says whether this pointer owns the
+   fixed-name Windows zip. Both Windows pointers name kosmos-win-x64.zip, but it serves the RELEASED bytes until a
+   promote moves it (tools/lib/write-latest-win-pointer.js), so only latest-win.json is held to its bytes and sidecar;
+   a staging pointer is held to its own versioned zip. */
 const POINTERS = Object.freeze([
   { file: 'latest.json', kind: 'mac' },
   { file: 'latest-staging.json', kind: 'mac' },
-  { file: 'latest-win.json', kind: 'win' },
-  { file: 'latest-win-staging.json', kind: 'win' },
+  { file: 'latest-win.json', kind: 'win', alias: true },
+  { file: 'latest-win-staging.json', kind: 'win', alias: false },
 ]);
 const TYPES = Object.freeze({
   tarball: /^application\/(gzip|x-gzip|x-tar|octet-stream)\b/,
@@ -75,21 +82,28 @@ const TYPES = Object.freeze({
 });
 /* A pointer field must be a bare file name: a value with a slash or a dot-dot would make this fetch some other path. */
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$/;
+const BODY_CAP = 1024 * 1024;   // a pointer, sidecar, health or feed answer; anything bigger is not one
+const REHASH_S = 24 * 3600;     // a file whose headers have not changed is still hashed once a day
+const RELAY_FAILS_TO_ALARM = 2; // the canary is a person's computer: one missed run is not an outage
 
-/* The artifacts a pointer names, with the content type each must have and whether its bytes hash to the pointer. */
-function artifactsOf(p, kind) {
+/* The artifacts a pointer names: each with the content type it must have, whether its bytes are hashed against the
+   pointer (`hashed`), and whether its .sha256 sidecar is read and compared (`sidecar`). null when the pointer does not
+   name them the way the installers read them. */
+function artifactsOf(p, pt) {
   if (!p || typeof p !== 'object') return null;
+  const kind = typeof pt === 'string' ? pt : pt.kind;
+  const owns = typeof pt === 'string' ? true : pt.alias !== false;
   const out = [];
-  const add = (name, type, hashed) => { if (typeof name === 'string' && NAME_RE.test(name) && !name.includes('..')) out.push({ name, type, hashed }); };
+  const ok = (name) => typeof name === 'string' && NAME_RE.test(name) && !name.includes('..');
+  const add = (name, type, hashed, sidecar) => { if (ok(name)) out.push({ name, type, hashed, sidecar }); };
   if (kind === 'mac') {
-    add(p.artifact, 'tarball', true);
-    add(p.manifest, 'manifest', false);
-    if (typeof p.artifact === 'string') add(p.artifact + '.sha256', 'sidecar', false);
-    if (out.length !== 3) return null;
+    if (!ok(p.artifact) || !ok(p.manifest)) return null;
+    add(p.artifact, 'tarball', true, true);
+    add(p.manifest, 'manifest', false, false);
   } else {
-    add(p.artifact, 'zip', true);
-    add(p.versioned, 'zip', true);
-    if (out.length !== 2) return null;
+    if (!ok(p.artifact) || !ok(p.versioned)) return null;
+    add(p.versioned, 'zip', true, true);
+    add(p.artifact, 'zip', owns, owns);
   }
   return out;
 }
@@ -105,25 +119,49 @@ async function request(url, { method = 'GET', timeoutMs = TIMEOUT_MS } = {}) {
     return { res: null, error: (err && err.name === 'AbortError') ? 'no answer in ' + Math.round(timeoutMs / 1000) + ' s' : String((err && err.cause && err.cause.code) || (err && err.message) || err) };
   }
 }
+/* One retry for a failure that is likely a blip (no answer, or a 5xx), so a single dropped request is not an alarm. */
+async function twice(fn) {
+  const a = await fn();
+  if (a.status === 0 || a.status >= 500) return fn();
+  return a;
+}
 
-async function getJson(url) {
+async function readText(res) {
+  const reader = res.body.getReader();
+  const parts = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.length;
+    if (n > BODY_CAP) { try { await reader.cancel(); } catch { /* gone */ } throw new Error('answer over ' + BODY_CAP + ' bytes'); }
+    parts.push(value);
+  }
+  return Buffer.concat(parts).toString('utf8');
+}
+async function getText(url) {
   const r = await request(url);
   if (!r.res) return { status: 0, error: r.error };
   try {
-    const text = await r.res.text();
-    let json = null;
-    try { json = JSON.parse(text); } catch { json = null; }
-    return { status: r.res.status, type: r.res.headers.get('content-type') || '', json };
+    return { status: r.res.status, type: r.res.headers.get('content-type') || '', text: await readText(r.res) };
   } catch (err) {
-    return { status: r.res.status, error: String((err && err.message) || err) };
+    return { status: 0, error: String((err && err.message) || err) };
   } finally { r.clear(); }
 }
-
+async function getJson(url) {
+  const g = await twice(() => getText(url));
+  let json = null;
+  if (g.text != null) { try { json = JSON.parse(g.text); } catch { json = null; } }
+  return Object.assign({}, g, { json });
+}
 async function head(url) {
-  const r = await request(url, { method: 'HEAD' });
-  if (!r.res) return { status: 0, error: r.error };
-  r.clear();
-  return { status: r.res.status, type: r.res.headers.get('content-type') || '' };
+  return twice(async () => {
+    const r = await request(url, { method: 'HEAD' });
+    if (!r.res) return { status: 0, error: r.error };
+    r.clear();
+    const h = r.res.headers;
+    return { status: r.res.status, type: h.get('content-type') || '', stamp: [h.get('etag'), h.get('last-modified'), h.get('content-length')].join('|') };
+  });
 }
 
 /* The served bytes' sha256, streamed (a tarball is tens of megabytes). */
@@ -154,64 +192,95 @@ function curlStatus(url) {
     return { status: 0, error: String((err && err.stderr && String(err.stderr).trim()) || (err && err.message) || err).split('\n')[0].slice(0, 160) };
   }
 }
+const why = (r) => String(r.status || r.error);
 
-/* Every check, one verdict. `prev` is the last run's state (its sha record); `now` is epoch seconds. */
+/* Every check, one verdict. Each problem is { key, text }: the KEY is the file and the class of failure only, so a
+   failure whose error text changes (502 then 504, a timeout then a reset) is one standing alarm, not a new one every
+   run; the TEXT says the detail. `prev` is the last run's state; `now` is epoch seconds. */
 async function gather(prev, now) {
   const problems = [];
+  const add = (key, text) => problems.push({ key, text });
   const sha = {};
   const prevSha = (prev && prev.sha && typeof prev.sha === 'object') ? prev.sha : {};
-  // The negative control first: without it a catch-all 200 passes everything below.
-  const control = await head(DIST + '/' + CONTROL);
-  if (control.status === 0) return { now, unknown: true, why: 'installkosmos.com did not answer (' + control.error + ')', problems: [], sha: prevSha };
-  if (control.status !== 404) return { now, unknown: true, why: 'installkosmos.com answered ' + control.status + ' for a file that does not exist, so its answers prove nothing', problems: [], sha: prevSha };
 
-  const urls = new Map();   // one HEAD per artifact URL, even when two pointers name it
+  // The community site and the relay first: they also tell whether THIS computer can reach the internet.
+  const health = await getJson(COMMUNITY + '/api/health');
+  const healthOk = health.status === 200 && health.json && health.json.ok === true;
+  if (!healthOk) add('community-health', 'the community site\'s /api/health did not answer ok (' + why(health) + ')');
+  const feed = await getJson(COMMUNITY + '/api/posts/feed');
+  if (!(feed.status === 200 && feed.json && typeof feed.json === 'object')) add('community-feed', 'the community feed did not answer (' + why(feed) + ')');
+  const relay = curlStatus(RELAY);
+  const prevRelayFails = Number(prev && prev.relayFails) || 0;
+  const relayFails = relay.status === 200 ? 0 : prevRelayFails + 1;
+  if (relayFails >= RELAY_FAILS_TO_ALARM) add('relay', 'the relay, or the canary computer behind ' + RELAY + ', did not answer for ' + relayFails + ' runs in a row (' + why(relay) + ')');
+
+  // The negative control: a file that never exists must answer 404. A 2xx means the site answers anything, so nothing
+  // below can be believed: could not tell. No answer, or a 5xx: the download site is down, which is the outage this
+  // exists for, unless nothing else answered either, in which case it is this computer that is offline.
+  const control = await head(DIST + '/' + CONTROL);
+  if (control.status >= 200 && control.status < 300) {
+    return { now, unknown: true, why: 'installkosmos.com answered ' + control.status + ' for a file that does not exist, so its answers prove nothing', problems: [], sha: prevSha, relayFails };
+  }
+  if (control.status !== 404) {
+    if (control.status === 0 && health.status === 0 && relay.status === 0) {
+      return { now, unknown: true, why: 'nothing answered (this computer may be offline: ' + why(control) + ')', problems: [], sha: prevSha, relayFails: prevRelayFails };
+    }
+    add('dist-down', 'installkosmos.com is not answering (' + why(control) + '): no download or update can start');
+    return { now, unknown: false, alarm: true, problems, artifacts: 0, sha: prevSha, relayFails };
+  }
+
+  const urls = new Map();   // one check per artifact URL, even when two pointers name it
   for (const pt of POINTERS) {
     const g = await getJson(DIST + '/' + pt.file);
-    if (g.status !== 200) { problems.push(pt.file + ' is not served (' + (g.status || g.error) + ')'); continue; }
-    const arts = artifactsOf(g.json, pt.kind);
-    if (!arts) { problems.push(pt.file + ' does not name its artifacts the way the app reads them'); continue; }
+    if (g.status !== 200 || !g.json) { add('pointer:' + pt.file, pt.file + ' is not served (' + why(g) + ')'); continue; }
+    const arts = artifactsOf(g.json, pt);
+    if (!arts) { add('pointer-shape:' + pt.file, pt.file + ' does not name its artifacts the way the app reads them'); continue; }
+    const want = typeof g.json.sha256 === 'string' && /^[0-9a-f]{64}$/i.test(g.json.sha256) ? g.json.sha256.toLowerCase() : null;
+    if (!want) add('pointer-sha:' + pt.file, pt.file + ' carries no sha256, so its download cannot be checked');
     for (const a of arts) {
       const url = DIST + '/' + a.name;
-      const known = urls.get(url);
-      if (known) { if (a.hashed && g.json.sha256) known.expect.add(String(g.json.sha256).toLowerCase()); continue; }
-      urls.set(url, { a, from: pt.file, expect: new Set(a.hashed && g.json.sha256 ? [String(g.json.sha256).toLowerCase()] : []) });
+      const e = urls.get(url) || { a: Object.assign({}, a, { hashed: false, sidecar: false }), from: [], expect: new Set() };
+      e.from.push(pt.file);
+      if (a.hashed && want) { e.a.hashed = true; e.expect.add(want); }
+      if (a.sidecar && want) e.a.sidecar = true;
+      urls.set(url, e);
     }
   }
   for (const [url, { a, from, expect }] of urls) {
+    const by = ' (named by ' + from.join(' and ') + ')';
     const h = await head(url);
-    if (h.status !== 200) { problems.push(a.name + ' (named by ' + from + ') is not served (' + (h.status || h.error) + ')'); continue; }
-    if (!TYPES[a.type].test(h.type)) { problems.push(a.name + ' (named by ' + from + ') is served as "' + (h.type || 'no type') + '", not a ' + a.type); continue; }
-    if (!a.hashed || !expect.size) continue;
-    if (expect.size > 1) { problems.push(a.name + ' is named by two pointers with different sha256s'); continue; }
-    const want = [...expect][0];
+    if (h.status !== 200) { add('missing:' + a.name, a.name + by + ' is not served (' + why(h) + ')'); continue; }
+    if (!TYPES[a.type].test(h.type)) { add('type:' + a.name, a.name + by + ' is served as "' + (h.type || 'no type') + '", not a ' + a.type); continue; }
+    if (expect.size > 1) { add('two-shas:' + a.name, a.name + by + ' is held to two different sha256s'); continue; }
+    const want = expect.size ? [...expect][0] : null;
+    if (a.sidecar && want) {
+      // What the installers compare against (install/setup.sh verify_download, setup.ps1): cheap, so every run.
+      const s = await getJson(url + '.sha256');
+      const said = s.status === 200 && s.text ? String(s.text).trim().split(/\s+/)[0].toLowerCase() : null;
+      if (s.status !== 200) add('sidecar-missing:' + a.name, a.name + '.sha256' + by + ' is not served (' + why(s) + '): installers refuse the download without it');
+      else if (said !== want) add('sidecar-sha:' + a.name, a.name + '.sha256 says ' + String(said).slice(0, 12) + ', the pointer says ' + want.slice(0, 12) + ': installers refuse the download');
+    }
+    if (!a.hashed || !want) continue;
     const was = prevSha[url];
-    // At most hourly, and again at once when the pointer's sha changes; between hashes the last answer stands.
-    const due = !was || was.expect !== want || !(Number(was.at) <= now) || now - Number(was.at) >= SHA_EVERY_S;
+    // Hashed again when the pointer's sha or the file's headers change, after a failed read, or once a day; otherwise
+    // the last answer stands (a tarball is tens of megabytes, and an unchanged file hashes the same).
+    const due = !was || was.expect !== want || was.stamp !== h.stamp || !!was.error || !(Number(was.at) <= now) || now - Number(was.at) >= REHASH_S;
     let rec = was;
     if (due) {
-      const s = await shaOf(url);
-      rec = { at: now, expect: want, got: s.sha || null, error: s.error || null };
+      let s = await shaOf(url);
+      if (s.error) s = await shaOf(url);   // once more, as every other request here
+      rec = { at: now, expect: want, stamp: h.stamp, got: s.sha || null, error: s.error || null };
     }
     sha[url] = rec;
-    if (rec.error) problems.push(a.name + ' could not be read whole to check its sha256 (' + rec.error + ')');
-    else if (rec.got !== want) problems.push(a.name + ' does not match ' + from + ': served sha256 ' + String(rec.got).slice(0, 12) + ', pointer says ' + want.slice(0, 12));
+    if (rec.error) add('unreadable:' + a.name, a.name + by + ' could not be read whole to check its sha256 (' + rec.error + ')');
+    else if (rec.got !== want) add('sha:' + a.name, a.name + by + ' does not match: served sha256 ' + String(rec.got).slice(0, 12) + ', pointer says ' + want.slice(0, 12));
   }
-
-  const health = await getJson(COMMUNITY + '/api/health');
-  if (!(health.status === 200 && health.json && health.json.ok === true)) problems.push('the community site\'s /api/health did not answer ok (' + (health.status || health.error) + ')');
-  const feed = await getJson(COMMUNITY + '/api/posts/feed');
-  if (!(feed.status === 200 && feed.json && typeof feed.json === 'object')) problems.push('the community feed did not answer (' + (feed.status || feed.error) + ')');
-
-  const relay = curlStatus(RELAY);
-  if (relay.status !== 200) problems.push('the relay, or the canary computer behind ' + RELAY + ', did not answer (' + (relay.status || relay.error) + ')');
-
-  return { now, unknown: false, alarm: problems.length > 0, problems, artifacts: urls.size, sha };
+  return { now, unknown: false, alarm: problems.length > 0, problems, artifacts: urls.size, sha, relayFails };
 }
 
 /* Whether to post now, and what kind, from the verdict and this channel's last post. Pure. */
 function decidePost(v, last, now) {
-  const key = v.unknown ? 'unknown' : v.alarm ? 'alarm:' + v.problems.join(' | ') : 'clear';
+  const key = v.unknown ? 'unknown' : v.alarm ? 'alarm:' + v.problems.map((p) => p.key).sort().join(',') : 'clear';
   const due = !last || now - (last.at || 0) >= REPOST_S;
   if (key === 'clear') return last && last.key && last.key !== 'clear' ? { post: 'cleared', key } : { post: null, key };
   if (!last || last.key !== key || due) return { post: v.unknown ? 'unknown' : 'alarm', key };
@@ -220,11 +289,13 @@ function decidePost(v, last, now) {
 
 function message(kind, v) {
   const head = 'serve watch (kosmos#4877): ';
+  const all = 'every live download (' + v.artifacts + ' files), the community site and the relay answer.';
   if (kind === 'unknown') return head + 'could not tell (' + v.why + '). This is not a pass: nothing was checked.';
-  if (kind === 'watching') return head + 'still watching. Every live download (' + v.artifacts + ' artifacts), the community site and the relay answer.';
-  if (kind === 'cleared') return head + (v.after === 'unknown' ? 'checking again, and ' : 'back to healthy: ') + 'every live download (' + v.artifacts + ' artifacts), the community site and the relay answer.';
-  return head + v.problems.length + ' problem' + (v.problems.length === 1 ? '' : 's') + ':\n- ' + v.problems.join('\n- ')
-    + '\nThis monitor only reads; nothing was changed. People updating or installing now get the failure above.';
+  if (kind === 'watching') return head + 'still watching: ' + all;
+  if (kind === 'cleared') return head + (v.after === 'unknown' ? 'able to check again: ' : 'back to healthy: ') + all;
+  const downloads = v.problems.some((p) => !/^(community-|relay)/.test(p.key));
+  return head + v.problems.length + ' problem' + (v.problems.length === 1 ? '' : 's') + ':\n- ' + v.problems.map((p) => p.text).join('\n- ')
+    + '\nThis monitor only reads; nothing was changed.' + (downloads ? ' People installing or updating now get the download failure above.' : '');
 }
 
 function statePath() {
@@ -368,11 +439,15 @@ async function main(argv) {
   if (argv.includes('--plist')) { process.stdout.write(plist()); return 0; }
   if (argv.includes('--install')) { process.stdout.write('installed ' + install() + '\n'); return 0; }
   const now = Number(env.SERVE_WATCH_NOW) || Math.floor(Date.now() / 1000);
+  if (argv.includes('--check')) {   // read-only: no state written, nothing created
+    const v = await gather(readState(), now);
+    process.stdout.write(JSON.stringify(Object.assign({}, v, { sha: undefined })) + '\n');
+    return v.unknown ? 2 : v.alarm ? 1 : 0;
+  }
   const noState = stateProblem();
   const state = noState ? null : readState();
   const v = await gather(state, now);
   const code = v.unknown ? 2 : v.alarm ? 1 : 0;
-  if (argv.includes('--check')) { process.stdout.write(JSON.stringify(Object.assign({}, v, { sha: undefined })) + '\n'); return code; }
   /* No state to keep: say it at most once a day, in one fixed 15-minute window of the UTC day, as gap-alarm does. */
   if (noState && now % 86400 >= INTERVAL_S) {
     process.stderr.write('serve-watch: cannot keep state (' + noState + '); posting only in the first 15 minutes of the UTC day\n');
@@ -381,7 +456,7 @@ async function main(argv) {
   const since = state ? Number(state.unknownSince) : NaN;
   const unknownSince = v.unknown ? (Number.isFinite(since) && since > 0 && since <= now ? since : now) : null;
   if (!noState && v.unknown && now - unknownSince < UNKNOWN_GRACE_S) {
-    writeState({ pane: lastFor(state, 'pane', now), card: lastFor(state, 'card', now), lastRunAt: now, unknownSince, sha: v.sha });
+    writeState({ pane: lastFor(state, 'pane', now), card: lastFor(state, 'card', now), lastRunAt: now, unknownSince, sha: v.sha, relayFails: v.relayFails });
     return code;
   }
   const next = {};
@@ -419,7 +494,7 @@ async function main(argv) {
     const sentTo = CHANNELS.filter((ch) => want[ch] && went[ch]).map((ch) => (unsure[ch] ? ch + ' (unconfirmed)' : ch));
     process.stdout.write(new Date(now * 1000).toISOString() + ' ' + (sentTo.length ? 'posted to ' + sentTo.join(' and ') : 'posted NOWHERE') + ': ' + text + '\n');
   }
-  writeState({ pane: next.pane, card: next.card, lastRunAt: now, unknownSince, sha: v.sha });
+  writeState({ pane: next.pane, card: next.card, lastRunAt: now, unknownSince, sha: v.sha, relayFails: v.relayFails });
   return code;
 }
 
