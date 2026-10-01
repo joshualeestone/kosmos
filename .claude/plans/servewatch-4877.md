@@ -43,6 +43,11 @@ log line and that a --check is healthy. The job then runs beside coordinator-mon
   about 64 times a day). Weakest premise: the all-clear now waits an hour, and the alarm text lists only this run's
   problems, so a held one is not named while held.
 - A fault inside the checks is "could not tell", posted after the same hour's grace, not a silent exit (round 11).
+- claude-msg exit 7 (the message is in the pane's composer) counts as told, since sending again would paste it twice;
+  exit 8 (claude-msg's "may not have landed", part of it, or a prompt was open) is a failure, retried after an hour
+  (round 13). gap-alarm still counts 8 as told, on #1909's older premise: #4898. Weakest premise: a pane that answers
+  8 every time is messaged hourly.
+- No all-clear and no weekly line on a run with a first sighting still to confirm: that run exits 2 (round 13).
 - The relay's build is NOT checked: the relay only writes it to its own journal on the box (crates/relay/src/serve.rs
   "relay up ... build="), with no public route, and this monitor holds no SSH.
 - The relay canary is a name that never exists, answered by the relay's own listener (crates/relay/src/redirect.rs),
