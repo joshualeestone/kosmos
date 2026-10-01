@@ -16,7 +16,7 @@ Hovering or tabbing to a task on the Tasks tab shows an active state; a browser 
 ## Check
 `docs/browser-checks/render-taskhover-4880.js`: painted pixels at the row's empty right end (rest vs hover vs focus), box unchanged, cursor pointer, ticked row unchanged under hover, project-name click opens the project (control), empty-part click opens the task. Old and new look, light and dark. Control: fails on main (hover, cursor, focus, row-click lines).
 
-Wiring: README row, `docs/browser-checks/gated.txt`, reason-grep EXPECTED_SITES 227 -> 228 (measured).
+Wiring: README row, `docs/browser-checks/gated.txt`, reason-grep EXPECTED_SITES 230 -> 231 after merging main (measured: 231 passes, 230 fails the test).
 
 ## Review round 1 (opus) changes
 - Touchscreen: no tint, no pointer, and the row does not open on tap (`@media (hover: hover)` for the CSS; a `(hover: hover)` test in the handler). Its 44px tap areas sit close together (#4226), so a near-miss must not leave the view.
