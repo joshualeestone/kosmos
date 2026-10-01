@@ -141,12 +141,19 @@ function waitingOf(state, w) {
   return { n, yours };
 }
 
+/* #4612: a turn answer's text with control characters (but newline and tab) removed, as finalOf stores it.
+   Exported so a caller that masks the text (#4733, the setup guide's answer) masks what will be stored:
+   masking first would miss a secret split by one of these characters, which this then joins back. */
+function finalTextClean(text) {
+  return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '');
+}
+
 /* #4612: { text, startedAt } on an idle or working report, text 1..4000 characters (control characters but newline
    and tab removed), startedAt a time that parses; else undefined (not written). */
 function finalOf(state, f) {
   if ((state !== 'idle' && state !== 'working') || !f || typeof f !== 'object' || typeof f.text !== 'string' || typeof f.startedAt !== 'string') return undefined;
   if (!Number.isFinite(Date.parse(f.startedAt))) return undefined;
-  const text = Array.from(f.text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '').trim()).slice(0, 4000).join('');   // characters, not UTF-16 units
+  const text = Array.from(finalTextClean(f.text).trim()).slice(0, 4000).join('');   // characters, not UTF-16 units
   return text ? { text, startedAt: f.startedAt } : undefined;
 }
 
@@ -451,4 +458,4 @@ function read(sessionName) {
   };
 }
 
-module.exports = { STATES, WAITING_ON_A_PERSON, DIR, NO_READING, TAIL_BYTES, record, read, fileFor, isAutoPermissionWait };
+module.exports = { STATES, WAITING_ON_A_PERSON, DIR, NO_READING, TAIL_BYTES, record, read, fileFor, isAutoPermissionWait, finalTextClean };

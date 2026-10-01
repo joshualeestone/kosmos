@@ -946,10 +946,10 @@ run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 # desktop size (claude-setup#100, /design-shots) rides the same arm: its shots
 # must be taken, and nav-menu, a phone-only screen, must be skipped there
 # rather than error. allow-card fails unless its Allow button is what sits at its own centre
-# (kosmos#4524) and its code boxes sit inside their card (kosmos#4568), and a shot fails if
-# the one-time Community notice covers it. The full sweep (16 shots per screen) is a by-hand tool.
+# (kosmos#4524) and its code boxes sit inside their card (kosmos#4568). cons-agents (kosmos#4594) is the desktop-only mirror of nav-menu:
+# shot at desktop through its /api/style read stub, skipped at se. The full sweep (16 shots per screen) is a by-hand tool.
 run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/mobile-shots" \
-  --screens home,nav-menu,agents-list,settings-accounts,allow-card --sizes se,desktop --themes light --strict
+  --screens home,nav-menu,agents-list,settings-accounts,allow-card,cons-agents --sizes se,desktop --themes light --strict
 # The leak guard's two arms, each of which MUST stop the run with exit 3 AND
 # with its own arm's message: a signed-in account planted in the sandboxed home
 # must be stopped by the accounts preflight ("the throwaway board lists"), and
@@ -965,16 +965,16 @@ for _arm in account:'the throwaway board lists' page:'this screen shows real dat
     echo "FAIL  leak control $1: exit $rc, expected 3 with \"$2\": its guard did not fire"; exit 1' \
     _ "${_arm%%:*}" "${_arm#*:}" "$RUN_DIR/mobile-shots-leak-${_arm%%:*}"
 done
-# kosmos#4524, #4568: the controls for three checks, control:screen:message (split on the first two colons
+# kosmos#4524, #4568: the controls for two checks, control:screen:message (split on the first two colons
 # only, so a message may contain colons). Each run MUST fail its shot
 # with exit 2 AND its own message; a clean exit means that check did not fire.
-#   cmnotice: the Community notice is left owed, so it opens over home (the per-shot COVERED check).
+# (kosmos#4820 removed the third, cmnotice: the Community notice and its COVERED check are gone.)
 #   overlay:  a layer is planted over allow-card's Allow button (the allow-card hit-test).
 #   spill:    allow-card's request carries a seven-box code, which runs past its card (the code fit check, #4568).
 #             At se only on purpose: the smallest phone, where it is measured to spill (24px).
-# The run labels keep the mobile-shots-cover- prefix for all three: browser-checks-pr-select-4119.test.js
+# The run labels keep the mobile-shots-cover- prefix for both: browser-checks-pr-select-4119.test.js
 # pins that built label.
-for _arm in cmnotice:home:'COVERED: #cmnotice' overlay:allow-card:'the Allow button is not seen: covered by div#cover-control' spill:allow-card:'the code does not fit its card'; do
+for _arm in overlay:allow-card:'the Allow button is not seen: covered by div#cover-control' spill:allow-card:'the code does not fit its card'; do
   _rest="${_arm#*:}"
   run_one "mobile-shots-cover-${_arm%%:*}" bash -c 'out=$(MSHOTS_COVER_CONTROL="$1" node docs/browser-checks/mobile-shots.js --out "$4" \
       --screens "$2" --sizes se --themes light --engines chromium 2>&1); rc=$?; printf "%s\n" "$out"
@@ -1289,8 +1289,10 @@ if boot_board "$sb7" "$P8"; then
   # page.route, so a non-enforcing board is fine.
   run_one "render-optout-403-2020" env KOSMOS_URL="$B8" node docs/browser-checks/render-optout-403-2020.js
   # #4288: the Kosmos Community switch (default ON, OFF note, 403 could-not-read, the share line,
-  # a click). Every /api/community-setting request is answered at the browser, so it writes nothing.
-  run_one "render-community-switch-4288" env KOSMOS_URL="$B8" node docs/browser-checks/render-community-switch-4288.js
+  # a click). Every /api/community-setting request is answered at the browser, except the REARM arm.
+  # #3485: its REARM arm is real (writes and restores community.json), so it is given B8's data root
+  # (B8 is booted from sb7 by boot_board, not from sb8).
+  run_one "render-community-switch-4288" env KOSMOS_URL="$B8" AGENT_WORKFORCE_DATA="$sb7/data" node docs/browser-checks/render-community-switch-4288.js
   # #4313: your agents' posts in the community, each with Delete (empty, rows, ask, keep, delete,
   # reopen, a refused delete, 403). /api/community/mine and /delete are answered at the browser, so it writes nothing.
   run_one "render-community-delete-4313" env KOSMOS_URL="$B8" node docs/browser-checks/render-community-delete-4313.js

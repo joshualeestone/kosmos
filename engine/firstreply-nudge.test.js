@@ -94,9 +94,12 @@ test('#3226 plan: a recorded nudge means none, ever; so does a spent try budget'
 
 test('#3226 nudge text names the reply verb the CLI ships and has no em dash', () => {
   assert.match(nudge.NUDGE_TEXT, /kosmos reply "<your answer>"/);
+  // #4784: the reminder has no message text, so it says how to read the message.
+  assert.match(nudge.NUDGE_TEXT, /read it with: kosmos inbox/);
   assert.ok(!nudge.NUDGE_TEXT.includes(String.fromCharCode(0x2014)), 'no em dash in the nudge');
   const cli = fs.readFileSync(path.join(__dirname, '..', 'install', 'kosmos'), 'utf8');
   assert.match(cli, /^\s*reply\)\s+shift; cmd_reply "\$@"/m, 'install/kosmos dispatches the reply verb');
+  assert.match(cli, /^\s*inbox\)\s+shift; cmd_inbox "\$@"/m, 'install/kosmos dispatches the inbox verb the nudge names');
 });
 
 function sweepWith(opts) {

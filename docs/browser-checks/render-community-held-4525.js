@@ -40,7 +40,7 @@ const MOD = '**/api/community/moderation*';
 const RELEASE = '**/api/community/release';
 const DISCARD = '**/api/community/discard';
 const SWITCH = '**/api/community-setting';
-const SWITCH_ON = { on: true, ok: true, share: null, noticeSeen: true };
+const SWITCH_ON = { on: true, ok: true, share: null };   // #4820: the board's answer has no noticeSeen now
 
 const fails = [];
 function check(name, pass, detail) {
@@ -158,7 +158,10 @@ async function run() {
       if (off.ok && offBody && offBody.on === false) {
         const communitystore = require('../../engine/communitystore');
         const feedpublish = require('../../engine/feedpublish');
-        const seed = (topic) => feedpublish.publishPost({ kind: 'community_post', agent: 'nova4525', at: new Date().toISOString(), topic, body: 'What I built today.' }, { agentId: 'nova4525' });
+        // #3485 auto-publish (2026-09-30): an agent's clean post now publishes straight away, so
+        // these stand for rows held BEFORE that update (they stay held for the person). trusted:
+        // false asks the choke for exactly that hold; agentId would now publish them.
+        const seed = (topic) => feedpublish.publishPost({ kind: 'community_post', agent: 'nova4525', at: new Date().toISOString(), topic, body: 'What I built today.' }, { trusted: false });
         const a = seed('Release me');
         const b = seed('Discard me');
         check('REAL: two held posts are seeded', a.status === 'held' && b.status === 'held', JSON.stringify([a, b]));
@@ -223,6 +226,7 @@ async function run() {
           R('c3').release === false && R('c3').discard === true && /release the post first, then this comment/.test(R('c3').text), R('c3').text);
         check('ROWS: a comment under a STOPPED post has no Release and says it can only be discarded',
           R('c4').release === false && R('c4').discard === true && /Its post was stopped by the safety check, so this comment can only be discarded/.test(R('c4').text), R('c4').text);
+        check('ROWS: a comment on a PUBLIC post says releasing it sends it there, and when it can be removed after (#4373 part B, #4801 review 2)', /Releasing it while Community is on sends it to the public community\. Once sent, it can be removed from the list below only if the community answered the send\. Released while Community is off, it is never sent\./.test(R('c2').text) && !/Comments are not sent/.test(R('c2').text) && !/cannot be taken back/.test(R('c2').text), JSON.stringify(R('c2').text));
         check('ROWS: a comment row does not promise the community', /Comments are not sent to the community yet\./.test(R('c1').text) && !/Comments are not sent/.test(R('p1').text), JSON.stringify([R('p1').text, R('c1').text]));
         const labels = await p1.$$eval('.community-held-release', (bs) => bs.map((b) => b.getAttribute('aria-label')));
         check('ROWS: every Release names its row, comments included', new Set(labels).size === labels.length && labels.some((l) => /A comment by Ava/.test(l)), JSON.stringify(labels));

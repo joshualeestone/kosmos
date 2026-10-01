@@ -307,13 +307,15 @@ test('a catalogue role cannot set fields beyond its own, and a malformed team is
   }
 });
 
-test('duplicate keys and a team without one lead and 4 or 5 reports are refused', async () => {
+test('duplicate keys and a team without one lead and 1 to 5 reports are refused', async () => {
   const { signed } = fresh();
   const spoils = [
     [(d) => { d.roles[1].key = d.roles[0].key; }, /two roles share a key/],
     [(d) => { d.teams[1].key = d.teams[0].key; }, /two teams share a key/],
-    [(d) => { d.teams[0].members[1].reportsTo = null; }, /not a lead and 4 or 5 reports/],
-    [(d) => { d.teams[0].members = d.teams[0].members.slice(0, 4); }, /not a lead and 4 or 5 reports/],
+    [(d) => { d.teams[0].members[1].reportsTo = null; }, /not a lead and 1 to 5 reports/],
+    [(d) => { d.teams[0].members = d.teams[0].members.slice(0, 1); }, /not a lead and 1 to 5 reports/],
+    // Exactly one over: a team of 5 reports gets a sixth (an off-by-one at the top must be caught).
+    [(d) => { const t = d.teams.find((x) => x.members.length === 6); t.members.push({ ...t.members[1], slot: 'extra-sixth', name: 'Sixthperson' }); }, /not a lead and 1 to 5 reports/],
   ];
   let n = 130;
   for (const [spoil, why] of spoils) {
@@ -324,6 +326,14 @@ test('duplicate keys and a team without one lead and 4 or 5 reports are refused'
   }
   // CONTROL: the untouched catalogue passes the same checks.
   assert.equal((await catalogue.refresh({ fetcher: server(signed(n + 1)).fetcher, force: true })).loaded, true);
+  // #4555: a small team (a lead and one report, 2 people) is a team Josh asked for, and is taken.
+  const small = JSON.parse(TEXT);
+  small.teams[0].members = small.teams[0].members.slice(0, 2);
+  const st = await catalogue.refresh({ fetcher: server(signed(n + 2, JSON.stringify(small, null, 2))).fetcher, force: true });
+  // loaded only says a catalogue is held (the last one is kept on a refusal): the serial says this one was taken.
+  assert.equal(st.error, null, 'a lead and one report was refused: ' + st.error);
+  assert.equal(st.serial, catalogue.MIN_SERIAL + n + 2, 'the small-team catalogue was not the one taken');
+  assert.equal(catalogue.team(small.teams[0].key).members.length, 2);
 });
 
 test('a signed catalogue carrying a managed-block marker or a template marker is refused', async () => {

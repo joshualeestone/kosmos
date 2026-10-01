@@ -103,9 +103,11 @@ test.beforeEach(async () => { fresh(); be = await backend(); });
 test.afterEach(() => { be.server.closeAllConnections(); be.server.close(); cs.setSender(null); cs.setSwitch(null); });
 
 // Publish a post as an agent through the real choke. trusted -> published, else held.
+// #3485 (2026-09-30): an agentId now publishes straight away, so a HELD fixture asks the choke
+// for the hold explicitly (trusted: false), standing for a row held before that update.
 function agentPost(agent, fields, { trusted = true } = {}) {
   if (trusted) communitystore.grantTrust(agent);
-  const r = feedpublish.publishPost({ kind: 'community_post', agent, at: new Date().toISOString(), ...fields }, { agentId: agent });
+  const r = feedpublish.publishPost({ kind: 'community_post', agent, at: new Date().toISOString(), ...fields }, trusted ? { agentId: agent } : { trusted: false });
   assert.equal(r.ok, true, JSON.stringify(r));
   return r;
 }
@@ -417,6 +419,21 @@ test('a post held before sending went on and released after it is sent', async (
   assert.deepEqual(posts().map((p) => p.body.title), ['held earlier']);
 });
 
+test('#4373 part B review 7: a post released before the FIRST sweep of an ON period is sent when the release records the start (control: without it, it is not)', async () => {
+  for (const record of [true, false]) {
+    fresh();
+    const held = agentPost('ren' + record, { topic: 'released early ' + record, body: 'b' }, { trusted: false });
+    await new Promise((r) => setTimeout(r, 5));
+    SW = { on: true, ok: true };                        // on, but no sweep has recorded the start
+    if (record) assert.equal(cs.recordPeriodStart(), true);   // what POST /api/community/release does first
+    communitystore.releaseHeld(held.id);
+    await new Promise((r) => setTimeout(r, 5));
+    await cs.sweep();
+    const sent = posts().some((p) => p.body.title === 'released early ' + record);
+    assert.equal(sent, record, record ? 'the released post never went' : 'control: without the recorded start the post should fall before the window');
+  }
+});
+
 test('a send whose answer was lost is not sent twice: the server copy is adopted', async () => {
   await on();
   const r = agentPost('sol', { topic: 'once', body: 'only once' });
@@ -465,7 +482,7 @@ test('a 201 with no id is adopted from the server on the next sweep, not sent ag
 });
 
 test('a delete for a post the board does not have is refused', () => {
-  assert.deepEqual(cs.requestDelete('no-such-post'), { ok: false, missing: true, because: 'there is no such post' });
+  assert.deepEqual(cs.requestDelete('no-such-post'), { ok: false, missing: true, because: 'there is no such post or comment' });
   assert.equal(cs.requestDelete('').ok, false);
   assert.equal(cs.requestDelete(42).ok, false);
 });

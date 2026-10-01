@@ -212,7 +212,7 @@ test('only GET on exactly those paths: every other verb and neighbour stays behi
     ['HEAD', '/api/roles'], ['HEAD', '/api/tasks'], ['HEAD', '/api/project/p4491/room'], ['POST', '/api/roles'], ['PUT', '/api/roles'], ['DELETE', '/api/tasks'],
     ['POST', '/api/project/p4491/room'], ['POST', '/api/project/p4491/room/reopen'], ['GET', '/api/project/p4491/room/reopen'],
     ['GET', '/api/project/p4491/room/'], ['GET', '/api/project/a/b/room'], ['GET', '/api/project/p4491/rooms'],
-    ['POST', '/api/project/p4491/tasks'], ['GET', '/api/project/p4491/tasks'], ['POST', '/api/project/p4491/task/1/close'],
+    ['GET', '/api/project/p4491/tasks'], ['POST', '/api/project/p4491/task/1/reopen'],   // task add and task close opened in slice 5, with their own tests
     ['GET', '/api/projects'], ['POST', '/api/projects'], ['GET', '/api/status'], ['GET', '/api/roles/x'], ['GET', '/api/tasks/1'],
   ];
   for (const [method, p] of closed) {

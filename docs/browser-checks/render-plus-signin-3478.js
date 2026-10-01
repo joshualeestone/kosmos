@@ -526,7 +526,7 @@ const visible = (page, sel) => page.evaluate((s) => {
       // #4080 (Josh's design): the connected panel's box says where to sign in from another device; the machine's
       // address is no longer shown on the pane (it was in this chip under #3829).
       const flowStatus = await page.textContent('#plus-chip-say');
-      chk(flowStatus === 'Sign in at login.kosmosplus.com.', `[${key}] done: the connected flow shows where to sign in`, JSON.stringify(flowStatus));
+      chk(flowStatus === 'Access this computer from other devices at login.kosmosplus.com', `[${key}] done: the connected flow shows where other devices reach this computer (#4744)`, JSON.stringify(flowStatus));
       void wantAddr;
       chk(!(await visible(page, '#plus-state2')), `[${key}] the wizard hands off to the connected flow after register`);
       await page.screenshot({ path: path.join(OUT, `plus-signin-${key}.png`), fullPage: false });

@@ -187,3 +187,63 @@ test('the store persists the SNAPSHOT, not the live candidate object', () => {
   const served = cs.publicFeed().find((p) => p.id === r.id);
   assert.equal(served.body, 'stable body', 'the stored body must be the snapshot taken at guard time');
 });
+
+/* #3485 AUTO-PUBLISH. Josh, #admin 2026-09-30 14:41 CDT, verbatim: "Can we push an update that
+   just makes it automatic so those agents can go ahead and just publish to the community site?"
+   An AUTHENTICATED agent (opts.agentId, the server route's token-checked identity) with NO trust
+   on the ladder now publishes a clean post or comment straight away. Before this, both were held. */
+test('#3485 auto-publish: the switch is on, and it is a named export (one line to turn back)', () => {
+  assert.equal(fp.AGENT_POSTS_PUBLISH_DIRECTLY, true);
+});
+
+test('#3485 auto-publish: a clean post from an authenticated agent with no ladder trust is PUBLISHED and served', () => {
+  assert.notEqual(cs.trustState('Fresh3485'), 'trusted', 'the fixture must be an agent the ladder has not promoted');
+  const r = fp.publishPost(post({ agent: 'Fresh3485' }), { agentId: 'Fresh3485' });
+  assert.equal(r.ok, true);
+  assert.equal(r.status, 'published');
+  assert.deepEqual(r.findings, []);
+  assert.equal(cs.publicFeed().some((p) => p.id === r.id), true, 'a published post must be served');
+});
+
+test('#3485 CONTROL: a leak from an authenticated agent is still QUARANTINED, never published or served', () => {
+  const r = fp.publishPost(post({ agent: 'Fresh3485', body: LEAK_BODY }), { agentId: 'Fresh3485' });
+  assert.equal(r.ok, true);
+  assert.equal(r.status, 'quarantined');
+  assert.ok(r.findings.length > 0, 'a quarantined post carries its findings for the moderator');
+  assert.equal(cs.publicFeed().some((p) => p.id === r.id), false, 'a quarantined post must not be served');
+});
+
+test('#3485 fail-closed stays: no agentId and no trusted is still HELD', () => {
+  const r = fp.publishPost(post({ agent: 'Fresh3485' }));
+  assert.equal(r.status, 'held');
+  assert.equal(fp.resolveTrusted({}), false);
+  assert.equal(fp.resolveTrusted({ agentId: '' }), false, 'an empty agentId is not an identity');
+});
+
+test('#3485: an explicit trusted:false still wins over agentId (a caller can still ask for a hold)', () => {
+  const r = fp.publishPost(post({ agent: 'Fresh3485' }), { agentId: 'Fresh3485', trusted: false });
+  assert.equal(r.status, 'held');
+});
+
+test('#3485 auto-publish: a comment from an authenticated agent publishes when clean and quarantines on a leak', () => {
+  const parent = fp.publishPost(post({ agent: 'Fresh3485' }), { agentId: 'Fresh3485' });
+  assert.equal(parent.status, 'published');
+  const ok = fp.publishComment({ kind: 'community_post', agent: 'Fresh3485', at: '2026-09-30T19:00:00Z', body: 'a reply', postId: parent.id }, { agentId: 'Fresh3485' });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.status, 'published');
+  const leak = fp.publishComment({ kind: 'community_post', agent: 'Fresh3485', at: '2026-09-30T19:01:00Z', body: LEAK_BODY, postId: parent.id }, { agentId: 'Fresh3485' });
+  assert.equal(leak.ok, true);
+  assert.equal(leak.status, 'quarantined');
+  const unauth = fp.publishComment({ kind: 'community_post', agent: 'Fresh3485', at: '2026-09-30T19:02:00Z', body: 'no identity', postId: parent.id });
+  assert.equal(unauth.status, 'held', 'a comment with no authenticated identity stays held');
+});
+
+test('#3485: a row held BEFORE the update stays held (nothing upgrades a stored row) and Release still works', () => {
+  const held = fp.publishPost(post({ agent: 'Fresh3485', body: 'written before the update' }), { trusted: false });
+  assert.equal(held.status, 'held');
+  // A later clean post from the same agent publishes, and does not touch the held row.
+  fp.publishPost(post({ agent: 'Fresh3485', body: 'written after the update' }), { agentId: 'Fresh3485' });
+  assert.equal(cs.publicFeed().some((p) => p.id === held.id), false, 'the earlier held row must stay held until the person releases it');
+  cs.releaseHeld(held.id);
+  assert.equal(cs.publicFeed().some((p) => p.id === held.id), true, 'Release still publishes a held row');
+});

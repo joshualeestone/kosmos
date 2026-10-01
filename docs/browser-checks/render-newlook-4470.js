@@ -19,6 +19,16 @@
  *    tabs marked by ink and weight; the consolidated layout keeping today's arrangement and back again,
  *  - with it off: every placement back where today has it, no state word, today's underline,
  *  - the Agents page's inks clearing 4.5:1 on the new grounds,
+ *  - the Agents page in the new look: the plain idle card and the Agents tile lose their border, New agent is a
+ *    40px round grey button, a pressed Messages filter still looks pressed; the working card's stroke and the
+ *    current view's gold are the same as with the look off; Issue, Question and could-not-read cards keep their
+ *    strokes (the could-not-read dash at least 1.5:1 off its ground, measured by EDGE_RATIO); the Messages filter rests on the grey ground and keeps its width under the pointer; a board note is
+ *    the grey box while a could-not-read note keeps its solid border (and a note in a project page keeps today's
+ *    look); and with the look off, today's bordered card, tile and New agent tile (the control),
+ *  - the Agents LIST in the new look (listLook): a plain row with no border, 16px corners and its name button left;
+ *    a border under the pointer with the ground unchanged; a needs-you row's red and a could-not-read row's dash
+ *    you can see (1.5:1); and against the look off, today's state wash, red and dash, and today's bordered row
+ *    with a centred name (the control),
  *  - light, dark and 390 wide, with no sideways scroll and no page errors.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -156,7 +166,77 @@ const PARTS = `(() => {
   return { found: true, avatars: [...row.querySelectorAll('.tkcard-part .lav')].filter((a) => a.getClientRects().length).length,
     held: dot(row.querySelector('.tkcard-part:not(.none)')), nobody: dot(row.querySelector('.tkcard-part.none')) };
 })()`;
+/* The list view (#4470's next page): switch the Agents board to the list, read the plain idle row (and the same
+   row under the pointer), then switch back to the grid so the later arms read the cards. */
+async function listLook(page) {
+  const btn = await page.$('#boardbar .vt[data-layout="list"]');
+  if (!btn) return { found: false, why: 'no list button' };
+  await btn.click();
+  await page.waitForSelector('#alist .lrow', { timeout: 8000 }).catch(() => {});
+  const read = () => page.evaluate(() => {
+    const rows = [...document.querySelectorAll('#alist .lrow')];
+    const idle = rows.find((r) => !['working', 'attn', 'unk', 'off'].some((c) => r.classList.contains(c)));
+    if (!idle) return { found: false, why: 'no plain row', rows: rows.length };
+    const cs = getComputedStyle(idle);
+    const nm = idle.querySelector('.lname .namego');
+    return { found: true, border: cs.borderTopColor, radius: cs.borderTopLeftRadius, groundImg: cs.backgroundImage, groundColor: cs.backgroundColor, nameAlign: nm ? getComputedStyle(nm).textAlign : 'absent' };
+  });
+  const rest = await read();
+  let hover = null, hoverGround = null;
+  if (rest.found) {
+    await page.hover('#alist .lrow:not(.working):not(.attn):not(.unk):not(.off)'); await page.waitForTimeout(150);
+    const h = await read(); hover = h.border; hoverGround = h.groundImg + ' | ' + h.groundColor; await page.mouse.move(1, 1);
+  }
+  /* The strokes that mean something, on rows drawn by hand (the fixture has no needs-you or could-not-read agent). */
+  const strokes = await page.evaluate((ratioFn) => {
+    const l = document.getElementById('alist'); if (!l) return null;
+    const out = {};
+    for (const c of ['attn', 'unk']) {
+      const d = document.createElement('div'); d.className = 'lrow ' + c; d.textContent = 'x'; l.append(d);
+      const cs = getComputedStyle(d); out[c] = { color: cs.borderTopColor, style: cs.borderTopStyle };
+      out[c].ratio = new Function(`return (${ratioFn})`)()(d);
+      d.remove();
+    }
+    return out;
+  }, EDGE_RATIO);
+  const grid = await page.$('#boardbar .vt[data-layout="grid"]');
+  if (grid) { await grid.click(); await page.waitForTimeout(300); }
+  return { ...rest, hover, hoverGround, strokes };
+}
+/* How far an element's top edge stands off its own ground (surface, then any state wash, then the edge; all may be
+   translucent), as a contrast ratio. Evaluated in the page. 1.5:1 is the floor the dash arms ask: under WCAG's 3:1
+   for indicators, which is acceptable here because the dash is never the only sign (each state also has its glyph
+   and its words); the floor exists to catch a dash that has vanished (1.04:1 was measured before #4470's fix). */
+const EDGE_RATIO = `(el) => {
+  const cs = getComputedStyle(el);
+  /* Only rgb()/rgba() is read (0-255 channels). Anything else (color(srgb ...), oklch) would be misread as near
+     black and could pass falsely, so it returns 0, which fails every floor. */
+  if (![cs.backgroundColor, cs.borderTopColor].every((v) => /^rgba?\\(/.test(v))) return 0;
+  const rgba = (v) => { const m = v.match(/[\\d.]+/g).map(Number); return { r: m[0], g: m[1], b: m[2], a: m.length > 3 ? m[3] : 1 }; };
+  const over = (t, u) => ({ r: t.r * t.a + u.r * (1 - t.a), g: t.g * t.a + u.g * (1 - t.a), b: t.b * t.a + u.b * (1 - t.a), a: 1 });
+  const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
+  const wash = (cs.backgroundImage.match(/rgba?\\([^)]*\\)/) || [null])[0];
+  let ground = rgba(cs.backgroundColor); if (wash) ground = over(rgba(wash), ground);
+  const edge = over(rgba(cs.borderTopColor), ground);
+  const [hi, lo] = [lum(edge), lum(ground)].sort((x, y) => y - x);
+  return Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100;
+}`;
 const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmid .composer .composerbox')).backgroundColor`;
+/* The Agents page in the new look: the idle and the working card's border, the Agents tile's border, the New
+   agent button's round, the current view segment's ground, and the page's own ground. */
+const AGENTS_LOOK = `(() => {
+  const cards = [...document.querySelectorAll('#grid .acard')];
+  const STATES = ['working', 'attn', 'question', 'unk', 'off'];
+  const card = (cls) => cls === 'idle' ? cards.find((c) => !STATES.some((s) => c.classList.contains(s))) : cards.find((c) => c.classList.contains(cls));
+  const bc = (el) => el ? getComputedStyle(el).borderTopColor : 'absent';
+  const plus = document.querySelector('#new-agent .plus'), on = document.querySelector('#boardbar .vt.on');
+  const agentsTile = document.getElementById('st-agents') && document.getElementById('st-agents').closest('.stat');
+  const p = plus ? getComputedStyle(plus) : null;
+  const idleCard = card('idle');
+  return { idle: bc(idleCard), radius: idleCard ? getComputedStyle(idleCard).borderTopLeftRadius : 'absent', working: bc(card('working')), tile: bc(agentsTile),
+    plus: p ? { w: plus.getBoundingClientRect().width, round: p.borderRadius, bg: p.backgroundColor } : null,
+    seg: on ? getComputedStyle(on).backgroundColor : 'absent', page: getComputedStyle(document.body).backgroundColor };
+})()`;
 
 (async () => {
   let server, browser;
@@ -304,6 +384,101 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
       /* The rule under the header goes on every page of the tab layout, not only the project. */
       const agRule = await page.evaluate(() => getComputedStyle(document.querySelector('body > .apphead')).borderBottomColor);
       chk(agRule === 'rgba(0, 0, 0, 0)', `${tag} On, Agents page: no rule under the header`, agRule);
+      /* The Agents page designed in the new look: the plain idle card loses its border and takes the 24px corners,
+         the working card keeps its green stroke (state owns the stroke), the inert tiles lose their box even on
+         hover, New agent is a 40px round grey button, and board notices are the grey box, with a could-not-read
+         notice keeping its solid border. The current view stays gold (compared with the look off, below). */
+      await page.evaluate(() => { const g = document.querySelector('#boardbar .vt[data-layout="grid"]'); if (g && !g.classList.contains('on')) g.click(); });
+      await page.waitForTimeout(400);
+      const agOn = await page.evaluate(AGENTS_LOOK);
+      chk(agOn.idle === 'rgba(0, 0, 0, 0)' && agOn.working !== 'rgba(0, 0, 0, 0)' && agOn.working !== 'absent',
+        `${tag} On, Agents page: the idle card has no border, the working card keeps its stroke`, JSON.stringify(agOn));
+      chk(agOn.tile === 'rgba(0, 0, 0, 0)', `${tag} On, Agents page: the Agents tile has no box`, JSON.stringify(agOn));
+      chk(agOn.radius === '24px', `${tag} On, Agents page: the idle card has the project page's 24px corners`, agOn.radius);
+      /* An inert tile shows no box under the pointer either. */
+      await page.hover('#st-agents');
+      const tileHover = await page.evaluate(() => getComputedStyle(document.getElementById('st-agents').closest('.stat')).borderTopColor);
+      await page.mouse.move(0, 0);
+      chk(tileHover === 'rgba(0, 0, 0, 0)', `${tag} On, Agents page: the Agents tile shows no box under the pointer`, tileHover);
+      /* Every stroke that means something survives the plain-card rule: Issue, Question and could-not-read (dashed).
+         The fixture has none of these, so each is drawn by hand into the grid for the read and removed after. */
+      const strokes = await page.evaluate((ratioFn) => {
+        const g = document.getElementById('grid'); if (!g) return { found: false };
+        const out = { found: true };
+        for (const c of ['attn', 'question', 'unk']) {
+          const d = document.createElement('div'); d.className = 'acard ' + c; d.textContent = 'x'; g.append(d);
+          const cs = getComputedStyle(d); out[c] = { color: cs.borderTopColor, style: cs.borderTopStyle, ratio: new Function(`return (${ratioFn})`)()(d) }; d.remove();
+        }
+        return out;
+      }, EDGE_RATIO);
+      chk(strokes.found && ['attn', 'question', 'unk'].every((c) => strokes[c].color !== 'rgba(0, 0, 0, 0)') && strokes.unk.style === 'dashed' && strokes.unk.ratio >= 1.5,
+        `${tag} On, Agents page: Issue, Question and could-not-read cards keep their strokes (a could-not-read dash you can see, 1.5:1 or more)`, JSON.stringify(strokes));
+      /* The Messages filter is a control: at rest it keeps the soft grey ground (its "you can press this", which a
+         touch screen needs), and hovering it does not change its width (nothing in the row jumps). Shown by hand for
+         the read, since the fixture has no unread messages, then hidden again. */
+      /* The page's 5-second poll re-hides this tile (no unread messages), so it can land between steps: each attempt
+         shows the tile, moves the pointer onto it and reads it at once, and a read that finds it hidden again tries
+         once more rather than waiting on a hidden element. */
+      const dmWas = await page.evaluate(() => { const t = document.getElementById('st-dm-tile'); return t ? t.hidden : null; });
+      let dm = { found: dmWas !== null }, dmHoverW = null;
+      for (let attempt = 0; dm.found && attempt < 3 && dmHoverW === null; attempt++) {
+        dm = await page.evaluate(() => {
+          const t = document.getElementById('st-dm-tile'); t.hidden = false;
+          const r = t.getBoundingClientRect(), cs = getComputedStyle(t);
+          return { found: true, bg: cs.backgroundColor, border: cs.borderTopColor, w: Math.round(r.width), x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        });
+        await page.mouse.move(dm.x, dm.y);
+        const under = await page.evaluate(() => { const t = document.getElementById('st-dm-tile');
+          return t.hidden ? null : { w: Math.round(t.getBoundingClientRect().width), hovered: t.matches(':hover') }; });
+        if (under && under.hovered) dmHoverW = under.w;
+        await page.mouse.move(0, 0);
+      }
+      if (dm.found) await page.evaluate((was) => { document.getElementById('st-dm-tile').hidden = was; }, dmWas);
+      chk(dm.found && dm.bg === GREY_OF[theme] && dm.border === 'rgba(0, 0, 0, 0)' && dmHoverW === dm.w,
+        `${tag} On, Agents page: the Messages filter rests on the grey ground and keeps its width under the pointer`, JSON.stringify({ ...dm, dmHoverW }));
+      /* Board notices, drawn by hand into the grid for the read and removed after: an empty-slot note has no border,
+         a could-not-read note (.boardfail) keeps a solid, visible one. */
+      const notes = await page.evaluate(() => {
+        const g = document.getElementById('grid'); if (!g) return { found: false };
+        const a = document.createElement('div'); a.className = 'pj-empty'; a.textContent = 'x';
+        const b = document.createElement('div'); b.className = 'pj-empty boardfail'; b.textContent = 'x';
+        g.append(a, b);
+        const ca = getComputedStyle(a), cb = getComputedStyle(b);
+        const out = { found: true, empty: ca.borderTopColor, fail: cb.borderTopColor, failStyle: cb.borderTopStyle, ground: ca.backgroundColor, radius: ca.borderTopLeftRadius };
+        a.remove(); b.remove();
+        /* The same empty note inside a project page keeps today's look (its column is already the grey box). */
+        const pv = document.getElementById('pj-one-view');
+        if (pv) { const c = document.createElement('div'); c.className = 'pj-empty'; c.textContent = 'x'; pv.append(c);
+          const cc = getComputedStyle(c); out.inProject = { ground: cc.backgroundColor, border: cc.borderTopColor }; c.remove(); }
+        return out;
+      });
+      chk(notes.found && notes.empty === 'rgba(0, 0, 0, 0)' && notes.fail !== 'rgba(0, 0, 0, 0)' && notes.failStyle === 'solid' && notes.ground === GREY_OF[theme] && notes.radius === '28px',
+        `${tag} On, Agents page: a board note is the grey box; a could-not-read note keeps its solid border`, JSON.stringify(notes));
+      chk(notes.inProject && notes.inProject.ground !== GREY_OF[theme] && notes.inProject.border !== 'rgba(0, 0, 0, 0)',
+        `${tag} On: an empty note inside a project page keeps today's look, not a grey box inside the grey box`, JSON.stringify(notes.inProject));
+      chk(agOn.plus && Math.round(agOn.plus.w) === 40 && agOn.plus.round === '50%' && agOn.plus.bg === GREY_OF[theme],
+        `${tag} On, Agents page: New agent is a 40px round grey button`, JSON.stringify(agOn.plus));
+      /* A pressed filter tile (the Messages filter) must still look pressed: the no-box rule skips a pressed tile.
+         The fixture has no unread messages, so the tile is shown and pressed by hand for the read, then restored. */
+      const pressed = await page.evaluate(() => {
+        const t = document.getElementById('st-dm-tile'); if (!t) return { found: false };
+        const was = { hidden: t.hidden, pressed: t.getAttribute('aria-pressed') };
+        t.hidden = false; t.setAttribute('aria-pressed', 'true');
+        const cs = getComputedStyle(t), out = { found: true, bg: cs.backgroundColor, border: cs.borderTopColor };
+        t.hidden = was.hidden; t.setAttribute('aria-pressed', was.pressed || 'false');
+        return out;
+      });
+      chk(pressed.found && pressed.bg !== 'rgba(0, 0, 0, 0)' && pressed.border !== 'rgba(0, 0, 0, 0)',
+        `${tag} On, Agents page: a pressed Messages filter still shows its pressed ground and border`, JSON.stringify(pressed));
+      const listOn = await listLook(page);
+      chk(listOn.found && listOn.border === 'rgba(0, 0, 0, 0)' && listOn.radius === '16px' && ['left', 'start'].includes(listOn.nameAlign),
+        `${tag} On, Agents list: a plain row loses its border, takes 16px corners, and its name sits left`, JSON.stringify(listOn));
+      chk(listOn.found && listOn.hoverGround === listOn.groundImg + ' | ' + listOn.groundColor, `${tag} On, Agents list: the ground (the state) does not change under the pointer`,
+        JSON.stringify({ rest: listOn.groundImg + ' | ' + listOn.groundColor, hover: listOn.hoverGround }));
+      chk(listOn.strokes && listOn.strokes.attn.color !== 'rgba(0, 0, 0, 0)' && listOn.strokes.unk.style === 'dashed' && listOn.strokes.unk.ratio >= 1.5,
+        `${tag} On, Agents list: a needs-you row keeps its edge, a could-not-read row a dash you can see (1.5:1 or more off its ground)`, JSON.stringify(listOn.strokes));
+      chk(listOn.found && listOn.hover && listOn.hover !== 'rgba(0, 0, 0, 0)',
+        `${tag} On, Agents list: a row under the pointer shows its border (a sign it opens)`, JSON.stringify(listOn));
 
       await page.reload({ waitUntil: 'networkidle' });
       await clearFirstRun(page);
@@ -334,6 +509,26 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
       chk(!stOff.shown, `${tag} Off: the member row prints no state word, as today (#3212)`, JSON.stringify(stOff));
       chk(pjOff.order === 'members,files' && pjOff.tasksLast, `${tag} Off: Tasks is back at the end of the project page, as today`, JSON.stringify(pjOff));
       chk(back.look === null && back.kbg === before.kbg, `${tag} Off and a reload give today's page back`, JSON.stringify(back));
+      /* Control for the Agents arms: with the look off, the idle card keeps its border and New agent has no round. */
+      await page.evaluate(() => showTab('agents'));
+      await page.waitForTimeout(600);
+      const agOff = await page.evaluate(AGENTS_LOOK);
+      chk(agOff.idle !== 'rgba(0, 0, 0, 0)' && agOff.idle !== 'absent' && agOff.tile !== 'rgba(0, 0, 0, 0)' && agOff.plus && agOff.plus.round !== '50%',
+        `${tag} Off, Agents page: today's bordered idle card, Agents tile and New agent tile`, JSON.stringify(agOff));
+      const listOff = await listLook(page);
+      chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px' && listOff.nameAlign === 'center',
+        `${tag} Off, Agents list: today's bordered row with 12px corners and today's centred name button`, JSON.stringify(listOff));
+      /* The new look remaps the colour tokens (its surface and rule greys differ from today's), so the row's own
+         colour and the dash's colour are the new look's, not today's. What must NOT change is the state wash laid
+         over the surface, and the needs-you red, which is a fixed colour in both looks. */
+      chk(listOn.found && listOff.found && listOn.groundImg === listOff.groundImg && listOn.groundImg !== 'none' && /^rgb\(/.test(listOn.groundColor),   // rgb(), never rgba(): an opaque surface
+        `${tag} the plain row keeps today's state wash with the look on, on an opaque surface (only its border goes)`, JSON.stringify({ on: [listOn.groundImg, listOn.groundColor], off: [listOff.groundImg, listOff.groundColor] }));
+      chk(listOn.strokes && listOff.strokes && listOn.strokes.attn.color === listOff.strokes.attn.color && listOn.strokes.unk.style === listOff.strokes.unk.style,
+        `${tag} the needs-you edge is today's red, and the could-not-read edge still dashed, with the look on`, JSON.stringify({ on: listOn.strokes, off: listOff.strokes }));
+      /* What the new look must NOT change, compared on the same board: the working card's stroke (state owns the
+         stroke) and the current view's gold (Josh 2026-08-17: selected is gold). */
+      chk(agOn.working === agOff.working, `${tag} the working card's stroke is the same with the look on as off`, JSON.stringify({ on: agOn.working, off: agOff.working }));
+      chk(agOn.seg === agOff.seg && agOff.seg !== 'rgba(0, 0, 0, 0)', `${tag} the current view's fill is today's gold with the look on`, JSON.stringify({ on: agOn.seg, off: agOff.seg }));
       if (width >= 1088) {
         const tabsOff = await page.evaluate(TABS);
         chk(tabsOff.onUnderline !== 'rgba(0, 0, 0, 0)' && tabsOff.onUnderline !== 'absent', `${tag} Off: today's gold underline marks the current tab`, JSON.stringify(tabsOff));
@@ -351,5 +546,5 @@ const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmi
     for (const d of ROOTS) fs.rmSync(d, { recursive: true, force: true });
   }
   console.log(`\n${ran - fail.length}/${ran} passed`);
-  process.exit(fail.length || ran < 90 ? 1 : 0);   // a full run makes about 100; a skipped pass must fail
+  process.exit(fail.length || ran < 149 ? 1 : 0);   // a full run makes 164 (three passes with 7 list arms each); a skipped pass must fail
 })();

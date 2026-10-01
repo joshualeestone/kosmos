@@ -23,6 +23,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn, execFileSync } = require('node:child_process');
+// #4796: a data root of its own, so the CLI never reads this computer's board token.
+const DATA4796 = require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'kosmos-cli-start-own-pgroup-4669-'));
+process.on('exit', () => { try { require('node:fs').rmSync(DATA4796, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
@@ -52,7 +55,7 @@ require('node:http').createServer((req, res) => {
 }
 
 function env(home, port) {
-  const e = { ...process.env };
+  const e = { ...process.env, AGENT_WORKFORCE_DATA: DATA4796 };
   delete e.KOSMOS_AGENT_TOKEN; delete e.KOSMOS_AGENT_SESSION; delete e.TMUX_PANE; delete e.KOSMOS_RECLAIM_BUSY;
   return {
     ...e,
