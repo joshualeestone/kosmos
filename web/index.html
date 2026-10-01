@@ -34153,7 +34153,8 @@ function dmRow(m, name, replyAdjacent) {
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(shownFrom) + '</b>'
       + (typeof dmReplyHead === 'function' ? dmReplyHead(m, name, replyAdjacent) : '')   // #4256 (guarded: the lifted dmRow tests run without it)
-      + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
+      + pjRich(typeof pjDropSelfName === 'function' ? pjDropSelfName(pjWords(m), [shownFrom, m.from]) : pjWords(m))   // #4873
+      + pjPreviewCard(m.preview) + pjAttachmentCards(m)
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
       + '</div>' + rxns + '</div></div>';
   }
@@ -57883,6 +57884,24 @@ function pjWords(m) {
   if (names.length && text.trim() === names.join(', ')) return '';
   return text;
 }
+/* #4873 (Josh, 2026-10-01): agents start a message with their own name ("Dario: ...") under a header that already
+   says Dario. Drop that one prefix when drawing it: only one of the SENDER's own names, only at the very start, then a
+   colon or a dash, with optional bold around the name ("**Dario:**", "**Dario**:"). Any other name is left alone, and
+   a message that is nothing but the name is left whole. */
+function pjDropSelfName(words, names) {
+  const text = String(words == null ? '' : words);
+  /* Longest first, so "dario-claude" is tried before "Dario". A colon may sit tight against the name ("Dario:hi"); a
+     dash needs a space before it ("Dario - hi"), so a hyphenated word that starts with the name is not cut. */
+  const sorted = (names || []).map((n) => (typeof n === 'string' ? n.trim() : '')).filter(Boolean).sort((a, b) => b.length - a.length);
+  for (const name of sorted) {
+    const q = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const sep = '(?:[ \\t]*:|[ \\t]+[\u2013-])';
+    const re = new RegExp('^[ \\t]*(\\*\\*|__)?' + q + '(?:' + sep + '[ \\t]*\\1|\\1' + sep + ')[ \\t]*', 'i');
+    const m = re.exec(text);
+    if (m && text.slice(m[0].length).trim()) return text.slice(m[0].length);
+  }
+  return text;
+}
 /* All of a message's files, one card each, in the order they were added. */
 function pjAttachmentCards(m) {
   return pjFiles(m).map(pjAttachmentCard).join('');
@@ -59071,8 +59090,14 @@ function pjReceiptSentence(outcomes, p) {
    A tag this code cannot trust (offsets outside the text, overlapping, no
    source row) is not "probably a quote", it is the flat paragraph. */
 function pjRoomBody(m, p) {
-  const words = pjWords(m);
+  let words = pjWords(m);
   if (!words) return '';
+  /* #4873: an agent's own name at the start ("Dario: ...") is dropped; the row's header already says it. Its display
+     name (from pjMentionKeys, before the self-exclusion below) and its machine name both count; a person's post is untouched. */
+  if (m && m.operator !== true && m.from) {
+    const keys = pjMentionKeys(p);
+    words = pjDropSelfName(words, [keys && keys.get ? keys.get(m.from) : null, m.from]);
+  }
   /* #2922: the Set of agent keys (sessionNames) on THIS project, so pjRichSpans can highlight an
      @name that flags an agent here. Derived by pjMentionKeys -- the SAME single source the
      live-input highlighter (pjMentionPaint) and the @ picker use -- so the posted message and the
