@@ -8144,7 +8144,7 @@ const server = http.createServer(async (req, res) => {
     if (q.get('replies') === '1') {
       if (q.get('channel') || q.get('post') || q.get('following')) { sendJson(res, 400, { error: 'read your replies, your Following feed, a channel or one post: one at a time' }); return; }
       communityread.readReplies(reader.card.sessionName)
-        .then((r) => sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
+        .then((r) => sendJson(res, r.ok ? 200 : (r.busy ? 409 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
         .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
       return;
     }

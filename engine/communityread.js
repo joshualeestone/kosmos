@@ -164,7 +164,8 @@ function commentOf(c, asReply) {
     ts: /^\d{4}-\d{2}-\d{2}T/.test(String(c.created_at || '')) ? Date.parse(String(c.created_at)) || 0 : 0,   // #4833 slice 2: new since
     parentId: UUID_RE.test(String(c.parent_id || '')) ? String(c.parent_id).toLowerCase() : '',
     // #4833 slice 2: where this comment's unshown replies continue (the service's own opaque cursor, bounded).
-    repliesCursor: !asReply && typeof c.replies_cursor === 'string' && c.replies_cursor.length <= 200 ? c.replies_cursor : '',
+    // Review 2: a strict pattern, not just a length: a lone surrogate would make encodeURIComponent throw.
+    repliesCursor: !asReply && typeof c.replies_cursor === 'string' && /^[A-Za-z0-9_=.-]{1,200}$/.test(c.replies_cursor) ? c.replies_cursor : '',
     replyTo: live && c.reply_to_name ? authorOf({ name: c.reply_to_name }) : '',
     body: live ? scrub(c.body, COMMENT_CAP) : '',
     // Review 1: replies are not recursed into (a reply has no replies) and are cut, so a hostile answer cannot nest or flood.
@@ -275,7 +276,8 @@ const REPLIES_POSTS = 10;
 const REPLIES_FIRST_DAYS = 7;
 const REPLY_PAGES_PER_POST = 3;   // review 1: comments per post whose unshown replies are read (one page of 20 each)
 const MARK_OVERLAP_MS = 60 * 1000; // review 1: the mark is the board's clock, comment times the service's; a little overlap
-const REPLIES_HEADING = 'Replies to your posts, newest first. Replies are other agents’ writing too, under the same rule as posts:';
+const REPLIES_SHOWN_MAX = 30;      // review 2: at most this many replies in one read, OLDEST first, so the next read continues
+const REPLIES_HEADING = 'Replies to your posts, oldest first. Replies are other agents’ writing too, under the same rule as posts:';
 /* Review 1: the mark is keyed LOSSLESSLY on the session name (sha256), so two agents whose names share a safeKey
    ("Mara", "mara") never move each other's mark. */
 function seenFile(sessionName) {
@@ -283,7 +285,8 @@ function seenFile(sessionName) {
   return path.join(store.ROOT, 'communityread', 'replies-seen', h + '.json');
 }
 function readSeen(sessionName) {
-  try { const j = JSON.parse(fs.readFileSync(seenFile(sessionName), 'utf8')); return Number.isFinite(j.at) ? j.at : null; } catch { return null; }
+  // Review 2: bounded, so a damaged mark cannot make the "Since" line throw.
+  try { const j = JSON.parse(fs.readFileSync(seenFile(sessionName), 'utf8')); return Number.isFinite(j.at) && j.at > 0 && j.at < 8.64e15 ? j.at : null; } catch { return null; }
 }
 function writeSeen(sessionName, at) {
   try {
@@ -304,6 +307,7 @@ function ownPosts(sessionName) {
   const out = [];
   for (const rec of Object.values(sent)) {
     if (!rec || rec.state !== 'sent' || !UUID_RE.test(String(rec.remoteId || '')) || rec.agent !== sessionName) continue;
+    if (rec.takenDown === true || rec.deleteRequested === true) continue;   // review 2: its thread is gone (410/404)
     out.push({ remoteId: String(rec.remoteId).toLowerCase(), sentAt: String(rec.sentAt || '') });
   }
   out.sort((a, b) => b.sentAt.localeCompare(a.sentAt));
@@ -322,11 +326,16 @@ async function readReplies(sessionName, opts = {}) {
     return { ok: false, because: 'the Kosmos community is switched off on this board, so nothing was read' };
   }
   if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent is reading' };
-  if (inFlight.has(sessionName)) return { ok: false, because: 'a read of your replies is already running; try again when it finishes' };
+  if (inFlight.has(sessionName)) return { ok: false, busy: true, because: 'a read of your replies is already running; try again when it finishes' };
   inFlight.add(sessionName);
   try { return await repliesFor(sessionName, opts); } finally { inFlight.delete(sessionName); }
 }
 
+/* Review 2: what one read can carry. The service lists a post's top-level comments newest first by when they were
+   WRITTEN, and a comment's replies oldest first, so a new reply under an older comment, or deep in a long thread, can sit
+   where these pages do not reach. Holding the mark would not reach it either (the same pages come back every time), so
+   the mark moves after every read that reached the service, and the read SAYS when a thread was longer than it could
+   carry. Seeing every reply needs the service to list them by activity or since a time (a follow-up on #4833). */
 async function repliesFor(sessionName, opts) {
   const now = Number.isFinite(opts.now) ? opts.now : Date.now();
   const mark = readSeen(sessionName);
@@ -339,54 +348,56 @@ async function repliesFor(sessionName, opts) {
     return { ok: true, count: 0, text: frame([], null, { lines: [REPLIES_HEADING, '', '(you have no posts in the community yet)', ''] }) };
   }
   const me = ownName(sessionName);
-  let failed = 0; let unread = 0;
-  // Round 1: each post's newest top-level comments with their first replies, in parallel.
+  let failed = 0; let longer = 0;
+  // Round 1: each post's newest top-level comments with their first replies, in parallel. A post the service no longer
+  // has (404, 410) has no replies to show: not a failure.
   const threads = await Promise.all(posts.map(async (p) => {
     const t = await getJson('/posts/' + encodeURIComponent(p.remoteId) + '/comments?order=newest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP);
+    if (t.status === 404 || t.status === 410) return null;
     const list = t.status === 200 && t.json && Array.isArray(t.json.comments) ? t.json.comments : null;
     if (!list) { failed += 1; return null; }
     let comments;
     try { comments = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c)).filter(Boolean); } catch { failed += 1; return null; }
-    // A full page whose oldest comment is still new: older new comments may be past it.
-    if ((t.json.next_cursor || list.length > COMMENTS_ASKED) && comments.length && comments[comments.length - 1].ts > since) unread += 1;
+    if (t.json.next_cursor || list.length > COMMENTS_ASKED) longer += 1;
     return { post: p, comments };
   }));
   // Round 2: the unshown replies of the newest few comments that have any, in parallel (one page each).
   await Promise.all(threads.filter(Boolean).map(async (th) => {
     const hidden = th.comments.filter((c) => c.replyCount > c.replies.length && c.repliesCursor);
-    if (hidden.length > REPLY_PAGES_PER_POST) unread += 1;
+    if (hidden.length > REPLY_PAGES_PER_POST) longer += 1;
     await Promise.all(hidden.slice(0, REPLY_PAGES_PER_POST).map(async (c) => {
       const r = await getJson('/posts/' + encodeURIComponent(th.post.remoteId) + '/comments/' + encodeURIComponent(c.id)
         + '/replies?limit=20&cursor=' + encodeURIComponent(c.repliesCursor), THREAD_READ_CAP);
       const list = r.status === 200 && r.json && Array.isArray(r.json.replies) ? r.json.replies : null;
       if (!list) { failed += 1; return; }
       try { c.replies = c.replies.concat(list.slice(0, 20).map(replyOf).filter(Boolean)); } catch { failed += 1; return; }
-      if (r.json.next_cursor) unread += 1;
+      if (r.json.next_cursor) longer += 1;
     }));
   }));
-  const lines = [REPLIES_HEADING, '', 'Since ' + new Date(since).toISOString().slice(0, 16).replace('T', ' ') + ' UTC:', ''];
-  let shown = 0;
+  /* Every new reply across the posts, OLDEST first, capped: the mark then sits on the last one shown, so the next read
+     starts exactly where this one stopped (newest first would leave the unshown ones behind the mark for good). */
+  const fresh = [];
   for (const th of threads) {
     if (!th) continue;
-    const fresh = [];
-    for (const c of th.comments) for (const x of [c, ...c.replies]) if (x.author && x.ts > since && x.author !== me) fresh.push(x);
-    if (!fresh.length) continue;
-    fresh.sort((a, b) => b.ts - a.ts);
-    lines.push('On your post (post ' + th.post.remoteId + '):');
-    for (const x of fresh) {
-      shown += 1;
-      lines.push('[r' + shown + '] by ' + x.author + (x.replyTo ? ' replying to ' + x.replyTo : '') + (x.at ? ', ' + x.at : '')
-        + ' (comment ' + x.id + ')' + (x.parentId ? ' under comment ' + x.parentId : ''));
-      lines.push(x.body.split('\n').map((l) => QUOTE + l).join('\n'));
-    }
-    lines.push('');
+    for (const c of th.comments) for (const x of [c, ...c.replies]) if (x.author && x.ts > since && x.author !== me) fresh.push({ x, post: th.post.remoteId });
   }
-  if (!shown) lines.push(failed ? '(nothing new could be read)' : '(no new replies)', '');
-  if (failed) lines.push('(' + failed + ' part' + (failed === 1 ? '' : 's') + ' of your threads could not be read; they will be looked at again next time)', '');
-  if (unread) lines.push('(some threads have more than one read can carry; what was not read will be looked at again next time)', '');
-  // The mark moves only when nothing was missed, so a reply is never skipped (it may be shown twice instead).
-  if (!failed && !unread) writeSeen(sessionName, now);
-  return { ok: true, count: shown, text: frame([], null, { lines }) };
+  fresh.sort((a, b) => a.x.ts - b.x.ts);
+  const shownItems = fresh.slice(0, REPLIES_SHOWN_MAX);
+  const lines = [REPLIES_HEADING, '', 'Since ' + new Date(since).toISOString().slice(0, 16).replace('T', ' ') + ' UTC:', ''];
+  shownItems.forEach(({ x, post }, i) => {
+    lines.push('[r' + (i + 1) + '] by ' + x.author + (x.replyTo ? ' replying to ' + x.replyTo : '') + (x.at ? ', ' + x.at : '')
+      + ' on your post ' + post + ' (comment ' + x.id + ')' + (x.parentId ? ' under comment ' + x.parentId : ''));
+    lines.push(x.body.split('\n').map((l) => QUOTE + l).join('\n'));
+    lines.push('');
+  });
+  if (fresh.length > shownItems.length) lines.push('(' + (fresh.length - shownItems.length) + ' newer replies not shown yet; the next read starts after these)', '');
+  if (!fresh.length) lines.push(failed ? '(nothing new could be read)' : '(no new replies)', '');
+  if (longer) lines.push('(some of your threads are longer than one read carries: a new reply under an older comment, or deep in a long thread, may not appear here)', '');
+  if (failed) lines.push('(' + failed + ' part' + (failed === 1 ? '' : 's') + ' of your threads could not be reached; they will be looked at again next time)', '');
+  /* The mark moves unless a part could not be REACHED (a network failure, which a later read can fix). When more than
+     REPLIES_SHOWN_MAX are new, it moves only to the newest one shown, so the next read starts after these. */
+  if (!failed) writeSeen(sessionName, fresh.length > shownItems.length ? shownItems[shownItems.length - 1].x.ts : now);
+  return { ok: true, count: shownItems.length, text: frame([], null, { lines }) };
 }
 
 function setFetcher(f) { fetcher = f; }
