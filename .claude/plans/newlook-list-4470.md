@@ -13,7 +13,13 @@ Decisions:
   the same defect and is not changed here (behind the switch).
 Weakest premise: no drawing exists for the list view; built in the approved project page's language, as #4791 was.
 
-Validation: render-newlook-4470.js 152/152 on the branch; control: main's page fails exactly the three "On, Agents
-list" arms; the name-alignment arm reads center with the look off and left with it on. render-working-pulse-3956
-and render-dm-badges-2863 pass on the branch. Shots: ~/work/design-shots/kosmos-4470-list.
+- The could-not-read dash takes --border-strong in the new look (rows and cards): the remapped rule grey measured
+  about 1.04:1 on its ground in light, so it was kept in name only (review round 3). Now 1.75:1 light, 2.28:1 dark.
+
+Validation: render-newlook-4470.js 164/164 on the branch. Controls: (1) main's page fails the "On, Agents list" arm
+that reads the border, corners and name alignment (the other list arms guard against future rules and pass on main
+too); (2) without the dash rule the visible-dash arm fails in all three passes (1.04 and 1.14:1); (3) the mutation
+`#alist .lrow:not(:hover) { border-color: transparent }` fails the stroke arm. The name-alignment arm reads center
+(off, asserted) vs left (on). render-working-pulse-3956 and render-dm-badges-2863 pass on the branch.
+Shots: ~/work/design-shots/kosmos-4470-list.
 Not yet: the org chart (next page).
