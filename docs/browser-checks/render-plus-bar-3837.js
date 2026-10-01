@@ -114,6 +114,8 @@ const bar = (page) => page.evaluate(() => {
     // P4: Log out that works: one POST to the tunnel's route, then the page goes to the address's root (the tunnel's
     // sign-in page, once the session is gone).
     answer = 200;
+    // Review 2: P4 is the bare-'/' branch (only the fragment would change, so the board must reload); say so.
+    chk(await page.evaluate(() => location.pathname === '/' && location.search === ''), 'P4 precondition: the board\'s address is a bare /', await page.evaluate(() => location.href));
     await page.evaluate(() => { window.__before = true; });
     const [req] = await Promise.all([
       page.waitForRequest((r) => r.url().endsWith('/_kosmos/logout') && r.method() === 'POST'),
