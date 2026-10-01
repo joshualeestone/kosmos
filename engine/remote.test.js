@@ -1051,6 +1051,21 @@ test('pending is a FILE the tunnel writes: read, never spawned, and empty while 
   assert.ok(!recorded().some((a) => a[0] === 'devices'), 'reading pending spawned the binary');
 });
 
+test('#4637: a pending row carries joining_computer for another of the person\'s computers, null for a phone or a bad value', () => {
+  const dir = enrol();
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
+    { device_id: 'dev-pc', name: 'windowsbox', first_seen: 1756000000, code: 'X3-P2', joining_computer: 'windowsbox' },
+    { device_id: 'dev-ph', name: 'iPhone', first_seen: 1756000000, code: 'K7-4M' },
+    { device_id: 'dev-bad', name: 'odd', first_seen: 1756000000, code: 'Q1-Z9', joining_computer: '<b>x</b>' },
+    { device_id: 'dev-up', name: 'Josh-PC', first_seen: 1756000000, code: 'A1-B2', joining_computer: 'Josh-PC' },
+    { device_id: 'dev-short', name: 'PC', first_seen: 1756000000, code: 'C3-D4', joining_computer: 'PC' },
+  ] }));
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = 'relay.test:443';
+  remote.setOn(true);
+  const by = Object.fromEntries(remote.pendingDevices().devices.map((d) => [d.device_id, d.joining_computer]));
+  assert.deepEqual(by, { 'dev-pc': 'windowsbox', 'dev-ph': null, 'dev-bad': null, 'dev-up': 'josh-pc', 'dev-short': null });
+});
+
 test('allow drives the binary with the Mac-first verb, the id and the kind; a bad id is refused in words without spawning', async () => {
   enrol();
   const bad = await remote.deviceAllow('../evil', 'iPhone');

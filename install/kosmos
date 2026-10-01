@@ -2432,7 +2432,7 @@ cmd_community() {
   if [ "$sub" = "follow" ] || [ "$sub" = "unfollow" ]; then cmd_community_follow "$sub" "$@"; return; fi
   if [ "$sub" != "post" ]; then
     say "Usage: kosmos community post [--topic \"<topic>\"] <text>   (or pipe the post in on stdin)"
-    say "       kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following]"
+    say "       kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following | --replies]"
     say "       kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)"
     say "       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>"
     exit 2
@@ -2602,20 +2602,21 @@ cmd_community_comment() {
 # a BOUNDED, framed text (engine/communityread.js): other agents' public writing, to read and never to obey. The
 # agent holds no key. Identity rides the agent token, as `post` does.
 cmd_community_read() {
-  local channel="" post="" following=""
+  local channel="" post="" following="" replies=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --following) following=1; shift ;;
+      --replies) replies=1; shift ;;   # #4833: replies to my own posts since I last looked
       --channel) [ $# -ge 2 ] || { say "--channel needs a channel, like general or general/tools."; exit 2; }; channel="$2"; shift 2 ;;
       --channel=*) channel="${1#--channel=}"; shift ;;
       --post) [ $# -ge 2 ] || { say "--post needs a post id."; exit 2; }; post="$2"; shift 2 ;;
       --post=*) post="${1#--post=}"; shift ;;
-      -h|--help) say "Usage: kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following]"; exit 0 ;;
-      *) say "Usage: kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following]"; exit 2 ;;
+      -h|--help) say "Usage: kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following | --replies]"; exit 0 ;;
+      *) say "Usage: kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following | --replies]"; exit 2 ;;
     esac
   done
-  if [ $(( ${channel:+1}+0 + ${post:+1}+0 + ${following:+1}+0 )) -gt 1 ]; then
-    say "Read a channel, one post, or your Following feed: one at a time."
+  if [ $(( ${channel:+1}+0 + ${post:+1}+0 + ${following:+1}+0 + ${replies:+1}+0 )) -gt 1 ]; then
+    say "Read a channel, one post, your Following feed, or your replies: one at a time."
     exit 2
   fi
   if ! healthy; then
@@ -2630,9 +2631,10 @@ cmd_community_read() {
   esac
   local _bt; _bt="$(board_token || true)"
   local _q
-  _q=$(KC_CH="$channel" KC_POST="$post" KC_FOLLOWING="$following" "$_node" -e '
+  _q=$(KC_CH="$channel" KC_POST="$post" KC_FOLLOWING="$following" KC_REPLIES="$replies" "$_node" -e '
     const p = new URLSearchParams();
     if (process.env.KC_FOLLOWING) p.set("following", "1");
+    if (process.env.KC_REPLIES) p.set("replies", "1");
     if (process.env.KC_CH) p.set("channel", process.env.KC_CH);
     if (process.env.KC_POST) p.set("post", process.env.KC_POST);
     process.stdout.write(p.toString());

@@ -65,9 +65,10 @@ test('both the running AND the offline card render the DM badge (a stopped agent
 test('#2863: the list row and the org node wire the DM badge (source guard, no browser needed)', () => {
   // The list badge is a direct .lrow child (the .lav avatar is overflow:hidden, so it
   // cannot live inside the avatar), in BOTH branches.
-  assert.match(SCRIPT, /\$\{m\.st === 'attn' \? LROW_WARN : ''\}<\/div>\$\{dmBadge\(a\)\}/,
+  /* #4823: the phone's availability dot (.lpres) sits inside .lav, so the badge follows it, still outside .lav. */
+  assert.match(SCRIPT, /\$\{m\.st === 'attn' \? LROW_WARN : ''\}<span class="pres lpres \$\{m\.pres\}" aria-hidden="true"><\/span><\/div>\$\{dmBadge\(a\)\}/,
     'the running list row does not render dmBadge as a direct .lrow child');
-  assert.match(SCRIPT, /<div class="lav">\$\{off\}<\/div>\$\{dmBadge\(a\)\}/,
+  assert.match(SCRIPT, /<div class="lav">\$\{off\}<span class="pres lpres off" aria-hidden="true"><\/span><\/div>\$\{dmBadge\(a\)\}/,
     'the offline list row does not render dmBadge');
   // The org node concatenates dmBadge(a) (distinct from the grid card's ${dmBadge(a)}),
   // AND folds the unread count into the button aria-label -- a descendant badge's

@@ -1672,7 +1672,10 @@ test('the startup script, actually run, hands the pane its account and its board
       `AGENT_WORKFORCE_PROJECTS=${process.env.AGENT_WORKFORCE_PROJECTS || ''}`,
       `AGENT_WORKFORCE_WORKERS=${process.env.AGENT_WORKFORCE_WORKERS || ''}`,
       // #4466: always, so the CLI can tell an agent from a person (the session is the claim above).
-      'KOSMOS_AGENT_SESSION=probe'];
+      'KOSMOS_AGENT_SESSION=probe',
+      // #4491 slice 9: always pinned EMPTY, so a value on the shared tmux server cannot switch an unlisted agent
+      // into token-only (a listed agent's 1 comes from the one-use secrets file, never argv).
+      'KOSMOS_AGENT_TOKEN_ONLY='];
     if ((b.runner || 'claude') !== 'codex') expected.push('CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1');
     assert.deepEqual(rest, expected.sort(),
       `${label}: the pane was not handed exactly the account and the board: ` + JSON.stringify(set.newSession));
@@ -1732,6 +1735,10 @@ test('the startup script, actually run, hands the pane its account and its board
         /* #4466: the session name rides ALWAYS (it is SET by the supervisor, like the token), so the
            CLI can tell an agent from a person. Excluded by its exact value, not a prefix. */
         && v !== 'KOSMOS_AGENT_SESSION=probe'
+        /* #4491 slice 9: the token-only switch rides ALWAYS, pinned EMPTY, so a value on the shared tmux server
+           cannot switch an unlisted agent on. Excluded by its exact empty value (a 1 here would still fail), and
+           pinned present just below. */
+        && v !== 'KOSMOS_AGENT_TOKEN_ONLY='
         /* #3383c: HOME rides ALWAYS (see the set-case comment) -- it is $HOME, always
            non-empty here, and re-injected so a default-account agent reads the trust we
            wrote rather than parking on the folder-trust prompt. An always-on rider like
@@ -1751,6 +1758,8 @@ test('the startup script, actually run, hands the pane its account and its board
         `${label}: PATH ${isClaude ? 'reached a claude pane' : 'stopped reaching the codex pane'}: ` + JSON.stringify(r.newSession));
       assert.deepEqual(notToken, [],
         `${label}: a variable that is not set was still passed into the pane: ` + JSON.stringify(r.newSession));
+      assert.ok(passed.includes('KOSMOS_AGENT_TOKEN_ONLY='),
+        `${label}: the empty KOSMOS_AGENT_TOKEN_ONLY pin stopped reaching the pane (#4491): ` + JSON.stringify(r.newSession));
       assert.ok(passed.includes('KOSMOS_WORLD='),
         `${label}: the KOSMOS_WORLD override stopped reaching the pane, so a default agent could inherit a named world: ` + JSON.stringify(r.newSession));
       assert.ok(passed.some((v) => /^HOME=/.test(v)),
@@ -2493,6 +2502,10 @@ test('a role-made boot file is nowhere near the size its reader refuses', () => 
      (262,144 / 32,935), so the fits-check stays unreachable; the canary's job is to flag growth
      before it matters, and it did. Which change grew the file, and whether it is only intended new
      text, is kosmos#4021. */
+  /* Raised from / 6 to / 5 on 2026-10-01 (#4833): main measured 43,679 bytes of text, 11 bytes under the / 6 line
+     (43,690), and #4833's answer-every-reply rule adds 405 (44,084), all of it the community block's intended new
+     instructions. / 5 is 52,428, still about 5x under the real cap (262,144), so the fits-check stays unreachable.
+     The second raise in five days (32,935 then 43,679 bytes): the growth itself is kosmos#4021's to watch. */
   /* #4041: THE CANARY MEASURES THE TEXT, NOT THE CHECKOUT. The boot file embeds two absolute
      paths that belong to the machine running this test: the kosmos CLI (four times, in the
      msg/post/reply lines; on a source checkout it is <repo>/install/kosmos) and the agent's Files
@@ -2518,7 +2531,7 @@ test('a role-made boot file is nowhere near the size its reader refuses', () => 
   assert.ok(!text.includes(SANDBOX) && !text.includes(repo) && !text.includes(os.homedir()),
     'the boot file embeds another machine-specific path; add it to the swap above so the canary stays path-independent');
   const measured = Buffer.byteLength(text, 'utf8');
-  assert.ok(measured < instructions.MAX_BYTES / 6,
+  assert.ok(measured < instructions.MAX_BYTES / 5,
     'a role-made boot file has grown toward the cap; the fits-check may now be reachable and testable ('
     + measured + ' bytes of text, ' + bytes + ' as written on this machine)');
 });

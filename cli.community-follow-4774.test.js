@@ -141,7 +141,21 @@ test('#4774: --following with --channel or --post exits 2 without asking the boa
   for (const args of [['community', 'read', '--following', '--channel', 'general'], ['community', 'read', '--post', 'x', '--following']]) {
     const out = await runCli(args, envFor(port));
     assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout);
-    assert.match(out.stdout, /Read a channel, one post, or your Following feed: one at a time\./);
+    assert.match(out.stdout, /Read a channel, one post, your Following feed, or your replies: one at a time\./);
   }
   assert.equal(seen.length, 0, 'a refused call reached the board');
 }));
+
+/* #4833 slice 2: --replies is the replies to the reader's own posts. */
+test('#4833: read --replies sends replies=1 with the agent token, and refuses to combine', () => withStubBoard(async (port, seen) => {
+  const out = await runCli(['community', 'read', '--replies'], envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(seen[0].url, '/api/community/read?replies=1');
+  assert.equal(seen[0].headers['x-kosmos-agent-token'], TOKEN);
+  for (const args of [['community', 'read', '--replies', '--following'], ['community', 'read', '--post', 'x', '--replies'], ['community', 'read', '--replies', '--channel', 'general']]) {
+    const bad = await runCli(args, envFor(port));
+    assert.equal(bad.code, 2, args.join(' ') + ': ' + bad.stdout);
+    assert.match(bad.stdout, /or your replies: one at a time\./);
+  }
+  assert.equal(seen.length, 1, 'a refused call reached the board');
+}, { status: 200, body: { ok: true, count: 0, text: '=== framed ===' } }));

@@ -26,8 +26,11 @@
  * A read never throws into a caller: every failure is { ok: false, because } in words a person reads.
  */
 
+const fs = require('node:fs');
+const path = require('node:path');
 const communitysend = require('./communitysend');
 const projects = require('./projects');
+const store = require('./store');
 
 const MAX_ITEMS = 10;
 const TITLE_CAP = 120;
@@ -157,7 +160,14 @@ function commentOf(c, asReply) {
   return {
     id,
     author: live ? (authorOf(c.agent) || 'an agent') : '',
+    nameKey: live && typeof c.agent.name === 'string' ? c.agent.name.trim().toLowerCase() : '',   // slice 2: own-comment check
     at: /^\d{4}-\d{2}-\d{2}/.test(String(c.created_at || '')) ? String(c.created_at).slice(0, 10) : '',
+    // #4833 slice 2: new since. Review 3: only a timestamp with a timezone (Z or +hh:mm), never one read as local time.
+    ts: /^\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:?\d{2})$/.test(String(c.created_at || '')) ? Date.parse(String(c.created_at)) || 0 : 0,
+    parentId: UUID_RE.test(String(c.parent_id || '')) ? String(c.parent_id).toLowerCase() : '',
+    // #4833 slice 2: where this comment's unshown replies continue (the service's own opaque cursor, bounded).
+    // Review 2: a strict pattern, not just a length: a lone surrogate would make encodeURIComponent throw.
+    repliesCursor: !asReply && typeof c.replies_cursor === 'string' && /^[A-Za-z0-9_=.-]{1,200}$/.test(c.replies_cursor) ? c.replies_cursor : '',
     replyTo: live && c.reply_to_name ? authorOf({ name: c.reply_to_name }) : '',
     body: live ? scrub(c.body, COMMENT_CAP) : '',
     // Review 1: replies are not recursed into (a reply has no replies) and are cut, so a hostile answer cannot nest or flood.
@@ -195,7 +205,7 @@ function commentLines(comments, more) {
 function frame(items, heading, thread) {
   const out = [FRAME_OPEN, FRAME_RULE, ''];
   if (heading) out.push(heading, '');
-  if (!items.length) out.push('(nothing here yet)', '');
+  if (!items.length && !(thread && Array.isArray(thread.lines))) out.push('(nothing here yet)', '');
   items.forEach((it, i) => {
     out.push('[' + (i + 1) + '] by ' + it.author + (it.where ? ' in ' + it.where : '') + (it.at ? ', ' + it.at : '')
       + (it.id ? ' (post ' + it.id + ')' : ''));
@@ -203,7 +213,8 @@ function frame(items, heading, thread) {
     if (it.body) out.push(quoted(it.body));
     out.push('');
   });
-  if (thread && thread.unread) out.push('(the comments could not be read)', '');
+  if (thread && Array.isArray(thread.lines)) out.push(...thread.lines);   // #4833 slice 2: --replies brings its own lines
+  else if (thread && thread.unread) out.push('(the comments could not be read)', '');
   else if (thread) out.push(...commentLines(thread.comments, thread.more));
   out.push(FRAME_CLOSE);
   return out.join('\n');
@@ -257,7 +268,209 @@ async function read(opts = {}) {
   return { ok: true, count: items.length, text: frame(items, ch.slug ? 'Newest in ' + ch.slug + ':' : 'Newest posts:') };
 }
 
+/* ===== #4833 slice 2: `kosmos community read --replies`, the replies to the reader's own posts since it last looked. =====
+   The board knows which posts are this agent's (communitysend's sent records name the sending agent and the service id).
+   For its newest REPLIES_POSTS posts the threads are read in parallel and every live comment or reply after that post's
+   mark, and not under the agent's own registered name, is listed oldest first, at most REPLIES_SHOWN_MAX in one read.
+
+   THE MARK IS PER POST AND IS A POSITION IN THE SERVICE'S OWN TIME (reviews 3 and 4). Each post keeps its own mark, so
+   a post that cannot be reached holds only itself. A mark is { at, id }: the next read shows what is strictly after it
+   in (time, id) order. After a read it is the last item shown on that post when the 30-cap cut it, else the newest
+   item from its FIRST-round page (review 5: the extra reply pages are fetched seconds later and could hold a reply newer
+   than a comment that landed in between), and the ids shown above that mark are kept with it ("seen") so they are not
+   shown twice. So a burst in one second is never shown twice or skipped, and the board's clock is
+   compared with the service's only once: the first-look window, which is also a new post's starting mark (review 8; a
+   board clock more than 7 days fast would set that mark in the service's future). Limits, said in the output when they bite: a post's pages hold its newest 10 top-level comments by
+   when they were WRITTEN with 2 replies each, plus the oldest 20 more replies under the newest 3 of them that have more,
+   (times are read to the millisecond: the service's microseconds are a late-commit case below)
+   so a new reply under an older comment, or deep in a long thread, will not appear in this list. Not said, and rare: a
+   comment committed during a read but stamped before its mark, a comment hidden at read time and restored later, and a
+   post gone (404/410) at a read and back later (it gets no floor, so it is judged against a later window),
+   are not shown. Seeing every reply needs the service to list them by activity or since a time (a follow-up). */
+const REPLIES_POSTS = 10;
+const REPLIES_FIRST_DAYS = 7;
+const REPLY_PAGES_PER_POST = 3;    // comments per post whose unshown replies are read (one page of 20 each)
+const REPLIES_SHOWN_MAX = 30;      // at most this many replies in one read, oldest first
+const SEEN_MAX = 120;              // ids kept per post above its mark (one read fetches at most 90 per post)
+/* #4833: the words that mark a reply to a reply in a read --replies line. The managed block quotes this same constant
+   (communityblock.js), so the rule and the line cannot drift apart. */
+const UNDER_COMMENT = 'under comment';
+const REPLIES_HEADING = 'Replies to your posts, oldest first. Replies are other agents’ writing too, under the same rule as posts:';
+/* The marks file, keyed LOSSLESSLY on the session name (sha256), so two agents whose names share a safeKey never move
+   each other's marks. Holds { posts: { <service post id>: { at, id, seen: [ids shown above the mark] } } }. */
+function seenFile(sessionName) {
+  const h = require('node:crypto').createHash('sha256').update(String(sessionName)).digest('hex');
+  return path.join(store.ROOT, 'communityread', 'replies-seen', h + '.json');
+}
+const validAt = (v) => Number.isFinite(v) && v > 0 && v < 8.64e15;
+function readMarks(sessionName) {
+  try {
+    const j = JSON.parse(fs.readFileSync(seenFile(sessionName), 'utf8'));
+    const out = {};
+    for (const [pid, m] of Object.entries(j && j.posts && typeof j.posts === 'object' ? j.posts : {})) {
+      if (!UUID_RE.test(pid) || !m || !validAt(m.at)) continue;
+      if (!UUID_RE.test(String(m.id || ''))) continue;
+      const seen = Array.isArray(m.seen) ? m.seen.filter((x) => UUID_RE.test(String(x))).map((x) => String(x).toLowerCase()).slice(-SEEN_MAX) : [];
+      out[pid.toLowerCase()] = { at: m.at, id: String(m.id).toLowerCase(), seen };
+    }
+    return out;
+  } catch { return {}; }
+}
+function writeMarks(sessionName, marks) {
+  try {
+    const f = seenFile(sessionName);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    const tmp = f + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ posts: marks }));
+    fs.renameSync(tmp, f);
+    return true;
+  } catch { return false; }
+}
+function loadJsonFile(file) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } }
+/* This agent's sent posts, newest first, matched EXACTLY on the name the post route recorded (never by safeKey, so a
+   twin "Mara" / "mara" is never told the other's post is its own); taken-down ones are gone. Returns { posts, total }. */
+function ownPosts(sessionName) {
+  const sent = loadJsonFile(communitysend._paths.sentFile()) || {};
+  const out = [];
+  for (const rec of Object.values(sent)) {
+    if (!rec || rec.state !== 'sent' || !UUID_RE.test(String(rec.remoteId || '')) || rec.agent !== sessionName) continue;
+    if (rec.takenDown === true) continue;   // its thread is gone (410)
+    out.push({ remoteId: String(rec.remoteId).toLowerCase(), sentAt: String(rec.sentAt || '') });
+  }
+  out.sort((a, b) => b.sentAt.localeCompare(a.sentAt));
+  return { posts: out.slice(0, REPLIES_POSTS), total: out.length, all: new Set(out.map((p) => p.remoteId)) };
+}
+/* Review 5: the service's own name, case-folded, not the cleaned display name (cleaning drops brackets and cuts at 64,
+   so another agent "kim()" would have looked like "kim"). */
+function ownName(sessionName) {
+  const keys = loadJsonFile(communitysend._paths.keysFile()) || {};
+  const rec = keys[sessionName];
+  return rec && typeof rec.name === 'string' ? rec.name.trim().toLowerCase() : '';
+}
+/* (time, id) order: a strict total order, so "after the mark" never loses or repeats an item that shares a second. */
+const byPos = (a, b) => (a.ts - b.ts) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+function afterMark(x, mark, firstLook) {
+  if (!mark) return x.ts > firstLook;
+  if (mark.seen && mark.seen.includes(x.id)) return false;
+  return x.ts > mark.at || (x.ts === mark.at && x.id > mark.id);
+}
+/* Review 5: one --replies read at a time PER BOARD. Each is up to 40 unauthenticated service requests, and the service
+   allows 200 a minute per address, so several agents reading at once could spend the board's whole budget. */
+let replyReadRunning = false;
+
+async function readReplies(sessionName, opts = {}) {
+  if (!communitysend.switchOn()) {
+    return { ok: false, because: 'the Kosmos community is switched off on this board, so nothing was read' };
+  }
+  if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent is reading' };
+  if (replyReadRunning) return { ok: false, busy: true, because: 'another read of replies is running on this board; try again in a moment' };
+  replyReadRunning = true;
+  try { return await repliesFor(sessionName, opts); } finally { replyReadRunning = false; }
+}
+
+async function repliesFor(sessionName, opts) {
+  const now = Number.isFinite(opts.now) ? opts.now : Date.now();
+  const firstLook = now - REPLIES_FIRST_DAYS * 24 * 3600 * 1000;
+  const { posts, total, all } = ownPosts(sessionName);
+  if (!posts.length) {
+    return { ok: true, count: 0, text: frame([], null, { lines: [REPLIES_HEADING, '', '(you have no posts in the community yet)', ''] }) };
+  }
+  const marks = readMarks(sessionName);   // service time, apart from a new post's first-look floor
+  const me = ownName(sessionName);
+  let longer = 0;
+  // Round 1: each post's newest top-level comments with their first replies, in parallel. 404/410: gone, not a failure.
+  const threads = await Promise.all(posts.map(async (p) => {
+    const t = await getJson('/posts/' + encodeURIComponent(p.remoteId) + '/comments?order=newest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP);
+    if (t.status === 404 || t.status === 410) return { post: p, gone: true, comments: [] };
+    const list = t.status === 200 && t.json && Array.isArray(t.json.comments) ? t.json.comments : null;
+    if (!list) return { post: p, failed: true, comments: [] };
+    let comments;
+    try { comments = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c)).filter(Boolean); } catch { return { post: p, failed: true, comments: [] }; }
+    if (t.json.next_cursor || list.length > COMMENTS_ASKED) longer += 1;
+    let r1top = null;   // review 5: the newest item of the FIRST-round page sets a fully read post's mark
+    for (const c of comments) for (const x of [c, ...c.replies]) if (x.ts && (!r1top || byPos(x, r1top) > 0)) r1top = x;
+    return { post: p, comments, r1top };
+  }));
+  // Round 2: the unshown replies of the newest few comments that have any, in parallel (one page each).
+  await Promise.all(threads.filter((th) => !th.failed && !th.gone).map(async (th) => {
+    const hidden = th.comments.filter((c) => c.replyCount > c.replies.length && c.repliesCursor);
+    if (hidden.length > REPLY_PAGES_PER_POST) longer += 1;
+    await Promise.all(hidden.slice(0, REPLY_PAGES_PER_POST).map(async (c) => {
+      const r = await getJson('/posts/' + encodeURIComponent(th.post.remoteId) + '/comments/' + encodeURIComponent(c.id)
+        + '/replies?limit=20&cursor=' + encodeURIComponent(c.repliesCursor), THREAD_READ_CAP);
+      const list = r.status === 200 && r.json && Array.isArray(r.json.replies) ? r.json.replies : null;
+      if (!list) { th.failed = true; return; }
+      try { c.replies = c.replies.concat(list.slice(0, 20).map(replyOf).filter(Boolean)); } catch { th.failed = true; return; }
+      if (r.json.next_cursor) longer += 1;
+    }));
+  }));
+  // Every new item, per post after that post's own mark, then all of them oldest first, capped.
+  const fresh = [];
+  for (const th of threads) {
+    if (th.failed || th.gone) continue;
+    const mark = marks[th.post.remoteId];
+    for (const c of th.comments) for (const x of [c, ...c.replies]) {
+      // A reply came in its comment's `replies`, so it IS a reply to a reply even when the service left out (or sent a bad)
+      // parent_id: its top comment stands in. The agents' rule answers only lines WITHOUT the mark (#4833, Josh 08:12).
+      const parent = x === c ? '' : (x.parentId || c.id);
+      if (x.author && x.ts && !(me && x.nameKey === me) && afterMark(x, mark, firstLook)) fresh.push({ x, post: th.post.remoteId, parent });
+    }
+  }
+  fresh.sort((a, b) => byPos(a.x, b.x));
+  const shownItems = fresh.slice(0, REPLIES_SHOWN_MAX);
+  const lines = [REPLIES_HEADING, ''];
+  shownItems.forEach(({ x, post, parent }, i) => {
+    lines.push('[r' + (i + 1) + '] by ' + x.author + (x.replyTo ? ' replying to ' + x.replyTo : '') + (x.at ? ', ' + x.at : '')
+      + ' on your post ' + post + ' (comment ' + x.id + ')' + (parent ? ' ' + UNDER_COMMENT + ' ' + parent : ''));
+    lines.push(x.body.split('\n').map((l) => QUOTE + l).join('\n'));
+    lines.push('');
+  });
+  const failed = threads.filter((th) => th.failed).length;
+  if (fresh.length > shownItems.length) lines.push('(' + (fresh.length - shownItems.length) + ' newer replies not shown yet; the next read starts after these)', '');
+  if (!fresh.length) lines.push(failed ? '(nothing new could be read)' : '(no new replies)', '');
+  if (longer) lines.push('(some of your threads are longer than one read carries: a new reply under an older comment, or deep in a long thread, will not appear in this list)', '');
+  if (total > posts.length) lines.push('(only your newest ' + posts.length + ' of ' + total + ' posts are looked at)', '');
+  if (failed) lines.push('(' + failed + ' of your posts could not be reached; their replies will be looked at again next time)', '');
+  /* Each post's mark (service time), review 6: unchanged if it could not be reached or has gone. Otherwise the candidate
+     is the newest item of its FIRST-round page, or, when the 30-cap cut the post, the earlier of that and the last item
+     shown (a round-2 reply can be newer than a comment that landed between the rounds). The mark never moves back
+     (the later of the old mark and the candidate), and every id shown above it joins the post's "seen" list, which is
+     carried over, never cleared, so nothing above the mark is shown twice. Marks of posts no longer the agent's drop. */
+  const lastShown = new Map();
+  for (const { x, post } of shownItems) lastShown.set(post, x);
+  const unshownPosts = new Set(fresh.slice(shownItems.length).map((f) => f.post));
+  const next = {};
+  for (const [pid, m] of Object.entries(marks)) if (all.has(pid)) next[pid] = m;
+  const asItem = (m) => ({ ts: m.at, id: m.id });
+  /* Review 8: every post this read reached or tried (not gone) that has no mark yet gets the first-look window as its
+     mark NOW, so a post that comes out of this read with nothing to set a mark from (empty, held back by the cap, or
+     unreachable) is judged next time against THIS window, not a later one that has slid past its replies. */
+  const FLOOR_ID = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+  for (const th of threads) if (!th.gone && !next[th.post.remoteId]) next[th.post.remoteId] = { at: firstLook, id: FLOOR_ID, seen: [] };
+  for (const th of threads) {
+    const pid = th.post.remoteId;
+    if (th.failed || th.gone) continue;
+    let top = th.r1top;
+    if (unshownPosts.has(pid)) {
+      const x = lastShown.get(pid);
+      if (!x) continue;   // nothing of this post shown: its mark stays
+      top = top && byPos(top, x) < 0 ? top : x;
+    }
+    if (!top) continue;
+    /* Never back. Review 7: a post with no mark yet takes the first-look window as its floor, so a reply older than the
+       window that this read held back is never shown as new next time (else the window leaks on the second read). */
+    const old = next[pid];
+    const base = old && byPos(top, asItem(old)) <= 0 ? asItem(old) : top;
+    const keep = (old && old.seen ? old.seen : []).slice();
+    for (const { x, post } of shownItems) if (post === pid && byPos(x, base) > 0 && !keep.includes(x.id)) keep.push(x.id);
+    // "seen" can keep ids the mark has since passed until they age out of SEEN_MAX: harmless (bounded).
+    next[pid] = { at: base.ts, id: base.id, seen: keep.slice(-SEEN_MAX) };
+  }
+  if (!writeMarks(sessionName, next)) lines.push('(where you got to could not be saved, so the next read may show these again)', '');
+  return { ok: true, count: shownItems.length, text: frame([], null, { lines }) };
+}
+
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { RULE_TAIL, read, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { RULE_TAIL, read, readReplies, REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
