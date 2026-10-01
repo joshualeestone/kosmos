@@ -8431,6 +8431,23 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, { ok: true, stage: got.data.stage });
     return;
   }
+  /* kosmos#4756: the account's bought addresses for the session step (engine/remote.js signinAddresses). The
+     session token stays in the engine; the page gets the rows, the buy link and this computer's own name. */
+  if (pathname === '/api/remote/signin-addresses' && req.method === 'GET') {
+    // A GET, so crossSiteWrite does not see it: refused here, so a page on another site cannot make the engine read
+    // the account's addresses with the held session.
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
+    remote.signinAddresses()
+      .then((got) => {
+        // unsupported: this computer's tunnel program predates the list, so no re-read can ever work (the page then
+        // takes the step as before, as for the switch off).
+        if (!got.ok) { sendJson(res, 400, got.unsupported === true ? { error: got.because, unsupported: true } : { error: got.because }); return; }
+        sendJson(res, 200, Object.assign({ ok: true }, got.data));
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not list your addresses' }));
+    return;
+  }
   if (pathname === '/api/remote/signin-register' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {
@@ -8496,7 +8513,8 @@ const server = http.createServer(async (req, res) => {
   /* kosmos#4648 (weekend goal #4647): the computers on this board's Kosmos+ account, for the
      top-left menu's "Your computers". Signed through the tunnel and each online state measured
      (engine/account-computers.js). Always 200: { ok: false, because } when there is no list
-     (not signed in, an old connector or coordinator), and the page hides the section. */
+     (not signed in, an old connector or coordinator), and the page hides the section. Not signed in
+     is marked signedIn: false (kosmos#4815); any other ok: false is a failure the page retries. */
   if (pathname === '/api/remote/computers' && (req.method === 'GET' || req.method === 'HEAD')) {
     accountComputers.fetchComputers()
       .then((r) => sendJson(res, 200, r))
@@ -18310,13 +18328,14 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  /* The tab icons (#45, Josh 2026-08-17). An explicit allowlist of the six
-     shipped sizes (192 and 512 joined for the manifest, #718), because everything else below falls through to the page:
+  /* The tab icons (#45, Josh 2026-08-17). An explicit allowlist of the shipped
+     icons (192 and 512 joined for the manifest, #718; the touch and maskable squares, #4798), because everything else below falls through to the page:
      without this route, /icons/kosmos-32.png would answer HTML at 200 with
      the wrong content type, the same silent-success signature the API guard
      above exists to stop. A name outside the allowlist 404s as JSON rather
      than serving the page as an image. */
-  const iconGet = pathname.match(/^\/icons\/(kosmos-(?:16|32|48|180|192|512)\.png)$/);
+  // kosmos#4798: touch-180 (the iPhone home screen) and maskable-192/512 (Android) are full-bleed opaque squares.
+  const iconGet = pathname.match(/^\/icons\/(kosmos-(?:16|32|48|180|192|512|touch-180|maskable-192|maskable-512)\.png)$/);
   if (iconGet && (req.method === 'GET' || req.method === 'HEAD')) {
     fs.readFile(path.join(__dirname, 'web', 'icons', iconGet[1]), (err, buf) => {
       if (err) { sendJson(res, 404, { error: 'no such icon' }); return; }
@@ -18352,7 +18371,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   // /favicon.ico 404s BY DESIGN, matching the site: the icon set is the
-  // four explicit PNGs above, and a probe for the .ico must not receive
+  // explicit PNGs above, and a probe for the .ico must not receive
   // the page dressed as an icon (the silent-success signature again).
   if (apiPath === '/favicon.ico') {
     sendJson(res, 404, { error: 'no favicon.ico: the icons are /icons/kosmos-<size>.png' });

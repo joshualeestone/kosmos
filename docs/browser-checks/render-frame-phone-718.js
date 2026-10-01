@@ -181,6 +181,8 @@ async function projectsArm(page, tag, w) {
           const tag = `[${engine} ${w}x${h}]`;
           const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: true, isMobile: engine === 'chromium' });
           const page = await ctx.newPage();
+          // kosmos#4815: several Kosmoses are switched off by default; the switcher-menu arm below pins the kept menu, so it turns them on.
+          await ctx.addInitScript(() => { try { localStorage.setItem('kosmos.multiKosmos', '1'); } catch {} });
           const errs = [];
           page.on('pageerror', (e) => errs.push(String(e.message || e).split('\n')[0]));
           await home(page, URL);
