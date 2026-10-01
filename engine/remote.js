@@ -1442,10 +1442,12 @@ async function deviceRemove(id) {
   if (!r.ok && r.code === 2 && /unexpected argument '--coordinator'/.test(said)) {
     // A Forget may have started between the two spawns; the same refusal as the first call then.
     { const b = busy(); if (b) return b; }
-    return parseSaid(await tracked(setupRun(deviceArgs('remove', id, false), null, retireTimeoutMs())));
+    return removeAnswer(await tracked(setupRun(deviceArgs('remove', id, false), null, retireTimeoutMs())));
   }
-  /* Killed on the timeout: the connector writes this Mac's list first and tells Kosmos+ last, so the removal has
-     most likely happened. Not a failed Remove: the page says what it cannot know and points at the list. */
+  return removeAnswer(r);
+}
+/* #4824: a connector killed on the timeout answers `timed_out`, and the page points at the list. */
+function removeAnswer(r) {
   if (!r.ok && r.timedOut) return { ok: true, because: null, data: { timed_out: true } };
   return parseSaid(r);
 }

@@ -9,8 +9,8 @@ The board's Remove passed none.
   before doing anything (clap prints `error: unexpected argument '--coordinator' found` and exits 2; measured on
   the pre-#4803 build at ~/work/kosmos-relay/dist/kosmos-tunnel), so on exactly that refusal it is asked again
   without the flag (exit 2 and that wording, both required; ANSI colour stripped first). Any other refusal surfaces
-  as before. A connector killed on the retire timeout answers `timed_out` rather than a failed Remove: it writes this
-  Mac's list first and tells Kosmos+ last, so the page says Kosmos+ took too long and points at the list.
+  as before. A connector killed on the retire timeout (either call) answers `timed_out` rather than a failed Remove;
+  the page says it took too long and, if the device is still on the list, to remove it again.
 - web/index.html, the Devices list: after a Remove, `removedWords` says what it reached, from the answer: "Its
   current sign-in on your other computers ends too; it stays allowed there until you remove it there" only when
   `signed_out` is true; "Kosmos+ could not confirm it, so it

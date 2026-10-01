@@ -43182,7 +43182,7 @@ async function paintDevices() {
 function removedWords(said) {
   if (!said || typeof said !== 'object') return 'Removed here.'; // an answer that could not be read says nothing more
   const s = said;
-  if (s.timed_out === true) return 'Kosmos+ took too long to answer. If it is gone from the list below, it may still open your other computers until you remove it there too.';
+  if (s.timed_out === true) return 'This took too long to finish. If it is still on the list below, remove it again.';
   const here = s.removed === false ? 'It was not on this computer\'s list.' : s.signed_out === true ? 'Removed.' : 'Removed here.';
   // A connector from before kosmos#4803 answers neither field: it never tries to reach the other computers or to
   // end the old sign-in here, so that is said as how it works, not as something that failed.
@@ -43190,7 +43190,7 @@ function removedWords(said) {
     return here + ' If you let it in on your other computers too, it still opens them until you remove it there, and if you let it in again here, its old sign-in comes back with it.';
   }
   const out = [here + (s.signed_out === true
-    ? ' Its current sign-in on your other computers ends too; it stays allowed there until you remove it there.'
+    ? (s.removed === false ? ' Its current sign-in on your other computers ends' : ' Its current sign-in on your other computers ends too') + '; it stays allowed there until you remove it there.'
     : ' Kosmos+ could not confirm it, so it may still open your other computers until you remove it there too.')];
   if (s.local_cutoff !== true) out.push('This computer could not record the end of its current sign-in, so if you let it in again, that old sign-in could come back.');
   return out.join(' ');
