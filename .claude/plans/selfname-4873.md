@@ -10,12 +10,12 @@ every time?" (screenshot: "Dario: Anthropic, ..." under a header that already sa
    name. DOCTRINE_VERSION 20 -> 21 with a log entry and a pinned fingerprint. NEW HEADING so existing agents are
    re-offered it (missingFrom matches by heading), as #4631 and #4475 did.
 2. Display: web/index.html pjDropSelfName(words, names) drops ONE leading prefix: one of the sender's own names (display
-   name and machine name), then a colon (may be tight) or a dash (needs a space before it), with optional bold around the
+   name and machine name), then a colon (may be tight) or a dash (needs a space on both sides), with optional bold around the
    name. Longest name first. A message that is only the name is left whole. Wired into pjRoomBody (agent posts only, not
    the person's) and dmRow's agent row (with the row's own label, shownFrom).
 
 ## Decided, not missed
-- A dash needs a space before it so "Dario-style answers" and "dario-claude did it" are not cut (the test found the
+- A dash needs a space on both sides so "Dario-style answers" and "dario-claude did it" are not cut (the test found the
   hyphen bug: "Dario" matched the start of "dario-claude").
 - The person's own posts and rows are not touched: the card is about agents, and a person writing "Josh: ..." is rare.
 - Rejected: changing the stored text (the record keeps what the agent wrote; only the drawing changes).
@@ -63,4 +63,9 @@ at the start of a message; the stored text is unchanged and the header still sho
 - Full validation on Mortals (236943820): 13,745 tests, 1 failed: engine/create.test.js's boot-file size canary (a pm
   boot file under MAX_BYTES / 6). Measured: main passes it; this branch's new section (about 280 bytes) took it to 43,938
   bytes of text against a 43,690 line. As on 2026-09-26 (/ 8 to / 6), the line is raised to / 5 with the measurement
-  written beside it; still about 6x under the real 262,144 cap. 214/214 create tests.
+  written beside it; still about 6x under the real 262,144 cap. 214/214 create tests. (Main then moved the same line
+  to / 5 itself, so after merging main this branch no longer changes engine/create.test.js.)
+- After the outage (2026-10-01, fresh session): main merged in. Round 1 (opus): FIXED W: a self-name is matched in its
+  exact case, so a label-like name ("Status") keeps its word. Round 2 (sonnet): FIXED W: an external post's reply gist
+  is drawn as written, like its row; DEFERRED W: the /5 canary (now main's own line); DUPLICATE W: label-word names
+  (weakest premise). Round 3 (opus): NITs only. Converged.
