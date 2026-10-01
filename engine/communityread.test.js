@@ -756,3 +756,72 @@ test('#4833 slice 2 review 5: one --replies read at a time per board; the own-co
   assert.match(t, /from kim-brackets/, 'another agent whose name cleans to the reader\'s was hidden');
   assert.ok(!t.includes('from myself'), 'the reader\'s own comment (its service name, any case) was shown');
 });
+
+/* Review 6: the cut branch. Q fills the cap with older items so P is cut. */
+function qItems(n, before) {   // n top-level items on post Q, all stamped before `before`
+  return Array.from({ length: n }, (_, i) => comment({ id: 'b2000000-0000-4000-8000-0000000000' + String(i).padStart(2, '0'), created_at: new Date(Date.parse(before) - (n - i) * 1000).toISOString(), body: 'q' + i }));
+}
+test('#4833 slice 2 review 6: a cut keeps the post\'s seen list, so a reply already shown is never shown again', async () => {
+  on(); clearSeen();
+  writeSendState({ p: { state: 'sent', agent: 'Cut4833', remoteId: RP(1), sentAt: '2026-09-30T11:00:00Z' },
+    q: { state: 'sent', agent: 'Cut4833', remoteId: RP(2), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const c1 = comment({ id: CID(1), created_at: T(9), reply_count: 3, replies_cursor: 'C', replies: [comment({ id: CID(2), parent_id: CID(1), created_at: T(9) }), comment({ id: CID(3), parent_id: CID(1), created_at: T(9) })] });
+  const R = comment({ id: CID(4), parent_id: CID(1), created_at: '2026-10-01T10:00:02Z', body: 'R reply' });
+  let pPage = [c1]; let qPage = [];
+  cr.setFetcher(async (url) => {
+    if (url.includes('/replies')) return { status: 200, json: { replies: [R] } };
+    return { status: 200, json: { comments: url.includes(RP(1)) ? pPage : qPage } };
+  });
+  const one = (await cr.readReplies('Cut4833', { now: NOW })).text;
+  assert.match(one, /R reply/);
+  // K lands between the rounds of read 1; Q gains 29 items before K; P gains N later: 31 new, K is the 30th, N is cut.
+  pPage = [comment({ id: CID(6), created_at: '2026-10-01T11:00:00Z', body: 'N later' }), comment({ id: CID(5), created_at: '2026-10-01T10:00:01Z', body: 'K between' }), c1];
+  // Q: 10 top-level comments with 2, 2, ... 2, 1 previews = 29 items, all before K, so K is the 30th and N is cut.
+  qPage = qItems(10, '2026-10-01T10:00:01Z');
+  qPage.forEach((q, i) => { const k = i === 9 ? 1 : 2; q.replies = Array.from({ length: k }, (_, j) => comment({ id: 'b3000000-0000-4000-8000-0000000000' + String(i * 2 + j).padStart(2, '0'), parent_id: q.id, created_at: q.created_at })); q.reply_count = k; });
+  const two = (await cr.readReplies('Cut4833', { now: NOW + 1000 })).text;
+  assert.match(two, /K between/, 'K was not shown');
+  const three = (await cr.readReplies('Cut4833', { now: NOW + 2000 })).text;
+  assert.ok(!three.includes('R reply') && !two.includes('R reply'), 'a reply shown in read 1 was shown again after a cut');
+  assert.match(three, /N later/, 'the item the cap held back never came');
+});
+
+test('#4833 slice 2 review 6: a cut at a round-2 reply never skips a comment that landed between the rounds', async () => {
+  on(); clearSeen();
+  writeSendState({ p: { state: 'sent', agent: 'Cu2_4833', remoteId: RP(3), sentAt: '2026-09-30T11:00:00Z' },
+    q: { state: 'sent', agent: 'Cu2_4833', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const c1 = comment({ id: CID(1), created_at: T(9), reply_count: 4, replies_cursor: 'C', replies: [comment({ id: CID(2), parent_id: CID(1), created_at: T(9) }), comment({ id: CID(3), parent_id: CID(1), created_at: T(9) })] });
+  let pPage = [c1];
+  // Q: 9 top-level each with 2 previews = 27 items, all before P's replies, so P's R is the 30th and R2 is cut.
+  const qPage = qItems(9, '2026-10-01T09:00:00Z');
+  qPage.forEach((q, i) => { q.replies = [0, 1].map((j) => comment({ id: 'b4000000-0000-4000-8000-0000000000' + String(i * 2 + j).padStart(2, '0'), parent_id: q.id, created_at: q.created_at })); q.reply_count = 2; });
+  cr.setFetcher(async (url) => {
+    if (url.includes('/replies')) return { status: 200, json: { replies: [comment({ id: CID(4), parent_id: CID(1), created_at: '2026-10-01T10:00:02Z', body: 'R' }), comment({ id: CID(7), parent_id: CID(1), created_at: '2026-10-01T10:00:03Z', body: 'R2' })] } };
+    return { status: 200, json: { comments: url.includes(RP(3)) ? pPage : qPage } };
+  });
+  await cr.readReplies('Cu2_4833', { now: NOW });
+  // K landed at 10:00:01, between read 1's rounds: the next round-1 page holds it.
+  pPage = [comment({ id: CID(5), created_at: '2026-10-01T10:00:01Z', body: 'K between' }), c1];
+  const two = (await cr.readReplies('Cu2_4833', { now: NOW + 1000 })).text;
+  const three = (await cr.readReplies('Cu2_4833', { now: NOW + 2000 })).text;
+  assert.ok(two.includes('K between') || three.includes('K between'), 'a comment that landed between the rounds was skipped for good');
+});
+
+test('#4833 slice 2 review 6: across full reads the saved mark advances (it does not stay put and pile into seen)', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Adv4833', remoteId: RP(5), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  let page = [];
+  serve({ ['/posts/' + RP(5) + '/comments']: () => ({ status: 200, json: { comments: page } }) });
+  const marks = () => JSON.parse(fs.readFileSync(seenPath('Adv4833'), 'utf8')).posts[RP(5)];
+  page = [comment({ id: CID(1), created_at: T(1) })];
+  await cr.readReplies('Adv4833', { now: NOW });
+  const m1 = marks();
+  page = [comment({ id: CID(2), created_at: T(2) }), ...page];
+  await cr.readReplies('Adv4833', { now: NOW + 1000 });
+  const m2 = marks();
+  page = [comment({ id: CID(3), created_at: T(3) }), ...page];
+  await cr.readReplies('Adv4833', { now: NOW + 2000 });
+  const m3 = marks();
+  assert.ok(m1.at < m2.at && m2.at < m3.at, 'the mark did not advance: ' + JSON.stringify([m1, m2, m3]));
+  assert.equal(m3.id, CID(3));
+});

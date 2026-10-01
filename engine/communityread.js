@@ -332,7 +332,7 @@ function ownPosts(sessionName) {
     out.push({ remoteId: String(rec.remoteId).toLowerCase(), sentAt: String(rec.sentAt || '') });
   }
   out.sort((a, b) => b.sentAt.localeCompare(a.sentAt));
-  return { posts: out.slice(0, REPLIES_POSTS), total: out.length };
+  return { posts: out.slice(0, REPLIES_POSTS), total: out.length, all: new Set(out.map((p) => p.remoteId)) };
 }
 /* Review 5: the service's own name, case-folded, not the cleaned display name (cleaning drops brackets and cuts at 64,
    so another agent "kim()" would have looked like "kim"). */
@@ -365,7 +365,7 @@ async function readReplies(sessionName, opts = {}) {
 async function repliesFor(sessionName, opts) {
   const now = Number.isFinite(opts.now) ? opts.now : Date.now();
   const firstLook = now - REPLIES_FIRST_DAYS * 24 * 3600 * 1000;
-  const { posts, total } = ownPosts(sessionName);
+  const { posts, total, all } = ownPosts(sessionName);
   if (!posts.length) {
     return { ok: true, count: 0, text: frame([], null, { lines: [REPLIES_HEADING, '', '(you have no posts in the community yet)', ''] }) };
   }
@@ -422,24 +422,32 @@ async function repliesFor(sessionName, opts) {
   if (longer) lines.push('(some of your threads are longer than one read carries: a new reply under an older comment, or deep in a long thread, will not appear in this list)', '');
   if (total > posts.length) lines.push('(only your newest ' + posts.length + ' of ' + total + ' posts are looked at)', '');
   if (failed) lines.push('(' + failed + ' of your posts could not be reached; their replies will be looked at again next time)', '');
-  /* Each post's mark (service time): unchanged if it could not be reached or has gone; the last of its items shown if
-     some of its new items were not shown (the next read continues strictly after it); else the newest item of its
-     first-round page, with the ids shown above that mark kept as "seen" so they are not shown again. */
+  /* Each post's mark (service time), review 6: unchanged if it could not be reached or has gone. Otherwise the candidate
+     is the newest item of its FIRST-round page, or, when the 30-cap cut the post, the earlier of that and the last item
+     shown (a round-2 reply can be newer than a comment that landed between the rounds). The mark never moves back
+     (the later of the old mark and the candidate), and every id shown above it joins the post's "seen" list, which is
+     carried over, never cleared, so nothing above the mark is shown twice. Marks of posts no longer the agent's drop. */
   const lastShown = new Map();
   for (const { x, post } of shownItems) lastShown.set(post, x);
   const unshownPosts = new Set(fresh.slice(shownItems.length).map((f) => f.post));
-  const next = { ...marks };
+  const next = {};
+  for (const [pid, m] of Object.entries(marks)) if (all.has(pid)) next[pid] = m;
+  const asItem = (m) => ({ ts: m.at, id: m.id });
   for (const th of threads) {
     const pid = th.post.remoteId;
     if (th.failed || th.gone) continue;
-    if (unshownPosts.has(pid)) { const x = lastShown.get(pid); if (x) next[pid] = { at: x.ts, id: x.id, seen: [] }; continue; }
-    const top = th.r1top;
+    let top = th.r1top;
+    if (unshownPosts.has(pid)) {
+      const x = lastShown.get(pid);
+      if (!x) continue;   // nothing of this post shown: its mark stays
+      top = top && byPos(top, x) < 0 ? top : x;
+    }
     if (!top) continue;
-    const base = next[pid] && !(top.ts > next[pid].at || (top.ts === next[pid].at && top.id > next[pid].id)) ? next[pid] : { at: top.ts, id: top.id };
-    const above = (x) => x.ts > base.at || (x.ts === base.at && x.id > base.id);
-    const keep = (next[pid] && next[pid].seen ? next[pid].seen : []).slice();
-    for (const { x, post } of shownItems) if (post === pid && above(x) && !keep.includes(x.id)) keep.push(x.id);
-    next[pid] = { at: base.at, id: base.id, seen: keep.slice(-SEEN_MAX) };
+    const old = next[pid];
+    const base = old && byPos(top, asItem(old)) <= 0 ? asItem(old) : top;
+    const keep = (old && old.seen ? old.seen : []).slice();
+    for (const { x, post } of shownItems) if (post === pid && byPos(x, base) > 0 && !keep.includes(x.id)) keep.push(x.id);
+    next[pid] = { at: base.ts, id: base.id, seen: keep.slice(-SEEN_MAX) };
   }
   if (!writeMarks(sessionName, next)) lines.push('(where you got to could not be saved, so the next read may show these again)', '');
   return { ok: true, count: shownItems.length, text: frame([], null, { lines }) };
