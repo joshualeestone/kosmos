@@ -47,6 +47,7 @@ render-composer-stroke
 render-computers-4648
 render-conn-ask-4451
 render-conn-top-3708
+render-connect-sheet-4637
 render-connect-win32-install-570
 render-connlost-reconnect-3410
 render-cons-tree-2929
@@ -192,6 +193,7 @@ render-room-scroll
 render-settings-agy-3874
 render-settings-nav
 render-settings-openai-goldbox
+render-shell-noscroll-4872
 render-signin-visible-3892
 render-sound-master-2436
 render-stale-auth-1930
