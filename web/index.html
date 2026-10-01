@@ -29623,6 +29623,9 @@ function communityMineCommentWord(r) {
   /* review 1: the POST is out right now; Delete comes back once it has an answer. */
   if (r.state === 'sending') return 'Sending. Kosmos is sending it to the community right now.';
   if (r.state === 'unconfirmed') return 'Sent, not confirmed. Kosmos never learned whether this arrived, so it cannot remove it.';
+  /* review 5: the refused agent is checked before any reason a comment cannot be traced, as requestCommentDelete does,
+     so the row and a refused removal give the same reason. */
+  if (r.agentRefused && r.state === 'sent') return 'In the community. The community refused this agent, so Kosmos cannot remove its comments.';
   /* review 1: keys.json unreadable is not "another registration": unknown, so no Delete for now, and no false "never". */
   if (r.traceUnknown) return 'In the community. Kosmos could not read its community registrations just now.';
   /* review 3: the board re-registered since this was sent, so the registration that could remove it is gone. */
@@ -29631,7 +29634,6 @@ function communityMineCommentWord(r) {
      told, so the words are true either way. */
   if (r.untraceable && r.untraceableReason === 'registration-unknown') return 'In the community. Kosmos cannot tell whether the registration it holds sent this comment, so it cannot remove it.';
   if (r.untraceable) return 'In the community. Kosmos has no way to find this comment again, so it cannot remove it.';
-  if (r.agentRefused) return 'In the community. The community refused this agent, so Kosmos cannot remove its comments.';
   if (r.deleteRetrying) return 'Removing. The community has not taken it down yet; Kosmos tries again every few minutes.';
   if (r.deleteRequested) return 'Removing. It comes down from the community within a few minutes.';
   switch (r.state) {

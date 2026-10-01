@@ -307,3 +307,42 @@ no ask, and the message stays on the row; CONTROL: the row offered Delete before
 - Red arm: with engine/communitysend.js reverted to HEAD (the fix only), 2 fail: review 3 NIT 3 (`olderNoAgentId`
   reads 'other-registration', expected 'registration-unknown') and review 4 W (the same). Restored by cp and cmp.
 - Browser check render-community-delete-4313 and both browser-check gates run on the committed tree.
+
+## Review round 5 (converged)
+
+0 BLOCKER, 0 WARNING. Two NITs taken, two recorded.
+
+### NIT 1 (taken): the review 4 W test's zero-DELETE assertion was vacuous
+
+`requestDelete` refused the comment, so comment-deletes.json was empty and `sweepCommentDeletes` had nothing to act
+on; the assertion could not fail. The hazard the plan rejects (a time tolerance) lives in `sameServiceAgent`, which
+the delete sweep also asks. The test now sends two comments in the sweep that registers ava and gives both main's
+shape (no agentId, sentAt 4 ms before registeredAt). CONTROL first: one of them, with its agentId restored and its id
+written into comment-deletes.json by hand (`{ id: when }`, the sweep's own format), gets exactly one DELETE and
+settles `deleted`. The arm: the other, written in by hand the same way, gets no DELETE, stays `sent`, and is still in
+the community. Red arm: a 60 s tolerance in the sweep's registration check (no-agentId records only) gives 2 DELETEs
+where 1 is expected ("a delete was asked as a registration that may not have sent it"). The same tolerance placed in
+`sameServiceAgent` itself reds earlier in the same test, at the row assertion. Both restored by cp and cmp.
+
+### NIT 4 (taken): the page and the engine gave different reasons for one comment
+
+`communityMineCommentWord` checked `untraceable` before `agentRefused`; `requestCommentDelete` checks the refused
+agent first. The page now checks `agentRefused && state === 'sent'` before `traceUnknown` and every untraceable
+reason, so a refused agent's untraceable comment reads "The community refused this agent, so Kosmos cannot remove
+its comments." in the row and in a refused removal. No browser-check row pinned the old order; COMMENT row c13
+(refused agent, untraceable, other-registration) now pins the new one and asserts "no longer holds" is absent.
+
+### Decided, not built (round 5)
+
+- **A refresh started mid-delete can supersede the refusal's repaint.** If a list refresh is already in flight when
+  a removal is refused, its paint can land after the refusal's, and the refusal note is placed on the row as it was
+  before. The next paint corrects it. Rare, and nothing polls the list, so it is left.
+- **The refusal note can repeat the row's new status line.** After a refusal the repainted row's own state line and
+  the note can say the same thing. Cosmetic; both are true.
+
+### Verified (round 5)
+
+- engine/communitycommentmine-4801.test.js 24/24. All engine/community*.test.js and server.community*.test.js
+  (19 files, server.community-gate.test.js included): 276 tests, 274 pass, 0 fail, 2 skipped (the contract tests).
+- Browser check render-community-delete-4313 on the committed tree: all page checks passed, c13 included. Both
+  browser-check gates rc=0.

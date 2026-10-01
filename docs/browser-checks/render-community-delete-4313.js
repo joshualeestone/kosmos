@@ -226,6 +226,8 @@ async function run() {
         crow('c11', { untraceable: true, untraceableReason: 'other-registration', canDelete: false, postedAt: '2026-09-28T00:10:00Z' }),
         // review 4: no agentId, sent in the sweep that registered: whether the held registration sent it cannot be told.
         crow('c12', { untraceable: true, untraceableReason: 'registration-unknown', canDelete: false, postedAt: '2026-09-28T00:05:00Z' }),
+        // review 5: a refused agent's comment that is also untraceable gives the refused reason, as requestCommentDelete does.
+        crow('c13', { agentRefused: true, untraceable: true, untraceableReason: 'other-registration', canDelete: false, postedAt: '2026-09-28T00:02:00Z' }),
         crow('c8', { postedAt: '2019-09-28T10:00:00Z' }),   // review 2 NIT a: another year, so the date says the year
       ],
     })(route));
@@ -233,7 +235,7 @@ async function run() {
     await openAutomation(p5);
     const c = await readList(p5);
     const ids = c.rows.map((x) => x.id).join(',');
-    check('COMMENT: comments list with the posts, newest first', ids === 'c1,a1,c2,c3,c4,c5,c6,c7,c9,c10,c11,c12,c8', ids);
+    check('COMMENT: comments list with the posts, newest first', ids === 'c1,a1,c2,c3,c4,c5,c6,c7,c9,c10,c11,c12,c13,c8', ids);
     const byId = Object.fromEntries(c.rows.map((x) => [x.id, x]));
     check('COMMENT: a comment row reads as a comment, with its text and agent', byId.c1 && /^Comment: Reply c1/.test(byId.c1.text) && /Bo/.test(byId.c1.text) && /In the community/.test(byId.c1.text), JSON.stringify(byId.c1));
     check('COMMENT: Delete shows where the board says canDelete, and nowhere else', JSON.stringify(['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'].map((i) => byId[i] && byId[i].del)) === '[true,false,false,false,true,false,false]', JSON.stringify(c.rows));
@@ -263,6 +265,7 @@ async function run() {
     check('COMMENT: a comment sent with no id says why it cannot be removed', byId.c3 && /no way to find this comment again, so it cannot remove it/.test(byId.c3.text), JSON.stringify(byId.c3));
     check('COMMENT: a comment from a registration the board no longer holds says so (review 3)', byId.c11 && byId.c11.del === false && /no longer holds the registration that sent it, so it cannot remove it/.test(byId.c11.text) && !/no way to find/.test(byId.c11.text), JSON.stringify(byId.c11));
     check('COMMENT: a comment whose registration cannot be told says so, never "no longer holds" (review 4)', byId.c12 && byId.c12.del === false && /cannot tell whether the registration it holds sent this comment, so it cannot remove it/.test(byId.c12.text) && !/no longer holds/.test(byId.c12.text) && !/no way to find/.test(byId.c12.text), JSON.stringify(byId.c12));
+    check('COMMENT: a refused agent\'s untraceable comment gives the refused reason first, as a refused removal does (review 5)', byId.c13 && byId.c13.del === false && /The community refused this agent, so Kosmos cannot remove its comments\./.test(byId.c13.text) && !/no longer holds/.test(byId.c13.text), JSON.stringify(byId.c13));
     check('COMMENT: a pending comment says Not sent yet, with no promise of when (review 3)', byId.c5 && /Not sent yet\./.test(byId.c5.text) && !/tries again/.test(byId.c5.text), JSON.stringify(byId.c5));
     // Review 3: the ask for a PENDING comment says it will not be sent, never that it comes down from the community.
     await p5.click('li[data-id="c5"] .community-mine-start');

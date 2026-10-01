@@ -506,24 +506,41 @@ test('review 3 NIT 3: an untraceable sent comment carries why, with no id: no id
 
 test('review 4 W: a record with no agentId sent in the sweep that registered its agent (sentAt a few ms before registeredAt) is registration-unknown: no Delete, true words, nothing asked of the service', async () => {
   await on();
+  const ctl = comment('ava', 'control, sent in the same sweep');
   const c = comment('ava', 'sent by the sweep that registered ava');
   await cs.sweep();
-  assert.equal(posts().length, 1, 'CONTROL: the comment went out');
+  assert.equal(posts().length, 2, 'CONTROL: both comments went out');
   const k = readJson(cs._paths.keysFile()).ava;
   assert.equal(typeof k.registeredAt, 'string', 'CONTROL: the sweep registered ava');
   const csent = readJson(cs._paths.commentsSentFile());
   assert.equal(csent[c.id].agentId, k.remoteId, 'CONTROL: this branch records the agentId');
-  assert.equal(mine.mineComments()[0].canDelete, true, 'CONTROL: with its agentId, the comment can be removed');
+  const rowOf = (text) => mine.mineComments().find((r) => r.text === text);
+  assert.equal(rowOf('sent by the sweep that registered ava').canDelete, true, 'CONTROL: with its agentId, the comment can be removed');
   // What a board on main writes: no agentId, and sentAt the sweep's start, a few ms before the registration it made.
-  delete csent[c.id].agentId;
-  csent[c.id].sentAt = new Date(Date.parse(k.registeredAt) - 4).toISOString();
+  const justBefore = new Date(Date.parse(k.registeredAt) - 4).toISOString();
+  for (const id of [ctl.id, c.id]) { delete csent[id].agentId; csent[id].sentAt = justBefore; }
   writeJson(cs._paths.commentsSentFile(), csent);
-  const row = mine.mineComments()[0];
+  const row = rowOf('sent by the sweep that registered ava');
   assert.deepEqual([row.state, row.untraceable, row.untraceableReason, row.canDelete], ['sent', true, 'registration-unknown', false]);
   assert.deepEqual(cs.requestDelete(c.id), { ok: false, notEligible: true, because: 'Kosmos cannot tell whether the registration it holds sent this comment, so it cannot remove it' });
   assert.deepEqual(readJson(cs._paths.commentDeletesFile()), {}, 'a refused removal was recorded');
+  // Review 5 NIT 1: the refusal guards requestDelete, but the hazard a time tolerance would bring lives in
+  // sameServiceAgent, which sweepCommentDeletes also asks. Write the removal by hand, in the sweep's own format
+  // ({ id: when }), so the sweep itself is what is tested.
+  // CONTROL first: the same shape with its agentId restored, removed by hand, DOES get a DELETE.
+  const withId = readJson(cs._paths.commentsSentFile());
+  withId[ctl.id].agentId = k.remoteId;
+  writeJson(cs._paths.commentsSentFile(), withId);
+  writeJson(cs._paths.commentDeletesFile(), { [ctl.id]: new Date().toISOString() });
   await cs.sweep();
-  assert.equal(dels().length, 0, 'a delete was asked as a registration that may not have sent it');
+  assert.equal(dels().length, 1, 'CONTROL: a hand-written removal of a traceable comment was not asked of the service');
+  assert.equal(readJson(cs._paths.commentsSentFile())[ctl.id].state, 'deleted', 'CONTROL: the removed comment did not settle');
+  assert.equal(be.st.comments.length, 1, 'CONTROL: only the control comment left the community');
+  // The arm: the registration-unknown comment, removed by hand, is never asked about and stays sent.
+  writeJson(cs._paths.commentDeletesFile(), { ...readJson(cs._paths.commentDeletesFile()), [c.id]: new Date().toISOString() });
+  await cs.sweep();
+  assert.equal(dels().length, 1, 'a delete was asked as a registration that may not have sent it');
+  assert.equal(readJson(cs._paths.commentsSentFile())[c.id].state, 'sent', 'the record left sent');
   assert.equal(be.st.comments.length, 1, 'the comment is still in the community');
 });
 
