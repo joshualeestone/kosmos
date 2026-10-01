@@ -1693,6 +1693,35 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
   return deliverWithGap(sessionName, raw, roster, envelope, trailer, false);
 }
 
+/**
+ * #4588 PR B: deliver for a TIMER, never for a person. While the shared Google quota of this machine's Antigravity
+ * agents is out, a line typed into any of them spends a turn against the empty pool, so it is not typed. The verdict is
+ * COULD_NOT (nothing reached the pane) with `held: true` and `heldUntil` (ISO), so a sender that budgets its tries can
+ * keep the try for after the reset. A person's own message goes through deliver() and is never held.
+ */
+function quotaHeldVerdict(sessionName, roster) {
+  // Review round 6: only a pane we could type into is HELD. A stopped or untypeable member (no agent process, no
+  // target, not ours) is refused by deliver/deliverAsync with its real reason, exactly as without the quota gate, so
+  // the room never logs a post as held for a pane nothing can reach, and the sender is not told PLACED.
+  if (addressable(sessionName, roster).ok !== true) return null;
+  let until = null;
+  try { until = require('./agyquota').heldForQuota(sessionName, roster, Date.now()); } catch { until = null; }
+  if (until === null) return null;
+  return {
+    state: DELIVERY.COULD_NOT, held: true, heldUntil: new Date(until).toISOString(),
+    because: "held: this machine's Google account's shared Antigravity quota is out until " + new Date(until).toISOString(),
+    at: new Date().toISOString(), paneState: null, paneNote: null,
+  };
+}
+function deliverAutomatic(sessionName, raw, roster, envelope, trailer) {
+  return quotaHeldVerdict(sessionName, roster) || deliver(sessionName, raw, roster, envelope, trailer);
+}
+/* The same gate in front of deliverAsync, for the automatic senders on the async path (a colleague's room post
+   delivered by sendPostAsync, the #4624 idle flush). */
+async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer) {
+  return quotaHeldVerdict(sessionName, roster) || deliverAsync(sessionName, raw, roster, envelope, trailer);
+}
+
 async function deliverAsync(sessionName, raw, roster, envelope, trailer) {
   const card = resolveCard(roster, sessionName);
   if (!card || card.isNamedOurs !== true) {
@@ -3421,7 +3450,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, deliverAsync, interrupt, stopHelpers, answerGeminiQuotaStop, answerCodexHooks, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, interrupt, stopHelpers, answerGeminiQuotaStop, answerCodexHooks, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,

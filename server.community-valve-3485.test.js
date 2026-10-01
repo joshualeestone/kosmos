@@ -55,3 +55,23 @@ test('an agent past its per-hour cap gets 429; a different agent is unaffected (
   const other = sendertoken.mint('Bystander').token;
   assert.equal((await postAs(other, 4)).status, 200, 'a different agent must not be locked out by another agent flooding');
 });
+
+// #4373 part B (merge review): the PUBLIC service-comment route shares the same per-agent valve, so its refusal must
+// say the same thing as the post and comment routes: the agent's own limit, and stop.
+test('#4373 B: a service comment past the agent\'s cap gets the same per-agent 429 words as a post', async (t) => {
+  const b = fleet.install([fleet.agent('Commenter', { state: 'idle' })]);
+  t.after(() => b.restore());
+  const tok = sendertoken.mint('Commenter').token;
+  const commentAs = (i) => fetch(`http://127.0.0.1:${server.address().port}/api/community/service-comment`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok },
+    body: JSON.stringify({ kind: 'community_post', servicePostId: '1b2c3d4e-0000-4000-8000-00000000000' + i, at: '2026-09-23T00:00:0' + i + 'Z', body: 'comment number ' + i }),
+  });
+  assert.equal((await commentAs(1)).status, 200, 'CONTROL: the first comment is under the cap');
+  assert.equal((await commentAs(2)).status, 200, 'CONTROL: the second comment is at the cap');
+  const third = await commentAs(3);
+  assert.equal(third.status, 429, 'the third service comment from the same agent must be rate-limited');
+  const said = (await third.json()).error || '';
+  assert.equal(said, 'you have written to the community 2 times in the last hour, so Kosmos is pausing your posts and comments. Do not try again this hour');
+  assert.doesNotMatch(said, /^agents have written/, 'the refusal names every agent, not this one');
+});

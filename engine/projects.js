@@ -1104,6 +1104,10 @@ function describe(project, roster, all) {
     // the field existed must read as "not archived", never as undefined
     // leaking into a template. Same heal path the rest of the payload uses.
     archived: project.archived === true,
+    // #4771: paused (the automations skip it); a record written before the field reads as not paused.
+    paused: project.paused === true,
+    // #4771: whose pause it is, so the page can say when an agent paused it (the person's is lifted only on the screen).
+    pausedByPerson: project.paused === true && project.pausedByPerson === true,
     // Gated on the healed flag AND the value: a hand-edited record carrying
     // a date beside archived:false must not publish an "archived at", and a
     // non-string or unparseable value beside archived:true must not become
@@ -2467,6 +2471,9 @@ function cleanParent(value, childId) {
  * but a boolean, because `!!` would turn {"archived": "false"} into an
  * archive, the opposite of what the caller wrote), so a request either
  * applies whole or not at all.
+ * `viaScreen` (#4771) is carried, not stored: only `true` counts, and it says a
+ * `paused` change came from the person on the screen (their pause is lifted only
+ * from there).
  */
 function edit(id, fields = {}) {
   const want = {};
@@ -2475,19 +2482,38 @@ function edit(id, fields = {}) {
   if (fields.archived !== undefined && typeof fields.archived !== 'boolean') {
     throw new Error('archived must be true or false');
   }
+  // #4771: a paused project: nothing in it is nudged by the Prompter or handed out by the Assigner.
+  if (fields.paused !== undefined && typeof fields.paused !== 'boolean') {
+    throw new Error('paused must be true or false');
+  }
   // #1994: parent validated (self/cycle/missing refused) BEFORE the write, like
   // every other carried field, so a body mixing parent with name or description
   // still applies whole or not at all. `undefined` = not carried; cleanParent
   // returns null (un-group) or a valid parent id.
   let parentWant;
   if (fields.parent !== undefined) parentWant = cleanParent(fields.parent, id);
-  if (!Object.keys(want).length && fields.archived === undefined && fields.parent === undefined) {
+  if (!Object.keys(want).length && fields.archived === undefined && fields.paused === undefined && fields.parent === undefined) {
     // A save that would move nothing is refused, not answered "saved": a
     // typo'd key reporting success is a save the person believes happened.
     throw new Error('nothing here we can change');
   }
   return mutate(id, (p) => {
     const next = { ...p, ...want };
+    if (fields.paused !== undefined) {
+      /* The person's own pause (made on the screen) is lifted only on the screen, as a task hold is (tasks.setOnHold):
+         a resume brings every task back in front of the Prompter and the Assigner. fields.viaScreen is not stored. */
+      if (!fields.paused && p.paused === true && p.pausedByPerson === true && fields.viaScreen !== true) {
+        const refused = new Error('the person paused this project, so only they can resume it, on the screen');
+        refused.status = 403;
+        throw refused;
+      }
+      if (fields.paused) {
+        // The person's pause is theirs even over an agent's earlier pause; an agent's pause never takes it away.
+        if (fields.viaScreen === true) next.pausedByPerson = true;
+        else if (p.paused !== true) delete next.pausedByPerson;
+        next.paused = true;
+      } else { delete next.paused; delete next.pausedByPerson; }   // absent = not paused, as every older record reads
+    }
     if (fields.archived !== undefined) {
       next.archived = fields.archived;
       // Archiving an already-archived project keeps its original date;
@@ -2536,6 +2562,11 @@ function setDescription(id, text) {
 function cleanArchivedAt(value) {
   if (typeof value !== 'string') return null;
   return Number.isNaN(new Date(value).getTime()) ? null : value;
+}
+
+/* #4771: a paused project: the Prompter nudges nobody about its tasks and the Assigner hands none of them out. */
+function isPaused(record) {
+  return Boolean(record && record.paused === true);
 }
 
 /**
@@ -2942,7 +2973,15 @@ function blockBody(projects, sessionName) {
        (Splinter's ruling, held for Josh, 2026-08-25 02:01). Lower-case
        "task" so the line and the instruction below agree. */
     // #1307: a webhook task's words are marked and quoted as outside text (tasks.forAgent).
-    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}`)].join('\n');
+    /* #4771: a task on hold, or in a paused project, stays on the agent's list, marked, so the agent does not start
+       parked work on its own. */
+    const held = (t) => {
+      const T = require('./tasks');
+      if (!isPaused(p) && !T.isOnHold(t)) return '';
+      const person = (isPaused(p) && p.pausedByPerson === true) || (T.isOnHold(t) && t.onHoldByPerson === true);
+      return person ? ' [on hold: the person parked it; do not start it]' : ' [on hold: do not start it until it is taken off hold]';
+    };
+    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t)}`)].join('\n');
   });
   return [
     '## Your projects',
@@ -3198,9 +3237,11 @@ function membershipLine(project, kind) {
     // project may have none of.
     + ' The "Your projects" section of your instructions has the details.';
 }
-function speakOfMembership(sessionName, project, kind, roster) {
+function speakOfMembership(sessionName, project, kind, roster, { automatic = false } = {}) {
   try {
-    return chat.deliver(sessionName, membershipLine(project, kind), roster, undefined, undefined);
+    /* #4588 PR B: a timer's line (the auto-retell) goes through deliverAutomatic, which holds it on an empty shared quota. */
+    const send = automatic ? chat.deliverAutomatic : chat.deliver;
+    return send(sessionName, membershipLine(project, kind), roster, undefined, undefined);
   } catch (err) {
     return { state: 'could_not', because: String((err && err.message) || 'we could not reach its window') };
   }
@@ -3266,7 +3307,7 @@ function toldOverride(verdict, sessionName, known) {
 }
 
 module.exports = {
-  joinTaskClaims, swarmOffIn, swarmOffSet, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
+  joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, TEAM_START, TEAM_END, teamBlockState, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,

@@ -389,3 +389,12 @@ reverted. The control tree (13:xx, 18 FAILs on purpose) proved the check's older
 - Measured for round 32's WARNING (Agent1s, queued-heavy light lane, 22:06 to 22:09 CDT, head b196ccab9, dirty=0):
   render-teamcreate-4557 BC_RC=0, 165 PASS / 0 FAIL ("ALL PASSED"); render-newagent-paths-4556 BC_RC=0, "134 passed"
   (it prints only its summary). Log: ~/.cache/ick-validation/bc-4557-merge.*.log.
+
+## Review 33 (opus, blind, on b196ccab9), 22:12 CDT: CONVERGED (no BLOCKER or WARNING), 3 NITs, not taken
+- pjSentence capitalises a refusal that starts with a typed name ("leo" -> "Leo is on your removed list"). Agent names
+  are matched case-insensitively (safeKey), so it is the same agent; the screen shows the name capitalised, nothing more.
+- The real-path arm's `typeof TC === 'undefined' ||` guard: TC is read directly by other arms, so a rename reds them.
+- web.script-parses compiles each script alone; a let/const declared in two scripts would pass here and fail in the
+  browser (shared global scope). Noted as the test's known limit.
+Then merged main again (engine/projects.js exports: the union, isPaused + teamBlockState/TEAM_START/TEAM_END);
+focused on the merged tree: 12 files, 434 of 434.

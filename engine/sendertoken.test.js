@@ -72,6 +72,61 @@ test('#4738: a stranger session whose name cannot be keyed, ahead of the agent i
   } finally { board.restore(); }
 });
 
+test('#4763: two running agents whose names share a key (Mara / mara): neither token resolves to the other', () => {
+  const store = require('./store');
+  assert.equal(store.safeKey('Mara'), store.safeKey('mara'), 'CONTROL: the two names really share a key');
+  const board = fleet.install([fleet.agent('Mara', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const a = sendertoken.mint('Mara');
+    const b = sendertoken.mint('mara');
+    assert.equal(a.ok && b.ok, true);
+    const ours = board.roster.filter((r) => r.isNamedOurs === true).map((r) => r.sessionName).sort();
+    assert.deepEqual(ours, ['Mara', 'mara'], 'CONTROL: both are ours on the roster');
+    for (const t of [a.token, b.token]) {
+      const who = sendertoken.resolve(t, board.roster);
+      assert.equal(who.ok, false, 'a token resolved while two agents share its key: ' + JSON.stringify(who && who.card && who.card.sessionName));
+      assert.equal(who[sendertoken.CLASH], true, 'the clash refusal is not marked, so the paneless fallback would re-admit it');
+      assert.match(who.because, /could not match that to one of your agents/, 'a clash must read like a token we never issued');
+      // A regression guard for a STRING-keyed mark: while CLASH is a Symbol, JSON.stringify drops it and this cannot fail.
+      assert.equal(JSON.stringify(who).includes('clash'), false, 'the clash mark reached a serialized answer');
+      /* KNOWN LIMIT, pinned so it is not hidden: resolveName is key-level (the file is the key) and still answers
+         for the clash. The key "mara" IS agent mara's exact name, so its callers (the outbox keep-time sender, the
+         token-only read routes) let Mara's token act AS mara. The same defect as this card, on the key-level
+         paths; tracked as #4792 (store the name on each token), not fixed here. */
+      const byName = sendertoken.resolveName(t);
+      assert.equal(byName.ok, true);
+      assert.equal(byName.key, 'mara');
+    }
+  } finally { board.restore(); }
+  // Control: with only one of them running, its token resolves to it.
+  const one = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const t = sendertoken.mint('mara').token;
+    const who = sendertoken.resolve(t, one.roster);
+    assert.equal(who.ok, true, JSON.stringify(who));
+    assert.equal(who.card.sessionName, 'mara');
+  } finally { one.restore(); }
+});
+
+test('#4763 review 3: a clash logs once per clash, and a clean resolve re-arms it', () => {
+  const warned = [];
+  const orig = console.warn;
+  console.warn = (m) => { warned.push(String(m)); };
+  try {
+    const t = sendertoken.mint('Zed4763').token;
+    sendertoken.mint('zed4763');
+    const both = fleet.install([fleet.agent('Zed4763', { state: 'idle' }), fleet.agent('zed4763', { state: 'idle' })]);
+    try { sendertoken.resolve(t, both.roster); sendertoken.resolve(t, both.roster); } finally { both.restore(); }
+    assert.equal(warned.filter((w) => w.includes('"zed4763"')).length, 1, 'a clash was not logged exactly once: ' + JSON.stringify(warned));
+    const one = fleet.install([fleet.agent('zed4763', { state: 'idle' })]);
+    try { assert.equal(sendertoken.resolve(t, one.roster).ok, true, 'CONTROL: one twin resolves'); } finally { one.restore(); }
+    const again = fleet.install([fleet.agent('Zed4763', { state: 'idle' }), fleet.agent('zed4763', { state: 'idle' })]);
+    try { sendertoken.resolve(t, again.roster); } finally { again.restore(); }
+    assert.equal(warned.filter((w) => w.includes('"zed4763"')).length, 2, 'a clash after a clean resolve was not logged again');
+    assert.ok(!warned.join('\n').includes(t), 'the log line carried the token');
+  } finally { console.warn = orig; }
+});
+
 test('the body still cannot name the sender: an unissued token is refused, not believed', () => {
   const board = fleet.install([fleet.agent('renet-windows', { state: 'idle' })]);
   try {

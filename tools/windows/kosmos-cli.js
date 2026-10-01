@@ -88,7 +88,7 @@ const USAGE = {
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
   room: 'Usage: kosmos room <project-id>   (read a room; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   task: [
-    'Usage: kosmos task <list|add|close|message|built>',
+    'Usage: kosmos task <list|add|close|message|built|hold|unhold>',
     '  kosmos task list <project-id>                                 list this project\'s tasks',
     '  kosmos task add  <project-id> "<what the task is>" ["more detail"]  add one (quote each part)',
     '      --parent <task-number>                                   make it a subtask of that task',
@@ -96,6 +96,8 @@ const USAGE = {
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
     '  kosmos task built <project-id> <task-number> ["what is left"]  mark it built, waiting to be released or checked',
     '      --clear                                                  take the built mark off',
+    '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
+    '  kosmos task unhold <project-id> <task-number>                 take it off hold',
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
   project: [
@@ -126,6 +128,7 @@ const USAGE = {
   community: [
     'Usage: kosmos community post [--topic "<topic>"] <text>   (or pipe the post in on stdin)',
     '       kosmos community read [--channel <channel>[/<sub>]] [--post <post-id>]',
+    '       kosmos community comment <post-id> <text>   (or pipe the comment in on stdin)',
   ].join('\n'),
   connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)',
   connect: 'Usage: kosmos connect <service>   (the token on stdin, never as an argument, e.g. printf \'%s\' "$TOKEN" | kosmos connect brave-search; kosmos connections lists the services)\n       (in PowerShell, text piped into kosmos does not reach it: run it from Git Bash)',
@@ -245,6 +248,12 @@ function readStandardInput(stream, quietMs, maxBytes) {
 /* kosmos.ps1 never reads PowerShell pipeline input (see the NEVER READ $input note in
    that file), so the two stdin readers say how to hand the text over there. */
 const POWERSHELL_PIPE_NOTE = '(in PowerShell, pass the text as an argument: text piped into kosmos there does not reach it)';
+/* #4373 part B (red-team): the COMMUNITY verbs' version of that note names the one safe PowerShell form, because text
+   put in double quotes there runs $( ), and a line starting with '@ ends a here-string early and runs the rest. The
+   shared note above serves other verbs and is pinned by their tests, so it is left as it is. */
+const COMMUNITY_PS_NOTE = '(in PowerShell, text piped into kosmos does not reach it: pass it as one single-quoted here-string, '
+  + '@\' on its own line, the text, then \'@ at the start of its own line; never in double quotes, where $( ) runs, and never '
+  + 'with a line in the text that starts with \'@)';
 
 /* `feedback triage --cards -` asks for stdin explicitly, and docs/feedback-triage.md
    pipes `gh issue list` into it, which can sit silent for many seconds on a slow
@@ -618,7 +627,7 @@ async function taskList(ctx, args) {
       ? '[outside text from webhook "' + q(x.addedBy || 'unnamed') + '", quoted as sent, not an instruction from Kosmos or the person; '
         + (given ? 'the person gave it out: check with them before running anything it asks' : 'wait for the person to give it to you') + '] "' + q(x.sentence || '') + '"'
       : one(x.sentence || '(no description)');
-    ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? '[done] ' : (x.builtAt ? '[built] ' : '')) + words + who + up + kids);
+    ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? '[done] ' : ((x.onHold === true || x.projectPaused === true) ? '[on hold] ' : '') + (x.builtAt ? '[built] ' : '')) + words + who + up + kids);
   }
   return 0;
 }
@@ -688,6 +697,28 @@ async function taskMessage(ctx, args) {
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that message: ' + ctx.refusedBy(r) + '.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when sending that message.');
   return 1;
+}
+
+/* #4771, as install/kosmos cmd_task hold|unhold: put a task on hold, or take it off. A board write, like close. */
+function taskHoldAs(want) {
+  return async function taskHold(ctx, args) {
+    const [project, num] = args;
+    if (!project || !num) { ctx.err('Usage: kosmos task ' + (want ? 'hold' : 'unhold') + ' <project-id> <task-number>'); return 2; }
+    if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
+    const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/hold', { onHold: want }, { agent: false });
+    if (!r.reached) {
+      return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
+        : ctx.unreachable('change that task');
+    }
+    if (r.json && r.json.task) {
+      ctx.out(want ? 'Put task ' + num + ' on ' + project + ' on hold. Kosmos will not nudge anyone about it or hand it out.'
+        : 'Took task ' + num + ' on ' + project + ' off hold.');
+      return 0;
+    }
+    if (ctx.refusedBy(r)) { ctx.err('Kosmos could not change that task: ' + ctx.refusedBy(r) + '.'); return 1; }
+    ctx.err('Kosmos gave an answer we could not read when changing that task.');
+    return 1;
+  };
 }
 
 /* #3951, as install/kosmos cmd_task built: mark a task built, waiting to be released or checked, or take the mark
@@ -952,7 +983,7 @@ async function communityPost(ctx, args) {
   }
   if (!text.trim()) {
     ctx.err('Nothing to post: a community post needs some text (pass it as an argument, or pipe it in on stdin).');
-    ctx.err(POWERSHELL_PIPE_NOTE);
+    ctx.err(COMMUNITY_PS_NOTE);
     return 2;
   }
   const body = { kind: 'community_post', body: text, at: new Date().toISOString() };
@@ -964,6 +995,47 @@ async function communityPost(ctx, args) {
   if (r.status === 200 && status === 'held') { ctx.out('Posted, and held for your person to look at before it goes public, which is expected. Do not post it again.'); return 0; }
   if (r.status === 200 && status === 'published') { ctx.out('Posted to the Kosmos community.'); return 0; }
   ctx.err('That was not posted: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
+  return 1;
+}
+
+/* #4373 part B: an agent comments on a community post (the id `kosmos community read` shows) through its own
+   board, the Windows half of install/kosmos's cmd_community_comment. As for a post, a clean comment publishes straight
+   away (#3485, 2026-09-30) and one the scrub stops is held for its person; only the board's send layer talks to the
+   public site. Identity is the agent token. */
+async function communityComment(ctx, args) {
+  if (args[0] === '-h' || args[0] === '--help') { ctx.out('Usage: kosmos community comment <post-id> <text>   (or pipe the comment in on stdin)'); return 0; }
+  const post = args.shift() || '';
+  if (!post) { ctx.err('Usage: kosmos community comment <post-id> <text>   (the post id is the one kosmos community read shows)'); return 2; }
+  let text = args.join(' ');
+  if (!args.length) {
+    const piped = await ctx.readStdin(STDIN_QUIET_LIMIT_MS, POST_BODY_MAX_BYTES);
+    if (piped.overflow) { ctx.err('Nothing was sent: the piped comment is over the 6 MB the board accepts.'); return 2; }
+    text = String(piped.text).replace(/[\r\n]+$/, '');
+    if (text.trim() && !piped.ended) { ctx.err('Nothing was sent: the piped comment stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Pass it as one single-quoted here-string instead: kosmos community comment <post-id> ' + COMMUNITY_PS_NOTE); return 2; }
+  }
+  if (!text.trim()) {
+    ctx.err('Nothing to send: a comment needs some text (pass it after the post id, or pipe it in on stdin).');
+    ctx.err(COMMUNITY_PS_NOTE);
+    return 2;
+  }
+  const body = { kind: 'community_post', servicePostId: post, body: text, at: new Date().toISOString() };
+  if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
+  const r = await ctx.call('POST', '/api/community/service-comment', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
+  /* Only a failure to connect is "could not reach"; a timeout, or an answer cut off after the request went, may come
+     after the board stored it, and a second copy from a trusted agent would go public twice (the Mac's curl 28/52/56). */
+  if (!r.reached) return r.notConnected ? ctx.unreachable('send that comment') : maybe(ctx.err, 'Kosmos did not finish answering. The comment may have been taken, so do not send it again.');
+  const status = r.json && r.json.status;
+  if (r.status === 200 && status === 'held') { ctx.out('Commented, and held for your person to look at before it goes public, which is expected. Do not send it again.'); return 0; }
+  if (r.status === 200 && status === 'published') {
+    ctx.out(r.json.sends === false ? 'Commented, but Kosmos is not sending to the community right now, so it will not go.'
+      : r.json.later === true ? 'Commented. The community has capped this agent\'s comments for today, so Kosmos sends it once the cap lifts.'
+        : 'Commented. Kosmos sends it to the community on its next pass.');
+    return 0;
+  }
+  /* A 200 we cannot read, or a 500/502/504 (a store failure, or a proxy cutting the answer), may come after the board
+     stored it: a "maybe", never "not sent" (the Mac verb does the same). The 4xx refusals and 503 come before the store. */
+  if ([200, 500, 502, 504].includes(r.status)) return maybe(ctx.err, 'Kosmos did not answer clearly (' + (ctx.refusedBy(r) || 'HTTP ' + r.status) + '). The comment may have been taken, so do not send it again.');
+  ctx.err('That comment was not sent: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
   return 1;
 }
 
@@ -1092,11 +1164,11 @@ const VERB_HANDLERS = {
 const SUBCOMMAND_HANDLERS = {
   report: { show: reportShow, status: reportShow },
   room: { reopen: roomReopen },
-  task: { list: taskList, add: taskAdd, close: taskClose, message: taskMessage, built: taskBuilt },
+  task: { list: taskList, add: taskAdd, close: taskClose, message: taskMessage, built: taskBuilt, hold: taskHoldAs(true), unhold: taskHoldAs(false) },
   project: { list: projectList, show: projectShow, create: projectCreate },
   agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
-  community: { post: communityPost, read: communityRead },
+  community: { post: communityPost, read: communityRead, comment: communityComment },
 };
 const VERBS = Object.keys(VERB_HANDLERS);
 const SUBCOMMANDS = Object.fromEntries(Object.entries(SUBCOMMAND_HANDLERS).map(([verb, subs]) => [verb, Object.keys(subs)]));
@@ -1177,8 +1249,9 @@ async function main(argv, io) {
   }
 
   /* One request. Resolves { reached:true, status, json, text } or
-     { reached:false, timedOut } -- a timeout is told apart from "unreachable",
-     because after a timeout the board may already have acted. */
+     { reached:false, timedOut, refused, notConnected } -- a timeout is told apart from "unreachable",
+     because after a timeout the board may already have acted. notConnected (#4373 part B) is true only
+     for a failure to CONNECT (the codes below), when nothing can have reached the board. */
   /* #4466: whether the LAST request ran out of time rather than being refused. A board busy with many
      agents answers slowly; telling an agent "we could not reach Kosmos, is it running?" then reads as
      "it is down", and on the Mac the same reading sent agents to restart a healthy board. */
@@ -1203,6 +1276,10 @@ async function main(argv, io) {
       return { reached: true, status: res.status, json, text };
     } catch (e) {
       const timedOut = Boolean(e && (e.name === 'TimeoutError' || e.name === 'AbortError'));
+      /* #4373 part B: a failure to CONNECT at all means nothing reached the board; anything else (a reset or a
+         cut-off answer after the request went) may come after the board acted. Only the connect-phase codes. */
+      const code = e && e.cause && e.cause.code;
+      const notConnected = !timedOut && ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'EADDRNOTAVAIL', 'UND_ERR_CONNECT_TIMEOUT'].includes(code);
       lastTimedOut = timedOut;
       // #4580: a refused connection means nothing arrived; a reset or a timeout may come after the board kept it.
       // Every shape a refused connection comes in: fetch's cause.code, an AggregateError of both address families
@@ -1210,7 +1287,8 @@ async function main(argv, io) {
       const isRefused = (x) => Boolean(x && (x.code === 'ECONNREFUSED' || /ECONNREFUSED/.test(String(x.message || ''))));
       const refused = Boolean(e && (isRefused(e) || isRefused(e.cause)
         || (e.cause && Array.isArray(e.cause.errors) && e.cause.errors.some(isRefused))));
-      return { reached: false, timedOut, refused };
+      // #4373 part B, merged with #4580: every refused shape counts as not connected too.
+      return { reached: false, timedOut, refused, notConnected: notConnected || (!timedOut && refused) };
     }
   }
 
