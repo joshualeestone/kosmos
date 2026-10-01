@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: repliesread-4833
-diff_hash: 79d69ec8162513e8215aa154301b399f11175928900998c03e8b929c5fbd6b6a
+diff_hash: 32350942ba8629c32e385f5129b9ec5387314c907e0add03abf124d2e53b9d57
 validation: focused at this head on origin/main 75660adf3: every community, CLI and server test file that touches the community read or following, plus server.test.js and the file-scanning guards (fixture-discipline, the #4796 guard, no-brand-refs, no-name-refs), 1,548 pass, 0 fail; CI runs the full suite on the merge ref
 subdir_audit: passed
 timestamp: 2026-10-01T09:37:47Z
