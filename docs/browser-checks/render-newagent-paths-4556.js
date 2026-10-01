@@ -252,7 +252,9 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
       ok(t + ' K5b an empty catalogue reads as coming soon and is not kept', !k5b.pick && k5b.msg === 'Ready-made teams are coming soon.' && k5b.cached === null, JSON.stringify(k5b));
       SEEDED = [{ key: 'solo', label: 'Solo team', blurb: 'One lead.', kind: 'business', rank: 1, members: ['a'] }];
       // Round 5 CONTROL: teams exist but nothing can create one yet (#4557): still coming soon, no dropdown.
-      await page.evaluate(() => { delete window.openTeamCreate; SEEDED_TEAMS = null; openCreate(); });
+      // #4557 round 30: openTeamCreate is now a top-level function declaration, which `delete` cannot remove (a
+      // non-configurable global); the binding is writable, so it is set to undefined for this arm instead.
+      await page.evaluate(() => { window.openTeamCreate = undefined; SEEDED_TEAMS = null; openCreate(); });
       await page.click('#cstep-kind [data-path="team"]');
       await page.waitForTimeout(300);
       ok(t + ' K5b teams without a way to create one still read as coming soon (no Create that cannot create)',

@@ -288,3 +288,25 @@ test('throttleKey isolates by ppid when there is no pane and no token (no shared
   assert.match(hook.throttleKey({ KOSMOS_AGENT_TOKEN: 'abcd' }, 4321), /^a/);
   assert.equal(hook.throttleKey({ TMUX_PANE: '%1' }, 4321), '_1');
 });
+
+/* #4491 slice 8: the Windows Claude report hook honours KOSMOS_AGENT_TOKEN_ONLY. Exactly '1' with a usable agent token
+   sends that token alone (the injected board token is dropped, as the real one is then never read); every other case
+   keeps the board token. */
+test('#4491: token-only, main sends the agent\'s token alone; anything else keeps the board token', async () => {
+  const tok = 'ab12'.repeat(16);
+  const headersFor = async (env) => {
+    let seen = null;
+    const io = mainIo(evt('SessionEnd'), { env, boardToken: 'BT', fetchImpl: async (u, i) => { seen = i.headers; return { ok: true, status: 200, text: async () => '{"recorded":true}' }; } });
+    assert.equal(await hook.main(io), 0);
+    assert.ok(seen, 'nothing was sent');
+    return seen;
+  };
+  const off = await headersFor({ KOSMOS_AGENT_TOKEN: tok });
+  assert.deepEqual([off['x-kosmos-agent-token'], off['x-kosmos-board-token']], [tok, 'BT'], 'control: the switch off did not send both');
+  const on = await headersFor({ KOSMOS_AGENT_TOKEN: tok, KOSMOS_AGENT_TOKEN_ONLY: '1' });
+  assert.equal(on['x-kosmos-agent-token'], tok);
+  assert.equal(on['x-kosmos-board-token'], undefined, 'token-only: the board token was still sent');
+  for (const env of [{ KOSMOS_AGENT_TOKEN_ONLY: '1' }, { KOSMOS_AGENT_TOKEN: 'NOT-HEX', KOSMOS_AGENT_TOKEN_ONLY: '1' }, { KOSMOS_AGENT_TOKEN: tok, KOSMOS_AGENT_TOKEN_ONLY: 'true' }]) {
+    assert.equal((await headersFor(env))['x-kosmos-board-token'], 'BT', 'the board token was dropped for ' + JSON.stringify(env));
+  }
+});

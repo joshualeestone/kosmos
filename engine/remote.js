@@ -172,6 +172,8 @@ let lastTunnelFailure = null;
    report tell a tunnel stuck on its first dial (which writes no failure) from one just started. */
 let dialingSince = null;
 let localPort = null;
+// kosmos#4640: the waiting-to-be-allowed refusal is recognised in engine/allowwait.js (pure; remote-report.js asks it too).
+const { allowWaitSentence } = require('./allowwait');
 
 /** Ensure the state dir exists and is owner-only. It holds the identity key
     and the TLS key; the binary writes those 0600, but the directory around
@@ -848,6 +850,12 @@ function status() {
          writes it, and its absence means no internet link for webhooks. */
       return { state: 'up', address: raw.address || address(), because: null, admitsHooks: raw.admits_hooks === true };
     }
+    /* kosmos#4640: waiting for the other computer's Allow. Kept while the tunnel only says it is
+       dialling again (connecting, no reason), the same way lastTunnelFailure is, and dropped once it
+       is up or its process writes any other failure (lastTunnelFailure is replaced or cleared). */
+    const waitFor = raw.state === 'restarting' ? raw.because : (raw.state === 'connecting' && !raw.because ? lastTunnelFailure : null);
+    const waitSaid = allowWaitSentence(waitFor);
+    if (waitSaid) return { state: 'waiting-allow', address: null, because: waitSaid };
     return {
       state: raw.state === 'restarting' ? 'restarting' : 'connecting',
       address: null,
@@ -2176,6 +2184,8 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
   /* kosmos#4277: the current tunnel process's last failure sentence, for
      engine/remote-report.js to classify. Never sent as text. */
   lastTunnelFailure: () => lastTunnelFailure,
+  /* kosmos#4640: the waiting-to-be-allowed refusal's sentence, or null (pure; tests pin both spellings). */
+  allowWaitSentence,
   /* How long the current tunnel process has been dialling without being up, in ms, or null. */
   dialingForMs: () => (dialingSince === null ? null : performance.now() - dialingSince),
   holdsKey,

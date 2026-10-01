@@ -784,3 +784,73 @@ test('a delete the server does not accept is recorded against the post and retri
   await cs.sweep();
   assert.equal(cs.statuses()[r.id].state, 'deleted');
 });
+
+/* #4774 review 2 (BLOCKER): the sweep reads GET /agents/me/posts, which the service answers with up to 200 posts of up
+   to 4000 characters (kosmos-community app/routers/agents.py my_posts). That is far past the 256 KiB an agentCall
+   reads, so the sweep's own reads must not be held to it: a capped answer would leave an attempted post pending
+   forever and never bring a take-down home. 4000 three-byte characters per post is the worst case the cap is sized for. */
+function fillTo200(agentId) {
+  for (let i = 0; i < 199; i++) {
+    const id = 'fill' + i;
+    be.st.posts.set(id, { id, agent: agentId, channel: 'general', sub_channel: null, title: 'filler ' + i,
+      body: '€'.repeat(4000), deleted: false, taken_down: false, take_down_reason: null });
+  }
+}
+// Measures the biggest /agents/me/posts answer, so each test shows its answer really was past the agent-facing cap.
+function measuringSender() {
+  const seen = { bytes: 0 };
+  cs.setSender(async (url, init) => {
+    const res = await fetch(url, init);
+    if (url.endsWith('/agents/me/posts')) seen.bytes = Math.max(seen.bytes, (await res.clone().arrayBuffer()).byteLength);
+    return res;
+  });
+  return seen;
+}
+function assertFullSize(seen) {
+  assert.ok(seen.bytes > cs.RESPONSE_CAP, 'control: the answer was not bigger than the agent-facing cap (' + seen.bytes + ')');
+  assert.ok(seen.bytes <= cs.SWEEP_RESPONSE_CAP, 'the worst-case answer does not fit the sweep cap (' + seen.bytes + ')');
+}
+
+test('#4774 review 2: a full /agents/me/posts (200 posts x 4000 characters) still settles an attempted post', async () => {
+  await on();
+  const r = agentPost('sol', { topic: 'once', body: 'only once' });
+  // The server stores the post, but the answer never reaches the board (as in the lost-answer test above).
+  cs.setTimeoutMs(150);
+  cs.setSender(async (url, init) => {
+    const res = await fetch(url, init);
+    if (init.method === 'POST' && url.endsWith('/posts')) {
+      await new Promise((ok, fail) => {
+        const t = setTimeout(ok, 400);
+        init.signal.addEventListener('abort', () => { clearTimeout(t); fail(new Error('aborted')); });
+      });
+    }
+    return res;
+  });
+  await cs.sweep();
+  assert.notEqual(cs.statuses()[r.id].state, 'sent');
+  fillTo200([...be.st.posts.values()][0].agent);
+  cs.setTimeoutMs(5000);
+  const seen = measuringSender();
+  await cs.sweep();
+  assertFullSize(seen);
+  assert.equal(cs.statuses()[r.id].state, 'sent', 'the attempted post was not adopted from a full /agents/me/posts');
+  assert.equal(posts().length, 1, 'the post was sent a second time');
+});
+
+test('#4774 review 2: a full /agents/me/posts (200 posts x 4000 characters) still records a take-down', async () => {
+  await on();
+  const r = agentPost('jo', { topic: 't', body: 'b' });
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+  const mine = [...be.st.posts.values()][0];
+  fillTo200(mine.agent);
+  mine.taken_down = true;
+  mine.take_down_reason = 'off topic';
+  const seen = measuringSender();
+  await cs.sweep(Date.now() + 31 * 60 * 1000);
+  assertFullSize(seen);
+  assert.deepEqual(
+    { takenDown: cs.statuses()[r.id].takenDown, reason: cs.statuses()[r.id].takeDownReason },
+    { takenDown: true, reason: 'off topic' },
+  );
+});

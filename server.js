@@ -861,6 +861,7 @@ const setupAssistant = require('./engine/setup-assistant'); // #3034: the once-e
    seam so tests never open a window. */
 const terminal = require('./engine/terminal');
 const team = require('./engine/team'); // #1279: the authoring seam calls createTeam (engine core merged in #2247)
+const teamseed = require('./engine/teamseed'); // #4557: a seeded team's members as create specs
 const orgchartfile = require('./engine/orgchartfile'); // #4559: an org chart FILE into the New Agent preview
 const agentfile = require('./engine/agentfile');
 const register = require('./engine/register');
@@ -907,6 +908,7 @@ const BOOTED_AT = new Date().toISOString();
 const forget = require('./engine/forget');
 const feedback = require('./engine/feedback');
 const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
+const communityfollow = require('./engine/communityfollow'); // #4774: an agent follows agents and reads its Following feed, through its board
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.installkosmos.com, only while the #4288 switch is on
 const communitymine = require('./engine/communitymine'); // #4313: the owner's list of their agents' community posts, with Delete
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
@@ -1171,6 +1173,8 @@ function hookPublicLink(id, secret) {
   if (!settingsOk) return why('Kosmos could not read the Kosmos+ settings just now, so there is no internet link this time.');
   if (!on) return why('Kosmos+ can also give a link that works from the internet.');
   if (!signedIn) return why('Finish signing in to Kosmos+ in Settings to also get a link that works from the internet.');
+  // kosmos#4640: a second computer waiting for its other computer's Allow is not a fault either.
+  if (st && st.state === 'waiting-allow') return why('Kosmos+ is waiting for your other computer to allow this one; make a new webhook once it is connected to also get a link that works from the internet.');
   if (!st || st.state !== 'up') {
     return why(st && (st.state === 'connecting' || st.state === 'restarting')
       ? 'Kosmos+ is still connecting; make a new webhook once it is connected to also get a link that works from the internet.'
@@ -1298,13 +1302,9 @@ const INBOX_DROP = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\u061c\u200e\u200f\u
  * agent has no heartbeat record, so path 2 simply never fires for them and
  * they keep taking path 1 exactly as before. That is what makes this additive.
  *
- * 📌 LIMITATION, STATED RATHER THAN HIDDEN: the token store is keyed by
- * `store.safeKey(sessionName)`, so a paneless card carries the SAFEKEY'D name,
- * not the original. For every name that survives safeKey unchanged they are
- * the same string. A name that does not survive it would key its records under
- * the safe form -- correct and consistent, but not identical to what a pane
- * would have reported. Worth fixing by storing the original name at mint time
- * if it ever matters; it does not yet.
+ * 📌 #4792: tokens now carry the name they were minted for. This fallback still
+ * names its card by the key (as status.js lists a paneless row), and refuses
+ * when two names hold tokens under one key, since the key then says neither.
  */
 function resolveAgentSender(req, body, roster, opts) {
   const presented = presentedAgentToken(req, body);
@@ -1339,7 +1339,12 @@ function resolveAgentSender(req, body, roster, opts) {
   if (carded[sendertoken.CLASH]) return carded;
 
   const byName = sendertoken.resolveName(presented);
-  if (byName.ok && liveness.alive(byName.key) === true) {
+  /* #4792: only while the key says which agent (no second name has tokens under it). resolve already marks every twin
+     case CLASH, so this check is reached only if a second name was minted between the two reads; it is kept for that.
+     resolve also marks a named token whose key is held by a pane row of another name. The card is the KEY, as status.js lists a paneless row: the
+     board addresses, delivers and keeps records for such an agent by its key (review 2: the token's own spelling
+     here would miss them). */
+  if (byName.ok && byName.twins !== true && liveness.alive(byName.key) === true) {
     return { ok: true, card: { sessionName: byName.key, isNamedOurs: true }, instance: byName.instance || null, paneless: true };
   }
   /* The original refusal, verbatim: `resolve` deliberately gives the same
@@ -3886,8 +3891,21 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    holding the board token put it there.
    What the guide then SAYS is masked for secrets on its replies, `kosmos msg`, `kosmos post` and the team purpose
    (#3769), and on a task message, a task-built note and a status report (#4733). */
+/* #4491 slice 6: `kosmos community read` (GET /api/community/read), one more READ. What it returns is public
+   writing: the community's posts, which the board asks the service for with no key of any kind, reduced, scrubbed
+   and framed by engine/communityread.js. Its handler has always refused a caller with no agent token the board issued, and
+   never read the board token for anything, so the board token was only the gate's default. GET only; and
+   POST /api/community/post (which WRITES the public feed) is not in this set and stays behind the board token, as
+   decided in slice 2.
+   WHO GAINS: a caller with a valid token and no board token (a Claude setup guide on a Mac; an agent behind the
+   person's own reverse proxy), which can now read what other people's agents wrote in public. It is framed as
+   writing to read and never to obey, exactly as it is for every other agent; a frame lowers the chance that an
+   agent acts on what it reads and does not remove it. The guide is not treated differently from any other agent
+   here (decided on #4491, pinned in server.agent-token-gate-4491.test.js). Each read makes the board ask the
+   service at most once (no cache, no valve, an 8 second limit): a looping token-only caller can do that as fast
+   as any agent holding the board token already can. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
-  'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks']);   // overview: #4581, `kosmos project list`
+  'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/community/read']);   // overview: #4581, `kosmos project list`
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
    `[^/]+` for the project and `\d+` for the task, so no other task verb (reopen, due, parts) matches (close joined in slice 5). Judged before
    the handler decodes the project, so an encoded `a%2Fb` passes here and then names no project (404). Each
@@ -3901,8 +3919,8 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
 const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
-   `byKey` is only for a caller whose token resolved without a roster row (`paneless`, on the result or its card): its
-   name is store.safeKey's, not the stored spelling, so that one compares keys. Shared by task message and task
+   `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
+   board lists and stores such an agent by its key (store.safeKey), so that one compares keys. Shared by task message and task
    built, for membership and (task message) for leaving the sender off its own notification. */
 function sameAgentName(a, b, byKey) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
@@ -4028,17 +4046,32 @@ function agentTokenOk(req) {
 }
 /* #4491 slice 4: did this request get past the board-token gate on its agent token ALONE? Returns null when it did
    not (the board is not enforcing, or the caller also holds the person's credential: the page, the person's
-   terminal, every agent's CLI today), else the token's agent as the token store names it (its key, which is
-   store.safeKey of the session name), or '' when the token names nobody. For the READ handlers only: they have no
-   body, and the gate has already checked the token, so this is the same header read twice.
-   Membership for these reads is therefore BY KEY (projectHasAgent(stored, key, true)), not by exact spelling as
-   the slice-3 writes compare a carded caller: a project that lists "a.b" admits the token whose key is "ab". That
-   is no wider than the token store itself, which keeps both names in the one file for that key. */
+   terminal, every agent's CLI today), else the caller for tokenOnlyOnProject (below), or '' when the
+   token names nobody. For the READ handlers only: they have no body, and the gate has already checked the token,
+   so this is the same header read twice.
+   #4792: a token minted with its agent's name is matched by that exact name, as the slice-3 writes compare a
+   carded caller, or by the stored key while no second name holds a named token (tokenOnlyOnProject's key arm). An older token carries only its key (store.safeKey of the name) and is matched BY KEY, as before:
+   a project that lists "a.b" admits it when its key is "ab". That older path is refused when a second name has
+   tokens under the same key, because the key then no longer says which agent. */
 function agentTokenOnlyCaller(req) {
   if (!boardAuthState.on || boardTokenOk(req)) return null;
   let who = null;
   try { who = sendertoken.resolveName(req && req.headers && req.headers['x-kosmos-agent-token']); } catch { who = null; }
-  return who && who.ok === true && typeof who.key === 'string' ? who.key : '';
+  if (!(who && who.ok === true && typeof who.key === 'string')) return '';
+  /* #4792: a token that carries its agent's name is that agent, matched by exact spelling like the slice-3 writes.
+     An older token has only the key: matched by key as before, unless another name now has tokens under that key,
+     when the key no longer says which agent and the caller is nobody. */
+  if (typeof who.name === 'string' && who.name) return { name: who.name, key: who.key, twins: who.twins === true };
+  if (who.twins === true) return '';
+  return { name: who.key, key: who.key, byKey: true };
+}
+/* #4792: is the token-only caller on this stored project? Its exact name; or, while no second name holds tokens under
+   its key, the KEY as stored: the board stores a paneless agent's membership by its key (its roster sessionName), so
+   remote "Kip" is listed as "kip". An older token is matched by key as before. */
+function tokenOnlyOnProject(stored, caller) {
+  if (!caller) return false;
+  if (caller.byKey) return projectHasAgent(stored, caller.name, true);
+  return projectHasAgent(stored, caller.name, false) || (!caller.twins && projectHasAgent(stored, caller.key, false));
 }
 /* #1307: a project webhook's call, POST /hooks/<id>/<secret>. It carries its own secret (checked
    against a hash by engine/webhooks.js in the handler), not the board token, so it is exempt from
@@ -6677,6 +6710,8 @@ const server = http.createServer(async (req, res) => {
         const result = create.createAgent({
           name: body.name, role: body.role,
           label: body.label, instructions: body.instructions, model: body.model,
+          // #4557: a seeded team member's brief, layered into its role's instructions (never replacing them).
+          teamInstructions: body.teamInstructions,
           // Which provider it runs on (#245). Absent means Anthropic, which
           // is what every existing caller means; the engine validates and
           // refuses anything it does not know.
@@ -6789,6 +6824,54 @@ const server = http.createServer(async (req, res) => {
       // much as its happy path does.
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
+  }
+
+  /* #4557 (umbrella #4554): the prebuilt teams, read only. The Team dropdown lists them, the confirm
+     screen shows one, and `specs` returns every member as the body POST /api/agents takes, lead first,
+     for the names the person chose. The page makes each member through that route, one request per
+     member, so each gets a single agent's full birth and can be retried alone. Nothing here creates. */
+  if (pathname === '/api/teams/seeded' && req.method === 'GET') {
+    // #4632: opening the Team screen is what downloads the catalogue the teams come from. refresh()
+    // never rejects; the second handler is for a bug in it, which must not hang the screen.
+    const answer = () => {
+      try {
+        const r = teamseed.list();
+        if (!r.ok) { sendJson(res, 503, { error: r.because }); return; }
+        sendJson(res, 200, { teams: r.teams });
+      } catch { if (!res.headersSent) sendJson(res, 500, { error: 'we could not list the teams' }); }
+    };
+    teamseed.refresh().then(answer, answer);
+    return;
+  }
+  {
+    const m = /^\/api\/teams\/seeded\/([a-z0-9-]{1,64})(\/specs)?$/.exec(pathname);
+    if (m && ((!m[2] && req.method === 'GET') || (m[2] && req.method === 'POST'))) {
+      const key = m[1];
+      if (!m[2]) {
+        // The page can open one team directly (openTeamCreate), so this read downloads too (#4632).
+        const answer = () => {
+          try {
+            const r = teamseed.detail(key);
+            if (!r.ok) { sendJson(res, r.unavailable ? 503 : (r.notFound ? 404 : 400), { error: r.because }); return; }
+            sendJson(res, 200, { team: r.team, members: r.members });
+          } catch { if (!res.headersSent) sendJson(res, 500, { error: 'we could not load that team' }); }
+        };
+        teamseed.refresh().then(answer, answer);
+        return;
+      }
+      readBody(req).then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const r = teamseed.specs({ team: key, names: body.names, project: body.project, checkTaken: body.check === true });
+        if (!r.ok) {
+          const code = r.unavailable ? 503 : (r.notFound ? 404 : 400);   // flags, never the English (round 1)
+          sendJson(res, code, { error: r.because });
+          return;
+        }
+        sendJson(res, 200, { team: r.team, specs: r.specs });
+      }).catch(() => { if (!res.headersSent) sendJson(res, 400, { error: 'we could not read that request' }); });
+      return;
+    }
   }
 
   /* #4559: an org chart FILE for the New Agent org chart preview. The raw file is the body and its name
@@ -8037,9 +8120,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  /* #4373: an agent reads the community (the feed, a channel, or one post) through its board. Authenticated as an
-     agent exactly as a post is, so only a real agent on this board reads, and the board, not the agent, talks to the
-     service. The answer is bounded, reduced, scrubbed and framed by engine/communityread.js. */
+  /* #4373: an agent reads the community (the feed, a channel, or one post) through its board. The reader is
+     identified from its agent token, as a post's author is, so only a real agent on this board reads, and the
+     board, not the agent, talks to the service. (Since #4491 slice 6 the token alone passes the gate for this read;
+     a post still needs the board token as well.) The answer is bounded, reduced, scrubbed and framed by engine/communityread.js. */
   if (pathname === '/api/community/read' && req.method === 'GET') {
     if (!presentedAgentToken(req, null)) {
       sendJson(res, 403, { error: 'reading the community requires an agent token' }); return;
@@ -8053,11 +8137,49 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 403, { error: reader.because || 'we could not verify which agent is reading' }); return;
     }
     const q = new URL(req.url, ROUTING_BASE).searchParams;
+    /* #4774: `?following=1` is the reader's own Following feed. It is read AS the reader (the service needs the agent's
+       bearer), so it is keyed on the authenticated session, never on anything in the query. */
+    if (q.get('following') === '1') {
+      if (q.get('channel') || q.get('post')) { sendJson(res, 400, { error: 'read your Following feed, a channel or one post, not two at once' }); return; }
+      communityfollow.readFollowing(reader.card.sessionName)
+        .then((r) => sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
+        .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
+      return;
+    }
     communityread.read({ channel: q.get('channel'), post: q.get('post') })
       /* 502 when the SERVICE failed (unreachable, slow, an unreadable answer), 400 when the request was wrong (review 1):
          the two need different next steps. The words are always the board's own, never the service's. */
       .then((r) => sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
       .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
+    return;
+  }
+
+  /* #4774: an agent follows or unfollows another agent in the community, through its board. The FOLLOWER is the agent
+     authenticated by its token (resolveAgentSender), never a name in the body; the body names only whom to follow.
+     Like a post it is a public act, so it keeps needing the board token as well (not in the agent-token-only set). */
+  if (pathname === '/api/community/follow' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'following in the community requires an agent token' }); return; }
+        const authRoster = safeRoster();
+        if (authRoster === null) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+        }
+        const who = resolveAgentSender(req, body, authRoster);
+        if (!who.ok || !who.card || !who.card.sessionName) {
+          sendJson(res, 403, { error: who.because || 'we could not verify which agent is following' }); return;
+        }
+        const name = body && typeof body.name === 'string' ? body.name : '';
+        return communityfollow.follow(who.card.sessionName, name, { unfollow: body && body.unfollow === true })
+          /* Review 1: 429 over the engine's hourly follow cap (communityfollow.FOLLOW_PER_HOUR), 502 when the service
+             failed, 400 for everything on this side (a bad name, the switch off, busy). */
+          .then((r) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.upstream ? 502 : 400)), r.ok ? { ok: true, text: r.text } : { error: r.because }))
+          .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 
@@ -13386,7 +13508,7 @@ const server = http.createServer(async (req, res) => {
               deliver: chat.deliverAutomaticAsync, roster, DELIVERY: chat.DELIVERY, env: process.env,
               shownOf: (id) => { const p = projects.get(id, roster); return p ? p.name : null; },
             }).then((done) => {
-              for (const d of done) process.stdout.write(`room-hold: ${who} told of ${d.n} held post(s) in ${d.projectId} delivery=${d.state}\n`);
+              for (const d of done) process.stdout.write(roomhold.toldLine(who, d));   // #4797: no "told of" for a refused try
             }).catch(() => { /* best-effort: the posts are in the room, and the next typed arrival carries the line */ });
           });
         }
@@ -15657,7 +15779,7 @@ const server = http.createServer(async (req, res) => {
          list the agent on each one). */
       const stored = (everyProject || []).filter((x) => x && x.id === projectScope);
       if (!stored.length) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
-      if (!tokenOnly || !stored.every((x) => projectHasAgent(x, tokenOnly, true))) {
+      if (!tokenOnly || !stored.every((x) => tokenOnlyOnProject(x, tokenOnly))) {
         sendJson(res, 403, { error: 'that agent is not on this project, so it cannot read its tasks' });
         return;
       }
@@ -16002,7 +16124,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null, federationLinked, ...(coordinators ? { coordinators } : {}) });
       })
       .catch((err) => sendJson(res, (err && err.code === 'UNREADABLE') ? 500 : 400,
-        { error: String((err && err.message) || 'we could not read that request') }));
+        { error: String((err && err.message) || 'we could not read that request'), ...(err && err.code === 'FOLDER_TAKEN' ? { code: 'folder_taken' } : {}) }));
     return;
   }
 
@@ -16302,7 +16424,7 @@ const server = http.createServer(async (req, res) => {
       const everyProject = projects.readAll();
       const stored = everyProject.filter((p) => p && p.id === id);   // every one with that id, as the task read does
       projectKnown = stored.length > 0;
-      if (tokenOnly !== null && stored.length && (!tokenOnly || !stored.every((p) => projectHasAgent(p, tokenOnly, true)))) {
+      if (tokenOnly !== null && stored.length && (!tokenOnly || !stored.every((p) => tokenOnlyOnProject(p, tokenOnly)))) {
         roomRefusal = [403, 'that agent is not on this project, so it cannot read its room'];
       }
     } catch {
@@ -18844,7 +18966,7 @@ function start(port = PORT) {
             deliver: chat.deliverAutomaticAsync, DELIVERY: chat.DELIVERY, env: process.env,
             shownOf: (id) => { const p = projects.get(id, r); return p ? p.name : null; },
           }).then((done) => {
-            for (const d of done) process.stdout.write(`room-hold: ${d.name} told of ${d.n} held post(s) in ${d.projectId} after the quota hold, delivery=${d.state}\n`);
+            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold'));   // #4797
           }).catch(() => { /* the posts stay held for the next minute */ });
         } catch { /* the posts stay held for the next minute */ }
       }, 60 * 1000);

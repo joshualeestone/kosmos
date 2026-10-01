@@ -3,7 +3,8 @@
  * #4491 slices 2-5 (slice 5 adds `kosmos task add` and `kosmos task close`): `kosmos msg`, `kosmos post`, `kosmos react`, `kosmos task message`, and (slice 4) the reads
  * `kosmos room`, `kosmos task list`, `kosmos agent roles` and `kosmos agent role-draft` present the agent's own token
  * (KOSMOS_AGENT_TOKEN, plain hex only) as `x-kosmos-agent-token`, as reply and report already do,
- * so the board can tell the agent from the person. The board token is still sent as well.
+ * so the board can tell the agent from the person. The board token is still sent as well, by default. Slice 7:
+ * with KOSMOS_AGENT_TOKEN_ONLY=1 the agent verbs send the agent token alone (the token-only tests below).
  *
  * The valid-token case is the control for the other two: a CLI that never sent the header would
  * pass every "no header" assertion here.
@@ -46,6 +47,14 @@ const ANSWERS = {
   '/api/project/p4491/task/1/close': { task: { number: 1, state: 'closed' } },
   // Slice 5b: project create.
   '/api/projects': { project: { id: 'my-project' }, told: [], id: 'my-project', agentsUnreadable: false },
+  // Slice 7: the rest of an agent's everyday verbs, and three of the person's.
+  '/api/reply': { delivery: { state: 'placed' } },
+  '/api/report': { recorded: true },
+  '/api/whoami': { name: 'mara', projects: [] },
+  '/api/community/post': { ok: true, state: 'held' },
+  '/api/project/p4491/room/reopen': { ok: true },
+  '/api/project/p4491/task/1/built': { ok: true, task: { number: 1 } },
+  '/api/team': { created: [{ name: 'Nia' }], refused: [] },
 };
 
 /* Slice 4: the reads. The room is answered as text (its `?as=text` arm), the others as the JSON each verb parses. */
@@ -53,6 +62,10 @@ const READ_ANSWERS = {
   '/api/project/p4491/room': 'nothing here yet\n',
   '/api/tasks': JSON.stringify({ tasks: [], count: 0 }),
   '/api/roles': JSON.stringify({ roles: [{ key: 'builder', label: 'Builder' }], own: { instructions: 'You are {{NAME}}.' } }),
+  // Slice 7: the reads its token-only list adds.
+  '/api/report': 'working: on it\n',
+  '/api/projects/overview': JSON.stringify({ projects: [] }),
+  '/api/project/p4491/overview': JSON.stringify({ project: { id: 'p4491', name: 'P' } }),
 };
 
 function withStub(fn) {
@@ -110,9 +123,11 @@ function runCli(args, env) {
   }));
 }
 
-async function send(port, seen, home, args, token) {
-  const env = { ...process.env, KOSMOS_PORT: String(port), KOSMOS_HOME: home, AGENT_WORKFORCE_DATA: '', TMUX_PANE: '' };
+async function send(port, seen, home, args, token, only, extraEnv) {
+  const env = { ...process.env, KOSMOS_PORT: String(port), KOSMOS_HOME: home, AGENT_WORKFORCE_DATA: '', TMUX_PANE: '', ...(extraEnv || {}) };
   if (token === null) delete env.KOSMOS_AGENT_TOKEN; else env.KOSMOS_AGENT_TOKEN = token;
+  /* Slice 7's switch is OFF unless a test turns it on: never inherited from the machine running the tests. */
+  if (only === undefined) delete env.KOSMOS_AGENT_TOKEN_ONLY; else env.KOSMOS_AGENT_TOKEN_ONLY = only;
   const before = seen.length;
   await runCli(args, env);
   for (let i = 0; i < 100 && seen.length === before; i += 1) await new Promise((r) => setTimeout(r, 50));
@@ -147,6 +162,85 @@ for (const [route, args] of VERBS) {
           assert.equal(got.agent, undefined, `kosmos ${verbName(args)} forwarded ${JSON.stringify(token)} as an agent token`);
           assert.equal(got.board, BOARD);
         }
+      });
+    } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  });
+}
+
+/* Slice 7: KOSMOS_AGENT_TOKEN_ONLY=1. An agent's everyday verbs then send its own token and NOT the person's board
+   token, so the board knows the caller is that agent. The default (the tests above) is unchanged. */
+const TOKEN_ONLY_VERBS = [
+  ...VERBS.filter(([, args]) => verbName(args) !== 'project create'),
+  ['/api/reply', ['reply', 'hello']],
+  ['/api/report', ['report', 'working', 'on it']],
+  ['/api/report', ['report', 'show']],
+  ['/api/whoami', ['whoami']],
+  ['/api/project/p4491/task/1/built', ['task', 'built', 'p4491', '1', 'the tests']],
+  ['/api/projects/overview', ['project', 'list']],
+  ['/api/project/p4491/overview', ['project', 'show', 'p4491']],
+  ['/api/team', ['agent', 'create', 'Nia', 'builder', 'to help']],
+];
+/* The person's verbs: the board token opens these, whatever the switch says. */
+const PERSON_VERBS = [
+  ['/api/projects', ['project', 'create', 'My Project', '/tmp/kosmos-4491-no-such-folder']],
+  ['/api/community/post', ['community', 'post', 'hello']],
+  ['/api/project/p4491/room/reopen', ['room', 'reopen', 'p4491']],
+];
+const longName = (args) => (['community', 'report'].includes(args[0]) || args.join(' ').startsWith('room reopen') ? args.slice(0, 2).join(' ') : verbName(args));
+
+for (const [route, args] of TOKEN_ONLY_VERBS) {
+  test(`token-only: kosmos ${longName(args)} sends the agent's token and not the board token`, async () => {
+    const home = makeHome();
+    try {
+      await withStub(async (port, seen) => {
+        /* CONTROL first: the same verb with the switch off still sends both, so the absence below is the switch. */
+        const off = await send(port, seen, home, args, TOKEN);
+        assert.equal(off.route, route);
+        assert.deepEqual([off.agent, off.board], [TOKEN, BOARD], `control: with the switch off, kosmos ${longName(args)} did not send both tokens`);
+        const on = await send(port, seen, home, args, TOKEN, '1');
+        assert.equal(on.route, route);
+        assert.equal(on.agent, TOKEN, `kosmos ${longName(args)} did not present the agent token`);
+        assert.equal(on.board, undefined, `token-only: kosmos ${longName(args)} still sent the person's board token`);
+      });
+    } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  });
+
+  test(`token-only: kosmos ${longName(args)} keeps the board token when it has no usable agent token, or the switch is not exactly 1`, async () => {
+    const home = makeHome();
+    try {
+      await withStub(async (port, seen) => {
+        /* `agent create` refuses to run at all with no usable token (it is for an agent acting for the person), so it
+           has no request to judge here; its switch cases below still run. */
+        if (verbName(args) !== 'agent create') {
+          for (const token of ['not-hex; rm -rf', 'ABCDEF', '', null]) {
+            const got = await send(port, seen, home, args, token, '1');
+            assert.deepEqual([got.agent, got.board], [undefined, BOARD], `with ${JSON.stringify(token)} as its token, kosmos ${longName(args)} sent no credential the board can use`);
+          }
+          /* ABCDE: upper case with no letter past F, which a locale-ordered [a-f] range lets through (review 1). The
+             board token must stay; whether the verb also presents it as its agent token is each verb's own older
+             rule, not this switch's. */
+          /* Run in a dictionary-ordered locale ON PURPOSE: under C or POSIX a range rejects ABCDE too, so this case
+             could not fail there (review 2 measured it). en_US.UTF-8 is present on every macOS runner. */
+          const upper = await send(port, seen, home, args, 'ABCDE', '1', { LC_ALL: 'en_US.UTF-8' });
+          assert.equal(upper.board, BOARD, `with "ABCDE" as its token, kosmos ${longName(args)} dropped the board token`);
+        }
+        for (const only of ['', '0', 'true', 'yes', ' 1']) {
+          const got = await send(port, seen, home, args, TOKEN, only);
+          assert.deepEqual([got.agent, got.board], [TOKEN, BOARD], `KOSMOS_AGENT_TOKEN_ONLY=${JSON.stringify(only)} dropped the board token`);
+        }
+      });
+    } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  });
+}
+
+for (const [route, args] of PERSON_VERBS) {
+  test(`token-only: kosmos ${longName(args)} is the person's and still sends the board token`, async () => {
+    const home = makeHome();
+    try {
+      await withStub(async (port, seen) => {
+        const got = await send(port, seen, home, args, TOKEN, '1');
+        assert.equal(got.route, route);
+        assert.equal(got.board, BOARD, `token-only: kosmos ${longName(args)} lost the board token that opens its route`);
       });
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });

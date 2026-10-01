@@ -48,17 +48,14 @@ const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
 
 /* Deliberate exceptions, each with its reason. An entry is a claim someone can check. */
 const SERVED_ELSEWHERE = {
-  /* #4556: the Team screen asks for the seeded teams catalogue, which #4555 (claimed by April) adds as a board
-     route. Until it lands the route answers 404 and the page reads that as "coming soon" (render-newagent-paths-4556
-     K5). REMOVE this entry in #4555's change, when the route exists. */
-  '/api/teams/seeded': 'not served yet: #4555 adds it; the page treats its 404 as coming soon (#4556)',
+  /* #4557 removed '/api/teams/seeded' (#4556's entry): the board serves the seeded teams catalogue now. */
 };
 
 /* Known page calls spread across the script, read on every run (see the main test). */
 const CANARIES = ['/api/accounts', '/api/federation/invite', '/api/federation/join', '/api/remote/devices/x', '/api/update/rollback'];
 
 /* Measured 2026-09-26 on main. Growth reds; shrinking is fine (lower these when it happens). */
-const UNREAD_CEILING = 19;
+const UNREAD_CEILING = 20; // +1 (#4557): tcPortrait fetches the seed's portrait, a STATIC file path from the catalogue (web/avatars/teams/...), never an /api route, so it cannot be a literal.
 const UNREADABLE_CEILING = 1;
 
 /* A lexical mask over a source text: CODE, COMMENT (JS and HTML), STRING (inside a string literal),
