@@ -465,7 +465,8 @@ fi
 # the staged build is not newer than prod (superseded, as #3600 decides for Windows): then warn and
 # carry nothing, since nobody will promote it. Two exceptions refuse instead: a local copy with other
 # bytes (the glob would ship it unchecked), and a deploy that would MOVE the live staging pointer to
-# that build (the skip would then break staging on its own). A superseded build that is present is still carried and checked.
+# that build (the skip would then break staging on its own). A superseded build that IS present
+# (locally or live) is still carried and checked.
 # Sets STAGED_ART, empty when nothing extra is carried.
 # Before any fetch, check_staging_not_stale refuses a checkout whose committed staging pointer is
 # OLDER than the one live serves, or commits none while live serves one (deploying it would move
@@ -665,7 +666,7 @@ carry_staged_mac
 # them (breaking a rollback link, not a new install). There is no manifest of the full set, so they
 # are not enumerable here; if rollback coverage is ever needed, fetch them the same way.
 
-echo "deploy-site: fetched and verified the current live GITIGNORED artifacts into $SITE/dist/"
+echo "deploy-site: fetched and verified the current live GITIGNORED artifacts into $SITE/dist/${STAGED_ART:+ (the staged Mac build $STAGED_ART: see the line above for where it came from)}"
 # ⚠️ This wrote into the SHARED site checkout's dist/ (also the live board, also shared with
 # tools/release.sh), but ONLY gitignored artifacts (the tarball, pkg triple, tmux, alias, and the
 # staged Mac build when it was fetched rather than already present, and its .sha256 when it was

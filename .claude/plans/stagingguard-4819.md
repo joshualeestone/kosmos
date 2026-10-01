@@ -18,7 +18,8 @@ Card: joshualeestone/kosmos#4819 (claimed: barondraxum).
 | Live serves a NEWER staging version than committed | refused before any fetch (opt-in: `KOSMOS_STAGING_ROLLBACK=<committed version>`) |
 | Same version, different bytes / live pointer names no build | refused (same opt-in) |
 | Live serves a pointer, none committed | refused |
-| Live unreachable, 5xx or 429 (after 3 tries), or an empty 200 | refused as "could not read" |
+| Live unreachable, 5xx or 429 (after 3 tries) | refused as "could not read" |
+| An empty 200 for the live pointer or the staged .sha256 | refused (neither a value nor absent) |
 | After the deploy | the pair is served-verified and the served pointer must equal the committed one |
 
 ## What happened
@@ -163,7 +164,10 @@ statically (measured: 200 application/json from installkosmos.com).
   Review 17: the post-deploy re-read retries a 404 like a mismatch (a stale edge answers 404 when
   there was no pointer before; e2e arm 19 holds the pointer back once, and without the 404 retry it
   is red). Review 18: an empty 200 for the staged .sha256 refuses (st12; without it, the superseded
-  skip is taken, red).
+  skip is taken, red). Review 20: a superseded build whose tarball is live but whose .sha256 is not
+  is skipped, which drops the tarball: accepted, since staging installs already fail on a pair with no
+  served checksum (setup.sh verify_download refuses a download whose .sha256 is not served), so
+  the skip changes nothing for them.
   (A post-fetch pointer-sha check remains as a backstop. `fetch_verified` re-reads the served
   sidecar itself, so it fires only if the sidecar changed between the two reads, a concurrent
   publish; no test reaches it.)

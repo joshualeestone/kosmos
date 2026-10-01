@@ -167,7 +167,7 @@ if has "$out" "RC=0 STAGED_ART=$STAGED FETCHED=[https://site.invalid/dist/$STAGE
 S="$T/g"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-g"
 cp "$BYTES" "$S/dist/$STAGED"
 out=$(run_carry "$S" "$T/live-g")
-if has "$out" "RC=0 STAGED_ART=$STAGED FETCHED=[]" && [ "$(awk '{print $1}' "$S/dist/$STAGED.sha256")" = "$SHA" ] && grep -q "  $STAGED\$" "$S/dist/$STAGED.sha256" && [ "$(stat -f %Lp "$S/dist/$STAGED.sha256")" = 644 ]; then pass "g: the pointer's bytes without a .sha256 are carried and the sidecar written from them, mode 644 (live not asked)"; else bad "g: $out"; fi
+if has "$out" "RC=0 STAGED_ART=$STAGED FETCHED=[]" && [ "$(awk '{print $1}' "$S/dist/$STAGED.sha256")" = "$SHA" ] && grep -q "  $STAGED\$" "$S/dist/$STAGED.sha256" && [ "$(stat -f %Lp "$S/dist/$STAGED.sha256" 2>/dev/null || stat -c %a "$S/dist/$STAGED.sha256")" = 644 ]; then pass "g: the pointer's bytes without a .sha256 are carried and the sidecar written from them, mode 644 (live not asked)"; else bad "g: $out"; fi
 # ---- g3: local right, sidecar names other bytes: rewritten -------------------------------------------
 S="$T/g3"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-g3"
 cp "$BYTES" "$S/dist/$STAGED"; printf '%s  %s\n' "$(sha_of "$OTHER")" "$STAGED" > "$S/dist/$STAGED.sha256"
