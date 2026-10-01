@@ -141,11 +141,14 @@ test('fetchComputers: not signed in (switch off, or not enrolled) asks nothing a
   let r = await run('ok:' + JSON.stringify(ANSWER), () => ac.fetchComputers({ probe: async () => true }));
   assert.equal(r.value.ok, false);
   assert.match(r.value.because, /not signed in to Kosmos\+/);
+  // kosmos#4815: the page tells "no list to have" from "Kosmos+ failed" by this mark alone.
+  assert.equal(r.value.signedIn, false, 'not signed in must be MARKED (signedIn: false)');
   assert.equal(r.calls.length, 0, 'a switched-off board must not call the coordinator');
   unenroll();
   enroll(true); unenroll();
   r = await run('ok:' + JSON.stringify(ANSWER), () => ac.fetchComputers({ probe: async () => true }));
   assert.equal(r.value.ok, false);
+  assert.equal(r.value.signedIn, false, 'unenrolled must be MARKED (signedIn: false)');
   assert.equal(r.calls.length, 0, 'an unenrolled board must not call the coordinator');
 });
 
@@ -155,6 +158,8 @@ test('fetchComputers: an old connector, a refusal, or an answer with no list is 
     const r = await run(mode, () => ac.fetchComputers({ probe: async () => true }));
     assert.equal(r.value.ok, false, mode + ': ' + JSON.stringify(r.value));
     assert.equal(typeof r.value.because, 'string', mode);
+    // kosmos#4815: a failure is NOT "not signed in", or the page would read Kosmos+ failing as "one computer".
+    assert.equal('signedIn' in r.value, false, mode + ' carries the not-signed-in mark');
   }
 });
 

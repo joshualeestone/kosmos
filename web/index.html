@@ -26,7 +26,11 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/icons/kosmos-16.png">
 <link rel="icon" type="image/png" sizes="32x32" href="/icons/kosmos-32.png">
 <link rel="icon" type="image/png" sizes="48x48" href="/icons/kosmos-48.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/icons/kosmos-180.png">
+<!-- kosmos#4798 (Josh, 17:53: a thick black frame round the home-screen icon): iOS fills a touch icon's transparent
+     corners with black and then rounds it itself. kosmos-180 is the Mac icon, already rounded inside a clear margin
+     (and it stays, for the Dock row below), so the home screen gets its own: a full-bleed opaque square, gold to
+     every edge, no corners, no alpha, from assets/Kosmos-1024.png (the iPhone app's icon). -->
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/kosmos-touch-180.png">
 <!-- Installable (#718, the home-screen third): the manifest makes Add to
      Home Screen an app-shaped launch; the two Apple metas do the same on
      iOS Safari, which reads them rather than display:standalone.
@@ -1958,6 +1962,13 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
 .worldsw-computers { margin-top: 4px; padding-top: 4px; border-top: 0.5px solid var(--separator); }
 .worldsw-sec { padding: 4px 8px 2px; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
 .worldsw-state { flex: none; margin-left: auto; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
+/* kosmos#4815 (Josh, 2026-09-30 19:50): one Kosmos per computer (MULTI_KOSMOS off). The menu then holds only Your
+   computers, so its separator has nothing above it and goes; and with no other computer to open, the button is
+   the computer's name as plain text: no chevron, no border, nothing to press. */
+.worldsw.worldsw-onekosmos .worldsw-computers { margin-top: 0; padding-top: 0; border-top: 0; }
+.worldsw.worldsw-fixed .worldsw-chev { display: none; }
+.worldsw.worldsw-fixed .worldsw-btn { cursor: default; border-color: transparent; }
+.worldsw.worldsw-fixed .worldsw-btn:hover, :root[data-look="new"] .worldsw.worldsw-fixed .worldsw-btn:hover { background: none; }
 /* #2238: the honest post-switch status banner. A world's roots load only on board
    boot, so switching needs a board restart; this banner says so (no auto-restart). */
 /* #1704 PR3: the switch dialog's pause/keep choice. A fieldset, so its UA chrome goes. */
@@ -9882,6 +9893,23 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    treatment, per the same 08-21 ruling) loses its border and shadow, since its grey ground is the separation. */
 :root[data-look="new"] body:not(.consolidated) #grid .acard { border-radius: 24px; }
 :root[data-look="new"] body:not(.consolidated) #grid .acard:not(.working):not(.attn):not(.question):not(.unk) { border-color: transparent; box-shadow: none; }
+/* The list view (#4470, the next page after the cards): the same language. A row is shorter than a card, so its
+   corners sit between the project page's task rows (10px) and the cards (24px). The ground keeps saying the state
+   (grey, the working green, the needs-you red wash: #3187), so a plain row's border goes, as a plain card's did.
+   What a stroke MEANS stays: the needs-you row keeps its red edge, the could-not-read row its dash. Hover still
+   draws today's border, since a row with no edge needs some sign it can be opened; hover never changes the ground,
+   which is the state. */
+:root[data-look="new"] body:not(.consolidated) #alist .lrow { border-radius: 16px; }
+:root[data-look="new"] body:not(.consolidated) #alist .lrow:not(.attn):not(.unk):not(:hover) { border-color: transparent; }
+/* The name is a button (.namego, it opens the agent), and a button centres its text by default, so a name long
+   enough to wrap sat in the middle of a left-aligned column (seen with a two-word surname). Today's look has the
+   same; this page sets it. */
+:root[data-look="new"] body:not(.consolidated) #alist .lname .namego { text-align: left; }
+/* The could-not-read dash must be SEEN, not only kept: the new look's rule grey on its surface grey (and the
+   list's wash) measured about 1.04:1 in light, so the dashed row read as a plain one. It takes the colour the
+   solid could-not-read board note already uses, on the list and on the cards alike. */
+:root[data-look="new"] body:not(.consolidated) #alist .lrow.unk,
+:root[data-look="new"] body:not(.consolidated) #grid .acard.unk { border-color: var(--border-strong); }
 /* ===== GENERATED: forced dark theme. Do not edit by hand. ===== */
 /* Written by tools/sync-forced-theme.js from the prefers-color-scheme
    blocks above. Edit those; run the tool; commit both. */
@@ -10373,6 +10401,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 .btn.uprime:disabled { opacity: .55; filter: none; }
 #plus-state2 .btn:not(.uprime) { background: transparent; color: #E6EBF7; border: 1px solid rgba(255,255,255,.25); border-radius: 10px; }
 #plus-state2 .btn:not(.uprime):hover { border-color: rgba(255,255,255,.5); background: rgba(255,255,255,.04); }
+/* kosmos#4756: Check again sits where the ground can be light (render-fields measured its white 25% edge at 1:1 there);
+   the field edge's #5c78a6 separates it on the navy and on white alike. */
+#plus-state2 #plus-si-bought-recheck { border-color: #5c78a6; }
 #plus-state2 .plus-si-small { color: var(--k-ink-2); font-size: .9rem; margin: .9rem 0 0; }
 #plus-state2 .plus-si-foot { margin-top: 1.4rem; }
 #plus-state2 .plus-signin-link[aria-disabled="true"] { opacity: .55; pointer-events: none; }
@@ -17300,6 +17331,22 @@ window.kosmosMeasureScrollbarWidth();
           <p class="fhint">3 to 32 letters, numbers or hyphens. <span id="plus-si-name-count" aria-live="polite">0/32</span></p>
           <p class="fhint" id="plus-si-name-suggested" hidden>We picked a private one. Type over it to choose your own.</p>
           <input class="tk-inp plus-si-wide" id="plus-si-name" type="text" maxlength="32" autocomplete="off" autocapitalize="none" aria-describedby="plus-si-name-suggested">
+        </div>
+        <!-- kosmos#4754 / #4756 (Josh 2026-09-30, ruling "A"): a new computer is a purchase. With bought
+             addresses live, a computer that is not the account's first picks an address the account has
+             BOUGHT and has no computer on yet; it never makes one. With none, it says so and links to the
+             website, where one is bought. Rows come from the coordinator (engine signinAddresses). -->
+        <div id="plus-si-bought" hidden>
+          <p class="plus-si-lead" id="plus-si-bought-lead">Pick the address this computer will use.</p>
+          <div class="frow" id="plus-si-bought-list" role="group" aria-labelledby="plus-si-bought-lead"></div>
+          <div id="plus-si-bought-none" hidden>
+            <p class="plus-si-lead" id="plus-si-bought-none-lead">Each computer on Kosmos+ has its own address, and this account has none waiting for this computer.</p>
+            <p class="fhint" id="plus-si-bought-none-hint">Buy one on the Kosmos+ website, then check again here.</p>
+            <div class="frow">
+              <a class="btn uprime" id="plus-si-bought-buy" style="text-decoration:none" href="#" target="_blank" rel="noreferrer noopener">Buy an address</a>
+              <button class="btn" type="button" id="plus-si-bought-recheck">Check again</button>
+            </div>
+          </div>
         </div>
         <div class="frow">
           <button class="btn uprime" type="button" id="plus-si-register-go">Finish signing in</button>
@@ -25759,6 +25806,9 @@ async function worldsFetch() {
    live switch, which owns that banner, is never fought; and it only clears a note IT set
    (WORLDSW_STALE), so a switch/manual-restart banner is never wiped. */
 function worldswSetStale(stale) {
+  // #4815: the note is about a list of Kosmoses, which is not shown when MULTI_KOSMOS is off (typeof: lifted by tests).
+  // Still tracked, so the 8 s retry does not re-render the hidden list every time; only the note is not shown.
+  if (typeof MULTI_KOSMOS !== 'undefined' && MULTI_KOSMOS === false) { WORLDSW_STALE = !!stale; return; }
   const banner = document.getElementById('worldsw-restart');
   const bmsg = document.getElementById('worldsw-restart-msg');
   if (stale) {
@@ -25776,6 +25826,100 @@ function worldswSetStale(stale) {
       banner.hidden = true;
     }
     WORLDSW_STALE = false;
+  }
+}
+/* kosmos#4815 (Josh, #admin 2026-09-30 19:50): "I want to remove multiple Kosmoses ... we don't have to remove the
+   structure. I just want it commented out so that it's not visible on anything." One switch, not a deletion: with
+   it false, the Kosmoses list, New Kosmos (and its dialog), each Kosmos's settings cog (rename, add agents from
+   another Kosmos, hide) and the last-known-list note are never shown. The top-left button then names THIS computer
+   (from Your computers, #4648, else "This computer") and opens only when the account has another computer, the
+   menu holding just Your computers. A board that already has several Kosmoses keeps running the one it booted;
+   nothing is moved or deleted, and /api/worlds is unchanged. Change the default below to bring it all back. */
+/* The default is OFF. A browser can turn it back on with localStorage 'kosmos.multiKosmos' = '1' (nothing on a
+   screen offers that): the browser checks that pin the kept structure (#1704, #2238, #2350, #2563, #2628, #2935,
+   #3055, #4648, and #718's phone frame) set it, so the code stays tested while nobody sees it. */
+const MULTI_KOSMOS = (() => { try { return localStorage.getItem('kosmos.multiKosmos') === '1'; } catch { return false; } })();
+let THIS_COMPUTER_NAME = '';
+let COMPUTERS_OPENABLE = false;
+let COMPUTERS_RETRY_T = null;
+let COMPUTERS_STALE_WHILE_HIDDEN = false;
+let COMPUTERS_FAILS = 0;
+/* Called by computersRender with the rows it kept and whether an answer arrived. Only an ANSWER changes
+   the name or whether there is anywhere to go (review round 1): a failed read keeps the last good answer, so one
+   relay hiccup cannot lock the menu shut, and says so inside the menu. */
+function worldswComputersSeen(rows, good) {
+  // With several Kosmoses on, today's menu is untouched: it hides the section on any failure (review round 5).
+  if (MULTI_KOSMOS) return;
+  if (good) {
+    const me = rows.find((c) => c.this === true);
+    THIS_COMPUTER_NAME = me ? me.name : '';
+    COMPUTERS_OPENABLE = rows.length >= 2;
+  } else if (COMPUTERS_OPENABLE) {
+    const box = document.getElementById('worldsw-computers');
+    const list = document.getElementById('worldsw-computers-list');
+    if (box && list) {
+      list.textContent = '';
+      const note = document.createElement('div');
+      note.className = 'worldsw-row worldsw-row-off';
+      note.textContent = 'Kosmos could not reach your computers just now. Try again in a moment.';
+      list.appendChild(note);
+      box.hidden = false;
+    }
+  }
+  worldswOneKosmos();
+  /* Re-read in the background while the menu cannot be opened (opening is what re-reads otherwise): soon after a
+     read that got no answer (the relay not up at boot), and every few minutes while the answer is "nowhere else to
+     go" (a sign-in to Kosmos+, or another computer added, during the session). review round 2. */
+  if (!MULTI_KOSMOS) {
+    clearTimeout(COMPUTERS_RETRY_T);
+    COMPUTERS_FAILS = good ? 0 : COMPUTERS_FAILS + 1;
+    /* Failures back off, 15 s doubling to 5 min, since some never clear on their own (an old connector, a refused
+       computer) and each read is a signed call to Kosmos+ (review round 4). */
+    const first = Number.isFinite(window.__kosmosComputersRetryMs) ? Math.max(100, window.__kosmosComputersRetryMs) : 15000;
+    const wait = !good ? Math.min(5 * 60 * 1000, first * 2 ** (COMPUTERS_FAILS - 1)) : (!COMPUTERS_OPENABLE ? 5 * 60 * 1000 : 0);
+    /* Either way, a hidden tab waits (it reads when it is next looked at, the visibility listener below), and an
+       open menu is not repainted under the person (it reads when the menu is next opened). */
+    const tick = () => {
+      const menu = document.getElementById('worldsw-menu');
+      if (document.hidden) COMPUTERS_STALE_WHILE_HIDDEN = true;                    // read on the next look
+      else if (menu && !menu.hidden) COMPUTERS_RETRY_T = setTimeout(tick, wait);   // try again after, never under the person
+      else computersFetch().catch(() => {});
+    };
+    if (wait) COMPUTERS_RETRY_T = setTimeout(tick, wait);
+  }
+}
+function worldswOneKosmos() {
+  if (MULTI_KOSMOS) return;
+  const sw = document.getElementById('worldsw');
+  const btn = document.getElementById('worldsw-btn');
+  const nameEl = document.getElementById('worldsw-name');
+  if (!sw || !btn || !nameEl) return;
+  for (const id of ['worldsw-list', 'worldsw-new']) { const el = document.getElementById(id); if (el) el.hidden = true; }
+  const name = THIS_COMPUTER_NAME || 'This computer';
+  nameEl.textContent = name;
+  sw.classList.add('worldsw-onekosmos');
+  sw.classList.toggle('worldsw-fixed', !COMPUTERS_OPENABLE);
+  sw.hidden = false;   // the name no longer depends on the Kosmoses read (review round 1)
+  const menu = document.getElementById('worldsw-menu');
+  if (COMPUTERS_OPENABLE) {
+    btn.removeAttribute('aria-disabled');
+    btn.removeAttribute('tabindex');
+    btn.setAttribute('aria-controls', 'worldsw-menu');
+    btn.setAttribute('aria-expanded', menu && !menu.hidden ? 'true' : 'false');
+    btn.setAttribute('aria-label', 'Your computers. This computer: ' + name);
+  } else {
+    /* Plain text, as the card asks: nothing to expand, so no expanded state, no controls and no Tab stop (a screen
+       reader would otherwise announce a collapsed button that never opens). Close a menu left open from before. */
+    if (menu && !menu.hidden) {
+      const focusWasInside = menu.contains(document.activeElement);
+      menu.hidden = true;
+      if (focusWasInside) btn.focus();   // never leave focus on a row that just went away
+    }
+    btn.removeAttribute('aria-expanded');
+    btn.removeAttribute('aria-controls');
+    btn.setAttribute('aria-disabled', 'true');
+    btn.setAttribute('tabindex', '-1');
+    btn.setAttribute('aria-label', name);
   }
 }
 function worldswRender(data, opts) {
@@ -25846,6 +25990,8 @@ function worldswRender(data, opts) {
   }
   sw.hidden = false;
   worldswSetStale(!!(opts && opts.stale));   // #3055: honest note on a last-known render
+  // #4815: with MULTI_KOSMOS off, this computer's name and nothing about Kosmoses (typeof: tests lift this alone).
+  if (typeof worldswOneKosmos === 'function') worldswOneKosmos();
 }
 /* #2238: switch the active Kosmos. POST /api/worlds/active flips the registry and,
    when the board can SAFELY self-restart, restarts it onto the new world (#2346:
@@ -26129,8 +26275,16 @@ async function computersFetch() {
      must never be shown as current (a probe can take seconds). */
   const box = document.getElementById('worldsw-computers');
   const list = document.getElementById('worldsw-computers-list');
-  if (box) box.hidden = true;
   if (list) list.textContent = '';
+  /* #4815: with one Kosmos this section is the whole menu, so it says it is reading rather than leaving an empty box
+     (typeof: lifted alone by web.computers-switcher-4648, where the hide below is what it pins). */
+  if (typeof MULTI_KOSMOS !== 'undefined' && MULTI_KOSMOS === false && box && list) {
+    const note = document.createElement('div');
+    note.className = 'worldsw-row worldsw-row-off';
+    note.textContent = 'Checking your computers...';
+    list.appendChild(note);
+    box.hidden = false;
+  } else if (box) box.hidden = true;
   let data = null;
   try {
     const res = await fetch('/api/remote/computers', { cache: 'no-store' });
@@ -26146,8 +26300,15 @@ function computersRender(data) {
   const rows = (data && data.ok === true && Array.isArray(data.computers))
     ? data.computers.filter((c) => c && typeof c.name === 'string' && c.name && computerAddressOk(c.address, data.domain))
     : [];
+  /* #4815: the rows also give the top-left button this computer's name and whether there is anywhere else to go
+     (worldswComputersSeen). Only an ANSWER changes those: ok: true, or the engine's marked "not signed in"
+     (signedIn: false). The route always answers 200 and a bare ok: false means Kosmos+ did not answer
+     (engine/account-computers.js), so that, like no answer at all, keeps the last good name and menu (review round
+     3). Reached through typeof because tests lift this function alone (web.computers-switcher-4648), where the
+     one-Kosmos helpers do not exist; a lifted copy behaves as before. */
+  const good = !!data && (data.ok === true || data.signedIn === false);
   // Only this computer (or nothing): there is nowhere else to go, so the section stays hidden.
-  if (rows.length < 2) { list.textContent = ''; box.hidden = true; return; }
+  if (rows.length < 2) { list.textContent = ''; box.hidden = true; if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows, good); return; }
   list.textContent = '';
   for (const c of rows) {
     /* Only an ONLINE computer is a link. An offline one would open a browser error page (the
@@ -26182,10 +26343,12 @@ function computersRender(data) {
     list.appendChild(row);
   }
   box.hidden = false;
+  if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows, good);
 }
 function worldswToggle() {
   const menu = document.getElementById('worldsw-menu');
   if (!menu) return;
+  if (typeof MULTI_KOSMOS !== 'undefined' && MULTI_KOSMOS === false && !COMPUTERS_OPENABLE) return;   // #4815: one computer, nothing to open
   if (menu.hidden) worldswOpen();
   else worldswClose();
 }
@@ -26771,6 +26934,15 @@ async function worldHideSubmit() {
     if (menu && !menu.hidden) { worldswClose(); btn.focus(); }
   });
   worldsFetch().catch(() => {});
+  // #4815: with one Kosmos, the button names this computer and opens only onto Your computers, so read them now.
+  if (!MULTI_KOSMOS) {
+    computersFetch().catch(() => {});
+    document.addEventListener('visibilitychange', () => {
+      const menu = document.getElementById('worldsw-menu');
+      // Back in view: read now, unless the menu is open (it read when it opened; never repaint it under the person).
+      if (!document.hidden && COMPUTERS_STALE_WHILE_HIDDEN && !(menu && !menu.hidden)) { COMPUTERS_STALE_WHILE_HIDDEN = false; computersFetch().catch(() => {}); }
+    });
+  }
 })();
 // #3051 + #3360: the upper-right user menu popover. Same shape as wireWorldsw above: the
 // button toggles a hidden menu (aria-expanded tracks it), an outside click or Escape
@@ -43599,15 +43771,10 @@ function plusSiStage(stage, data) {
     document.getElementById('plus-si-enrol-code').focus();
     return;
   }
-  if (stage === 'session') {
-    plusSiRegisterMode(data.account_address);
-    plusSiShow('plus-si-register');
-    /* #3796 addendum 9: an account that already has an address skips this step: register to it now. */
-    if (PLUS_SI_OWNED) { plusSiDoRegister(PLUS_SI_OWNED, data.account_address); return; }
-    plusNamePrefill('plus-si-name', 'plus-si-name-suggested');   // #3842
-    document.getElementById('plus-si-name').focus();
-    return;
-  }
+  /* A failure while the new step decides lands on the old step, never on a loader with no way on. (The register it
+     then starts reports its own failures, as before.) It counts as a list not read, so a refusal of that register
+     can still go back to the list. */
+  if (stage === 'session') { const epoch = PLUS_SI_EPOCH; plusSiSession(data).catch(() => { if (epoch === PLUS_SI_EPOCH) { PLUS_SI_UNREAD = true; plusSiAsBefore(data); } }); return; }
   if (stage === 'registered') return;  // handled by the register button itself
   /* Any other value means the coordinator returned a stage this client does not know.
      The engine fails closed on unexpected shapes today (engine/remote.js absorbSession /
@@ -43646,6 +43813,9 @@ function plusSiClear() {
   if (typeof PLUS_SI_LANDED !== 'undefined') PLUS_SI_LANDED = false;
   if (typeof PLUS_SI_REGISTERING !== 'undefined') PLUS_SI_REGISTERING = false;
   if (typeof PLUS_SI_RETRY !== 'undefined') PLUS_SI_RETRY = '';
+  /* kosmos#4756: the bought-address list belongs to the sign-in that read it. */
+  if (typeof PLUS_SI_SESSION !== 'undefined') { PLUS_SI_BOUGHT_SEQ += 1; PLUS_SI_SESSION = null; PLUS_SI_BOUGHT_LAST = null; PLUS_SI_PICKED = false; PLUS_SI_RETRY_FROM_LIST = false; PLUS_SI_REFUSED = []; PLUS_SI_UNREAD = false; PLUS_SI_FIRST_FREE = false; PLUS_SI_NOT_FREE = false; }
+  const bought = document.getElementById('plus-si-bought'); if (bought) bought.hidden = true;
 }
 function plusSiEnter(e) {
   if (e) e.preventDefault();
@@ -44131,6 +44301,182 @@ document.getElementById('plus-si-enrol-confirm-go').addEventListener('click', as
   if (!r.ok) { plusSiFail(r.because); return; }
   plusSiStage(r.data.stage, r.data);
 });
+/* The session step. kosmos#4756: when the coordinator says bought addresses are live, a computer that is not
+   the account's first (its address is in use by another computer) picks one of the account's BOUGHT
+   addresses instead of naming one. On the FIRST read, anything but a definite live:true (switch off, an older
+   engine, the list not reachable) is the step exactly as before. A RE-read (Check again, or after a refused
+   pick) stays on the list and says what went wrong: by then this page knows it is a second computer. A re-read
+   whose answer takes the old way on (the address came free again, or the switch went off) registers as before. */
+let PLUS_SI_SESSION = null;
+let PLUS_SI_PICKED = false;   // the register now running came from the bought-address list
+let PLUS_SI_RETRY_FROM_LIST = false;
+let PLUS_SI_REFUSED = [];    // addresses refused in this sign-in: not offered, or registered to automatically, from a list again
+let PLUS_SI_UNREAD = false;  // the first read failed (not a switch that is off), so the old step ran without a list
+let PLUS_SI_FIRST_FREE = false;   // the old name step ran for the account's free first address (kosmos#4754 review 3)
+let PLUS_SI_NOT_FREE = false;     // the coordinator refused a name as not bought in this sign-in: no free first address, whatever a list says
+let PLUS_SI_BOUGHT_SEQ = 0;
+let PLUS_SI_BOUGHT_LAST = null;   // the last list shown, re-shown when a re-read fails
+async function plusSiBoughtRead() {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), PLUS_ASK_TIMEOUT_MS);
+  try {
+    const res = await fetch('/api/remote/signin-addresses', { method: 'GET', signal: ctl.signal });
+    const j = await res.json().catch(() => null);
+    if (res.ok && j && j.live === true && Array.isArray(j.addresses)) return { list: j };
+    if (res.ok && j && j.live === false) return { off: true };
+    if (j && j.unsupported === true) return { off: true };   // a tunnel program older than the list: it can never be read here
+    return { because: plusWords((j && j.error) || 'Kosmos+ could not list your addresses') };
+  } catch {
+    return { because: 'this computer could not reach the sign-in service' };
+  } finally { clearTimeout(timer); }
+}
+/* A re-read that threw (not one that answered badly, which plusSiSession says itself): Check again stays usable. */
+function plusSiReReadFailed() {
+  const recheck = document.getElementById('plus-si-bought-recheck'); if (recheck) recheck.disabled = false;
+  document.querySelectorAll('#plus-si-bought-list button').forEach((x) => { x.disabled = false; });   // the re-read disabled them
+  const spin = document.getElementById('plus-si-spin'); if (spin) spin.hidden = true;
+  plusSiMsg('That did not work. Check again in a moment.');
+}
+/* The session step as it was before kosmos#4756. */
+function plusSiAsBefore(data) {
+  const spin = document.getElementById('plus-si-spin'); if (spin) spin.hidden = true;
+  plusSiRegisterMode(data.account_address);
+  plusSiShow('plus-si-register');
+  /* #3796 addendum 9: an account that already has an address skips this step: register to it now. */
+  if (PLUS_SI_OWNED) { plusSiDoRegister(PLUS_SI_OWNED, data.account_address); return; }
+  plusNamePrefill('plus-si-name', 'plus-si-name-suggested');   // #3842
+  document.getElementById('plus-si-name').focus();
+}
+async function plusSiSession(data, again, keep) {
+  PLUS_SI_SESSION = data;
+  PLUS_SI_PICKED = false;
+  PLUS_SI_FIRST_FREE = false;
+  const bought = document.getElementById('plus-si-bought');
+  const recheck = document.getElementById('plus-si-bought-recheck');
+  const lead = document.getElementById('plus-si-owned-lead');
+  const spin = document.getElementById('plus-si-spin');
+  if (recheck) recheck.disabled = true;
+  /* No pick while a re-read is out: the answer would redraw the list over a register already running. */
+  if (again) document.querySelectorAll('#plus-si-bought-list button').forEach((x) => { x.disabled = true; });
+  if (!again) {
+    /* The read takes a moment (the coordinator's switch, then the list). The step it came from must not stay
+       live meanwhile, where its spent code could be sent again: the register step shows at once, saying so. */
+    if (bought) bought.hidden = true;
+    plusSiRegisterMode('');
+    const field = document.getElementById('plus-si-name-field'); if (field) field.hidden = true;
+    const go = document.getElementById('plus-si-register-go'); if (go) go.hidden = true;
+    plusSiShow('plus-si-register');
+    const owned = document.getElementById('plus-si-owned'); if (owned) owned.hidden = false;
+    if (lead) lead.textContent = 'Checking your Kosmos+ addresses';
+    const tail = document.getElementById('plus-si-owned-tail'); if (tail) tail.textContent = '...';
+    document.getElementById('plus-si-owned-addr').textContent = '';
+    if (spin) spin.hidden = false;
+    if (owned) owned.focus();   // the code field it replaces had the focus
+  }
+  const epoch = PLUS_SI_EPOCH, seq = ++PLUS_SI_BOUGHT_SEQ;
+  const got = await plusSiBoughtRead();
+  if (epoch !== PLUS_SI_EPOCH || seq !== PLUS_SI_BOUGHT_SEQ) return;   // signed out, or a newer read
+  if (recheck) recheck.disabled = false;
+  if (spin) spin.hidden = true;
+  if (lead) lead.textContent = 'Connecting this computer as';
+  const b = got.list || null;
+  if (!again) PLUS_SI_UNREAD = !b && !got.off;
+  if (again && !b && !got.off) {
+    if (/start again from the email/i.test(String(got.because || ''))) { plusSiFail(got.because); return; }
+    if (PLUS_SI_BOUGHT_LAST) plusSiBoughtPick(PLUS_SI_BOUGHT_LAST);
+    else {
+      /* Never had a list (the first read failed too): the none panel, saying so, with Check again and the website. */
+      plusSiBoughtPick({ addresses: [], buy_url: '' });
+      PLUS_SI_BOUGHT_LAST = null;   // a placeholder, not a list: another failed read must not read it as "none waiting"
+      document.getElementById('plus-si-bought-none-lead').textContent = 'Kosmos+ could not list the addresses on this account just now.';
+      document.getElementById('plus-si-bought-none-hint').textContent = 'Check again in a moment, or buy one on the Kosmos+ website.';
+    }
+    const why = got.because || 'That did not work. Check again in a moment.';
+    plusSiMsg(keep ? String(keep).replace(/[.!?]+$/, '') + '. ' + why : why);   // a refused pick's reason is not overwritten
+    return;
+  }
+  if (bought) bought.hidden = true;   // plusSiBoughtPick shows it again; every other way on is without it
+  const own = /^([a-z0-9-]{3,32})\./.exec(String(data.account_address || ''));
+  const ownRow = b && own ? b.addresses.filter((r) => r.name === own[1])[0] : null;
+  /* This computer already holds one of the account's addresses (set up before, signing in again): it keeps it. */
+  const mine = b && b.this_name ? b.addresses.filter((r) => r.name === b.this_name)[0] : null;
+  // A register that goes ahead does not keep a refusal's words beside it (again: after a refused pick).
+  if (mine && mine.state !== 'pending' && !(own && mine.name === own[1]) && PLUS_SI_REFUSED.indexOf(mine.name) === -1) { if (again) plusSiMsg(''); PLUS_SI_PICKED = true; plusSiRegisterMode(mine.address); plusSiShow('plus-si-register'); plusSiDoRegister(mine.name, mine.name); return; }
+  /* As before: no list (switch off, or not readable on the first read), or the account's own address when it is free
+     (or absent from the list, failing open) or already this computer's. A PENDING one is not bought yet, and an
+     account with no address cannot name one here: both get the list, or the way to buy one. */
+  const asBefore = !b || (own && PLUS_SI_REFUSED.indexOf(own[1]) === -1 && (!ownRow || ownRow.state === 'free' || b.this_name === own[1]));
+  /* With a list in hand, an automatic register is still a choice from it: a refusal goes back to the list. */
+  if (asBefore) { if (again && !keep) plusSiMsg(''); if (b) PLUS_SI_PICKED = true; plusSiAsBefore(data); return; }
+  /* kosmos#4754 review 3: an account made in the app (no web name, so no account_address) whose free first address
+     is unused names this computer as before, free: no in_use row is marked first_free (engine/remote.js). A typed name is not a pick: "that name
+     is taken" keeps the name step. Only a refusal saying the address must be bought (the slot went meanwhile) goes
+     to the list. */
+  // Any row marked first_free (in use, or free because its computer was retired) means the free address already
+  // exists: the list offers it, rather than a name step that could make another.
+  const firstFree = !PLUS_SI_NOT_FREE && !own && !b.this_name && !b.addresses.some((r) => r.first_free === true);
+  if (firstFree) { if (again && !keep) plusSiMsg(''); PLUS_SI_FIRST_FREE = true; plusSiAsBefore(data); return; }
+  plusSiBoughtPick(b);
+}
+function plusSiBoughtPick(b) {
+  PLUS_SI_BOUGHT_LAST = b;
+  plusSiRegisterMode('');
+  const field = document.getElementById('plus-si-name-field'); if (field) field.hidden = true;
+  const go = document.getElementById('plus-si-register-go'); if (go) go.hidden = true;
+  const list = document.getElementById('plus-si-bought-list');
+  list.textContent = '';
+  const free = b.addresses.filter((r) => r.state === 'free' && PLUS_SI_REFUSED.indexOf(r.name) === -1);
+  for (const row of free) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn';
+    btn.textContent = row.address;
+    btn.setAttribute('data-bought', row.name);
+    btn.addEventListener('click', () => {
+      PLUS_SI_BOUGHT_SEQ += 1;   // a read still out is not answered over this pick
+      document.getElementById('plus-si-bought').hidden = true;
+      plusSiMsg('');
+      plusSiRegisterMode(row.address);
+      PLUS_SI_PICKED = true;
+      plusSiDoRegister(row.name, row.name);
+    });
+    list.appendChild(btn);
+  }
+  document.getElementById('plus-si-bought-lead').hidden = free.length === 0;
+  list.hidden = free.length === 0;
+  document.getElementById('plus-si-bought-none').hidden = free.length > 0;
+  const pending = b.addresses.filter((r) => r.state === 'pending').length;
+  document.getElementById('plus-si-bought-none-lead').textContent = pending
+    ? 'An address on this account is waiting for its payment.'
+    : 'Each computer on Kosmos+ has its own address, and this account has none waiting for this computer.';
+  /* A computer set up before and then reset (or signed out and forgotten) is no longer known here, so its old address
+     reads as another computer's: say how to free it, beside the way to buy one. */
+  const own = PLUS_SI_SESSION && /^([a-z0-9-]{3,32}\.[a-z0-9.-]+)$/.exec(String(PLUS_SI_SESSION.account_address || ''));
+  const ownHeld = own && b.addresses.some((r) => r.address === own[1] && r.state === 'in_use') && !b.this_name;
+  /* A pending address is a checkout under way, or one cancelled (its hold ends by itself), so both ways on. */
+  document.getElementById('plus-si-bought-none-hint').textContent = (pending
+    ? 'If you finished paying, check again in a moment. If not, buy it on the Kosmos+ website.'
+    : 'Buy one on the Kosmos+ website, then check again here.')
+    + (ownHeld ? ' If this computer used to be ' + own[1] + ', retire it on your account page first, then check again.' : '');
+  const buy = document.getElementById('plus-si-bought-buy');
+  buy.href = b.buy_url || (PLUS_ACCOUNT_URL + 'signin#add-computer');
+  document.getElementById('plus-si-bought').hidden = false;
+  plusSiShow('plus-si-register');
+  const first = list.querySelector('button');
+  (free.length ? first : document.getElementById('plus-si-bought-recheck')).focus();
+}
+{
+  const again = document.getElementById('plus-si-bought-recheck');
+  if (again) again.addEventListener('click', () => {
+    if (!PLUS_SI_SESSION) return;
+    const ep = PLUS_SI_EPOCH;
+    plusSiMsg('');
+    PLUS_SI_REFUSED = [];   // the person asked to look again: an address refused earlier may be free now (its computer retired)
+    const run = plusSiSession(PLUS_SI_SESSION, true); const sq = PLUS_SI_BOUGHT_SEQ;   // the read's own number, taken as it starts
+    run.catch(() => { if (ep === PLUS_SI_EPOCH && sq === PLUS_SI_BOUGHT_SEQ) plusSiReReadFailed(); });
+  });
+}
+
 /* The last step: name this computer -> signin-register, which returns the address.
    The name rule is the engine's own (also enforced there); saying it here saves a
    round trip.
@@ -44151,6 +44497,7 @@ async function plusSiDoRegister(name, owned) {
   const foot = document.getElementById('plus-si-cancel');
   plusSiMsg('');
   btn.disabled = true;
+  PLUS_SI_BOUGHT_SEQ += 1;   // kosmos#4756: a bought-address read still out is not drawn over this register
   /* #4608: while the register runs, the heading says what is happening and, for the automatic register, the
      ring loader turns (a chosen name has no loader line, so it says so in the live status line instead). They
      are put back once THIS register answers, and not by a stale answer from an abandoned sign-in (a newer one
@@ -44190,6 +44537,39 @@ async function plusSiDoRegister(name, owned) {
      ("your account already owns the name X"). Register to that one instead, once. */
   const owns = !r.ok && !owned ? /already owns the name ([a-z0-9-]{3,32})\b/.exec(String(r.because || '')) : null;
   if (owns) { plusSiRegisterMode('', owns[1]); plusSiDoRegister(owns[1], owns[1]); return; }
+  /* kosmos#4756: a register from the bought-address list that is refused (another computer took that address
+     first) goes back to the list with the reason, rather than offering Try again on the same address. */
+  /* Only a refusal that says the address is taken or not this account's: anything else (a timeout, no answer, a
+     certificate failure) may be passing, and the address is still this person's, so it keeps Try again on the
+     same address (below). */
+  const refused = !r.ok && !r.timeout && /that name is taken|already in use by a (Mac|computer) on this account|needs an address you have bought|address_not_bought/i.test(String(r.because || ''));
+  /* Also after the old step ran because the list could not be read: its AUTOMATIC register (to an address another
+     computer holds it would otherwise offer Try again forever), and a typed name refused as not bought (no name can
+     work then). Any other refusal of a typed name keeps the name step. */
+  const needsBought = /needs an address you have bought|address_not_bought/i.test(String(r.because || ''));   // proves the switch is on
+  if (refused && (PLUS_SI_PICKED || ((PLUS_SI_UNREAD || PLUS_SI_FIRST_FREE) && (owned || needsBought))) && PLUS_SI_SESSION && !/start again from the email/i.test(String(r.because || ''))) {
+    PLUS_SI_PICKED = false;
+    PLUS_SI_UNREAD = false;
+    PLUS_SI_FIRST_FREE = false;
+    if (needsBought) PLUS_SI_NOT_FREE = true;   // the coordinator's word beats a list read a moment ago: never the name step again
+    PLUS_SI_REFUSED.push(name);
+    const lead = document.getElementById('plus-si-owned-lead'); if (lead) lead.textContent = 'Checking your Kosmos+ addresses';
+    /* A typed name's step has the checking line hidden and the name field live: show the one, hide the other, so the
+       wait is seen and no second register can start into it (the re-read ends on the list either way). */
+    { const own = document.getElementById('plus-si-owned'); if (own) own.hidden = false;
+      const fld = document.getElementById('plus-si-name-field'); if (fld) fld.hidden = true;
+      const go = document.getElementById('plus-si-register-go'); if (go) go.hidden = true; }
+    document.getElementById('plus-si-owned-addr').textContent = '';
+    const tail = document.getElementById('plus-si-owned-tail'); if (tail) tail.textContent = '...';
+    if (siSpin) siSpin.hidden = false;
+    if (PLUS_SI_BOUGHT_LAST) PLUS_SI_BOUGHT_LAST = Object.assign({}, PLUS_SI_BOUGHT_LAST, { addresses: PLUS_SI_BOUGHT_LAST.addresses.filter((x) => x.name !== name) });
+    plusSiMsg(r.because);
+    { const ep = PLUS_SI_EPOCH; const run = plusSiSession(PLUS_SI_SESSION, true, r.because); const sq = PLUS_SI_BOUGHT_SEQ;
+    run.catch(() => { if (ep === PLUS_SI_EPOCH && sq === PLUS_SI_BOUGHT_SEQ) plusSiReReadFailed(); }); }
+    return;
+  }
+  PLUS_SI_RETRY_FROM_LIST = PLUS_SI_PICKED && !r.ok;   // a Try again on a picked address is still a pick
+  PLUS_SI_PICKED = false;
   if (!r.ok && owned && !/start again from the email/i.test(String(r.because || ''))) {
     /* Review: an automatic register that failed (a second computer on a web-named account is refused
        today, #3796's carded multi-Mac gap) must not leave the person with no control: say so, keep
@@ -44226,7 +44606,7 @@ async function plusSiDoRegister(name, owned) {
   paintPlus();
 }
 document.getElementById('plus-si-register-go').addEventListener('click', () => {
-  if (PLUS_SI_OWNED) { plusSiDoRegister(PLUS_SI_OWNED, PLUS_SI_RETRY || PLUS_SI_OWNED); return; }   // Try again, owned
+  if (PLUS_SI_OWNED) { PLUS_SI_PICKED = PLUS_SI_RETRY_FROM_LIST; plusSiDoRegister(PLUS_SI_OWNED, PLUS_SI_RETRY || PLUS_SI_OWNED); return; }   // Try again, owned
   /* Review: a trailing hyphen is kept while typing (so "my-mac" can be typed) but is never a valid
      name at the coordinator; drop it at submit. */
   const name = plusNameClean(document.getElementById('plus-si-name').value.trim()).replace(/-+$/, '');

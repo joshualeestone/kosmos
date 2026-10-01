@@ -57,6 +57,8 @@ function chk(ok, label, extra) {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
   try {
     const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+    // kosmos#4815: several Kosmoses are switched off by default; this check pins the kept structure, so it turns them on.
+    await page.addInitScript(() => { try { localStorage.setItem('kosmos.multiKosmos', '1'); } catch {} });
     const errs = [];
     page.on('pageerror', (e) => errs.push(e.message));
     await page.goto(`${URL}/?tab=agents`, { waitUntil: 'networkidle' });
