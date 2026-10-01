@@ -10787,6 +10787,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      White replaces the state grounds here by Josh's newer word ("White background for each agent"); the needs-you
      edge stays, since the stroke is not the ground. The computer line waits for #4812. */
 .lav .lpres, .lpill { display: none; }
+/* The phone pill's word is drawn from its data-word, not written into the row: on the desktop list the state is a
+   colour and its word lives only in .vh (#3131), which render-agent-lines checks against the row's text. The pill is
+   aria-hidden; a screen reader still hears the .vh word. */
+.lpill::after { content: attr(data-word); }
 @media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
   html.kremote #boardbar.boardbar { grid-template-columns: auto minmax(0, 1fr); margin-top: 16px; margin-bottom: 20px; }
   html.kremote #boardbar.boardbar > .stats { display: none; }
@@ -20334,7 +20338,7 @@ function lrow(a) {
          .lav above) still marks needs-you visually, and answerBtn/alsowork stay
          because they are actions, not status text. This supersedes the #1191
          text line (Josh 2026-08-27) per his own 6.70 direction. -->
-    <div class="lstate"><span class="vh">${glyphOf(a)}${esc(copy.label)}</span><span class="lpill st-${m.st}" aria-hidden="true">${glyphOf(a)}${esc(copy.label)}</span>${answerBtn(a)}${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
+    <div class="lstate"><span class="vh">${glyphOf(a)}${esc(copy.label)}</span><span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}">${glyphOf(a)}</span>${answerBtn(a)}${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
     <div class="ltask">${esc(taskLine(a, { noQuote: true }))}</div>
     <div class="lmodel">${esc(modelLine(a))}</div>
     <div class="lmem">${mem}</div>

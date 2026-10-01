@@ -65,8 +65,10 @@ const look = (page) => page.evaluate(() => {
   const firstItem = nav && nav.querySelector('.pnav-level[data-level="main"] .pnav-item .pnav-text');
   const rowOf = (sel) => { const r = q(sel); return r && { bg: getComputedStyle(r).backgroundColor, img: getComputedStyle(r).backgroundImage,
     ring: vis(r.querySelector('.lring')) ? rect(r.querySelector('.lring')) : null, dot: vis(r.querySelector('.lpres')),
-    pill: vis(r.querySelector('.lpill')) ? r.querySelector('.lpill').textContent.trim() : null, mem: vis(r.querySelector('.lmem')), task: vis(r.querySelector('.ltask')) }; };
+    pill: vis(r.querySelector('.lpill')) ? getComputedStyle(r.querySelector('.lpill'), '::after').content.replace(/^"|"$/g, '') : null, mem: vis(r.querySelector('.lmem')), task: vis(r.querySelector('.ltask')) }; };
   return {
+    /* The page's own width: CI's browser reserves a scrollbar gutter (415 of 430), a phone does not (round on CI). */
+    pageW: Math.round(document.documentElement.clientWidth),
     bar: rect(q('#kplus-bar')), barBg: q('#kplus-bar') ? getComputedStyle(q('#kplus-bar')).backgroundColor : null,
     mark: rect(q('#kplus-bar canvas')), menuBtn: vis(q('#kplus-menu')) ? rect(q('#kplus-menu')) : null,
     logoutBtn: vis(q('#kplus-logout')), klink: vis(q('#klink')), userpop: vis(q('#userpop')), burger: vis(q('#burger')),
@@ -158,11 +160,11 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         const T = E + theme + ' ';
         const { ctx, page } = await open('remote.test', theme);
         let l = await look(page);
-        chk(l.bar && l.bar.t === 0 && l.bar.h === 48 && l.bar.l === 0 && l.bar.r === 430 && l.barBg === NAVY,
+        chk(l.bar && l.bar.t === 0 && l.bar.h === 48 && l.bar.l === 0 && l.bar.r === l.pageW && l.barBg === NAVY,
           T + 'H1 the navy bar is apple.com\'s 48px, edge to edge at the top', JSON.stringify({ bar: l.bar, bg: l.barBg }));
         chk(l.mark && l.mark.h === 14 && l.mark.l === 16 && Math.abs((l.mark.t + l.mark.h / 2) - 24) <= 1,
           T + 'H2 the Kosmos+ mark is 14px tall, 16px in, centred on the bar (Josh\'s mock)', JSON.stringify(l.mark));
-        chk(l.menuBtn && l.menuBtn.r === 430 && l.menuBtn.h === 48 && l.menuBtn.t === 0,
+        chk(l.menuBtn && l.menuBtn.r === l.pageW && l.menuBtn.h === 48 && l.menuBtn.t === 0,
           T + 'H3 the two lines sit at the right of the bar in a 48px box', JSON.stringify(l.menuBtn));
         chk(!l.logoutBtn && !l.klink && !l.userpop && !l.burger,
           T + 'H4 no Log out button, K mark, name or old menu button in the header', JSON.stringify({ out: l.logoutBtn, klink: l.klink, userpop: l.userpop, burger: l.burger }));

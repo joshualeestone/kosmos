@@ -49,3 +49,11 @@ converged: true
 ### After convergence
 - First render against Josh's mocks: the first menu word 13px low and a 14px X (both fixed, arm M2b), the bubble, dot and stamp now fade with the words, and WebKit's Tab left the menu between the ends (the menu now moves focus on every Tab). 167/0 after.
 - Main merged twice (#4822's squash; then #4825's removal of the community notice and #4848's phone header): conflicts resolved, arm K1 updated, all affected checks re-run green.
+
+### After the PR's first CI run (36833235076, browser-checks red)
+- render-dm-chatfirst-718: main's known red from #4848, fixed by #4858 (not this branch).
+- render-mobilenav-4823 H1/H3: CI's browser reserves a 15px scrollbar gutter (the page is 415 of 430; a phone's
+  scrollbars overlay). The arms hard-coded 430: they now compare to the page's own width.
+- render-agent-lines (#3131): the phone pill wrote the state word into the row's text, which that check (rightly) reads
+  as a visible word. The pill now draws its word from data-word through CSS, so the row's text holds no state word;
+  render-mobilenav-4823's pill arm reads the drawn word.
