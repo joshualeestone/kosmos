@@ -64,6 +64,9 @@ const REPOST_S = 6 * 3600;
 const RETRY_S = 3600;
 const WATCHING_S = 7 * 24 * 3600;
 const UNKNOWN_GRACE_S = 3600;
+// A problem stays in the standing alarm until it has been gone this long, so one that comes and goes on any cycle
+// shorter than this is one alarm, not a post each time it returns.
+const HOLD_S = 3600;
 
 const DIST = (env.SERVE_WATCH_DIST || 'https://installkosmos.com/dist').replace(/\/+$/, '');
 const SITE = (env.SERVE_WATCH_SITE || 'https://installkosmos.com').replace(/\/+$/, '');
@@ -243,7 +246,7 @@ async function gather(prev, now) {
   const healthOk = health.status === 200 && health.json && health.json.ok === true;
   if (!healthOk) add('community-health', 'the community site\'s /api/health did not answer ok (' + why(health) + ')');
   // The status is the answer here: a healthy feed can grow past BODY_CAP, which getJson would read as no answer.
-  const feed = await twice(() => head(COMMUNITY + '/api/posts/feed').then((h) => (h.status === 405 ? getStatusOnly(COMMUNITY + '/api/posts/feed') : h)));
+  const feed = await head(COMMUNITY + '/api/posts/feed').then((h) => (h.status === 405 ? getStatusOnly(COMMUNITY + '/api/posts/feed') : h));
   if (feed.status !== 200) add('community-feed', 'the community feed did not answer (' + why(feed) + ')');
   // Its healthy answer IS a 503, so retried only when it is not the relay's page (twice() would retry every 5xx).
   const relayPage = (r) => r.status === 503 && typeof r.text === 'string' && r.text.includes(RELAY_PAGE);
@@ -313,7 +316,9 @@ async function gather(prev, now) {
     const was = prevSha[url];
     // Hashed again when the pointer's sha or the file's headers change, after a failed read, or once a day; otherwise
     // the last answer stands (a tarball is tens of megabytes, and an unchanged file hashes the same).
-    const due = !was || was.expect !== want || h.stamp === '||' || was.stamp !== h.stamp || !!was.error || !(Number(was.at) <= now) || now - Number(was.at) >= REHASH_S;
+    // A first sighting of a mismatch is read again on the next run, so its second sighting is a second read.
+    const due = !was || was.expect !== want || h.stamp === '||' || was.stamp !== h.stamp || !!was.error || !(Number(was.at) <= now) || now - Number(was.at) >= REHASH_S
+      || (was.got !== want && !prevPending.includes('sha:' + a.name));
     let rec = was;
     if (due) {
       let s = await shaOf(url);
@@ -336,7 +341,8 @@ async function gather(prev, now) {
     const want = s.status === 200 && s.text ? String(s.text).trim().split(/\s+/)[0].toLowerCase() : null;
     if (!want || !/^[0-9a-f]{64}$/.test(want)) { add('sidecar-missing:' + f.name, f.name + '.sha256 is not served or not a sha256 (' + why(s) + '): installers refuse the download'); continue; }
     const was = prevSha[url];
-    const due = !was || was.expect !== want || h.stamp === '||' || was.stamp !== h.stamp || !!was.error || !(Number(was.at) <= now) || now - Number(was.at) >= REHASH_S;
+    const due = !was || was.expect !== want || h.stamp === '||' || was.stamp !== h.stamp || !!was.error || !(Number(was.at) <= now) || now - Number(was.at) >= REHASH_S
+      || (was.got !== want && !prevPending.includes('sha:' + f.name));
     let rec = was;
     if (due) {
       let r = await shaOf(url);
@@ -368,29 +374,22 @@ async function gather(prev, now) {
   return { now, unknown: false, alarm: problems.length > 0, problems, artifacts: urls.size + FIXED.length, sha, pending };
 }
 
-/* Whether to post now, and what kind, from the verdict and this channel's last post. Pure. */
+/* Whether to post now, and what kind, from the verdict and this channel's last post. Pure.
+   The alarm is every problem seen within HOLD_S (v.held, from the state), not only this run's. It posts when a problem
+   appears that the last post did not carry, or when the alarm is due again; a set that only shrinks updates the key
+   quietly; the all-clear comes once every problem has been gone HOLD_S. So a problem coming and going on any cycle
+   shorter than an hour, alone or beside another, is one post, and one problem replacing another is one post. */
 function decidePost(v, last, now) {
-  /* A problem leaves a standing alarm only after it is gone two runs in a row, as an all-clear does: so a second
-     problem that comes and goes beside a first is one post, not one every run. A NEW problem posts at once. */
-  /* Held only while nothing new appeared: when a new problem posts, the key is exactly what that post says, so the
-     problem it replaced is not dropped in a second post with the same words 15 minutes later. */
-  const keys = v.alarm ? v.problems.map((p) => p.key) : [];
-  if (v.alarm && last && typeof last.key === 'string' && last.key.startsWith('alarm:')) {
-    const lastKeys = last.key.slice('alarm:'.length).split(',').filter(Boolean);
-    const prevRun = new Set(Array.isArray(v.prevRunKeys) ? v.prevRunKeys : []);
-    if (keys.every((k) => lastKeys.includes(k))) for (const k of lastKeys) if (!keys.includes(k) && prevRun.has(k)) keys.push(k);
-  }
-  const key = v.unknown ? 'unknown' : v.alarm ? 'alarm:' + [...new Set(keys)].sort().join(',') : 'clear';
   const due = !last || now - (last.at || 0) >= REPOST_S;
-  if (key === 'clear') {
-    if (!(last && last.key && last.key !== 'clear')) return { post: null, key };
-    /* All-clear only after TWO clean runs in a row: a problem that comes and goes is one standing alarm, not an alarm
-       and an all-clear every 15 minutes. The first clean run keeps the last key, so the same alarm returning is not
-       reposted either. */
-    return (v.cleanRuns || 0) >= 2 ? { post: 'cleared', key } : { post: null, key: last.key, hold: true };
-  }
-  if (!last || last.key !== key || due) return { post: v.unknown ? 'unknown' : 'alarm', key };
-  return { post: null, key };
+  if (v.unknown) return (!last || last.key !== 'unknown' || due) ? { post: 'unknown', key: 'unknown' } : { post: null, key: 'unknown' };
+  const all = new Set([...(v.alarm ? v.problems.map((p) => p.key) : []), ...(Array.isArray(v.held) ? v.held : [])]);
+  if (!all.size) return (last && last.key && last.key !== 'clear') ? { post: 'cleared', key: 'clear' } : { post: null, key: 'clear' };
+  const key = 'alarm:' + [...all].sort().join(',');
+  const lastKeys = last && typeof last.key === 'string' && last.key.startsWith('alarm:') ? last.key.slice('alarm:'.length).split(',') : [];
+  const fresh = [...all].some((k) => !lastKeys.includes(k));
+  // Only with a problem in hand this run: a post that lists none would say nothing.
+  if (v.alarm && (fresh || due)) return { post: 'alarm', key };
+  return { post: null, key: fresh ? (last && last.key) || key : key };
 }
 
 function message(kind, v) {
@@ -561,17 +560,26 @@ async function main(argv) {
     return 2;
   }
   const state = noState ? { noState: true } : readState();
-  const v = await gather(state, now);
-  // A first sighting (pending) is not yet healthy: exit 2, the same as --check, and it does not count as a clean run.
+  let v;
+  try { v = await gather(state, now); } catch (err) {
+    /* A fault in the checks is "could not tell", posted after the grace like any other: an exception that silenced
+       the watch would look exactly like a healthy site. As tools/gap-alarm.js turns a measurement error into unknown. */
+    process.stderr.write('serve-watch: the checks failed: ' + ((err && err.stack) || err) + '\n');
+    const prev = state || {};
+    v = { now, unknown: true, why: 'the serve watch itself failed: ' + String((err && err.message) || err).split('\n')[0].slice(0, 200), problems: [], sha: prev.sha || {}, pending: Array.isArray(prev.pending) ? prev.pending : [] };
+  }
+  // A first sighting (pending) is not yet healthy: exit 2, the same as --check.
   const code = v.unknown ? 2 : v.alarm ? 1 : (v.pending && v.pending.length) ? 2 : 0;
-  v.cleanRuns = code === 0 ? (Number(state && state.cleanRuns) || 0) + 1 : 0;
-  v.prevRunKeys = Array.isArray(state && state.runKeys) ? state.runKeys.filter((k) => typeof k === 'string') : [];
-  // An unknown run saw no problems because it could not look, so the last run's keys stand for the hold above.
-  const runKeys = v.unknown ? v.prevRunKeys : v.problems.map((p) => p.key);
+  /* When each problem was last seen (epoch seconds). A run that could not look neither adds nor ages anything out. */
+  const seen = {};
+  const was = state && state.seen && typeof state.seen === 'object' && !Array.isArray(state.seen) ? state.seen : {};
+  for (const [k, at] of Object.entries(was)) if (Number(at) <= now && (v.unknown || now - Number(at) < HOLD_S)) seen[k] = Number(at);
+  if (!v.unknown) for (const p of v.problems) seen[p.key] = now;
+  v.held = Object.keys(seen);
   const since = state ? Number(state.unknownSince) : NaN;
   const unknownSince = v.unknown ? (Number.isFinite(since) && since > 0 && since <= now ? since : now) : null;
   if (!noState && v.unknown && now - unknownSince < UNKNOWN_GRACE_S) {
-    writeState({ pane: lastFor(state, 'pane', now), card: lastFor(state, 'card', now), lastRunAt: now, unknownSince, sha: v.sha, pending: v.pending, cleanRuns: v.cleanRuns, runKeys });
+    writeState({ pane: lastFor(state, 'pane', now), card: lastFor(state, 'card', now), lastRunAt: now, unknownSince, sha: v.sha, pending: v.pending, seen });
     return code;
   }
   const next = {};
@@ -581,7 +589,8 @@ async function main(argv) {
     next[ch] = last;
     const d = decidePost(v, last, now);
     due[ch] = d;
-    if (!d.post && !d.hold && (!last || last.key !== d.key)) next[ch] = { key: d.key, at: now };
+    // A quiet change of key (a shrinking alarm) keeps the time of the last post, so the 6-hour repost is not pushed back.
+    if (!d.post && (!last || last.key !== d.key)) next[ch] = { key: d.key, at: last && /^alarm:/.test(last.key || '') && /^alarm:/.test(d.key) ? last.at : now };
   }
   const cardLast = next.card;
   if (!due.card.post && due.card.key === 'clear' && cardLast && cardLast.key === 'clear' && now - (cardLast.at || 0) >= WATCHING_S) {
@@ -609,7 +618,8 @@ async function main(argv) {
     const sentTo = CHANNELS.filter((ch) => want[ch] && went[ch]).map((ch) => (unsure[ch] ? ch + ' (unconfirmed)' : ch));
     process.stdout.write(new Date(now * 1000).toISOString() + ' ' + (sentTo.length ? 'posted to ' + sentTo.join(' and ') : 'posted NOWHERE') + ': ' + text + '\n');
   }
-  writeState({ pane: next.pane, card: next.card, lastRunAt: now, unknownSince, sha: v.sha, pending: v.pending, cleanRuns: v.cleanRuns, runKeys });
+  // With no usable state there is nothing to write (and the attempt would log a false "posted" line every day).
+  if (!noState) writeState({ pane: next.pane, card: next.card, lastRunAt: now, unknownSince, sha: v.sha, pending: v.pending, seen });
   return code;
 }
 

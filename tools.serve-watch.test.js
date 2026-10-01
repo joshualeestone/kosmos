@@ -144,14 +144,14 @@ test('a pointer naming a missing artifact alarms within one run, on the pane and
   const before = st.card();
   assert.equal((await run(base, dir, st, { now: T0 + 1800 })).code, 1);
   assert.equal(st.card(), before, 'the same alarm was reposted within the hour');
-  // Put back: one all-clear after two clean runs in a row, then silence.
+  // Put back (last seen at T0 + 1800): one all-clear once it has been gone an hour, then silence.
   site.files.set('kosmos-1.0.0-arm64.tar.gz', ['application/gzip', TAR]);
-  assert.equal((await run(base, dir, st, { now: T0 + 2700 })).code, 0);
-  assert.doesNotMatch(st.card(), /back to healthy/, 'cleared after a single clean run');
-  assert.equal((await run(base, dir, st, { now: T0 + 3600 })).code, 0);
+  for (const t of [2700, 3600, 4500]) assert.equal((await run(base, dir, st, { now: T0 + t })).code, 0);
+  assert.doesNotMatch(st.card(), /back to healthy/, 'cleared before the problem had been gone an hour');
+  assert.equal((await run(base, dir, st, { now: T0 + 5400 })).code, 0);
   assert.match(st.card(), /back to healthy/);
   const after = st.card();
-  assert.equal((await run(base, dir, st, { now: T0 + 4500 })).code, 0);
+  assert.equal((await run(base, dir, st, { now: T0 + 6300 })).code, 0);
   assert.equal(st.card(), after, 'the all-clear was repeated');
 }));
 
@@ -449,12 +449,24 @@ test('a second problem that comes and goes beside a standing one is one post, no
     await run(base, dir, st, { now: T0 + i * 900 });
   }
   assert.equal(posts(), 2, 'A, then A and B; nothing more while B flaps: ' + posts() + ' posts: ' + st.card());
-  // CONTROL: B gone for two runs in a row leaves the alarm, so the change is said once.
+  // CONTROL: B gone an hour leaves the alarm quietly, so B returning after that is said again.
   site.relayUp = true;
-  await run(base, dir, st, { now: T0 + 8 * 900 });
-  assert.equal(posts(), 2, 'B left after a single run');
-  await run(base, dir, st, { now: T0 + 9 * 900 });
-  assert.equal(posts(), 3, 'B gone two runs in a row was never said');
+  for (let i = 8; i < 13; i++) await run(base, dir, st, { now: T0 + i * 900 });
+  assert.equal(posts(), 2, 'a shrinking alarm posted');
+  assert.doesNotMatch(JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')).card.key, /relay/, 'B never left the alarm');
+  site.relayUp = false;
+  await run(base, dir, st, { now: T0 + 13 * 900 });
+  assert.equal(posts(), 3, 'B back after an hour gone was not said');
+}));
+
+test('a problem down one run in three is one alarm, alone or beside another', () => withSite(async ({ site, base, dir, st }) => {
+  const posts = () => (st.card().match(/serve watch \(kosmos#4877\)/g) || []).length;
+  for (let i = 0; i < 12; i++) { site.relayUp = i % 3 !== 0; await run(base, dir, st, { now: T0 + i * 900 }); }
+  assert.equal(posts(), 1, 'relay alone: ' + st.card());
+  assert.doesNotMatch(st.card(), /back to healthy/);
+  site.files.delete('kosmos-1.0.0-arm64.tar.gz');
+  for (let i = 12; i < 24; i++) { site.relayUp = i % 3 !== 0; await run(base, dir, st, { now: T0 + i * 900 }); }
+  assert.equal(posts(), 2, 'beside a standing problem: ' + st.card());
 }));
 
 test('the relay check is the relay\'s own page: any other answer (a proxy, a parked domain) is an alarm', () => withSite(async ({ site, base, dir, st }) => {
@@ -473,6 +485,8 @@ test('nothing answering at all is "could not tell" (this computer is offline), n
   const r = await run(dead, dir, st, { now: T0 });
   assert.equal(r.code, 2, r.out + r.err);
   assert.equal(st.card() + st.pane(), '', 'an offline computer posted before the grace');
+  assert.doesNotMatch(r.err, /serve-watch: the checks failed/, 'the offline branch threw: ' + r.err);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')).unknownSince, T0, 'the grace was not started');
 });
 
 test('a mismatch that lasts stays an alarm: no "back to healthy" between sightings', () => withSite(async ({ site, base, dir, st }) => {
