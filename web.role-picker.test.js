@@ -71,11 +71,13 @@ test('a role\'s limit is said on step one, under the dropdown, the moment it is 
   const roles = require('./engine/roles');
   const builtin = (roles.ROLES || []).filter((r) => r.caution);
   assert.ok(builtin.length >= 3, 'the built-in roles carry no cautions to check');
-  for (const r of builtin) {
-    assert.equal(run(r.key, false, r.caution, 'single').hidden, false, 'single path hid ' + r.key);
-    if (/\b(advice|lawyer)\b/i.test(r.caution)) assert.equal(run(r.key, false, r.caution, 'swarm').hidden, false, 'swarm path hid the disclaimer of ' + r.key);
+  for (const r of builtin) assert.equal(run(r.key, false, r.caution, 'single').hidden, false, 'single path hid ' + r.key);
+  // The built-in disclaimers by name, not by a copy of the pattern: each must survive the swarm path.
+  for (const key of ['legal', 'finance', 'books']) {
+    const r = builtin.find((x) => x.key === key);
+    assert.ok(r, 'the built-in ' + key + ' role lost its caution');
+    assert.equal(run(key, false, r.caution, 'swarm').hidden, false, 'swarm path hid the disclaimer of ' + key);
   }
-  assert.ok(builtin.filter((r) => /\b(advice|lawyer)\b/i.test(r.caution)).length >= 3, 'no built-in disclaimer reached the swarm check');
   // ACCEPTED, so it is a decision and not an accident: an operational line that names a professional word is KEPT on
   // the swarm path. A wrong keep shows one sentence too many; a wrong hide would break the 08-10 condition.
   assert.equal(run('x', false, 'It tracks tax deadlines; nothing is filed without the owner.', 'swarm').hidden, false);
