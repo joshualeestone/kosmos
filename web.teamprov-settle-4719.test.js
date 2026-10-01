@@ -11,9 +11,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
 const vm = require('node:vm');
 const page = require('./test-support/page');
-const SCRIPT = page.scriptOf(fs.readFileSync('web/index.html', 'utf8'));
+const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
 
 function world({ stepHidden, options, selected, tc }) {
   const opts = options.map(([value, disabled]) => ({ value, disabled }));
@@ -167,7 +168,7 @@ test('#4719 a late account list never moves a choice copied from the form or mad
 /* Review of the rebase onto #4557: the step id the settle reads must be the step that holds the menu in the real
    page, or the guard returns early on every call and nothing settles (the stub above cannot see that). */
 test('#4719: tcProviderSettle reads the step that actually contains #tc-provider', () => {
-  const html = fs.readFileSync('web/index.html', 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
   const fn = SCRIPT.slice(SCRIPT.indexOf('function tcProviderSettle'), SCRIPT.indexOf('function tcApplyLateAccounts'));
   const m = /const step = document\.getElementById\('([\w-]+)'\)/.exec(fn);
   assert.ok(m, 'tcProviderSettle no longer reads its step by id; re-anchor');
@@ -180,4 +181,10 @@ test('#4719: tcProviderSettle reads the step that actually contains #tc-provider
   const chooser = html.indexOf('<div id="cstep-team"');
   const afterChooser = html.indexOf('<div id="cstep-', chooser + 1);
   assert.ok(!(menu > chooser && menu < afterChooser), 'control: cstep-team unexpectedly contains #tc-provider');
+});
+
+test('#4719: tcPaint keeps the team menus disabled while tcFillProvider is still filling them', () => {
+  const paint = SCRIPT.slice(SCRIPT.indexOf('function tcPaint('), SCRIPT.indexOf('\n}\n', SCRIPT.indexOf('function tcPaint(')));
+  assert.match(paint, /e\.disabled = tcChoiceFixed\(\) \|\| TC_FILLING > 0;/);
+  assert.match(SCRIPT, /TC_FILLING \+= 1;\s*try \{ await tcFillProviderNow\(gen\); \} finally \{ TC_FILLING -= 1; \}/);
 });

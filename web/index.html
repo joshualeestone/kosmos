@@ -47654,7 +47654,14 @@ function tcApplyLateAccounts() {
   if (chosen && acct && [...acct.options].some((o) => o.value === chosen)) acct.value = chosen;
   tcProviderSettle();
 }
+/* True while tcFillProvider is filling the team menus (it can wait 5 s for the account list): tcPaint keeps them
+   disabled then too, or a repaint during the wait would offer the last team's options. */
+let TC_FILLING = 0;   // a count: a second team opened during the first one's wait must not unlock the menus
 async function tcFillProvider(gen) {
+  TC_FILLING += 1;
+  try { await tcFillProviderNow(gen); } finally { TC_FILLING -= 1; }
+}
+async function tcFillProviderNow(gen) {
   const from = document.getElementById('create-provider');
   const sel = document.getElementById('tc-provider');
   if (!from || !sel) return;
@@ -47837,7 +47844,7 @@ function tcPaint() {
   document.getElementById('tc-tell-say').textContent = n === 1 ? 'Let Kosmos know an agent was created' : 'Let Kosmos know these agents were created';
   /* #4719: ONE rule (tcChoiceFixed) for the lock, the settle and the late account list. */
   tcApplyLateAccounts();
-  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = tcChoiceFixed(); }
+  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = tcChoiceFixed() || TC_FILLING > 0; }
   /* Back is always allowed now (round 3): leaving no longer resets a live team, it only steps away. */
   document.getElementById('tc-back').disabled = false;
   const msgEl = document.getElementById('tc-msg');
