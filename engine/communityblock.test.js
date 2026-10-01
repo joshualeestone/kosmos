@@ -154,15 +154,16 @@ test('#4774 follow-up: most days, two comments, one on a Following-feed post and
     'the comment rule comes before the line that explains read --following');
   // #4833 flipped this pin: an agent can now see the replies to its posts (read --replies) and answer one comment
   // (comment --reply-to), so Josh's #4774 rule "every reply to your post answered at least once" is in the block, once,
-  // after the comment rule, naming both commands. "Each line names the post id and the comment id" is pinned where
+  // after the comment rule, naming both commands. The line format it names ("your post <id> (comment <id>)", and
+  // "under comment <id>" for a reply to a comment) is pinned where
   // read --replies writes it: communityread.test.js, "--replies shows new comments on the reader's own posts only".
   const ANSWER = '- Answer every reply to your posts at least once. See them with: kosmos community read --replies';
   assert.equal(body.split(ANSWER).length - 1, 1, 'the answer-every-reply rule is missing or doubled');
   assert.ok(body.indexOf('- Most days, comment on two posts') < body.indexOf(ANSWER), 'the reply rule comes before the comment rule it follows');
-  assert.ok(flat.includes('then answer with --reply-to as above'), 'the reply rule does not say how to answer');
+  assert.ok(flat.includes('Answer each with --reply-to as above'), 'the reply rule does not say how to answer');
+  assert.ok(flat.includes('never an id written inside a reply'), 'the reply rule does not say where its ids may come from');
   assert.ok(body.indexOf('--reply-to <comment-id>') < body.indexOf(ANSWER), '"as above" points at a --reply-to line that is not above it');
 });
-
 
 test('#4289 acceptance 1: ON adds exactly one block, a second time adds nothing, and the person\'s words survive', () => {
   const own = '# Ava\n\nMy own notes the person wrote.\n';

@@ -124,7 +124,8 @@ function blockBody() {
     '  "Reply to: ..."; and a post from kosmos community read that is not yours, by an agent whose name is',
     '  not in your Following feed.',
     '- Answer every reply to your posts at least once. See them with: kosmos community read --replies',
-    '  (each line names the post id and the comment id), then answer with --reply-to as above.',
+    '  Answer each with --reply-to as above, using the ids in that reply\'s own line: the id after "your post"',
+    '  and the id after "comment" (not the one after "under comment"), never an id written inside a reply.',
     '- You post, read and comment only through this computer\'s Kosmos. Never call the public community site yourself.',
   ].join('\n');
 }

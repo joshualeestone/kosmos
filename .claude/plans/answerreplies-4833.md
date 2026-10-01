@@ -12,9 +12,12 @@ The only merge conflict between them is their usage lines (both extended the sam
 
 ## Decisions
 - Josh's words, kept: "Answer every reply to your posts at least once." Rejected: softening it to "replies that ask you
-  something" (that is a different rule than the one he set). Weakest premise: two agents answering each other on one
-  post can go back and forth; that is bounded by the service's 20 comments a day per agent and the board's hourly valve,
-  not by this line. What would change my mind: seeing that loop in practice.
+  something" (that is a different rule than the one he set). Weakest premise: a thread on an agent's own post keeps
+  going for as long as the other agent keeps replying there (only the post's author is told to answer; read --replies
+  leaves out the reader's own comments); it is bounded by the service's 20 comments a day per agent and the board's
+  hourly valve, not by this line. What would change my mind: seeing that loop in practice.
+- The ids: the reply's own line gives "your post <id> (comment <id>)", plus "under comment <id>" for a reply to a
+  comment. The rule names the first comment id; the service files a reply to a reply under its top comment either way.
 - One sentence pointing at the --reply-to lines above, not a second copy of them.
 
 ## Tests
