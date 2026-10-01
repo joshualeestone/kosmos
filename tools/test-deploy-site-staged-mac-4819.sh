@@ -24,7 +24,8 @@
 #   g3 local copy right, its .sha256 wrong          -> carried, sidecar rewritten
 #   h  live serves other bytes than the pointer     -> refuses before fetching
 #   h2 local other bytes, live a third build        -> refuses before fetching, local byte-identical
-#   s1 superseded (not newer than prod), no copy    -> warns, carries nothing
+#   s1 superseded, no copy, live pointer unchanged  -> warns, carries nothing
+#   s5 superseded, no copy, the deploy moves the pointer -> refuses
 #   s4 superseded, served nowhere, local other bytes -> refuses (glob would ship it unchecked)
 #   s2 superseded, live serves it                   -> still carried
 #   s3 9.9.10 over 9.9.9 (version, not string, order) -> not superseded, refuses
@@ -183,9 +184,14 @@ if has "$out" "RC=1 " && has "$out" "FETCHED=[]" && [ "$(sha_of "$S/dist/$STAGED
 
 # ---- s: superseded (staged not newer than prod) -----------------------------------------------------
 OLDSTG=kosmos-9.9.00-arm64.tar.gz
-S="$T/s1"; mksite "$S" "$(ptr "$SHA" "$OLDSTG")"; mkdir -p "$T/live-s1"
+S="$T/s1"; mksite "$S" "$(ptr "$SHA" "$OLDSTG")"; mkdir -p "$T/live-s1"; ptr "$SHA" "$OLDSTG" > "$T/live-s1/latest-staging.json"
 out=$(run_carry "$S" "$T/live-s1")
 if has "$out" "RC=0 STAGED_ART= FETCHED=[]" && has "$out" "WARNING (#4819)" && has "$out" "superseded"; then pass "s1: a superseded staged build that nobody has warns and carries nothing (no refusal, as #3600 for Windows)"; else bad "s1: $out"; fi
+# s5: the same superseded build, but live serves another pointer (or none): this deploy MOVES the
+# pointer to a tarball nobody serves, so it must refuse rather than skip.
+S="$T/s5"; mksite "$S" "$(ptr "$SHA" "$OLDSTG")"; mkdir -p "$T/live-s5"
+out=$(run_carry "$S" "$T/live-s5")
+if has "$out" "RC=1 " && has "$out" "would publish a staging pointer naming $OLDSTG" && ! has "$out" "WARNING"; then pass "s5: a superseded build served nowhere refuses when this deploy would MOVE the pointer to it"; else bad "s5: $out"; fi
 S="$T/s4"; mksite "$S" "$(ptr "$SHA" "$OLDSTG")"; mkdir -p "$T/live-s4"; cp "$OTHER" "$S/dist/$OLDSTG"
 out=$(run_carry "$S" "$T/live-s4")
 if has "$out" "RC=1 " && has "$out" "would ship it unchecked"; then pass "s4: a superseded build served nowhere, with a local copy of other bytes, refuses (the glob would ship it unchecked)"; else bad "s4: $out"; fi
@@ -278,5 +284,5 @@ if [ -n "$call" ] && [ -n "$export_at" ] && [ "$call" -lt "$export_at" ]; then :
 [ "$k_ok" = 1 ] && pass "k: deploy-site.sh checks staging staleness before any fetch, runs the carry before the export, checks the export for the pair, and served-verifies the pair and the pointer"
 
 echo
-if [ "$fail" = 0 ] && [ "$npass" = 29 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
-echo "FAILED ($npass passed, expected 29)"; exit 1
+if [ "$fail" = 0 ] && [ "$npass" = 30 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
+echo "FAILED ($npass passed, expected 30)"; exit 1

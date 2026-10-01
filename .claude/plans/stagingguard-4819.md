@@ -50,7 +50,7 @@ staged WINDOWS build; it had no Mac twin.
 - Post-deploy: `served_matches` on the pair, like the prod tarball, and the served
   `latest-staging.json` must equal the committed one (as the Windows staging pointer already is).
 - DRY RUN summary names the staged build when one was carried.
-- `tools/test-deploy-site-staged-mac-4819.sh` (29 checks), wired into `test:shell`; end-to-end
+- `tools/test-deploy-site-staged-mac-4819.sh` (30 checks), wired into `test:shell`; end-to-end
   arms in `tools/test-deploy-site-promote.sh` that run the real script.
 
 ## Decided, and why
@@ -61,7 +61,9 @@ staged WINDOWS build; it had no Mac twin.
 - **The local copy wins when it is the pointer's bytes**, so a redeploy from the cut box restores a
   dropped tarball (live would 404). Its `.sha256` is written from those bytes when missing or wrong
   (review 8), and the installer verifies against that served sidecar.
-- **A superseded staged build is skipped with a warning, not refused** (review 2). The warning says
+- **A superseded staged build is skipped with a warning, not refused** (review 2), but ONLY when
+  this deploy leaves the live staging pointer as it is (review 13): when it would MOVE the pointer
+  to a superseded build nobody serves (a rollback to a dropped build, say), it refuses instead. The warning says
   staging-channel installs already fail on that pointer and how to fix them (review 11): skipping
   changes nothing for them, since nobody serves the tarball before or after. As #3600 does
   for Windows: a pointer naming a build older than prod (or equal) names something nobody will
@@ -98,12 +100,12 @@ one's tarball and not see the served one. Today the Mac staging pointer is track
 statically (measured: 200 application/json from installkosmos.com).
 
 ## Tests
-- `bash tools/test-deploy-site-staged-mac-4819.sh`, 29 checks on the extracted block: nothing
+- `bash tools/test-deploy-site-staged-mac-4819.sh`, 30 checks on the extracted block: nothing
   committed; staged == prod; local copy carried (control); the incident (no local copy, live serves
   it); no copy anywhere refuses; wrong local bytes; local without its sidecar (carried, sidecar written); a wrong
   local sidecar rewritten; live serving other bytes refuses before fetching; a refusal leaves the
   local file byte-identical; superseded, served nowhere, with a stray local copy refuses; superseded with no
-  copy warns, superseded but served is carried, 9.9.10 over 9.9.9 is newer; live staging newer than
+  copy warns when the pointer is unchanged and refuses when the deploy moves it, superseded but served is carried, 9.9.10 over 9.9.9 is newer; live staging newer than
   the checkout's refuses, the rollback opt-in passes only for the committed version, older proceeds (control), live-only pointer refuses, an unparsable live pointer refuses and the opt-in replaces it, same version with different bytes refuses and the opt-in deploys it, a malformed committed pointer refuses with "repair it", live unreachable
   refuses as "could not read", one transport blip is retried, a superseded build whose sidecar read fails refuses; a path name and a
   missing sha refuse before any fetch; the wiring (call before the export, export checks, post-deploy
@@ -126,6 +128,8 @@ statically (measured: 200 application/json from installkosmos.com).
   unparsable-pointer opt-in disabled (st6r red). Review 7: the same-version guard disabled (st7 red). Review 8: no carry call
   (k and e2e 12-14, 17 red); the sidecar not written (g, g3 red); the stray-copy refusal disabled (s4 red). Review 11: one attempt instead of
   three (st9 red). Review 12: the post-deploy pointer re-read now uses the same three-try reader.
+  Review 13: the moves-the-pointer refusal disabled (s5 red). The post-deploy "none committed, so
+  live must 404" check has no test arm: reaching it needs a race the pre-deploy check closes.
   (A post-fetch pointer-sha check remains as a backstop. `fetch_verified` re-reads the served
   sidecar itself, so it fires only if the sidecar changed between the two reads, a concurrent
   publish; no test reaches it.)

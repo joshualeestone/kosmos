@@ -473,8 +473,8 @@ fi
 # and _CSM_BODY. Only a 404 means absent; anything else that is not a 200 is "could not check".
 # Its temp, and the sidecar temp below, sit in the site-fetch helpers' _FETCH_TMP_P / _FETCH_TMP_S
 # while in flight, so the EXIT/INT/TERM trap removes them; nothing else is in flight at those points.
-# Three attempts, like the artifact fetches: a transport failure (000) or a 5xx is tried again
-# before it becomes a refusal.
+# Three attempts, retrying only a transport failure (000) or a 5xx; a 404 is an answer ("absent"),
+# unlike the artifact fetches, which retry any failure.
 _csm_read() {  # <url>
   _FETCH_TMP_P=$(mktemp "${TMPDIR:-/tmp}/deploy-site-staged.XXXXXX") || { _FETCH_TMP_P=""; echo "deploy-site: could not make a temp file -- refusing (#4819)"; exit 1; }
   for _csm_try in 1 2 3; do
@@ -495,6 +495,9 @@ check_staging_not_stale() {
     404) _csm_live="" ;;
     *) echo "deploy-site: could not read the live latest-staging.json (HTTP $_CSM_CODE) -- refusing; without it this cannot tell whether the checkout's staging pointer is stale (#4819)"; exit 1 ;;
   esac
+  # Whether this deploy changes the staging pointer users read; carry_staged_mac's superseded skip
+  # applies only when it does not (a skip that MOVES the pointer would break staging on its own).
+  _CSM_MOVES=""; [ "$_csm_live" = "$_csm_ptr" ] || _CSM_MOVES=1
   if [ -n "$_csm_live" ] && [ -z "$_csm_ptr" ]; then
     echo "deploy-site: live serves a latest-staging.json but $H commits none -- refusing; the deploy would unpublish staging. Sync $SITE to the current release, then retry. (Unpublishing staging on purpose has no path through this script: point staging at a build instead, publish-staging-pointer.sh.) (#4819)"; exit 1
   fi
@@ -574,6 +577,7 @@ carry_staged_mac() {
       # A local copy here has OTHER bytes (a matching one was carried above), and the export's glob
       # would ship it unchecked under the name the pointer names.
       [ ! -e "$SITE/dist/$_csm_art" ] || { echo "deploy-site: $SITE/dist/$_csm_art is not the build the committed latest-staging.json names, and the export would ship it unchecked -- refusing; move it aside (the build is superseded, so nothing needs it) and retry (#4819)"; exit 1; }
+      [ -z "${_CSM_MOVES:-}" ] || { echo "deploy-site: this deploy would publish a staging pointer naming $_csm_art, which neither $SITE/dist/ nor live has -- refusing; staging-channel installs would fail on it. Deploy from a machine that has the tarball, or point staging at a served build (tools/publish-staging-pointer.sh) (#4819)"; exit 1; }
       echo "deploy-site: WARNING (#4819): latest-staging.json names $_csm_art, which is not newer than the prod build $ART, and neither $SITE/dist/ nor live has it. It is superseded, so nothing is carried for it. Staging-channel installs ALREADY fail on it (the pointer names a tarball nobody serves) and this deploy does not change that; to fix them now, point staging at the prod build (tools/publish-staging-pointer.sh) and deploy." >&2
       return 0
     fi
@@ -784,7 +788,12 @@ if [ -n "$STAGED_ART" ]; then
   served_matches "$STAGED_ART.sha256" "$SITE/dist/$STAGED_ART.sha256"
 fi
 # ...and the served staging pointer is the committed one, as for Windows below (#4819).
-if _csm_committed=$(git -C "$SITE" show "$H:dist/latest-staging.json" 2>/dev/null) && [ -n "$_csm_committed" ]; then
+_csm_committed=$(git -C "$SITE" show "$H:dist/latest-staging.json" 2>/dev/null) || _csm_committed=""
+if [ -z "$_csm_committed" ]; then
+  # None committed: live must serve none either (the pre-deploy check refused a live one).
+  _csm_read "$HOST/dist/latest-staging.json"
+  [ "$_CSM_CODE" = 404 ] || { echo "deploy-site: $H commits no latest-staging.json but live answers HTTP $_CSM_CODE for it after the deploy -- investigate (#4819)."; exit 1; }
+else
   _csm_read "$HOST/dist/latest-staging.json"   # three tries, like the pre-deploy reads
   [ "$_CSM_CODE" = 200 ] || { echo "deploy-site: could not re-read the served latest-staging.json after deploy (HTTP $_CSM_CODE) -- the deploy already ran; re-check it (#4819)."; exit 1; }
   _csm_served_ptr=$_CSM_BODY
