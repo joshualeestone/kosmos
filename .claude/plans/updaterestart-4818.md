@@ -13,8 +13,9 @@ had stopped stays stopped.
   port answers; say "Kosmos is running again (<version on disk>)" or how to start it) and an EXIT trap that calls it
   when the run exits non-zero (a die, or set -e), plus `trap 'exit 1' HUP TERM` so a closed window or a TERM is a
   failure too (review 2: both ran the EXIT trap with status 0).
-- At the pause: `_kosmos_was_running=yes` only if the mode runs the board here, there is no board.stopped, and the board
-  answers on its port BEFORE the stop.
+- At the pause: `_kosmos_was_running=yes` only if the mode runs the board here, there is no board.stopped, and OUR board
+  is running: the pid in board.pid is alive and its command line names this install's app/server.js (the same test as
+  _ourboard; review 4: an HTTP probe read a busy board as off, and another install's board on the port as ours).
 - Armed (`_kosmos_paused_board="$_kosmos_was_running"`) once the board stops answering, AFTER the three pause dies that
   must not restart (our board still running, another install's board, another app on the port) and BEFORE the port wait
   (review 3: a survivor still holding the port, or a hang-up during that wait, used to leave the board off).
@@ -40,7 +41,8 @@ through the shipped die() puts it back; a switch to connect during the run keeps
 mode readers and calls _kosmos_board_decide where setup does. Review 2: a set -e failure with no die, and HUP and
 TERM delivered to the running shell and its children, each put the board back (with guards that the arm reached the
 pause and the signal really ended the run; the arms wait for the shell's child before signalling). Review 3: the
-arming position is pinned by line order in the shipped file. 14/14, three runs in a row. Without the HUP/TERM trap both signal arms fail (checked). Mutants, each failing a test:
+arming position is pinned by line order in the shipped file. Review 4: a busy board that never answers still counts
+as running; another install's board answering on the port does not (the any-pid mutant fails it). 16/16. Without the HUP/TERM trap both signal arms fail (checked). Mutants, each failing a test:
 trap neutered, any exit restarts, the marker ignored, the marker kept, the mode not re-read (any edit to the
 anchored lines also fails the test, by design). The installer shell tests near the pause
 (#2055, #964, install-static and its control, runnable guard, progress emit, resolve user, zsh tied names) and the
@@ -58,3 +60,5 @@ Round 3: no blocker. 2 should-fix taken: armed before the port wait, not after i
 Noted, not changed: a new board that "would not start" makes the put-back try one more start of the same tree (a
 second wait and message after the die); `_kosmos_was_running` is one 2 s probe, so a board mid-restart under launchd
 at that moment reads as not running.
+Round 4: no blocker. 2 should-fix taken (one close to a blocker): the was-running check recognises our board by pid
+and path instead of an HTTP answer, which also keeps another install's board from being taken for ours.
