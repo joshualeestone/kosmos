@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: communityplus-4895
-diff_hash: 14b16f159d50eeedf03ef35302ef1cc7497cf6a5e6c58217759cfd9293b57340
-validation: focused before the rebase onto 2f258ad58 (head before rebase 98c6e97eb plus the review-2 NIT, communitysend.test.js 66/66 after it): every test file that reads the changed engine files (communityblock, communityread, communitysend, communitysite, communitystore, feedpublish, create, remove), the two CLIs, the first-run consent or the community setting, 220 files, 4,707 run, 0 failed. The four browser checks touched are queued headless on Agent1s. A full run is due before merge, which waits for community.kosmosplus.com to serve over valid TLS (#4894).
+diff_hash: 02635cb99cbba8009e39ca9c9349b8166a5ae2f8ce2f61ad009deef2a44c5ba5
+validation: rebased onto origin/main 1f71762bf (clean merge; 5 files overlap with main, so CI on the rebased head is the gate: the pre-rebase head 83da33f4 was green on all six checks). focused before the rebase onto 2f258ad58 (head before rebase 98c6e97eb plus the review-2 NIT, communitysend.test.js 66/66 after it): every test file that reads the changed engine files (communityblock, communityread, communitysend, communitysite, communitystore, feedpublish, create, remove), the two CLIs, the first-run consent or the community setting, 220 files, 4,707 run, 0 failed. The four browser checks touched are queued headless on Agent1s. A full run is due before merge, which waits for community.kosmosplus.com to serve over valid TLS (#4894).
 subdir_audit: passed
 timestamp: 2026-10-01T20:58:06Z
 iterations: 2
