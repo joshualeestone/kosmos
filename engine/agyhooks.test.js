@@ -726,7 +726,8 @@ test('#4491: token-only, the Antigravity bridge sends the agent\'s token alone; 
   const stop = (extra) => new Promise((resolve, reject) => {
     const pane = '%only-' + process.pid + '-' + panes.length;
     panes.push(pane);
-    const env = { ...process.env, KOSMOS_AGENT_TOKEN_ONLY: '', KOSMOS_PORT: String(port), TMUX_PANE: pane, ...extra };
+    // #4796: a data root of its own in the literal; every call also names its own in `extra`, which wins.
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_AGENT_TOKEN_ONLY: '', KOSMOS_PORT: String(port), TMUX_PANE: pane, ...extra };
     const child = spawn(process.execPath, [BRIDGE_FILE, 'Stop'], { env, stdio: ['pipe', 'ignore', 'ignore'] });
     child.on('error', reject);
     child.on('close', (code) => (code === 0 ? resolve() : reject(new Error('bridge exited ' + code))));
