@@ -48432,8 +48432,8 @@ function buildPicker() {
      ⚠️ HE NAMED THE COST HIMSELF -- "I get that we're not displaying anywhere
      else, that's fine" -- so this is a decision, not an oversight. What is NOT
      covered by it: a role's LIMIT on what it reaches, which is a disclosure
-     rather than a description. That moved to the last step in 0.2.92 and is
-     still shown before the agent exists. */
+     rather than a description. It is said under the menu on this screen (#pick-limit, paintPickLimit), the
+     ONLY place it is shown before the agent exists; on the swarm path only a professional-advice disclaimer (#4871). */
   updateRecPill();
   paintRoleMenu();
   document.getElementById('pick-list').hidden = false;
@@ -48601,7 +48601,7 @@ function paintPickLimit() {
      at the moment of choice (Josh, 2026-08-10, engine/roles.js), and his 10-01 words were said looking at an
      operational line (Office Manager's "nothing goes out without the owner"). The single-agent path is unchanged. */
   /* Errs toward KEEPING: a wrong keep shows one sentence too many, a wrong hide breaks the 08-10 condition. */
-  const ADVICE = /\b(advice|advis[eo]rs?|lawyers?|attorneys?|counsel|legal|accountants?|cpas?|auditors?|tax(es)?|financial planners?|licensed|medical|doctors?|physicians?|clinicians?|nurses?|pharmacists?|psycholog\w*|psychiatr\w*|therapists?|dentists?|diagnos\w*|veterinar\w*)\b/i;
+  const ADVICE = /\b(advi[cs]\w*|lawyers?|attorneys?|counsel\w*|legal\w*|accountants?|cpas?|auditors?|tax(es)?|financial planners?|licensed|medic\w*|doctors?|physicians?|clinicians?|nurses?|pharmacists?|psycholog\w*|psychiatr\w*|therap\w*|dentists?|diagnos\w*|veterinar\w*)\b/i;
   const swarmQuiet = CREATE_PATH === 'swarm'
     && !(role && role.caution && ADVICE.test(role.caution));
   const say = role && role.caution && !swarmQuiet && !document.getElementById('rolepick').hidden ? role.caution : '';

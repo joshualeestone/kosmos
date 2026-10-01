@@ -34,3 +34,7 @@ the swarm path. Mutations: dropping the swarm rule reds it; dropping the advice 
   pharmacist, psycholog*, psychiatr*, dentist, licensed, "taxes", "lawyers"); five more wordings pinned. Still 22 of 63
   on the live catalogue. FIXED NIT: an accepted false keep is pinned in the test, so keeping an operational line that
   names a professional word is a decision, not an accident. Left NIT: hoisting ADVICE (the test slices the function).
+- Round 3 (opus): DUPLICATE W (round 1's partial-removal call), with a new action taken: the card now states "done means
+  (as built)" so a check against its wording does not reopen it. FIXED NITs: the pattern's noun stems are open
+  (advis*, legal*, counsel*, medic*, therap*), five more wordings pinned, still 22 of 63; a stale buildPicker comment
+  that said the limit is also shown on a later step now names #pick-limit as the only place.
