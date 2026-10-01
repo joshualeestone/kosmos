@@ -61,8 +61,10 @@ const TEAM = {
   key: 'marketing', kind: 'business', rank: 1, label: 'Marketing Team', blurb: 'One line',
   purpose: 'Plans and runs your marketing.', caution: 'The lead briefs the rest of the team and checks their work on its own.', project: { name: 'Marketing', goal: 'Grow the business' },
   members: [
-    { slot: 'content', role: 'copy', title: 'Content Writer', name: 'Leo', reportsTo: 'lead', avatar: { image: null } },
-    { slot: 'lead', role: 'marketing', title: 'Chief Marketing Officer', name: 'Maya', reportsTo: null, avatar: { image: null } },
+    /* #4720: as the published catalogue now is, two members name a portrait. The board serves the lead's
+       (/api/catalogue/portrait answers it); the writer's cannot be had (404), so it gets the generated mark. */
+    { slot: 'content', role: 'copy', title: 'Content Writer', name: 'Leo', reportsTo: 'lead', avatar: { image: 'avatars/marketing-content.webp' } },
+    { slot: 'lead', role: 'marketing', title: 'Chief Marketing Officer', name: 'Maya', reportsTo: null, avatar: { image: 'avatars/marketing-lead.webp' } },
     { slot: 'social', role: 'social', title: 'Social Media Manager', name: 'Ana', reportsTo: 'lead', avatar: { image: null } },
   ],
 };
@@ -117,6 +119,19 @@ function chk(ok, label, extra) {
           const specsMangle = { slot: null, reads: 0 };   // a slot whose spec comes back under another name than was sent
           const checkHold = { p: null };   // the names pre-check held until the arm releases it (review 27)
           const pictures = [];             // every picture PUT: { name, type }. The members here are not real agents, so it is answered here.
+          const portraitAsks = [];         // #4720: every /api/catalogue/portrait read, as "team/slot"
+          const staticAsks = [];           // #4720: any read of a catalogue image path under the board (must stay empty)
+          await page.route('**/api/catalogue/portrait*', async (r) => {
+            const q = new globalThis.URL(r.request().url()).searchParams;
+            portraitAsks.push(q.get('team') + '/' + q.get('slot'));
+            if (q.get('team') === 'marketing' && q.get('slot') === 'lead') {
+              // A minimal WebP container: what the board serves only after checking it (engine/catalogue.js).
+              const body = Buffer.concat([Buffer.from('RIFF'), Buffer.from([16, 0, 0, 0]), Buffer.from('WEBPVP8 '), Buffer.alloc(8)]);
+              return r.fulfill({ status: 200, contentType: 'image/webp', body });
+            }
+            return r.fulfill({ status: 404, json: { error: 'the Content Writer of the Marketing Team has no portrait yet' } });
+          });
+          await page.route('**/avatars/**', (r) => { staticAsks.push(r.request().url()); return r.fulfill({ status: 404, body: 'no' }); });
           await page.route('**/api/agent/*/avatar', async (r) => {
             if (r.request().method() !== 'PUT') return r.continue();
             // `URL` in this file is the board's address (a string), so the agent's name is cut from the path by hand.
@@ -172,7 +187,7 @@ function chk(ok, label, extra) {
           });
           await page.goto(URL, { waitUntil: 'networkidle' });
           await clearFirstRun(page);
-          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures };
+          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures, portraitAsks, staticAsks };
         };
         const rows = (page) => page.evaluate(() => [...document.querySelectorAll('#tc-list li')].map((li) => ({
           slot: li.dataset.slot,
@@ -187,7 +202,7 @@ function chk(ok, label, extra) {
 
         /* --- the step, the happy path with one failure and its retry --------------------------- */
         {
-          const { page, errs, posted, script, checkHold, pictures } = await newPage(1280);
+          const { page, errs, posted, script, checkHold, pictures, portraitAsks, staticAsks } = await newPage(1280);
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           const view = await page.evaluate(() => ({
@@ -257,8 +272,15 @@ function chk(ok, label, extra) {
           chk(end.shown && end.hello === 'Say Hello to Maya Okafor' && /Say “hello” to each of them to activate it on Kosmos, starting with Maya Okafor\.$/.test(end.note) && !end.wide,
             `${E} a ready team invites a hello and offers one button, to the lead by its name`, JSON.stringify(end));
           await settle(page, () => typeof TC_UPLOADING !== 'undefined' && TC_UPLOADING === 0);
-          chk(pictures.map((x) => x.name).sort().join() === 'ana,leo-two,maya-okafor' && pictures.every((x) => /^image\/png/.test(x.type)),
-            `${E} every member made got a picture (the generated mark), once each`, JSON.stringify(pictures));
+          const pic = Object.fromEntries(pictures.map((x) => [x.name, x.type]));
+          chk(pictures.map((x) => x.name).sort().join() === 'ana,leo-two,maya-okafor',
+            `${E} every member made got a picture, once each`, JSON.stringify(pictures));
+          chk(/^image\/webp/.test(pic['maya-okafor'] || ''), `${E} #4720: the lead got the catalogue's portrait, read from /api/catalogue/portrait`, JSON.stringify(pic));
+          chk(/^image\/png/.test(pic['leo-two'] || '') && /^image\/png/.test(pic.ana || ''),
+            `${E} #4720: a portrait that cannot be had, and a member with none, get the generated mark`, JSON.stringify(pic));
+          chk(portraitAsks.includes('marketing/lead') && portraitAsks.includes('marketing/content') && !portraitAsks.includes('marketing/social'),
+            `${E} #4720: the portrait is asked by team and slot, only for members the catalogue gives one`, JSON.stringify(portraitAsks));
+          chk(staticAsks.length === 0, `${E} #4720: the page never reads a catalogue image path under the board`, JSON.stringify(staticAsks));
           chk(r2.every((r) => !/not set/.test(r.state)), `${E} and no row says its picture was not set`, JSON.stringify(r2.map((r) => r.state)));
           chk(errs.length === 0, `${E} no page errors`, errs.join(' | '));
           const went = await page.evaluate(() => {

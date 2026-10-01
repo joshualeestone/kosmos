@@ -48140,7 +48140,7 @@ async function tcWatchLoop(gen) {
       /* Review 27: every member gets a picture, as every single agent does: the catalogue's portrait
          when the team ships one, otherwise the generated mark for its name. */
       TC_UPLOADING += 1;
-      tcPortrait(m.made.name, m.made.image, m.made.shownAs).then((r) => { m.portrait = r; if (r === 'set') tick(); })
+      tcPortrait(m.made.name, m.made.image, m.made.shownAs, TC.key, m.slot).then((r) => { m.portrait = r; if (r === 'set') tick(); })
         .finally(() => { TC_UPLOADING -= 1; tcPaint(); });
       for (const pr of (m.made.projects || [])) {
         if (!pr || !pr.added) continue;
@@ -48158,19 +48158,20 @@ async function tcWatchLoop(gen) {
 
 /* A shipped portrait becomes the agent's avatar; with none, the generated mark for its name does (the
    one the single create uses). It never costs the agent: a failure only says so on the row. */
-async function tcPortrait(name, image, shown) {
+async function tcPortrait(name, image, shown, team, slot) {
   try {
     let blob = null;
-    if (image) {
-      // A path under this board only: the value comes from the downloaded catalogue, and a leading slash
-      // after the one added here would make it another host's address.
-      const rel = String(image).replace(/^web\//, '');
-      if (!/^[A-Za-z0-9][A-Za-z0-9/_.-]*$/.test(rel) || rel.includes('..')) return 'failed';
-      const src = '/' + rel;
-      const img = await fetch(src);
-      if (!img.ok) return 'failed';
-      blob = await img.blob();
-    } else {
+    /* #4720: the catalogue names a portrait for this member: the board fetches the one file the signed
+       catalogue names and serves it from /api/catalogue/portrait (#4735), keyed by team and slot only, so
+       nothing here builds an address from the catalogue's text. No portrait to be had (none downloaded
+       yet, a mismatch, an older board): the generated mark below, so every member still gets a picture. */
+    if (image && team && slot) {
+      try {
+        const img = await fetch('/api/catalogue/portrait?team=' + encodeURIComponent(team) + '&slot=' + encodeURIComponent(slot), { cache: 'no-store' });
+        if (img.ok) blob = await img.blob();
+      } catch { blob = null; }
+    }
+    if (!blob) {
       const seed = String(shown || name || '').trim();
       if (!seed) return 'failed';
       const cv = document.createElement('canvas');
