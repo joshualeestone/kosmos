@@ -36,3 +36,5 @@ the page (the filtering gold, the closest wrong answer, and the look-off plain b
 red test accepted dark gold (#d6a62e is red-dominant): it now also requires green and blue close together (reds under
 7 apart, golds over 80), checked against both golds and both reds. NIT taken: forged attributes restored in finally.
 Left: the look-off hover value is read and not asserted.
+Review R4 (sonnet) 0B 0W 0C 2N: CONVERGED at round 4. After convergence, NIT 1 taken: the pointer is parked before the
+resting borders are read. Left: an arm for a decision tile both holding tasks and pressed.

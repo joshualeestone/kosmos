@@ -174,6 +174,7 @@ const PARTS = `(() => {
    Needs Your Decision tile holding tasks keeps its red edge and a filtering tile its gold (set by hand on the page's
    own tiles, then put back, since the fixture's counts are what they are). Reads, then returns to the Agents tab. */
 async function tasksLook(page) {
+  await page.mouse.move(1, 1);   // nothing under the pointer when the resting borders are read (round 4)
   await page.evaluate(() => showTab('tasks'));
   await page.waitForSelector('#panel-tasks .tsk-tile', { state: 'visible', timeout: 8000 }).catch(() => {});
   const out = await page.evaluate(() => {
