@@ -1174,6 +1174,7 @@ kosmos_light_side_clear() {
   fi
   read -r mine_ts mine_pid 2>/dev/null < "$(_kosmos_suite_waiter_file "$$")" || { echo "$what holds no queue place yet." >&2; return 1; }
   case "$mine_ts" in ''|*[!0-9]*) echo "$what has no readable queue place." >&2; return 1 ;; esac
+  case "$mine_pid" in ''|*[!0-9]*) mine_pid="$$" ;; esac   # review: a one-field marker still orders by this run's pid
   dir="$(_kosmos_marker_dir)"
   for f in "$dir"/suitewait.*; do
     [ -e "$f" ] || continue

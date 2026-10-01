@@ -99,7 +99,7 @@ out="$(side)"; rc=$?
 rm -f "$M/suitewait.$OTHER"
 
 # The side claim: one holder; a foreign one refuses; release never removes a foreign claim; a dead holder is cleaned.
-bash -c '. "$1"; kosmos_claim_light_side 5 && sleep 30' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp=$!
+bash -c '. "$1"; kosmos_claim_light_side 5 && exec sleep 30' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$M/light-side-claim" ] && break; sleep 0.2; done
 out="$(side)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "side turn beside the heavy one"; } && pass "a live side claim refuses a second side turn" || fail "two side turns at once (rc=$rc, $out)"
@@ -112,7 +112,7 @@ out="$(kosmos_refuse_if_light_side_live "a page layer" 2>&1)"; rc=$?
 own="$(awk '{print $1}' "$M/light-side-claim")"
 out="$(KOSMOS_LIGHT_SIDE_COOKIE="$own" kosmos_refuse_if_light_side_live "the side run's own page layer" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "the side run's own children are not foreign to it" || fail "a side run refused itself (rc=$rc, $out)"
-pkill -P "$sp" sleep 2>/dev/null; kill "$sp" 2>/dev/null; for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$sp" 2>/dev/null || break; sleep 0.2; done
+kill "$sp" 2>/dev/null; for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$sp" 2>/dev/null || break; sleep 0.2; done
 out="$(kosmos_refuse_if_light_side_live "a page layer" 2>&1)"; rc=$?
 { [ "$rc" -eq 0 ] && [ ! -e "$M/light-side-claim" ]; } && pass "a dead holder's side claim is cleaned" || fail "a dead holder's side claim still refuses (rc=$rc)"
 ( kosmos_claim_light_side 5 && kosmos_release_light_side ); [ ! -e "$M/light-side-claim" ] \
@@ -168,13 +168,13 @@ if ! grep -q 'kosmos_refuse_if_browser_run_live' "$T/bc-guard.sh" || ! grep -q '
   fail "could not find browser-checks.sh's guard block (did its first line change?)"
 else
   bcguard() { bash -c '. "$1"; unset KOSMOS_LIGHT_SIDE_COOKIE KOSMOS_BC_FROZEN_RUNNER KOSMOS_HARNESS_IGNORE_CUT; . "$2"; echo GUARD-PASSED' _ "$HERE/lib/cut-guard.sh" "$T/bc-guard.sh" 2>&1; }
-  bash -c '. "$1"; kosmos_claim_light_side 5 && sleep 30' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp=$!
+  bash -c '. "$1"; kosmos_claim_light_side 5 && exec sleep 30' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp=$!
   for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$M/light-side-claim" ] && break; sleep 0.2; done
   out="$(KOSMOS_NO_WAIT=1 KOSMOS_BC_PROBE="$T/quiet" bcguard)"; rc=$?
   { [ "$rc" -eq 1 ] && has "$out" "has a side turn beside the heavy one" && has "$out" "this page layer" && ! has "$out" GUARD-PASSED; } \
     && pass "browser-checks.sh's guard waits on a live side turn instead of running beside it" \
     || fail "browser-checks.sh's guard did not wait on a side turn (rc=$rc, $(printf '%s' "$out" | tail -3))"
-  pkill -P "$sp" sleep 2>/dev/null; kill "$sp" 2>/dev/null; for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$sp" 2>/dev/null || break; sleep 0.2; done
+  kill "$sp" 2>/dev/null; for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$sp" 2>/dev/null || break; sleep 0.2; done
   rm -f "$M/light-side-claim"
   out="$(KOSMOS_NO_WAIT=1 KOSMOS_BC_PROBE="$T/live-bc" bcguard)"; rc=$?
   { [ "$rc" -eq 1 ] && ! has "$out" "side turn" && ! has "$out" "waiting for it" && ! has "$out" GUARD-PASSED; } \

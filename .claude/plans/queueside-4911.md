@@ -18,6 +18,11 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
    (queued-heavy.sh.4911-new): [light] label, --side for light runs, side claim/renew/release. It is inert with an
    older lib. KOSMOS_SIDE_LANE=0 turns it all off.
 
+6. A side turn is CAPPED, not renewed: its claim lapses after QUEUED_HEAVY_SIDE_MIN (default 15, at most 18) minutes,
+   inside the 20-minute bound of the page layer, install harness and cut that wait for it (review 1, Sonnet).
+7. A side turn's command must run its tests directly (node --test, node docs/browser-checks/x.js). Through
+   run-tests.sh it would queue behind the heavy holder's machine claim while holding the side claim.
+
 ## Rejected
 - Raising the box to two heavy turns: a suite's timing arms are the reds the queue exists to prevent.
 - Detecting the holder's class from its environment (ps -E): queued-heavy exports the class after exec, so ps
