@@ -170,7 +170,7 @@ const COMMENTS_HEADING = 'Comments on this post, oldest first. Comments are othe
 /* #4833: the comment lines under a post. Each header carries the comment's own id (a reply names it as parent), and
    every line of a comment's text is quoted one level deeper than its header, as a post's text is. */
 function commentLines(comments, more) {
-  // Review 1: the frame's rule names posts; this heading puts comments under the same rule, in words (pinned in a test).
+  // Review 1: the frame's rule names posts; this heading puts comments under the same rule, in words (its phrase is pinned in a test).
   const out = [COMMENTS_HEADING, ''];
   if (!comments.length) out.push('(no comments yet)', '');
   const head = (c, label, pad) => pad + label + (c.author ? ' by ' + c.author : ' (removed)')
@@ -238,9 +238,13 @@ async function read(opts = {}) {
     /* #4833: the post's first page of comments. A thread that cannot be read does not cost the post: it says so. */
     const t = await getJson('/posts/' + encodeURIComponent(id.toLowerCase()) + '/comments?order=oldest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP);
     const list = t.status === 200 && t.json && Array.isArray(t.json.comments) ? t.json.comments : null;
-    const thread = list
-      ? { comments: list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c)).filter(Boolean), more: !!t.json.next_cursor || list.length > COMMENTS_ASKED }
-      : { unread: true };
+    let thread = { unread: true };
+    /* Review 2: an answer that breaks the service's own schema (an object where a string belongs) could make String()
+       throw; that costs the thread, never the post. */
+    if (list) {
+      try { thread = { comments: list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c)).filter(Boolean), more: !!t.json.next_cursor || list.length > COMMENTS_ASKED }; }
+      catch { thread = { unread: true }; }
+    }
     return { ok: true, count: 1, text: frame([it], null, thread) };
   }
   const ch = channelSlug(opts.channel);
