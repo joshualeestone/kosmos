@@ -29,6 +29,30 @@ const CARD = (() => {
 })();
 const card = (over) => ({ ...CARD, state: 'rate_limited', stateEvidence: null, ...over });
 
+/* Review 14: poolUntil was pinned only by a regex over status.js. This drives the real path instead: a quota
+   self-report whose own reset has passed, a colleague's later pause in the pool memory, then status.snapshot(). */
+test('#4588 part 3: snapshot() carries poolUntil from a real quota report and a remembered pause to the card; CONTROL: an empty memory gives null', () => {
+  const selfreport = require('./selfreport');
+  const agyquota = require('./agyquota');
+  const own = Date.now() - 60e3;                      // its own reset passed a minute ago
+  const later = Date.now() + 3600e3;                  // a colleague's pause runs another hour
+  const cardFor = (name, withPause) => {
+    agyquota.POOL_MEMO.bySession.clear(); agyquota.POOL_MEMO.seen.clear();
+    if (withPause) { agyquota.POOL_MEMO.bySession.set('colleague', later); agyquota.POOL_MEMO.seen.set('colleague', own - 10 * 60e3); }
+    const board = fleet.install([fleet.agent(name, { state: 'unknown', runner: 'antigravity', command: 'agy', screen: '' })]);
+    try {
+      const rec = selfreport.record(name, { state: 'idle', because: "Paused: this Google account's shared Antigravity quota ran out.", until: new Date(own).toISOString(), auto: true });
+      assert.equal(rec.recorded, true, 'fixture: self-report refused');
+      return status.snapshot().agents.find((x) => x.sessionName === name);
+    } finally { board.restore(); agyquota.POOL_MEMO.bySession.clear(); agyquota.POOL_MEMO.seen.clear(); }
+  };
+  const held = cardFor('adapool', true);
+  assert.ok(held, 'fixture: no card');
+  assert.equal(held.poolUntil, new Date(later).toISOString(), 'the pool time did not reach the card through snapshot()');
+  const control = cardFor('adanopool', false);
+  assert.equal(control.poolUntil, null, 'CONTROL: with nothing in the pool memory the card still carried a poolUntil');
+});
+
 test('#4588 part 3: a pool-held agy card gets its own line: no "add credits", no "send it a message", no promise, not typed into a manager; CONTROL: its own pause keeps PR A\'s line', () => {
   const until = new Date(Date.now() + 3600e3).toISOString();
   const held = accountProblemOf(card({ quotaUntil: null, poolUntil: until }));
