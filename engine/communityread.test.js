@@ -827,3 +827,44 @@ test('#4833 slice 2 review 6: across full reads the saved mark advances (it does
   assert.ok(m1.at < m2.at && m2.at < m3.at, 'the mark did not advance: ' + JSON.stringify([m1, m2, m3]));
   assert.equal(m3.id, CID(3));
 });
+
+test('#4833 slice 2 review 7: the first-look window holds on the second read too (an old held-back reply is never "new")', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Win4833', remoteId: RP(1), sentAt: '2026-09-01T10:00:00Z' } }, {});
+  const days = (d) => new Date(NOW - d * 24 * 3600 * 1000).toISOString();
+  const c1 = comment({ id: CID(1), created_at: days(20), reply_count: 4, replies_cursor: 'C',
+    replies: [comment({ id: CID(2), parent_id: CID(1), created_at: days(20) }), comment({ id: CID(3), parent_id: CID(1), created_at: days(20) })] });
+  cr.setFetcher(async (url) => (url.includes('/replies')
+    ? { status: 200, json: { replies: [comment({ id: CID(4), parent_id: CID(1), created_at: days(15), body: 'R3 fifteen days' }), comment({ id: CID(5), parent_id: CID(1), created_at: new Date(NOW - 3600000).toISOString(), body: 'R4 an hour' })] } }
+    : { status: 200, json: { comments: [c1] } }));
+  const one = (await cr.readReplies('Win4833', { now: NOW })).text;
+  assert.match(one, /R4 an hour/);
+  assert.ok(!one.includes('R3 fifteen days'), 'CONTROL: the window held on the first read');
+  const two = (await cr.readReplies('Win4833', { now: NOW + 1000 })).text;
+  assert.ok(!two.includes('R3 fifteen days'), 'a reply older than the first-look window came on the second read as new');
+});
+
+test('#4833 slice 2 review 7: a post the cap cut with nothing of it shown keeps no mark, so its item comes next time', async () => {
+  on(); clearSeen();
+  writeSendState({ p: { state: 'sent', agent: 'Non4833', remoteId: RP(2), sentAt: '2026-09-30T11:00:00Z' },
+    q: { state: 'sent', agent: 'Non4833', remoteId: RP(3), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const qPage = qItems(10, '2026-10-01T09:00:00Z');   // 10 tops with 2 previews = 30 items, all older than P's
+  qPage.forEach((q, i) => { q.replies = [0, 1].map((j) => comment({ id: 'b5000000-0000-4000-8000-0000000000' + String(i * 2 + j).padStart(2, '0'), parent_id: q.id, created_at: q.created_at })); q.reply_count = 2; });
+  serve({ ['/posts/' + RP(2) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(1), created_at: T(10), body: 'P newer' })] } }),
+    ['/posts/' + RP(3) + '/comments']: () => ({ status: 200, json: { comments: qPage } }) });
+  const one = (await cr.readReplies('Non4833', { now: NOW })).text;
+  assert.ok(!one.includes('P newer'), 'CONTROL: the cap held P back on read 1');
+  assert.match((await cr.readReplies('Non4833', { now: NOW + 1000 })).text, /P newer/, 'a cut post with nothing shown got a mark past its item');
+});
+
+test('#4833 slice 2 review 7: a post that is no longer the agent\'s loses its mark from the file', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Drp4833', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(1), created_at: T(9) })] } }) });
+  await cr.readReplies('Drp4833', { now: NOW });
+  assert.ok(JSON.parse(fs.readFileSync(seenPath('Drp4833'), 'utf8')).posts[RP(4)], 'CONTROL: the post got a mark');
+  writeSendState({ a: { state: 'sent', agent: 'Drp4833', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z', takenDown: true }, b: { state: 'sent', agent: 'Drp4833', remoteId: RP(5), sentAt: '2026-09-30T11:00:00Z' } }, {});
+  serve({ ['/posts/' + RP(5) + '/comments']: () => ({ status: 200, json: { comments: [] } }) });
+  await cr.readReplies('Drp4833', { now: NOW + 1000 });
+  assert.equal(JSON.parse(fs.readFileSync(seenPath('Drp4833'), 'utf8')).posts[RP(4)], undefined, 'a taken-down post\'s mark stayed in the file');
+});

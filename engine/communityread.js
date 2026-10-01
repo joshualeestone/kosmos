@@ -281,6 +281,7 @@ async function read(opts = {}) {
    shown twice. So a burst in one second is never shown twice or skipped, and the board's clock is never compared with
    the service's. Limits, said in the output when they bite: a post's pages hold its newest 10 top-level comments by
    when they were WRITTEN with 2 replies each, plus the oldest 20 more replies under the newest 3 of them that have more,
+   (times are read to the millisecond: the service's microseconds are a late-commit case below)
    so a new reply under an older comment, or deep in a long thread, will not appear in this list. Not said, and rare: a
    comment committed during a read but stamped before its mark, and a comment hidden at read time and restored later,
    are not shown. Seeing every reply needs the service to list them by activity or since a time (a follow-up). */
@@ -443,11 +444,13 @@ async function repliesFor(sessionName, opts) {
       top = top && byPos(top, x) < 0 ? top : x;
     }
     if (!top) continue;
-    const old = next[pid];
-    // Never back: defensive (a candidate only falls below the old mark if the service dropped its newest items).
+    /* Never back. Review 7: a post with no mark yet takes the first-look window as its floor, so a reply older than the
+       window that this read held back is never shown as new next time (else the window leaks on the second read). */
+    const old = next[pid] || { at: firstLook, id: 'ffffffff-ffff-ffff-ffff-ffffffffffff', seen: [] };
     const base = old && byPos(top, asItem(old)) <= 0 ? asItem(old) : top;
     const keep = (old && old.seen ? old.seen : []).slice();
     for (const { x, post } of shownItems) if (post === pid && byPos(x, base) > 0 && !keep.includes(x.id)) keep.push(x.id);
+    // "seen" can keep ids the mark has since passed until they age out of SEEN_MAX: harmless (bounded).
     next[pid] = { at: base.ts, id: base.id, seen: keep.slice(-SEEN_MAX) };
   }
   if (!writeMarks(sessionName, next)) lines.push('(where you got to could not be saved, so the next read may show these again)', '');
