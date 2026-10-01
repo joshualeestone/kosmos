@@ -89,6 +89,9 @@ test('#4890: the board passes `replacing` through, and the dialog says the older
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.equal((server.match(/replacing: st\.replacing === true,/g) || []).length, 2, 'GET /doctrine or the fleet list no longer sends replacing');
   assert.equal((server.match(/updating: st\.updating === true,/g) || []).length, 2, 'GET /doctrine or the fleet list no longer sends updating');
+  // #4890 review 10: the fleet list says what the fleet click does with a replace (leaves it), in the click's words.
+  assert.match(server, /state: st\.replacing === true \? 'could_not' :/);
+  assert.match(server, /because: st\.replacing === true \? doctrine\.FLEET_LEAVES_REPLACE :/);
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   assert.match(page, /\(plan\.replacing\s*\n\s*\? 'Your words stay exactly as they are\. The older copy of these rules that Kosmos added is replaced with '/,
     'the consent dialog no longer says the older copy is replaced');
@@ -255,7 +258,7 @@ test('#4890 review 9: cutting an older copy needs the per-agent dialog\'s hash; 
   const file = agentFile('fleetcut', text);
   const fleetClick = doctrine.refresh('fleetcut', rosterOf('fleetcut'), { now: NOW, past: OLD_TABLE });
   assert.equal(fleetClick.state, 'could_not');
-  assert.match(fleetClick.because, /only from its own page/);
+  assert.equal(fleetClick.because, doctrine.FLEET_LEAVES_REPLACE);
   assert.equal(fs.readFileSync(file, 'utf8'), text, 'the fleet click wrote');
   const plan = doctrine.planFor(text, NOW, OLD_TABLE);
   const ownPage = doctrine.refresh('fleetcut', rosterOf('fleetcut'), { now: NOW, past: OLD_TABLE, expectHash: plan.hash });

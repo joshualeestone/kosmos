@@ -92,8 +92,8 @@ function atBirth(text, now, maxBytes, opts) {
   if (body.includes(defaults.RULES_PHRASE)) {
     // An imported file is the person's own: what it carries is left as it is (opts.frameInline false, discover.js).
     if (opts && opts.frameInline === false) return body;
-    /* A role template that carries today's block inline (roles.js `own`, `setup`): that copy is Kosmos's own and
-       nobody has edited it yet, so it is framed in place. Anything else carrying the rules is left as it is. */
+    /* Today's block, byte for byte, inline (roles.js `own` and `setup` carry it) is framed in place. Anything else
+       carrying the rules is left as it is. */
     const at = plainCurrentAt(body);
     if (at < 0) return body;
     const end = at + defaults.block().length;
@@ -163,7 +163,7 @@ function sectionContentOf(spanInner) {
  * What a refresh would do to this text, composed ONCE. Pure. Returns:
  *   { state: 'could_not', because }                     ambiguity, refused
  *   { state: 'current' }                                nothing to add; NO write may follow
- *   { state: 'refresh', sections, spanNext, fileNext, hash, replacing? }
+ *   { state: 'refresh', sections, spanNext, fileNext, hash, replacing?, updating? }
  *
  * `replacing` (#4890) is true when the click also removes an unedited plain
  * copy of an earlier block; `updating` when it rewrites an existing span. `past` is the fingerprint table, for tests only;
@@ -270,6 +270,7 @@ function status(sessionName, now) {
  * the dialog showed; a file that changed since then refuses with "look
  * again" rather than writing a composition nobody saw.
  */
+const FLEET_LEAVES_REPLACE = 'its older copy of the rules is replaced only from its own page, where the change is shown';
 function refresh(sessionName, roster, opts) {
   try {
     const vouched = !!(opts && opts.trusted);
@@ -295,7 +296,7 @@ function refresh(sessionName, roster, opts) {
     /* #4890: cutting an older copy is consented to only in the per-agent dialog, which shows it and always sends
        its hash. The fleet click (no hash, names only) leaves such an agent for its own page. */
     if (plan.replacing && !(opts && opts.expectHash)) {
-      return { state: 'could_not', because: 'its older copy of the rules is replaced only from its own page, where the change is shown' };
+      return { state: 'could_not', because: FLEET_LEAVES_REPLACE };
     }
     if (plan.state === 'current') {
       /* Already has them: said, never silent, and NOTHING is written --
@@ -348,4 +349,4 @@ function decline(sessionName) {
   }
 }
 
-module.exports = { START, END, spanBody, clickDate, planFor, status, refresh, decline, hashOf, atBirth, birthLine, pastBlockIn };
+module.exports = { START, END, spanBody, clickDate, planFor, status, refresh, decline, hashOf, atBirth, birthLine, pastBlockIn, FLEET_LEAVES_REPLACE };

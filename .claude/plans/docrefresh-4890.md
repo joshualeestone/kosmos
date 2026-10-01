@@ -101,4 +101,8 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   cutting an older copy needs the per-agent dialog's hash, so the fleet click (names only, no hash) leaves that agent
   for its own page with a reason. Each guard mutated, each reds one test. Left NITs: "replaced" also covers a
   partial or cut-only replace, in the dialog and the undo note.
+- Round 10 (opus): FIXED W (my round-9 gap): the fleet list marks a replacing agent `could_not` with the fleet
+  click's own reason (one constant), so the list says what the click does. FIXED NITs: planFor's return line lists
+  `updating?`; atBirth's inline comment says what the code checks (today's block byte for byte), not who wrote it.
+  Left NITs: the empty fold in the cut-only case; hashing before the cheap checks; the test's temp dir.
 
