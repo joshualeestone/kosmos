@@ -5,11 +5,11 @@
  * #4824: after Remove on the Devices list, the person is told what the Remove reached, from the connector's
  * answer (kosmos#4803), and the line is still there after the list repaints (it used to be cleared by it).
  * Three answers, each through a real click on Remove then the confirm's Remove:
- *   told      -> signed_out true:  "Removed. Its sign-in also ends on your other computers ..."
+ *   told      -> signed_out true:  "Removed. Its sign-in on your other computers ends too."
  *   not told  -> signed_out false: "Removed here. Kosmos+ could not confirm it ..."
- *   old       -> no signed_out, no local_cutoff (a connector from before kosmos#4803): the same line, plus
- *                "could not record the end of its current sign-in" 
- * The line must still be there after one of the page's own 5 s polls has repainted the list.
+ *   old       -> neither field (a connector from before kosmos#4803): "Removed here. It still opens your
+ *                other computers until you remove it there too ...", said as how it works, not as a failure
+ * The line must still be there after one of the page's own 5 s polls has repainted the list (counted, not timed).
  * CONTROL: the next Remove click clears it, so a line that never clears cannot pass.
  *
  *   HEADED=0 node docs/browser-checks/render-device-remove-4824.js [shotsDir]
@@ -47,6 +47,22 @@ const ANSWERS = {
   old: { ok: true, removed: true, device_id: 'd-mac' },
 };
 
+/* Resolves to how many times the page read the devices list (GET /api/remote/devices) from now, once it is `n`
+   or `ms` passes. */
+function listReadsAfter(page, n, ms) {
+  return new Promise((resolve) => {
+    let seen = 0;
+    const on = (req) => {
+      if (req.method() === 'GET' && /\/api\/remote\/devices(\?|$)/.test(req.url())) {
+        seen += 1;
+        if (seen >= n) { page.off('request', on); clearTimeout(t); resolve(seen); }
+      }
+    };
+    const t = setTimeout(() => { page.off('request', on); resolve(seen); }, ms);
+    page.on('request', on);
+  });
+}
+
 async function open(browser, BASE, answer) {
   const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
   const errs = [];
@@ -76,16 +92,19 @@ async function open(browser, BASE, answer) {
       await page.click('#plus-devlist [data-dev="remove"]');
       const confirm = await page.textContent('#plus-devlist .confirm');
       chk(/It stops right away\. It can ask again by signing in\./.test(confirm || ''), key + ': the confirm says only what Remove always does', JSON.stringify(confirm));
+      // Past the repaint the Remove triggers AND past one of the page's own 5 s polls (paintPlus repaints the list):
+      // two reads of the list after the click, counted (from before the click, so the first is not missed).
+      const readsP = listReadsAfter(page, 2, 12000);
       await page.click('#plus-devlist [data-dev="removeyes"]');
-      // Past the repaint the Remove triggers AND past one of the page's own 5 s polls (paintPlus repaints the list).
-      await page.waitForTimeout(6500);
+      const reads = await readsP;
+      chk(reads >= 2, key + ': the list was repainted twice after the Remove (the click, then a poll)', 'reads=' + reads);
       const said = (await page.textContent('#plus-devmsg') || '').trim();
       const visible = await page.evaluate(() => { const e = document.getElementById('plus-devmsg'); return !!(e && e.getBoundingClientRect().height > 0); });
       if (key === 'told') chk(/^Removed\. Its sign-in on your other computers ends too\./.test(said) && visible, key + ': says the other computers are reached, and it is still showing after the repaint', JSON.stringify(said));
+      else if (key === 'old') chk(/^Removed here\. It still opens your other computers until you remove it there too/.test(said) && !/could not/.test(said) && visible, 'old: said as how an older connector works, still showing after the repaint', JSON.stringify(said));
       else chk(/^Removed here\. Kosmos\+ could not confirm it/.test(said) && visible, key + ': says Kosmos+ could not confirm it, still showing after the repaint', JSON.stringify(said));
-      if (key === 'old') chk(/could not record the end of its current sign-in/.test(said), 'old: says the old sign-in could come back if let in again', JSON.stringify(said));
-      else chk(!/could not record/.test(said), key + ': no cutoff line when the connector recorded one', JSON.stringify(said));
-      chk(!/[—]/.test(said), key + ': no em dash');
+      if (key !== 'old') chk(!/could not record/.test(said), key + ': no cutoff line when the connector recorded one', JSON.stringify(said));
+      chk(!/[\u2014]/.test(said), key + ': no em dash');
       chk(errs.length === 0, key + ': no page errors', errs.join(' | '));
       if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'device-remove-4824-' + key + '.png') }); }
       await page.close();

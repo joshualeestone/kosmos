@@ -10,12 +10,16 @@ The board's Remove passed none.
   the pre-#4803 build at ~/work/kosmos-relay/dist/kosmos-tunnel), so on exactly that refusal it is asked again
   without the flag (exit 2 and that wording, both required). Any other refusal surfaces as before.
 - web/index.html, the Devices list: after a Remove, `removedWords` says what it reached, from the answer: "Its
-  sign-in on your other computers ends too" only when `signed_out` is true; otherwise (false, or absent from an
-  older connector) "Kosmos+ was not told"; "It was not on this computer's list" when `removed` is false; plus a
-  line when `local_cutoff` is false. The line lives in `ASK.said` and is repainted by every `paintDevices` (the
-  5 s `paintPlus` poll included) until the next Remove or Keep click; it used to be cleared by the very next repaint,
-  as was the error line of a failed Remove. No timing is promised: the other computers end it on their next poll.
-  The confirm keeps its old sentence, which is true whatever connector is installed.
+  sign-in on your other computers ends too" only when `signed_out` is true; "Kosmos+ could not confirm it, so it
+  may still open your other computers" when it is false (or a new connector left it out); "It was not on this
+  computer's list" when `removed` is false; a line when `local_cutoff` is not true. A connector from before
+  kosmos#4803 answers neither field, and gets one plain sentence saying how it works (it still opens the other
+  computers until removed there, and an old sign-in comes back if let in again here), not a failure.
+  The line lives in `ASK.said` and is repainted by every `paintDevices` (the 5 s `paintPlus` poll included,
+  without rewriting an unchanged assertive alert) until the next Remove or Keep click, or two minutes; it used to
+  be cleared by the very next repaint, as was the error line of a failed Remove. No timing is promised for the
+  other computers: each ends it on its next poll. The confirm keeps its old sentence, which is true whatever
+  connector is installed.
 
 ## Decided (overridable)
 - Runtime fallback, not a gate on the bundled connector's version: the removal here must keep working with
@@ -38,4 +42,6 @@ and the test pins the measured wording.
 - web.allow-card.test.js: `removedWords` run on each answer shape (told / false / absent / not on the list / both
   false), and the `ASK.said` wiring.
 - docs/browser-checks/render-device-remove-4824.js: a real click on Remove for each answer; the line is still
-  showing after one of the page's own 5 s polls; CONTROL: the next Remove click clears it.
+  showing after one of the page's own 5 s polls (two list reads counted); CONTROL: the next Remove click clears it.
+  Listed in docs/browser-checks/gated.txt and declares `removedWords paintDevices`, so a page change to either
+  selects it (tools/bc-pr-select.js).

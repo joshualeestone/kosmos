@@ -127,19 +127,25 @@ test('#4824: removedWords says the other computers are reached only when the con
   const removedWords = new Function(src + '; return removedWords;')();
   assert.match(removedWords({ removed: true, signed_out: true, local_cutoff: true }), /^Removed\. Its sign-in on your other computers ends too\.$/);
   assert.match(removedWords({ removed: false, signed_out: true, local_cutoff: true }), /^It was not on this computer's list\. Its sign-in on your other computers ends too\.$/);
-  // An older connector: neither field, so both are said.
-  assert.match(removedWords({ removed: true }), /could not confirm.*could not record the end of its current sign-in/);
+  // An older connector: neither field. Said as how it works, not as a failure.
+  assert.equal(removedWords({ removed: true }), 'Removed here. It still opens your other computers until you remove it there too, and if you let it in again here, its old sign-in comes back with it.');
+  assert.doesNotMatch(removedWords({ removed: true }), /could not/);
   // An old connector answers no signed_out; an unreachable Kosmos+ answers false: both are "not told".
-  for (const said of [{ removed: true }, { removed: true, signed_out: false, local_cutoff: true }, null]) {
+  for (const said of [{ removed: true, signed_out: false, local_cutoff: true }, { removed: true, local_cutoff: true }]) {
     assert.match(removedWords(said), /^Removed here\. Kosmos\+ could not confirm it/, JSON.stringify(said));
   }
   assert.match(removedWords({ signed_out: false, local_cutoff: false }), /could not confirm.*could not record the end of its current sign-in/);
   assert.doesNotMatch(removedWords({ signed_out: true, local_cutoff: true }), /could not record/);
-  assert.doesNotMatch(removedWords({ signed_out: true }), /[\u2014]/);
+  for (const said of [null, {}, { removed: true }, { removed: false, signed_out: true, local_cutoff: true }, { signed_out: true, local_cutoff: true },
+    { signed_out: false, local_cutoff: true }, { signed_out: false, local_cutoff: false }, { signed_out: true, local_cutoff: false }]) {
+    assert.doesNotMatch(removedWords(said), /[\u2014]|&mdash;/, JSON.stringify(said));
+  }
 });
 
 test('#4824: what a Remove said stays through every repaint until the next Remove or Keep', () => {
   assert.match(JS, /if \(msg\.textContent !== ASK\.said\) msg\.textContent = ASK\.said;/);
+  assert.match(JS, /if \(ASK\.said && Date\.now\(\) - ASK\.saidAt > REMOVE_SAID_MS\) ASK\.said = '';/);
+  assert.match(JS, /ASK\.saidAt = Date\.now\(\);/);
   assert.doesNotMatch(JS.slice(JS.indexOf('async function paintDevices'), JS.indexOf('function removedWords')), /msg\.textContent = '';/, 'a repaint clears the line again');
   assert.match(JS, /if \(act === 'remove'\) \{ ASK\.confirm = id; ASK\.said = '';/);
   assert.match(JS, /if \(act === 'keep'\) \{ ASK\.confirm = null; ASK\.said = '';/);
