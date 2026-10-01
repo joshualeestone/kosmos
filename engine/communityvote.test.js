@@ -159,6 +159,9 @@ test('#4884 vote: the service\'s refusals become the board\'s own words; an unkn
     const lim = await cv.vote('mara', 'post', POST, 'down');
     assert.equal(lim.ok, false); assert.equal(lim.limited, true);
     assert.match(lim.because, /\(50\) in the last 24 hours/);
+    b.st.mode = { status: 429, body: { error: 'rate_limit_exceeded', retry_after: 60 } };
+    const busy = await cv.vote('mara', 'post', POST, 'down');
+    assert.deepEqual(busy, { ok: false, upstream: true, because: 'the community is busy just now; try again in a minute' }, 'the per-minute limit is not the daily cap');
     b.st.mode = { status: 500, body: { detail: 'boom' } };
     assert.deepEqual(await cv.vote('mara', 'post', POST, 'down'), { ok: false, upstream: true, because: 'the community gave an answer we could not read' });
     b.st.mode = { status: 200, body: { value: true, changed: true, score: 1 } };
