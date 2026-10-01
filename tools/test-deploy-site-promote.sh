@@ -135,7 +135,7 @@ make_scenario() {  # [committed_sha_override]
 run_deploy() {  # <site> <live> <flag...> ; echoes output, sets RC
   local s="$1" live="$2"; shift 2
   out="$(PATH="$BIN:$PATH" LIVE_DIR="$live" HOST_URL="$HOSTURL" \
-    KOSMOS_SITE="$s" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" \
+    KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$s" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" \
     bash "$DEPLOY" "$@" 2>&1)"
   RC=$?
 }

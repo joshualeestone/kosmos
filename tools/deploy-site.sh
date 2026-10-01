@@ -473,14 +473,14 @@ fi
 # and _CSM_BODY. Only a 404 means absent; anything else that is not a 200 is "could not check".
 # Its temp, and the sidecar temp below, sit in the site-fetch helpers' _FETCH_TMP_P / _FETCH_TMP_S
 # while in flight, so the EXIT/INT/TERM trap removes them; nothing else is in flight at those points.
-# Three attempts, retrying only a transport failure (000) or a 5xx; a 404 is an answer ("absent"),
+# Three attempts, retrying only a transport failure (000), a 429 or a 5xx; a 404 is an answer ("absent"),
 # unlike the artifact fetches, which retry any failure.
 _csm_read() {  # <url>
   _FETCH_TMP_P=$(mktemp "${TMPDIR:-/tmp}/deploy-site-staged.XXXXXX") || { _FETCH_TMP_P=""; echo "deploy-site: could not make a temp file -- refusing (#4819)"; exit 1; }
   for _csm_try in 1 2 3; do
     _CSM_CODE=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o "$_FETCH_TMP_P" -w '%{http_code}' "$1" 2>/dev/null) || _CSM_CODE=000
     case "$_CSM_CODE" in ''|*[!0-9]*) _CSM_CODE=000 ;; esac
-    case "$_CSM_CODE" in 000|5[0-9][0-9]) [ "$_csm_try" = 3 ] || sleep "${KOSMOS_DEPLOY_RETRY_SLEEP:-3}" ;; *) break ;; esac
+    case "$_CSM_CODE" in 000|429|5[0-9][0-9]) [ "$_csm_try" = 3 ] || sleep "${KOSMOS_DEPLOY_RETRY_SLEEP:-3}" ;; *) break ;; esac
   done
   _CSM_BODY=$(cat "$_FETCH_TMP_P" 2>/dev/null); rm -f "$_FETCH_TMP_P"; _FETCH_TMP_P=""
 }
@@ -520,6 +520,7 @@ check_staging_not_stale() {
         echo "deploy-site: live staging and $H both name $_csm_lv but different bytes (sha256 differs) -- refusing; this checkout may hold an older build of that version. Sync $SITE to the current release and retry, or, to deploy the committed build on purpose, re-run with KOSMOS_STAGING_ROLLBACK=$_csm_cv (#4819)"; exit 1
       fi
     fi
+    # (Equal versions never reach the next check: it needs them to differ.)
     if [ "$_csm_lv" != "$_csm_cv" ] && [ "$(printf '%s\n%s\n' "$_csm_lv" "$_csm_cv" | sort -V | tail -1)" = "$_csm_lv" ]; then
       if [ "${KOSMOS_STAGING_ROLLBACK:-}" = "$_csm_cv" ]; then
         echo "deploy-site: KOSMOS_STAGING_ROLLBACK=$_csm_cv: rolling staging back from $_csm_lv to $_csm_cv on purpose (#4819)"
@@ -794,10 +795,14 @@ if [ -z "$_csm_committed" ]; then
   _csm_read "$HOST/dist/latest-staging.json"
   [ "$_CSM_CODE" = 404 ] || { echo "deploy-site: $H commits no latest-staging.json but live answers HTTP $_CSM_CODE for it after the deploy -- investigate (#4819)."; exit 1; }
 else
-  _csm_read "$HOST/dist/latest-staging.json"   # three tries, like the pre-deploy reads
-  [ "$_CSM_CODE" = 200 ] || { echo "deploy-site: could not re-read the served latest-staging.json after deploy (HTTP $_CSM_CODE) -- the deploy already ran; re-check it (#4819)."; exit 1; }
-  _csm_served_ptr=$_CSM_BODY
-  [ "$_csm_served_ptr" = "$_csm_committed" ] || { echo "deploy-site: the served latest-staging.json is not the committed one -- investigate (#4819)."; exit 1; }
+  # A mismatch is read again twice before it fails: an edge can serve the old pointer briefly.
+  for _csm_try in 1 2 3; do
+    _csm_read "$HOST/dist/latest-staging.json"   # itself three tries on a transport failure
+    [ "$_CSM_CODE" = 200 ] || { echo "deploy-site: could not re-read the served latest-staging.json after deploy (HTTP $_CSM_CODE) -- the deploy already ran; re-check it (#4819)."; exit 1; }
+    [ "$_CSM_BODY" != "$_csm_committed" ] || break
+    [ "$_csm_try" = 3 ] || sleep "${KOSMOS_DEPLOY_RETRY_SLEEP:-3}"
+  done
+  [ "$_CSM_BODY" = "$_csm_committed" ] || { echo "deploy-site: the served latest-staging.json is not the committed one -- investigate (#4819)."; exit 1; }
 fi
 # the served latest.json (tracked, committed) must still name $ART after the deploy.
 sj=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: could not re-read the served latest.json after deploy -- investigate."; exit 1; }

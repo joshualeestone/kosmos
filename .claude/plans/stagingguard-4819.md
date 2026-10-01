@@ -30,8 +30,8 @@ staged WINDOWS build; it had no Mac twin.
     pointer that names no build refuses with "repair it". Unpublishing staging on purpose has no
     path through this script, and the refusal says so;
   - `carry_staged_mac`, run after the prod artifacts are fetched and before the export is built:
-  - every live read records the HTTP status and is tried up to three times on a transport failure or
-    a 5xx (review 11); only a 404 counts as absent, anything else that is not a 200 refuses as
+  - every live read records the HTTP status and is tried up to three times on a transport failure,
+    a 429 or a 5xx (reviews 11, 14); only a 404 counts as absent, anything else that is not a 200 refuses as
     "could not read" (review 3: a network blip must not read as "not served", and
     must never take the superseded skip);
   - reads the COMMITTED `dist/latest-staging.json` at the pinned `$H` (what the deploy serves);
@@ -48,7 +48,9 @@ staged WINDOWS build; it had no Mac twin.
 - Pre-deploy: the export must hold `$STAGED_ART` and `$STAGED_ART.sha256` (literal checks, like the
   other honest-marker lines).
 - Post-deploy: `served_matches` on the pair, like the prod tarball, and the served
-  `latest-staging.json` must equal the committed one (as the Windows staging pointer already is).
+  `latest-staging.json` must equal the committed one (as the Windows staging pointer already is),
+  read again twice on a mismatch before it fails, since an edge can serve the old pointer briefly
+  (review 14; a persistent mismatch is arm 16, the brief one has no arm).
 - DRY RUN summary names the staged build when one was carried.
 - `tools/test-deploy-site-staged-mac-4819.sh` (30 checks), wired into `test:shell`; end-to-end
   arms in `tools/test-deploy-site-promote.sh` that run the real script.

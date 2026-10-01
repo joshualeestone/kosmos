@@ -267,7 +267,7 @@ OUTSIDE=$(sed '/^# >>> staged Mac carry (#4819)/,/^# <<< staged Mac carry (#4819
 k_ok=1
 for want in '^carry_staged_mac$' \
             '^check_staging_not_stale$' \
-            '\[ "\$_csm_served_ptr" = "\$_csm_committed" \]' \
+            '\[ "\$_CSM_BODY" = "\$_csm_committed" \]' \
             '\[ -f "\$EXPORT/dist/\$STAGED_ART" \]' \
             '\[ -f "\$EXPORT/dist/\$STAGED_ART.sha256" \]' \
             'served_matches "\$STAGED_ART" ' \
