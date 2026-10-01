@@ -497,6 +497,44 @@ else
   fetch_verified "$HOST/dist/kosmos-arm64.tar.gz" "$SITE/dist/kosmos-arm64.tar.gz"   # + .sha256 (#4745)
   verify_sha "$SITE/dist/kosmos-arm64.tar.gz"   "$HOST/dist/kosmos-arm64.tar.gz.sha256"
 fi
+# >>> staged Mac carry (#4819) -- tools/test-deploy-site-staged-mac-4819.sh extracts and tests this block.
+# The STAGED Mac build: the tarball the committed latest-staging.json names, and its .sha256. Both
+# are gitignored and carried by the export's dist/*.tar.gz glob, so a checkout without them DROPPED
+# them while the pointer still named them: 2026-09-30 19:52, a site deploy left 0.7.14 staging
+# answering 404, and every staging install and update failed until the site was redeployed from the
+# cut box. Carry it rather than only refuse: the local copy when it is the committed pointer's bytes
+# (that is how a redeploy from the cut box restores a dropped one), else the copy live serves now,
+# fetched and checked against the served .sha256 AND the committed pointer's sha. Refuse when
+# neither exists, naming the tarball. Sets STAGED_ART, empty when nothing extra is staged.
+carry_staged_mac() {
+  STAGED_ART=""
+  _csm_ptr=$(git -C "$SITE" show "$H:dist/latest-staging.json" 2>/dev/null) || _csm_ptr=""
+  [ -n "$_csm_ptr" ] || { echo "deploy-site: no committed dist/latest-staging.json at $H, so no staged Mac build to carry (#4819)"; return 0; }
+  _csm_art=$(ptr_artifact "$_csm_ptr"); _csm_sha=$(ptr_sha "$_csm_ptr")
+  _csm_show=$(printf '%s' "$_csm_art" | tr -cd '[:print:]')
+  case "$_csm_art" in
+    kosmos-[0-9]*-arm64.tar.gz) : ;;
+    *) echo "deploy-site: the committed latest-staging.json names '${_csm_show:-nothing}', not a kosmos-<version>-arm64.tar.gz -- refusing (#4819)"; exit 1 ;;
+  esac
+  # Second check, not redundant: the glob's * above also matches '/' and '..'.
+  case "$_csm_art" in *[!A-Za-z0-9._-]*|*..*) echo "deploy-site: the committed latest-staging.json names '$_csm_show', which is not a bare file name -- refusing (#4819)"; exit 1 ;; esac
+  case "$_csm_sha" in ''|*[!0-9a-f]*) echo "deploy-site: the committed latest-staging.json names $_csm_art without a lowercase hex sha256 -- refusing (#4819)"; exit 1 ;; esac
+  [ ${#_csm_sha} -eq 64 ] || { echo "deploy-site: the committed latest-staging.json's sha256 for $_csm_art is not 64 characters -- refusing (#4819)"; exit 1; }
+  # The staged build is the prod one (a promote, or staging not ahead): fetched and checked above.
+  [ "$_csm_art" != "$ART" ] || { echo "deploy-site: the staged Mac build is the prod one ($ART), already carried (#4819)"; return 0; }
+  if [ -f "$SITE/dist/$_csm_art" ] && [ -f "$SITE/dist/$_csm_art.sha256" ] \
+     && [ "$(_sha256_of "$SITE/dist/$_csm_art")" = "$_csm_sha" ] \
+     && [ "$(awk '{print $1; exit}' "$SITE/dist/$_csm_art.sha256")" = "$_csm_sha" ]; then
+    echo "deploy-site: carrying the staged Mac build $_csm_art from $SITE/dist/ (its bytes and its .sha256 match the committed latest-staging.json) (#4819)"
+  else
+    echo "deploy-site: $SITE/dist/ has no copy of the staged Mac build $_csm_art matching the committed latest-staging.json; fetching the one live serves (#4819)"
+    fetch_verified "$HOST/dist/$_csm_art" "$SITE/dist/$_csm_art"
+    [ "$(_sha256_of "$SITE/dist/$_csm_art")" = "$_csm_sha" ] || { echo "deploy-site: the served $_csm_art is not the build the committed latest-staging.json names (sha differs) -- refusing; deploying would point staging at bytes nobody verified (#4819)"; exit 1; }
+  fi
+  STAGED_ART="$_csm_art"
+}
+# <<< staged Mac carry (#4819)
+carry_staged_mac
 # Historical version tarballs (kosmos-0.6.08-arm64.tar.gz ..) are gitignored rollback URLs and are
 # DELIBERATELY OUT OF SCOPE here: rollback-only, not new-install-critical. A clean checkout drops
 # them (breaking a rollback link, not a new install). There is no manifest of the full set, so they
@@ -563,6 +601,11 @@ if [ -n "$WIN_STAGED" ]; then
   [ -f "$EXPORT/dist/$WIN_STAGED.sha256" ] || { echo "deploy-site: the export has no $WIN_STAGED.sha256 -- refusing (the staged Windows build latest-win-staging.json names must ship whole: the zip, its checksum and the pointer)."; rm -rf "$EXPORT"; exit 1; }
   [ -f "$EXPORT/dist/latest-win-staging.json" ] || { echo "deploy-site: the export has no latest-win-staging.json -- refusing (the staged Windows build it names must ship whole: the zip, its checksum and the pointer)."; rm -rf "$EXPORT"; exit 1; }
 fi
+# The STAGED Mac build (#4819): carried above from dist/, so the export must hold it and its checksum.
+if [ -n "$STAGED_ART" ]; then
+  [ -f "$EXPORT/dist/$STAGED_ART" ] || { echo "deploy-site: the export did not carry the staged Mac build $STAGED_ART -- refusing (latest-staging.json names it; dropping it is what broke 0.7.14 staging, #4819)"; rm -rf "$EXPORT"; exit 1; }
+  [ -f "$EXPORT/dist/$STAGED_ART.sha256" ] || { echo "deploy-site: the export did not carry the checksum $STAGED_ART.sha256 -- refusing (the installer verifies the staged build against it, #4819)"; rm -rf "$EXPORT"; exit 1; }
+fi
 [ -f "$EXPORT/.kosmos-release-export" ] || { echo "deploy-site: the export has no .kosmos-release-export marker -- refusing"; rm -rf "$EXPORT"; exit 1; }
 
 # --- 4) the .vercelignore guard, exactly as the release runs it ---------------
@@ -570,7 +613,7 @@ DROP=$(pkg_upload_filter_excludes "$EXPORT/.vercelignore") || { echo "deploy-sit
 [ -z "$DROP" ] || { echo "deploy-site: the export .vercelignore would drop $DROP -- refusing"; rm -rf "$EXPORT"; exit 1; }
 
 if [ "$PUBLISH" != 1 ]; then
-  echo "DRY RUN complete. The export carried Kosmos.pkg, the current tarball ($ART), tmux-arm64, the unversioned alias, the Windows zip, and an honest marker, and the .vercelignore guard passed. Re-run with --publish to deploy (or --promote to publish a moved pointer)."
+  echo "DRY RUN complete. The export carried Kosmos.pkg, the current tarball ($ART)${STAGED_ART:+, the staged Mac build ($STAGED_ART)}, tmux-arm64, the unversioned alias, the Windows zip, and an honest marker, and the .vercelignore guard passed. Re-run with --publish to deploy (or --promote to publish a moved pointer)."
   rm -rf "$EXPORT"   # a dry run leaves no temp dir behind; the summary above is the artifact
   exit 0
 fi
@@ -622,6 +665,11 @@ for f in "$ART" Kosmos.pkg tmux-arm64.tar.gz kosmos-arm64.tar.gz; do
   served_matches "$f"        "$SITE/dist/$f"
   served_matches "$f.sha256" "$SITE/dist/$f.sha256"
 done
+# ...and the staged Mac build, the pair the 2026-09-30 deploy dropped (#4819).
+if [ -n "$STAGED_ART" ]; then
+  served_matches "$STAGED_ART"        "$SITE/dist/$STAGED_ART"
+  served_matches "$STAGED_ART.sha256" "$SITE/dist/$STAGED_ART.sha256"
+fi
 # the served latest.json (tracked, committed) must still name $ART after the deploy.
 sj=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: could not re-read the served latest.json after deploy -- investigate."; exit 1; }
 printf '%s' "$sj" | grep -q "\"$ART\"" || { echo "deploy-site: the served latest.json no longer names $ART after deploy -- investigate."; exit 1; }
