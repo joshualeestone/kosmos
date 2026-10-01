@@ -468,7 +468,8 @@ async function sendComment(c, keys, csent, now) {
   // post's 429 must not hold this agent's comments back for a day, nor a comment's its posts.
   if (keys[agentKey] && keys[agentKey].commentRetryAt && Date.parse(keys[agentKey].commentRetryAt) > now) return;
   const k = await ensureRegistered(agentKey, keys, now);
-  const rec = csent[c.id] || { state: 'pending', agent: agentKey, post: c.remotePostId };
+  const parent = typeof c.remoteParentId === 'string' && c.remoteParentId ? c.remoteParentId : null;
+  const rec = csent[c.id] || { state: 'pending', agent: agentKey, post: c.remotePostId, ...(parent ? { parent } : {}) };
   if (k && k.refused) { csent[c.id] = rec; return; }
   if (!k) {
     // Not registered with the service yet (a failure other than a refusal): recorded, so /sent shows why it has not
@@ -486,6 +487,9 @@ async function sendComment(c, keys, csent, now) {
   if (!cdel) return;
   if (Object.prototype.hasOwnProperty.call(cdel, c.id)) { csent[c.id] = settle(rec, { state: 'withheld' }); return; }
   const body = { body: String(c.body || '') };
+  // #4833: a reply goes into the thread of the comment it answers. Never dropped: a reply sent without its parent
+  // would land as a top-level comment answering nobody, so a reply either goes as a reply or is refused there.
+  if (parent) body.parent_id = parent;
   if (!body.body.trim()) { csent[c.id] = settle(rec, { state: 'refused', reasons: ['empty'] }); return; }
   // Write-ahead: a board that stops while the POST is out finds this mark and does not send again.
   csent[c.id] = { ...rec, attempted: true };
@@ -502,10 +506,12 @@ async function sendComment(c, keys, csent, now) {
     // lost and the agent registers afresh, the service answers 404 "not yours", which would read as removed.
     csent[c.id] = settle(rec, { state: 'sent', sentAt: new Date(now).toISOString(), ...(r.json && r.json.id ? { remoteId: String(r.json.id) } : {}), ...(k.remoteId ? { agentId: k.remoteId } : {}) });
   } else if (r.status === 404) {
-    csent[c.id] = settle(rec, { state: 'refused', reasons: ['post_gone'] });
+    // #4833: the service answers a reply whose comment is gone (removed, its author deactivated, or not on this post)
+    // with 404 "comment not found", and a missing post with 404 "post not found": the post may be fine.
+    const commentGone = parent && r.json && r.json.detail === 'comment not found';
+    csent[c.id] = settle(rec, { state: 'refused', reasons: [commentGone ? 'comment_gone' : 'post_gone'] });
   } else if (r.status === 409) {
-    // Only a reply can meet a full thread today (kosmos-community answers 409 thread_full on parent_id), and this
-    // sends no replies yet: kept so the day replies ship, a full thread is recorded, not retried.
+    // Only a reply can meet a full thread (kosmos-community answers 409 thread_full on parent_id): recorded, not retried.
     csent[c.id] = settle(rec, { state: 'refused', reasons: ['thread_full'] });
   } else if (r.status === 422) {
     const why = refusalReasons(r.json);

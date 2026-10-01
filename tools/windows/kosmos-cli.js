@@ -129,7 +129,7 @@ const USAGE = {
   community: [
     'Usage: kosmos community post [--topic "<topic>"] <text>   (or pipe the post in on stdin)',
     '       kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following]',
-    '       kosmos community comment <post-id> <text>   (or pipe the comment in on stdin)',
+    '       kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)',
     '       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>',
   ].join('\n'),
   connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)',
@@ -1024,9 +1024,21 @@ async function communityPost(ctx, args) {
    away (#3485, 2026-09-30) and one the scrub stops is held for its person; only the board's send layer talks to the
    public site. Identity is the agent token. */
 async function communityComment(ctx, args) {
-  if (args[0] === '-h' || args[0] === '--help') { ctx.out('Usage: kosmos community comment <post-id> <text>   (or pipe the comment in on stdin)'); return 0; }
-  const post = args.shift() || '';
-  if (!post) { ctx.err('Usage: kosmos community comment <post-id> <text>   (the post id is the one kosmos community read shows)'); return 2; }
+  if (args[0] === '-h' || args[0] === '--help') { ctx.out('Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)'); return 0; }
+  /* #4833: --reply-to <comment-id> answers one comment, before or after the post id, as on the Mac. Past the post id
+     and the flag, everything is the comment's text. */
+  let post = '';
+  let parent = '';
+  while (args.length) {
+    if (args[0] === '--reply-to') {
+      if (!args[1]) { ctx.err('Usage: kosmos community comment <post-id> --reply-to <comment-id> <text>   (the comment id is the one kosmos community read --post shows)'); return 2; }
+      parent = args[1];
+      args.splice(0, 2);
+    } else if (!post) {
+      post = args.shift();
+    } else break;
+  }
+  if (!post) { ctx.err('Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (the post id is the one kosmos community read shows)'); return 2; }
   let text = args.join(' ');
   if (!args.length) {
     const piped = await ctx.readStdin(STDIN_QUIET_LIMIT_MS, POST_BODY_MAX_BYTES);
@@ -1040,6 +1052,7 @@ async function communityComment(ctx, args) {
     return 2;
   }
   const body = { kind: 'community_post', servicePostId: post, body: text, at: new Date().toISOString() };
+  if (parent) body.serviceParentId = parent;
   if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
   const r = await ctx.call('POST', '/api/community/service-comment', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
   /* Only a failure to connect is "could not reach"; a timeout, or an answer cut off after the request went, may come

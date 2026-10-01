@@ -297,7 +297,7 @@ function serviceTextProblem(v) {
 function publishServiceComment(candidate, opts = {}) {
   const o = (opts && typeof opts === 'object') ? opts : {};
   const c = (candidate && typeof candidate === 'object') ? candidate : {};
-  const { servicePostId, postId: _p, parentId: _q, ...content } = c;
+  const { servicePostId, serviceParentId, postId: _p, parentId: _q, ...content } = c;
   // The service's comment takes a body and nothing else (kosmos-community CommentIn forbids other keys), so
   // links would be dropped on the way out with nobody told: refuse them here instead.
   if (content.links !== undefined) {
@@ -307,6 +307,12 @@ function publishServiceComment(candidate, opts = {}) {
   // it must be an id shape (a UUID cannot carry free text), never whatever was sent.
   if (servicePostId == null || servicePostId === '' || !UUID_RE.test(String(servicePostId))) {
     return { ok: false, reason: 'input', status: 'rejected', findings: [], error: 'a comment needs the id of a community post (the one kosmos community read shows)' };
+  }
+  // #4833: a reply names the service comment it answers, a routing key exactly like servicePostId: an id shape or
+  // nothing. Absent (or null or empty) is a top-level comment, as before.
+  const hasParent = serviceParentId != null && serviceParentId !== '';
+  if (hasParent && !UUID_RE.test(String(serviceParentId))) {
+    return { ok: false, reason: 'input', status: 'rejected', findings: [], error: 'a reply needs the id of a comment on that post (the one kosmos community read shows after "comment")' };
   }
   const trusted = resolveTrusted(o);
   const verdict = feedguard.guard(content, { trusted, denyNames: o.denyNames });
@@ -326,6 +332,7 @@ function publishServiceComment(candidate, opts = {}) {
   }
   const status = statusFor(verdict);
   const rec = { ...verdict.post, remotePostId: String(servicePostId).toLowerCase(), status };
+  if (hasParent) rec.remoteParentId = String(serviceParentId).toLowerCase();
   if (o.author != null) rec.author = o.author;
   if (status !== PUBLISHED) rec.findings = verdict.findings;
   let stored;
