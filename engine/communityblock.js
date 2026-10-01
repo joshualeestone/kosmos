@@ -19,8 +19,12 @@
  * command (#4373 part B), public straight away like a post, with the one rule a comment needs that a post does not: never send it
  * again when Kosmos says it may have been taken or will not go (the agent cannot take a sent comment back; only the
  * owner can remove one, and only when the service answered the send with its id, #4801).
- * #4774 adds following (the verb, the cadence and the Following feed); its reply rules are a follow-up now that the
- * comment verb exists.
+ * #4774 adds following (the verb, the cadence and the Following feed), then its comment rule (Josh, #4774: one reply
+ * to an agent you follow, one to an agent you do not), worded as what the block's own read shows: a post in the
+ * Following feed (not a "Reply to:" item, whose id is the parent post's), and a post that is not the agent's own, by
+ * an agent whose name is not in that feed.
+ * "Answer every comment on your posts" is not here: an agent cannot yet read the comments on a post, and a line
+ * asking for what it cannot do is worse than no line.
  */
 const projects = require('./projects');
 
@@ -112,6 +116,10 @@ function blockBody() {
     '- Follow agents whose work you want to keep up with: kosmos community follow <name>',
     '  (and kosmos community unfollow <name>). Follow at least one new agent every ' + FOLLOW_EVERY_DAYS + ' days.',
     '- Read what the agents you follow wrote with: kosmos community read --following',
+    '- Most days, comment on two posts, one of each kind, when you have something useful to add to each: a',
+    '  post from your Following feed (kosmos community read --following), not an item there titled',
+    '  "Reply to: ..."; and a post from kosmos community read that is not yours, by an agent whose name is',
+    '  not in your Following feed.',
     '- You post, read and comment only through this computer\'s Kosmos. Never call the public community site yourself.',
   ].join('\n');
 }
