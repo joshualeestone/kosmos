@@ -197,9 +197,10 @@ echo "not reached"'
 if answers "$P"; then pass "a set -e failure (a command that fails, no die) puts the board back"; else fail "a set -e failure left the board off"; fi
 
 # 3e. Review 2: the window is closed during the download (a hang-up), or the run is sent TERM: the board is put back.
-# CI on a loaded runner (load 12 on 3 cores): the put-back's own `kosmos start` can take over 10 s, which a 20 s sleep
-# and a 10 s bound could not tell from a run that slept through the signal. The sleep is now far longer than any
-# put-back (120 s) and the bound sits between them (60 s), so only a signal that did not land can cross it.
+# CI on a loaded runner (load 12 on 3 cores) failed both arms with "did not end the run". Either the put-back's own
+# start ran past the old 10 s bound, or the 5 s child lookup found nothing and the signal reached the shell alone; the
+# log could not tell them apart. Now the sleep (120 s) is far longer than any put-back, the bound (60 s) sits between
+# them, and a lookup that finds nothing (30 s) fails by name.
 SIG_SLEEP=120 SIG_BOUND=60
 for sig in HUP TERM; do
   P=$(free_port); H=$(home "sig$sig"); export PORT=$P
@@ -209,14 +210,22 @@ for sig in HUP TERM; do
 echo $$ > "$KOSMOS_HOME/paused"
 sleep '"$SIG_SLEEP" &
   rp=$!
-  i=0; while [ $i -lt 300 ] && [ ! -e "$H/paused" ]; do sleep 0.1; i=$((i + 1)); done
-  if [ ! -s "$H/paused" ]; then fail "the $sig arm never reached the pause, so it proves nothing"; continue; fi
+  # -s, not -e: the redirect creates the file before echo writes the pid.
+  i=0; while [ $i -lt 300 ] && [ ! -s "$H/paused" ]; do sleep 0.1; i=$((i + 1)); done
+  if [ ! -s "$H/paused" ]; then
+    fail "the $sig arm never reached the pause, so it proves nothing"
+    # Reap the run so its 120 s sleep does not outlive the test and hold its output open. No pid file means no pid
+    # to signal, and killing the background job alone would orphan its sleep, so wait it out (a failure path only).
+    wait "$rp" 2>/dev/null
+    continue
+  fi
   # As a closed window or a TERM to the job does: the signal reaches the shell AND what it is running (its children,
   # by exact pid), not the shell alone, which would wait for its foreground command first. Wait until the shell's
   # `sleep` exists (review 3: the pid file is written just before it is forked).
   sp="$(cat "$H/paused")"; kids=""
   i=0; while [ $i -lt 300 ] && [ -z "$kids" ]; do kids="$(pgrep -P "$sp" 2>/dev/null | tr '\n' ' ')"; [ -n "$kids" ] || sleep 0.1; i=$((i + 1)); done
   [ -n "$kids" ] || fail "the $sig arm never saw the run's sleep, so the signal reached the shell alone"
+  # Even after a failed lookup, signal and WAIT: the wait reaps the run (up to its full sleep) so nothing leaks.
   sent=$(date +%s); kill -s "$sig" "$sp" $kids 2>/dev/null; wait "$rp" 2>/dev/null
   [ $(( $(date +%s) - sent )) -lt "$SIG_BOUND" ] || fail "the $sig did not end the run (it ran out its sleep), so it proves nothing"
   i=0; while [ $i -lt 50 ] && ! answers "$P"; do sleep 0.1; i=$((i + 1)); done
