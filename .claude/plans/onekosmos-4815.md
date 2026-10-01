@@ -18,5 +18,15 @@ Decisions:
   typeof, so the unit tests that lift them alone keep testing today's behaviour.
 Weakest premise: the name of this computer exists only on a Kosmos+ account. Without one it says "This computer".
 
-Validation: render-onekosmos-4815.js 28/28 (Chromium + WebKit, light + dark); control: defaulting the switch on
-fails all 24 off-arms. The nine kept checks pass with their override. web.* 2216/0. Gates 0.
+- Only an ANSWER changes the name or whether the menu opens: ok: true, or the engine's marked not-signed-in
+  (signedIn: false, added in engine/account-computers.js). /api/remote/computers always answers 200 and ok: false
+  ALSO means Kosmos+ did not answer, so anything else keeps the last good state, says so in the menu and re-reads
+  in 15 s (review rounds 1-3). While there is nowhere else to go it re-reads every 5 min, in a visible tab only.
+- Out of scope, noted on the card: engine/win32uninstall.js names "your Kosmoses" in its uninstall reasons; the
+  uninstall really does have to find every Kosmos, so the words describe what it does.
+
+Validation: render-onekosmos-4815.js 48/48 (Chromium + WebKit, light + dark; 44 arms with the switch off, 4 with it
+on). Controls: defaulting the switch on fails every off-arm; removing the boot read fails both boot arms; a retry
+that never fires fails the recovery arm; the old "any object is an answer" rule fails the Kosmos+-down arms. The
+nine kept checks, render-frame-phone-718, both tophead checks and render-computers-4648 pass with the override.
+web.* 2216/0. Gates 0.
