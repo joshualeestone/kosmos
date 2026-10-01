@@ -31,3 +31,9 @@ Review R1 (opus) 1B 4W 1C 2N:
   slice that settles strokes.
 - CONVENTION: the comment named element ids (the surface gate reads comments as tokens): reworded.
 - NITs: own-message attachment cards grey on grey (as the room); DM_LOOK only for colours. Left.
+Review R2 (sonnet) 0B 2W 1C 2N: the tail was read under a hidden panel (a pseudo-element may not answer there): DM_LOOK
+now shows the panel for the read and restores it; the off control could pass a leak (two equal readings): today's
+values are now pinned too (your bubble not the look's grey, an agent's not the bare page, a bordered 12px composer).
+NIT taken: border 0 like the room's pill (no 2px difference), so the arms read the border WIDTH (a removed border still
+reports a colour). CONVENTION: d-dmthread is in 16 other checks' surfaces; the PR's CI selects them (bc-pr-select).
+Left: the agent page's terminal composer keeps today's look; it belongs to the AI Settings slice.

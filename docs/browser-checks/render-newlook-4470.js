@@ -133,14 +133,18 @@ const DM_LOOK = `(() => {
   const th = document.getElementById('d-dmthread'), box = document.getElementById('d-talk-box');
   const cb = document.querySelector('#d-talk-box .dmbar.composerbox');   // one element with both classes (round 1)
   if (!th || !box || !cb) return { found: false };
+  /* Read with the panel shown (round 2: a pseudo-element under a hidden subtree may not answer), then put it back. */
+  const panel = document.getElementById('panel-detail'); const wasHidden = panel ? panel.hidden : false; if (panel) panel.hidden = false;
+  try {
   const mk = (you) => { const m = document.createElement('div'); m.className = 'msg' + (you ? ' you' : ''); m.innerHTML = '<div class="msg-b"><div class="msg-bd">x</div></div>'; th.appendChild(m); return m; };
   const a = mk(true), b = mk(false);
   const cs = getComputedStyle(cb);
   const out = { found: true, box: getComputedStyle(box).backgroundColor, you: getComputedStyle(a.querySelector('.msg-bd')).backgroundColor,
     agent: getComputedStyle(b.querySelector('.msg-bd')).backgroundColor, tail: getComputedStyle(b.querySelector('.msg-bd'), '::after').backgroundColor,
-    composer: cs.backgroundColor, composerBorder: cs.borderTopColor, composerRadius: cs.borderTopLeftRadius };
+    composer: cs.backgroundColor, composerBorderW: cs.borderTopWidth, composerRadius: cs.borderTopLeftRadius };
   a.remove(); b.remove();
   return out;
+  } finally { if (panel) panel.hidden = wasHidden; }
 })()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */
 /* #4765: the working pulse runs on the row's ::before layer now, so "no pulse" is read there too: no layer at all
@@ -409,7 +413,7 @@ const AGENTS_LOOK = `(() => {
       chk(bub.you === GREY_OF[theme] && bub.agent === PAGE_OF[theme], `${tag} On: your message is grey, an agent's is the page's own ground (no bubble)`, JSON.stringify(bub));
       chk(dmOn.found && dmOn.box === PAGE_OF[theme] && dmOn.you === GREY_OF[theme] && dmOn.agent === PAGE_OF[theme] && dmOn.tail === PAGE_OF[theme],
         `${tag} On, an agent's page: the conversation on the page's ground, your message grey, an agent's with no bubble`, JSON.stringify(dmOn));
-      chk(dmOn.found && dmOn.composer === GREY_OF[theme] && dmOn.composerBorder === 'rgba(0, 0, 0, 0)' && dmOn.composerRadius === '24px',
+      chk(dmOn.found && dmOn.composer === GREY_OF[theme] && dmOn.composerBorderW === '0px' && dmOn.composerRadius === '24px',
         `${tag} On, an agent's page: the composer is the grey pill with no stroke`, JSON.stringify(dmOn));
       const tk = await page.evaluate(TASK_ROWS);
       chk(tk.rows >= 3 && tk.boxed === 0 && tk.hashShown && tk.wordHidden && tk.claimShown,
@@ -611,7 +615,11 @@ const AGENTS_LOOK = `(() => {
       /* Control for the agent-page arms: with the look off, today's conversation (the surface behind it, a tinted bubble of
          yours, a bordered composer box with 12px corners). */
       const dmOff = await page.evaluate(DM_LOOK);
-      chk(dmOff.found && dmBefore.found && JSON.stringify(dmOff) === JSON.stringify(dmBefore) && dmOff.composerBorder !== 'rgba(0, 0, 0, 0)' && dmOff.composerRadius === '12px',
+      /* Equal to the before-switch reading, AND today's values pinned where today differs from the look (round 2: two
+         readings of the same leak would be equal): your bubble not the look's grey, an agent's not the bare page,
+         the composer bordered with 12px corners. */
+      chk(dmOff.found && dmBefore.found && JSON.stringify(dmOff) === JSON.stringify(dmBefore) && dmOff.you !== GREY_OF[theme] && dmOff.agent !== PAGE_OF[theme]
+        && dmOff.composerBorderW !== '0px' && dmOff.composerRadius === '12px',
         `${tag} Off, an agent's page: exactly today's conversation and bordered composer, as before the switch was touched (the control)`, JSON.stringify({ off: dmOff, before: dmBefore }));
       const listOff = await listLook(page);
       chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px' && listOff.nameAlign === 'center',
