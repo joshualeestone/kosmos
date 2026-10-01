@@ -73,6 +73,7 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
   for (const [ENGINE, engine] of [['chromium', chromium], ['webkit', webkit]]) {
   const browser = await engine.launch({ headless: process.env.HEADED === '0' });
   const elsewhere = [];   // requests to any OTHER computer, for control A
+  const preflights = [];  // CORS preflights sent to another computer: the page must send none
   let agent1sMode = 'ok';
   const chk = (ok, label, extra) => chkAll(ok, ENGINE + ' ' + label, extra);
   const fresh = async (opts) => {
@@ -83,13 +84,18 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
       const resp = await route.fetch({ url: 'http://127.0.0.1:' + port + u.pathname + u.search });
       return route.fulfill({ response: resp });
     });
+    /* The relay has no OPTIONS answer for the sibling route: a preflight meets the gate with no CORS pair
+       (kosmos-relay docs/relay-request-auth.md). So a read that needs one must FAIL here too, as it would live. */
+    const preflight = (route) => route.request().method() === 'OPTIONS' && (preflights.push(route.request().url()), route.fulfill({ status: 403, body: 'gate' }));
     await ctx.route('https://agent1s.kosmosplus.com/**', (route) => {
+      if (preflight(route)) return undefined;
       elsewhere.push(route.request().url());
       if (agent1sMode === 'gone') return route.abort();
       if (agent1sMode === 'gate') return route.fulfill({ status: 401, headers: cors, body: JSON.stringify({ error: 'not signed in' }) });
       return route.fulfill({ status: 200, headers: cors, body: JSON.stringify(SIBLING_AGENTS) });
     });
     await ctx.route('https://mortals.kosmosplus.com/**', (route) => {
+      if (preflight(route)) return undefined;
       elsewhere.push(route.request().url());
       return route.fulfill({ status: 401, headers: cors, body: JSON.stringify({ error: 'not signed in' }) });
     });
@@ -129,6 +135,7 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
       const mo = r.groups[1] || { cards: [] };
       chk(mo.cards.length === 0 && /not let in on mortals/.test(mo.note) && mo.open === 'https://mortals.kosmosplus.com/', 'S1 mortals (its gate): no agents, says so, Open to sign in', JSON.stringify(mo));
       const pz = r.groups[2] || { cards: [] };
+      chk(preflights.length === 0, 'S1 the reads are simple: no preflight, which the relay would refuse', preflights.join(' '));
       chk(pz.cards.length === 0 && /^Not connected, last seen 3 hours ago\.$/.test(pz.note) && pz.open === null, 'S1 pizzarama (not connected): last seen, no link', JSON.stringify(pz));
 
       // CONTROL B: agent1s stops being readable while the board says it is online: the last list stays, greyed.
