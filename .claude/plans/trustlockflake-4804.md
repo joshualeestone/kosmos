@@ -16,9 +16,10 @@ locked by another writer". Twelve Node children on a loaded runner queue past th
 2. Each child prints trustFolder's answer; the assertion lists every failed child with its code and output.
 3. New control: the test holds the lock itself (touching it every second so it never ages into a stale steal), and
    each child signals the parent when it reaches the lock. Children told the product's 2 s budget: the lock is held
-   until they have all exited, so each is refused 2 s after reaching it and says "locked by another writer" (CI's
+   until they have all exited, so each is refused 2 s after its withFileLock starts and says "locked by another writer" (CI's
    failure, independent of how slowly they started). Children on runChildren's own environment: the lock is released
-   3 s after the last one reached it, so each waited past a 2 s budget and must succeed.
+   4 s (twice the budget) after the last one printed its marker, so each waited past a 2 s budget even with up to
+   2 s between marker and lock, and must succeed.
 4. The header's never-release claim is restated (with a 30 s wait the 10 s stale steal frees one child at a time,
    so the later children still fail), and the main test asserts N stays large enough for that.
 
@@ -40,3 +41,6 @@ Round 1 (blind): BLOCKER, the first held-lock control timed its 3.5 s hold from 
 than 1.5 s to start a child the 2 s arm would succeed (reviewer's 1.7 s delay mutant made it red). Fixed: the hold
 is timed from each child reaching the lock, and refreshed. SHOULD-FIX, the plan was not committed: committed.
 Nits taken: the header's never-release wording plus an N assertion; "default" arm renamed to "2 s budget".
+Round 2 (blind, whole branch): CONVERGED (no blocker, no should-fix). Nits taken: the release margin is twice the
+budget (a child paused over 1 s between marker and lock let a fix-removed mutant pass: reviewer measured); comments
+say the 2 s runs from withFileLock, not the marker.

@@ -114,10 +114,10 @@ test('#3088: N concurrent trustFolder writes to one config all survive (the lock
 // both arms time the hold from each child REACHING the lock, not from the spawn, so a slow runner
 // cannot change the answer:
 // - children told the product's 2 s budget: the lock is held until every one has exited, so each
-//   is refused 2 s after it reaches the lock, and says the lock was busy;
+//   is refused 2 s after its withFileLock starts (just after its marker), and says the lock was busy;
 // - children on runChildren's own environment (exactly what the test above gets): the lock is
-//   released 2 s + 1 s after the LAST of them reached it, so each waited past a 2 s budget and
-//   must still succeed.
+//   released twice the 2 s budget after the LAST of them printed its marker, so even a child paused
+//   up to 2 s between the marker and its withFileLock waits past a 2 s budget, and must still succeed.
 test('#4804 control: a held lock refuses children on a 2 s budget, not on the test budget', async () => {
   const { LOCK_WAIT_MS, LOCK_STALE_MS } = require('./filelock');
   const TOUCH_MS = 1000;
@@ -142,7 +142,7 @@ test('#4804 control: a held lock refuses children on a 2 s budget, not on the te
   let timer = null;
   const oursRun = runChildren(ours.cfgDir, ours.workdirs, undefined, () => {
     reached += 1;
-    if (reached === ours.workdirs.length) timer = setTimeout(ours.release, LOCK_WAIT_MS + 1000);
+    if (reached === ours.workdirs.length) timer = setTimeout(ours.release, 2 * LOCK_WAIT_MS);
   }).finally(() => { clearTimeout(timer); ours.release(); });
 
   const [twoRes, oursRes] = await Promise.all([twoRun, oursRun]);
