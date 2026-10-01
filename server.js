@@ -17248,6 +17248,11 @@ const server = http.createServer(async (req, res) => {
            exactly that; the page sends member names, so `me` is a name there. A name is matched to a member
            exactly, else by store key when exactly one member has that key. */
         let whoAsked = body.who;
+        /* A name that was given but is only spaces (any the String trim knows, such as U+00A0) would be stored as
+           no owner and answered as a success; refused here, once for both CLIs. The page sends no who for nobody. */
+        if (typeof whoAsked === 'string' && whoAsked.length && !whoAsked.trim()) {
+          sendJson(res, 400, { error: 'that is not an agent\'s name; name an agent on the project, or me' }); return;
+        }
         let members = [];
         if (typeof whoAsked === 'string' && whoAsked.trim()) {
           try { members = ((projects.readAll() || []).find((x) => x && x.id === id) || {}).agents || []; }

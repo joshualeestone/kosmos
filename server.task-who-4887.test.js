@@ -137,3 +137,23 @@ test('a paneless agent (token, no roster row) is matched by key: `me` lands on i
   assert.deepEqual(w.made.map((m) => m.who), ['Ghost'], '`me` did not become the member spelling of the paneless caller');
   assert.equal(JSON.parse(r.text).heard, undefined, 'a paneless agent was paged about a task it gave itself');
 });
+
+test('a who that is only spaces (U+00A0 included) is a 400 and nothing is made; the page\'s no-who is still nobody (control)', async (t) => {
+  const w = world(t);
+  for (const who of ['   ', '\u00a0', ' \u00a0\t ']) {
+    const r = await add(asAgent(w.mara), { sentence: 'blank owner', who });
+    assert.equal(r.code, 400, JSON.stringify(who) + ' was taken as no owner: ' + r.text.slice(0, 160));
+    assert.match(JSON.parse(r.text).error, /not an agent's name/);
+  }
+  assert.deepEqual(w.made, [], 'a blank owner still made a task');
+  const page = await add({ ...asBoard, 'sec-fetch-site': 'same-origin' }, { sentence: 'nobody yet' });
+  assert.equal(page.code, 200, page.text.slice(0, 160));
+  assert.deepEqual(w.made.map((m) => m.who), [undefined]);
+});
+
+test('two members with the same store key: a name matching neither exactly reaches the engine unchanged', async (t) => {
+  const w = world(t, { members: ['mara', 'monalisa', 'MonaLisa'] });
+  assert.equal((await add(asAgent(w.mara), { sentence: 'which one?', who: 'MONALISA' })).code, 200);
+  assert.equal((await add(asAgent(w.mara), { sentence: 'this one', who: 'MonaLisa' })).code, 200);
+  assert.deepEqual(w.made.map((m) => m.who), ['MONALISA', 'MonaLisa'], 'an ambiguous name was routed to one of two members, or an exact one was rewritten');
+});
