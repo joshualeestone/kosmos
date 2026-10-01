@@ -81,7 +81,7 @@ test('#4909: board_home gives a board its own home only when it would inherit th
   const fn = (name) => src.match(new RegExp('^' + name + '\\(\\) \\{[\\s\\S]*?^\\}', 'm'))[0];
   const sb = fs.mkdtempSync(path.join(os.tmpdir(), 'bc-sb-4909-'));
   try {
-    const run = (env) => spawnSync('bash', ['-c', fn('board_home') + '\nboard_home "$1"', 'x', sb], { env: { PATH: process.env.PATH, ...env }, encoding: 'utf8' }).stdout;
+    const run = (env) => spawnSync('bash', ['-c', 'set -uo pipefail\n' + fn('board_home') + '\nboard_home "$1"', 'x', sb], { env: { PATH: process.env.PATH, ...env }, encoding: 'utf8' }).stdout;
     assert.equal(run({ AGENT_WORKFORCE_HOME: '/run/home', KOSMOS_BC_RUN_HOME: '/run/home' }), sb + '/home');
     assert.ok(fs.existsSync(path.join(sb, 'home')), 'the board\'s own home was not made');
     // CONTROL: a home the caller set for this board is kept.
@@ -123,24 +123,36 @@ test('#4909 review 2: board_home seeds the board\'s own home once; a failed copy
     const runDir = path.join(tmp, 'run'); fs.mkdirSync(runDir);
     const seed = path.join(tmp, 'seed'); fs.mkdirSync(path.join(seed, '.codex'), { recursive: true });
     fs.writeFileSync(path.join(seed, '.codex', 'auth.json'), '{"auth_mode":"chatgpt"}');
-    const run = (env) => spawnSync('bash', ['-c', fn + '\nboard_home "$1"', 'x', sb], { env: { PATH: process.env.PATH, RUN_DIR: runDir, AGENT_WORKFORCE_HOME: '/run/home', KOSMOS_BC_RUN_HOME: '/run/home', ...env }, encoding: 'utf8' });
+    const run = (env) => spawnSync('bash', ['-c', 'set -uo pipefail\n' + fn + '\nboard_home "$1"', 'x', sb], { env: { PATH: process.env.PATH, RUN_DIR: runDir, AGENT_WORKFORCE_HOME: '/run/home', KOSMOS_BC_RUN_HOME: '/run/home', ...env }, encoding: 'utf8' });
     assert.equal(run({ KOSMOS_BC_SEED_HOME: seed }).stdout, sb + '/home');
     assert.ok(fs.existsSync(path.join(sb, 'home', '.codex', 'auth.json')), 'the board\'s own home was not seeded');
-    // Once: a second boot on the same sandbox does not overwrite what the board wrote.
+    // Once: a second boot on the same sandbox does not overwrite what the board wrote, nor restore what it removed.
     fs.writeFileSync(path.join(sb, 'home', '.codex', 'auth.json'), 'written by the board');
     run({ KOSMOS_BC_SEED_HOME: seed });
     assert.equal(fs.readFileSync(path.join(sb, 'home', '.codex', 'auth.json'), 'utf8'), 'written by the board');
+    fs.rmSync(path.join(sb, 'home', '.codex'), { recursive: true });
+    run({ KOSMOS_BC_SEED_HOME: seed });
+    assert.equal(fs.existsSync(path.join(sb, 'home', '.codex')), false, 'a board that emptied its home was seeded again');
+    // A caller-set home is returned as it is and nothing is copied.
+    const mine = path.join(tmp, 'mine'); fs.mkdirSync(mine);
+    const own = spawnSync('bash', ['-c', 'set -uo pipefail\n' + fn + '\nboard_home "$1"', 'x', path.join(tmp, 'sb3')], { env: { PATH: process.env.PATH, RUN_DIR: runDir, AGENT_WORKFORCE_HOME: mine, KOSMOS_BC_RUN_HOME: '/run/home', KOSMOS_BC_SEED_HOME: seed }, encoding: 'utf8' });
+    assert.equal(own.stdout, mine);
+    assert.deepEqual(fs.readdirSync(mine), [], 'a caller\'s own home was seeded');
     // A copy that fails still hands the board ITS OWN home (never an empty one) and leaves the marker.
     const sb2 = path.join(tmp, 'sb2'); fs.mkdirSync(sb2);
-    const r = spawnSync('bash', ['-c', fn + '\nboard_home "$1"', 'x', sb2], { env: { PATH: process.env.PATH, RUN_DIR: runDir, AGENT_WORKFORCE_HOME: '/run/home', KOSMOS_BC_RUN_HOME: '/run/home', KOSMOS_BC_SEED_HOME: path.join(tmp, 'no-such-seed') }, encoding: 'utf8' });
+    const r = spawnSync('bash', ['-c', 'set -uo pipefail\n' + fn + '\nboard_home "$1"', 'x', sb2], { env: { PATH: process.env.PATH, RUN_DIR: runDir, AGENT_WORKFORCE_HOME: '/run/home', KOSMOS_BC_RUN_HOME: '/run/home', KOSMOS_BC_SEED_HOME: path.join(tmp, 'no-such-seed') }, encoding: 'utf8' });
     assert.equal(r.stdout, sb2 + '/home', 'a failed seed handed the board something other than its own home');
     assert.ok(fs.existsSync(path.join(runDir, 'seed-failed')), 'a failed seed copy was not recorded');
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
   // The summary turns the marker into a failure, before it decides the run's result.
-  const at = src.indexOf('if [ -e "$RUN_DIR/seed-failed" ]; then FAILED+=');
+  const at = src.indexOf('if [ -e "$RUN_DIR/seed-failed" ]; then\n  FAILED+=("kosmos-4909-seed-copy")');
   const verdict = src.indexOf('if [ "${#FAILED[@]}" -gt 0 ]; then');
   assert.ok(at > 0 && verdict > at, 'the seed-failed marker does not reach the run\'s verdict');
-  // The seed is refused before the run folder is made (a refusal leaves nothing behind), including a caller's own home.
-  const refuse = src.indexOf('KOSMOS_BC_SEED_HOME needs the run\'s own home');
-  assert.ok(refuse > 0 && refuse < src.indexOf('RUN_DIR="$(mktemp -d'), 'the seed is checked after the run folder exists');
+  // Every seed refusal comes before the run folder is made (a refusal leaves nothing behind), and before the log line.
+  const mk = src.indexOf('RUN_DIR="$(mktemp -d');
+  for (const msg of ['is not a folder; refusing a run that would only look seeded', 'is the real home; refusing to copy it', 'needs the run\'s own home']) {
+    const at2 = src.indexOf(msg);
+    assert.ok(at2 > 0 && at2 < mk, 'the refusal "' + msg + '" is after the run folder exists');
+  }
+  assert.ok(at < src.indexOf('browser_run_log_append \\\n  "$(git -C'), 'the seed failure is counted after the run log line');
 });

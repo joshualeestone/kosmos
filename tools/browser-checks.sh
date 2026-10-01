@@ -64,6 +64,13 @@
 # Exit status: 0 iff every selected check passed (after at most one retry).
 #
 set -uo pipefail
+# kosmos#4909: the run's own folders are marked below only when THIS run makes them, so an inherited marker can never
+# match a caller's home (review 3). And a seed path is made absolute here, before the cd to the repo and before any
+# re-exec, so a relative one means where the operator typed it, at both copy sites.
+unset KOSMOS_BC_RUN_HOME KOSMOS_BC_RUN_SKILLS
+if [ -n "${KOSMOS_BC_SEED_HOME:-}" ] && [ -d "$KOSMOS_BC_SEED_HOME" ]; then
+  KOSMOS_BC_SEED_HOME="$(cd "$KOSMOS_BC_SEED_HOME" && pwd -P)"; export KOSMOS_BC_SEED_HOME
+fi
 # #3633: no board this script boots may download the agents' browser into the real
 # runners folder (engine/agentbrowser.js); the #1573 pair below does not set
 # AGENT_WORKFORCE_DRY_RUN, so this covers every boot site.
@@ -670,10 +677,14 @@ board_home() {
     mkdir -p "$sb/home"
     # The control's seed reaches the board's own home (review 1: in the run home alone nothing read it), once: a board
     # booted again on the same sandbox keeps what its first life wrote (review 2).
-    if [ -n "${KOSMOS_BC_SEED_HOME:-}" ] && [ -z "$(ls -A "$sb/home" 2>/dev/null)" ]; then
+    if [ -n "${KOSMOS_BC_SEED_HOME:-}" ] && [ ! -e "$sb/.seeded" ]; then
       # Inside $(...), so an exit would end only the subshell and hand the board an EMPTY home (the real one):
       # the failure is recorded instead and fails the run at its summary, and the board keeps its own folder.
-      cp -R "$KOSMOS_BC_SEED_HOME/." "$sb/home/" || { echo "browser-checks: could not seed $sb/home" >&2; : > "$RUN_DIR/seed-failed"; }
+      # Its stderr goes to the board's own log (the redirect on the boot line applies first), which cleanup removes, so
+      # the sandbox is recorded in the marker for the summary to print (review 3). A sentinel, not emptiness, says
+      # "seeded once", so a board that empties its own home is not seeded again.
+      if cp -R "$KOSMOS_BC_SEED_HOME/." "$sb/home/" 2>/dev/null; then : > "$sb/.seeded"
+      else printf '%s\n' "$sb/home" >> "$RUN_DIR/seed-failed"; fi
     fi
     printf '%s' "$sb/home"
   else printf '%s' "${AGENT_WORKFORCE_HOME:-}"; fi
@@ -1895,6 +1906,12 @@ bc_quarantine_verdict
 # #1079: recorded BEFORE the exit paths below, so a FAILED run lands in the log
 # too. A log that only captures successful runs cannot answer a question about
 # when things go wrong.
+# kosmos#4909: a seeded run whose seed did not reach every board's home is not the run it claims to be. Before the
+# log line (review 3), so the durable log counts it too; the homes it missed are named.
+if [ -e "$RUN_DIR/seed-failed" ]; then
+  FAILED+=("kosmos-4909-seed-copy")
+  REASONS+=("kosmos-4909-seed-copy:"$'\n'"           the seed could not be copied into: $(tr '\n' ' ' < "$RUN_DIR/seed-failed")")
+fi
 browser_run_log_append \
   "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)" \
   "${#RAN[@]}" "${#RETRIED[@]}" "${#FAILED[@]}" "$RICH_BOOTED" ${RETRIED[@]+"${RETRIED[@]}"}
@@ -1925,8 +1942,6 @@ if [ -n "${KOSMOS_BC_CI_ALLOWLIST:-}" ]; then
   fi
 fi
 
-# kosmos#4909: a seeded run whose seed did not reach every board's home is not the run it claims to be.
-if [ -e "$RUN_DIR/seed-failed" ]; then FAILED+=("kosmos-4909-seed-copy"); fi
 if [ "${#FAILED[@]}" -gt 0 ]; then
   log "FAILED:  ${FAILED[*]}"
   # #2518: the same list, one entry per "|", for machines. Entries can contain spaces

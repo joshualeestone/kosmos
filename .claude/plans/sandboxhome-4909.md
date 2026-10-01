@@ -62,3 +62,15 @@ different ones) and a caller's own is kept; every board boot in the runner names
 - N5 the boot scan does not see boot_thread_server: kept (thread-server.js requires the lib, so it gets a fresh home).
 - N6 AMBIENT now drops KOSMOS_BC_SEED_HOME. N7 seed edge cases: documented (keep a seed small). N8 board_home
   re-seeding a re-booted board: FIXED, only an empty home is seeded.
+
+## Review 3 (Opus, blind, source-only): 0 blockers, 2 warnings, 6 nits
+- W1 a board's seed-copy error went to its own server.log (the boot line's redirect applies first), which cleanup
+  deletes: FIXED, the marker names each home it missed and the summary prints them as the reason.
+- W2 a relative seed path was resolved after the cd to the repo (and in the frozen child): FIXED, made absolute at the
+  very top, before any cd or re-exec.
+- N3 the run log counted 0 failed for a seed failure: FIXED, the marker is turned into a failure before the log line.
+- N4 cpSync rewrote relative links to point into the seed: FIXED, verbatimSymlinks. N5 a board that emptied its home
+  was seeded again: FIXED, a .seeded sentinel. N6 a stale inherited run marker: FIXED, unset at the top (the
+  real-home ancestor case is the operator's choice; doubled slashes kept). N7 tests: all three refusals pinned before
+  the run folder, the helper run under set -u, a caller's home not seeded. N8 a seed copy failure inside a check read
+  as that check failing: FIXED, its own message and exit code 97.

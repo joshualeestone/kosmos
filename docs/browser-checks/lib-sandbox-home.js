@@ -50,7 +50,13 @@ if (!cur || same(cur, os.homedir()) || same(cur, process.env.KOSMOS_BC_RUN_HOME)
   /* The #4909 control's seed (tools/browser-checks.sh KOSMOS_BC_SEED_HOME) reaches this check's own home, only when
      it was handed the run's (the runner refuses a missing seed or the real home before any check runs). */
   const seed = process.env.KOSMOS_BC_SEED_HOME;
-  if (seed && same(cur, process.env.KOSMOS_BC_RUN_HOME)) fs.cpSync(seed, home, { recursive: true });
+  /* Links copied as they are (review 3: the default rewrites a relative link to point into the seed, which a board
+     could then write through, shared). A copy that fails is said as a SEED failure with its own exit code, never as
+     this check failing, which in a control run would read as "this check reads state it never set". */
+  if (seed && same(cur, process.env.KOSMOS_BC_RUN_HOME)) {
+    try { fs.cpSync(seed, home, { recursive: true, verbatimSymlinks: true }); }
+    catch (e) { console.error('lib-sandbox-home: kosmos#4909 seed copy failed (' + ((e && e.message) || e) + '); this is the seed, not the check'); process.exit(97); }
+  }
   process.env.AGENT_WORKFORCE_HOME = home;
 }
 /* The Claude config in a folder THIS file made, never inside a home it was given: a home a caller
