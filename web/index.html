@@ -8282,8 +8282,9 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
    field above it, which is what Josh asked for when he called it unstyled. */
 
 /* 📌 `.roledesc` IS GONE FROM THIS SELECTOR TOO, later the same day: the line
-   under the role menu was removed outright, so the only place a caution is
-   painted now is the last step. The treatment is unchanged. */
+   under the role menu was removed outright. A role's caution came back under the
+   menu as .rolelimit (#pick-limit), the only place it is painted (on the swarm path
+   only a professional-advice disclaimer, #4871). The treatment is unchanged. */
 .rolelimit {
   /* The pack's values (#179): quieter ink, 14px lead; neither 14 nor the
      18 below is a scale step, said plainly rather than rounded to one. */
@@ -48484,6 +48485,7 @@ function paintPathOptions() {
   /* The org chart creates every row down the `own` path, so it is offered on the same condition as `own`. */
   document.getElementById('team-orgchart-opt').hidden = !OWN_ROLE;
   paintTeamOrgchartNote();
+  paintPickLimit();   // #4871: the line under the menu depends on the path, so any repaint of the path's options repaints it
 }
 /* #4556 review: when the roles could not be read the org chart cannot be offered, and the Team screen says so
    rather than showing only "Ready-made teams are coming soon." */

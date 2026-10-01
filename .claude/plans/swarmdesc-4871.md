@@ -38,3 +38,6 @@ the swarm path. Mutations: dropping the swarm rule reds it; dropping the advice 
   (as built)" so a check against its wording does not reopen it. FIXED NITs: the pattern's noun stems are open
   (advis*, legal*, counsel*, medic*, therap*), five more wordings pinned, still 22 of 63; a stale buildPicker comment
   that said the limit is also shown on a later step now names #pick-limit as the only place.
+- Round 4 (sonnet): FIXED W: paintPathOptions now calls paintPickLimit, so the path-keyed line does not depend on a
+  later loadRoles paint. DUPLICATE W: the word pattern (the named weakest premise). FIXED NIT: the .rolelimit CSS comment
+  that still said the last step is the only place a caution shows.
