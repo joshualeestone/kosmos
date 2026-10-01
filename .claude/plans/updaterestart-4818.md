@@ -9,13 +9,14 @@ had stopped stays stopped.
 
 ## The change (install/setup.sh)
 - A `BEGIN/END #4818 put-back` block before the update pause: `_kosmos_put_board_back` (read the mode again and start
-  nothing if it now keeps the board off; remove board.stopped; `KOSMOS_RECLAIM_BUSY=1 kosmos start --force`; check the
-  port answers; say "Kosmos is running again (<version on disk>)" or how to start it) and an EXIT trap that calls it
+  nothing if it now keeps the board off; remove board.stopped; `KOSMOS_RECLAIM_BUSY=1 kosmos start --force`, trusting its
+  own verdict (review 5); say "Kosmos is running again (<version on disk>)" or how to start it) and an EXIT trap that calls it
   when the run exits non-zero (a die, or set -e), plus `trap 'exit 1' HUP TERM` so a closed window or a TERM is a
   failure too (review 2: both ran the EXIT trap with status 0).
-- At the pause: `_kosmos_was_running=yes` only if the mode runs the board here, there is no board.stopped, and OUR board
-  is running: the pid in board.pid is alive and its command line names this install's app/server.js (the same test as
-  _ourboard; review 4: an HTTP probe read a busy board as off, and another install's board on the port as ours).
+- At the pause: `_kosmos_was_running=yes` when the board is MEANT to run: the mode runs it here and there is no
+  board.stopped (review 5). Not an HTTP answer (review 4: a busy board missed the probe) and not a live pid (review 5: a
+  board crash-looping or mid-restart under launchd has none for a moment, yet stop writes board.stopped regardless).
+  Another install's board or another app on the port cannot use this: the put-back is armed only after those dies.
 - Armed (`_kosmos_paused_board="$_kosmos_was_running"`) once the board stops answering, AFTER the three pause dies that
   must not restart (our board still running, another install's board, another app on the port) and BEFORE the port wait
   (review 3: a survivor still holding the port, or a hang-up during that wait, used to leave the board off).
@@ -42,7 +43,8 @@ mode readers and calls _kosmos_board_decide where setup does. Review 2: a set -e
 TERM delivered to the running shell and its children, each put the board back (with guards that the arm reached the
 pause and the signal really ended the run; the arms wait for the shell's child before signalling). Review 3: the
 arming position is pinned by line order in the shipped file. Review 4: a busy board that never answers still counts
-as running; another install's board answering on the port does not (the any-pid mutant fails it). 16/16. Without the HUP/TERM trap both signal arms fail (checked). Mutants, each failing a test:
+as running. Review 5: a board meant to run but down at the pause counts too; ignoring board.stopped fails three
+controls (checked). 16/16. Without the HUP/TERM trap both signal arms fail (checked). Mutants, each failing a test:
 trap neutered, any exit restarts, the marker ignored, the marker kept, the mode not re-read (any edit to the
 anchored lines also fails the test, by design). The installer shell tests near the pause
 (#2055, #964, install-static and its control, runnable guard, progress emit, resolve user, zsh tied names) and the
@@ -62,3 +64,6 @@ second wait and message after the die); `_kosmos_was_running` is one 2 s probe, 
 at that moment reads as not running.
 Round 4: no blocker. 2 should-fix taken (one close to a blocker): the was-running check recognises our board by pid
 and path instead of an HTTP answer, which also keeps another install's board from being taken for ours.
+Round 5: no blocker. 1 should-fix taken: "was running" is the person's settings (no board.stopped, a mode that runs
+it here), not a live pid. Nit taken: the put-back trusts kosmos start's verdict, not a second short probe. The reviewer
+measured this Mac: board.pid holds node itself, whose command line names $KOSMOS_HOME/app/server.js, on every start path.
