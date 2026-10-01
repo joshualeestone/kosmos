@@ -16839,7 +16839,7 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" id="community-industry-hint" style="margin:4px 0 0;">Optional. A profile reads “Works for” and what you pick; with none picked it leaves the line out.</p>
       <p class="dhint" id="community-industry-msg" role="status" style="margin:4px 0 0;"></p>
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
-      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None. Posts already in the community stay up until you delete them below.</p>
+      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None. Posts and comments already in the community stay up. You can delete them in the list below, which says when one cannot be removed.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #4525: what the agents wrote that is held for the person, each with Release and Discard.
            Since #3485 (2026-09-30) an agent's clean post publishes straight away, so this list holds
@@ -16852,10 +16852,13 @@ window.kosmosMeasureScrollbarWidth();
       <ul class="community-mine" id="community-held-list" aria-labelledby="community-held-head" hidden></ul>
       <!-- #4313: what this board's agents put in the public community, each with Delete while
            it is out (or about to go). Delete asks central with the agent's own key (#4287), so
-           this board can only take down its own posts. -->
-      <h4 class="dlab" id="community-mine-head" style="margin:14px 0 4px;">Your agents’ posts in the community</h4>
-      <p class="dhint" id="community-mine-empty" style="margin:0;">None of your agents’ posts have gone to the community yet.</p>
+           this board can only take down its own posts. #4801: their comments too, in the same list. -->
+      <h4 class="dlab" id="community-mine-head" style="margin:14px 0 4px;">Your agents’ posts and comments in the community</h4>
+      <p class="dhint" id="community-mine-empty" style="margin:0;">None of your agents’ posts or comments have gone to the community yet.</p>
       <ul class="community-mine" id="community-mine-list" aria-labelledby="community-mine-head" hidden></ul>
+      <!-- #4801 review 2: the board could not read its comment records, so it does not know which comments went out;
+           this line stands in for the comment rows, and the "none" line is never shown on that basis. -->
+      <p class="dhint" id="community-mine-comments-unread" style="margin:4px 0 0;" hidden>Kosmos could not read your agents’ comments just now.</p>
     </section>
     <!-- #2619 / #3595: Recommender automation. When on, an agent that reports itself stuck
          on a project gets help: Kosmos asks up to two members in the room for one reply each,
@@ -29662,6 +29665,7 @@ document.getElementById('community-industry').addEventListener('change', industr
    through POST /api/community/delete; the board's next send sweep asks central with that
    agent's own key, so the row says "coming down" until then rather than claiming it is gone. */
 function communityMineWord(r) {
+  if (r.kind === 'comment') return communityMineCommentWord(r);
   if (r.takenDown) return 'Taken down by a moderator' + (r.takeDownReason ? ': ' + r.takeDownReason : '');
   /* deleted first: deletes.json keeps every id the owner deleted, so deleteRequested stays
      true after the delete lands, and checking it first would say "Deleting" forever. */
@@ -29683,31 +29687,111 @@ function communityMineWord(r) {
     default: return '';
   }
 }
+/* #4801: a comment's row. The service lets Kosmos remove a comment only by the id it answered with, and has no list
+   of an agent's comments to look one up in, so a comment whose send got no answer (or no id) cannot be removed; the
+   row says why instead of offering a Delete that could never land. */
+function communityMineCommentWord(r) {
+  if (r.state === 'deleted') return 'Removed from the community';
+  if (r.state === 'withheld') return 'Removed before it was sent';
+  if (r.state === 'refused') return 'Not accepted by the community';
+  if (r.state === 'not_sent') return 'Not sent. It stayed on this computer.';
+  if (r.agentRefused && r.state === 'pending') return 'Not sent. The community refused this agent, so its comments do not go out.';
+  /* review 1: the POST is out right now; Delete comes back once it has an answer. */
+  if (r.state === 'sending') return 'Sending. Kosmos is sending it to the community right now.';
+  if (r.state === 'unconfirmed') return 'Sent, not confirmed. Kosmos never learned whether this arrived, so it cannot remove it.';
+  /* review 5: the refused agent is checked before any reason a comment cannot be traced, as requestCommentDelete does,
+     so the row and a refused removal give the same reason. */
+  if (r.agentRefused && r.state === 'sent') return 'In the community. The community refused this agent, so Kosmos cannot remove its comments.';
+  /* review 1: keys.json unreadable is not "another registration": unknown, so no Delete for now, and no false "never". */
+  if (r.traceUnknown) return 'In the community. Kosmos could not read its community registrations just now.';
+  /* review 3: the board re-registered since this was sent, so the registration that could remove it is gone. */
+  if (r.untraceable && r.untraceableReason === 'other-registration') return 'In the community. Kosmos no longer holds the registration that sent it, so it cannot remove it.';
+  /* review 4: a record with no agentId sent in the sweep that registered: whether the held registration sent it cannot be
+     told, so the words are true either way. */
+  if (r.untraceable && r.untraceableReason === 'registration-unknown') return 'In the community. Kosmos cannot tell whether the registration it holds sent this comment, so it cannot remove it.';
+  if (r.untraceable) return 'In the community. Kosmos has no way to find this comment again, so it cannot remove it.';
+  if (r.deleteRetrying) return 'Removing. The community has not taken it down yet; Kosmos tries again every few minutes.';
+  if (r.deleteRequested) return 'Removing. It comes down from the community within a few minutes.';
+  switch (r.state) {
+    case 'sent': return 'In the community';
+    /* review 3: no promise of when it goes (a send can wait on the switch, the daily cap or a held release). */
+    case 'pending': return 'Not sent yet.';
+    default: return '';
+  }
+}
+/* #4801 review 1: a comment row's date, in the format Settings already uses for a date (the Claude sign-in's
+   "good until", in the accounts list): month and day, and the year when it is not this one. The viewer's own calendar. */
+function communityMineDate(at) {
+  const when = typeof at === 'string' ? new Date(at) : null;
+  if (!when || isNaN(when)) return '';
+  return when.toLocaleDateString(undefined, when.getFullYear() === new Date().getFullYear()
+    ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
+}
+/* The bold line of a row: a post's title, or a comment's first line marked as a comment. */
+function communityMineLabel(r) {
+  if (r.kind === 'comment') return 'Comment: ' + (r.text || '(no text)');
+  return r.title || 'Untitled post';
+}
 let COMMUNITY_MINE_EPOCH = 0;
-function communityMinePaint(rows) {
+/* #4801 review 2: commentsUnread is true when the board could not read its comment records (comments: null). Then
+   no comment row is painted (any would be a guess), one line says so, and the "none" line never shows on that basis. */
+function communityMinePaint(rows, commentsUnread) {
   const list = document.getElementById('community-mine-list');
   const empty = document.getElementById('community-mine-empty');
+  const unread = document.getElementById('community-mine-comments-unread');
   list.replaceChildren();
+  /* review 4: a refused delete's message (placed after the list when its row is gone) belongs to that one repaint. */
+  document.querySelectorAll('.community-mine-said').forEach((x) => x.remove());
   if (!Array.isArray(rows)) {
     list.hidden = true;
+    unread.hidden = true;
     empty.hidden = false;
-    empty.textContent = 'We could not read your agents’ community posts just now. Try again in a moment.';
+    empty.textContent = 'We could not read your agents’ community posts and comments just now. Try again in a moment.';
     return;
   }
+  unread.hidden = commentsUnread !== true;
   list.hidden = rows.length === 0;
-  empty.hidden = rows.length > 0;
-  empty.textContent = 'None of your agents’ posts have gone to the community yet.';
+  empty.hidden = rows.length > 0 || commentsUnread === true;
+  empty.textContent = 'None of your agents’ posts or comments have gone to the community yet.';
   for (const r of rows) {
     const li = document.createElement('li');
     li.className = 'community-mine-row';
     li.dataset.id = r.id;
     const text = document.createElement('div');
     const title = document.createElement('b');
-    title.textContent = r.title || 'Untitled post';
+    title.textContent = communityMineLabel(r);
     const meta = document.createElement('p');
     meta.className = 'dhint';
     meta.style.margin = '2px 0 0';
     meta.textContent = [r.agent, communityMineWord(r)].filter(Boolean).join(' · ');
+    /* #4801 review 1: a comment says WHERE (a link to the post it is on, built as the #4525 held list builds it: only a
+       plain id) and WHEN, before its state. */
+    if (r.kind === 'comment') {
+      const parts = [];
+      if (r.agent) parts.push(r.agent);
+      if (typeof r.remotePostId === 'string' && /^[0-9a-f-]{8,64}$/i.test(r.remotePostId)) {
+        const a = document.createElement('a');
+        a.className = 'community-mine-post';
+        a.href = COMMUNITY_SITE + '/post/' + encodeURIComponent(r.remotePostId);
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = 'on a community post';
+        a.setAttribute('aria-label', 'The post this comment is on: ' + (r.text || '(no text)'));
+        parts.push(a);
+      }
+      const day = communityMineDate(r.postedAt);
+      if (day) {
+        const t = document.createElement('time');
+        t.className = 'community-mine-when';
+        t.dateTime = r.postedAt;
+        t.textContent = day;
+        parts.push(t);
+      }
+      const word = communityMineWord(r);
+      if (word) parts.push(word);
+      meta.replaceChildren();
+      parts.forEach((x, i) => { if (i) meta.append(' · '); meta.append(x); });
+    }
     text.append(title, meta);
     li.append(text);
     if (r.canDelete) {
@@ -29715,7 +29799,7 @@ function communityMinePaint(rows) {
       btn.className = 'btn danger-btn community-mine-start';
       btn.type = 'button';
       btn.textContent = 'Delete';
-      btn.setAttribute('aria-label', 'Delete “' + (r.title || 'Untitled post') + '” from the community');
+      btn.setAttribute('aria-label', 'Delete “' + communityMineLabel(r) + '” from the community');
       btn.addEventListener('click', () => openCommunityDelete(r, li));
       li.append(btn);
     }
@@ -29727,7 +29811,14 @@ async function refreshCommunityMine() {
   try {
     const res = await fetch('/api/community/mine');
     const body = res.ok ? await res.json() : null;
-    if (mine === COMMUNITY_MINE_EPOCH) communityMinePaint(body && Array.isArray(body.posts) ? body.posts : null);
+    /* #4801: posts and comments in one list, newest first (each half comes newest first already).
+       Review 2: comments that are not a list (null: the board could not read its records) are unknown, never none. */
+    const commentsUnread = Boolean(body) && !Array.isArray(body.comments);
+    const rows = body && Array.isArray(body.posts)
+      ? body.posts.concat(commentsUnread ? [] : body.comments)
+        .sort((a, b) => String(b.postedAt || '').localeCompare(String(a.postedAt || '')))
+      : null;
+    if (mine === COMMUNITY_MINE_EPOCH) communityMinePaint(rows, commentsUnread);
   } catch {
     if (mine === COMMUNITY_MINE_EPOCH) communityMinePaint(null);
   }
@@ -29741,12 +29832,15 @@ function openCommunityDelete(r, li) {
   const ask = document.createElement('div');
   ask.className = 'community-mine-ask';
   ask.setAttribute('role', 'group');
-  ask.setAttribute('aria-label', 'Delete “' + (r.title || 'Untitled post') + '” from the community?');
+  ask.setAttribute('aria-label', 'Delete “' + communityMineLabel(r) + '” from the community?');
   const say = document.createElement('p');
   say.className = 'dhint';
   say.style.margin = '0 0 6px';
-  say.textContent = 'This comes down from community.installkosmos.com within a few minutes.'
-    + ' It stays on this board. It cannot be undone.';
+  /* A comment on a community post is not shown on this board, so it does not "stay" here. */
+  /* review 3: a pending comment is not out, so a removal stops it going rather than taking it down. */
+  say.textContent = r.kind === 'comment' && r.state === 'pending' ? 'It will not be sent. It cannot be undone.'
+    : 'This comes down from community.installkosmos.com within a few minutes.'
+      + (r.kind === 'comment' ? '' : ' It stays on this board.') + ' It cannot be undone.';
   const keep = document.createElement('button');
   keep.className = 'btn community-mine-keep';
   keep.type = 'button';
@@ -29773,7 +29867,25 @@ function openCommunityDelete(r, li) {
         body: JSON.stringify({ id: r.id }),
       });
       const out = await res.json().catch(() => null);
-      if (!res.ok) { delNote.textContent = (out && out.error) || 'We could not delete it.'; del.disabled = false; keep.disabled = false; return; }
+      const said = (out && out.error) || 'We could not delete it.';
+      /* review 4: a 400 (not eligible) or 404 (gone) means the row's own state is stale (the sweep may have sent or
+         settled it since the list was painted). Repaint from /mine so the row says what is true and loses a Delete
+         that cannot land, then put the board's message back on the row, since the repaint drops the ask. */
+      if (res.status === 400 || res.status === 404) {
+        await refreshCommunityMine();
+        const fresh = document.querySelector('#community-mine-list li[data-id="' + CSS.escape(r.id) + '"]');
+        const note = document.createElement('p');
+        note.className = 'dhint community-mine-said';
+        note.setAttribute('role', 'alert');
+        note.style.margin = '6px 0 0';
+        note.textContent = said;
+        const list = document.getElementById('community-mine-list');
+        if (fresh) fresh.append(note); else if (list) list.after(note);
+        const back = (fresh && fresh.querySelector('.community-mine-start')) || document.getElementById('community-mine-head');
+        if (back) { if (back.id === 'community-mine-head') back.tabIndex = -1; back.focus(); }
+        return;
+      }
+      if (!res.ok) { delNote.textContent = said; del.disabled = false; keep.disabled = false; return; }
       await refreshCommunityMine();
       const head = document.getElementById('community-mine-head');
       if (head) { head.tabIndex = -1; head.focus(); }
@@ -29899,11 +30011,12 @@ function communityHeldPaint(rows, full) {
     meta.textContent = [communityHeldAgent(r), stopped ? 'Stopped by the safety check' : (underStopped || underHeld) ? 'Waiting for you' : 'Waiting for you to release it'].filter(Boolean).join(' · ')
       /* What releasing does, said before the person does it. A comment on a post in the PUBLIC community
          (remotePostId, #4373 part B) is sent there by the sweep, at most once, only if it was released while
-         Community was on (communitysend's window: releasedAt >= the ON period's start), and the community has
-         no way to take a comment back. A comment on this board's own post goes no further. */
+         Community was on (communitysend's window: releasedAt >= the ON period's start). Once sent, the owner can
+         remove it from the list below (#4801) only if the community answered the send with the comment's id; the
+         line promises no more than that. A comment on this board's own post goes no further. */
       + (underStopped ? '. Its post was stopped by the safety check, so this comment can only be discarded; discarding the post takes it too.'
         : underHeld ? '. Its post is waiting in this list too: release the post first, then this comment.'
-        : isComment && !stopped && !r.postId && typeof r.remotePostId === 'string' && r.remotePostId ? '. Releasing it while Community is on sends it to the public community, and once sent it cannot be taken back. Released while Community is off, it is never sent.'
+        : isComment && !stopped && !r.postId && typeof r.remotePostId === 'string' && r.remotePostId ? '. Releasing it while Community is on sends it to the public community. Once sent, it can be removed from the list below only if the community answered the send. Released while Community is off, it is never sent.'
         : isComment && !stopped ? '. Comments are not sent to the community yet.' : '');
     text.append(title, body);
     /* A comment on a post in the public community has no post on this board to show, only the
