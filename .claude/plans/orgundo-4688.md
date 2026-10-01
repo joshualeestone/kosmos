@@ -216,3 +216,13 @@ Each must fail on the base (main before this branch) and pass here; run on a qui
 - The disabled-guard comment names both cases (an ask still checking, a run the person left).
 - Deferred NITs: the second left-run path's "still on your board" drops the engine's reason; New Agent reopened within
   15 minutes restores the old batch into the hidden panel (by design, bounded by the window).
+
+## Iteration 16 (Sonnet): CONVERGED (no new BLOCKER, WARNING or CONVENTION after dedup)
+- A second DELETE for an agent a left run already removed: duplicate of the iteration 2/11 deferral, now evidenced:
+  engine/remove.js refuses it ("has already been removed from Kosmos", ok: false) and acts on nothing, and the next
+  watched run counts it as done from /api/removed.
+- The late-create idle test vs a consent or many prompt: duplicate of the iteration 6/8/12 deferral.
+- NITs noted, not taken: a late-create result painted into an idle panel is marked restored, so the window applies
+  to it (consistent: the person had left); one long comment line.
+- Next, before the proof: RUN render-orgchart-file-4559.js and render-orgchart-import-1280.js on a quiet machine,
+  then the Mortals full suite.
