@@ -175,14 +175,27 @@ async function listLook(page) {
     if (!idle) return { found: false, why: 'no plain row', rows: rows.length };
     const cs = getComputedStyle(idle);
     const nm = idle.querySelector('.lname .namego');
-    return { found: true, border: cs.borderTopColor, radius: cs.borderTopLeftRadius, ground: cs.backgroundImage !== 'none' || cs.backgroundColor !== 'rgba(0, 0, 0, 0)', nameAlign: nm ? getComputedStyle(nm).textAlign : 'absent' };
+    return { found: true, border: cs.borderTopColor, radius: cs.borderTopLeftRadius, groundImg: cs.backgroundImage, groundColor: cs.backgroundColor, nameAlign: nm ? getComputedStyle(nm).textAlign : 'absent' };
   });
   const rest = await read();
-  let hover = null;
-  if (rest.found) { await page.hover('#alist .lrow:not(.working):not(.attn):not(.unk):not(.off)'); await page.waitForTimeout(150); hover = (await read()).border; await page.mouse.move(1, 1); }
+  let hover = null, hoverGround = null;
+  if (rest.found) {
+    await page.hover('#alist .lrow:not(.working):not(.attn):not(.unk):not(.off)'); await page.waitForTimeout(150);
+    const h = await read(); hover = h.border; hoverGround = h.groundImg; await page.mouse.move(1, 1);
+  }
+  /* The strokes that mean something, on rows drawn by hand (the fixture has no needs-you or could-not-read agent). */
+  const strokes = await page.evaluate(() => {
+    const l = document.getElementById('alist'); if (!l) return null;
+    const out = {};
+    for (const c of ['attn', 'unk']) {
+      const d = document.createElement('div'); d.className = 'lrow ' + c; d.textContent = 'x'; l.append(d);
+      const cs = getComputedStyle(d); out[c] = { color: cs.borderTopColor, style: cs.borderTopStyle }; d.remove();
+    }
+    return out;
+  });
   const grid = await page.$('#boardbar .vt[data-layout="grid"]');
   if (grid) { await grid.click(); await page.waitForTimeout(300); }
-  return { ...rest, hover };
+  return { ...rest, hover, hoverGround, strokes };
 }
 const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmid .composer .composerbox')).backgroundColor`;
 /* The Agents page in the new look: the idle and the working card's border, the Agents tile's border, the New
@@ -434,8 +447,12 @@ const AGENTS_LOOK = `(() => {
       chk(pressed.found && pressed.bg !== 'rgba(0, 0, 0, 0)' && pressed.border !== 'rgba(0, 0, 0, 0)',
         `${tag} On, Agents page: a pressed Messages filter still shows its pressed ground and border`, JSON.stringify(pressed));
       const listOn = await listLook(page);
-      chk(listOn.found && listOn.border === 'rgba(0, 0, 0, 0)' && listOn.radius === '16px' && listOn.ground && ['left', 'start'].includes(listOn.nameAlign),
-        `${tag} On, Agents list: a plain row keeps its grey ground, loses its border, takes 16px corners, and its name sits left`, JSON.stringify(listOn));
+      chk(listOn.found && listOn.border === 'rgba(0, 0, 0, 0)' && listOn.radius === '16px' && ['left', 'start'].includes(listOn.nameAlign),
+        `${tag} On, Agents list: a plain row loses its border, takes 16px corners, and its name sits left`, JSON.stringify(listOn));
+      chk(listOn.found && listOn.hoverGround === listOn.groundImg, `${tag} On, Agents list: the ground (the state) does not change under the pointer`,
+        JSON.stringify({ rest: listOn.groundImg, hover: listOn.hoverGround }));
+      chk(listOn.strokes && listOn.strokes.attn.color !== 'rgba(0, 0, 0, 0)' && listOn.strokes.unk.color !== 'rgba(0, 0, 0, 0)' && listOn.strokes.unk.style === 'dashed',
+        `${tag} On, Agents list: a needs-you row keeps its edge, a could-not-read row its dash`, JSON.stringify(listOn.strokes));
       chk(listOn.found && listOn.hover && listOn.hover !== 'rgba(0, 0, 0, 0)',
         `${tag} On, Agents list: a row under the pointer shows its border (a sign it opens)`, JSON.stringify(listOn));
 
@@ -477,6 +494,8 @@ const AGENTS_LOOK = `(() => {
       const listOff = await listLook(page);
       chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px',
         `${tag} Off, Agents list: today's bordered row with 12px corners`, JSON.stringify(listOff));
+      chk(listOn.found && listOff.found && listOn.groundImg === listOff.groundImg && listOn.groundImg !== 'none',
+        `${tag} the plain row's ground is today's grey with the look on (only its border goes)`, JSON.stringify({ on: listOn.groundImg, off: listOff.groundImg }));
       /* What the new look must NOT change, compared on the same board: the working card's stroke (state owns the
          stroke) and the current view's gold (Josh 2026-08-17: selected is gold). */
       chk(agOn.working === agOff.working, `${tag} the working card's stroke is the same with the look on as off`, JSON.stringify({ on: agOn.working, off: agOff.working }));
@@ -498,5 +517,5 @@ const AGENTS_LOOK = `(() => {
     for (const d of ROOTS) fs.rmSync(d, { recursive: true, force: true });
   }
   console.log(`\n${ran - fail.length}/${ran} passed`);
-  process.exit(fail.length || ran < 138 ? 1 : 0);   // a full run makes 152 (measured, three passes with 3 list arms each); a skipped pass must fail
+  process.exit(fail.length || ran < 146 ? 1 : 0);   // a full run makes 161 (three passes with 6 list arms each); a skipped pass must fail
 })();
