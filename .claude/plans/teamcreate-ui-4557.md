@@ -386,3 +386,6 @@ reverted. The control tree (13:xx, 18 FAILs on purpose) proved the check's older
 - NITs taken: web.create-ids's title has no count and its step regex takes any quoted name; the "not added to the
   project" reason keeps its own case after the colon and only gains a full stop; the parse test asserts one script per
   <script> opener (a </script> inside a string can no longer drop coverage silently).
+- Measured for round 32's WARNING (Agent1s, queued-heavy light lane, 22:06 to 22:09 CDT, head b196ccab9, dirty=0):
+  render-teamcreate-4557 BC_RC=0, 165 PASS / 0 FAIL ("ALL PASSED"); render-newagent-paths-4556 BC_RC=0, "134 passed"
+  (it prints only its summary). Log: ~/.cache/ick-validation/bc-4557-merge.*.log.
