@@ -316,14 +316,15 @@ async function gather(prev, now) {
     const was = prevSha[url];
     // Hashed again when the pointer's sha or the file's headers change, after a failed read, or once a day; otherwise
     // the last answer stands (a tarball is tens of megabytes, and an unchanged file hashes the same).
-    // A first sighting of a mismatch is read again on the next run, so its second sighting is a second read.
+    // A mismatch not yet confirmed is read again on the next run, so its second sighting is a second read.
     const due = !was || was.expect !== want || h.stamp === '||' || was.stamp !== h.stamp || !!was.error || !(Number(was.at) <= now) || now - Number(was.at) >= REHASH_S
-      || (was.got !== want && !prevPending.includes('sha:' + a.name));
+      || (was.got !== want && !was.confirmed);
     let rec = was;
     if (due) {
       let s = await shaOf(url);
       if (s.error) s = await shaOf(url);   // once more, as every other request here
       rec = { at: now, expect: want, stamp: h.stamp, got: s.sha || null, error: s.error || null };
+      if (rec.got && rec.got !== want && prevPending.includes('sha:' + a.name)) rec.confirmed = true;   // its second read
     }
     sha[url] = rec;
     if (!rec.error) evaluated.add('sha:' + a.name);
@@ -342,12 +343,13 @@ async function gather(prev, now) {
     if (!want || !/^[0-9a-f]{64}$/.test(want)) { add('sidecar-missing:' + f.name, f.name + '.sha256 is not served or not a sha256 (' + why(s) + '): installers refuse the download'); continue; }
     const was = prevSha[url];
     const due = !was || was.expect !== want || h.stamp === '||' || was.stamp !== h.stamp || !!was.error || !(Number(was.at) <= now) || now - Number(was.at) >= REHASH_S
-      || (was.got !== want && !prevPending.includes('sha:' + f.name));
+      || (was.got !== want && !was.confirmed);
     let rec = was;
     if (due) {
       let r = await shaOf(url);
       if (r.error) r = await shaOf(url);
       rec = { at: now, expect: want, stamp: h.stamp, got: r.sha || null, error: r.error || null };
+      if (rec.got && rec.got !== want && prevPending.includes('sha:' + f.name)) rec.confirmed = true;
     }
     sha[url] = rec;
     if (!rec.error) evaluated.add('sha:' + f.name);
