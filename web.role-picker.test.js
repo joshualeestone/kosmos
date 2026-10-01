@@ -66,10 +66,14 @@ test('a role\'s limit is said on step one, under the dropdown, the moment it is 
   const om = 'It drafts customer messages and plans; nothing goes out without the owner.';
   assert.equal(run('officemanager', false, om, 'swarm').hidden, true, 'the swarm path still shows an operational line under the menu');
   assert.equal(run('officemanager', false, om, 'single').hidden, false, 'the single-agent path lost its line');
+  // ACCEPTED, so it is a decision and not an accident: an operational line that names a professional word is KEPT on
+  // the swarm path. A wrong keep shows one sentence too many; a wrong hide would break the 08-10 condition.
+  assert.equal(run('x', false, 'It tracks tax deadlines; nothing is filed without the owner.', 'swarm').hidden, false);
   for (const c of ['Not a lawyer, and not legal advice. It drafts and explains.', 'Not financial advice. It records and reconciles.',
     'It is not medical advice.', 'It organises paperwork; it is not tax advice.', 'It is not an accountant or a financial adviser.',
     'It organizes care; it never gives veterinary advice.', 'It is not a doctor.', 'It is not a therapist.',
-    'It is not legal counsel.', 'It is not a financial planner.', 'It never diagnoses anything.']) {
+    'It is not legal counsel.', 'It is not a financial planner.', 'It never diagnoses anything.', 'It is not a CPA.',
+    'It does not replace lawyers or doctors.', 'It gives no advice on taxes.', 'It is not a licensed professional.', 'It is not a nurse.']) {
     const l = run('x', false, c, 'swarm');
     assert.equal(l.hidden, false, 'a professional-advice disclaimer was hidden on the swarm path: ' + c); assert.equal(l.textContent, c);
   }

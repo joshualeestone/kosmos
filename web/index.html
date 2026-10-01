@@ -48593,7 +48593,7 @@ function paintPickLimit() {
      at the moment of choice (Josh, 2026-08-10, engine/roles.js), and his 10-01 words were said looking at an
      operational line (Office Manager's "nothing goes out without the owner"). The single-agent path is unchanged. */
   /* Errs toward KEEPING: a wrong keep shows one sentence too many, a wrong hide breaks the 08-10 condition. */
-  const ADVICE = /\b(advice|adviser|advisor|lawyer|attorney|counsel|legal|accountant|tax|financial planner|medical|doctor|physician|clinician|therapist|diagnos\w*|veterinar\w*)\b/i;
+  const ADVICE = /\b(advice|advis[eo]rs?|lawyers?|attorneys?|counsel|legal|accountants?|cpas?|auditors?|tax(es)?|financial planners?|licensed|medical|doctors?|physicians?|clinicians?|nurses?|pharmacists?|psycholog\w*|psychiatr\w*|therapists?|dentists?|diagnos\w*|veterinar\w*)\b/i;
   const swarmQuiet = CREATE_PATH === 'swarm'
     && !(role && role.caution && ADVICE.test(role.caution));
   const say = role && role.caution && !swarmQuiet && !document.getElementById('rolepick').hidden ? role.caution : '';

@@ -30,3 +30,7 @@ the swarm path. Mutations: dropping the swarm rule reds it; dropping the advice 
   doctor, physician, clinician, therapist, diagnos*, veterinar*), five new wordings pinned in the test; still 22 of the
   live catalogue's 63 kept (no new keeps, so no operational line is kept by it). DEFERRED W: the partial removal is the
   documented call on #4871 with a one-line reversal for Josh. FIXED NIT: the needless typeof guard.
+- Round 2 (sonnet): FIXED W (same class as round 1): plurals and professions the list missed (CPA, auditor, nurse,
+  pharmacist, psycholog*, psychiatr*, dentist, licensed, "taxes", "lawyers"); five more wordings pinned. Still 22 of 63
+  on the live catalogue. FIXED NIT: an accepted false keep is pinned in the test, so keeping an operational line that
+  names a professional word is a decision, not an accident. Left NIT: hoisting ADVICE (the test slices the function).
