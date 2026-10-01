@@ -181,7 +181,7 @@ async function listLook(page) {
   let hover = null, hoverGround = null;
   if (rest.found) {
     await page.hover('#alist .lrow:not(.working):not(.attn):not(.unk):not(.off)'); await page.waitForTimeout(150);
-    const h = await read(); hover = h.border; hoverGround = h.groundImg; await page.mouse.move(1, 1);
+    const h = await read(); hover = h.border; hoverGround = h.groundImg + ' | ' + h.groundColor; await page.mouse.move(1, 1);
   }
   /* The strokes that mean something, on rows drawn by hand (the fixture has no needs-you or could-not-read agent). */
   const strokes = await page.evaluate(() => {
@@ -449,8 +449,8 @@ const AGENTS_LOOK = `(() => {
       const listOn = await listLook(page);
       chk(listOn.found && listOn.border === 'rgba(0, 0, 0, 0)' && listOn.radius === '16px' && ['left', 'start'].includes(listOn.nameAlign),
         `${tag} On, Agents list: a plain row loses its border, takes 16px corners, and its name sits left`, JSON.stringify(listOn));
-      chk(listOn.found && listOn.hoverGround === listOn.groundImg, `${tag} On, Agents list: the ground (the state) does not change under the pointer`,
-        JSON.stringify({ rest: listOn.groundImg, hover: listOn.hoverGround }));
+      chk(listOn.found && listOn.hoverGround === listOn.groundImg + ' | ' + listOn.groundColor, `${tag} On, Agents list: the ground (the state) does not change under the pointer`,
+        JSON.stringify({ rest: listOn.groundImg + ' | ' + listOn.groundColor, hover: listOn.hoverGround }));
       chk(listOn.strokes && listOn.strokes.attn.color !== 'rgba(0, 0, 0, 0)' && listOn.strokes.unk.color !== 'rgba(0, 0, 0, 0)' && listOn.strokes.unk.style === 'dashed',
         `${tag} On, Agents list: a needs-you row keeps its edge, a could-not-read row its dash`, JSON.stringify(listOn.strokes));
       chk(listOn.found && listOn.hover && listOn.hover !== 'rgba(0, 0, 0, 0)',
@@ -494,8 +494,10 @@ const AGENTS_LOOK = `(() => {
       const listOff = await listLook(page);
       chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px',
         `${tag} Off, Agents list: today's bordered row with 12px corners`, JSON.stringify(listOff));
-      chk(listOn.found && listOff.found && listOn.groundImg === listOff.groundImg && listOn.groundImg !== 'none',
-        `${tag} the plain row's ground is today's grey with the look on (only its border goes)`, JSON.stringify({ on: listOn.groundImg, off: listOff.groundImg }));
+      chk(listOn.found && listOff.found && listOn.groundImg === listOff.groundImg && listOn.groundColor === listOff.groundColor && listOn.groundImg !== 'none',
+        `${tag} the plain row's ground is today's grey with the look on (only its border goes)`, JSON.stringify({ on: [listOn.groundImg, listOn.groundColor], off: [listOff.groundImg, listOff.groundColor] }));
+      chk(listOn.strokes && listOff.strokes && listOn.strokes.attn.color === listOff.strokes.attn.color && listOn.strokes.unk.color === listOff.strokes.unk.color,
+        `${tag} the needs-you and could-not-read edges are today's colours with the look on`, JSON.stringify({ on: listOn.strokes, off: listOff.strokes }));
       /* What the new look must NOT change, compared on the same board: the working card's stroke (state owns the
          stroke) and the current view's gold (Josh 2026-08-17: selected is gold). */
       chk(agOn.working === agOff.working, `${tag} the working card's stroke is the same with the look on as off`, JSON.stringify({ on: agOn.working, off: agOff.working }));
@@ -517,5 +519,5 @@ const AGENTS_LOOK = `(() => {
     for (const d of ROOTS) fs.rmSync(d, { recursive: true, force: true });
   }
   console.log(`\n${ran - fail.length}/${ran} passed`);
-  process.exit(fail.length || ran < 146 ? 1 : 0);   // a full run makes 161 (three passes with 6 list arms each); a skipped pass must fail
+  process.exit(fail.length || ran < 149 ? 1 : 0);   // a full run makes 164 (three passes with 7 list arms each); a skipped pass must fail
 })();
