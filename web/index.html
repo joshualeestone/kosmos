@@ -7314,12 +7314,18 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .micbtn { display: none; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 html.has-voice .micbtn { display: grid; }
-/* #4409 slice 2: the mic inside a dialog's text box, bottom right of a textarea, centred in a one-line input. The box
-   gets room on the right only where the mic is drawn (the Mac app). */
+/* #4409 slice 2: the mic inside a dialog's text box: top right of a textarea (clear of its resize grip), centred in a
+   one-line input. The wrapper takes the box's place in its row (a .frow is a flex row that sized the input itself), so
+   no box changes size where the mic is not drawn; the box gets room on the right only where it is (the Mac app). */
 .micwrap { position: relative; }
-.micwrap > .fieldmic { position: absolute; right: 6px; bottom: 6px; width: 28px; height: 28px; }
-.micwrap.one > .fieldmic { top: 50%; bottom: auto; transform: translateY(-50%); }
-html.has-voice .micwrap > textarea, html.has-voice .micwrap > input { padding-right: 40px; }
+.frow > .micwrap { flex: 1; min-width: 220px; }
+.micwrap > textarea { display: block; }
+.micwrap.one > input { width: 100%; box-sizing: border-box; }
+.micwrap > .fieldmic { position: absolute; right: 8px; top: 6px; width: 28px; height: 28px; }
+.micwrap.one > .fieldmic { top: 50%; transform: translateY(-50%); }
+.micwrap > :disabled + .fieldmic { display: none; }   /* a box that takes no words (instructions still loading) shows no mic */
+html.has-voice .micwrap > textarea, html.has-voice .micwrap > input,
+html.has-voice .micwrap > #d-instr, html.has-voice .micwrap > #create-instr { padding-right: 44px; }   /* the two ID rules set their own padding */
 .micbtn:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
 .micbtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .micbtn[aria-pressed="true"] { color: #c62828; background: rgba(198,40,40,.1); }
@@ -12197,7 +12203,7 @@ window.kosmosMeasureScrollbarWidth();
          real in it. Without this, /?tab=detail (a deep link this file supports)
          never calls that function at all and renders a permanently enabled,
          empty editor whose Save button does nothing when clicked. -->
-    <div class="micwrap"><textarea id="d-instr" rows="14" spellcheck="true" disabled></textarea><button class="micbtn fieldmic" type="button" data-voice-for="d-instr" data-voice-msg="d-instr-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
+    <div class="micwrap"><textarea id="d-instr" rows="14" spellcheck="true" disabled></textarea><button class="micbtn fieldmic" type="button" data-voice-for="d-instr" data-voice-name="Instructions" data-voice-msg="d-instr-msg" aria-label="Talk instead of typing: Instructions" title="Talk instead of typing: Instructions" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
     <div class="frow instr-foot">
       <!-- Pack wins (Josh, 2026-08-17 in-channel: "what we had in the pack is
          the wording we go with"): the path is NOT shown. The app's older
@@ -12699,7 +12705,7 @@ window.kosmosMeasureScrollbarWidth();
     </div>
     <div class="field">
       <label class="flabel tk-lab" for="nt-detail">Anything they should know</label>
-      <div class="micwrap"><textarea class="tk-inp" id="nt-detail" rows="3" maxlength="2000" placeholder="Optional. What it is for, what done looks like, anything you already tried."></textarea><button class="micbtn fieldmic" type="button" data-voice-for="nt-detail" data-voice-msg="nt-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
+      <div class="micwrap"><textarea class="tk-inp" id="nt-detail" rows="3" maxlength="2000" placeholder="Optional. What it is for, what done looks like, anything you already tried."></textarea><button class="micbtn fieldmic" type="button" data-voice-for="nt-detail" data-voice-name="Anything they should know" data-voice-msg="nt-msg" aria-label="Talk instead of typing: Anything they should know" title="Talk instead of typing: Anything they should know" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
     </div>
     <!-- #3861 part 2: optional, none by default. The open tasks of the project the dialog is aimed
          at; "+ Add subtask" on a task page opens this with that task already picked. -->
@@ -14957,7 +14963,7 @@ window.kosmosMeasureScrollbarWidth();
            editor sends nothing and the engine writes the same template
            server-side, so the common path has ONE copy of the words. -->
       <div class="fhint" id="create-instr-hint">Describe what this agent does and how it should work. You can edit this later.</div>
-      <div class="micwrap"><textarea id="create-instr" rows="10" spellcheck="false"></textarea><button class="micbtn fieldmic" type="button" data-voice-for="create-instr" data-voice-msg="create-instr-note" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
+      <div class="micwrap"><textarea id="create-instr" rows="10" spellcheck="false"></textarea><button class="micbtn fieldmic" type="button" data-voice-for="create-instr" data-voice-name="Instructions" data-voice-msg="create-instr-note" aria-label="Talk instead of typing: Instructions" title="Talk instead of typing: Instructions" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
       <div class="fmsg" id="create-instr-note" role="status" aria-live="polite"></div>
       <!-- #739 (Josh, 2026-08-24 21:16): the block that explained the working
            rules under this box ("Whatever you write here, your agent also gets
@@ -15928,7 +15934,7 @@ window.kosmosMeasureScrollbarWidth();
 
     <div class="field">
       <label class="flabel" for="pjs-name">Name</label>
-      <div class="micwrap one"><input class="tk-inp" type="text" id="pjs-name" maxlength="120"><button class="micbtn fieldmic" type="button" data-voice-for="pjs-name" data-voice-msg="pjs-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
+      <div class="micwrap one"><input class="tk-inp" type="text" id="pjs-name" maxlength="120"><button class="micbtn fieldmic" type="button" data-voice-for="pjs-name" data-voice-name="Name" data-voice-msg="pjs-msg" aria-label="Talk instead of typing: Name" title="Talk instead of typing: Name" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
       <!-- #1305 (Josh, 2026-08-28): "if we change a project name, do agents lose
            context of that?" He was avoiding a rename because nothing on this
            screen said whether it was destructive. It is not, twice over: the
@@ -15953,7 +15959,7 @@ window.kosmosMeasureScrollbarWidth();
            exact bug this note already forbids. The number here, the number in
            PJ_DESC_MAX and the engine's are pinned together by a test. -->
       <p class="fhint" id="pjs-desc-hint">Up to 1000 characters.</p>
-      <div class="micwrap"><textarea class="tk-inp" id="pjs-desc" rows="2" aria-describedby="pjs-desc-hint pjs-desc-note"></textarea><button class="micbtn fieldmic" type="button" data-voice-for="pjs-desc" data-voice-msg="pjs-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
+      <div class="micwrap"><textarea class="tk-inp" id="pjs-desc" rows="2" aria-describedby="pjs-desc-hint pjs-desc-note"></textarea><button class="micbtn fieldmic" type="button" data-voice-for="pjs-desc" data-voice-name="Description" data-voice-msg="pjs-msg" aria-label="Talk instead of typing: Description" title="Talk instead of typing: Description" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
       <p class="ferr" id="pjs-desc-err" aria-live="polite"></p>
       <!-- #1305, the other half of Josh's question: "if I change the description,
            are they made aware that I changed the description?" No, and there is
@@ -16158,7 +16164,7 @@ window.kosmosMeasureScrollbarWidth();
              below is the real gate either way -- it shows the exact path, or
              the refusal, before anything is made. -->
         <div class="micwrap one"><input type="text" id="pj-name" maxlength="120" placeholder="Henderson lease"
-               aria-label="What you call this project"><button class="micbtn fieldmic" type="button" data-voice-for="pj-name" data-voice-msg="pj-add-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
+               aria-label="What you call this project"><button class="micbtn fieldmic" type="button" data-voice-for="pj-name" data-voice-name="Name" data-voice-msg="pj-add-msg" aria-label="Talk instead of typing: Name" title="Talk instead of typing: Name" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
       </div>
       <!-- ⚠️ THE PATH IS SHOWN BEFORE ANYTHING IS MADE. The folder name is
            derived from what is typed (slashes become dashes), and a derivation
@@ -16195,7 +16201,7 @@ window.kosmosMeasureScrollbarWidth();
       <div class="micwrap"><textarea class="tk-inp" id="pj-add-desc" rows="2"
                 aria-label="What this project is about"
                 aria-describedby="pj-add-desc-hint"
-                placeholder="Renewing the Henderson lease before October."></textarea><button class="micbtn fieldmic" type="button" data-voice-for="pj-add-desc" data-voice-msg="pj-add-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
+                placeholder="Renewing the Henderson lease before October."></textarea><button class="micbtn fieldmic" type="button" data-voice-for="pj-add-desc" data-voice-name="Description" data-voice-msg="pj-add-msg" aria-label="Talk instead of typing: Description" title="Talk instead of typing: Description" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
       <p class="ferr" id="pj-add-desc-err" aria-live="polite"></p>
     </div>
 
@@ -16209,7 +16215,7 @@ window.kosmosMeasureScrollbarWidth();
       <div class="micwrap"><textarea class="tk-inp" id="pj-add-done" rows="2"
                 aria-label="What does done look like?"
                 aria-describedby="pj-add-done-hint"
-                placeholder="The new lease is signed and filed."></textarea><button class="micbtn fieldmic" type="button" data-voice-for="pj-add-done" data-voice-msg="pj-add-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
+                placeholder="The new lease is signed and filed."></textarea><button class="micbtn fieldmic" type="button" data-voice-for="pj-add-done" data-voice-name="What done looks like" data-voice-msg="pj-add-msg" aria-label="Talk instead of typing: What done looks like" title="Talk instead of typing: What done looks like" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
       <p class="ferr" id="pj-add-done-err" aria-live="polite"></p>
     </div>
 
@@ -60146,7 +60152,7 @@ function repaintReactions(box, list) {
 
    HEARING: speechSynthesis, measured working in the app's web view with 68 voices, all on-device. Only an
    on-device voice is used; a page with none says so rather than using a network voice. */
-const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '' };
+const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '', listening: false };
 /* #4409 (review 1 BLOCKER): which conversation the page is showing. Opening another agent or room does NOT fire
    hashchange (the URL follows the view through history.replaceState), and #d-say / #pj-post are ONE shared box each,
    so a word heard after a switch would land in the next agent's box, be parked as THEIR draft, and go to them on
@@ -60211,7 +60217,8 @@ function voicePaint(btn, state) {
   if (!btn) return;
   btn.classList.toggle('asking', state === 'asking');
   btn.setAttribute('aria-pressed', state === 'on' ? 'true' : 'false');
-  const label = state === 'off' ? 'Talk instead of typing' : 'Stop listening';
+  const name = btn.getAttribute('data-voice-name');   // #4409 slice 2: a dialog has several, each named for its box
+  const label = (state === 'off' ? 'Talk instead of typing' : 'Stop listening') + (name ? ': ' + name : '');
   btn.setAttribute('aria-label', label);
   btn.title = label;
 }
@@ -60243,7 +60250,7 @@ function voiceToggle(btn) {
   const s0 = typeof box.selectionStart === 'number' ? box.selectionStart : v.length;
   const s1 = typeof box.selectionEnd === 'number' ? box.selectionEnd : v.length;
   VOICE.seq += 1;
-  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), selected: v.slice(s0, s1), where: voiceWhere(box), id: 's' + VOICE.seq, last: v });
+  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), selected: v.slice(s0, s1), where: voiceWhere(box), id: 's' + VOICE.seq, last: v, listening: false });
   voiceUnsayOwn(btn);   // review 6: clear only the mic's own earlier lines, never another message's (a failed send, a refusal)
   voicePaint(btn, 'asking');
   h.postMessage({ op: 'start', id: VOICE.id });
@@ -60269,7 +60276,7 @@ function voiceOnEvent(ev) {
      page started with; an app from before the id carries none, and is taken as it always was. */
   if (ev.id != null && ev.id !== VOICE.id) return;
   const btn = VOICE.btn;
-  if (ev.kind === 'listening') { voicePaint(btn, 'on'); if (voiceMsgEmpty(btn)) voiceSay(btn, VOICE_LISTENING); return; }   // never over another message's line   // review 5: focus is in the box, so say it there
+  if (ev.kind === 'listening') { VOICE.listening = true; voicePaint(btn, 'on'); if (voiceMsgEmpty(btn)) voiceSay(btn, VOICE_LISTENING); return; }   // never over another message's line   // review 5: focus is in the box, so say it there
   if ((ev.kind === 'partial' || ev.kind === 'final') && VOICE.box) {
     const box = VOICE.box;
     /* 🛑 The view moved (another agent, room, the Guide closed, the window hidden): these words were meant for the
@@ -60307,25 +60314,32 @@ function voiceSpeakWatch() {
    dictation needs no held finger. The pointer does the work on press and release; its own click is then ignored.
    A keyboard press (Enter or Space) has no pointer and still toggles through the click. */
 const VOICE_HOLD_MS = 300;
-let VOICE_PRESS = null;   // { btn, at, stopping } while a pointer is down on a mic
+let VOICE_PRESS = null;   // { btn, at, stopping, pointer } while a pointer is down on a mic
 document.addEventListener('pointerdown', (e) => {
-  const mic = e.button === 0 && e.target.closest && e.target.closest('.micbtn');
+  const mic = e.button === 0 && !e.ctrlKey && e.target.closest && e.target.closest('.micbtn');   // Ctrl+click opens a menu on a Mac
   if (!mic) return;
   e.preventDefault();   // keep focus (and the caret) in the box
   const stopping = VOICE.btn === mic;   // pressing a mic that is listening stops it, as a tap always did
-  VOICE_PRESS = { btn: mic, at: Date.now(), stopping };
+  VOICE_PRESS = { btn: mic, at: Date.now(), stopping, pointer: e.pointerId };
   voiceToggle(mic);
 }, true);
-function voiceRelease() {
+function voiceRelease(e) {
   const press = VOICE_PRESS;
+  if (!press || (e && e.pointerId !== press.pointer)) return;
   VOICE_PRESS = null;
-  if (!press || press.stopping || VOICE.btn !== press.btn) return;
+  if (press.stopping || VOICE.btn !== press.btn) return;
   if (Date.now() - press.at < VOICE_HOLD_MS) return;   // a tap: keep listening until the next tap
+  /* Not listening yet (the first use asks macOS for the microphone, and the person lets go to answer): a release now
+     would drop the start, so it is taken as a tap, and the next tap stops. */
+  if (!VOICE.listening) return;
   const h = voiceBridge();
   if (h) h.postMessage({ op: 'stop' });   // a hold: let go and it stops, keeping what it heard
 }
 document.addEventListener('pointerup', voiceRelease, true);
 document.addEventListener('pointercancel', voiceRelease, true);
+/* A release the page never hears (a menu or a system sheet takes the mouse) must not arm a later click as a hold. */
+document.addEventListener('contextmenu', () => { VOICE_PRESS = null; }, true);
+window.addEventListener('blur', () => { VOICE_PRESS = null; });
 document.addEventListener('click', (e) => {
   const mic = e.target.closest && e.target.closest('.micbtn');
   if (mic) { e.preventDefault(); if (e.detail === 0) voiceToggle(mic); return; }   // e.detail 0: the keyboard, no pointer

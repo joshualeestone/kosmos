@@ -19,7 +19,10 @@
  *   V10 (slice 2) HOLD the mic to talk: the words land while held, and letting go asks the bridge to stop
  *   V11 (slice 2) a short TAP still toggles: letting go keeps listening, and the next tap stops
  *   V12 (slice 2) the dialogs' text boxes carry a mic (every one listed), and holding the New project
- *       description's mic puts the spoken sentence in that box
+ *       description's mic puts the spoken sentence in that box; each box's text clears its mic, the Name field
+ *       still fills its row, a one-line mic is centred, a textarea's mic is clear of its resize grip, a disabled box
+ *       shows no mic, and letting go before the bridge is listening (first use asks macOS) does not stop it
+ *   V1b in a browser (no bridge) the Name field fills its row exactly as with no wrapper: wrapping changes nothing
  *
  * Harness: file:// with fetch answered here (render-dm-reply-4256.js's posture), the real paintTalk. The
  * bridge and speechSynthesis are stand-ins that RECORD what the page asked of them: a microphone and a voice
@@ -108,6 +111,17 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     const v1 = { cls: await plain.evaluate(() => document.documentElement.classList.contains('has-voice')), dm: await shown(plain, '#d-mic'), room: await shown(plain, '#pj-mic'),
       exists: await plain.evaluate(() => !!document.getElementById('d-mic') && !!document.getElementById('pj-mic')) };
     chk(v1.exists && !v1.cls && !v1.dm && !v1.room, 'V1 a browser with no on-device bridge draws no mic (the buttons exist, hidden)', JSON.stringify(v1));
+    const plainName = await plain.evaluate(() => {
+      document.getElementById('panel-detail').hidden = true;
+      const pp = document.getElementById('panel-projects'); if (pp) pp.hidden = false;
+      if (typeof openAddProject === 'function') openAddProject();
+      document.getElementById('pj-add-view').hidden = false;
+      const name = document.getElementById('pj-name'), row = name.closest('.frow');
+      const others = [...row.children].filter((c) => !c.contains(name)).reduce((w, c) => w + c.getBoundingClientRect().width, 0);
+      return { nameW: name.getBoundingClientRect().width, rowW: row.getBoundingClientRect().width, others, mic: getComputedStyle(document.querySelector('.fieldmic')).display, pad: getComputedStyle(name).paddingRight };
+    });
+    chk(plainName.mic === 'none' && plainName.nameW >= plainName.rowW - plainName.others - 24 && parseFloat(plainName.pad) < 36,
+      'V1b in a browser the Name field still fills its row, with no mic and no extra padding', JSON.stringify(plainName));
     await plain.close();
 
     // V2-V6: the app.
@@ -205,6 +219,23 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       if (typeof openAddProject === 'function') openAddProject();
       const view = document.getElementById('pj-add-view'); if (view) view.hidden = false;
     });
+    const geo = await page.evaluate(() => {
+      const out = {};
+      for (const b of document.querySelectorAll('.micbtn.fieldmic')) {
+        const box = document.getElementById(b.getAttribute('data-voice-for'));
+        out[box.id] = { pad: parseFloat(getComputedStyle(box).paddingRight) };
+      }
+      const name = document.getElementById('pj-name'), row = name.closest('.frow');
+      const nm = name.getBoundingClientRect(), mic = document.querySelector('.fieldmic[data-voice-for="pj-name"]').getBoundingClientRect();
+      const ta = document.getElementById('pj-add-desc').getBoundingClientRect(), tm = document.querySelector('.fieldmic[data-voice-for="pj-add-desc"]').getBoundingClientRect();
+      const others = [...row.children].filter((c) => !c.contains(name)).reduce((w, c) => w + c.getBoundingClientRect().width, 0);
+      return { pads: out, nameW: nm.width, rowW: row.getBoundingClientRect().width, others,
+        centred: Math.abs((mic.top + mic.height / 2) - (nm.top + nm.height / 2)), micTopGap: tm.top - ta.top, micBottomGap: ta.bottom - tm.bottom };
+    });
+    const padsOk = Object.values(geo.pads).every((x) => x.pad >= 36);
+    chk(padsOk, 'V12 every box with a mic leaves room on its right, so its text never runs under the mic', JSON.stringify(geo.pads));
+    chk(geo.nameW >= geo.rowW - geo.others - 24, 'V12 the Name field still fills its row (the wrapper takes its place in the flex row)', JSON.stringify({ nameW: geo.nameW, rowW: geo.rowW, others: geo.others }));
+    chk(geo.centred <= 3 && geo.micTopGap <= 10 && geo.micBottomGap >= 12, 'V12 a one-line mic is centred; a textarea\'s mic is at its top, clear of the resize grip', JSON.stringify(geo));
     const descMic = page.locator('.fieldmic[data-voice-for="pj-add-desc"]');
     const dm = await descMic.boundingBox();
     const descBox = await page.locator('#pj-add-desc').boundingBox();
@@ -220,6 +251,26 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       'V12 the New project description\'s mic sits inside its box, and holding it puts the spoken sentence in the box', JSON.stringify({ inside, ...v12 }));
     await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'stopped' }));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'voice-newproject.png') });
+    // V12 first use: let go before the bridge is listening (macOS is asking for the microphone): no stop, so the
+    // pending start is not dropped; the next tap stops.
+    const n3 = await page.evaluate(() => window.__voice.length);
+    const dm2 = await descMic.boundingBox();
+    await page.mouse.move(dm2.x + dm2.width / 2, dm2.y + dm2.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(450);
+    await page.mouse.up();
+    const early = await page.evaluate((n) => window.__voice.slice(n).map((m) => m.op), n3);
+    chk(JSON.stringify(early) === '["start"]', 'V12 letting go before the bridge is listening (a permission prompt) does not stop it', JSON.stringify(early));
+    await page.evaluate(() => { window.kosmosVoiceEvent({ kind: 'listening' }); });
+    const dm3 = await descMic.boundingBox();
+    await page.mouse.move(dm3.x + dm3.width / 2, dm3.y + dm3.height / 2);
+    await page.mouse.down(); await page.mouse.up();
+    await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'stopped' }));
+    // V12 a disabled box shows no mic (the agent's instructions before they load).
+    const dis = await page.evaluate(() => { const b = document.getElementById('d-instr'); const was = b.disabled; b.disabled = true;
+      const m = document.querySelector('.fieldmic[data-voice-for="d-instr"]'); const shownMic = getComputedStyle(m).display !== 'none';
+      b.disabled = false; const shownOn = getComputedStyle(m).display !== 'none'; b.disabled = was; return { shownMic, shownOn }; });
+    chk(!dis.shownMic && dis.shownOn, 'V12 a disabled box shows no mic; enabled, it does', JSON.stringify(dis));
     await page.evaluate(() => { const pp = document.getElementById('panel-projects'); if (pp) pp.hidden = true; document.getElementById('pj-add-view').hidden = true; document.getElementById('panel-detail').hidden = false; });
 
     // V7: read aloud, on a freshly painted thread (V5's send left a "Sending" row of the person's).

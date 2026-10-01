@@ -12,7 +12,7 @@ dialogues". Splinter handed it to me at 17:03.
 2. A mic inside the dialogs' text boxes: New project (name, description, what done looks like), New task
    (`nt-detail`), New agent (`create-instr`), the agent's instructions editor (`d-instr`), and the project settings
    (`pjs-name`, `pjs-desc`). Each is a `.micbtn.fieldmic` with `data-voice-for` in a `.micwrap`, at the box's bottom
-   right (centred in a one-line input); each says its lines in that dialog's own message line.
+   right at first, moved to the top right in review 1 (centred in a one-line input); each says its lines in that dialog's own message line.
 3. Mac app only, as slice 1 (drawn only with the on-device bridge, `html.has-voice`). Same bridge, no native change:
    `stop` already ends the audio and lets the recognizer deliver its final result.
 
@@ -37,3 +37,18 @@ while held, release sends stop, the caret stays in the box; V11 a short tap keep
 V12 every dialog box in scope has its mic, the New project description's mic sits inside its box, and holding it puts
 the sentence in the box. V1 to V9 unchanged and passing. Mutations: no stop on release reds V10 and V12; toggling on
 the pointer's click as well reds V2, V10, V11, V12. web.voice-4409.test.js 20/20.
+
+## Review rounds
+- Round 1 (opus): FIXED BLOCKER: wrapping pj-name in .micwrap took it out of its .frow flex row, so the Name field
+  shrank for everyone; the wrapper now takes the field's place (flex: 1) and the input fills it; V1b (no bridge) and
+  V12 check it fills its row. FIXED W: #d-instr and #create-instr have ID padding rules that beat the room for the
+  mic; explicit rules now (V12 checks all eight boxes' padding). FIXED W: the mic sat on the textareas' resize grip;
+  it is at the top right now (V12 checks). FIXED W: on first use the person lets go to answer macOS's microphone
+  prompt, and that release dropped the pending start; a release before the bridge says listening is a tap (V12).
+  FIXED W: a release the page never hears (Ctrl+click menu, a system sheet) left the press armed; cleared on
+  contextmenu and window blur, Ctrl+click ignored, and the release must be the same pointer. FIXED NITs: a disabled
+  box (instructions still loading) shows no mic (V12); each mic is named for its box ("Talk instead of typing:
+  Name"), kept when it changes to "Stop listening"; textareas in the wrapper are block. NOT MEASURED: WKWebView's
+  click detail (the keyboard test) and VoiceOver; Chromium only here. Mutations: the flex rule, the ID padding and
+  the listening gate each red their check.
+
