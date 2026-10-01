@@ -2215,6 +2215,10 @@ cmd_report() {
   # Handled before the state parse so the write path below is unchanged.
   case "${1:-}" in
     show|status) shift 2>/dev/null || true; cmd_report_show "$@"; return ;;
+    # #4891 N4: nothing said how to take a needs_you (or blocked) back off the board. Reporting any other state
+    # by hand replaces it (#900 only stops an AUTOMATIC idle from doing so), and working is the honest one: you
+    # are back at it. `clear` is that, by a name a person or an agent would guess.
+    clear) shift 2>/dev/null || true; set -- working "$@" ;;
   esac
   local state text body because on="" owner="" until="" project="" auto=0
   state="${1:-}"
@@ -2234,6 +2238,8 @@ cmd_report() {
   text="$*"
   if [ -z "$state" ]; then
     say "Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]"
+    say "  kosmos report show     (what the board has for you now; kosmos report status is the same)"
+    say "  kosmos report clear    (take your needs_you or blocked off the board: the same as reporting working)"
     exit 2
   fi
   # #2001: blocked and needs_you are the only two states that exist to SUMMON A
@@ -2847,9 +2853,29 @@ cmd_room() {
     esac
     exit 0
   fi
+  # #4891 N8: `-n N` / `--limit N` (or `--limit=N`) reads only the last N rows (1 to 200; 40 without it). Before
+  # this, -n was ignored and the whole tail printed. Either side of the project id.
+  local _n="" _ngiven=0 _arg
+  project=""
+  while [ $# -gt 0 ]; do
+    _arg="$1"; shift
+    case "$_arg" in
+      -n|--limit) _ngiven=1; _n="${1:-}"; shift 2>/dev/null || true ;;
+      --limit=*)  _ngiven=1; _n="${_arg#--limit=}" ;;
+      -*) say "kosmos room takes only -n N (or --limit N)."; exit 2 ;;
+      *)  if [ -z "$project" ]; then project="$_arg"; else say "kosmos room reads one project at a time."; exit 2; fi ;;
+    esac
+  done
   if [ -z "$project" ]; then
-    say "Usage: kosmos room <project-id>   (read a room; or: kosmos room reopen <project-id> to clear a loop-guard hold)"
+    say "Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)"
     exit 2
+  fi
+  # Checked as text first (no leading 0, at most 3 digits), so a huge number can never reach bash arithmetic.
+  if [ "$_ngiven" = 1 ]; then
+    case "$_n" in
+      ''|*[!0-9]*|0*) say "-n takes a whole number from 1 to 200."; exit 2 ;;
+    esac
+    if [ "${#_n}" -gt 3 ] || [ "$_n" -gt 200 ]; then say "-n takes a whole number from 1 to 200."; exit 2; fi
   fi
   if ! healthy; then
     say_not_up "the room cannot be read"
@@ -2873,7 +2899,7 @@ cmd_room() {
   # once the CLI stops holding the person's board token.
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
-  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/project/$esc_project/room?as=text" 2>/dev/null) || _rc=$?
+  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/project/$esc_project/room?as=text${_n:+&n=$_n}" 2>/dev/null) || _rc=$?
   if [ "$_rc" -ne 0 ]; then
     say_unreached "read that room" "$_rc"
     exit 1
@@ -3032,6 +3058,10 @@ if [ "$_kosmos_help" = 1 ]; then
       _hrc=0; ( "$SELF" "$1" ) || _hrc=$?
       [ "$_hrc" -eq 2 ] && exit 0
       exit "$_hrc" ;;
+    agents)
+      # #4891 N9: it fell to the general list below. It takes no arguments and only reads.
+      printf 'Usage: kosmos agents   (list the agent sessions running on this computer, as Kosmos'"'"'s own tmux sees them)\n'
+      exit 0 ;;
     inbox)
       # #4784 review 1: NOT with the read-only group below. Run bare, inbox prints the person's private
       # messages, which is not what --help promises.

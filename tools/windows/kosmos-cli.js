@@ -84,10 +84,10 @@ const USAGE = {
   reply: 'Usage: kosmos reply [--stdin] <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated; --stdin: read the reply from stdin, so backticks and $ arrive as written)',
   post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and $ arrive as written; text only, file attachments are not supported yet, kosmos#1955)',
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
-  report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)',
+  report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)\n  kosmos report clear    (take your needs_you or blocked off the board: the same as reporting working)',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
   inbox: 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)',
-  room: 'Usage: kosmos room <project-id>   (read a room; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
+  room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   task: [
     'Usage: kosmos task <list|add|close|message|built|hold|unhold>',
     '  kosmos task list <project-id>                                 list this project\'s tasks',
@@ -601,10 +601,23 @@ async function verbInbox(ctx, args) {
 }
 
 async function verbRoom(ctx, args) {
-  const project = args[0];
+  /* #4891 N8, as install/kosmos cmd_room: -n N / --limit N / --limit=N, either side of the project id. */
+  let project = '';
+  let n = '';
+  let given = false;
+  while (args.length) {
+    const a = args.shift();
+    if (a === '-n' || a === '--limit') { given = true; n = args.length ? args.shift() : ''; continue; }
+    const m = /^--limit=(.*)$/.exec(a);
+    if (m) { given = true; n = m[1]; continue; }
+    if (a.startsWith('-')) { ctx.err('kosmos room takes only -n N (or --limit N).'); return 2; }
+    if (project) { ctx.err('kosmos room reads one project at a time.'); return 2; }
+    project = a;
+  }
   if (!project) { ctx.err(USAGE.room); return 2; }
+  if (given && !(/^[1-9]\d{0,2}$/.test(n) && Number(n) <= 200)) { ctx.err('-n takes a whole number from 1 to 200.'); return 2; }
   // #4491 slice 4: the agent's own token rides too (the default), as on the Mac, so the read works without the board token.
-  const r = await ctx.call('GET', '/api/project/' + projectSlug(project) + '/room?as=text');
+  const r = await ctx.call('GET', '/api/project/' + projectSlug(project) + '/room?as=text' + (given ? '&n=' + n : ''));
   if (!r.reached) return ctx.unreachable('read that room');
   ctx.out(String(r.text || '').replace(/\n$/, ''));
   return r.status >= 400 ? 1 : 0;
@@ -1219,7 +1232,8 @@ const VERB_HANDLERS = {
   connect: verbConnect,
 };
 const SUBCOMMAND_HANDLERS = {
-  report: { show: reportShow, status: reportShow },
+  // #4891 N4, as install/kosmos: clear is reporting working.
+  report: { show: reportShow, status: reportShow, clear: (ctx, args) => verbReport(ctx, ['working', ...args]) },
   room: { reopen: roomReopen },
   task: { list: taskList, add: taskAdd, close: taskClose, message: taskMessage, built: taskBuilt, hold: taskHoldAs(true), unhold: taskHoldAs(false) },
   project: { list: projectList, show: projectShow, create: projectCreate },

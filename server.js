@@ -15807,6 +15807,13 @@ const server = http.createServer(async (req, res) => {
       }
       forTasksView = false;
     }
+    /* #4891 N6: `kosmos task list nosuch` printed "No tasks for this project yet" and exited 0, while `project show
+       nosuch` refuses. An unknown project is said as one, on the list form the CLIs read (the token-only arm above
+       already did). The Tasks view keeps its old answer: its doors only ever name a project the page just listed. */
+    if (projectScope && !forTasksView && !(everyProject || []).some((x) => x && x.id === projectScope)) {
+      sendJson(res, 404, { error: 'there is no project by that name' });
+      return;
+    }
     const all = tasks.allTasks(everyProject);
     const scoped = projectScope ? all.filter((t) => t.projectId === projectScope) : all;
     /* The fields below cost a board snapshot plus a transcript read per task, so only the
@@ -16424,7 +16431,15 @@ const server = http.createServer(async (req, res) => {
        (`kosmos room`) passes ?as=text, the web board reads JSON. #2702's reject
        and the existing render must agree on which arm this is. */
     let asText = false;
-    try { asText = new URL(req.url, ROUTING_BASE).searchParams.get('as') === 'text'; } catch { asText = false; }
+    /* #4891 N8: `kosmos room <id> -n N` asks for the last N rows of the text view (1 to 200; 40 when not given or
+       not a whole number in range, so an older CLI and a bad value both get what they always got). */
+    let textRows = 40;
+    try {
+      const q = new URL(req.url, ROUTING_BASE).searchParams;
+      asText = q.get('as') === 'text';
+      const n = q.get('n');
+      if (n !== null && /^[1-9]\d{0,2}$/.test(n) && Number(n) <= 200) textRows = Number(n);
+    } catch { asText = false; }
     /* #2702: reject an UNKNOWN project the way /api/post and /api/react already
        do, instead of rendering it as an empty room -- a typo or a hyphenated-name
        guess otherwise reads identically to genuine silence, and the agent acts on
@@ -16544,12 +16559,13 @@ const server = http.createServer(async (req, res) => {
            machine the operator is sitting at, never to an error. */
         let zone = null;
         try { zone = (store.readSettings() || {}).timezone || null; } catch { zone = null; }
-        /* #3311: at most 20 of the 40 rows shown come from outside, so a busy
-           peer cannot push every local post out of the view agents read. */
+        /* #3311: at most half the rows shown (20 of the default 40) come from outside, so a busy
+           peer cannot push every local post out of the view agents read. #4891: of `textRows`. */
         const tail = [];
         let outside = 0;
-        for (let i = rows.length - 1; i >= 0 && tail.length < 40; i--) {
-          if (rows[i] && rows[i].kind === 'external') { if (outside >= 20) continue; outside += 1; }
+        const outsideCap = Math.floor(textRows / 2);
+        for (let i = rows.length - 1; i >= 0 && tail.length < textRows; i--) {
+          if (rows[i] && rows[i].kind === 'external') { if (outside >= outsideCap) continue; outside += 1; }
           tail.unshift(rows[i]);
         }
         const lines = tail.flatMap((m) => {
