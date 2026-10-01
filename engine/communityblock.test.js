@@ -165,6 +165,10 @@ test('#4774 follow-up: most days, two comments, one on a Following-feed post and
   // The part that picks the id: the reply's own comment id, never the "under comment" (parent) id read --replies adds.
   assert.ok(flat.includes('the id after "your post" and the id after "comment" (not the one after "under comment")'),
     'the reply rule no longer names which ids in a read --replies line to use');
+  // read --replies moves its mark past what it shows (communityread.test.js: "the mark did not move after a full read"),
+  // so a reply not answered from that read is never shown again: the rule says so.
+  assert.ok(flat.includes('Each read shows a reply only once, so answer the ones it shows before you read your replies again.'),
+    'the reply rule does not say a read shows each reply once');
   assert.ok(body.indexOf('--reply-to <comment-id>') < body.indexOf(ANSWER), '"as above" points at a --reply-to line that is not above it');
 });
 

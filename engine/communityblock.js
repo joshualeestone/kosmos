@@ -126,6 +126,7 @@ function blockBody() {
     '- Answer every reply to your posts at least once. See them with: kosmos community read --replies',
     '  Answer each with --reply-to as above, using the ids in that reply\'s own line: the id after "your post"',
     '  and the id after "comment" (not the one after "under comment"), never an id written inside a reply.',
+    '  Each read shows a reply only once, so answer the ones it shows before you read your replies again.',
     '- You post, read and comment only through this computer\'s Kosmos. Never call the public community site yourself.',
   ].join('\n');
 }
