@@ -149,6 +149,15 @@ remote-unreadable-4308, engine.reachable, fixture-discipline) pass.
   says it writes no stamp. Left: switching off then Forget can now wait up to 20 s for the flip's ask (stated
   in setOn's comment; recorded on the card with the PR); the off-at-once test is not the flag's guard (others are).
 
+## Review 15 (sonnet, blind): 0 blockers, 3 warnings (2 duplicates), 3 nits
+- W, taken: the cancelledAfter test now also pins the flag (fresh stamp, ordinary TTL: the next poll still
+  asks, and says off; red without the flag). forgetNow's clear is still untested (it needs a full Forget).
+- Duplicates: switching on asks at once and its "starting" report replaces the kept diagnosis (review 10,
+  stated; a bare-on body for that ask was considered and left: the next on report replaces it within minutes);
+  the shipping order.
+- Nits taken: a doubled comment on an export; the retry stamp's comment says s.on is the pre-ask value and a
+  flip meanwhile re-asks.
+
 ## Weakest premise
 That one bit about remote access is not something #4731 meant to keep back. #4731's comment says "no
 remote report" while off; this sends no report FIELDS, only the switch's state, which the computer's owner

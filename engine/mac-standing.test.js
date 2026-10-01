@@ -457,7 +457,21 @@ test('#4743: a sign-in cancelled after it registered leaves the switch off AND t
   assert.equal(after.on, false, 'a cancelled sign-in left the switch on');
   assert.ok(Date.now() - after.standing_at > remote.OFF_STANDING_TTL_MS,
     'the standing stamp is fresh, so after a restart the off would wait the whole off cadence: ' + after.standing_at);
-  remote.resetForTests();   // the flag it set must not reach the next test
+  // The flag too: with the stamp made fresh (as a restart-free poll would see after another writer), the
+  // next poll on its ordinary TTL still asks, and says off.
+  fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(after, { standing_at: Date.now() })) + '\n');
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    await remote.refreshStandingIfStale({ ttlMs: 10 * 60 * 1000 });
+    await waitForFakeCalls(fake, 1, 5000);
+    const off = fake.calls().find((c) => fake.flag(c, '--path') === '/v1/mac/standing');
+    assert.ok(off, 'the cancelled sign-in left no pending flip: a fresh stamp kept the off untold');
+    assert.deepEqual(JSON.parse(off.stdin), { remote: { on: false } });
+  } finally {
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+    remote.resetForTests();   // nothing it set may reach the next test
+  }
 });
 
 test('#4743: saving the switch at the value it already has sends nothing', async () => {

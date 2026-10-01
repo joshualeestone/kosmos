@@ -363,6 +363,7 @@ async function refreshStandingIfStale(opts) {
     } else {
       // could not determine: KEEP the last-known value, back the retry off to the next TTL; while OFF,
       // stamped so the retry lands OFF_RETRY_MS from now rather than a whole OFF_STANDING_TTL_MS (#4731).
+      // s.on is the switch as read before the ask; a flip made meanwhile set flipPending, which re-asks below.
       write({ standing_at: s.on === true ? Date.now() : Date.now() - (OFF_STANDING_TTL_MS - OFF_RETRY_MS) });
     }
   } catch { /* refresh is best-effort; a poll must never see this throw */ }
@@ -2285,8 +2286,8 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  turnOnAfterSigninForTests: turnOnAfterSignin,
-  cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only   // kosmos#4743: tests only (it skips setOn's busy() check)
+  turnOnAfterSigninForTests: turnOnAfterSignin,   // kosmos#4743: tests only (it skips setOn's busy() check)
+  cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
   standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
   standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
   resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
