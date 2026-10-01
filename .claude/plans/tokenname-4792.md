@@ -4,9 +4,11 @@ Card: joshualeestone/kosmos#4792 (claimed:angel, night shift; follow-up named on
 Branch tokenname-4792 off main.
 
 ## What finished looks like
-Two agents whose names share a token key ("Mara" and "mara") each speak only as themselves, on every path a token
-reaches: the roster resolve, the paneless fallback, the token-only reads, and the outbox's keep-time sender. A
-stopped twin's token never resolves as the running one.
+Two agents whose names share a token key ("Mara" and "mara") each speak only as themselves wherever a pane row or
+the token's own name decides: the roster resolve against pane rows, the paneless fallback, the token-only reads and
+the outbox's keep-time sender. A stopped twin's token never resolves as a running PANE twin. Where the board itself
+knows an agent only by its key (a paneless or never-run row), the key path holds, refused once two names hold
+tokens under it (residual below).
 
 ## The change
 - engine/sendertoken.js: `mint` records `name` (the exact name given) on each token. `resolve`: a named token
@@ -30,7 +32,16 @@ stopped twin's token never resolves as the running one.
   supervisor strips the world suffix and -discord exactly as launchidentity.agentNameFromSession does for the
   roster; adopt, win32create and the remote token route pass the agent name. A mismatch would refuse that agent's
   token (fails closed, visible), never admit another.
-- Residual, disclosed: an older token whose file has tokens for exactly one name is assumed to be that agent's.
+- Residuals, disclosed:
+  - An older token whose file has tokens for exactly one name is assumed to be that agent's.
+  - A row with no session (paneless remote, or created-never-run) is listed and stored by its KEY, and the board
+    addresses and delivers to it by that key, so the card stays under the key. Such a row cannot tell remote "Kip"
+    from a stopped Mac agent "kip" that holds no tokens (its run token is retired when it stops): Kip's token would
+    speak there as "kip". Renaming the card to the token's spelling was rejected: delivery and every key-keyed
+    record would then miss for every remote agent whose name has capitals or punctuation. Closing it needs a
+    paneless row that carries its own name (status.js), a separate change.
+  - revoke(name) drops every name under the key (predates this; per-name revoke is now possible, a follow-up).
+  - POST /api/agent-token's 409 sees only RUNNING pane rows (predates this).
 
 ## Tests
 - engine/sendertoken.test.js: named twins each resolve to themselves (and resolveName says so); a stopped twin is
@@ -42,3 +53,11 @@ stopped twin's token never resolves as the running one.
   check (1 red, after adding the older-token test: it survived before); token-only reads by key (1 red); outbox
   by key (1 red).
 - Every test file that touches the token store: 99 files, 2161 pass, 0 fail, 15 skipped.
+
+## Review
+Round 1 (blind): no blocker, three should-fix. Taken: an older token is refused in resolve too once two names hold
+tokens under its key (it resolved as the one running row); token-only reads admit the stored KEY while no twin
+(the board stores a remote agent's membership by key, so remote "Kip" lost its own project's reads). Not taken as a
+code change, stated as a residual above: the key-listed row speaking under the key (renaming the card breaks
+delivery). Nits taken: named twins with only a key row are logged once; stale comments (server.js limitation note,
+sameAgentName, sendertoken overclaim). Mutants for both fixes caught; the four touched files 99/99.
