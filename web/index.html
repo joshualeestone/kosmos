@@ -58912,9 +58912,10 @@ function pjReplyWords(text) {
 /* What the strip and the header quote: the first line, or for a post with no words the file it
    carried, so "Replying to You:" is never followed by nothing. */
 function pjReplyGist(m, who) {
-  /* #4873: an agent's own leading name is dropped here too, since the strip and the header name it beside the gist. */
+  /* #4873: an agent's own leading name is dropped here too, since the strip and the header name it beside the gist.
+     An external post (#3311) is drawn as written, so its gist is too. */
   const raw = m && m.text;
-  const words = pjReplyWords(m && m.operator !== true && m.from && typeof pjDropSelfName === 'function'
+  const words = pjReplyWords(m && m.operator !== true && m.kind !== 'external' && m.from && typeof pjDropSelfName === 'function'
     ? pjDropSelfName(raw, [who, m.from]) : raw);
   if (words) return words;
   const f = pjFiles(m)[0];

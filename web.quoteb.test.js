@@ -158,4 +158,6 @@ test('#4873: the reply gist drops the original sender\'s own leading name, besid
   assert.equal(api.pjReplyGist(row('leo', 'Leo: the plan is ready'), 'Leo'), 'the plan is ready');
   assert.equal(api.pjReplyGist(row('leo', 'Mara: the plan is ready'), 'Leo'), 'Mara: the plan is ready');
   assert.equal(api.pjReplyGist({ ...row('leo', 'Leo: mine'), operator: true }, 'You'), 'Leo: mine', 'the person\'s gist was changed');
+  assert.equal(api.pjReplyGist({ ...row('Leo', 'Leo: from outside'), kind: 'external' }, 'Leo'), 'Leo: from outside',
+    'an external post\'s gist lost a name its row still shows');
 });
