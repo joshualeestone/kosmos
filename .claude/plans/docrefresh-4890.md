@@ -47,7 +47,7 @@ missing-headings rule. 3 of 3 here did (v15 twice, v18 once), a small sample. A 
 who edited theirs is offered only missing headings, as before; birth in the span is the lasting fix.
 
 ## Tests
-engine/doctrine-4890.test.js (28): birth span and current-at-birth; the card's case (a same-heading change reaches an
+engine/doctrine-4890.test.js (29): birth span and current-at-birth; the card's case (a same-heading change reaches an
 agent born before it); replace in place with a control; an edited, a one-character-edited and today's copy are not
 replaced; marker fallback; the shipped table's pairing guard; server flag and dialog copy. Mutations: dropping the
 past-block match, the today's-copy skip, or the line-start check each red a test. create.test.js: the verbatim test
@@ -141,4 +141,11 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   unedited earlier block (a restored .previous) still gets the banner. FIXED NITs: refresh's docblock sits above
   refresh again; the carried-version comment no longer says every agent is born in a span. Both behaviour changes
   mutated, each reds a test.
+- Round 17 (sonnet): FIXED W: the dialog body is now tested by RUNNING its expression for all four plan shapes
+  (replacing x updating), which found the combined shape still opened "Your words stay exactly as they are" while
+  saying edits inside the block are reset; it now says "outside the marked block" there too (mutation reds it).
+  DEFERRED W: an older block missing from the table reads as edited, which errs safe (no banner at the carried
+  version, the fleet click leaves it, the next version offers it); guarded by the per-version row test and the
+  generator failing on an unloadable version. FIXED NITs: atBirth's docblock lists its four cases; the table's
+  header says it holds every block from git history, released or not.
 

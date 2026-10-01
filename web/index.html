@@ -38992,8 +38992,8 @@ document.getElementById('d-doctrine-add').addEventListener('click', () => {
      "it". */
   /* #4890: the sentence follows what the plan says the click writes (plan.replacing, plan.updating). */
   document.getElementById('doc-body').textContent = (plan.replacing
-    ? 'Your words stay exactly as they are. The older copy of these rules that Kosmos added is replaced with '
-      + 'the current one. '
+    ? (plan.updating ? 'Your words outside the marked block stay exactly as they are. ' : 'Your words stay exactly as they are. ')
+      + 'The older copy of these rules that Kosmos added is replaced with the current one. '
     : plan.updating
       ? 'Your words outside the marked block stay exactly as they are. The working rules in it are brought up to date. '
       : 'Your words stay exactly as they are. These go underneath, under their own '

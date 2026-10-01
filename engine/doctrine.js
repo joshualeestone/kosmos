@@ -82,10 +82,12 @@ function spanBody(sectionsList, now, opening) {
  * #4890: the working rules as an agent is BORN with them, inside the managed span, so a later change under an
  * existing heading reaches it through the consented refresh. Before this, birth wrote them as plain text
  * (defaults.appendTo) and planFor can offer a plain file only the headings it lacks, so such a change reached
- * new agents only. Text that already carries the rules is returned as it is, except today's block inline at
- * creation, which is framed in place; text that already holds a
- * doctrine marker (pasted from another agent's file) gets the plain block rather than a span spliced among
- * markers it did not write.
+ * new agents only. The cases:
+ *   - text holding a doctrine marker already (pasted from another agent's file): the plain block, never a span
+ *     spliced among markers it did not write;
+ *   - text carrying today's block inline: framed in place at creation, left as it is on import (opts.frameInline);
+ *   - text carrying the rules any other way: left as it is;
+ *   - otherwise: the span, or the plain block where only that fits under `maxBytes`.
  */
 function atBirth(text, now, maxBytes, opts) {
   const body = String(text == null ? '' : text);

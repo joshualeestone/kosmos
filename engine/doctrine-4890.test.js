@@ -94,7 +94,7 @@ test('#4890: the board passes `replacing` through, and the dialog says the older
     'the fleet list does not check a Not now first, as the fleet click does');
   assert.match(server, /\(doctrine\.fleetLeaves\(st\) \|\| st\.because \|\| null\),/);
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
-  assert.match(page, /\(plan\.replacing\s*\n\s*\? 'Your words stay exactly as they are\. The older copy of these rules that Kosmos added is replaced with '/,
+  assert.ok(page.includes("+ 'The older copy of these rules that Kosmos added is replaced with the current one. '"),
     'the consent dialog no longer says the older copy is replaced');
 });
 
@@ -337,4 +337,25 @@ test('#4890 review 16: an UNEDITED earlier block in a span at the carried versio
   store.writeProfile('restored', { doctrineVersion: defaults.DOCTRINE_VERSION });
   const st = doctrine.status('restored', NOW, OLD_TABLE);
   assert.equal(st.state, 'refresh', 'an unedited earlier block was hidden as if the person had edited it');
+});
+
+test('#4890 review 17: the dialog body, run for every plan shape, never says all their words stay while resetting some', () => {
+  const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  const at = page.indexOf("document.getElementById('doc-body').textContent = (plan.replacing");
+  assert.ok(at > 0, 'the dialog body expression moved');
+  const expr = page.slice(page.indexOf('=', at) + 1, page.indexOf(';\n', at));
+  // eslint-disable-next-line no-new-func
+  const body = (plan) => new Function('plan', 'who', 'return ' + expr)(plan, 'Sam');
+  for (const replacing of [false, true]) {
+    for (const updating of [false, true]) {
+      const text = body({ replacing, updating });
+      const resets = /Anything changed inside the marked block is set to the current rules/.test(text);
+      assert.equal(resets, updating, `reset sentence wrong for ${JSON.stringify({ replacing, updating })}`);
+      if (resets) assert.ok(!/^Your words stay exactly as they are/.test(text), 'claims all their words stay while resetting edits: ' + text);
+      assert.ok(text.includes(replacing || updating ? 'This restarts Sam' : 'Adding them restarts Sam'), text);
+      assert.ok(!/\u2014|\u2013/.test(text), 'a dash in: ' + text);
+    }
+  }
+  const plan = doctrine.planFor(`${doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD)}\n${OLD}\n`, NOW, OLD_TABLE);
+  assert.ok(plan.replacing && plan.updating, 'CONTROL: the combined shape is real, not only a test input');
 });
