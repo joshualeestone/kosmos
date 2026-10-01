@@ -228,6 +228,19 @@ printf connect > "$KOSMOS_HOME/mode"
 exit 1'
 if answers "$P"; then fail "a board switched to connect during the run was started by a failed update"; else pass "a board switched to connect during the run stays off after a failed update"; fi
 
+# 3f. Review 6: when the start itself fails, the person is told how to start Kosmos, not that it is running.
+P=$(free_port); H=$(home nostart); export PORT=$P
+"$H/bin/kosmos" start
+run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
+'"$PAUSED"'
+printf "#!/bin/sh\nexit 1\n" > "$KOSMOS_HOME/bin/kosmos"
+exit 1'
+if grep -q "could not be started again" "$H/err" && ! grep -q "running again" "$H/err"; then
+  pass "a start that fails says how to start Kosmos, and does not claim it is running"
+else
+  fail "a failed start was reported wrongly: $(cat "$H/err")"
+fi
+
 # 4. A run that succeeds (exit 0) after the pause does not start anything either.
 P=$(free_port); H=$(home succeeded); export PORT=$P
 "$H/bin/kosmos" start
