@@ -474,3 +474,24 @@ test('#4624 follow-up review 1: the minute retry skips an agy member whose hook 
     assert.deepEqual(done.map((d) => [d.name, d.state]), [['mara', chat.DELIVERY.PLACED]]);
   });
 });
+
+test('#4624 follow-up review 2: the production shape, a quota-paused agy member whose BRIDGE wrote its idle: an un-addressed post is held by the idle rule (no heldUntil), an addressed one by the quota (heldUntil), and after the reset only the addressed one is retried', async () => {
+  await withFleetAsync(room3(), async (board) => {
+    assert.equal(selfreport.record('mara', { state: 'idle', because: 'quota stop', auto: true }).recorded, true);
+    armSender('leo-discord');
+    arm();
+    const plain = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'thinking out loud' }, rosterOf(board, AHEAD()), MEMBERS);
+    assert.equal(plain.outcomes.mara, roomhold.HELD);
+    assert.equal(!!(plain.heldUntil && plain.heldUntil.mara), false, 'the idle rule held it, so no quota time applies');
+    const asked = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara please' }, rosterOf(board, AHEAD()), MEMBERS);
+    assert.equal(asked.outcomes.mara, roomhold.HELD);
+    assert.ok(asked.heldUntil && typeof asked.heldUntil.mara === 'string', 'an addressed post lost its quota time');
+    poolReset();
+    const tmux = arm();
+    const r = rosterOf(board, null);
+    const done = await roomhold.flushReleased(r, releasedDeps(r, Date.now()));
+    assert.deepEqual(done.map((d) => [d.name, d.state]), [['mara', chat.DELIVERY.PLACED]]);
+    const line = typedTo(tmux, 'mara')[0] || '';
+    assert.match(line, new RegExp(asked.id), 'the addressed post was not told after the reset');
+  });
+});

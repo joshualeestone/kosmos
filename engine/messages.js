@@ -1863,8 +1863,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   let reached = 0;
   const deliverOne = (name) => {
     if (offHere.has(name)) return null;
-    /* #4624: a colleague's post that does not name this member, arriving mid-turn, is held rather than
-       typed (engine/roomhold.js says who and why). A post that cannot be held is typed as before. */
+    /* #4624: a colleague's post that does not name this member, arriving mid-turn or while it waits (a hook's idle),
+       is held rather than typed (engine/roomhold.js says who and why). A post that cannot be held is typed as before. */
     if (roomhold.shouldHold({ name, operator, mentioned, answersAuthor: answered && answered.operator !== true ? answered.from : null,
       reachable: chat.addressable(name, roster).ok === true, readReport: (n) => require('./selfreport').read(n),
       now: Date.now(), decayMs: require('./status').REPORT_WORKING_DECAY_MS, env: process.env })

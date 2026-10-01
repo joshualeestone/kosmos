@@ -28,7 +28,10 @@
  * reported, or a `working` older than the board's own decay window, status.REPORT_WORKING_DECAY_MS).
  * An idle member hears about held posts on its next typed arrival (named, the person, or a reply to its own post) or
  * at the end of its next turn: it is woken only when something is asked of it.
- * So a runner that does not report is never held, and a report that went stale falls back to typing.
+ * So a runner that does not report is never held, and a stale `working` report falls back to typing. A hook's `idle`
+ * does not go stale (an idle member may wait for days), so one known residual: a member whose reporting breaks AFTER
+ * its last idle (its hook turned off, a bridge losing its path) keeps holding un-addressed posts while it works. Nothing
+ * is lost (the room keeps every post, and the next typed arrival carries the line); stated, not fixed (#4624 review 2).
  *
  * Brake: AGENT_WORKFORCE_ROOM_HOLD_OFF=1 types every post as before, including past the #4588 quota gate for room
  * posts (engine/messages.js typeInto). Posts held before the brake is turned on are told only by the next typed
@@ -86,9 +89,11 @@ function workingNow(readReport, name, now, decayMs) {
 
 /* #4624 follow-up (0.7.15 diagnostic, H7): the member's latest report is an `idle` written by its own turn-end hook
    (by 'auto'), at any age: its last turn ended and it is waiting. Typing a colleague's un-addressed post there starts a
-   turn that ends in "not addressed to me". Only a hook's idle (review 1): it proves this runner reports the END of
-   every turn, so the idle flush will tell the member when its next turn ends, whatever woke it. An idle the agent wrote
-   itself proves nothing of the kind (an idle report never decays), so its posts are typed as before. */
+   turn that ends in "not addressed to me". Only a hook's idle (review 1): it shows this runner's hook reports a turn's
+   end, so the idle flush normally tells the member when its next turn ends, whatever woke it (a turn that errors or
+   is interrupted may end without one; the posts then wait for the next). An idle the agent wrote itself shows nothing
+   of the kind, so its posts are typed as before. An agent can write `report idle --auto` itself; that only affects
+   what it is told. */
 function idleNow(readReport, name) {
   let rep;
   try { rep = readReport(name); } catch { return false; }
@@ -248,8 +253,9 @@ async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver,
       const name = String(card.sessionName);
       if (!heldProjects(name).length) continue;
       if (workingNow(readReport, name, now, decayMs)) continue;
-      /* #4624 follow-up (review 1): an idle member holding only posts that ask nothing of it waits for its next wake,
-         as on every other runner; this minute retry is for posts the quota held that name it. */
+      /* #4624 follow-up (review 1/2): an idle member holding only posts that ask nothing of it waits for its next wake,
+         as on every other runner; this minute retry is for posts the quota held that name it. That includes posts held
+         while it worked whose turn-end line the quota refused: since the follow-up they wait for the next wake too. */
       if (idleNow(readReport, name) && !heldProjects(name).some((p) => heldIn(name, p).some((x) => plainId(x) !== x))) continue;
       /* Review round 6: a member nothing can type into (stopped, no agent process, no target) is skipped, so its ids
          wait for the next typed arrival instead of a COULD_NOT, and a room-hold log line, every minute. */

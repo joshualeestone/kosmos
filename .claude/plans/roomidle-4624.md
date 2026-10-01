@@ -49,3 +49,20 @@ never-reported one; ride-on carriers are @-addressed posts. engine/roomhold-agyh
   (held equal by cli.post-stdin-2909).
 - N5 KEEP=200 with no decay: kept (the line counts "and N earlier"; the room has everything).
 - N6 test notes: the never-reported controls are controls by design; the new arms fail on origin/main.
+
+## Review 2 (Opus, blind, source-only): 0 blockers, 4 warnings, 5 nits
+- Runner table (reasoned): Claude, Codex, Gemini, Grok, agy and Muse all write an auto idle at a normal turn end;
+  errors and interrupts may not (Claude StopFailure writes blocked; Esc writes nothing). Held posts then wait for the
+  next wake, never lost.
+- W1 a hook idle never decays, so a member whose reporting breaks AFTER its last idle keeps holding while it works:
+  ACCEPTED and stated in the module header. Fixing it soundly needs the idle tied to the current launch across every
+  runner; nothing is lost (the room keeps every post; the next typed arrival carries the line). What would change my
+  mind: a broken-reporting member seen missing room work.
+- W2 a poster is not told an un-addressed question woke nobody: FIXED in the defaults every agent reads (a room post
+  that names nobody does not wake an idle colleague; @-name or answer their post), beside the usage line.
+- W3 the #4588 tests' idle is agent-written, not the bridge's: ADDED the production-shape arm (bridge idle: plain post
+  held with no heldUntil, addressed post quota-held with heldUntil, only it retried after the reset).
+- W4 flushReleased no longer tells un-addressed posts held while working when the quota refused the turn-end line:
+  DOCUMENTED in its comment (consistent with the idle rule).
+- N5 stale comments (messages.js "mid-turn", roomhold.js "proves every turn"): FIXED. N7 `report idle --auto` by an
+  agent: DOCUMENTED. N6, N8, N9: kept.
