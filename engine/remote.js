@@ -875,7 +875,7 @@ function status() {
     /* kosmos#4640: waiting for the other computer's Allow. Kept while the tunnel only says it is
        dialling again (connecting, no reason), the same way lastTunnelFailure is, and dropped once it
        is up or its process writes any other failure (lastTunnelFailure is replaced or cleared). */
-    const waitFor = raw.state === 'restarting' ? raw.because : (raw.because ? null : lastTunnelFailure);
+    const waitFor = raw.state === 'restarting' ? raw.because : (raw.state === 'connecting' && !raw.because ? lastTunnelFailure : null);
     const waitSaid = allowWaitSentence(waitFor);
     if (waitSaid) return { state: 'waiting-allow', address: null, because: waitSaid };
     return {

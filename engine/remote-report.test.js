@@ -314,6 +314,8 @@ test('kosmos#4640 review 8: classify and remote.js allowWaitSentence agree on ev
     const engine = remote.allowWaitSentence(l) !== null;
     if (engine) waits += 1;
     assert.equal(report.classify(l) === 'waiting-allow', engine, 'the board and the report disagree about: ' + l);
+    // ...and status()'s own sentence for a wait (the because it shows) reads as the wait here too (review 9).
+    if (engine) assert.equal(report.classify(remote.allowWaitSentence(l)), 'waiting-allow', 'status()\'s sentence is not the wait here: ' + l);
   }
   assert.ok(waits >= 3 && waits < lines.length, 'fixture: the table must hold both waits and non-waits (' + waits + ')');
 });

@@ -233,3 +233,7 @@ is that review.
   An agreement test runs one line table (waits, a recased line, trailing text, other code, other path, a final refusal)
   through both and asserts they agree; mutation (classify not asking remote.js) reds 2 tests. FIXED: a CSS comment marks
   the waiting pill's missing colour rule as deliberate (the browser check pins the colour).
+- Round 9 (opus): FIXED the wait was kept on any no-reason non-restarting record; now only on connecting, as its comment
+  says (more conservative; no state other than connecting/restarting/up exists today, so no new arm to pin). FIXED the
+  agreement test now also feeds status()'s own sentence back to classify, so a one-sided edit to the sentence reds it
+  (mutation: 2 red). NITs left: classify's direct require skips build()'s deps seam; the waiting pill's fit at phone width.
