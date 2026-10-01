@@ -44,7 +44,7 @@ TERM delivered to the running shell and its children, each put the board back (w
 pause and the signal really ended the run; the arms wait for the shell's child before signalling). Review 3: the
 arming position is pinned by line order in the shipped file. Review 4: a busy board that never answers still counts
 as running. Review 5: a board meant to run but down at the pause counts too; ignoring board.stopped fails three
-controls (checked). 16/16. Without the HUP/TERM trap both signal arms fail (checked). Mutants, each failing a test:
+controls (checked). Review 6: a start that fails says how to start Kosmos, never "running again". 17/17. Without the HUP/TERM trap both signal arms fail (checked). Mutants, each failing a test:
 trap neutered, any exit restarts, the marker ignored, the marker kept, the mode not re-read (any edit to the
 anchored lines also fails the test, by design). The installer shell tests near the pause
 (#2055, #964, install-static and its control, runnable guard, progress emit, resolve user, zsh tied names) and the
@@ -67,3 +67,7 @@ and path instead of an HTTP answer, which also keeps another install's board fro
 Round 5: no blocker. 1 should-fix taken: "was running" is the person's settings (no board.stopped, a mode that runs
 it here), not a live pid. Nit taken: the put-back trusts kosmos start's verdict, not a second short probe. The reviewer
 measured this Mac: board.pid holds node itself, whose command line names $KOSMOS_HOME/app/server.js, on every start path.
+Round 6: CONVERGED (no blocker, no should-fix; "would ship it tonight"). Nit taken: the failed-start message is tested.
+Noted: if the final start itself fails, the trap tries one more start and prints a second line after the die; a very
+old on-disk kosmos (before start waited for the board) could exit 0 without a board, which does not apply to current
+installs.
