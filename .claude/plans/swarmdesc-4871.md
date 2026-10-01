@@ -24,3 +24,9 @@ comment); a future caution that disclaims advice in other words would be hidden 
 ## Tests
 web.role-picker.test.js: the swarm path hides Office Manager's line, single keeps it, and six advice disclaimers stay on
 the swarm path. Mutations: dropping the swarm rule reds it; dropping the advice exception reds it.
+
+## Review rounds
+- Round 1 (opus): FIXED W: the advice pattern erred toward hiding; widened (counsel, legal, tax, financial planner,
+  doctor, physician, clinician, therapist, diagnos*, veterinar*), five new wordings pinned in the test; still 22 of the
+  live catalogue's 63 kept (no new keeps, so no operational line is kept by it). DEFERRED W: the partial removal is the
+  documented call on #4871 with a one-line reversal for Josh. FIXED NIT: the needless typeof guard.

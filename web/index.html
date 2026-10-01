@@ -48592,8 +48592,9 @@ function paintPickLimit() {
      financial, tax, medical or veterinary advice). Shipping Legal at all was conditional on that kind being visible
      at the moment of choice (Josh, 2026-08-10, engine/roles.js), and his 10-01 words were said looking at an
      operational line (Office Manager's "nothing goes out without the owner"). The single-agent path is unchanged. */
-  const ADVICE = /\b(advice|adviser|advisor|lawyer|attorney|accountant|medical|veterinary)\b/i;
-  const swarmQuiet = typeof CREATE_PATH !== 'undefined' && CREATE_PATH === 'swarm'
+  /* Errs toward KEEPING: a wrong keep shows one sentence too many, a wrong hide breaks the 08-10 condition. */
+  const ADVICE = /\b(advice|adviser|advisor|lawyer|attorney|counsel|legal|accountant|tax|financial planner|medical|doctor|physician|clinician|therapist|diagnos\w*|veterinar\w*)\b/i;
+  const swarmQuiet = CREATE_PATH === 'swarm'
     && !(role && role.caution && ADVICE.test(role.caution));
   const say = role && role.caution && !swarmQuiet && !document.getElementById('rolepick').hidden ? role.caution : '';
   line.textContent = say;

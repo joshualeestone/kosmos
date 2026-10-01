@@ -68,7 +68,8 @@ test('a role\'s limit is said on step one, under the dropdown, the moment it is 
   assert.equal(run('officemanager', false, om, 'single').hidden, false, 'the single-agent path lost its line');
   for (const c of ['Not a lawyer, and not legal advice. It drafts and explains.', 'Not financial advice. It records and reconciles.',
     'It is not medical advice.', 'It organises paperwork; it is not tax advice.', 'It is not an accountant or a financial adviser.',
-    'It organizes care; it never gives veterinary advice.']) {
+    'It organizes care; it never gives veterinary advice.', 'It is not a doctor.', 'It is not a therapist.',
+    'It is not legal counsel.', 'It is not a financial planner.', 'It never diagnoses anything.']) {
     const l = run('x', false, c, 'swarm');
     assert.equal(l.hidden, false, 'a professional-advice disclaimer was hidden on the swarm path: ' + c); assert.equal(l.textContent, c);
   }
