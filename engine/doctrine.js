@@ -31,10 +31,14 @@
  *   5    ambiguity refuses with a reason and never reports success on an
  *        unchanged return;
  *   6    everything outside the markers is untouched because the only
- *        writer is projects.spliceBlock; no hand edits anywhere;
+ *        writer is projects.spliceBlock; no hand edits anywhere, EXCEPT
+ *        (#4890) an unedited plain copy of an earlier block, which is
+ *        Kosmos's own text: it is cut out byte for byte (pastBlockIn) and
+ *        its place taken by the span;
  *   8    presence is per-section by HEADING across the WHOLE file, managed
  *        or not: an old agent carrying the doctrine as plain text appends
- *        NOTHING;
+ *        NOTHING, unless (#4890) that text is an unedited earlier block,
+ *        which is offered the current rules in its place;
  *   9    section text comes from defaults.js's one source (#629), so a
  *        refreshed block byte-matches what a fresh birth writes.
  */
@@ -92,7 +96,7 @@ function atBirth(text, now) {
 
 /**
  * #4890: where an unedited plain copy of an EARLIER block sits in this text, or null. "Unedited" is a byte match
- * against a fingerprint in doctrine-past.js, starting at the rules' first heading line. The current block is in
+ * against a fingerprint in doctrine-past.js, starting at the rules' first heading line and ending at a line end. The current block is in
  * that table too and is not reported here: a plain copy of today's rules has nothing to update.
  */
 function pastBlockIn(body, past) {
@@ -104,6 +108,8 @@ function pastBlockIn(body, past) {
     for (const row of rows) {
       const slice = body.slice(at, at + row.length);
       if (slice.length !== row.length || slice === current) continue;
+      const after = body[at + row.length];
+      if (after !== undefined && after !== '\n' && after !== '\r') continue;   // words typed onto its last line are an edit
       if (crypto.createHash('sha256').update(slice).digest('hex') === row.sha256) return { start: at, end: at + row.length, version: row.version };
     }
   }
@@ -126,7 +132,11 @@ function sectionContentOf(spanInner) {
  * What a refresh would do to this text, composed ONCE. Pure. Returns:
  *   { state: 'could_not', because }                     ambiguity, refused
  *   { state: 'current' }                                nothing to add; NO write may follow
- *   { state: 'refresh', sections, spanNext, fileNext, hash }
+ *   { state: 'refresh', sections, spanNext, fileNext, hash, replacing? }
+ *
+ * `replacing` (#4890) is true when the click also removes an unedited plain
+ * copy of an earlier block. `past` is the fingerprint table, for tests only;
+ * engine/doctrine-past.js otherwise.
  *
  * `sections` is what the dialog lists; `fileNext` is what a click writes;
  * `hash` is how the click proves it consents to THIS composition and not a
@@ -138,6 +148,31 @@ function planFor(text, now, past) {
   const found = projects.findBlock(body, START, END);
   if (found && found.ambiguous) {
     return { state: 'could_not', because: `its instructions contain ${found.pairs} Kosmos working-rules blocks, so we cannot tell which is ours and did not change anything` };
+  }
+  /* #4890: a plain copy of an EARLIER block, byte for byte, is Kosmos's own text that nobody edited, so the
+     click may replace it with the current rules. Only a copy OUTSIDE any span counts: a span holds earlier
+     rules too, and those are brought current by the span path below. */
+  const old = pastBlockIn(body, past);
+  if (old && !(found && old.start < found.end && old.end > found.start)) {
+    const all = defaults.sections();
+    if (found) {
+      /* A span AND a plain old copy (a person who clicked an earlier refresh that added only missing headings):
+         the copy goes, and the span takes every section, so a same-heading change reaches this agent too. */
+      const without = body.slice(0, old.start) + body.slice(old.end).replace(/^\r?\n/, '');
+      const plan = planFor(without, now, past);
+      if (plan.state === 'refresh') return { ...plan, replacing: true };
+      if (plan.state === 'current') return { state: 'refresh', replacing: true, sections: [], spanNext: '', fileNext: without, hash: hashOf(without) };
+      return plan;
+    }
+    /* No span: the span takes the copy's place. A heading the person also carries outside it is theirs and is
+       not written again (constraint 8, as the span path below does). */
+    const outside = body.slice(0, old.start) + body.slice(old.end);
+    const wanted = all.filter((s) => !outside.includes(s.heading));
+    if (wanted.length) {
+      const spanNext = spanBody(wanted, now);
+      const fileNext = body.slice(0, old.start) + `${START}\n${spanNext}\n${END}` + body.slice(old.end);
+      return { state: 'refresh', replacing: true, sections: wanted, spanNext, fileNext, hash: hashOf(fileNext) };
+    }
   }
   if (found) {
     /* An existing managed span: its sections are OURS to bring current;
@@ -160,16 +195,6 @@ function planFor(text, now, past) {
     const spanNext = spanBody(wanted, now);
     const fileNext = projects.spliceBlock(body, spanNext, START, END);
     return { state: 'refresh', sections: wanted, spanNext, fileNext, hash: hashOf(fileNext) };
-  }
-  /* #4890: a plain copy of an EARLIER block, byte for byte, is Kosmos's own text that nobody edited, so the
-     click may replace it with the current rules, inside the span, where it stood. Everything around it is
-     untouched. A copy with any edit fails the byte match and falls through to the heading rule below. */
-  const old = pastBlockIn(body, past);   // `past` only in tests; doctrine-past.js otherwise
-  if (old) {
-    const all = defaults.sections();
-    const spanNext = spanBody(all, now);
-    const fileNext = body.slice(0, old.start) + `${START}\n${spanNext}\n${END}` + body.slice(old.end);
-    return { state: 'refresh', replacing: true, sections: all, spanNext, fileNext, hash: hashOf(fileNext) };
   }
   /* No span: an agent born with the doctrine as plain text, or born before
      it. Only genuinely absent sections are offered (constraint 8); a file
@@ -255,7 +280,7 @@ function refresh(sessionName, roster, opts) {
     /* The write: the SAME fileNext the plan composed and the dialog hashed.
        spliceBlock already preserved every byte outside the markers. */
     instructions.write(sessionName, plan.fileNext, current.version, undefined,
-      { who: 'kosmos', because: 'added the working rules, with your OK' });
+      { who: 'kosmos', because: plan.replacing ? 'replaced its older working rules with the current ones, with your OK' : 'added the working rules, with your OK' });
     try {
       store.writeProfile(sessionName, { doctrineVersion: defaults.DOCTRINE_VERSION });
     } catch { /* the file is the truth; the record catches up on the next write */ }

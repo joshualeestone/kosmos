@@ -44,3 +44,14 @@ agent born before it); replace in place with a control; an edited, a one-charact
 replaced; marker fallback; the shipped table's pairing guard; server flag and dialog copy. Mutations: dropping the
 past-block match, the today's-copy skip, or the line-start check each red a test. create.test.js: the verbatim test
 reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
+
+## Review rounds
+- Round 1 (sonnet): FIXED W: the fleet list sends `replacing` too. FIXED W: the committed-history premise is named
+  above. FIXED C: the generator names its test. FIXED NIT: the generator skips a version it cannot load.
+- Round 2 (opus): FIXED W: a heading the person also carries outside the old copy is not written twice. FIXED W: the
+  match must end at a line end, so words typed onto the copy's last line are an edit. FIXED W: an agent with a span
+  AND a plain old copy has the copy folded into the span (the card's failure in one more shape). FIXED W: the
+  "edited copy" test now edits the middle, past the anchor. FIXED C: doctrine.js's constraints 6 and 8 and planFor's
+  docstring name the #4890 exception. FIXED NIT: the undo note says "replaced" for a replace. Each new guard was
+  mutated and reds one test.
+

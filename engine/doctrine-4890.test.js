@@ -59,8 +59,14 @@ test('#4890: an unedited plain copy of an earlier block is offered the current r
 });
 
 test('#4890: a copy the person edited, or today\'s own copy, is never replaced', () => {
-  const edited = OLD.replace('## How you work', () => '## How you work, my way');
+  // An edit in the MIDDLE, so the anchor heading is still there and the byte match itself must refuse it.
+  const mid = OLD.indexOf('\n', Math.floor(OLD.length / 2));
+  const edited = OLD.slice(0, mid) + ' My own note.' + OLD.slice(mid);
+  assert.ok(edited.startsWith(defaults.sections()[0].heading) && edited.length === OLD.length + 13);
   assert.notEqual(doctrine.planFor(`# Mine\n\n${edited}\n`, NOW, OLD_TABLE).replacing, true, 'an edited copy was replaced');
+  // Words typed onto the copy's LAST line are an edit too.
+  assert.notEqual(doctrine.planFor(`# Mine\n\n${OLD} My own addition.\n`, NOW, OLD_TABLE).replacing, true, 'an addition on the last line was replaced');
+  assert.equal(doctrine.planFor(`# Mine\n\n${OLD}`, NOW, OLD_TABLE).replacing, true, 'a copy at the very end of the file is not offered');
   const one = OLD.slice(0, -1) + (OLD.slice(-1) === '.' ? '!' : '.');
   assert.notEqual(doctrine.planFor(`# Mine\n\n${one}\n`, NOW, OLD_TABLE).replacing, true, 'a one-character edit was replaced');
   assert.equal(doctrine.planFor(`# Mine\n\n${BLOCK}\n`, NOW).state, 'current', 'today\'s plain copy was offered for nothing');
@@ -85,4 +91,36 @@ test('#4890: the board passes `replacing` through, and the dialog says the older
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   assert.match(page, /\(plan\.replacing\s*\n\s*\? 'Your words stay exactly as they are\. The older copy of these rules that Kosmos added is replaced with '/,
     'the consent dialog no longer says the older copy is replaced');
+});
+
+test('#4890 review: a heading the person also carries outside the old copy is not written twice', () => {
+  const third = defaults.sections()[2];
+  const file = `# Mine\n\n${third.heading}\nMy own version.\n\n${OLD}\n`;
+  const plan = doctrine.planFor(file, NOW, OLD_TABLE);
+  assert.equal(plan.replacing, true);
+  assert.equal(plan.fileNext.split(third.heading).length - 1, 1, 'the person\'s heading was duplicated');
+  assert.ok(!plan.sections.some((s) => s.heading === third.heading));
+});
+
+test('#4890 review: an agent with a span AND a plain old copy has the copy folded into the span', () => {
+  // A span from an earlier refresh that added only one missing heading, beside the plain old copy.
+  const last = defaults.sections()[defaults.sections().length - 1];
+  const oldWithout = OLD.replace('\n' + last.text, () => '');
+  const table = [{ version: 1, length: oldWithout.length, sha256: sha(oldWithout) }];
+  const file = `# Mine\n\n${oldWithout}\n\n${doctrine.START}\n${doctrine.spanBody([last], NOW)}\n${doctrine.END}\n`;
+  const plan = doctrine.planFor(file, NOW, table);
+  assert.equal(plan.state, 'refresh');
+  assert.equal(plan.replacing, true);
+  assert.ok(!plan.fileNext.includes(oldWithout), 'the plain old copy stayed');
+  assert.ok(plan.fileNext.includes(BLOCK), 'the span does not hold every current section');
+  assert.equal(projects.findBlock(plan.fileNext, doctrine.START, doctrine.END).ambiguous, undefined);
+  assert.equal(doctrine.planFor(plan.fileNext, NOW, table).state, 'current', 'the click does not settle it');
+});
+
+test('#4890 review: earlier rules INSIDE a span are the span path\'s, never cut out as a plain copy', () => {
+  const born = doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD);
+  const plan = doctrine.planFor(born, NOW, OLD_TABLE);
+  assert.equal(plan.state, 'refresh');
+  assert.notEqual(plan.replacing, true, 'a span\'s own earlier rules were treated as a plain copy');
+  assert.equal(projects.findBlock(plan.fileNext, doctrine.START, doctrine.END).ambiguous, undefined);
 });
