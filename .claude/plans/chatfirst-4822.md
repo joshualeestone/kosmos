@@ -25,3 +25,12 @@ in the menu it opens when there is somewhere to go.
 Validation (all on 89a0d27fc, run by Baron on Mortals, headless chromium): render-dm-chatfirst-718 409/0;
 render-onekosmos-4815 56/56; render-tophead-stable-2624 OK; render-worldsw-lockout-3055 1/0; render-plus-bar-3837
 19/0; render-worldsw-height-2350 0 FAIL; render-computers-4648 88 passed, no problems. web.* 2224/0 here.
+
+Review R1 (opus) 0B 3W 0C 3N: a showing notice could squeeze the name (now takes its own row); the 220px cap was lost
+(restored); no arm proved the name readable (added to render-dm-chatfirst-718). NITs taken: arrow room (2.25rem),
+.headleft stretches to its column (WebKit).
+Baron on Mortals at 674288bc7: six header checks green; render-dm-chatfirst-718 411/2, both fails my new arm's invented
+"two characters" floor: the name measured 33px at 130% and 45px at 150% ("Th..."). Floor reset from the measurement to
+1.25em (passes one letter plus the ellipsis, fails the ellipsis alone). Accepted cost: about two letters of the name on
+a 320-wide phone at large text. Possible follow-up (not in a cut fix): hide the person's name beside their avatar on a
+phone to give the computer name room.
