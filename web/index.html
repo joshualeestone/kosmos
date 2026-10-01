@@ -14719,6 +14719,11 @@ window.kosmosMeasureScrollbarWidth();
     <ol class="tc-list" id="tc-list" aria-labelledby="tc-title"></ol>
     <label class="flabel" for="tc-project">Project</label>
     <select id="tc-project"></select>
+    <!-- #4719: ONE provider and account for the whole team, the same choice the single-agent form offers
+         (fillCreateAccounts fills both; the account row shows only at two or more accounts, #2097). -->
+    <label class="flabel" for="tc-provider">Model <span class="flabel-soft">(for every agent in the team; you can change each later)</span></label>
+    <div class="frow"><select id="tc-provider"></select></div>
+    <div class="frow" id="tc-account-row" hidden><select id="tc-account" aria-label="Account"></select></div>
     <p class="rolehelp" id="tc-note" role="status" aria-live="polite"></p>
     <!-- Review 27: the team step obeyed the single create's "Let Kosmos know" box, which is on another
          step and cannot be seen from here. This is that same choice, shown where it is used (kept equal
@@ -24304,11 +24309,12 @@ function agyAsk() {
     .catch(() => { /* stays null: "Checking", never a confident not-installed */ })
     .finally(() => {
       AGY_ASKING = null;
-      for (const id of ['d-provider', 'create-provider']) {
+      for (const id of ['d-provider', 'create-provider', 'tc-provider']) {   // #4719: the team step's too
         const sel = document.getElementById(id);
         const cur = id === 'd-provider' && typeof CURRENT !== 'undefined' && CURRENT ? providerOf(CURRENT) : '';
         paintAgyOption(sel, cur);
       }
+      if (typeof tcProviderSettle === 'function') tcProviderSettle();   // #4719: a subscription pick no longer allowed
       // The first-run Gemini row names the subscription only where it is offered (review round 9).
       const tag = document.querySelector && document.querySelector('#fr-gemini-connect');
       const small = tag && tag.parentElement && tag.parentElement.querySelector('.llm-w small');
@@ -24328,7 +24334,7 @@ let MUSE_CREATE_ASKING = null;
 function paintMuseOption(sel, current) {
   const opt = sel && sel.options ? Array.from(sel.options).find((o) => o.value === 'meta') : null;
   if (!opt) return;
-  const creating = sel.id === 'create-provider';
+  const creating = sel.id === 'create-provider' || sel.id === 'tc-provider';   // #4719: the team step makes agents too
   const on = current === 'meta' || (creating && !!MUSE_CREATE && MUSE_CREATE.ready === true);
   opt.disabled = !on;
   if (on || !creating || !MUSE_CREATE || !MUSE_CREATE.on) delete opt.dataset.off;
@@ -24354,11 +24360,12 @@ function museCreateAsk() {
     .catch(() => { /* kept as it was: never a confident answer from a failed read */ })
     .finally(() => {
       MUSE_CREATE_ASKING = null;
-      for (const id of ['d-provider', 'create-provider']) {
+      for (const id of ['d-provider', 'create-provider', 'tc-provider']) {   // #4719: the team step's too
         const sel = document.getElementById(id);
         const cur = id === 'd-provider' && typeof CURRENT !== 'undefined' && CURRENT ? providerOf(CURRENT) : '';
         paintMuseOption(sel, cur);
       }
+      if (typeof tcProviderSettle === 'function') tcProviderSettle();   // #4719: a Meta pick Muse no longer allows
       // A Meta pick this read turned off is undone and said.
       const pv = document.getElementById('create-provider');
       if (pv && pv.value === 'meta') createPickGone(CREATE_ACCOUNTS_KNOWN);
@@ -47702,10 +47709,13 @@ function createPickGone(known) {
     why.hidden = false;
   }
 }
-function fillCreateAccounts() {
-  const asel = document.getElementById('create-account');
+/* #4719: the team step fills its own pair with the same rules (TC_PICKER); the create form's is the default. */
+const TC_PICKER = { prov: 'tc-provider', acct: 'tc-account', row: 'tc-account-row' };
+function fillCreateAccounts(given) {
+  const ids = given || { prov: 'create-provider', acct: 'create-account', row: 'create-account-row' };
+  const asel = document.getElementById(ids.acct);
   if (!asel) return;
-  const provSel = document.getElementById('create-provider');
+  const provSel = document.getElementById(ids.prov);
   /* #3566: Gemini and Grok are offered only once an account for them is connected. */
   paintKeyedProviderOptions(provSel, CREATE_ACCOUNTS, CREATE_ACCOUNTS_KNOWN, '', CREATE_ACCOUNTS_FAILED);
   paintAgyOption(provSel, ''); agyAsk();   // #3568
@@ -47717,7 +47727,7 @@ function fillCreateAccounts() {
   if (provSel.value === 'antigravity' || provSel.value === 'meta') {
     asel.innerHTML = '<option value="" selected></option>';
     asel.value = '';
-    const arow = document.getElementById('create-account-row');
+    const arow = document.getElementById(ids.row);
     if (arow) arow.hidden = true;
     return;
   }
@@ -47785,7 +47795,7 @@ function fillCreateAccounts() {
      account is still the select's value, so create uses it; the placeholder-only
      case (usable.length 0) also has no choice and stays hidden. Mirrors the
      #2098 create-model-row hide pattern. */
-  const arow = document.getElementById('create-account-row');
+  const arow = document.getElementById(ids.row);
   if (arow) arow.hidden = usable.length < 2;
 }
 /* #1834: the provider's UI side effects -- disable the model picker for OpenAI,
@@ -48235,8 +48245,123 @@ async function openTeamCreate(key) {
   try { await loadProjects(); } catch { /* the menu still offers a new project or none */ }
   if (gen !== TC_GEN) return;
   tcFillProjects();
+  await tcFillProvider(gen);
+  if (gen !== TC_GEN) return;
   tcPaint();
 }
+
+/* #4719: the team's provider menu is the single-agent form's own list (copied, so the two cannot drift),
+   starting on the form's current choice, and its account menu is filled by the same rules. */
+/* #4719: whether the person has chosen on the team's Model menu (a late account list or a changed Muse
+   answer may then set the default again only while they have not). */
+let TC_PROVIDER_TOUCHED = false;
+let TC_PROVIDER_START = '';
+/* The team menu's default and its fallback from an option that is not usable here: OpenAI when it is the
+   one usable provider (createPickGone's rule), else Claude. */
+function tcProviderDefault() {
+  const hasClaude = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'anthropic');
+  const hasOpenai = CREATE_ACCOUNTS.some((x) => x && acctProvider(x) === 'openai');
+  return (!hasClaude && hasOpenai) ? 'openai' : 'anthropic';
+}
+/* After any repaint of the team menu: a selected option that is not usable here goes back to the default
+   (and the accounts follow), unless the choice is fixed (tcChoiceFixed). */
+let TC_SETTLING = false;
+function tcProviderSettle() {
+  const sel = document.getElementById('tc-provider');
+  const step = document.getElementById('cstep-teammake');   // the step that holds #tc-provider (#4557)
+  /* Only a team step that is open and filled: the Muse answer that calls this comes on every create-form
+     paint, and an empty or unopened team menu is not a choice to correct (review round 4: treating it as
+     one refilled it, which asked Muse again, which settled again, forever). */
+  if (!sel || !sel.options.length || !step || step.hidden || !TC || tcChoiceFixed() || TC_SETTLING) return;
+  const cur = sel.options[sel.selectedIndex];
+  if (!cur || cur.disabled) {
+    // A default that is not usable either is not a correction: stop rather than refill (and ask Muse) again.
+    const def = tcProviderDefault();
+    if (![...sel.options].some((o) => o.value === def && !o.disabled)) return;
+    TC_SETTLING = true;   // fillCreateAccounts asks Muse again; its answer must not re-enter here
+    try { sel.value = def; fillCreateAccounts(TC_PICKER); } finally { TC_SETTLING = false; }
+  }
+}
+/* A late account list (slower than the step's 5 s wait), applied only while the choice is open: the
+   menus are refilled from it (the accounts, and which providers are usable). The provider itself changes
+   only from the plain default the step started on and only if the person has not chosen: never from a
+   choice copied from the form, never from theirs. Called when it lands, and again from tcPaint if it landed during a click or a
+   run (round 9: it was dropped for good then, so a refused lead left the menus on Claude). */
+function tcApplyLateAccounts() {
+  const sel = document.getElementById('tc-provider');
+  if (!sel || !TC || !TC.lateAccounts || tcChoiceFixed()) return;
+  TC.lateAccounts = false;
+  const acct = document.getElementById('tc-account');
+  const chosen = TC_PROVIDER_TOUCHED && acct ? acct.value : null;
+  if (!TC_PROVIDER_TOUCHED && sel.value === TC_PROVIDER_START) sel.value = tcProviderDefault();
+  fillCreateAccounts(TC_PICKER);
+  // A person who already chose keeps their provider, and their account when the list still offers it.
+  if (chosen && acct && [...acct.options].some((o) => o.value === chosen)) acct.value = chosen;
+  tcProviderSettle();
+}
+/* True while tcFillProvider is filling the team menus (it can wait 5 s for the account list): tcPaint keeps them
+   disabled then too, or a repaint during the wait would offer the last team's options. */
+let TC_FILLING = 0;   // a count: a second team opened during the first one's wait must not unlock the menus
+async function tcFillProvider(gen) {
+  TC_FILLING += 1;
+  try { await tcFillProviderNow(gen); } finally { TC_FILLING -= 1; }
+}
+async function tcFillProviderNow(gen) {
+  const from = document.getElementById('create-provider');
+  const sel = document.getElementById('tc-provider');
+  if (!from || !sel) return;
+  const stale = () => gen !== undefined && gen !== TC_GEN;   // another team was opened while this one read
+  TC_PROVIDER_TOUCHED = false;
+  // The menus still hold the last team's options during the wait: not choosable until they are this one's.
+  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = true; }
+  /* The team step can be opened without the create form (openTeamCreate from the Team path), so the
+     account list may not be read yet; read it the way the form does. Without it every member would go to
+     Claude, which is the failure #4719 exists for. /api/accounts checks each account live and can be
+     slow, and the step waits for it before it shows its button, so the wait is bounded at 5 s; a read
+     still going then is NOT abandoned: when it lands, the default is set again, as long as the person has
+     not chosen and the team has not started. */
+  if (!CREATE_ACCOUNTS_KNOWN) {
+    const read = fetch('/api/accounts', { cache: 'no-store' })
+      .then(async (r) => {
+        if (r.ok) { CREATE_ACCOUNTS = ((await r.json()) || {}).accounts || []; CREATE_ACCOUNTS_KNOWN = true; CREATE_ACCOUNTS_FAILED = false; }
+        else CREATE_ACCOUNTS_FAILED = true;
+        return true;
+      })
+      .catch(() => { CREATE_ACCOUNTS_FAILED = true; return true; });
+    const inTime = await Promise.race([read, new Promise((res) => setTimeout(() => res(false), 5000))]);
+    if (stale()) return;
+    if (!inTime) {
+      read.then(() => {
+        if (stale() || !TC) return;
+        // It landed during a click or a run: kept, and applied when the choice is next open (tcPaint).
+        TC.lateAccounts = true;
+        tcApplyLateAccounts();
+      });
+    }
+  }
+  sel.innerHTML = from.innerHTML;
+  /* Defensive: the copy could carry the create form's Swarm gating (Swarms run on Claude for now), which
+     is about that form's Kind, not a team. openTeamCreate calls openCreate first, which puts the Kind back
+     to Agent and so removes it, but nothing on this step would undo it if that ever changed, so it is
+     undone here from the state the gate saved. */
+  for (const opt of sel.options) {
+    if (opt.dataset.swarmGated !== '1') continue;
+    opt.disabled = opt.dataset.swarmWasOff === '1';
+    if (opt.dataset.swarmWasText) opt.dataset.off = opt.dataset.swarmWasText; else delete opt.dataset.off;
+    delete opt.dataset.swarmGated; delete opt.dataset.swarmWasOff; delete opt.dataset.swarmWasText;
+  }
+  sel.value = from.dataset.swarmWasValue || from.value;
+  const copied = sel.value;
+  if (sel.value === 'anthropic') sel.value = tcProviderDefault();
+  fillCreateAccounts(TC_PICKER);
+  // After the paint, which is what decides which options are usable here.
+  tcProviderSettle();
+  // What a late account list may replace: the plain default, never a choice copied from the form.
+  TC_PROVIDER_START = copied === 'anthropic' ? sel.value : '\u0000';
+  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = tcChoiceFixed(); }
+}
+document.getElementById('tc-provider').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; fillCreateAccounts(TC_PICKER); });
+document.getElementById('tc-account').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; });
 
 /* A team is FINISHED when every member is made and seen running. Until then it is live and is resumed. */
 function tcFinished() {
@@ -48362,6 +48487,9 @@ function tcPaint() {
   tell.checked = tellBox ? tellBox.checked === true : true;
   tell.disabled = Boolean(TC.started || TC.busy);
   document.getElementById('tc-tell-say').textContent = n === 1 ? 'Let Kosmos know an agent was created' : 'Let Kosmos know these agents were created';
+  /* #4719: ONE rule (tcChoiceFixed) for the lock, the settle and the late account list. */
+  tcApplyLateAccounts();
+  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = tcChoiceFixed() || TC_FILLING > 0; }
   /* Back is always allowed now (round 3): leaving no longer resets a live team, it only steps away. */
   document.getElementById('tc-back').disabled = false;
   const msgEl = document.getElementById('tc-msg');
@@ -48419,10 +48547,35 @@ function tcNames() {
   return names;
 }
 
+/* #4719: the provider and account for every member, and the ONE rule for when that choice is fixed:
+   while a click or a run is in progress, or once any member exists or may exist (a create whose answer
+   was lost). Its teammates must run on the same account, and a run must not change under itself. While
+   it is not fixed (before the first press, after a press refused before anything was made, after a run
+   whose lead was refused) the menus are open and the next run reads them. */
+function tcMemberExists() {
+  return Boolean(TC && Array.isArray(TC.members) && TC.members.some((m) => m && (m.made || m.maybeMade || m.state === 'made')));
+}
+function tcChoiceFixed() {
+  return Boolean(TC && (TC.busy || TC.running || tcMemberExists()));
+}
+/* The remembered choice (TC.model) is used only once a member exists: it is what that member was made on.
+   Before that the menus are the truth, and they are locked for the length of a click or a run, so
+   reading them again inside one run gives the same answer. Nothing else has to keep TC.model fresh
+   (review round 8: a settle or a late account list that changed a menu left a stale one behind). */
+function tcModel() {
+  if (TC && TC.model && tcMemberExists()) return TC.model;
+  const p = document.getElementById('tc-provider');
+  const a = document.getElementById('tc-account');
+  const provider = p ? String(p.value || '') : '';
+  const account = a ? String(a.value || '') : '';
+  const m = { ...(provider ? { provider } : {}), ...(account ? { account } : {}) };
+  if (TC) TC.model = m;   // what the members made from here on are made on
+  return m;
+}
 async function tcSpecs(project, check) {
   const res = await fetch('/api/teams/seeded/' + encodeURIComponent(TC.key) + '/specs', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ names: tcNames(), project: project || null, ...(check ? { check: true } : {}) }),
+    body: JSON.stringify({ names: tcNames(), project: project || null, ...tcModel(), ...(check ? { check: true } : {}) }),
   });
   const body = await res.json().catch(() => null);
   if (!res.ok || !body || !Array.isArray(body.specs)) throw new Error((body && body.error) || 'Kosmos could not prepare the team');
@@ -48458,6 +48611,7 @@ document.getElementById('tc-go').addEventListener('click', async () => {
   const msg = document.getElementById('tc-msg');
   go.disabled = true; msg.hidden = true; msg.textContent = '';
   TC.busy = true;   // live from the click: Back or a reopen now keeps it (the project may be being made)
+  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = true; }
   tcPaint();        // the name boxes lock here (review 27)
   try {
     // Names first, with nothing made: a refused name, or one already taken on this computer, must not
@@ -48503,6 +48657,7 @@ document.getElementById('tc-go').addEventListener('click', async () => {
     go.disabled = false;
     msg.hidden = false; msg.textContent = tcSay(err, 'Something went wrong. Try again.');
   } finally {
+    // #4719: repaint once the click is over, so the menus follow tcChoiceFixed (open again if nothing was made).
     if (TC && gen === TC_GEN) { TC.busy = false; tcPaint(); }
   }
 });

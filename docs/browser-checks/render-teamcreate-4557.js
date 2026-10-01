@@ -1,4 +1,4 @@
-// Browser-check-surface: cstep-teammake tc-title tc-purpose tc-list tc-project tc-note tc-tell tc-tell-say tc-go tc-hello tc-back tc-msg
+// Browser-check-surface: cstep-teammake tc-title tc-purpose tc-list tc-project tc-provider tc-account tc-account-row tc-note tc-tell tc-tell-say tc-go tc-hello tc-back tc-msg
 'use strict';
 /**
  * A whole prebuilt team in one go (#4557, umbrella #4554, Josh 2026-09-29 09:06), on a real board.
@@ -25,6 +25,11 @@
  *    project); another team waits only while one is in flight, and replaces an idle unfinished one (round
  *    5: never a false "still making"); a step create reports as not done is said
  *    on its row;
+ *  - #4719: a person whose only account is OpenAI (the list emptied first, so it is read fresh when the
+ *    step opens, by the create form's read or the step's own) gets the team on OpenAI and that account,
+ *    with no account menu for one account, and every member is made on it in one press; the choice is
+ *    fixed once it starts; an account list slower than the step's 5 s wait still sets the default when
+ *    it lands; the menus lock at the click and open again if the click is refused;
  *  - 390 wide with no sideways scroll, chromium and webkit, no page errors.
  *
  * POST /api/agents is INTERCEPTED with a scripted outcome per name, so nothing here makes a real agent or
@@ -185,6 +190,57 @@ function chk(ok, label, extra) {
         })));
         const settle = (page, pred) => page.waitForFunction(pred, null, { timeout: 8000 }).catch(() => null);
 
+        /* --- #4719: a person whose only plan is OpenAI makes the whole team in one press ----------- */
+        {
+          const { page, errs, posted } = await newPage(1280);
+          const OA = { provider: 'openai', dir: '/acct/openai-only', email: 'me@example.com', isDefault: true, state: 'connected' };
+          await page.route('**/api/accounts*', (r) => r.fulfill({ status: 200, json: { accounts: [OA] } }));
+          // The list is emptied, so it has to be read again when the step opens (by the form or the step).
+          await page.evaluate(() => { CREATE_ACCOUNTS = []; CREATE_ACCOUNTS_KNOWN = false; });
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          const pick = await page.evaluate(() => ({ provider: document.getElementById('tc-provider').value, account: document.getElementById('tc-account').value,
+            rowHidden: document.getElementById('tc-account-row').hidden }));
+          chk(pick.provider === 'openai' && pick.account === '/acct/openai-only', `${E} #4719 with only an OpenAI account, the team step is on OpenAI and that account`, JSON.stringify(pick));
+          chk(pick.rowHidden === true, `${E} #4719 one account: no account menu (#2097)`, JSON.stringify(pick));
+          // No project here: a project made in this arm would take "Marketing" from the arms below, which count names.
+          await page.selectOption('#tc-project', 'none');
+          await page.click('#tc-go');
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((e) => e.textContent === 'Running'));
+          const r1 = await rows(page);
+          chk(posted.length === 3 && posted.every((b) => b.provider === 'openai' && b.account === '/acct/openai-only'),
+            `${E} #4719 every member is made on OpenAI with that account, in one press`, JSON.stringify(posted.map((b) => [b.name, b.provider, b.account])));
+          chk(r1.every((r) => r.state === 'Running'), `${E} #4719 the whole team is running`, JSON.stringify(r1.map((r) => r.state)));
+          chk(await page.evaluate(() => document.getElementById('tc-provider').disabled), `${E} #4719 the choice is fixed once the team starts`);
+          chk(errs.length === 0, `${E} no page errors (#4719 arm)`, errs.join(' | '));
+          /* The board's /api/status poll can still be inside this check's route when the page closes: its
+             r.fetch() response is then disposed and route.fulfill throws an uncaught rejection that kills
+             the whole check (CI, PR #4875, both attempts). Stop routing first, as render-login-expiry does. */
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
+        }
+
+        /* --- #4719: an account list slower than the 5 s wait still sets the default when it lands ---- */
+        {
+          const { page, errs } = await newPage(1280);
+          const OA = { provider: 'openai', dir: '/acct/openai-late', email: 'me@example.com', isDefault: true, state: 'connected' };
+          await page.route('**/api/accounts*', async (r) => { await new Promise((res) => setTimeout(res, 8000)); return r.fulfill({ status: 200, json: { accounts: [OA] } }); });
+          await page.evaluate(() => { CREATE_ACCOUNTS = []; CREATE_ACCOUNTS_KNOWN = false; });
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          const early = await page.evaluate(() => document.getElementById('tc-provider').value);
+          await page.waitForFunction(() => document.getElementById('tc-provider').value === 'openai', null, { timeout: 10000 }).catch(() => null);
+          const late = await page.evaluate(() => ({ p: document.getElementById('tc-provider').value, a: document.getElementById('tc-account').value }));
+          chk(early === 'anthropic' && late.p === 'openai' && late.a === '/acct/openai-late',
+            `${E} #4719 a slow account list moves the untouched team menu to OpenAI when it lands`, JSON.stringify({ early, late }));
+          chk(errs.length === 0, `${E} no page errors (#4719 slow arm)`, errs.join(' | '));
+          /* The board's /api/status poll can still be inside this check's route when the page closes: its
+             r.fetch() response is then disposed and route.fulfill throws an uncaught rejection that kills
+             the whole check (CI, PR #4875, both attempts). Stop routing first, as render-login-expiry does. */
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
+        }
+
         /* --- the step, the happy path with one failure and its retry --------------------------- */
         {
           const { page, errs, posted, script, checkHold, pictures } = await newPage(1280);
@@ -320,10 +376,16 @@ function chk(ok, label, extra) {
           chk(posted.length === 1 && posted[0].name === 'Maya', `${E} with the lead refused, nothing is posted for the others`, JSON.stringify(posted.map((b) => b.name)));
           chk(r1[1].state === 'Waiting for the lead' && r1[2].state === 'Waiting for the lead' && !r1[1].retry, `${E} the others say they are waiting for the lead`, JSON.stringify(r1.map((r) => r.state)));
           chk(posted.every((b) => !('projects' in b)), `${E} No project sends no project`);
+          // #4719: nothing is made yet, so the Model menu is open again (a refused lead may be the account).
+          chk(!(await page.isDisabled('#tc-provider')), `${E} #4719 with the lead refused and nothing made, the Model menu is open again`);
+          await page.selectOption('#tc-provider', 'openai');   // the person changes the choice before trying again
           await page.click('#tc-list li[data-slot="lead"] .tc-retry');
           await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => s.textContent === 'Running'));
           const r2 = await rows(page);
           chk(posted.map((b) => b.name).join() === 'Maya,Maya,Leo,Ana' && r2.every((r) => r.state === 'Running'), `${E} Try again on the lead makes it, then the others`, JSON.stringify(posted.map((b) => b.name)));
+          chk(await page.isDisabled('#tc-provider'), `${E} #4719 once the lead is made, the Model menu is fixed`);
+          chk(posted.length === 4 && !('provider' in posted[0]) && posted.slice(1).every((b) => b.provider === 'openai'),
+            `${E} #4719 the choice changed after the refusal is what Try again and every later member are made on`, JSON.stringify(posted.map((b) => [b.name, b.provider || ''])));
           chk(errs.length === 0, `${E} no page errors (lead arm)`, errs.join(' | '));
           await page.close();
         }
@@ -460,12 +522,18 @@ function chk(ok, label, extra) {
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           await page.fill('#tc-list li[data-slot="social"] .tc-name', 'maya');
           const before = projects.readAll().length;
+          /* #4719: the menus lock at the click; catch that before the refusal reopens them, so the
+             "open again" assertion below says something. */
+          await page.evaluate(() => { window.__tcLockSeen = false; const e = document.getElementById('tc-provider');
+            new MutationObserver(() => { if (e.disabled) window.__tcLockSeen = true; }).observe(e, { attributes: true, attributeFilter: ['disabled'] }); });
           await page.click('#tc-go');
           await settle(page, () => !document.getElementById('tc-msg').hidden);
           const msg = await page.textContent('#tc-msg');
           chk(/same name/.test(msg) && posted.length === 0 && projects.readAll().length === before,
             `${E} two seats with one name are refused before any project or agent is made`, msg + ' | posted ' + posted.length);
           chk(!(await page.isDisabled('#tc-go')) && !(await page.isHidden('#tc-go')), `${E} and the button is back to try again`);
+          chk(await page.evaluate(() => window.__tcLockSeen === true), `${E} #4719 the Model menu locked at the click`);
+          chk(!(await page.isDisabled('#tc-provider')), `${E} #4719 and the Model menu is open again (nothing was made)`);
           chk(errs.length === 0, `${E} no page errors (refusal arm)`, errs.join(' | '));
           await page.close();
         }

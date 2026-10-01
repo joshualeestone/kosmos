@@ -168,8 +168,12 @@ function ordered(team) {
 /**
  * Every member's create spec, in the order to make them, for the names the person chose.
  *
- * @param {{team:string, names:Object<string,string>, project?:(string|null), checkTaken?:boolean}} req
+ * @param {{team:string, names:Object<string,string>, project?:(string|null), checkTaken?:boolean,
+ *   provider?:string, account?:string}} req
  *   names maps every slot to the name the person chose; project is an existing project id or null.
+ *   provider and account (#4719) are the team step's one choice for the whole team, carried by every
+ *   member's spec exactly as the single-agent form sends them: provider only when it is not the
+ *   default (Anthropic), account only when one was chosen. POST /api/agents checks both, per member.
  *   checkTaken also refuses a name already taken on this computer. The page asks for it before making
  *   anything, so a taken suggested name is caught before the first agent; it is off when the page
  *   re-reads the specs to retry, because by then some of the names are taken by this team itself.
@@ -241,6 +245,11 @@ function specs(req, cat, deps) {
   }
 
   const project = (req && typeof req.project === 'string' && req.project.trim()) ? req.project.trim() : null;
+  // Refused, not read as "none": a provider that is not text would otherwise quietly mean Claude.
+  if (req && req.provider != null && typeof req.provider !== 'string') return { ok: false, because: 'that provider is not one Kosmos knows' };
+  const provider = (req && typeof req.provider === 'string') ? req.provider.trim().toLowerCase() : '';
+  if (provider && !/^[a-z0-9-]{1,32}$/.test(provider)) return { ok: false, because: 'that provider is not one Kosmos knows' };
+  const account = (req && typeof req.account === 'string') ? req.account.trim() : '';
   const out = ordered(team).map((m) => ({
     slot: m.slot,
     title: m.title,
@@ -255,6 +264,8 @@ function specs(req, cat, deps) {
       teamInstructions: briefs[m.slot],
       reportsTo: m.slot === lead ? null : create.slugFor(names[lead]),
       ...(project ? { projects: [project] } : {}),
+      ...(provider && provider !== 'anthropic' ? { provider } : {}),
+      ...(account ? { account } : {}),
     },
     avatar: { image: (m.avatar && typeof m.avatar.image === 'string' && m.avatar.image) ? m.avatar.image : null },
   }));
