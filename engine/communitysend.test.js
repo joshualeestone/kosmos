@@ -103,9 +103,11 @@ test.beforeEach(async () => { fresh(); be = await backend(); });
 test.afterEach(() => { be.server.closeAllConnections(); be.server.close(); cs.setSender(null); cs.setSwitch(null); });
 
 // Publish a post as an agent through the real choke. trusted -> published, else held.
+// #3485 (2026-09-30): an agentId now publishes straight away, so a HELD fixture asks the choke
+// for the hold explicitly (trusted: false), standing for a row held before that update.
 function agentPost(agent, fields, { trusted = true } = {}) {
   if (trusted) communitystore.grantTrust(agent);
-  const r = feedpublish.publishPost({ kind: 'community_post', agent, at: new Date().toISOString(), ...fields }, { agentId: agent });
+  const r = feedpublish.publishPost({ kind: 'community_post', agent, at: new Date().toISOString(), ...fields }, trusted ? { agentId: agent } : { trusted: false });
   assert.equal(r.ok, true, JSON.stringify(r));
   return r;
 }
@@ -417,6 +419,21 @@ test('a post held before sending went on and released after it is sent', async (
   assert.deepEqual(posts().map((p) => p.body.title), ['held earlier']);
 });
 
+test('#4373 part B review 7: a post released before the FIRST sweep of an ON period is sent when the release records the start (control: without it, it is not)', async () => {
+  for (const record of [true, false]) {
+    fresh();
+    const held = agentPost('ren' + record, { topic: 'released early ' + record, body: 'b' }, { trusted: false });
+    await new Promise((r) => setTimeout(r, 5));
+    SW = { on: true, ok: true };                        // on, but no sweep has recorded the start
+    if (record) assert.equal(cs.recordPeriodStart(), true);   // what POST /api/community/release does first
+    communitystore.releaseHeld(held.id);
+    await new Promise((r) => setTimeout(r, 5));
+    await cs.sweep();
+    const sent = posts().some((p) => p.body.title === 'released early ' + record);
+    assert.equal(sent, record, record ? 'the released post never went' : 'control: without the recorded start the post should fall before the window');
+  }
+});
+
 test('a send whose answer was lost is not sent twice: the server copy is adopted', async () => {
   await on();
   const r = agentPost('sol', { topic: 'once', body: 'only once' });
@@ -465,7 +482,7 @@ test('a 201 with no id is adopted from the server on the next sweep, not sent ag
 });
 
 test('a delete for a post the board does not have is refused', () => {
-  assert.deepEqual(cs.requestDelete('no-such-post'), { ok: false, missing: true, because: 'there is no such post' });
+  assert.deepEqual(cs.requestDelete('no-such-post'), { ok: false, missing: true, because: 'there is no such post or comment' });
   assert.equal(cs.requestDelete('').ok, false);
   assert.equal(cs.requestDelete(42).ok, false);
 });
@@ -766,4 +783,74 @@ test('a delete the server does not accept is recorded against the post and retri
   cs.setSender((url, init) => fetch(url, init));
   await cs.sweep();
   assert.equal(cs.statuses()[r.id].state, 'deleted');
+});
+
+/* #4774 review 2 (BLOCKER): the sweep reads GET /agents/me/posts, which the service answers with up to 200 posts of up
+   to 4000 characters (kosmos-community app/routers/agents.py my_posts). That is far past the 256 KiB an agentCall
+   reads, so the sweep's own reads must not be held to it: a capped answer would leave an attempted post pending
+   forever and never bring a take-down home. 4000 three-byte characters per post is the worst case the cap is sized for. */
+function fillTo200(agentId) {
+  for (let i = 0; i < 199; i++) {
+    const id = 'fill' + i;
+    be.st.posts.set(id, { id, agent: agentId, channel: 'general', sub_channel: null, title: 'filler ' + i,
+      body: '€'.repeat(4000), deleted: false, taken_down: false, take_down_reason: null });
+  }
+}
+// Measures the biggest /agents/me/posts answer, so each test shows its answer really was past the agent-facing cap.
+function measuringSender() {
+  const seen = { bytes: 0 };
+  cs.setSender(async (url, init) => {
+    const res = await fetch(url, init);
+    if (url.endsWith('/agents/me/posts')) seen.bytes = Math.max(seen.bytes, (await res.clone().arrayBuffer()).byteLength);
+    return res;
+  });
+  return seen;
+}
+function assertFullSize(seen) {
+  assert.ok(seen.bytes > cs.RESPONSE_CAP, 'control: the answer was not bigger than the agent-facing cap (' + seen.bytes + ')');
+  assert.ok(seen.bytes <= cs.SWEEP_RESPONSE_CAP, 'the worst-case answer does not fit the sweep cap (' + seen.bytes + ')');
+}
+
+test('#4774 review 2: a full /agents/me/posts (200 posts x 4000 characters) still settles an attempted post', async () => {
+  await on();
+  const r = agentPost('sol', { topic: 'once', body: 'only once' });
+  // The server stores the post, but the answer never reaches the board (as in the lost-answer test above).
+  cs.setTimeoutMs(150);
+  cs.setSender(async (url, init) => {
+    const res = await fetch(url, init);
+    if (init.method === 'POST' && url.endsWith('/posts')) {
+      await new Promise((ok, fail) => {
+        const t = setTimeout(ok, 400);
+        init.signal.addEventListener('abort', () => { clearTimeout(t); fail(new Error('aborted')); });
+      });
+    }
+    return res;
+  });
+  await cs.sweep();
+  assert.notEqual(cs.statuses()[r.id].state, 'sent');
+  fillTo200([...be.st.posts.values()][0].agent);
+  cs.setTimeoutMs(5000);
+  const seen = measuringSender();
+  await cs.sweep();
+  assertFullSize(seen);
+  assert.equal(cs.statuses()[r.id].state, 'sent', 'the attempted post was not adopted from a full /agents/me/posts');
+  assert.equal(posts().length, 1, 'the post was sent a second time');
+});
+
+test('#4774 review 2: a full /agents/me/posts (200 posts x 4000 characters) still records a take-down', async () => {
+  await on();
+  const r = agentPost('jo', { topic: 't', body: 'b' });
+  await cs.sweep();
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+  const mine = [...be.st.posts.values()][0];
+  fillTo200(mine.agent);
+  mine.taken_down = true;
+  mine.take_down_reason = 'off topic';
+  const seen = measuringSender();
+  await cs.sweep(Date.now() + 31 * 60 * 1000);
+  assertFullSize(seen);
+  assert.deepEqual(
+    { takenDown: cs.statuses()[r.id].takenDown, reason: cs.statuses()[r.id].takeDownReason },
+    { takenDown: true, reason: 'off topic' },
+  );
 });

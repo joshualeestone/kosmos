@@ -27,7 +27,9 @@
  * reported, or a `working` older than the board's own decay window, status.REPORT_WORKING_DECAY_MS).
  * So a runner that does not report is never held, and a report that went stale falls back to typing.
  *
- * Brake: AGENT_WORKFORCE_ROOM_HOLD_OFF=1 types every post as before.
+ * Brake: AGENT_WORKFORCE_ROOM_HOLD_OFF=1 types every post as before, including past the #4588 quota gate for room
+ * posts (engine/messages.js typeInto). Posts held before the brake is turned on are told only by the next typed
+ * arrival (the idle flush and flushReleased are off under it).
  *
  * Held only for a member the board can type into right now (chat.addressable), so a post to a dead or
  * missing pane is still refused as before rather than kept for someone who cannot hear it. Never held:
@@ -61,13 +63,15 @@ function fileFor(name) { return path.join(dir(), store.safeKey(String(name)) + '
 
 function off(env) { return !!(env && env.AGENT_WORKFORCE_ROOM_HOLD_OFF === '1'); }
 
-/* Whether this post is held for this member instead of typed. Pure apart from the injected read. */
-function shouldHold({ name, operator, mentioned, answersAuthor, reachable, readReport, now, decayMs, env }) {
-  if (off(env)) return false;
-  if (operator === true) return false;
-  if (mentioned && typeof mentioned.has === 'function' && mentioned.has(name)) return false;
-  if (answersAuthor === name) return false;
-  if (reachable !== true) return false;
+/* #4588 PR B: a post held because the member is an Antigravity agent paused on the shared Google quota may @-name
+   the member (an agent's post is an automatic sender there, addressed or not). Its id is kept with this mark, so the
+   line that later tells the member says which of the held posts ask for an answer. Board ids never start with it. */
+const ADDRESSED = '@';
+function addressedId(id) { return ADDRESSED + String(id); }
+function plainId(x) { return typeof x === 'string' && x.startsWith(ADDRESSED) ? x.slice(ADDRESSED.length) : x; }
+
+/* The member's latest report is a fresh `working` (not older than the board's decay window). */
+function workingNow(readReport, name, now, decayMs) {
   let rep;
   try { rep = readReport(name); } catch { return false; }
   if (!rep || rep.found !== true || rep.state !== 'working') return false;
@@ -75,6 +79,16 @@ function shouldHold({ name, operator, mentioned, answersAuthor, reachable, readR
   if (!Number.isFinite(at) || !Number.isFinite(now) || !Number.isFinite(decayMs)) return false;
   const age = now - at;
   return age >= 0 && age <= decayMs;
+}
+
+/* Whether this post is held for this member instead of typed. Pure apart from the injected read. */
+function shouldHold({ name, operator, mentioned, answersAuthor, reachable, readReport, now, decayMs, env }) {
+  if (off(env)) return false;
+  if (operator === true) return false;
+  if (mentioned && typeof mentioned.has === 'function' && mentioned.has(name)) return false;
+  if (answersAuthor === name) return false;
+  if (reachable !== true) return false;
+  return workingNow(readReport, name, now, decayMs);
 }
 
 /* Null-prototype, so a project id such as "__proto__" is an own key like any other. */
@@ -107,8 +121,10 @@ function writeAll(name, all) {
 function hold(name, projectId, id) {
   try {
     const all = readAll(name);
-    const ids = Array.isArray(all[projectId]) ? all[projectId].filter((x) => x !== id) : [];
-    ids.push(id);
+    const prior = Array.isArray(all[projectId]) ? all[projectId] : [];
+    const ids = prior.filter((x) => plainId(x) !== plainId(id));
+    // Kept once; a post that named the member keeps its mark if it is held again unmarked.
+    ids.push(prior.includes(addressedId(plainId(id))) ? addressedId(plainId(id)) : id);
     all[projectId] = ids.slice(-KEEP);
     return writeAll(name, all);
   } catch { return false; }
@@ -143,7 +159,8 @@ function restore(name, projectId, ids) {
   if (!Array.isArray(ids) || !ids.length) return true;
   try {
     const all = readAll(name);
-    const since = Array.isArray(all[projectId]) ? all[projectId].filter((x) => !ids.includes(x)) : [];
+    const back = new Set(ids.map(plainId));
+    const since = Array.isArray(all[projectId]) ? all[projectId].filter((x) => !back.has(plainId(x))) : [];
     all[projectId] = ids.concat(since).slice(-KEEP);
     return writeAll(name, all);
   } catch { return false; }
@@ -163,7 +180,18 @@ function clauseFor(projectId, shown, ids) {
   const name = String(shown == null ? '' : shown).trim();
   shown = name && /^[A-Za-z0-9._ -]+$/.test(name) ? name : projectId;
   const n = ids.length;
-  const named = ids.slice(-SHOWN).join(', ') + (n > SHOWN ? ' and ' + (n - SHOWN) + ' earlier' : '');
+  const asked = ids.filter((x) => plainId(x) !== x).map(plainId);
+  const plain = ids.map(plainId);
+  const named = plain.slice(-SHOWN).join(', ') + (n > SHOWN ? ' and ' + (n - SHOWN) + ' earlier' : '');
+  if (asked.length) {
+    /* #4588 PR B: some were held on the shared Google quota and name the member, so this line must not say nothing is
+       asked. It names those posts and the answer command, like the room's own addressed arrival. */
+    const k = asked.length;
+    return '[While you were away, ' + n + ' room post' + (n === 1 ? '' : 's') + ' arrived in project ' + shown + ' (' + named + '). '
+      + k + ' of them name' + (k === 1 ? 's' : '') + ' you and ask' + (k === 1 ? 's' : '') + ' for your answer ('
+      + asked.slice(-SHOWN).join(', ') + (k > SHOWN ? ' and ' + (k - SHOWN) + ' earlier' : '') + '). Read them with: kosmos room '
+      + projectId + ' and answer one with: kosmos post --in-reply-to <its id> ' + projectId + ']';
+  }
   return '[While you were working, ' + n + ' room post' + (n === 1 ? '' : 's') + ' not addressed to you arrived in project '
     + shown + ' (' + named + '). Nothing is asked of you; read them with: kosmos room ' + projectId + ']';
 }
@@ -190,4 +218,46 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env }) {
   return out;
 }
 
-module.exports = { HELD, KEEP, SHOWN, dir, fileFor, shouldHold, hold, heldIn, heldProjects, take, restore, forget, clauseFor, flushOnIdle };
+/* #4588 PR B: the retry for posts held while an Antigravity agent was paused on the shared Google quota. Its idle
+   report can come while its own timers are still held (the pool refills one agent at a time), and then the idle flush
+   is held too and its ids are put back, with no further idle report until the agent's next turn. So once a minute,
+   each of our antigravity agents that still holds posts and is not in a fresh `working` turn is flushed through the
+   same gated path (a held verdict puts the ids back again). `isAgy` picks the cards; only they are retried here, so a
+   #4624 hold for any other runner is exactly as before. Never throws. */
+async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver, shownOf, DELIVERY, env }) {
+  const out = [];
+  if (off(env)) return out;
+  for (const card of Array.isArray(roster) ? roster : []) {
+    try {
+      if (!card || !card.sessionName || !isAgy(card)) continue;
+      const name = String(card.sessionName);
+      if (!heldProjects(name).length) continue;
+      if (workingNow(readReport, name, now, decayMs)) continue;
+      /* Review round 6: a member nothing can type into (stopped, no agent process, no target) is skipped, so its ids
+         wait for the next typed arrival instead of a COULD_NOT, and a room-hold log line, every minute. */
+      if (require('./chat').addressable(name, roster).ok !== true) continue;
+      /* #4797: while the shared Google quota still holds this member, a try is refused and its ids put back: the held
+         file rewritten twice and a COULD_NOT log line, every minute of the pause, with nothing told. Skip it until the
+         hold lifts; its ids wait untouched. The same gate flushOnIdle's delivery applies (same function, card and memo;
+         the same env in production, where the server passes process.env), so nothing reachable after the reset is
+         skipped. */
+      const agyquota = require('./agyquota');
+      if (agyquota.heldForQuota(name, roster, now, agyquota.POOL_MEMO, env || process.env) != null) continue;
+      for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env })) out.push({ name, ...d });
+    } catch { /* the posts stay held for the next minute */ }
+  }
+  return out;
+}
+
+/* #4797: the server's log line for one flush result. "told of" only when something was: a refused try (COULD_NOT,
+   nothing reached the pane) or a result with no state says it was not told, the same two cases flushOnIdle puts the
+   ids back for. UNCONFIRMED is logged as told (flushOnIdle clears those ids; the line ends delivery=unconfirmed).
+   `after` is appended to a told line (the quota retry says "after the quota hold"). */
+function toldLine(name, d, after = '') {
+  const DELIVERY = require('./chat').DELIVERY;
+  return !d.state || d.state === DELIVERY.COULD_NOT
+    ? `room-hold: ${name} could not yet be told of ${d.n} held post(s) in ${d.projectId} (delivery=${d.state || 'none'})\n`
+    : `room-hold: ${name} told of ${d.n} held post(s) in ${d.projectId}${after ? ' ' + after : ''}, delivery=${d.state}\n`;
+}
+
+module.exports = { HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, toldLine };

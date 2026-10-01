@@ -48,11 +48,12 @@ const MIN_QUIET_MS = 60 * 1000;
    board run. connlost-heal caps its retries the same way; a pane that refuses three times in
    three minutes is not going to be helped by a fourth. */
 const MAX_TRIES = 3;
-/* Taught bare, like the operator envelope's own "to answer, run: kosmos reply"
+/* #4784: this reminder carries no message text, so it names the verb that reads it back (kosmos inbox).
+   Taught bare, like the operator envelope's own "to answer, run: kosmos reply"
    (messages.js operatorDirect), so the reminder names the command the agent was already shown. */
 const NUDGE_TEXT = 'Kosmos here, a one-time reminder: the person you work for sent you a message and '
   + 'nothing has reached them yet. Writing an answer here does not send it. To answer them, run: '
-  + 'kosmos reply "<your answer>"';
+  + 'kosmos reply "<your answer>". If their message did not reach you, read it with: kosmos inbox';
 
 /* Has this session's one nudge been spent? A book entry with a nudge time, however it went. */
 function nudged(entry) {
@@ -166,8 +167,11 @@ function sweepOnce(o) {
       if (p.act !== 'nudge') continue;
       const display = card.name || session;
       let state = null;
-      try { const r = o.deliver(session, NUDGE_TEXT, o.roster); state = r && r.state; }
+      let held = false;
+      try { const r = o.deliver(session, NUDGE_TEXT, o.roster); state = r && r.state; held = Boolean(r && r.held === true); }
       catch (err) { state = 'threw: ' + String((err && err.message) || err); }
+      /* #4588 PR B: held on the shared Google quota, nothing typed: no try is spent, so the nudge still comes after the reset. */
+      if (held) { results.push({ session, name: display, act: 'quota-held', delivered: false, delivery: state, because: p.because }); continue; }
       const D = o.DELIVERY || {};
       const delivered = D.PLACED != null && state === D.PLACED;
       const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);

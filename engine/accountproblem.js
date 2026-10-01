@@ -73,6 +73,32 @@ function accountProblemOf(card) {
       + ' Google Gemini (Google subscription) instead. It picks up again on the next message after that.';
     return { kind: 'usage', provider: 'Gemini', notify: true, text: head + todo, summary: head + todo };
   }
+  /* #4588: an Antigravity agent paused on its Google account's shared quota, read from Google's own error through agy's
+     hook (status.js quotaPauseUntil), so it is firm. Every agent signed in to that account shares it. Said without "add
+     credits": this is a subscription's allowance. */
+  if (card.state === 'rate_limited' && card.runner === 'antigravity' && typeof card.quotaUntil === 'string' && Number.isFinite(Date.parse(card.quotaUntil))) {
+    const resetAt = Date.parse(card.quotaUntil);
+    const hhmm = require('./quotawords').quotaResetWords(resetAt);
+    const text = `${who} has used up its Google account's Antigravity quota, which any other Antigravity agent signed in to`
+      + ` the same Google account shares, so it has stopped. The quota resets at ${hhmm}.`;
+    /* notify: false (review 2). The manager notice asks it to tell the person "so they can fix it", and this clears by
+       itself at the reset; a manager on the same account is likely paused too, and would spend the fresh quota on it.
+       The card and the Direct Message line already say it. */
+    return { kind: 'usage', provider, notify: false, text, summary: text };
+  }
+  /* #4588 part 3: its own quota reset has passed, but its Google account's shared quota is still paused (status.js
+     poolUntil). No "add credits" and no "send it a message": a message now would spend a turn against the empty quota.
+     No promise that it carries on by itself either: the resume can be switched off or give up. notify: false, as above. */
+  if (card.state === 'rate_limited' && card.runner === 'antigravity' && typeof card.poolUntil === 'string') {
+    const resetAt = Date.parse(card.poolUntil);
+    // The time only while it is still ahead: a stale card's past time is not said as "paused until".
+    const until = resetAt > Date.now()
+      ? ' It was reported paused until ' + require('./quotawords').quotaResetWords(resetAt) + '.'
+      : '';
+    const text = `${who} is waiting for its Google account's shared Antigravity quota, which every Antigravity agent signed`
+      + ` in to that account shares.${until}`;
+    return { kind: 'usage', provider, notify: false, text, summary: text };
+  }
   if (card.state === 'rate_limited') {
     /* Which reader saw it. A Codex pane's usage limit comes only from Codex's own sentence, anchored
        at the start of a row (engine/status.js CODEX_LIMIT_MARKERS), so it is a firm reading. Every

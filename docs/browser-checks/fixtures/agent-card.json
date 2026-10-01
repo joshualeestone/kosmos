@@ -21,6 +21,8 @@
   "quotaDialog": false,
   "quotaDaily": false,
   "limitFrom": null,
+  "quotaUntil": null,
+  "poolUntil": null,
   "because": "it says it is working",
   "disruption": null,
   "activeWhileWaiting": false,

@@ -65,11 +65,15 @@ function macVerbsFromDispatch(text) {
   return [...block.matchAll(/^ {2}([a-z]+)\)/gm)].map((m) => m[1]);
 }
 
-/* The verbs its help banner lists (`kosmos start | stop | ...`). */
+/* The verbs its help lists: #4785 made it one row per command (`printf '  kosmos start   start Kosmos...'`)
+   inside kosmos_command_list(), where it had been one `kosmos start | stop | ...` line. */
 function macVerbsFromBanner(text) {
-  const m = /kosmos ((?:[a-z]+ \| )+[a-z]+)\\n/.exec(text);
-  assert.ok(m, 'install/kosmos has no `kosmos a | b | c` banner any more');
-  return m[1].split(' | ');
+  const open = text.indexOf('\nkosmos_command_list() {\n');
+  assert.ok(open >= 0, 'install/kosmos has no kosmos_command_list() any more; this test reads the help\'s verbs from there');
+  const body = text.slice(open, text.indexOf('\n}\n', open));
+  const verbs = [...body.matchAll(/^\s*printf '  kosmos ([a-z]+) /gm)].map((m) => m[1]);
+  assert.ok(verbs.length > 0, 'kosmos_command_list() lists no `kosmos <verb>` rows');
+  return verbs;
 }
 
 /* A verb's subcommands: the arms of every `case "$sub" in` / `case "${1:-}" in` in
@@ -158,10 +162,10 @@ test('every shared verb has the same subcommands on both, in both directions', (
 });
 
 test('the parser really reads subcommands (a guard that cannot find any would pass everything)', () => {
-  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'task')), ['add', 'built', 'close', 'list', 'message']);   // built: #3951
+  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'task')), ['add', 'built', 'close', 'hold', 'list', 'message', 'unhold']);   // built: #3951; hold, unhold: #4771
   assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'room')), ['reopen']);
   assert.ok(macSubcommands(MAC_CLI, 'feedback').includes('write'));
-  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'community')), ['post', 'read'], 'the first-argument compare is not read, or a board answer ($status) is');   // #4330; read: #4373
+  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'community')), ['comment', 'follow', 'post', 'read', 'unfollow'], 'the first-argument compare is not read, or a board answer ($status) is');   // #4330; read: #4373; comment: #4373 part B; follow, unfollow: #4774
 });
 
 test('the verbs that require a subcommand are the same on both (Windows by behaviour)', async () => {

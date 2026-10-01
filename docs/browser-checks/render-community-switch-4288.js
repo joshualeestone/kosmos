@@ -3,8 +3,9 @@
 /*
  * #4288: the Kosmos Community switch in Settings > Automation (Mona Lisa's design on the card).
  *
- * Every /api/community-setting request is answered at the browser (page.route), so this check
- * writes nothing to the board and each arm sees exactly the state it names:
+ * Every /api/community-setting request is answered at the browser (page.route), except in the
+ * NO-NOTICE REAL arm (which writes and then restores the board's community.json), and each arm sees
+ * exactly the state it names:
  *   DEFAULT   the board's own read (a sandboxed board has no community.json): the row shows
  *             under Automation, below the Daily report box, reads ON, the share says "not
  *             measured yet" (never 0), and the OFF note is hidden.
@@ -17,9 +18,17 @@
  *             community spend of 0 renders "none".
  *   CLICK     pressing the knob PUTs on:false and paints what the board answered.
  *   CLICK-FAIL  a refused save shows its message and leaves the knob where it was.
- *   NOTICE    (part B) a pending one-time notice opens once, records itself as seen once, and closes on
- *             Got it, Escape and the backdrop; Change in Settings lands on the switch. A seen notice, an
- *             OFF switch and an unread setting open nothing.
+ *   FIRST-RUN OFF  (#4820 review 2) the switch turned Off on first run's Screen 6 reads Off, with the
+ *             OFF note, when Settings > Automation is opened afterwards in the same session.
+ *   FIRST-RUN OFF (Daily report)  (#4820 review 3) the same for Screen 6's diagnostics switch: turned
+ *             Off there, Settings' Daily report switch (#feedback-toggle) reads Off afterwards.
+ *   NO-NOTICE (#4820, Josh 2026-09-30: no pop-up for existing users) an existing install with sharing
+ *             on and the old one-time notice never seen (the answer the old board gave it) gets NO
+ *             community dialog and posts nothing, while the switch still reads ON in Settings. The #4288
+ *             part B notice arms (NOTICE, HELD, STALE, BOOT) and #3485's REARM went with the notice.
+ *   NO-NOTICE REAL  (needs AGENT_WORKFORCE_DATA) the same on the board's own answer: a community.json
+ *             an older board wrote for an existing install owed the notice reads ON, with no noticeSeen
+ *             field, and the page opens no dialog. The file is restored.
  * The DEFAULT arm is also the control for the others: it proves the row is found and read.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
@@ -27,10 +36,22 @@
  */
 
 const { chromium } = require('playwright');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+// The NO-NOTICE REAL arm writes the board's community.json, so only on a board whose data root is a temp sandbox.
+function sandboxedData(d) {
+  if (!d || !fs.existsSync(d)) return false;
+  const real = fs.realpathSync(d);
+  return [os.tmpdir(), '/tmp', '/private/tmp', '/var/folders', '/private/var/folders']
+    .some((t) => { try { return real.startsWith(fs.realpathSync(t) + path.sep); } catch { return false; } });
+}
 
 const BASE = process.argv[2] || process.env.KOSMOS_URL || 'http://127.0.0.1:17461';
 const ROUTE = '**/api/community-setting';
-const SEEN = '**/api/community-setting/notice-seen';
+const FEEDBACK = '**/api/feedback-setting';   // the Daily report (diagnostics) setting, FIRST-RUN OFF (Daily report)
+const SEEN = '**/api/community-setting/notice-seen';   // the removed route: anything sent there is counted
 
 const fails = [];
 function check(name, pass, detail) {
@@ -113,7 +134,7 @@ async function run() {
     check('OFF: the OFF note shows', o.offNoteHidden === false, String(o.offNoteHidden));
     // #4313: the delete exists now (the list below the switch), so the note promises it again,
     // and names where it is. Before #4313 this arm asserted the note promised NO delete (review 1).
-    check('OFF: the note says posts stay up until you delete them below', /Posts already in the community stay up until you delete them below\.$/.test(o.offNote), JSON.stringify(o.offNote));
+    check('OFF: the note says posts and comments stay up, and the list below deletes them or says why not', /Posts and comments already in the community stay up\. You can delete them in the list below, which says when one cannot be removed\.$/.test(o.offNote), JSON.stringify(o.offNote));
     await p2.close();
 
     // 403: a gated read draws could-not-read, never a false Off.
@@ -197,148 +218,143 @@ async function run() {
     check('CLICK-FAIL: the knob still reads ON and the OFF note stays hidden', f.checked === 'true' && f.offNoteHidden === true, JSON.stringify(f));
     await p6.close();
 
-    // NOTICE (part B): a pending notice opens once and records itself as seen once.
-    /* A notice that should open is waited for (up to 15 s); one that should not is given until the page
-       has asked for the setting twice (the row, then the notice) plus a second, never a bare sleep. */
-    const noticeFor = async (body, expectOpen = true) => {
-      const pg = await page();
-      const posts = [];
-      let gets = 0;
-      await pg.route(ROUTE, (route) => { gets++; return answer(body)(route); });
-      await pg.route(SEEN, (route) => { posts.push(route.request().method()); return answer({ ...body, noticeSeen: true })(route); });
-      await load(pg);
-      if (expectOpen) await pg.waitForSelector('#cmnotice', { timeout: 15000 }).catch(() => {});
-      else { const until = Date.now() + 15000; while (gets < 2 && Date.now() < until) await pg.waitForTimeout(100); await pg.waitForTimeout(1000); }
-      return { pg, posts };
+    /* #4820 review 2, FIRST-RUN OFF: Settings read the switch once at page load, so a person who turned
+       Community off on first run's Screen 6 and then opened Settings > Automation in the same session saw
+       ON. The board's state is held here: a GET answers it, a PUT changes it, as the board does. First
+       run is opened the way Settings' re-run link opens it (?first-run=1&fr-step=6), the switch is pressed
+       for real, first run is closed with Escape (the same exit load() uses), and Automation is opened
+       through its nav. */
+    const p7 = await page();
+    const frState = { on: true, ok: true, share: null };
+    const frPuts = [];
+    await p7.route(ROUTE, (route) => {
+      const req = route.request();
+      if (req.method() === 'PUT') { frPuts.push(req.postData()); try { frState.on = JSON.parse(req.postData()).on === true; } catch { /* keep */ } }
+      return answer(frState)(route);
+    });
+    await p7.goto(BASE.replace(/\/$/, '') + '/?first-run=1&fr-step=6', { waitUntil: 'load', timeout: 60000 });
+    await p7.waitForFunction(() => typeof showTab === 'function' && typeof communityPaint === 'function', null, { timeout: 30000 });
+    await p7.waitForSelector('#boot-cover', { state: 'hidden', timeout: 60000 });
+    await p7.waitForSelector('#fr-s6-community', { state: 'visible', timeout: 30000 });
+    // Precondition: Settings painted its load-time read (ON), so the arm measures a re-read, not a first read.
+    await p7.waitForFunction(() => { const t = document.getElementById('community-share'); return t && t.textContent.length > 0; }, null, { timeout: 30000 });
+    const before = await p7.evaluate(() => document.getElementById('community-toggle').getAttribute('aria-checked'));
+    check('FIRST-RUN OFF: precondition, Settings read the switch ON at page load', before === 'true', String(before));
+    /* The knob flips optimistically before its PUT goes out, so wait for the PUT's answer before counting
+       (round 3 NIT: counting on the flip alone could read 0 while the save was still in flight). */
+    const frPut = p7.waitForResponse((r) => r.request().method() === 'PUT' && /\/api\/community-setting$/.test(new URL(r.url()).pathname), { timeout: 15000 });
+    await p7.click('#fr-s6-community');
+    await frPut;
+    await p7.waitForFunction(() => document.getElementById('fr-s6-community').getAttribute('aria-checked') === 'false', null, { timeout: 10000 });
+    check('FIRST-RUN OFF: Screen 6 PUT on:false once', frPuts.length === 1 && JSON.parse(frPuts[0]).on === false, JSON.stringify(frPuts));
+    await p7.keyboard.press('Escape');
+    await p7.waitForSelector('#firstrun', { state: 'hidden', timeout: 30000 });
+    await p7.evaluate(() => showTab('settings'));
+    await p7.waitForTimeout(400);
+    await p7.click('#s-nav button[data-go="automation"]');
+    await p7.waitForTimeout(600);
+    const fo = await readRow(p7);
+    check('FIRST-RUN OFF: Settings > Automation re-reads and the knob reads Off', fo.hidden === false && fo.checked === 'false', JSON.stringify(fo));
+    check('FIRST-RUN OFF: and the OFF note shows', fo.offNoteHidden === false, String(fo.offNoteHidden));
+    await p7.close();
+
+    /* #4820 round 3, FIRST-RUN OFF (Daily report): the other half of round 2's fix. The diagnostics switch
+       on Screen 6 (#fr-s6-feedback) and Settings' Daily report switch (#feedback-toggle) are the same
+       setting, /api/feedback-setting, held here the way frState holds the community one. Same steps as
+       the community arm; it reds with refreshFeedback() removed from settingsGo. */
+    const p8 = await page();
+    const fbState = { on: true, ok: true };
+    const fbPuts = [];
+    await p8.route(FEEDBACK, (route) => {
+      const req = route.request();
+      if (req.method() === 'PUT') { fbPuts.push(req.postData()); try { fbState.on = JSON.parse(req.postData()).on === true; } catch { /* keep */ } }
+      return answer(fbState)(route);
+    });
+    await p8.goto(BASE.replace(/\/$/, '') + '/?first-run=1&fr-step=6', { waitUntil: 'load', timeout: 60000 });
+    await p8.waitForFunction(() => typeof showTab === 'function' && typeof refreshFeedback === 'function', null, { timeout: 30000 });
+    await p8.waitForSelector('#boot-cover', { state: 'hidden', timeout: 60000 });
+    await p8.waitForSelector('#fr-s6-feedback', { state: 'visible', timeout: 30000 });
+    // Precondition: Settings painted its load-time read (ON), so the arm measures a re-read, not a first read.
+    await p8.waitForFunction(() => document.getElementById('feedback-toggle').getAttribute('aria-checked') === 'true', null, { timeout: 30000 }).catch(() => {});
+    const fbBefore = await p8.evaluate(() => { const t = document.getElementById('feedback-toggle'); return { hidden: t.hidden, checked: t.getAttribute('aria-checked') }; });
+    check('FIRST-RUN OFF (Daily report): precondition, Settings read the switch ON at page load', fbBefore.hidden === false && fbBefore.checked === 'true', JSON.stringify(fbBefore));
+    const fbPut = p8.waitForResponse((r) => r.request().method() === 'PUT' && /\/api\/feedback-setting$/.test(new URL(r.url()).pathname), { timeout: 15000 });
+    await p8.click('#fr-s6-feedback');
+    await fbPut;
+    await p8.waitForFunction(() => document.getElementById('fr-s6-feedback').getAttribute('aria-checked') === 'false', null, { timeout: 10000 });
+    check('FIRST-RUN OFF (Daily report): Screen 6 PUT on:false once', fbPuts.length === 1 && JSON.parse(fbPuts[0]).on === false, JSON.stringify(fbPuts));
+    await p8.keyboard.press('Escape');
+    await p8.waitForSelector('#firstrun', { state: 'hidden', timeout: 30000 });
+    await p8.evaluate(() => showTab('settings'));
+    await p8.waitForTimeout(400);
+    await p8.click('#s-nav button[data-go="automation"]');
+    await p8.waitForTimeout(600);
+    const fbAfter = await p8.evaluate(() => { const t = document.getElementById('feedback-toggle'); return { hidden: t.hidden, checked: t.getAttribute('aria-checked') }; });
+    check('FIRST-RUN OFF (Daily report): Settings > Automation re-reads and #feedback-toggle reads Off', fbAfter.hidden === false && fbAfter.checked === 'false', JSON.stringify(fbAfter));
+    await p8.close();
+
+    /* #4820 NO-NOTICE. The removed notice opened within about a second of the boot cover lifting, so a
+       dialog is polled for up to 10 s (and the poll stops early if one appears, so a red is quick). A
+       community dialog is #cmnotice, or any laid-out dialog whose text names the Kosmos community. */
+    const noDialog = async (pg) => {
+      const look = () => pg.evaluate(() => {
+        const laid = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+        if (Boolean(document.getElementById('cmnotice'))) return 'cmnotice: the removed one-time notice';   // an absence: it must never be there
+        const hit = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog[open]')].find((d) => laid(d) && /Kosmos community/i.test(d.textContent));
+        return hit ? (hit.id || hit.tagName) + ': ' + hit.textContent.trim().slice(0, 80) : '';
+      });
+      const until = Date.now() + 10000;
+      let seen = await look();
+      while (!seen && Date.now() < until) { await pg.waitForTimeout(250); seen = await look(); }
+      return seen;
     };
-    const noticeState = (pg) => pg.evaluate(() => {
-      const b = document.getElementById('cmnotice');
-      return { open: Boolean(b), title: b ? (b.querySelector('#cn-title') || {}).textContent : '', body: b ? (b.querySelector('#cn-body') || {}).textContent : '', focus: document.activeElement ? document.activeElement.id : '' };
-    });
-    const pending = { on: true, ok: true, share: null, noticeSeen: false };
+    const owed = { on: true, ok: true, share: null, noticeSeen: false };   // the old board's answer to an existing install
+    const nn = await page();
+    let nnGets = 0; let nnPosts = 0;
+    await nn.route(ROUTE, (route) => { nnGets++; return answer(owed)(route); });
+    await nn.route(SEEN, (route) => { nnPosts++; return answer({ ...owed, noticeSeen: true })(route); });
+    await load(nn);
+    const nnDialog = await noDialog(nn);
+    check('NO-NOTICE: precondition, the page read the community setting', nnGets >= 1, String(nnGets));
+    check('NO-NOTICE: an existing install with sharing on and the notice never seen gets NO community dialog', nnDialog === '', nnDialog);
+    check('NO-NOTICE: and nothing is recorded as a seen notice', nnPosts === 0, String(nnPosts));
+    await nn.evaluate(() => showTab('settings'));
+    await nn.waitForTimeout(400);
+    await nn.click('#s-nav button[data-go="automation"]');
+    await nn.waitForTimeout(400);
+    const nr = await readRow(nn);
+    check('NO-NOTICE: the Settings switch is still there and reads ON', nr.shown && nr.hidden === false && nr.checked === 'true', JSON.stringify(nr));
+    await nn.close();
 
-    // HELD: anything already covering the page (another dialog, first run, the update overlay) holds the
-    // notice, and it opens once that is gone. Each is planted before the page's own script runs.
-    for (const cls of ['rm-back', 'fr-back', 'upd-back']) {
-      const nh = await page();
-      let heldPosts = 0;
-      await nh.addInitScript((c) => { document.addEventListener('DOMContentLoaded', () => { const d = document.createElement('div'); d.className = c; d.dataset.planted = '1'; document.body.appendChild(d); }); }, cls);
-      await nh.route(ROUTE, answer(pending));
-      await nh.route(SEEN, (route) => { heldPosts++; return answer({ ...pending, noticeSeen: true })(route); });
-      await load(nh);
-      await nh.waitForTimeout(3000);
-      const held = await nh.evaluate(() => Boolean(document.getElementById('cmnotice')));
-      check('HELD (' + cls + '): the notice waits and records nothing while it is up', held === false && heldPosts === 0, JSON.stringify([held, heldPosts]));
-      await nh.evaluate(() => document.querySelector('[data-planted]').remove());
-      await nh.waitForSelector('#cmnotice', { timeout: 15000 }).catch(() => {});
-      const opened = await nh.evaluate(() => Boolean(document.getElementById('cmnotice')));
-      check('HELD (' + cls + '): once it is gone the notice opens and records itself once', opened === true && heldPosts === 1, JSON.stringify([opened, heldPosts]));
-      await nh.close();
-    }
-
-    // STALE: the switch is turned OFF (elsewhere) while the notice waits behind a cover; when the cover goes,
-    // the notice reads the setting again and opens nothing.
-    const ns = await page();
-    let staleGets = 0; let stalePosts = 0;
-    await ns.addInitScript(() => { document.addEventListener('DOMContentLoaded', () => { const d = document.createElement('div'); d.className = 'rm-back'; d.dataset.planted = '1'; document.body.appendChild(d); }); });
-    await ns.route(ROUTE, (route) => { staleGets++; return answer(staleGets <= 2 ? pending : { on: false, ok: true, share: null, noticeSeen: false })(route); });
-    await ns.route(SEEN, (route) => { stalePosts++; return answer({ ...pending, noticeSeen: true })(route); });
-    await load(ns);
-    await ns.waitForTimeout(2500);
-    const gotBefore = staleGets;
-    await ns.evaluate(() => document.querySelector('[data-planted]').remove());
-    await ns.waitForTimeout(3000);
-    const st = await ns.evaluate(() => Boolean(document.getElementById('cmnotice')));
-    check('STALE: a switch turned OFF during the wait opens nothing and records nothing', gotBefore === 2 && staleGets >= 3 && st === false && stalePosts === 0, JSON.stringify({ gotBefore, staleGets, st, stalePosts }));
-    await ns.close();
-
-    // BOOT: while the boot cover is up the notice waits, so "seen" is only recorded once it can be seen.
-    const nb = await page();
-    let bootPosts = 0;
-    await nb.route('**/api/first-run', async (route) => { await new Promise((ok) => setTimeout(ok, 4000)); return route.continue(); });
-    await nb.route(ROUTE, answer(pending));
-    await nb.route(SEEN, (route) => { bootPosts++; return answer({ ...pending, noticeSeen: true })(route); });
-    await nb.goto(BASE, { waitUntil: 'load', timeout: 60000 });
-    await nb.waitForTimeout(2000);
-    const during = await nb.evaluate(() => ({ cover: !(document.getElementById('boot-cover') || {}).hidden, open: Boolean(document.getElementById('cmnotice')) }));
-    check('BOOT: under the boot cover the notice has not opened or recorded itself', during.cover === true && during.open === false && bootPosts === 0, JSON.stringify([during, bootPosts]));
-    await nb.waitForSelector('#cmnotice', { timeout: 20000 }).catch(() => {});
-    const after = await nb.evaluate(() => ({ cover: !(document.getElementById('boot-cover') || {}).hidden, open: Boolean(document.getElementById('cmnotice')) }));
-    check('BOOT: once the cover lifts, the notice opens and records itself once', after.cover === false && after.open === true && bootPosts === 1, JSON.stringify([after, bootPosts]));
-    await nb.close();
-    const n1 = await noticeFor(pending);
-    const a = await noticeState(n1.pg);
-    check('NOTICE: a pending notice opens', a.open === true, JSON.stringify(a));
-    check('NOTICE: it carries Mona\'s title and the release promise', a.title === 'Your agents can join the Kosmos community' && /Nothing goes out until you release it\.$/.test(a.body), JSON.stringify(a));
-    check('NOTICE: focus starts on the box, not a button (an Enter in flight cannot dismiss it)', a.focus === 'cn-box', a.focus);
-    await n1.pg.keyboard.press('Tab');
-    const t1 = await n1.pg.evaluate(() => document.activeElement && document.activeElement.id);
-    await n1.pg.keyboard.press('Tab');
-    const t2 = await n1.pg.evaluate(() => document.activeElement && document.activeElement.id);
-    await n1.pg.keyboard.press('Tab');
-    const t3 = await n1.pg.evaluate(() => document.activeElement && document.activeElement.id);
-    await n1.pg.keyboard.press('Shift+Tab');
-    const t4 = await n1.pg.evaluate(() => document.activeElement && document.activeElement.id);
-    check('NOTICE: Tab goes to the buttons and stays between them, both directions', t1 === 'cn-settings' && t2 === 'cn-ok' && t3 === 'cn-settings' && t4 === 'cn-ok', JSON.stringify([t1, t2, t3, t4]));
-    check('NOTICE: it records itself as seen exactly once, when it opens', n1.posts.length === 1 && n1.posts[0] === 'POST', JSON.stringify(n1.posts));
-    await n1.pg.click('#cn-ok');
-    await n1.pg.waitForTimeout(200);
-    check('NOTICE: Got it closes it and removes it from the page', (await noticeState(n1.pg)).open === false);
-    await n1.pg.close();
-
-    const n2 = await noticeFor(pending);
-    // A window drawn OVER the notice owns the keys: with the update overlay up, Escape leaves the notice alone.
-    await n2.pg.evaluate(() => { const d = document.createElement('div'); d.className = 'upd-back'; d.dataset.planted = '1'; document.body.appendChild(d); });
-    await n2.pg.keyboard.press('Escape');
-    await n2.pg.waitForTimeout(200);
-    check('NOTICE: with the update overlay over it, Escape does not close the notice', (await noticeState(n2.pg)).open === true);
-    await n2.pg.evaluate(() => document.querySelector('[data-planted]').remove());
-    await n2.pg.keyboard.press('Escape');
-    await n2.pg.waitForTimeout(200);
-    check('NOTICE: Escape closes it', (await noticeState(n2.pg)).open === false);
-    await n2.pg.close();
-
-    const n3 = await noticeFor(pending);
-    await n3.pg.mouse.click(8, 8);
-    await n3.pg.waitForTimeout(200);
-    check('NOTICE: a click on the backdrop closes it', (await noticeState(n3.pg)).open === false);
-    await n3.pg.close();
-
-    const n4 = await noticeFor(pending);
-    await n4.pg.click('#cn-settings');
-    await n4.pg.waitForTimeout(500);
-    const t = await n4.pg.evaluate(() => {
-      const sec = document.getElementById('s-sec-automation');
-      const tog = document.getElementById('community-toggle');
-      const box = sec && sec.getBoundingClientRect();
-      return { open: Boolean(document.getElementById('cmnotice')), automation: Boolean(box && box.width > 0 && box.height > 0), focus: document.activeElement ? document.activeElement.id : '', tog: tog ? tog.hidden : null };
-    });
-    check('NOTICE: Change in Settings closes it and shows Settings > Automation', t.open === false && t.automation === true, JSON.stringify(t));
-    check('NOTICE: Change in Settings puts focus on the Community switch', t.focus === 'community-toggle', JSON.stringify(t));
-    await n4.pg.close();
-
-    // The switch could not be painted (its read failed) while the notice was pending: Change in Settings
-    // still lands on the Community row. The Settings row reads first (refreshCommunity runs before
-    // communityNoticeCheck in the page), so the first GET fails and the later ones find the notice pending.
-    const n5 = await page();
-    let gets = 0;
-    await n5.route(ROUTE, (route) => (++gets === 1 ? answer({ error: 'gated' }, 403)(route) : answer(pending)(route)));
-    await n5.route(SEEN, (route) => answer({ ...pending, noticeSeen: true })(route));
-    await load(n5);
-    await n5.waitForSelector('#cmnotice', { timeout: 15000 }).catch(() => {});
-    const pre = await n5.evaluate(() => ({ open: Boolean(document.getElementById('cmnotice')), tog: (document.getElementById('community-toggle') || {}).hidden }));
-    check('NOTICE fallback: precondition, the notice is up and the switch is hidden', pre.open === true && pre.tog === true, JSON.stringify(pre));
-    await n5.click('#cn-settings');
-    await n5.waitForTimeout(500);
-    const fb = await n5.evaluate(() => (document.activeElement ? document.activeElement.id : ''));
-    check('NOTICE fallback: with the switch hidden, Change in Settings puts focus on the Community row', fb === 'community-row', fb);
-    await n5.close();
-
-    for (const [label, body] of [['a seen notice', { on: true, ok: true, share: null, noticeSeen: true }], ['an OFF switch', { on: false, ok: true, share: null, noticeSeen: false }], ['an unread setting', { on: false, ok: false, share: null, noticeSeen: false }]]) {
-      const n = await noticeFor(body, false);
-      const st = await noticeState(n.pg);
-      check('NOTICE: ' + label + ' opens nothing and records nothing', st.open === false && n.posts.length === 0, JSON.stringify([st, n.posts]));
-      await n.pg.close();
+    /* NO-NOTICE REAL: the board's own answer, no page.route. It writes the board's community.json and
+       restores it after, so the checks that share this board see what they saw before. Only on a
+       sandboxed board whose data root it was given. */
+    const dataRoot = process.env.AGENT_WORKFORCE_DATA;
+    if (!sandboxedData(dataRoot)) {
+      check('NO-NOTICE REAL: runs only on a sandboxed board (AGENT_WORKFORCE_DATA under the temp dir)', false, String(dataRoot));
+    } else {
+      // The board's own path (store.ROOT is <data>/<app>, not <data>), read from the module that owns it.
+      const file = require('../../engine/communityswitch').FILE;
+      const had = fs.existsSync(file) ? fs.readFileSync(file) : null;
+      const getSetting = () => fetch(BASE.replace(/\/$/, '') + '/api/community-setting').then((x) => x.json()).catch(() => null);
+      try {
+        /* Precondition: the file written is THIS board's. Without it the arm could read a file the board
+           never looks at, and pass for that reason alone. */
+        fs.writeFileSync(file, JSON.stringify({ on: false }));
+        const probe = await getSetting();
+        check('NO-NOTICE REAL: precondition, the file written is the one this board reads', Boolean(probe && probe.on === false), JSON.stringify(probe));
+        // What an older board wrote for an existing install that was owed the notice.
+        fs.writeFileSync(file, JSON.stringify({ on: true, autopublishNoticeSeen: false }));
+        const got = await getSetting();
+        check('NO-NOTICE REAL: the board answers ON with no noticeSeen field', Boolean(got && got.on === true && got.ok === true && !('noticeSeen' in got)), JSON.stringify(got));
+        const rp = await page();
+        await load(rp);
+        const rd = await noDialog(rp);
+        check('NO-NOTICE REAL: the page opens no community dialog', rd === '', rd);
+        await rp.close();
+      } finally {
+        if (had === null) fs.rmSync(file, { force: true }); else fs.writeFileSync(file, had);
+      }
     }
   } finally {
     await browser.close();

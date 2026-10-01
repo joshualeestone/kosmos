@@ -50,6 +50,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   // so a match must hold at DPR 1 AND on a retina (DPR 2) Mac, which is what Josh sees.
   for (const dpr of [1, 2]) {
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 }, deviceScaleFactor: dpr });
+    // kosmos#4815: several Kosmoses are switched off by default; this check pins the kept structure, so it turns them on.
+    await page.addInitScript(() => { try { localStorage.setItem('kosmos.multiKosmos', '1'); } catch {} });
     await page.goto('file://' + PAGE);
     const r = await page.evaluate(() => {
       // The switcher is hidden until the person has multiple worlds; reveal it and give it a

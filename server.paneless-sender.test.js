@@ -134,6 +134,27 @@ test('a carded agent is unaffected, and needs no heartbeat', () => {
   board.restore();
 });
 
+/* #4763: two running agents of ours share a key (Mara / mara), so `resolve` refuses. The paneless path resolves by
+   key alone; with a heartbeat on that key it would re-admit the token as "mara". */
+test('#4763: a key clash is not re-admitted by the paneless path, even with a live heartbeat on the key', () => {
+  /* #4792: a token that carries its name resolves to its own agent, so the #4763 clash is now the path of a token
+     minted before names were kept: written here as that era wrote it, with no name. */
+  const tok = require('node:crypto').randomBytes(32).toString('hex');
+  fs.mkdirSync(sendertoken.DIR, { recursive: true });
+  fs.writeFileSync(path.join(sendertoken.DIR, 'mara.json'), JSON.stringify({ tokens: [{ token: tok, instance: 'old', mintedAt: '2026-09-01T00:00:00.000Z' }] }), { mode: 0o600 });
+  sendertoken.mint('Mara');
+  liveness.seen('mara');
+  const board = fleet.install([fleet.agent('Mara'), fleet.agent('mara')]);
+  try {
+    const r = resolveAgentSender(hdr(tok), {}, board.roster);
+    assert.equal(r.ok, false, 'a clashed token was admitted as ' + JSON.stringify(r.card && r.card.sessionName) + (r.paneless ? ' via the paneless path' : ''));
+    // Control: the same token and heartbeat with an empty roster (no clash) IS admitted by the paneless path.
+    const control = resolveAgentSender(hdr(tok), {}, []);
+    assert.equal(control.ok, true, 'CONTROL: the paneless path did not admit the beating key at all, so the arm above proves nothing');
+    assert.equal(control.paneless, true);
+  } finally { board.restore(); }
+});
+
 test('no token still falls back to the pane, unchanged', () => {
   assert.equal(resolveAgentSender(hdr(null), { from_pane: '%1' }, []).ok, true);
   assert.equal(resolveAgentSender(hdr(null), {}, []).ok, false);
@@ -147,4 +168,50 @@ test('refusals still read alike, so a probe learns nothing', () => {
   const b = resolveAgentSender(hdr('0'.repeat(64)), {}, []);
   assert.equal(a.because, b.because,
     'a real-but-silent token gives a different message from an unissued one');
+});
+
+/* #4792: the paneless path names the agent by the token's own name, and refuses when two names hold tokens under
+   one key (it would otherwise admit "Mara"'s token as the beating key "mara"). */
+test('#4792: a paneless agent is admitted under its key, and a key two names share admits nobody', () => {
+  const big = sendertoken.mint('Pip4792').token;
+  liveness.seen('pip4792');
+  const alone = resolveAgentSender(hdr(big), {}, []);
+  assert.equal(alone.ok, true, 'refused a beating paneless agent: ' + alone.because);
+  assert.equal(alone.card.sessionName, 'pip4792', 'the paneless card must be the key, as the board lists and delivers to it');
+  const small = sendertoken.mint('pip4792').token;
+  for (const t of [big, small]) {
+    const r = resolveAgentSender(hdr(t), {}, []);
+    assert.equal(r.ok, false, 'with two names under one key, the paneless path admitted a token: ' + JSON.stringify(r.card));
+    assert.equal(r.because, resolveAgentSender(hdr('0'.repeat(64)), {}, []).because, 'the refusal must read like a token we never issued');
+  }
+});
+
+/* #4792: a token minted before names were kept, in a file where two names now hold tokens. `resolve` has no name to
+   match and no clash of ROWS to mark (no panes), so only the paneless path's own check stands between it and the
+   beating key. */
+test('#4792: an older token is not admitted by key once two names hold tokens under that key', () => {
+  const old = require('node:crypto').randomBytes(32).toString('hex');
+  fs.mkdirSync(sendertoken.DIR, { recursive: true });
+  fs.writeFileSync(path.join(sendertoken.DIR, 'wren4792.json'), JSON.stringify({ tokens: [{ token: old, instance: 'old', mintedAt: '2026-09-01T00:00:00.000Z' }] }), { mode: 0o600 });
+  liveness.seen('wren4792');
+  sendertoken.mint('wren4792');
+  const one = resolveAgentSender(hdr(old), {}, []);
+  assert.equal(one.ok, true, 'CONTROL: with one name under the key, the older token is still admitted: ' + one.because);
+  sendertoken.mint('Wren4792');
+  const two = resolveAgentSender(hdr(old), {}, []);
+  assert.equal(two.ok, false, 'an older token was admitted by a key two names share, as ' + JSON.stringify(two.card && two.card.sessionName));
+});
+
+/* #4792 review 2: a running PANE agent "kip" on a token with no name keeps the key alive; a named token for another
+   spelling must not be admitted by the paneless path under that key. */
+test('#4792 review 2: a named token is not admitted by key while a pane agent of another name holds the key', () => {
+  const kip = sendertoken.mint('Kip4792r').token;
+  liveness.seen('kip4792r');
+  const board = fleet.install([fleet.agent('kip4792r')]);
+  try {
+    const r = resolveAgentSender(hdr(kip), {}, board.roster);
+    assert.equal(r.ok, false, 'a named token was admitted under a running pane twin\'s key: ' + JSON.stringify(r.card));
+    // Control: with no pane row the same token and heartbeat ARE admitted, so the refusal above is the pane twin's.
+    assert.equal(resolveAgentSender(hdr(kip), {}, []).ok, true, 'CONTROL: the paneless path did not admit it at all');
+  } finally { board.restore(); }
 });

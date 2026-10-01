@@ -56,10 +56,10 @@ for (const [argv, route, answer] of READS) {
   });
 }
 
-test('CONTROL: a verb this slice did not change (task close) still sends the board token alone', async () => {
-  const r = await run(['task', 'close', 'p4491', '1'], () => ({ body: { ok: true, task: { number: 1, state: 'closed' } } }));
+test('CONTROL: a verb that still presents the board token alone (room reopen) sends no agent header', async () => {
+  const r = await run(['room', 'reopen', 'p4491'], () => ({ body: { ok: true } }));
   assert.equal(r.calls.length, 1, r.err);
-  assert.equal(r.calls[0].route, '/api/project/p4491/task/1/close');
+  assert.equal(r.calls[0].route, '/api/project/p4491/room/reopen');
   assert.equal(r.calls[0].headers['x-kosmos-agent-token'], undefined, 'so this harness can see a missing agent header, and the four reads above really send one');
   assert.equal(r.calls[0].headers['x-kosmos-board-token'], BOARD);
 });

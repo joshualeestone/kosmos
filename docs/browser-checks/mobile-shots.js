@@ -115,6 +115,15 @@ const at = async (page, qs) => {
   await page.goto(page.url().split('?')[0] + qs, { waitUntil: 'load' });
   await page.waitForTimeout(900);
 };
+/* #4470: the new look, as the hidden switch (Settings > Advanced > Try the new look) turns it on: the page reads
+   localStorage 'kosmos-look' before paint. Set it, reload, and wait for the attribute the new look keys on. */
+const newLook = async (page) => {
+  await page.evaluate(() => localStorage.setItem('kosmos-look', 'new'));
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => document.documentElement.getAttribute('data-look') === 'new', null, { timeout: 8000 });
+  if (await page.$('#firstrun:not([hidden])')) await page.keyboard.press('Escape');   // as the render check does after a reload
+  await page.waitForTimeout(900);
+};
 
 /* #4594: the consolidated view without writing it. The page reads its layout from GET /api/style (paintStyles, also
    on later polls), so a page-only applyLayout was undone mid-shot; saving it with PUT /api/style would change the
@@ -172,6 +181,19 @@ const SCREENS = [
   { name: 'nav-menu', owner: 'Raiden', phoneOnly: true, go: async (page) => {
     await page.click('#burger');
     await page.waitForSelector('#burger[aria-expanded="true"]', { timeout: 5000 });
+  } },
+  // #4470: the new look (the hidden switch), on the Agents page as a grid and as a list, and on the project room.
+  { name: 'nl-home', owner: 'Mona Lisa', go: async (page) => { await newLook(page); } },
+  { name: 'nl-agents-list', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
+    await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
+    await page.waitForSelector('button.vt[data-layout="list"][aria-pressed="true"][aria-label="Show agents as a list"]', { timeout: 5000 });
+  } },
+  { name: 'nl-project-room', owner: 'Mona Lisa', go: async (page, data) => {
+    await newLook(page);
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
   } },
   { name: 'agents-list', owner: 'Raiden', go: async (page) => {
     await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
@@ -343,30 +365,22 @@ const SCREENS = [
   } },
   { name: 'create-agent', owner: 'unowned', go: async (page) => {
     // A real tap (visible, not covered), the way a phone user reaches it; a hidden button fails the shot.
-    // Mona's review: the one-time community notice covers the screen at desktop; dismiss it first (as settings-recommender does).
-    await page.waitForSelector('#cn-ok', { state: 'visible', timeout: 2500 }).then(() => page.click('#cn-ok')).catch(() => {});
     await page.click('#new-agent', { timeout: 5000 });
     await page.waitForSelector('#panel-create', { state: 'visible', timeout: 5000 });
   } },
   // #4556: New Agent's second screens, each reached by a real tap on its card from the first screen.
   { name: 'create-single', owner: 'Angel', go: async (page) => {
-    // Mona's review: the one-time community notice covers the screen at desktop; dismiss it first (as settings-recommender does).
-    await page.waitForSelector('#cn-ok', { state: 'visible', timeout: 2500 }).then(() => page.click('#cn-ok')).catch(() => {});
     await page.click('#new-agent', { timeout: 5000 });
     await page.click('#cstep-kind [data-path="single"]', { timeout: 5000 });
     await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
   } },
   { name: 'create-team', owner: 'Angel', go: async (page) => {
-    // Mona's review: the one-time community notice covers the screen at desktop; dismiss it first (as settings-recommender does).
-    await page.waitForSelector('#cn-ok', { state: 'visible', timeout: 2500 }).then(() => page.click('#cn-ok')).catch(() => {});
     await page.click('#new-agent', { timeout: 5000 });
     await page.click('#cstep-kind [data-path="team"]', { timeout: 5000 });
     await page.waitForSelector('#cstep-team', { state: 'visible', timeout: 5000 });
   } },
   { name: 'create-swarm', owner: 'Angel', go: async (page) => {
     // Shown only when the board can run swarms; a board that cannot fails this shot (the card is hidden).
-    // Mona's review: the one-time community notice covers the screen at desktop; dismiss it first (as settings-recommender does).
-    await page.waitForSelector('#cn-ok', { state: 'visible', timeout: 2500 }).then(() => page.click('#cn-ok')).catch(() => {});
     await page.click('#new-agent', { timeout: 5000 });
     await page.click('#cstep-kind [data-path="swarm"]', { timeout: 5000 });
     await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
@@ -566,15 +580,8 @@ function seedFiles(roots) {
     store.writeProfile(a.claim, { displayName: a.name, role });
   }
   require(path.join(REPO, 'engine', 'firstrun')).complete();
-  /* #4524: first run done BEFORE the board starts makes the board's one-time step read this as an
-     existing install, which owes the one-time Community notice (#4288 part B). It then opened over the
-     run's first shot, card hidden, and the report said ok. Seen it here, as a person who has would have;
-     the board's step leaves an existing file alone. MSHOTS_COVER_CONTROL=cmnotice skips this, and the
-     cover check below must then fail that shot. */
-  if (COVER_CONTROL !== 'cmnotice') {
-    const seen = require(path.join(REPO, 'engine', 'communityswitch')).markNoticeSeen();
-    if (!seen.ok) throw new Error('the seed could not mark the Community notice seen: ' + seen.because);
-  }
+  /* #4820: an existing install no longer owes a one-time Community notice (#4524 marked it seen here so it
+     could not cover the first shot), so there is nothing to mark. */
   try { require(path.join(REPO, 'engine', 'tips')).set({ off: true }); } catch { /* tips optional */ }
   const chat = require(path.join(REPO, 'engine', 'chat'));
   const t0 = Date.now() - 3600e3;
@@ -868,8 +875,8 @@ async function fitOf(page) {
 async function run() {
   const args = parseArgs(process.argv.slice(2));
   // A control with a mistyped name would arm nothing and pass; refuse it instead.
-  if (COVER_CONTROL && !['cmnotice', 'overlay', 'spill'].includes(COVER_CONTROL)) {
-    throw new Error('MSHOTS_COVER_CONTROL must be cmnotice, overlay or spill, not ' + COVER_CONTROL);
+  if (COVER_CONTROL && !['overlay', 'spill'].includes(COVER_CONTROL)) {
+    throw new Error('MSHOTS_COVER_CONTROL must be overlay or spill, not ' + COVER_CONTROL);
   }
   if (args.list) { for (const s of SCREENS) console.log(s.name.padEnd(20) + s.owner); return 0; }
   const screens = args.screens ? SCREENS.filter((s) => args.screens.includes(s.name)) : SCREENS;
@@ -897,7 +904,6 @@ async function run() {
   const rows = [];
   const skipped = [];   // phone-only screens at desktop, desktop-only ones at a phone size: listed in both reports, never silently absent
   let overflowCount = 0, errors = 0;
-  let coverControlWaited = false;   // MSHOTS_COVER_CONTROL: the notice is waited for on the first shot only
   try {
     const ctxData = await seed(board.base, board.roots);
     await preflight(board.base);
@@ -948,13 +954,6 @@ async function run() {
                 if (await page.isVisible('#firstrun')) await page.keyboard.press('Escape');
                 await sc.go(page, ctxData);
                 await page.waitForTimeout(250);
-                /* The control's notice opens after a fetch; wait for it, so a slow boot cannot turn the control
-                   green. A notice that never opens times out quietly here, and the gate arm then fails loud. */
-                if (COVER_CONTROL === 'cmnotice' && !coverControlWaited) {
-                  // Once: the notice is recorded as seen when it opens, so no later shot would get it.
-                  coverControlWaited = true;
-                  await page.waitForSelector('#cmnotice', { timeout: 10000 }).catch(() => {});
-                }
                 const leaks = await leaksOn(page);
                 if (leaks.length) {
                   const err = new Error('LEAK GUARD: this screen shows real data (' + leaks.length + ' hits, e.g. '
@@ -973,12 +972,6 @@ async function run() {
                     + late[0] + '). Its shot is deleted. Stopping with no further shots.');
                   err.leak = true;
                   throw err;
-                }
-                /* #4524: the one-time Community notice sits over whatever the shot was for. Read after the shot,
-                   so it can also catch one opened just after it. A literal id, so bc-pr-select.js ties a change
-                   to its markup to this check. */
-                if (await page.evaluate(() => !!document.getElementById('cmnotice'))) {
-                  throw new Error('COVERED: #cmnotice is open over this screen (its shot is kept; the notice may have opened just after it)');
                 }
                 const ov = await overflowOf(page);
                 if (ov.containers.length || ov.worst) {

@@ -6564,6 +6564,28 @@ function saidWords(reported, nowMs) {
   return '';
 }
 
+/* #4588: Google's shared Antigravity quota. bin/agy-report-bridge.js reports it as an AUTOMATIC idle (the loop has
+   ended) whose `because` starts with QUOTA_REPORT_PREFIX and whose `until` is the reset as a strict ISO time. All three
+   are required (review 3): any agent's hook can pass an `until` through, and Date.parse reads "5" as a date, so the
+   bridge's own sentence is what makes it this. quotaResetOf returns the reset in epoch ms for such a report,
+   quotaPauseUntil only while it is still ahead of nowMs. QUOTA_RESUME_WINDOW_MS is how long after the reset the resume
+   sweep (engine/agyquota.js) acts and the card says the quota reset, one constant for both. */
+const QUOTA_REPORT_PREFIX = "Paused: this Google account's shared Antigravity quota ran out.";
+const QUOTA_RESUME_WINDOW_MS = 6 * 60 * 60 * 1000;
+function quotaResetOf(reported) {
+  if (!reported || reported.found !== true || reported.state !== 'idle' || reported.by !== 'auto') return null;
+  if (typeof reported.because !== 'string' || !reported.because.startsWith(QUOTA_REPORT_PREFIX)) return null;
+  if (typeof reported.until !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(reported.until)) return null;
+  const at = Date.parse(reported.until);
+  return Number.isFinite(at) ? at : null;
+}
+function quotaPauseUntil(reported, nowMs) {
+  const at = quotaResetOf(reported);
+  if (at === null) return null;
+  return at > (Number.isFinite(nowMs) ? nowMs : Date.now()) ? at : null;
+}
+
+// #4588 part 3: not pure for an Antigravity quota report: it also reads agyquota's pool memory (see the quota block).
 function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity) {
   /* #1930: a live-HEALTHY account means a scraped auth_failed is STALE, whether or not the
      agent has reported. Handle it HERE, above the no-report early return below, so a
@@ -6752,6 +6774,46 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
   // Rule 2, the other direction: it said goodbye and is visibly still here.
   if (reported.state === 'stopped') {
     return { ...scraped, reported: false, conflict: 'it reported stopping, but it is still running' };
+  }
+  /* #4588: paused on the account's shared Google quota until its reset (see quotaPauseUntil). The existing
+     rate_limited state, which the board already shows as Paused; the resume sweep (engine/agyquota.js) types a
+     carry-on line into the agent after the reset, and its next automatic working clears this. */
+  /* Kosmos's own sentences, never the report's text (Google's raw error, and a relative "Resets in" that goes stale,
+     #215): the detail header quotes `because`. */
+  /* Only over a screen that says nothing (agy's is never read, so always for agy): a question, work or a lost
+     connection read off a screen outranks this report (review 2). */
+  const quotaAt = (scraped.state === STATE.UNKNOWN || scraped.state === STATE.IDLE) ? quotaResetOf(reported) : null;
+  if (quotaAt !== null) {
+    const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+    const hhmm = require('./quotawords').quotaResetWords(quotaAt, now);
+    if (quotaPauseUntil(reported, now) !== null) {
+      return { state: STATE.RATE_LIMITED, confidence: CONFIDENCE.STRUCTURED, because: "its Google account's shared Antigravity quota ran out; it resets at " + hhmm, evidence: null, reported: true, conflict: null, quotaUntil: new Date(quotaAt).toISOString() };
+    }
+    /* #4588 part 3: its own reset has passed, but its Google account's shared quota (one per account) is still paused, and
+       the board holds this one with it: agyquota.heldBackBy, the resume's own rule (a pause first seen inside this
+       agent's own six hours), so the card says Paused while the pause the resume is waiting on still stands, and never
+       for an old stop the resume will not pick up. For the grace and stagger after that reset it shows the line below,
+       which is true until the carry-on line lands (PR A's own call). The card says the pool holds it, not that "the quota
+       reset". The pool's time rides in poolUntil, never quotaUntil: quotaUntil feeds the pool memory, and a card that
+       echoed the pool's reset back into it would keep the pool held after the colleague's reset was corrected. The memory
+       is fed by the resume sweep and by automatic sends to agy agents; with the resume switched off it may be empty,
+       and this falls to the line below. It is a reported time, held to on purpose, so it is said as reported; the card
+       does not say how long Kosmos holds its messages (the hold runs by its own rule and release steps, agyquota.js). */
+    let poolAt = null;
+    /* With the quota-hold brake on (AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF=1) the resume restarts each agent on its own reset
+       and nothing is held, so the card must not say the pool holds it. */
+    try {
+      const agy = require('./agyquota');
+      poolAt = agy.quotaHoldOff(process.env) ? null : agy.heldBackBy(quotaAt);
+    } catch { poolAt = null; }
+    if (poolAt !== null && poolAt > now) {
+      const poolHhmm = require('./quotawords').quotaResetWords(poolAt, now);
+      return { state: STATE.RATE_LIMITED, confidence: CONFIDENCE.STRUCTURED, because: 'the reset it was given (' + hhmm + ") has passed, but its Google account's shared quota was reported paused until " + poolHhmm, evidence: null, reported: true, conflict: null, poolUntil: new Date(poolAt).toISOString() };
+    }
+    /* Past the reset, while this is still its latest report: its turn was cut off and nothing has started it again
+       (the resume may be switched off, have given up, or not have landed). Said as such, never "nothing is needed"
+       (review 5), and never the report's own text. */
+    return { state: STATE.IDLE, confidence: CONFIDENCE.STRUCTURED, because: 'its turn stopped when its Google quota ran out and has not picked up again (the quota reset at ' + hhmm + ')', reported: true, conflict: null };
   }
   // Rule 3b (#886): a DEAD TOKEN or a RATE LIMIT read off the screen stands
   // over ANY report. Once the token is rejected no hook fires, so the
@@ -7854,6 +7916,11 @@ function snapshot() {
       quotaDaily: status.quotaDaily === true,   // #4004 round 8: only Gemini's daily line promises the midnight reset
       /* #4004: whose own words set a limit reading ('codex' / 'gemini'), so the wording keys on a field, not a sentence. */
       limitFrom: typeof status.limitFrom === 'string' ? status.limitFrom : null,
+      /* #4588: the reset an agy agent is paused until (its account's shared Google quota), an ISO time, else null.
+         Pane cards only: panelessCard carries neither this nor a runner, and an agy agent always has a pane. */
+      quotaUntil: typeof status.quotaUntil === 'string' ? status.quotaUntil : null,
+      /* #4588 part 3: its own reset passed but the shared pool is still paused by a colleague until this ISO time. */
+      poolUntil: typeof status.poolUntil === 'string' ? status.poolUntil : null,
       because: status.because,
       /* #2019: present while state === 'restarting' -- {cause, startedAt}
          for the deliberate disruption in flight -- and (#4006) on the needs_you of a
@@ -8232,7 +8299,7 @@ module.exports = {
   setPaneSource, setPaneCapture, setCreatedSource, tmuxSaidNoServer, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
+  reconcileReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
   freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an

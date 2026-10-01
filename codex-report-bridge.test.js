@@ -12,6 +12,11 @@ const store = require('./engine/store');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const nodePath = require('node:path');
+/* #4796: the bridge reads the board token from the data root. A fresh one for every run that does not bring
+   its own (a caller's AGENT_WORKFORCE_DATA still wins: it is spread after this), so the live token never
+   travels to this test's stub board. */
+const DATA4796 = require('node:fs').mkdtempSync(nodePath.join(require('node:os').tmpdir(), 'kosmos-codex-bridge-4796-'));
+process.on('exit', () => { try { require('node:fs').rmSync(DATA4796, { recursive: true, force: true }); } catch { /* best effort */ } });
 const { execFileSync, execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 
@@ -54,7 +59,8 @@ function drive(eventJson, env = {}, bridge = BRIDGE) {
     server.listen(0, '127.0.0.1', () => {
       const port = server.address().port;
       execFileAsync(process.execPath, [bridge, eventJson], {
-        env: { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%77', ...env },
+        // #4491 slice 8: the token-only switch is off unless a test sets it, whatever the machine running the tests has.
+        env: { ...process.env, AGENT_WORKFORCE_DATA: DATA4796, KOSMOS_AGENT_TOKEN_ONLY: '', KOSMOS_PORT: String(port), TMUX_PANE: '%77', ...env },
       }).then(
         // The bridge's cardinal rule is to exit 0 no matter what, so a non-zero
         // exit here is a real regression worth surfacing, not swallowing.
@@ -91,7 +97,7 @@ test('a board that is down never becomes a failure the agent can feel', () => {
   // No server at this port; the bridge must exit 0 regardless (execFileSync
   // throws on non-zero, so completing IS the assertion).
   execFileSync(process.execPath, [BRIDGE, JSON.stringify({ type: 'agent-turn-complete', 'last-assistant-message': 'x' })], {
-    env: { ...process.env, KOSMOS_PORT: '1', TMUX_PANE: '%1' },
+    env: { ...process.env, AGENT_WORKFORCE_DATA: DATA4796, KOSMOS_PORT: '1', TMUX_PANE: '%1' },
   });
   assert.ok(true);
 });
@@ -244,5 +250,30 @@ test('#4023: the supportDir COPY finds the engine through engine-path and presen
     assert.equal(seen[0].headers[WORLD_HEADER], 'test', 'the supportDir copy did not name its Kosmos');
   } finally {
     fsB.rmSync(sup, { recursive: true, force: true });
+  }
+});
+
+/* #4491 slice 8: with KOSMOS_AGENT_TOKEN_ONLY exactly '1' and the agent's own token, the report carries that token
+   alone and the board token is not read. The switch off (and every other value) keeps today's two headers. */
+test('#4491: token-only sends the agent\'s token alone; anything else keeps the board token', async () => {
+  const data = fsB.mkdtempSync(nodePath.join(osB.tmpdir(), 'aw-4491-token-only-'));
+  const tok = 'ab12'.repeat(16);
+  try {
+    const root = nodePath.join(data, store.APP);
+    fsB.mkdirSync(root, { recursive: true });
+    fsB.writeFileSync(nodePath.join(root, 'board.token'), 'abc123boardtoken');
+    /* CONTROL: the switch off, the same env otherwise: both headers go, so the absence below is the switch. */
+    const off = await drive(TURN, { AGENT_WORKFORCE_DATA: data, KOSMOS_AGENT_TOKEN: tok });
+    assert.deepEqual([off[0].headers['x-kosmos-agent-token'], off[0].headers['x-kosmos-board-token']], [tok, 'abc123boardtoken']);
+    const on = await drive(TURN, { AGENT_WORKFORCE_DATA: data, KOSMOS_AGENT_TOKEN: tok, KOSMOS_AGENT_TOKEN_ONLY: '1' });
+    assert.equal(on.length, 1, 'the bridge did not report at all');
+    assert.equal(on[0].headers['x-kosmos-agent-token'], tok);
+    assert.equal(on[0].headers['x-kosmos-board-token'], undefined, 'token-only: the board token was still sent');
+    for (const [agentTok, only] of [['', '1'], ['NOT-HEX', '1'], [tok, 'true'], [tok, ' 1']]) {
+      const got = await drive(TURN, { AGENT_WORKFORCE_DATA: data, KOSMOS_AGENT_TOKEN: agentTok, KOSMOS_AGENT_TOKEN_ONLY: only });
+      assert.equal(got[0].headers['x-kosmos-board-token'], 'abc123boardtoken', `the board token was dropped with token ${JSON.stringify(agentTok)} and switch ${JSON.stringify(only)}`);
+    }
+  } finally {
+    fsB.rmSync(data, { recursive: true, force: true });
   }
 });
