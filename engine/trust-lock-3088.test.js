@@ -44,20 +44,32 @@ const CHILD = `
   // r.ok, so r.ok alone would pass while the bug shipped; the unwrapped success carries a
   // boolean 'already' that the raw envelope does not, so this check catches a dropped
   // unwrap deterministically (independent of whether the lock was contended).
+  // #4804: say why, so a red tells a lock wait ("locked by another writer") from anything else.
+  process.stdout.write(JSON.stringify(r));
   process.exit(r && r.ok === true && typeof r.already === 'boolean' ? 0 : 2);
 `;
 
+// #4804: the lock's own wait budget (2 s) is a property of the product, not of #3088. On a loaded
+// CI runner, twelve Node children queueing on one lock ran past it and exited 2, failing PRs that
+// touch nothing here. The children get a generous wait instead, so this test measures what it
+// names (the lock serialises, nothing is lost) and not machine load. The budget itself is covered
+// by filelock.test.js.
+const CHILD_LOCK_WAIT_MS = '30000';
+
 function runChildren(cfgDir, workdirs, extraEnv) {
-  const base = { ...process.env, TRUST, CFGDIR: cfgDir };
+  const base = { ...process.env, TRUST, CFGDIR: cfgDir, AGENT_WORKFORCE_LOCK_MS: CHILD_LOCK_WAIT_MS };
   delete base.CLAUDE_CONFIG_DIR;
   delete base.CODEX_HOME;
   return Promise.all(workdirs.map((w) => new Promise((resolve) => {
     const child = spawn(process.execPath, ['-e', CHILD], {
       env: { ...base, WORKDIR: w, ...(extraEnv || {}) },
-      stdio: 'ignore',
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
-    child.on('exit', (code) => resolve(code));
-    child.on('error', () => resolve(-1));
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { out += d; });
+    child.on('close', (code) => resolve({ code, out: out.trim() }));
+    child.on('error', (e) => resolve({ code: -1, out: String(e && e.message) }));
   })));
 }
 
@@ -71,12 +83,39 @@ test('#3088: N concurrent trustFolder writes to one config all survive (the lock
     fs.mkdirSync(w, { recursive: true });
     workdirs.push(w);
   }
-  const codes = await runChildren(cfgDir, workdirs);
-  assert.deepEqual(codes, new Array(N).fill(0), `every child must succeed; got exit codes ${codes}`);
+  const results = await runChildren(cfgDir, workdirs);
+  const failed = results.map((r, i) => ({ i, ...r })).filter((r) => r.code !== 0);
+  assert.deepEqual(failed, [], `every child must succeed; ${failed.length} of ${N} did not`);
 
   const cfg = JSON.parse(fs.readFileSync(nodePath.join(cfgDir, '.claude.json'), 'utf8'));
   const projects = cfg.projects || {};
   const missing = workdirs.filter((w) => !(projects[K(w)] && projects[K(w)][KEY] === true));
   assert.deepEqual(missing.map(K), [],
     `${missing.length} of ${N} concurrent trust writes were lost - the lock did not serialize them`);
+});
+
+// #4804 CONTROL: the generous wait above must actually reach the children. Without this, a renamed
+// env var would leave them on the 2 s default and the test above would quietly measure load again.
+// A live holder keeps the lock past the default wait (and well short of the stale age, so nobody
+// steals it): children on the default budget fail and say the lock was busy; children on this
+// test's budget (runChildren's own environment, exactly as the test above gets it) wait it out and succeed.
+test('#4804 control: a holder past the default wait fails the default budget, not the test budget', async () => {
+  const { LOCK_WAIT_MS, LOCK_STALE_MS } = require('./filelock');
+  const HOLD_MS = LOCK_WAIT_MS + 1500;
+  assert.ok(HOLD_MS < LOCK_STALE_MS, 'the hold must stay short of the stale age, or a child steals the lock');
+  const arm = async (name, wait) => {
+    const cfgDir = nodePath.join(SANDBOX, `ctl-${name}`);
+    fs.mkdirSync(cfgDir, { recursive: true });
+    const lock = nodePath.join(cfgDir, '.claude.json.lock');
+    fs.mkdirSync(lock);
+    const release = new Promise((resolve) => setTimeout(() => { fs.rmSync(lock, { recursive: true, force: true }); resolve(); }, HOLD_MS));
+    const workdirs = [0, 1, 2].map((i) => { const w = nodePath.join(cfgDir, `w${i}`); fs.mkdirSync(w); return w; });
+    const results = await runChildren(cfgDir, workdirs, wait === undefined ? undefined : { AGENT_WORKFORCE_LOCK_MS: wait });
+    await release;
+    return results;
+  };
+  const [dflt, ours] = await Promise.all([arm('default', String(LOCK_WAIT_MS)), arm('test', undefined)]);
+  assert.deepEqual(dflt.map((r) => r.code), [2, 2, 2], `on the default wait every child must be refused; got ${JSON.stringify(dflt)}`);
+  for (const r of dflt) assert.match(r.out, /locked by another writer/, 'a refused child must say the lock was busy');
+  assert.deepEqual(ours.map((r) => r.code), [0, 0, 0], `on the test's wait every child must succeed; got ${JSON.stringify(ours)}`);
 });
