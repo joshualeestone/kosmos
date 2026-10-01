@@ -263,7 +263,7 @@ test('the managed block teaches the join: tasks listed in the matching spelling,
   assert.match(body, /Closing the task clears the mark/);
   /* #4771: a pause the person asks for in the room reaches the Prompter only through this verb, so it is taught. */
   assert.match(body, /project pause <project-id>/, 'the pause command is not taught (#4771)');
-  assert.match(body, /only your person resumes it, on the screen/);
+  assert.match(body, /It is resumed on the screen, by your person: do not resume it yourself\./);
   // One-arg compatibility: no session name, no task lines, no trailer.
   const bare = projects.blockBody([stored]);
   assert.ok(!/task 1 of /.test(bare) && !/task <number>/.test(bare), 'task lines appear with no agent to scope them');

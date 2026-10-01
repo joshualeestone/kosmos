@@ -52,7 +52,7 @@ test('#4771 Mac CLI: project pause PUTs {paused:true} with the agent\'s token, a
   withBoard(() => [200, { project: { id: 'p1', paused: true } }], async (env, hits) => {
     const r = await runCli(['project', 'pause', 'p1'], env);
     assert.equal(r.code, 0, r.stdout + r.stderr);
-    assert.match(r.stdout, /Paused p1\. Kosmos will not nudge anyone about its tasks or hand them out until your person resumes it on the screen\./);
+    assert.match(r.stdout, /Paused p1\. Kosmos will not nudge anyone about its tasks or hand them out until it is resumed on the screen\. Do not resume it yourself\./);
     assert.equal(hits.length, 1, JSON.stringify(hits));
     assert.equal(hits[0].method, 'PUT');
     assert.equal(hits[0].url, '/api/project/p1');
@@ -78,7 +78,7 @@ test('#4771 Mac CLI: no id, two ids, a bad id and resume are refused before any 
     assert.equal(hits.length, 0, 'a refused call reached the board: ' + JSON.stringify(hits));
     // The usage names pause and says resuming is the person's.
     const usage = await runCli(['project'], env);
-    assert.match(usage.stdout + usage.stderr, /kosmos project pause <project-id>.*only they resume it, on the screen/);
+    assert.match(usage.stdout + usage.stderr, /kosmos project pause <project-id>.*it is resumed on the screen/);
     // CONTROL: the verbs that were there still go through to the board.
     await runCli(['project', 'pause', 'p1'], env);
     assert.equal(hits.length, 1);

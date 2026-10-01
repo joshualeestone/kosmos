@@ -261,7 +261,7 @@ test('#4771 review: the instructions say "the person parked it" only for the per
   assert.match(line('Live', 1), /the person parked it/);
   assert.match(line('PersonPaused', 1), /the person parked it/);
   assert.match(line('Live', 2), /\[on hold: do not start it until it is taken off hold\]/, 'an agent\'s hold named the person: ' + body);
-  assert.doesNotMatch(line('AgentPaused', 1), /the person/, 'an agent\'s pause named the person');
+  assert.doesNotMatch(line('AgentPaused', 1), /parked it/, 'an agent\'s pause was credited to the person');
   assert.match(line('AgentPaused', 1), /\[on hold: the project is paused; do not start it until your person resumes it\]/);
   // Review 1: every member is taught the pause verb, a member with no tasks too.
   const noTasks = projects.blockBody([{ id: 'n', name: 'NoTasks', folder: '/tmp/n', tasks: [] }], 'ada');

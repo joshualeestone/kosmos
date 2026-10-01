@@ -2980,7 +2980,9 @@ function blockBody(projects, sessionName) {
       if (!isPaused(p) && !T.isOnHold(t)) return '';
       const person = (isPaused(p) && p.pausedByPerson === true) || (T.isOnHold(t) && t.onHoldByPerson === true);
       if (person) return ' [on hold: the person parked it; do not start it]';
-      // Review 1: an agent's pause is lifted on the screen too (no verb resumes one), so say so rather than "taken off hold".
+      // Review 1: an agent's pause is lifted on the screen (no verb resumes one), so say so rather than "taken off hold".
+      // Review 2: held AND paused needs both undone, so both are named.
+      if (isPaused(p) && T.isOnHold(t)) return ' [on hold: the project is paused and the task is on hold; do not start it until both are lifted]';
       return isPaused(p) ? ' [on hold: the project is paused; do not start it until your person resumes it]'
         : ' [on hold: do not start it until it is taken off hold]';
     };
@@ -3008,7 +3010,7 @@ function blockBody(projects, sessionName) {
     ...(sessionName ? [
       '',
       `When your person asks to pause a whole project, pause it: \`${cliShown} project pause <project-id>\`.`,
-      'Nobody is then nudged about its tasks or handed them; only your person resumes it, on the screen.',
+      'Nobody is then nudged about its tasks or handed them. It is resumed on the screen, by your person: do not resume it yourself.',
     ] : []),
   ].join('\n');
 }

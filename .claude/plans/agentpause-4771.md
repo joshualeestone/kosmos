@@ -18,8 +18,10 @@ nudge still came).
 - install/kosmos and tools/windows/kosmos-cli.js: `kosmos project pause <project-id>`: PUT /api/project/<id>
   {paused:true} with the board token (it opens the route, as for create) AND the agent token (so isViaScreen is
   false: an agent's pause, never the person's). No resume verb on either CLI.
-- engine/projects.js: the "Your projects" block teaches the verb beside `task built` (only when the agent has tasks,
-  as built is), and says only the person resumes.
+- engine/projects.js: the "Your projects" block teaches the verb to every member (review 1 widened it from members
+  holding tasks), and says it is resumed on the screen.
+- engine/agentnudge.js: the Prompter's idle nudge names the verb with the project id (review 2: existing agents only
+  learn the taught line when their block is next re-written, and this nudge is the exact moment it matters).
 - engine/recommender.js: a paused project is not acted in (inline `paused === true`, pinned to projects.isPaused by
   its test).
 - Help: the one-line description of `project` says pause on both CLIs (cli.help-lines-4785 holds them equal).
@@ -57,3 +59,21 @@ taught line pinned in engine/tasks.test.js and the Recommender arm in engine/rec
 - N7 an agent's pause told members "until it is taken off hold" though no verb lifts it: FIXED, "until your person
   resumes it".
 - N8 a wrong-world answer reads as unreadable on the Mac: kept (create does the same).
+
+## Review 2 (Opus, blind, source-only): 0 blockers, 2 warnings, 7 nits
+- W1 existing agents learn the taught line only when their block is next re-written (no boot re-sync for projects),
+  so Josh's agent could repeat the report after the release: FIXED at the point of need, the idle nudge names
+  `kosmos project pause <id>`. Rejected for now: a boot re-sync of every member's block (a wider change to when
+  instruction files are rewritten; the nudge covers this card's failure).
+- W2 "only your person resumes it" is not enforced for an agent's pause (any non-screen PUT lifts it, by the
+  original #4771 design, pinned in server.test.js and onhold-4771): REWORDED, not enforced. Splinter's rule is about
+  the person's pause, which IS enforced. The text now says it is resumed on the screen and tells the agent not to
+  resume it.
+- N3 held and paused together named only the pause: FIXED, both named.
+- N4 the "not credited to the person" assertion keyed on "the person": FIXED, keys on "parked it".
+- N5 the server test passes on origin/main: LABELLED a guard (it pins existing board behaviour for the new caller).
+- N6 agent_board_token's list of person's verbs: FIXED.
+- N7 Windows refusal arms asserted only non-zero: FIXED, exact codes as on the Mac.
+- N8 stale plan line: FIXED.
+- N9 notes (archived, swarm-off, federated members; explicit assignment still types): kept, all explicit acts or
+  local-only by design.

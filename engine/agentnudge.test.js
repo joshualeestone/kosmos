@@ -332,6 +332,14 @@ test('the words are one safe line: control characters and quotes out, cut on a c
   assert.match(text, /^Kosmos here, from the Prompter: /);
 });
 
+test('#4771 review 2: the nudge names the pause verb with the project id, so a running agent learns it when it matters', () => {
+  const text = nudge.nudgeText({ n: 3, projectId: 'kosmosgrowth', project: 'Kosmos Growth', sentence: 'grow' });
+  assert.match(text, /If your person asked to pause this project, pause it: kosmos project pause kosmosgrowth$/);
+  assert.equal((text.match(/"/g) || []).length, 2, 'the hint added a quote');
+  // CONTROL: a part with no project id (an older caller) gets the old text, with no half-written hint.
+  assert.doesNotMatch(nudge.nudgeText({ n: 3, project: 'Kosmos Growth', sentence: 'grow' }), /project pause/);
+});
+
 test('the Prompter must read the agent as idle too: a card that says idle but a low-confidence reading (toAsk to unknown) is not nudged', () => {
   const w = world([{ name: 'lowconf' }]);
   try {

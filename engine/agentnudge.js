@@ -90,9 +90,14 @@ function plainWords(v, cap) {
 
 function nudgeText(part) {
   const words = plainWords(part.sentence, SENTENCE_CAP);
+  /* #4771 (review 2): the agent in Josh's 0.7.15 report was nudged here about a project its person had paused in the
+     room. Its instructions teach `kosmos project pause` only after they are next re-written, so the nudge, which
+     reaches a running agent at exactly that moment, names the verb too. */
+  const id = plainWords(part.projectId, SENTENCE_CAP);
   return 'Kosmos here, from the Prompter: you have been idle while you still have open work: task #' + part.n
     + (words ? ' "' + words + '"' : '') + ' in ' + plainWords(part.project, SENTENCE_CAP) + '. Pick it up, or if you are waiting on something, '
-    + 'say so with: kosmos report blocked --on <what> --owner <who>';
+    + 'say so with: kosmos report blocked --on <what> --owner <who>'
+    + (id ? '. If your person asked to pause this project, pause it: kosmos project pause ' + id : '');
 }
 
 /* A card the nudge may type into: the Assigner's own idleCard (ours, idle, not a paused swarm). */

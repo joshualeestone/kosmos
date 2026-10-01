@@ -27,7 +27,7 @@ async function run(argv, answer, env) {
 test('#4771 Windows: project pause PUTs {paused:true} with both tokens, and says who resumes it', async () => {
   const r = await run(['project', 'pause', 'p1'], () => ({ body: JSON.stringify({ project: { id: 'p1', paused: true } }) }));
   assert.equal(r.code, 0, r.err);
-  assert.match(r.out, /Paused p1\. Kosmos will not nudge anyone about its tasks or hand them out until your person resumes it on the screen\./);
+  assert.match(r.out, /Paused p1\. Kosmos will not nudge anyone about its tasks or hand them out until it is resumed on the screen\. Do not resume it yourself\./);
   assert.equal(r.calls.length, 1);
   assert.equal(r.calls[0].method, 'PUT');
   assert.equal(r.calls[0].route, '/api/project/p1');
@@ -46,9 +46,10 @@ test('#4771 Windows: a refusal says the board\'s reason and exits 1; bad calls a
   const refused = await run(['project', 'pause', 'nosuch'], () => ({ status: 404, body: JSON.stringify({ error: 'there is no project by that name' }) }));
   assert.equal(refused.code, 1);
   assert.match(refused.err, /could not pause that project: there is no project by that name/);
-  for (const argv of [['project', 'pause'], ['project', 'pause', 'a', 'b'], ['project', 'resume', 'p1'], ['project', 'unpause', 'p1'], ['project', 'pause', '..'], ['project', 'pause', 'bad id!'], ['project', 'pause', 'my proj']]) {
+  for (const [argv, code] of [[['project', 'pause'], 2], [['project', 'pause', 'a', 'b'], 2], [['project', 'resume', 'p1'], 2], [['project', 'unpause', 'p1'], 2],
+    [['project', 'pause', '..'], 1], [['project', 'pause', 'bad id!'], 1], [['project', 'pause', 'my proj'], 1]]) {
     const r = await run(argv, () => ({ body: '{}' }));
-    assert.notEqual(r.code, 0, argv.join(' '));
+    assert.equal(r.code, code, argv.join(' ') + ': ' + r.err);
     assert.equal(r.calls.length, 0, argv.join(' ') + ' sent a request');
   }
 });

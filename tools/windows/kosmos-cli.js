@@ -106,7 +106,7 @@ const USAGE = {
     '  kosmos project list                                             every project: members, model families, tasks',
     '  kosmos project show <project-id>                                one project: folder, goal and done, tasks, each member\'s family and summary',
     '  kosmos project create "<name>" <folder> ["<description>"]   make a new project (it shows on your board, tagged as made by you)',
-    '  kosmos project pause <project-id>                               pause it when your person asks: nobody is nudged about it or handed its tasks (only they resume it, on the screen)',
+    '  kosmos project pause <project-id>                               pause it when your person asks: nobody is nudged about it or handed its tasks (it is resumed on the screen)',
     '  <folder> is a path on this machine; the project\'s files live there.',
   ].join('\n'),
   agent: [
@@ -795,7 +795,7 @@ async function projectCreate(ctx, args) {
    (`person: true`): the board token opens the route and the agent token makes it an agent's pause, never the person's,
    which only the screen sets and only the screen lifts. There is no resume verb. */
 async function projectPause(ctx, args) {
-  if (args.length !== 1 || !args[0]) { ctx.err('Usage: kosmos project pause <project-id>   (only your person resumes it, on the screen)'); return 2; }
+  if (args.length !== 1 || !args[0]) { ctx.err('Usage: kosmos project pause <project-id>   (it is resumed on the screen)'); return 2; }
   const project = args[0];
   const slug = projectSlug(project);
   // Refused, never rewritten (review 1): a stripped id could name a different project, and this is a write. The Mac
@@ -808,7 +808,7 @@ async function projectPause(ctx, args) {
   }
   // A 200 whose re-read came back empty ({project: null}) still paused it (review 1), as the Mac's prefix match reads.
   if (r.status === 200 && r.json && Object.prototype.hasOwnProperty.call(r.json, 'project')) {
-    ctx.out('Paused ' + project + '. Kosmos will not nudge anyone about its tasks or hand them out until your person resumes it on the screen.');
+    ctx.out('Paused ' + project + '. Kosmos will not nudge anyone about its tasks or hand them out until it is resumed on the screen. Do not resume it yourself.');
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not pause that project: ' + ctx.refusedBy(r) + '.'); return 1; }
