@@ -155,6 +155,34 @@ test('classify: each known failure kind gets its code, anything else is other, n
   for (const code of report.CODES.map(([c]) => c)) assert.match(code, /^[a-z-]+$/, 'a code is not a fixed token: ' + code);
 });
 
+const ALLOW_SAID = 'this computer is not allowed yet; allow it from your other computer first. If that computer is gone, retire it from your account page, then retire this computer and set it up again';
+test('kosmos#4640: waiting for the other computer\'s Allow is waiting-allow, not coordinator-refused; other refusals are unchanged', () => {
+  const cases = [
+    // retirehold-4681's ticket tunnel (with the code), the relay main tunnel (without), and status()'s own sentence.
+    ['Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)', 'waiting-allow'],
+    ['Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket)', 'waiting-allow'],
+    [ALLOW_SAID, 'waiting-allow'],
+    // Review: the device word is not part of the match, as in remote.js ALLOW_WAIT_LINE.
+    ['Kosmos+ refused this computer: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage).', 'waiting-allow'],
+    ['Kosmos+ refused this computer: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket).', 'waiting-allow'],
+    // Review: a recased sentence is not the wait here, exactly as engine/allowwait.js allowWaitSentence (pinned below) reads it.
+    ['Kosmos+ refused this Mac: This' + ALLOW_SAID.slice(4) + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)', 'coordinator-refused'],
+    // CONTROLS: the same words with another code, the same words on another path, and an ordinary refusal stay as before.
+    ['Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code standing_lapsed)', 'coordinator-refused'],
+    // #4640 review: own_lineage's FINAL sentences (denied; no computer left to allow) are refusals, not a wait.
+    ['Kosmos+ refused this Mac: this computer was not allowed on your account; retire this computer and set it up again (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)', 'coordinator-refused'],
+    ['Kosmos+ refused this Mac: this computer is still waiting to be allowed, and no other computer on your account is left to allow it; retire this computer and set it up again (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)', 'coordinator-refused'],
+    ['Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/standing)', 'coordinator-refused'],
+    ['Kosmos+ refused this Mac: standing lapsed (HTTP 403 on /v1/mac/relay-ticket)', 'coordinator-refused'],
+  ];
+  for (const [text, want] of cases) assert.equal(report.classify(text), want, text);
+  report.resetForTests();
+  const dir = stateDir(report.ENROL_FILES);
+  const r = report.build({ remote: fakeRemote({ dir, state: 'waiting-allow', because: ALLOW_SAID }), env: {} });
+  assert.equal(r.tunnel, 'starting', 'a waiting computer\'s live tunnel read as stopped or crashed');
+  assert.equal(r.error, 'waiting-allow');
+});
+
 test('classify: each healthy dialling sentence matches `starting` and no failure pattern', () => {
   // The order of CODES must not be what keeps a healthy board from reading as failed.
   for (const s of ['connecting to the relay', 'starting the connection']) {
@@ -265,4 +293,29 @@ test('commitHeal only moves forward: a slow send committing an older baseline do
   report.commitHeal(newer);
   report.commitHeal(older);   // the slow one lands last
   assert.equal(mk(5).heal, 'none', 'a late, older commit rolled the baseline back and re-reported a relaunch');
+});
+
+test('kosmos#4640 review 8: classify and engine/allowwait.js allowWaitSentence agree on every raw line (one rule, not two copies)', () => {
+  const allowwait = require('./allowwait');   // review 11: the pure module, never remote.js (it would load the real store)
+  const SAID = 'this computer is not allowed yet; allow it from your other computer first. If that computer is gone, retire it from your account page, then retire this computer and set it up again';
+  const lines = [
+    'Kosmos+ refused this Mac: ' + SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)',
+    'Kosmos+ refused this Mac: ' + SAID + ' (HTTP 403 on /v1/mac/relay-ticket)',
+    'Kosmos+ refused this computer: ' + SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage).',
+    'Kosmos+ refused this Mac: ' + SAID + ' extra words (HTTP 403 on /v1/mac/relay-ticket)',
+    'Kosmos+ refused this Mac: ' + SAID + ' (HTTP 403 on /v1/mac/relay-ticket) and then more',
+    'Kosmos+ refused this Mac: This' + SAID.slice(4) + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)',
+    'Kosmos+ refused this Mac: ' + SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code standing_lapsed)',
+    'Kosmos+ refused this Mac: ' + SAID + ' (HTTP 403 on /v1/mac/standing)',
+    'Kosmos+ refused this Mac: this computer was not allowed on your account; retire this computer and set it up again (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)',
+  ];
+  let waits = 0;
+  for (const l of lines) {
+    const engine = allowwait.allowWaitSentence(l) !== null;
+    if (engine) waits += 1;
+    assert.equal(report.classify(l) === 'waiting-allow', engine, 'the board and the report disagree about: ' + l);
+    // ...and status()'s own sentence for a wait (the because it shows) reads as the wait here too (review 9).
+    if (engine) assert.equal(report.classify(allowwait.allowWaitSentence(l)), 'waiting-allow', 'status()\'s sentence is not the wait here: ' + l);
+  }
+  assert.ok(waits >= 3 && waits < lines.length, 'fixture: the table must hold both waits and non-waits (' + waits + ')');
 });

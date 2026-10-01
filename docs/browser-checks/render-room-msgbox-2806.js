@@ -1064,16 +1064,21 @@ function tapProbe4663(skip) {
         if (!row) return { error: 'no open bar in place' };
         const q = row.querySelector('.rxn-quick');
         const at = (x, y) => document.elementFromPoint(x, y);
-        const hits = [...q.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const t = at(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+        const hits = [...q.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const t = at(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
         const C = comp.getBoundingClientRect(), Rw = row.getBoundingClientRect();
         const overlap = Rw.bottom > C.top + 4;
         const t = at(C.left + C.width / 2, Math.min(C.bottom - 4, Math.max(C.top + 4, (C.top + Math.min(C.bottom, Rw.bottom)) / 2)));
-        return { hits, overlap, composerOnTop: !!(t && comp.contains(t)), row: [Math.round(Rw.top), Math.round(Rw.bottom)], comp: [Math.round(C.top), Math.round(C.bottom)] };
+        return { hits, want: 6 + (q.querySelector('.rxn-speak') && q.querySelector('.rxn-speak').getClientRects().length ? 1 : 0), overlap, composerOnTop: !!(t && comp.contains(t)), row: [Math.round(Rw.top), Math.round(Rw.bottom)], comp: [Math.round(C.top), Math.round(C.bottom)] };
       });
       await phonePage.evaluate(() => { if (typeof pjRxnClose === 'function') pjRxnClose(); window.scrollTo(0, 0); });
       await phonePage.setViewportSize({ width: 375, height: 800 });
       await phonePage.waitForTimeout(100);
-      chk(!inPlaceHits.error && inPlaceHits.overlap && inPlaceHits.hits.length === 6 && inPlaceHits.hits.every(Boolean) && inPlaceHits.composerOnTop,
+      // #4409: every phone arm counts the bar's SHOWN buttons (want), so without read aloud they would all pass on the
+      // narrower bar and never measure the wide one this guards. Pin that an agent's bar here carries it. Seven since
+      // #4631 added Copy reference: it, the three quick emoji, the picker, read aloud and Reply.
+      chk(!inPlaceHits.error && inPlaceHits.want === 7,
+        `[phone/touch] precondition: an agent's bar shows read aloud, so these arms measure the seven-button bar`, JSON.stringify(inPlaceHits));
+      chk(!inPlaceHits.error && inPlaceHits.overlap && inPlaceHits.hits.length === inPlaceHits.want && inPlaceHits.hits.every(Boolean) && inPlaceHits.composerOnTop,
         `[phone/touch, in place] the open bar takes its taps and the sticky composer stays on top of the open row`, JSON.stringify(inPlaceHits));
       const phoneGeometry = await phonePage.evaluate((ts) => {
         const p = { agents: [{ sessionName: 'april', name: 'April' }] };
@@ -1150,11 +1155,11 @@ function tapProbe4663(skip) {
       const hits = await phonePage.evaluate(() => {
         const row = document.querySelector('#pj-room .msg.rxn-show'); const q = row && row.querySelector('.rxn-quick');
         if (!q) return { error: 'no open bar' };
-        return { below: row.classList.contains('rxn-below'), hits: [...q.querySelectorAll('button')].map((b) => {
+        return { below: row.classList.contains('rxn-below'), want: 6 + (q.querySelector('.rxn-speak') && q.querySelector('.rxn-speak').getClientRects().length ? 1 : 0), hits: [...q.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => {
           const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
           return top === b || b.contains(top); }) };
       });
-      chk(!hits.error && hits.below && hits.hits.length === 6 && hits.hits.every(Boolean), `[phone/touch] a bar that opens below its post is on top: every emoji takes its own tap`, JSON.stringify(hits));
+      chk(!hits.error && hits.below && hits.hits.length === hits.want && hits.hits.every(Boolean), `[phone/touch] a bar that opens below its post is on top: every emoji takes its own tap`, JSON.stringify(hits));
       // One bar at a time: a tap on a link in ANOTHER row closes it (the link keeps its own job).
       const linkClose = await phonePage.evaluate(() => {
         const rows = [...document.querySelectorAll('#pj-room .msg')]; const other = rows[1];
@@ -1283,10 +1288,10 @@ function tapProbe4663(skip) {
         // Precondition: the bar really lies over the message before it, or "on top" proves nothing.
         const previous = row.previousElementSibling; const barRect = quickBar.getBoundingClientRect();
         const overlapsPrevious = !!(previous && (() => { const p = previous.getBoundingClientRect(); return barRect.top < p.bottom && barRect.bottom > p.top; })());
-        const hits = [...quickBar.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return top === b || b.contains(top); });
-        return { overlapsPrevious, hits };
+        const hits = [...quickBar.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return top === b || b.contains(top); });
+        return { overlapsPrevious, hits, want: 6 + (quickBar.querySelector('.rxn-speak') && quickBar.querySelector('.rxn-speak').getClientRects().length ? 1 : 0) };
       });
-      chk(!hitsAbove.error && hitsAbove.overlapsPrevious && hitsAbove.hits.length === 6 && hitsAbove.hits.every(Boolean), `[phone/touch] a bar above its post is on top of the message before it`, JSON.stringify(hitsAbove));
+      chk(!hitsAbove.error && hitsAbove.overlapsPrevious && hitsAbove.hits.length === hitsAbove.want && hitsAbove.hits.every(Boolean), `[phone/touch] a bar above its post is on top of the message before it`, JSON.stringify(hitsAbove));
       await own.tap();
       await phonePage.waitForTimeout(300);
       const again = await phonePage.evaluate(() => ({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, reacts: window.__reacts }));
@@ -1315,10 +1320,10 @@ function tapProbe4663(skip) {
         const room = document.getElementById('pj-room'); const q = document.querySelector('#pj-room .msg.rxn-show .rxn-quick');
         if (!q) return { error: 'no open bar' };
         const Q = q.getBoundingClientRect(), R = room.getBoundingClientRect();
-        const hits = [...q.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
-        return { inView: Q.top >= R.top && Q.bottom <= R.bottom && Q.left >= R.left && Q.right <= R.right + 1, bar: [Math.round(Q.top), Math.round(Q.bottom)], room: [Math.round(R.top), Math.round(R.bottom)], hits, pinned: q.style.position === 'fixed' };
+        const hits = [...q.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+        return { inView: Q.top >= R.top && Q.bottom <= R.bottom && Q.left >= R.left && Q.right <= R.right + 1, bar: [Math.round(Q.top), Math.round(Q.bottom)], room: [Math.round(R.top), Math.round(R.bottom)], hits, want: 6 + (q.querySelector('.rxn-speak') && q.querySelector('.rxn-speak').getClientRects().length ? 1 : 0), pinned: q.style.position === 'fixed' };
       });
-      chk(tallAt.tall && !tall.error && tall.pinned && tall.inView && tall.hits.length === 6 && tall.hits.every(Boolean), `[phone/touch] on a post taller than the thread the bar is pinned in view and takes its taps`, JSON.stringify(Object.assign({ tall: tallAt.tall }, tall)));
+      chk(tallAt.tall && !tall.error && tall.pinned && tall.inView && tall.hits.length === tall.want && tall.hits.every(Boolean), `[phone/touch] on a post taller than the thread the bar is pinned in view and takes its taps`, JSON.stringify(Object.assign({ tall: tallAt.tall }, tall)));
       // A repaint (a new post arriving) while the pinned bar is up and its post still on screen
       // keeps it pinned, rather than closing it under the person's thumb.
       const afterRepaint = await phonePage.evaluate(() => new Promise((res) => {
@@ -1532,14 +1537,14 @@ function tapProbe4663(skip) {
         button.focus();
         setTimeout(() => {
           const band = pjRxnVisibleBand(room); const B = bar.getBoundingClientRect();
-          const hits = [...bar.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
-          const placed = { rowTopShowing: row.getBoundingClientRect().top >= band.top - 0.5, below: row.classList.contains('rxn-below'), inView: B.top >= band.top - 0.5 && B.bottom <= band.bottom + 0.5, hits };
+          const hits = [...bar.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+          const placed = { rowTopShowing: row.getBoundingClientRect().top >= band.top - 0.5, below: row.classList.contains('rxn-below'), inView: B.top >= band.top - 0.5 && B.bottom <= band.bottom + 0.5, hits, want: 6 + (bar.querySelector('.rxn-speak') && bar.querySelector('.rxn-speak').getClientRects().length ? 1 : 0) };
           button.blur();
-          setTimeout(() => { const afterBlur = { below: row.classList.contains('rxn-below'), shown: RXN_SHOW_POST }; room.style.top = '0px'; res({ wouldClip, placed, afterBlur }); }, 50);
+          setTimeout(() => { const afterBlur = { below: row.classList.contains('rxn-below'), shown: RXN_SHOW_POST, styled: !!(bar.style.left || bar.style.maxWidth) /* #4409: the fit's inline left and max-width are gone */ }; room.style.top = '0px'; res({ wouldClip, placed, afterBlur }); }, 50);
         }, 300);
       }));
-      chk(!focusOpen.error && focusOpen.wouldClip && focusOpen.placed.rowTopShowing && focusOpen.placed.below && focusOpen.placed.inView && focusOpen.placed.hits.length > 0 && focusOpen.placed.hits.every(Boolean)
-        && !focusOpen.afterBlur.below && focusOpen.afterBlur.shown === null,
+      chk(!focusOpen.error && focusOpen.wouldClip && focusOpen.placed.rowTopShowing && focusOpen.placed.below && focusOpen.placed.inView && focusOpen.placed.hits.length === focusOpen.placed.want && focusOpen.placed.hits.every(Boolean)
+        && !focusOpen.afterBlur.below && focusOpen.afterBlur.shown === null && !focusOpen.afterBlur.styled,
         `[phone/touch] a bar opened by keyboard focus on the first post opens below it, in view, takes its taps, and drops the flip when focus leaves`, JSON.stringify(focusOpen));
       // Escape
       const openBeforeEscape = await freshBar();
@@ -1763,10 +1768,10 @@ function tapProbe4663(skip) {
         const quickBar = document.querySelector('#pj-room .msg.rxn-show .rxn-quick'); const room = document.getElementById('pj-room');
         if (!quickBar) return { error: 'no open bar' };
         const barBg = rgba(getComputedStyle(quickBar).backgroundColor); const threadBg = getComputedStyle(room).backgroundColor;
-        const hits = [...quickBar.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
-        return { dark: matchMedia('(prefers-color-scheme: dark)').matches, barBg: getComputedStyle(quickBar).backgroundColor, threadBg, opaque: (barBg[3] === undefined ? 1 : barBg[3]) > 0.9, differs: getComputedStyle(quickBar).backgroundColor !== threadBg, border: getComputedStyle(quickBar).borderTopWidth, hits };
+        const hits = [...quickBar.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+        return { dark: matchMedia('(prefers-color-scheme: dark)').matches, barBg: getComputedStyle(quickBar).backgroundColor, threadBg, opaque: (barBg[3] === undefined ? 1 : barBg[3]) > 0.9, differs: getComputedStyle(quickBar).backgroundColor !== threadBg, border: getComputedStyle(quickBar).borderTopWidth, hits, want: 6 + (quickBar.querySelector('.rxn-speak') && quickBar.querySelector('.rxn-speak').getClientRects().length ? 1 : 0) };
       });
-      chk(!dark.error && dark.dark && dark.opaque && dark.differs && parseFloat(dark.border) >= 1 && dark.hits.length === 6 && dark.hits.every(Boolean),
+      chk(!dark.error && dark.dark && dark.opaque && dark.differs && parseFloat(dark.border) >= 1 && dark.hits.length === dark.want && dark.hits.every(Boolean),
         `[dark/phone/touch] the open bar has its own ground and edge on the dark thread and takes its taps`, JSON.stringify(dark));
     } finally {
       chk(darkPageErrors.length === 0, '[phone dark] no script errors on the page', darkPageErrors.join(' | '));

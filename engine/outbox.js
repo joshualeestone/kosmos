@@ -256,7 +256,10 @@ function resolveKeepSender(env, seams) {
   if (token) {
     const resolveName = s.resolveName || ((t) => require('./sendertoken').resolveName(t));
     const found = resolveName(token);
-    if (found && found.ok && SENDER_NAME_RE.test(String(found.key))) return { ok: true, name: String(found.key) };
+    /* #4792: the token's own name when it carries one, so "Mara"'s kept send is from Mara, never "mara". An older
+       token has only the key, which is refused when a second name has tokens under it (the key no longer says who). */
+    const who = found && found.ok ? (typeof found.name === 'string' && found.name ? found.name : (found.twins === true ? null : found.key)) : null;
+    if (who !== null && SENDER_NAME_RE.test(String(who))) return { ok: true, name: String(who) };
     return { ok: false, because: NO_SENDER };
   }
   const pane = String(e.TMUX_PANE || '').trim();

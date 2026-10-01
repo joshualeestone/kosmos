@@ -10,6 +10,8 @@
  *   one request -> a compact card: the device, when, one device-neutral sentence, then the code LARGE in
  *                  boxes directly above Allow / Deny (#3952); no Not now, no Not me; the request is NOT repeated in the devices list;
  *   two requests-> one stale (older than an hour, faded) and one unnamed ("Unknown device").
+ *   waiting     -> #4640: a second computer waiting for its other computer's Allow: a neutral "Waiting to be allowed"
+ *                  pill and the coordinator's sentence, never "refused", HTTP or a path (control: an ordinary refusal).
  * #3978: with one request, Allow (on Kosmos Plus) and the notice's Review (elsewhere) keep keyboard focus
  * and stay the same nodes through two real 5-second polls; the rows were rebuilt on every poll.
  *
@@ -46,6 +48,11 @@ const STATES = {
   off: { remote: { configured: true, on: false, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'off' } }, pending: [] },
   down: { remote: { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'off', because: 'no relay address is set yet' } }, pending: [] },
   connected: { remote: { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'up', address: ADDR } }, pending: [] },
+  /* #4640: a second computer waiting for its other computer's Allow (engine state waiting-allow, whose because is the
+     coordinator's sentence alone), and its CONTROL: an ordinary refusal from the same coordinator, which still reads as a
+     restart with the whole line, so the check below can see "refused" and "HTTP" when they are there. */
+  waiting: { remote: { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'waiting-allow', because: 'this computer is not allowed yet; allow it from your other computer first. If that computer is gone, retire it from your account page, then retire this computer and set it up again' } }, pending: [] },
+  refused: { remote: { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'restarting', because: 'Kosmos+ refused this Mac: standing lapsed (HTTP 403 on /v1/mac/relay-ticket, code standing_lapsed)' } }, pending: [] },
   one: { remote: { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'up', address: ADDR } },
     pending: [{ device_id: 'd-win', name: 'Windows browser', code: 'VR-D6', first_seen: now() - 120 }] },
   two: { remote: { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'up', address: ADDR } },
@@ -135,6 +142,17 @@ const STATES = {
         // Review: switched on but not running is NOT "Connecting" (the engine's sentence says why).
         chk(v.pill === 'Not connected' && v.pillState === 'down', `${t} on but not running reads "Not connected", not "Connecting"`, v.pill);
         chk(/No relay address is set yet/i.test(v.status) && !v.chip, `${t} the engine's reason is the line, and no address chip`, v.status);
+      } else if (key === 'waiting') {
+        // #4640: a wait, not a fault: a neutral pill (not red, not "Connecting") and the coordinator's sentence alone.
+        const pillBg = await page.evaluate(() => getComputedStyle(document.getElementById('plus-pill')).backgroundColor);
+        const offBg = await page.evaluate(() => { const p = document.getElementById('plus-pill'); const was = p.getAttribute('data-state'); p.setAttribute('data-state', 'off'); const bg = getComputedStyle(p).backgroundColor; p.setAttribute('data-state', was); return bg; });
+        chk(v.pill === 'Waiting to be allowed' && v.pillState === 'waiting' && pillBg === offBg, `${t} #4640: a second computer waiting for its Allow reads "Waiting to be allowed" on a neutral pill`, JSON.stringify({ pill: v.pill, state: v.pillState, pillBg, offBg }));
+        chk(/^This computer is not allowed yet; allow it from your other computer first\./.test(v.status) && !/refused|HTTP|\/v1\//i.test(v.status) && !v.chip,
+          `${t} #4640: the line is the coordinator's sentence, with no "refused", no HTTP and no path`, v.status);
+      } else if (key === 'refused') {
+        // CONTROL for the arm above: the same instrument sees "refused" and "HTTP" when the engine sends them.
+        chk(v.pill === 'Connecting' && v.pillState === 'connecting' && /refused/i.test(v.status) && /HTTP/.test(v.status),
+          `${t} #4640 CONTROL: an ordinary refusal still reads Connecting with its whole line, so the waiting arm's absence check can fail`, JSON.stringify({ pill: v.pill, status: v.status }));
       } else if (key === 'off') {
         chk(v.pill === 'Off' && v.pillState === 'off', `${t} the pill says Off`, JSON.stringify(v));
         chk(v.swIsToggle && v.swShown && v.swOn === 'false', `${t} #4080: the switch shows, off`, JSON.stringify({ on: v.swOn, shown: v.swShown, toggle: v.swIsToggle }));
@@ -295,7 +313,7 @@ const STATES = {
           chk(body && JSON.parse(body).on === false, `${t} #4080: pressing the switch pauses (PUT on:false)`, String(body));
         }
       }
-      if (key === 'off' || key === 'connected' || key === 'down') chk(!v.cardShown, `${t} CONTROL: no request, no card`);
+      if (key === 'off' || key === 'connected' || key === 'down' || key === 'waiting' || key === 'refused') chk(!v.cardShown, `${t} CONTROL: no request, no card`);
       if (key === 'one') {
         chk(v.cardShown && v.reqs === 1, `${t} one request is one card`, String(v.reqs));
         chk(/Windows browser/.test(v.cardText) && !/phone/i.test(v.cardText), `${t} a Windows browser is never called a phone`, v.cardText);

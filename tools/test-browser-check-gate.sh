@@ -190,6 +190,56 @@ check "#3893 positive control: a PR's own web change with no check and no traile
 ( cd "$tmp/dx" && unset KOSMOS_BCG_FILES KOSMOS_BCG_MSGS; KOSMOS_BCG_BASE="$D_M2" kosmos_browser_check_gate ) >/dev/null 2>&1
 check "#3893 criss-cross positive control: the PR's own unexcused web change is refused even when base contains the PR" 1 "$?"
 
+# kosmos#4811: this gate's verdict does not run through grep (its only grep picks the merge base, and only without
+# the seams), so unlike the surface gate it cannot be fooled by the agent shell's grep function. It still re-runs
+# itself under bash outside bash, for the same reason; this pins that the re-run happens and still refuses.
+ns M web/index.html > "$tmp/f4811"; : > "$tmp/m4811"
+if command -v zsh >/dev/null 2>&1; then
+  err4811="$(zsh -c '. "$1" && KOSMOS_BCG_FILES="$2" KOSMOS_BCG_MSGS="$3" kosmos_browser_check_gate' _ \
+    "$HERE/lib/browser-check-gate.sh" "$tmp/f4811" "$tmp/m4811" 2>&1 >/dev/null)"
+  rc4811=$?
+  check "#4811: sourced into zsh, an unchecked web change is still refused" 1 "$rc4811"
+  case "$err4811" in *"running it in a fresh bash (kosmos#4811)"*) r=0 ;; *) r=1 ;; esac
+  check "#4811: sourced into zsh, the gate says it re-ran itself under bash" 0 "$r"
+  # Review 1: plain (unexported) zsh variables reach the re-run; and a POSITIVE control through it, so a broken
+  # re-run cannot pass as a refusal.
+  zsh -c '. "$1" && KOSMOS_BCG_FILES="$2"; KOSMOS_BCG_MSGS="$3"; kosmos_browser_check_gate' _ \
+    "$HERE/lib/browser-check-gate.sh" "$tmp/f4811" "$tmp/m4811" >/dev/null 2>&1
+  check "#4811: settings given as plain zsh variables reach the re-run (still refused)" 1 "$?"
+  ns M web/index.html M docs/browser-checks/x.js > "$tmp/f4811ok"
+  zsh -c '. "$1" && KOSMOS_BCG_FILES="$2"; KOSMOS_BCG_MSGS="$3"; kosmos_browser_check_gate' _ \
+    "$HERE/lib/browser-check-gate.sh" "$tmp/f4811ok" "$tmp/m4811" >/dev/null 2>&1
+  check "#4811 positive control: through the re-run, a web change with a check updated passes" 0 "$?"
+  # Review 2: EACH setting must reach the re-run; an arm per setting where only that value flips the verdict.
+  # KOSMOS_BCG_MSGS: a trailer in the given messages excuses the change (without it: refused, above).
+  printf 'x\n\nBrowser-check: excused for this test\n' > "$tmp/m4811ok"
+  zsh -c '. "$1" && KOSMOS_BCG_FILES="$2"; KOSMOS_BCG_MSGS="$3"; kosmos_browser_check_gate' _ \
+    "$HERE/lib/browser-check-gate.sh" "$tmp/f4811" "$tmp/m4811ok" >/dev/null 2>&1
+  check "#4811: a plain zsh KOSMOS_BCG_MSGS reaches the re-run (its trailer excuses the change)" 0 "$?"
+  # KOSMOS_BCG_BASE: a throwaway repo whose default base (origin/main) sees an unchecked web change, and whose
+  # given base (HEAD) sees none. No seams, so the gate diffs real git.
+  g4811="$tmp/repo4811"; mkdir -p "$g4811/web"
+  ( cd "$g4811" && git init -q && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m base \
+      && git update-ref refs/remotes/origin/main HEAD && echo x > web/index.html && git add web/index.html \
+      && git -c user.email=t@t -c user.name=t commit -q -m web ) >/dev/null 2>&1
+  zsh -c 'cd "$2" && . "$1" && kosmos_browser_check_gate' _ "$HERE/lib/browser-check-gate.sh" "$g4811" >/dev/null 2>&1
+  check "#4811 control: in the throwaway repo the default base refuses the unchecked web change" 1 "$?"
+  zsh -c 'cd "$2" && . "$1" && KOSMOS_BCG_BASE=HEAD; kosmos_browser_check_gate' _ "$HERE/lib/browser-check-gate.sh" "$g4811" >/dev/null 2>&1
+  check "#4811: a plain zsh KOSMOS_BCG_BASE reaches the re-run (HEAD as base sees no change)" 0 "$?"
+else
+  echo "SKIP  #4811: zsh not available"
+fi
+# Review 3: a bash whose `grep` is a shell function (a Claude Code session running bash carries one) re-runs too.
+err4811f="$(bash -c 'grep() { command grep "$@"; }; . "$1" && KOSMOS_BCG_FILES="$2" KOSMOS_BCG_MSGS="$3" kosmos_browser_check_gate' _ \
+  "$HERE/lib/browser-check-gate.sh" "$tmp/f4811" "$tmp/m4811" 2>&1 >/dev/null)"
+case "$err4811f" in *"running it in a fresh bash (kosmos#4811)"*) r=0 ;; *) r=1 ;; esac
+check "#4811: in a bash whose grep is a shell function, the gate re-runs in a fresh bash" 0 "$r"
+# CONTROL: under bash it answers itself and says nothing about re-running.
+err4811b="$(bash -c '. "$1" && KOSMOS_BCG_FILES="$2" KOSMOS_BCG_MSGS="$3" kosmos_browser_check_gate' _ \
+  "$HERE/lib/browser-check-gate.sh" "$tmp/f4811" "$tmp/m4811" 2>&1 >/dev/null)"
+case "$err4811b" in *"kosmos#4811"*) r=1 ;; *) r=0 ;; esac
+check "#4811 control: under bash the gate does not re-run itself" 0 "$r"
+
 echo "---"
 if [ "$fails" -eq 0 ]; then
   echo "browser-check-gate: all checks passed"

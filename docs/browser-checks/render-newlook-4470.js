@@ -1,4 +1,4 @@
-// Browser-check-surface: look-toggle look-row
+// Browser-check-surface: look-toggle look-row tsk-tile tsk-list
 'use strict';
 /**
  * The new look's hidden switch (#4470, Josh 2026-09-28), on a real board in a real browser.
@@ -25,6 +25,10 @@
  *    strokes (the could-not-read dash at least 1.5:1 off its ground, measured by EDGE_RATIO); the Messages filter rests on the grey ground and keeps its width under the pointer; a board note is
  *    the grey box while a could-not-read note keeps its solid border (and a note in a project page keeps today's
  *    look); and with the look off, today's bordered card, tile and New agent tile (the control),
+ *  - the Tasks page in the new look (tasksLook): a plain tile and the task list lose their border and take 16px corners;
+ *    Needs Your Decision holding tasks keeps a red edge (red in both looks; its grey half is remapped) and a filtering
+ *    tile its gold; at zero it is drawn like the others; a tile under the pointer shows its border;
+ *    with the look off, today's bordered tiles and list with 12px corners,
  *  - the Agents LIST in the new look (listLook): a plain row with no border, 16px corners and its name button left;
  *    a border under the pointer with the ground unchanged; a needs-you row's red and a could-not-read row's dash
  *    you can see (1.5:1); and against the look off, today's state wash, red and dash, and today's bordered row
@@ -121,7 +125,9 @@ const BUBBLES = `(() => {
   return out;
 })()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */
-const ROW_GROUNDS = `[...document.querySelectorAll('#pj-one-agents .pj-member')].map((m) => ({ working: m.classList.contains('pjm-working'), bg: getComputedStyle(m).backgroundColor, img: getComputedStyle(m).backgroundImage }))`;
+/* #4765: the working pulse runs on the row's ::before layer now, so "no pulse" is read there too: no layer at all
+   (content none) and no animation. A pulse the box itself does not carry is still a pulse on screen. */
+const ROW_GROUNDS = `[...document.querySelectorAll('#pj-one-agents .pj-member')].map((m) => ({ working: m.classList.contains('pjm-working'), bg: getComputedStyle(m).backgroundColor, img: getComputedStyle(m).backgroundImage, layer: getComputedStyle(m, '::before').content, layerAnim: getComputedStyle(m, '::before').animationName, anim: getComputedStyle(m).animationName }))`;
 /* The left box's task rows: how many, how many still draw a card border, whether the number reads
    a hash sign and the number (the word hidden, the hash drawn) and whether an assigned row's claim line is visible. */
 const TASK_ROWS = `(() => {
@@ -166,6 +172,59 @@ const PARTS = `(() => {
   return { found: true, avatars: [...row.querySelectorAll('.tkcard-part .lav')].filter((a) => a.getClientRects().length).length,
     held: dot(row.querySelector('.tkcard-part:not(.none)')), nobody: dot(row.querySelector('.tkcard-part.none')) };
 })()`;
+/* #4470, the Tasks page in the new look: a plain tile and the task list lose their border and take 16px corners; a
+   Needs Your Decision tile holding tasks keeps its red edge and a filtering tile its gold (set by hand on the page's
+   own tiles, then put back, since the fixture's counts are what they are). Reads, then returns to the Agents tab. */
+async function tasksLook(page) {
+  await page.mouse.move(1, 1);   // nothing under the pointer when the resting borders are read (round 4)
+  await page.evaluate(() => showTab('tasks'));
+  await page.waitForSelector('#panel-tasks .tsk-tile', { state: 'visible', timeout: 8000 }).catch(() => {});
+  const out = await page.evaluate(() => {
+    /* A computed colour as 0-255 channels, from either serialisation: rgb()/rgba(), or color(srgb r g b) with 0-1
+       channels, which is what a color-mix() computes to (round 2). null for anything else, so an arm fails loudly. */
+    const rgb = (c) => {
+      let m = /^rgba?\((\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?)/.exec(c);
+      if (m) return [+m[1], +m[2], +m[3]];
+      m = /^color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/.exec(c);
+      return m ? [m[1] * 255, m[2] * 255, m[3] * 255] : null;
+    };
+    /* Red: red well above both, and green and blue close together (round 3: dark gold #d6a62e is red-dominant too, but
+       its green sits far above its blue; the real red mixes have |G - B| under 7, the golds over 80). */
+    const isRed = (c) => { const v = rgb(c); return !!v && v[0] > v[1] + 40 && v[0] > v[2] + 40 && Math.abs(v[1] - v[2]) < 30; };
+    const isGold = (c) => { const v = rgb(c); return !!v && v[0] > v[2] + 40 && v[1] > v[2] + 20; };
+    const tiles = [...document.querySelectorAll('#panel-tasks .tsk-tile')];
+    const plain = tiles.find((t) => t.dataset.tile !== 'decision' && t.getAttribute('aria-pressed') !== 'true');
+    const dec = tiles.find((t) => t.dataset.tile === 'decision');
+    const list = document.querySelector('#panel-tasks .tsk-list');
+    if (!plain || !dec) return { found: false, tiles: tiles.length };
+    const r = { found: true, plain: getComputedStyle(plain).borderTopColor, radius: getComputedStyle(plain).borderTopLeftRadius,
+      list: list ? getComputedStyle(list).borderTopColor : 'absent', listRadius: list ? getComputedStyle(list).borderTopLeftRadius : 'absent' };
+    const n0 = dec.getAttribute('data-n');
+    try {
+      dec.setAttribute('data-n', '2'); r.decision = getComputedStyle(dec).borderTopColor;
+      dec.setAttribute('data-n', '0'); r.decisionZero = getComputedStyle(dec).borderTopColor;   // #3949: a zero tile is drawn like the others
+    } finally { if (n0 === null) dec.removeAttribute('data-n'); else dec.setAttribute('data-n', n0); }
+    r.decisionRed = isRed(r.decision);
+    const p0 = plain.getAttribute('aria-pressed');
+    try { plain.setAttribute('aria-pressed', 'true'); r.pressed = getComputedStyle(plain).borderTopColor; }
+    finally { if (p0 === null) plain.removeAttribute('aria-pressed'); else plain.setAttribute('aria-pressed', p0); }
+    r.pressedGold = isGold(r.pressed);
+    /* Negative controls, read off the page (round 3): the filtering gold, the closest wrong answer, is not red, and a
+       visible plain border (look off) is not red either; each makes the red test show it can say no. */
+    r.goldNotRed = !isRed(r.pressed);
+    r.plainNotRed = r.plain === 'rgba(0, 0, 0, 0)' ? null : !isRed(r.plain);
+    return r;
+  });
+  if (out.found) {   // under the pointer the border comes back (the tiles are filters, i.e. controls)
+    await page.hover('#panel-tasks .tsk-tile:not([data-tile="decision"]):not([aria-pressed="true"])'); await page.waitForTimeout(150);
+    /* Read the tile the pointer is actually on; a miss is reported as a miss, never as some other element's colour. */
+    out.hover = await page.evaluate(() => { const h = document.querySelector('#panel-tasks .tsk-tile:not([data-tile="decision"]):not([aria-pressed="true"]):hover'); return h ? getComputedStyle(h).borderTopColor : 'missed'; });
+    await page.mouse.move(1, 1);
+  }
+  await page.evaluate(() => showTab('agents'));
+  await page.waitForTimeout(300);
+  return out;
+}
 /* The list view (#4470's next page): switch the Agents board to the list, read the plain idle row (and the same
    row under the pointer), then switch back to the grid so the later arms read the cards. */
 async function listLook(page) {
@@ -319,7 +378,7 @@ const AGENTS_LOOK = `(() => {
       }
       await page.mouse.move(0, 0);
       const rows = await page.evaluate(ROW_GROUNDS);
-      chk(rows.length >= 2 && rows.some((r) => r.working) && rows.every((r) => r.bg === 'rgba(0, 0, 0, 0)' && r.img === 'none'),
+      chk(rows.length >= 2 && rows.some((r) => r.working) && rows.every((r) => r.bg === 'rgba(0, 0, 0, 0)' && r.img === 'none' && r.anim === 'none' && r.layerAnim === 'none' && (r.layer === 'none' || r.layer === 'normal')),
         `${tag} On: every member row is plain, a working one too (no wash, no pulse)`, JSON.stringify(rows));
       if (width >= 1088) {   // a phone width shows the tabs as a menu, with its own current-row style
         const tabs = await page.evaluate(TABS);
@@ -479,6 +538,13 @@ const AGENTS_LOOK = `(() => {
         `${tag} On, Agents list: a needs-you row keeps its edge, a could-not-read row a dash you can see (1.5:1 or more off its ground)`, JSON.stringify(listOn.strokes));
       chk(listOn.found && listOn.hover && listOn.hover !== 'rgba(0, 0, 0, 0)',
         `${tag} On, Agents list: a row under the pointer shows its border (a sign it opens)`, JSON.stringify(listOn));
+      const tkOn = await tasksLook(page);
+      chk(tkOn.found && tkOn.plain === 'rgba(0, 0, 0, 0)' && tkOn.radius === '16px' && tkOn.list === 'rgba(0, 0, 0, 0)' && tkOn.listRadius === '16px',
+        `${tag} On, Tasks: a plain tile and the task list lose their border and take 16px corners`, JSON.stringify(tkOn));
+      chk(tkOn.found && tkOn.decisionRed && tkOn.pressedGold && tkOn.goldNotRed,
+        `${tag} On, Tasks: Needs Your Decision holding tasks keeps its red edge, a filtering tile its gold`, JSON.stringify(tkOn));
+      chk(tkOn.found && tkOn.decisionZero === 'rgba(0, 0, 0, 0)' && tkOn.hover && tkOn.hover !== 'missed' && tkOn.hover !== 'rgba(0, 0, 0, 0)',
+        `${tag} On, Tasks: Needs Your Decision at zero is drawn like the others (no border), and a tile under the pointer shows its border`, JSON.stringify(tkOn));
 
       await page.reload({ waitUntil: 'networkidle' });
       await clearFirstRun(page);
@@ -518,6 +584,13 @@ const AGENTS_LOOK = `(() => {
       const listOff = await listLook(page);
       chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px' && listOff.nameAlign === 'center',
         `${tag} Off, Agents list: today's bordered row with 12px corners and today's centred name button`, JSON.stringify(listOff));
+      const tkOff = await tasksLook(page);
+      chk(tkOff.found && tkOff.plain !== 'rgba(0, 0, 0, 0)' && tkOff.radius === '12px' && tkOff.list !== 'rgba(0, 0, 0, 0)' && tkOff.listRadius === '12px',
+        `${tag} Off, Tasks: today's bordered tiles and task list with 12px corners (the control)`, JSON.stringify(tkOff));
+      /* The decision edge is mixed from the danger red and the rule grey, and the new look remaps that grey, so it is
+         not byte-identical across looks (round 1); what must hold in both is that it reads red. */
+      chk(tkOn.found && tkOff.found && tkOn.decisionRed && tkOff.decisionRed && tkOff.plainNotRed === true && tkOff.goldNotRed,
+        `${tag} the Needs Your Decision edge reads red with the look on and off`, JSON.stringify({ on: tkOn.decision, off: tkOff.decision }));
       /* The new look remaps the colour tokens (its surface and rule greys differ from today's), so the row's own
          colour and the dash's colour are the new look's, not today's. What must NOT change is the state wash laid
          over the surface, and the needs-you red, which is a fixed colour in both looks. */

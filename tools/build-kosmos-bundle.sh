@@ -262,9 +262,18 @@ swiftc -target "arm64-apple-macos$(cat "$REPO/tools/macos-floor")" -O "$REPO/nat
 # Signed here, Developer ID, same reasoning and the same cert as the
 # connector above (a nested ad-hoc binary makes the whole bundle's
 # notarisation Invalid) -- the checksum captured below is what ships.
-codesign --force --options runtime --timestamp -s "$_codesign_id" "$STAGE/app/bin/kosmos-app" 2>&1 | sed 's/^/    /' || {
+# #4409: WITH ITS ENTITLEMENTS. Hardened runtime blocks the microphone unless the signature carries
+# com.apple.security.device.audio-input, and a signature without it fails silently: the mic button
+# shows, the person presses it, and nothing is ever heard. Read back from the SIGNATURE below, because
+# the file existing proves nothing about what was signed.
+codesign --force --options runtime --timestamp --entitlements "$REPO/native-app/kosmos-app.entitlements" -s "$_codesign_id" "$STAGE/app/bin/kosmos-app" 2>&1 | sed 's/^/    /' || {
   printf '%s\n' "could not Developer ID sign the native app as \"$_codesign_id\" (is this the machine holding the cert? set KOSMOS_CODESIGN_ID to override). NOT falling back to ad-hoc." >&2; exit 1; }
 codesign -v "$STAGE/app/bin/kosmos-app" 2>&1 | sed 's/^/    /' || { echo "the native app's signature did not verify after signing" >&2; exit 1; }
+_app_ents="$(codesign -d --entitlements - --xml "$STAGE/app/bin/kosmos-app" 2>/dev/null)" || _app_ents=""
+case "$_app_ents" in
+  *"com.apple.security.device.audio-input"*) echo "==> native app: signed with the microphone entitlement (#4409)" ;;
+  *) echo "the native app's signature does not carry com.apple.security.device.audio-input (#4409): the mic button would hear nothing" >&2; exit 1 ;;
+esac
 # Run it, not just verify the signature -- the same "prove it loads under
 # hardened runtime on this build machine" step as the tunnel's --help check.
 # --kosmos-app-selftest exits before touching NSApplication/app.run(), so it
@@ -619,6 +628,30 @@ case "$_mode_out" in
   *) echo "the #4356 gate exited 0 without reporting a verdict. Treat that as the gate being broken, not as a pass." >&2; exit 1 ;;
 esac
 echo "==> native app: it reads this computer's mode, and a connect computer keeps to Kosmos Plus (#4356)"
+
+# ---- dictation's decisions (kosmos#4409) --------------------------------------
+# Which language the mic listens in (on-device only: no model means a refusal, never a network
+# recognizer), and the refusal that replaces a crash when a usage string is missing. The microphone
+# itself cannot run here; these are the parts that can.
+_voice_rc=0
+_voice_out="$(perl -e 'alarm 20; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-voice-selftest 2>&1)" || _voice_rc=$?
+if [ "$_voice_rc" -ne 0 ]; then
+  case "$_voice_out" in
+    *"voice-check: only "*)
+      printf '%s\n' "the #4409 selftest is no longer testing anything, so it cannot vouch for dictation:" "$_voice_out" >&2 ;;
+    *"voice-check:"*)
+      printf '%s\n' "the native app's dictation decisions are wrong (#4409). Its own rows:" "$_voice_out" >&2 ;;
+    *)
+      printf '%s\n' "the #4409 gate did not finish (exit $_voice_rc): a timeout, a missing binary, or something that is not dictation. It could not judge it either way." "$_voice_out" >&2 ;;
+  esac
+  exit 1
+fi
+printf '%s\n' "$_voice_out" | sed 's/^/    /'
+case "$_voice_out" in
+  *"voice-check: all good"*) ;;
+  *) echo "the #4409 gate exited 0 without reporting a verdict. Treat that as the gate being broken, not as a pass." >&2; exit 1 ;;
+esac
+echo "==> native app: dictation listens on-device only, or not at all (#4409)"
 
 _app_bin_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')"
 echo "==> native app: kosmos-app signed $_app_bin_sha"

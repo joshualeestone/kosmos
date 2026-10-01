@@ -63,7 +63,30 @@ bcg_anchor_base() {  # <base> -> prints the merge base, or returns 1
   return 1
 }
 
+# kosmos#4811: where this lib lives, taken when it is sourced, so the gate can re-run itself under bash.
+_KOSMOS_BCG_SELF="$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]:-$0}")" >/dev/null 2>&1 && pwd)/$(basename "${BASH_SOURCE[0]:-$0}")"   # CDPATH= : review 4
+
 kosmos_browser_check_gate() {
+  # kosmos#4811: ONLY A PLAIN BASH ANSWERS. Sourced into another shell (the agent's own zsh, whose `grep` is a
+  # function that runs ugrep with --ignore-files and -I), the same lines matched differently and this gate passed a
+  # branch CI refused. A bash session can carry the same function (review 3), so the test is: outside bash, OR `grep`
+  # is a shell function or an alias (review 4). Then the gate runs itself in a fresh bash and returns that answer: BASH_ENV and an exported
+  # grep function are taken out of its environment, so it has the system grep, and KOSMOS_BCG_REEXEC stops it from
+  # ever doing this twice. The caller's KOSMOS_BCG_* / KOSMOS_BCSG_* settings are handed over EXPLICITLY, each only
+  # when it is set, so unset and empty stay distinct and a plain, unexported `KOSMOS_BCG_FILES=f; gate` still reaches
+  # it (review 1). `set --` keeps each value one word in zsh and in bash alike.
+  if [ -z "${KOSMOS_BCG_REEXEC:-}" ] && { [ -z "${BASH_VERSION:-}" ] || case "$(type -t grep 2>/dev/null)" in function|alias) true ;; *) false ;; esac; }; then
+    echo "browser check gate: not a plain bash here; running it in a fresh bash (kosmos#4811)" >&2
+    set --
+    [ -n "${KOSMOS_BCG_BASE+x}" ] && set -- "$@" "KOSMOS_BCG_BASE=$KOSMOS_BCG_BASE"
+    [ -n "${KOSMOS_BCG_FILES+x}" ] && set -- "$@" "KOSMOS_BCG_FILES=$KOSMOS_BCG_FILES"
+    [ -n "${KOSMOS_BCG_MSGS+x}" ] && set -- "$@" "KOSMOS_BCG_MSGS=$KOSMOS_BCG_MSGS"
+    [ -n "${KOSMOS_BCSG_WEBDIFF+x}" ] && set -- "$@" "KOSMOS_BCSG_WEBDIFF=$KOSMOS_BCSG_WEBDIFF"
+    [ -n "${KOSMOS_BCSG_DIR+x}" ] && set -- "$@" "KOSMOS_BCSG_DIR=$KOSMOS_BCSG_DIR"
+    env -u BASH_ENV -u 'BASH_FUNC_grep%%' KOSMOS_BCG_REEXEC=1 "$@" \
+      bash -c '. "$1" && kosmos_browser_check_gate' _ "$_KOSMOS_BCG_SELF"
+    return $?
+  fi
   # NB: dstat/dpath, NOT status/path -- zsh ties `path` to PATH (emptying it) and
   # `status` to $?, and this lib is sourced, sometimes into a zsh shell.
   local base files msgs f dstat dpath tab touched_web touched_bc reason mb

@@ -3015,7 +3015,8 @@ function cannotMoveAside(kind) {
 /* ── who answers ─────────────────────────────────────────────────────────── */
 
 /**
- * Which agent a project's thread opens on.
+ * Which agent a project's thread opens on. The member the others report to
+ * first (#4557), then the role-text manager, then the first agent.
  *
  * ⚠️ ONE agent answers, and this is the rule that decides which. The screen
  * this replaces said the room was waiting on exactly this question ("when five
@@ -3031,6 +3032,23 @@ function cannotMoveAside(kind) {
 function defaultAgentFor(members) {
   const list = Array.isArray(members) ? members.filter(Boolean) : [];
   if (!list.length) return null;
+  // #4557 (April, #4555 review): the org chart first; the role text is only a guess ("Social Media
+  // Manager" matched before the CMO a seeded team reports to). The top of the chart is the member others
+  // report to who reports to nobody here; with no single one, most direct reports, a tie in list order.
+  const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+  const reportedTo = (m) => list.some((o) => o !== m && same(o.reportsTo, m.sessionName));
+  const reportsHere = (m) => list.some((o) => o !== m && same(m.reportsTo, o.sessionName));
+  const roots = list.filter((m) => reportedTo(m) && !reportsHere(m));
+  if (roots.length === 1) return roots[0].sessionName;
+  // Several tops (two charts on one project): the choice is among THEM, never a middle manager under
+  // one of them. No top at all (a loop): among everyone.
+  let head = null;
+  let most = 0;
+  for (const m of (roots.length ? roots : list)) {
+    const n = list.filter((o) => o !== m && same(o.reportsTo, m.sessionName)).length;
+    if (n > most) { most = n; head = m; }
+  }
+  if (head) return head.sessionName;
   const manager = list.find((m) => looksLikeManager(m.role));
   return (manager || list[0]).sessionName;
 }

@@ -106,11 +106,11 @@ async function openDm(page, messages, olderCount) {
     // #4358: in the DM bar too, the four emoji sit together and Reply comes last, with its arrow.
     const dmBar = await page.evaluate(() => {
       const q = document.querySelector('#d-dmthread .msg:not(.you) .rxn-quick');
-      const kids = q ? [...q.children].map((k) => k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-ref') ? 'ref' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?').join(',') : '';
+      const kids = q ? [...q.children].map((k) => k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-speak') ? 'speak' : k.classList.contains('rxn-ref') ? 'ref' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?').join(',') : '';
       const r = q && q.querySelector('.rxn-reply');
       return { kids, arrow: !!(r && r.firstElementChild && r.firstElementChild.classList.contains('rxn-reply-ico')) };
     });
-    chk(dmBar.kids === 'ref,pick,pick,pick,more,reply' && dmBar.arrow, 'R1b the DM bar reads Copy reference (#4631), the three quick emoji, the smiley, then Reply last with its arrow (#4358)', JSON.stringify(dmBar));
+    chk(dmBar.kids === 'ref,pick,pick,pick,more,speak,reply' && dmBar.arrow, 'R1b the DM bar reads Copy reference (#4631), the three quick emoji, the smiley, read-aloud (#4409), then Reply last with its arrow (#4358)', JSON.stringify(dmBar));
 
     // R2
     await page.hover('#d-dmthread .msg:not(.you) >> nth=1');

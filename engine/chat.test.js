@@ -1070,6 +1070,44 @@ test('describe’s OWN role gate bites: an untied card CARRYING a role still rea
   });
 });
 
+test('#4557: the thread opens on the member the others report to, not the first role that says manager', () => {
+  /* April (#4555 review): a seeded Marketing team's room opened on the Social Media Manager, not the CMO
+     everyone reports to. Real produced cards; only profile.reportsTo is set, where create.js stores it. */
+  withFleet([
+    fleet.agent('sam', { displayName: 'Sam', role: 'Social Media Manager', state: 'idle' }),
+    fleet.agent('cora', { displayName: 'Cora', role: 'Chief Marketing Officer', state: 'idle' }),
+    fleet.agent('wes', { displayName: 'Wes', role: 'Writer', state: 'idle' }),
+  ], (board) => {
+    const reports = { sam: 'cora', wes: 'Cora' }; // the case of the stored name does not matter
+    const agents = board.agents.map((a) => (reports[a.sessionName]
+      ? { ...a, profile: { ...(a.profile || {}), reportsTo: reports[a.sessionName] } } : a));
+    const members = projects.describe({
+      id: 'p', name: 'P', folder: SANDBOX, agents: ['sam', 'cora', 'wes'],
+      everSeen: { sam: true, cora: true, wes: true }, told: {},
+    }, agents).agents;
+    // Controls: the reports came through describe, and the role rule alone WOULD pick sam.
+    assert.equal(members.find((m) => m.sessionName === 'sam').reportsTo, 'cora');
+    assert.equal(chat.looksLikeManager('Social Media Manager'), true);
+    assert.equal(chat.defaultAgentFor(members), 'cora');
+    // With no reports on the project, the old rule stands.
+    assert.equal(chat.defaultAgentFor(members.map((m) => ({ ...m, reportsTo: null }))), 'sam');
+    // An untied card's reportsTo is not read, like its role.
+    const untied = agents.map((a) => (a.sessionName === 'sam' ? { ...a, isNamedOurs: false } : a));
+    const row = projects.describe({
+      id: 'p', name: 'P', folder: SANDBOX, agents: ['sam'], everSeen: { sam: true }, told: {},
+    }, untied).agents[0];
+    assert.equal(row.reportsTo, null);
+  });
+});
+
+test('#4557: most reports wins, and a tie keeps the project order', () => {
+  const m = (sessionName, reportsTo, role) => ({ sessionName, reportsTo: reportsTo || null, role: role || null });
+  assert.equal(chat.defaultAgentFor([m('a', 'c'), m('b', 'd'), m('c'), m('d'), m('e', 'd')]), 'd');
+  assert.equal(chat.defaultAgentFor([m('a', 'c'), m('b', 'd'), m('c'), m('d')]), 'c');
+  // Reporting to someone NOT on the project does not make anybody the head.
+  assert.equal(chat.defaultAgentFor([m('a', 'zed'), m('b', null, 'project manager')]), 'b');
+});
+
 test('a project with nobody on it has nobody to address', () => {
   assert.equal(chat.defaultAgentFor([]), null);
   assert.equal(chat.defaultAgentFor(null), null);
@@ -3131,4 +3169,25 @@ test('#1629: deliver refuses to type at an agent whose snapshot shows the trust 
     assert.equal(verdict.state, chat.DELIVERY.PLACED);
     assert.ok(tmux.sends().length > 0);
   });
+});
+
+test('#4557 defaultAgentFor: in a deeper chart the TOP opens the room, not a middle manager with more direct reports', () => {
+  /* Real produced cards (fixture discipline); only profile.reportsTo is set, where create.js stores it. */
+  const membersFor = (names, reports) => withFleet(names.map((n) => fleet.agent(n, { displayName: n, role: 'Writer', state: 'idle' })), (board) => {
+    const agents = board.agents.map((a) => (reports[a.sessionName] ? { ...a, profile: { ...(a.profile || {}), reportsTo: reports[a.sessionName] } } : a));
+    const everSeen = {}; for (const n of names) everSeen[n] = true;
+    return projects.describe({ id: 'p', name: 'P', folder: SANDBOX, agents: names, everSeen, told: {} }, agents).agents;
+  });
+  // ceo <- vp; vp <- a, b, c (vp has more direct reports than the ceo).
+  const deep = membersFor(['vp', 'a', 'b', 'c', 'ceo'], { vp: 'ceo', a: 'vp', b: 'vp', c: 'vp' });
+  assert.equal(deep.find((m) => m.sessionName === 'vp').reportsTo, 'ceo', 'control: the reports came through describe');
+  assert.equal(chat.defaultAgentFor(deep), 'ceo');
+  // Two separate charts on one project (two roots): most direct reports, as before.
+  assert.equal(chat.defaultAgentFor(membersFor(['x', 'y', 'x1', 'y1', 'y2'], { x1: 'x', y1: 'y', y2: 'y' })), 'y');
+  // Two tops, and a middle manager under one of them with more direct reports than either: a top opens
+  // the room (the one with more direct reports; a tie keeps the project order), never the middle manager.
+  assert.equal(chat.defaultAgentFor(membersFor(['mid', 'm1', 'm2', 'm3', 'top1', 'top2', 't2a'],
+    { mid: 'top1', m1: 'mid', m2: 'mid', m3: 'mid', t2a: 'top2' })), 'top1');
+  // A cycle has no root: it falls to most reports, then list order, and never throws.
+  assert.equal(chat.defaultAgentFor(membersFor(['p', 'q'], { p: 'q', q: 'p' })), 'p');
 });

@@ -430,6 +430,12 @@ const SCREENS = [
     await at(page, '?tab=tasks');
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
   } },
+  /* #4470: the Tasks view in the new look, for the side by side with 'tasks'. */
+  { name: 'nl-tasks', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+  } },
 ];
 
 /* ------------------------------------------------------------------ args */

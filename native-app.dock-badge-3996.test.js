@@ -85,7 +85,11 @@ test('#3996: a macOS badge setting of off would win (a forward check), and Kosmo
   const allowed = body('static func badgesAllowed(');
   assert.match(allowed, /settings\.badgeSetting != \.disabled/);
   assert.match(allowed, /Bundle\.main\.bundleIdentifier != nil/, 'UNUserNotificationCenter outside a bundle crashes');
-  assert.doesNotMatch(SRC, /requestAuthorization/, 'Kosmos asks for notification permission (a system dialog nobody asked for)');
+  /* #4409: the notification centre's call carries options (`requestAuthorization(options:`); speech recognition's
+     `SFSpeechRecognizer.requestAuthorization { }` is the mic button's own ask, made only when the person presses it. */
+  assert.doesNotMatch(SRC, /requestAuthorization\(options/, 'Kosmos asks for notification permission (a system dialog nobody asked for)');
+  assert.doesNotMatch(SRC, /UNUserNotificationCenter[^\n]*requestAuthorization/, 'Kosmos asks for notification permission (a system dialog nobody asked for)');
+  assert.match(SRC, /SFSpeechRecognizer\.requestAuthorization \{/, 'control: the one requestAuthorization in the app is speech recognition\'s');
 });
 
 test('#3996: the bundle build runs the badge selftest and requires its verdict', () => {

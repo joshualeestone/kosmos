@@ -214,16 +214,30 @@ function payload(post, channel) {
  * key, which can be derived from the machine). The bio is the profile's role, same
  * scrub, left out if refused.
  */
+/* The display name the board registers an agent under, or null when it gets a generated handle instead.
+   #4800: a name the service would swap for a random handle of its own is null here too, so the name we register is
+   the name the service holds and a lookup of it finds the account: one holding '/' or '@' (the service refuses both),
+   one of only dots at its ends (the service's name.strip('.')), and one carrying an invisible character (the shared
+   list, feedguard-cases.json contract.detection_normalization, which feedguard.stripFormatCharacters applies): the
+   service strips those first, and a name that is then empty, dots-only or refused gets its handle. (A name merely
+   stored differently is still found: the lookup compares cleaned forms.) A trailing half of a character the 80-unit
+   cap cut through is dropped, as the service drops it; a lone half would also make the lookup's URL throw. */
+function profileName(profile) {
+  if (typeof profile.displayName !== 'string' || !profile.displayName.trim()) return null;
+  const s = communitysite.scrubAuthorName(profile.displayName);
+  if (!s.ok || s.name === communitysite.DEFAULT_AUTHOR_NAME) return null;
+  const name = s.name.replace(/[\uD800-\uDBFF]$/, '');
+  if (!name.trim() || /[\uD800-\uDFFF]/.test(name.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, ''))) return null;
+  if (name.includes('/') || name.includes('@') || !name.replace(/^\.+|\.+$/g, '')) return null;
+  if (require('./feedguard').stripFormatCharacters(name) !== name) return null;
+  return name;
+}
+function readProfileSafe(agentKey) {
+  try { return store.readProfile(agentKey) || {}; } catch { return {}; }
+}
 function registration(agentKey) {
-  let profile = {};
-  try { profile = store.readProfile(agentKey) || {}; } catch { profile = {}; }
-  const handle = () => 'agent-' + crypto.randomBytes(3).toString('hex');
-  let name = null;
-  if (typeof profile.displayName === 'string' && profile.displayName.trim()) {
-    const s = communitysite.scrubAuthorName(profile.displayName);
-    if (s.ok && s.name !== communitysite.DEFAULT_AUTHOR_NAME) name = s.name;
-  }
-  const out = { name: name || handle() };
+  const profile = readProfileSafe(agentKey);
+  const out = { name: profileName(profile) || 'agent-' + crypto.randomBytes(3).toString('hex') };
   if (typeof profile.role === 'string' && profile.role.trim()) {
     const r = communitysite.scrubAuthorName(profile.role);
     if (r.ok && r.name !== communitysite.DEFAULT_AUTHOR_NAME) out.bio = r.name;
@@ -241,7 +255,37 @@ function endpointAllowed() {
   } catch { return false; }
 }
 
-async function request(method, pathname, { token, body } = {}) {
+/* #4774 review 1: the service's answer is read up to a cap, never whole. RESPONSE_CAP is the cap for what an agent
+   asks for (agentCall: its feed, a following list, a profile, a follow), and engine/communityread.js reads with the
+   same function and the same cap; it lives here because communityread already requires this module.
+   Review 2 (BLOCKER): the sweep's own reads are bigger. GET /agents/me/posts answers up to 200 posts with bodies of up
+   to 4000 characters (kosmos-community app/routers/agents.py my_posts, app/schemas.py PostIn), which is past 256 KiB
+   for an agent with ~60 long posts; there a capped answer would leave an attempted post pending forever and never
+   bring a take-down home. So request()'s default is SWEEP_RESPONSE_CAP: 200 x 4000 characters x 3 UTF-8 bytes is
+   2.4 MB, and 4 MiB leaves room for titles, ids and JSON around it. */
+const RESPONSE_CAP = 256 * 1024;
+const SWEEP_RESPONSE_CAP = 4 * 1024 * 1024;
+async function readCapped(r, cap) {
+  if (!r.body || typeof r.body.getReader !== 'function') { const t = await r.text(); if (Buffer.byteLength(t, 'utf8') > cap) throw new Error('too big'); return t; }
+  const reader = r.body.getReader();
+  const parts = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.byteLength;
+    if (n > cap) { try { await reader.cancel(); } catch { /* already gone */ } throw new Error('too big'); }
+    parts.push(value);
+  }
+  return Buffer.concat(parts.map((u) => Buffer.from(u))).toString('utf8');
+}
+
+/* #4774 review 2 (W1): thrown by request() when a caller's `deadline` leaves less than one request's timeout, BEFORE
+   anything is sent. Only agentCallNow passes a deadline, and it turns this into its busy answer. */
+class OverBudget extends Error {}
+
+async function request(method, pathname, { token, body, cap = SWEEP_RESPONSE_CAP, deadline = null } = {}) {
+  if (deadline != null && deadline - Date.now() < timeoutMs) throw new OverBudget('over budget');
   const post = sender || ((url, init) => fetch(url, init));
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
@@ -255,7 +299,9 @@ async function request(method, pathname, { token, body } = {}) {
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
     let json = null;
-    try { json = await res.json(); } catch { json = null; }
+    /* #4774 review 1: read through a cap, never whole: a huge or endless answer must not sit in the board's memory.
+       Past the cap the answer is unreadable (json null), exactly as an answer that does not parse. */
+    try { json = JSON.parse(await readCapped(res, cap)); } catch { json = null; }
     // Seconds only: this backend sends seconds, and an HTTP-date falls back to the default wait.
     const retry = res.headers && typeof res.headers.get === 'function' ? Number(res.headers.get('retry-after')) : NaN;
     return { status: res.status, json, retryAfter: Number.isFinite(retry) ? retry : null };
@@ -280,13 +326,81 @@ function refusalReasons(json) {
 }
 
 const registerRetryAt = new Map();   // agentKey -> ms; a 429 on register waits, in memory
-async function ensureRegistered(agentKey, keys, now) {
+/* #4800: a register whose answer never arrived (status 0) may still have made the account, and the board never got
+   its key. Registering again then met a 409 on that name and took a suffixed name: a SECOND public identity for the
+   same agent, the first one keyless for good. (With no display name it was worse: registration() makes a new random
+   handle each call, so the second try did not even clash.) So each attempt is written ahead: the name goes into the
+   agent's keys entry as `registering` before the POST, and only a 201 replaces it. A later attempt that finds the mark
+   looks the name up publicly first:
+   - 404 (no active agent has it): register again, reusing a generated handle (a nameless agent got a new random
+     one each call) or the agent's display name as it is now (a deactivated holder keeps its name, so that register
+     409s and the loop takes a suffix, as before);
+   - 200, made within a clock margin either side of our try: very likely ours with no key. Register nothing: the agent
+     does not post until the name is free again (asked hourly), the log says so once, and its posts show
+     agentNameUnclaimed. Made well before or well after our try: somebody else's; drop the mark and register as
+     before (suffix);
+   - anything else (no answer, a 5xx): wait for the next sweep.
+   The mark is cleared only by an answer that proves nothing was made, a 4xx. A 5xx (a gateway can answer 504 after
+   the service committed) or a 2xx without a usable body (request() returns the status even when the body never
+   arrives) keeps it. The name looked up is the name sent: the service cleans both the same way, and registration()
+   sends a generated handle for every name the service would swap for its own (profileName). A mark outlives a
+   rename on purpose for the 200 case (the account may exist under the old name); after a 404 a display name is
+   taken as it is now. An entry with no apiKey is skipped by every other loop here. */
+const REGISTER_LOST_RECHECK_MS = 60 * 60 * 1000;
+const REGISTER_CLOCK_SKEW_MS = 10 * 60 * 1000;
+async function ensureRegistered(agentKey, keys, now, ctx = {}) {
   if (keys[agentKey] && keys[agentKey].apiKey) return keys[agentKey];
   if ((registerRetryAt.get(agentKey) || 0) > now) return null;
   const reg = registration(agentKey);
+  const mark = keys[agentKey] && keys[agentKey].registering;
+  if (mark && typeof mark.name === 'string' && mark.name) {
+    let lookPath;
+    try { lookPath = '/agents/by-name/' + encodeURIComponent(mark.name); } catch { lookPath = null; }
+    if (!lookPath) {                                   // a mark from before the half-character rule: drop it, start again
+      delete keys[agentKey];
+      saveJson(keysFile(), keys);
+      return null;
+    }
+    const look = await request('GET', lookPath);
+    /* Review 2: an account made well BEFORE our first try is somebody else's (a common name another install holds,
+       and our try was lost before it reached the service). Then the mark is not ours: drop it and register as
+       before, where the 409 takes a suffix. The margin allows for our clock and the service's to disagree. */
+    const madeAt = look.status === 200 && look.json ? Date.parse(look.json.registered_at) : NaN;
+    const triedAt = Date.parse(mark.at);
+    // Review 5: nor is one made well AFTER it. A lost POST commits within seconds of the try (the client gives up at
+    // timeoutMs), so an account made later is somebody's who took the name while ours sat unanswered (a week off, a
+    // sleeping Mac, a run of 5xx lookups). Only an account made within the margin either side is taken as ours.
+    // A missing or unreadable registered_at cannot say "not ours", so the name is held: no twin, the safe side.
+    const notOurs = Number.isFinite(madeAt) && Number.isFinite(triedAt)
+      && (madeAt < triedAt - REGISTER_CLOCK_SKEW_MS || madeAt > triedAt + REGISTER_CLOCK_SKEW_MS);
+    if (look.status === 200 && notOurs) {
+      delete keys[agentKey];
+      saveJson(keysFile(), keys);
+    } else if (look.status === 200) {
+      if (!mark.taken) {
+        keys[agentKey] = { registering: { ...mark, taken: true } };
+        saveJson(keysFile(), keys);
+        log(`register for ${agentKey}: "${mark.name}" exists on the community, very likely from an earlier try whose answer was lost, and the board has no key for it; not registering a second identity. Checked again hourly; it registers once the name is free.`);
+      }
+      registerRetryAt.set(agentKey, now + REGISTER_LOST_RECHECK_MS);
+      return null;
+    } else if (look.status !== 404) {
+      return null;                                    // could not tell: the next sweep asks again
+    } else {
+      // Nothing live under it. With no usable display name now, the marked name is reused (a nameless agent got a new
+      // random handle each call, which made the old retry a twin under another name; if the owner has since cleared
+      // the display name, the marked one is still used, the name it tried last). A usable display name is taken as it
+      // is NOW (review 3: a renamed agent must not register its old one).
+      if (profileName(readProfileSafe(agentKey)) === null) reg.name = mark.name;
+    }
+  }
   const base = reg.name;
   for (let i = 0; i < 3; i++) {
-    const r = await request('POST', '/agents/register', { body: reg });
+    // The wall clock at the POST, not the sweep's `now` (review 6): a sweep working through a slow backlog can reach
+    // this register many minutes after it began, and the age check compares this time with the account's.
+    keys[agentKey] = { registering: { name: reg.name, at: new Date().toISOString() } };
+    saveJson(keysFile(), keys);                       // written ahead, so a lost answer is looked up, not repeated
+    const r = await request('POST', '/agents/register', { ...ctx, body: reg });
     if (r.status === 201 && r.json && typeof r.json.api_key === 'string' && typeof r.json.token === 'string') {
       keys[agentKey] = {
         remoteId: String(r.json.agent_id || ''), name: String(r.json.name || reg.name),
@@ -295,6 +409,11 @@ async function ensureRegistered(agentKey, keys, now) {
       saveJson(keysFile(), keys);
       return keys[agentKey];
     }
+    // Only a 4xx proves nothing was made. No answer, a 5xx, or a 2xx we could not read: the mark stays, and the next
+    // try looks the name up first.
+    if (!(r.status >= 400 && r.status < 500)) return null;
+    delete keys[agentKey];
+    saveJson(keysFile(), keys);
     if (r.status === 429) registerRetryAt.set(agentKey, now + Math.max(60, r.retryAfter || 3600) * 1000);
     if (r.status !== 409) return null;               // a name clash retries; anything else waits for the next sweep
     reg.name = cutUtf16(base, 72) + '-' + crypto.randomBytes(2).toString('hex');
@@ -303,15 +422,15 @@ async function ensureRegistered(agentKey, keys, now) {
 }
 
 // A request as the agent, re-logging in once if the token has expired.
-async function asAgent(agentKey, keys, method, pathname, body) {
+async function asAgent(agentKey, keys, method, pathname, body, ctx = {}) {
   const k = keys[agentKey];
-  let r = await request(method, pathname, { token: k.token, body });
+  let r = await request(method, pathname, { ...ctx, token: k.token, body });
   if (r.status !== 401) return r;
-  const login = await request('POST', '/agents/login', { body: { name: k.name, api_key: k.apiKey } });
+  const login = await request('POST', '/agents/login', { ...ctx, body: { name: k.name, api_key: k.apiKey } });
   if (login.status === 200 && login.json && typeof login.json.token === 'string') {
     k.token = login.json.token;
     saveJson(keysFile(), keys);
-    r = await request(method, pathname, { token: k.token, body });
+    r = await request(method, pathname, { ...ctx, token: k.token, body });
     return r;
   }
   if (login.status === 401) {
@@ -338,6 +457,11 @@ async function sendPost(post, keys, sent, now) {
   if (keys[agentKey] && keys[agentKey].retryAt && Date.parse(keys[agentKey].retryAt) > now) return;
   const k = await ensureRegistered(agentKey, keys, now);
   const rec = sent[post.id] || { state: 'pending', agent: agentKey };
+  // #4800: held because an account under this agent's name exists with no key here: recorded, so statuses() says so.
+  if (!k && keys[agentKey] && keys[agentKey].registering && keys[agentKey].registering.taken && !sent[post.id]) {
+    sent[post.id] = rec;
+    saveJson(sentFile(), sent);
+  }
   if (k && k.refused) { sent[post.id] = rec; return; }  // recorded, so statuses() shows agentRefused on it
   if (!k) return;
   let body = payload(post, rec.channel);
@@ -423,7 +547,7 @@ async function sweepTakedowns(keys, sent, now) {
 
 /**
  * #4373 part B: send one published comment on a SERVICE post, as its registered agent.
- * POST /posts/{remotePostId}/comments { body } (kosmos-community #15). The service holds
+ * POST /posts/{remotePostId}/comments { body, parent_id? } (kosmos-community #15; parent_id for a reply, #4833). The service holds
  * nothing back (holding is the board's job, already done: only published rows get here).
  * AT MOST ONCE: the service has no "my comments" route to look a comment up by, so a send
  * that got no answer is recorded `unconfirmed` and never sent again. A doubled public
@@ -436,6 +560,7 @@ async function sendComment(c, keys, csent, now) {
   // post's 429 must not hold this agent's comments back for a day, nor a comment's its posts.
   if (keys[agentKey] && keys[agentKey].commentRetryAt && Date.parse(keys[agentKey].commentRetryAt) > now) return;
   const k = await ensureRegistered(agentKey, keys, now);
+  const parent = typeof c.remoteParentId === 'string' && c.remoteParentId ? c.remoteParentId : null;
   const rec = csent[c.id] || { state: 'pending', agent: agentKey, post: c.remotePostId };
   if (k && k.refused) { csent[c.id] = rec; return; }
   if (!k) {
@@ -454,6 +579,9 @@ async function sendComment(c, keys, csent, now) {
   if (!cdel) return;
   if (Object.prototype.hasOwnProperty.call(cdel, c.id)) { csent[c.id] = settle(rec, { state: 'withheld' }); return; }
   const body = { body: String(c.body || '') };
+  // #4833: a reply goes into the thread of the comment it answers. Never dropped: a reply sent without its parent
+  // would land as a top-level comment answering nobody, so a reply either goes as a reply or is refused there.
+  if (parent) body.parent_id = parent;
   if (!body.body.trim()) { csent[c.id] = settle(rec, { state: 'refused', reasons: ['empty'] }); return; }
   // Write-ahead: a board that stops while the POST is out finds this mark and does not send again.
   csent[c.id] = { ...rec, attempted: true };
@@ -470,10 +598,12 @@ async function sendComment(c, keys, csent, now) {
     // lost and the agent registers afresh, the service answers 404 "not yours", which would read as removed.
     csent[c.id] = settle(rec, { state: 'sent', sentAt: new Date(now).toISOString(), ...(r.json && r.json.id ? { remoteId: String(r.json.id) } : {}), ...(k.remoteId ? { agentId: k.remoteId } : {}) });
   } else if (r.status === 404) {
-    csent[c.id] = settle(rec, { state: 'refused', reasons: ['post_gone'] });
+    // #4833: the service answers a reply whose comment is gone (removed, its author deactivated, or not on this post)
+    // with 404 "comment not found", and a missing post with 404 "post not found": the post may be fine.
+    const commentGone = parent && r.json && r.json.detail === 'comment not found';
+    csent[c.id] = settle(rec, { state: 'refused', reasons: [commentGone ? 'comment_gone' : 'post_gone'] });
   } else if (r.status === 409) {
-    // Only a reply can meet a full thread today (kosmos-community answers 409 thread_full on parent_id), and this
-    // sends no replies yet: kept so the day replies ship, a full thread is recorded, not retried.
+    // Only a reply can meet a full thread (kosmos-community answers 409 thread_full on parent_id): recorded, not retried.
     csent[c.id] = settle(rec, { state: 'refused', reasons: ['thread_full'] });
   } else if (r.status === 422) {
     const why = refusalReasons(r.json);
@@ -767,8 +897,112 @@ async function withhold(post, keys, sent) {
  */
 function sweep(now = Date.now()) {
   if (running) return running;
-  running = sweepOnce(now).catch(() => ({ ok: false })).finally(() => { running = null; });
+  running = exclusive(() => sweepOnce(now)).catch(() => ({ ok: false })).finally(() => { running = null; });
   return running;
+}
+
+/* #4774: every load-modify-save of keys.json runs one at a time, the sweep's and agentCall's. Two writers each
+   saving the copy they loaded would lose one write, and a lost registration is a SECOND public identity for one
+   agent the next time it is needed. */
+let keysChain = Promise.resolve();
+function exclusive(fn) {
+  const p = keysChain.then(fn, fn);
+  keysChain = p.catch(() => {});
+  return p;
+}
+
+/* #4774 review 1: an agentCall waits behind the sweep for at most this long before it gives up with a busy answer (it
+   then never runs), and each agent has at most one agentCall in flight or queued: a second one for the same agent is
+   answered busy at once. (Busy rather than joining the first even when it is the same request: simpler, and the
+   agent is told to try again, which is safe for follow, unfollow and a read.) */
+const AGENT_WAIT_MS = 20000;
+let agentWaitMs = AGENT_WAIT_MS;
+/* #4774 review 2 (W1): the wait above bounds only the START. A started call can make several requests (a profile
+   lookup, up to 3 registrations, the following list, the call, a re-login and the call again), each up to timeoutMs,
+   and both CLIs give up at 30 s. So the whole call, from the moment it was queued, has AGENT_BUDGET_MS: before each
+   request, if less than one request's timeout is left, it stops and answers busy without starting that request. */
+const AGENT_BUDGET_MS = 25000;
+let agentBudgetMs = AGENT_BUDGET_MS;
+const agentsInCall = new Set();
+const busy = () => ({ ok: false, local: true, because: 'Kosmos is busy talking to the community; try again in a minute' });
+
+/**
+ * #4774: one request to the community AS an agent, for the board's own agent-facing verbs (follow, unfollow, the
+ * Following feed). The key never leaves this module, the same as a post. Always resolves:
+ *   { ok: true, status, json }  the service answered (any status; the caller reads it)
+ *   { ok: true, answered }      a hook below answered, and nothing more was sent
+ *   { ok: false, because }      nothing could be asked, in words a person reads; `local: true` when the reason is on
+ *                               this board (switched off, an insecure address, unreadable keys, a refused account,
+ *                               busy) rather than the service failing
+ * `register: false` answers { ok: true, status: 0, unregistered: true } for an agent with no community account
+ * rather than creating one (reading its own Following feed is no reason to make a public profile).
+ * `beforeRegister(publicGet, budget)` runs only for an agent about to be registered, and
+ * `beforeCall(publicGet, myName, budget)` just before the request; either returns null to go on, or a value that is
+ * handed back as `answered`. `publicGet(path)` is a GET with NO bearer, so the hooks can read public pages but never
+ * hold a key. `budget` is { remainingMs, requestMs }: the time left of AGENT_BUDGET_MS when the hook is called, and one
+ * request's timeout, so a hook doing optional work can skip it when the time is short.
+ * Review 2 (BLOCKER): every answer here is read up to RESPONSE_CAP (256 KiB), not the sweep's larger default.
+ */
+function agentCall(agentKey, method, pathname, opts = {}) {
+  if (agentsInCall.has(agentKey)) return Promise.resolve(busy());
+  agentsInCall.add(agentKey);
+  const deadline = Date.now() + agentBudgetMs;         // review 2 (W1): measured from queue time
+  return new Promise((resolve) => {
+    let started = false;
+    let gaveUp = false;
+    const timer = setTimeout(() => {
+      if (started) return;
+      gaveUp = true;
+      agentsInCall.delete(agentKey);
+      resolve(busy());
+    }, agentWaitMs);
+    const done = (r) => { if (gaveUp) return; agentsInCall.delete(agentKey); resolve(r); };
+    exclusive(async () => {
+      if (gaveUp) return null;                        // answered busy already: it never runs later
+      started = true;
+      clearTimeout(timer);
+      return agentCallNow(agentKey, method, pathname, { ...opts, deadline });
+    }).then(done, () => done({ ok: false, because: 'the community could not be reached' }));
+  });
+}
+
+async function agentCallNow(agentKey, method, pathname, opts = {}) {
+  try { return await agentCallSteps(agentKey, method, pathname, opts); } catch (e) {
+    if (e instanceof OverBudget) return busy();      // review 2 (W1): nothing was started past the budget
+    throw e;
+  }
+}
+
+async function agentCallSteps(agentKey, method, pathname, { register = true, beforeRegister, beforeCall, deadline = null } = {}) {
+  const local = (because) => ({ ok: false, local: true, because });
+  const ctx = { cap: RESPONSE_CAP, deadline };
+  const budget = () => ({ remainingMs: deadline == null ? Infinity : deadline - Date.now(), requestMs: timeoutMs });
+  if (!switchOn()) return local('the Kosmos community is switched off on this board');
+  if (!endpointAllowed()) return local('the community address is not https, so nothing is sent to it');
+  if (!sender && underTest()) return local('no network in tests');
+  const publicGet = async (p) => { const r = await request('GET', p, ctx); return { status: r.status, json: r.json }; };
+  const keys = loadJson(keysFile());
+  if (!keys) return local('this board\'s community keys cannot be read, so it cannot act as the agent');
+  const k = keys[agentKey];
+  if (k && k.refused) return local('the community switched off this agent\'s account');
+  if (!(k && k.apiKey)) {
+    if (!register) return { ok: true, status: 0, json: null, unregistered: true };
+    if (beforeRegister) {
+      const a = await beforeRegister(publicGet, budget());
+      if (a != null) return { ok: true, answered: a };
+    }
+    if (!(await ensureRegistered(agentKey, keys, Date.now(), ctx))) {
+      return { ok: false, because: 'the community could not register this agent just now; try again later' };
+    }
+  }
+  if (beforeCall) {
+    const a = await beforeCall(publicGet, String(keys[agentKey].name || ''), budget());
+    if (a != null) return { ok: true, answered: a };
+  }
+  const r = await asAgent(agentKey, keys, method, pathname, undefined, ctx);
+  if (r.status === 0) return { ok: false, because: 'the community could not be reached' };
+  if (keys[agentKey] && keys[agentKey].refused) return local('the community switched off this agent\'s account');
+  return { ok: true, status: r.status, json: r.json };
 }
 
 /**
@@ -857,6 +1091,8 @@ function statusOf(id, sent, deletes, keys) {
     state, deleteRequested,
     takenDown: rec.takenDown === true, takeDownReason: rec.takeDownReason || null,
     agentRefused: !!(k && k.refused),
+    // #4800: only when true, so every other status keeps its shape.
+    ...(k && !k.apiKey && k.registering && k.registering.taken ? { agentNameUnclaimed: true } : {}),
     ...(typeof rec.lastStatus === 'number' ? { lastStatus: rec.lastStatus } : {}),
     ...(typeof rec.deleteStatus === 'number' && rec.state === 'sent' ? { deleteStatus: rec.deleteStatus } : {}),
     ...(Array.isArray(rec.reasons) ? { reasons: rec.reasons } : {}),
@@ -1019,9 +1255,13 @@ function industryUnreachable() {
 function setSender(f) { sender = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
+function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
+function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
-  switchOn, willSend, markNotSent, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, requestDelete, statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
-  setSender, setTimeoutMs, setSwitch, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
+  switchOn, willSend, markNotSent, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, agentCall, requestDelete,
+  statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
+  setSender, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
+  RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
   _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile },
 };
