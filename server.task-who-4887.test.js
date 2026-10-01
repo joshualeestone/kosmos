@@ -61,11 +61,11 @@ const asAgent = (t) => ({ 'x-kosmos-agent-token': t });
 const asBoard = { 'x-kosmos-board-token': BOARD };
 
 /* mara and otto are on p4887; the `who` each create was asked for is recorded. */
-function world(t) {
+function world(t, { members = ['mara', 'otto'] } = {}) {
   const board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.agent('otto', { state: 'idle' })]);
   const real = { readAll: projectsEngine.readAll, create: tasksEngine.create };
   const made = [];
-  projectsEngine.readAll = () => [{ id: 'p4887', name: 'p4887', agents: ['mara', 'otto'], tasks: [], made: { via: 'screen', by: null } }];
+  projectsEngine.readAll = () => [{ id: 'p4887', name: 'p4887', agents: members, tasks: [], made: { via: 'screen', by: null } }];
   tasksEngine.create = (id, fields) => { made.push({ who: fields.who, by: fields.made.by }); return { number: made.length, sentence: fields.sentence, who: fields.who || null }; };
   t.after(() => { Object.assign(projectsEngine, { readAll: real.readAll }); Object.assign(tasksEngine, { create: real.create }); board.restore(); });
   return { made, mara: sendertoken.mint('mara').token };
@@ -115,4 +115,13 @@ test('an agent that gives the task to itself is not paged about it; one given to
   assert.equal(other.code, 200, other.text.slice(0, 160));
   const heard = JSON.parse(other.text).heard;
   assert.ok(heard && heard.who === 'otto', 'a task given to another agent no longer tried to tell it: ' + JSON.stringify(heard));
+});
+
+test('a member named "Me" is a name: the page gives it the task, and so does an agent naming it exactly', async (t) => {
+  const w = world(t, { members: ['mara', 'otto', 'Me'] });
+  const page = await add({ ...asBoard, 'sec-fetch-site': 'same-origin' }, { sentence: 'from the page', who: 'Me' });
+  assert.equal(page.code, 200, 'the page could not give a task to an agent named Me: ' + page.text.slice(0, 160));
+  assert.equal((await add(asAgent(w.mara), { sentence: 'exactly Me', who: 'Me' })).code, 200);
+  assert.equal((await add(asAgent(w.mara), { sentence: 'me, not exactly', who: 'me' })).code, 200);
+  assert.deepEqual(w.made.map((m) => m.who), ['Me', 'Me', 'mara'], 'an exact member name lost to the me alias, or the alias stopped working');
 });

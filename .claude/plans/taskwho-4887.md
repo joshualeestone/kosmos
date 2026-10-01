@@ -46,8 +46,9 @@ project); only the two CLIs never send it.
   a flag, not a default. The answer then has no `heard`, which already means "nobody to tell" (an
   unassigned task's answer has none either); neither CLI reads it, and the page never takes this path
   (the screen is not a process caller).
-- **An agent named "me"** cannot be named with `--who`: `me` is always the caller. Accepted (no agent is
-  named that today).
+- **An agent named "me"**: the page sends member names, so it can always give that agent a task. From an
+  agent, `me` is the caller unless a member is named exactly what was typed.
+- **An unassigned task an agent added** shows `[added by X]` too: it has no owner, so X is not its owner.
 
 ## Tests
 

@@ -3228,6 +3228,7 @@ cmd_task() {
         elif [ "$_wantwho" = 1 ]; then
           # #4887: an agent's name, or me. A flag in its place means the name was left out.
           case "$_a" in ''|-*) say "--who needs the name of an agent on the project (or me)."; exit 2 ;; esac
+          [ -n "$(printf '%s' "$_a" | tr -d '[:space:]')" ] || { say "--who needs the name of an agent on the project (or me)."; exit 2; }
           _wantwho=2
         elif [ "$_a" = "--parent" ]; then _want=1
         elif [ "$_a" = "--who" ]; then _wantwho=1

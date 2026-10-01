@@ -86,6 +86,7 @@ test('Windows `task add` refuses a bad --who before the board; a non-member and 
   assert.equal((await win(['task', 'add', projectId, 'x', '--who'])).code, 2);
   assert.equal((await win(['task', 'add', projectId, 'x', '--who', '--parent', '1'])).code, 2, 'a flag was taken as the name');
   assert.equal((await win(['task', 'add', projectId, 'x', '--who=otto'])).code, 2);
+  assert.equal((await win(['task', 'add', projectId, 'x', '--who', '   '])).code, 2, 'a name of only spaces went to the board');
   assert.equal((await win(['task', 'add', projectId, '--who', 'otto'])).code, 2);
   const zed = await win(['task', 'add', projectId, 'x', '--who', 'zed']);
   assert.equal(zed.code, 1);
@@ -143,6 +144,7 @@ test('Mac `task add` refuses a bad --who before the board; a non-member and an u
   assert.equal((await mac(['task', 'add', projectId, 'x', '--who'])).code, 2);
   assert.equal((await mac(['task', 'add', projectId, 'x', '--who', '--parent', '1'])).code, 2, 'a flag was taken as the name');
   assert.equal((await mac(['task', 'add', projectId, 'x', '--who=otto'])).code, 2);
+  assert.equal((await mac(['task', 'add', projectId, 'x', '--who', '   '])).code, 2, 'a name of only spaces went to the board');
   assert.equal((await mac(['task', 'add', projectId, '--who', 'otto'])).code, 2);
   const zed = await mac(['task', 'add', projectId, 'x', '--who', 'zed']);
   assert.equal(zed.code, 1);
@@ -205,7 +207,7 @@ test('both lists say who added a task when an agent did and it is not the owner,
 
 test('the instructions each agent reads on a project teach --who me', () => {
   const body = projects.blockBody([projects.get(projectId)], 'mara');
-  assert.match(body, /A task for yourself: add `--who me` \(or `--who <name>` for another agent on it\)\. Without it, Kosmos gives it to whoever is free/);
+  assert.match(body, /A task for yourself: `[^`]* task add [^`]* "what needs doing" --who me` \(or `--who <name>` for another agent on it\)\. Without it, Kosmos gives it to whoever is free/);
 });
 
 test('the board answers with the task\'s who before told and heard (the Mac CLI reads the first "who":)', async () => {
