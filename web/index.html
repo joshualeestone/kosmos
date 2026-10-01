@@ -4506,7 +4506,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   /* #4872 (Josh, 0.7.15): "the page lets me scroll down just ever so slightly ... Can we disable it". Nothing here
      overflows at normal window heights (render-shell-noscroll-4872 measures the root and body exactly the window tall,
      down to 1024x640); what moved was the Mac's elastic overscroll, which drags a page that cannot scroll and shows a
-     gap past its edge. So the shell does not bounce. Below the grid's floor (above) the body still scrolls, as
+     gap past its edge. So the shell does not bounce. Below the rows' 200px floor (above) the body still scrolls, as
      designed; this stops only the bounce. The inner panes keep their own. */
   html[data-layout="consolidated"]:has(> body.consolidated), html[data-layout="consolidated"] body.consolidated { overscroll-behavior: none; }
   html[data-layout="consolidated"] body.consolidated > * { grid-column: 1 / -1; }
