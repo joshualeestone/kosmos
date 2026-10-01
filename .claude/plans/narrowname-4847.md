@@ -11,7 +11,7 @@ Weakest premise: that a person does not need their own name in the header on a p
 menu it opens says who is signed in.
 
 Measured (Agent1s, 03:49, 02398c995, with a long person's name set): 62px at 320 wide (130% and 150%), 85px at 375,
-up from 33px and 45px with "You". Floor raised from 1.25em to 2.5em (52px at 130%, 60px at 150%).
+up from 33px and 45px with "You". Floor first raised to 2.5em, then (round 1, CI) set to a fixed 40px: see below.
 Also closes #4848's round 2 warning: a long person's name can no longer push the computer name to a second row.
 
 URGENT, found by review round 1 (opus, 04:14): MAIN IS RED IN CI since #4848 (run 36821115449, head 052800f29, merged
@@ -24,3 +24,5 @@ R1 (opus) 0B 2W 1C 3N: the 150% floor too tight for CI -> fixed 40px; "the menu 
 -> wording corrected (on a phone the name shows nowhere; the face is the sign); hand-written hidden rule -> .vh's full
 pattern; NITs: injected name put back; #3051 comment; the .worldsw CSS floor (card item 2) is now 0, not raised, by
 the CI finding.
+R2 (sonnet) 0B 0W 0C 4N: CONVERGED at round 2. After convergence: the stale "room for its arrow" comment and this plan's
+floor line corrected. Left: a chevron-inside assert; the put-back in a finally.
