@@ -201,6 +201,15 @@ if command -v zsh >/dev/null 2>&1; then
   check "#4811: sourced into zsh, an unchecked web change is still refused" 1 "$rc4811"
   case "$err4811" in *"running it under bash (kosmos#4811)"*) r=0 ;; *) r=1 ;; esac
   check "#4811: sourced into zsh, the gate says it re-ran itself under bash" 0 "$r"
+  # Review 1: plain (unexported) zsh variables reach the re-run; and a POSITIVE control through it, so a broken
+  # re-run cannot pass as a refusal.
+  zsh -c '. "$1" && KOSMOS_BCG_FILES="$2"; KOSMOS_BCG_MSGS="$3"; kosmos_browser_check_gate' _ \
+    "$HERE/lib/browser-check-gate.sh" "$tmp/f4811" "$tmp/m4811" >/dev/null 2>&1
+  check "#4811: settings given as plain zsh variables reach the re-run (still refused)" 1 "$?"
+  ns M web/index.html M docs/browser-checks/x.js > "$tmp/f4811ok"
+  zsh -c '. "$1" && KOSMOS_BCG_FILES="$2"; KOSMOS_BCG_MSGS="$3"; kosmos_browser_check_gate' _ \
+    "$HERE/lib/browser-check-gate.sh" "$tmp/f4811ok" "$tmp/m4811" >/dev/null 2>&1
+  check "#4811 positive control: through the re-run, a web change with a check updated passes" 0 "$?"
 else
   echo "SKIP  #4811: zsh not available"
 fi

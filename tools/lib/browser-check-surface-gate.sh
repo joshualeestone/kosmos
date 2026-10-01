@@ -68,10 +68,16 @@ kosmos_browser_check_surface_gate() {
   # kosmos#4811: ONLY BASH ANSWERS. Sourced into another shell (the agent's own zsh, whose `grep` is a function
   # that runs ugrep with --ignore-files and -I), the same lines matched differently and this gate passed a branch
   # CI refused. So outside bash it runs itself under bash (a fresh bash, which has no such function) and returns
-  # that answer; the caller's KOSMOS_BCG_* / KOSMOS_BCSG_* settings travel as exported variables.
+  # that answer. The caller's KOSMOS_BCG_* / KOSMOS_BCSG_* settings are handed over EXPLICITLY, each only when it
+  # is set (so unset and empty stay distinct): a plain, unexported `KOSMOS_BCG_FILES=f; gate` in zsh would not
+  # reach a child bash, which would then check the real branch instead (review 1). This branch runs only outside
+  # bash, where an unquoted ${X+X="$X"} is one word when set and nothing when unset.
   if [ -z "${BASH_VERSION:-}" ]; then
     echo "browser check surface gate: not running under bash; running it under bash (kosmos#4811)" >&2
-    bash -c '. "$1" && kosmos_browser_check_surface_gate' _ "$_KOSMOS_BCSG_SELF"
+    env ${KOSMOS_BCG_BASE+KOSMOS_BCG_BASE="$KOSMOS_BCG_BASE"} ${KOSMOS_BCG_FILES+KOSMOS_BCG_FILES="$KOSMOS_BCG_FILES"} \
+      ${KOSMOS_BCG_MSGS+KOSMOS_BCG_MSGS="$KOSMOS_BCG_MSGS"} ${KOSMOS_BCSG_WEBDIFF+KOSMOS_BCSG_WEBDIFF="$KOSMOS_BCSG_WEBDIFF"} \
+      ${KOSMOS_BCSG_DIR+KOSMOS_BCSG_DIR="$KOSMOS_BCSG_DIR"} \
+      bash -c '. "$1" && kosmos_browser_check_surface_gate' _ "$_KOSMOS_BCSG_SELF"
     return $?
   fi
   # dstat/dpath NOT status/path: zsh ties `path`->PATH and `status`->$?, and this lib

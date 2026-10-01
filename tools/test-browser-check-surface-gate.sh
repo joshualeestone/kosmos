@@ -173,6 +173,24 @@ if command -v zsh >/dev/null 2>&1; then
   else
     pass "#4811: sourced into zsh with a grep that matches nothing, the gate still refuses"
   fi
+  # Review 1: settings given as PLAIN zsh variables (not exported) must reach the bash re-run too, or it would check
+  # the real branch instead and could pass. And a POSITIVE control through the re-run: the same change with its check
+  # updated passes (rc 0), so a broken re-run (a bad path, lost settings) cannot read as a refusal.
+  if zsh -c '. "$1" && KOSMOS_BCSG_WEBDIFF="$2"; KOSMOS_BCG_FILES="$3"; KOSMOS_BCG_MSGS="$4"; KOSMOS_BCSG_DIR="$5"; kosmos_browser_check_surface_gate' _ \
+       "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811" "$TMP/m-4811" "$BCDIR_ABS" >/dev/null 2>&1; then
+    fail "#4811: settings given as plain zsh variables did not reach the bash re-run (the gate passed)"
+  else
+    pass "#4811: settings given as plain zsh variables reach the bash re-run (still refused)"
+  fi
+  # From the repo root with the default checks folder: the gate matches an updated check by the same relative path
+  # the file list carries (an absolute KOSMOS_BCSG_DIR would never match it, under bash too).
+  printf 'M\tdocs/browser-checks/render-alltasks.js\n' > "$TMP/f-4811ok"
+  if zsh -c 'cd "$5" && . "$1" && KOSMOS_BCSG_WEBDIFF="$2"; KOSMOS_BCG_FILES="$3"; KOSMOS_BCG_MSGS="$4"; kosmos_browser_check_surface_gate' _ \
+       "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811ok" "$TMP/m-4811" "$(cd "$HERE/.." && pwd)" >/dev/null 2>&1; then
+    pass "#4811 positive control: through the re-run, the same change with its check updated passes"
+  else
+    fail "#4811 positive control: a compliant change was refused through the re-run (a broken re-run reads as a refusal)"
+  fi
 else
   echo "SKIP  #4811: zsh not available"
 fi
