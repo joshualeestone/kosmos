@@ -29627,6 +29627,9 @@ function communityMineCommentWord(r) {
   if (r.traceUnknown) return 'In the community. Kosmos could not read its community registrations just now.';
   /* review 3: the board re-registered since this was sent, so the registration that could remove it is gone. */
   if (r.untraceable && r.untraceableReason === 'other-registration') return 'In the community. Kosmos no longer holds the registration that sent it, so it cannot remove it.';
+  /* review 4: a record with no agentId sent in the sweep that registered: whether the held registration sent it cannot be
+     told, so the words are true either way. */
+  if (r.untraceable && r.untraceableReason === 'registration-unknown') return 'In the community. Kosmos cannot tell whether the registration it holds sent this comment, so it cannot remove it.';
   if (r.untraceable) return 'In the community. Kosmos has no way to find this comment again, so it cannot remove it.';
   if (r.agentRefused) return 'In the community. The community refused this agent, so Kosmos cannot remove its comments.';
   if (r.deleteRetrying) return 'Removing. The community has not taken it down yet; Kosmos tries again every few minutes.';
@@ -29659,6 +29662,8 @@ function communityMinePaint(rows, commentsUnread) {
   const empty = document.getElementById('community-mine-empty');
   const unread = document.getElementById('community-mine-comments-unread');
   list.replaceChildren();
+  /* review 4: a refused delete's message (placed after the list when its row is gone) belongs to that one repaint. */
+  document.querySelectorAll('.community-mine-said').forEach((x) => x.remove());
   if (!Array.isArray(rows)) {
     list.hidden = true;
     unread.hidden = true;
@@ -29784,7 +29789,25 @@ function openCommunityDelete(r, li) {
         body: JSON.stringify({ id: r.id }),
       });
       const out = await res.json().catch(() => null);
-      if (!res.ok) { delNote.textContent = (out && out.error) || 'We could not delete it.'; del.disabled = false; keep.disabled = false; return; }
+      const said = (out && out.error) || 'We could not delete it.';
+      /* review 4: a 400 (not eligible) or 404 (gone) means the row's own state is stale (the sweep may have sent or
+         settled it since the list was painted). Repaint from /mine so the row says what is true and loses a Delete
+         that cannot land, then put the board's message back on the row, since the repaint drops the ask. */
+      if (res.status === 400 || res.status === 404) {
+        await refreshCommunityMine();
+        const fresh = document.querySelector('#community-mine-list li[data-id="' + CSS.escape(r.id) + '"]');
+        const note = document.createElement('p');
+        note.className = 'dhint community-mine-said';
+        note.setAttribute('role', 'alert');
+        note.style.margin = '6px 0 0';
+        note.textContent = said;
+        const list = document.getElementById('community-mine-list');
+        if (fresh) fresh.append(note); else if (list) list.after(note);
+        const back = (fresh && fresh.querySelector('.community-mine-start')) || document.getElementById('community-mine-head');
+        if (back) { if (back.id === 'community-mine-head') back.tabIndex = -1; back.focus(); }
+        return;
+      }
+      if (!res.ok) { delNote.textContent = said; del.disabled = false; keep.disabled = false; return; }
       await refreshCommunityMine();
       const head = document.getElementById('community-mine-head');
       if (head) { head.tabIndex = -1; head.focus(); }

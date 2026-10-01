@@ -21,8 +21,11 @@
  *             else; Delete asks with Keep it focused; Delete it POSTs exactly {id} with the comment's id, the
  *             row repaints as coming down and focus goes to the heading; an unconfirmed comment, one sent with
  *             no id, one being sent and one whose registration could not be read show no Delete and say why;
- *             a removed one says removed. Review 2: the date has the year only when it is not this year;
+ *             a removed one says removed; review 4: one whose registration cannot be told says so. Review 2: the date has the year only when it is not this year;
  *             a post id that is not a plain id, or none, gets no link; the link's accessible name names the comment.
+ *   REFUSED   (#4801 review 4) a delete the board refuses as not eligible (400) shows its message on the row AND
+ *             repaints the list from /mine, so a row whose state moved under the ask says its true state and loses
+ *             a Delete that cannot land. A 500 (FAIL above) keeps the ask, so the repaint is the 400's alone.
  *   UNREAD    (#4801 review 2) comments: null (the board could not read its comment records) paints one line
  *             saying so in place of comment rows, posts still listed, and never the "none" line on that basis.
  * The ROWS arm is also the control for the others: it proves the list is found and painted.
@@ -221,6 +224,8 @@ async function run() {
         crow('c10', { remotePostId: null, postedAt: '2026-09-28T00:30:00Z' }),               // review 2 NIT b: no link
         // review 3: sent by a registration the board no longer holds.
         crow('c11', { untraceable: true, untraceableReason: 'other-registration', canDelete: false, postedAt: '2026-09-28T00:10:00Z' }),
+        // review 4: no agentId, sent in the sweep that registered: whether the held registration sent it cannot be told.
+        crow('c12', { untraceable: true, untraceableReason: 'registration-unknown', canDelete: false, postedAt: '2026-09-28T00:05:00Z' }),
         crow('c8', { postedAt: '2019-09-28T10:00:00Z' }),   // review 2 NIT a: another year, so the date says the year
       ],
     })(route));
@@ -228,7 +233,7 @@ async function run() {
     await openAutomation(p5);
     const c = await readList(p5);
     const ids = c.rows.map((x) => x.id).join(',');
-    check('COMMENT: comments list with the posts, newest first', ids === 'c1,a1,c2,c3,c4,c5,c6,c7,c9,c10,c11,c8', ids);
+    check('COMMENT: comments list with the posts, newest first', ids === 'c1,a1,c2,c3,c4,c5,c6,c7,c9,c10,c11,c12,c8', ids);
     const byId = Object.fromEntries(c.rows.map((x) => [x.id, x]));
     check('COMMENT: a comment row reads as a comment, with its text and agent', byId.c1 && /^Comment: Reply c1/.test(byId.c1.text) && /Bo/.test(byId.c1.text) && /In the community/.test(byId.c1.text), JSON.stringify(byId.c1));
     check('COMMENT: Delete shows where the board says canDelete, and nowhere else', JSON.stringify(['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'].map((i) => byId[i] && byId[i].del)) === '[true,false,false,false,true,false,false]', JSON.stringify(c.rows));
@@ -257,6 +262,7 @@ async function run() {
     check('COMMENT: an unconfirmed comment says why it cannot be removed', byId.c2 && /never learned whether this arrived, so it cannot remove it/.test(byId.c2.text), JSON.stringify(byId.c2));
     check('COMMENT: a comment sent with no id says why it cannot be removed', byId.c3 && /no way to find this comment again, so it cannot remove it/.test(byId.c3.text), JSON.stringify(byId.c3));
     check('COMMENT: a comment from a registration the board no longer holds says so (review 3)', byId.c11 && byId.c11.del === false && /no longer holds the registration that sent it, so it cannot remove it/.test(byId.c11.text) && !/no way to find/.test(byId.c11.text), JSON.stringify(byId.c11));
+    check('COMMENT: a comment whose registration cannot be told says so, never "no longer holds" (review 4)', byId.c12 && byId.c12.del === false && /cannot tell whether the registration it holds sent this comment, so it cannot remove it/.test(byId.c12.text) && !/no longer holds/.test(byId.c12.text) && !/no way to find/.test(byId.c12.text), JSON.stringify(byId.c12));
     check('COMMENT: a pending comment says Not sent yet, with no promise of when (review 3)', byId.c5 && /Not sent yet\./.test(byId.c5.text) && !/tries again/.test(byId.c5.text), JSON.stringify(byId.c5));
     // Review 3: the ask for a PENDING comment says it will not be sent, never that it comes down from the community.
     await p5.click('li[data-id="c5"] .community-mine-start');
@@ -286,6 +292,33 @@ async function run() {
     const hf = await p5.evaluate(() => (document.activeElement ? document.activeElement.id : ''));
     check('COMMENT: after Delete it, focus goes to the list heading', hf === 'community-mine-head', hf);
     await p5.close();
+
+    // REFUSED (#4801 review 4): the sweep settled c1 between paint and click; the board answers 400, and the list
+    // repaints from /mine, so the row says its true state and the stale Delete is gone. The message stays on the row.
+    const p8 = await page();
+    // The page reads /mine more than once while it opens, so the row's state flips on the refusal, not on a read count.
+    let mineReads = 0;
+    let refused = false;
+    let readsAtRefusal = -1;
+    await p8.route(MINE, (route) => { mineReads++; return answer({ posts: [], comments: [
+      refused ? crow('c1', { untraceable: true, untraceableReason: 'registration-unknown', canDelete: false }) : crow('c1'),
+    ] })(route); });
+    const REFUSAL = 'Kosmos cannot tell whether the registration it holds sent this comment, so it cannot remove it';
+    await p8.route(DELETE, (route) => { refused = true; readsAtRefusal = mineReads; return answer({ error: REFUSAL }, 400)(route); });
+    await openAutomation(p8);
+    const before8 = await readList(p8);
+    check('REFUSED: CONTROL: the row offers Delete before the click', before8.rows.length === 1 && before8.rows[0].del === true, JSON.stringify(before8.rows));
+    await p8.click('li[data-id="c1"] .community-mine-start');
+    await p8.click('li[data-id="c1"] .community-mine-del');
+    await p8.waitForTimeout(500);
+    const after8 = await readList(p8);
+    const said8 = await p8.evaluate(() => { const n = document.querySelector('li[data-id="c1"] [role="alert"]'); return n ? n.textContent : ''; });
+    // The row's own state line, apart from the message (which carries similar words), so the repaint is what is read.
+    const state8 = await p8.evaluate(() => { const n = document.querySelector('li[data-id="c1"] > div > p.dhint'); return n ? n.textContent : ''; });
+    check('REFUSED: a 400 answer repaints the list from /mine', readsAtRefusal >= 0 && mineReads === readsAtRefusal + 1, readsAtRefusal + ' -> ' + mineReads);
+    check('REFUSED: the row says its true state, with no Delete and no ask', after8.rows.length === 1 && after8.rows[0].del === false && after8.rows[0].ask === false && /In the community\. Kosmos cannot tell whether the registration it holds sent this comment/.test(state8), state8 + ' ' + JSON.stringify(after8.rows));
+    check('REFUSED: the board\'s message stays on the row', said8 === REFUSAL, said8);
+    await p8.close();
 
     // UNREAD (#4801 review 2): the board could not read its comment records.
     const p6 = await page();

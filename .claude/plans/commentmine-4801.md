@@ -246,3 +246,64 @@ fact still answer it; the row is wrong but conservative (no Delete), never a fal
 - Red arms: NIT 3 red with the reason computation reverted (rows read 'no-id' for other-registration) and,
   separately, with only the refusal wording reverted. NIT 5 red with the whole up-front block removed (engine and
   route), and with each of its five branches removed on its own.
+
+## Review round 4
+
+### WARNING: a comment sent in the sweep that registered its agent read "no longer holds the registration"
+
+`sameServiceAgent`'s fallback for a record with no agentId compares `keys[agent].registeredAt <= rec.sentAt`. But
+`sentAt` is the sweep's START (`new Date(now)`), and `registeredAt` is wall-clock time when `ensureRegistered` ran
+INSIDE that sweep, so every comment sent by the sweep that registered its agent failed the check and read
+'other-registration' ("Kosmos no longer holds the registration that sent it"), which is false. Every board on main
+writes records without agentId.
+
+**Decision.** No time tolerance. When `rec.agentId` is absent and the fallback fails, the reason is a third one,
+'registration-unknown', in words that are true either way:
+- row: "In the community. Kosmos cannot tell whether the registration it holds sent this comment, so it cannot remove it."
+- `requestCommentDelete` refusal: "Kosmos cannot tell whether the registration it holds sent this comment, so it cannot remove it"
+
+'other-registration' is kept only where it is known: a record whose agentId is not the held registration's
+remoteId, or an agent with no key entry at all. Built as `registrationMismatch(rec, k)` in engine/communitysend.js;
+`sameServiceAgent` (and so the delete sweep, which only ever asks as a matching registration) is unchanged.
+
+**Rejected: a tolerance on the comparison** (say, registeredAt within a sweep's length of sentAt counts as the same
+registration). A re-registration shortly after a send would then pass, the sweep would ask for the delete as the
+wrong service agent, get a 404 ("not yours"), and mark the comment Removed while it is still public. A false
+"cannot tell" leaves a comment without a Delete; a false match lies that it came down.
+
+**Scope.** Only comments sent from boards on main between #4741's merge (2026-09-30) and this branch's merge: those
+records have no agentId. Everything this branch sends records its agentId and takes the exact comparison. The
+existing older-registration fixtures stay: review 1 NIT e (no agentId, registration newer than the send: no Delete,
+untraceable, and the sweep asks nothing) is unchanged; review 3 NIT 3's `olderNoAgentId` now asserts
+'registration-unknown' and its words, and gains a `noKey` row (no agentId, no key entry) that keeps
+'other-registration'.
+
+**Pinned.** Engine test "review 4 W": a real sweep registers ava and sends; the record then has its agentId removed
+and sentAt set 4 ms BEFORE registeredAt (what main writes). Asserts 'registration-unknown', no Delete, the refusal
+words, nothing recorded, and a sweep sends no DELETE while the comment is still on the service. CONTROL: with its
+agentId the same comment can be removed. Browser check: c12 says "cannot tell whether the registration it holds sent
+this comment" and never "no longer holds" or "no way to find" (c11's pattern).
+
+### NIT: a refused delete left a stale Delete on the row
+
+web/index.html, the delete ask's `!res.ok` branch: on a 400 (not eligible) or 404 (gone), the board's message is shown
+and `refreshCommunityMine()` repaints from /mine, so the row picks up its true state. The repaint drops the ask, so the
+message is put back on the repainted row (or after the list when the row is gone) as a `role="alert"` line, and
+cleared by the next paint; focus goes to the row's Delete when it still has one, otherwise to the list heading. Other
+failures (500, 503, 409) keep the ask with both buttons usable, as before (the FAIL arm). Browser check REFUSED: a 400
+answer repaints the list from /mine (one more /mine read), the row's state line says its true state with no Delete and
+no ask, and the message stays on the row; CONTROL: the row offered Delete before the click.
+
+### Decided, not built (round 4)
+
+- **The pending ask can go stale.** If the sweep sends a pending comment between the paint and the click, the ask
+  still reads "It will not be sent". The request is then for a sent comment, which is taken as a removal, and the
+  row repaints as Removing. Narrow, and the end state is right.
+
+### Verified (round 4)
+
+- engine/communitycommentmine-4801.test.js 24/24; server.community-gate.test.js 22/22. All engine/community*.test.js
+  and server.community*.test.js (19 files): 276 tests, 274 pass, 0 fail, 2 skipped (the contract tests).
+- Red arm: with engine/communitysend.js reverted to HEAD (the fix only), 2 fail: review 3 NIT 3 (`olderNoAgentId`
+  reads 'other-registration', expected 'registration-unknown') and review 4 W (the same). Restored by cp and cmp.
+- Browser check render-community-delete-4313 and both browser-check gates run on the committed tree.

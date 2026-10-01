@@ -117,7 +117,8 @@ function mineComments() {
       deleteRetrying: rec.deleteRetrying === true,
       agentRefused: rec.agentRefused === true,
       untraceable: rec.state === 'unconfirmed' || (rec.state === 'sent' && rec.traceable === false),
-      // Review 3: why a sent comment is untraceable ('no-id' | 'other-registration'), no ids; null otherwise.
+      // Review 3: why a sent comment is untraceable ('no-id' | 'other-registration' | review 4: 'registration-unknown'),
+      // no ids; null otherwise.
       untraceableReason: rec.state === 'sent' && rec.traceable === false ? rec.untraceableReason || 'no-id' : null,
       traceUnknown: rec.state === 'sent' && rec.traceable === null,
       // requestDelete answers 404 for an id with no board comment, so no Delete without one.

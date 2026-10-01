@@ -832,6 +832,8 @@ function requestCommentDelete(id) {
       ? 'Kosmos never learned whether this comment arrived, so it cannot remove it'
       : before.untraceableReason === 'other-registration'
         ? 'Kosmos no longer holds the registration that sent this comment, so it cannot remove it'
+        : before.untraceableReason === 'registration-unknown'
+          ? 'Kosmos cannot tell whether the registration it holds sent this comment, so it cannot remove it'
         : 'Kosmos has no way to find this comment again, so it cannot remove it' };
   }
   if (!cdel[id]) {
@@ -955,6 +957,18 @@ function sameServiceAgent(rec, k) {
   // registration is no newer than the send: one made after it is a fresh service agent, whose 404 means "not mine".
   return Boolean(k && typeof k.registeredAt === 'string' && typeof rec.sentAt === 'string' && k.registeredAt <= rec.sentAt);
 }
+/* #4801 review 4: why a sent comment with an id is not this registration's, or null when it is. 'other-registration'
+   only when that is KNOWN: the record names a service agent that is not the one held, or no registration is held at
+   all. A record with no agentId (every board on main writes those) whose registration is newer than its sentAt is
+   'registration-unknown': sentAt is the sweep's START, and a registration made inside that same sweep is newer than
+   it, so the comparison cannot tell a fresh registration from the one that sent it. No time tolerance on purpose:
+   a re-registration shortly after a send would then ask for a delete as the wrong service agent, get a 404, and mark
+   the comment Removed while it is still public. */
+function registrationMismatch(rec, k) {
+  if (!k) return 'other-registration';
+  if (rec.agentId) return k.remoteId === rec.agentId ? null : 'other-registration';
+  return sameServiceAgent(rec, k) ? null : 'registration-unknown';
+}
 function commentRecords() {
   const csent = loadJson(commentsSentFile());
   const cdel = loadJson(commentDeletesFile());
@@ -979,9 +993,10 @@ function commentRecords() {
       // null when that cannot be told because keys.json is unreadable.
       traceable: hasHandle && !keysRead ? null : hasHandle && sameServiceAgent(rec, k),
       // #4801 review 3: why a sent comment cannot be found again, without any id: the service gave no id ('no-id'),
-      // or the registration that sent it is not the one this board holds now ('other-registration'). Null otherwise.
+      // or the registration that sent it is not the one this board holds now ('other-registration'), or (review 4)
+      // whether it is cannot be told from a record with no agentId ('registration-unknown'). Null otherwise.
       untraceableReason: state !== 'sent' ? null : !hasHandle ? 'no-id'
-        : keysRead && !sameServiceAgent(rec, k) ? 'other-registration' : null,
+        : keysRead ? registrationMismatch(rec, k) : null,
     };
   }
   return out;

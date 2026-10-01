@@ -474,6 +474,7 @@ test('review 2 W2: either comment record unreadable is unknown: commentRecords a
 test('review 3 NIT 3: an untraceable sent comment carries why, with no id: no id back, or a registration the board no longer holds', () => {
   const id = {};
   for (const t of ['sent', 'noId', 'otherReg', 'olderNoAgentId', 'unconfirmed', 'pending']) id[t] = comment('ava', t).id;
+  id.noKey = comment('cy', 'noKey').id;   // review 4: an agent this board holds no registration for at all
   writeJson(cs._paths.keysFile(), { ava: AVA_KEY });
   writeJson(cs._paths.commentsSentFile(), {
     [id.sent]: { state: 'sent', agent: 'ava', post: POST, remoteId: 'rc-1', sentAt: '2026-09-28T08:00:00Z', agentId: 'ra' },
@@ -483,19 +484,47 @@ test('review 3 NIT 3: an untraceable sent comment carries why, with no id: no id
     [id.olderNoAgentId]: { state: 'sent', agent: 'ava', post: POST, remoteId: 'rc-3', sentAt: '2026-09-28T06:00:00Z' },
     [id.unconfirmed]: { state: 'unconfirmed', agent: 'ava', post: POST },
     [id.pending]: { state: 'pending', agent: 'ava', post: POST },
+    [id.noKey]: { state: 'sent', agent: 'cy', post: POST, remoteId: 'rc-4', sentAt: '2026-09-28T08:00:00Z' },
   });
   const by = Object.fromEntries(mine.mineComments().map((r) => [r.text, [r.untraceable, r.untraceableReason]]));
+  // Review 4: with no agentId, a registration newer than the send is not KNOWN to be another one ('registration-unknown');
+  // 'other-registration' is kept for a real agentId mismatch and for no registration held at all.
   assert.deepEqual(by, {
     sent: [false, null], noId: [true, 'no-id'], otherReg: [true, 'other-registration'],
-    olderNoAgentId: [true, 'other-registration'], unconfirmed: [true, null], pending: [false, null],
+    olderNoAgentId: [true, 'registration-unknown'], unconfirmed: [true, null], pending: [false, null],
+    noKey: [true, 'other-registration'],
   });
   assert.ok(!JSON.stringify(mine.mineComments()).includes('r-old'), 'the old registration\'s id reached the row');
   const why = (t) => cs.requestDelete(id[t]);
   assert.deepEqual(why('otherReg'), { ok: false, notEligible: true, because: 'Kosmos no longer holds the registration that sent this comment, so it cannot remove it' });
-  assert.deepEqual(why('olderNoAgentId'), { ok: false, notEligible: true, because: 'Kosmos no longer holds the registration that sent this comment, so it cannot remove it' });
+  assert.deepEqual(why('olderNoAgentId'), { ok: false, notEligible: true, because: 'Kosmos cannot tell whether the registration it holds sent this comment, so it cannot remove it' });
+  assert.deepEqual(why('noKey'), { ok: false, notEligible: true, because: 'Kosmos no longer holds the registration that sent this comment, so it cannot remove it' });
   assert.deepEqual(why('noId'), { ok: false, notEligible: true, because: 'Kosmos has no way to find this comment again, so it cannot remove it' });
   assert.deepEqual(readJson(cs._paths.commentDeletesFile()), {}, 'a refused removal was recorded');
   assert.equal(cs.requestDelete(id.sent).ok, true, 'CONTROL: the traceable one is taken');
+});
+
+test('review 4 W: a record with no agentId sent in the sweep that registered its agent (sentAt a few ms before registeredAt) is registration-unknown: no Delete, true words, nothing asked of the service', async () => {
+  await on();
+  const c = comment('ava', 'sent by the sweep that registered ava');
+  await cs.sweep();
+  assert.equal(posts().length, 1, 'CONTROL: the comment went out');
+  const k = readJson(cs._paths.keysFile()).ava;
+  assert.equal(typeof k.registeredAt, 'string', 'CONTROL: the sweep registered ava');
+  const csent = readJson(cs._paths.commentsSentFile());
+  assert.equal(csent[c.id].agentId, k.remoteId, 'CONTROL: this branch records the agentId');
+  assert.equal(mine.mineComments()[0].canDelete, true, 'CONTROL: with its agentId, the comment can be removed');
+  // What a board on main writes: no agentId, and sentAt the sweep's start, a few ms before the registration it made.
+  delete csent[c.id].agentId;
+  csent[c.id].sentAt = new Date(Date.parse(k.registeredAt) - 4).toISOString();
+  writeJson(cs._paths.commentsSentFile(), csent);
+  const row = mine.mineComments()[0];
+  assert.deepEqual([row.state, row.untraceable, row.untraceableReason, row.canDelete], ['sent', true, 'registration-unknown', false]);
+  assert.deepEqual(cs.requestDelete(c.id), { ok: false, notEligible: true, because: 'Kosmos cannot tell whether the registration it holds sent this comment, so it cannot remove it' });
+  assert.deepEqual(readJson(cs._paths.commentDeletesFile()), {}, 'a refused removal was recorded');
+  await cs.sweep();
+  assert.equal(dels().length, 0, 'a delete was asked as a registration that may not have sent it');
+  assert.equal(be.st.comments.length, 1, 'the comment is still in the community');
 });
 
 test('review 3 NIT 5: a removal the list never offers is refused up front in plain words, and nothing is recorded', () => {
