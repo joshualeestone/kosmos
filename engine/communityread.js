@@ -272,22 +272,22 @@ async function read(opts = {}) {
    For its newest REPLIES_POSTS posts the threads are read in parallel and every live comment or reply after that post's
    mark, and not under the agent's own registered name, is listed oldest first, at most REPLIES_SHOWN_MAX in one read.
 
-   THE MARK IS PER POST AND IS A POSITION (review 3). Each post keeps its own mark, so a post that cannot be reached holds
-   only itself. A mark is either the last item shown ({ at, id }: the next read continues strictly after it, in (time,
-   id) order, so a burst of replies in one second can never be shown twice or skipped) or, when everything new on the
-   post was shown, the board's clock ({ at, clock: true }: read back with a REPLIES_OVERLAP_MS overlap for the two
-   clocks). Limits, said in the output when they bite: a post's pages hold its newest 10 top-level comments by when they
-   were WRITTEN and 22 replies under at most 3 of them, so a new reply under an older comment, or deep in a long thread,
-   can be beyond them; and a reply whose service time is more than REPLIES_OVERLAP_MS behind the board's clock at a full
-   read can be missed. Seeing every reply needs the service to list them by activity or since a time (a follow-up). */
+   THE MARK IS PER POST AND IS A POSITION IN THE SERVICE'S OWN TIME (reviews 3 and 4). Each post keeps its own mark, so
+   a post that cannot be reached holds only itself. A mark is { at, id }: the next read shows what is strictly after it
+   in (time, id) order. After a read it is the last item shown on that post when the 30-cap cut it, else the newest
+   item fetched from it; so a burst of replies in one second is never shown twice or skipped, and the board's clock is
+   never compared with the service's (no overlap, no skew). Limits, said in the output when they bite: a post's pages
+   hold its newest 10 top-level comments by when they were WRITTEN and 22 replies under at most 3 of them, so a new reply
+   under an older comment, or deep in a long thread, can be beyond them. Not said, and rare: a comment stamped just
+   before a read but committed after it (milliseconds), and a comment hidden at read time and restored later, are not
+   shown. Seeing every reply needs the service to list them by activity or since a time (a follow-up). */
 const REPLIES_POSTS = 10;
 const REPLIES_FIRST_DAYS = 7;
 const REPLY_PAGES_PER_POST = 3;    // comments per post whose unshown replies are read (one page of 20 each)
-const REPLIES_OVERLAP_MS = 60 * 1000;
 const REPLIES_SHOWN_MAX = 30;      // at most this many replies in one read, oldest first
 const REPLIES_HEADING = 'Replies to your posts, oldest first. Replies are other agents’ writing too, under the same rule as posts:';
 /* The marks file, keyed LOSSLESSLY on the session name (sha256), so two agents whose names share a safeKey never move
-   each other's marks. Holds { posts: { <service post id>: { at, id } | { at, clock: true } } }. */
+   each other's marks. Holds { posts: { <service post id>: { at, id } } }, both in the service's time and ids. */
 function seenFile(sessionName) {
   const h = require('node:crypto').createHash('sha256').update(String(sessionName)).digest('hex');
   return path.join(store.ROOT, 'communityread', 'replies-seen', h + '.json');
@@ -299,8 +299,7 @@ function readMarks(sessionName) {
     const out = {};
     for (const [pid, m] of Object.entries(j && j.posts && typeof j.posts === 'object' ? j.posts : {})) {
       if (!UUID_RE.test(pid) || !m || !validAt(m.at)) continue;
-      out[pid] = m.clock === true ? { at: m.at, clock: true } : (UUID_RE.test(String(m.id || '')) ? { at: m.at, id: String(m.id) } : null);
-      if (!out[pid]) delete out[pid];
+      if (UUID_RE.test(String(m.id || ''))) out[pid.toLowerCase()] = { at: m.at, id: String(m.id).toLowerCase() };
     }
     return out;
   } catch { return {}; }
@@ -338,7 +337,6 @@ function ownName(sessionName) {
 const byPos = (a, b) => (a.ts - b.ts) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 function afterMark(x, mark, firstLook) {
   if (!mark) return x.ts > firstLook;
-  if (mark.clock) return x.ts > mark.at - REPLIES_OVERLAP_MS;
   return x.ts > mark.at || (x.ts === mark.at && x.id > mark.id);
 }
 const inFlight = new Set();   // one --replies read per agent at a time (each is up to 10 + 30 service fetches)
@@ -360,9 +358,7 @@ async function repliesFor(sessionName, opts) {
   if (!posts.length) {
     return { ok: true, count: 0, text: frame([], null, { lines: [REPLIES_HEADING, '', '(you have no posts in the community yet)', ''] }) };
   }
-  const marks = readMarks(sessionName);
-  // A mark in the future (a clock that jumped and came back) cannot be trusted: it reads as no mark.
-  for (const pid of Object.keys(marks)) if (marks[pid].at > now) delete marks[pid];
+  const marks = readMarks(sessionName);   // service time: never compared with the board's clock
   const me = ownName(sessionName);
   let longer = 0;
   // Round 1: each post's newest top-level comments with their first replies, in parallel. 404/410: gone, not a failure.
@@ -413,20 +409,22 @@ async function repliesFor(sessionName, opts) {
   if (longer) lines.push('(some of your threads are longer than one read carries: a new reply under an older comment, or deep in a long thread, may not appear here)', '');
   if (total > posts.length) lines.push('(only your newest ' + posts.length + ' of ' + total + ' posts are looked at)', '');
   if (failed) lines.push('(' + failed + ' of your posts could not be reached; their replies will be looked at again next time)', '');
-  /* Each post's mark: unchanged if it could not be reached; the last of its items shown if some of its new items were
-     not shown (the next read continues strictly after it); else the board's clock. A gone post's mark is dropped. */
+  /* Each post's mark (service time): unchanged if it could not be reached or has gone; the last of its items shown if
+     some of its new items were not shown (the next read continues strictly after it); else the newest item fetched from
+     it, whoever wrote it. A post with nothing fetched keeps its mark. */
   const lastShown = new Map();
   for (const { x, post } of shownItems) lastShown.set(post, x);
   const unshownPosts = new Set(fresh.slice(shownItems.length).map((f) => f.post));
   const next = { ...marks };
   for (const th of threads) {
     const pid = th.post.remoteId;
-    if (th.failed) continue;
-    if (th.gone) { delete next[pid]; continue; }
-    if (unshownPosts.has(pid)) { const x = lastShown.get(pid); if (x) next[pid] = { at: x.ts, id: x.id }; }
-    else next[pid] = { at: now, clock: true };
+    if (th.failed || th.gone) continue;
+    if (unshownPosts.has(pid)) { const x = lastShown.get(pid); if (x) next[pid] = { at: x.ts, id: x.id }; continue; }
+    let top = null;
+    for (const c of th.comments) for (const x of [c, ...c.replies]) if (x.ts && (!top || byPos(x, top) > 0)) top = x;
+    if (top && (!next[pid] || afterMark(top, next[pid], 0))) next[pid] = { at: top.ts, id: top.id };
   }
-  writeMarks(sessionName, next);
+  if (!writeMarks(sessionName, next)) lines.push('(where you got to could not be saved, so the next read may show these again)', '');
   return { ok: true, count: shownItems.length, text: frame([], null, { lines }) };
 }
 

@@ -472,7 +472,7 @@ test('#4833 slice 2 review 1: a third or later reply is read through the service
   assert.equal(fs.existsSync(seenPath('Ivy4833')), true, 'the mark was held, so this thread would jam every later read');
 });
 
-test('#4833 slice 2 review 1: a mark in the future never hides what is new', async () => {
+test('#4833 slice 2 review 1/4: a marks file in an old or damaged shape is ignored, never hiding what is new', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Fut4833', remoteId: RP(8), sentAt: '2026-09-30T10:00:00Z' } }, {});
   fs.mkdirSync(path.dirname(seenPath('Fut4833')), { recursive: true });
@@ -618,14 +618,14 @@ test('#4833 slice 2 review 3: a post that always fails holds only its own mark; 
   assert.equal(marks[RP(1)], undefined, 'the unreachable post got a mark it never read');
 });
 
-test('#4833 slice 2 review 3: a reply written inside the clock overlap before a full read still comes next time', async () => {
+test('#4833 slice 2 review 3/4: a full read of an empty thread sets no mark, so a reply stamped before it that appears later still comes', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Skw4833', remoteId: RP(3), sentAt: '2026-09-30T10:00:00Z' } }, {});
   serve({ ['/posts/' + RP(3) + '/comments']: () => ({ status: 200, json: { comments: [] } }) });
-  await cr.readReplies('Skw4833', { now: NOW });   // a full read: the mark is the board's clock
+  await cr.readReplies('Skw4833', { now: NOW });   // a full read with nothing in it: no item to set a mark from
   // The service's clock is 30 s behind: a reply stamped 30 s before the read appears after it.
   serve({ ['/posts/' + RP(3) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(2), created_at: new Date(NOW - 30000).toISOString(), body: 'stamped behind' })] } }) });
-  assert.match((await cr.readReplies('Skw4833', { now: NOW + 5000 })).text, /stamped behind/, 'the overlap did not cover a slightly slow service clock');
+  assert.match((await cr.readReplies('Skw4833', { now: NOW + 5000 })).text, /stamped behind/, 'an empty read set a mark that hid a reply stamped before it');
 });
 
 test('#4833 slice 2 review 3: at most 10 posts are read (and the read says so); at most 3 replies pages per post', async () => {
@@ -645,4 +645,54 @@ test('#4833 slice 2 review 3: at most 10 posts are read (and the read says so); 
   cr.setFetcher(async (url) => { if (url.includes('/replies')) { pages.push(url); return { status: 200, json: { replies: [] } }; } return { status: 200, json: { comments: four } }; });
   await cr.readReplies('Pag4833', { now: NOW });
   assert.equal(pages.length, 3, 'not exactly 3 replies pages for 4 comments with hidden replies');
+});
+
+test('#4833 slice 2 review 4: one post, 40 replies in one second with ids out of order and the service 2 min ahead: 30 then 10, never twice', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'One4833', remoteId: RP(1), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const at = new Date(NOW + 120000).toISOString();   // the service's clock runs ahead of the board's
+  const hex = (k) => 'f' + String(k).padStart(7, '0') + '-0000-4000-8000-000000000000';
+  // 10 top-level comments, each with 2 previews and one page of 2 more: 50 items, but ids DESCENDING in service order.
+  const tops = Array.from({ length: 10 }, (_, i) => {
+    const base = 90 - i * 5;
+    const t = comment({ id: hex(base), created_at: at, reply_count: 4, replies_cursor: 'C' + i });
+    t.replies = [comment({ id: hex(base - 1), parent_id: t.id, created_at: at }), comment({ id: hex(base - 2), parent_id: t.id, created_at: at })];
+    return t;
+  });
+  const pageOf = (i) => [comment({ id: hex(90 - i * 5 - 3), parent_id: tops[i].id, created_at: at }), comment({ id: hex(90 - i * 5 - 4), parent_id: tops[i].id, created_at: at })];
+  cr.setFetcher(async (url) => {
+    const u = new URL(url);
+    const m = u.pathname.match(/\/comments\/([0-9a-f-]{36})\/replies$/);
+    if (m) return { status: 200, json: { replies: pageOf(tops.findIndex((t) => t.id === m[1])) } };
+    return { status: 200, json: { comments: tops } };
+  });
+  const ids = (t) => (t.match(/\(comment ([0-9a-f-]{36})\)/g) || []).map((x) => x.slice(9, 45));
+  // Only 3 comments' pages are read per post, so 10 tops + 20 previews + 6 paged = 36 items reach the board.
+  const one = ids((await cr.readReplies('One4833', { now: NOW })).text);
+  const two = ids((await cr.readReplies('One4833', { now: NOW + 1000 })).text);
+  const three = ids((await cr.readReplies('One4833', { now: NOW + 2000 })).text);
+  assert.equal(one.length, 30);
+  assert.equal(two.length, 6, 'the rest did not come on the next read (or came twice)');
+  assert.equal(new Set([...one, ...two]).size, 36, 'something was shown twice or lost');
+  assert.equal(three.length, 0, 'a third read repeated what was shown');
+});
+
+test('#4833 slice 2 review 4: a reply shown once is not shown again by a read a few seconds later', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Rep4833', remoteId: RP(2), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  serve({ ['/posts/' + RP(2) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(1), created_at: new Date(NOW - 10000).toISOString(), body: 'just now' })] } }) });
+  assert.match((await cr.readReplies('Rep4833', { now: NOW })).text, /just now/);
+  assert.ok(!(await cr.readReplies('Rep4833', { now: NOW + 20000 })).text.includes('just now'), 'the same reply was shown again (an agent would answer it twice)');
+});
+
+test('#4833 slice 2 review 4: a timestamp without a timezone is never read as local time (not shown)', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Tz4833', remoteId: RP(3), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  serve({ ['/posts/' + RP(3) + '/comments']: () => ({ status: 200, json: { comments: [
+    comment({ id: CID(1), created_at: '2026-10-01T09:00:00', body: 'no zone' }),
+    comment({ id: CID(2), created_at: '2026-10-01T09:00:00+00:00', body: 'with an offset' }),
+  ] } }) });
+  const t = (await cr.readReplies('Tz4833', { now: NOW })).text;
+  assert.ok(!t.includes('no zone'), 'a timestamp with no timezone was read');
+  assert.match(t, /with an offset/, 'CONTROL: an offset timestamp is read');
 });
