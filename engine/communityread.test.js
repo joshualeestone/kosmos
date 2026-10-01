@@ -346,3 +346,84 @@ test('#4833 review 2: a malformed comment id drops the comment, the page is cut 
   assert.match(r.text, /Kept/);
   assert.match(r.text, /the comments could not be read\)/);
 });
+
+/* ===== #4833 slice 2: --replies ===== */
+function writeSendState(sent, keys) {
+  const p = cs._paths;
+  fs.mkdirSync(path.dirname(p.sentFile()), { recursive: true });
+  fs.writeFileSync(p.sentFile(), JSON.stringify(sent));
+  fs.writeFileSync(p.keysFile(), JSON.stringify(keys));
+}
+function clearSeen() { try { fs.rmSync(path.join(require('./store').ROOT, 'communityread', 'replies-seen'), { recursive: true, force: true }); } catch { /* none */ } }
+const RP = (n) => 'a1000000-0000-4000-8000-00000000000' + n;   // a reader's post (service id)
+const T = (h) => '2026-10-01T' + String(h).padStart(2, '0') + ':00:00Z';
+const NOW = Date.parse('2026-10-01T12:00:00Z');
+
+test('#4833 slice 2: --replies shows new comments on the reader\'s own posts only, not its own, and moves the mark', async () => {
+  on(); clearSeen();
+  writeSendState({
+    a: { state: 'sent', agent: 'Kim4833', remoteId: RP(1), sentAt: '2026-09-30T10:00:00Z' },
+    b: { state: 'sent', agent: 'Kim4833', remoteId: RP(2), sentAt: '2026-09-30T11:00:00Z' },
+    c: { state: 'sent', agent: 'someone-else', remoteId: RP(3), sentAt: '2026-09-30T12:00:00Z' },
+    d: { state: 'pending', agent: 'Kim4833' },
+  }, { Kim4833: { name: 'kim-writes', remoteId: 'x', apiKey: 'SECRET', token: 'SECRET' } });
+  const seen = serve({
+    ['/posts/' + RP(1) + '/comments']: () => ({ status: 200, json: { comments: [
+      comment({ id: CID(1), created_at: T(9), agent: { name: 'Ann' }, body: 'new on post one', replies: [
+        comment({ id: CID(2), parent_id: CID(1), created_at: T(10), agent: { name: 'kim-writes' }, body: 'my own reply' }),
+        comment({ id: CID(3), parent_id: CID(1), created_at: T(11), agent: { name: 'Bo' }, body: 'a reply to Ann' }),
+      ], reply_count: 2 }),
+    ] } }),
+    ['/posts/' + RP(2) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(4), created_at: '2026-09-20T09:00:00Z', body: 'too old' })] } }),
+  });
+  const r = await cr.readReplies('Kim4833', { now: NOW });
+  assert.equal(r.ok, true, r.because);
+  const t = r.text;
+  assert.ok(t.includes(cr.REPLIES_HEADING) && t.indexOf(cr.REPLIES_HEADING) < t.indexOf(cr.FRAME_CLOSE), 'the replies are not inside the frame');
+  assert.match(t, new RegExp('On your post \\(post ' + RP(1) + '\\)'));
+  assert.match(t, /new on post one/);
+  assert.match(t, new RegExp('by Bo, 2026-10-01 \\(comment ' + CID(3) + '\\) under comment ' + CID(1)));
+  assert.ok(!t.includes('my own reply'), 'the reader\'s own comment was shown as a reply');
+  assert.ok(!t.includes('too old'), 'a comment older than the first-look window was shown');
+  assert.ok(!seen.some((u) => u.includes(RP(3))), 'another agent\'s post was read');
+  assert.ok(!t.includes('SECRET') && !t.includes('(nothing here yet)'));
+  assert.equal(r.count, 2);
+  // The mark moved: the same read now shows nothing new.
+  const again = await cr.readReplies('Kim4833', { now: NOW + 1000 });
+  assert.match(again.text, /\(no new replies\)/, 'the mark did not move after a full read');
+});
+
+test('#4833 slice 2: a thread that cannot be read keeps the mark, so nothing is skipped', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Lee4833', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 500, json: null }) });
+  const r = await cr.readReplies('Lee4833', { now: NOW });
+  assert.equal(r.ok, true);
+  assert.match(r.text, /1 of your 1 posts could not be read/);
+  serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(5), created_at: T(8), body: 'came in while it failed' })] } }) });
+  const later = await cr.readReplies('Lee4833', { now: NOW + 3600 * 1000 });
+  assert.match(later.text, /came in while it failed/, 'a failed read moved the mark and the reply was skipped');
+});
+
+test('#4833 slice 2: an agent with no posts is told so; the community switched off reads nothing', async () => {
+  on(); clearSeen();
+  writeSendState({}, {});
+  const seen = serve({});
+  const r = await cr.readReplies('Nobody4833', { now: NOW });
+  assert.equal(r.ok, true);
+  assert.match(r.text, /you have no posts in the community yet/);
+  assert.equal(seen.length, 0);
+  off();
+  assert.match((await cr.readReplies('Nobody4833', { now: NOW })).because, /switched off/);
+});
+
+test('#4833 slice 2: the threads are read in parallel, not one after another', async () => {
+  on(); clearSeen();
+  const sent = {};
+  for (let i = 0; i < 5; i += 1) sent['p' + i] = { state: 'sent', agent: 'Par4833', remoteId: 'b1000000-0000-4000-8000-00000000000' + i, sentAt: '2026-09-30T1' + i + ':00:00Z' };
+  writeSendState(sent, {});
+  let inFlight = 0; let peak = 0;
+  cr.setFetcher(async () => { inFlight += 1; peak = Math.max(peak, inFlight); await new Promise((res) => setTimeout(res, 20)); inFlight -= 1; return { status: 200, json: { comments: [] } }; });
+  await cr.readReplies('Par4833', { now: NOW });
+  assert.equal(peak, 5, 'the threads were not fetched at once (peak ' + peak + ')');
+});

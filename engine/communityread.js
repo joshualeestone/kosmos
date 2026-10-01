@@ -26,8 +26,11 @@
  * A read never throws into a caller: every failure is { ok: false, because } in words a person reads.
  */
 
+const fs = require('node:fs');
+const path = require('node:path');
 const communitysend = require('./communitysend');
 const projects = require('./projects');
+const store = require('./store');
 
 const MAX_ITEMS = 10;
 const TITLE_CAP = 120;
@@ -158,6 +161,8 @@ function commentOf(c, asReply) {
     id,
     author: live ? (authorOf(c.agent) || 'an agent') : '',
     at: /^\d{4}-\d{2}-\d{2}/.test(String(c.created_at || '')) ? String(c.created_at).slice(0, 10) : '',
+    ts: /^\d{4}-\d{2}-\d{2}T/.test(String(c.created_at || '')) ? Date.parse(String(c.created_at)) || 0 : 0,   // #4833 slice 2: new since
+    parentId: UUID_RE.test(String(c.parent_id || '')) ? String(c.parent_id).toLowerCase() : '',
     replyTo: live && c.reply_to_name ? authorOf({ name: c.reply_to_name }) : '',
     body: live ? scrub(c.body, COMMENT_CAP) : '',
     // Review 1: replies are not recursed into (a reply has no replies) and are cut, so a hostile answer cannot nest or flood.
@@ -195,7 +200,7 @@ function commentLines(comments, more) {
 function frame(items, heading, thread) {
   const out = [FRAME_OPEN, FRAME_RULE, ''];
   if (heading) out.push(heading, '');
-  if (!items.length) out.push('(nothing here yet)', '');
+  if (!items.length && !(thread && Array.isArray(thread.lines))) out.push('(nothing here yet)', '');
   items.forEach((it, i) => {
     out.push('[' + (i + 1) + '] by ' + it.author + (it.where ? ' in ' + it.where : '') + (it.at ? ', ' + it.at : '')
       + (it.id ? ' (post ' + it.id + ')' : ''));
@@ -203,7 +208,8 @@ function frame(items, heading, thread) {
     if (it.body) out.push(quoted(it.body));
     out.push('');
   });
-  if (thread && thread.unread) out.push('(the comments could not be read)', '');
+  if (thread && Array.isArray(thread.lines)) out.push(...thread.lines);   // #4833 slice 2: --replies brings its own lines
+  else if (thread && thread.unread) out.push('(the comments could not be read)', '');
   else if (thread) out.push(...commentLines(thread.comments, thread.more));
   out.push(FRAME_CLOSE);
   return out.join('\n');
@@ -257,7 +263,93 @@ async function read(opts = {}) {
   return { ok: true, count: items.length, text: frame(items, ch.slug ? 'Newest in ' + ch.slug + ':' : 'Newest posts:') };
 }
 
+/* ===== #4833 slice 2: `kosmos community read --replies`, the replies to the reader's own posts since it last looked. =====
+   The board knows which posts are this agent's: communitysend's sent records name the sending agent and the service id.
+   For its newest REPLIES_POSTS posts the threads are read in parallel (each fetch has its own timeout, and the CLIs wait
+   30 s), and every comment or previewed reply newer than the agent's last --replies read, and not its own, is shown
+   inside the usual frame. The "last read" mark moves only when every thread was read, so nothing is skipped by a
+   failure. First look: the last REPLIES_FIRST_DAYS days. */
+const REPLIES_POSTS = 10;
+const REPLIES_FIRST_DAYS = 7;
+const REPLIES_HEADING = 'Replies to your posts, newest first. Replies are other agents\u2019 writing too, under the same rule as posts:';
+function seenFile(key) { return path.join(store.ROOT, 'communityread', 'replies-seen', key + '.json'); }
+function readSeen(key) {
+  try { const j = JSON.parse(fs.readFileSync(seenFile(key), 'utf8')); return Number.isFinite(j.at) ? j.at : null; } catch { return null; }
+}
+function writeSeen(key, at) {
+  try {
+    fs.mkdirSync(path.dirname(seenFile(key)), { recursive: true });
+    const tmp = seenFile(key) + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ at }));
+    fs.renameSync(tmp, seenFile(key));
+    return true;
+  } catch { return false; }
+}
+function loadJsonFile(file) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } }
+/* This agent's sent posts, newest first: [{ remoteId, sentAt, agentKey }]. Matched by safeKey: the send layer files a
+   post under the agent's name, and the reader is the session the board resolved its token to. */
+function ownPosts(key) {
+  const sent = loadJsonFile(communitysend._paths.sentFile()) || {};
+  const out = [];
+  for (const rec of Object.values(sent)) {
+    if (!rec || rec.state !== 'sent' || !UUID_RE.test(String(rec.remoteId || '')) || typeof rec.agent !== 'string') continue;
+    let k; try { k = store.safeKey(rec.agent); } catch { continue; }
+    if (k !== key) continue;
+    out.push({ remoteId: String(rec.remoteId).toLowerCase(), sentAt: String(rec.sentAt || ''), agentKey: rec.agent });
+  }
+  out.sort((a, b) => b.sentAt.localeCompare(a.sentAt));
+  return out.slice(0, REPLIES_POSTS);
+}
+/* The name this agent writes under in the community (its registration), so its own comments are not shown as replies. */
+function ownName(agentKey) {
+  const keys = loadJsonFile(communitysend._paths.keysFile()) || {};
+  const rec = keys[agentKey];
+  return rec && typeof rec.name === 'string' ? authorOf({ name: rec.name }) : '';
+}
+
+async function readReplies(sessionName, opts = {}) {
+  if (!communitysend.switchOn()) {
+    return { ok: false, because: 'the Kosmos community is switched off on this board, so nothing was read' };
+  }
+  let key; try { key = store.safeKey(sessionName); } catch { return { ok: false, because: 'we could not tell which agent is reading' }; }
+  const now = Number.isFinite(opts.now) ? opts.now : Date.now();
+  const since = readSeen(key) || (now - REPLIES_FIRST_DAYS * 24 * 3600 * 1000);
+  const posts = ownPosts(key);
+  if (!posts.length) {
+    return { ok: true, count: 0, text: frame([], null, { lines: [REPLIES_HEADING, '', '(you have no posts in the community yet)', ''] }) };
+  }
+  const me = ownName(posts[0].agentKey);
+  const answers = await Promise.all(posts.map((p) => getJson('/posts/' + encodeURIComponent(p.remoteId)
+    + '/comments?order=newest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP)));
+  const lines = [REPLIES_HEADING, '', 'Since ' + new Date(since).toISOString().slice(0, 16).replace('T', ' ') + ' UTC:', ''];
+  let failed = 0; let shown = 0;
+  answers.forEach((t, i) => {
+    const list = t.status === 200 && t.json && Array.isArray(t.json.comments) ? t.json.comments : null;
+    if (!list) { failed += 1; return; }
+    let comments;
+    try { comments = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c)).filter(Boolean); } catch { failed += 1; return; }
+    const fresh = [];
+    for (const c of comments) {
+      for (const x of [c, ...c.replies]) if (x.author && x.ts > since && x.author !== me) fresh.push(x);
+    }
+    if (!fresh.length) return;
+    fresh.sort((a, b) => b.ts - a.ts);
+    lines.push('On your post (post ' + posts[i].remoteId + '):');
+    fresh.forEach((x) => {
+      shown += 1;
+      lines.push('[r' + shown + '] by ' + x.author + (x.replyTo ? ' replying to ' + x.replyTo : '') + (x.at ? ', ' + x.at : '')
+        + ' (comment ' + x.id + ')' + (x.parentId ? ' under comment ' + x.parentId : ''));
+      lines.push(x.body.split('\n').map((l) => QUOTE + l).join('\n'));
+    });
+    lines.push('');
+  });
+  if (!shown) lines.push(failed ? '(nothing new could be read)' : '(no new replies)', '');
+  if (failed) lines.push('(' + failed + ' of your ' + posts.length + ' posts could not be read; they will be looked at again next time)', '');
+  if (!failed) writeSeen(key, now);
+  return { ok: true, count: shown, text: frame([], null, { lines }) };
+}
+
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { RULE_TAIL, read, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { RULE_TAIL, read, readReplies, REPLIES_HEADING, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
