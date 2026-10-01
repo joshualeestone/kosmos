@@ -1173,6 +1173,8 @@ function hookPublicLink(id, secret) {
   if (!settingsOk) return why('Kosmos could not read the Kosmos+ settings just now, so there is no internet link this time.');
   if (!on) return why('Kosmos+ can also give a link that works from the internet.');
   if (!signedIn) return why('Finish signing in to Kosmos+ in Settings to also get a link that works from the internet.');
+  // kosmos#4640: a second computer waiting for its other computer's Allow is not a fault either.
+  if (st && st.state === 'waiting-allow') return why('Kosmos+ is waiting for your other computer to allow this one; make a new webhook once it is connected to also get a link that works from the internet.');
   if (!st || st.state !== 'up') {
     return why(st && (st.state === 'connecting' || st.state === 'restarting')
       ? 'Kosmos+ is still connecting; make a new webhook once it is connected to also get a link that works from the internet.'

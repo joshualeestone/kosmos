@@ -10319,6 +10319,7 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-pill[data-state="up"] { background: rgba(63,191,127,.14); color: #7fe0ae; }
 #s-sec-plus .plus-pill[data-state="connecting"] { background: rgba(126,160,240,.14); color: #9cc0ff; }
 #s-sec-plus .plus-pill[data-state="down"] { background: rgba(232,112,94,.14); color: #f0a397; }
+/* #4640: data-state="waiting" has no rule on purpose: it stays the plain grey pill (render-plus-panel-3829 pins it to the off colour). */
 #s-sec-plus .plus-chip { display: flex; align-items: center; gap: 8px; margin: 12px -12px 0; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 10px; padding: 6px 6px 6px 12px; container-type: inline-size; }
 #s-sec-plus .plus-chip .btn { flex: 0 0 auto; background: transparent; color: #E6EBF7; border: 1px solid rgba(255,255,255,.25); border-radius: 8px; padding: 6px 12px; font-size: .9rem; }
 #s-sec-plus .devrow .btn { border: 1px solid rgba(255,255,255,.25); }   /* #3829: Remove visible on navy */
@@ -43373,9 +43374,13 @@ async function paintPlus() {
   if (pill) {
     /* Review: on but not running (no relay address yet, not started, unreadable) is NOT "Connecting":
        the engine's sentence below says why, and the pill must not promise progress that is not happening. */
-    const ps = !r.on ? 'off' : (stat.state === 'up' ? 'up' : ((stat.state === 'connecting' || stat.state === 'restarting') ? 'connecting' : 'down'));
+    /* #4640: a second computer waiting for its other computer's Allow is a wait, not a fault and not a dial:
+       a neutral pill (no data-state colour rule, so the plain grey one) and the coordinator's sentence below. */
+    const ps = !r.on ? 'off' : (stat.state === 'up' ? 'up' : (stat.state === 'waiting-allow' ? 'waiting'
+      : ((stat.state === 'connecting' || stat.state === 'restarting') ? 'connecting' : 'down')));
     if (typeof pill.setAttribute === 'function') pill.setAttribute('data-state', ps);   // page-test harness elements have none
-    pill.textContent = ps === 'up' ? 'Connected' : (ps === 'off' ? 'Off' : (ps === 'down' ? 'Not connected' : 'Connecting'));
+    pill.textContent = ps === 'up' ? 'Connected' : (ps === 'off' ? 'Off' : (ps === 'down' ? 'Not connected'
+      : (ps === 'waiting' ? 'Waiting to be allowed' : 'Connecting')));
   }
   const acct = document.getElementById('plus-account'); if (acct && typeof PLUS_ACCOUNT_URL !== 'undefined') acct.href = PLUS_ACCOUNT_URL;
   const chip = document.getElementById('plus-chip');
