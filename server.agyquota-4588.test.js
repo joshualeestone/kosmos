@@ -10,8 +10,9 @@ const path = require('node:path');
 const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
 
 test('#4588: server.js builds the agy quota resume tick and runs it on its own timer', () => {
-  const at = src.indexOf("require('./engine/agyquota')");
-  assert.ok(at > 0, 'server.js requires engine/agyquota');
+  // The timer's own binding (#4588 PR B added an earlier require of the same module in givePart).
+  const at = src.indexOf("const agyQuota = require('./engine/agyquota')");
+  assert.ok(at > 0, 'server.js binds agyQuota to engine/agyquota');
   const block = src.slice(at, at + 1500);
   assert.match(block, /agyQuota\.makeTick\(\{/);
   assert.match(block, /allowed: \(\) => liveExecution\.liveExecutionAllowed\(\)/);

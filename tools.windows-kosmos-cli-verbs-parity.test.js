@@ -162,10 +162,10 @@ test('every shared verb has the same subcommands on both, in both directions', (
 });
 
 test('the parser really reads subcommands (a guard that cannot find any would pass everything)', () => {
-  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'task')), ['add', 'built', 'close', 'list', 'message']);   // built: #3951
+  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'task')), ['add', 'built', 'close', 'hold', 'list', 'message', 'unhold']);   // built: #3951; hold, unhold: #4771
   assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'room')), ['reopen']);
   assert.ok(macSubcommands(MAC_CLI, 'feedback').includes('write'));
-  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'community')), ['post', 'read'], 'the first-argument compare is not read, or a board answer ($status) is');   // #4330; read: #4373
+  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'community')), ['comment', 'post', 'read'], 'the first-argument compare is not read, or a board answer ($status) is');   // #4330; read: #4373; comment: #4373 part B
 });
 
 test('the verbs that require a subcommand are the same on both (Windows by behaviour)', async () => {

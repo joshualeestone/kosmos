@@ -264,6 +264,52 @@ test('POST /api/agent-token mints a resolvable token, from loopback', async () =
   assert.equal(back.key, store.safeKey(name), 'the issued token resolves to the wrong agent');
 });
 
+/* #4763: a pane agent "Mara" is running; issuing a remote token for "mara" would share Mara's token file and resolve
+   as Mara. Refused, and nothing is written. Control: the pane agent's own spelling is not refused by this rule. */
+test('#4763: POST /api/agent-token refuses a name that shares a key with a running pane agent of ours', async () => {
+  const fleet = require('./test-support/fleet');
+  const board = fleet.install([fleet.agent('Mara4763', { state: 'idle' })]);
+  try {
+    assert.equal(board.roster.filter((r) => r.isNamedOurs === true && r.sessionName === 'Mara4763').length, 1, 'CONTROL: Mara4763 is ours on the roster');
+    const before = sendertoken.live('mara4763').length;
+    const res = await fetch(`${base}/api/agent-token`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'mara4763' }),
+    });
+    const j = await res.json();
+    assert.equal(res.status, 409, 'a clashing name was issued a token: ' + JSON.stringify(j));
+    assert.equal(j.issued, false);
+    assert.match(j.because, /Mara4763 has a session on this computer/);
+    assert.equal(sendertoken.live('mara4763').length, before, 'the refusal still wrote a token into the shared file');
+    const same = await fetch(`${base}/api/agent-token`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Mara4763' }),
+    });
+    assert.equal(same.status, 200, 'CONTROL: the running agent\'s own spelling was refused by the clash rule');
+  } finally { board.restore(); }
+});
+
+/* #4763 review 3: a roster that cannot be read cannot rule a clash out, so nothing is issued (as creating refuses). */
+test('#4763: POST /api/agent-token refuses (503) while the roster cannot be read, and writes nothing', async () => {
+  const fleet = require('./test-support/fleet');
+  fleet.blind();
+  try {
+    const res = await fetch(`${base}/api/agent-token`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'blind4763' }),
+    });
+    const j = await res.json();
+    assert.equal(res.status, 503, 'a token was issued with no roster to check: ' + JSON.stringify(j));
+    assert.equal(sendertoken.live('blind4763').length, 0, 'the refusal still wrote a token');
+  } finally { fleet.restore(); }
+  // Control: the same name with a readable (empty) roster is issued.
+  const fleet2 = require('./test-support/fleet');
+  const board = fleet2.install([]);
+  try {
+    const ok = await fetch(`${base}/api/agent-token`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'blind4763' }),
+    });
+    assert.equal(ok.status, 200, 'CONTROL: the name was refused with a readable roster too');
+  } finally { board.restore(); }
+});
+
 test('POST /api/agent-token refuses an empty name', async () => {
   const res = await fetch(`${base}/api/agent-token`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: '   ' }),

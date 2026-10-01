@@ -410,20 +410,24 @@ function kosmosPlus() {
    answer can show or hide screens, never grant access. Redirects are refused, and only a JSON answer
    is parsed. `opts.fetch` and `opts.timeoutMs` are the test seam. */
 const FED_LIVE_TIMEOUT_MS = 5000;
-async function fetchFederationLive(opts) {
+/* One boolean off /v1/meta, or null when it cannot tell. Shared by federation_live (#4649) and
+   bought_addresses (#4756); the rules above apply to both. */
+async function fetchMetaFlag(field, opts) {
   opts = opts || {};
   const get = typeof opts.fetch === 'function' ? opts.fetch : fetch;
   try {
     const url = String(COORDINATOR()).replace(/\/+$/, '') + '/v1/meta';
     const res = await get(url, { signal: AbortSignal.timeout(opts.timeoutMs || FED_LIVE_TIMEOUT_MS), redirect: 'error' });
-    if (!res || !res.ok) return null;
-    if (!/^application\/json\b/i.test(String((res.headers && res.headers.get && res.headers.get('content-type')) || ''))) return null;
+    // opts.unread (kosmos#4756): what a read that failed answers, when the caller must tell it from a field left out.
+    if (!res || !res.ok) return 'unread' in opts ? opts.unread : null;
+    if (!/^application\/json\b/i.test(String((res.headers && res.headers.get && res.headers.get('content-type')) || ''))) return 'unread' in opts ? opts.unread : null;
     const body = await res.json();
-    return (body && typeof body.federation_live === 'boolean') ? body.federation_live : null;
+    return (body && typeof body[field] === 'boolean') ? body[field] : null;
   } catch {
-    return null;
+    return 'unread' in opts ? opts.unread : null;
   }
 }
+async function fetchFederationLive(opts) { return fetchMetaFlag('federation_live', opts); }
 /* Lazily refresh the cached federation-live flag when it is older than `ttlMs`.
    NON-BLOCKING by contract (callers do NOT await it), single-flighted, best-effort.
    Not gated on enrolled() (unlike refreshStandingIfStale): a board with remote access ON that
@@ -1443,7 +1447,7 @@ async function deviceRemove(id) {
    sensitive and live in `signinSession` in this process for the seconds between
    steps -- the wizard sees only page-safe fields (never bearer material), and
    `register` spends the session token from here (piped to the CLI over stdin, off
-   argv). This is the #874 posture: the page cannot carry, replay, or leak a
+   argv), and so does `signinAddresses` (kosmos#4756, the same way). This is the #874 posture: the page cannot carry, replay, or leak a
    credential it never holds. It is memory-only on purpose -- a board restart mid-flow drops it and
    the person simply starts sign-in again, which is safe and quick.
 
@@ -1954,6 +1958,73 @@ function turnOnAfterSignin() {
   if (!wrote.ok) process.stderr.write('remote: signed in, but could not switch Kosmos+ on: ' + wrote.because + '\n');
 }
 
+/* kosmos#4754 / #4756 (Josh 2026-09-30, ruling "A"): a new computer is a purchase. Once the coordinator
+   says bought addresses are live (/v1/meta bought_addresses, or AGENT_WORKFORCE_BOUGHT_ADDRESSES=1 to test),
+   a computer signs in to an address the account has BOUGHT and never makes one, so the wizard needs the
+   account's addresses at the session step, before register. The list (the coordinator's GET
+   /v1/account/addresses, contract on kosmos#4754) is read THROUGH THE TUNNEL BINARY, as register is: the
+   session token goes on stdin, never argv, and the binary reaches the coordinator on its pinned key. Only the
+   switch itself is a plain request (fetchMetaFlag), because it carries no credential. A binary without the
+   `signin addresses` verb fails the read, and the page then takes the step as before.
+   Answers { live:false } with the switch off (the wizard is exactly as before), else the rows in their own
+   shapes only, the website's buy link (https only), and this computer's own name if it is set up. */
+const BOUGHT_STATES = new Set(['in_use', 'free', 'pending']);
+// The switch read, the list read and setupRun's close grace after the binary exits, together, leave at least a second
+// of the page's PLUS_ASK_TIMEOUT_MS (engine/remote.test.js asserts it against web/index.html).
+const ADDR_META_MS = 1500, ADDR_READ_MS = 10200;
+let addressesInFlight = null;   // { token, run }: one read at a time per sign-in; a second caller of the SAME one shares it
+async function signinAddresses(opts) {
+  const token = signinSession && typeof signinSession.token === 'string' ? signinSession.token : null;
+  if (token && addressesInFlight && addressesInFlight.token === token && !(opts && (opts.fetch || opts.timeoutMs))) return addressesInFlight.run;
+  const run = signinAddressesOnce(opts);
+  if (opts && (opts.fetch || opts.timeoutMs)) return run;   // a test seam neither joins nor is joined
+  const mine = { token, run };
+  addressesInFlight = mine;
+  try { return await run; } finally { if (addressesInFlight === mine) addressesInFlight = null; }
+}
+async function signinAddressesOnce(opts) {
+  opts = opts || {};
+  const get = typeof opts.fetch === 'function' ? opts.fetch : fetch;
+  // No session, no call at all (not even /v1/meta): there is nothing to list without one.
+  if (!signinSession || typeof signinSession.token !== 'string') return { ok: false, because: 'finish the code steps first' };
+  const token = signinSession.token;   // taken now: a Sign out during the switch read below must not throw here
+  // AGENT_WORKFORCE_BOUGHT_ADDRESSES=1 is for testing against a coordinator whose switch is off; it only changes what the
+  // step offers (the coordinator still refuses an address not bought).
+  const flag = process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES === '1' ? true
+    : await fetchMetaFlag('bought_addresses', { fetch: get, timeoutMs: opts.timeoutMs || ADDR_META_MS, unread: 'unread' });
+  // A switch that could not be read is not a switch that is off: the page then takes the step as before, as for a
+  // list it could not read, and keeps the way back to the list a refusal needs.
+  if (flag === 'unread') return { ok: false, because: 'Kosmos+ could not be reached to check for bought addresses' };
+  if (flag !== true) return { ok: true, because: null, data: { live: false } };
+  if (!signinSession || signinSession.token !== token) return { ok: false, because: 'the sign-in ended; start again from the email' };
+  const ran = await setupRun(['signin', 'addresses', '--coordinator', COORDINATOR()], token, opts.timeoutMs || ADDR_READ_MS);
+  // A sign-out, or another sign-in, while the binary ran: this answer is not theirs.
+  if (!signinSession || signinSession.token !== token) return { ok: false, because: 'the sign-in ended; start again from the email' };
+  if (!ran.ok) {
+    /* A tunnel binary older than the verb: clap prints "unrecognized subcommand" first and its usage after, so the
+       last line alone never says so (the same reading as assistantChat's). */
+    if (/unrecognized subcommand|invalid subcommand/i.test(String(ran.stderr || '') + '\n' + String(ran.because || ''))) {
+      return { ok: false, unsupported: true, because: 'this version of Kosmos cannot list your addresses yet; update Kosmos' };
+    }
+    return { ok: false, because: String(ran.because || 'Kosmos+ could not list your addresses').slice(0, 300) };
+  }
+  const r = parseSaid(ran);
+  if (!r.ok) return { ok: false, because: String(r.because || 'Kosmos+ could not list your addresses').slice(0, 300) };
+  const body = r.data;
+  const rows = (body && Array.isArray(body.addresses) ? body.addresses : [])
+    .filter((x) => x && NAME_RULE.test(String(x.name)) && BOUGHT_STATES.has(x.state)
+      && typeof x.address === 'string' && /^[a-z0-9-]{3,32}\.[a-z0-9.-]{3,253}$/.test(x.address) && x.address.split('.')[0] === x.name)
+    /* first_free: this row is the account's free first address (neither bought nor grandfathered). The server's own
+       first_free wins when it sends one; else only a row that SAYS bought_at null and grandfathered false counts. A row
+       missing either field is not counted, so the page tries the name step and the coordinator's 402 not-bought is the
+       gate, rather than telling someone to buy the address their subscription pays for. */
+    .map((x) => ({ name: x.name, address: x.address, state: x.state,
+      first_free: typeof x.first_free === 'boolean' ? x.first_free : (x.bought_at === null && x.grandfathered === false) }));
+  const buy = body && typeof body.buy_url === 'string' && /^https:\/\/[^\s"'<>]+$/.test(body.buy_url) ? body.buy_url : '';
+  const here = enrolled() ? String(address() || '').split('.')[0] : '';
+  return { ok: true, because: null, data: { live: true, addresses: rows, buy_url: buy, this_name: NAME_RULE.test(here) ? here : '' } };
+}
+
 async function signinRegister(name) {
   // First, before every path (the #1010 shortcut included): one register at a time (a
   // page that lost its connection can press Try again while the first is still
@@ -2067,7 +2138,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,
@@ -2125,7 +2196,7 @@ module.exports = { OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, 
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,

@@ -131,6 +131,7 @@ render-newlook-4470
 render-no-conflict-3729
 render-no-left-bars-3692
 render-observed-consumers-1959
+render-onhold-4771
 render-open-terminal-0644
 render-openai-devicecode-3436
 render-openai-install-refusal
@@ -151,6 +152,7 @@ render-pjsettings
 render-plus-asks-signin-4610
 render-plus-bar-3837
 render-plus-blue-1615
+render-plus-bought-4756
 render-plus-gate-1615
 render-plus-gutter-4542
 render-plus-panel-3829

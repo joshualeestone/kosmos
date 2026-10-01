@@ -13,6 +13,12 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+/* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
+   travels to this test's stub board (or into anything the test records). */
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-post-inreplyto-3224-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
@@ -53,7 +59,7 @@ function withStubBoard(fn) {
 }
 
 test('#3224: kosmos post --in-reply-to <id> puts in_reply_to on the /api/post body', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--in-reply-to', 'm12', 'beta', 'the answer'], env);
   assert.equal(out.code, 0, 'the post should succeed: ' + out.stdout + out.stderr);
   assert.equal(seen.length, 1, 'exactly one post reached the board');
@@ -63,7 +69,7 @@ test('#3224: kosmos post --in-reply-to <id> puts in_reply_to on the /api/post bo
 }));
 
 test('#3224: the --in-reply-to=<id> equals form is accepted too', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--in-reply-to=m7', 'beta', 'hi'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].in_reply_to, 'm7', 'the = form must set in_reply_to');
@@ -71,7 +77,7 @@ test('#3224: the --in-reply-to=<id> equals form is accepted too', () => withStub
 }));
 
 test('#3224 CONTROL: without --in-reply-to the body omits in_reply_to entirely', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'beta', 'a plain post'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(Object.prototype.hasOwnProperty.call(seen[0], 'in_reply_to'), false,
@@ -79,7 +85,7 @@ test('#3224 CONTROL: without --in-reply-to the body omits in_reply_to entirely',
 }));
 
 test('#3224: --in-reply-to combines with --no-reply in EITHER order (both are leading flags)', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   // --no-reply first
   const a = await runCli(['post', '--no-reply', '--in-reply-to', 'm3', 'beta', 'ack'], env);
   assert.equal(a.code, 0, a.stdout + a.stderr);
@@ -97,7 +103,7 @@ test('#3224: --in-reply-to combines with --no-reply in EITHER order (both are le
 }));
 
 test('#3224: --in-reply-to= (empty value) is REFUSED, not silently dropped (no unbound post)', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--in-reply-to=', 'beta', 'answer'], env);
   assert.equal(out.code, 2, 'an empty --in-reply-to= must error, not silently post an unbound reply');
   assert.equal(seen.length, 0, 'nothing must be posted when the citation id is empty');
@@ -105,7 +111,7 @@ test('#3224: --in-reply-to= (empty value) is REFUSED, not silently dropped (no u
 }));
 
 test('#3224: --in-reply-to "" (empty SPACE value) is REFUSED too -- the space form must not silently post unbound (parity with the = form and the Windows CLI)', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--in-reply-to', '', 'beta', 'answer'], env);
   assert.equal(out.code, 2, 'an empty --in-reply-to "" must error, not silently post an unbound reply with the misroute guard disabled');
   assert.equal(seen.length, 0, 'nothing must be posted when the citation id is empty');
@@ -113,7 +119,7 @@ test('#3224: --in-reply-to "" (empty SPACE value) is REFUSED too -- the space fo
 }));
 
 test('#3224: --in-reply-to followed by another FLAG (id missing) is REFUSED, not swallowed -- `--in-reply-to --no-reply` must not eat --no-reply as the citation', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--in-reply-to', '--no-reply', 'beta', 'answer'], env);
   assert.equal(out.code, 2, 'a flag-shaped citation means the id was omitted: error, do NOT swallow --no-reply as the id (which would drop --no-reply and post a bogus binding)');
   assert.equal(seen.length, 0, 'nothing must be posted when the citation id is missing');
@@ -121,7 +127,7 @@ test('#3224: --in-reply-to followed by another FLAG (id missing) is REFUSED, not
 }));
 
 test('#3224: --in-reply-to is LEADING-only; mid-args it is message text (documented tradeoff)', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'beta', 'please --in-reply-to that thread'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(Object.prototype.hasOwnProperty.call(seen[0], 'in_reply_to'), false,
@@ -130,7 +136,7 @@ test('#3224: --in-reply-to is LEADING-only; mid-args it is message text (documen
 }));
 
 test('#3224 ENVELOPE ROUND-TRIP: the emitted answer-command order (flag BEFORE project) binds; the trailing order does NOT -- the seam that a flag-after-project envelope would silently post unbound', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   // The order the room-arrival / nudge envelope emits: `kosmos post --in-reply-to <id> <project> <text>`.
   const bound = await runCli(['post', '--in-reply-to', 'm5', 'beta', 'the answer'], env);
   assert.equal(bound.code, 0, bound.stdout + bound.stderr);

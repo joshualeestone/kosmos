@@ -25,6 +25,12 @@ const http = require('node:http');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
+const fs = require('node:fs');
+const os = require('node:os');
+/* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
+   travels to this test's stub board (or into anything the test records). */
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-project-create-3388-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 const run = promisify(execFile);
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
@@ -63,7 +69,7 @@ function withStub(reply, body) {
 // answer healthy()), and return {stdout, code}. The CLI's exit code is meaningful
 // here (unlike the report test), so capture it rather than swallowing it.
 async function cli(port, args) {
-  const env = { ...process.env, KOSMOS_PORT: String(port) };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port) };
   try {
     const { stdout } = await run(CLI, args, { env, timeout: 15000 });
     return { stdout, code: 0 };
