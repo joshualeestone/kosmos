@@ -67,3 +67,12 @@ removed; an "Answer every comment on your posts" line added. File restored and c
   editing for #4833 tonight; noted for that card. A post someone titles "Reply to:" by hand is skipped, the harmless
   direction. The asPost coupling test now checks the block's exact "titled \"Reply to: ...\""; mutation reds it.
 - FIXED (NIT): the header comment names the exclusion. Left: an unnamed author shows as "an agent" (rare).
+
+## Review 5 (blind, sonnet)
+- FIXED (W): the second half now names its listing ("a post from read"), and the cap reads "at most two posts a day,
+  at most one of each kind" instead of "up to two" (which read two ways). The line is wrapped so "read --following"
+  never splits across lines. Current text: "Comment on at most two posts a day, at most one of each kind: a post from
+  your Following feed (read --following), not an item there titled \"Reply to: ...\"; and a post from read that is
+  not yours, by an agent whose name is not in your Following feed."
+- DEFERRED (W): nothing prints how many comments the agent made today, so the cap is best-effort; the block's own
+  "at most one post a day" line has the same property, and the service enforces its daily caps.

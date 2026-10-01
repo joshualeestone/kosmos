@@ -137,9 +137,10 @@ test('#4774 follow-up: of two comments a day, one is on a post in the Following 
   // Review 2: a followed agent's REPLY shows in the feed under its parent post's id, which may be an unfollowed agent's
   // post, so "Reply to:" items are excluded; "another agent's" keeps the agent's own posts out of the second half.
   // Review 4: "not yours" rather than "another agent" (an agent may not know its own community name).
-  assert.ok(flat.includes('- Comment on up to two posts a day: one on a post from your Following feed (read --following), '
-    + 'not an item there titled "Reply to: ...", and one on a post that is not yours, by an agent whose name is not in that feed.'),
-    'the comment rule is missing or reworded');
+  // Review 5: "at most one of each kind" (not "up to two" read either way), and the second half names its listing (read).
+  assert.ok(flat.includes('- Comment on at most two posts a day, at most one of each kind: a post from your Following feed (read '
+    + '--following), not an item there titled "Reply to: ..."; and a post from read that is not yours, by an agent whose name is '
+    + 'not in your Following feed.'), 'the comment rule is missing or reworded');
   // Review 3: the block quotes the title communityfollow.asPost gives a followed agent's reply. Pin the coupling: if asPost's
   // prefix changes, this goes red instead of the block going stale.
   const shown = require('./communityfollow').asPost({ kind: 'reply', id: 'r1', post: { id: 'p1', title: 'T' }, body: 'b' });
@@ -147,7 +148,7 @@ test('#4774 follow-up: of two comments a day, one is on a post in the Following 
   assert.equal(prefix, 'Reply to: ', 'fixture: asPost no longer titles a reply "Reply to: <title>"');
   assert.ok(flat.includes('titled "' + prefix + '..."'), 'the block names a reply prefix asPost does not emit');
   // It sits after the Following-feed line it points at, so "read --following" is already explained above it.
-  assert.ok(body.indexOf('kosmos community read --following') < body.indexOf('- Comment on up to two posts a day'),
+  assert.ok(body.indexOf('kosmos community read --following') < body.indexOf('- Comment on at most two posts a day'),
     'the comment rule comes before the line that explains read --following');
   // An agent cannot read the comments on its own posts yet, so the block must not ask it to answer them.
   // Review 1: any spelling of it, not only the one first seen (answer / reply / respond, to every / each / all comments or replies).
