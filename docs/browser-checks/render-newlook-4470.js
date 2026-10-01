@@ -189,7 +189,18 @@ async function listLook(page) {
     const out = {};
     for (const c of ['attn', 'unk']) {
       const d = document.createElement('div'); d.className = 'lrow ' + c; d.textContent = 'x'; l.append(d);
-      const cs = getComputedStyle(d); out[c] = { color: cs.borderTopColor, style: cs.borderTopStyle }; d.remove();
+      const cs = getComputedStyle(d); out[c] = { color: cs.borderTopColor, style: cs.borderTopStyle };
+      /* How far the edge stands off the row's own ground: the surface, the state wash laid over it, then the edge
+         laid over that (all composited here, since both can be translucent). */
+      const rgba = (v) => { const m = v.match(/[\d.]+/g).map(Number); return { r: m[0], g: m[1], b: m[2], a: m.length > 3 ? m[3] : 1 }; };
+      const over = (top, under) => ({ r: top.r * top.a + under.r * (1 - top.a), g: top.g * top.a + under.g * (1 - top.a), b: top.b * top.a + under.b * (1 - top.a), a: 1 });
+      const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
+      const wash = (cs.backgroundImage.match(/rgba?\([^)]*\)/) || [null])[0];
+      let ground = rgba(cs.backgroundColor); if (wash) ground = over(rgba(wash), ground);
+      const edge = over(rgba(cs.borderTopColor), ground);
+      const [hi, lo] = [lum(edge), lum(ground)].sort((x, y) => y - x);
+      out[c].ratio = Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100;
+      d.remove();
     }
     return out;
   });
@@ -451,8 +462,8 @@ const AGENTS_LOOK = `(() => {
         `${tag} On, Agents list: a plain row loses its border, takes 16px corners, and its name sits left`, JSON.stringify(listOn));
       chk(listOn.found && listOn.hoverGround === listOn.groundImg + ' | ' + listOn.groundColor, `${tag} On, Agents list: the ground (the state) does not change under the pointer`,
         JSON.stringify({ rest: listOn.groundImg + ' | ' + listOn.groundColor, hover: listOn.hoverGround }));
-      chk(listOn.strokes && listOn.strokes.attn.color !== 'rgba(0, 0, 0, 0)' && listOn.strokes.unk.color !== 'rgba(0, 0, 0, 0)' && listOn.strokes.unk.style === 'dashed',
-        `${tag} On, Agents list: a needs-you row keeps its edge, a could-not-read row its dash`, JSON.stringify(listOn.strokes));
+      chk(listOn.strokes && listOn.strokes.attn.color !== 'rgba(0, 0, 0, 0)' && listOn.strokes.unk.style === 'dashed' && listOn.strokes.unk.ratio >= 1.5,
+        `${tag} On, Agents list: a needs-you row keeps its edge, a could-not-read row a dash you can see (1.5:1 or more off its ground)`, JSON.stringify(listOn.strokes));
       chk(listOn.found && listOn.hover && listOn.hover !== 'rgba(0, 0, 0, 0)',
         `${tag} On, Agents list: a row under the pointer shows its border (a sign it opens)`, JSON.stringify(listOn));
 
@@ -492,8 +503,8 @@ const AGENTS_LOOK = `(() => {
       chk(agOff.idle !== 'rgba(0, 0, 0, 0)' && agOff.idle !== 'absent' && agOff.tile !== 'rgba(0, 0, 0, 0)' && agOff.plus && agOff.plus.round !== '50%',
         `${tag} Off, Agents page: today's bordered idle card, Agents tile and New agent tile`, JSON.stringify(agOff));
       const listOff = await listLook(page);
-      chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px',
-        `${tag} Off, Agents list: today's bordered row with 12px corners`, JSON.stringify(listOff));
+      chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px' && listOff.nameAlign === 'center',
+        `${tag} Off, Agents list: today's bordered row with 12px corners and today's centred name button`, JSON.stringify(listOff));
       /* The new look remaps the colour tokens (its surface and rule greys differ from today's), so the row's own
          colour and the dash's colour are the new look's, not today's. What must NOT change is the state wash laid
          over the surface, and the needs-you red, which is a fixed colour in both looks. */

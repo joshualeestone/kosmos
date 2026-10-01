@@ -9893,6 +9893,11 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    enough to wrap sat in the middle of a left-aligned column (seen with a two-word surname). Today's look has the
    same; this page sets it. */
 :root[data-look="new"] body:not(.consolidated) #alist .lname .namego { text-align: left; }
+/* The could-not-read dash must be SEEN, not only kept: the new look's rule grey on its surface grey (and the
+   list's wash) measured about 1.04:1 in light, so the dashed row read as a plain one. It takes the colour the
+   solid could-not-read board note already uses, on the list and on the cards alike. */
+:root[data-look="new"] body:not(.consolidated) #alist .lrow.unk,
+:root[data-look="new"] body:not(.consolidated) #grid .acard.unk { border-color: var(--border-strong); }
 /* ===== GENERATED: forced dark theme. Do not edit by hand. ===== */
 /* Written by tools/sync-forced-theme.js from the prefers-color-scheme
    blocks above. Edit those; run the tool; commit both. */
