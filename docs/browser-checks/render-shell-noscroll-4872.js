@@ -16,6 +16,7 @@
  *    passes before this fix too, because nothing overflowed. It is here so a future real overflow goes red.
  *  - the bubble arms go red on the pre-fix page: folded, the bubble lies wholly inside the strip and clear of the
  *    needs-you triangle (both a "2" and a "99+"); open, it keeps its #3339 place.
+ *    Not asserted, an accepted trade (see the CSS): folded, the bubble covers the top-right of the memory ring.
  *
  * The board is real, on a sandboxed store: a project room with members, tasks and painted posts, the new look, in
  * the consolidated view. Chromium at five sizes (one short, 1024x640), and WebKit, the engine of the Mac app's window.

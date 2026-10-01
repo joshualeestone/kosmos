@@ -4,7 +4,7 @@
 In the app window (consolidated view): (1) the red notification bubble on an agent in the FOLDED agents column is
 wholly visible; open, it keeps its #3339 place at the row's top-right corner. (2) The outer page cannot be dragged:
 nothing overflows (root and body exactly the window tall) and the shell does not bounce. A browser check asserts
-both, with controls, in Chromium at four sizes and in WebKit.
+both, with controls, in Chromium at five sizes and in WebKit.
 
 ## Findings that shaped it
 - Bubble: folded, each row fills the 48px strip edge to edge (#3187 follow-up), so the bubble's -6px hang past the

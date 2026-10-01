@@ -4504,9 +4504,10 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
        grid exceeds the viewport and the body scroll above carries it. */
     grid-template-rows: repeat(39, auto) auto minmax(200px, 1fr) auto; }
   /* #4872 (Josh, 0.7.15): "the page lets me scroll down just ever so slightly ... Can we disable it". Nothing here
-     overflows (render-shell-noscroll-4872 measures the root and body exactly the window tall); what moved was the Mac's
-     elastic overscroll, which drags a page that cannot scroll and shows a gap past its edge. The shell is fixed to the
-     window, so it does not bounce; the inner panes still scroll, and keep their own bounce. */
+     overflows at normal window heights (render-shell-noscroll-4872 measures the root and body exactly the window tall,
+     down to 1024x640); what moved was the Mac's elastic overscroll, which drags a page that cannot scroll and shows a
+     gap past its edge. So the shell does not bounce. Below the grid's floor (above) the body still scrolls, as
+     designed; this stops only the bounce. The inner panes keep their own. */
   html[data-layout="consolidated"]:has(> body.consolidated), html[data-layout="consolidated"] body.consolidated { overscroll-behavior: none; }
   html[data-layout="consolidated"] body.consolidated > * { grid-column: 1 / -1; }
   /* ⚠️ #conn CARRIES NO HORIZONTAL MARGIN OF ITS OWN (its `.conn {` rule carries margin-bottom
@@ -4878,10 +4879,13 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   /* #4872 (Josh, 0.7.15): folded, a row fills the 48px strip edge to edge, so the bubble's usual hang past the row's
      corner (right/top -6px, #3339) put it past the strip's edge, where #alist cut it off. Folded only, a compact bubble
      sits in the row's top-right corner, inside the strip and above the needs-you triangle on the face; open, it keeps
-     its #3339 place. render-shell-noscroll-4872 measures all three. */
+     its #3339 place. render-shell-noscroll-4872 measures all three. Accepted trade: a 48px strip has no free corner,
+     so while messages wait the bubble covers the top-right of the memory ring (all of its top at "99+"); the unread
+     count is the more urgent of the two, and the ring is whole again once they are read. */
   html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .dmbadge { right: 0; top: -3px; font-size: .625rem; line-height: 12px; padding: 0 .3rem; }
   /* ...and the face sits 2px lower in the same 42px row (6px over, 2px under, was 4 and 4), so the 16px bubble clears
-     both the strip's top edge and the triangle (about 1px and 2px, measured) instead of touching them. */
+     both the strip's top edge and the triangle (about 1px and 2px, measured) instead of touching them. On a working
+     or needs-you band (#3187 follow-up below) the face therefore sits 2px below the band's centre. */
   html[data-layout="consolidated"] body.consolidated.fold-a .lrow { padding: 6px 0 2px; }
   /* #3187-followup (Josh 6.72): when the rail is FOLDED to its 48px strip, keep the status
      colour EDGE-TO-EDGE behind a working (green) or needs-you (red) agent, so you can see
