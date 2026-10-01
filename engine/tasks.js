@@ -279,6 +279,7 @@ function create(projectId, { sentence, detail, who, parent, made: origin } = {},
 function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
   let changed;
   let droppedForWork = false;
+  let heldDropped = false;
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
@@ -294,6 +295,9 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
       changed = withoutBuilt(changed);
       droppedForWork = forWork && !closedNow;
     }
+    /* #4771: a hold does not outlive the task either (the same reason: a reopen must not come back silently held,
+       with the control hidden while it was closed). */
+    if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
     /* ⚠️ `who` is DROPPED once parts are stored, not kept in step. Two fields
        answering "who is on this" is two things that disagree the first time
        one of them is edited, and every reader would then have to know which
@@ -305,11 +309,14 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
      own event (part-added, part-reopened), so the history reads cause then effect (review round 2). Carried on the
      returned task, not in module state (review round 3), so nothing can leak to another task's write. */
   if (droppedForWork) DROPPED_FOR_WORK.add(changed);
+  if (heldDropped) HELD_DROPPED.add(changed);   // #4771: the hold a close dropped, recorded the same way, after the close
   return changed;
 }
 const DROPPED_FOR_WORK = new WeakSet();
+const HELD_DROPPED = new WeakSet();
 function recordDroppedForWork(projectId, n, task) {
   if (task && DROPPED_FOR_WORK.has(task)) taskchat.record(projectId, Number(n), { kind: 'unbuilt', reason: 'new work' });
+  if (task && HELD_DROPPED.has(task)) taskchat.record(projectId, Number(n), { kind: 'hold-cleared', via: 'close' });
 }
 
 function nextPartId(parts) {
@@ -496,6 +503,8 @@ function assignPart(projectId, n, partId, who, made) {
       if (made && made.onlyIfFree && x.who) { taken = true; return x; }
       /* #3951 (review round 15): the Assigner picked it before it was marked built; giving it now would drop the mark. */
       if (made && made.onlyIfFree && t.builtAt) { taken = true; return x; }
+      /* #4771: nor one put on hold, or whose project was paused, since it was picked. */
+      if (made && made.onlyIfFree && (isOnHold(t) || projects.isPaused(p))) { taken = true; return x; }
       if (made && typeof made.onlyIfWho === 'string' && x.who !== made.onlyIfWho) { taken = true; return x; }
       moved = (x.who || null) !== whoKey;
       givenOpen = moved && !!whoKey && !x.closedAt;
@@ -670,6 +679,7 @@ function setClosed(projectId, n, closedAt) {
   let changed;
   // #992: +1 just completed, -1 just re-opened, 0 no change (see below).
   let transition = 0;
+  let heldDropped = false;
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
@@ -686,12 +696,69 @@ function setClosed(projectId, n, closedAt) {
     if (before !== after) transition = after ? 1 : -1;
     /* #3951: closing is the person's "it is live": the built mark goes with it, and a reopen does not restore it. */
     if (after) changed = withoutBuilt(changed);
+    // #4771: nor does a hold: a reopen must not come back silently held, its control hidden while it was closed.
+    if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; heldDropped = true; }
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
     };
   });
   if (transition) taskchat.record(projectId, changed.number, { kind: transition > 0 ? 'closed' : 'reopened' });
+  if (heldDropped) taskchat.record(projectId, changed.number, { kind: 'hold-cleared', via: 'close' });
+  return changed;
+}
+
+/**
+ * #4771: whether a task is on hold (waiting on the person, or deliberately parked). The Prompter never nudges an agent
+ * about it and the Assigner never hands it out (engine/agentnudge.js openParts, engine/assigner.js); it stays on its
+ * owner's list for everything else.
+ */
+function isOnHold(t) {
+  return Boolean(t && t.onHold === true);
+}
+
+/**
+ * #4771: put a task on hold, or take it off. Stored as `onHold: true` (absent when off, so every task written before
+ * this reads as not held) and recorded in the task's activity with who did it, the same no-op discipline as setDue.
+ */
+function setOnHold(projectId, n, onHold, { viaScreen = false } = {}) {
+  if (typeof onHold !== 'boolean') throw new Error('onHold must be true or false');
+  let changed;
+  let didChange = false;
+  let tookOver = false;
+  projects.mutate(projectId, (p) => {
+    const t = byNumber(p, n);
+    if (!t) throw new Error('there is no task by that number on this project');
+    tookOver = onHold && isOnHold(t) && viaScreen === true && t.onHoldByPerson !== true;
+    /* The person's own hold is taken off only on the screen: the feature exists to honour it, and an agent that could
+       lift it could put itself back on parked work (the built mark's refusePersonMark, the same rule). */
+    if (!onHold && isOnHold(t) && t.onHoldByPerson === true && viaScreen !== true) {
+      const refused = new Error('the person put this task on hold, so only they can take it off, on the screen');
+      refused.status = 403;
+      throw refused;
+    }
+    if (onHold && !isOnHold(t) && progressOf(t).closed) {
+      const closed = new Error('a finished task cannot be put on hold');
+      closed.status = 409;
+      throw closed;
+    }
+    didChange = isOnHold(t) !== onHold;
+    changed = { ...t };
+    if (onHold) {
+      changed.onHold = true;
+      /* The person's hold on the screen is theirs even over an agent's earlier hold (else the agent could still lift it);
+         an agent's hold never takes the person's away. */
+      if (viaScreen === true) changed.onHoldByPerson = true;
+      else if (didChange) delete changed.onHoldByPerson;
+    } else { delete changed.onHold; delete changed.onHoldByPerson; }
+    return {
+      ...p,
+      tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
+    };
+  });
+  // via: whether the person did it on the screen or a process (an agent) did, so an agent's hold never reads as the person's.
+  if (didChange) taskchat.record(projectId, changed.number, { kind: onHold ? 'hold-set' : 'hold-cleared', via: viaScreen === true ? 'screen' : 'agent' });
+  else if (tookOver) taskchat.record(projectId, changed.number, { kind: 'hold-set', via: 'screen' });   // the person made an agent's hold theirs
   return changed;
 }
 
@@ -972,6 +1039,8 @@ function allTasks(everyProject) {
         projectName: p.name,
         /* #3559: the Tasks view leaves archived projects' tasks out, as the rails tuck them away. */
         projectArchived: p.archived === true,
+        /* #4771: a paused project's tasks read as on hold on the Tasks view. */
+        projectPaused: p.paused === true,
         whoNames: whoOf(t),
         /* Named on the row rather than inferred by the screen: `progressOf`
            lives here, and a caller re-deriving "is it finished" from another
@@ -1029,6 +1098,8 @@ function taskState(task) {
   if (!task) return 'nobody';
   if (progressOf(task).closed) return 'closed';
   if (task.waitingOnPerson === true && whoOf(task).length > 0) return 'decision';
+  /* #4771: held by the person (the task, or its paused project): after a decision, which the person still acts on. */
+  if (isOnHold(task) || task.projectPaused === true) return 'held';
   if (typeof task.builtAt === 'string' && task.builtAt) return 'built';
   if (whoOf(task).length === 0) return 'nobody';
   return (task.claim && task.claim.claimed === true) ? 'working' : 'assigned';
@@ -1212,6 +1283,6 @@ function tasksTabShown() {
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
-  partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say,
+  partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent };

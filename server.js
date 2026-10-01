@@ -15461,7 +15461,8 @@ const server = http.createServer(async (req, res) => {
                         roster read and one commitments reading per agent for
                         the whole request
          waitingOnPerson tasks.waitingOnPerson: its agent needs the person about it (#3949)
-         state          tasks.taskState: closed / decision / built / nobody / working / assigned
+         state          tasks.taskState: closed / decision / held / built / nobody / working / assigned
+         projectPaused  its project is paused (#4771; with the task's own onHold, the held state)
          lastActivityAt the newest transcript event, else created/closed
        A task's own builtAt / builtBy / builtNote (#3951, set by POST .../built) ride every row as stored.
        Added fields only, and only on ?view=tasks, which also leaves out archived
@@ -15831,6 +15832,9 @@ const server = http.createServer(async (req, res) => {
            {"archived": "false"} into an archive), so a mixed body either
            applies whole or not at all. */
         if (body.archived !== undefined) fields.archived = body.archived;
+        /* #4771: paused, carried like archived (a boolean, validated by the engine): the Prompter and the Assigner skip
+           a paused project's tasks, and the members' instructions mark them, so a pause re-tells the members (below). */
+        if (body.paused !== undefined) { fields.paused = body.paused; fields.viaScreen = isViaScreen(req, body); }
         /* #1994: parent is a carried field like the rest -- the engine's edit
            validates it (self-parent, a missing parent, and cycles are refused)
            before its single write, so a body mixing parent with name or
@@ -15849,12 +15853,10 @@ const server = http.createServer(async (req, res) => {
         const roster = safeRoster();
         // Same reason as create and delete: the rename HAPPENED. A failure
         // re-telling the members is a different fact from a failed rename.
-        // (Only when the name moved: the managed block carries the name and
-        // the folder, and neither the description, the archived flag, nor
-        // anything else this route can change, so a name-less save has
-        // nothing to re-tell.)
+        // Only when the name or the pause moved: the managed block carries the name, the folder and (#4771) which
+        // tasks are on hold, which a pause changes.
         try {
-          if (body.name !== undefined) {
+          if (body.name !== undefined || body.paused !== undefined) {
             for (const a of (reRead ? reRead.agents : [])) projects.syncAgent(a, roster);
           }
         } catch { /* reported by the row's own told verdict on the next read */ }
@@ -16979,6 +16981,32 @@ const server = http.createServer(async (req, res) => {
         : (/no project by that name|no task by that number/.test(msg) ? 404 : 400);
       sendJson(res, code, { error: msg || 'we could not change that task' });
     }
+    return;
+  }
+
+  /* #4771: put a task on hold, or take it off. Body { onHold: true | false }. The Prompter never nudges an agent about a
+     task on hold and the Assigner never hands it out; tasks.setOnHold validates and records it in the task's activity.
+     The person's own hold is lifted only from the screen (isViaScreen). That is ADVISORY, as on /built: a local process
+     that sends a page's headers is taken at its word. The real boundary is the agent-token work of #4491. */
+  const taskHold = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/hold$/);
+  if (taskHold && req.method === 'POST') {
+    const id = decodeSegment(taskHold[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      try {
+        const t = tasks.setOnHold(id, taskHold[2], body.onHold, { viaScreen: isViaScreen(req, body) });
+        // The assignees' instructions mark a held task (projects.blockBody), so the block follows the record, as close does.
+        try { tellEveryoneOn(t); } catch { /* the hold happened; a failed re-tell is reported by the row's told verdict */ }
+        sendJson(res, 200, { task: t });
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400,
+          { error: msg || 'we could not change that task' });
+      }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 

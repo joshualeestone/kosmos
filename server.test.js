@@ -16015,3 +16015,70 @@ test('#4632: only the picker\'s ?catalogue=1, and a create for a role not held, 
     await new Promise((ok) => srv.close(ok));
   }
 });
+
+test('#4771: a task is put on hold and taken off through its route; a project is paused and resumed through its edit', async () => {
+  const projects = require('./engine/projects');
+  const tasks = require('./engine/tasks');
+  const p = projects.create({ name: 'Hold Route 4771' });
+  const t = tasks.create(p.id, { sentence: 'wait for the person', made: { via: 'screen' } });
+  const url = '/api/project/' + encodeURIComponent(p.id) + '/task/' + t.number + '/hold';
+  const on = await postJson(url, { onHold: true });
+  assert.equal(on.status, 200, on.body);
+  assert.equal(JSON.parse(on.body).task.onHold, true);
+  assert.equal(tasks.isOnHold(tasks.byNumber(projects.readAll().find((x) => x.id === p.id), t.number)), true, 'the route did not store the hold');
+  const bad = await postJson(url, { onHold: 'yes' });
+  assert.equal(bad.status, 400, bad.body);
+  const none = await postJson('/api/project/' + encodeURIComponent(p.id) + '/task/9999/hold', { onHold: true });
+  assert.equal(none.status, 404, none.body);
+  const off = await postJson(url, { onHold: false });
+  assert.equal(off.status, 200, off.body);
+  assert.equal('onHold' in JSON.parse(off.body).task, false, 'off hold left the field on the task');
+  // Who did it: a request with no page headers is a process (an agent); the page's own request is the person.
+  const screen = await req(url, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ onHold: true }) });
+  assert.equal(screen.status, 200, screen.body);
+  const vias = require('./engine/taskchat').read(p.id, t.number).filter((e) => /^hold-/.test(e.kind)).map((e) => e.via);
+  assert.deepEqual(vias, ['agent', 'agent', 'screen'], 'the route did not record who put the task on hold');
+  // The person's hold: a process (an agent) cannot take it off; the screen can.
+  const agentLift = await postJson(url, { onHold: false });
+  assert.equal(agentLift.status, 403, agentLift.body);
+  assert.match(JSON.parse(agentLift.body).error, /only they can take it off/);
+  const personLift = await req(url, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ onHold: false }) });
+  assert.equal(personLift.status, 200, personLift.body);
+  const put = (body) => req('/api/project/' + encodeURIComponent(p.id), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const paused = await put({ paused: true });
+  assert.equal(paused.status, 200, paused.body);
+  assert.equal(projects.isPaused(projects.readAll().find((x) => x.id === p.id)), true, 'the edit did not pause the project');
+  const wrong = await put({ paused: 'true' });
+  assert.equal(wrong.status, 400, 'a non-boolean paused was accepted: ' + wrong.body);
+  const resumed = await put({ paused: false });
+  assert.equal(resumed.status, 200, resumed.body);
+  assert.equal(projects.isPaused(projects.readAll().find((x) => x.id === p.id)), false, 'the edit did not resume the project');
+
+  /* The agents' instructions mark held work (projects.blockBody), so a hold re-tells the task's assignees and a pause
+     re-tells the project's members, as close and rename already do. syncAgent is recorded, not run. */
+  projects.mutate(p.id, (rec) => ({ ...rec, agents: ['ada', 'max'],
+    tasks: (rec.tasks || []).map((x) => (x.number === t.number ? { ...x, who: 'ada' } : x)) }));
+  const realSync = projects.syncAgent;
+  const synced = [];
+  projects.syncAgent = (name) => { synced.push(name); return { state: projects.TOLD.TOLD }; };
+  try {
+    const h = await postJson(url, { onHold: true });
+    assert.equal(h.status, 200, h.body);
+    assert.deepEqual(synced, ['ada'], 'a hold did not re-tell the task\'s assignee');
+    synced.length = 0;
+    await put({ description: 'no pause here' });
+    assert.deepEqual(synced, [], 'control: a save that changes neither the name nor the pause re-told the members');
+    await put({ paused: true });
+    assert.deepEqual(synced.sort(), ['ada', 'max'], 'a pause did not re-tell the project\'s members');
+    synced.length = 0;
+    await put({ paused: false });
+    assert.deepEqual(synced.sort(), ['ada', 'max'], 'a resume did not re-tell the project\'s members');
+    // The person's pause (from the page) is resumed only from the page.
+    const screenPut = (body) => req('/api/project/' + encodeURIComponent(p.id), { method: 'PUT', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify(body) });
+    assert.equal((await screenPut({ paused: true })).status, 200);
+    const agentResume = await put({ paused: false });
+    assert.equal(agentResume.status, 403, agentResume.body);
+    assert.equal(projects.isPaused(projects.readAll().find((x) => x.id === p.id)), true, 'a refused resume still resumed');
+    assert.equal((await screenPut({ paused: false })).status, 200, 'the person could not resume their own pause');
+  } finally { projects.syncAgent = realSync; }
+});
