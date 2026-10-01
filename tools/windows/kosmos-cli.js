@@ -652,7 +652,8 @@ async function taskList(ctx, args) {
       : one(x.sentence || '(no description)');
     /* #4887: who added it, when an agent did and it is not the owner, so a title naming one agent beside another's
        name reads as what it is. Same as install/kosmos task list. */
-    const by = (x.addedVia === 'process' && x.addedBy && !(x.whoNames || []).some((n) => String(n).toLowerCase() === String(x.addedBy).toLowerCase())) ? ' [added by ' + q(x.addedBy) + ']' : '';
+    const key = (v) => String(v).toLowerCase().replace(/[^a-z0-9_-]/g, '');   // as store.safeKey keys a name; addedBy can be that key
+    const by = (x.addedVia === 'process' && x.addedBy && !(x.whoNames || []).some((n) => key(n) !== '' && key(n) === key(x.addedBy))) ? ' [added by ' + q(x.addedBy) + ']' : '';
     ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? '[done] ' : ((x.onHold === true || x.projectPaused === true) ? '[on hold] ' : '') + (x.builtAt ? '[built] ' : '')) + words + who + by + up + kids);
   }
   return 0;
@@ -676,7 +677,7 @@ async function taskAdd(ctx, args) {
     if (rest[i].startsWith('--who=')) { ctx.err('Write it as --who <agent>, with a space.'); return 2; }
     if (rest[i] === '--who') {
       const n = rest[i + 1];
-      if (typeof n !== 'string' || !n || n.startsWith('-')) { ctx.err("--who needs an agent's name (or me), from: kosmos task list <project-id>."); return 2; }
+      if (typeof n !== 'string' || !n || n.startsWith('-')) { ctx.err("--who needs the name of an agent on the project (or me)."); return 2; }
       who = n; i += 1; continue;
     }
     if (rest[i] === '--parent') {

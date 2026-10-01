@@ -181,6 +181,8 @@ test('both lists say who added a task when an agent did and it is not the owner,
     tasks: (p.tasks || []).map((t) => {
       if (t.sentence === 'Win: diagnostic') return { ...t, addedVia: 'process', addedBy: 'mara' };   // added by mara, owned by otto
       if (t.sentence === 'Mac: diagnostic') return { ...t, addedVia: 'process', addedBy: 'Mara' };   // added by mara (another spelling), owned by mara
+      if (t.sentence === 'Mac: loose') return { ...t, who: 'Mona Lisa', addedVia: 'screen', addedBy: 'operator' };
+      if (t.sentence === 'Win: loose') return { ...t, who: 'Mona Lisa', addedVia: 'process', addedBy: 'monalisa' };   // the token store's key for "Mona Lisa"
       return t;
     }),
   }));
@@ -195,6 +197,9 @@ test('both lists say who added a task when an agent did and it is not the owner,
     assert.match(other, /Win: diagnostic \(otto\) \[added by mara\]/, label + ': ' + other);
     assert.doesNotMatch(own, /added by/, label + ': the owner adding its own task was called out: ' + own);
     assert.doesNotMatch(screen, /added by/, label + ': a task nobody identified added was called out: ' + screen);
+    const keyed = lines.find((l) => l.includes('Win: loose'));
+    assert.match(keyed, /\(Mona Lisa\)/, label + ': the keyed row lost its owner, so the next check proves nothing: ' + keyed);
+    assert.doesNotMatch(keyed, /added by/, label + ': an owner whose added-by is its store key was called out: ' + keyed);
   }
 });
 
