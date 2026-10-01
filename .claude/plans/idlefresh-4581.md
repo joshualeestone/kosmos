@@ -50,3 +50,9 @@ working report, no report, and an idle report dated in the future read stale; a 
 - W2 an operator's clear (state idle, by operator) was read as when the agent stopped: FIXED, never excused. Arm added.
 - N3 every arm injected readReport: ADDED an arm through the real selfreport.read.
 - N4 the edge comment overstated the match with summaryFreshness: softened. N5, N6: kept.
+
+## Review 3 (Sonnet, blind, source-only): 0 blockers, 1 warning, 3 nits
+- W1 a `started` (a restart with no turn since) read "current when it went idle": FIXED, its own words, "current when
+  this session started (...; started <age> ago, idle since)". Arm added.
+- N2 `by` on older lines reads null and is excused: correct (the operator clear and the field shipped together).
+- N3 a non-idle member with a started or idle report: ADDED an arm (stays stale). N4 the end-to-end arm: confirmed.

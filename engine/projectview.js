@@ -134,7 +134,8 @@ function idleExcused(summary, member, readReport, nowMs) {
   // that "was current when it went idle"; it stays stale rather than print an idle time before the summary.
   if (wroteAt > idleAt) return summary;
   if (idleAt - wroteAt > SUMMARY_RHYTHM_HOURS * 3600000) return summary;
-  return { ...summary, state: 'idle', idleSince: new Date(idleAt).toISOString(), idleMinutes: Math.max(0, Math.round((now - idleAt) / 60000)) };
+  // Review 3: a `started` is a restart, not a turn's end, so it is said as such ("when this session started").
+  return { ...summary, state: 'idle', idleKind: rep.state === 'started' ? 'started' : 'idle', idleSince: new Date(idleAt).toISOString(), idleMinutes: Math.max(0, Math.round((now - idleAt) / 60000)) };
 }
 
 /**
@@ -271,7 +272,9 @@ const SUMMARY_WORDS = {
   current: (s) => 'current (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
   stale: (s) => 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
   // #4581 N10: the rhythm is while working; this one was current when the member went idle.
-  idle: (s) => 'current when it went idle (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; idle since ' + ago(s.idleMinutes) + ')',
+  idle: (s) => s.idleKind === 'started'
+    ? 'current when this session started (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; started ' + ago(s.idleMinutes) + ', idle since)'
+    : 'current when it went idle (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; idle since ' + ago(s.idleMinutes) + ')',
   none: () => 'none yet',
   nofolder: () => 'we do not know where its folder is',
   future: (s) => 'dated in the future (' + one(s.file) + '), so we cannot tell how current it is',

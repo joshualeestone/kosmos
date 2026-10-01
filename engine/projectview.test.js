@@ -291,7 +291,10 @@ test('#4581 N10: an idle member whose summary was current when it went idle read
   assert.equal(show(idleAt(660)).m.summary.state, 'stale', 'an idle time before the summary was written excused it');
   assert.equal(show({ found: true, state: 'idle', at: 'garbage' }).m.summary.state, 'stale');
   // Review 2: a `started` report (a Claude agent's launch) counts like idle; an operator's clear never does.
-  assert.equal(show({ found: true, state: 'started', at: new Date(NOW - 420 * 60000).toISOString() }).m.summary.state, 'idle');
+  const started = show({ found: true, state: 'started', at: new Date(NOW - 420 * 60000).toISOString() });
+  assert.equal(started.m.summary.state, 'idle');
+  // Review 3: said as a start, not as a turn's end.
+  assert.match(started.text, /summary: current when this session started \(summaries\/2026-09-29-07\.md, 10h 0m ago; started 7h 0m ago, idle since\)$/m);
   assert.equal(show({ found: true, state: 'idle', by: 'operator', at: new Date(NOW - 420 * 60000).toISOString() }).m.summary.state, 'stale');
   // The edge: idle exactly four hours after the summary is still current when it stopped (to the millisecond; the
   // freshness rule rounds to the minute, so the two can differ by under a minute).
@@ -314,4 +317,16 @@ test('#4581 N10 review 2: the real selfreport reader feeds the idle excuse', () 
   assert.equal(selfreport.read('ida').state, 'idle', 'fixture: the report did not read back');
   const view = v.overviewOf(described, BOARD.agents, { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }) });
   assert.equal(view.members[0].summary.state, 'idle', JSON.stringify(view.members[0].summary));
+});
+
+test('#4581 N10 review 3: a member that is not idle is never excused, whatever its report says', () => {
+  // mark is working and sam is asking (the shared board); a `started` or `idle` report changes nothing for them.
+  const folder = agentFolder('notidle', [['2026-09-29-07.md', 600]]);
+  for (const report of [{ found: true, state: 'started', at: new Date(NOW - 420 * 60000).toISOString() }, { found: true, state: 'idle', at: new Date(NOW - 420 * 60000).toISOString() }]) {
+    const view = v.overviewOf(DESCRIBED, ROSTER, { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => report });
+    for (const name of ['mark', 'sam']) {
+      const m = view.members.find((x) => x.sessionName === name);
+      assert.equal(m.summary.state, 'stale', name + ' was excused while ' + m.state);
+    }
+  }
 });
