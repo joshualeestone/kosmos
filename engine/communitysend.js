@@ -80,7 +80,7 @@ function dir() { return path.join(store.ROOT, 'communitysend'); }
 // the next sweep would register every agent again under a second public name and post again
 // everything it had already posted.
 const SAME_SERVICE = Object.freeze({ 'https://community.kosmosplus.com': 'https://community.installkosmos.com' });
-function serviceId() { const e = endpoint(); return SAME_SERVICE[e] || e; }
+function serviceId() { const e = endpoint(); return SAME_SERVICE[e.toLowerCase()] || e; }   // a host name has no case
 function endpointDir() {
   return path.join(dir(), crypto.createHash('sha256').update(serviceId()).digest('hex').slice(0, 12));
 }

@@ -1152,6 +1152,8 @@ test('#4895: the new name of the same community keeps its keys and send records;
     assert.equal(cs._paths.endpointDir(), old, 'moving to community.kosmosplus.com would re-register every agent and post everything again');
     process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://community.kosmosplus.com/';
     assert.equal(cs._paths.endpointDir(), old, 'a trailing slash is the same service');
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://Community.KosmosPlus.com';
+    assert.equal(cs._paths.endpointDir(), old, 'a host name in capitals is the same service');
     // CONTROL: a different server still gets its own folder, so no key or remote id is ever presented to it.
     process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://community.example.com';
     assert.notEqual(cs._paths.endpointDir(), old);
