@@ -1,4 +1,4 @@
-// Browser-check-surface: micbtn d-mic pj-mic asp-mic rxn-speak asp-speak d-say d-send d-dmthread has-voice has-speak fieldmic micwrap pj-name pj-add-desc pj-add-done pj-add-msg nt-detail create-instr d-instr pjs-name pjs-desc
+// Browser-check-surface: micbtn d-mic pj-mic asp-mic rxn-speak asp-speak d-say d-send d-dmthread has-voice has-speak voice-who fieldmic micwrap pj-name pj-add-desc pj-add-done pj-add-msg nt-detail create-instr d-instr pjs-name pjs-desc
 'use strict';
 
 /**
@@ -35,7 +35,8 @@
  *   P2 (slice 3) tapping it starts the recognizer inside the tap, the line says Apple hears the audio, heard words
  *       land, and the next tap stops it
  *   P3 (slice 3) a refused microphone on a phone points at the browser's settings; P3b the retry still says who hears
- *   P5 (slice 3) who hears the audio is said over another line; P6 a start that throws leaves the mic off
+ *   P2a (slice 3) who hears the audio is shown in its own bar at the tap, before the start; P5 another message line is
+ *       left alone; P6 a start that throws leaves the mic off; P7 a session that ends by itself leaves it off
  *   P4 (slice 3) read aloud is offered and speaks on a phone
  *   V1b in a browser (no bridge) the Name field fills its row exactly as with no wrapper: wrapping changes nothing
  *
@@ -458,11 +459,12 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       // The Guide is built when first needed, after load labelled the page's mics: build it now, as opening it does.
       guide: await phone.evaluate(() => { asbLayerEnsure(); const m = document.getElementById('asp-mic'); return m ? m.getAttribute('aria-label') : 'no Guide mic'; }) };
     // Android: Chrome is Google's recognizer and is named; another Android browser is not guessed at and gets no mic.
-    const android = async (ua) => {
+    const android = async (ua, brave) => {
       const c = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, userAgent: ua });
       const pg = await c.newPage();
       await pg.addInitScript(harness(false), [false]);
       await pg.addInitScript(SR);
+      if (brave) await pg.addInitScript(() => { Object.defineProperty(navigator, 'brave', { value: { isBrave: () => Promise.resolve(true) } }); });
       await pg.goto(PAGE);
       const r = await pg.evaluate(() => ({ cls: document.documentElement.classList.contains('has-voice'), label: document.getElementById('d-mic').getAttribute('aria-label') }));
       await c.close();
@@ -470,7 +472,9 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     };
     const chrome = await android('Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36');
     const samsung = await android('Mozilla/5.0 (Linux; Android 14; SM-S921B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/25.0 Chrome/121.0.0.0 Mobile Safari/537.36');
-    chk(chrome.cls && /\(Google hears the audio\)/.test(chrome.label) && !samsung.cls, 'P1b Android Chrome names Google; another Android browser gets no mic, not a guess', JSON.stringify({ chrome, samsung }));
+    // Brave sends Chrome's exact user agent; only navigator.brave tells it apart.
+    const brave = await android('Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36', true);
+    chk(chrome.cls && /\(Google hears the audio\)/.test(chrome.label) && !samsung.cls && !brave.cls, 'P1b Android Chrome names Google; another Android browser gets no mic, not a guess', JSON.stringify({ chrome, samsung, brave }));
     // A touch-screen computer (a Windows tablet: coarse pointer, no hover, the same recognizer) is not a phone.
     const tabCtx = await browser.newContext({ viewport: { width: 1200, height: 800 }, isMobile: true, hasTouch: true,
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36 Edg/129.0' });
@@ -483,14 +487,18 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     chk(p1.cls && p1.shown && !deskMic && !tabMic && /\(Apple hears the audio\)/.test(p1.label) && /\(Apple hears the audio\)/.test(p1.guide), 'P1 a phone draws the mic through the browser\'s recognizer, its label saying who hears it; a computer\'s browser and a touch-screen computer do not', JSON.stringify({ ...p1, deskMic, tabMic }));
     await phone.fill('#d-say', '');
     await phone.evaluate(() => document.activeElement && document.activeElement.blur());   // as after the keyboard is put away
-    await phone.tap('#d-mic');
+    // Read in the same task as the tap's click: who hears the audio is on screen before the recognizer can send a word.
+    const atStart = await phone.evaluate(() => { document.getElementById('d-mic').click(); return { who: (document.getElementById('voice-who') || {}).textContent || '', shown: (() => { const b = document.getElementById('voice-who'); return !!b && !b.hidden && getComputedStyle(b).display !== 'none' && b.getBoundingClientRect().height > 0; })(), rec: window.__rec.slice() }; });
     await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
-    const line = await phone.evaluate(() => document.getElementById('d-say-msg').textContent);
+    const line = await phone.evaluate(() => (document.getElementById('voice-who') || {}).textContent || '');
     await phone.evaluate(() => window.__recLast.onresult({ results: [Object.assign([{ transcript: 'call the' }], { isFinal: false })] }));
     const mid = await phone.evaluate(() => document.getElementById('d-say').value);
     await phone.tap('#d-mic');
     await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'false');
-    const p2 = await phone.evaluate(() => ({ rec: window.__rec.slice(), box: document.getElementById('d-say').value, focusedBox: document.activeElement === document.getElementById('d-say') }));
+    const p2 = await phone.evaluate(() => ({ rec: window.__rec.slice(), box: document.getElementById('d-say').value, focusedBox: document.activeElement === document.getElementById('d-say'), barAfter: (() => { const b = document.getElementById('voice-who'); return !!b && !b.hidden && getComputedStyle(b).display !== 'none' && b.getBoundingClientRect().height > 0; })() }));
+    chk(atStart.shown && /Apple hears this audio/.test(atStart.who) && !p2.barAfter,
+      'P2a who hears the audio is shown in the tap itself, before listening begins, and goes when listening ends', JSON.stringify({ atStart, barAfter: p2.barAfter }));
+    // P2 taps via click() in the page for its start (a click is what a tap delivers; the stand-in records the event).
     chk(JSON.stringify(p2.rec) === '["new","start","stop"]' && mid === 'call the' && p2.box === 'call the client' && p2.focusedBox === false && /Apple hears this audio/.test(line) && !/Escape/.test(line),
       'P2 a tap starts the recognizer within the tap\'s user activation (no keyboard opened), the line says Apple hears the audio, words from two results land spaced, and the next tap stops it', JSON.stringify({ ...p2, mid, line }));
     await phone.tap('#d-mic');
@@ -502,25 +510,35 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     // Read in the same task as the tap's click, before the recognizer says it is listening: the old refusal is gone.
     const atTap = await phone.evaluate(() => { document.getElementById('d-mic').click(); return document.getElementById('d-say-msg').textContent; });
     await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
-    const retry = await phone.evaluate(() => document.getElementById('d-say-msg').textContent);
+    const retry = await phone.evaluate(() => (document.getElementById('voice-who') || {}).textContent || '');
     chk(atTap === '' && /Apple hears this audio/.test(retry), 'P3b after a refusal, the retry clears it at once and still says who hears the audio', JSON.stringify({ atTap, retry }));
     await phone.tap('#d-mic');
     await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'false');
-    // P5: another line in the box's message line does not hide who hears the audio; P6: a start that throws ends cleanly.
+    /* P5: another line in the box's message line is neither hidden nor touched, and its owner can still retire it while
+       listening; who hears the audio is said in the bar regardless. P6: a start that throws ends cleanly. */
     await phone.evaluate(() => { document.getElementById('d-say-msg').textContent = 'Still sending your last message.'; });
     await phone.tap('#d-mic');
     await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
-    const over = await phone.evaluate(() => document.getElementById('d-say-msg').textContent);
+    const during = await phone.evaluate(() => ({ msg: document.getElementById('d-say-msg').textContent, who: (document.getElementById('voice-who') || {}).textContent || '' }));
+    await phone.evaluate(() => { document.getElementById('d-say-msg').textContent = ''; });   // its owner retires it
     await phone.tap('#d-mic');
     await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'false');
-    const back = await phone.evaluate(() => document.getElementById('d-say-msg').textContent);
-    chk(/Apple hears this audio/.test(over) && back === 'Still sending your last message.', 'P5 on a phone, who hears the audio is said even over another line, and that line comes back after', JSON.stringify({ over, back }));
+    const after = await phone.evaluate(() => document.getElementById('d-say-msg').textContent);
+    chk(during.msg === 'Still sending your last message.' && /Apple hears this audio/.test(during.who) && after === '',
+      'P5 on a phone, another message line is left alone (and stays retired), and who hears the audio is said in its own bar', JSON.stringify({ during, after }));
+    // P7: a session the recognizer ends by itself (after a silence) leaves the mic off and the bar gone.
+    await phone.tap('#d-mic');
+    await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
+    await phone.evaluate(() => window.__recLast.onend());
+    await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'false');
+    const selfEnd = await phone.evaluate(() => ({ btn: !!VOICE.btn, bar: (() => { const b = document.getElementById('voice-who'); return !!b && !b.hidden && getComputedStyle(b).display !== 'none' && b.getBoundingClientRect().height > 0; })() }));
+    chk(!selfEnd.btn && !selfEnd.bar, 'P7 a session that ends by itself leaves the mic off and the bar gone', JSON.stringify(selfEnd));
     await phone.evaluate(() => { window.__recThrow = true; });
     await phone.tap('#d-mic');
     await phone.waitForTimeout(100);
-    const thrown = await phone.evaluate(() => ({ btn: !!VOICE.btn, pressed: document.getElementById('d-mic').getAttribute('aria-pressed'), asking: document.getElementById('d-mic').classList.contains('asking') }));
+    const thrown = await phone.evaluate(() => ({ btn: !!VOICE.btn, pressed: document.getElementById('d-mic').getAttribute('aria-pressed'), asking: document.getElementById('d-mic').classList.contains('asking'), bar: (() => { const b = document.getElementById('voice-who'); return !!b && !b.hidden && getComputedStyle(b).display !== 'none' && b.getBoundingClientRect().height > 0; })() }));
     await phone.evaluate(() => { window.__recThrow = false; });
-    chk(!thrown.btn && thrown.pressed === 'false' && !thrown.asking, 'P6 a recognizer that refuses to start leaves the mic off, not half on', JSON.stringify(thrown));
+    chk(!thrown.btn && thrown.pressed === 'false' && !thrown.asking && !thrown.bar, 'P6 a recognizer that refuses to start leaves the mic off, not half on', JSON.stringify(thrown));
     const spk = await shown(phone, '#d-dmthread .msg:not(.you) .rxn-speak');
     await phone.evaluate(() => { window.__spoken.length = 0; });
     /* Pressed directly: whether a thumb reaches it is the #718 tap-to-open bar, unchanged by voice and not measurable

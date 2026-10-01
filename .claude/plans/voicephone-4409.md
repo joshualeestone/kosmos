@@ -12,7 +12,8 @@ hold, tap and dialog mics, so it merges after it.
   `voiceBridge` returns the Mac bridge first, then the phone shim. So every mic (composers, dialogs, hold, tap) works on
   a phone unchanged, except that on a phone the mic is a TAP started from its click (a user activation; a touch press
   is not one, and a held finger opens the long-press menu), so hold-to-talk is a computer feature.
-- On a phone the listening line says who hears the audio ("Apple" on any iPhone or iPad browser, all Safari's engine;
+- On a phone a bar of its own at the foot of the screen says who hears the audio, from the tap (before any audio
+  can be sent) until listening ends; the box's message lines are left to the rest of the page. It says ("Apple" on any iPhone or iPad browser, all Safari's engine;
   "Google" on Android Chrome only; another Android browser gets no mic rather than a guess) and "Tap the
   mic to stop" (no Escape); a refused microphone or speech recognition points at the phone's settings.
 - Read aloud: already drawn wherever the page can speak (speechSynthesis), phones included; the check now proves it.
@@ -62,5 +63,12 @@ pinning that the recognizer is reached only in the phone shim and the Mac bridge
   good; that line now comes back when listening ends (P5). NOTED (premise, already named): real recognizers on iOS
   and Android, including Android's repeated finals. NIT taken: the once-built shim's limit (an iPad gaining a
   trackpad) is named in its comment. Left NITs: a soft keyboard's own input stops dictation quietly through the
-  box-changed guard (safe); the node pins are source matches, the browser checks carry the behaviour.
+  box-changed guard (safe); the node pins are source matches, the browser checks carry the behaviour.- Round 3 (opus): FIXED W: round 2's "put the covered line back" revived lines their owners had since retired (a
+  search note, a load error the next poll had cleared). Replaced, not patched: on a phone who hears the audio is said
+  in a bar of its own (#voice-who), so no message line is covered or restored (P5 retires the other line mid-listen
+  and it stays retired). FIXED W: the disclosure appeared only once audio was flowing; the bar shows in the tap
+  itself (P2a reads it in the click's own task). FIXED W: Brave on Android sends Chrome's exact user agent and was
+  named Google; navigator.brave now excludes it, and DuckDuckGo and Vivaldi by name (P1b's Brave control; removing
+  the guard reds it). NITs taken: the EU's other iOS engines are named in the comment; a session that ends by itself
+  is pinned (P7).
 

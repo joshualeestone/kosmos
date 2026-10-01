@@ -7324,7 +7324,12 @@ html.has-voice .micbtn { display: grid; }
 .micwrap.line > .fieldmic { top: 50%; right: 8px; transform: translateY(-50%); }
 .micwrap > :disabled + .fieldmic { display: none; }   /* a box that takes no words (instructions still loading) shows no mic */
 .micwrap > textarea { resize: vertical; }   /* a box dragged narrower would leave the mic outside it */
-#nt-voice-msg:empty { display: none; }   /* takes no room unless the mic says something (and never without a mic) */
+#nt-voice-msg:empty { display: none; }
+/* #4409 slice 3: the phone's who-hears-the-audio bar (voiceWho), above everything at the foot of the screen. */
+#voice-who { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 10000;
+  margin: 0; padding: 10px 14px; border-radius: 12px; background: var(--k-ink, #14161a); color: var(--k-bg);
+  font-size: .875rem; line-height: 1.35; box-shadow: 0 4px 16px rgba(0,0,0,.25); pointer-events: none; }
+#voice-who[hidden] { display: none; }   /* takes no room unless the mic says something (and never without a mic) */
 html.has-voice .micwrap > textarea:not(:disabled), html.has-voice .micwrap > input:not(:disabled),
 html.has-voice .micwrap > #d-instr:not(:disabled), html.has-voice .micwrap > #create-instr:not(:disabled) { padding-right: 44px; }   /* the two ID rules set their own padding */
 html.has-voice .micwrap:not(.line) > textarea:not(:disabled),
@@ -60160,7 +60165,7 @@ function repaintReactions(box, list) {
 
    HEARING: speechSynthesis, measured working in the app's web view with 68 voices, all on-device. Only an
    on-device voice is used; a page with none says so rather than using a network voice. */
-const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '', listening: false, displaced: null };
+const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '', listening: false };
 /* #4409 (review 1 BLOCKER): which conversation the page is showing. Opening another agent or room does NOT fire
    hashchange (the URL follows the view through history.replaceState), and #d-say / #pj-post are ONE shared box each,
    so a word heard after a switch would land in the next agent's box, be parked as THEIR draft, and go to them on
@@ -60215,11 +60220,13 @@ function voiceBridge() {
 let VOICE_PHONE = undefined;   // the shim, built once at load (an iPad that later gains a trackpad keeps it); null where none
 function voicePhoneWho() {
   const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
-  /* Named only where we know who it is: every iPhone and iPad browser is Safari's engine (Apple's recognizer), and on
-     Android only Chrome itself is Google's. Another Android browser (Samsung Internet, Edge, Opera, Firefox) may send
-     the audio elsewhere, so it gets no mic rather than a guess. */
+  /* Named only where we know who it is: every iPhone and iPad browser is Safari's engine (Apple's recognizer; outside
+     the EU, where iOS 17.4 allows other engines), and on Android only Chrome itself is Google's. Another Android browser
+     (Samsung Internet, Edge, Opera, Firefox, Brave, DuckDuckGo, Vivaldi) may send the audio elsewhere, so it gets no
+     mic rather than a guess. Brave sends Chrome's exact user agent; navigator.brave tells it apart. */
+  try { if (navigator.brave) return ''; } catch { /* no navigator */ }
   if (/iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document)) return 'Apple';
-  if (/Android/i.test(ua) && /Chrome\//.test(ua) && !/SamsungBrowser|EdgA|OPR|Firefox|YaBrowser|UCBrowser|; wv\)/i.test(ua)) return 'Google';
+  if (/Android/i.test(ua) && /Chrome\//.test(ua) && !/SamsungBrowser|EdgA|OPR|Firefox|YaBrowser|UCBrowser|DuckDuckGo|Vivaldi|; wv\)/i.test(ua)) return 'Google';
   return '';
 }
 function voicePhoneBridge() {
@@ -60329,10 +60336,25 @@ function voiceUnsayOwn(btn) {
   if (el && (el.textContent === VOICE_LISTENING || el.textContent === voiceListeningLine() || Object.values(VOICE_SAYS).includes(el.textContent) || Object.values(VOICE_SAYS_PHONE).includes(el.textContent))) el.textContent = '';
 }
 function voiceUnsay(btn) {
+  voiceWho('');
   const el = btn && document.getElementById(btn.getAttribute('data-voice-msg') || '');
-  const back = VOICE.displaced && VOICE.displaced.btn === btn ? VOICE.displaced.text : '';
-  VOICE.displaced = null;
-  if (el && (el.textContent === VOICE_LISTENING || el.textContent === voiceListeningLine())) el.textContent = back;
+  if (el && (el.textContent === VOICE_LISTENING || el.textContent === voiceListeningLine())) el.textContent = '';
+}
+/* Slice 3: on a phone, who hears the audio is said in a bar of its own at the foot of the screen, from the tap (before
+   any audio can be sent) until listening ends. Not in the box's message line: that line belongs to whatever else the
+   page is saying, and covering it hides that (or, put back after, revives a line its owner has since retired). */
+function voiceWho(line) {
+  let bar = document.getElementById('voice-who');
+  if (!line) { if (bar) { bar.hidden = true; bar.textContent = ''; } return; }
+  if (!bar) {
+    bar = document.createElement('p');
+    bar.id = 'voice-who';
+    bar.setAttribute('role', 'status');
+    bar.setAttribute('aria-live', 'polite');
+    document.body.appendChild(bar);
+  }
+  bar.textContent = line;
+  bar.hidden = false;
 }
 function voiceToggle(btn) {
   const h = voiceBridge();
@@ -60348,6 +60370,7 @@ function voiceToggle(btn) {
   Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), selected: v.slice(s0, s1), where: voiceWhere(box), id: 's' + VOICE.seq, last: v, listening: false });
   voiceUnsayOwn(btn);   // review 6: clear only the mic's own earlier lines, never another message's (a failed send, a refusal)
   voicePaint(btn, 'asking');
+  if (h.phone) voiceWho('Starting the microphone. ' + voicePhoneWho() + ' hears this audio to turn it into words. Tap the mic to stop.');   // before a word can be sent
   h.postMessage({ op: 'start', id: VOICE.id });
   /* #4409 (review 4): clicking the mic moves focus to the button, and Escape stops only from the box, so give the box
      focus back (its caret was read above and focusing does not move it). Typing then also takes the box back. */
@@ -60375,15 +60398,9 @@ function voiceOnEvent(ev) {
   if (ev.kind === 'listening') {
     VOICE.listening = true;
     voicePaint(btn, 'on');
-    /* Never over another message's line, EXCEPT on a phone: there the line says who hears the audio, and that is a
-       disclosure, not a hint (slice 3). The other line is a passing status; the person sees it again when it matters. */
     const hb = voiceBridge();
-    if (voiceMsgEmpty(btn)) voiceSay(btn, voiceListeningLine());
-    else if (hb && hb.phone) {   // the other line comes back when listening ends (voiceUnsay)
-      const el = document.getElementById(btn.getAttribute('data-voice-msg') || '');
-      VOICE.displaced = { btn, text: el ? el.textContent : '' };
-      voiceSay(btn, voiceListeningLine());
-    }
+    if (hb && hb.phone) voiceWho(voiceListeningLine());   // slice 3: on a phone the line is the bar, never a message line
+    else if (voiceMsgEmpty(btn)) voiceSay(btn, voiceListeningLine());   // never over another message's line
     return;
   }   // review 5: focus is in the box, so the line is said there
   if ((ev.kind === 'partial' || ev.kind === 'final') && VOICE.box) {
