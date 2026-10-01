@@ -17243,8 +17243,36 @@ const server = http.createServer(async (req, res) => {
             sendJson(res, 429, { error: refusal.because, retry_after_secs: refusal.retryAfterSecs }); return;
           }
         }
+        /* #4887: `kosmos task add --who <agent>`. For an agent caller, `me` is that agent unless a member is named
+           exactly that; the page sends member names, so `me` is a name there. A name is matched to a member
+           exactly, else by store key when exactly one member has that key. */
+        let whoAsked = body.who;
+        /* A name that was given but is only spaces (any the String trim knows, such as U+00A0) would be stored as
+           no owner and answered as a success; refused here, once for both CLIs. The page sends no who for nobody. */
+        if (typeof whoAsked === 'string' && whoAsked.length && !whoAsked.trim()) {
+          sendJson(res, 400, { error: 'that is not an agent\'s name; name an agent on the project, or me' }); return;
+        }
+        let members = [];
+        if (typeof whoAsked === 'string' && whoAsked.trim()) {
+          try { members = ((projects.readAll() || []).find((x) => x && x.id === id) || {}).agents || []; }
+          catch { members = []; }
+          if (!Array.isArray(members)) members = [];
+        }
+        if (!viaScreen && typeof whoAsked === 'string' && whoAsked.trim().toLowerCase() === 'me' && !members.includes(whoAsked.trim())) {
+          if (!paneCard) {
+            sendJson(res, 400, { error: 'Kosmos could not tell which agent you are, so it cannot give the task to you; name the agent instead' }); return;
+          }
+          whoAsked = paneCard.sessionName;
+        }
+        if (typeof whoAsked === 'string' && whoAsked.trim()) {
+          const asked = whoAsked.trim();
+          if (!members.includes(asked)) {
+            const found = members.filter((m) => sameAgentName(m, asked, true));
+            if (found.length === 1) whoAsked = found[0];
+          }
+        }
         try {
-          const made = tasks.create(id, { sentence: body.sentence, detail: body.detail, who: body.who,
+          const made = tasks.create(id, { sentence: body.sentence, detail: body.detail, who: whoAsked,
             parent: body.parent,
             made: { via: viaScreen ? 'screen' : 'process', by: paneCard ? paneCard.sessionName : null } }, roster);
           // The assignee's managed block now lists this task in the exact
@@ -17264,7 +17292,12 @@ const server = http.createServer(async (req, res) => {
           // Task CREATION has its own persisted refusal above (the runaway breaker,
           // which 429s the whole request); this only gates whether it also pages a pane.
           let heard;
-          if (viaScreen || heardBudgetAllows(made.who, roster)) {
+          /* #4887: an agent that gave the task to itself (`--who me`, or its own name) is not paged about it: the
+             line would land in its own screen, mid-turn, and spend its own hourly allowance. Nothing to tell. */
+          const toSelf = !viaScreen && !!paneCard && !!made.who && sameAgentName(made.who, paneCard.sessionName, who.byKey);
+          if (toSelf) {
+            heard = undefined;
+          } else if (viaScreen || heardBudgetAllows(made.who, roster)) {
             heard = await heardBy(id, made, made.who, made.sentence, roster, chat.deliverAsync);
             // Only a REAL delivery spends the allowance: a run of failed attempts
             // while an agent is unreachable must not use up its hour, or it would
