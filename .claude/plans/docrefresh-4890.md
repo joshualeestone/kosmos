@@ -105,4 +105,10 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   click's own reason (one constant), so the list says what the click does. FIXED NITs: planFor's return line lists
   `updating?`; atBirth's inline comment says what the code checks (today's block byte for byte), not who wrote it.
   Left NITs: the empty fold in the cut-only case; hashing before the cheap checks; the test's temp dir.
+- Round 11 (sonnet): FIXED W: the generator checks every prefix pair; an earlier block that a later one extends
+  inside its last section is left out of the table with a warning (its agents keep the missing-headings rule, never
+  a wrong cut). Proved both ways: with the working copy's last section extended the v21 row was left out, and on
+  the real tree the table regenerates byte-identical. It also fails, rather than warns, on a version it cannot load.
+  FIXED W: the defaults.js v21 log names Windows line endings beside edited copies. Left NITs: the empty fold in
+  the cut-only case; a row's version label is the first commit that produced its block.
 

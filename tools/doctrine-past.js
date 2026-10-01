@@ -28,16 +28,31 @@ try {
   const sources = shas.map((h) => ({ from: h.slice(0, 9), text: git('show', `${h}:engine/defaults.js`) }));
   sources.unshift({ from: 'working copy', text: fs.readFileSync(path.join(ROOT, 'engine', 'defaults.js'), 'utf8') });
   const seen = new Map();
+  const texts = new Map();
+  let skipped = 0;
   sources.forEach((src, i) => {
     const file = path.join(tmp, `d${i}.js`);
     fs.writeFileSync(file, src.text);
     let mod;
-    try { mod = require(file); } catch (err) { console.warn(`skipped ${src.from}: ${err.message}`); return; }
+    try { mod = require(file); } catch (err) { console.warn(`skipped ${src.from}: ${err.message}`); skipped += 1; return; }
     const block = typeof mod.block === 'function' ? mod.block() : null;
     if (typeof block !== 'string' || !block) return;
     const sha256 = crypto.createHash('sha256').update(block).digest('hex');
     if (!seen.has(sha256)) seen.set(sha256, { version: Number.isFinite(mod.DOCTRINE_VERSION) ? mod.DOCTRINE_VERSION : null, length: block.length, sha256 });
+    texts.set(sha256, block);
   });
+  if (skipped) throw new Error(`${skipped} version(s) of engine/defaults.js could not be loaded; the table would miss them`);
+  /* doctrine.pastBlockIn tells an earlier block from a longer one it is a prefix of by what follows it: a longer
+     block must go on with a new `###` section. An earlier block that a later one extends INSIDE its last section
+     cannot be told apart, so it is left out: agents holding it keep the missing-headings rule (never a wrong cut). */
+  for (const [ka, a] of texts) {
+    for (const [kb, b] of texts) {
+      if (ka !== kb && b.length > a.length && b.startsWith(a) && !/^(?:[ \t]*\r?\n)*### /.test(b.slice(a.length + 1))) {
+        console.warn(`left out the ${a.length}-character block: a later one extends it inside its last section`);
+        seen.delete(ka);
+      }
+    }
+  }
   const rows = [...seen.values()].sort((a, b) => (b.version || 0) - (a.version || 0) || b.length - a.length);
   const body = [
     "'use strict';",

@@ -824,7 +824,8 @@ function block() {
  *     current rules through the same consented dialog, which puts them inside the span.
  *     WEAKEST PREMISE, NAMED: that most existing agents carry an unedited copy. Measured on this Mac on
  *     2026-10-01: 3 of 3 instruction files holding the rules matched an earlier version exactly (v15 twice, v18
- *     once), none was in a span. A person who edited theirs is offered only missing headings, as before.
+ *     once), none was in a span. A person who edited theirs, or whose file has Windows line endings, is offered
+ *     only missing headings, as before.
  */
 const DOCTRINE_VERSION = 21;
 
