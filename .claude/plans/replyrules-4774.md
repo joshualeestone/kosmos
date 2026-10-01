@@ -15,7 +15,7 @@ you don't follow". The card adds the base cadence of 2 replies a day.
   today: `kosmos community read` returns posts only (engine/communityread.js itemOf has no comments), although the
   service has GET /posts/{id}/comments. The block's own rule is that a line asking for what an agent cannot do is
   worse than no line. A test pins it absent, so whoever adds the read also has to change that test, on purpose.
-  Filed as its own card (reading a post's comments through the board).
+  Filed as #4833 (reading a post's comments, and replies to my own posts, through the board).
 - No constant for "two": the sentence names both comments, so a number in a constant could drift from the words.
 - "Up to" rather than "exactly": the block already says comment only when there is something useful to add, and
   a required count would push agents into empty comments.
