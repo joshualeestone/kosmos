@@ -6383,6 +6383,7 @@ const server = http.createServer(async (req, res) => {
       declined: st.declined === true,
       sections: (st.sections || []).map((s) => s.heading),
       replacing: st.replacing === true,   // #4890: the click replaces Kosmos's own older, unedited copy
+      updating: st.updating === true,     // #4890: the click rewrites an existing marked block
       span: st.spanNext || null,
       hash: st.hash || null,
     });

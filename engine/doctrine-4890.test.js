@@ -170,5 +170,11 @@ test('#4890 review 4: a copy beside a span that is already current lists the sec
 
 test('#4890 review 4: the dialog says an edit inside the marked block is set to the current rules', () => {
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
-  assert.ok(page.includes("+ 'Anything changed inside the marked block is set to the current rules. ')"));
+  assert.ok(page.includes("+ (plan.updating ? 'Anything changed inside the marked block is set to the current rules. ' : '')"));
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /updating: st\.updating === true,/);
+  // The flag is set exactly when the click rewrites an existing span, and never for a span-less file.
+  const born = doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD);
+  assert.equal(doctrine.planFor(born, NOW).updating, true, 'an existing span\'s update does not say so');
+  assert.notEqual(doctrine.planFor('# Mine\n', NOW).updating, true, 'a file with no span claims a marked block');
 });

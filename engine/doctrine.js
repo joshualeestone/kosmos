@@ -150,7 +150,7 @@ function sectionContentOf(spanInner) {
  *   { state: 'refresh', sections, spanNext, fileNext, hash, replacing? }
  *
  * `replacing` (#4890) is true when the click also removes an unedited plain
- * copy of an earlier block. `past` is the fingerprint table, for tests only;
+ * copy of an earlier block; `updating` when it rewrites an existing span. `past` is the fingerprint table, for tests only;
  * engine/doctrine-past.js otherwise.
  *
  * `sections` is what the dialog lists; `fileNext` is what a click writes;
@@ -213,7 +213,7 @@ function planFor(text, now, past) {
     if (sectionContentOf(spanInner) === wantedContent) return { state: 'current' };
     const spanNext = spanBody(wanted, now);
     const fileNext = projects.spliceBlock(body, spanNext, START, END);
-    return { state: 'refresh', sections: wanted, spanNext, fileNext, hash: hashOf(fileNext) };
+    return { state: 'refresh', updating: true, sections: wanted, spanNext, fileNext, hash: hashOf(fileNext) };
   }
   /* No span: an agent born with the doctrine as plain text, or born before
      it. Only genuinely absent sections are offered (constraint 8); a file

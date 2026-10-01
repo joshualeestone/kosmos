@@ -70,4 +70,9 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   sections the file keeps. FIXED W: two copies (two earlier ones, or an earlier one and today's) settle in one click.
   FIXED NIT: the birth line says "set up", true for an imported agent too. Left NITs: one long docstring line; the
   test's temp dir is not removed (as its siblings).
+- Round 5 (sonnet): FIXED W (two, both my own dialog sentences, so cut rather than reworded): the replace sentence no
+  longer says "inside a marked block" (an earlier copy beside today's plain copy is only cut); the inside-the-block
+  sentence shows only when the click rewrites an existing span (`updating`). DEFERRED W: the fleet click can now cut
+  a plain copy with no wording for it; no fleet screen exists, the list route sends `replacing`, and the fleet click
+  is name-level consent by Mona Lisa's ruling. Whoever builds that screen should read `replacing`.
 
