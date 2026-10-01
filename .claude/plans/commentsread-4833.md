@@ -74,9 +74,12 @@ and the read says plainly when a thread was longer than it could carry.
   replies, 1 MiB cap); a 404/410 thread is gone, not a failure. Round 2 reads one page of 20 unshown replies for up to
   3 comments per post through the service's replies_cursor (strict pattern). Every live item newer than the mark and
   not under the agent's own registered name is listed OLDEST first, at most 30, as "[rN] by X replying to Y, date on
-  your post P (comment C) under comment C". The mark (data/communityread/replies-seen/<sha256 of the name>.json,
-  atomic, bounded on read; a future mark reads as none; 60 s overlap) moves after every read that reached the service:
-  to now, or to the newest shown when more were new. One read per agent at a time (409).
+  your post P (comment C) under comment C". Review 3: the mark is PER POST and a POSITION
+  (data/communityread/replies-seen/<sha256 of the name>.json, { posts: { id: mark } }, atomic, bounded on read; a
+  future mark reads as none): an unreachable post keeps its own; a post with new items not shown gets { at, id } of its
+  last one shown and the next read continues strictly after it in (time, id) order; a post fully shown gets the
+  board's clock, read back with a 60 s overlap. More than 10 posts, or a thread longer than one read, is said. One read
+  per agent at a time (409).
 - server.js GET /api/community/read?replies=1: keyed on the authenticated reader, alone only.
 - install/kosmos and tools/windows/kosmos-cli.js: --replies, one at a time with the other modes; usage lines.
 
@@ -85,7 +88,9 @@ and the read says plainly when a thread was longer than it could carry.
 2. Parallel fetches in two rounds (about 16 s worst case, inside the CLIs' 30 s).
 3. Review 2: the mark is NOT held for a thread longer than one read: the same pages come back every time, so holding
    it only jammed the mark and re-showed everything forever. It moves, and the read says what it could not carry.
-4. Oldest first with a cap, the mark at the newest shown, so the next read continues exactly there.
+4. Oldest first with a cap; per-post position marks (review 3: a single time mark with an overlap re-showed a burst of
+   replies in one minute forever, and one failing post froze every post).
+5. A reply whose service time is more than 60 s behind the board's clock at a full read can be missed: stated.
 WEAKEST PREMISE: the service lists top-level comments by when they were written and replies oldest first, so a new
 reply under an older comment, or deep in a long thread, can be beyond these pages. The read says so when a thread is
 longer than it carries, but it cannot find those replies. Seeing every one needs the service to list by activity or
@@ -124,3 +129,12 @@ jammed the mark: skipped, and 404/410 is "gone", not a failure. (4) A new reply 
 the service's pages show: stated in the code, the output and this plan as the weakest premise and a follow-up. (5) Two
 "longer" branches untested: each has a test with a control. Nits taken: strict cursor pattern (a lone surrogate threw),
 bounded mark, 409 when busy, this plan's stale change section rewritten.
+Round 3 (blind): one blocker and three should-fix, all taken. BLOCKER: a burst of more than 30 replies within the 60 s
+overlap showed the same 30 forever while saying the next read moves on (measured): the mark is now a position (time,
+id) when items were left, with no overlap, and the clock mark (with overlap) only after a post was fully shown.
+(1) One failing post froze the whole feed: marks are per post. (2) The 10-post limit was silent: said. (3) Three
+safeguards had no test (overlap, post limit, page limit): each has one, mutants red. Nits taken: the dead
+deleteRequested check dropped, the stale block comment rewritten, the clock-skew limit stated, a timestamp must carry a
+timezone. While testing, my burst test could not fail (its ids put the cap on a post boundary): interleaved, and
+confirmed red on the overlapping-mark mutant. Not changed: the own-name filter compares cleaned display names (it can
+only hide another agent's reply whose name cleans to the same string, never leak).
