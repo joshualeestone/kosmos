@@ -23,32 +23,32 @@ converged: true
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 4 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 0 of the above
-- [WARNING] web/index.html — the folded bubble covered the needs-you triangle; the check never built that row --> FIXED (compact folded bubble; the check builds an attn row with the app's LROW_WARN and asserts clearance at "2" and "99+")
-- [WARNING] web/index.html — the overscroll diagnosis rested on one built state --> FIXED (a short 1024x640 size added; nothing overflows; the subscription notice is shown in the sandbox, so the notice row is in every run)
-- [WARNING] render-shell-noscroll-4872.js — the header claimed the scroll assertion proved the fix --> FIXED (header states what each assertion proves; no-overflow is a regression guard)
-- [WARNING] render-shell-noscroll-4872.js — the bounce assertion reads computed style only --> FIXED (stated in the header; the Mac app is the real test)
+- [WARNING] web/index.html - the folded bubble covered the needs-you triangle; the check never built that row --> FIXED (compact folded bubble; the check builds an attn row with the app's LROW_WARN and asserts clearance at "2" and "99+")
+- [WARNING] web/index.html - the overscroll diagnosis rested on one built state --> FIXED (a short 1024x640 size added; nothing overflows; the subscription notice is shown in the sandbox, so the notice row is in every run)
+- [WARNING] render-shell-noscroll-4872.js - the header claimed the scroll assertion proved the fix --> FIXED (header states what each assertion proves; no-overflow is a regression guard)
+- [WARNING] render-shell-noscroll-4872.js - the bounce assertion reads computed style only --> FIXED (stated in the header; the Mac app is the real test)
 - [NIT] unasserted `over` list --> FIXED (asserted empty); silent paintRoom guard --> FIXED (posts painted is a precondition); indentation --> accepted
 
 #### Iteration 2
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 4 NITs
 **Self-generated:** 2 of the above
-- [WARNING] web/index.html — knife-edge fit (flush with the strip's top, 0.7px over the triangle) --> FIXED (face 2px lower in the same 42px row, bubble top -3px: about 1px and 1.7px clearance; assertions require it)
-- [WARNING] web/index.html — the bounce fix is unverified in the Mac app --> DEFERRED: a stated limit; headless engines do not rubber-band; confirmed by eye in the app with the next build
+- [WARNING] web/index.html - knife-edge fit (flush with the strip's top, 0.7px over the triangle) --> FIXED (face 2px lower in the same 42px row, bubble top -3px: about 1px and 1.7px clearance; assertions require it)
+- [WARNING] web/index.html - the bounce fix is unverified in the Mac app --> DEFERRED: a stated limit; headless engines do not rubber-band; confirmed by eye in the app with the next build
 - [NIT] size count wording (FIXED), "99+" text unasserted (FIXED), :has arm (accepted), dark mode (accepted: the dark .dmbadge rule applies unchanged)
 
 #### Iteration 3
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 5 NITs
 **Self-generated:** 1 of the above
-- [WARNING] web/index.html — the folded bubble covers the top of the memory ring --> DEFERRED as an accepted trade, written in the CSS and the check header (a 48px strip has no free corner; the unread count is the more urgent signal)
-- [WARNING] web/index.html — bounce unverified in the app --> duplicate of iteration 2's deferral
+- [WARNING] web/index.html - the folded bubble covers the top of the memory ring --> DEFERRED as an accepted trade, written in the CSS and the check header (a 48px strip has no free corner; the unread count is the more urgent signal)
+- [WARNING] web/index.html - bounce unverified in the app --> duplicate of iteration 2's deferral
 - [NIT] comment overstated "nothing overflows" (FIXED), band offset unstated (FIXED), plan wording (FIXED), repaint flake risk (accepted: fails red), dead trailer pair without .js (accepted: noise)
 
 #### Iteration 4
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 0 WARNINGs (its one WARNING is the iteration 2 bounce limit again), 0 CONVENTIONs, 3 NITs
-**Converged** — no new actionable findings.
+**Converged** - no new actionable findings.
 
 ### Final Ledger
 
