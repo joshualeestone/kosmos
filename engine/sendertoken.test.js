@@ -232,36 +232,19 @@ test('#4792 review 2: one twin resolving does not re-arm the other twin\'s clash
   } finally { console.warn = orig; }
 });
 
-test('#4844: revoking one of two names that share a key keeps the other\'s tokens, and drops unattributable ones', () => {
-  const fs = require('node:fs');
-  const big = sendertoken.mint('Vale4844').token;
-  const small = sendertoken.mint('vale4844').token;
-  const file = path.join(sendertoken.DIR, 'vale4844.json');
-  const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
-  const old = require('node:crypto').randomBytes(32).toString('hex');
-  kept.tokens.push({ token: old, instance: 'old', mintedAt: '2026-09-01T00:00:00.000Z' });
-  fs.writeFileSync(file, JSON.stringify(kept), { mode: 0o600 });
-  assert.equal(sendertoken.revoke('Vale4844').ok, true);
-  assert.equal(sendertoken.resolveName(big).ok, false, 'the revoked agent can still speak');
-  assert.equal(sendertoken.resolveName(old).ok, false, 'an unattributable older token survived a revoke of its key');
-  const left = sendertoken.resolveName(small);
-  assert.equal(left.ok, true, 'revoking Vale4844 cut off vale4844');
-  assert.equal(left.name, 'vale4844');
-  // Control: revoking the last name removes the file, as before.
-  assert.equal(sendertoken.revoke('vale4844').ok, true);
-  assert.equal(fs.existsSync(file), false, 'the last name\'s revoke left the file');
-});
-
-test('#4844: a revoke that names nobody in a shared file takes every token (fail closed)', () => {
-  const a = sendertoken.mint('Wyn4844').token;
-  const b = sendertoken.mint('wyn4844').token;
-  assert.equal(sendertoken.revoke('WYN4844').ok, true);   // a spelling no token carries
-  assert.equal(sendertoken.resolveName(a).ok, false, 'a revoke by an unknown spelling left a token alive');
-  assert.equal(sendertoken.resolveName(b).ok, false, 'a revoke by an unknown spelling left a token alive');
-  // And with one name only, the whole key goes whatever the spelling, as before #4844.
-  const c = sendertoken.mint('Yew4844').token;
-  assert.equal(sendertoken.revoke('yew4844').ok, true);
-  assert.equal(sendertoken.resolveName(c).ok, false, 'one name under the key: a revoke by another spelling must still take it');
+test('#4844 review 1: revoke stays whole-key, so a paneless agent removed by its KEY spelling cannot keep speaking', () => {
+  /* A Windows or remote agent "Pax4844" is minted under its typed name but listed, removed and created by its key
+     "pax4844" (status.js). A narrowed revoke kept its tokens and took a bystander's instead (measured in review). */
+  const typed = sendertoken.mint('Pax4844').token;
+  const bystander = sendertoken.mint('pax4844').token;
+  assert.equal(sendertoken.revoke('pax4844').ok, true);
+  assert.equal(sendertoken.resolveName(typed).ok, false, 'the removed paneless agent\'s token still resolves');
+  assert.equal(sendertoken.resolveName(bystander).ok, false, 'revoke is whole-key by design: the other name is over-revoked, never under');
+  // And by the typed spelling, the same.
+  const t2 = sendertoken.mint('Pax4844').token;
+  const b2 = sendertoken.mint('pax4844').token;
+  assert.equal(sendertoken.revoke('Pax4844').ok, true);
+  assert.equal(sendertoken.resolveName(t2).ok || sendertoken.resolveName(b2).ok, false, 'a revoke left a token under its key');
 });
 
 test('#4844: one name\'s untagged sweep keeps another name\'s tokens under the same key', () => {

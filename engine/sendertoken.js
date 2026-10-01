@@ -215,13 +215,16 @@ function revokeUnlocked(sessionName) {
   }
 }
 
-/* #4844: whose tokens may one name's revoke or sweep take, when the file is shared? Returns a predicate for the
+/* #4844: whose tokens may one name's untagged SWEEP take, when the file is shared? Returns a predicate for the
    tokens that are NOT this agent's (kept), or null for "take them all", today's rule. Only narrows when the file holds
-   named tokens for more than one name AND one of those names is exactly `sessionName`: then the other names' tokens
-   are kept, and tokens with no name (minted before #4792, unattributable) are taken as before. In every other case
-   (one name, no names, or a spelling no token carries) it takes them all, so a caller passing a spelling the mint did
-   not use can never leave a removed agent's tokens alive. That is the security direction: revoke is create.js's
-   new-agent gate (#1782). */
+   named tokens for more than one name AND one of those names is exactly `sessionName`. Tokens with no name (minted
+   before #4792, unattributable) are taken as before.
+   🛑 FOR THE SWEEP ONLY, NEVER FOR revoke. The sweep's name comes from the supervisor's token_roster_name, the same
+   function that names its mint, so the spelling always matches. revoke's callers do not have that: a paneless
+   (Windows or remote) agent is removed and created under its KEY spelling (status.js lists it by key) while its
+   tokens carry the typed name, so a narrowed revoke kept the removed agent's own tokens and revoked a bystander's
+   (review 1, measured). revoke stays whole-key: its cross-name cost is an over-revoke the other agent recovers from by
+   relaunching or being re-issued, never a removed agent that can still speak. */
 function othersTokens(held, sessionName) {
   let key;
   try { key = store.safeKey(sessionName); } catch { return null; }
@@ -235,21 +238,11 @@ function othersTokens(held, sessionName) {
  *  #1782: under the lock, so a straggler `mint` cannot land its write between the
  *  read and this unlink and resurrect a token the recreate meant to erase -
  *  `create.js` uses `revoke` as exactly that new-agent security gate.
- *  #4844: "every token for an agent", not every token in the file: when another agent whose name shares the key holds
- *  named tokens here, theirs are kept (othersTokens). Otherwise the whole file goes, as before. */
+ *  #4844: deliberately WHOLE-KEY, also taking another name's tokens under the same key; see othersTokens for why a
+ *  narrowed revoke is unsafe. */
 function revoke(sessionName) {
   let held;
-  try {
-    held = withSessionLock(sessionName, () => {
-      const all = readTokens(sessionName);
-      const theirs = othersTokens(all, sessionName);
-      if (!theirs) return revokeUnlocked(sessionName);
-      const kept = all.filter(theirs);
-      if (kept.length === 0) return revokeUnlocked(sessionName);
-      writeTokens(sessionName, kept);
-      return { ok: true };
-    });
-  }
+  try { held = withSessionLock(sessionName, () => revokeUnlocked(sessionName)); }
   catch { return { ok: false, because: 'we could not remove that agent\'s tokens' }; }
   if (!held.ok) return { ok: false, because: held.because };
   return held.value;
