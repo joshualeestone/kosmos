@@ -1429,16 +1429,16 @@ async function deviceDeny(id) {
     device's current sign-ins at the sign-in site and on the account's other computers (kosmos#4803),
     and answers `signed_out` and `local_cutoff` for the page to say what did not happen.
     A connector from before kosmos#4803 refuses the flag before doing anything (clap: "unexpected
-    argument '--coordinator'", exit 2, measured on that build), so it is asked again without it and
-    the answer carries `old_connector`: the removal here works as it always did. */
+    argument '--coordinator'", exit 2, measured on that build), so it is asked again without it: the
+    removal here works as it always did, and the answer has no `signed_out`, which the page reads as
+    "Kosmos+ was not told". */
 async function deviceRemove(id) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   const r = await tracked(setupRun(deviceArgs('remove', id, true), null, retireTimeoutMs()));
-  if (!r.ok && /unexpected argument '--coordinator'/.test(String(r.stderr || '') + '\n' + String(r.because || ''))) {
-    const older = parseSaid(await tracked(setupRun(deviceArgs('remove', id, false), null, retireTimeoutMs())));
-    return older.ok ? { ...older, data: { ...(older.data || {}), old_connector: true } } : older;
+  if (!r.ok && r.code === 2 && /unexpected argument '--coordinator'/.test(String(r.stderr || '') + '\n' + String(r.because || ''))) {
+    return parseSaid(await tracked(setupRun(deviceArgs('remove', id, false), null, retireTimeoutMs())));
   }
   return parseSaid(r);
 }

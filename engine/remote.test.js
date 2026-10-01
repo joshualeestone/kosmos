@@ -1080,7 +1080,6 @@ test('#4824: remove tells the coordinator, so the device stops at the sign-in si
   assert.equal(ok.ok, true, ok.because);
   assert.equal(ok.data.signed_out, true);
   assert.equal(ok.data.local_cutoff, true);
-  assert.equal(ok.data.old_connector, undefined);
   const calls = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove');
   assert.equal(calls.length, 1, 'a connector that knows the flag was asked twice');
   assert.ok(calls[0].includes('--coordinator'), 'remove did not tell the coordinator');
@@ -1097,7 +1096,7 @@ test('#4824: a connector from before kosmos#4803 refuses the flag; remove is ask
   const r = await remote.deviceRemove('dev-1');
   assert.equal(r.ok, true, r.because);
   assert.equal(r.data.removed, true);
-  assert.equal(r.data.old_connector, true, 'the page cannot tell the sign-in site was not reached');
+  assert.equal(r.data.signed_out, undefined, 'an old connector cannot have told the sign-in site');
   const calls = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove');
   assert.equal(calls.length, 2);
   assert.ok(calls[0].includes('--coordinator') && !calls[1].includes('--coordinator'));

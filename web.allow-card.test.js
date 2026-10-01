@@ -75,10 +75,7 @@ test('the change-your-password sentence appears on the Deny branch and the re-as
 /* #3829: "Not now" and "Not me" are gone (Mona Lisa's review: Allow / Deny only); a request that is left
    alone fades after an hour instead. Requests show ONCE, as cards, not again in the devices list. */
 test('Remove confirms inline with the sentence the tunnel makes true; Allow / Deny only, and requests show once', () => {
-  assert.match(JS, /Remove this ' \+ askEsc\(name\) \+ '\? It stops right away, here and on your other computers\. It can ask again by signing in\./);
-  // #4824: what the connector could not do is said, and only when its answer says so.
-  assert.match(JS, /said\.signed_out === false\s*\? 'Removed here\. Kosmos\+ could not be reached/);
-  assert.match(JS, /said\.local_cutoff === false\s*\? 'Removed\. If you let it in again/);
+  assert.match(JS, /Remove this ' \+ askEsc\(name\) \+ '\? It stops right away\. It can ask again by signing in\./);
   assert.equal((JS.match(/data-ask="later"/g) || []).length, 0, 'a Not now dismiss is back');
   assert.doesNotMatch(JS, />Not me</, 'a Not me button is back');
   assert.doesNotMatch(JS, /devrow pending/, 'pending requests are painted in the devices list too');
@@ -121,4 +118,26 @@ test('#718: the Allow card has no solid coloured left bar (Josh, 2026-09-24), an
   // The rule is a one-line block: anchor on the whole of it, so the 44px cannot drift out of
   // the touchscreen query unnoticed.
   assert.match(PAGE, /@media \(hover: none\) \{ \.askcard button \{ min-height: 44px; \} \}/, 'a touchscreen block gives the Allow buttons 44px');
+});
+
+/* #4824: what the person is told after a Remove, from the connector's answer (kosmos#4803). Run, not grepped. */
+test('#4824: removedWords says the other computers are reached only when the connector says so', () => {
+  const src = JS.slice(JS.indexOf('function removedWords('), JS.indexOf("document.getElementById('plus-devlist').addEventListener"));
+  assert.ok(src.length > 100, 'removedWords moved; re-anchor');
+  const removedWords = new Function(src + '; return removedWords;')();
+  assert.match(removedWords({ removed: true, signed_out: true, local_cutoff: true }), /^Removed\. Its sign-in also ends on your other computers/);
+  // An old connector answers no signed_out; an unreachable Kosmos+ answers false: both are "not told".
+  for (const said of [{ removed: true }, { removed: true, signed_out: false, local_cutoff: true }, null]) {
+    assert.match(removedWords(said), /^Removed here\. Kosmos\+ was not told/, JSON.stringify(said));
+  }
+  assert.match(removedWords({ signed_out: false, local_cutoff: false }), /not told.*could not record the end of its current sign-in/);
+  assert.doesNotMatch(removedWords({ signed_out: true, local_cutoff: true }), /could not record/);
+  assert.doesNotMatch(removedWords({ signed_out: true }), /[\u2014]/);
+});
+
+test('#4824: the repaint after a Remove keeps what the Remove said', () => {
+  assert.match(JS, /async function paintDevices\(keepMsg\)/);
+  assert.match(JS, /if \(!keepMsg\) msg\.textContent = '';/);
+  const handler = JS.slice(JS.indexOf("if (act === 'removeyes')"));
+  assert.match(handler, /msg\.textContent = removedWords\([\s\S]*?paintDevices\(true\)/);
 });
