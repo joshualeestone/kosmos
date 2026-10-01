@@ -125,16 +125,17 @@ declare -F bc_quarantine_note >/dev/null && declare -F bc_quarantine_verdict >/d
 # and refuse ITSELF. Skip the guard in the child -- the parent cleared the field
 # once, for both.
 if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ] && [ -z "${KOSMOS_BC_FROZEN_RUNNER:-}" ]; then
-  # #4911: a light run's SIDE turn (beside a heavy run, kosmos_light_side_clear) ends in minutes. When one is live,
-  # WAIT for it rather than refuse: this page layer is likely the heavy holder's own, and refusing would turn its run
-  # red for a neighbour it was promised. With no side turn live, the refusal is as before. A side turn's own page layer
-  # carries its cookie, so it is not foreign to itself.
+  # #4911: a light run's SIDE turn (beside a heavy run, kosmos_light_side_clear) ends in minutes (queued-heavy.sh stops
+  # it at its cap, inside this wait's 20-minute bound). When one is live, WAIT for it rather than refuse: this page
+  # layer is likely the heavy holder's own, and refusing would turn its run red for a neighbour it was promised. Then
+  # the browser-run check runs ONCE, as before: waiting on it too made two page layers that both met a side turn wait
+  # on each other's markers until the bound (review 2). A side turn's own page layer carries its cookie, so it is not
+  # foreign to itself.
   if ! kosmos_refuse_if_light_side_live "this page layer" 2>/dev/null; then
-    _bc_clear() { kosmos_refuse_if_light_side_live "this page layer" && kosmos_refuse_if_browser_run_live "this page layer"; }
-    kosmos_wait_until_clear "this page layer" _bc_clear || exit 1
-  else
-    kosmos_refuse_if_browser_run_live "this page layer" || exit 1
+    _bc_side() { kosmos_refuse_if_light_side_live "this page layer"; }
+    kosmos_wait_until_clear "this page layer" _bc_side || exit 1
   fi
+  kosmos_refuse_if_browser_run_live "this page layer" || exit 1
 fi
 
 # --- freeze against a concurrent merge (#758) --------------------------------

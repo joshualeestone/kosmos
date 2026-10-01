@@ -619,7 +619,9 @@ kosmos_mark_suite_waiting() {
   dir="$(_kosmos_marker_dir)"; mkdir -p "$dir" 2>/dev/null || return 0
   # #4609 light lane: line 5 is this run's class (KOSMOS_QUEUE_CLASS=light, anything else is heavy). An older copy of
   # this lib reads lines 1 to 4 only, so it keeps plain oldest-first order.
-  printf '%s %s\n%s\n%s\n%s\n%s\n' "$ts" "$$" "$(ps -ww -o command= -p "$$" 2>/dev/null)" "$(_kosmos_pid_started_local "$$")" "$(_kosmos_pid_started "$$")" "$(_kosmos_queue_class)" > "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null \
+  # #4911: line 6 is "side" when this run asks for side turns (KOSMOS_SIDE_CAPABLE=1, queued-heavy.sh sets it), so a
+  # light waiter that never will (an older queued-heavy, KOSMOS_SIDE_LANE=0) does not hold the side lane for others.
+  printf '%s %s\n%s\n%s\n%s\n%s\n%s\n' "$ts" "$$" "$(ps -ww -o command= -p "$$" 2>/dev/null)" "$(_kosmos_pid_started_local "$$")" "$(_kosmos_pid_started "$$")" "$(_kosmos_queue_class)" "$([ "${KOSMOS_SIDE_CAPABLE:-0}" = 1 ] && echo side)" > "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null \
     && mv -f "$(_kosmos_suite_waiter_file "$$").tmp.$$" "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null
   return 0
 }
@@ -714,13 +716,17 @@ _kosmos_wait_now() {
 kosmos_wait_until_clear() {
   local what="$1"; shift
   local queue=0; [ "${1:-}" = --suite-queue ] && { queue=1; shift; }
-  local side=""; [ "$queue" = 1 ] && [ "${1:-}" = --side ] && { side="${2:-}"; shift 2; }
+  local side=""
+  if [ "$queue" = 1 ] && [ "${1:-}" = --side ]; then
+    [ $# -ge 3 ] || { echo "kosmos_wait_until_clear: --side needs a side check and then the check" >&2; return 1; }
+    side="$2"; shift 2
+  fi
   KOSMOS_WAIT_LANE=main
   # #4574: in the suite queue the bound is 2700 s and counts from the last time a waiter ahead left (the queue note).
   local dflt=1200; [ "$queue" = 1 ] && dflt=2700
   local every="${KOSMOS_WAIT_EVERY_S:-30}" max="${KOSMOS_WAIT_MAX_S:-$dflt}" sleeper="${KOSMOS_WAIT_SLEEP:-sleep}"
   local ceil="${KOSMOS_WAIT_QUEUE_CEIL_S:-}" over=0
-  local waited=0 said=0 err ts="" start next_note=300 ahead prev="" wblk=0 bstart
+  local waited=0 said=0 err ts="" start next_note=300 ahead prev="" wblk=0 bstart side_err=""
   start="$(_kosmos_wait_now)"; bstart="$start"
   # A marker under this run's pid left by a dead run (a recycled pid) would make this run read as already queued, with
   # that run's old place: the liveness check removes it (its start time is not this run's).
@@ -745,7 +751,7 @@ kosmos_wait_until_clear() {
     # old queue time. Unmarked, it would count every waiter as ahead and the others would count it as a running suite.
     if [ "$queue" = 1 ] && [ -n "$ts" ] && [ ! -e "$(_kosmos_suite_waiter_file "$$")" ]; then kosmos_mark_suite_waiting "$ts"; fi
     # #4911: the side turn. Asked only once this run holds a queue place (its place orders it among light waiters).
-    if [ -n "$side" ] && [ -n "$ts" ] && "$side" "$what" >/dev/null 2>&1; then
+    if [ -n "$side" ] && [ -n "$ts" ] && side_err="$("$side" "$what" 2>&1)"; then
       KOSMOS_WAIT_LANE=side
       echo "a side turn is free beside a heavy run after waiting ${waited}s; $what starts now (#4911)." >&2
       return 0
@@ -821,6 +827,7 @@ kosmos_wait_until_clear() {
       said=1
     elif [ "$waited" -ge "$next_note" ]; then
       echo "still waiting (${waited}s so far): $(printf '%s' "$err" | head -1 | cut -c1-160)" >&2
+      [ -n "$side" ] && [ -n "$side_err" ] && echo "  no side turn either: $(printf '%s' "$side_err" | head -1 | cut -c1-160)" >&2
       next_note=$((next_note + 300))
     fi
     "$sleeper" "$every"
@@ -1125,15 +1132,16 @@ _kosmos_load_and_cores() {
 #   1. this run is light, and KOSMOS_SIDE_LANE is not 0;
 #   2. no side turn is live (one light run beside a heavy one, never two);
 #   3. the box HAS a heavy holder: a live machine claim that is not a cut (its label says "(not a cut)") and not a light
-#      turn (its label says "[light]"), or, with no claim, a running suite. A free box is the main queue's business, so
-#      the side turn never jumps a waiter for an idle box;
+#      turn (its label says "[light]"). A bare suite with no claim does not count (its age is not readable), and a free
+#      box is the main queue's business, so the side turn never jumps a waiter for an idle box;
 #   4. that claim is at least KOSMOS_SIDE_MIN_HOLD_S old (default 90 s): the load figure is a 1-minute average, so it
 #      reads low for a holder that has only just started a build;
 #   5. no cut, no install harness and no other browser run is live, and no Playwright browser is running (most one-off
 #      checks run `node docs/browser-checks/x.js` directly, which the browser-run guard cannot see; two Playwright
 #      runs competing for CPU is the hazard that guard names);
 #   6. the 1-minute load is below half the cores (KOSMOS_SIDE_MAX_LOAD sets the line instead);
-#   7. no light waiter is ahead of this one (earlier queue time, then lower pid), so light runs keep their order.
+#   7. no SIDE-CAPABLE light waiter is ahead of this one (earlier queue time, then lower pid; marker line 6), so light
+#      runs keep their order.
 # 🛑 Condition 3 cannot see a light turn whose claim was taken by a queued-heavy.sh older than #4911: its label has no
 # class, so it reads as heavy. Such a holder is one short run, and condition 5 still refuses beside its browser run.
 kosmos_light_side_clear() {
@@ -1153,7 +1161,9 @@ kosmos_light_side_clear() {
     case "$born" in ''|*[!0-9]*) born="$now" ;; esac   # an unreadable start is taken as just now: wait, the safe side
     if [ $(( now - born )) -lt "$minhold" ]; then echo "the heavy run started $(( now - born ))s ago; its load is not readable yet (${minhold}s)." >&2; return 1; fi
   else
-    kosmos_refuse_if_suite_live "$what" "" >/dev/null 2>&1 && { echo "nothing heavy holds the box; $what takes an ordinary turn." >&2; return 1; }
+    # Review 2: only a CLAIMED holder qualifies. A bare suite (validate.sh's yarn test) carries no start time a reader
+    # can trust without a ps parse, and one seconds old reads as a low load: the ramp the 90 s rule is for.
+    echo "no queued heavy run holds the box; $what takes an ordinary turn." >&2; return 1
   fi
   kosmos_refuse_if_cut_live "$what" || return 1
   kosmos_refuse_if_harness_live "$what" "" || return 1
@@ -1184,6 +1194,7 @@ kosmos_light_side_clear() {
     [ "$pid" = "$$" ] && continue
     cls="$(sed -n '5p' "$f" 2>/dev/null)" || cls=""
     [ "$cls" = light ] || continue
+    [ "$(sed -n '6p' "$f" 2>/dev/null)" = side ] || continue   # review 2: only a waiter that asks for side turns
     _kosmos_suite_waiter_live "$pid" || continue
     read -r ts _ 2>/dev/null < "$f" || continue
     case "$ts" in ''|*[!0-9]*) continue ;; esac
@@ -1192,4 +1203,25 @@ kosmos_light_side_clear() {
     fi
   done
   return 0
+}
+
+# kosmos_light_side_take <what> [minutes]: the side take, for a caller that holds its take lock. Asks
+# kosmos_light_side_clear again (the wait asked outside the lock), then claims the side turn; only a won take drops the
+# queue marker, so a lost one keeps its place (the next wait resumes it). 0 on a win.
+kosmos_light_side_take() {
+  local what="${1:-this run}" minutes="${2:-15}"
+  kosmos_light_side_clear "$what" >/dev/null 2>&1 || return 1
+  kosmos_claim_light_side "$minutes" || return 1
+  kosmos_unmark_suite_waiting
+  return 0
+}
+
+# kosmos_holds_light_side: true only when THIS run (or a child carrying its cookie) holds the live side claim.
+# run-tests.sh asks it: a side turn runs its tests directly; through run-tests.sh it would queue behind the heavy
+# holder's claim while holding the side claim (review 2), so run-tests.sh refuses at once inside a side turn.
+kosmos_holds_light_side() {
+  local active self="${KOSMOS_LIGHT_SIDE_COOKIE:-}"
+  [ -n "$self" ] || return 1
+  active="$(_kosmos_light_side_active)"
+  [ -n "$active" ] && [ "$(printf '%s' "$active" | awk '{print $1}')" = "$self" ]
 }

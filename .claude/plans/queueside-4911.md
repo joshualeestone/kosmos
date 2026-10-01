@@ -18,10 +18,15 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
    (queued-heavy.sh.4911-new): [light] label, --side for light runs, side claim/renew/release. It is inert with an
    older lib. KOSMOS_SIDE_LANE=0 turns it all off.
 
-6. A side turn is CAPPED, not renewed: its claim lapses after QUEUED_HEAVY_SIDE_MIN (default 15, at most 18) minutes,
-   inside the 20-minute bound of the page layer, install harness and cut that wait for it (review 1, Sonnet).
-7. A side turn's command must run its tests directly (node --test, node docs/browser-checks/x.js). Through
-   run-tests.sh it would queue behind the heavy holder's machine claim while holding the side claim.
+6. A side turn is CAPPED: queued-heavy STOPS its command (its own process group) after QUEUED_HEAVY_SIDE_MIN
+   (default 10, at most 15) minutes; its claim lasts two minutes longer and is not renewed, so it never lapses under
+   a live run. The cap sits inside the 20-minute bound of the page layer, install harness and cut that wait for it.
+7. A side turn runs its tests directly. run-tests.sh refuses at once inside a side turn (kosmos_holds_light_side):
+   queued, it would wait behind the holder's claim while holding the side claim.
+8. No main turn of ANY class starts beside a live side turn (queued-heavy _qh_clear).
+9. Only a CLAIMED heavy holder qualifies (a bare suite's age is unreadable). Only side-capable light waiters (marker
+   line 6, KOSMOS_SIDE_CAPABLE=1) order the side lane.
+10. The side take lives in the lib (kosmos_light_side_take), so it is under test; queued-heavy calls it under its lock.
 
 ## Rejected
 - Raising the box to two heavy turns: a suite's timing arms are the reds the queue exists to prevent.
@@ -40,4 +45,17 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
 - test-install.sh and release.sh wiring is covered by review only (both need built bundles or a cut to run).
 
 ## Review ledger
-(rounds below)
+- Round 1 (Sonnet, blind): no blocker. Fixed: side cap; sleep after a lost take; one-field marker pid; test kills only
+  what it started; plan names the direct-test rule. Left: _kosmos_light_side_active's rm race (the machine claim's
+  posture, comment-level); substring labels fail safe.
+- Round 2 (Opus, blind): 1 blocker, 8 should-fix. Fixed: (1) heavy main turn beside a side turn; (2) two page layers
+  waiting on each other's markers; (3) renewer pid from `[ ] || ( ) &`; (4) lapse under a live run, now a stop at
+  the cap; (5) run-tests.sh inside a side turn; (6) bare suite of unknown age; (8) non-side-capable light waiters
+  blocking the lane; (9) take moved into the lib and tested; nits 11, 12, 13, 15. NOT taken: (7) version skew (a
+  holder on a pre-#4911 branch whose browser-checks.sh does not wait on a side turn, or a holder between Playwright
+  launches): the side turn's start-time gate (no browser-checks.sh, no ms-playwright process, load < half) is the
+  protection, and the before/after control measures whether it is enough; if it is not, KOSMOS_SIDE_LANE=0 is one
+  export. (10) rm race: same posture as the machine claim. (14) a take that keeps losing resets the bound: the new
+  sleep bounds the spin; a take loses only to another side turn, which ends in minutes.
+- Dry runs of queued-heavy.sh.4911-new (private marker dir, probe seams): side turn; heavy main refused beside a
+  live side turn; main renewer stops (no claim after release); the cap stops a 1-minute run and its child.

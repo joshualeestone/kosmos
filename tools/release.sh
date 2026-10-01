@@ -397,7 +397,8 @@ kosmos_claim_machine >/dev/null 2>&1 || true
 # new one (a side turn is never taken beside a cut); one that is running ends in minutes, so wait for it here rather
 # than share the box with it. KOSMOS_CUT_IGNORE_SIDE=1 cuts anyway.
 if [ "${KOSMOS_CUT_IGNORE_SIDE:-0}" != 1 ] && command -v kosmos_refuse_if_light_side_live >/dev/null 2>&1; then
-  kosmos_wait_until_clear "this cut" kosmos_refuse_if_light_side_live || exit 1
+  _rel_side() { kosmos_refuse_if_light_side_live "this cut"; }
+  kosmos_wait_until_clear "this cut" _rel_side || exit 1
 fi
 
 # #2724: GIVE THE CUT AN EMPTY HOME, so its gates stop reading the operator's STORE

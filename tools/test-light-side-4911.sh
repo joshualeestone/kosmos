@@ -35,7 +35,7 @@ NOW="$(date +%s)"
 # claim <age s> <label>: a heavy holder ($HOLDER, live) holding the machine claim for <age> seconds.
 claim() { printf '%s-%s-1 %s %s host release %s\n' "$HOLDER" "$((NOW - $1))" "$HOLDER" "$((NOW + 1800))" "$2" > "$M/machine-claim"; }
 # side: run the side check as a light run that holds a queue place; prints stderr, returns its rc.
-side() { ( export KOSMOS_QUEUE_CLASS=light; kosmos_mark_suite_waiting "$((NOW - 10))"; kosmos_light_side_clear "this light run" ) 2>&1; }
+side() { ( export KOSMOS_QUEUE_CLASS=light KOSMOS_SIDE_CAPABLE=1; kosmos_mark_suite_waiting "$((NOW - 10))"; kosmos_light_side_clear "this light run" ) 2>&1; }
 
 claim 300 "(not a cut) queued one-off: a full suite"
 out="$(side)"; rc=$?
@@ -67,14 +67,16 @@ out="$(side)"; rc=$?
   || fail "a side turn beside a heavy run 30 s old (rc=$rc, $out)"
 printf 'nonsense %s %s host release (not a cut) queued one-off: x\n' "$HOLDER" "$((NOW + 1800))" > "$M/machine-claim"
 out="$(side)"; rc=$?
-[ "$rc" -eq 1 ] && pass "a holder whose start cannot be read counts as just started" || fail "an unreadable claim start passed (rc=$rc, $out)"
+{ [ "$rc" -eq 1 ] && has "$out" "its load is not readable yet"; } && pass "a holder whose start cannot be read counts as just started" \
+  || fail "an unreadable claim start passed, or refused for another reason (rc=$rc, $out)"
 
 rm -f "$M/machine-claim"
 out="$(side)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "ordinary turn"; } && pass "an idle box is the main queue's turn, not a side turn" || fail "a side turn on an idle box (rc=$rc, $out)"
 probe ancestor-none 'exit 0'
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_PROBE="$T/live-suite" side)"; rc=$?
-[ "$rc" -eq 0 ] && pass "a running suite with no claim is a heavy holder" || fail "refused beside a bare suite (rc=$rc, $out)"
+{ [ "$rc" -eq 1 ] && has "$out" "no queued heavy run holds the box"; } && pass "a bare suite with no claim is not a holder a side turn may join (its age is unreadable)" \
+  || fail "a side turn beside an unclaimed suite (rc=$rc, $out)"
 
 claim 300 "(not a cut) queued one-off: a full suite"
 # Each arm asserts its OWN reason: a refusal for another reason (this shell's own light marker reading as an earlier
@@ -90,9 +92,14 @@ out="$(bash -c '. "$1"; export KOSMOS_QUEUE_CLASS=light; kosmos_mark_suite_waiti
 [ "$rc" -eq 0 ] && pass "CONTROL: the same run with every probe quiet takes the side turn" || fail "CONTROL: the loop's run is refused with every probe quiet (rc=$rc, $out)"
 
 # Order among light runs: an earlier light waiter goes first; an earlier HEAVY waiter does not stop a side turn.
-printf '%s %s\n%s\n%s\n%s\nlight\n' "$((NOW - 100))" "$OTHER" "$(ps -ww -o command= -p "$OTHER")" "$(_kosmos_pid_started_local "$OTHER")" "$(_kosmos_pid_started "$OTHER")" > "$M/suitewait.$OTHER"
+printf '%s %s\n%s\n%s\n%s\nlight\nside\n' "$((NOW - 100))" "$OTHER" "$(ps -ww -o command= -p "$OTHER")" "$(_kosmos_pid_started_local "$OTHER")" "$(_kosmos_pid_started "$OTHER")" > "$M/suitewait.$OTHER"
 out="$(side)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "earlier light run (pid $OTHER)"; } && pass "an earlier light waiter takes the side turn first" || fail "a later light run jumped an earlier one (rc=$rc, $out)"
+sed -i '' '6d' "$M/suitewait.$OTHER" 2>/dev/null || sed -i '6d' "$M/suitewait.$OTHER"
+out="$(side)"; rc=$?
+[ "$rc" -eq 0 ] && pass "an earlier light waiter that never asks for side turns (no line 6) does not hold the side lane" \
+  || fail "a waiter that will never take a side turn held the lane (rc=$rc, $out)"
+printf 'side\n' >> "$M/suitewait.$OTHER"
 sed -i '' '5s/light/heavy/' "$M/suitewait.$OTHER" 2>/dev/null || sed -i '5s/light/heavy/' "$M/suitewait.$OTHER"
 out="$(side)"; rc=$?
 [ "$rc" -eq 0 ] && pass "CONTROL: the same waiter as heavy does not hold the side turn" || fail "a heavy waiter held the side turn (rc=$rc, $out)"
@@ -122,12 +129,13 @@ out="$(kosmos_refuse_if_light_side_live "a page layer" 2>&1)"; rc=$?
 # leaves its marker for the caller. CONTROL: without --side the same run waits out its bound.
 kosmos_unmark_suite_waiting   # the side() arms above left this shell's marker; start the waits from none
 nope() { echo "the box is held" >&2; return 1; }
-sidecalls=0
-sideok() { sidecalls=$((sidecalls + 1)); return 0; }
+# The side check runs in a command substitution (its reason is kept), so it counts its calls in a file.
+rm -f "$T/sidecalls"
+sideok() { echo x >> "$T/sidecalls"; return 0; }
 KOSMOS_WAIT_SLEEP=: KOSMOS_WAIT_MAX_S=60 kosmos_wait_until_clear "this light run" --suite-queue --side sideok nope 2> "$T/w1"; rc=$?
-{ [ "$rc" -eq 0 ] && [ "$KOSMOS_WAIT_LANE" = side ] && [ "$sidecalls" -eq 1 ] && [ -e "$M/suitewait.$$" ] && has "$(cat "$T/w1")" "a side turn is free"; } \
+{ [ "$rc" -eq 0 ] && [ "$KOSMOS_WAIT_LANE" = side ] && [ "$(grep -c . "$T/sidecalls" 2>/dev/null)" = 1 ] && [ -e "$M/suitewait.$$" ] && has "$(cat "$T/w1")" "a side turn is free"; } \
   && pass "--side gives a queued run its side turn and leaves its marker for the take" \
-  || fail "--side did not give the side turn (rc=$rc, lane=$KOSMOS_WAIT_LANE, calls=$sidecalls, marker=$(ls "$M"), $(cat "$T/w1"))"
+  || fail "--side did not give the side turn (rc=$rc, lane=$KOSMOS_WAIT_LANE, calls=$(grep -c . "$T/sidecalls" 2>/dev/null), markers=$(ls "$M" | tr '\n' ' '), $(cat "$T/w1"))"
 kosmos_unmark_suite_waiting
 KOSMOS_WAIT_SLEEP=: KOSMOS_WAIT_MAX_S=60 kosmos_wait_until_clear "this light run" --suite-queue nope 2> "$T/w2"; rc=$?
 { [ "$rc" -eq 1 ] && [ "$KOSMOS_WAIT_LANE" = main ] && [ ! -e "$M/suitewait.$$" ]; } && pass "CONTROL: without --side the run waits out its bound" \
@@ -139,10 +147,45 @@ got="$(cut -d' ' -f1 "$M/suitewait.$$" 2>/dev/null | head -1)"
 { [ "$rc" -eq 0 ] && [ "$KOSMOS_WAIT_LANE" = side ] && [ "$got" = "$((NOW - 777))" ]; } && pass "a run whose side take lost keeps its old queue place" \
   || fail "a run that kept its marker joined at the back (rc=$rc, place=$got, wanted $((NOW - 777)))"
 kosmos_unmark_suite_waiting
+KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this light run" --suite-queue --side sideok 2>"$T/w3"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$(cat "$T/w3")" "--side needs a side check and then the check"; } && pass "--side with nothing after it is refused, not run as the check" \
+  || fail "--side with no check after it was not refused (rc=$rc, $(cat "$T/w3"))"
 yes_() { return 0; }
 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this run" --suite-queue --side nope yes_ 2>/dev/null; rc=$?
 { [ "$rc" -eq 0 ] && [ "$KOSMOS_WAIT_LANE" = main ] && [ ! -e "$M/suitewait.$$" ]; } && pass "a clear box is an ordinary main turn even with --side" \
   || fail "a clear box did not give a main turn (rc=$rc, lane=$KOSMOS_WAIT_LANE)"
+
+# kosmos_light_side_take: the take a caller makes under its lock. A win claims and drops the queue marker; a loss
+# (another side turn is live) keeps both as they were. kosmos_holds_light_side says the winner holds it.
+claim 300 "(not a cut) queued one-off: a full suite"
+out="$( ( export KOSMOS_QUEUE_CLASS=light KOSMOS_SIDE_CAPABLE=1; kosmos_mark_suite_waiting "$((NOW - 10))"
+  kosmos_light_side_take "a light run" 5 || exit 9; [ -e "$M/suitewait.$$" ] && exit 8; kosmos_holds_light_side || exit 7
+  kosmos_release_light_side; kosmos_holds_light_side && exit 6; exit 0 ) 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "a won side take claims, drops its marker, holds the turn, and releases it" || fail "the side take misbehaved (step rc=$rc, $out)"
+# The take asks the side check again under the lock: the box changed after the wait asked (here, the load rose).
+out="$( ( export KOSMOS_QUEUE_CLASS=light KOSMOS_SIDE_CAPABLE=1 KOSMOS_LOAD_PROBE="$T/load-half"; kosmos_mark_suite_waiting "$((NOW - 10))"
+  kosmos_light_side_take "a light run" 5 && exit 9; [ -e "$M/light-side-claim" ] && exit 8; [ -e "$M/suitewait.$$" ] || exit 7; exit 0 ) 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "the take asks the side check again and takes nothing when the box changed" || fail "the take did not re-check (step rc=$rc, $out)"
+bash -c '. "$1"; kosmos_claim_light_side 5 && exec sleep 30' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$M/light-side-claim" ] && break; sleep 0.2; done
+out="$( ( export KOSMOS_QUEUE_CLASS=light KOSMOS_SIDE_CAPABLE=1; kosmos_mark_suite_waiting "$((NOW - 10))"
+  kosmos_light_side_take "a light run" 5 && exit 9; [ -e "$M/suitewait.$$" ] || exit 8; kosmos_holds_light_side && exit 7; exit 0 ) 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "a lost side take keeps its queue marker and holds nothing" || fail "a lost side take misbehaved (step rc=$rc, $out)"
+kosmos_unmark_suite_waiting
+# run-tests.sh's #4911 block, run as its own text (extracted, so a mutant cannot start a real suite): inside a side turn
+# it refuses at once; outside one it passes.
+awk '/^# #4911: inside a light run.s SIDE turn/ {on=1} on {print} on && /^fi$/ {exit}' "$HERE/run-tests.sh" > "$T/rt-side.sh"
+if ! grep -q 'kosmos_holds_light_side' "$T/rt-side.sh" || ! grep -q '^fi$' "$T/rt-side.sh"; then
+  fail "could not find run-tests.sh's side-turn block (did its first line change?)"
+else
+  own="$(awk '{print $1}' "$M/light-side-claim")"
+  out="$(KOSMOS_LIGHT_SIDE_COOKIE="$own" bash -c '. "$1"; . "$2"; echo BLOCK-PASSED' _ "$HERE/lib/cut-guard.sh" "$T/rt-side.sh" 2>&1)"; rc=$?
+  { [ "$rc" -eq 2 ] && has "$out" "inside a light run's side turn" && ! has "$out" BLOCK-PASSED; } && pass "run-tests.sh refuses inside a side turn instead of queueing behind the holder" \
+    || fail "run-tests.sh did not refuse inside a side turn (rc=$rc, $out)"
+  out="$(bash -c 'unset KOSMOS_LIGHT_SIDE_COOKIE; . "$1"; . "$2"; echo BLOCK-PASSED' _ "$HERE/lib/cut-guard.sh" "$T/rt-side.sh" 2>&1)"; rc=$?
+  { [ "$rc" -eq 0 ] && has "$out" BLOCK-PASSED; } && pass "CONTROL: outside a side turn run-tests.sh's block passes" || fail "CONTROL: the block refused outside a side turn (rc=$rc, $out)"
+fi
+kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null; rm -f "$M/light-side-claim"
 
 # Aging: a light waiter past the starve line is rank 0 like a heavy one, so an OLDER starving light waiter goes ahead of
 # a starving heavy one (before #4911 the heavy one went first, and the light lane stood still all afternoon).
