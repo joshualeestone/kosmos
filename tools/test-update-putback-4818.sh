@@ -20,7 +20,7 @@ case "$BLOCK" in *"_kosmos_put_board_back()"*"trap '_kosmos_on_exit' EXIT"*) : ;
 WASRUN="$(awk '/if ! _kosmos_mode_keeps_board_off && \[ ! -e "\$KOSMOS_HOME\/board.stopped" \]/{f=1} f{print} f && /^  fi$/{exit}' "$SETUP")"
 case "$WASRUN" in *"_kosmos_was_running=yes"*) : ;;
   *) echo "FAIL: could not extract the #4818 was-running check (anchor drift?)" >&2; exit 1 ;; esac
-PAUSED="$(awk '/#4818: the pause held/{getline; print; exit}' "$SETUP")"
+PAUSED="$(awk '/^  _kosmos_paused_board="\$_kosmos_was_running"$/{print; exit}' "$SETUP")"
 case "$PAUSED" in *'_kosmos_paused_board="$_kosmos_was_running"'*) : ;;
   *) echo "FAIL: could not extract the #4818 pause-held line (anchor drift?)" >&2; exit 1 ;; esac
 
@@ -37,6 +37,17 @@ case "$DIEFN" in *"exit 1"*) : ;;
   *) echo "FAIL: could not extract die() (anchor drift?)" >&2; exit 1 ;; esac
 
 PASS=0; FAIL=0
+
+# Review 3: WHERE the put-back is armed. After the three dies that must not restart (our board still running,
+# another install's board, another app on the port) and before the port wait, whose die (a survivor holding the
+# port) and whose hang-up window must restart. Checked by line order in the shipped file.
+ln() { grep -n -F "$1" "$SETUP" | head -1 | cut -d: -f1; }
+L_ARM=$(ln '  _kosmos_paused_board="$_kosmos_was_running"')
+L_OURS=$(ln 'die "A Kosmos board is still running on port $PORT and could not be paused')
+L_APP=$(ln 'die "Another app on this computer is using port $PORT, which Kosmos needs.')
+L_SURV=$(ln 'die "A process is still holding port $PORT after the pause')
+if [ -n "$L_ARM" ] && [ -n "$L_OURS" ] && [ -n "$L_APP" ] && [ -n "$L_SURV" ]; then :; else
+  echo "FAIL: could not find the pause dies or the arming line (anchor drift?)" >&2; exit 1; fi
 pass() { echo "PASS  $1"; PASS=$((PASS + 1)); }
 fail() { echo "FAIL  $1"; FAIL=$((FAIL + 1)); }
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/putback4818.XXXXXX")"
@@ -85,6 +96,12 @@ $BLOCK
 $WASRUN
 $3" 2> "$1/err"
 }
+
+if [ "$L_OURS" -lt "$L_ARM" ] && [ "$L_APP" -lt "$L_ARM" ] && [ "$L_ARM" -lt "$L_SURV" ]; then
+  pass "the put-back is armed after the dies that must not restart and before the port wait that must"
+else
+  fail "the put-back is armed in the wrong place (arm $L_ARM, ours $L_OURS, app $L_APP, survivor $L_SURV)"
+fi
 
 # 1. Running before the pause, the update pauses it and then FAILS: the board is put back.
 P=$(free_port); H=$(home running); export PORT=$P
@@ -152,10 +169,12 @@ echo $$ > "$KOSMOS_HOME/paused"
 sleep 20' &
   rp=$!
   i=0; while [ $i -lt 100 ] && [ ! -e "$H/paused" ]; do sleep 0.1; i=$((i + 1)); done
-  [ -s "$H/paused" ] || fail "the $sig arm never reached the pause, so it proves nothing"
+  if [ ! -s "$H/paused" ]; then fail "the $sig arm never reached the pause, so it proves nothing"; continue; fi
   # As a closed window or a TERM to the job does: the signal reaches the shell AND what it is running (its children,
-  # by exact pid), not the shell alone, which would wait for its foreground command first.
-  sp="$(cat "$H/paused")"; kids="$(pgrep -P "$sp" 2>/dev/null | tr '\n' ' ')"
+  # by exact pid), not the shell alone, which would wait for its foreground command first. Wait until the shell's
+  # `sleep` exists (review 3: the pid file is written just before it is forked).
+  sp="$(cat "$H/paused")"; kids=""
+  i=0; while [ $i -lt 50 ] && [ -z "$kids" ]; do kids="$(pgrep -P "$sp" 2>/dev/null | tr '\n' ' ')"; [ -n "$kids" ] || sleep 0.1; i=$((i + 1)); done
   sent=$(date +%s); kill -s "$sig" "$sp" $kids 2>/dev/null; wait "$rp" 2>/dev/null
   [ $(( $(date +%s) - sent )) -lt 10 ] || fail "the $sig did not end the run (it ran out its sleep), so it proves nothing"
   i=0; while [ $i -lt 50 ] && ! answers "$P"; do sleep 0.1; i=$((i + 1)); done

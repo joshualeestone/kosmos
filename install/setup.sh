@@ -2826,6 +2826,11 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
       die "Another app on this computer is using port $PORT, which Kosmos needs. Quit that app, then paste the install line again."
       ;;
   esac
+  # #4818: the pause held (the board no longer answers), so from here a failure puts back a board that was running.
+  # Armed HERE, before the port wait below (review 3): a survivor still holding the port, or a hang-up during that wait,
+  # used to leave the board off with board.stopped written. Not armed on the three dies above: our board still running,
+  # another install's board, or another app on the port (starting ours there would collide).
+  _kosmos_paused_board="$_kosmos_was_running"
   # ⚠️ GONE BY PORT, not merely quiet over HTTP: a listener that stopped
   # answering the probe (mid-shutdown, wedged, or simply not speaking
   # HTTP) still holds the port, and the final start would then find a
@@ -2860,8 +2865,6 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   # 404, a checksum refusal, a failed swap) is a different signal (install.status /
   # the #1728 in-flight marker), so clearing here on passing the pause is correct.
   rm -f "$LOG_DIR/update-abort" 2>/dev/null || true
-  # #4818: the pause held (the board no longer answers), so from here a failure puts back a board that was running.
-  _kosmos_paused_board="$_kosmos_was_running"
 fi
 
 step "Setting up the pieces Kosmos needs."
