@@ -80,6 +80,13 @@ test('#4891 N8: -n, --limit and --limit= reach the board as &n=, either side of 
       assert.equal(out.code, 0, args.join(' ') + ': ' + out.stderr);
       assert.deepEqual(roomReads(hits), ['/api/project/proj/room?as=text&n=5'], args.join(' '));
     }
+    // Review 2: a project id that starts with "-" is still a project (Kosmos makes ids like "-drafts").
+    for (const args of [['room', '-drafts'], ['room', '-drafts', '-n', '3']]) {
+      hits.length = 0;
+      const out = await runCli(args, envFor(port));
+      assert.equal(out.code, 0, args.join(' ') + ': ' + out.stdout + out.stderr);
+      assert.deepEqual(roomReads(hits), ['/api/project/-drafts/room?as=text' + (args.length > 2 ? '&n=3' : '')], args.join(' '));
+    }
     // CONTROL: without -n the request is exactly what it always was, so an older board answers as before.
     hits.length = 0;
     const plain = await runCli(['room', 'proj'], envFor(port));
@@ -90,7 +97,7 @@ test('#4891 N8: -n, --limit and --limit= reach the board as &n=, either side of 
 test('#4891 N8: a value that is not a whole number from 1 to 200 is refused before any request', () =>
   withBoard(async (port, hits) => {
     for (const args of [['room', 'proj', '-n', '0'], ['room', 'proj', '-n', '201'], ['room', 'proj', '-n', 'abc'], ['room', 'proj', '-n', '05'],
-      ['room', 'proj', '-n', '99999999999999999999999'], ['room', 'proj', '-n'], ['room', 'proj', '--limit='], ['room', 'proj', '--tail'], ['room', 'a', 'b']]) {
+      ['room', 'proj', '-n', '99999999999999999999999'], ['room', 'proj', '-n'], ['room', 'proj', '--limit='], ['room', 'a', 'b'], ['report', 'clear', '--auto'], ['report', 'clear', 'back', '--auto']]) {
       hits.length = 0;
       const out = await runCli(args, envFor(port));
       assert.equal(out.code, 2, args.join(' ') + ' should be a usage error: ' + out.stdout + out.stderr);

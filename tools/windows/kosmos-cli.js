@@ -610,7 +610,7 @@ async function verbRoom(ctx, args) {
     if (a === '-n' || a === '--limit') { given = true; n = args.length ? args.shift() : ''; continue; }
     const m = /^--limit=(.*)$/.exec(a);
     if (m) { given = true; n = m[1]; continue; }
-    if (a.startsWith('-')) { ctx.err('kosmos room takes only -n N (or --limit N).'); return 2; }
+    // Any other word is the project, even one starting with "-" (ids like "-drafts" exist), as on the Mac.
     if (project) { ctx.err('kosmos room reads one project at a time.'); return 2; }
     project = a;
   }
@@ -1233,7 +1233,15 @@ const VERB_HANDLERS = {
 };
 const SUBCOMMAND_HANDLERS = {
   // #4891 N4, as install/kosmos: clear is reporting working.
-  report: { show: reportShow, status: reportShow, clear: (ctx, args) => verbReport(ctx, ['working', ...args]) },
+  report: {
+    show: reportShow,
+    status: reportShow,
+    // An automatic working cannot replace a needs_you (#900), so `clear --auto` could only be refused, as on the Mac.
+    clear: (ctx, args) => {
+      if (args.includes('--auto')) { ctx.err('kosmos report clear is something you do yourself, so it takes no --auto.'); return 2; }
+      return verbReport(ctx, ['working', ...args]);
+    },
+  },
   room: { reopen: roomReopen },
   task: { list: taskList, add: taskAdd, close: taskClose, message: taskMessage, built: taskBuilt, hold: taskHoldAs(true), unhold: taskHoldAs(false) },
   project: { list: projectList, show: projectShow, create: projectCreate },

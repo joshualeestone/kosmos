@@ -72,6 +72,7 @@ test('#4891 review 1: -n 1 on a room whose newest row came from outside shows th
   const one = await (await fetch(`${base}/api/project/${p.id}/room?as=text&n=1`)).text();
   assert.match(one, /outside 4891/);
   assert.doesNotMatch(one, /Nothing has been said/);
+  assert.doesNotMatch(one, /note 01/, 'n=1 showed more than one row');
 });
 
 test('#4891 N6: tasks for an unknown project is a 404 that says so; a real empty project is an empty list', async () => {
@@ -82,6 +83,8 @@ test('#4891 N6: tasks for an unknown project is a 404 that says so; a real empty
   const empty = await fetch(`${base}/api/tasks?project=${p.id}`);
   assert.equal(empty.status, 200);
   assert.deepEqual((await empty.json()).tasks, []);
+  // Review 2: one answer for every form, the Tasks view's included.
+  assert.equal((await fetch(`${base}/api/tasks?project=nosuch-4891&view=tasks`)).status, 404);
   // CONTROL: the global list (no project) is untouched.
   const all = await fetch(`${base}/api/tasks`);
   assert.equal(all.status, 200);

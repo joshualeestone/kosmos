@@ -2218,7 +2218,13 @@ cmd_report() {
     # #4891 N4: nothing said how to take a needs_you (or blocked) back off the board. Reporting any other state
     # by hand replaces it (#900 only stops an AUTOMATIC idle from doing so), and working is the honest one: you
     # are back at it. `clear` is that, by a name a person or an agent would guess.
-    clear) shift 2>/dev/null || true; set -- working "$@" ;;
+    clear)
+      shift 2>/dev/null || true
+      # An automatic working cannot replace a needs_you (#900), so `clear --auto` could only be refused (review 2).
+      local _ca; for _ca in "$@"; do
+        [ "$_ca" = --auto ] && { say "kosmos report clear is something you do yourself, so it takes no --auto."; exit 2; }
+      done
+      set -- working "$@" ;;
   esac
   local state text body because on="" owner="" until="" project="" auto=0
   state="${1:-}"
@@ -2862,7 +2868,8 @@ cmd_room() {
     case "$_arg" in
       -n|--limit) _ngiven=1; _n="${1:-}"; shift 2>/dev/null || true ;;
       --limit=*)  _ngiven=1; _n="${_arg#--limit=}" ;;
-      -*) say "kosmos room takes only -n N (or --limit N)."; exit 2 ;;
+      # Any other word is the project, even one starting with "-": Kosmos makes ids like "-drafts" from a name
+      # like "- drafts" (store.safeKey keeps a leading hyphen), and those rooms were readable before (review 2).
       *)  if [ -z "$project" ]; then project="$_arg"; else say "kosmos room reads one project at a time."; exit 2; fi ;;
     esac
   done
@@ -3012,8 +3019,8 @@ kosmos_command_list() {
   printf '  kosmos whoami        say which agent you are and which account you are on\n'
   printf '  kosmos connections   list the outside services and which are connected\n'
   printf '  kosmos connect       connect an outside service with its token\n\n'
-  printf '  For how to use one: kosmos <command> --help (msg, post, reply, inbox, react, report, room, feedback,\n'
-  printf '  community, task, project, agent and connect show their usage).\n'
+  printf '  For how to use one: kosmos <command> --help (agents, msg, post, reply, inbox, react, report, room,\n'
+  printf '  feedback, community, task, project, agent and connect show their usage).\n'
 }
 
 # kosmos#1674: -h / --help must never SEND.

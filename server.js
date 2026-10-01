@@ -15808,9 +15808,10 @@ const server = http.createServer(async (req, res) => {
       forTasksView = false;
     }
     /* #4891 N6: `kosmos task list nosuch` printed "No tasks for this project yet" and exited 0, while `project show
-       nosuch` refuses. An unknown project is said as one, on the list form the CLIs read (the token-only arm above
-       already did). The Tasks view keeps its old answer: its doors only ever name a project the page just listed. */
-    if (projectScope && !forTasksView && !(everyProject || []).some((x) => x && x.id === projectScope)) {
+       nosuch` refuses. An unknown project is said as one (the token-only arm above already did). One answer for every
+       form (review 2): the Tasks view never sends `project=`, and readAll() keeps archived projects, so nothing that
+       reads this route names a project that is not there. */
+    if (projectScope && !(everyProject || []).some((x) => x && x.id === projectScope)) {
       sendJson(res, 404, { error: 'there is no project by that name' });
       return;
     }

@@ -43,10 +43,21 @@ view are the readers; the CLIs already handle an error body (exit 1).
 - W3 the two CLI N6 arms cannot fail on old code (the CLIs already said a refusal): retitled as wiring checks;
   server.gaps-4891 is the arm that proves N6.
 - W4 the 40-row control assumed the notes were the only rows: compared as text against n=40 now.
-- N5 a project id starting with "-" is now refused by `room` on both CLIs (it is a flag there). Accepted: both
-  agree, and ids made by Kosmos do not start with "-".
+- N5 a project id starting with "-" is now refused by `room` on both CLIs. I accepted it on the premise that Kosmos
+  never makes such ids; review 2 showed that premise false (store.safeKey keeps a leading hyphen). Reverted: only
+  -n / --limit forms are flags, any other word is the project.
 - N6 Windows strips odd characters where the Mac refuses: predates this, not this card.
 
 ## Verification
 cli.gaps-4891.test.js (Mac CLI against a stub board recording every request), tools.windows-kosmos-cli-gaps-4891
 (Windows via main() with injected fetch), server.gaps-4891.test.js (sandboxed board over HTTP). Each arm has a control.
+
+## Review 2 (Opus, blind, source-only): 0 blockers, 2 warnings, 4 nits
+- W1 ids like "-drafts" exist and `room` refused them: FIXED on both CLIs, with arms.
+- W2 `report clear --auto` became an automatic working, which #900 refuses over a needs_you: FIXED, refused on
+  both CLIs before any request, with arms.
+- N3 the outside-row test passed on origin (n was ignored): it now also asserts only one row shows.
+- N4 the general help footer did not name agents: FIXED.
+- N5 "the last N rows" with outside rows is at most half outside: kept, the server comment says so; not in the
+  usage line (one more clause on a line agents read for the common case).
+- N6 two answers for an unknown project (view=tasks kept 200): exemption DROPPED, one answer, pinned by a test.

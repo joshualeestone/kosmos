@@ -30,13 +30,19 @@ test('#4891 N8 Windows: -n, --limit and --limit= reach the board as &n=; without
     assert.equal(r.code, 0, argv.join(' ') + ': ' + r.err);
     assert.deepEqual(r.calls.map((c) => c.route), ['/api/project/proj/room?as=text&n=5'], argv.join(' '));
   }
+  // Review 2: a project id that starts with "-" is still a project, as on the Mac.
+  for (const argv of [['room', '-drafts'], ['room', '-drafts', '-n', '3']]) {
+    const r = await run(argv, () => ({ body: 'the room\n' }));
+    assert.equal(r.code, 0, argv.join(' ') + ': ' + r.err);
+    assert.deepEqual(r.calls.map((c) => c.route), ['/api/project/-drafts/room?as=text' + (argv.length > 2 ? '&n=3' : '')], argv.join(' '));
+  }
   const plain = await run(['room', 'proj'], () => ({ body: 'the room\n' }));
   assert.deepEqual(plain.calls.map((c) => c.route), ['/api/project/proj/room?as=text']);
 });
 
 test('#4891 N8 Windows: a value that is not 1 to 200 is refused and sends nothing', async () => {
   for (const argv of [['room', 'proj', '-n', '0'], ['room', 'proj', '-n', '201'], ['room', 'proj', '-n', 'abc'], ['room', 'proj', '-n', '05'],
-    ['room', 'proj', '-n'], ['room', 'proj', '--limit='], ['room', 'proj', '--tail'], ['room', 'a', 'b']]) {
+    ['room', 'proj', '-n'], ['room', 'proj', '--limit='], ['room', 'a', 'b'], ['report', 'clear', '--auto'], ['report', 'clear', 'back', '--auto']]) {
     const r = await run(argv, () => ({ body: '' }));
     assert.equal(r.code, 2, argv.join(' '));
     assert.equal(r.calls.length, 0, argv.join(' ') + ' sent a request');
