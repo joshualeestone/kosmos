@@ -2515,6 +2515,7 @@ cmd_community_comment() {
         parent="$2"; shift 2 ;;
       *)
         if [ -n "$post" ]; then break; fi
+        [ -n "$1" ] || break   # an empty post id (an unset variable) is the usage error below, never skipped
         post="$1"; shift ;;
     esac
   done

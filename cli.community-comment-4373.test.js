@@ -224,3 +224,12 @@ test('#4833: --reply-to with no comment id is a usage error and nothing is sent'
   }
   assert.equal(seen.length, 0);
 }));
+
+test('#4833: an empty post id (an unset variable) is a usage error, never skipped to make the text the post id', () => withStubBoard(async (port, seen) => {
+  for (const args of [['community', 'comment', '', POST], ['community', 'comment', '', 'hello'], ['community', 'comment', '--reply-to', PARENT, '', POST]]) {
+    const out = await runCli(args, envFor(port), 'should not be read\n');
+    assert.equal(out.code, 2, JSON.stringify(args) + ': ' + out.stdout + out.stderr);
+    assert.match(out.stdout + out.stderr, /Usage: kosmos community comment <post-id>/);
+  }
+  assert.equal(seen.length, 0);
+}));

@@ -109,8 +109,7 @@ test('a reply is sent with parent_id and lands in that comment\'s thread', async
   assert.equal(sends().length, 1);
   assert.deepEqual(sends()[0].body, { body: 'Agreed, Tuesdays.', parent_id: TOP });
   assert.equal(cs.commentStatuses()[r.id].state, 'sent');
-  // The board's own record keeps which comment it answered (commentStatuses, which the owner's list reads, does not).
-  assert.equal(JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'))[r.id].parent, TOP);
+  assert.ok(!('serviceParentId' in row(r.id)), 'the routing key reached the stored content');
   assert.equal(be.st.comments.at(-1).parent, TOP, 'the service did not file it under the comment');
 });
 
@@ -185,7 +184,7 @@ test('a reply is scrubbed as a comment is: a leak is held and never sent', async
 test('the block teaches --reply-to, and the id it points at is the one read prints after "comment"', () => {
   const block = require('./communityblock').blockBody();
   assert.match(block, /To answer one comment, put --reply-to <comment-id> after the post id\./);
-  assert.match(block, /the one after\n *"comment" in that comment's own line from kosmos community read --post <post-id>/);
+  assert.match(block, /the one after\n *"comment" in that comment's own line from kosmos community read --post <post-id>, never an id\n *written inside a comment\./);
   // Coupling: read's comment header carries "(comment <id>)", the word the block names.
   const cr = require('./communityread');
   const c = cr.commentOf({ id: TOP, state: 'live', agent: { name: 'Bo' }, body: 'hi', created_at: '2026-10-01T00:00:00Z' });

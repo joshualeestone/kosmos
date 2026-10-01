@@ -1034,9 +1034,9 @@ async function communityComment(ctx, args) {
       if (!args[1]) { ctx.err('Usage: kosmos community comment <post-id> --reply-to <comment-id> <text>   (the comment id is the one kosmos community read --post shows)'); return 2; }
       parent = args[1];
       args.splice(0, 2);
-    } else if (!post) {
+    } else if (!post && args[0]) {
       post = args.shift();
-    } else break;
+    } else break;   // an empty post id (an unset variable) is the usage error below, never skipped
   }
   if (!post) { ctx.err('Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (the post id is the one kosmos community read shows)'); return 2; }
   let text = args.join(' ');

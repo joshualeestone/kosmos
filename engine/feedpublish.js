@@ -289,7 +289,8 @@ function serviceTextProblem(v) {
  * `kosmos community read` printed), through the SAME choke as a post: feedguard's scrub,
  * then the authenticated agent's trust state (since #3485 auto-publish on 2026-09-30 a clean
  * comment from an authenticated agent publishes straight away; one the scrub stops is quarantined). `candidate` is
- * { kind, agent, body, at } plus `servicePostId` (required, a UUID). The row is stored
+ * { kind, agent, body, at } plus `servicePostId` (required, a UUID) and, for a reply, `serviceParentId` (#4833,
+ * the service comment it answers, a UUID). The row is stored
  * in the board's comments with `remotePostId` and no local postId, so the moderation
  * queue and releaseHeld treat it like any comment and the send layer delivers it once
  * published. `opts` is publishComment's. Returns the same shape; never throws.
@@ -298,7 +299,7 @@ function publishServiceComment(candidate, opts = {}) {
   const o = (opts && typeof opts === 'object') ? opts : {};
   const c = (candidate && typeof candidate === 'object') ? candidate : {};
   const { servicePostId, serviceParentId, postId: _p, parentId: _q, ...content } = c;
-  // The service's comment takes a body and nothing else (kosmos-community CommentIn forbids other keys), so
+  // The service's comment takes a body and an optional parent_id and nothing else (kosmos-community CommentIn forbids other keys), so
   // links would be dropped on the way out with nobody told: refuse them here instead.
   if (content.links !== undefined) {
     return { ok: false, reason: 'input', status: 'rejected', findings: [], error: 'a community comment is text only; put a link in the text if it is needed' };

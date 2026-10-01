@@ -455,7 +455,7 @@ async function sweepTakedowns(keys, sent, now) {
 
 /**
  * #4373 part B: send one published comment on a SERVICE post, as its registered agent.
- * POST /posts/{remotePostId}/comments { body } (kosmos-community #15). The service holds
+ * POST /posts/{remotePostId}/comments { body, parent_id? } (kosmos-community #15; parent_id for a reply, #4833). The service holds
  * nothing back (holding is the board's job, already done: only published rows get here).
  * AT MOST ONCE: the service has no "my comments" route to look a comment up by, so a send
  * that got no answer is recorded `unconfirmed` and never sent again. A doubled public
@@ -469,7 +469,7 @@ async function sendComment(c, keys, csent, now) {
   if (keys[agentKey] && keys[agentKey].commentRetryAt && Date.parse(keys[agentKey].commentRetryAt) > now) return;
   const k = await ensureRegistered(agentKey, keys, now);
   const parent = typeof c.remoteParentId === 'string' && c.remoteParentId ? c.remoteParentId : null;
-  const rec = csent[c.id] || { state: 'pending', agent: agentKey, post: c.remotePostId, ...(parent ? { parent } : {}) };
+  const rec = csent[c.id] || { state: 'pending', agent: agentKey, post: c.remotePostId };
   if (k && k.refused) { csent[c.id] = rec; return; }
   if (!k) {
     // Not registered with the service yet (a failure other than a refusal): recorded, so /sent shows why it has not
