@@ -39,12 +39,15 @@ project); only the two CLIs never send it.
   on the card.
 - "Creator and owner as separate fields": the board already stores `addedBy` separately from the owner;
   this slice makes the CLI list say it.
-
 - **No page to yourself.** A task an agent gives itself (`--who me` or its own name) is not typed into its
   own screen as "you were given task N": it just did it, and the page would land mid-turn and spend its own
   hourly allowance. Its instructions block is still updated (`told`). A task given to another agent pages as
   before. What would change it: an agent that adds a task for later and wants the reminder; then it becomes
-  a flag, not a default.
+  a flag, not a default. The answer then has no `heard`, which already means "nobody to tell" (an
+  unassigned task's answer has none either); neither CLI reads it, and the page never takes this path
+  (the screen is not a process caller).
+- **An agent named "me"** cannot be named with `--who`: `me` is always the caller. Accepted (no agent is
+  named that today); `--who` with its exact session name in another case would still reach it.
 
 ## Tests
 
