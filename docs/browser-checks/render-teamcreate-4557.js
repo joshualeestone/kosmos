@@ -213,6 +213,10 @@ function chk(ok, label, extra) {
           chk(r1.every((r) => r.state === 'Running'), `${E} #4719 the whole team is running`, JSON.stringify(r1.map((r) => r.state)));
           chk(await page.evaluate(() => document.getElementById('tc-provider').disabled), `${E} #4719 the choice is fixed once the team starts`);
           chk(errs.length === 0, `${E} no page errors (#4719 arm)`, errs.join(' | '));
+          /* The board's /api/status poll can still be inside this check's route when the page closes: its
+             r.fetch() response is then disposed and route.fulfill throws an uncaught rejection that kills
+             the whole check (CI, PR #4875, both attempts). Stop routing first, as render-login-expiry does. */
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.context().close();
         }
 
@@ -230,6 +234,10 @@ function chk(ok, label, extra) {
           chk(early === 'anthropic' && late.p === 'openai' && late.a === '/acct/openai-late',
             `${E} #4719 a slow account list moves the untouched team menu to OpenAI when it lands`, JSON.stringify({ early, late }));
           chk(errs.length === 0, `${E} no page errors (#4719 slow arm)`, errs.join(' | '));
+          /* The board's /api/status poll can still be inside this check's route when the page closes: its
+             r.fetch() response is then disposed and route.fulfill throws an uncaught rejection that kills
+             the whole check (CI, PR #4875, both attempts). Stop routing first, as render-login-expiry does. */
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.context().close();
         }
 

@@ -150,3 +150,8 @@ recorded below ran on the stacked base; a fresh loop runs on the rebased branch 
   said "plain lowercase name", but the engine trims and lowercases first, so " OpenAI " is accepted; reworded.
 - Converged after the rebase. Deferred and accepted: the menus read blank for up to 5 s while accounts load (matches
   the single-agent form).
+- PR CI (2026-10-01 09:16): render-teamcreate-4557 passed every assertion, including all #4719 arms in chromium
+  and webkit, then died twice on an uncaught `route.fulfill: Fetch response has been disposed` at #4709's
+  /api/status route (line 174). My two #4719 arms closed their context while the board's status poll was still
+  inside that route. Fixed: `page.unrouteAll({ behavior: 'ignoreErrors' })` before closing, the pattern
+  render-login-expiry-3532 and render-updates-stale already use. Harness only; no page code changed.
