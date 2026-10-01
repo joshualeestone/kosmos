@@ -1369,9 +1369,11 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
    48px, the Kosmos+ mark left, two lines right. The board's own header row keeps only its notices: the K mark, the
    Kosmos menu, the person's name and the tab menu go (the two lines open #pnav instead), and Log out moves into the
    menu's Settings. A local window at the same width keeps today's header: it has no Kosmos+ session or brand.
-   Numbers are measured off Josh's mock at 3x: mark 14px tall at 16px, lines 17px wide 9px apart at 16px. */
+   Numbers are measured off Josh's mock at 3x: mark 14px tall at 16px, lines 17px wide 9px apart at 16px.
+   "A phone" is the board's own definition (PHONE_WIDTH, #3969): 40rem, or a phone held sideways, so turning the
+   phone does not bring the old header back (review round 3). */
 .kplus-bar-menu { display: none; }
-@media (max-width: 40rem) {
+@media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
   html.kremote .kplus-bar { height: 48px; min-height: 48px; padding: 0 16px; border-bottom: 0; margin-bottom: 0; }
   html.kremote .kplus-bar-out, html.kremote .kplus-bar-msg { display: none; }
   html.kremote .kplus-bar-menu { display: flex; align-items: center; justify-content: center; width: 48px; height: 48px;
@@ -1430,6 +1432,8 @@ html.pnav-up { overflow: hidden; scrollbar-gutter: auto; }
 .pnav-small:disabled { opacity: .6; cursor: default; }
 .pnav-msg { margin: 6px 24px 0 63px; font-size: 15px; color: #f2b8ae; }
 .pnav-level:focus { outline: none; }
+.pnav-stamp { margin: 32px 24px 0 63px; font-size: 15px; color: rgba(255,255,255,.55); }
+.pnav-stamp:empty { display: none; }
 /* A Settings section that needs the person (the Settings page's own data-dot) shows the same red dot here. */
 .pnav-dot { width: 10px; height: 10px; border-radius: 50%; background: #db1515; margin-left: 12px; flex: none; }
 .pnav-theme { display: flex; align-items: baseline; gap: 16px; margin-left: 63px; }
@@ -10746,7 +10750,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      White replaces the state grounds here by Josh's newer word ("White background for each agent"); the needs-you
      edge stays, since the stroke is not the ground. The computer line waits for #4812. */
 .lav .lpres, .lpill { display: none; }
-@media (max-width: 40rem) {
+@media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
   html.kremote #boardbar.boardbar { grid-template-columns: auto minmax(0, 1fr); margin-top: 16px; margin-bottom: 20px; }
   html.kremote #boardbar.boardbar > .stats { display: none; }
   html.kremote #boardbar > #new-agent { width: 44px; height: 44px; min-height: 44px; padding: 0; gap: 0; justify-content: center; }
@@ -10764,6 +10768,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
     align-items: start; padding: 22px 16px 18px 6px; border-radius: 10px;
     background: var(--k-surface); border-color: var(--k-rule); }
   html.kremote #alist .lrow.attn { border-color: rgba(179,38,30,.42); }
+  /* The working pulse animates the ground colour, which would beat the white above (review round 3); the pill's
+     moving dots carry "working" here. */
+  html.kremote #alist .lrow.working { animation: none; }
   html.kremote #alist .lrow > .lav { grid-column: 1; grid-row: 1 / span 4; width: 52px; height: 52px; margin: 11px;
     align-self: start; position: relative; overflow: visible; font-size: 1.125rem; }
   html.kremote #alist .lrow > .lav > img, html.kremote #alist .lrow > .lav > .lavtint { border-radius: 50%; overflow: hidden; }
@@ -18224,7 +18231,7 @@ function pnavBuild() {
     + '<li><button type="button" class="pnav-item" data-pnav-tab="projects"><span class="pnav-badge" id="nav-badge-projects-m" aria-hidden="true" hidden></span><span class="pnav-text">Projects</span></button></li>'
     + '<li><button type="button" class="pnav-item" data-pnav-tab="tasks"><span class="pnav-text">Tasks</span></button></li>'
     + '<li><button type="button" class="pnav-item" data-pnav-go="settings"><span class="pnav-text">Settings</span></button></li>'
-    + '</ul></div>'
+    + '</ul><p class="pnav-stamp" id="pnav-stamp"></p></div>'
     + '<div class="pnav-level" data-level="settings" tabindex="-1" hidden><ul class="pnav-list" id="pnav-settings"></ul>'
     + '<div class="pnav-group"><button type="button" class="pnav-small" id="pnav-computers" data-pnav-go="computers" hidden>Switch Computers</button>'
     /* The light/dark choice lives in the person's menu, which the phone header does not show, and in no Settings
@@ -18236,6 +18243,14 @@ function pnavBuild() {
     + '<p class="pnav-msg" id="pnav-msg" role="status"></p></div></div>'
     + '<div class="pnav-level" data-level="computers" tabindex="-1" hidden><ul class="pnav-list" id="pnav-computer-list"></ul></div>';
   document.body.appendChild(nav);
+  /* "Agent status" freshness (#checked) lives in the person's menu, which the phone header hides; the menu's first
+     level carries the same words, kept in step as the status poll rewrites them (review round 3). */
+  const stampSrc = document.getElementById('checked'), stamp = document.getElementById('pnav-stamp');
+  if (stampSrc && stamp) {
+    const sync = () => { stamp.textContent = stampSrc.textContent.replace(/\s+/g, ' ').trim(); };
+    sync();
+    if (typeof MutationObserver === 'function') new MutationObserver(sync).observe(stampSrc, { childList: true, characterData: true, subtree: true });
+  }
   /* The bubbles start as the tab bubbles are now (setNavBadge keeps them together from here on). */
   for (const k of ['agents', 'projects']) {
     const src = document.getElementById('nav-badge-' + k);
@@ -18246,7 +18261,7 @@ function pnavBuild() {
   boardPhoneView();
   /* Widened past the phone width (a rotated tablet, a resized window), the menu's button is gone, so the menu goes too. */
   if (window.matchMedia) {
-    const mq = window.matchMedia('(max-width: 40rem)');
+    const mq = window.matchMedia(PNAV_PHONE_MQ);
     const off = () => { if (!mq.matches) pnavClose(false); boardPhoneView(); };
     if (mq.addEventListener) mq.addEventListener('change', off); else if (mq.addListener) mq.addListener(off);
   }
@@ -18276,7 +18291,9 @@ function pnavBuild() {
   /* On the document, not the menu: focus can sit on a level itself (a level with nothing to press), and a key there
      must still reach this (review round 1). Only while the menu is open. */
   document.addEventListener('keydown', (e) => {
-    if (nav.hidden || e.defaultPrevented) return;   // a key another layer already handled is not ours
+    /* A key another layer already handled is not ours, and neither is any key while a screen above (first run, the
+       update screen) has made the menu inert (review round 3). */
+    if (nav.hidden || e.defaultPrevented || nav.inert || nav.closest('[inert]')) return;
     if (e.key === 'Escape') { e.preventDefault(); if (nav.classList.contains('deep')) pnavBack(); else pnavClose(true); return; }
     const opt = e.target.closest && e.target.closest('.pnav-themeopt');
     if (opt && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
@@ -18302,7 +18319,7 @@ function pnavBuild() {
 let BOARD_PHONE_LIST = false;
 function boardPhoneView() {
   if (typeof layoutApply !== 'function' || typeof BOARD_LAYOUT === 'undefined') return;
-  const phone = document.documentElement.classList.contains('kremote') && !!window.matchMedia && window.matchMedia('(max-width: 40rem)').matches;
+  const phone = document.documentElement.classList.contains('kremote') && !!window.matchMedia && window.matchMedia(PNAV_PHONE_MQ).matches;
   if (phone && BOARD_LAYOUT === 'grid') { layoutApply('agents', 'list'); BOARD_PHONE_LIST = true; return; }
   if (!phone && BOARD_PHONE_LIST) {
     BOARD_PHONE_LIST = false;
@@ -18327,6 +18344,8 @@ function pnavThemeRove() {
   for (const b of opts) b.tabIndex = b === on ? 0 : -1;
 }
 /* The level on screen, and the trail back to the first one. */
+/* The board's phone (PHONE_WIDTH, #3969), the same query as this menu's CSS. */
+const PNAV_PHONE_MQ = '(max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem)';
 let PNAV_TRAIL = ['main'];
 let PNAV_OPENING_T = 0;
 /* The item that opened each deeper level, so Back returns focus to it (as apple.com's menu does). */
@@ -18465,8 +18484,10 @@ function pnavRefresh() {
   if (on === 'settings') document.getElementById('pnav-computers').hidden = !(typeof COMPUTERS_OPENABLE !== 'undefined' && COMPUTERS_OPENABLE);
   if (on === 'computers') {
     const had = nav.contains(document.activeElement) && document.activeElement.closest('.pnav-level[data-level="computers"]');
+    const href = had && document.activeElement.getAttribute('href');
     pnavFill('computers');
-    if (had) { const lv = pnavLevel('computers'); (lv.querySelector('a.pnav-item') || lv).focus({ preventScroll: true }); }
+    /* Focus stays where it was: on the same computer if it is still listed, else on the level (review round 3). */
+    if (had) { const lv = pnavLevel('computers'); const same = href && [...lv.querySelectorAll('a.pnav-item')].find((a) => a.getAttribute('href') === href); (same || lv).focus({ preventScroll: true }); }
   }
 }
 function pnavBack() {
@@ -30048,7 +30069,7 @@ function cnHeld() {
   if (document.getElementById('whatsnew')) return true;
   // The same covering set as tipModalOpen, less this notice itself, plus the boot cover: it sits over
   // everything until first run's check answers, and a notice under it would be recorded as seen unseen.
-  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open], #boot-cover:not([hidden])');   // #4343: not behind the restart screen
+  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open], #boot-cover:not([hidden]), #pnav:not([hidden])');   // #43; #4823 the phone menu43: not behind the restart screen
 }
 function cnOpen() {
   if (document.getElementById('cmnotice')) return;
@@ -37753,7 +37774,7 @@ function wnWire(back) {
 function wnCovered() {
   // Only windows drawn OVER this one (round 3): the other .rm-back dialogs sit under it at the same layer.
   // #4288 part B: and the one-time Community notice, so the two windows never stack. #4343: and the restart screen.
-  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, #cmnotice, .restart-back');
+  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, #cmnotice, .restart-back, #pnav:not([hidden])');   // #4823 the phone menu
 }
 /* In the capture phase, and stopped once handled (round 12): a dialog open UNDER the window keeps its own
    document-level Escape and Tab handlers, and one Escape must not close both. */
@@ -67762,7 +67783,7 @@ function tipMenuOpen() {
 
 function tipModalOpen() {
   // #4356: the first screen (.frc-back) covers the board as first run does; no tip opens under it.
-  return !!document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open]');
+  return !!document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open], #pnav:not([hidden])');   // #4823 the phone menu
 }
 
 function tipVisibleAny(sel) {

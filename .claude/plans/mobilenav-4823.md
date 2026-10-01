@@ -56,3 +56,10 @@ refilled from its own fetch (now computersRender refills it from any answer); a 
 (now only on opening Switch Computers, as the top-left menu does); Back's name; Appearance radios had no arrow keys
 or roving tab stop; check gaps (close mid-move, reopen, Back's focus, a theme click, Shift+Tab, swallowed waits).
 All fixed in round 2's commit.
+R3 (opus) 0B 5W 0C 9N: the working pulse animated the ground (now off on phone rows; A6 samples twice); the Tab trap
+ran while first run or the update screen made the menu inert (now stands down); What's New, the community notice and
+tips could open under the menu (their covering checks now include it); a phone held sideways got the old design (now
+the board's own PHONE_WIDTH query, arm O1); the "Agent status" stamp had no home on the phone (now on the menu's first
+level, kept in step). NITs taken: computers refill keeps focus. NITs left: one grey pill for every state (Josh's mock
+shows one state); the tour's Your Profile step points at the hidden avatar (the tour is a desktop-first flow, noted on
+the card).

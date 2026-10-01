@@ -177,6 +177,12 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         chk(l.working && l.working.img === 'none' && l.idle.img === 'none' && (theme === 'dark' || (l.working.bg === 'rgb(255, 255, 255)' && l.idle.bg === 'rgb(255, 255, 255)')),
           T + 'A5 rows have no state wash: a working row is white too', JSON.stringify({ working: l.working && [l.working.bg, l.working.img], idle: [l.idle.bg, l.idle.img] }));
 
+        // A second sample half a pulse later: the working pulse animates the ground colour (review round 3).
+        await page.waitForTimeout(1800);
+        const l2 = await look(page);
+        chk(l2.working && l2.working.img === 'none' && (theme === 'dark' || l2.working.bg === 'rgb(255, 255, 255)'),
+          T + 'A6 the working row stays white through its pulse', JSON.stringify(l2.working && [l2.working.bg, l2.working.img]));
+
         // The menu.
         await page.click('#kplus-menu');
         await settled(page);
@@ -281,6 +287,15 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         chk(l.nav && !l.nav.shown && !l.menuBtn && l.logoutBtn && l.stats && l.gridBtn && l.layout === 'grid' && l.saved === 'grid' && !l.up,
           T + 'W1 CONTROL: at 1280 the menu closes and today\'s header and board are back, the saved grid with them',
           JSON.stringify({ shown: l.nav && l.nav.shown, menuBtn: !!l.menuBtn, out: l.logoutBtn, stats: l.stats, grid: l.gridBtn, layout: l.layout, saved: l.saved, up: l.up }));
+        await ctx.close();
+      }
+      // A phone held sideways is still a phone (the board's PHONE_WIDTH): the navy header and menu button stay.
+      // Chromium only: "hover: none" needs a mobile emulation, which Playwright offers in Chromium and not in WebKit.
+      if (engine === 'chromium') {
+        const { ctx, page } = await open('remote.test', 'light', { viewport: { width: 844, height: 390 }, isMobile: true });
+        const l = await look(page);
+        chk(l.bar && l.bar.h === 48 && l.menuBtn && !l.klink && !l.burger && !l.stats && !l.gridBtn,
+          E + 'O1 sideways (844x390, touch) keeps the phone header and Agents page', JSON.stringify({ bar: l.bar, menuBtn: !!l.menuBtn, klink: l.klink, burger: l.burger, stats: l.stats, grid: l.gridBtn }));
         await ctx.close();
       }
       // Reduced motion: the level changes at once, with no movement.
