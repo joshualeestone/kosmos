@@ -63,9 +63,16 @@ test('#4909: the runner marks only the home and skills it made, and every board 
     let j = i;
     while (j > 0 && /\\\s*$/.test(lines[j - 1])) j -= 1;   // back to the start of this continued command
     const cmd = lines.slice(j, i + 1).join('\n');
-    // Its own home: through board_home, or one named for this board alone (AGENT_WORKFORCE_HOME="$sb8/home").
-    assert.match(cmd, /AGENT_WORKFORCE_HOME="(\$\(board_home "\$\w+"\)|\$\w+\/home)"/, 'a board boot at line ' + (i + 1) + ' inherits the run home');
-    assert.match(cmd, /AGENT_WORKFORCE_SKILLS_DIR="(\$\(board_skills "\$\w+"\)|\$\w+\/skills)"/, 'a board boot at line ' + (i + 1) + ' inherits the run skills');
+    // Its own home: through board_home, or one named for this board alone (AGENT_WORKFORCE_HOME="$sb8/home"), and
+    // never the run's. Review 1: the sandbox named must be THIS boot's (the one its AGENT_WORKFORCE_DATA uses).
+    const data = cmd.match(/AGENT_WORKFORCE_DATA="\$(\w+)\/data"/);
+    assert.ok(data, 'a board boot at line ' + (i + 1) + ' names no data sandbox');
+    const sb = data[1];
+    const own = new RegExp('AGENT_WORKFORCE_HOME="(\\$\\(board_home "\\$' + sb + '"\\)|\\$' + sb + '\\/home)"');
+    const ownSkills = new RegExp('AGENT_WORKFORCE_SKILLS_DIR="(\\$\\(board_skills "\\$' + sb + '"\\)|\\$' + sb + '\\/skills)"');
+    assert.match(cmd, own, 'a board boot at line ' + (i + 1) + ' does not have its own home ($' + sb + ')');
+    assert.match(cmd, ownSkills, 'a board boot at line ' + (i + 1) + ' does not have its own skills ($' + sb + ')');
+    assert.doesNotMatch(cmd, /AGENT_WORKFORCE_HOME="\$RUN_DIR/, 'a board boot at line ' + (i + 1) + ' is given the run home');
   }
 });
 
@@ -81,4 +88,28 @@ test('#4909: board_home gives a board its own home only when it would inherit th
     assert.equal(run({ AGENT_WORKFORCE_HOME: '/mine', KOSMOS_BC_RUN_HOME: '/run/home' }), '/mine');
     assert.equal(run({ AGENT_WORKFORCE_HOME: '/mine' }), '/mine');
   } finally { fs.rmSync(sb, { recursive: true, force: true }); }
+});
+
+test('#4909 review 1: the control\'s seed reaches a check\'s own home when it was handed the run\'s, and only then', () => {
+  const run = fs.mkdtempSync(path.join(os.tmpdir(), 'bc-seed-4909-'));
+  try {
+    const runHome = path.join(run, 'home'); fs.mkdirSync(runHome);
+    const seed = path.join(run, 'seed'); fs.mkdirSync(path.join(seed, '.codex'), { recursive: true });
+    fs.writeFileSync(path.join(seed, '.codex', 'auth.json'), '{"auth_mode":"chatgpt"}');
+    const env = { ...process.env };
+    for (const v of AMBIENT) delete env[v];
+    const probe = `require(${JSON.stringify(LIB)}); const fs=require('fs'),p=require('path'); process.stdout.write(String(fs.existsSync(p.join(process.env.AGENT_WORKFORCE_HOME,'.codex','auth.json'))))`;
+    const seeded = spawnSync(process.execPath, ['-e', probe], { env: { ...env, AGENT_WORKFORCE_HOME: runHome, KOSMOS_BC_RUN_HOME: runHome, KOSMOS_BC_SEED_HOME: seed }, encoding: 'utf8' });
+    assert.equal(seeded.stdout, 'true', 'the seed did not reach the check\'s own home: ' + seeded.stderr);
+    // CONTROL: no seed, no account.
+    const clean = spawnSync(process.execPath, ['-e', probe], { env: { ...env, AGENT_WORKFORCE_HOME: runHome, KOSMOS_BC_RUN_HOME: runHome }, encoding: 'utf8' });
+    assert.equal(clean.stdout, 'false');
+  } finally { fs.rmSync(run, { recursive: true, force: true }); }
+});
+
+test('#4909 review 1: release.sh clears the seed at both page-check sites, so a cut is never a seeded run', () => {
+  const rel = fs.readFileSync(path.join(__dirname, 'tools', 'release.sh'), 'utf8');
+  const sites = rel.split('\n').filter((l) => /bash tools\/browser-checks\.sh/.test(l) && !/^\s*#/.test(l));
+  assert.ok(sites.length >= 2, 'found ' + sites.length + ' page-check sites');
+  for (const l of sites) assert.match(l, /-u KOSMOS_BC_SEED_HOME/, 'a cut site keeps the seed: ' + l.trim());
 });

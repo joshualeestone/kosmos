@@ -21,8 +21,9 @@ Splinter: build the class; do not touch tcfix-4719 or #4907; queue runs behind t
   with a clean one.
 
 ## Decided, and rejected
-- Rejected: resetting the shared home between checks. Checks run sequentially today, but KOSMOS_CUT_PARALLEL runs
-  them concurrently; a per-check folder is correct in both, a reset is not.
+- Rejected: resetting the shared home between checks. A reset has to know every place a check writes and must run
+  after every check, including one that dies; a per-check folder needs neither. (Review 1 corrected my first reason:
+  KOSMOS_CUT_PARALLEL overlaps the node suite with the page checks, it does not run the checks concurrently.)
 - Checks that share ONE fixture board (a group run "in position" against one boot) still share that board's state
   by design; the control below is what finds any of them that reads state it never set.
 
@@ -35,3 +36,18 @@ writes. The control run is the measurement.
 tools.browser-checks-runhome-4909.test.js: a check handed the run's home or skills gets fresh ones (two checks get two
 different ones) and a caller's own is kept; every board boot in the runner names its own home and skills (counted,
 >= 8); board_home's arms. Control (queued): the whole set clean vs seeded with an OpenAI-only sign-in.
+
+## Review 1 (Opus, blind, source-only): 1 blocker, 2 warnings, 3 nits
+- B1 the control could never fail: the seed went into the run home, which the fix stops anything reading, so seeded
+  and clean runs were equal by construction (a false clean). FIXED: the seed reaches every home the fix makes, each
+  board's (board_home) and each self-booting check's (lib-sandbox-home.js). The control's positive arm: on this branch
+  render-teamcreate-4557 is still the unfixed #4719 arm (tcfix-4719 is not merged), so a seeded run must red it; a
+  seeded run that reds nothing is not a pass.
+- W2 the seed failed silently and could leak into a cut: FIXED, the run says SEEDED RUN, refuses a missing folder or
+  the real home, records a failed copy and fails at the summary (not an exit inside $(...), which would have handed a
+  board an empty home), and release.sh clears KOSMOS_BC_SEED_HOME at both page-check sites (tested).
+- W6 boards booted after the gated loop no longer start with leaked state, so a check that passed only because of a
+  leak goes red: the control's clean arm is exactly the full run on this branch, before any merge.
+- N3 the boot scan accepted the run home and did not tie the sandbox to the boot: FIXED (the sandbox must be the one
+  its AGENT_WORKFORCE_DATA names; $RUN_DIR refused). N4 comments that still said the home is shared: FIXED (lib,
+  runner, release.sh). N5 the parallel-mode reason: corrected above.

@@ -45,10 +45,17 @@ function freshHome() {
    caller set for THIS check (not the run's) is kept, as before. */
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a !== '' && b !== '' && path.resolve(a) === path.resolve(b);
 const cur = process.env.AGENT_WORKFORCE_HOME;
-if (!cur || same(cur, os.homedir()) || same(cur, process.env.KOSMOS_BC_RUN_HOME)) process.env.AGENT_WORKFORCE_HOME = freshHome();
-/* The Claude config in a folder THIS file made, never inside a home it was given: under the
-   runner that home is shared by every check, and trust.js writes onboarding keys into this
-   file, so a shared one would carry one check's writes into the next. */
+if (!cur || same(cur, os.homedir()) || same(cur, process.env.KOSMOS_BC_RUN_HOME)) {
+  const home = freshHome();
+  /* The #4909 control's seed (tools/browser-checks.sh KOSMOS_BC_SEED_HOME) reaches this check's own home, only when
+     it was handed the run's (the runner refuses a missing seed or the real home before any check runs). */
+  const seed = process.env.KOSMOS_BC_SEED_HOME;
+  if (seed && same(cur, process.env.KOSMOS_BC_RUN_HOME)) fs.cpSync(seed, home, { recursive: true });
+  process.env.AGENT_WORKFORCE_HOME = home;
+}
+/* The Claude config in a folder THIS file made, never inside a home it was given: a home a caller
+   set may be shared (it was, under the runner, until #4909), and trust.js writes onboarding keys
+   into this file, so a shared one would carry one check's writes into the next. */
 if (!process.env.AGENT_WORKFORCE_CLAUDE_CONFIG) process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(freshHome(), '.claude.json');
 /* #3801: the global skills folder is read from AGENT_WORKFORCE_SKILLS_DIR || the REAL
    ~/.claude/skills (os.homedir(), not the home above), and the board can add to it and
@@ -78,9 +85,9 @@ for (const v of ['CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME', 'GEMINI_CLI_HOME', 
 const FIXTURE_CLAUDE = { oauthAccount: { emailAddress: 'fixture@example.invalid',
   organizationName: 'Kosmos browser checks', organizationType: 'claude_max' } };
 function plantSubscribedClaude() {
-  /* Its OWN home, never the one it was given: under tools/browser-checks.sh that home is
-     shared by every later check and board in the run, and a planted account there would
-     change what they see depending on run order. A SECONDARY account (~/.claude-fixture),
+  /* Its OWN home, never the one it was given: a home a caller set may be shared with other
+     checks (the runner's was, until #4909), and a planted account there would change what
+     they see depending on run order. A SECONDARY account (~/.claude-fixture),
      not the default: the default's subscription verdict is read from
      AGENT_WORKFORCE_CLAUDE_CONFIG, which a fixture points at its own empty file, while a
      secondary is judged by its own .claude.json. */
