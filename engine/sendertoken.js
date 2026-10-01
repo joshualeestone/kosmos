@@ -535,5 +535,20 @@ function resolveName(token) {
   return no;
 }
 
+/**
+ * #4491: the agents that launch with KOSMOS_AGENT_TOKEN_ONLY=1, so their CLIs, report hook and bridges present
+ * their own token alone and never read the board token. The pilot setting, one agent first: a file beside the
+ * token store, `{ "agents": ["<roster name>", ...] }`, matched EXACTLY (not by safeKey, which two names can
+ * share, #4792). Anything else (no file, unreadable, a wrong shape) is false, today's behaviour: the switch only
+ * ever narrows an agent, so failing toward off is failing toward what every agent does now.
+ */
+function tokenOnlyFile() { return path.join(store.ROOT, 'agent-token-only.json'); }
+function tokenOnlyFor(name) {
+  if (typeof name !== 'string' || !name) return false;
+  let j;
+  try { j = JSON.parse(fs.readFileSync(tokenOnlyFile(), 'utf8')); } catch { return false; }
+  return !!(j && Array.isArray(j.agents) && j.agents.some((a) => a === name));
+}
+
 module.exports = {
-  mint, revoke, retire, retireLauncher, live, keys, resolve, resolveName, CLASH, DIR, MAX_LIVE };
+  mint, revoke, retire, retireLauncher, live, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyFile, CLASH, DIR, MAX_LIVE };

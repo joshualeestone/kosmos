@@ -480,6 +480,14 @@ if [ -z "$adopt" ]; then
     esac
     if [ -n "$KOSMOS_AGENT_TOKEN" ]; then
       SECRET_ENV+=("KOSMOS_AGENT_TOKEN=$KOSMOS_AGENT_TOKEN")
+      # #4491: the pilot switch, for an agent the person listed in agent-token-only.json (sendertoken.tokenOnlyFor).
+      # Only beside a real token: the switch means "present your own token alone", which needs one. Any failure
+      # here leaves the switch off, today's behaviour, and never fails the launch.
+      if [ -n "${_roster:-}" ] && [ -n "$_eng" ] && [ -n "$NODE_BIN" ] && [ "$("$NODE_BIN" -e '
+          try { process.stdout.write(require(process.argv[1]).tokenOnlyFor(process.argv[2]) ? "1" : ""); } catch (e) { /* off */ }
+        ' "$_eng/sendertoken.js" "$_roster" 2>/dev/null || true)" = "1" ]; then
+        SECRET_ENV+=("KOSMOS_AGENT_TOKEN_ONLY=1")
+      fi
       # Kept only in this shell for Antigravity's one launch-time status report.
       _LAUNCH_TOKEN="$KOSMOS_AGENT_TOKEN"
     fi

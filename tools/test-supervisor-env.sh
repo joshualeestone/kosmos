@@ -27,7 +27,7 @@ AGENT_WORKFORCE_DATA="$(mktemp -d)"; export AGENT_WORKFORCE_DATA
 # gets that far. `${VAR:-}` keeps `set -u` happy for the ones it never reaches.
 #
 # ⇒ ADD A NEW TEMP DIR TO THIS LINE. Do not write another trap.
-trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SB:-}" "${SB2:-}" "${DATA2:-}" "${SB3:-}" "${DATA3:-}" "${SB4:-}" "${DATA4:-}" "${SB5:-}"' EXIT
+trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SB:-}" "${SB2:-}" "${DATA2:-}" "${SB3:-}" "${DATA3:-}" "${SB4:-}" "${DATA4:-}" "${SB5:-}" "${DATA6:-}"' EXIT
 
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -252,6 +252,41 @@ STUB_DIR="$SB5" HOME="$SB5/knownhome" GH_TOKEN='inherited-canary-3769' AGENT_WOR
   bash "$SB5/bin/agent-supervisor.sh" guidetest "$SB5/work" /usr/bin/true "$SB5/tmux" "$SB5/start.log" "" grok > "$SB5/out.log" 2>&1 || true
 if grep -qx 'XAI_API_KEY=xai-own-key-3769' "$SB5/pane-secrets" && ! grep -q 'xai-own-key-3769' "$SB5/new-session.args"; then ok "#3769: a Grok guide on a default key gets its own XAI_API_KEY privately, so it can sign in"; else bad "#3769: a Grok guide lost its own key or exposed it in argv"; fi
 if grep -q 'canary-3769' "$SB5/new-session.args" "$SB5/pane-secrets" 2>/dev/null; then bad "#3769: the Grok guide got another token"; else ok "#3769: and no other token"; fi
+
+# ---------------------------------------------------------------- #4491
+# THE PILOT SWITCH. An agent the person lists in agent-token-only.json launches with KOSMOS_AGENT_TOKEN_ONLY=1
+# beside its own token, in the one-use file (never argv); an agent not listed, and every agent when the file is
+# absent or broken, launches as today. Drives the SB2 layout (engine-path beside the script, a real mint) against
+# its own sandboxed data root.
+DATA6="$(mktemp -d)"; mkdir -p "$DATA6/Kosmos"   # store.ROOT is <data>/Kosmos
+tokenonly_run() {
+  rm -f "$SB2/new-session.args" "$SB2/pane-secrets"
+  AGENT_WORKFORCE_DATA="$DATA6" STUB_DIR="$SB2" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
+    bash "$SB2/bin/agent-supervisor.sh" "$1" "$SB2/work" /usr/bin/true "$SB2/tmux" "$SB2/start.log" > "$SB2/out.log" 2>&1 || true
+}
+printf '%s\n' '{"agents":["pilotagent"]}' > "$DATA6/Kosmos/agent-token-only.json"
+tokenonly_run pilotagent
+if grep -qE '^KOSMOS_AGENT_TOKEN=[0-9a-f]{64}$' "$SB2/pane-secrets" 2>/dev/null && grep -qx 'KOSMOS_AGENT_TOKEN_ONLY=1' "$SB2/pane-secrets" \
+  && ! grep -q 'KOSMOS_AGENT_TOKEN_ONLY' "$SB2/new-session.args"; then
+  ok "#4491: a listed agent launches with its own token AND the token-only switch, privately"
+else
+  bad "#4491: a listed agent did not get the switch beside its token: $(tr '\n' ' ' < "$SB2/pane-secrets" 2>/dev/null | sed -E 's/[0-9a-f]{64}/<tok>/g')"
+fi
+tokenonly_run pilotagent-discord
+if grep -qx 'KOSMOS_AGENT_TOKEN_ONLY=1' "$SB2/pane-secrets" 2>/dev/null; then ok "#4491: matched on the roster name, so the agent's -discord session gets it too"; else bad "#4491: the -discord session of a listed agent did not get the switch"; fi
+tokenonly_run otheragent
+if grep -qE '^KOSMOS_AGENT_TOKEN=[0-9a-f]{64}$' "$SB2/pane-secrets" 2>/dev/null && ! grep -q 'KOSMOS_AGENT_TOKEN_ONLY' "$SB2/pane-secrets"; then
+  ok "#4491 CONTROL: an agent not listed gets its token and no switch"
+else
+  bad "#4491 CONTROL: an unlisted agent got the switch, or no token at all"
+fi
+printf '%s\n' '{"agents":"pilotagent"}' > "$DATA6/Kosmos/agent-token-only.json"
+tokenonly_run pilotagent
+if [ -s "$SB2/new-session.args" ] && grep -qE '^KOSMOS_AGENT_TOKEN=[0-9a-f]{64}$' "$SB2/pane-secrets" 2>/dev/null && ! grep -q 'KOSMOS_AGENT_TOKEN_ONLY' "$SB2/pane-secrets"; then
+  ok "#4491: a wrongly shaped setting is off, and the agent still starts with its token"
+else
+  bad "#4491: a wrongly shaped setting turned the switch on or broke the launch"
+fi
 
 [ "$FAILS" -eq 0 ] && echo "supervisor env handoff: all hold" || echo "supervisor env handoff: $FAILS FAILED"
 exit "$FAILS"
