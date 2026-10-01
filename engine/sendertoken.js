@@ -540,7 +540,8 @@ function resolveName(token) {
  * their own token alone and never read the board token. Read by the Mac supervisor's launch (bin/agent-supervisor.sh)
  * only: a Windows launch or an adopted agent does not read it yet. The pilot setting, one agent first: a file beside the
  * token store, `{ "agents": ["<roster name>", ...] }`, matched EXACTLY (not by safeKey, which two names can
- * share, #4792). Anything else (no file, unreadable, a wrong shape) is false, today's behaviour: the switch only
+ * share, #4792). Under the agent's OWN store root: a named-world agent reads its world's file, not the default's.
+ * Anything else (no file, unreadable, a wrong shape) is false, today's behaviour: the switch only
  * ever narrows an agent, so failing toward off is failing toward what every agent does now.
  */
 function tokenOnlyFile() { return path.join(store.ROOT, 'agent-token-only.json'); }

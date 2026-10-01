@@ -744,7 +744,8 @@ if [ -z "$adopt" ]; then
   PANE_ENV+=(-e "KOSMOS_WORLD=${KOSMOS_WORLD:-}")
   # #4491: pinned empty for every pane, so a value on the shared tmux server's global environment cannot put an
   # unlisted agent into the token-only pilot. A listed agent's 1 comes from the one-use secrets file, which the pane
-  # entry exports after these, so it still wins.
+  # entry exports after these, so it still wins. Every pane therefore has it SET (empty when off), so a reader must
+  # compare it to exactly 1, as install/kosmos, the Windows CLI, the report hook and the bridges all do.
   PANE_ENV+=(-e "KOSMOS_AGENT_TOKEN_ONLY=")
   PANE_ENV+=(-e "AGENT_WORKFORCE_DATA=${AGENT_WORKFORCE_DATA:-}")
   PANE_ENV+=(-e "AGENT_WORKFORCE_PROJECTS=${AGENT_WORKFORCE_PROJECTS:-}")
@@ -1205,7 +1206,10 @@ if [ "$RUNNER" = antigravity ] && [ -n "${NODE_BIN:-}" ] && [ -n "${_eng:-}" ] &
   if [ "$_AGY_SIGNED" = signed-in ]; then
     _AGY_SEED_ENV=()
     for _x in ${PANE_ENV[@]+"${PANE_ENV[@]}"}; do
-      case "$_x" in KOSMOS_*=*|AGENT_WORKFORCE_*=*|HOME=*) _AGY_SEED_ENV+=("$_x") ;; esac
+      case "$_x" in
+        KOSMOS_AGENT_TOKEN_ONLY=*) ;;   # #4491: the pane's empty pin; the seed is handed this launch's own value below
+        KOSMOS_*=*|AGENT_WORKFORCE_*=*|HOME=*) _AGY_SEED_ENV+=("$_x") ;;
+      esac
     done
     (
       export KOSMOS_AGENT_TOKEN="${_LAUNCH_TOKEN:-}"

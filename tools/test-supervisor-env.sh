@@ -295,13 +295,26 @@ else
   bad "#4491: a wrongly shaped setting turned the switch on or broke the launch"
 fi
 
-# Listed, but nothing minted (the SB layout: no engine beside the script): no token, so no switch either.
-mkdir -p "$SB/Kosmos-data/Kosmos"; printf '%s\n' '{"agents":["pilotagent"]}' > "$SB/Kosmos-data/Kosmos/agent-token-only.json"
-rm -f "$SB/new-session.args" "$SB/pane-secrets"
-AGENT_WORKFORCE_DATA="$SB/Kosmos-data" STUB_DIR="$SB" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
-  bash "$SB/bin/agent-supervisor.sh" pilotagent "$SB/work" /usr/bin/true "$SB/tmux" "$SB/start.log" > "$SB/out.log" 2>&1 || true
-if [ -s "$SB/new-session.args" ] && ! grep -qx 'KOSMOS_AGENT_TOKEN_ONLY=1' "$SB/new-session.args" "$SB/pane-secrets" 2>/dev/null; then
-  ok "#4491: a listed agent with no token gets no switch, and still starts"
+# Listed, but nothing minted: no token, so no switch. A stub engine (the SB3 layout) whose tokenOnlyFor says ON for
+# everyone, so the only thing that can keep the switch out is the token guard. The control arm, the same stub with a
+# working mint, shows the switch, so this arm can tell "suppressed" from "never asked".
+tokenonly_stub() {
+  cat > "$SB3/root/app/engine/sendertoken.js" <<STUBJS
+module.exports = { mint: () => ($1), tokenOnlyFor: () => true };
+STUBJS
+  rm -f "$SB3/new-session.args" "$SB3/pane-secrets"
+  ( export AGENT_WORKFORCE_DATA="$DATA3" STUB_DIR="$SB3" AGENT_WORKFORCE_WAIT_POLL_SECS=1
+    /bin/bash "$SB3/bin/agent-supervisor.sh" pilotagent "$SB3/work" /usr/bin/true "$SB3/tmux" "$SB3/start.log" ) > "$SB3/out.log" 2>&1 || true
+}
+tokenonly_stub "{ ok: true, token: 'deadbeef' }"
+if grep -qx 'KOSMOS_AGENT_TOKEN_ONLY=1' "$SB3/pane-secrets" 2>/dev/null; then
+  ok "#4491 CONTROL: the stub engine with a working mint does hand the switch over"
+else
+  bad "#4491 CONTROL: the stub engine with a working mint gave no switch, so the arm below proves nothing"
+fi
+tokenonly_stub "{ ok: false }"
+if [ -s "$SB3/new-session.args" ] && ! grep -qx 'KOSMOS_AGENT_TOKEN_ONLY=1' "$SB3/new-session.args" "$SB3/pane-secrets" 2>/dev/null; then
+  ok "#4491: a listed agent whose mint failed gets no switch, and still starts"
 else
   bad "#4491: a listed agent with no token got the switch, or did not start"
 fi
