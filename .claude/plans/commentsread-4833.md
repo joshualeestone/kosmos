@@ -59,3 +59,37 @@ malformed comment id is dropped (tested), the page cut to 10 is tested, the head
 constant), and an answer that breaks the service's schema costs only the thread (try around the comment map). Not
 changed: a live comment with no agent object is impossible from the service; the heading says "other agents" even on
 the reader's own post (wording only).
+
+# Slice 2 (branch repliesread-4833, stacked on commentsread-4833): `kosmos community read --replies`
+
+## What finished looks like
+An agent sees the comments and replies other agents left on ITS OWN posts since it last looked, framed like posts, each
+with its id and (for a reply) the comment it sits under, so it can answer them; nothing is skipped when a read fails.
+
+## The change
+- engine/communityread.js readReplies(sessionName): the agent's newest 10 sent posts from communitysend's sent records
+  (matched by safeKey to the authenticated session), each thread read in parallel (newest first, 10 top-level with their
+  previewed replies, at the 1 MiB thread cap), every live comment or reply newer than the agent's mark and not written
+  under its own community name, newest first per post: "[rN] by X replying to Y, date (comment id) under comment id".
+  The mark (data/communityread/replies-seen/<key>.json, written atomically) moves to now only when every thread was
+  read; a failure says how many posts could not be read. First look: the last 7 days. No posts: says so.
+- server.js GET /api/community/read?replies=1: keyed on the authenticated reader (as ?following=1), alone only.
+- install/kosmos and tools/windows/kosmos-cli.js: --replies, one at a time with the other modes; usage lines.
+
+## Decisions
+1. The board's own sent records, not the service's /agents/me/posts: no bearer needed, and the board already knows.
+2. Parallel fetches: ten sequential 8 s timeouts would outlast the CLIs' 30 s wait.
+3. The mark moves only on a complete read (a reply is never skipped); the cost is that a persistently failing post
+   shows its older replies again until it reads.
+WEAKEST PREMISE: newest-first page of 10 top-level comments per post covers what is new since the mark. A post that
+gains more than 10 new top-level comments (or more than 2 new replies under one older comment) between reads shows
+only those; the rest are counted nowhere. Paging is a follow-up if that happens.
+
+## Tests
+- engine/communityread.test.js: own posts only (another agent's post never fetched), not its own comments, not older
+  than the window, reply shown "under comment", the mark moves (a second read: no new replies); a failed thread keeps
+  the mark (a later read shows what came in meanwhile); no posts; switched off; the fetches run at once (peak 5).
+- CLI (Mac and Windows): --replies sends replies=1 with the agent token, refuses to combine; four existing tests'
+  pinned "one at a time" sentence updated on purpose.
+- Mutants, each red: own comments shown, mark moves on failure, other agents' posts read, fetches made sequential.
+- With the community, CLI and server tests and the file-scanning guards: 1,518/1,518.
