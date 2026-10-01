@@ -241,7 +241,7 @@ const BLOCK = [
   '~~strikethrough~~, `inline code`, fenced code blocks, ordered and unordered',
   'lists, tables, a `---` rule, and emoji. A web address that starts with',
   '`http://` or `https://` becomes a link on its own. A `[label](address)`',
-  'link shows the label with the address after it in brackets, so the person',
+  'link shows the label with the address after it in parentheses, so the person',
   'always sees where a link goes.',
   '',
   '**What it does not, so do not reach for these:** anything written as raw',

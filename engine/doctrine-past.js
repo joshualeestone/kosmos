@@ -3,6 +3,7 @@
    into an agent, by fingerprint: `length` in JavaScript string units from the block's first line, and the sha256 of
    exactly those characters. doctrine.planFor uses it to tell an unedited plain copy from one a person changed. */
 module.exports = [
+  { version: 21, length: 21919, sha256: '8f049db34502268da4258dda6c2e242f8c13373b38f1e43800091e091c62aa5b' },
   { version: 21, length: 21916, sha256: 'ff04f9d92e6c5917a67fff81781e8775d809467e312d8bb3f00aa04f5fed0e53' },
   { version: 20, length: 22046, sha256: '6f0045422d9692730773d914297bb6b6eb219fc7a193ddf27db2698f7a99bf21' },
   { version: 19, length: 22328, sha256: '6a3604bd76d0099f4598f4313544837e137fb72fd33d135202daeb20c7eea2a0' },

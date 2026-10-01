@@ -82,7 +82,8 @@ function spanBody(sectionsList, now, opening) {
  * #4890: the working rules as an agent is BORN with them, inside the managed span, so a later change under an
  * existing heading reaches it through the consented refresh. Before this, birth wrote them as plain text
  * (defaults.appendTo) and planFor can offer a plain file only the headings it lacks, so such a change reached
- * new agents only. Text that already carries the rules is returned as it is; text that already holds a
+ * new agents only. Text that already carries the rules is returned as it is, except today's block inline at
+ * creation, which is framed in place; text that already holds a
  * doctrine marker (pasted from another agent's file) gets the plain block rather than a span spliced among
  * markers it did not write.
  */
@@ -152,6 +153,7 @@ function pastBlockIn(body, past, skip) {
     a write that only re-dates the sentence is a write for nothing). */
 function sectionContentOf(spanInner) {
   return String(spanInner == null ? '' : spanInner)
+    .replace(/\r\n/g, '\n')   // #4890: a span saved with Windows line endings holds the same rules
     .split('\n')
     .filter((line) => !line.startsWith('<!-- Kosmos added the working rules below on ')
       && line !== CLOSING_LINE)
@@ -256,9 +258,16 @@ function status(sessionName, now) {
   const plan = planFor(current.text || '', now);
   let profile = {};
   try { profile = store.readProfile(sessionName) || {}; } catch { profile = {}; }
+  const carried = Number.isFinite(profile.doctrineVersion) ? profile.doctrineVersion : null;
+  /* #4890: every agent is born inside the span, so a span that differs at the version it already carries differs
+     because the PERSON changed it, not because the rules did. No "updated working rules" banner for that; the next
+     version offers the update as usual. */
+  if (plan.state === 'refresh' && plan.updating && !plan.replacing && carried !== null && carried >= defaults.DOCTRINE_VERSION) {
+    return { state: 'current', carried, currentVersion: defaults.DOCTRINE_VERSION, declined: false };
+  }
   return {
     ...plan,
-    carried: Number.isFinite(profile.doctrineVersion) ? profile.doctrineVersion : null,
+    carried,
     currentVersion: defaults.DOCTRINE_VERSION,
     declined: profile.doctrineDeclined === defaults.DOCTRINE_VERSION,
   };

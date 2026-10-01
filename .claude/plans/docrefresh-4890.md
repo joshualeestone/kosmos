@@ -47,7 +47,7 @@ missing-headings rule. 3 of 3 here did (v15 twice, v18 once), a small sample. A 
 who edited theirs is offered only missing headings, as before; birth in the span is the lasting fix.
 
 ## Tests
-engine/doctrine-4890.test.js (22): birth span and current-at-birth; the card's case (a same-heading change reaches an
+engine/doctrine-4890.test.js (25): birth span and current-at-birth; the card's case (a same-heading change reaches an
 agent born before it); replace in place with a control; an edited, a one-character-edited and today's copy are not
 replaced; marker fallback; the shipped table's pairing guard; server flag and dialog copy. Mutations: dropping the
 past-block match, the today's-copy skip, or the line-start check each red a test. create.test.js: the verbatim test
@@ -111,4 +111,11 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   the real tree the table regenerates byte-identical. It also fails, rather than warns, on a version it cannot load.
   FIXED W: the defaults.js v21 log names Windows line endings beside edited copies. Left NITs: the empty fold in
   the cut-only case; a row's version label is the first commit that produced its block.
+- Round 12 (opus): FIXED W: a span the person edited, at the version the agent already carries (recorded at birth
+  and at every click), raises no "updated working rules" banner; the next version offers the update. Control: an
+  earlier carried version still gets it. FIXED W: a span saved with CRLF compares equal (sectionContentOf
+  normalises line endings). FIXED NIT: the link sentence says "parentheses", what the renderer draws (v21 re-pinned,
+  table regenerated: 27 rows, the extra one this branch's unreleased first v21). FIXED NIT: atBirth's docblock names
+  the inline framing. PINNED (decided): a paragraph of the person's right after an unedited copy is kept, outside the
+  new span. Each new guard mutated, each reds one test.
 

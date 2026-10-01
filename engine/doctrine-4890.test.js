@@ -273,3 +273,25 @@ test('#4890 review 9: an imported file carrying today\'s rules is left as it is'
   const discover = fs.readFileSync(path.join(__dirname, 'discover.js'), 'utf8');
   assert.match(discover, /atBirth\(text, undefined, MAX_BYTES, \{ frameInline: false \}\)/);
 });
+
+test('#4890 review 12: a span the person edited at the version it carries raises no "updated rules" banner', () => {
+  const store = require('./store');
+  const born = doctrine.atBirth('# Mine\n', NOW).replace(LINE, () => LINE + ' My own edit.');
+  agentFile('editedspan', born);
+  store.writeProfile('editedspan', { doctrineVersion: defaults.DOCTRINE_VERSION });
+  assert.equal(doctrine.status('editedspan', NOW).state, 'current', 'the person\'s own edit raised the banner');
+  // CONTROL: carried an earlier version, so the update is offered.
+  store.writeProfile('editedspan', { doctrineVersion: defaults.DOCTRINE_VERSION - 1 });
+  assert.equal(doctrine.status('editedspan', NOW).state, 'refresh');
+});
+
+test('#4890 review 12: a born span saved with Windows line endings is still current', () => {
+  const born = doctrine.atBirth('# Mine\n', NOW);
+  assert.equal(doctrine.planFor(born.replace(/\n/g, '\r\n'), NOW).state, 'current');
+});
+
+test('#4890 review 12 (decided, pinned): a paragraph of the person\'s right after an unedited copy is kept, outside the span', () => {
+  const plan = doctrine.planFor(`# Mine\n\n${OLD}\nMy own paragraph.\n`, NOW, OLD_TABLE);
+  assert.equal(plan.replacing, true);
+  assert.ok(plan.fileNext.includes(`${doctrine.END}\nMy own paragraph.\n`), 'the person\'s paragraph was lost or moved into the span');
+});
