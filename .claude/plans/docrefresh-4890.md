@@ -47,7 +47,7 @@ missing-headings rule. 3 of 3 here did (v15 twice, v18 once), a small sample. A 
 who edited theirs is offered only missing headings, as before; birth in the span is the lasting fix.
 
 ## Tests
-engine/doctrine-4890.test.js (19): birth span and current-at-birth; the card's case (a same-heading change reaches an
+engine/doctrine-4890.test.js (22): birth span and current-at-birth; the card's case (a same-heading change reaches an
 agent born before it); replace in place with a control; an edited, a one-character-edited and today's copy are not
 replaced; marker fallback; the shipped table's pairing guard; server flag and dialog copy. Mutations: dropping the
 past-block match, the today's-copy skip, or the line-start check each red a test. create.test.js: the verbatim test
@@ -96,4 +96,9 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   #d-doctrine-note), so it is not changed here. FIXED NITs: doctrine.js constraint 6 no longer says the copy's place
   is taken by the span (only true on one path); the fleet list sends `updating` too; the no-dead-end guard catches the
   composed verb (proved by a mutation). Left NIT: the copy-only case says "replaced" for a cut.
+- Round 9 (sonnet): FIXED W: an imported file is the person's own, so import does not frame an inline copy of
+  today's rules (creation still frames a template's). FIXED W (round 5's deferral, re-raised; the route is live):
+  cutting an older copy needs the per-agent dialog's hash, so the fleet click (names only, no hash) leaves that agent
+  for its own page with a reason. Each guard mutated, each reds one test. Left NITs: "replaced" also covers a
+  partial or cut-only replace, in the dialog and the undo note.
 

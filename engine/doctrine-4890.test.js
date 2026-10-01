@@ -235,3 +235,38 @@ test('#4890 review 7: a heading of the person\'s own right after an unedited cop
   assert.notEqual(plan.replacing, true);
   assert.ok(!plan.fileNext || plan.fileNext.includes('### My own notes\nSomething.'));
 });
+
+const fleet = require('../test-support/fleet');
+function rosterOf(name) {
+  const board = fleet.install([fleet.agent(name, { state: 'idle' })]);
+  const roster = board.agents;
+  board.restore();
+  return roster;
+}
+function agentFile(name, text) {
+  const dir = path.join(process.env.AGENT_WORKFORCE_WORKERS, name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), text);
+  return path.join(dir, 'CLAUDE.md');
+}
+
+test('#4890 review 9: cutting an older copy needs the per-agent dialog\'s hash; the fleet click leaves it', () => {
+  const text = `# Mine\n\n${OLD}\n`;
+  const file = agentFile('fleetcut', text);
+  const fleetClick = doctrine.refresh('fleetcut', rosterOf('fleetcut'), { now: NOW, past: OLD_TABLE });
+  assert.equal(fleetClick.state, 'could_not');
+  assert.match(fleetClick.because, /only from its own page/);
+  assert.equal(fs.readFileSync(file, 'utf8'), text, 'the fleet click wrote');
+  const plan = doctrine.planFor(text, NOW, OLD_TABLE);
+  const ownPage = doctrine.refresh('fleetcut', rosterOf('fleetcut'), { now: NOW, past: OLD_TABLE, expectHash: plan.hash });
+  assert.equal(ownPage.state, 'added', 'CONTROL: the per-agent click with the hash did not write');
+  assert.ok(!fs.readFileSync(file, 'utf8').includes(OLD));
+});
+
+test('#4890 review 9: an imported file carrying today\'s rules is left as it is', () => {
+  const mine = `# Mine\n\n${BLOCK}\n`;
+  assert.equal(doctrine.atBirth(mine, NOW, undefined, { frameInline: false }), mine, 'the import framed the person\'s own file');
+  assert.notEqual(doctrine.atBirth(mine, NOW), mine, 'CONTROL: creation no longer frames an inline copy');
+  const discover = fs.readFileSync(path.join(__dirname, 'discover.js'), 'utf8');
+  assert.match(discover, /atBirth\(text, undefined, MAX_BYTES, \{ frameInline: false \}\)/);
+});

@@ -86,10 +86,12 @@ function spanBody(sectionsList, now, opening) {
  * doctrine marker (pasted from another agent's file) gets the plain block rather than a span spliced among
  * markers it did not write.
  */
-function atBirth(text, now, maxBytes) {
+function atBirth(text, now, maxBytes, opts) {
   const body = String(text == null ? '' : text);
   if (body.includes(START) || body.includes(END)) return defaults.appendTo(body);
   if (body.includes(defaults.RULES_PHRASE)) {
+    // An imported file is the person's own: what it carries is left as it is (opts.frameInline false, discover.js).
+    if (opts && opts.frameInline === false) return body;
     /* A role template that carries today's block inline (roles.js `own`, `setup`): that copy is Kosmos's own and
        nobody has edited it yet, so it is framed in place. Anything else carrying the rules is left as it is. */
     const at = plainCurrentAt(body);
@@ -288,8 +290,13 @@ function refresh(sessionName, roster, opts) {
     if (!current.exists) {
       return { state: 'could_not', because: 'it has no instructions file yet, and we will not create one' };
     }
-    const plan = planFor(current.text || '', opts && opts.now);
+    const plan = planFor(current.text || '', opts && opts.now, opts && opts.past);   // `past`: tests only
     if (plan.state === 'could_not') return plan;
+    /* #4890: cutting an older copy is consented to only in the per-agent dialog, which shows it and always sends
+       its hash. The fleet click (no hash, names only) leaves such an agent for its own page. */
+    if (plan.replacing && !(opts && opts.expectHash)) {
+      return { state: 'could_not', because: 'its older copy of the rules is replaced only from its own page, where the change is shown' };
+    }
     if (plan.state === 'current') {
       /* Already has them: said, never silent, and NOTHING is written --
          not even a re-dated sentence (constraint 4: a no-op write rotates
