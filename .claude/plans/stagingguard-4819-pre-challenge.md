@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: stagingguard-4819
-diff_hash: ebcb36318a1a23c23d5b6e713f456cfcbb9e887c552304e4f6482b8e8250c67c
+diff_hash: e5b4b06031c7d7b3a00ed5f8f6e8e84747fa21c80905fc19d8f574b799727281
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-01T10:24:05Z
@@ -21,6 +21,9 @@ iteration (listed below) or deferred with reasoning in .claude/plans/stagingguar
 
 Final validation (6j): validation_log_run_or_skip on this exact diff (hash ebcb3631...), full sequence
 through the Agent1s queue, 2026-10-01 05:04-05:23 CDT: clean. Subdir CLAUDE.md audit: rc 0.
+Then REBASED onto origin/main for #4818 (#4827), whose only overlap was package.json's test:shell line
+(resolved: main's line plus this branch's one entry). The full sequence was NOT re-run on the rebased diff;
+the deploy-site and staging test files were (all rc 0), and CI runs the full suite on the PR.
 
 ### Per-iteration fix commits (each records what that iteration's findings changed)
 - ef296d146 stagingguard-4819 -- address challenge-loop iteration 1 findings
