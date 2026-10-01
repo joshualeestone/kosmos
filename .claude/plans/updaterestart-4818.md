@@ -71,3 +71,6 @@ Round 6: CONVERGED (no blocker, no should-fix; "would ship it tonight"). Nit tak
 Noted: if the final start itself fails, the trap tries one more start and prints a second line after the die; a very
 old on-disk kosmos (before start waited for the board) could exit 0 without a board, which does not apply to current
 installs.
+
+## After the PR: CI red on a loaded runner (2026-09-30 23:00 CDT)
+suite (shell 1/2) at load 12 on 3 cores failed the HUP and TERM arms: "the signal did not end the run". The arm timed the whole run, put-back included, against 10 s with a 20 s sleep; the put-back's own kosmos start can take longer than that under load. Now the sleep is 120 s and the bound 60 s, the child lookup waits 30 s and fails by name if it never sees the sleep, and the pause wait is 30 s. Measured: green locally (6.6 s); mutant (signal to the shell alone) fails both arms in 246 s. Restored by cmp against a copy.

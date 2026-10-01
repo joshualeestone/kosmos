@@ -197,23 +197,28 @@ echo "not reached"'
 if answers "$P"; then pass "a set -e failure (a command that fails, no die) puts the board back"; else fail "a set -e failure left the board off"; fi
 
 # 3e. Review 2: the window is closed during the download (a hang-up), or the run is sent TERM: the board is put back.
+# CI on a loaded runner (load 12 on 3 cores): the put-back's own `kosmos start` can take over 10 s, which a 20 s sleep
+# and a 10 s bound could not tell from a run that slept through the signal. The sleep is now far longer than any
+# put-back (120 s) and the bound sits between them (60 s), so only a signal that did not land can cross it.
+SIG_SLEEP=120 SIG_BOUND=60
 for sig in HUP TERM; do
   P=$(free_port); H=$(home "sig$sig"); export PORT=$P
   "$H/bin/kosmos" start
   run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
 '"$PAUSED"'
 echo $$ > "$KOSMOS_HOME/paused"
-sleep 20' &
+sleep '"$SIG_SLEEP" &
   rp=$!
-  i=0; while [ $i -lt 100 ] && [ ! -e "$H/paused" ]; do sleep 0.1; i=$((i + 1)); done
+  i=0; while [ $i -lt 300 ] && [ ! -e "$H/paused" ]; do sleep 0.1; i=$((i + 1)); done
   if [ ! -s "$H/paused" ]; then fail "the $sig arm never reached the pause, so it proves nothing"; continue; fi
   # As a closed window or a TERM to the job does: the signal reaches the shell AND what it is running (its children,
   # by exact pid), not the shell alone, which would wait for its foreground command first. Wait until the shell's
   # `sleep` exists (review 3: the pid file is written just before it is forked).
   sp="$(cat "$H/paused")"; kids=""
-  i=0; while [ $i -lt 50 ] && [ -z "$kids" ]; do kids="$(pgrep -P "$sp" 2>/dev/null | tr '\n' ' ')"; [ -n "$kids" ] || sleep 0.1; i=$((i + 1)); done
+  i=0; while [ $i -lt 300 ] && [ -z "$kids" ]; do kids="$(pgrep -P "$sp" 2>/dev/null | tr '\n' ' ')"; [ -n "$kids" ] || sleep 0.1; i=$((i + 1)); done
+  [ -n "$kids" ] || fail "the $sig arm never saw the run's sleep, so the signal reached the shell alone"
   sent=$(date +%s); kill -s "$sig" "$sp" $kids 2>/dev/null; wait "$rp" 2>/dev/null
-  [ $(( $(date +%s) - sent )) -lt 10 ] || fail "the $sig did not end the run (it ran out its sleep), so it proves nothing"
+  [ $(( $(date +%s) - sent )) -lt "$SIG_BOUND" ] || fail "the $sig did not end the run (it ran out its sleep), so it proves nothing"
   i=0; while [ $i -lt 50 ] && ! answers "$P"; do sleep 0.1; i=$((i + 1)); done
   if answers "$P"; then pass "a $sig during the update puts the board back"; else fail "a $sig during the update left the board off"; fi
 done
