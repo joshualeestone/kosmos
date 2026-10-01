@@ -52,3 +52,12 @@ server.whoami-muse-4603.test.js (no model claimed before a turn, then the card a
 - N3 keepModel's lstat-then-read window: FIXED, the same bounded non-blocking reader. N4 a linked `.kosmos`: FIXED,
   refused; a failed rename's temp file is removed. N5 a display-style id is dropped: kept (Muse emits ids).
   N6, N7: kept.
+
+## Review 3 (Opus, blind, source-only): 0 blockers, 2 warnings, 4 nits
+- Checked: readWorkerFile's containment uses the root passed, so the front's own read passes and an unchanged model is
+  not rewritten; nothing it loads is wrong in the front.
+- W1 the forget-at-start step in main() was untested: FIXED, `startup` (exported) is what main() calls; arm added.
+- W2 the temp file at a predictable name was written through a planted link: FIXED, a random name opened 'wx'.
+- N3 the fifo arm is green on main by design and could silently test nothing: comment says so; a readJob fixture
+  assert added. N4 the linked-.kosmos refusal: arm added. N5 a relative workspace: refused. N6 a planted link or fifo
+  hid the model for good: forgetModel now clears any non-folder entry (the entry only, never its target).

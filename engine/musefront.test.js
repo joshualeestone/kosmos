@@ -838,3 +838,26 @@ test('#4603 N12 review 1: a link or fifo at the model file is not followed or re
   assert.equal(front.forgetModel(ws), true);
   assert.equal(fs.existsSync(front.modelFile(ws)), false, 'the last life\'s model survived a start');
 });
+
+test('#4603 N12 review 3: startup forgets the last life\'s model (main\'s real step); a linked .kosmos is refused; a planted link is cleared', () => {
+  const ws = mkTemp('muse-model-start-');
+  assert.equal(front.keepModel(ws, 'muse-spark-1'), true);
+  const s = front.startup(ws);
+  assert.ok(front.UUID_RE.test(s.id), 'startup did not give a session id');
+  assert.equal(fs.existsSync(front.modelFile(ws)), false, 'startup kept the last life\'s model');
+  // A planted link at the model file is cleared at start; its target is untouched.
+  const target = path.join(ws, 'target.txt');
+  fs.writeFileSync(target, 'keep\n');
+  fs.symlinkSync(target, front.modelFile(ws));
+  front.startup(ws);
+  assert.equal(fs.existsSync(front.modelFile(ws)), false);
+  assert.equal(fs.readFileSync(target, 'utf8'), 'keep\n');
+  // A .kosmos that is a link is never written through.
+  const ws2 = mkTemp('muse-model-linkdir-');
+  const outside = mkTemp('muse-model-outside-');
+  fs.symlinkSync(outside, path.join(ws2, '.kosmos'));
+  assert.equal(front.keepModel(ws2, 'muse-spark-1'), false);
+  assert.deepEqual(fs.readdirSync(outside), [], 'a model was written through a linked .kosmos');
+  // A relative workspace is refused outright.
+  assert.equal(front.keepModel('', 'muse-spark-1'), false);
+});

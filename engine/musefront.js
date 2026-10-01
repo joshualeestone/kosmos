@@ -46,6 +46,7 @@ function modelFile(workspace) { return path.join(workspace, '.kosmos', 'muse-mod
 
 /** Keep the model a turn named, when it changed. Never throws: a model that cannot be kept is only not shown. */
 function keepModel(workspace, model) {
+  if (typeof workspace !== 'string' || !path.isAbsolute(workspace)) return false;   // review 3: never a relative path
   if (typeof model !== 'string' || !/^[A-Za-z0-9._:/-]{1,120}$/.test(model)) return false;
   const file = modelFile(workspace);
   // A `.kosmos` that is a link is not written through (review 2), nor a link or fifo at the file (review 1).
@@ -58,10 +59,11 @@ function keepModel(workspace, model) {
     const got = require('./workerfile').readWorkerFile(file, workspace);
     if (got && got.ok && got.buf.toString('utf8').trim() === model) return true;
   }
-  const tmp = file + '.' + process.pid + '.tmp';
+  // Review 3: a random name opened exclusively ('wx'), so nothing planted at a predictable name is followed.
+  const tmp = file + '.' + crypto.randomBytes(6).toString('hex') + '.tmp';
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(tmp, model + '\n', { mode: 0o600 });
+    fs.writeFileSync(tmp, model + '\n', { mode: 0o600, flag: 'wx' });
     fs.renameSync(tmp, file);
     return true;
   } catch { try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ } return false; }
@@ -70,8 +72,19 @@ function keepModel(workspace, model) {
 /* At the front's start the last life's model is forgotten (review 1): a Muse agent moved to another provider and back,
    or signed in again, must not show an old model until its first turn names the current one. */
 function forgetModel(workspace) {
-  try { const st = fs.lstatSync(modelFile(workspace)); if (st.isFile()) fs.unlinkSync(modelFile(workspace)); return true; }
+  if (typeof workspace !== 'string' || !path.isAbsolute(workspace)) return false;
+  // Review 3: any entry but a folder goes (a planted link or fifo too: unlinking touches the entry, never its target),
+  // so nothing left there can hide the model for good.
+  try { const st = fs.lstatSync(modelFile(workspace)); if (!st.isDirectory()) fs.unlinkSync(modelFile(workspace)); return true; }
   catch { return false; }
+}
+
+/* The front's start-up, outside main() so a test reaches the real step (review 3): the session id kept or made, and the
+   last life's model forgotten. */
+function startup(workspace, o) {
+  const got = loadSession(workspace, o);
+  forgetModel(workspace);   // #4603 N12: no model is claimed until a turn of this life names one
+  return got;
 }
 
 /**
@@ -475,8 +488,7 @@ function main(argv = process.argv) {
      only, as server.js does (engine/live-execution.js). Without it every turn was refused as "live
      execution is off". Never at module load: tests require this file and must stay fail-closed. */
   require('./live-execution').allowLiveExecution();
-  const { id, note } = loadSession(workspace);
-  forgetModel(workspace);   // #4603 N12: no model is claimed until a turn of this life names one
+  const { id, note } = startup(workspace);
   write(HELLO + '\n');
   if (note) write(note + '\n');
   const report = makeReporter();
@@ -498,4 +510,4 @@ function main(argv = process.argv) {
 
 if (require.main === module) main();
 
-module.exports = { createFront, loadSession, sessionFile, modelFile, keepModel, forgetModel, makeReporter, printable, answersTheDm, UUID_RE, PROMPT, HELLO, WORKING_EVERY_MS };
+module.exports = { createFront, loadSession, startup, sessionFile, modelFile, keepModel, forgetModel, makeReporter, printable, answersTheDm, UUID_RE, PROMPT, HELLO, WORKING_EVERY_MS };

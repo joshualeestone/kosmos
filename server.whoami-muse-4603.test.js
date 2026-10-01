@@ -59,10 +59,12 @@ test('#4603 N12: a Muse agent\'s card and whoami name the model its last turn na
 });
 
 /* Review 1: the agent can write that file. A fifo in its place must not hang the board's tick, and names no model.
-   (On the old bare read this arm does not fail cleanly: card() blocks and the runner's timeout kills the file.) */
+   A guard, green on origin/main by design (main reads no Muse model at all): it pins against a bare read returning.
+   (On a bare read this arm does not fail cleanly: card() blocks and the runner's timeout kills the file.) */
 test('#4603 N12 review 1: a fifo at the model file neither hangs the board nor names a model', (t) => {
   fs.writeFileSync(create.plistPath('mib'), create.plistFor('mib', '/usr/local/bin/node', '/opt/homebrew/bin/tmux', null, null, 'muse'), 'utf8');
   t.after(() => { try { fs.unlinkSync(create.plistPath('mib')); } catch { /* not written */ } });
+  assert.equal(create.readJob('mib').runner, 'muse', 'fixture: the job does not read back as muse, so the fifo would never be read');
   const dir = create.workerDir('mib');
   fs.mkdirSync(path.dirname(musefront.modelFile(dir)), { recursive: true });
   try { require('node:child_process').execFileSync('mkfifo', [musefront.modelFile(dir)]); }
