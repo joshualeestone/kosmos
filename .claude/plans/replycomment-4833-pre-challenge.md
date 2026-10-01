@@ -23,19 +23,19 @@ converged: true
 **Reviewer model:** opus (default)
 **New findings:** 0 BLOCKERs, 1 WARNING, 1 CONVENTION, 4 NITs
 **Self-generated:** 0 of the above (ITER_COMMITS was empty)
-- [WARNING] install/kosmos:2505 and tools/windows/kosmos-cli.js:1030 — an empty first argument (an unset $POST) was skipped, so the next word became the post id (Mac then blocked reading stdin) --> FIXED (8ce4e3430, rebased 2ee33b06e): an empty positional ends the loop and is the usage error; tests on both platforms, each fails when the guard is reverted
-- [CONVENTION] .claude/plans/replycomment-4833.md — plan missing the block line, the route test, and the stored-content test --> FIXED (plan updated; stored-content assertion added, fails 8 tests when the destructure is reverted)
-- [NIT] engine/feedpublish.js:301 — comment said CommentIn takes only a body --> FIXED (names parent_id)
-- [NIT] engine/communitysend.js:458 — docblock body shape --> FIXED ({ body, parent_id? })
-- [NIT] engine/communitysend.js:568/1068 — `parent` only on records sendComment creates --> FIXED (field dropped; nothing read it; the board's comment row holds remoteParentId)
-- [NIT] engine/communityblock.js:114 — no "never an id written inside a comment" warning --> FIXED (line added; coupling test pins it)
+- [WARNING] install/kosmos:2505 and tools/windows/kosmos-cli.js:1030 - an empty first argument (an unset $POST) was skipped, so the next word became the post id (Mac then blocked reading stdin) --> FIXED (8ce4e3430, rebased 2ee33b06e): an empty positional ends the loop and is the usage error; tests on both platforms, each fails when the guard is reverted
+- [CONVENTION] .claude/plans/replycomment-4833.md - plan missing the block line, the route test, and the stored-content test --> FIXED (plan updated; stored-content assertion added, fails 8 tests when the destructure is reverted)
+- [NIT] engine/feedpublish.js:301 - comment said CommentIn takes only a body --> FIXED (names parent_id)
+- [NIT] engine/communitysend.js:458 - docblock body shape --> FIXED ({ body, parent_id? })
+- [NIT] engine/communitysend.js:568/1068 - `parent` only on records sendComment creates --> FIXED (field dropped; nothing read it; the board's comment row holds remoteParentId)
+- [NIT] engine/communityblock.js:114 - no "never an id written inside a comment" warning --> FIXED (line added; coupling test pins it)
 
 #### Iteration 2
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs (its CONVENTION line states the plan matches; no defect), 2 NITs
 **Self-generated:** 0 of the above
 **Duplicates of prior findings (confirmed resolved):** the empty post id (confirmed usage error on both platforms)
-**Converged** — no new actionable findings.
+**Converged** - no new actionable findings.
 
 ### Final Ledger
 

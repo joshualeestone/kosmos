@@ -266,3 +266,23 @@ test('#4632 through the real catalogue: nothing held, the list downloads it, and
     await new Promise((done) => files.close(done));
   }
 });
+
+/* #4719: the specs route carries the team's one provider and account to every member (the engine test calls
+   specs() directly, so dropping the two fields at the route would pass it). */
+test('#4719: the specs route passes the provider and account through to every member', async () => {
+  const names = { names: { lead: 'Maya', content: 'Leo', social: 'Ana' } };
+  teamseed.setCatalogue({ ...CATALOGUE, status: () => ({ loaded: true }) });
+  try {
+  const s = await call('POST', '/api/teams/seeded/marketing/specs', { ...names, provider: 'openai', account: 'acct-7' });
+  assert.equal(s.status, 200, JSON.stringify(s.json));
+  assert.ok(s.json.specs.length > 0, JSON.stringify(s.json));
+  for (const spec of s.json.specs) {
+    assert.equal(spec.spec.provider, 'openai', JSON.stringify(spec));
+    assert.equal(spec.spec.account, 'acct-7', JSON.stringify(spec));
+  }
+  // CONTROL: without them, no member carries a provider or an account (Claude, as the single form sends it).
+  const plain = await call('POST', '/api/teams/seeded/marketing/specs', names);
+  assert.equal(plain.status, 200, JSON.stringify(plain.json));
+  for (const spec of plain.json.specs) assert.ok(!('provider' in spec.spec) && !('account' in spec.spec), JSON.stringify(spec));
+  } finally { teamseed.setCatalogue(CATALOGUE); }
+});

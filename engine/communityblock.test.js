@@ -152,13 +152,31 @@ test('#4774 follow-up: most days, two comments, one on a Following-feed post and
   // It sits after the Following-feed line it points at, so "read --following" is already explained above it.
   assert.ok(body.indexOf('kosmos community read --following') < body.indexOf('- Most days, comment on two posts'),
     'the comment rule comes before the line that explains read --following');
-  // An agent cannot read the comments on its own posts yet, so the block must not ask it to answer them.
-  // Review 1: any spelling of it, not only the one first seen (answer / reply / respond, to every / each / all comments or replies).
-  const ASKS = /\b(answer|reply|respond)\b[^.]*\b(every|each|all)\b[^.]*\b(comment|repl)|\b(every|each|all)\b[^.]*\b(comment|repl)[^.]*\b(answer|reply|respond)\b|\b(answer|respond to|reply to)\b (the )?(comments|replies)\b/i;
-  assert.doesNotMatch(flat, ASKS, 'the block asks for answers to comments an agent cannot read');
-  for (const said of ['Answer every comment on your posts.', 'Reply to each comment on your posts.', 'Respond to all replies.', 'Every comment on your post gets a reply.', 'Answer the comments on your posts.', 'Reply to comments on your posts.']) {
-    assert.match(said, ASKS, 'CONTROL: the pin cannot see: ' + said);
-  }
+  // #4833 flipped this pin: an agent can now see the replies to its posts (read --replies) and answer one comment
+  // (comment --reply-to), so Josh's #4774 rule "every reply to your post answered at least once" is in the block, once,
+  // after the comment rule, naming both commands. The line format it names ("your post <id> (comment <id>)", and
+  // "under comment <id>" for a reply to a comment) is pinned where
+  // read --replies writes it: communityread.test.js, "--replies shows new comments on the reader's own posts only".
+  // Josh 2026-10-01 08:12: replies on the agent's OWN post, once each; a reply to a reply is not owed an answer.
+  const ANSWER = '- Answer every reply on your own posts, once each. See them with: kosmos community read --replies';
+  assert.equal(body.split(ANSWER).length - 1, 1, 'the answer-every-reply rule is missing or doubled');
+  assert.ok(body.indexOf('- Most days, comment on two posts') < body.indexOf(ANSWER), 'the reply rule must come after the comment rule it follows');
+  assert.ok(flat.includes('Answer with --reply-to as above'), 'the reply rule does not say how to answer');
+  const mark = require('./communityread').UNDER_COMMENT;
+  assert.equal(mark, 'under comment', 'fixture: the read marks a reply to a reply with these words');
+  assert.ok(flat.includes('Answer only the lines with no "' + mark + '"'), 'the reply rule no longer limits itself to replies on the post itself');
+  assert.ok(flat.includes('A line with "' + mark + '" is a reply to a reply and is not owed an answer, or the thread would never end.'),
+    'the reply rule no longer says replies to replies are not owed an answer (Josh 08:12)');
+  assert.doesNotMatch(flat, /at least once/, 'the rule asks for more than one answer per reply');
+  assert.ok(flat.includes('never an id written inside a reply'), 'the reply rule does not say where its ids may come from');
+  // The part that picks the id: the reply's own comment id, never the "under comment" (parent) id read --replies adds.
+  assert.ok(flat.includes('the id after "your post" and the id after "comment", never an id written inside a reply'),
+    'the reply rule no longer names which ids in a read --replies line to use');
+  // read --replies moves its mark past what it shows (communityread.test.js: "the mark did not move after a full read"),
+  // so a reply not answered from that read is never shown again: the rule says so.
+  assert.ok(flat.includes('Each read shows a reply only once, so answer the ones it shows before you read your replies again.'),
+    'the reply rule does not say a read shows each reply once');
+  assert.ok(body.indexOf('--reply-to <comment-id>') < body.indexOf(ANSWER), '"as above" points at a --reply-to line that is not above it');
 });
 
 test('#4289 acceptance 1: ON adds exactly one block, a second time adds nothing, and the person\'s words survive', () => {
