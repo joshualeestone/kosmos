@@ -80,3 +80,9 @@ R6 (sonnet) 0B 0W 0C 3N: CONVERGED at round 6. The merge lost nothing of main's;
 Changes after convergence (two of R6's NITs, small and recorded here): a computers answer that leaves only this
 computer now says so instead of an empty level; arm C0 asserts its precondition (a stale link existed to be cleared).
 Left: .pnav-top's sticky top inside the safe-top padding (inert without viewport-fit=cover).
+First render (e694641df, Chromium and WebKit, 430x932): 157/6. Against Josh's mocks the header, bar, mark, lines,
+28px items at 63px, 47px pitch, bubbles and rows match; the menu's first word sat ~13px low and the X was 14px (now
+padding 0 and a 12px X, arm M2b measures it); the bubble, dot and stamp did not fade with the words (now they do).
+Fails: S5 read a Settings tab that does not exist (the arm now reads the Settings panel); M5 in WebKit was real:
+Safari's default Tab skips buttons, so focus left the menu between the ends (round 5 had predicted it); the menu now
+moves focus on every Tab.

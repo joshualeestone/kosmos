@@ -1415,7 +1415,7 @@ html.pnav-up { overflow: hidden; scrollbar-gutter: auto; }
 .pnav.deep .pnav-back { visibility: visible; opacity: 1; transform: none;
   transition: opacity .24s cubic-bezier(.4,0,.6,1) .16s, transform .24s cubic-bezier(.4,0,.6,1) .16s; }
 .pnav-x:focus-visible, .pnav-back:focus-visible, .pnav-item:focus-visible, .pnav-small:focus-visible { outline: 2px solid #fff; outline-offset: 2px; border-radius: 6px; }
-.pnav-level { padding: 13px 24px 92px 0; }
+.pnav-level { padding: 0 24px 92px 0; }   /* the first word's capitals 61px from the top, as in the mock (measured on render) */
 .pnav-level[hidden] { display: none; }
 .pnav-list { list-style: none; margin: 0; padding: 0; }
 .pnav-item { position: relative; display: flex; align-items: center; width: 100%; min-height: 47px; margin: 0;
@@ -1454,10 +1454,10 @@ html.pnav-up { overflow: hidden; scrollbar-gutter: auto; }
 @keyframes pnav-fwd-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes pnav-back-out { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(8px); } }
 @keyframes pnav-back-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
-.pnav-level.fwd-out .pnav-text, .pnav-level.fwd-out .pnav-small { animation: pnav-fwd-out .24s cubic-bezier(.4,0,.6,1) both; }
+.pnav-level.fwd-out :is(.pnav-text, .pnav-small, .pnav-badge, .pnav-dot, .pnav-stamp, .pnav-theme-l) { animation: pnav-fwd-out .24s cubic-bezier(.4,0,.6,1) both; }
 .pnav-level.fwd-in { animation: pnav-fwd-in .24s cubic-bezier(.4,0,.6,1) both; }
 .pnav-level.back-out { animation: pnav-back-out .24s cubic-bezier(.4,0,.6,1) both; }
-.pnav-level.back-in .pnav-text, .pnav-level.back-in .pnav-small { animation: pnav-back-in .24s cubic-bezier(.4,0,.6,1) both; }
+.pnav-level.back-in :is(.pnav-text, .pnav-small, .pnav-badge, .pnav-dot, .pnav-stamp, .pnav-theme-l) { animation: pnav-back-in .24s cubic-bezier(.4,0,.6,1) both; }
 /* Opening: the words drop in 8px, 20ms apart from 200ms (apple.com's first level). */
 @keyframes pnav-drop { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 .pnav.opening .pnav-level:not([hidden]) .pnav-list > li { animation: pnav-drop .24s cubic-bezier(.4,0,.6,1) both;
@@ -18258,7 +18258,7 @@ async function kplusLogout(out, msg) {
    Settings page's own section list each time it opens, Log out is kplusLogout, and the computers are the rows the
    top-left menu already built from /api/remote/computers (with its address checks). The bubbles are set where the
    tab bubbles are (setNavBadge). So nothing here can offer a door the board does not have. */
-const PNAV_SVG_X = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M1 1l12 12M13 1L1 13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+const PNAV_SVG_X = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M.75 .75l10.5 10.5M11.25 .75L.75 11.25" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
 const PNAV_SVG_BACK = '<svg width="10" height="18" viewBox="0 0 10 18" aria-hidden="true"><path d="M9 1L1.5 9 9 17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 function pnavBuild() {
   if (document.getElementById('pnav')) return;
@@ -18350,11 +18350,13 @@ function pnavBuild() {
     if (e.key !== 'Tab') return;
     /* A modal: Tab stays inside it. */
     const f = [...nav.querySelectorAll('button, a[href]')].filter((el) => !el.disabled && el.getClientRects().length && el.tabIndex !== -1);
-    if (!f.length) { e.preventDefault(); return; }
+    /* Every Tab is moved here, not only at the ends: Safari's default Tab skips buttons, so between the ends it would
+       leave the menu for a field behind it (measured in WebKit). */
+    e.preventDefault();
+    if (!f.length) return;
     const i = f.indexOf(document.activeElement);
-    if (i === -1) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); return; }
-    if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
-    else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); }
+    const next = i === -1 ? (e.shiftKey ? f.length - 1 : 0) : (i + (e.shiftKey ? -1 : 1) + f.length) % f.length;
+    f[next].focus();
   });
 }
 /* #4823: a phone through Kosmos+ has no grid view (Josh: "On mobile: no grid view, only List and Org chart"). A saved

@@ -87,7 +87,7 @@ const look = (page) => page.evaluate(() => {
       badge: vis(q('#nav-badge-agents-m')) ? q('#nav-badge-agents-m').textContent : null, focusIn: nav.contains(document.activeElement) },
     tabBadge: q('#nav-badge-agents') && !q('#nav-badge-agents').hidden ? q('#nav-badge-agents').textContent : null,
     up: document.documentElement.classList.contains('pnav-up'), expanded: q('#kplus-menu') && q('#kplus-menu').getAttribute('aria-expanded'),
-    tab: q('#tabs .tab.on') ? q('#tabs .tab.on').dataset.tab : null, secOn: q('#s-nav button.on') ? q('#s-nav button.on').dataset.go : null,
+    tab: q('#tabs .tab.on') ? q('#tabs .tab.on').dataset.tab : null, settingsShown: vis(q('#panel-settings')), secOn: q('#s-nav button.on') ? q('#s-nav button.on').dataset.go : null,
     focus: document.activeElement && document.activeElement.id,
   };
 });
@@ -191,6 +191,8 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
           T + 'M1 the menu takes the whole screen in Kosmos+ navy and the page stops scrolling', JSON.stringify({ nav: l.nav && l.nav.rect, bg: l.nav && l.nav.bg, up: l.up, exp: l.expanded }));
         chk(l.nav && JSON.stringify(l.nav.items) === JSON.stringify(['Agents', 'Projects', 'Settings']) && l.nav.font === '28px' && l.nav.textLeft === 63,
           T + 'M2 Agents, Projects, Settings (Tasks waits for its tab) in 28px type, 63px in (the mock)', JSON.stringify(l.nav && { items: l.nav.items, font: l.nav.font, left: l.nav.textLeft }));
+        const capTop = await page.evaluate(() => { const t = document.querySelector('#pnav .pnav-level[data-level="main"] .pnav-item .pnav-text'); return Math.round(t.getBoundingClientRect().top); });
+        chk(Math.abs(capTop - 54) <= 4, T + 'M2b the first word sits where Josh\'s mock has it (its line box at about 54px, capitals at about 61)', String(capTop));
         chk(l.nav && l.nav.badge === '3' && l.tabBadge === '3', T + 'M3 the Agents bubble says what the Agents tab bubble says', JSON.stringify({ menu: l.nav && l.nav.badge, tab: l.tabBadge }));
         chk(l.nav && l.nav.x && !l.nav.back && l.nav.focusIn, T + 'M4 an X, no back chevron on the first level, and focus inside the menu', JSON.stringify(l.nav && { x: l.nav.x, back: l.nav.back, focus: l.nav.focusIn }));
         for (let i = 0; i < 9; i++) await page.keyboard.press('Tab');
@@ -282,8 +284,9 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         await page.click('[data-pnav-sec="accounts"]');
         await page.waitForFunction(() => document.getElementById('pnav').hidden, null, { timeout: 3000 }).catch(() => {});
         l = await look(page);
-        chk(l.nav && !l.nav.shown && l.tab === 'settings' && l.secOn === 'accounts' && !l.up && l.focus === 'kplus-menu',
-          T + 'S5 a section opens that Settings section, closes the menu, and focus goes to the two lines', JSON.stringify({ shown: l.nav && l.nav.shown, tab: l.tab, sec: l.secOn, up: l.up, focus: l.focus }));
+        // Settings has no tab of its own in the tab bar, so the arm reads the Settings panel (round on render: it read the tab).
+        chk(l.nav && !l.nav.shown && l.settingsShown && l.secOn === 'accounts' && !l.up && l.focus === 'kplus-menu',
+          T + 'S5 a section opens that Settings section, closes the menu, and focus goes to the two lines', JSON.stringify({ shown: l.nav && l.nav.shown, settings: l.settingsShown, sec: l.secOn, up: l.up, focus: l.focus }));
 
         // Agents from the menu, and Escape on the first level.
         await page.click('#kplus-menu');
