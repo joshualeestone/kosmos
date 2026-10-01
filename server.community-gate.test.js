@@ -133,12 +133,19 @@ test('#4801: with the board token, /mine lists a sent agent COMMENT with Delete,
   const c = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'cy', at: new Date().toISOString(), body: 'Tuesdays work for us too.\nSecond line.', servicePostId: POST_ID }, { agentId: 'cy' });
   assert.equal(c.ok, true, JSON.stringify(c));
   fs.mkdirSync(path.dirname(communitysend._paths.commentsSentFile()), { recursive: true });
-  fs.writeFileSync(communitysend._paths.commentsSentFile(), JSON.stringify({ [c.id]: { state: 'sent', agent: 'cy', post: POST_ID, remoteId: 'rc-77', sentAt: '2026-09-28T08:00:00Z' } }));
+  // The shapes sendComment and ensureRegistered write: the record names the registration keys.json holds (agentId).
+  fs.mkdirSync(path.dirname(communitysend._paths.keysFile()), { recursive: true });
+  fs.writeFileSync(communitysend._paths.keysFile(), JSON.stringify({ cy: { remoteId: 'rcy', name: 'cy', apiKey: 'kc_key_rcy', token: 'tok_rcy', registeredAt: '2026-09-28T07:00:00.000Z' } }));
+  fs.writeFileSync(communitysend._paths.commentsSentFile(), JSON.stringify({ [c.id]: { state: 'sent', agent: 'cy', post: POST_ID, remoteId: 'rc-77', sentAt: '2026-09-28T08:00:00Z', agentId: 'rcy' } }));
   const listed = await (await fetch(base + '/api/community/mine', { headers: { 'x-kosmos-board-token': TOK } })).json();
   assert.equal(listed.comments.length, 1, JSON.stringify(listed));
   const row = listed.comments[0];
   assert.deepEqual([row.id, row.kind, row.text, row.agent, row.state, row.canDelete], [c.id, 'comment', 'Tuesdays work for us too.', 'cy', 'sent', true]);
-  for (const leak of ['rc-77', POST_ID]) assert.ok(!JSON.stringify(listed).includes(leak), 'a remote id reached the page: ' + leak);
+  // Review 1: the comment's own service id never reaches the page; the post's id only as the row's link (remotePostId).
+  assert.ok(!JSON.stringify(listed).includes('rc-77'), 'the comment\'s service id reached the page');
+  assert.equal(row.remotePostId, POST_ID);
+  const { remotePostId: _p, ...rest } = row;
+  assert.ok(!JSON.stringify({ ...listed, comments: [rest] }).includes(POST_ID), 'the post id reached the page other than as the link\'s post');
   const d = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
   assert.deepEqual([d.status, d.json], [200, { ok: true, state: 'sent' }]);
   const cdel = JSON.parse(fs.readFileSync(communitysend._paths.commentDeletesFile(), 'utf8'));
@@ -147,6 +154,75 @@ test('#4801: with the board token, /mine lists a sent agent COMMENT with Delete,
   assert.ok(!deletes[c.id], 'a comment id reached deletes.json, which the sweep walks as POSTS');
   const after = await (await fetch(base + '/api/community/mine', { headers: { 'x-kosmos-board-token': TOK } })).json();
   assert.deepEqual([after.comments[0].deleteRequested, after.comments[0].canDelete], [true, false]);
+});
+
+test('#4801 review 1: the delete route answers a retryable 503 when keys.json cannot be read, never the permanent 400', async () => {
+  const communitystore = require('./engine/communitystore');
+  const feedpublish = require('./engine/feedpublish');
+  const communitysend = require('./engine/communitysend');
+  communitystore.grantTrust('cy');
+  const POST_ID = '8e2c1e3f-6b1f-4a7b-8d2f-3c4d5e6f7a81';
+  const c = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'cy', at: new Date().toISOString(), body: 'Keys go missing.', servicePostId: POST_ID }, { agentId: 'cy' });
+  assert.equal(c.ok, true, JSON.stringify(c));
+  const csFile = communitysend._paths.commentsSentFile();
+  const csent = JSON.parse(fs.readFileSync(csFile, 'utf8'));
+  csent[c.id] = { state: 'sent', agent: 'cy', post: POST_ID, remoteId: 'rc-88', sentAt: '2026-09-28T08:00:00Z', agentId: 'rcy' };
+  fs.writeFileSync(csFile, JSON.stringify(csent));
+  const keys = fs.readFileSync(communitysend._paths.keysFile());
+  fs.writeFileSync(communitysend._paths.keysFile(), '{not json');
+  try {
+    const d = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
+    assert.deepEqual([d.status, d.json], [503, { error: 'Kosmos could not read its community registrations just now' }]);
+  } finally { fs.writeFileSync(communitysend._paths.keysFile(), keys); }
+  const ok = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
+  assert.equal(ok.status, 200, 'CONTROL: readable again, the removal is taken');
+});
+
+test('#4801 review 1: while a comment\'s POST is out, the delete route answers 409 "being sent right now"', async () => {
+  const http = require('node:http');
+  const communitystore = require('./engine/communitystore');
+  const feedpublish = require('./engine/feedpublish');
+  const communitysend = require('./engine/communitysend');
+  let release = null;
+  const svc = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      if (req.method === 'POST' && /^\/posts\/[^/]+\/comments$/.test(req.url)) {
+        release = () => { if (!res.headersSent) { res.writeHead(201, { 'content-type': 'application/json' }); res.end(JSON.stringify({ id: 'rc-99' })); } };
+        return;
+      }
+      res.writeHead(404, { 'content-type': 'application/json' }); res.end('{}');
+    });
+  });
+  await new Promise((r) => svc.listen(0, '127.0.0.1', r));
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  process.env.AGENT_WORKFORCE_COMMUNITY_URL = `http://127.0.0.1:${svc.address().port}/`;
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  communitysend.setSender((url, init) => fetch(url, init));
+  try {
+    fs.mkdirSync(path.dirname(communitysend._paths.keysFile()), { recursive: true });
+    fs.writeFileSync(communitysend._paths.keysFile(), JSON.stringify({ dz: { remoteId: 'rdz', name: 'dz', apiKey: 'kc_key_rdz', token: 'tok_rdz', registeredAt: '2026-09-28T07:00:00.000Z' } }));
+    await communitysend.sweep();                       // the ON period starts
+    communitystore.grantTrust('dz');
+    const c = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'dz', at: new Date().toISOString(), body: 'On the wire.', servicePostId: '9f3d2f4a-7c2a-4b8c-9e3a-4d5e6f7a8b92' }, { agentId: 'dz' });
+    assert.equal(c.ok, true, JSON.stringify(c));
+    const sweeping = communitysend.sweep();
+    for (let i = 0; i < 400 && !release; i++) await new Promise((r) => setTimeout(r, 5));
+    assert.ok(release, 'CONTROL: the comment\'s POST reached the service');
+    const d = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
+    assert.deepEqual([d.status, d.json], [409, { error: 'It is being sent right now; try again in a minute' }]);
+    release();
+    await sweeping;
+    const ok = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
+    assert.equal(ok.status, 200, 'CONTROL: answered, the removal is taken');
+  } finally {
+    if (release) release();
+    communitysend.setSender(null);
+    communitysend.setSwitch(null);
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was;
+    svc.closeAllConnections();
+    svc.close();
+  }
 });
 
 test('#4525 CONTROL: POST /api/community/discard STAYS gated (403 without a token)', async () => {

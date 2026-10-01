@@ -4523,7 +4523,8 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         const r = communitysend.requestDelete(body.id);
-        if (!r.ok) { sendJson(res, r.missing ? 404 : r.notEligible ? 400 : 500, { error: r.because }); return; }
+        // #4801 review 1: busy (a comment's POST is out right now) is 409, and an unreadable keys.json a retryable 503.
+        if (!r.ok) { sendJson(res, r.missing ? 404 : r.notEligible ? 400 : r.busy ? 409 : r.retryable ? 503 : 500, { error: r.because }); return; }
         sendJson(res, 200, { ok: true, state: r.state });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));

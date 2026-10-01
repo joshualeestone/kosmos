@@ -90,3 +90,57 @@ change my mind: a service deploy path that serves 404 for the whole comments rou
   /mine shape, the route deciding post vs comment, the same-registration guard in the sweep and in traceable), and the browser COMMENT arm reds when the page ignores comments.
 - Browser: render-community-delete-4313.js (all passed, COMMENT arm included) and render-community-switch-4288.js
   (all passed) against a sandboxed board.
+
+## Review round 1
+
+- **W1 (a removal during the agent's first registration was sent).** `sendComment` re-reads comment-deletes.json
+  after `ensureRegistered` and before the write-ahead; a listed comment is settled `withheld` and nothing is sent.
+  Unreadable there, it sends nothing and leaves the record as it was (the next sweep's own read decides). Test: the
+  fake `/agents/register` calls `requestDelete` before answering; no comment POST, state withheld, and still none on
+  the next sweep.
+- **W2 (a removal during an in-flight POST was refused as "never learned").** `commentRecords` reads
+  attempted-but-unsettled as `sending` while this process has that POST out (an in-memory set, filled around the
+  `asAgent` call), and as `unconfirmed` otherwise. `requestDelete` answers `busy` ("It is being sent right now; try
+  again in a minute"), the route maps busy to 409, and the page says "Sending" with no Delete. Tests: engine state
+  and refusal with the POST held open by the fake service; the route's 409 in server.community-gate.test.js.
+- **W3 (where and when).** `mineComments` carries `remotePostId` (the post's id, public); the row's meta line links
+  "on a community post" to `COMMUNITY_SITE + '/post/' + id` (only a plain id, target _blank, rel noopener
+  noreferrer, exactly as the #4525 held list) and shows the date from `postedAt`. The comment's own service id
+  stays out; the no-remote-ids tests now say exactly that. The COMMENT browser arm asserts the href and the date.
+- **W4 (keys.json unreadable read as "a different registration").** `commentRecords.traceable` is `null` (unknown)
+  when keys.json cannot be read; the row carries `traceUnknown`, has no Delete and says "Kosmos could not read its
+  community registrations just now"; `requestDelete` answers `retryable` with that wording and the route maps it to
+  503. Tests: engine row and refusal, and the route's 503.
+- **NITs.** (a) comment-deletes.json's corrupt message says "repaired", never "removed". (b) communitymine.js names
+  communitycommentmine-4801.test.js. (c) README row says "Delete shows where the board says canDelete"; the COMMENT
+  arm asserts Keep it focus and focus to the heading after Delete it. (d) the unreadable comment-deletes.json test
+  also shows posts still send, no DELETE goes out (with a control that sends it once repaired) and `requestDelete`
+  answers an error. (e) a record with no agentId counts as this registration only when `keys[agent].registeredAt <=
+  rec.sentAt` (both ISO); a key with no registeredAt does not. The fixtures that wrote sent records with no agentId
+  and no keys.json now carry the agentId and key that sendComment and ensureRegistered write.
+
+### Decided in round 1 (beyond the brief)
+
+1. **`sending` lasts only while THIS process has the POST out.** The plain reading ("attempted but unsettled") would
+   also cover a board that stopped mid-POST, whose mark nothing ever settles, so the row would say "Sending" and the
+   removal "try again in a minute" forever. In memory, a restart reads it `unconfirmed`, as before. The send sweep
+   and the delete route run in the same server process, so the set is the one both see. Rejected: an `attemptedAt`
+   time window (a guess at how long a POST can take, and a clock to trust).
+2. **W4's 503 applies only where traceability decides the answer** (a `sent` record). A pending comment's removal
+   is a withhold, which needs no registration, so it is still taken with keys.json unreadable, and the row keeps its
+   Delete.
+3. **The date format** is the one Settings already uses for a date (the Claude sign-in's "good until" in the
+   accounts list: month and day, plus the year when not this one), as a small `communityMineDate` helper beside the
+   list; there was no shared helper to call. Rejected: `pjWhen` ("3 minutes ago"), which goes stale in a list that is
+   painted once.
+4. **Only comment rows get WHERE and WHEN.** Post rows are unchanged (the card's "where, when" is about comments).
+
+### Weakest premise (round 1)
+
+That the sweep and the delete route share one process, so the in-memory in-flight set is what the route sees. True
+today (server.js runs `communitysend.sweep()` on its own timer). If the sweep ever moves to a worker process, a
+comment mid-POST would read `unconfirmed` and its removal would be refused as "never learned", the pre-round-1
+behaviour, not a wrong removal. Also: a legacy record (no agentId) sent in the same sweep that first registered its
+agent compares a real-time `registeredAt` with the sweep-start `sentAt`, so it reads untraceable (no Delete) rather
+than wrongly removable; only records from this unmerged stack lack agentId, and sendComment writes it whenever the
+service answered `agent_id`.

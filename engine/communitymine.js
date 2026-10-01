@@ -78,15 +78,18 @@ function mine() {
 
 /* #4801: a comment can be removed only while the service can be asked about it: sent with the id the service answered
    with, or pending (not tried yet; a removal withholds it). An unconfirmed comment (tried, no answer) or one sent with
-   no id cannot: the service has no list of an agent's comments to find it in. Pinned by communitymine.test.js. */
+   no id cannot: the service has no list of an agent's comments to find it in. Pinned by communitycommentmine-4801.test.js. */
 function canDeleteComment(st) {
   return (st.traceable === true || st.state === 'pending') && st.deleteRequested !== true && st.agentRefused !== true;
 }
 
 /**
  * #4801: one row per comment the send layer has a record for (or the owner asked to remove), joined to the board's
- * own comment row for its text, agent and time. Newest first. The same no-remote-ids rule as mine(): `untraceable`
- * says only that the service never gave Kosmos a handle on it, so the page can say why there is no Delete.
+ * own comment row for its text, agent and time. Newest first. The same no-remote-ids rule as mine() for the comment
+ * itself: `untraceable` says only that the service never gave Kosmos a handle on it, so the page can say why there is
+ * no Delete. The one service id carried is the POST's (`remotePostId`), which is public: the row links to the post
+ * the comment is on, as the #4525 held list does. `traceUnknown`: keys.json could not be read, so whether the board
+ * still holds the registration that sent it is not known (review 1).
  */
 function mineComments() {
   const recs = communitysend.commentRecords();
@@ -105,11 +108,14 @@ function mineComments() {
       agent: c ? agentName(c) : '',
       postedAt: c ? (typeof c.releasedAt === 'string' ? c.releasedAt
         : typeof c.receivedAt === 'string' ? c.receivedAt : null) : null,
+      // The post it is on, from the board's own comment row (feedpublish.publishServiceComment), for the page's link.
+      remotePostId: c && typeof c.remotePostId === 'string' ? c.remotePostId : null,
       state: rec.state,
       deleteRequested: rec.deleteRequested === true,
       deleteRetrying: rec.deleteRetrying === true,
       agentRefused: rec.agentRefused === true,
-      untraceable: rec.state === 'unconfirmed' || (rec.state === 'sent' && rec.traceable !== true),
+      untraceable: rec.state === 'unconfirmed' || (rec.state === 'sent' && rec.traceable === false),
+      traceUnknown: rec.state === 'sent' && rec.traceable === null,
       // requestDelete answers 404 for an id with no board comment, so no Delete without one.
       canDelete: c !== null && canDeleteComment(rec),
     };

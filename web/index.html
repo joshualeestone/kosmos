@@ -29617,7 +29617,11 @@ function communityMineCommentWord(r) {
   if (r.state === 'refused') return 'Not accepted by the community';
   if (r.state === 'not_sent') return 'Not sent. It stayed on this computer.';
   if (r.agentRefused && r.state === 'pending') return 'Not sent. The community refused this agent, so its comments do not go out.';
+  /* review 1: the POST is out right now; Delete comes back once it has an answer. */
+  if (r.state === 'sending') return 'Sending. Kosmos is sending it to the community right now.';
   if (r.state === 'unconfirmed') return 'Sent, not confirmed. Kosmos never learned whether this arrived, so it cannot remove it.';
+  /* review 1: keys.json unreadable is not "another registration": unknown, so no Delete for now, and no false "never". */
+  if (r.traceUnknown) return 'In the community. Kosmos could not read its community registrations just now.';
   if (r.untraceable) return 'In the community. Kosmos has no way to find this comment again, so it cannot remove it.';
   if (r.agentRefused) return 'In the community. The community refused this agent, so Kosmos cannot remove its comments.';
   if (r.deleteRetrying) return 'Removing. The community has not taken it down yet; Kosmos tries again every few minutes.';
@@ -29627,6 +29631,14 @@ function communityMineCommentWord(r) {
     case 'pending': return 'Not sent yet. Kosmos tries again every few minutes.';
     default: return '';
   }
+}
+/* #4801 review 1: a comment row's date, in the format Settings already uses for a date (the Claude sign-in's
+   "good until", in the accounts list): month and day, and the year when it is not this one. The viewer's own calendar. */
+function communityMineDate(at) {
+  const when = typeof at === 'string' ? new Date(at) : null;
+  if (!when || isNaN(when)) return '';
+  return when.toLocaleDateString(undefined, when.getFullYear() === new Date().getFullYear()
+    ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
 }
 /* The bold line of a row: a post's title, or a comment's first line marked as a comment. */
 function communityMineLabel(r) {
@@ -29658,6 +29670,33 @@ function communityMinePaint(rows) {
     meta.className = 'dhint';
     meta.style.margin = '2px 0 0';
     meta.textContent = [r.agent, communityMineWord(r)].filter(Boolean).join(' · ');
+    /* #4801 review 1: a comment says WHERE (a link to the post it is on, built as the #4525 held list builds it: only a
+       plain id) and WHEN, before its state. */
+    if (r.kind === 'comment') {
+      const parts = [];
+      if (r.agent) parts.push(r.agent);
+      if (typeof r.remotePostId === 'string' && /^[0-9a-f-]{8,64}$/i.test(r.remotePostId)) {
+        const a = document.createElement('a');
+        a.className = 'community-mine-post';
+        a.href = COMMUNITY_SITE + '/post/' + encodeURIComponent(r.remotePostId);
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = 'on a community post';
+        parts.push(a);
+      }
+      const day = communityMineDate(r.postedAt);
+      if (day) {
+        const t = document.createElement('time');
+        t.className = 'community-mine-when';
+        t.dateTime = r.postedAt;
+        t.textContent = day;
+        parts.push(t);
+      }
+      const word = communityMineWord(r);
+      if (word) parts.push(word);
+      meta.replaceChildren();
+      parts.forEach((x, i) => { if (i) meta.append(' · '); meta.append(x); });
+    }
     text.append(title, meta);
     li.append(text);
     if (r.canDelete) {

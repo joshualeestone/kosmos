@@ -120,7 +120,10 @@ function corrupt(file, why) {
   if (!reportedCorrupt.has(file)) {
     reportedCorrupt.add(file);
     // comments-sent.json must never be REMOVED: without it every comment already sent would go again, in public.
-    const fix = file === commentsSentFile() ? 'repaired (do NOT remove it: that would send every comment again)' : 'repaired or removed';
+    // #4801: nor comment-deletes.json: without it a comment the owner removed before it went out would be sent.
+    const fix = file === commentsSentFile() ? 'repaired (do NOT remove it: that would send every comment again)'
+      : file === commentDeletesFile() ? 'repaired (do NOT remove it: a comment the owner removed would be sent)'
+      : 'repaired or removed';
     log(`${path.basename(file)} cannot be read (${why || 'unknown'}); sending is paused until it is ${fix}`);
   }
   return null;
@@ -425,6 +428,7 @@ async function sweepTakedowns(keys, sent, now) {
  * that got no answer is recorded `unconfirmed` and never sent again. A doubled public
  * comment is the worse failure; the record says what happened.
  */
+const commentsInFlight = new Set();   // #4801 review 1: comment ids whose POST this process has out right now
 async function sendComment(c, keys, csent, now) {
   const agentKey = c.agent;
   // Comments wait on their OWN cap: the service counts posts (3 a day) and comments (20 a day) apart, so a
@@ -442,12 +446,24 @@ async function sendComment(c, keys, csent, now) {
     }
     return;
   }
+  // #4801 review 1: a removal can arrive while ensureRegistered was on the network (the agent's first registration),
+  // after sweepComments' own read. Read again, as late as possible before the write-ahead: removed, it never goes.
+  // Unreadable, send nothing (left as it was, so the next sweep decides).
+  const cdel = loadJson(commentDeletesFile());
+  if (!cdel) return;
+  if (Object.prototype.hasOwnProperty.call(cdel, c.id)) { csent[c.id] = settle(rec, { state: 'withheld' }); return; }
   const body = { body: String(c.body || '') };
   if (!body.body.trim()) { csent[c.id] = settle(rec, { state: 'refused', reasons: ['empty'] }); return; }
   // Write-ahead: a board that stops while the POST is out finds this mark and does not send again.
   csent[c.id] = { ...rec, attempted: true };
   saveJson(commentsSentFile(), csent);
-  const r = await asAgent(agentKey, keys, 'POST', '/posts/' + encodeURIComponent(c.remotePostId) + '/comments', body);
+  // #4801 review 1: while the POST is out the owner's list says "Sending" and a removal is refused as busy, not as
+  // "never learned whether it arrived": in a minute it has an answer. In memory on purpose: a board that stopped
+  // mid-POST has nothing in flight, and its mark reads as unconfirmed, as before.
+  commentsInFlight.add(c.id);
+  let r;
+  try { r = await asAgent(agentKey, keys, 'POST', '/posts/' + encodeURIComponent(c.remotePostId) + '/comments', body); }
+  finally { commentsInFlight.delete(c.id); }
   if (r.status === 201) {
     // #4801: which service agent stored it (agentId), so a removal is only ever asked by that same agent: after keys.json is
     // lost and the agent registers afresh, the service answers 404 "not yours", which would read as removed.
@@ -789,6 +805,14 @@ function requestCommentDelete(id) {
   // A comment that may be out but cannot be found again is refused rather than recorded: recorded, the owner's list
   // would say "coming down" forever, since sweepCommentDeletes has no id to ask the service about.
   const before = commentRecords()[id];
+  // #4801 review 1: out on the network right now. Not "never learned": it has an answer within a minute.
+  if (before && !cdel[id] && before.state === 'sending') {
+    return { ok: false, busy: true, because: 'It is being sent right now; try again in a minute' };
+  }
+  // #4801 review 1: keys.json unreadable: whether this is the registration that sent it is unknown, not "another".
+  if (before && !cdel[id] && before.state === 'sent' && before.traceable === null) {
+    return { ok: false, retryable: true, because: 'Kosmos could not read its community registrations just now' };
+  }
   if (before && !cdel[id] && (before.state === 'unconfirmed' || (before.state === 'sent' && !before.traceable))) {
     return { ok: false, notEligible: true, because: before.state === 'unconfirmed'
       ? 'Kosmos never learned whether this comment arrived, so it cannot remove it'
@@ -907,27 +931,33 @@ function commentStatuses() {
  * comment's id, which is what a removal needs. A pending comment the owner removed reads withheld, as a post does.
  */
 function sameServiceAgent(rec, k) {
-  return !rec.agentId || Boolean(k && k.remoteId === rec.agentId);
+  if (rec.agentId) return Boolean(k && k.remoteId === rec.agentId);
+  // #4801 review 1: a record with no agentId (sent before agentId was recorded) is this registration's only when the
+  // registration is no newer than the send: one made after it is a fresh service agent, whose 404 means "not mine".
+  return Boolean(k && typeof k.registeredAt === 'string' && typeof rec.sentAt === 'string' && k.registeredAt <= rec.sentAt);
 }
 function commentRecords() {
   const csent = loadJson(commentsSentFile()) || {};
   const cdel = loadJson(commentDeletesFile()) || {};
-  const keys = loadJson(keysFile()) || {};
+  // #4801 review 1: unreadable keys.json is NOT "no registrations": traceability is then unknown (null), never false.
+  const keysRead = loadJson(keysFile());
+  const keys = keysRead || {};
   const out = {};
   for (const id of new Set([...Object.keys(csent), ...Object.keys(cdel)])) {
     const rec = csent[id] || {};
     const deleteRequested = Object.prototype.hasOwnProperty.call(cdel, id);
     let state = rec.state || 'pending';
-    if (state === 'pending' && rec.attempted) state = 'unconfirmed';
+    if (state === 'pending' && rec.attempted) state = commentsInFlight.has(id) ? 'sending' : 'unconfirmed';
     else if (deleteRequested && state === 'pending') state = 'withheld';
     const k = rec.agent && keys[rec.agent];
+    const hasHandle = state === 'sent' && typeof rec.remoteId === 'string' && rec.remoteId !== '' && Boolean(rec.post);
     out[id] = {
       state, deleteRequested,
       deleteRetrying: deleteRequested && state === 'sent' && typeof rec.deleteStatus === 'number',
       agentRefused: !!(k && k.refused),
-      // Sent, with the id the service answered, by the registration this board still holds (sameServiceAgent).
-      traceable: state === 'sent' && typeof rec.remoteId === 'string' && rec.remoteId !== '' && Boolean(rec.post)
-        && sameServiceAgent(rec, k),
+      // Sent, with the id the service answered, by the registration this board still holds (sameServiceAgent);
+      // null when that cannot be told because keys.json is unreadable.
+      traceable: hasHandle && !keysRead ? null : hasHandle && sameServiceAgent(rec, k),
     };
   }
   return out;
