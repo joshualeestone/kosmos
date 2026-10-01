@@ -90,8 +90,9 @@ test('#4890: the board passes `replacing` through, and the dialog says the older
   assert.equal((server.match(/replacing: st\.replacing === true,/g) || []).length, 2, 'GET /doctrine or the fleet list no longer sends replacing');
   assert.equal((server.match(/updating: st\.updating === true,/g) || []).length, 2, 'GET /doctrine or the fleet list no longer sends updating');
   // #4890 review 10: the fleet list says what the fleet click does with a replace (leaves it), in the click's words.
-  assert.match(server, /state: doctrine\.fleetLeaves\(st\) \? 'could_not' :/);
-  assert.match(server, /because: doctrine\.fleetLeaves\(st\) \|\| st\.because \|\| null,/);
+  assert.match(server, /state: st\.declined === true && st\.state === 'refresh' \? 'declined' : doctrine\.fleetLeaves\(st\) \? 'could_not' :/,
+    'the fleet list does not check a Not now first, as the fleet click does');
+  assert.match(server, /\(doctrine\.fleetLeaves\(st\) \|\| st\.because \|\| null\),/);
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   assert.match(page, /\(plan\.replacing\s*\n\s*\? 'Your words stay exactly as they are\. The older copy of these rules that Kosmos added is replaced with '/,
     'the consent dialog no longer says the older copy is replaced');
@@ -328,4 +329,12 @@ test('#4890 review 15: the fleet click updates an UNEDITED span at an older vers
   const plan = doctrine.planFor(edited, NOW, OLD_TABLE);
   assert.equal(plan.edited, true);
   assert.equal(doctrine.refresh('fleetedited', rosterOf('fleetedited'), { now: NOW, past: OLD_TABLE, expectHash: plan.hash }).state, 'added');
+});
+
+test('#4890 review 16: an UNEDITED earlier block in a span at the carried version still gets the banner', () => {
+  const store = require('./store');
+  agentFile('restored', doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD));   // e.g. a .previous restored
+  store.writeProfile('restored', { doctrineVersion: defaults.DOCTRINE_VERSION });
+  const st = doctrine.status('restored', NOW, OLD_TABLE);
+  assert.equal(st.state, 'refresh', 'an unedited earlier block was hidden as if the person had edited it');
 });

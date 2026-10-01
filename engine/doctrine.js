@@ -252,28 +252,28 @@ function hashOf(text) {
   return crypto.createHash('sha256').update(String(text)).digest('hex').slice(0, 16);
 }
 
-/* #4890: every agent is born inside the span, so a span that differs at the version it already carries differs
-   because the PERSON changed it, not because the rules did. status() raises no banner for it and the fleet click
+/* #4890: an agent created or imported with the rules has them inside the span, so a span that differs at the
+   version it already carries, and is not an earlier block (`edited`), differs because the PERSON changed it. status() raises no banner for it and the fleet click
    (refresh without the dialog's hash) leaves it; the next version offers the update as usual. */
 function personEditedAtCarried(plan, carried) {
-  return plan.state === 'refresh' && plan.updating === true && !plan.replacing
+  return plan.state === 'refresh' && plan.updating === true && plan.edited === true && !plan.replacing
     && carried !== null && carried >= defaults.DOCTRINE_VERSION;
 }
 
 /**
  * What the banner and the dialog need for one agent, no write anywhere.
  */
-function status(sessionName, now) {
+function status(sessionName, now, past) {   // `past`: tests only
   const current = instructions.read(sessionName);
   if (!current.exists) {
     return { state: 'could_not', because: current.because || 'it has no instructions file yet' };
   }
-  const plan = planFor(current.text || '', now);
+  const plan = planFor(current.text || '', now, past);
   let profile = {};
   try { profile = store.readProfile(sessionName) || {}; } catch { profile = {}; }
   const carried = Number.isFinite(profile.doctrineVersion) ? profile.doctrineVersion : null;
   if (personEditedAtCarried(plan, carried)) {
-    return { state: 'current', carried, currentVersion: defaults.DOCTRINE_VERSION, declined: false };
+    return { state: 'current', carried, currentVersion: defaults.DOCTRINE_VERSION, declined: profile.doctrineDeclined === defaults.DOCTRINE_VERSION };
   }
   return {
     ...plan,
@@ -283,12 +283,6 @@ function status(sessionName, now) {
   };
 }
 
-/**
- * The consented write, the reports.tellAgent shape: gate, read, plan,
- * refuse-or-write, and a verdict in a sentence. `expectHash` is the hash
- * the dialog showed; a file that changed since then refuses with "look
- * again" rather than writing a composition nobody saw.
- */
 const FLEET_LEAVES_REPLACE = 'its older copy of the rules is replaced only from its own page, where the change is shown';
 const FLEET_LEAVES_EDITED = 'its working rules were changed by hand, so they are updated only from its own page, where that is shown';
 /* #4890: why the fleet click (names only, no dialog hash) leaves this plan for the agent's own page, or null. The
@@ -298,6 +292,12 @@ function fleetLeaves(plan) {
   if (plan && plan.updating && plan.edited) return FLEET_LEAVES_EDITED;
   return null;
 }
+/**
+ * The consented write, the reports.tellAgent shape: gate, read, plan,
+ * refuse-or-write, and a verdict in a sentence. `expectHash` is the hash
+ * the dialog showed; a file that changed since then refuses with "look
+ * again" rather than writing a composition nobody saw.
+ */
 function refresh(sessionName, roster, opts) {
   try {
     const vouched = !!(opts && opts.trusted);

@@ -47,7 +47,7 @@ missing-headings rule. 3 of 3 here did (v15 twice, v18 once), a small sample. A 
 who edited theirs is offered only missing headings, as before; birth in the span is the lasting fix.
 
 ## Tests
-engine/doctrine-4890.test.js (27): birth span and current-at-birth; the card's case (a same-heading change reaches an
+engine/doctrine-4890.test.js (28): birth span and current-at-birth; the card's case (a same-heading change reaches an
 agent born before it); replace in place with a control; an edited, a one-character-edited and today's copy are not
 replaced; marker fallback; the shipped table's pairing guard; server flag and dialog copy. Mutations: dropping the
 past-block match, the today's-copy skip, or the line-start check each red a test. create.test.js: the verbatim test
@@ -136,4 +136,9 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   treating every span as edited reds the unedited update. DEFERRED W: create.js records doctrineVersion at every
   birth, even where the rules landed plain; that predates this branch, and the carried-version rule reads it only for
   a span (`updating`).
+- Round 16 (opus): FIXED W: the fleet list checks a Not now first, then what the click leaves, then the plan, in the
+  fleet click's order, so the two give the same verdict. FIXED NIT: the carried-version rule needs `edited`, so an
+  unedited earlier block (a restored .previous) still gets the banner. FIXED NITs: refresh's docblock sits above
+  refresh again; the carried-version comment no longer says every agent is born in a span. Both behaviour changes
+  mutated, each reds a test.
 
