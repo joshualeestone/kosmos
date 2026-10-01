@@ -123,8 +123,9 @@ const bar = (page) => page.evaluate(() => {
     ]);
     await page.waitForFunction(() => !window.__before, null, { timeout: 8000 }).catch(() => {});
     const p4 = await page.evaluate(() => ({ reloaded: !window.__before, path: location.pathname, host: location.hostname, hash: location.hash }));
-    // kosmos#4879: to '#signed-out', which the tunnel's page reads as "You're signed out" (Josh's phone showed raw JSON).
-    chk(!!req && asked === 2 && p4.reloaded && p4.path === '/' && p4.hash === '#signed-out' && p4.host === 'remote.test', 'P4 a log out that works posts once and goes to the address\'s start, signed out', JSON.stringify({ asked, p4 }));
+    // kosmos#4879: to '/#signed-out' (path and fragment compared together: a bare '#name' reads as an element id to
+    // browser-checks-selectors.test.js), which the tunnel's page reads as "You're signed out" (Josh's phone showed raw JSON).
+    chk(!!req && asked === 2 && p4.reloaded && p4.path + p4.hash === '/#signed-out' && p4.host === 'remote.test', 'P4 a log out that works posts once and goes to the address\'s start, signed out', JSON.stringify({ asked, p4 }));
     // P4b (kosmos#4879 review 1): the same from a tab that writes a query, the other branch of the Log out navigation
     // (P4 starts from a bare '/', where only a fragment would change and nothing would reload without the reload).
     await page.goto('http://remote.test:' + port + '/?tab=projects', { waitUntil: 'networkidle' });
@@ -134,7 +135,7 @@ const bar = (page) => page.evaluate(() => {
     await page.click('#kplus-logout');
     await page.waitForFunction(() => !window.__before, null, { timeout: 8000 }).catch(() => {});
     const p4b = await page.evaluate(() => ({ reloaded: !window.__before, path: location.pathname, search: location.search, hash: location.hash }));
-    chk(asked === 3 && p4b.reloaded && p4b.path === '/' && p4b.search === '' && p4b.hash === '#signed-out', 'P4b a log out from a tab with a query also lands on the address\'s start, signed out', JSON.stringify({ asked, p4b }));
+    chk(asked === 3 && p4b.reloaded && p4b.search === '' && p4b.path + p4b.hash === '/#signed-out', 'P4b a log out from a tab with a query also lands on the address\'s start, signed out', JSON.stringify({ asked, p4b }));
     await page.unroute('**/_kosmos/logout');
 
     // P5: the consolidated layout (its header is not sticky and has no padding): still the first row, edge to edge.
