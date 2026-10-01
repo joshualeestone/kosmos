@@ -86,6 +86,8 @@ _ti_box_clear() {
   if [ "${KOSMOS_HARNESS_IGNORE_SUITE:-0}" != 1 ] && ! kosmos_holds_machine_claim; then
     kosmos_refuse_if_suite_live "a full install-harness run" || return 1
   fi
+  # #4911: nor beside a light run's side turn (it boots a board too); it ends in minutes, so this waits.
+  kosmos_refuse_if_light_side_live "a full install-harness run" || return 1
   return 0
 }
 # #4498: both checks wait together, so a cut that ends while a suite is still running is not a start.

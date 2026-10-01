@@ -393,6 +393,12 @@ fi
 # inherited by this cut's OWN gate subprocesses (step 3's `yarn test`, 3b's page
 # layer, 4b's harness), so they self-exclude and are never refused by their own cut.
 kosmos_claim_machine >/dev/null 2>&1 || true
+# #4911: a light run may hold a SIDE turn beside a heavy one (kosmos_light_side_clear). The claim above already stops a
+# new one (a side turn is never taken beside a cut); one that is running ends in minutes, so wait for it here rather
+# than share the box with it. KOSMOS_CUT_IGNORE_SIDE=1 cuts anyway.
+if [ "${KOSMOS_CUT_IGNORE_SIDE:-0}" != 1 ] && command -v kosmos_refuse_if_light_side_live >/dev/null 2>&1; then
+  kosmos_wait_until_clear "this cut" kosmos_refuse_if_light_side_live || exit 1
+fi
 
 # #2724: GIVE THE CUT AN EMPTY HOME, so its gates stop reading the operator's STORE
 # and ACCOUNTS.
