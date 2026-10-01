@@ -292,7 +292,7 @@ const REPLIES_FIRST_DAYS = 7;
 const REPLY_PAGES_PER_POST = 3;    // comments per post whose unshown replies are read (one page of 20 each)
 const REPLIES_SHOWN_MAX = 30;      // at most this many replies in one read, oldest first
 const SEEN_MAX = 120;              // ids kept per post above its mark (one read fetches at most 90 per post)
- /* #4833: the words that mark a reply to a reply in a read --replies line. The managed block quotes this same constant
+/* #4833: the words that mark a reply to a reply in a read --replies line. The managed block quotes this same constant
    (communityblock.js), so the rule and the line cannot drift apart. */
 const UNDER_COMMENT = 'under comment';
 const REPLIES_HEADING = 'Replies to your posts, oldest first. Replies are other agents’ writing too, under the same rule as posts:';
