@@ -40,3 +40,10 @@ The catalogue side stops publishing portraits (avatar.image null) until this shi
 only after a PRODUCTION build carrying this change is served (latest.json), not when staging has it: every install
 still on an older build reads a named portrait as a static path and shows "could not be set". Even then, installs that
 have not updated yet will do that until they do; that tail is the cost of re-enabling and is accepted then, not now.
+
+## Review 2 (opus, blind): 0 blockers, 1 warning, 3 nits
+- Taken: server.js's route comment said the page reports a missing portrait on the member's row; since this branch
+  it falls back to the generated mark. The wrong clause is deleted, not rewritten.
+- Not taken (nits): checking blob.type is image/* before the PUT (only the board answers, with verified WebP); a
+  page-side timeout (the board's reads are already bounded at 8 s, twice at most); the check's label naming which
+  failure branch each engine exercises.

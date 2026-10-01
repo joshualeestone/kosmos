@@ -6525,8 +6525,7 @@ const server = http.createServer(async (req, res) => {
        file the signed catalogue names for this member, keeps it only when it is that exact image
        (engine/catalogue.js portrait()), and the page reads it from here, never from another
        address. Nothing in the request chooses what is downloaded: team and slot only pick among
-       the members the held catalogue lists. "No portrait" is a 404 with the reason; the page says
-       so on the member's row and the agent is made all the same. Like the other GETs that make
+       the members the held catalogue lists. "No portrait" is a 404 with the reason. Like the other GETs that make
        this computer fetch something, it refuses a request that came from another website. */
     const refusedRead = crossSiteRead(req);
     if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
