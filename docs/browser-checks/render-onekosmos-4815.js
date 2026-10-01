@@ -35,7 +35,9 @@ const DOMAIN = 'kosmosplus.example';
 const ME = { name: 'studio-laptop', address: 'studio-laptop.' + DOMAIN, this: true, online: true };
 const ANSWERS = {
   one: { ok: true, domain: DOMAIN, computers: [ME] },
-  none: { ok: false },
+  // The route's real shapes (engine/account-computers.js): not signed in is MARKED; Kosmos+ failing is a bare ok: false.
+  none: { ok: false, signedIn: false, because: 'this computer is not signed in to Kosmos+' },
+  down: { ok: false, because: 'Kosmos+ did not answer' },
   four: { ok: true, domain: DOMAIN, computers: [ME,
     { name: 'desk-mini', address: 'desk-mini.' + DOMAIN, this: false, online: true },
     { name: 'render-box', address: 'render-box.' + DOMAIN, this: false, online: true, updating: true },
@@ -104,7 +106,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           ok(`${t} one computer: no chevron, no border, nothing opens`, !one.chev && one.border === 'rgba(0, 0, 0, 0)' && !one.opened, JSON.stringify(one));
           ok(`${t} one computer: no Kosmoses list, no New Kosmos, no "Kosmoses" or "New Kosmos" on the page`, !one.listShown && !one.newShown && !one.plural, JSON.stringify(one));
           const none = await read('none');
-          ok(`${t} not signed in: it says This computer, and does not open`, none.name === 'This computer' && !none.chev && !none.opened && !none.plural, JSON.stringify(none));
+          ok(`${t} not signed in (the marked answer): it says This computer, and does not open`, none.name === 'This computer' && !none.chev && !none.opened && !none.plural, JSON.stringify(none));
           const four = await read('four');
           ok(`${t} four computers: it names this one and opens`, four.name === 'studio-laptop' && four.chev && four.opened, JSON.stringify(four));
           ok(`${t} four computers: the menu holds only Your computers, with no separator above it`,
@@ -113,7 +115,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             one.expanded === null && one.tab === '-1' && four.expanded === 'false' && four.tab === null, JSON.stringify({ one: [one.expanded, one.tab], four: [four.expanded, four.tab] }));
           /* After a good read of four, a read that FAILS must not lock the menu or lose the name (review round 1). */
           const after = await page.evaluate(async () => {
-            window.__which = 'fail';
+            window.__which = 'down';   // what production sends when Kosmos+ does not answer (always a 200)
             const btn = document.getElementById('worldsw-btn');
             btn.click();
             await new Promise((r) => setTimeout(r, 120));
@@ -123,7 +125,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             worldswClose();
             return out;
           });
-          ok(`${t} a failed read after a good one keeps the name and the menu, and says it could not reach them`,
+          ok(`${t} Kosmos+ not answering after a good read keeps the name and the menu, and says it could not reach them`,
             after.name === 'studio-laptop' && !after.fixed && after.opened && /could not reach your computers/.test(after.says), JSON.stringify(after));
           /* A slow read: the open menu is never an empty box. */
           const slow = await page.evaluate(async () => {
@@ -169,13 +171,13 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           ok(`${t} at boot, four computers: the page names this one and the menu opens, with nothing called by hand`,
             b4look.shown && b4look.name === 'studio-laptop' && !b4look.fixed && b4open, JSON.stringify({ ...b4look, b4open }));
           await b4.close();
-          const bf = await boot('fail', 200);
+          const bf = await boot('down', 200);
           await bf.waitForTimeout(120);
           const bfBefore = await look(bf);
           await bf.evaluate(() => { window.__which = 'four'; });
           await bf.waitForTimeout(800);
           const bfAfter = await look(bf);
-          ok(`${t} at boot, no answer: plain "This computer", then the page reads again and recovers on its own`,
+          ok(`${t} at boot, Kosmos+ not answering: plain "This computer", then the page reads again and recovers on its own`,
             bfBefore.name === 'This computer' && bfBefore.fixed && bfAfter.name === 'studio-laptop' && !bfAfter.fixed, JSON.stringify({ bfBefore, bfAfter }));
           await bf.close();
         } else {

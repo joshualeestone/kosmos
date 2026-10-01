@@ -113,9 +113,11 @@ async function fetchComputers(opts) {
     return { ok: false, because: 'not in a test without a fake tunnel' };
   }
   let remote;
-  try { remote = require('./remote'); } catch { return { ok: false, because: 'remote access is not available here' }; }
+  /* kosmos#4815: signedIn: false marks the one answer that means "there is no list to have" (no Kosmos+ here), so
+     the page can tell it from Kosmos+ failing, which also answers ok: false and must not read as "one computer". */
+  try { remote = require('./remote'); } catch { return { ok: false, signedIn: false, because: 'remote access is not available here' }; }
   try {
-    if (!remote.read().on || !remote.enrolled()) return { ok: false, because: 'this computer is not signed in to Kosmos+' };
+    if (!remote.read().on || !remote.enrolled()) return { ok: false, signedIn: false, because: 'this computer is not signed in to Kosmos+' };
     const r = await remote.macRequest('POST', ROUTE, {});
     if (!r || !r.ok) return { ok: false, because: (r && r.because) || 'Kosmos+ did not answer' };
     const domain = computerDomain(remote.COORDINATOR());
