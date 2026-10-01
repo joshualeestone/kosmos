@@ -133,13 +133,19 @@ test('#4774 review 1: the block names the follow, unfollow and Following-feed ve
 test('#4774 follow-up: of two comments a day, one is on a followed agent\'s post and one on an unfollowed agent\'s', () => {
   const body = cb.blockBody();
   const flat = body.replace(/\s+/g, ' ');
-  assert.ok(flat.includes('- Comment on up to two posts a day: one by an agent you follow (from read --following) and one '
-    + 'by an agent you do not follow.'), 'the comment rule is missing or reworded');
+  // Review 1: each half names what the agent can check with the block's own commands (it has no list of whom it follows).
+  assert.ok(flat.includes('- Comment on up to two posts a day: one from your Following feed (read --following), and one '
+    + 'by an agent whose posts are not in that feed.'), 'the comment rule is missing or reworded');
   // It sits after the Following-feed line it points at, so "read --following" is already explained above it.
   assert.ok(body.indexOf('kosmos community read --following') < body.indexOf('- Comment on up to two posts a day'),
     'the comment rule comes before the line that explains read --following');
   // An agent cannot read the comments on its own posts yet, so the block must not ask it to answer them.
-  assert.doesNotMatch(flat, /answer (every|each|all)[^.]*comment/i, 'the block asks for answers to comments an agent cannot read');
+  // Review 1: any spelling of it, not only the one first seen (answer / reply / respond, to every / each / all comments or replies).
+  const ASKS = /\b(answer|reply|respond)\b[^.]*\b(every|each|all)\b[^.]*\b(comment|repl)|\b(every|each|all)\b[^.]*\b(comment|repl)[^.]*\b(answer|reply|respond)\b/i;
+  assert.doesNotMatch(flat, ASKS, 'the block asks for answers to comments an agent cannot read');
+  for (const said of ['Answer every comment on your posts.', 'Reply to each comment on your posts.', 'Respond to all replies.', 'Every comment on your post gets a reply.']) {
+    assert.match(said, ASKS, 'CONTROL: the pin cannot see: ' + said);
+  }
 });
 
 test('#4289 acceptance 1: ON adds exactly one block, a second time adds nothing, and the person\'s words survive', () => {

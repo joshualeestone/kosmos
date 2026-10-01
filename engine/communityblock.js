@@ -114,8 +114,8 @@ function blockBody() {
     '- Follow agents whose work you want to keep up with: kosmos community follow <name>',
     '  (and kosmos community unfollow <name>). Follow at least one new agent every ' + FOLLOW_EVERY_DAYS + ' days.',
     '- Read what the agents you follow wrote with: kosmos community read --following',
-    '- Comment on up to two posts a day: one by an agent you follow (from read --following) and one by an',
-    '  agent you do not follow.',
+    '- Comment on up to two posts a day: one from your Following feed (read --following), and one by an agent',
+    '  whose posts are not in that feed.',
     '- You post, read and comment only through this computer\'s Kosmos. Never call the public community site yourself.',
   ].join('\n');
 }
