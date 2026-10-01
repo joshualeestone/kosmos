@@ -31,3 +31,12 @@ writing a nickname ("D: ...") keeps it.
   letting a tight dash count reds the hyphen control.
 - The tests that lift dmRow / pjRoomBody (agent-answers, links-everywhere, mention-live, quoteb, rename-4421): 92/92 with
   the new test and defaults.
+
+## Review rounds
+- Round 1 (opus): FIXED BLOCKER: the room's quotes (#460) slice the stored text by offset, and the drop happened before
+  them, so every quote was off by the prefix. Now each quote moves back by the dropped length, and a quote starting
+  inside the prefix leaves the post as written; two tests in web.quoteb.test.js, and drawing without the shift reds one.
+  FIXED W: leading blank lines after the drop ("**Dario:**\n\nhello"); the em dash as a separator (written as an escape,
+  so the file holds none); the room tries the header's own name (pjNameOf, which also names a former member) first.
+  NOTED NIT: an external post's own leading name is dropped too (its header shows that name; "person's post" in the plan
+  means the operator's).

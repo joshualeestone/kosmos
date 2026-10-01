@@ -128,3 +128,19 @@ test('#3679: a list line with a long space run and a line separator renders in l
   const ms = cpuMillisecondsOf(() => api.pjRoomRow(row('leo', text), P));
   assert.ok(ms < 3000, 'rendering used ' + ms.toFixed(0) + 'ms of CPU; a (.*)$ line rule backtracks');
 });
+
+/* #4873: a leading self-name is dropped from the drawn post, and the quote offsets (which index the STORED text) move
+   with it, so the bar still wraps exactly the quoted words. */
+test('#4873: with its own name dropped, a post\'s quote still wraps exactly the tagged span', () => {
+  const text = 'Leo: Mara said ' + QUOTE + ' and I agree.';
+  const start = text.indexOf(QUOTE);
+  const html = api.pjRoomRow(row('leo', text, { quotes: [{ of: 'rmara', from: 'mara', start, end: start + QUOTE.length }] }), P);
+  assert.match(html, new RegExp('<blockquote class="quoteb">' + QUOTE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '<cite'), 'the bar no longer wraps exactly the quote');
+  assert.match(html, /<p>Mara said<\/p>/, 'the name was not dropped, or the prose before the quote moved');
+  assert.doesNotMatch(html, /Leo:/, 'the sender\'s own name is still drawn');
+});
+test('#4873: a quote that starts inside the name leaves the post drawn as written', () => {
+  const text = 'Leo: ' + QUOTE;
+  const html = api.pjRoomRow(row('leo', text, { quotes: [{ of: 'r1', from: 'mara', start: 0, end: text.length }] }), P);
+  assert.match(html, /Leo:/, 'a quote covering the name lost the name');
+});
