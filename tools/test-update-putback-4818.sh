@@ -92,6 +92,16 @@ exit 1'
 if answers "$P"; then fail "a board the person had stopped was started by a failed update"; else pass "control: a board stopped before the run stays stopped after a failed update"; fi
 if [ -e "$H/board.stopped" ]; then pass "and its board.stopped is kept"; else fail "the person's board.stopped was removed"; fi
 
+# 2b. CONTROL: the board answers but board.stopped is there (the person asked for it off; something still serves).
+#     The marker is the person's choice, so a failed update does not start the board again.
+P=$(free_port); H=$(home marked); export PORT=$P
+"$H/bin/kosmos" start
+: > "$H/board.stopped"
+run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
+'"$PAUSED"'
+exit 1'
+if answers "$P"; then fail "a board marked stopped was started by a failed update"; else pass "control: a board marked stopped stays stopped even though it was answering"; fi
+
 # 3. A failure AFTER the new board started restarts nothing (the flag is cleared there).
 P=$(free_port); H=$(home started); export PORT=$P
 "$H/bin/kosmos" start
