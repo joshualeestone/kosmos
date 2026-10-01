@@ -7324,12 +7324,12 @@ html.has-voice .micbtn { display: grid; }
 .micwrap.line > .fieldmic { top: 50%; right: 8px; transform: translateY(-50%); }
 .micwrap > :disabled + .fieldmic { display: none; }   /* a box that takes no words (instructions still loading) shows no mic */
 .micwrap > textarea { resize: vertical; }   /* a box dragged narrower would leave the mic outside it */
-#nt-voice-msg:empty { display: none; }
+#nt-voice-msg:empty { display: none; }   /* takes no room unless the mic says something (and never without a mic) */
 /* #4409 slice 3: the phone's who-hears-the-audio bar (voiceWho), above everything at the top of the visible screen. */
 #voice-who { position: fixed; left: 12px; right: 12px; top: calc(12px + env(safe-area-inset-top, 0px)); z-index: 10000;
-  margin: 0; padding: 10px 14px; border-radius: 12px; background: var(--k-ink, #14161a); color: var(--k-bg);
+  margin: 0; padding: 10px 14px; border-radius: 12px; background: var(--k-ink); color: var(--k-bg);
   font-size: .875rem; line-height: 1.35; box-shadow: 0 4px 16px rgba(0,0,0,.25); pointer-events: none; }
-#voice-who:empty { padding: 0; box-shadow: none; background: transparent; }   /* in the tree, so it is heard, but nothing shows */   /* takes no room unless the mic says something (and never without a mic) */
+#voice-who:empty { padding: 0; box-shadow: none; background: transparent; }   /* in the tree, so it is heard, but nothing shows */
 html.has-voice .micwrap > textarea:not(:disabled), html.has-voice .micwrap > input:not(:disabled),
 html.has-voice .micwrap > #d-instr:not(:disabled), html.has-voice .micwrap > #create-instr:not(:disabled) { padding-right: 44px; }   /* the two ID rules set their own padding */
 html.has-voice .micwrap:not(.line) > textarea:not(:disabled),
@@ -60224,8 +60224,15 @@ function voicePhoneWho() {
      the EU, where iOS 17.4 allows other engines), and on Android only Chrome itself is Google's. Another Android browser
      (Samsung Internet, Edge, Opera, Firefox, Brave, DuckDuckGo, Vivaldi) may send the audio elsewhere, so it gets no
      mic rather than a guess. Brave sends Chrome's exact user agent; navigator.brave tells it apart. */
-  try { if (navigator.brave) return ''; } catch { /* no navigator */ }   // also not "Google Chrome" by brand; kept as named
-  if (/iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document)) return 'Apple';
+  // Brave: excluded by name too (the brand check below would also exclude it on Android). On iOS Brave is WebKit and Apple
+  // would be honest, but this fails closed on purpose: no mic beats a name we have not checked.
+  try { if (navigator.brave) return ''; } catch { /* no navigator */ }
+  if (/iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document)) {
+    // WebKit does not expose navigator.userAgentData and Blink does: an iOS browser that has it is another engine (the
+    // EU allows them since iOS 17.4) whose audio may go elsewhere, so it gets no mic rather than the name Apple.
+    try { if (navigator.userAgentData) return ''; } catch { /* as WebKit */ }
+    return 'Apple';
+  }
   if (/Android/i.test(ua) && /Chrome\//.test(ua) && !/SamsungBrowser|EdgA|OPR|Firefox|YaBrowser|UCBrowser|DuckDuckGo|Vivaldi|; wv\)/i.test(ua)) {
     /* And the browser says it is Google Chrome. A rebranded Chromium sends Chrome's user agent but not Chrome's brand,
        so this fails closed: no brand list, no mic. */
@@ -60269,15 +60276,23 @@ function voicePhoneBridge() {
           mine.onstart = () => { if (rec === mine) emit({ kind: 'listening' }); };
           mine.onresult = (e) => {
             if (rec !== mine) return;
-            const parts = []; let done = true;
-            for (let i = 0; i < e.results.length; i += 1) { parts.push(e.results[i][0].transcript); if (!e.results[i].isFinal) done = false; }
-            // A phone's recognizer does not always lead a later result with a space; joined bare, words run together.
-            emit({ kind: done ? 'final' : 'partial', text: parts.join(' ').replace(/\s+/g, ' ').trim() });
+            let text = '', done = true;
+            const tidy = (t) => String(t || '').replace(/\s+/g, ' ').trim();
+            for (let i = 0; i < e.results.length; i += 1) {
+              const part = tidy(e.results[i][0].transcript);
+              if (!e.results[i].isFinal) done = false;
+              /* Android Chrome in continuous mode is reported to repeat the earlier results inside a later one ("call the",
+                 "call the client"): a result that starts with everything so far replaces it rather than doubling it. */
+              if (text && part.toLowerCase().startsWith(text.toLowerCase())) text = part;
+              else text = text ? text + ' ' + part : part;   // a phone does not always lead a later result with a space
+            }
+            emit({ kind: done ? 'final' : 'partial', text: tidy(text) });
           };
           /* An error ends the session here and now: a browser need not follow it with onend, and without a stopped the mic
              would stay on and who-hears-the-audio would stay up. A late onend is then not ours (rec !== mine). */
           mine.onerror = (e) => {
-            if (rec !== mine || e.error === 'aborted') return;
+            if (rec !== mine) return;   // ours to ignore: our own cancel or a newer start set rec first, aborted included
+            // An 'aborted' that is still ours came from the browser or the phone (a call, another app taking the mic).
             rec = null;
             try { mine.abort(); } catch { /* already ended */ }
             emit({ kind: 'error', reason: REASON[e.error] || 'recognizer' });
@@ -60286,7 +60301,7 @@ function voicePhoneBridge() {
           mine.onend = () => { if (rec === mine) { rec = null; emit({ kind: 'stopped' }); } };
           try { mine.start(); } catch { fail(); }   // in the tap's click: a phone starts the microphone only from a gesture
         } else if (op === 'stop') {
-          if (rec) rec.stop();   // the last words come as a final result, then stopped
+          if (rec) { try { rec.stop(); } catch { const was = rec; rec = null; try { was.abort(); } catch { /* ended */ } emit({ kind: 'stopped' }); } }   // the last words come as a final result, then stopped
         } else if (op === 'cancel') {
           const was = rec; rec = null;
           if (was) { try { was.abort(); } catch { /* already ended */ } }
@@ -60358,12 +60373,22 @@ function voiceUnsay(btn) {
 /* Slice 3: on a phone, who hears the audio is said in a bar of its own at the top of the visible screen, from the tap (before
    any audio can be sent) until listening ends. Not in the box's message line: that line belongs to whatever else the
    page is saying, and covering it hides that (or, put back after, revives a line its owner has since retired). */
+/* At the top of what is visible: the composer and the mic to tap are at the foot, and so is an on-screen keyboard (iOS
+   pans the page under it, so the visible top is the visual viewport's, not the layout viewport's). Placed again whenever
+   the visible area moves while the bar says something: a scroll, the keyboard coming or going. */
+function voiceWhoPlace() {
+  const bar = document.getElementById('voice-who');
+  if (!bar) return;
+  try { bar.style.top = 'calc(' + Math.round((window.visualViewport && window.visualViewport.offsetTop) || 0) + 'px + 12px + env(safe-area-inset-top, 0px))'; } catch { /* the default */ }
+}
+let VOICE_WHO_FOLLOW = false;
 function voiceWho(line) {
   const bar = document.getElementById('voice-who');   // made at load on a phone, empty, so a screen reader hears each line
   if (!bar) return;
-  /* At the top of what is visible: the composer and the mic to tap are at the foot, and so is an on-screen keyboard
-     (iOS pans the page under it, so the visible top is the visual viewport's, not the layout viewport's). */
-  try { bar.style.top = 'calc(' + Math.round((window.visualViewport && window.visualViewport.offsetTop) || 0) + 'px + 12px + env(safe-area-inset-top, 0px))'; } catch { /* the default */ }
+  const vv = window.visualViewport;
+  if (line && !VOICE_WHO_FOLLOW && vv) { vv.addEventListener('scroll', voiceWhoPlace); vv.addEventListener('resize', voiceWhoPlace); VOICE_WHO_FOLLOW = true; }
+  if (!line && VOICE_WHO_FOLLOW && vv) { vv.removeEventListener('scroll', voiceWhoPlace); vv.removeEventListener('resize', voiceWhoPlace); VOICE_WHO_FOLLOW = false; }
+  voiceWhoPlace();
   bar.textContent = line || '';
 }
 function voiceToggle(btn) {

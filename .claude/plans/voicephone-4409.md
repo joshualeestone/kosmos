@@ -13,7 +13,8 @@ hold, tap and dialog mics, so it merges after it.
   a phone unchanged, except that on a phone the mic is a TAP started from its click (a user activation; a touch press
   is not one, and a held finger opens the long-press menu), so hold-to-talk is a computer feature.
 - On a phone a bar of its own at the top of the visible screen says who hears the audio, from the tap (before any audio
-  can be sent) until listening ends; the box's message lines are left to the rest of the page. It says ("Apple" on any iPhone or iPad browser, all Safari's engine;
+  can be sent) until listening ends; the box's message lines are left to the rest of the page. It says ("Apple" on an iPhone or iPad browser running Safari's engine, which has no navigator.userAgentData; another engine,
+  allowed in the EU, gets no mic;
   "Google" on Android Chrome only, by its user agent AND its "Google Chrome" brand, so a rebranded Chromium fails closed; another Android browser gets no mic rather than a guess) and "Tap the
   mic to stop" (no Escape); a refused microphone or speech recognition points at the phone's settings.
 - Read aloud: already drawn wherever the page can speak (speechSynthesis), phones included; the check now proves it.
@@ -79,5 +80,14 @@ pinning that the recognizer is reached only in the phone shim and the Mac bridge
   its text changes. NOT MEASURED: a real screen reader announcing it. FIXED W: "Google" was a denylist over Chrome's
   user agent; it now also requires the "Google Chrome" brand, failing closed (P1b's rebranded-Chromium control).
   FIXED W: a recognizer constructor that throws (P9) and an error with no onend after it (P8) both left the mic and
-  the bar stuck; both now end the session. NIT taken: a comment on the bar clearing during a switch between mics.
+  the bar stuck; both now end the session. NIT taken: a comment on the bar clearing during a switch between mics.- Round 5 (opus): FIXED W: the bar was placed once and stayed put while the visible area moved (keyboard, scroll); it
+  now follows visualViewport scroll and resize while it says something, and stops after (P10, both halves reddened by
+  their mutations). FIXED W: an 'aborted' that is still ours came from the phone (a call) and relied on onend; it now
+  ends the session like any error (P8b). FIXED W: any iPhone user agent was named Apple although the EU allows other
+  engines; an iOS browser exposing navigator.userAgentData (Blink does, WebKit does not) gets no mic, and the iPhone
+  stand-in now drops userAgentData to be faithful (P1's EU control). FIXED W: a later result repeating the earlier
+  ones (Android's continuous mode) doubled the words; it now replaces them (P2c). The iOS "list resets after a pause"
+  report is left as a premise. FIXED CONVENTION: a comment my round-3 insertion displaced is back on its rule. NITs
+  taken: Brave's exclusion on iOS is said to be deliberate, stop() is guarded, the bar's colours have no stray
+  fallback.
 
