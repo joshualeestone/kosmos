@@ -11,8 +11,8 @@ dialogues". Splinter handed it to me at 17:03.
    is then ignored. Any click with no press before it (the keyboard, VoiceOver, Switch Control, a script) toggles.
 2. A mic inside the dialogs' text boxes: New project (name, description, what done looks like), New task
    (`nt-detail`), New agent (`create-instr`), the agent's instructions editor (`d-instr`), and the project settings
-   (`pjs-name`, `pjs-desc`). Each is a `.micbtn.fieldmic` with `data-voice-for` in a `.micwrap`, at the box's bottom
-   right (top right of a textarea, clear of its resize grip; centred in a one-line input); each says its lines in that dialog's own message line.
+   (`pjs-name`, `pjs-desc`). Each is a `.micbtn.fieldmic` with `data-voice-for` in a `.micwrap`, inside the box
+   (top right of a textarea, clear of its resize grip; centred in a one-line input); each says its lines in that dialog's own message line.
 3. While listening in a dialog, focus moving to another field, or any button (Save, Create), stops it, keeping the
    words. A composer keeps slice 1's rules: Send stops it; its other buttons and other fields do not.
 4. Mac app only, as slice 1 (drawn only with the on-device bridge, `html.has-voice`). Same bridge, no native change:
@@ -36,8 +36,9 @@ served Mac app; that is for a person to check on 0.7.17 or later.
 ## Tests
 docs/browser-checks/render-voice-4409.js (real page, the bridge a recorder): V10 a real held press starts, words land
 while held, release sends stop, the caret stays in the box; V11 a short tap keeps listening and the next tap stops;
-V12 every dialog box in scope has its mic, the New project description's mic sits inside its box, and holding it puts
-the sentence in the box. V1 to V9 unchanged and passing. Mutations: no stop on release reds V10 and V12; toggling on
+V12 every dialog box in scope has its mic, its padding and placement, and holding the New project description's mic
+puts the sentence in the box; V13 keyboard and assistive clicks; V14 focus moving in a dialog; V15 a dialog button;
+V16 drag-off and the composers' slice-1 rules; V17 an open emoji panel closes; V18 Escape in a dialog; V1b no bridge. V1 to V9 unchanged and passing. Mutations: no stop on release reds V10 and V12; toggling on
 the pointer's click as well reds V2, V10, V11, V12. web.voice-4409.test.js 20/20.
 
 ## Review rounds
@@ -81,4 +82,10 @@ the pointer's click as well reds V2, V10, V11, V12. web.voice-4409.test.js 20/20
   arm; the ungated rule reds it). DUPLICATE W: the scrollbar offset uses the page's measured gutter, unexercised
   headless (round 3). DUPLICATE W: a hold let go before listening is a tap (deferred, round 2). FIXED NIT: a disabled
   box takes no mic padding. FIXED NIT: the plan's Change section describes the code, not its history.
+- Round 5 (opus): FIXED W: preventDefault on the mic's pointerdown suppressed the follow-on mousedown, so popups
+  that close on a mousedown outside them (the emoji panel, a custom select) stayed open, unlike slice 1; the focus
+  move is now prevented on the mic's own mousedown, which lets the event reach those listeners (V17, the old
+  pointerdown preventDefault reds it). FIXED W: Escape in a dialog's box stopping dictation without closing the
+  dialog was unpinned (V18). FIXED NITs: the focus-moved comment says words still coming are dropped; the plan's
+  placement and Tests lines. DUPLICATE NITs: hold before listening is a tap; the scrollbar offset.
 

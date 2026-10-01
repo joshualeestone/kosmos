@@ -27,6 +27,8 @@
  *   V15 (slice 2) Save, Create or any other button while listening stops it, so nothing arrives after it
  *   V16 (slice 2) a press dragged off the mic does not swallow the next keyboard press; and a composer keeps
  *       listening through its other buttons (attach), as in slice 1
+ *   V17 (slice 2) pressing a mic still closes an open emoji panel (its close-on-mousedown-outside runs), as in slice 1
+ *   V18 (slice 2) Escape in a dialog's box stops listening and does not close the dialog
  *   V1b in a browser (no bridge) the Name field fills its row exactly as with no wrapper: wrapping changes nothing
  *
  * Harness: file:// with fetch answered here (render-dm-reply-4256.js's posture), the real paintTalk. The
@@ -342,6 +344,29 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     const v16f = await page.evaluate((n) => window.__voice.slice(n).map((m) => m.op), n9);
     await page.evaluate(() => { document.getElementById('d-mic').click(); window.kosmosVoiceEvent({ kind: 'stopped' }); });
     chk(JSON.stringify(v16f) === '["start"]', 'V16 a composer keeps listening when focus moves to another field, as in slice 1', JSON.stringify(v16f));
+
+    // V17: an open emoji panel closes when the mic is pressed.
+    await page.click('#d-emoji-btn');
+    const emoOpen = await page.evaluate(() => !document.getElementById('d-emoji').hidden);
+    const mb = await page.locator('#d-mic').boundingBox();
+    await page.mouse.move(mb.x + mb.width / 2, mb.y + mb.height / 2);
+    await page.mouse.down(); await page.mouse.up();
+    const emoAfter = await page.evaluate(() => ({ hidden: document.getElementById('d-emoji').hidden, focus: document.activeElement && document.activeElement.id }));
+    await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'listening' }));
+    const mb2 = await page.locator('#d-mic').boundingBox();
+    await page.mouse.move(mb2.x + mb2.width / 2, mb2.y + mb2.height / 2);
+    await page.mouse.down(); await page.mouse.up();
+    await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'stopped' }));
+    chk(emoOpen && emoAfter.hidden && emoAfter.focus === 'd-say', 'V17 pressing the mic closes an open emoji panel, and the caret stays in the box', JSON.stringify({ emoOpen, ...emoAfter }));
+    // V18: Escape in a dialog's box stops listening and leaves the dialog open.
+    const n10 = await page.evaluate(() => window.__voice.length);
+    await page.evaluate(() => { const m = document.getElementById('nt-modal'); m.hidden = false; document.getElementById('nt-detail').focus();
+      document.querySelector('.fieldmic[data-voice-for="nt-detail"]').click(); window.kosmosVoiceEvent({ kind: 'listening' }); });
+    await page.focus('#nt-detail');
+    await page.keyboard.press('Escape');
+    const v18 = await page.evaluate((n) => ({ ops: window.__voice.slice(n).map((m) => m.op), open: !document.getElementById('nt-modal').hidden }), n10);
+    await page.evaluate(() => { window.kosmosVoiceEvent({ kind: 'stopped' }); document.getElementById('nt-modal').hidden = true; });
+    chk(JSON.stringify(v18.ops) === '["start","stop"]' && v18.open, 'V18 Escape in a dialog\'s box stops listening and does not close the dialog', JSON.stringify(v18));
 
     // V7: read aloud, on a freshly painted thread (V5's send left a "Sending" row of the person's).
     await page.evaluate(() => { for (const k of Object.keys(TALK_PENDING)) delete TALK_PENDING[k]; });

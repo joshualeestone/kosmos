@@ -60320,7 +60320,6 @@ let VOICE_PRESSED = null;   // the mic the pointer just handled; its own click i
 document.addEventListener('pointerdown', (e) => {
   const mic = e.button === 0 && !e.ctrlKey && e.target.closest && e.target.closest('.micbtn');   // Ctrl+click opens a menu on a Mac
   if (!mic) return;
-  e.preventDefault();   // keep focus (and the caret) in the box
   const stopping = VOICE.btn === mic;   // pressing a mic that is listening stops it, as a tap always did
   VOICE_PRESS = { btn: mic, at: Date.now(), stopping, pointer: e.pointerId };
   VOICE_PRESSED = mic;
@@ -60341,13 +60340,18 @@ function voiceRelease(e) {
   const h = voiceBridge();
   if (h) h.postMessage({ op: 'stop' });   // a hold: let go and it stops, keeping what it heard
 }
+/* Keep focus (and the caret) in the box: the mic's own mousedown is prevented, which stops the focus move and nothing
+   else, so the document's close-on-mousedown-outside listeners (the emoji panel, a custom select) still run. Preventing
+   pointerdown instead would suppress the mousedown altogether and leave them open. */
+document.addEventListener('mousedown', (e) => { if (e.target.closest && e.target.closest('.micbtn')) e.preventDefault(); }, true);
 document.addEventListener('pointerup', voiceRelease, true);
 document.addEventListener('pointercancel', voiceRelease, true);
 /* A release the page never hears (a menu or a system sheet takes the mouse) must not arm a later click as a hold. */
 document.addEventListener('contextmenu', () => { VOICE_PRESS = null; VOICE_PRESSED = null; }, true);
 /* The window losing focus mid-press (Cmd-Tab) ends the press as a release: a hold stops, a tap keeps listening. */
 window.addEventListener('blur', () => { if (VOICE_PRESS) voiceRelease({ pointerId: VOICE_PRESS.pointer }); VOICE_PRESSED = null; });
-/* Slice 2: a dialog has several boxes. Focus moving to another of its fields means the person moved on: stop, keep the words
+/* Slice 2: a dialog has several boxes. Focus moving to another of its fields means the person moved on: stop; what is
+   already in the box stays, and words still coming are dropped
    (the keydown guard only sees the box being dictated into, and Escape works only there). */
 document.addEventListener('focusin', (e) => {
   if (!VOICE.btn || !VOICE.btn.classList.contains('fieldmic')) return;   // a composer keeps slice 1's rules
