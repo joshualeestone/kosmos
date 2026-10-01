@@ -232,6 +232,8 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         // earlier read's "Online" link must not be offered while a fresh one is on its way (review round 5).
         await page.unroute('**/api/remote/computers*');
         await page.route('**/api/remote/computers*', async (r) => { await new Promise((res) => setTimeout(res, 1500)); return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TWO) }); });
+        const stale = await page.evaluate(() => document.querySelectorAll('#worldsw-computers-list a').length);
+        chk(stale > 0, T + 'C0 precondition: an earlier read left an Online link that the fresh read must clear', String(stale));
         await page.click('#pnav-computers');
         await page.waitForTimeout(400);
         const early = await page.evaluate(() => [...document.querySelectorAll('#pnav .pnav-level[data-level="computers"] a.pnav-item')].length);

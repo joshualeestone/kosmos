@@ -18475,6 +18475,14 @@ function pnavFill(name) {
       if (st) { const s2 = document.createElement('span'); s2.className = 'pnav-state'; s2.textContent = st.textContent; it.appendChild(s2); }
       li.appendChild(it); ul.appendChild(li);
     }
+    /* A fresh answer can leave only this computer (another one removed meanwhile): say so rather than show an empty
+       level (review round 6). */
+    if (!ul.children.length) {
+      const li = document.createElement('li'), it = document.createElement('div');
+      it.className = 'pnav-item pnav-comp pnav-off';
+      const t = document.createElement('span'); t.className = 'pnav-text'; t.textContent = 'Only this computer is on your account now.';
+      it.appendChild(t); li.appendChild(it); ul.appendChild(li);
+    }
   }
 }
 /* A move still waiting to put its level in place: a second tap inside those 160ms finishes it first, so two

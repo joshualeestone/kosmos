@@ -76,3 +76,7 @@ Left: the Tab trap only steps in at the ends of the list, the file's usual dialo
 Merged main after #4822's squash (8d0e7822f): three conflicts, each my line beside main's copy of the same #4822 line;
 kept mine. That merge commit skipped the pre-commit hook because the hook flags tools/test-feedback-digest-daily.sh,
 main's file from #4817, identical to main and untouched here; every commit of mine went through the hook.
+R6 (sonnet) 0B 0W 0C 3N: CONVERGED at round 6. The merge lost nothing of main's; the round 5 order is right.
+Changes after convergence (two of R6's NITs, small and recorded here): a computers answer that leaves only this
+computer now says so instead of an empty level; arm C0 asserts its precondition (a stale link existed to be cleared).
+Left: .pnav-top's sticky top inside the safe-top padding (inert without viewport-fit=cover).
