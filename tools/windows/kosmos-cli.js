@@ -102,10 +102,11 @@ const USAGE = {
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
   project: [
-    'Usage: kosmos project <list|show|create>',
+    'Usage: kosmos project <list|show|create|pause>',
     '  kosmos project list                                             every project: members, model families, tasks',
     '  kosmos project show <project-id>                                one project: folder, goal and done, tasks, each member\'s family and summary',
     '  kosmos project create "<name>" <folder> ["<description>"]   make a new project (it shows on your board, tagged as made by you)',
+    '  kosmos project pause <project-id>                               pause it when your person asks: nobody is nudged about it or handed its tasks (only they resume it, on the screen)',
     '  <folder> is a path on this machine; the project\'s files live there.',
   ].join('\n'),
   agent: [
@@ -790,6 +791,28 @@ async function projectCreate(ctx, args) {
   return 1;
 }
 
+/* #4771, as install/kosmos cmd_project pause: an agent pauses a project when its person asks in the room. Both tokens
+   (`person: true`): the board token opens the route and the agent token makes it an agent's pause, never the person's,
+   which only the screen sets and only the screen lifts. There is no resume verb. */
+async function projectPause(ctx, args) {
+  if (args.length !== 1 || !args[0]) { ctx.err('Usage: kosmos project pause <project-id>   (only your person resumes it, on the screen)'); return 2; }
+  const project = args[0];
+  const slug = projectSlug(project);
+  if (!slug.replace(/\./g, '')) { ctx.err('there is no project by that name'); return 1; }
+  const r = await ctx.call('PUT', '/api/project/' + slug, { paused: true }, { person: true });
+  if (!r.reached) {
+    return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
+      : ctx.unreachable('pause that project');
+  }
+  if (r.json && r.json.project) {
+    ctx.out('Paused ' + project + '. Kosmos will not nudge anyone about its tasks or hand them out until your person resumes it on the screen.');
+    return 0;
+  }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos could not pause that project: ' + ctx.refusedBy(r) + '.'); return 1; }
+  ctx.err('Kosmos gave an answer we could not read when pausing that project.');
+  return 1;
+}
+
 /* #4581, as install/kosmos cmd_project list / show: read-only, with the agent's own token too (#4491), and
    printed by engine/projectview.js, the renderer the Mac command uses, so the two say the same words. */
 async function projectRead(ctx, route, render) {
@@ -1222,7 +1245,7 @@ const SUBCOMMAND_HANDLERS = {
   report: { show: reportShow, status: reportShow },
   room: { reopen: roomReopen },
   task: { list: taskList, add: taskAdd, close: taskClose, message: taskMessage, built: taskBuilt, hold: taskHoldAs(true), unhold: taskHoldAs(false) },
-  project: { list: projectList, show: projectShow, create: projectCreate },
+  project: { list: projectList, show: projectShow, create: projectCreate, pause: projectPause },
   agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment, follow: communityFollowVerb('follow'), unfollow: communityFollowVerb('unfollow') },
@@ -1244,7 +1267,7 @@ const DESCRIBE = {
   whoami: 'say which agent you are and which account you are on',
   room: 'read a project room',
   task: "a project's tasks: list, add, close, message, mark built",
-  project: 'list, show or create projects',
+  project: 'list, show, create or pause projects',
   agent: 'make an agent, or list the roles one can have',
   feedback: 'write or read the daily feedback report',
   community: 'post to or read the Kosmos community',

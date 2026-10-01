@@ -2998,6 +2998,11 @@ function blockBody(projects, sessionName) {
          it applies to, and re-spliced on every membership change so existing agents learn it too. */
       `When you have built one and it is waiting to be released or checked, mark it:`,
       `\`${cliShown} task built <project-id> <task-number> "what is left"\`. Closing the task clears the mark.`,
+      /* #4771 (Josh's 0.7.15 report): a pause the person asked for in the room never reached the Prompter, so an
+         agent held every task by hand. Taught here for the same reason as built. Resuming is the person's, on the
+         screen, so no verb for it is taught or exists. */
+      `When your person asks to pause a whole project, pause it: \`${cliShown} project pause <project-id>\`.`,
+      'Nobody is then nudged about its tasks or handed them; only your person resumes it, on the screen.',
     ] : []),
   ].join('\n');
 }
