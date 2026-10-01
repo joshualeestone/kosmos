@@ -11,7 +11,13 @@ process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
 process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
+// Review 16: the PR B brake, if the shell exports it, turns the pool line off; that is the product being right, so the
+// file starts with it unset (as status.agypoolcard-4588.test.js does) and puts the shell's value back at the end.
+const BRAKE = 'AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF';
+const shellBrake = process.env[BRAKE];
+delete process.env[BRAKE];
 const test = require('node:test');
+test.after(() => { if (shellBrake !== undefined) process.env[BRAKE] = shellBrake; });
 const assert = require('node:assert/strict');
 const fleet = require('../test-support/fleet');
 const status = require('./status');
