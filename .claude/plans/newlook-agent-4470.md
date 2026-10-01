@@ -17,3 +17,17 @@ here too: the avatar, name and time say who.
 
 Validation: render-newlook-4470 gains DM_LOOK (on: page ground, grey yours, unboxed agent's, grey pill composer;
 off: today's, the control).
+
+Review R1 (opus) 1B 4W 1C 2N:
+- BLOCKER: the DM composer is one element with both classes (dmbar composerbox), not the room's nested pair, so the
+  composer rules and DM_LOOK's composer read matched nothing (the check could never have passed): now .dmbar.composerbox.
+- WARNING: no chosen-Dark DM arm (the forced-dark rules sit later): added, with the agent bubble's tail colour, which is
+  the value that tells right from wrong in light.
+- WARNING: the off control was weak for "byte for byte": it now compares the whole reading to the one taken before the
+  switch was ever touched.
+- WARNING: the consolidated layout keeps today's DM, as every page does under the look (the gate is body:not(.consolidated));
+  its grey band there comes from the global token remap, not this slice. Noted, not changed here.
+- WARNING: an outside sender's dash on an unboxed message is about 1.2:1 on white, the same as the room: noted for the
+  slice that settles strokes.
+- CONVENTION: the comment named element ids (the surface gate reads comments as tokens): reworded.
+- NITs: own-message attachment cards grey on grey (as the room); DM_LOOK only for colours. Left.

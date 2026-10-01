@@ -131,13 +131,14 @@ const BUBBLES = `(() => {
    and the composer box (in .dmbar). Messages are removed after. */
 const DM_LOOK = `(() => {
   const th = document.getElementById('d-dmthread'), box = document.getElementById('d-talk-box');
-  const cb = document.querySelector('#d-talk-box .dmbar .composerbox');
+  const cb = document.querySelector('#d-talk-box .dmbar.composerbox');   // one element with both classes (round 1)
   if (!th || !box || !cb) return { found: false };
   const mk = (you) => { const m = document.createElement('div'); m.className = 'msg' + (you ? ' you' : ''); m.innerHTML = '<div class="msg-b"><div class="msg-bd">x</div></div>'; th.appendChild(m); return m; };
   const a = mk(true), b = mk(false);
   const cs = getComputedStyle(cb);
   const out = { found: true, box: getComputedStyle(box).backgroundColor, you: getComputedStyle(a.querySelector('.msg-bd')).backgroundColor,
-    agent: getComputedStyle(b.querySelector('.msg-bd')).backgroundColor, composer: cs.backgroundColor, composerBorder: cs.borderTopColor, composerRadius: cs.borderTopLeftRadius };
+    agent: getComputedStyle(b.querySelector('.msg-bd')).backgroundColor, tail: getComputedStyle(b.querySelector('.msg-bd'), '::after').backgroundColor,
+    composer: cs.backgroundColor, composerBorder: cs.borderTopColor, composerRadius: cs.borderTopLeftRadius };
   a.remove(); b.remove();
   return out;
 })()`;
@@ -353,6 +354,7 @@ const AGENTS_LOOK = `(() => {
       await clearFirstRun(page);
 
       const before = await page.evaluate(PAGE_STATE);
+      const dmBefore = await page.evaluate(DM_LOOK);   // today's DM, before the switch is ever touched (the off control's baseline)
       chk(before.look === null, `${tag} nothing stored: no data-look attribute`, JSON.stringify(before));
       chk(before.kbg && before.kbg !== NEW[theme], `${tag} nothing stored: today's page colour, not the new look's`, before.kbg);
 
@@ -405,7 +407,7 @@ const AGENTS_LOOK = `(() => {
       const bub = await page.evaluate(BUBBLES);
       const PAGE_OF = { light: 'rgb(255, 255, 255)', dark: 'rgb(0, 0, 0)' };
       chk(bub.you === GREY_OF[theme] && bub.agent === PAGE_OF[theme], `${tag} On: your message is grey, an agent's is the page's own ground (no bubble)`, JSON.stringify(bub));
-      chk(dmOn.found && dmOn.box === PAGE_OF[theme] && dmOn.you === GREY_OF[theme] && dmOn.agent === PAGE_OF[theme],
+      chk(dmOn.found && dmOn.box === PAGE_OF[theme] && dmOn.you === GREY_OF[theme] && dmOn.agent === PAGE_OF[theme] && dmOn.tail === PAGE_OF[theme],
         `${tag} On, an agent's page: the conversation on the page's ground, your message grey, an agent's with no bubble`, JSON.stringify(dmOn));
       chk(dmOn.found && dmOn.composer === GREY_OF[theme] && dmOn.composerBorder === 'rgba(0, 0, 0, 0)' && dmOn.composerRadius === '24px',
         `${tag} On, an agent's page: the composer is the grey pill with no stroke`, JSON.stringify(dmOn));
@@ -452,6 +454,9 @@ const AGENTS_LOOK = `(() => {
         chk(cbForced === GREY.dark, `${tag} On + chosen Dark: the composer is the dark grey`, cbForced);
         const bubForced = await page.evaluate(BUBBLES);
         chk(bubForced.you === GREY_OF.dark && bubForced.agent === 'rgb(0, 0, 0)', `${tag} On + chosen Dark: your message is dark grey, an agent's is the black ground`, JSON.stringify(bubForced));
+        const dmForced = await page.evaluate(DM_LOOK);   // the generated forced-dark rules sit later in the sheet (round 1)
+        chk(dmForced.found && dmForced.box === 'rgb(0, 0, 0)' && dmForced.you === GREY_OF.dark && dmForced.agent === 'rgb(0, 0, 0)' && dmForced.tail === 'rgb(0, 0, 0)' && dmForced.composer === GREY_OF.dark,
+          `${tag} On + chosen Dark: an agent's page has the black ground, dark-grey own messages and composer`, JSON.stringify(dmForced));
         await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
       }
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `newlook-project-${theme}-${width}.png`) });
@@ -606,8 +611,8 @@ const AGENTS_LOOK = `(() => {
       /* Control for the agent-page arms: with the look off, today's conversation (the surface behind it, a tinted bubble of
          yours, a bordered composer box with 12px corners). */
       const dmOff = await page.evaluate(DM_LOOK);
-      chk(dmOff.found && dmOff.you !== GREY_OF[theme] && dmOff.composerBorder !== 'rgba(0, 0, 0, 0)' && dmOff.composerRadius === '12px',
-        `${tag} Off, an agent's page: today's conversation and bordered composer (the control)`, JSON.stringify(dmOff));
+      chk(dmOff.found && dmBefore.found && JSON.stringify(dmOff) === JSON.stringify(dmBefore) && dmOff.composerBorder !== 'rgba(0, 0, 0, 0)' && dmOff.composerRadius === '12px',
+        `${tag} Off, an agent's page: exactly today's conversation and bordered composer, as before the switch was touched (the control)`, JSON.stringify({ off: dmOff, before: dmBefore }));
       const listOff = await listLook(page);
       chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px' && listOff.nameAlign === 'center',
         `${tag} Off, Agents list: today's bordered row with 12px corners and today's centred name button`, JSON.stringify(listOff));
