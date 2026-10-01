@@ -100,8 +100,7 @@ function chk(ok, label, extra) {
     await page.mouse.move(2, 2);
     await page.waitForTimeout(250);
     const rest = await look(page, S);
-    const rowH = await page.locator('#tsk-groups .tsk-row', { hasText: S }).first();
-    const box = await rowH.boundingBox();
+    const box = await page.locator('#tsk-groups .tsk-row', { hasText: S }).first().boundingBox();
     // Hover the row's right end, past its text: a part of the row that is not a control.
     await page.mouse.move(box.x + box.width - 6, box.y + box.height - 4);
     await page.waitForTimeout(250);
