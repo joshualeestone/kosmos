@@ -44016,7 +44016,8 @@ async function paintPlus() {
   /* #1615: gate the connected flow on `enrolled`, NOT `configured`. `configured` is
      `Boolean(RELAY())` and RELAY() falls back to a production default (engine/remote.js),
      so it is permanently true and showed the on-switch to every user with no paid gate.
-     `enrolled` (served by /api/remote; engine/remote.js enrolled() = state dir + certificate)
+     `enrolled` (served by /api/remote; engine/remote.js enrolled() = state dir + certificate, or + the tunnel's `held` mark while
+     the computer waits to be allowed, kosmos#4737)
      can be false, and the ENGINE already gates the real connection on it (remote.js:201
      `wanted = on && enrolled()`), so this makes the screen agree with the engine instead of
      inventing a rule. Nobody can enrol or pay yet (#1742, #1886), so today this rests every

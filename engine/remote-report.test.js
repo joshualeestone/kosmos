@@ -141,6 +141,9 @@ test('classify: each known failure kind gets its code, anything else is other, n
     ['waiting for the code sent to agent@example.com', 'other'],
     // session.rs local TLS setup, verbatim: this Mac's own certificate or key.
     ['opening certificate: No such file or directory (os error 2)', 'local-cert-unreadable'],
+    // kosmos#4737: the first certificate, spaced or failing, is not a broken one.
+    ['this computer has no certificate yet: this computer\'s certificate was asked for 60s ago; asking again in 540s', 'cert-first-fetch'],
+    ['this computer has no certificate yet: fetching the certificate this computer was waiting for: Kosmos+ unreachable', 'cert-first-fetch'],
     ['parsing certificate: invalid PEM', 'local-cert-unreadable'],
     ['no private key found', 'local-cert-unreadable'],
     // A gateway page inside a coordinator answer never reads as a local fault.
