@@ -7319,13 +7319,14 @@ html.has-voice .micbtn { display: grid; }
    no box changes size where the mic is not drawn; the box gets room on the right only where it is (the Mac app). */
 .micwrap { position: relative; }
 .frow > .micwrap { flex: 1; min-width: 220px; }   /* the input's own .frow sizing, which it no longer gets as a child */
-.micwrap > textarea { display: block; }
 .micwrap.line > input { width: 100%; box-sizing: border-box; }
 .micwrap > .fieldmic { position: absolute; right: calc(8px + var(--scrollbar-width, 0px)); top: 6px; width: 28px; height: 28px; }   /* clear of a classic scrollbar */
 .micwrap.line > .fieldmic { top: 50%; right: 8px; transform: translateY(-50%); }
 .micwrap > :disabled + .fieldmic { display: none; }   /* a box that takes no words (instructions still loading) shows no mic */
 html.has-voice .micwrap > textarea, html.has-voice .micwrap > input,
 html.has-voice .micwrap > #d-instr, html.has-voice .micwrap > #create-instr { padding-right: 44px; }   /* the two ID rules set their own padding */
+html.has-voice .micwrap:not(.line) > textarea,
+html.has-voice .micwrap > #d-instr, html.has-voice .micwrap > #create-instr { padding-right: calc(44px + var(--scrollbar-width, 0px)); }   /* the mic moves left by it */
 .micbtn:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
 .micbtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .micbtn[aria-pressed="true"] { color: #c62828; background: rgba(198,40,40,.1); }
@@ -60329,6 +60330,9 @@ function voiceRelease(e) {
   const press = VOICE_PRESS;
   if (!press || (e && e.pointerId !== press.pointer)) return;
   VOICE_PRESS = null;
+  /* The release's own click (if it lands on the mic) is dispatched before this timer runs; a press dragged off the mic
+     gets no click, and the mark must not swallow the next keyboard or assistive press. */
+  setTimeout(() => { VOICE_PRESSED = null; }, 0);
   if (press.stopping || VOICE.btn !== press.btn) return;
   if (Date.now() - press.at < VOICE_HOLD_MS) return;   // a tap: keep listening until the next tap
   /* Not listening yet (the first use asks macOS for the microphone, and the person lets go to answer): a release now
@@ -60360,9 +60364,11 @@ document.addEventListener('click', (e) => {
     voiceToggle(mic);
     return;
   }
-  /* Send, Save, Create or any other button while listening: what is in the box is what goes, and nothing arrives
-     after it (slice 2: a dialog's Save is as final as a composer's Send). */
-  if (VOICE.btn && e.target.closest && e.target.closest('button, [role="button"], input[type="submit"]')) voiceCancel();
+  /* Send while listening: what is in the box is what goes, and nothing arrives after it. A composer keeps listening
+     through its other buttons (attach, read aloud, as in slice 1); in a dialog (slice 2) any button, Save or Create,
+     is as final as Send. */
+  if (VOICE.btn && e.target.closest && (e.target.closest('#d-send, #pj-post-go, #asp-send')
+    || (VOICE.btn.classList.contains('fieldmic') && e.target.closest('button, [role="button"], input[type="submit"]')))) voiceCancel();
 }, true);
 document.addEventListener('keydown', (e) => {
   if (!VOICE.btn || e.target !== VOICE.box) return;

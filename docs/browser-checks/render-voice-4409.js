@@ -25,6 +25,8 @@
  *   V13 (slice 2) the keyboard (Enter on the focused mic) and a script's click() still toggle, with no pointer
  *   V14 (slice 2) in a dialog, focus moving to another field stops listening, keeping the words
  *   V15 (slice 2) Save, Create or any other button while listening stops it, so nothing arrives after it
+ *   V16 (slice 2) a press dragged off the mic does not swallow the next keyboard press; and a composer keeps
+ *       listening through its other buttons (attach), as in slice 1
  *   V1b in a browser (no bridge) the Name field fills its row exactly as with no wrapper: wrapping changes nothing
  *
  * Harness: file:// with fetch answered here (render-dm-reply-4256.js's posture), the real paintTalk. The
@@ -304,12 +306,34 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       document.getElementById('pj-add-view').appendChild(b); b.click(); b.remove(); });
     const v15 = await page.evaluate((n) => window.__voice.slice(n).map((m) => m.op), n6);
     chk(JSON.stringify(v15) === '["start","cancel"]', 'V15 any other button while listening (Save, Create, Add) stops it', JSON.stringify(v15));
+    // V16: a press dragged off the mic, then the keyboard: the keyboard press still toggles.
+    const n7 = await page.evaluate(() => window.__voice.length);
+    const dm4 = await descMic.boundingBox();
+    await page.mouse.move(dm4.x + dm4.width / 2, dm4.y + dm4.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(dm4.x - 200, dm4.y + 120);
+    await page.mouse.up();
+    await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'listening' }));
+    await page.waitForTimeout(50);
+    await page.focus('.fieldmic[data-voice-for="pj-add-desc"]');
+    await page.keyboard.press('Enter');
+    await page.evaluate(() => window.kosmosVoiceEvent({ kind: 'stopped' }));
+    const v16 = await page.evaluate((n) => window.__voice.slice(n).map((m) => m.op), n7);
+    chk(v16[0] === 'start' && v16[v16.length - 1] === 'stop', 'V16 a press dragged off the mic does not swallow the next keyboard press', JSON.stringify(v16));
     // V12 a disabled box shows no mic (the agent's instructions before they load).
     const dis = await page.evaluate(() => { const b = document.getElementById('d-instr'); const was = b.disabled; b.disabled = true;
       const m = document.querySelector('.fieldmic[data-voice-for="d-instr"]'); const shownMic = getComputedStyle(m).display !== 'none';
       b.disabled = false; const shownOn = getComputedStyle(m).display !== 'none'; b.disabled = was; return { shownMic, shownOn }; });
     chk(!dis.shownMic && dis.shownOn, 'V12 a disabled box shows no mic; enabled, it does', JSON.stringify(dis));
     await page.evaluate(() => { const pp = document.getElementById('panel-projects'); if (pp) pp.hidden = true; document.getElementById('pj-add-view').hidden = true; document.getElementById('panel-detail').hidden = false; });
+
+    // V16: a composer keeps listening through its other buttons (attach), as in slice 1.
+    const n8 = await page.evaluate(() => window.__voice.length);
+    await page.evaluate(() => { document.getElementById('d-mic').click(); window.kosmosVoiceEvent({ kind: 'listening' });
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Attach'; document.getElementById('d-say').parentElement.appendChild(b); b.click(); b.remove(); });
+    const v16c = await page.evaluate((n) => ({ ops: window.__voice.slice(n).map((m) => m.op), on: document.getElementById('d-mic').getAttribute('aria-pressed') }), n8);
+    await page.evaluate(() => { document.getElementById('d-mic').click(); window.kosmosVoiceEvent({ kind: 'stopped' }); });
+    chk(JSON.stringify(v16c.ops) === '["start"]' && v16c.on === 'true', 'V16 a composer keeps listening through a button other than Send, as in slice 1', JSON.stringify(v16c));
 
     // V7: read aloud, on a freshly painted thread (V5's send left a "Sending" row of the person's).
     await page.evaluate(() => { for (const k of Object.keys(TALK_PENDING)) delete TALK_PENDING[k]; });

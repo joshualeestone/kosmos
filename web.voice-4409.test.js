@@ -111,10 +111,8 @@ test('#4409: the mic is drawn only where the on-device bridge exists; a browser 
 });
 
 test('#4409: sending, typing or leaving while listening drops anything still coming', () => {
-  // #4409 slice 2: any button stops listening (a dialog's Save as well as a composer's Send). Send, Post and the Guide's
-  // send are all <button>s, which the selector covers; render-voice-4409 V5 and V15 run it.
-  assert.match(PAGE, /closest\('button, \[role="button"\], input\[type="submit"\]'\)\) voiceCancel\(\);/, 'a word heard after Send would land in the emptied box');
-  for (const id of ['d-send', 'pj-post-go', 'asp-send']) assert.match(PAGE, new RegExp('<button[^>]*id="' + id + '"|<button[^>]*id=\\\\?"' + id), id + ' is no longer a button, so the cancel no longer covers it');
+  // #4409 slice 2: a composer's Send still stops listening (slice 1), and a dialog mic's box stops on any button too.
+  assert.match(PAGE, /closest\('#d-send, #pj-post-go, #asp-send'\)\n\s*\|\| \(VOICE\.btn\.classList\.contains\('fieldmic'\) && e\.target\.closest\('button, \[role="button"\], input\[type="submit"\]'\)\)\)\) voiceCancel\(\);/, 'a word heard after Send would land in the emptied box');
   const cancel = fn('voiceCancel');
   assert.match(cancel, /VOICE\.btn = null; VOICE\.box = null;/, 'late events are not cut off at once');
   assert.match(cancel, /postMessage\(\{ op: 'cancel' \}\)/);

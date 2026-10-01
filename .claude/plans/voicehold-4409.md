@@ -13,7 +13,8 @@ dialogues". Splinter handed it to me at 17:03.
    (`nt-detail`), New agent (`create-instr`), the agent's instructions editor (`d-instr`), and the project settings
    (`pjs-name`, `pjs-desc`). Each is a `.micbtn.fieldmic` with `data-voice-for` in a `.micwrap`, at the box's bottom
    right at first, moved to the top right in review 1 (centred in a one-line input); each says its lines in that dialog's own message line.
-3. While listening, focus moving to another field, or any button (Save, Create), stops it, keeping the words.
+3. While listening in a dialog, focus moving to another field, or any button (Save, Create), stops it, keeping the
+   words. A composer keeps slice 1's rule: Send stops it, its other buttons (attach, read aloud) do not.
 4. Mac app only, as slice 1 (drawn only with the on-device bridge, `html.has-voice`). Same bridge, no native change:
    `stop` already ends the audio and lets the recognizer deliver its final result.
 
@@ -66,4 +67,13 @@ the pointer's click as well reds V2, V10, V11, V12. web.voice-4409.test.js 20/20
   held dictation in the check; the other seven are checked for presence, padding and placement.
 - Josh, 17:16 ("Can we do it in mobile too?"): phones are SLICE 3, a separate branch: it changes slice 1's privacy
   rule (the browser's recognizer, Josh: "I don't care about privacy") and needs its own iPhone measurement.
+- Round 3 (opus): FIXED W: a press dragged off the mic left the "pointer handled this mic" mark set, so the next
+  keyboard or assistive press was swallowed; the mark clears once the release's own click has had its chance (V16,
+  removing the clear reds it). FIXED W: with classic scrollbars the mic moved left by --scrollbar-width but the text
+  room did not; the textareas' padding takes the same offset. NOT exercised headless (overlay, width 0); the
+  consolidated layout leaves the variable unset, so the offset is 0 there. FIXED W (mine, round 2): "any button
+  stops listening" had widened slice 1's composers too (attach and read aloud ended dictation); it is now dialog mics
+  only, and composers keep Send-only (V16, the round-2 rule reds it; the unit test pins both arms). DEFERRED W
+  (duplicate of round 2's): a hold let go before the bridge says listening is a tap. FIXED NIT: the textareas are not
+  made block (it moved the spacing below them for everyone; the mic at the top no longer needs it).
 
