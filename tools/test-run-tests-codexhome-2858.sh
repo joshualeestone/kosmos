@@ -37,6 +37,15 @@ grep -qE '^[[:space:]]*unset.*[[:space:]]AGENT_WORKFORCE_CODEX_HOME([[:space:]]|
   && pass "run-tests.sh unsets AGENT_WORKFORCE_CODEX_HOME (the sandbox seam)" \
   || fail "run-tests.sh no longer unsets AGENT_WORKFORCE_CODEX_HOME"
 
+# #4491 slice 7: the token-only switch is stripped at the same boundary, before the same node suite.
+tln="$(grep -nE '^[[:space:]]*unset([[:space:]].*)?[[:space:]]KOSMOS_AGENT_TOKEN_ONLY([[:space:]]|$)' "$RT" | head -1 | cut -d: -f1)"
+nln0="$(grep -nE 'node --test.*KOSMOS_TEST_FILES' "$RT" | head -1 | cut -d: -f1)"
+if [ -n "$tln" ] && [ -n "$nln0" ] && [ "$tln" -lt "$nln0" ]; then
+  pass "run-tests.sh unsets KOSMOS_AGENT_TOKEN_ONLY (line $tln) before the node suite (line $nln0)"
+else
+  fail "run-tests.sh no longer unsets KOSMOS_AGENT_TOKEN_ONLY before the node suite (unset=$tln node=$nln0)"
+fi
+
 # The strip must precede the node suite -- the FIRST test invocation, since
 # `yarn -s test:shell` runs after it in run-tests.sh, so preceding the node suite
 # guarantees preceding test:shell too. The node pattern is pinned to the real
@@ -63,6 +72,21 @@ if [ "$probe" = "," ]; then
   pass "a node child sees both Codex-home vars stripped even when set on invocation"
 else
   fail "the unset did not clear both vars for a node child (got: $probe)"
+fi
+
+# #4491 slice 7, the behavioural leg for the switch: it runs the TEXT of the runner's unset line (grepped out of
+# run-tests.sh) and checks a node child no longer sees the switch, so a line that does not clear it is caught. It
+# cannot see whether the runner ever REACHES that line (a line inside an `if false` would pass); the column-0 check
+# below narrows that: the line must sit at the top level of the file, not indented inside a block.
+uline="$(grep -E '^[[:space:]]*unset([[:space:]].*)?[[:space:]]KOSMOS_AGENT_TOKEN_ONLY([[:space:]]|$)' "$RT" | head -1)"
+probe2="$(KOSMOS_AGENT_TOKEN_ONLY=1 bash -c "$uline"'
+  node -pe "String(process.env.KOSMOS_AGENT_TOKEN_ONLY)"' 2>&1)"
+if [ -n "$uline" ] && [ "${uline#unset }" = "$uline" ]; then
+  fail "the KOSMOS_AGENT_TOKEN_ONLY unset is indented, so it may sit inside a block the runner never enters"
+elif [ -n "$uline" ] && [ "$probe2" = "undefined" ]; then
+  pass "the runner's own unset line clears KOSMOS_AGENT_TOKEN_ONLY for a node child"
+else
+  fail "the runner's unset line did not clear KOSMOS_AGENT_TOKEN_ONLY for a node child (line: $uline; got: $probe2)"
 fi
 
 [ "$fails" = 0 ] && { echo "ALL PASS"; exit 0; } || { echo "FAILED"; exit 1; }
