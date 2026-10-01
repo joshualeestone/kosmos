@@ -34,7 +34,8 @@
  *       the same recognizer draws none
  *   P2 (slice 3) tapping it starts the recognizer inside the tap, the line says Apple hears the audio, heard words
  *       land, and the next tap stops it
- *   P3 (slice 3) a refused microphone on a phone points at the phone's settings
+ *   P3 (slice 3) a refused microphone on a phone points at the browser's settings; P3b the retry still says who hears
+ *   P5 (slice 3) who hears the audio is said over another line; P6 a start that throws leaves the mic off
  *   P4 (slice 3) read aloud is offered and speaks on a phone
  *   V1b in a browser (no bridge) the Name field fills its row exactly as with no wrapper: wrapping changes nothing
  *
@@ -426,8 +427,15 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       window.__rec = [];
       // Both names: this Chromium already has an unprefixed one, which the page prefers.
       window.SpeechRecognition = window.webkitSpeechRecognition = class { constructor() { window.__recLast = this; window.__rec.push('new'); }
-        start() { window.__rec.push('start'); setTimeout(() => this.onstart && this.onstart(), 0); }
-        stop() { window.__rec.push('stop'); setTimeout(() => { this.onresult && this.onresult({ results: [Object.assign([{ transcript: 'call the client' }], { isFinal: true })] }); this.onend && this.onend(); }, 0); }
+        start() {
+          // Started from the tap's click (a user activation), not from its touch press (which is not one). Read from the
+          // event being dispatched: navigator.userActivation stays active for seconds after an EARLIER gesture.
+          window.__rec.push(window.event && window.event.type === 'click' ? 'start' : 'start-outside-a-click:' + (window.event && window.event.type));
+          if (window.__recThrow) throw new DOMException('refused', 'InvalidStateError');
+          setTimeout(() => this.onstart && this.onstart(), 0);
+        }
+        // Two results, the second with no leading space, as a phone's recognizer sends them.
+        stop() { window.__rec.push('stop'); setTimeout(() => { this.onresult && this.onresult({ results: [Object.assign([{ transcript: 'call the' }], { isFinal: true }), Object.assign([{ transcript: 'client' }], { isFinal: true })] }); this.onend && this.onend(); }, 0); }
         abort() { window.__rec.push('abort'); } };
     };
     const desk = await browser.newPage({ viewport: { width: 1200, height: 800 } });
@@ -445,9 +453,20 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     await phone.addInitScript(SR);
     await phone.goto(PAGE);
     await openDm(phone);
-    const p1 = { cls: await phone.evaluate(() => document.documentElement.classList.contains('has-voice')), shown: await shown(phone, '#d-mic') };
-    chk(p1.cls && p1.shown && !deskMic, 'P1 a phone draws the mic through the browser\'s recognizer; a computer\'s browser does not', JSON.stringify({ ...p1, deskMic }));
+    const p1 = { cls: await phone.evaluate(() => document.documentElement.classList.contains('has-voice')), shown: await shown(phone, '#d-mic'),
+      label: await phone.getAttribute('#d-mic', 'aria-label') };
+    // A touch-screen computer (a Windows tablet: coarse pointer, no hover, the same recognizer) is not a phone.
+    const tabCtx = await browser.newContext({ viewport: { width: 1200, height: 800 }, isMobile: true, hasTouch: true,
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36 Edg/129.0' });
+    const tab = await tabCtx.newPage();
+    await tab.addInitScript(harness(false), [false]);
+    await tab.addInitScript(SR);
+    await tab.goto(PAGE);
+    const tabMic = await tab.evaluate(() => document.documentElement.classList.contains('has-voice'));
+    await tabCtx.close();
+    chk(p1.cls && p1.shown && !deskMic && !tabMic && /\(Apple hears the audio\)/.test(p1.label), 'P1 a phone draws the mic through the browser\'s recognizer, its label saying who hears it; a computer\'s browser and a touch-screen computer do not', JSON.stringify({ ...p1, deskMic, tabMic }));
     await phone.fill('#d-say', '');
+    await phone.evaluate(() => document.activeElement && document.activeElement.blur());   // as after the keyboard is put away
     await phone.tap('#d-mic');
     await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
     const line = await phone.evaluate(() => document.getElementById('d-say-msg').textContent);
@@ -455,14 +474,36 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     const mid = await phone.evaluate(() => document.getElementById('d-say').value);
     await phone.tap('#d-mic');
     await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'false');
-    const p2 = await phone.evaluate(() => ({ rec: window.__rec.slice(), box: document.getElementById('d-say').value }));
-    chk(JSON.stringify(p2.rec) === '["new","start","stop"]' && mid === 'call the' && p2.box === 'call the client' && /Apple hears this audio/.test(line) && !/Escape/.test(line),
-      'P2 a tap starts the recognizer, the line says Apple hears the audio, the words land, and the next tap stops it', JSON.stringify({ ...p2, mid, line }));
+    const p2 = await phone.evaluate(() => ({ rec: window.__rec.slice(), box: document.getElementById('d-say').value, focusedBox: document.activeElement === document.getElementById('d-say') }));
+    chk(JSON.stringify(p2.rec) === '["new","start","stop"]' && mid === 'call the' && p2.box === 'call the client' && p2.focusedBox === false && /Apple hears this audio/.test(line) && !/Escape/.test(line),
+      'P2 a tap starts the recognizer within the tap\'s user activation (no keyboard opened), the line says Apple hears the audio, words from two results land spaced, and the next tap stops it', JSON.stringify({ ...p2, mid, line }));
     await phone.tap('#d-mic');
     await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
     await phone.evaluate(() => { window.__recLast.onerror({ error: 'not-allowed' }); window.__recLast.onend(); });
     const refused = await phone.evaluate(() => document.getElementById('d-say-msg').textContent);
-    chk(/Settings, Apps, Safari, Microphone/.test(refused) && !/System Settings/.test(refused), 'P3 a refused microphone on a phone points at the phone\'s settings', refused);
+    chk(/not allowed to use the microphone/.test(refused) && /browser/.test(refused) && !/System Settings/.test(refused), 'P3 a refused microphone on a phone points at the browser\'s settings', refused);
+    // P3b: allowed now, the next tap must still say who hears the audio (the refusal is the mic's own line to clear).
+    // Read in the same task as the tap's click, before the recognizer says it is listening: the old refusal is gone.
+    const atTap = await phone.evaluate(() => { document.getElementById('d-mic').click(); return document.getElementById('d-say-msg').textContent; });
+    await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
+    const retry = await phone.evaluate(() => document.getElementById('d-say-msg').textContent);
+    chk(atTap === '' && /Apple hears this audio/.test(retry), 'P3b after a refusal, the retry clears it at once and still says who hears the audio', JSON.stringify({ atTap, retry }));
+    await phone.tap('#d-mic');
+    await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'false');
+    // P5: another line in the box's message line does not hide who hears the audio; P6: a start that throws ends cleanly.
+    await phone.evaluate(() => { document.getElementById('d-say-msg').textContent = 'Still sending your last message.'; });
+    await phone.tap('#d-mic');
+    await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
+    const over = await phone.evaluate(() => document.getElementById('d-say-msg').textContent);
+    chk(/Apple hears this audio/.test(over), 'P5 on a phone, who hears the audio is said even over another line', over);
+    await phone.tap('#d-mic');
+    await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'false');
+    await phone.evaluate(() => { window.__recThrow = true; });
+    await phone.tap('#d-mic');
+    await phone.waitForTimeout(100);
+    const thrown = await phone.evaluate(() => ({ btn: !!VOICE.btn, pressed: document.getElementById('d-mic').getAttribute('aria-pressed'), asking: document.getElementById('d-mic').classList.contains('asking') }));
+    await phone.evaluate(() => { window.__recThrow = false; });
+    chk(!thrown.btn && thrown.pressed === 'false' && !thrown.asking, 'P6 a recognizer that refuses to start leaves the mic off, not half on', JSON.stringify(thrown));
     const spk = await shown(phone, '#d-dmthread .msg:not(.you) .rxn-speak');
     await phone.evaluate(() => { window.__spoken.length = 0; });
     /* Pressed directly: whether a thumb reaches it is the #718 tap-to-open bar, unchanged by voice and not measurable

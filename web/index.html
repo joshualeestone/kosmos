@@ -7308,15 +7308,15 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    GLYPH span (not .emojibtn) so the hover/focus/expanded affordance backgrounds stay at
    full strength. Same technique as the `.pmark.dim svg` precedent below. */
 .emojibtn-glyph { filter: grayscale(1) opacity(.6); }
-/* #4409: the mic in the composers, drawn only where on-device dictation exists (the Mac app sets
-   html.has-voice). Same quiet grey as the emoji button; while it listens it turns red and pulses, and
+/* #4409: the mic in the composers, drawn only where html.has-voice says a voice bridge exists (the Mac app's
+   on-device one, or on a phone the browser's recognizer, slice 3). Same quiet grey as the emoji button; while it listens it turns red and pulses, and
    aria-pressed says so to a screen reader. */
 .micbtn { display: none; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 html.has-voice .micbtn { display: grid; }
 /* #4409 slice 2: the mic inside a dialog's text box: top right of a textarea (clear of its resize grip), centred in a
    one-line input. The wrapper takes the box's place in its row (a .frow is a flex row that sized the input itself), so
-   no box changes size where the mic is not drawn; the box gets room on the right only where it is (the Mac app). */
+   no box changes size where the mic is not drawn; the box gets room on the right only where it is (html.has-voice). */
 .micwrap { position: relative; }
 .frow > .micwrap { flex: 1; min-width: 220px; }   /* the input's .frow flex sizing, which has no effect now it is not the flex item */
 .micwrap.line > input { width: 100%; box-sizing: border-box; }
@@ -11771,7 +11771,7 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #3744 (Josh, 2026-09-25 09:29: "We need emoji support in the agent DM."): the room's
            grey smiley and panel, driven by the same code (EMOJI_AT below), so there is one list
            of emoji and one behaviour. The panel sits inside this box, which is its anchor. -->
-      <!-- #4409: the mic. Drawn only in the Mac app, where the on-device dictation bridge exists (html.has-voice). -->
+      <!-- #4409: the mic. Drawn only where a voice bridge exists (html.has-voice): the Mac app, or a phone (slice 3). -->
       <button class="micbtn" id="d-mic" type="button" data-voice-for="d-say" data-voice-msg="d-say-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
       <button class="emojibtn" id="d-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="d-emoji"><span class="emojibtn-glyph" aria-hidden="true">&#128512;</span></button>
             <button class="btn uprime cpost" id="d-send" type="button">Post</button>
@@ -60195,8 +60195,9 @@ const VOICE_SAYS = {
 };
 /* Slice 3: on a phone the refusals point at the phone's settings, not the Mac's. */
 const VOICE_SAYS_PHONE = {
-  'mic-denied': 'This browser is not allowed to use the microphone. On an iPhone: Settings, Apps, Safari, Microphone. On Android: Chrome\'s settings for this site.',
-  'speech-denied': 'Speech recognition is turned off for this browser. On an iPhone: Settings, Apps, Safari, and allow speech recognition.',
+  'mic-denied': 'This browser is not allowed to use the microphone. Allow it in this browser\'s settings for this site, or in the phone\'s Settings app under the browser.',
+  'speech-denied': 'Speech recognition is turned off for this browser. Allow it in the phone\'s Settings app under the browser.',
+  network: 'The speech service could not be reached. Check the connection and try again.',
 };
 function voiceBridge() {
   try {
@@ -60214,7 +60215,7 @@ function voiceBridge() {
 let VOICE_PHONE = undefined;   // the shim, built once; null where there is none
 function voicePhoneWho() {
   const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
-  return /Android/i.test(ua) ? 'Google' : /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document) ? 'Apple' : 'your phone\'s speech service';
+  return /Android/i.test(ua) ? 'Google' : /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document) ? 'Apple' : '';
 }
 function voicePhoneBridge() {
   if (VOICE_PHONE !== undefined) return VOICE_PHONE;
@@ -60223,9 +60224,13 @@ function voicePhoneBridge() {
     const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
     const phone = window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
     if (!Rec || !phone) return null;
+    /* A phone, not a touch-screen computer (a Windows tablet's Edge would send the audio to Microsoft): an iPhone, an iPad
+       (which says Macintosh, with touch) or Android. And a secure page: elsewhere the recognizer refuses every start,
+       which would read as a refused microphone. */
+    if (voicePhoneWho() === '' || window.isSecureContext === false) return null;
     let rec = null, id = null;
     const emit = (ev) => { if (typeof window.kosmosVoiceEvent === 'function') window.kosmosVoiceEvent(Object.assign({ id }, ev)); };
-    const REASON = { 'not-allowed': 'mic-denied', 'service-not-allowed': 'speech-denied', 'audio-capture': 'no-mic', 'no-speech': 'nothing-heard' };
+    const REASON = { 'not-allowed': 'mic-denied', 'service-not-allowed': 'speech-denied', 'audio-capture': 'no-mic', 'no-speech': 'nothing-heard', network: 'network' };
     VOICE_PHONE = {
       phone: true,
       postMessage(m) {
@@ -60241,13 +60246,18 @@ function voicePhoneBridge() {
           mine.onstart = () => { if (rec === mine) emit({ kind: 'listening' }); };
           mine.onresult = (e) => {
             if (rec !== mine) return;
-            let text = '', done = true;
-            for (let i = 0; i < e.results.length; i += 1) { text += e.results[i][0].transcript; if (!e.results[i].isFinal) done = false; }
-            emit({ kind: done ? 'final' : 'partial', text });
+            const parts = []; let done = true;
+            for (let i = 0; i < e.results.length; i += 1) { parts.push(e.results[i][0].transcript); if (!e.results[i].isFinal) done = false; }
+            // A phone's recognizer does not always lead a later result with a space; joined bare, words run together.
+            emit({ kind: done ? 'final' : 'partial', text: parts.join(' ').replace(/\s+/g, ' ').trim() });
           };
           mine.onerror = (e) => { if (rec === mine && e.error !== 'aborted') emit({ kind: 'error', reason: REASON[e.error] || 'recognizer' }); };
           mine.onend = () => { if (rec === mine) { rec = null; emit({ kind: 'stopped' }); } };
-          mine.start();   // in the press itself: a phone starts the microphone only from a person's gesture
+          try { mine.start(); } catch {   // in the tap's click: a phone starts the microphone only from a person's gesture
+            rec = null;
+            emit({ kind: 'error', reason: 'recognizer' });
+            emit({ kind: 'stopped' });
+          }
         } else if (op === 'stop') {
           if (rec) rec.stop();   // the last words come as a final result, then stopped
         } else if (op === 'cancel') {
@@ -60289,7 +60299,9 @@ function voicePaint(btn, state) {
   btn.classList.toggle('asking', state === 'asking');
   btn.setAttribute('aria-pressed', state === 'on' ? 'true' : 'false');
   const name = btn.getAttribute('data-voice-name');   // #4409 slice 2: a dialog has several, each named for its box
-  const label = (state === 'off' ? 'Talk instead of typing' : 'Stop listening') + (name ? ': ' + name : '');
+  const b = voiceBridge();
+  const label = (state === 'off' ? 'Talk instead of typing' : 'Stop listening') + (name ? ': ' + name : '')
+    + (b && b.phone ? ' (' + voicePhoneWho() + ' hears the audio)' : '');   // slice 3: said before the first tap too
   btn.setAttribute('aria-label', label);
   btn.title = label;
 }
@@ -60309,7 +60321,7 @@ function voiceMsgEmpty(btn) { const el = voiceMsgEl(btn); return !!el && !el.tex
 /* At a new start: the mic's own earlier words (a refusal, the listening line) go; anything else the page said stays. */
 function voiceUnsayOwn(btn) {
   const el = voiceMsgEl(btn);
-  if (el && (el.textContent === VOICE_LISTENING || el.textContent === voiceListeningLine() || Object.values(VOICE_SAYS).includes(el.textContent))) el.textContent = '';
+  if (el && (el.textContent === VOICE_LISTENING || el.textContent === voiceListeningLine() || Object.values(VOICE_SAYS).includes(el.textContent) || Object.values(VOICE_SAYS_PHONE).includes(el.textContent))) el.textContent = '';
 }
 function voiceUnsay(btn) {
   const el = btn && document.getElementById(btn.getAttribute('data-voice-msg') || '');
@@ -60332,7 +60344,8 @@ function voiceToggle(btn) {
   h.postMessage({ op: 'start', id: VOICE.id });
   /* #4409 (review 4): clicking the mic moves focus to the button, and Escape stops only from the box, so give the box
      focus back (its caret was read above and focusing does not move it). Typing then also takes the box back. */
-  try { box.focus({ preventScroll: true }); } catch { /* a stub box in the node suite */ }
+  /* Not on a phone: focusing the box there opens the on-screen keyboard over the thread on every tap (slice 3). */
+  try { if (!h.phone) box.focus({ preventScroll: true }); } catch { /* a stub box in the node suite */ }
   voiceSpeakWatch();
 }
 /* Stop and drop whatever is still coming: the person sent, typed, or left. What is already in the box stays. */
@@ -60352,7 +60365,15 @@ function voiceOnEvent(ev) {
      page started with; an app from before the id carries none, and is taken as it always was. */
   if (ev.id != null && ev.id !== VOICE.id) return;
   const btn = VOICE.btn;
-  if (ev.kind === 'listening') { VOICE.listening = true; voicePaint(btn, 'on'); if (voiceMsgEmpty(btn)) voiceSay(btn, voiceListeningLine()); return; }   // never over another message's line   // review 5: focus is in the box, so say it there
+  if (ev.kind === 'listening') {
+    VOICE.listening = true;
+    voicePaint(btn, 'on');
+    /* Never over another message's line, EXCEPT on a phone: there the line says who hears the audio, and that is a
+       disclosure, not a hint (slice 3). The other line is a passing status; the person sees it again when it matters. */
+    const hb = voiceBridge();
+    if (voiceMsgEmpty(btn) || (hb && hb.phone)) voiceSay(btn, voiceListeningLine());
+    return;
+  }   // review 5: focus is in the box, so the line is said there
   if ((ev.kind === 'partial' || ev.kind === 'final') && VOICE.box) {
     const box = VOICE.box;
     /* 🛑 The view moved (another agent, room, the Guide closed, the window hidden): these words were meant for the
@@ -60401,6 +60422,11 @@ let VOICE_PRESSED = null;   // { mic, until }
 document.addEventListener('pointerdown', (e) => {
   const mic = e.button === 0 && !e.ctrlKey && e.isPrimary !== false && e.target.closest && e.target.closest('.micbtn');   // Ctrl+click opens a menu on a Mac
   if (!mic) return;
+  /* Slice 3: on a phone the mic is a tap, started from the click. A touch press is not a user activation (only its
+     release is), a phone browser may refuse to start the microphone outside one, and a held finger on a phone opens the
+     long-press menu and drifts into a scroll. */
+  const pb = voiceBridge();
+  if (pb && pb.phone) return;
   /* One press at a time: a second pointer does not take over the first. A press whose release the page never heard (let
      go over a menu or the title bar) does not block for good: the same pointer pressing again, or 10 s, ends it. */
   if (VOICE_PRESS && VOICE_PRESS.pointer !== e.pointerId && Date.now() - VOICE_PRESS.at < 10000) return;
@@ -60484,7 +60510,12 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) { voi
 window.addEventListener('pagehide', () => voiceCancel());
 window.addEventListener('hashchange', () => voiceCancel());
 window.addEventListener('popstate', () => voiceCancel());
-try { if (voiceBridge()) document.documentElement.classList.add('has-voice'); } catch { /* no page root (the node harnesses): nothing to draw */ }
+try {
+  const vb = voiceBridge();
+  if (vb) document.documentElement.classList.add('has-voice');
+  // Slice 3: on a phone every mic's label says who hears the audio from the start, not only once it is used.
+  if (vb && vb.phone) document.querySelectorAll('.micbtn').forEach((m) => voicePaint(m, 'off'));
+} catch { /* no page root (the node harnesses): nothing to draw */ }
 
 /* ---- read aloud ---- */
 const SPEAK = { btn: null, text: '', where: '', seq: 0, nth: 0 };

@@ -10,7 +10,8 @@ hold, tap and dialog mics, so it merges after it.
   recognizer (`SpeechRecognition` or `webkitSpeechRecognition`) behind the same interface as the Mac bridge
   (postMessage {op: start|stop|cancel} in; listening, partial, final, error, stopped out through kosmosVoiceEvent).
   `voiceBridge` returns the Mac bridge first, then the phone shim. So every mic (composers, dialogs, hold, tap) works on
-  a phone unchanged. The recognizer starts inside the press: a phone starts the microphone only from a gesture.
+  a phone unchanged, except that on a phone the mic is a TAP started from its click (a user activation; a touch press
+  is not one, and a held finger opens the long-press menu), so hold-to-talk is a computer feature.
 - On a phone the listening line says who hears the audio ("Apple" on iPhone or iPad, "Google" on Android) and "Tap the
   mic to stop" (no Escape); a refused microphone or speech recognition points at the phone's settings.
 - Read aloud: already drawn wherever the page can speak (speechSynthesis), phones included; the check now proves it.
@@ -26,7 +27,8 @@ hold, tap and dialog mics, so it merges after it.
 ## Weakest premise
 That the browser's recognizer works inside the Kosmos+ page on a real iPhone at all (permissions, a page reached
 through the relay, Safari's continuous mode). NOT MEASURED: it needs a real iPhone and a person speaking. The check
-drives a recording stand-in on an emulated iPhone in Chromium.
+drives a recording stand-in on an emulated iPhone in Chromium. Second premise: Android Chrome's results list
+behaves as the stand-in's (no repeated finals), also unmeasured.
 
 ## Tests
 docs/browser-checks/render-voice-4409.js P1-P4 on an emulated iPhone (touch, coarse pointer, iPhone user agent, a
@@ -36,3 +38,20 @@ it; P3 a refusal points at the phone's settings; P4 read aloud is drawn and spea
 directly: reaching the #718 tap-to-open bar is unchanged and this file:// harness cannot lay a phone out faithfully).
 Mutations: the phone gate (P1, V1, V1b red), the phone line (P2), the phone refusal (P3). web.voice-4409.test.js 21/21,
 pinning that the recognizer is reached only in the phone shim and the Mac bridge comes first.
+
+## Review rounds
+- Round 1 (opus): FIXED B: after a refusal the retry kept the refusal on screen and never said who hears the audio;
+  the mic's own phone lines are now cleared at the tap (P3b reads the line in the tap's own task), and on a phone the
+  who-hears line is said even over another message's line (P5). FIXED W: the start ran in the touch press, which is
+  not a user activation; on a phone the mic is tap-only, started from the click (the stand-in records the event it
+  was started in; moving the start back to the press reds P2); the same change removes the long-press menu and
+  finger-drift holds. FIXED W: a throwing start() left the mic half on; it now reports an error and stopped (P6).
+  FIXED W: results joined with no space ran words together (P2 sends two results). FIXED W: a touch-screen computer
+  (a Windows tablet) matched the gate; it now also needs an iPhone, iPad or Android user agent (P1 control), and a
+  secure page. FIXED W: who hears the audio is now in every mic's label from load, before the first tap (P1). FIXED
+  CONVENTION: two comments still said the mic was Mac-only. FIXED NITs: refusals point at the browser's own settings
+  (not Safari for everyone), a network error is named, the box is not focused on a phone (no keyboard over the thread;
+  P2). Every fix was mutated and each mutation reds its check with a non-zero exit. LEFT: Android Chrome's continuous
+  mode is reported to repeat earlier finals in later events; not measurable without an Android phone, named here as
+  a premise beside the iPhone one. "Tap the mic to stop" kept (a screen reader user knows their own activation).
+

@@ -103,7 +103,7 @@ test('#4409: the mic is drawn only where the on-device bridge exists; a browser 
   }
   assert.match(PAGE, /\.micbtn \{ display: none;/, 'the mic is drawn by default, in a browser with no bridge');
   assert.match(PAGE, /html\.has-voice \.micbtn \{ display: grid; \}/);
-  assert.match(PAGE, /try \{ if \(voiceBridge\(\)\) document\.documentElement\.classList\.add\('has-voice'\);/);
+  assert.match(PAGE, /const vb = voiceBridge\(\);\n  if \(vb\) document\.documentElement\.classList\.add\('has-voice'\);/);
   assert.match(fn('voiceBridge'), /window\.webkit\.messageHandlers\.kosmosVoice/);
   // Slice 3: the browser's recognizer is reached ONLY inside voicePhoneBridge, ONLY on a phone (a coarse pointer with no
   // hover), and ONLY when the Mac app's bridge is absent. Anywhere else in the page it would put a mic on a computer.
