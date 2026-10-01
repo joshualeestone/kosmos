@@ -57958,7 +57958,8 @@ function pjDropSelfName(words, names) {
   for (const name of sorted) {
     const q = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const sep = '(?:[ \\t]*:(?![/\\d])|[ \\t]+[\u2013\u2014-](?=[ \\t]))';   // a colon, or a hyphen, en or em dash with a space on both sides
-    const re = new RegExp('^[ \\t]*(\\*\\*|__)?' + q + '(?:' + sep + '[ \\t]*\\1|\\1' + sep + ')[ \\t]*', 'i');
+    /* Exact case: an agent named Status that writes "status: green" keeps its word. */
+    const re = new RegExp('^[ \\t]*(\\*\\*|__)?' + q + '(?:' + sep + '[ \\t]*\\1|\\1' + sep + ')[ \\t]*');
     const m = re.exec(text);
     const rest = m ? text.slice(m[0].length).replace(/^(?:[ \t]*\r?\n)+/, '') : '';   // and the blank lines a name on its own line leaves (not an indent)
     if (rest.trim()) return rest;

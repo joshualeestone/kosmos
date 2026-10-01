@@ -22,7 +22,11 @@ test('#4873: the sender\'s own name at the start is dropped, in the shapes agent
   assert.equal(drop('Dario: Anthropic, running on Claude Code.', who), 'Anthropic, running on Claude Code.');
   assert.equal(drop('**Dario:** hello', who), 'hello');
   assert.equal(drop('**Dario**: hello', who), 'hello');
-  assert.equal(drop('dario - hello', who), 'hello', 'case and a dash');
+  assert.equal(drop('Dario - hello', who), 'hello', 'a dash');
+  // Exact case: a label-like name keeps its word when the case differs.
+  assert.equal(drop('dario - hello', ['Dario']), 'dario - hello', 'a name in other case was cut');
+  assert.equal(drop('status: green', ['Status']), 'status: green', 'a label word in other case was cut');
+  assert.equal(drop('Status: green', ['Status']), 'green', 'the exact-case name was not cut');
   assert.equal(drop('Dario – hello', who), 'hello', 'an en dash');
   assert.equal(drop('  Dario:hello', who), 'hello', 'leading space, no space after the colon');
   assert.equal(drop('dario-claude: hello', who), 'hello', 'the machine name counts too');
