@@ -125,7 +125,9 @@ const BUBBLES = `(() => {
   return out;
 })()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */
-const ROW_GROUNDS = `[...document.querySelectorAll('#pj-one-agents .pj-member')].map((m) => ({ working: m.classList.contains('pjm-working'), bg: getComputedStyle(m).backgroundColor, img: getComputedStyle(m).backgroundImage }))`;
+/* #4765: the working pulse runs on the row's ::before layer now, so "no pulse" is read there too: no layer at all
+   (content none) and no animation. A pulse the box itself does not carry is still a pulse on screen. */
+const ROW_GROUNDS = `[...document.querySelectorAll('#pj-one-agents .pj-member')].map((m) => ({ working: m.classList.contains('pjm-working'), bg: getComputedStyle(m).backgroundColor, img: getComputedStyle(m).backgroundImage, layer: getComputedStyle(m, '::before').content, layerAnim: getComputedStyle(m, '::before').animationName, anim: getComputedStyle(m).animationName }))`;
 /* The left box's task rows: how many, how many still draw a card border, whether the number reads
    a hash sign and the number (the word hidden, the hash drawn) and whether an assigned row's claim line is visible. */
 const TASK_ROWS = `(() => {
@@ -376,7 +378,7 @@ const AGENTS_LOOK = `(() => {
       }
       await page.mouse.move(0, 0);
       const rows = await page.evaluate(ROW_GROUNDS);
-      chk(rows.length >= 2 && rows.some((r) => r.working) && rows.every((r) => r.bg === 'rgba(0, 0, 0, 0)' && r.img === 'none'),
+      chk(rows.length >= 2 && rows.some((r) => r.working) && rows.every((r) => r.bg === 'rgba(0, 0, 0, 0)' && r.img === 'none' && r.anim === 'none' && r.layerAnim === 'none' && (r.layer === 'none' || r.layer === 'normal')),
         `${tag} On: every member row is plain, a working one too (no wash, no pulse)`, JSON.stringify(rows));
       if (width >= 1088) {   // a phone width shows the tabs as a menu, with its own current-row style
         const tabs = await page.evaluate(TABS);

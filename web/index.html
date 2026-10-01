@@ -2505,30 +2505,62 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 /* The orb breathes with its dots, so a working agent reads as working from
    across the room. Off entirely for reduced motion: a full board would otherwise
    carry a dozen pulses at once. */
-.acard.working .astate.st-working { animation: breathe 2.4s ease-in-out infinite; }
+/* #4765: the breath is an OVERLAY that fades, not a background and border that change. Animating a colour makes
+   the browser restyle and repaint the pill on every frame (it cannot hand a colour to the GPU); animating the
+   opacity of a layer lets the GPU do it. Measured headed on a 24-agent board: the Agents view at rest went from
+   61% of the page's one main thread busy to 5% with this and the pulse below, which is what made typing and
+   clicks wait. `isolation` keeps the overlay under the pill's text.
+   ⚠️ ONLY WHILE MOTION IS ALLOWED, all of it (review 1). The old breath REPLACED the pill's background and border
+   while it ran, in every theme (a running animation outranks every rule, the dark theme's mint border included).
+   So, while motion is allowed, the pill takes the breath's LOW point as its own colours, with `:root` in front to
+   outrank the dark-theme pill rules (0,5,0 over 0,4,0), and the overlay carries the difference up to the old
+   HIGH point: at its peak .14 over .07 is the old .20 inside, and a 1.5px .39 ring over the pill's own 1.5px .38
+   ring is the old .62 (the pill's border is 1.5px, so the overlay sits 1.5px out and covers all of it). With
+   reduced motion none of this applies, and the pill is exactly what it was: its static midpoint, and each theme's
+   own border. */
+.acard.working .astate.st-working { position: relative; isolation: isolate; }
+@media (prefers-reduced-motion: no-preference) {
+  :root .acard.working .astate.st-working { background: rgba(47,125,90,.07); border-color: rgba(47,125,90,.38); }
+  .acard.working .astate.st-working::before { content: ''; position: absolute; inset: -1.5px; z-index: -1;
+    border-radius: inherit; pointer-events: none; background: rgba(47,125,90,.14); border: 1.5px solid rgba(47,125,90,.39);
+    opacity: 0; animation: breathe 2.4s ease-in-out infinite; }
+}
 @keyframes breathe {
-  0%, 100% { background: rgba(47,125,90,.07); border-color: rgba(47,125,90,.38); }
-  50%      { background: rgba(47,125,90,.20); border-color: rgba(47,125,90,.62); }
+  0%, 100% { opacity: 0; }
+  50%      { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .acard.working .astate.st-working { animation: none; background: rgba(47,125,90,.14); }
+  .acard.working .astate.st-working { background: rgba(47,125,90,.14); }
 }
 /* #3956 (Josh, 2026-09-26): "the green was glowing to a slightly darker green and back ... not
    fast, very gradual ... a 10% or 15% increase". Every working-green ground (grid card, list row
-   and its one-screen variant, project member box) runs these keyframes, kept in phase by
-   pinWorkingPulse, set up just before the first tick(). It moves only the layer UNDER the static
-   wash, from the surface to the surface with 10% green mixed in. No JS timer. Its cost is a
-   repaint of each working box per frame (background-color is not a compositor property). Off
-   for reduced motion, which keeps the static wash. */
-.acard.working, .lrow.working, #pj-one-agents .pj-member.pjm-working {
-  animation: working-pulse 3.6s ease-in-out infinite;
+   and its one-screen variant, project member box) pulses on these keyframes, kept in phase by
+   pinWorkingPulse, set up just before the first tick(). No JS timer. How it is drawn since #4765: below. */
+/* #4765: this pulse is now a green layer that FADES (opacity, which the GPU animates) rather than a background
+   colour that changes (a restyle and repaint of every working box on every frame; see the breath above). Same
+   look: at its peak the layer is 10% green over the box, as the colour was 10% green mixed in. The keyframes keep
+   the name working-pulse so pinWorkingPulse keeps every box in phase; they now run on the box's ::before, which
+   pinWorkingPulse reaches with getAnimations({ subtree: true }). Checked on the live page before choosing this:
+   giving the boxes `position: relative; isolation: isolate` moved none of 1,015 element rectangles, and nothing
+   inside a box is positioned against, or stacked over, anything outside it.
+   The layer sits out by the box's own border width (the old background was painted under the border too): 1px on
+   the card and the row, 0.5px on the member box, none where a layout takes the border away. It exists only while
+   motion is allowed, so reduced motion has no layer at all. */
+.acard.working, .lrow.working, #pj-one-agents .pj-member.pjm-working { position: relative; isolation: isolate; }
+@media (prefers-reduced-motion: no-preference) {
+  .acard.working::before, .lrow.working::before, #pj-one-agents .pj-member.pjm-working::before {
+    content: ''; position: absolute; inset: -1px; z-index: -1; border-radius: inherit; pointer-events: none;
+    background: #2f7d5a; opacity: 0; animation: working-pulse 3.6s ease-in-out infinite;
+  }
+  #pj-one-agents .pj-member.pjm-working::before { inset: -0.5px; }
+  /* The one-screen layout takes the row's and the member box's border away, so there the layer sits on the box
+     itself. The id is in the selector so this outranks the member rule just above (review 2). */
+  html[data-layout="consolidated"] body.consolidated .lrow.working::before,
+  html[data-layout="consolidated"] body.consolidated #pj-one-agents .pj-member.pjm-working::before { inset: 0; }
 }
 @keyframes working-pulse {
-  0%, 100% { background-color: var(--k-surface); }
-  50%      { background-color: color-mix(in srgb, var(--k-surface) 90%, #2f7d5a); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .acard.working, .lrow.working, #pj-one-agents .pj-member.pjm-working { animation: none; }
+  0%, 100% { opacity: 0; }
+  50%      { opacity: .10; }
 }
 /* #2146: coexistence signal. A needs_you/blocked agent that is ALSO actively
    working (the engine's additive `activeWhileWaiting`, #2169) carries the board's
@@ -9911,9 +9943,10 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 /* The stroke goes only on members the board can see; an unseen one keeps its dashed presence
    border (#2804), which is the only thing on the row saying we cannot see that agent. */
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member:not(.unseen) { border-color: transparent; }
-/* The #3956 working pulse is an ANIMATION of the row's ground, and an animation outranks every
-   rule, so the plain row needs it off explicitly; the green dot and "Working" carry that state. */
-:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member.pjm-working { animation: none; }
+/* The #3956 working pulse needs switching off explicitly on the plain row; the green dot and "Working"
+   carry that state. #4765: the pulse runs on the row's ::before layer, so that layer is what is removed
+   here (the box itself runs no animation any more). */
+:root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member.pjm-working::before { content: none; animation: none; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents { grid-column: 1 / -1; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member-b { flex: 1 1 auto; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-agents .pj-member[data-agent]:hover { background: var(--k-bg); }
@@ -70510,7 +70543,7 @@ firstRunBoot(PARAMS.get('first-run') === '1', Number(PARAMS.get('fr-step')) || 1
    reduced-motion setting switched off). Events only, no timer. */
 function pinWorkingPulse(el) {
   if (!el || typeof el.getAnimations !== 'function') return;
-  for (const a of el.getAnimations()) {
+  for (const a of el.getAnimations({ subtree: true })) {   // #4765: the pulse runs on the box's ::before
     if (a.animationName === 'working-pulse' && a.startTime !== 0) a.startTime = 0;
   }
 }
