@@ -6,7 +6,7 @@ window. Write the next release's highlights (everything since 0.7.11 a person wi
 ## Change
 web/whats-new.json for 0.7.16 (the next cut; 0.7.15 is already cut and on staging; production is 0.7.11), five items,
 each checked on origin/main:
-- Talk to your agents (On a Mac): #4536 e29c2c8de. The entitlement (native-app/kosmos-app.entitlements, enforced by
+- Talk to your agents (the mic in the Mac app; the speaker wherever the system voice exists): #4536 e29c2c8de. The entitlement (native-app/kosmos-app.entitlements, enforced by
   tools/build-kosmos-bundle.sh) and both usage strings (install/setup.sh) are on main.
 - Make a whole team at once: #4625 ddea596ac (Single / Team first screen), #4557 e65e899d1 (team in one go), #4795
   42822e251 (2 to 6). Each member is made through /api/agents, so it holds wherever making one agent does (Windows too).
@@ -37,3 +37,8 @@ a served build yet (#4409). If that cut's voice check fails, drop the first item
   under a second at normal sizes, and Windows delivers through another path) for #4722, which shows on every new project.
   FIXED W: "any message box" overclaimed; the mic is in chats, rooms and the Guide, so "a chat or a room". FIXED NITs: no
   team size (the live catalogue's teams are 3 to 6 today); a paused project is resumed, not taken off hold.
+- Round 2 (opus): FIXED W: "On a Mac" covered both sentences, but only the mic needs the Mac app; the speaker is drawn
+  wherever speechSynthesis exists (html.has-speak), Windows included, so the Mac qualifier now covers only the mic, as
+  "in the Mac app" (a browser on a Mac has no mic). FIXED NIT: the coordinator warning appears after the second one
+  joins ("Two coordinators on this project."), so "are both coordinators". Left NITs: the swarm icon on the team line;
+  the org-chart upload (#4559) not named; "This computer" before a Kosmos+ sign-in.

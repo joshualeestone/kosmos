@@ -4,7 +4,7 @@
     {
       "icon": "chat",
       "title": "Talk to your agents",
-      "line": "On a Mac, press the mic in a chat or a room to speak to your agents. Press the speaker on an agent's message to hear it read aloud."
+      "line": "Press the speaker on an agent's message to hear it read aloud. In the Mac app, press the mic in a chat or a room to talk."
     },
     {
       "icon": "swarm",
@@ -19,7 +19,7 @@
     {
       "icon": "list",
       "title": "Say what done looks like",
-      "line": "A new project asks what done looks like, and warns you when two agents on it would both be coordinating."
+      "line": "A new project asks what done looks like, and warns you when two agents on it are both coordinators."
     },
     {
       "icon": "spark",
