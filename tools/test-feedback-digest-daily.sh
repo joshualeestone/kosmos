@@ -25,7 +25,8 @@ export FEEDBACK_DIGEST_CARDS_CMD="$T/cards.sh"
 # It also notes when it was called and, when asked ($T/arrive exists), writes a report that ARRIVES during the post.
 cat > "$T/post.sh" <<EOF
 #!/bin/bash
-cp "\$1" "$T/posted.json"; date +%s > "$T/post-at"
+cp "\$1" "$T/posted.json"; date +%s > "$T/post-at"; echo x >> "$T/post-count"
+[ -f "$T/state/lock/wm" ] && cp "$T/state/lock/wm" "$T/lock-wm-seen"   # review 5 (W3a): the wm the lock held mid-post
 [ -f "$T/steal" ] && { cat "$T/steal" > "$T/state/lock/pid"; rm -f "$T/steal"; }   # another run takes the lock mid-post
 if [ -f "$T/arrive" ]; then
   at=\$(date +%s); printf -- '---\\ndate: x\\ninstall: x\\ngenerated_at: %s\\n---\\n- %s\\n' "\$(date -u -r "\$at" '+%Y-%m-%dT%H:%M:%SZ')" 'The settings page freezes and is broken when a provider is added.' > "$T/reports/2026-09-29-during.md"
@@ -36,6 +37,8 @@ EOF
 chmod +x "$T/post.sh"
 export FEEDBACK_DIGEST_POST_CMD="$T/post.sh"
 run() { bash "$REPO/tools/feedback-digest-daily.sh"; }
+# Review 4 (W1): message-file mode keeps this pull's key; an arm that needs a real post clears it first.
+nokey() { rm -f "$T/state/last-message-wm"; }
 
 now=$(date +%s)
 iso() { date -u -r "$1" '+%Y-%m-%dT%H:%M:%SZ'; }   # BSD date (macOS, where the suite runs)
@@ -60,7 +63,12 @@ content="$(jq -r .content "$T/posted.json")"
 printf '%s' "$content" | grep -q '^Daily reports: 1 new since the last digest' || fail "wrong count line: $content"
 printf '%s' "$content" | grep -q 'room scroll jumps' || fail "the new report's candidate is missing: $content"
 printf '%s' "$content" | grep -q 'export button' && fail "an OLD report reached the post: $content"
-printf '%s' "$content" | grep -q 'https://example.test/admin (Reports). No card was opened.' || fail "no inbox link: $content"
+printf '%s' "$content" | grep -q 'Where they live: https://example.test/admin (Reports)' || fail "no inbox link: $content"
+# #4415 wording: the default text reports status and asks Josh for nothing (he read the old line as a task for him).
+printf '%s' "$content" | grep -q '^Daily reports: 1 new since the last digest. Not yet triaged into cards.$' || fail "the default text does not say they are untriaged: $content"
+for bad in 'mark them triaged' 'No card was opened' 'Read them all'; do
+  printf '%s' "$content" | grep -qi "$bad" && fail "the default text still says '$bad': $content"
+done
 [ "$(jq -c '.allowed_mentions.parse' "$T/posted.json")" = '[]' ] || fail "the post can mention people"
 w=$(cat "$T/state/last-posted"); [ "$w" -ge "$((now - 1))" ] || fail "the watermark did not move after a 200 ($w < $now)"
 # Review 3: the watermark is the run's START, not the time of the post: a report arriving while the run pulls or posts
@@ -87,8 +95,29 @@ report 2026-09-29-ro.md "$(before_next)" 'The export dialog is broken and never 
 # go makes the write fail in a way it cannot fix.
 mkdir "$T/state/last-posted.tmp"; before_w=$(cat "$T/state/last-posted")
 if run >/dev/null 2>&1; then rmdir "$T/state/last-posted.tmp"; fail "an unwritable watermark exited zero after posting"; fi
+# Review 3 (warning): in message-file mode Echo's text DID reach #admin, so the exit is 5 ("do NOT run it again"), never
+# 2 (a refusal, nothing posted) or 4 (run it again): either would send Echo to post it twice.
+printf 'Echo result for the unwritable-watermark arm.\n' > "$T/echo-ro.txt"; rm -f "$T/posted.json"
+out="$(FEEDBACK_DIGEST_WATERMARK=$((now - 600)) FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo-ro.txt" run 2>&1)"; rc=$?
+[ "$rc" = 5 ] || { rmdir "$T/state/last-posted.tmp"; fail "a message-file post with an unwritable watermark exited $rc, not 5: $out"; }
+printf '%s' "$out" | grep -q 'POSTED, but the watermark was not recorded.*do NOT run it again' || { rmdir "$T/state/last-posted.tmp"; fail "exit 5 did not say not to run it again: $out"; }
+[ -f "$T/posted.json" ] || { rmdir "$T/state/last-posted.tmp"; fail "the exit-5 arm did not post"; }
 rmdir "$T/state/last-posted.tmp"
 [ "$(cat "$T/state/last-posted")" = "$before_w" ] || fail "a failed watermark write still changed the watermark"
+# Review 5 (W3b): the key is written BEFORE last-posted, so after that exit 5 a rerun of the same pull posts nothing.
+posts=$(wc -l < "$T/post-count" | tr -d ' ')
+out="$(FEEDBACK_DIGEST_WATERMARK=$((now - 600)) FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo-ro.txt" run 2>&1)"; rc=$?
+[ "$rc" = 0 ] || fail "W3b: a rerun after exit 5 (last-posted unwritable) exited $rc, not 0: $out"
+printf '%s' "$out" | grep -q "this pull's result was already posted; nothing to do" || fail "W3b: a rerun after exit 5 did not say it was already posted: $out"
+[ "$(wc -l < "$T/post-count" | tr -d ' ')" = "$posts" ] || fail "W3b: a rerun after exit 5 posted again: $out"
+# ...and a key that cannot be written is exit 5 too (posted, not recorded), with its own line.
+rm -f "$T/state/last-message-wm" "$T/posted.json"; mkdir "$T/state/last-message-wm.tmp"
+out="$(FEEDBACK_DIGEST_WATERMARK=$((now - 600)) FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo-ro.txt" run 2>&1)"; rc=$?
+rmdir "$T/state/last-message-wm.tmp"
+[ "$rc" = 5 ] || fail "W3b: an unwritable key exited $rc, not 5: $out"
+printf '%s' "$out" | grep -q "POSTED, but this pull's key was not recorded.*do NOT run it again" || fail "W3b: an unwritable key did not say it was not recorded: $out"
+[ -f "$T/posted.json" ] || fail "W3b: the unwritable-key arm did not post"
+rm -f "$T/state/last-message-wm"
 
 # 2d. A second run while one holds the lock does nothing.
 mkdir "$T/state/lock" && echo $$ > "$T/state/lock/pid"; rm -f "$T/posted.json"
@@ -134,6 +163,15 @@ rm -f "$T/posted.json"; out="$(run 2>&1)" || fail "a run with a future watermark
 printf '%s' "$out" | grep -q 'in the future' || fail "a future watermark was trusted: $out"
 jq -r .content "$T/posted.json" 2>/dev/null | grep -q 'future-watermark check' || fail "a future watermark hid a new report"
 
+# Review 2 (warning 1): a stored watermark past 63 bits used to reach `[ -gt ]`, which errors and reads as false, so it
+# was kept and every window was empty for good. It is refused by shape and treated as a first run.
+# The older reports are cleared first: the digest lists five candidates at most, and the last day holds more than that.
+rm -f "$T/reports/"*.md; echo 99999999999999999999 > "$T/state/last-posted"
+report 2026-09-29-huge.md "$(before_next)" 'The huge-watermark check report is broken on purpose.'
+rm -f "$T/posted.json"; out="$(run 2>&1)" || fail "a run with a 20-digit stored watermark failed: $out"
+printf '%s' "$out" | grep -q 'is not epoch seconds' || fail "a 20-digit stored watermark was trusted: $out"
+jq -r .content "$T/posted.json" 2>/dev/null | grep -q 'huge-watermark check' || fail "a 20-digit stored watermark hid a new report"
+
 # 3. A failed post: exits non-zero and the watermark stays, so the next run retries the same reports.
 echo "$((now - 3600))" > "$T/state/last-posted"; rm -f "$T/posted.json"
 echo 500 > "$T/code"
@@ -156,4 +194,187 @@ printf '#!/bin/bash\nfor i in $(seq 1 2000); do echo "#$i card $i"; done\n' > "$
 if FEEDBACK_DIGEST_CARDS_CMD="$T/cards2000.sh" run >/dev/null 2>&1; then fail "a card list at its limit was trusted"; fi
 [ ! -f "$T/posted.json" ] || fail "posted with a truncated card list"
 
-echo "PASS: feedback-digest-daily (nothing new, posted, mid-post arrival once, unwritable watermark, lock races, future watermark, failed post, dry run, no cards, card list at its limit)"
+# 7. #4415 wording: Echo's own result, FEEDBACK_DIGEST_MESSAGE_FILE, is posted VERBATIM instead of the automatic text.
+# The card list is made unreadable on purpose: with a message file the run must not need it (nor the pull).
+unset FEEDBACK_DIGEST_DRY_RUN
+# Echo's pull started ten minutes ago (warning 1: the watermark in this mode is that moment, not the run start).
+export FEEDBACK_DIGEST_WATERMARK=$((now - 600))
+echo "$((now - 3600))" > "$T/state/last-posted"; rm -f "$T/posted.json"; echo 200 > "$T/code"
+printf 'Reports read: 3 from 2 installs.\nCards filed: 1\n- #9001 Room scroll jumps to the top.\nHeld back: 1, `a` *quoted* <@123> line.\n@everyone @here see above.\n\n' > "$T/echo.txt"
+nokey; out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" FEEDBACK_DIGEST_CARDS_CMD=false run 2>&1)" || fail "a message-file run failed: $out"
+jq -j .content "$T/posted.json" > "$T/posted.txt" || fail "no post for a message file"
+cmp -s "$T/posted.txt" "$T/echo.txt" || fail "the message file was not posted verbatim: $(cat "$T/posted.txt")"
+[ "$(jq -c '.allowed_mentions.parse' "$T/posted.json")" = '[]' ] || fail "a message-file post can mention people"
+grep -q '@everyone' "$T/posted.txt" || fail "the @everyone line was not posted verbatim"   # ...and cannot ping:
+[ "$(jq -c '.allowed_mentions' "$T/posted.json")" = '{"parse":[]}' ] || fail "a message-file post with @everyone can ping"
+# Review 3 (nit): one second before Echo's pull start, as the automatic path saves its start minus one.
+w=$(cat "$T/state/last-posted"); [ "$w" = "$((FEEDBACK_DIGEST_WATERMARK - 1))" ] || fail "the watermark after a message-file 200 is $w, not Echo's pull start minus one $((FEEDBACK_DIGEST_WATERMARK - 1))"
+# Review 3 (nit): message-file mode logs no "using the last day" line (it has no window), even over a bad stored value.
+echo 99999999999999999999 > "$T/state/last-posted"; rm -f "$T/posted.json"; nokey
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)" || fail "a message-file run over a bad stored watermark failed: $out"
+printf '%s' "$out" | grep -q 'using the last day' && fail "a message-file run logged the automatic window's first-run line: $out"
+# Review 2 (warning 2): a watermark OLDER than last-posted never moves it backwards (the next automatic digest would
+# re-post reports already triaged).
+echo "$((now - 60))" > "$T/state/last-posted"; rm -f "$T/posted.json"; nokey
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)" || fail "a message-file run with an older watermark failed: $out"
+[ -f "$T/posted.json" ] || fail "a message-file run with an older watermark did not post"
+w=$(cat "$T/state/last-posted"); [ "$w" = "$((now - 60))" ] || fail "W2: a message-file 200 moved the watermark backwards, from $((now - 60)) to $w"
+# ...and on a failed post the watermark stays. Review 2 (warning 3): a failed post exits 4 (run it again), not 2 (a
+# refusal), and does not claim a next run that message-file mode does not have.
+echo "$((now - 3600))" > "$T/state/last-posted"; echo 500 > "$T/code"; nokey
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
+[ "$rc" = 4 ] || fail "W3: a 500 with a message file exited $rc, not 4: $out"
+printf '%s' "$out" | grep -q 'the digest was NOT posted; run it again' || fail "W3: a failed message-file post did not say to run it again: $out"
+printf '%s' "$out" | grep -q 'will try again next run' && fail "W3: a failed message-file post promised a next run: $out"
+[ "$(cat "$T/state/last-posted")" = "$((now - 3600))" ] || fail "the watermark moved on a failed message-file post"
+# The same for no bot token (the real post path, stopped before any network by an empty token file).
+: > "$T/empty.env"; nokey
+out="$(env -u FEEDBACK_DIGEST_POST_CMD FEEDBACK_DIGEST_BOT_ENV="$T/empty.env" FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" bash "$REPO/tools/feedback-digest-daily.sh" 2>&1)"; rc=$?
+[ "$rc" = 4 ] || fail "W3: a message-file run with no bot token exited $rc, not 4: $out"
+printf '%s' "$out" | grep -q 'no bot token.*the digest was NOT posted; run it again' || fail "W3: no bot token was not reported as unposted: $out"
+[ "$(cat "$T/state/last-posted")" = "$((now - 3600))" ] || fail "the watermark moved with no bot token"
+# The automatic path keeps exit 2 for a failed post.
+out="$(env -u FEEDBACK_DIGEST_POST_CMD FEEDBACK_DIGEST_BOT_ENV="$T/empty.env" bash "$REPO/tools/feedback-digest-daily.sh" 2>&1)"; rc=$?
+[ "$rc" = 2 ] || fail "the automatic path with no bot token exited $rc, not 2: $out"
+echo 200 > "$T/code"
+
+# Review 2 (nit): a node that cannot run is named as such, not as an unreadable message file.
+rm -f "$T/posted.json"; nokey
+out="$(KOSMOS_NODE="$T/no-such-node" FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
+# Review 3: a broken environment in message-file mode is exit 4 (run it again), not 2 (fix a file that is fine).
+[ "$rc" = 4 ] || fail "a missing node in message-file mode exited $rc, not 4: $out"
+printf '%s' "$out" | grep -q 'node runtime .* is missing or not executable' || fail "a missing node was not named: $out"
+printf '%s' "$out" | grep -q 'could not read the message file' && fail "a missing node blamed the message file: $out"
+[ ! -f "$T/posted.json" ] || fail "a run with a missing node posted"
+out="$(KOSMOS_NODE="$T/no-such-node" run 2>&1)"; rc=$?
+[ "$rc" = 2 ] || fail "a missing node on the automatic path exited $rc, not 2: $out"
+
+# 8. The variable set with no usable file REFUSES: non-zero, a clear line, nothing posted, the watermark still.
+: > "$T/empty.txt"; printf ' \n\t\n' > "$T/blank.txt"
+for f in "$T/empty.txt" "$T/blank.txt" "$T/no-such-file.txt" ""; do
+  rm -f "$T/posted.json"
+  if out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$f" run 2>&1)"; then fail "a message file '$f' that cannot be posted exited zero: $out"; fi
+  printf '%s' "$out" | grep -q 'REFUSED: FEEDBACK_DIGEST_MESSAGE_FILE is set' || fail "no clear refusal for '$f': $out"
+  [ ! -f "$T/posted.json" ] || fail "a message file '$f' that cannot be posted fell back to a post"
+  [ "$(cat "$T/state/last-posted")" = "$((now - 3600))" ] || fail "the watermark moved on a refused run ('$f')"
+done
+
+# 8b. The watermark: required in message-file mode, a number, not in the future.
+# Review 2 (warning 1): 20 digits (past 63 bits, where `[ -gt ]` errors and read as false), 0, and a leading zero.
+for wm in UNSET "" "yesterday" "12x" "$(( $(date +%s) + 86400 ))" 99999999999999999999 0 0123456789; do
+  rm -f "$T/posted.json"
+  if [ "$wm" = UNSET ]; then out="$(env -u FEEDBACK_DIGEST_WATERMARK FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" bash "$REPO/tools/feedback-digest-daily.sh" 2>&1)"; rc=$?
+  else out="$(FEEDBACK_DIGEST_WATERMARK="$wm" FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?; fi
+  [ "$rc" = 2 ] || fail "W1: a message file with watermark '$wm' exited $rc, not 2: $out"
+  printf '%s' "$out" | grep -q 'REFUSED: .*FEEDBACK_DIGEST_WATERMARK' || fail "no clear refusal for watermark '$wm': $out"
+  [ ! -f "$T/posted.json" ] || fail "a message file with watermark '$wm' posted"
+  [ "$(cat "$T/state/last-posted")" = "$((now - 3600))" ] || fail "the watermark moved on a refused run (watermark '$wm')"
+done
+
+# 8c. Warning 1: a report that arrived AFTER Echo's pull started but before this run is in the NEXT automatic window.
+rm -f "$T/reports/"*.md 2>/dev/null; rm -f "$T/posted.json"
+report 2026-09-30-mid-triage.md $((now - 300)) 'The provider sheet is broken and loses the key while Echo was triaging.'
+nokey; out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)" || fail "the message-file run before the window check failed: $out"
+rm -f "$T/posted.json"; out="$(run 2>&1)" || fail "the automatic run after Echo's post failed: $out"
+jq -r .content "$T/posted.json" 2>/dev/null | grep -q 'loses the key while Echo' || fail "a report that arrived while Echo triaged was skipped for good: $out"
+# Review 3 (nit): FEEDBACK_DIGEST_WATERMARK is still exported here, with no message file: said, not silently dropped.
+printf '%s' "$out" | grep -q 'a watermark was given but no message file; posting the automatic text' || fail "a watermark with no message file was dropped silently: $out"
+
+# 8d. Warning 2: a held lock in message-file mode is a failure (Echo's text is NOT posted), never a quiet exit 0.
+echo "$((now - 3600))" > "$T/state/last-posted"; mkdir "$T/state/lock" && echo $$ > "$T/state/lock/pid"; rm -f "$T/posted.json"
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
+[ "$rc" = 3 ] || fail "a message-file run beside a held lock exited $rc, not 3: $out"
+printf '%s' "$out" | grep -q 'the digest was NOT posted' || fail "a locked-out message-file run did not say it was not posted: $out"
+[ ! -f "$T/posted.json" ] || fail "a locked-out message-file run posted"
+out="$(run 2>&1)"; rc=$?; [ "$rc" = 0 ] || fail "the automatic path beside a held lock changed its exit ($rc): $out"
+[ ! -f "$T/posted.json" ] || fail "the automatic path beside a held lock posted"
+[ "$(cat "$T/state/last-posted")" = "$((now - 3600))" ] || fail "the automatic path beside a held lock moved the watermark"
+rm -rf "$T/state/lock"
+
+# 8e. Review 4 (W1): this pull's WM is an idempotency key. Two runs of one pull post exactly once; the second is success.
+nokey; rm -f "$T/posted.json" "$T/post-count" "$T/lock-wm-seen"; echo 200 > "$T/code"
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)" || fail "W1: the first run of a pull failed: $out"
+# Review 5 (W3a): a real message-file run holds its WM in $LOCK/wm while it posts (what exit 6 reads).
+[ "$(cat "$T/lock-wm-seen" 2>/dev/null)" = "$FEEDBACK_DIGEST_WATERMARK" ] || fail "W3a: the lock held wm '$(cat "$T/lock-wm-seen" 2>/dev/null)' during the post, not $FEEDBACK_DIGEST_WATERMARK"
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
+[ "$rc" = 0 ] || fail "W1: a rerun of a pull already posted exited $rc, not 0: $out"
+printf '%s' "$out" | grep -q "this pull's result was already posted; nothing to do" || fail "W1: a rerun of a posted pull did not say so: $out"
+[ "$(wc -l < "$T/post-count" | tr -d ' ')" = 1 ] || fail "W1: two runs of one pull posted $(wc -l < "$T/post-count" | tr -d ' ') times, not once: $out"
+# A different pull still posts.
+out="$(FEEDBACK_DIGEST_WATERMARK=$((now - 500)) FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)" || fail "W1: a new pull after a posted one failed: $out"
+[ "$(wc -l < "$T/post-count" | tr -d ' ')" = 2 ] || fail "W1: a new pull after a posted one did not post: $out"
+# A held lock whose holder posts THIS pull: exit 6 (do NOT run again); one for another pull: still 3 (run again).
+nokey; rm -f "$T/posted.json"
+mkdir "$T/state/lock" && echo "$FEEDBACK_DIGEST_WATERMARK" > "$T/state/lock/wm" && echo $$ > "$T/state/lock/pid"
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
+[ "$rc" = 6 ] || fail "W1: a held lock posting this same pull exited $rc, not 6: $out"
+printf '%s' "$out" | grep -q "another run is posting this same result; the other run's exit code decides; do NOT start another" || fail "W1: exit 6 did not say not to start another: $out"
+printf '%s' "$out" | grep -q 'NOT posted.*run it again' && fail "W1: exit 6 said to run it again: $out"
+echo "$((now - 500))" > "$T/state/lock/wm"
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
+[ "$rc" = 3 ] || fail "W1: a held lock for another pull exited $rc, not 3: $out"
+[ ! -f "$T/posted.json" ] || fail "W1: a locked-out run posted"
+rm -rf "$T/state/lock"
+# Review 5 (W1): a STALE lock (dead pid) carrying this pull's wm is a run of this pull that died while posting: exit 7,
+# nothing posted, the stale lock gone (so a deliberate rerun goes through). CONTROL: a stale lock for another pull is
+# taken over and posts.
+dead=999999; kill -0 "$dead" 2>/dev/null && fail "the test's dead pid $dead is running"
+nokey; rm -f "$T/posted.json"; posts=$(wc -l < "$T/post-count" | tr -d ' ')
+mkdir "$T/state/lock" && echo "$FEEDBACK_DIGEST_WATERMARK" > "$T/state/lock/wm" && echo "$dead" > "$T/state/lock/pid"
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
+[ "$rc" = 7 ] || fail "W1: a dead run of this same pull exited $rc, not 7: $out"
+printf '%s' "$out" | grep -q 'a previous run of this same pull died while posting; it MAY have been posted: check #admin before running again' || fail "W1: exit 7 for a dead run did not say to check #admin: $out"
+[ "$(wc -l < "$T/post-count" | tr -d ' ')" = "$posts" ] || fail "W1: a dead run of this same pull was posted again: $out"
+[ ! -e "$T/state/lock" ] || fail "W1: the stale lock of a dead run of this pull was left behind"
+nokey; rm -f "$T/posted.json"
+mkdir "$T/state/lock" && echo "$((now - 500))" > "$T/state/lock/wm" && echo "$dead" > "$T/state/lock/pid"
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
+[ "$rc" = 0 ] || fail "W1 CONTROL: a dead run of another pull was not taken over (rc $rc): $out"
+printf '%s' "$out" | grep -q 'took over a stale lock' || fail "W1 CONTROL: no takeover line: $out"
+[ "$(wc -l < "$T/post-count" | tr -d ' ')" = "$((posts + 1))" ] || fail "W1 CONTROL: a takeover from another pull did not post: $out"
+# Review 5 (W2): a lock this run made but could not fill is removed and fails as exit 4, never a step-aside from itself.
+# A umask of 277 makes the new lock directory read-only to its maker, so the wm write fails right after the mkdir.
+nokey; rm -f "$T/posted.json"; rm -rf "$T/state/lock"
+out="$(umask 277; FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
+[ "$rc" = 4 ] || fail "W2: a lock that could not be written exited $rc, not 4: $out"
+printf '%s' "$out" | grep -q 'could not write the lock in .*the digest was NOT posted; run it again' || fail "W2: a half-made lock was not reported: $out"
+[ ! -e "$T/state/lock" ] || { chmod 700 "$T/state/lock"; fail "W2: a half-made lock was left behind"; }
+[ ! -f "$T/posted.json" ] || fail "W2: a run with a half-made lock posted"
+
+# 8f. Review 4 (W2): Discord did not answer (curl printed 000, or nothing). The post MAY be in #admin: exit 7, check first.
+for c in 000 EMPTY; do
+  nokey; echo "$((now - 3600))" > "$T/state/last-posted"
+  if [ "$c" = EMPTY ]; then : > "$T/code"; else echo "$c" > "$T/code"; fi
+  out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
+  [ "$rc" = 7 ] || fail "W2: a post answered '$c' exited $rc, not 7: $out"
+  printf '%s' "$out" | grep -q 'Discord did not answer; the digest MAY have been posted: check #admin before running again' || fail "W2: '$c' did not say to check #admin: $out"
+  printf '%s' "$out" | grep -q 'run it again' && fail "W2: '$c' said to run it again: $out"
+  [ "$(cat "$T/state/last-posted")" = "$((now - 3600))" ] || fail "W2: '$c' moved the watermark"
+done
+echo 200 > "$T/code"
+
+# 8g. Review 4 (nit): a state path that is a regular file is a broken environment: exit 4, not posted.
+: > "$T/state-file"; rm -f "$T/posted.json"
+out="$(FEEDBACK_DIGEST_STATE="$T/state-file" FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run 2>&1)"; rc=$?
+[ "$rc" = 4 ] || fail "a message-file run with a state path that is a file exited $rc, not 4: $out"
+[ ! -f "$T/posted.json" ] || fail "a run with a state path that is a file posted"
+
+# 9. A message longer than one Discord message is cut at a line break, and says so.
+: > "$T/long.txt"; for i in $(seq 1 120); do printf 'Line %03d: a card that was filed today, one line each. \360\237\220\233\n' "$i" >> "$T/long.txt"; done
+rm -f "$T/posted.json"; nokey
+out="$(FEEDBACK_DIGEST_MESSAGE_FILE="$T/long.txt" run 2>&1)" || fail "a long message file failed: $out"
+printf '%s' "$out" | grep -q 'longer than one Discord message' || fail "a cut was not logged: $out"
+c="$(jq -j .content "$T/posted.json")"
+n=$(printf '%s' "$c" | "$NODE_BIN" -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(s.length))')
+[ "$n" -le 2000 ] || fail "the cut message is $n characters, over Discord's 2000"
+[ "$n" -ge 1800 ] || fail "the cut threw away far more than it needed ($n characters)"
+printf '%s' "$c" | tail -1 | grep -qx '\[cut here to fit one Discord message\]' || fail "the cut does not say so: $(printf '%s' "$c" | tail -2)"
+printf '%s\n' "$c" | sed '$d' | while IFS= read -r l; do grep -qxF "$l" "$T/long.txt" || { echo "PARTIAL: $l"; }; done | grep -q PARTIAL && fail "the cut split a line"
+
+# 10. A dry run with a message file prints it and posts nothing.
+rm -f "$T/posted.json"
+out="$(FEEDBACK_DIGEST_DRY_RUN=1 FEEDBACK_DIGEST_MESSAGE_FILE="$T/echo.txt" run)" || fail "a message-file dry run failed"
+printf '%s' "$out" | grep -q '#9001 Room scroll jumps' || fail "the dry run did not print the message file: $out"
+[ ! -f "$T/posted.json" ] || fail "a message-file dry run posted"
+
+echo "PASS: feedback-digest-daily (a dead run of this pull exits 7 and another pull's is taken over, a half-made lock exits 4 and is removed, the lock holds the WM mid-post, a rerun after exit 5 posts nothing, an unwritable key exits 5, a pull posted once then exits 0, held lock for this pull exits 6 and for another 3, no answer from Discord exits 7, a state path that is a file exits 4, message file verbatim with @everyone unpinged, refusals, watermark required and used, lock refusal, watermark never backwards, failed post exits 4, missing node named and exits 4, posted-but-unrecorded exits 5, watermark is pull start minus one, stray watermark said, 20-digit/zero/leading-zero watermark refused, cut at a line break, message-file dry run, nothing new, posted, mid-post arrival once, unwritable watermark, lock races, future watermark, failed post, dry run, no cards, card list at its limit)"

@@ -133,7 +133,7 @@ test('#4417: agytrust says `trusted` only when the folder is in agy\'s trusted l
   const os = require('node:os');
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-agyseed-agyhome-'));
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-agyseed-trust-'));
-  const run = (d) => spawnSync(process.execPath, [path.join(__dirname, 'agytrust.js'), d], { encoding: 'utf8', env: { ...process.env, AGENT_WORKFORCE_AGY_HOME: home } });
+  const run = (d) => spawnSync(process.execPath, [path.join(__dirname, 'agytrust.js'), d], { encoding: 'utf8', env: { ...process.env, AGENT_WORKFORCE_DATA: path.join(home, 'data-4796'), AGENT_WORKFORCE_AGY_HOME: home } });
   const ok = run(dir);
   assert.equal(ok.status, 0);
   assert.equal(ok.stdout.trim(), 'trusted', 'control: a folder it could trust says so');

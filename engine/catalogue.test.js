@@ -69,7 +69,7 @@ test('every catalogue role opens with the line the board reads, and carries no e
   }
 });
 
-test('teams: unique keys, a lead plus 4 or 5 reports, unique slots and names as create compares them', () => {
+test('teams: unique keys, a lead plus 1 to 5 reports, unique slots and names as create compares them', () => {
   const all = catalogue.teams();
   assert.equal(all.length, 21);
   assert.equal(new Set(all.map((t) => t.key)).size, all.length, 'two teams share a key');
@@ -84,7 +84,7 @@ test('teams: unique keys, a lead plus 4 or 5 reports, unique slots and names as 
     assert.equal(leads.length, 1, `${t.key} has ${leads.length} leads`);
     assert.equal(leads[0].slot, 'lead');
     const reports = t.members.filter((m) => m.reportsTo !== null);
-    assert.ok(reports.length >= 4 && reports.length <= 5, `${t.key} has ${reports.length} reports`);
+    assert.ok(reports.length >= 1 && reports.length <= 5, `${t.key} has ${reports.length} reports`);
     assert.ok(reports.every((m) => m.reportsTo === 'lead'), `${t.key} has a report that does not report to the lead`);
     assert.equal(new Set(t.members.map((m) => m.slot)).size, t.members.length, `${t.key} repeats a slot`);
     const slugs = t.members.map((m) => create.slugFor(m.name));

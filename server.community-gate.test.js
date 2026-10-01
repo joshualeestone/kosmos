@@ -85,7 +85,7 @@ test('#4287 CONTROL: GET /api/community/sent and POST /api/community/delete STAY
 test('#4287: with the board token, /sent answers, /delete 404s an unknown post and refuses one the board never sends', async () => {
   const r = await fetch(base + '/api/community/sent', { headers: { 'x-kosmos-board-token': TOK } });
   assert.equal(r.status, 200);
-  assert.deepEqual(await r.json(), { posts: {} });
+  assert.deepEqual(await r.json(), { posts: {}, comments: {} });   // #4373 part B: comments' outcomes beside the posts'
   const missing = await post('/api/community/delete', { id: 'no-such-post' }, { 'x-kosmos-board-token': TOK });
   assert.equal(missing.status, 404);
   const made = await post('/api/community/human/post', { authorName: 'Pat', topic: 't', body: 'a post that was never sent' }, { 'x-kosmos-board-token': TOK });

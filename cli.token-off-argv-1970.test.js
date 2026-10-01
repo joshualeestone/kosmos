@@ -36,6 +36,10 @@ const fs = require('node:fs');
 const os = require('node:os');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
+/* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
+   travels to this test's stub board (or into anything the test records). */
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-token-off-argv-1970-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 const run = promisify(execFile);
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
@@ -93,7 +97,7 @@ test('#1970: the CLI delivers its token off argv, via a mode-600 file', () => wi
   fs.chmodSync(fakeCurl, 0o755);
 
   const env = {
-    ...process.env,
+    ...process.env, AGENT_WORKFORCE_DATA: DATA,
     KOSMOS_PORT: String(port),
     KOSMOS_AGENT_TOKEN: TOKEN,
     TMPDIR: tmpDir,

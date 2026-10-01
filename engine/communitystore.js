@@ -265,6 +265,67 @@ function insertComment(rec) {
   return comment;
 }
 
+/**
+ * #4373 part B review 6: mark a service comment NEVER to be sent, on the row itself. The agent was told "it will not
+ * go"; the mark lives here, a file the send sweep only reads, so no sweep's save can lose it (a record in the sweep's
+ * own comments-sent.json could be overwritten by a sweep in flight). Returns true when the row carries the mark.
+ */
+function markServiceCommentNotSent(id) {
+  const comments = loadJson(commentsFile(), []);
+  const row = comments.find((c) => c && c.id === String(id) && c.remotePostId);
+  if (!row) return false;
+  if (row.notSent !== true) {
+    row.notSent = true;
+    saveJson(commentsFile(), comments);
+  }
+  return true;
+}
+
+/**
+ * #4373 part B: insert a comment on a post in the PUBLIC community service. Same row
+ * shape, status model and moderation as insertComment, but it names the service's post
+ * (`remotePostId`, a UUID) and has no local postId: getComments filters on the local
+ * postId, so these rows are never served on the board's own site, while moderationQueue
+ * and releaseHeld (which look comments up by id) hold and release them unchanged. The
+ * send layer delivers the published ones (engine/communitysend.js).
+ */
+function insertServiceComment(rec) {
+  if (!rec || typeof rec !== 'object') throw new Error('comment record required');
+  if (!rec.remotePostId) throw new Error('comment requires remotePostId');
+  const status = rec.status;
+  if (!STATUSES.includes(status)) {
+    throw new Error(`comment status must be one of ${STATUSES.join('|')}`);
+  }
+  const comment = {
+    id: newId(),
+    postId: null,
+    remotePostId: String(rec.remotePostId),
+    parentId: null,
+    status,
+    author: normalizeAuthor(rec),
+    agent: typeof rec.agent === 'string' ? rec.agent : undefined,
+    at: rec.at,
+    body: rec.body,
+    receivedAt: nowISO(),
+  };
+  if (comment.agent === undefined) delete comment.agent;
+  if (rec.session !== undefined) comment.session = rec.session; // internal, never public
+  if (status !== 'published' && Array.isArray(rec.findings)) comment.findings = rec.findings;
+  const comments = loadJson(commentsFile(), []);
+  comments.push(comment);
+  saveJson(commentsFile(), comments);
+  return comment;
+}
+
+// #4373 part B: the board's published comments on SERVICE posts, oldest first, as
+// stored, except those marked never to send. For the send layer only; never serve these
+// rows on a public surface.
+function publishedServiceComments() {
+  return loadJson(commentsFile(), [])
+    .filter((c) => c && c.remotePostId && c.status === 'published' && c.notSent !== true)
+    .sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt)));
+}
+
 // The fields safe to serve on the open public feed, for posts AND comments.
 // This is an ALLOWLIST on purpose (not a denylist): on a public surface a NEW
 // internal field must default to NOT-served, so adding one later cannot leak by
@@ -369,7 +430,8 @@ function postMeta(id) {
 // The non-public moderation queue: held and/or quarantined rows, FULL fields
 // (findings included) for the moderator surface. Never a public path.
 // `kind` selects the collection: 'all' (the DEFAULT — posts + comments, a
-// comment row is distinguishable by its `postId`), 'post', or 'comment'. The
+// comment row carries `postId` (a local post) or `remotePostId` (a service post, #4373 part B, with postId
+// null), a post row neither), 'post', or 'comment'. The
 // default is 'all' deliberately: a naive `moderationQueue()` must not silently
 // omit held comments, which carry the same held/quarantined status model as
 // posts and need the same moderation visibility. `status` narrows to one
@@ -459,6 +521,7 @@ function releaseHeld(id) {
   if (comment) {
     if (comment.status !== 'held') throw new Error('only a held comment can be released');
     comment.status = 'published';
+    comment.releasedAt = nowISO(); // #4373 part B: the send layer's window, as for a post
     delete comment.findings;
     saveJson(commentsFile(), comments);
     // No trust credit for a comment release — the ladder is post-based (above).
@@ -542,6 +605,9 @@ module.exports = {
   // posts + comments
   insertPost,
   insertComment,
+  insertServiceComment,
+  publishedServiceComments,
+  markServiceCommentNotSent,
   publicFeed,
   getComments,
   moderationQueue,

@@ -60,8 +60,10 @@ function openParts(session, projects) {
   const tasks = require('./tasks');
   const out = [];
   for (const p of Array.isArray(projects) ? projects : []) {
-    if (!p || p.archived === true) continue;
+    /* #4771: nothing in a paused project, and no task on hold, is the agent's work to be nudged about. */
+    if (!p || p.archived === true || require('./projects').isPaused(p)) continue;
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
+      if (tasks.isOnHold(t)) continue;
       const prog = tasks.progressOf(t);
       if (prog.closed || (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(session))))) continue;
       if (require('./projects').isSwarmOff(p, session)) continue;
@@ -149,8 +151,11 @@ function sweepOnce(o) {
         const text = nudgeText(p.part);
         if (sent.length >= cap) { say({ name: display, session, act: 'held', because: 'Agent Communication\'s limit of ' + cap + ' an hour is reached' }); continue; }
         let state = null;
-        try { const r = o.deliver(session, text, o.roster); state = r && r.state; }
+        let held = false;
+        try { const r = o.deliver(session, text, o.roster); state = r && r.state; held = Boolean(r && r.held === true); }
         catch (err) { state = 'threw: ' + String((err && err.message) || err); }
+        /* #4588 PR B: held on the shared Google quota, nothing typed: no try is spent and nothing counts toward the hour. */
+        if (held) { results.push({ session, name: display, act: 'quota-held', delivered: false, delivery: state, because: p.because, task: p.part.n }); continue; }
         const D = o.DELIVERY || {};
         const delivered = D.PLACED != null && state === D.PLACED;
         const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);
