@@ -91,4 +91,9 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   sectionContentOf ignores any line starting with the dated opener's words inside a span; that predates this branch
   and the click rewrites the whole span, which the dialog says. Left NITs: the import birth line says "set up"; the
   kept-sections list in the copy-only case; doctrine-past.js would skip a defaults.js that gains a relative require.
+- Round 8 (opus): FIXED W: the dialog's confirm button says "Update & Restart" when the title says Update. The
+  banner button keeps "Add Instructions & Restart": Josh's one label for every case (the comment above
+  #d-doctrine-note), so it is not changed here. FIXED NITs: doctrine.js constraint 6 no longer says the copy's place
+  is taken by the span (only true on one path); the fleet list sends `updating` too; the no-dead-end guard catches the
+  composed verb (proved by a mutation). Left NIT: the copy-only case says "replaced" for a cut.
 

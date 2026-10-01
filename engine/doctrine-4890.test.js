@@ -88,6 +88,7 @@ test('#4890: the shipped table holds today\'s block and every version before it 
 test('#4890: the board passes `replacing` through, and the dialog says the older copy is replaced in place', () => {
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.equal((server.match(/replacing: st\.replacing === true,/g) || []).length, 2, 'GET /doctrine or the fleet list no longer sends replacing');
+  assert.equal((server.match(/updating: st\.updating === true,/g) || []).length, 2, 'GET /doctrine or the fleet list no longer sends updating');
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   assert.match(page, /\(plan\.replacing\s*\n\s*\? 'Your words stay exactly as they are\. The older copy of these rules that Kosmos added is replaced with '/,
     'the consent dialog no longer says the older copy is replaced');
@@ -223,6 +224,8 @@ test('#4890 review 6: an update to an existing span has its own title and senten
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   assert.ok(page.includes("? 'Your words stay exactly as they are. The working rules in the marked block are brought up to date. '"));
   assert.ok(page.includes("+ ((plan.replacing || plan.updating) ? 'This restarts ' : 'Adding them restarts ')"));
+  assert.ok(page.includes("#doc-go').textContent = (plan.replacing || plan.updating) ? 'Update & Restart' : 'Add & Restart';"),
+    'the confirm button names a different act from the title');
 });
 
 test('#4890 review 7: a heading of the person\'s own right after an unedited copy keeps it unmatched (safe, named)', () => {

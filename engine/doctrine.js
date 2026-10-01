@@ -33,8 +33,7 @@
  *   6    everything outside the markers is untouched because the only
  *        writer is projects.spliceBlock; no hand edits anywhere, EXCEPT
  *        (#4890) an unedited plain copy of an earlier block, which is
- *        Kosmos's own text: it is cut out byte for byte (pastBlockIn) and
- *        its place taken by the span;
+ *        Kosmos's own text: it is cut out byte for byte (pastBlockIn);
  *   8    presence is per-section by HEADING across the WHOLE file, managed
  *        or not: an old agent carrying the doctrine as plain text appends
  *        NOTHING, unless (#4890) that text is an unedited earlier block,

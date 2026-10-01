@@ -6430,6 +6430,7 @@ const server = http.createServer(async (req, res) => {
         because: st.because || null,
         sections: (st.sections || []).map((s) => s.heading),
         replacing: st.replacing === true,   // #4890, as GET /doctrine
+        updating: st.updating === true,
       };
     });
     sendJson(res, 200, { currentVersion: require('./engine/defaults').DOCTRINE_VERSION, agents: rows });

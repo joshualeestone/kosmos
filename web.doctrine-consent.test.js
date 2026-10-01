@@ -68,7 +68,7 @@ test('a successful Add tells the person it is done and gives them the one thing 
   assert.match(handler, /did \+ ' and restarted\. /,
     'the add no longer reports it restarted, or the done state dead-ends');
   assert.match(handler, /const did = \(plan\.replacing \|\| plan\.updating\) \? 'Updated' : 'Added';/, '#4890: the done line lost its verb');
-  assert.ok(!/'Added\. You can close this dialog\.'/.test(handler),
+  assert.ok(!/(?:'Added|did \+ ')\. You can close this dialog\.'/.test(handler),
     'the bare "Added." dead-end came back instead of the add+restart flow');
   assert.match(handler, /getElementById\('doc-go'\)\.disabled = true/,
     'Add them stays clickable after it already added them');

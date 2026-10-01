@@ -39020,7 +39020,9 @@ document.getElementById('d-doctrine-add').addEventListener('click', () => {
   /* #1841: through the modal container too, for the same reason the line above
      is -- a bare getElementById('doc-go') here would be the "first such lookup"
      the test the comment names anchors on. */
-  document.getElementById('doc-modal').querySelector('#doc-go').textContent = 'Add & Restart';
+  /* #4890: the button names the act the title names. The banner's "Add Instructions & Restart" stays: Josh's one
+     label for every case (the comment above #d-doctrine-note). */
+  document.getElementById('doc-modal').querySelector('#doc-go').textContent = (plan.replacing || plan.updating) ? 'Update & Restart' : 'Add & Restart';
   document.getElementById('doc-keep').textContent = 'Keep as it is';
   DOC_OPENER = document.getElementById('d-doctrine-add');
   document.getElementById('doc-modal').hidden = false;
