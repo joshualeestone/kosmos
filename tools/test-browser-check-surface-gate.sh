@@ -191,6 +191,41 @@ if command -v zsh >/dev/null 2>&1; then
   else
     fail "#4811 positive control: a compliant change was refused through the re-run (a broken re-run reads as a refusal)"
   fi
+  # Review 2: EACH setting must reach the re-run; an arm per setting where only that value flips the verdict.
+  # KOSMOS_BCSG_DIR: a checks folder with no annotated check maps no token, so the same change passes.
+  mkdir -p "$TMP/emptybc-4811"
+  if zsh -c '. "$1" && KOSMOS_BCSG_WEBDIFF="$2"; KOSMOS_BCG_FILES="$3"; KOSMOS_BCG_MSGS="$4"; KOSMOS_BCSG_DIR="$5"; kosmos_browser_check_surface_gate' _ \
+       "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811" "$TMP/m-4811" "$TMP/emptybc-4811" >/dev/null 2>&1; then
+    pass "#4811: a plain zsh KOSMOS_BCSG_DIR reaches the re-run (an empty checks folder maps nothing)"
+  else
+    fail "#4811: a plain zsh KOSMOS_BCSG_DIR did not reach the re-run"
+  fi
+  # KOSMOS_BCG_MSGS: a per-check override trailer in the given messages excuses render-alltasks.js.
+  printf 'x\n\nBrowser-check-surface: render-alltasks.js excused for this test\n' > "$TMP/m-4811ok"
+  if zsh -c '. "$1" && KOSMOS_BCSG_WEBDIFF="$2"; KOSMOS_BCG_FILES="$3"; KOSMOS_BCG_MSGS="$4"; KOSMOS_BCSG_DIR="$5"; kosmos_browser_check_surface_gate' _ \
+       "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811" "$TMP/m-4811ok" "$BCDIR_ABS" >/dev/null 2>&1; then
+    pass "#4811: a plain zsh KOSMOS_BCG_MSGS reaches the re-run (its override excuses the check)"
+  else
+    fail "#4811: a plain zsh KOSMOS_BCG_MSGS did not reach the re-run"
+  fi
+  # KOSMOS_BCG_BASE: a throwaway repo with one annotated check whose token the branch changes. The default base
+  # (origin/main) sees the change; HEAD as the given base sees none. No seams, so the gate diffs real git.
+  g4811="$TMP/repo4811"; mkdir -p "$g4811/web" "$g4811/docs/browser-checks"
+  printf '// Browser-check-surface: zz-tok-4811\n' > "$g4811/docs/browser-checks/render-zz.js"
+  printf '<p id="zz-tok-4811">1</p>\n' > "$g4811/web/index.html"
+  ( cd "$g4811" && git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -q -m base \
+      && git update-ref refs/remotes/origin/main HEAD && printf '<p id="zz-tok-4811">2</p>\n' > web/index.html \
+      && git -c user.email=t@t -c user.name=t commit -q -am web ) >/dev/null 2>&1
+  if zsh -c 'cd "$2" && . "$1" && kosmos_browser_check_surface_gate' _ "$HERE/lib/browser-check-surface-gate.sh" "$g4811" >/dev/null 2>&1; then
+    fail "#4811 control: in the throwaway repo the default base did not refuse, so the base arm proves nothing"
+  else
+    pass "#4811 control: in the throwaway repo the default base refuses the mapped change"
+  fi
+  if zsh -c 'cd "$2" && . "$1" && KOSMOS_BCG_BASE=HEAD; kosmos_browser_check_surface_gate' _ "$HERE/lib/browser-check-surface-gate.sh" "$g4811" >/dev/null 2>&1; then
+    pass "#4811: a plain zsh KOSMOS_BCG_BASE reaches the re-run (HEAD as base sees no change)"
+  else
+    fail "#4811: a plain zsh KOSMOS_BCG_BASE did not reach the re-run"
+  fi
 else
   echo "SKIP  #4811: zsh not available"
 fi

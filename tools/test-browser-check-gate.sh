@@ -210,6 +210,22 @@ if command -v zsh >/dev/null 2>&1; then
   zsh -c '. "$1" && KOSMOS_BCG_FILES="$2"; KOSMOS_BCG_MSGS="$3"; kosmos_browser_check_gate' _ \
     "$HERE/lib/browser-check-gate.sh" "$tmp/f4811ok" "$tmp/m4811" >/dev/null 2>&1
   check "#4811 positive control: through the re-run, a web change with a check updated passes" 0 "$?"
+  # Review 2: EACH setting must reach the re-run; an arm per setting where only that value flips the verdict.
+  # KOSMOS_BCG_MSGS: a trailer in the given messages excuses the change (without it: refused, above).
+  printf 'x\n\nBrowser-check: excused for this test\n' > "$tmp/m4811ok"
+  zsh -c '. "$1" && KOSMOS_BCG_FILES="$2"; KOSMOS_BCG_MSGS="$3"; kosmos_browser_check_gate' _ \
+    "$HERE/lib/browser-check-gate.sh" "$tmp/f4811" "$tmp/m4811ok" >/dev/null 2>&1
+  check "#4811: a plain zsh KOSMOS_BCG_MSGS reaches the re-run (its trailer excuses the change)" 0 "$?"
+  # KOSMOS_BCG_BASE: a throwaway repo whose default base (origin/main) sees an unchecked web change, and whose
+  # given base (HEAD) sees none. No seams, so the gate diffs real git.
+  g4811="$tmp/repo4811"; mkdir -p "$g4811/web"
+  ( cd "$g4811" && git init -q && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m base \
+      && git update-ref refs/remotes/origin/main HEAD && echo x > web/index.html && git add web/index.html \
+      && git -c user.email=t@t -c user.name=t commit -q -m web ) >/dev/null 2>&1
+  zsh -c 'cd "$2" && . "$1" && kosmos_browser_check_gate' _ "$HERE/lib/browser-check-gate.sh" "$g4811" >/dev/null 2>&1
+  check "#4811 control: in the throwaway repo the default base refuses the unchecked web change" 1 "$?"
+  zsh -c 'cd "$2" && . "$1" && KOSMOS_BCG_BASE=HEAD; kosmos_browser_check_gate' _ "$HERE/lib/browser-check-gate.sh" "$g4811" >/dev/null 2>&1
+  check "#4811: a plain zsh KOSMOS_BCG_BASE reaches the re-run (HEAD as base sees no change)" 0 "$?"
 else
   echo "SKIP  #4811: zsh not available"
 fi
