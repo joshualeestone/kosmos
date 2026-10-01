@@ -323,6 +323,19 @@ test('a card post that fails is retried after an hour, not every run; a busy pan
   // An hour on, with a working card and the pane still busy: it goes, and says the pane may not have.
   assert.equal((await run(base, dir, { msg: busyMsg, gh: st.gh, pane: st.pane, card: st.card }, { now: T0 + 3600 })).code, 1);
   assert.match(st.card(), /kosmos-win-x64\.zip/);
+  assert.match(st.card(), /may not have gone: claude-msg exit 8/);
+}));
+
+test('a pending mismatch for a file still named but no longer held to a sha is dropped, not carried forever', () => withSite(async ({ site, base, dir, st }) => {
+  site.files.set('kosmos-win-x64.zip.sha256', ['text/plain', '0'.repeat(64) + '  kosmos-win-x64.zip\n']);
+  const r1 = await run(base, dir, st, { now: T0 });
+  assert.equal(r1.code, 2, 'CONTROL: a first sighting is pending ' + r1.out + r1.err);
+  // latest-win.json stops naming the fixed-name zip (the field is optional); staging still names it, but staging
+  // does not hold it to a sha, so nothing compares it any more.
+  const win = JSON.parse(site.files.get('latest-win.json')[1]); delete win.artifact;
+  site.files.set('latest-win.json', ['application/json', JSON.stringify(win)]);
+  assert.equal((await run(base, dir, st, { now: T0 + 900 })).code, 0, 'a pending key outlived its comparison');
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')).pending, []);
 }));
 
 test('after "could not tell", the all-clear says it is able to check again', () => withSite(async ({ site, base, dir, st }) => {
@@ -361,7 +374,33 @@ test('a catch-all download site still reports a relay outage, not only "could no
   assert.equal(r.code, 1, r.out + r.err);
   assert.match(st.card(), /the relay did not answer with its own page/);
   assert.doesNotMatch(st.card(), /People installing or updating/, 'an unchecked download was called a failure');
-  assert.match(st.card(), /the downloads could not be checked: installkosmos\.com answered 200 for a file that does not exist/);
+  assert.match(st.card(), /the downloads that did pass could not be believed: installkosmos\.com answered 200 for a file that does not exist/);
+}));
+
+test('a catch-all download site still alarms on what fails: a pass proves nothing there, a failure does', () => withSite(async ({ site, base, dir, st }) => {
+  site.catchAll = true;
+  site.files.set('latest.json', ['text/html', '<html>the home page</html>']);   // the deploy also broke the pointer
+  const r = await run(base, dir, st, { now: T0 });
+  assert.equal(r.code, 1, r.out + r.err);
+  assert.match(st.card(), /latest\.json is served but is not valid JSON/);
+  assert.match(st.card(), /the downloads that did pass could not be believed/);
+  assert.match(st.card(), /People installing or updating now get the download failure above/);
+}));
+
+test('a second problem that comes and goes beside a standing one is one post, not one every run', () => withSite(async ({ site, base, dir, st }) => {
+  const posts = () => (st.card().match(/serve watch \(kosmos#4877\)/g) || []).length;
+  site.files.delete('kosmos-1.0.0-arm64.tar.gz');   // A stands
+  for (let i = 0; i < 8; i++) {
+    site.relayUp = i % 2 === 0;   // B: up, down, up, down...
+    await run(base, dir, st, { now: T0 + i * 900 });
+  }
+  assert.equal(posts(), 2, 'A, then A and B; nothing more while B flaps: ' + posts() + ' posts: ' + st.card());
+  // CONTROL: B gone for two runs in a row leaves the alarm, so the change is said once.
+  site.relayUp = true;
+  await run(base, dir, st, { now: T0 + 8 * 900 });
+  assert.equal(posts(), 2, 'B left after a single run');
+  await run(base, dir, st, { now: T0 + 9 * 900 });
+  assert.equal(posts(), 3, 'B gone two runs in a row was never said');
 }));
 
 test('the relay check is the relay\'s own page: any other answer (a proxy, a parked domain) is an alarm', () => withSite(async ({ site, base, dir, st }) => {
@@ -439,6 +478,7 @@ test('the Windows host has its own negative control: answering 200 for anything 
   const r = await run(base, dir, st, { now: T0 });
   assert.equal(r.code, 1, r.out + r.err);
   assert.match(st.card(), /the Windows downloads' host answered 200 for a file that does not exist/);
+  assert.doesNotMatch(st.card(), /People installing or updating/, 'an unverified host was called a download failure');
   assert.ok(site.hits.includes('HEAD /dist/kosmos-0.0.0-win-x64.zip'));
 }));
 

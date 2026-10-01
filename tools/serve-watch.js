@@ -252,20 +252,14 @@ async function gather(prev, now) {
   const relayUp = relayPage(relay);
   if (!relayUp) add('relay', 'the relay did not answer with its own page at ' + RELAY + ' (' + why(relay) + '): no computer address can be reached');
 
-  // The negative control: a file that never exists must answer 404. A 2xx means the site answers anything, so nothing
-  // below can be believed: could not tell. No answer, or a 5xx: the download site is down, which is the outage this
-  // exists for, unless nothing else answered either, in which case it is this computer that is offline.
+  // The negative control: a file that never exists must answer 404. A 2xx means the site answers anything, so a PASS
+  // below proves nothing; a failure (a 404, a wrong type, broken JSON, a sha that disagrees) is still evidence, so the
+  // checks run and only their failures count (the end of this function). No answer, or a 5xx: the download site is
+  // down, which is the outage this exists for, unless nothing else answered either: this computer is offline.
   const control = await head(DIST + '/' + CONTROL);
-  if (control.status >= 200 && control.status < 300) {
-    const why2 = 'installkosmos.com answered ' + control.status + ' for a file that does not exist, so its answers prove nothing';
-    // The community and relay answers above do not depend on the download site: a problem there is still an alarm.
-    if (problems.length) {
-      add('dist-unverifiable', 'the downloads could not be checked: ' + why2);
-      return { now, unknown: false, alarm: true, problems, artifacts: 0, sha: prevSha, pending: prevPending };
-    }
-    return { now, unknown: true, why: why2 + '; the community site and the relay answer', problems: [], sha: prevSha, pending: prevPending };
-  }
-  if (control.status !== 404) {
+  const blind = control.status >= 200 && control.status < 300
+    ? 'installkosmos.com answered ' + control.status + ' for a file that does not exist, so its answers prove nothing' : '';
+  if (!blind && control.status !== 404) {
     if (control.status === 0 && health.status === 0 && relay.status === 0) {
       return { now, unknown: true, why: 'nothing answered (this computer may be offline: ' + why(control) + ')', problems: [], sha: prevSha, pending: prevPending };
     }
@@ -277,6 +271,7 @@ async function gather(prev, now) {
   if (winControl.status >= 200 && winControl.status < 300) add('win-unverifiable', 'the Windows downloads\' host answered ' + winControl.status + ' for a file that does not exist, so its answers prove nothing');
   let pointerFailed = false;
   const urls = new Map();   // one check per artifact URL, even when two pointers name it
+  const owed = new Set();   // the mismatch keys this run owes a comparison, whether or not it got that far
   for (const pt of POINTERS) {
     const g = await getJson(DIST + '/' + pt.file);
     if (g.status !== 200) { pointerFailed = true; add('pointer:' + pt.file, pt.file + ' is not served (' + why(g) + ')'); continue; }
@@ -296,6 +291,9 @@ async function gather(prev, now) {
   }
   for (const [url, { a, from, expect }] of urls) {
     const by = ' (named by ' + from.join(' and ') + ')';
+    const want0 = expect.size === 1 ? [...expect][0] : null;
+    if (a.sidecar && want0) owed.add('sidecar-sha:' + a.name);
+    if (a.hashed && want0) owed.add('sha:' + a.name);
     const h = await head(url);
     if (h.status !== 200) { add('missing:' + a.name, a.name + by + ' is not served (' + why(h) + ')'); continue; }
     if (!TYPES[a.type].test(h.type)) { add('type:' + a.name, a.name + by + ' is served as "' + shown(h.type) + '", not a ' + a.type); continue; }
@@ -328,6 +326,7 @@ async function gather(prev, now) {
   }
   for (const f of FIXED) {
     const url = f.url();
+    if (f.bySidecar) owed.add('sha:' + f.name);
     const h = await head(url);
     if (h.status !== 200) { add('missing:' + f.name, f.name + ' is not served (' + why(h) + '): every install fetches it'); continue; }
     if (!TYPES[f.type].test(h.type)) { add('type:' + f.name, f.name + ' is served as "' + shown(h.type) + '", not a ' + f.type); continue; }
@@ -351,20 +350,31 @@ async function gather(prev, now) {
   /* What this run did not get as far as comparing (its HEAD or sidecar failed, its pointer was not served) keeps its
      earlier record: a mismatch still standing is not forgotten by one run that stopped short, and a hash is not
      downloaded again for it. */
-  // Only for a file still named (by a pointer this run read, or FIXED): a record for a file no pointer names any more
-  // (an old version) is dropped, so it can neither linger as pending forever nor grow the state with every release.
-  const named = new Set([...[...urls.values()].map((e) => e.a.name), ...FIXED.map((f) => f.name)]);
+  // A pending key is carried only while this run still owes that comparison: a file no pointer names any more (an old
+  // version), or one still named but no longer held to a sha (the Windows zip named only by staging), is dropped, so
+  // it cannot linger as pending forever and hold the exit at 2. A sha record is kept for any file still named.
   const namedUrls = new Set([...urls.keys(), ...FIXED.map((f) => f.url())]);
   // While a pointer could not be read, which files it names is unknown, so nothing earlier is dropped this run.
-  const keep = (name) => pointerFailed || named.has(name);
-  for (const k of prevPending) if (!evaluated.has(k) && !pending.includes(k) && keep(k.slice(k.indexOf(':') + 1))) pending.push(k);
+  for (const k of prevPending) if (!evaluated.has(k) && !pending.includes(k) && (pointerFailed || owed.has(k))) pending.push(k);
   for (const [url, rec] of Object.entries(prevSha)) if (!(url in sha) && (pointerFailed || namedUrls.has(url))) sha[url] = rec;
+  if (blind) {
+    // Nothing failed: every pass may be the catch-all answering, so could not tell. Anything failed: an alarm.
+    if (!problems.length) return { now, unknown: true, why: blind + '; the community site and the relay answer', problems: [], sha: prevSha, pending: prevPending };
+    add('dist-unverifiable', 'the downloads that did pass could not be believed: ' + blind);
+  }
   return { now, unknown: false, alarm: problems.length > 0, problems, artifacts: urls.size + FIXED.length, sha, pending };
 }
 
 /* Whether to post now, and what kind, from the verdict and this channel's last post. Pure. */
 function decidePost(v, last, now) {
-  const key = v.unknown ? 'unknown' : v.alarm ? 'alarm:' + v.problems.map((p) => p.key).sort().join(',') : 'clear';
+  /* A problem leaves a standing alarm only after it is gone two runs in a row, as an all-clear does: so a second
+     problem that comes and goes beside a first is one post, not one every run. A NEW problem posts at once. */
+  const keys = v.alarm ? v.problems.map((p) => p.key) : [];
+  if (v.alarm && last && typeof last.key === 'string' && last.key.startsWith('alarm:')) {
+    const prevRun = new Set(Array.isArray(v.prevRunKeys) ? v.prevRunKeys : []);
+    for (const k of last.key.slice('alarm:'.length).split(',')) if (k && !keys.includes(k) && prevRun.has(k)) keys.push(k);
+  }
+  const key = v.unknown ? 'unknown' : v.alarm ? 'alarm:' + [...new Set(keys)].sort().join(',') : 'clear';
   const due = !last || now - (last.at || 0) >= REPOST_S;
   if (key === 'clear') {
     if (!(last && last.key && last.key !== 'clear')) return { post: null, key };
@@ -383,7 +393,7 @@ function message(kind, v) {
   if (kind === 'unknown') return head + 'could not tell (' + v.why + '). This is not a pass: the downloads were not checked.';
   if (kind === 'watching') return head + 'still watching: ' + all;
   if (kind === 'cleared') return head + (v.after === 'unknown' ? 'able to check again: ' : 'back to healthy: ') + all;
-  const downloads = v.problems.some((p) => !/^(community-|relay|dist-unverifiable)/.test(p.key));
+  const downloads = v.problems.some((p) => !/^(community-|relay|dist-unverifiable|win-unverifiable)/.test(p.key));
   return head + v.problems.length + ' problem' + (v.problems.length === 1 ? '' : 's') + ':\n- ' + v.problems.map((p) => p.text).join('\n- ')
     + '\nThis monitor only reads; nothing was changed.' + (downloads ? ' People installing or updating now get the download failure above.' : '');
 }
@@ -549,10 +559,12 @@ async function main(argv) {
   // A first sighting (pending) is not yet healthy: exit 2, the same as --check, and it does not count as a clean run.
   const code = v.unknown ? 2 : v.alarm ? 1 : (v.pending && v.pending.length) ? 2 : 0;
   v.cleanRuns = code === 0 ? (Number(state && state.cleanRuns) || 0) + 1 : 0;
+  v.prevRunKeys = Array.isArray(state && state.runKeys) ? state.runKeys.filter((k) => typeof k === 'string') : [];
+  const runKeys = v.problems.map((p) => p.key);
   const since = state ? Number(state.unknownSince) : NaN;
   const unknownSince = v.unknown ? (Number.isFinite(since) && since > 0 && since <= now ? since : now) : null;
   if (!noState && v.unknown && now - unknownSince < UNKNOWN_GRACE_S) {
-    writeState({ pane: lastFor(state, 'pane', now), card: lastFor(state, 'card', now), lastRunAt: now, unknownSince, sha: v.sha, pending: v.pending, cleanRuns: v.cleanRuns });
+    writeState({ pane: lastFor(state, 'pane', now), card: lastFor(state, 'card', now), lastRunAt: now, unknownSince, sha: v.sha, pending: v.pending, cleanRuns: v.cleanRuns, runKeys });
     return code;
   }
   const next = {};
@@ -590,7 +602,7 @@ async function main(argv) {
     const sentTo = CHANNELS.filter((ch) => want[ch] && went[ch]).map((ch) => (unsure[ch] ? ch + ' (unconfirmed)' : ch));
     process.stdout.write(new Date(now * 1000).toISOString() + ' ' + (sentTo.length ? 'posted to ' + sentTo.join(' and ') : 'posted NOWHERE') + ': ' + text + '\n');
   }
-  writeState({ pane: next.pane, card: next.card, lastRunAt: now, unknownSince, sha: v.sha, pending: v.pending, cleanRuns: v.cleanRuns });
+  writeState({ pane: next.pane, card: next.card, lastRunAt: now, unknownSince, sha: v.sha, pending: v.pending, cleanRuns: v.cleanRuns, runKeys });
   return code;
 }
 
