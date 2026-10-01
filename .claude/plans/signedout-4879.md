@@ -14,5 +14,11 @@ Order: either half can ship first. The relay half alone removes the JSON only if
 (unmeasured; see kosmos-relay's plan), and then the plain sign-in page shows. This half alone adds a fragment an
 older tunnel ignores.
 
-Weakest premise: that nothing in the board reads '#signed-out'. Checked: the board has no fragment routing today; a
+Weakest premise, the weaker of two: on a phone with the board's service worker, the whole fix depends on the
+forwarded navigation still asking for HTML (kosmos-relay plan signedout-4879, measured by its probe). The other:
+that nothing in the board reads '#signed-out'. Checked: the board has no fragment routing today; a
 future one would have to leave this fragment alone or the browser check's P4 shows it.
+
+## Reviews
+Recorded in kosmos-relay's plan (both halves were reviewed together). Review 5 CONVERGED; its four NITs (wording
+and plan record only, no behaviour) were taken AFTER convergence without another review.
