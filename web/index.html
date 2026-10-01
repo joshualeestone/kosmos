@@ -38983,7 +38983,9 @@ document.getElementById('d-doctrine-add').addEventListener('click', () => {
   const plan = DOCTRINE_PLAN;
   if (!plan) return;
   const who = (CURRENT && CURRENT.name) || plan.sessionName;
-  document.getElementById('doc-title').textContent = 'Add the working rules to ' + who + '’s instructions?';
+  document.getElementById('doc-title').textContent = plan.replacing
+    ? 'Update the working rules in ' + who + '’s instructions?'   // #4890
+    : 'Add the working rules to ' + who + '’s instructions?';
   /* #1841: the button is now "Add Instructions & Restart", so the dialog says
      the restart is part of the deal and names the one cost of it (an empty
      memory), the same consequence the restart confirm states. Named, never

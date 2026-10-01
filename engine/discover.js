@@ -1848,7 +1848,7 @@ function connect(dir, opts) {
     let changed = false;
     try {
       /* #4890: inside the managed span, as at creation, so later rule changes can reach an imported agent too. */
-      const withDefaults = require('./doctrine').atBirth(text);
+      const withDefaults = require('./doctrine').atBirth(text, undefined, MAX_BYTES);
       if (Buffer.byteLength(withDefaults, 'utf8') <= MAX_BYTES && withDefaults !== text) {
         text = withDefaults; changed = true;
       }

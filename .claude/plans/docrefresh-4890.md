@@ -35,7 +35,8 @@ behaviour that had changed (#4627 links, #4582 `reply --stdin`) because their in
 ## Weakest premise
 That most existing agents carry an unedited copy, of a block that was COMMITTED: the table is built from
 engine/defaults.js's git history, so a block that was only ever shipped from an uncommitted tree cannot be matched
-(and unreleased intermediate commits add harmless extra rows). 3 of 3 here did (v15 twice, v18 once), a small sample. A person
+(and unreleased intermediate commits add harmless extra rows). Also a copy saved with Windows line endings (CRLF)
+never matches the \n-only fingerprints: nothing is overwritten, it keeps today's missing-headings rule. 3 of 3 here did (v15 twice, v18 once), a small sample. A person
 who edited theirs is offered only missing headings, as before; birth in the span is the lasting fix.
 
 ## Tests
@@ -54,4 +55,9 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   "edited copy" test now edits the middle, past the anchor. FIXED C: doctrine.js's constraints 6 and 8 and planFor's
   docstring name the #4890 exception. FIXED NIT: the undo note says "replaced" for a replace. Each new guard was
   mutated and reds one test.
+- Round 3 (sonnet): FIXED W: earlier rules inside a span no longer hide a plain old copy after it (pastBlockIn skips
+  the span). FIXED W: where only the plain block fits under the size cap, birth and import write it plain rather than
+  none (the frame costs a few hundred bytes). FIXED W: CRLF copies named in the weakest premise. FIXED NIT: the dialog
+  title says "Update" when it replaces. Left NITs: an empty section list in the span-current-plus-copy case; one blank
+  line left where a copy is cut; no fleet dialog reads `replacing` yet.
 

@@ -124,3 +124,24 @@ test('#4890 review: earlier rules INSIDE a span are the span path\'s, never cut 
   assert.notEqual(plan.replacing, true, 'a span\'s own earlier rules were treated as a plain copy');
   assert.equal(projects.findBlock(plan.fileNext, doctrine.START, doctrine.END).ambiguous, undefined);
 });
+
+test('#4890 review 3: earlier rules inside a span do not hide a plain old copy after it', () => {
+  const spanFirst = doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD);
+  const file = `${spanFirst}\n${OLD}\n`;
+  const plan = doctrine.planFor(file, NOW, OLD_TABLE);
+  assert.equal(plan.replacing, true, 'the plain copy after the span was not seen');
+  assert.equal(plan.fileNext.split(OLD).length - 1, 0, 'an old copy stayed');
+  assert.ok(plan.fileNext.includes(BLOCK));
+});
+
+test('#4890 review 3: where only the plain block fits under the cap, birth writes the plain block, never none', () => {
+  const mine = '# Mine\n';
+  const plain = defaults.appendTo(mine);
+  assert.equal(doctrine.atBirth(mine, NOW, Buffer.byteLength(plain, 'utf8') + 10), plain, 'over the cap, the rules were not written plain');
+  assert.notEqual(doctrine.atBirth(mine, NOW, 10 * 1024 * 1024), plain, 'CONTROL: with room, birth did not write the span');
+});
+
+test('#4890 review 3: the dialog title says Update when it replaces', () => {
+  const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  assert.match(page, /textContent = plan\.replacing\n\s*\? 'Update the working rules in ' \+ who/);
+});

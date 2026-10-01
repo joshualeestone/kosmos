@@ -5064,8 +5064,8 @@ function createAgentInner(opts) {
     try {
       /* #4890: inside the managed span, so a later change under an existing heading can reach this agent through
          the consented refresh (doctrine.atBirth). */
-      const withDefaults = require('./doctrine').atBirth(text);
       const { MAX_BYTES } = require('./instructions');
+      const withDefaults = require('./doctrine').atBirth(text, undefined, MAX_BYTES);
       /* kosmos#1673 gave this the warning it was missing, and kosmos#1672 extends
          it to the OTHER way the block can be lost. Two failure paths, one report:
            the byte cap drops it   -> #1673's case, warned since #1701

@@ -87,11 +87,15 @@ function spanBody(sectionsList, now, opening) {
  * doctrine marker (pasted from another agent's file) gets the plain block rather than a span spliced among
  * markers it did not write.
  */
-function atBirth(text, now) {
+function atBirth(text, now, maxBytes) {
   const body = String(text == null ? '' : text);
   if (body.includes(defaults.RULES_PHRASE)) return body;
   if (body.includes(START) || body.includes(END)) return defaults.appendTo(body);
-  return projects.spliceBlock(body, spanBody(defaults.sections(), now, birthLine(now)), START, END);
+  const spanned = projects.spliceBlock(body, spanBody(defaults.sections(), now, birthLine(now)), START, END);
+  /* The frame costs a few hundred bytes. Where only the plain block fits under the caller's cap, the agent gets
+     the plain block (as before #4890) rather than none. */
+  if (maxBytes && Buffer.byteLength(spanned, 'utf8') > maxBytes) return defaults.appendTo(body);
+  return spanned;
 }
 
 /**
@@ -99,12 +103,13 @@ function atBirth(text, now) {
  * against a fingerprint in doctrine-past.js, starting at the rules' first heading line and ending at a line end. The current block is in
  * that table too and is not reported here: a plain copy of today's rules has nothing to update.
  */
-function pastBlockIn(body, past) {
+function pastBlockIn(body, past, skip) {
   const first = defaults.sections()[0].heading;
   const current = defaults.block();
   const rows = past || PAST;
   for (let at = body.indexOf(first); at >= 0; at = body.indexOf(first, at + 1)) {
     if (at > 0 && body[at - 1] !== '\n') continue;
+    if (skip && at < skip.end && at >= skip.start) continue;   // earlier rules inside a span are the span path's
     for (const row of rows) {
       const slice = body.slice(at, at + row.length);
       if (slice.length !== row.length || slice === current) continue;
@@ -152,7 +157,7 @@ function planFor(text, now, past) {
   /* #4890: a plain copy of an EARLIER block, byte for byte, is Kosmos's own text that nobody edited, so the
      click may replace it with the current rules. Only a copy OUTSIDE any span counts: a span holds earlier
      rules too, and those are brought current by the span path below. */
-  const old = pastBlockIn(body, past);
+  const old = pastBlockIn(body, past, found || null);
   if (old && !(found && old.start < found.end && old.end > found.start)) {
     const all = defaults.sections();
     if (found) {
