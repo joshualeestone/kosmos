@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: agy-bridge-token-4491
-diff_hash: d9cf5b54ff37b891d60fe19e1360482c3db7a9f5def9f562fc73cabc11b1c526
+diff_hash: a4287d52a7875b8df1e72eb9c6b8ce6b59ff716beca5b28e2fc30243b6af93fd
 validation: test-only change (engine/agyhooks.test.js). The stack's full run passed on Mortals at its top be5555c23 (hash 798376dfea0e); since then this test gained review-2 and review-3 cases: engine/agyhooks.test.js 38/38 and the #4796 guard pass at this head, and the stack top is queued for a fresh full run because of the rebase's hand-resolved conflict; CI runs the full suite on the merge ref
 subdir_audit: passed
 timestamp: 2026-10-01T04:38:22Z
@@ -25,3 +25,5 @@ converged: true
 
 ### Iteration 3: 0 BLOCKER, 0 SHOULD-FIX (CONVERGED)
 - [NIT] a newline-split token (a /m regex survived) --> FIXED; plan counts and base restated
+
+Rebased 2026-10-01 01:31 CDT onto main after slice 6 merged as 7f0fae1fb (patches unchanged); engine/agyhooks.test.js with the file-scanning guards 69/69; the stack top validated on Agent1s contains this test as it is now; hash recomputed.
