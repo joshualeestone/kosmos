@@ -228,3 +228,8 @@ is that review.
   a busy machine could red a correct wait). The #4640 runs now get 4500 ms; the #4277 runs keep 2900. FIXED (SELF prose,
   deleted rather than reworded): my comment's claim that the two matchers "never disagree about one line", which their
   end anchors do not guarantee. NITs left as before.
+- Round 8 (sonnet): FIXED the class behind four rounds of findings: remote-report.js no longer has its own regex for the
+  tunnel's raw line; classify asks remote.js allowWaitSentence first, and its CODES row keeps only status()'s own sentence.
+  An agreement test runs one line table (waits, a recased line, trailing text, other code, other path, a final refusal)
+  through both and asserts they agree; mutation (classify not asking remote.js) reds 2 tests. FIXED: a CSS comment marks
+  the waiting pill's missing colour rule as deliberate (the browser check pins the colour).
