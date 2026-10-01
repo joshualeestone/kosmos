@@ -697,7 +697,8 @@ test('#4277: a restart timer firing into an unwanted board counts nothing, and a
 });
 
 test('#4277: the report names the same enrolment files enrolled() checks', () => {
-  assert.deepEqual(require('./remote-report').ENROL_FILES, remote.ENROL_FILES,
+  // kosmos#4737: the SAME array, from engine/enrolment.js, so neither module can drift into its own list.
+  assert.strictEqual(require('./remote-report').ENROL_FILES, remote.ENROL_FILES,
     'the not-enrolled report would name files enrolled() does not check');
 });
 
@@ -2350,6 +2351,43 @@ test('#3827: a set-up Mac missing only its address file is not treated as half r
   await remote.signinVerify('her@example.com', '111111');
   await remote.signinRegister('hers');
   assert.ok(!recorded().some((c) => c[0] === 'retire'), 'a Mac with its certificate was retired as half registered');
+  await remote.forget();
+});
+
+/* kosmos#4737: a computer registered while it waits for the older computer's Allow holds its identity and the
+   tunnel's `held` mark, and no certificate yet. It is set up, and a sign-in on it never retires it. The
+   control is the same folder without the mark: a register cut off before its certificate, which IS retired. */
+async function heldShaped(withMark) {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  const dir = process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote');
+  for (const f of ['tls.crt', 'tls.key']) fs.rmSync(nodePath.join(dir, f), { force: true });
+  if (withMark) fs.writeFileSync(nodePath.join(dir, 'held'), 'hers\n');
+  assert.ok(fs.existsSync(nodePath.join(dir, 'mac_id')) && fs.existsSync(nodePath.join(dir, 'address')), 'fixture: the identity is there');
+  return dir;
+}
+
+test('#4737: a computer waiting to be allowed is set up and a sign-in on it does not retire it', async () => {
+  await heldShaped(true);
+  assert.equal(remote.enrolled(), true, 'a waiting computer (identity + held, no certificate) read as not set up: its tunnel never starts');
+  fs.rmSync(RECORD, { force: true });
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  await remote.signinRegister('hers');
+  assert.ok(!recorded().some((c) => c[0] === 'retire'), 'a computer waiting to be allowed was retired as half registered');
+  await remote.forget();
+});
+
+test('#4737 control: the same folder without the held mark is half registered and is retired', async () => {
+  await heldShaped(false);
+  assert.equal(remote.enrolled(), false, 'fixture: no certificate and no mark is not set up');
+  fs.rmSync(RECORD, { force: true });
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  await remote.signinRegister('hers');
+  assert.ok(recorded().some((c) => c[0] === 'retire'), 'a register cut off before its certificate was not retired: the control cannot tell the two apart');
   await remote.forget();
 });
 
