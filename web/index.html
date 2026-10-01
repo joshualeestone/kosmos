@@ -56481,7 +56481,9 @@ function ntAimAt(p) {
   // the project, so its people are the choices.
   sel.innerHTML = '<option value="">Nobody yet</option>' + (p.agents || []).map((m) =>
     '<option value="' + esc(m.sessionName) + '">' + esc(m.name || m.sessionName)
-    + (m.role ? ' · ' + esc(m.role) : '') + '</option>').join('');
+    /* #4896: the role as the member rows say it (roleLine: a menu title in the menu's words), not as it is stored, so
+       one project does not offer "project manager" beside "Project Manager". */
+    + (m.role ? ' · ' + esc(roleLine({ role: m.role }, ROLE_TITLES)) : '') + '</option>').join('');
   if (keepWho) {
     sel.value = keepWho;
     /* The departed-member case, actually guarded: assigning a value with
