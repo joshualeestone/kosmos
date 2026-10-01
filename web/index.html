@@ -26,7 +26,11 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/icons/kosmos-16.png">
 <link rel="icon" type="image/png" sizes="32x32" href="/icons/kosmos-32.png">
 <link rel="icon" type="image/png" sizes="48x48" href="/icons/kosmos-48.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/icons/kosmos-180.png">
+<!-- kosmos#4798 (Josh, 17:53: a thick black frame round the home-screen icon): iOS fills a touch icon's transparent
+     corners with black and then rounds it itself. kosmos-180 is the Mac icon, already rounded inside a clear margin
+     (and it stays, for the Dock row below), so the home screen gets its own: a full-bleed opaque square, gold to
+     every edge, no corners, no alpha, from assets/Kosmos-1024.png (the iPhone app's icon). -->
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/kosmos-touch-180.png">
 <!-- Installable (#718, the home-screen third): the manifest makes Add to
      Home Screen an app-shaped launch; the two Apple metas do the same on
      iOS Safari, which reads them rather than display:standalone.
