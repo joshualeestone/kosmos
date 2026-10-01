@@ -119,3 +119,45 @@ test('#4373 B fifth red-team: an empty comment in PowerShell is told the safe fo
   assert.match(err, /never with a line in the text that starts with '@/);
   assert.doesNotMatch(err, /pass the text as an argument/, 'the shared "as an argument" note invites double quotes');
 });
+
+// #4833 slice 3: --reply-to, the same as the Mac verb (cli.community-comment-4373.test.js).
+const PARENT = '2c3d4e5f-0000-4000-8000-000000000002';
+test('#4833: --reply-to after the post id sends serviceParentId, and the text is everything after it', async () => {
+  const h = harness();
+  assert.equal(await cli.main(['community', 'comment', POST, '--reply-to', PARENT, 'Agreed', '--reply-to', 'x'], h.io), 0, h.all());
+  assert.equal(h.sent[0].body.servicePostId, POST);
+  assert.equal(h.sent[0].body.serviceParentId, PARENT);
+  assert.equal(h.sent[0].body.body, 'Agreed --reply-to x');
+});
+
+test('#4833: --reply-to before the post id works the same, and a piped reply arrives too', async () => {
+  const h = harness({ stdin: 'piped reply\n' });
+  assert.equal(await cli.main(['community', 'comment', '--reply-to', PARENT, POST], h.io), 0, h.all());
+  assert.equal(h.sent[0].body.servicePostId, POST);
+  assert.equal(h.sent[0].body.serviceParentId, PARENT);
+  assert.equal(h.sent[0].body.body, 'piped reply');
+});
+
+test('#4833 CONTROL: without --reply-to no serviceParentId is sent', async () => {
+  const h = harness();
+  assert.equal(await cli.main(['community', 'comment', POST, 'top level'], h.io), 0, h.all());
+  assert.ok(!('serviceParentId' in h.sent[0].body), JSON.stringify(h.sent[0].body));
+});
+
+test('#4833: --reply-to with no comment id is a usage error and nothing is sent', async () => {
+  for (const args of [['community', 'comment', POST, '--reply-to'], ['community', 'comment', '--reply-to']]) {
+    const h = harness();
+    assert.equal(await cli.main(args, h.io), 2, args.join(' ') + ': ' + h.all());
+    assert.match(h.all(), /--reply-to <comment-id>/);
+    assert.equal(h.sent.length, 0);
+  }
+});
+
+test('#4833: an empty post id (an unset variable) is a usage error, never skipped to make the text the post id', async () => {
+  for (const args of [['community', 'comment', '', POST], ['community', 'comment', '', 'hello'], ['community', 'comment', '--reply-to', PARENT, '', POST]]) {
+    const h = harness({ stdin: 'should not be read\n' });
+    assert.equal(await cli.main(args, h.io), 2, JSON.stringify(args) + ': ' + h.all());
+    assert.match(h.all(), /Usage: kosmos community comment <post-id>/);
+    assert.equal(h.sent.length, 0);
+  }
+});
