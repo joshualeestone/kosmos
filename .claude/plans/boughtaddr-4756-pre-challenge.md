@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: boughtaddr-4756
-diff_hash: b3f4d454c020f3bffd587f902d36dfd68a4f66bd308fd8d96a198e22fffb0e01
+diff_hash: ce5187e915959c62443ef18a5983976bb2d60855d8c7a59198e1f31890a3ed8d
 validation: focused per round (engine/remote.test.js #4756, server.test.js #4756, render-plus-bought-4756.js browser check, both browser-check gates); static set on the main-merged tree 2419/2419; the FULL suite runs on Mortals on this head after this commit, result in the PR
 subdir_audit: not run (the diff changes no subdirectory CLAUDE.md)
 timestamp: 2026-09-30T21:10:48Z
@@ -106,6 +106,13 @@ Then: main merged (8ed9b8771); the README index and selector-id guards met (1684
 **Duplicates of prior findings:** 2 (refusal wording, the test env flag)
 - [WARNING] web/index.html:44443: the read's sequence is taken after the call --> DEFERRED: correct today (no await precedes the bump, checked); a hazard for a future edit, not a defect
 **Converged**: no new actionable findings.
+
+### After convergence (stated, not hidden)
+
+GitHub CI's browser-checks run on cf734c685 failed render-fields: the new Check again button's white 25% edge measured
+1:1 on a light ground. One CSS rule gives it the field edge (#5c78a6). Verified by render-fields through the runner
+(red on cf734c685 in CI, green after) and the surface gate's flagged check (16/16); NOT separately blind-reviewed, and
+the Mortals full suite (passed on cf734c685) was not re-run for this one rule: the PR's CI is the gate for it.
 
 ### Final Ledger
 
