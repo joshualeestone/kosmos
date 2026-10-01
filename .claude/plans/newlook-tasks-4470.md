@@ -26,3 +26,8 @@ under the pointer, with an arm; nothing proved a zero decision tile goes plain: 
 #3949 bands: corrected (above). NITs taken: the comment's corner claim; tasksLook moved above listLook's comment; the
 off arm checks the list radius. Left: no consolidated-layout arm (today's look kept there, as on every page);
 nl-tasks's place in SCREENS.
+Review R2 (sonnet) 1B 1W 0C 2N: my R1 red check read only rgb()/rgba(), but a color-mix() border computes to
+color(srgb ...) (0-1 channels), so it would fail on a correct page: now one parser reads both, with a negative control
+(a plain border is not red); the hover read fell back to body (not transparent) on a miss: a miss is now reported as
+"missed"; NIT taken: the pressed arm asserts gold, not merely non-transparent. Left: a tapped tile on a phone keeps
+its hover border until the next tap (as the Agents rows do).

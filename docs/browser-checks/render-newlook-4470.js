@@ -177,6 +177,16 @@ async function tasksLook(page) {
   await page.evaluate(() => showTab('tasks'));
   await page.waitForSelector('#panel-tasks .tsk-tile', { state: 'visible', timeout: 8000 }).catch(() => {});
   const out = await page.evaluate(() => {
+    /* A computed colour as 0-255 channels, from either serialisation: rgb()/rgba(), or color(srgb r g b) with 0-1
+       channels, which is what a color-mix() computes to (round 2). null for anything else, so an arm fails loudly. */
+    const rgb = (c) => {
+      let m = /^rgba?\((\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?)/.exec(c);
+      if (m) return [+m[1], +m[2], +m[3]];
+      m = /^color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/.exec(c);
+      return m ? [m[1] * 255, m[2] * 255, m[3] * 255] : null;
+    };
+    const isRed = (c) => { const v = rgb(c); return !!v && v[0] > v[1] + 40 && v[0] > v[2] + 40; };
+    const isGold = (c) => { const v = rgb(c); return !!v && v[0] > v[2] + 40 && v[1] > v[2] + 20; };
     const tiles = [...document.querySelectorAll('#panel-tasks .tsk-tile')];
     const plain = tiles.find((t) => t.dataset.tile !== 'decision' && t.getAttribute('aria-pressed') !== 'true');
     const dec = tiles.find((t) => t.dataset.tile === 'decision');
@@ -188,15 +198,16 @@ async function tasksLook(page) {
     dec.setAttribute('data-n', '2'); r.decision = getComputedStyle(dec).borderTopColor;
     dec.setAttribute('data-n', '0'); r.decisionZero = getComputedStyle(dec).borderTopColor;   // #3949: a zero tile is drawn like the others
     if (n0 === null) dec.removeAttribute('data-n'); else dec.setAttribute('data-n', n0);
-    const m = /rgba?\((\d+), (\d+), (\d+)/.exec(r.decision);
-    r.decisionRed = !!m && Number(m[1]) > Number(m[2]) + 40 && Number(m[1]) > Number(m[3]) + 40;
-    const p0 = plain.getAttribute('aria-pressed'); plain.setAttribute('aria-pressed', 'true'); r.pressed = getComputedStyle(plain).borderTopColor;
+    r.decisionRed = isRed(r.decision);
+    r.controlNotRed = !isRed(r.plain === 'rgba(0, 0, 0, 0)' ? 'rgb(128, 128, 128)' : r.plain);   // negative control: a plain border is not read as red
+    const p0 = plain.getAttribute('aria-pressed'); plain.setAttribute('aria-pressed', 'true'); r.pressed = getComputedStyle(plain).borderTopColor; r.pressedGold = isGold(r.pressed);
     if (p0 === null) plain.removeAttribute('aria-pressed'); else plain.setAttribute('aria-pressed', p0);
     return r;
   });
   if (out.found) {   // under the pointer the border comes back (the tiles are filters, i.e. controls)
-    await page.hover('#panel-tasks .tsk-tile:not([data-tile="decision"])'); await page.waitForTimeout(150);
-    out.hover = await page.evaluate(() => getComputedStyle(document.querySelector('#panel-tasks .tsk-tile:not([data-tile="decision"]):hover') || document.body).borderTopColor);
+    await page.hover('#panel-tasks .tsk-tile:not([data-tile="decision"]):not([aria-pressed="true"])'); await page.waitForTimeout(150);
+    /* Read the tile the pointer is actually on; a miss is reported as a miss, never as some other element's colour. */
+    out.hover = await page.evaluate(() => { const h = document.querySelector('#panel-tasks .tsk-tile:not([data-tile="decision"]):not([aria-pressed="true"]):hover'); return h ? getComputedStyle(h).borderTopColor : 'missed'; });
     await page.mouse.move(1, 1);
   }
   await page.evaluate(() => showTab('agents'));
@@ -519,9 +530,9 @@ const AGENTS_LOOK = `(() => {
       const tkOn = await tasksLook(page);
       chk(tkOn.found && tkOn.plain === 'rgba(0, 0, 0, 0)' && tkOn.radius === '16px' && tkOn.list === 'rgba(0, 0, 0, 0)' && tkOn.listRadius === '16px',
         `${tag} On, Tasks: a plain tile and the task list lose their border and take 16px corners`, JSON.stringify(tkOn));
-      chk(tkOn.found && tkOn.decisionRed && tkOn.pressed !== 'rgba(0, 0, 0, 0)',
+      chk(tkOn.found && tkOn.decisionRed && tkOn.controlNotRed && tkOn.pressedGold,
         `${tag} On, Tasks: Needs Your Decision holding tasks keeps its red edge, a filtering tile its gold`, JSON.stringify(tkOn));
-      chk(tkOn.found && tkOn.decisionZero === 'rgba(0, 0, 0, 0)' && tkOn.hover && tkOn.hover !== 'rgba(0, 0, 0, 0)',
+      chk(tkOn.found && tkOn.decisionZero === 'rgba(0, 0, 0, 0)' && tkOn.hover && tkOn.hover !== 'missed' && tkOn.hover !== 'rgba(0, 0, 0, 0)',
         `${tag} On, Tasks: Needs Your Decision at zero is drawn like the others (no border), and a tile under the pointer shows its border`, JSON.stringify(tkOn));
 
       await page.reload({ waitUntil: 'networkidle' });
