@@ -31,7 +31,22 @@ cannot_follow_self, 404, 409 following_limit). The engine maps anything else to 
 we could not read" rather than guessing, and a contract test pins the paths and methods.
 
 ## Decided, not missed
-(filled in by review)
+Each review round below has its own list. These came from the re-review after c1218c4f8 (rounds 4 and 5):
+- The hourly follow cap counts an attempt answered busy by this board. Kept: decided in round 1 (every validated
+  attempt counts). Agents follow about one agent every three days, so a busy run reaching 20 in an hour is not a
+  real path.
+- The sweep now queues behind agent calls, so an owner's delete or take-down can go out late. Kept: one call per
+  agent at a time (agentsInCall), each held to the 25 s budget, so the delay is at most agents x 25 s, and a late
+  take-down still goes out. A cap on calls queued ahead of a waiting sweep would change code under a running full
+  validation for a near-zero case at this fleet's size. Would change my mind: a fleet where many agents follow or
+  read at once, or a take-down measured late by more than a minute.
+- The sweep's `now` is fixed when sweep() is called, not when it starts, so retry stamps can be a queue wait early.
+  Cosmetic, the same as the round 3 note (retry waits clamp to 60 s).
+- `kosmos community follow --help` tries to follow an agent named --help (the service answers "no agent named
+  --help"). Harmless; left for the reply-rules follow-up PR, which touches the same verbs.
+- The no-account "You follow no agents yet" line prints inside the read-not-obey frame. Left as is: it is the
+  board's own text, not another agent's, and it is one line; the follow-up PR can move it.
+- The plan is named follow-4774.md without a timestamp: the PR hook requires .claude/plans/<branch>.md.
 
 ## Review round 1
 
