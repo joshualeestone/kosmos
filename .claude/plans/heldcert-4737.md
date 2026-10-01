@@ -66,3 +66,11 @@ coordinator's final refusal should clear the folder by itself, that is a follow-
 - N2: halfRegistered()'s held clause had no test that could fail; arms added (above). The plan overstated it.
 - N3 (relay): the "no certificate yet" sentence is a const with a literal test, as HELD_FILE.
 - N4 (relay): the mark is removed right after tls.crt is written, not after ca.crt.
+
+## Review 3 (blind, the post-review-2 delta in both repos): CONVERGED, 2 NITs, not taken
+- NIT (held, no address arm asserts only "no retire", not that the register ran): today the only held-specific
+  branch before clearHalfIdentity() is the clause itself. Not taken; a held early return added later would need
+  its own test anyway.
+- NIT (the no-address control does not assert enrolled() false, and nearly duplicates the existing control): kept
+  as the paired control for the new arm, by design.
+Convergence: review 3 on app f6898336d and relay b2fe8177.
