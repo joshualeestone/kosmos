@@ -11,7 +11,8 @@ had stopped stays stopped.
 - A `BEGIN/END #4818 put-back` block before the update pause: `_kosmos_put_board_back` (read the mode again and start
   nothing if it now keeps the board off; remove board.stopped; `KOSMOS_RECLAIM_BUSY=1 kosmos start --force`; check the
   port answers; say "Kosmos is running again (<version on disk>)" or how to start it) and an EXIT trap that calls it
-  when the run exits non-zero (a die, or set -e).
+  when the run exits non-zero (a die, or set -e), plus `trap 'exit 1' HUP TERM` so a closed window or a TERM is a
+  failure too (review 2: both ran the EXIT trap with status 0).
 - At the pause: `_kosmos_was_running=yes` only if the mode runs the board here, there is no board.stopped, and the board
   answers on its port BEFORE the stop.
 - After the pause holds (the existing #2055 "got past the pause" point): `_kosmos_paused_board="$_kosmos_was_running"`.
@@ -34,7 +35,9 @@ A fake kosmos on a real port: a failed update puts the board back (answers, no b
 0.7.11"); controls: a board stopped before the run stays stopped, and a board answering but marked stopped stays
 stopped; a failure after the new board started (the shipped line), and a successful run, restart nothing; a failure
 through the shipped die() puts it back; a switch to connect during the run keeps it off. The harness takes the shipped
-mode readers and calls _kosmos_board_decide where setup does. 10/10. Mutants, each failing a test:
+mode readers and calls _kosmos_board_decide where setup does. Review 2: a set -e failure with no die, and HUP and
+TERM delivered to the running shell and its children, each put the board back (with guards that the arm reached the
+pause and the signal really ended the run). 13/13. Without the HUP/TERM trap both signal arms fail (checked). Mutants, each failing a test:
 trap neutered, any exit restarts, the marker ignored, the marker kept, the mode not re-read (any edit to the
 anchored lines also fails the test, by design). The installer shell tests near the pause
 (#2055, #964, install-static and its control, runnable guard, progress emit, resolve user, zsh tied names) and the
@@ -45,3 +48,6 @@ Round 1: no blocker. 2 should-fix taken: the put-back re-reads the mode (a conne
 off only until a failure), and the test now drives the shipped started line and die(). Nits taken: the message names the
 version on disk without claiming it is the old one; the start reclaims a busy port as the normal start does. Noted, not
 changed: a Ctrl-C also stops the log reader, so the trap's line can be lost while the board is still started.
+Round 2: no blocker. 1 should-fix taken: HUP and TERM end the run as a failure. Nits taken: a set -e test, the
+comment names an unreadable mode file too. Noted: the stop line and the pause post-checks are re-typed in the harness,
+not extracted (the four extractions are exact and fail loudly on drift).
