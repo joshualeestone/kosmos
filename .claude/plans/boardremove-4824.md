@@ -21,7 +21,8 @@ The board's Remove passed none.
 - The other computers are claimed only after the fact, from the connector's own answer, not in the confirm: until
   a connector with kosmos#4803 is bundled, every board runs an older one.
 - `signed_out: true` covers "the account has no such device" too (the relay reads its `no_such_device` 404 as
-  nothing left to end), so the page says nothing extra then.
+  nothing left to end), so the page then says the other computers are reached, which holds: none of them has a
+  sign-in of it left to end.
 
 ## Weakest premise
 That clap's wording for an unknown flag stays `unexpected argument '<flag>'`. If a clap upgrade rewords it, an
