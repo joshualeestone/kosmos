@@ -59,7 +59,8 @@ log line and that a --check is healthy. The job then runs beside coordinator-mon
   download-site egress, about 100 GB a month). Weakest premise: a same-length corruption behind an unchanged etag
   waits up to a day; the sidecar the installers check is still compared every run.
 - Also watched, beyond the pointers: /setup, the tmux bundle and the generic fallback tarball (each tarball against
-  its own sidecar), because every install fetches them (install/setup.sh). Not watched: a Windows setup.ps1 at the
+  its own sidecar, and the fallback also
+  to the release latest.json names, round 14: a stale fallback is #1669), because every install fetches them (install/setup.sh). Not watched: a Windows setup.ps1 at the
   site root (none is served there). Pointer names must be the ones the installers derive from version and arch.
 - Two hosts: the Windows files (pointers, zips, sidecars) are redirected to R2, so a second negative control of the
   Windows zip shape (kosmos-0.0.0-win-x64.zip) must 404 there too.
