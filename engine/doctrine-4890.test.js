@@ -31,7 +31,7 @@ test('#4890: an agent is born with the rules inside the managed span, and is cur
   assert.ok(span && !span.ambiguous, 'birth wrote no managed span');
   assert.ok(born.startsWith('# Mine\n\nMy words.\n'), 'the person\'s words moved');
   assert.ok(born.slice(span.start, span.end).includes('\n' + BLOCK + '\n'), 'the span does not hold the rules whole');
-  assert.match(born, /<!-- Kosmos added the working rules below on 1 Oct 2026, when it made this agent\./);
+  assert.match(born, /<!-- Kosmos added the working rules below on 1 Oct 2026, when it set up this agent\./);
   assert.equal(doctrine.planFor(born, NOW).state, 'current', 'a newborn agent is offered an update');
   assert.equal(doctrine.atBirth(born, NOW), born, 'the rules were added twice');
 });
@@ -144,4 +144,31 @@ test('#4890 review 3: where only the plain block fits under the cap, birth write
 test('#4890 review 3: the dialog title says Update when it replaces', () => {
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   assert.match(page, /textContent = plan\.replacing\n\s*\? 'Update the working rules in ' \+ who/);
+});
+
+test('#4890 review 4: two plain copies settle in ONE click, to one copy of the current rules', () => {
+  const OLD2 = BLOCK.replace(LINE, () => LINE + ' (a still older wording)');
+  const table = [...OLD_TABLE, { version: 0, length: OLD2.length, sha256: sha(OLD2) }];
+  for (const [label, file] of [['two earlier copies', `# Mine\n\n${OLD}\n\n${OLD2}\n`], ['an earlier copy and today\'s', `# Mine\n\n${OLD}\n\n${BLOCK}\n`]]) {
+    const plan = doctrine.planFor(file, NOW, table);
+    assert.equal(plan.state, 'refresh', label + ': nothing was offered');
+    assert.equal(plan.replacing, true, label);
+    assert.ok(!plan.fileNext.includes(OLD) && !plan.fileNext.includes(OLD2), label + ': an old copy stayed');
+    assert.equal(plan.fileNext.split(defaults.sections()[1].heading).length - 1, 1, label + ': the rules are in the file more than once');
+    assert.ok(plan.sections.length > 0, label + ': the dialog lists nothing it writes');
+    assert.equal(doctrine.planFor(plan.fileNext, NOW, table).state, 'current', label + ': the click does not settle it');
+  }
+});
+
+test('#4890 review 4: a copy beside a span that is already current lists the sections the file keeps', () => {
+  const file = `${doctrine.atBirth('# Mine\n', NOW)}\n${OLD}\n`;
+  const plan = doctrine.planFor(file, NOW, OLD_TABLE);
+  assert.equal(plan.replacing, true);
+  assert.ok(!plan.fileNext.includes(OLD));
+  assert.equal(plan.sections.length, defaults.sections().length, 'the dialog lists nothing for a click that deletes a copy');
+});
+
+test('#4890 review 4: the dialog says an edit inside the marked block is set to the current rules', () => {
+  const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  assert.ok(page.includes("+ 'Anything changed inside the marked block is set to the current rules. ')"));
 });

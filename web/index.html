@@ -38993,9 +38993,10 @@ document.getElementById('d-doctrine-add').addEventListener('click', () => {
   /* #4890: when the file holds Kosmos's own older copy, unedited, the click replaces that copy where it stands. */
   document.getElementById('doc-body').textContent = (plan.replacing
     ? 'Your words stay exactly as they are. The older copy of these rules that Kosmos added is replaced with '
-      + 'the current one, in the same place, marked so you can see where yours end and ours begin. '
+      + 'the current one, inside a marked block, so you can see where yours end and ours begin. '
     : 'Your words stay exactly as they are. These go underneath, under their own '
-      + 'heading, so you can see where yours end and ours begin. ')
+      + 'heading, so you can see where yours end and ours begin. '
+      + 'Anything changed inside the marked block is set to the current rules. ')
     + 'Adding them restarts ' + who + ' to read them right away, so ' + who + '’s memory starts empty.';
   const list = document.getElementById('doc-list');
   list.textContent = '';

@@ -26,6 +26,11 @@ behaviour that had changed (#4627 links, #4582 `reply --stdin`) because their in
 ## Decided, not missed
 - Nothing is rewritten without the person's click: the ownership rule stands. Birth needs no click because nothing
   of theirs is replaced.
+- DECIDED TRADE-OFF (review 4): being born inside the span means an edit a person makes INSIDE the marked block is
+  Kosmos's to bring current, as it already was for any span a person clicked into being. The consent dialog now
+  says so ("Anything changed inside the marked block is set to the current rules"), and the block's own first line
+  has always said "Kosmos may update this block". Their words above and below it are never touched. Rejected:
+  never offering an update to an edited span (it would leave every born agent unreachable again after one edit).
 - Rejected: matching whole-section text to update edited copies (would rewrite a person's edits); generating the CLI
   section from `--help` (card's other suggestion; a larger change, and this fix makes any future wording change reach
   agents anyway).
@@ -40,7 +45,7 @@ never matches the \n-only fingerprints: nothing is overwritten, it keeps today's
 who edited theirs is offered only missing headings, as before; birth in the span is the lasting fix.
 
 ## Tests
-engine/doctrine-4890.test.js (7): birth span and current-at-birth; the card's case (a same-heading change reaches an
+engine/doctrine-4890.test.js (16): birth span and current-at-birth; the card's case (a same-heading change reaches an
 agent born before it); replace in place with a control; an edited, a one-character-edited and today's copy are not
 replaced; marker fallback; the shipped table's pairing guard; server flag and dialog copy. Mutations: dropping the
 past-block match, the today's-copy skip, or the line-start check each red a test. create.test.js: the verbatim test
@@ -60,4 +65,9 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   none (the frame costs a few hundred bytes). FIXED W: CRLF copies named in the weakest premise. FIXED NIT: the dialog
   title says "Update" when it replaces. Left NITs: an empty section list in the span-current-plus-copy case; one blank
   line left where a copy is cut; no fleet dialog reads `replacing` yet.
+- Round 4 (opus): DECIDED W (above): edits inside a born span; the dialog now says it. FIXED W: the dialog no longer
+  says "in the same place" (a copy beside a span folds into it), and a click that only deletes a copy lists the
+  sections the file keeps. FIXED W: two copies (two earlier ones, or an earlier one and today's) settle in one click.
+  FIXED NIT: the birth line says "set up", true for an imported agent too. Left NITs: one long docstring line; the
+  test's temp dir is not removed (as its siblings).
 

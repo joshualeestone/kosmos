@@ -71,7 +71,7 @@ const CLOSING_LINE = '<!-- end of the working rules -->';
 /* #4890: the same frame at birth, where nobody clicked. It starts with the words sectionContentOf strips, so a
    refresh compares the rules and never this line. */
 function birthLine(now) {
-  return `<!-- Kosmos added the working rules below on ${clickDate(now)}, when it made this agent. Kosmos may update this block when the rules change, with your OK; your own words above and below it are never touched. -->`;
+  return `<!-- Kosmos added the working rules below on ${clickDate(now)}, when it set up this agent. Kosmos may update this block when the rules change, with your OK; your own words above and below it are never touched. -->`;
 }
 
 /** The span body for a given set of sections, dated the day of the click (or of the birth, given `opening`). */
@@ -96,6 +96,16 @@ function atBirth(text, now, maxBytes) {
      the plain block (as before #4890) rather than none. */
   if (maxBytes && Buffer.byteLength(spanned, 'utf8') > maxBytes) return defaults.appendTo(body);
   return spanned;
+}
+
+/** #4890: today's block as plain text, at a line start and ending at a line end. */
+function hasPlainCurrent(body) {
+  const current = defaults.block();
+  for (let at = body.indexOf(current); at >= 0; at = body.indexOf(current, at + 1)) {
+    const after = body[at + current.length];
+    if ((at === 0 || body[at - 1] === '\n') && (after === undefined || after === '\n' || after === '\r')) return true;
+  }
+  return false;
 }
 
 /**
@@ -160,13 +170,17 @@ function planFor(text, now, past) {
   const old = pastBlockIn(body, past, found || null);
   if (old && !(found && old.start < found.end && old.end > found.start)) {
     const all = defaults.sections();
-    if (found) {
-      /* A span AND a plain old copy (a person who clicked an earlier refresh that added only missing headings):
-         the copy goes, and the span takes every section, so a same-heading change reaches this agent too. */
-      const without = body.slice(0, old.start) + body.slice(old.end).replace(/^\r?\n/, '');
+    const without = body.slice(0, old.start) + body.slice(old.end).replace(/^\r?\n/, '');
+    /* The copy is cut and the rest planned again, when the rules also live somewhere else in the file: a span (a
+       person who clicked an earlier refresh that added only missing headings), another earlier copy, or today's
+       own plain copy. One click then leaves one copy of the current rules. */
+    if (found || pastBlockIn(without, past) || hasPlainCurrent(without)) {
       const plan = planFor(without, now, past);
-      if (plan.state === 'refresh') return { ...plan, replacing: true };
-      if (plan.state === 'current') return { state: 'refresh', replacing: true, sections: [], spanNext: '', fileNext: without, hash: hashOf(without) };
+      if (plan.state === 'refresh') return { ...plan, replacing: true, hash: hashOf(plan.fileNext) };
+      if (plan.state === 'current') {
+        const kept = all.filter((s) => without.includes(s.heading));
+        return { state: 'refresh', replacing: true, sections: kept, spanNext: '', fileNext: without, hash: hashOf(without) };
+      }
       return plan;
     }
     /* No span: the span takes the copy's place. A heading the person also carries outside it is theirs and is
