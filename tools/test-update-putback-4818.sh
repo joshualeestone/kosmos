@@ -133,6 +133,35 @@ run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
 die "the download failed"'
 if answers "$P" && [ ! -e "$H/board.stopped" ]; then pass "a failure through die() puts the board back"; else fail "a failure through die() left the board off"; fi
 
+# 3d. Review 2: a plain failing command under set -e (no die) puts the board back.
+P=$(free_port); H=$(home sete); export PORT=$P
+"$H/bin/kosmos" start
+run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
+'"$PAUSED"'
+false
+echo "not reached"'
+if answers "$P"; then pass "a set -e failure (a command that fails, no die) puts the board back"; else fail "a set -e failure left the board off"; fi
+
+# 3e. Review 2: the window is closed during the download (a hang-up), or the run is sent TERM: the board is put back.
+for sig in HUP TERM; do
+  P=$(free_port); H=$(home "sig$sig"); export PORT=$P
+  "$H/bin/kosmos" start
+  run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
+'"$PAUSED"'
+echo $$ > "$KOSMOS_HOME/paused"
+sleep 20' &
+  rp=$!
+  i=0; while [ $i -lt 100 ] && [ ! -e "$H/paused" ]; do sleep 0.1; i=$((i + 1)); done
+  [ -s "$H/paused" ] || fail "the $sig arm never reached the pause, so it proves nothing"
+  # As a closed window or a TERM to the job does: the signal reaches the shell AND what it is running (its children,
+  # by exact pid), not the shell alone, which would wait for its foreground command first.
+  sp="$(cat "$H/paused")"; kids="$(pgrep -P "$sp" 2>/dev/null | tr '\n' ' ')"
+  sent=$(date +%s); kill -s "$sig" "$sp" $kids 2>/dev/null; wait "$rp" 2>/dev/null
+  [ $(( $(date +%s) - sent )) -lt 10 ] || fail "the $sig did not end the run (it ran out its sleep), so it proves nothing"
+  i=0; while [ $i -lt 50 ] && ! answers "$P"; do sleep 0.1; i=$((i + 1)); done
+  if answers "$P"; then pass "a $sig during the update puts the board back"; else fail "a $sig during the update left the board off"; fi
+done
+
 # 3c. Review 1: the person switches this computer to connect elsewhere DURING the run (the mode file says so), and
 #     the run then fails: the board stays off.
 P=$(free_port); H=$(home connect); export PORT=$P

@@ -2706,7 +2706,8 @@ _kosmos_put_board_back() {
   [ "$_kosmos_paused_board" = yes ] || return 0
   _kosmos_paused_board=no
   # Review 1: the mode is read AGAIN. A person who set this computer to connect elsewhere during the run (the app's
-  # first screen) chose to keep its board off; a failure after that must not start it.
+  # first screen) chose to keep its board off, and a mode file that became unreadable keeps it off too, as the
+  # pause and the normal start already treat one; a failure after that must not start it.
   _kosmos_board_decide 2>/dev/null || true
   [ "${_kosmos_board_off:-no}" = yes ] && return 0
   rm -f "$KOSMOS_HOME/board.stopped" 2>/dev/null || true
@@ -2725,6 +2726,9 @@ _kosmos_on_exit() {
   if [ "$_kosmos_exit_rc" -ne 0 ]; then _kosmos_put_board_back || true; fi
 }
 trap '_kosmos_on_exit' EXIT
+# Review 2: a hang-up (the Terminal window closed during the download) or a TERM ran the EXIT trap with status 0, so the
+# put-back was skipped and the board stayed off. Those signals now end the run as a failure. (Ctrl-C already did.)
+trap 'exit 1' HUP TERM
 # END #4818 put-back
 
 _kosmos_board_decide
