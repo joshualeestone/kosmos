@@ -105,6 +105,14 @@ remote-unreadable-4308, engine.reachable, fixture-discipline) pass.
 - Nit taken: the flag's own comment names every writer. Left: two stamp writes in one flow (correct);
   the off-at-once test also passes through the set-back stamp (the flag has its own red tests).
 
+## Review 10 (opus, blind): 0 blockers, 1 warning (duplicate: the shipping order, held by sequencing), 5 nits
+- Nits taken: a test for switching ON at once (red if askAfterFlip stops asking with ttl 0); every #4743 test
+  starts with resetForTests; cancelledAfter's always-set flag is stated as deliberate; rebased on main
+  (#4640, a new tunnel state; no overlap).
+- Stated: switching on asks at once, right after ensure() starts the tunnel, so the report then says
+  "starting" and replaces the diagnosis the coordinator kept while the switch was off; the next on-cadence
+  report (60 s to 10 min) replaces it.
+
 ## Weakest premise
 That one bit about remote access is not something #4731 meant to keep back. #4731's comment says "no
 remote report" while off; this sends no report FIELDS, only the switch's state, which the computer's owner

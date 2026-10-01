@@ -319,6 +319,7 @@ test('#4731, #4743: with the switch OFF an enrolled computer is still heard from
 });
 
 test('#4743: with the switch ON and no report built, the body says exactly that remote access is on', async () => {
+  remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
   const rr = require('../engine/remote-report');
   const realBuild = rr.build;
   rr.build = () => { throw new Error('could not build'); };
@@ -332,6 +333,7 @@ test('#4743: with the switch ON and no report built, the body says exactly that 
 });
 
 test('#4743: switching remote access off tells the coordinator at once, not at the next cadence (up to 12 h)', async () => {
+  remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
   enroll(true);
   // Fresh on this cadence: without the flip hook nothing would be due for a long while.
   const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
@@ -351,7 +353,30 @@ test('#4743: switching remote access off tells the coordinator at once, not at t
   }
 });
 
+test('#4743: switching remote access ON tells the coordinator at once too (it clears the off mark)', async () => {
+  remote.resetForTests();
+  enroll(false);
+  const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+  fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(cur, { standing_at: Date.now() })) + '\n');
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    assert.equal(remote.setOn(true).ok, true);
+    await waitForFakeCalls(fake, 1, 5000);
+    const on = fake.calls().find((c) => fake.flag(c, '--path') === '/v1/mac/standing');
+    assert.ok(on, 'switching on, on a fresh stamp, sent no standing question');
+    assert.equal(JSON.parse(on.stdin).remote.on, true);
+  } finally {
+    // Switching back off is itself a flip that asks: wait for that ask, so it does not land in the next test.
+    const before = fake.calls().length;
+    remote.setOn(false);
+    await waitForFakeCalls(fake, before + 1, 5000).catch(() => {});
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+  }
+});
+
 test('#4743: a flip while a refresh is already out is told when that refresh ends', async () => {
+  remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
   enroll(true);
   let release;
   const slow = () => new Promise((r) => { release = () => r('good'); });
@@ -377,6 +402,7 @@ test('#4743: a flip while a refresh is already out is told when that refresh end
 });
 
 test('#4743: signing in with the switch off makes the next standing poll tell the coordinator, whatever its stamp (turnOnAfterSignin)', async () => {
+  remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
   enroll(false);
   const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
   fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(cur, { standing_at: Date.now() })) + '\n');
@@ -405,6 +431,7 @@ test('#4743: signing in with the switch off makes the next standing poll tell th
 });
 
 test('#4743: saving the switch at the value it already has sends nothing', async () => {
+  remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
   enroll(false);
   const cur = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
   fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(cur, { standing_at: Date.now() })) + '\n');
@@ -420,6 +447,7 @@ test('#4743: saving the switch at the value it already has sends nothing', async
 });
 
 test('#4743: a flip whose first ask was stopped is told by the next refresh, even after another writer stamped the standing fresh', async () => {
+  remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
   // The flip is made while the board is not enrolled (as during a sign-in), so its own ask stops early.
   enroll(true);
   unenroll();
@@ -450,6 +478,7 @@ test('#4743: a flip whose first ask was stopped is told by the next refresh, eve
 });
 
 test('#4743: a flip told to a board that cannot ask yet is not dropped when the refresh that was out ends', async () => {
+  remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
   enroll(true);
   let release;
   const slow = () => new Promise((r) => { release = () => r('good'); });

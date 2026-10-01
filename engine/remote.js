@@ -1722,7 +1722,9 @@ function cancelledAfter(result, before, addressBefore, startedAt) {
   // that was on, on.
   if ((result && result.ok) || (enrolled() && macIdHere() !== before)) {
     try { write({ on: false }, { repair: true }); } catch { /* status says what happened */ }
-    flipPending = true;   // kosmos#4743: told at the next standing poll, not here (inside the sign-in, like turnOnAfterSignin)
+    // kosmos#4743: told at the next standing poll, not here (inside the sign-in, like turnOnAfterSignin).
+    // Set even if the switch was already off: one extra off check-in, which also tells a new identity.
+    flipPending = true;
     stopChild();
     // Another identity now: the previous account's cached standing must not
     // carry over to it (the fed gate reads it).
