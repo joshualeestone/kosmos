@@ -436,6 +436,19 @@ const SCREENS = [
     await at(page, '?tab=tasks');
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
   } },
+  /* #4470: an agent's page in the new look, for the side by side with 'agent-chat' and 'agent-profile'. */
+  { name: 'nl-agent-chat', owner: 'Mona Lisa', go: async (page, data) => {
+    await newLook(page);
+    await at(page, '?agent=' + data.chatAgent);
+    await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
+    await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
+  } },
+  { name: 'nl-agent-profile', owner: 'Mona Lisa', go: async (page, data) => {
+    await newLook(page);
+    await at(page, '?tab=detail&agent=' + data.chatAgent);
+    await page.locator('#d-nav button[data-go="profile"]').first().click({ timeout: 5000 });
+    await page.waitForSelector('#d-sec-profile', { state: 'visible', timeout: 5000 });
+  } },
 ];
 
 /* ------------------------------------------------------------------ args */
