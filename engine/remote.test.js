@@ -2375,7 +2375,8 @@ test('#4737: a computer waiting to be allowed is set up and a sign-in on it does
   fs.rmSync(RECORD, { force: true });
   await remote.signinStart('her@example.com');
   await remote.signinVerify('her@example.com', '111111');
-  await remote.signinRegister('hers');
+  // A DIFFERENT name: the same name takes the #1010 "already set up" path and never reaches clearHalfIdentity() (review 1).
+  await remote.signinRegister('hers-too');
   assert.ok(!recorded().some((c) => c[0] === 'retire'), 'a computer waiting to be allowed was retired as half registered');
   await remote.forget();
 });
@@ -2386,7 +2387,7 @@ test('#4737 control: the same folder without the held mark is half registered an
   fs.rmSync(RECORD, { force: true });
   await remote.signinStart('her@example.com');
   await remote.signinVerify('her@example.com', '111111');
-  await remote.signinRegister('hers');
+  await remote.signinRegister('hers-too');
   assert.ok(recorded().some((c) => c[0] === 'retire'), 'a register cut off before its certificate was not retired: the control cannot tell the two apart');
   await remote.forget();
 });

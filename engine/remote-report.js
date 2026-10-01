@@ -100,6 +100,9 @@ const CODES = [
   ['cert-renewal', /^certificate renewal is due/i],
   // This Mac's own certificate or key (session.rs local TLS setup): unreadable or unparseable
   // tls.crt / tls.key, a plausible failure after an update.
+  // kosmos#4737: an allowed computer still fetching its FIRST certificate (session.rs, when there is none on disk;
+  // includes the tunnel's spacing between asks). Before local-cert-unreadable: that one is a broken certificate.
+  ['cert-first-fetch', /^this computer has no certificate yet/i],
   ['local-cert-unreadable', /^(opening certificate|parsing certificate|opening private key|parsing private key|no private key found|building local TLS config)/i],
   // The tunnel's dial of the RELAY (session.rs dial_relay): kept apart from the coordinator,
   // which is the whole question when a Mac never gets a ticket.

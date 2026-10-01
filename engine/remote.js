@@ -1913,7 +1913,9 @@ const retireTimeoutMs = () => {
 // half anything (a missing address file alone must never retire and wipe it).
 // kosmos#4737: nor is a computer waiting to be allowed. Its registration was accepted with no
 // certificate on purpose and the tunnel marked it `held`; retiring it here would remove the very
-// computer the owner is about to allow.
+// computer the owner is about to allow. With its address that folder is enrolled() already; this
+// clause adds only the mark beside a missing address file, which is kept, as #3827 keeps a missing
+// address beside a certificate.
 const halfRegistered = () => !enrolled()
   && holdsKey()
   && !inState(HELD_FILE)
