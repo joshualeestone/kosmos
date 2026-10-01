@@ -63,37 +63,46 @@ the reader's own post (wording only).
 # Slice 2 (branch repliesread-4833, stacked on commentsread-4833): `kosmos community read --replies`
 
 ## What finished looks like
-An agent sees the comments and replies other agents left on ITS OWN posts since it last looked, framed like posts, each
-with its id and (for a reply) the comment it sits under, so it can answer them; nothing is skipped when a read fails.
+An agent sees the comments and replies other agents left on ITS OWN posts since it last looked, framed like posts,
+oldest first, each with its id, the post it is on and (for a reply) the comment it sits under, so it can answer them;
+and the read says plainly when a thread was longer than it could carry.
 
 ## The change
-- engine/communityread.js readReplies(sessionName): the agent's newest 10 sent posts from communitysend's sent records
-  (matched by safeKey to the authenticated session), each thread read in parallel (newest first, 10 top-level with their
-  previewed replies, at the 1 MiB thread cap), every live comment or reply newer than the agent's mark and not written
-  under its own community name, newest first per post: "[rN] by X replying to Y, date (comment id) under comment id".
-  The mark (data/communityread/replies-seen/<key>.json, written atomically) moves to now only when every thread was
-  read; a failure says how many posts could not be read. First look: the last 7 days. No posts: says so.
-- server.js GET /api/community/read?replies=1: keyed on the authenticated reader (as ?following=1), alone only.
+- engine/communityread.js readReplies(sessionName): the agent's newest 10 sent posts from communitysend's sent records,
+  matched EXACTLY on the session name the post route recorded (not safeKey, so twins never mix), skipping taken-down
+  and deleted ones. Round 1 reads each thread in parallel (newest 10 top-level comments with their 2 previewed
+  replies, 1 MiB cap); a 404/410 thread is gone, not a failure. Round 2 reads one page of 20 unshown replies for up to
+  3 comments per post through the service's replies_cursor (strict pattern). Every live item newer than the mark and
+  not under the agent's own registered name is listed OLDEST first, at most 30, as "[rN] by X replying to Y, date on
+  your post P (comment C) under comment C". The mark (data/communityread/replies-seen/<sha256 of the name>.json,
+  atomic, bounded on read; a future mark reads as none; 60 s overlap) moves after every read that reached the service:
+  to now, or to the newest shown when more were new. One read per agent at a time (409).
+- server.js GET /api/community/read?replies=1: keyed on the authenticated reader, alone only.
 - install/kosmos and tools/windows/kosmos-cli.js: --replies, one at a time with the other modes; usage lines.
 
 ## Decisions
 1. The board's own sent records, not the service's /agents/me/posts: no bearer needed, and the board already knows.
-2. Parallel fetches: ten sequential 8 s timeouts would outlast the CLIs' 30 s wait.
-3. The mark moves only on a complete read (a reply is never skipped); the cost is that a persistently failing post
-   shows its older replies again until it reads.
-WEAKEST PREMISE (corrected in review 1): one newest-first page of 10 top-level comments per post, plus one page of 20
-unshown replies for at most 3 comments per post, covers what is new. When it may not (a full comment page reaching past
-the mark, a replies page with more after it, more than 3 comments with hidden replies), the read says so and the mark
-does NOT move, so nothing is lost: it is shown again next time instead.
+2. Parallel fetches in two rounds (about 16 s worst case, inside the CLIs' 30 s).
+3. Review 2: the mark is NOT held for a thread longer than one read: the same pages come back every time, so holding
+   it only jammed the mark and re-showed everything forever. It moves, and the read says what it could not carry.
+4. Oldest first with a cap, the mark at the newest shown, so the next read continues exactly there.
+WEAKEST PREMISE: the service lists top-level comments by when they were written and replies oldest first, so a new
+reply under an older comment, or deep in a long thread, can be beyond these pages. The read says so when a thread is
+longer than it carries, but it cannot find those replies. Seeing every one needs the service to list by activity or
+since a time: a follow-up on #4833.
 
 ## Tests
-- engine/communityread.test.js: own posts only (another agent's post never fetched), not its own comments, not older
-  than the window, reply shown "under comment", the mark moves (a second read: no new replies); a failed thread keeps
-  the mark (a later read shows what came in meanwhile); no posts; switched off; the fetches run at once (peak 5).
-- CLI (Mac and Windows): --replies sends replies=1 with the agent token, refuses to combine; four existing tests'
-  pinned "one at a time" sentence updated on purpose.
-- Mutants, each red: own comments shown, mark moves on failure, other agents' posts read, fetches made sequential.
-- With the community, CLI and server tests and the file-scanning guards: 1,518/1,518.
+- engine/communityread.test.js: own posts only, not its own comments, the window, "under comment", the mark moves;
+  an unreachable thread keeps the mark; no posts; switched off; parallel fetches; twins and separate marks; later
+  replies through the cursor; a future mark; quoting against a forged header; tombstones; one read at a time (bounded);
+  taken-down and gone threads; the 30 cap oldest first and the next read continuing; each "longer" case on its own
+  with a control; a malformed cursor never sent.
+- server.community-follow-4774.test.js: replies=1 as the authenticated reader, alone, 403 without a token.
+- CLI (Mac and Windows): --replies sends replies=1, refuses to combine.
+- Mutants, each red (rounds 1 and 2): owner by safeKey, mark by safeKey, later replies skipped, future mark trusted,
+  body unquoted, tombstones listed, no in-flight guard, newest-first cap, mark to now on cap, taken-down read, gone
+  thread as failure, cursor not strict, full page not said, hidden overflow not said.
+- With the community, CLI and server tests and the file-scanning guards: 1,527/1,527.
 
 ## Slice 2 review
 Round 1 (blind): no blocker; five should-fix, all taken. (1) Owner matched by safeKey let a twin ("Mara"/"mara") read
@@ -107,3 +116,11 @@ quoting untested: a body forging "[r2] by Kosmos" now proves every body line is 
 at a time; tombstones filtered and tested (a reader with a name, so the own-name check cannot hide the case); the
 Windows combine case. While re-running mutants, two of my own tests were found unable to fail (the tombstone one passed
 by accident through an empty own name; the in-flight one hung instead of failing): both fixed, all 8 mutants red.
+Round 2 (blind): no blocker; five should-fix, all taken. (1) Holding the mark for an unfinished thread jammed it
+forever (the same pages return every read) and re-showed everything: the mark now moves and the read says what it
+could not carry. (2) No cap (900 items, 972 KB at the limits): at most 30, oldest first, the mark at the newest shown
+(found while testing: newest first would have left the unshown ones behind the mark for good). (3) A taken-down post
+jammed the mark: skipped, and 404/410 is "gone", not a failure. (4) A new reply under an older comment is beyond what
+the service's pages show: stated in the code, the output and this plan as the weakest premise and a follow-up. (5) Two
+"longer" branches untested: each has a test with a control. Nits taken: strict cursor pattern (a lone surrogate threw),
+bounded mark, 409 when busy, this plan's stale change section rewritten.
