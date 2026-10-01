@@ -6382,6 +6382,7 @@ const server = http.createServer(async (req, res) => {
       currentVersion: st.currentVersion,
       declined: st.declined === true,
       sections: (st.sections || []).map((s) => s.heading),
+      replacing: st.replacing === true,   // #4890: the click replaces Kosmos's own older, unedited copy
       span: st.spanNext || null,
       hash: st.hash || null,
     });

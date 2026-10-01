@@ -2387,8 +2387,13 @@ test('custom instructions are written verbatim with a trailing newline, and the 
   const defaults = require('./defaults');
   assert.ok(without.startsWith(mine + '\n'), 'the person\'s own words were not written verbatim and first');
   const rest = without.slice((mine + '\n').length);
-  assert.equal(rest.trim(), defaults.block().trim(),
+  // #4890: the rules are born inside the managed span, so nothing but that span follows the person's words.
+  const doctrine = require('./doctrine');
+  const span = projects.findBlock(rest, doctrine.START, doctrine.END);
+  assert.ok(span && !span.ambiguous, 'the working rules were not written inside the managed span at birth');
+  assert.equal(projects.removeBlock(rest, doctrine.START, doctrine.END).trim(), '',
     'something other than the operating defaults, under their own heading, followed the person\'s words');
+  assert.ok(rest.slice(span.start, span.end).includes('\n' + defaults.block() + '\n'), 'the span does not hold the current rules whole');
   assert.ok(!text.includes('project manager'),
     'the role template leaked into instructions the person replaced');
 });
@@ -2527,7 +2532,10 @@ test('a role-made boot file is nowhere near the size its reader refuses', () => 
   assert.ok(!text.includes(SANDBOX) && !text.includes(repo) && !text.includes(os.homedir()),
     'the boot file embeds another machine-specific path; add it to the swap above so the canary stays path-independent');
   const measured = Buffer.byteLength(text, 'utf8');
-  assert.ok(measured < instructions.MAX_BYTES / 6,
+  /* Raised from / 6 to / 5 on 2026-10-01 (kosmos#4873): the new section "Your name is already on your message" (about
+     280 bytes, intended new text) took a pm boot file from under 43,690 to 43,938 bytes of text. Still about 6x under
+     the real cap (262,144 / 43,938), so the fits-check stays unreachable; this line keeps flagging growth early. */
+  assert.ok(measured < instructions.MAX_BYTES / 5,
     'a role-made boot file has grown toward the cap; the fits-check may now be reachable and testable ('
     + measured + ' bytes of text, ' + bytes + ' as written on this machine)');
 });
@@ -6191,16 +6199,16 @@ test('#1672: when the working-rules block cannot be added, creation SAYS SO and 
    * it something is the worse failure, and that posture is deliberate. What
    * changes is only that the loss is now named.
    *
-   * 📌 A code-level break is already caught: making `appendTo` throw reds 6 of
-   * this file's other tests. The case this step exists for is the DEPLOYMENT one,
+   * 📌 A code-level break is already caught: making `doctrine.atBirth` throw reds
+   * 7 of this file's other tests (8 with this one; measured 2026-10-01, #4890). The case this step exists for is the DEPLOYMENT one,
    * a partially synced install where the shipped code is fine and the file on
    * disk is not, which no test can see.
    */
   recorder();
   create.setDryRun(false);
-  const defaults = require('./defaults');
-  const orig = defaults.appendTo;
-  defaults.appendTo = () => { throw new Error('#1672 simulated: defaults unavailable'); };
+  const doctrine = require('./doctrine');   // #4890: birth writes the rules through doctrine.atBirth
+  const orig = doctrine.atBirth;
+  doctrine.atBirth = () => { throw new Error('#1672 simulated: defaults unavailable'); };
   try {
     const r = create.createAgent({ ...BINS, name: 'Pete Defaults', role: 'pm' });
     assert.equal(r.outcome, create.OUTCOME.CREATED,
@@ -6209,7 +6217,7 @@ test('#1672: when the working-rules block cannot be added, creation SAYS SO and 
     assert.equal(said, true,
       'creation must NAME the loss: without this the person is told it worked and the agent cannot reply');
   } finally {
-    defaults.appendTo = orig;
+    doctrine.atBirth = orig;
   }
 });
 
