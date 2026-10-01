@@ -42,6 +42,9 @@ test('#4873 CONTROLS: another name, a name later on, a bare name and a longer wo
   assert.equal(drop('Dario: hi', []), 'Dario: hi', 'no names, no change');
   assert.equal(drop('Dario-style answers: hi', who), 'Dario-style answers: hi', 'a hyphenated word starting with the name was cut');
   assert.equal(drop('dario-claude did it', ['Dario', 'dario-claude']), 'dario-claude did it', 'the machine name with no separator was cut');
+  assert.equal(drop('Dario -- hello', who), 'Dario -- hello', 'a doubled dash left a stray list marker');
+  assert.equal(drop('Dario -5 degrees today', who), 'Dario -5 degrees today', 'a minus sign was cut');
+  assert.equal(drop('Dario:\n    code line', who), '    code line', 'the first line lost its indent');
   assert.equal(drop('Da.io: hi', ['Da.io']), 'hi', 'a name with a regex character is matched literally');
   assert.equal(drop('Daxio: hi', ['Da.io']), 'Daxio: hi', 'a regex character in a name matched something else');
 });

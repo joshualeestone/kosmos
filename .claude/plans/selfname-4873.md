@@ -40,3 +40,8 @@ writing a nickname ("D: ...") keeps it.
   so the file holds none); the room tries the header's own name (pjNameOf, which also names a former member) first.
   NOTED NIT: an external post's own leading name is dropped too (its header shows that name; "person's post" in the plan
   means the operator's).
+- Round 2 (sonnet): FIXED W: a dash separator needs a space on both sides, so "Dario -- hello" and "Dario -5 degrees"
+  are left whole (controls added). FIXED W: only blank lines are removed after the drop, so an indented first line keeps
+  its indent. DEFERRED W: the Ask Kosmos guide panel (.asp-m) is Kosmos's own assistant drawn as plain text, not a named
+  agent in a room or a DM, so it is out of this card's scope. Left NITs: pjMentionKeys built twice per post; the wiring
+  pins are source-text pins; "above every message" also covers grouped posts (the header above them).
