@@ -4876,9 +4876,10 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated.fold-a #alist .pj-empty { display: none; }
   html[data-layout="consolidated"] body.consolidated.fold-a .lrow { grid-template-columns: 34px; justify-content: center; padding: 4px 0; border: 0; background: none; }
   /* #4872 (Josh, 0.7.15): folded, a row fills the 48px strip edge to edge, so the bubble's usual hang past the row's
-     corner (right/top -6px, #3339) put it past the strip's edge, where #alist cut it off. Folded only, it sits just
-     inside the corner, over the avatar's top-right; open, it keeps its #3339 place. render-shell-noscroll-4872 measures both. */
-  html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .dmbadge { right: 1px; top: -2px; }
+     corner (right/top -6px, #3339) put it past the strip's edge, where #alist cut it off. Folded only, a compact bubble
+     sits in the row's top-right corner, inside the strip and above the needs-you triangle on the face; open, it keeps
+     its #3339 place. render-shell-noscroll-4872 measures all three. */
+  html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .dmbadge { right: 0; top: -4px; font-size: .625rem; line-height: 12px; padding: 0 .3rem; }
   /* #3187-followup (Josh 6.72): when the rail is FOLDED to its 48px strip, keep the status
      colour EDGE-TO-EDGE behind a working (green) or needs-you (red) agent, so you can see
      them light up at a glance; idle/offline get NO wash (the rule above's `background: none`
