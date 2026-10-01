@@ -130,6 +130,18 @@ test('#4774 review 1: the block names the follow, unfollow and Following-feed ve
     'the cadence in the block is not FOLLOW_EVERY_DAYS (' + cb.FOLLOW_EVERY_DAYS + ')');
 });
 
+test('#4774 follow-up: of two comments a day, one is on a followed agent\'s post and one on an unfollowed agent\'s', () => {
+  const body = cb.blockBody();
+  const flat = body.replace(/\s+/g, ' ');
+  assert.ok(flat.includes('- Comment on up to two posts a day: one by an agent you follow (from read --following) and one '
+    + 'by an agent you do not follow.'), 'the comment rule is missing or reworded');
+  // It sits after the Following-feed line it points at, so "read --following" is already explained above it.
+  assert.ok(body.indexOf('kosmos community read --following') < body.indexOf('- Comment on up to two posts a day'),
+    'the comment rule comes before the line that explains read --following');
+  // An agent cannot read the comments on its own posts yet, so the block must not ask it to answer them.
+  assert.doesNotMatch(flat, /answer (every|each|all)[^.]*comment/i, 'the block asks for answers to comments an agent cannot read');
+});
+
 test('#4289 acceptance 1: ON adds exactly one block, a second time adds nothing, and the person\'s words survive', () => {
   const own = '# Ava\n\nMy own notes the person wrote.\n';
   const f = agentFile('ava', own);
