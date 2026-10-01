@@ -41,8 +41,10 @@ The app (this branch):
 ## Tests (each with a control that can go red)
 - enrolment.test.js: held + id + address = set up; the same without `held` = not set up (control);
   `held` without an address = not set up (the marker never stands in for the identity).
-- remote.test.js: `halfRegistered()` false with `held`, true without it (control, today's behaviour);
-  `enrolled()` true with `held`.
+- remote.test.js: `enrolled()` true with `held`; a sign-in under another name retires nothing with `held` and
+  retires the same folder without it (control). CORRECTED after review 2: those arms have the address, so
+  `enrolled()` decides and `halfRegistered()`'s held clause is never read; the clause has its own arms (held, no
+  address file: not retired; the same without `held`: retired).
 - remote-report.test.js: a waiting folder reports no missing files and is not `not-enrolled`; the same
   folder without `held` still says `missing: tls.crt, tls.key` (control).
 
@@ -58,3 +60,9 @@ The app (this branch):
 That a computer the other computer DENIES needs nothing here. It keeps `held` and stays "set up";
 #4640 shows the final refusal, and Forget (retire and wipe) is how the person starts over. If the
 coordinator's final refusal should clear the folder by itself, that is a follow-up, not this branch.
+
+## Review 2 (blind, both halves): CONVERGED, 4 NITs, all taken
+- N1: an in-flight first fetch racing a rename can leave the old name's certificate; same fix as #4876, added there.
+- N2: halfRegistered()'s held clause had no test that could fail; arms added (above). The plan overstated it.
+- N3 (relay): the "no certificate yet" sentence is a const with a literal test, as HELD_FILE.
+- N4 (relay): the mark is removed right after tls.crt is written, not after ca.crt.

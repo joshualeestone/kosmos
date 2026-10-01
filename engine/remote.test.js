@@ -2357,7 +2357,7 @@ test('#3827: a set-up Mac missing only its address file is not treated as half r
 /* kosmos#4737: a computer registered while it waits for the older computer's Allow holds its identity and the
    tunnel's `held` mark, and no certificate yet. It is set up, and a sign-in on it never retires it. The
    control is the same folder without the mark: a register cut off before its certificate, which IS retired. */
-async function heldShaped(withMark) {
+async function heldShaped(withMark, withoutAddress = false) {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   await remote.signinStart('her@example.com');
   await remote.signinVerify('her@example.com', '111111');
@@ -2365,7 +2365,8 @@ async function heldShaped(withMark) {
   const dir = process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote');
   for (const f of ['tls.crt', 'tls.key']) fs.rmSync(nodePath.join(dir, f), { force: true });
   if (withMark) fs.writeFileSync(nodePath.join(dir, 'held'), 'hers\n');
-  assert.ok(fs.existsSync(nodePath.join(dir, 'mac_id')) && fs.existsSync(nodePath.join(dir, 'address')), 'fixture: the identity is there');
+  if (withoutAddress) fs.rmSync(nodePath.join(dir, 'address'), { force: true });
+  assert.ok(fs.existsSync(nodePath.join(dir, 'mac_id')), 'fixture: the identity is there');
   return dir;
 }
 
@@ -2378,6 +2379,30 @@ test('#4737: a computer waiting to be allowed is set up and a sign-in on it does
   // A DIFFERENT name: the same name takes the #1010 "already set up" path and never reaches clearHalfIdentity() (review 1).
   await remote.signinRegister('hers-too');
   assert.ok(!recorded().some((c) => c[0] === 'retire'), 'a computer waiting to be allowed was retired as half registered');
+  await remote.forget();
+});
+
+/* kosmos#4737 review 2: the one shape halfRegistered()'s own held clause decides. With its address the folder is enrolled()
+   and the clause is never read; without it, the mark alone keeps the folder from being retired (as #3827 keeps a missing
+   address beside a certificate). The control is the same folder without the mark, which IS retired. */
+test('#4737: a waiting computer missing only its address file is not retired', async () => {
+  await heldShaped(true, true);
+  assert.equal(remote.enrolled(), false, 'fixture: without its address the folder is not enrolled, so the clause is what decides');
+  fs.rmSync(RECORD, { force: true });
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  await remote.signinRegister('hers-too');
+  assert.ok(!recorded().some((c) => c[0] === 'retire'), 'a waiting computer missing its address file was retired');
+  await remote.forget();
+});
+
+test('#4737 control: the same folder, no address and no mark, is retired', async () => {
+  await heldShaped(false, true);
+  fs.rmSync(RECORD, { force: true });
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  await remote.signinRegister('hers-too');
+  assert.ok(recorded().some((c) => c[0] === 'retire'), 'control: a key and id with no certificate, address or mark was not retired');
   await remote.forget();
 });
 
