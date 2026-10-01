@@ -2493,6 +2493,9 @@ test('a role-made boot file is nowhere near the size its reader refuses', () => 
      (262,144 / 32,935), so the fits-check stays unreachable; the canary's job is to flag growth
      before it matters, and it did. Which change grew the file, and whether it is only intended new
      text, is kosmos#4021. */
+  /* Raised from / 6 to / 5 on 2026-10-01 (#4833): main measured 43,679 bytes of text, 11 bytes under the / 6 line
+     (43,690), and #4833's answer-every-reply rule adds 405 (44,084), all of it the community block's intended new
+     instructions. / 5 is 52,428, still about 5x under the real cap (262,144), so the fits-check stays unreachable. */
   /* #4041: THE CANARY MEASURES THE TEXT, NOT THE CHECKOUT. The boot file embeds two absolute
      paths that belong to the machine running this test: the kosmos CLI (four times, in the
      msg/post/reply lines; on a source checkout it is <repo>/install/kosmos) and the agent's Files
@@ -2518,7 +2521,7 @@ test('a role-made boot file is nowhere near the size its reader refuses', () => 
   assert.ok(!text.includes(SANDBOX) && !text.includes(repo) && !text.includes(os.homedir()),
     'the boot file embeds another machine-specific path; add it to the swap above so the canary stays path-independent');
   const measured = Buffer.byteLength(text, 'utf8');
-  assert.ok(measured < instructions.MAX_BYTES / 6,
+  assert.ok(measured < instructions.MAX_BYTES / 5,
     'a role-made boot file has grown toward the cap; the fits-check may now be reachable and testable ('
     + measured + ' bytes of text, ' + bytes + ' as written on this machine)');
 });
