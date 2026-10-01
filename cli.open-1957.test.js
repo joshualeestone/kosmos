@@ -22,6 +22,10 @@ const http = require('node:http');
 const fs = require('node:fs');
 const os = require('node:os');
 const { execFile } = require('node:child_process');
+/* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
+   travels to this test's stub board (or into anything the test records). */
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-open-1957-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
@@ -62,7 +66,7 @@ test('#1957: `kosmos open` announces the dashboard and exits 0 when the browser 
   const { server, port } = await fakeBoard();
   const { bin, marker, dir } = stubOpen(0);
   try {
-    const r = await runOpen({ ...process.env, KOSMOS_PORT: String(port), KOSMOS_OPEN_BIN: bin });
+    const r = await runOpen({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), KOSMOS_OPEN_BIN: bin });
     assert.equal(r.code, 0, 'a successful open should exit 0');
     assert.match(r.out, /Opening the dashboard at http:\/\/127\.0\.0\.1:/,
       'it must SAY what it is doing (the #1957 defect was silence)');
@@ -78,7 +82,7 @@ test('#1957: `kosmos open` names the failure and exits non-zero when the browser
   const { server, port } = await fakeBoard();
   const { bin, dir } = stubOpen(3);
   try {
-    const r = await runOpen({ ...process.env, KOSMOS_PORT: String(port), KOSMOS_OPEN_BIN: bin });
+    const r = await runOpen({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), KOSMOS_OPEN_BIN: bin });
     assert.notEqual(r.code, 0, 'a failed open must NOT exit 0 (that is the #1957 defect)');
     assert.match(r.err, /Could not open a browser/, 'it must name the failure');
     assert.match(r.err, /http:\/\/127\.0\.0\.1:/, 'it must give the URL to open manually');
@@ -127,7 +131,7 @@ test('#1979: on an enforcing board, `kosmos open` hands the browser a ?boot=<non
   const { bin, marker, dir } = stubOpen(0);
   const { home } = enforcingHome(TOKEN);
   try {
-    const r = await runOpen({ ...process.env, KOSMOS_PORT: String(port), KOSMOS_OPEN_BIN: bin, KOSMOS_HOME: home });
+    const r = await runOpen({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), KOSMOS_OPEN_BIN: bin, KOSMOS_HOME: home });
     assert.equal(r.code, 0, 'a successful open exits 0');
     const opened = fs.readFileSync(marker, 'utf8');
     assert.match(opened, new RegExp(`\\?boot=${NONCE}(\\s|$)`), 'the opener must be handed ?boot=<nonce>');
@@ -157,7 +161,7 @@ test('#1979: if the nonce mint fails, `kosmos open` falls back to the PLAIN url,
   const { bin, marker, dir } = stubOpen(0);
   const { home } = enforcingHome(TOKEN);
   try {
-    const r = await runOpen({ ...process.env, KOSMOS_PORT: String(server.port), KOSMOS_OPEN_BIN: bin, KOSMOS_HOME: home });
+    const r = await runOpen({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(server.port), KOSMOS_OPEN_BIN: bin, KOSMOS_HOME: home });
     assert.equal(r.code, 0);
     const opened = fs.readFileSync(marker, 'utf8');
     assert.match(opened, /^http:\/\/127\.0\.0\.1:\d+\s*$/m, 'a failed mint falls back to the PLAIN url');
@@ -175,7 +179,7 @@ test('#1957 CONTROL: `kosmos open` is never silent-plus-exit-0, whichever way op
     const { server, port } = await fakeBoard();
     const { bin, dir } = stubOpen(exitCode);
     try {
-      const r = await runOpen({ ...process.env, KOSMOS_PORT: String(port), KOSMOS_OPEN_BIN: bin });
+      const r = await runOpen({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), KOSMOS_OPEN_BIN: bin });
       const silent = r.out.trim() === '' && r.err.trim() === '';
       assert.equal(silent && r.code === 0, false,
         `open exit ${exitCode}: reproduced the silent-exit-0 defect the card is about`);

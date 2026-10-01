@@ -180,7 +180,7 @@ test('a token-only community post is still refused at the gate: the public feed 
   } finally { feedpublish.publishPost = realPublish; }
 });
 
-test('task message and task built pass the gate with only an agent token; close and reopen do not (#4491 slice 3)', async () => {
+test('task message and task built pass the gate with only an agent token; reopen does not (#4491 slice 3; close opened in slice 5)', async () => {
   for (const verb of ['message', 'built']) {
     const p = '/api/project/p4491/task/1/' + verb;
     assert.ok(refusedAtGate(await call('POST', p, { body: {} })), `control: POST ${p} with no credential was not refused`);
@@ -188,7 +188,7 @@ test('task message and task built pass the gate with only an agent token; close 
     const r = await call('POST', p, { headers: { 'x-kosmos-agent-token': agentToken }, body: { text: 'hi' } });
     assert.ok(!refusedAtGate(r), `POST ${p} was refused at the gate with a valid agent token: ${r.code} ${r.text.slice(0, 120)}`);
   }
-  for (const p of ['/api/project/p4491/task/1/close', '/api/project/p4491/task/1/reopen', '/api/project/p4491/task/1/message/x', '/api/project/a/b/task/1/built', '/api/project/p4491/task/1/message/', '/api/project/p4491/task/x/message']) {
+  for (const p of ['/api/project/p4491/task/1/reopen', '/api/project/p4491/task/1/message/x', '/api/project/a/b/task/1/built', '/api/project/p4491/task/1/message/', '/api/project/p4491/task/x/message']) {
     assert.ok(refusedAtGate(await call('POST', p, { headers: { 'x-kosmos-agent-token': agentToken }, body: {} })), `POST ${p} was reachable with only an agent token`);
   }
 });

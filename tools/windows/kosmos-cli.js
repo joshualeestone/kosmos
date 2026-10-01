@@ -31,7 +31,8 @@
  * identity: an agent here has no tmux pane, so it presents the per-run agent token
  * the supervisor put in its environment (`KOSMOS_AGENT_TOKEN`), which the board
  * resolves on /api/reply, /api/report, /api/whoami, /api/msg, /api/post,
- * /api/react and the task message route (server.js `senderFromAgentToken`).
+ * /api/react and the task message, built, add and close routes (server.js
+ * `senderFromAgentToken`).
  *
  * 🔑 NOTHING ABOUT THE BOARD IS RE-DERIVED HERE. The url, the board token and the
  * agent-token check come from engine/kosmos-report-hook.js, the Windows client
@@ -644,7 +645,7 @@ async function taskAdd(ctx, args) {
   const detail = words.join(' ');
   const body = { sentence, detail, from_pane: '' };
   if (parent !== null) body.parent = parent;
-  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/tasks', body, { agent: false });
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/tasks', body);   // #4491 slice 5: with the agent's own token
   if (!r.reached) return ctx.unreachable('add that task');
   if (r.json && r.json.task) { ctx.out('Task added to ' + project + (parent !== null ? ', under task ' + parent : '') + '. See it with: kosmos task list ' + project); return 0; }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that task: ' + ctx.refusedBy(r) + '.'); return 1; }
@@ -658,7 +659,7 @@ async function taskClose(ctx, args) {
   const [project, num] = args;
   if (!project || !num) { ctx.err('Usage: kosmos task close <project-id> <task-number>   (the number is shown by kosmos task list)'); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
-  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/close', undefined, { agent: false });
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/close');   // #4491 slice 5: with the agent's own token
   if (!r.reached) return ctx.unreachable('close that task');
   if (r.json && r.json.task) { ctx.out('Closed task ' + num + ' on ' + project + '.'); return 0; }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not close that task: ' + ctx.refusedBy(r) + '.'); return 1; }
@@ -667,9 +668,10 @@ async function taskClose(ctx, args) {
 }
 
 /* #768, as install/kosmos cmd_task message: records the words on the task and
-   notifies the agents assigned to it. Unlike list/add/close this PRESENTS the
-   agent token: the route names the sender from it and leaves the sender off the
-   notified list, which a Windows agent (no pane) could not otherwise get. */
+   notifies the agents assigned to it. It PRESENTS the agent token (as list, add
+   and close do since #4491): the route names the sender from it and leaves the
+   sender off the notified list, which a Windows agent (no pane) could not
+   otherwise get. */
 async function taskMessage(ctx, args) {
   const [project, num] = args;
   const text = args.slice(2).join(' ');
@@ -715,7 +717,8 @@ async function taskBuilt(ctx, args) {
 
 /* kosmos#3388, as install/kosmos cmd_project create: make a project from one
    command. A board write, so it presents the board token, not the agent token
-   ({agent:false}, like task add/close); from_pane is empty because a Windows
+   ({agent:false}; task add and task close present the agent token since #4491
+   slice 5, this one not yet); from_pane is empty because a Windows
    agent has no tmux pane and the board tags it as a process caller. The success
    answer carries the id ({project,told,id,...}); an answer with neither an error
    nor an id is not a create. */
@@ -1099,6 +1102,26 @@ const VERBS = Object.keys(VERB_HANDLERS);
 const SUBCOMMANDS = Object.fromEntries(Object.entries(SUBCOMMAND_HANDLERS).map(([verb, subs]) => [verb, Object.keys(subs)]));
 
 const BANNER = 'Usage: kosmos <' + VERBS.join('|') + '> ...   (this is the Windows agent command; the board itself runs from Kosmos.exe)';
+/* #4785: one line per command saying what it does; the names alone left people guessing. The words are the Mac's
+   (install/kosmos kosmos_command_list), and cli.help-lines-4785.test.js holds the two to the same sentence for
+   every verb they share, and every verb here to having one. */
+const DESCRIBE = {
+  msg: 'send a message to one agent',
+  reply: 'answer the person in your conversation with them',
+  post: 'post in a project room',
+  react: 'react to a post in a project room',
+  report: 'say what you are doing: working, blocked, waiting on someone',
+  whoami: 'say which agent you are and which account you are on',
+  room: 'read a project room',
+  task: "a project's tasks: list, add, close, message, mark built",
+  project: 'list, show or create projects',
+  agent: 'make an agent, or list the roles one can have',
+  feedback: 'write or read the daily feedback report',
+  community: 'post to or read the Kosmos community',
+  connections: 'list the outside services and which are connected',
+  connect: 'connect an outside service with its token',
+};
+const COMMAND_LIST = VERBS.map((v) => '  kosmos ' + v.padEnd(13) + DESCRIBE[v]).join('\n');
 
 /**
  * Run one command. `io` carries every seam: env, fetch, out/err writers, the
@@ -1119,10 +1142,13 @@ async function main(argv, io) {
     /* `kosmos`, `kosmos --help`, `kosmos help`: the list, and nothing is sent. */
     if (HELP_FLAGS.has(verb) || verb === 'help' || asksForHelp) {
       out(BANNER);
+      out(COMMAND_LIST);
       out('Add --help to any command to see how to use it; --help never sends anything.');
       return 0;
     }
+    if (verb) err('Unknown: kosmos ' + verb);
     err(BANNER);
+    err(COMMAND_LIST);
     return 2;
   }
   /* #1674: BEFORE any handler, so a verb added to the table later is covered
@@ -1238,7 +1264,7 @@ function clause(s) { return s ? String(s).replace(/[.\s]+$/, '') : ''; }
 /* A "maybe" is exit 3, never 1: 1 invites the retry that duplicates the send. */
 function maybe(err, sentence) { err(sentence); return 3; }
 
-module.exports = { main, argvFrom, readStandardInput, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
+module.exports = { main, argvFrom, DESCRIBE, readStandardInput, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
   taskList, // #1307: the task list's rendering (the webhook mark), for cli.task-webhook-1307.test.js
 };
 

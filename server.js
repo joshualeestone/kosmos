@@ -2986,14 +2986,23 @@ function isSetupGuide(name) {
     return setupAssistant.isGuideFolder(guide);
   } catch { return false; }
 }
-/* The setup guide's words with anything shaped like a secret masked (engine/secretmask.js), for every
-   agent-written text that reaches the person: stored replies (keepAgentReply) and the thread as read.
+/* The setup guide's words with anything shaped like a secret masked (engine/secretmask.js).
    Logs that a mask fired and which kinds, never the value. Any other agent's text passes unchanged. */
 function guideMasked(who, text) {
   if (typeof text !== 'string' || !isSetupGuide(who)) return text;
   const out = require('./engine/secretmask').mask(text);
   if (out.fired.length) console.error(`#3769: caught ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
   return out.text;
+}
+
+/* #4733: the masker for the free-text fields of ONE agent's status report. selfreport makes text of whatever it is
+   handed (String(value)), so the setup guide's value that is not a string is made text here first; left as it
+   came, it would be stored unmasked. An absent value, and every value of any other agent, passes as it came.
+   Any other agent's report asks who it is once, not once per field: the report route runs on every hook
+   heartbeat. (The guide's own fields each ask again, inside guideMasked.) */
+function reportFieldMasker(who) {
+  if (!isSetupGuide(who)) return (value) => value;
+  return (value) => (value === null || value === undefined ? value : guideMasked(who, typeof value === 'string' ? value : String(value)));
 }
 
 /* #3769: rows as read, for a route that serves stored rows: any row the setup guide wrote is masked
@@ -3856,19 +3865,20 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    agents, the pickers that add a member to a project included (#3739), so it is on a project only if a process
    holding the board token put it there.
    What the guide then SAYS is masked for secrets on its replies, `kosmos msg`, `kosmos post` and the team purpose
-   (#3769), and NOT on a task message, a task-built note or a status report: that gap is on main already and is
-   #4733, not this slice's to close. */
+   (#3769), and on a task message, a task-built note and a status report (#4733). */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
   'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks']);   // overview: #4581, `kosmos project list`
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
-   `[^/]+` for the project and `\d+` for the task, so no other task verb (close, reopen, parts) matches. Judged before
+   `[^/]+` for the project and `\d+` for the task, so no other task verb (reopen, due, parts) matches (close joined in slice 5). Judged before
    the handler decodes the project, so an encoded `a%2Fb` passes here and then names no project (404). Each
    handler identifies the caller from the token and refuses an agent that is not on the project. */
 /* #4581: the second pattern is `kosmos project show <id>`, a READ: it writes nothing and answers the same for every
    caller, so, unlike the task verbs, it has no caller to identify (as GET /api/projects/overview in the set above). */
 /* #4491 slice 4: the third pattern is `kosmos room <id>`, a READ of one project's room (anchored like the others, so
    /room/reopen and every other room verb do not match). */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built)$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
+/* #4491 slice 5: `kosmos task add` (POST .../tasks) and `kosmos task close` join: both handlers name the caller from
+   the token and refuse an agent that is not on the project. Reopen, due, parts and every other task verb stay out. */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a roster row (`paneless`, on the result or its card): its
@@ -3925,6 +3935,67 @@ function panelessCaller(tokenSender) {
 }
 function projectHasAgent(stored, name, byKey) {
   return Array.isArray(stored.agents) && stored.agents.some((a) => sameAgentName(a, name, byKey));
+}
+/* #4491 slice 5: who a PROCESS caller is, worked out the way task built and task message do (slice 3): the agent
+   token first (header, or `token` in the body; a bad one is refused, never swapped for the pane), else the pane:
+   a roster target, or through messages.resolveSender (the CLI sends tmux's %N). `notDone` finishes the
+   503 sentence. Returns { refusal: [status, sentence] }, or { card, byKey }: card null is the screen or a
+   process nobody could name, which these routes do not refuse; byKey says the name is the token store's key. */
+function processCaller(req, body, roster, viaScreen, notDone) {
+  if (viaScreen) return { card: null, byKey: false };
+  const couldNot = [503, 'we could not check which agents are running, so ' + notDone];
+  if (roster === null && presentedAgentToken(req, body)) return { refusal: couldNot };
+  /* NEVER THROWS. The close handler calls this outside any try, and the board has no last-resort handler for a
+     throw in a request: the caller would get no answer at all (measured in the test: the request hangs), and
+     the process may end. The token resolver can throw today (engine/sendertoken.js keys every roster
+     row's name before it looks at whose row it is, and a name with no letter or digit cannot be keyed: a tmux
+     session named "!!" sorting ahead of the agent's row does it, #4738), so
+     a token that cannot be checked is a 503 with its own sentence (the roster WAS read in that case). */
+  let tokenSender;
+  try { tokenSender = senderFromAgentToken(req, body, roster); }
+  catch { return { refusal: [503, 'we could not check that agent just now, so ' + notDone] }; }
+  if (tokenSender && !tokenSender.ok) return { refusal: [403, tokenSender.because] };
+  /* A pane with a roster nobody could read names nobody, and the write goes on unnamed, as these two routes
+     always did (task message and task built answer 503 there, a slice-3 choice; here it would be a new refusal
+     for a person typing `kosmos task add` in a tmux window). A TOKEN with an unreadable roster is refused above:
+     it cannot be checked, and a credential nobody could check is not waved through. */
+  const fromPane = roster !== null && body && typeof body.from_pane === 'string' ? body.from_pane : '';
+  /* The pane, as task message reads it: a pane that IS a roster target (session:w.p) and is tied to our agent is
+     that card; otherwise ask resolveSender. A lookup that throws names nobody, like one that finds nobody. */
+  let card = tokenSender ? tokenSender.card : null;
+  if (!tokenSender && fromPane) {
+    try {
+      const targetCard = (roster || []).find((c) => c && c.target === fromPane && c.isNamedOurs === true) || null;
+      const byPane = targetCard ? null : messages.resolveSender(fromPane, roster);
+      card = targetCard || (byPane && byPane.ok ? byPane.card : null);
+    } catch { card = null; }
+  }
+  return { card: card || null, byKey: panelessCaller(tokenSender) };
+}
+/* Slice 5: an identified agent writes only in a project it is on, as task message and task built already require.
+   [status, sentence] to refuse with, or null. An unreadable projects list refuses (503): a member that cannot be
+   checked is not let through. A project nobody stored is left to the handler's own 404.
+   ONE exception: a project a PROCESS made that lists nobody (`made.via === 'process'`, `agents: []`). That is
+   what `kosmos project create` makes (it lists nobody, not even its maker, whose name goes in the record of who
+   made it and not on the member list; run by an agent or by the person in a terminal, the record is the same), and every agent's working rules say "once it exists you ... hand it work
+   the same way as any other project" (engine/defaults.js, "Making a project"): refusing the maker its own new
+   project would break the one workflow the product prescribes. A task there can have no assignee (an assignee
+   must be a member). A project made ON THE PAGE is not that, with nobody ticked or emptied later: nobody
+   identified writes in it until someone is on it. An `agents` that is not an array is not "no members".
+   ⚠️ What it cannot tell apart: a process-made project that was staffed and then emptied again looks the same in
+   the store (removing a member keeps `made`), so it is open too. Accepted: nobody is on it to be spoken for.
+   `made` is an advisory record (engine/projects.js says so), used here only to keep something working, never to
+   let a caller into a project that has members. This exception is a bridge: once project create puts its maker
+   on the project (#4491's next slice), it has no reason to exist. */
+function notOnProjectRefusal(who, id, verb, notDone) {
+  if (!who || !who.card) return null;
+  let stored;
+  try { stored = projects.readAll().filter((x) => x && x.id === id); }
+  catch { return [503, 'we could not read the projects, so ' + notDone]; }
+  if (!stored.length) return null;
+  const agentMadeAndEmpty = (x) => Array.isArray(x.agents) && x.agents.length === 0 && !!x.made && x.made.via === 'process';
+  return stored.every((x) => agentMadeAndEmpty(x) || projectHasAgent(x, who.card.sessionName, who.byKey)) ? null
+    : [403, 'that agent is not on this project, so it cannot ' + verb];
 }
 function agentTokenOk(req) {
   const t = req && req.headers && req.headers['x-kosmos-agent-token'];
@@ -13097,15 +13168,23 @@ const server = http.createServer(async (req, res) => {
           const prior = selfreport.read(who);
           wasNeedsYou = !!(prior && prior.found === true && prior.state === 'needs_you');
         } catch { /* unknown reads as a change */ }
+        /* #4733: the setup guide's words are masked in each field selfreport stores as text; any other agent's
+           pass as they came. Before the store caps them, so a cut can never leave part of a key behind. */
+        const said = reportFieldMasker(who);
         const kept = selfreport.record(who, {
           state: body.state,
-          project: typeof body.project === 'string' ? body.project : undefined,
-          because: body.text,
+          project: typeof body.project === 'string' ? said(body.project) : undefined,
+          because: said(body.text),
           waiting: body.waiting,   // #4569 fix 4: selfreport keeps it only on a sane working report
-          final: body.final,       // #4612: a Muse turn's answer; selfreport keeps it only on a sane idle or working report
-          on: body.on,
-          owner: body.owner,
-          until: body.until,
+          /* #4612: a Muse turn's answer; selfreport keeps it only on a sane idle or working report. #4733: its text
+             is the guide's words too, so it is masked like the fields below (anything else is dropped there),
+             after the store's own cleaning: masked first, a key split by a control character would pass, and
+             the cleaning would join it back. */
+          final: body.final && typeof body.final === 'object' && typeof body.final.text === 'string'
+            ? { ...body.final, text: said(selfreport.finalTextClean(body.final.text)) } : body.final,
+          on: said(body.on),
+          owner: said(body.owner),
+          until: said(body.until),
           /* #570: which RUN said it, when the sender came from a launch token.
              The pane arm resolves no instance and leaves this undefined. */
           instance: sender.instance,
@@ -13748,14 +13827,17 @@ const server = http.createServer(async (req, res) => {
                   projectId = pj && pj.id;
                 } catch { projectId = null; }
                 if (projectId) {
-                  /* Carry the poster's existing working CONTENT through unchanged
+                  /* Carry the poster's existing working CONTENT through
                      (because/on/owner/until) -- only the project is being added, and
                      selfreport.read reads those from the single latest line, so
                      omitting them here would silently drop a `working --on/--owner`
-                     note the agent had set. */
+                     note the agent had set. Unchanged, except (#4733) that the setup guide's are
+                     masked, so a report it made before the mask is not written again as it was. */
+                  const carried = reportFieldMasker(who);
                   selfreport.record(who, {
                     state: 'working', project: projectId,
-                    because: current.because, on: current.on, owner: current.owner, until: current.until,
+                    because: carried(current.because), on: carried(current.on),
+                    owner: carried(current.owner), until: carried(current.until),
                     instance: poster.instance, auto: true,
                   });
                 }
@@ -14074,7 +14156,8 @@ const server = http.createServer(async (req, res) => {
         const heard = Date.parse(owes.lastHeardAt || '');
         // Any latest state: the turn that answered is over, and a room turn running now does not unsay it (round 3).
         if (rep && rep.found && rep.final && Number.isFinite(heard) && Date.parse(rep.final.startedAt) >= heard) {
-          owes.unsent = { text: rep.final.text };
+          // #4733: the guide's stored answer is masked as read too (one stored before the write-side mask existed).
+          owes.unsent = { text: guideMasked(name, rep.final.text) };
         }
       } catch { /* no report: the line stays "Nothing back yet" */ }
     }
@@ -16798,9 +16881,13 @@ const server = http.createServer(async (req, res) => {
            offered its pane gets named through the same roster the write already
            trusts. */
         const viaScreen = isViaScreen(req, body);
-        const paneCard = !viaScreen && typeof body.from_pane === 'string'
-          ? (Array.isArray(roster) ? roster.find((c) => c && c.target === body.from_pane) : null)
-          : null;
+        /* #4491 slice 5: named as task built and task message name a caller (token, else the pane through
+           resolveSender), and an identified agent adds tasks only to a project it is on. Before, only a pane that
+           was exactly a roster target was named, which the CLI's %N never is, so `by` was empty for a CLI caller. */
+        const who = processCaller(req, body, roster, viaScreen, 'the task was not added');
+        const whoRefusal = who.refusal || notOnProjectRefusal(who, id, 'add tasks to it', 'the task was not added');
+        if (whoRefusal) { sendJson(res, whoRefusal[0], { error: whoRefusal[1] }); return; }
+        const paneCard = who.card;
         /* The runaway breaker (#327, #485, #3959): a task carries an assignee, so a
            looping process would not just litter, it would command. Counted across ALL
            projects; only a loop is stopped (see agentRunawayRefusal). The SCREEN is
@@ -16916,6 +17003,18 @@ const server = http.createServer(async (req, res) => {
   if (taskAct && req.method === 'POST') {
     const id = decodeSegment(taskAct[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    /* #4491 slice 5: `kosmos task close` presents the agent's own token (the header: this route reads no body). A
+       caller that presents one is named by it, and closes or reopens tasks only in a project it is on. A caller
+       with none (the page, the person's terminal, an older CLI) is as before: this route has never read a pane,
+       so an agent that sends no token is not named here, unlike on task add. The roster is read only for a token.
+       Nothing in this block may throw (it is outside the try below): processCaller and notOnProjectRefusal catch
+       their own, and safeRoster answers null. */
+    if (presentedAgentToken(req, {})) {
+      const notDone = 'the task was not ' + (taskAct[3] === 'close' ? 'closed' : 'reopened');
+      const who = processCaller(req, {}, safeRoster(), false, notDone);
+      const whoRefusal = who.refusal || notOnProjectRefusal(who, id, taskAct[3] + ' its tasks', notDone);
+      if (whoRefusal) { sendJson(res, whoRefusal[0], { error: whoRefusal[1] }); return; }
+    }
     try {
       const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2]) : tasks.reopen(id, taskAct[2]);
       // Close and reopen change what the assignee's block should list, so
@@ -17232,9 +17331,10 @@ const server = http.createServer(async (req, res) => {
          re-mark it as its own and then clear that), checked inside the write (review round 9). The person is a flag,
          not a name, so an agent named "operator" is not the person. */
       const as = { by, person: viaScreen, refusePersonMark: !viaScreen };
+      /* #4733: the note is masked when `by` is the setup guide. From the screen `by` is null, so the person's is kept. */
       const out = body.clear === true
         ? tasks.clearBuilt(id, taskBuilt[2], as)
-        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? body.note : '' });
+        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? guideMasked(by, body.note) : '' });
       if (!out.ok) {
         const code = out.person ? 403 : out.closed ? 409 : out.code === 'UNREADABLE' ? 500
           : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);
@@ -17335,7 +17435,12 @@ const server = http.createServer(async (req, res) => {
           }
           return;
         }
-        const t = tasks.say(id, taskSay[2], body.text);
+        /* #4733: the setup guide's words are masked before they are recorded or previewed to anyone (its replies,
+           messages and posts already are, #3769). Keyed on the identified sender, so any other agent passes
+           unchanged. Two callers are not masked: one nobody could identify (recorded as "An agent"), and one that
+           claims the screen, which is taken as the person whoever sent it (isViaScreen). */
+        const saidText = !viaScreen && senderCard ? guideMasked(senderCard.sessionName, body.text) : body.text;
+        const t = tasks.say(id, taskSay[2], saidText);
         /* Deliver to the agents ASSIGNED to the task (Josh, 2026-09-12: "only to
            the agents assigned to the task"), never the whole project. The full
            message lives in the task record (say, above); what an assignee receives
@@ -17355,7 +17460,7 @@ const server = http.createServer(async (req, res) => {
            assignee parses. */
         const clean = (s) => String(s == null ? '' : s).replace(/[\r\n"]/g, ' ');
         const projName = clean((proj && proj.name) || id);
-        const rawPreview = clean(body.text);
+        const rawPreview = clean(saidText);
         const preview = rawPreview.length > 140 ? rawPreview.slice(0, 140) + '...' : rawPreview;
         /* The sender (senderCard, resolved above). Two uses: exclude the sender from the recipients (an
            agent that runs `kosmos task message` should not be notified about its own
@@ -18747,7 +18852,8 @@ function start(port = PORT) {
       /* #2037 PR-C1: the daily product-feedback send sweep. The long-lived board
          owns the trigger because the short-lived `kosmos feedback` CLI cannot
          fire-and-forget a send (it exits). sendDailyOnce is opt-in-gated (default
-         ON, opt out in Settings) and dedups per day via a `sent` marker, so the
+         ON, opt out in Settings) and dedups via a `sent` marker: once per day, plus
+         a re-send when the report changed, at most every 3 hours (#4766), so the
          exact cadence is not critical; hourly keeps it cheap. Sibling to the
          sweeps above: its own timer, unref'd so it never holds the process open,
          best-effort. It sends nothing when the person has opted out, and nothing
