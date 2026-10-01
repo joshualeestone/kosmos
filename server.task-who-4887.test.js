@@ -105,3 +105,14 @@ test('a name that matches no member is passed through as typed, for the engine t
   assert.equal((await add(asAgent(w.mara), { sentence: 'for nobody', who: 'Zed' })).code, 200);
   assert.deepEqual(w.made.map((m) => m.who), ['Zed'], 'an unmatched name was rewritten instead of being left for the engine');
 });
+
+test('an agent that gives the task to itself is not paged about it; one given to another agent still is (control)', async (t) => {
+  const w = world(t);
+  const self = await add(asAgent(w.mara), { sentence: 'mine, no page', who: 'me' });
+  assert.equal(self.code, 200, self.text.slice(0, 160));
+  assert.equal(JSON.parse(self.text).heard, undefined, 'the caller was paged about a task it gave itself');
+  const other = await add(asAgent(w.mara), { sentence: 'for otto, paged', who: 'otto' });
+  assert.equal(other.code, 200, other.text.slice(0, 160));
+  const heard = JSON.parse(other.text).heard;
+  assert.ok(heard && heard.who === 'otto', 'a task given to another agent no longer tried to tell it: ' + JSON.stringify(heard));
+});

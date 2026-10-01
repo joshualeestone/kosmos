@@ -17285,7 +17285,12 @@ const server = http.createServer(async (req, res) => {
           // Task CREATION has its own persisted refusal above (the runaway breaker,
           // which 429s the whole request); this only gates whether it also pages a pane.
           let heard;
-          if (viaScreen || heardBudgetAllows(made.who, roster)) {
+          /* #4887: an agent that gave the task to itself (`--who me`, or its own name) is not paged about it: the
+             line would land in its own screen, mid-turn, and spend its own hourly allowance. Nothing to tell. */
+          const toSelf = !viaScreen && !!paneCard && !!made.who && sameAgentName(made.who, paneCard.sessionName, true);
+          if (toSelf) {
+            heard = undefined;
+          } else if (viaScreen || heardBudgetAllows(made.who, roster)) {
             heard = await heardBy(id, made, made.who, made.sentence, roster, chat.deliverAsync);
             // Only a REAL delivery spends the allowance: a run of failed attempts
             // while an agent is unreachable must not use up its hour, or it would

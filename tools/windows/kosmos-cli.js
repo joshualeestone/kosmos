@@ -652,7 +652,7 @@ async function taskList(ctx, args) {
       : one(x.sentence || '(no description)');
     /* #4887: who added it, when an agent did and it is not the owner, so a title naming one agent beside another's
        name reads as what it is. Same as install/kosmos task list. */
-    const by = (x.addedVia === 'process' && x.addedBy && !(x.whoNames || []).includes(x.addedBy)) ? ' [added by ' + one(x.addedBy) + ']' : '';
+    const by = (x.addedVia === 'process' && x.addedBy && !(x.whoNames || []).includes(x.addedBy)) ? ' [added by ' + q(x.addedBy) + ']' : '';
     ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? '[done] ' : ((x.onHold === true || x.projectPaused === true) ? '[on hold] ' : '') + (x.builtAt ? '[built] ' : '')) + words + who + by + up + kids);
   }
   return 0;
@@ -661,7 +661,7 @@ async function taskList(ctx, args) {
 async function taskAdd(ctx, args) {
   const project = args[0];
   const sentence = args[1];
-  if (!project || !sentence) { ctx.err('Usage: kosmos task add <project-id> "<what the task is>" ["more detail"] [--parent <task-number>] [--who <agent>]'); return 2; }
+  if (!project || !sentence) { ctx.err('Usage: kosmos task add <project-id> "<what the task is>" ["more detail"] [--parent <task-number>] [--who <agent>|me]'); return 2; }
   /* #3861, as install/kosmos cmd_task add: the sentence comes first, and `--parent <n>` is
      taken out of the rest wherever it sits; everything else is still the detail. */
   if (sentence === '--parent' || sentence.startsWith('--parent=')) { ctx.err('Put what the task is first: kosmos task add <project-id> "<what the task is>" --parent <task-number>'); return 2; }

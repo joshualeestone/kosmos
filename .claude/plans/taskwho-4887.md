@@ -40,6 +40,12 @@ project); only the two CLIs never send it.
 - "Creator and owner as separate fields": the board already stores `addedBy` separately from the owner;
   this slice makes the CLI list say it.
 
+- **No page to yourself.** A task an agent gives itself (`--who me` or its own name) is not typed into its
+  own screen as "you were given task N": it just did it, and the page would land mid-turn and spend its own
+  hourly allowance. Its instructions block is still updated (`told`). A task given to another agent pages as
+  before. What would change it: an agent that adds a task for later and wants the reminder; then it becomes
+  a flag, not a default.
+
 ## Tests
 
 `server.task-who-4887.test.js`: the route resolves `me` (token caller), refuses `me` from an unidentified
