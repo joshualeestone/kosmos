@@ -13667,8 +13667,8 @@ const server = http.createServer(async (req, res) => {
         try { key = store.safeKey(name); } catch { const bad = new Error('that is not a name we can key a token on'); bad.status = 400; throw bad; }
         /* #4763: safeKey is lossy and the token file is keyed on it, so issuing for "mara" while an agent of ours
            called "Mara" runs in a pane puts a token in Mara's file that resolves as Mara. Refuse, as creating an
-           agent does. Only PANE rows can be told apart by spelling: a paneless or created row is named by its key,
-           so re-issuing for a remote agent under its own name still works. An unreadable roster is refused (503),
+           agent does. Only PANE rows can be told apart by spelling: a paneless row is named by its key, so re-issuing for
+           a remote agent under its own name still works (a CREATED row's key is refused below, #4845). An unreadable roster is refused (503),
            as creating an agent and this file's other roster routes refuse it: we cannot say there is no clash.
            #4792 (the name on each token) closes this without a roster. */
         const tokenRoster = safeRoster();
@@ -13682,6 +13682,18 @@ const server = http.createServer(async (req, res) => {
         });
         if (clash) {
           sendJson(res, 409, { issued: false, because: `an agent called ${clash.sessionName} has a session on this computer, and a token for ${name} would be filed under the same name` });
+          return;
+        }
+        /* #4845: the check above sees only RUNNING pane rows. An agent created on this computer and not running now
+           (stopped, or never run) is listed by its key, and Kosmos keys everything about an agent by that key (its
+           reports, its heartbeat, its profile, its tokens). Issuing a remote token under that key would merge a second
+           agent into the first: its posts and reports would land as the local agent. Refused whatever the spelling,
+           since even the same spelling would be two runtimes behind one identity. A REMOVED agent counts too: its plist
+           and folder are kept so Restore can bring it back under the same key. Its weakest point: the created list
+           answers [] when it cannot read the LaunchAgents folder or a job, in an inconsistent sandbox, or on Windows (no
+           created source there), so this check fails OPEN then: no worse than before #4845, and the running-pane check above still stands. */
+        if (require('./engine/status').createdKeys().includes(key)) {
+          sendJson(res, 409, { issued: false, because: `an agent called ${key} was created on this computer, and a token for ${name} would be filed under the same name; choose another name, or delete that agent first to free it` });
           return;
         }
         // #4530: tagged remote, so a Mac supervisor's sweep of untagged tokens skips a token minted here.

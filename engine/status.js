@@ -1008,6 +1008,13 @@ function setPaneSource(fn) { paneSource = typeof fn === 'function' ? fn : null; 
 let createdSource = null;
 
 function setCreatedSource(fn) { createdSource = typeof fn === 'function' ? fn : null; }
+/* #4845: the safeKey'd names of every agent Kosmos created on this computer (running or not, and removed but still
+   restorable: Restore brings its job back under the same key), from the same source the board's created rows come
+   from. [] where there is none (Windows, tests that set none) or when it cannot be read. */
+function createdKeys() {
+  if (!createdSource) return [];
+  try { const k = createdSource(new Set(), { includeRemoved: true }); return Array.isArray(k) ? k : []; } catch { return []; }
+}
 
 function listPanes() {
   const out = paneSource ? paneSource() : tmuxPanes();
@@ -8296,7 +8303,7 @@ module.exports = {
      which would report a different moment from the one that failed. */
   lastLookProblem,
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
-  setPaneSource, setPaneCapture, setCreatedSource, tmuxSaidNoServer, shDetail,
+  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
   reconcileReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
