@@ -120,8 +120,9 @@ const bar = (page) => page.evaluate(() => {
       page.click('#kplus-logout'),
     ]);
     await page.waitForFunction(() => !window.__before, null, { timeout: 8000 }).catch(() => {});
-    const p4 = await page.evaluate(() => ({ reloaded: !window.__before, path: location.pathname, host: location.hostname }));
-    chk(!!req && asked === 2 && p4.reloaded && p4.path === '/' && p4.host === 'remote.test', 'P4 a log out that works posts once and goes to the address\'s start', JSON.stringify({ asked, p4 }));
+    const p4 = await page.evaluate(() => ({ reloaded: !window.__before, path: location.pathname, host: location.hostname, hash: location.hash }));
+    // kosmos#4879: to '#signed-out', which the tunnel's page reads as "You're signed out" (Josh's phone showed raw JSON).
+    chk(!!req && asked === 2 && p4.reloaded && p4.path === '/' && p4.hash === '#signed-out' && p4.host === 'remote.test', 'P4 a log out that works posts once and goes to the address\'s start, signed out', JSON.stringify({ asked, p4 }));
     await page.unroute('**/_kosmos/logout');
 
     // P5: the consolidated layout (its header is not sticky and has no padding): still the first row, edge to edge.

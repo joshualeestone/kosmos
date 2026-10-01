@@ -18489,7 +18489,17 @@ async function kplusLogout(out, msg) {
     /* The board's page is kept by the offline worker; logged out, it must not come back from there without the
        network, so this browser's copies go with the session. */
     try { if (typeof caches !== 'undefined') for (const k of await caches.keys()) if (k.startsWith('kosmos-shell')) await caches.delete(k); } catch { /* the session is gone either way */ }   // sw.js's SHELL_CACHE, any version
-    location.replace('/');
+    // kosmos#4879: when the tunnel serves its page, '#signed-out' makes it say "You're signed out" (kosmos-relay
+    // gate.html) instead of a plain sign-in. On a phone with this board's service worker that depends on an
+    // unmeasured premise (kosmos-relay plan signedout-4879). A tunnel from before it shows the plain sign-in page, which is still right.
+    // From a bare '/' (the Agents tab's address) only the fragment would change, and a fragment-only change
+    // reloads nothing: the board would stay up, signed out (review 1). So set the fragment and reload there.
+    if (location.pathname === '/' && !location.search) {
+      history.replaceState(null, '', '/#signed-out');
+      location.reload();
+    } else {
+      location.replace('/#signed-out');
+    }
     return;
   }
   out.disabled = false;
