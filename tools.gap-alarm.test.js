@@ -307,7 +307,7 @@ test('claude-msg exit 8 (a possible loss, #4898) is a failure: the card says "di
     GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - 60 * H) };
   const r = run([], env);
   assert.match(r.err, /the pane message to .* did not go/);
-  assert.match(s.gh.read(), /did not go/);
+  assert.match(s.gh.read(), /did not go: claude-msg exit 8, it may not have landed/);
   const tries = () => (s.busyMsg.read().match(/\n--\n/g) || []).length;
   assert.equal(tries(), 1);
   run([], Object.assign({}, env, { GAP_ALARM_NOW: String(NOW + H) }));

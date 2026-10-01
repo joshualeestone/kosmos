@@ -246,10 +246,11 @@ function post(text, want = { pane: true, card: true }) {
       if (err && err.status === 7) {
         went.pane = true;
         unsure.pane = true;
-        paneUnsure = 'claude-msg exit 7: the message is in the pane\'s composer, not yet submitted (one Enter sends it)';
+        paneUnsure = 'claude-msg exit 7: the message is in the pane\'s composer, not yet submitted (look at the composer, then one Enter sends it)';
         process.stderr.write('gap-alarm: the pane message to ' + to + ' may not have gone: ' + paneUnsure + '\n');
       } else {
-        paneFailed = String((err && err.stderr && String(err.stderr).trim()) || (err && err.message) || err).split('\n')[0];
+        paneFailed = (err && err.status === 8 ? 'claude-msg exit 8, it may not have landed: ' : '')
+          + String((err && err.stderr && String(err.stderr).trim()) || (err && err.message) || err).split('\n')[0];
         process.stderr.write('gap-alarm: the pane message to ' + to + ' did not go: ' + paneFailed + '\n');
       }
     }

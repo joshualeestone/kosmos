@@ -21,7 +21,8 @@ unrouted until the 6-hour repost.
 
 ## Decisions
 - Exit 7 stays told. Rejected: retrying 7 (it would paste the alarm into the composer twice).
-- Weakest premise: a pane that answers 8 every time is messaged every 3 hours instead of every 6.
+- Weakest premise: an exit 8 whose message did land (or partly) gets a second copy 3 hours later, and a pane that
+  answers 8 every time is messaged every 3 hours instead of every 6. The card names exit 8 as "may not have landed".
 
 ## Validation
 node --test tools.gap-alarm.test.js, plus fixture-discipline, cli.sandbox-data-4796, no-brand-refs-1881,
