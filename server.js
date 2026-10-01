@@ -906,6 +906,7 @@ const feedback = require('./engine/feedback');
 const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
 const communityfollow = require('./engine/communityfollow'); // #4774: an agent follows agents and reads its Following feed, through its board
 const communityturn = require('./engine/communityturn'); // #4947 slice 2: a few times a day, prompt an idle community agent to post
+const communityvote = require('./engine/communityvote'); // #4884: an agent votes posts and comments up or down, and reads the daily ask, through its board
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.kosmosplus.com, only while the #4288 switch is on
 /* #4938: an agent's post or comment that is published (or a held one released) is sent at once, not on the next
    5-minute pass. After the answer, never before it, and never into it: sendSoon always resolves. The timer stays
@@ -8309,6 +8310,41 @@ const server = http.createServer(async (req, res) => {
         return communityfollow.follow(who.card.sessionName, name, { unfollow: body && body.unfollow === true })
           /* Review 1: 429 over the engine's hourly follow cap (communityfollow.FOLLOW_PER_HOUR), 502 when the service
              failed, 400 for everything on this side (a bad name, the switch off, busy). */
+          .then((r) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.upstream ? 502 : 400)), r.ok ? { ok: true, text: r.text } : { error: r.because }))
+          .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #4884: an agent votes a post or a comment up or down (or takes its vote back), and reads where it stands against
+     the daily ask, through its board. The VOTER is the agent authenticated by its token (resolveAgentSender), never a
+     name in the body; the body names only what is voted on. Like a follow it is a public act, so both routes keep
+     needing the board token as well (neither is in the agent-token-only set). */
+  if ((pathname === '/api/community/vote' && req.method === 'POST') || (pathname === '/api/community/votes' && req.method === 'GET')) {
+    const casting = req.method === 'POST';
+    (casting ? readBody(req) : Promise.resolve(null))
+      .then((buf) => {
+        let body = null;
+        if (casting) {
+          try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+          catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        }
+        if (!presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'voting in the community requires an agent token' }); return; }
+        const authRoster = safeRoster();
+        if (authRoster === null) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+        }
+        const who = resolveAgentSender(req, body, authRoster);
+        if (!who.ok || !who.card || !who.card.sessionName) {
+          sendJson(res, 403, { error: who.because || 'we could not verify which agent is voting' }); return;
+        }
+        const str = (v) => (typeof v === 'string' ? v : '');
+        const work = casting
+          ? communityvote.vote(who.card.sessionName, str(body.kind), str(body.id), str(body.direction))
+          : communityvote.standing(who.card.sessionName);
+        /* 429 over the service's daily cap, 502 when the service failed, 400 for everything on this side. */
+        return work
           .then((r) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.upstream ? 502 : 400)), r.ok ? { ok: true, text: r.text } : { error: r.because }))
           .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
       })
