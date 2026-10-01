@@ -3887,8 +3887,21 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    holding the board token put it there.
    What the guide then SAYS is masked for secrets on its replies, `kosmos msg`, `kosmos post` and the team purpose
    (#3769), and on a task message, a task-built note and a status report (#4733). */
+/* #4491 slice 6: `kosmos community read` (GET /api/community/read), one more READ. What it returns is public
+   writing: the community's posts, which the board asks the service for with no key of any kind, reduced, scrubbed
+   and framed by engine/communityread.js. Its handler has always refused a caller with no agent token the board issued, and
+   never read the board token for anything, so the board token was only the gate's default. GET only; and
+   POST /api/community/post (which WRITES the public feed) is not in this set and stays behind the board token, as
+   decided in slice 2.
+   WHO GAINS: a caller with a valid token and no board token (a Claude setup guide on a Mac; an agent behind the
+   person's own reverse proxy), which can now read what other people's agents wrote in public. It is framed as
+   writing to read and never to obey, exactly as it is for every other agent; a frame lowers the chance that an
+   agent acts on what it reads and does not remove it. The guide is not treated differently from any other agent
+   here (decided on #4491, pinned in server.agent-token-gate-4491.test.js). Each read makes the board ask the
+   service at most once (no cache, no valve, an 8 second limit): a looping token-only caller can do that as fast
+   as any agent holding the board token already can. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
-  'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks']);   // overview: #4581, `kosmos project list`
+  'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/community/read']);   // overview: #4581, `kosmos project list`
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
    `[^/]+` for the project and `\d+` for the task, so no other task verb (reopen, due, parts) matches (close joined in slice 5). Judged before
    the handler decodes the project, so an encoded `a%2Fb` passes here and then names no project (404). Each
@@ -3997,17 +4010,17 @@ function processCaller(req, body, roster, viaScreen, notDone) {
    [status, sentence] to refuse with, or null. An unreadable projects list refuses (503): a member that cannot be
    checked is not let through. A project nobody stored is left to the handler's own 404.
    ONE exception: a project a PROCESS made that lists nobody (`made.via === 'process'`, `agents: []`). That is
-   what `kosmos project create` makes (it lists nobody, not even its maker, whose name goes in the record of who
-   made it and not on the member list; run by an agent or by the person in a terminal, the record is the same), and every agent's working rules say "once it exists you ... hand it work
-   the same way as any other project" (engine/defaults.js, "Making a project"): refusing the maker its own new
-   project would break the one workflow the product prescribes. A task there can have no assignee (an assignee
+   what `kosmos project create` made before slice 5b put an identified maker on its project, and still makes for
+   a caller nobody can name (the person in a terminal outside tmux) and for the setup guide, which is recorded as
+   the maker and never put on a project. Every agent's working rules say "once it
+   exists you ... hand it work the same way as any other project" (engine/defaults.js, "Making a project"), so
+   those projects (the ones agents made before 5b, and the ones still made with nobody on them) keep taking tasks. A task there can have no assignee (an assignee
    must be a member). A project made ON THE PAGE is not that, with nobody ticked or emptied later: nobody
    identified writes in it until someone is on it. An `agents` that is not an array is not "no members".
    ⚠️ What it cannot tell apart: a process-made project that was staffed and then emptied again looks the same in
    the store (removing a member keeps `made`), so it is open too. Accepted: nobody is on it to be spoken for.
    `made` is an advisory record (engine/projects.js says so), used here only to keep something working, never to
-   let a caller into a project that has members. This exception is a bridge: once project create puts its maker
-   on the project (#4491's next slice), it has no reason to exist. */
+   let a caller into a project that has members. */
 function notOnProjectRefusal(who, id, verb, notDone) {
   if (!who || !who.card) return null;
   let stored;
@@ -8038,9 +8051,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  /* #4373: an agent reads the community (the feed, a channel, or one post) through its board. Authenticated as an
-     agent exactly as a post is, so only a real agent on this board reads, and the board, not the agent, talks to the
-     service. The answer is bounded, reduced, scrubbed and framed by engine/communityread.js. */
+  /* #4373: an agent reads the community (the feed, a channel, or one post) through its board. The reader is
+     identified from its agent token, as a post's author is, so only a real agent on this board reads, and the
+     board, not the agent, talks to the service. (Since #4491 slice 6 the token alone passes the gate for this read;
+     a post still needs the board token as well.) The answer is bounded, reduced, scrubbed and framed by engine/communityread.js. */
   if (pathname === '/api/community/read' && req.method === 'GET') {
     if (!presentedAgentToken(req, null)) {
       sendJson(res, 403, { error: 'reading the community requires an agent token' }); return;
@@ -15885,9 +15899,13 @@ const server = http.createServer(async (req, res) => {
            write already trusts. An agent runs as the operator; this is for
            telling things apart. */
         const viaScreen = isViaScreen(req, body);
-        const paneCard = !viaScreen && typeof body.from_pane === 'string'
-          ? (Array.isArray(roster) ? roster.find((c) => c && c.target === body.from_pane) : null)
-          : null;
+        /* #4740 (built as #4491 slice 5b): the maker is named as the task verbs name a caller (the agent token, else the pane as a
+           roster target or through resolveSender; a token that does not resolve is refused, never swapped for
+           the pane). Before, only a pane that was exactly a roster target was named, which the CLI's %N never
+           is, so a project an agent made recorded no maker. */
+        const who = processCaller(req, body, roster, viaScreen, 'the project was not made');
+        if (who.refusal) { sendJson(res, who.refusal[0], { error: who.refusal[1] }); return; }
+        const paneCard = who.card;
         /* The runaway breaker (#327 q2, #3959): a looping process can create projects
            as fast as it can curl. Only a loop is stopped; see agentRunawayRefusal.
            The SCREEN is never valved. */
@@ -15899,7 +15917,17 @@ const server = http.createServer(async (req, res) => {
             sendJson(res, 429, { error: refusal.because, retry_after_secs: refusal.retryAfterSecs }); return;
           }
         }
-        const made = projects.create({ name: body.name, folder: body.folder, agents: body.agents, roster, description: body.description, done: body.done,
+        /* #4740: an agent that makes a project is ON it. Its working rules promise exactly that ("it exists on
+           the board with your name on it ... you post to it and hand it work the same way as any other project",
+           engine/defaults.js), and until now the project listed nobody, so its own maker could not post in its
+           room. Added to whatever members the request names; the page's request is never touched (no maker). */
+        const makerName = paneCard && typeof paneCard.sessionName === 'string' && paneCard.sessionName ? paneCard.sessionName : null;
+        /* Never the setup guide: the page keeps it out of every list of agents (#3739), and a member is sent every
+           post in its room. A project it makes records it as the maker and lists only the members its request
+           names (none, from the CLI). */
+        const makerMember = makerName && !isSetupGuide(makerName) ? makerName : null;
+        const members = makerMember ? [...(Array.isArray(body.agents) ? body.agents : []), makerMember] : body.agents;
+        const made = projects.create({ name: body.name, folder: body.folder, agents: members, roster, description: body.description, done: body.done,
           // #2458: the parent chosen on the create page (blank/absent = top-level).
           // The engine validates it through the same cleanParent the edit route
           // uses (a missing parent or a non-string is refused), so a bad parent is
@@ -15971,7 +15999,16 @@ const server = http.createServer(async (req, res) => {
             const verdict = projects.syncAgent(a, roster);
             // Agents put on a project at its creation are usually already
             // running; the pane line is what tells them now (#141).
-            const said = await projects.speakOfMembershipAsync(a, made, 'joined', roster);
+            /* Slice 5b: not the maker. It made the project a moment ago and the CLI has just told it so; a line
+               typed into its own pane for every project it makes would also sit outside the member valve (create
+               records no member change), so a looping agent could type into itself as fast as it can create. Its
+               instructions are still synced above, like any member's: that is what lists the project in its own
+               instructions. When the sync cannot be done the verdict says so and the membership stands, as for
+               any member (the three-valued verdict described above).
+               ⚠️ One sentence this leaves loose: a synced member's card can read "Kosmos changed its instructions,
+               and told it on its screen" (projects.toldOverride). For the maker, what was on its screen is the
+               CLI's own "Created project ..." line, not a line Kosmos typed. It does know: it made it. */
+            const said = a === makerMember ? null : await projects.speakOfMembershipAsync(a, made, 'joined', roster);
             return { agent: a, ...verdict, said };
           }));
         } catch (err) {
@@ -15987,16 +16024,21 @@ const server = http.createServer(async (req, res) => {
         // AFTER `told`, best-effort (roomNote swallows its own errors): furniture, exactly like
         // WELCOME_ROOM_NOTE, and a note we could not post is never a reason to fail the create.
         try {
+          /* Slice 5b: the maker alone is nobody to coordinate with (it would be told to ask the person for the
+             goal, or for what done looks like, of a project it just made, or to hold): the two asking notes need
+             a member other than the maker. The note that a typed done was not written is a fact, not an ask, so
+             it still goes to a maker alone. */
+          const hasOthers = made.agents.some((a) => a !== makerMember);
           /* #4583 review rounds 5-8: a done typed on the form that is not what BRIEF.md's Done section now holds, for ANY
              reason (the person's own Done section, or a brief Kosmos could not read or write), is quoted to the team
              with its true reason, and the team is then never also told to ask the person for done. */
           const typedDone = projects.cleanDone(body.done);
           const doneLost = !!typedDone && !projects.doneWrittenIn(made.folder, typedDone);
-          if (made.agents.length > 0 && projects.briefIsPending(made.folder)) {
+          if (hasOthers && projects.briefIsPending(made.folder)) {
             // #4583: ask for done too only when it is not set; a done typed on the form is never asked for again.
             const note = (projects.doneIsPending(made.folder) && !doneLost) ? projects.BRIEF_AND_DONE_PENDING_NOTE : projects.BRIEF_PENDING_NOTE;
             messages.roomNote(made.id, note, { audience: messages.NOTE_AUDIENCE_AGENTS });   // agents read it; the person's room does not
-          } else if (made.agents.length > 0 && projects.doneIsPending(made.folder) && !doneLost) {
+          } else if (hasOthers && projects.doneIsPending(made.folder) && !doneLost) {
             // #4583: a goal but no "done looks like": the same one-asks note, for done.
             messages.roomNote(made.id, projects.DONE_PENDING_NOTE, { audience: messages.NOTE_AUDIENCE_AGENTS });
           }

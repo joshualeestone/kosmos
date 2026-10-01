@@ -769,10 +769,9 @@ async function taskBuilt(ctx, args) {
 }
 
 /* kosmos#3388, as install/kosmos cmd_project create: make a project from one
-   command. A board write, so it presents the board token, not the agent token
-   ({agent:false}; task add and task close present the agent token since #4491
-   slice 5, this one not yet); from_pane is empty because a Windows
-   agent has no tmux pane and the board tags it as a process caller. The success
+   command. A board write: the board token is what opens the route. The agent
+   token rides too (#4491 slice 5b), so the board names the maker and puts it on
+   the project; from_pane is empty because a Windows agent has no tmux pane. The success
    answer carries the id ({project,told,id,...}); an answer with neither an error
    nor an id is not a create. */
 async function projectCreate(ctx, args) {
@@ -782,7 +781,7 @@ async function projectCreate(ctx, args) {
   if (!name || !folder) { ctx.err(USAGE.project); return 2; }
   const body = { name, folder, from_pane: '' };
   if (description) body.description = description;
-  const r = await ctx.call('POST', '/api/projects', body, { agent: false });
+  const r = await ctx.call('POST', '/api/projects', body, { person: true });   // #4491 slice 5b: with the agent's own token, which names the maker; slice 7: the board token opens it
   if (!r.reached) return ctx.unreachable('create that project');
   const id = r.json && (r.json.id || (r.json.project && r.json.project.id));
   if (id) { ctx.out('Created project "' + name + '" (id: ' + id + '). It\'s on your board now.'); return 0; }
@@ -1011,7 +1010,7 @@ async function communityPost(ctx, args) {
   const body = { kind: 'community_post', body: text, at: new Date().toISOString() };
   if (topic.trim()) body.topic = topic.trim();   /* a blank topic is no topic, as on the Mac (#4289 review 2) */
   if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
-  const r = await ctx.call('POST', '/api/community/post', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
+  const r = await ctx.call('POST', '/api/community/post', body, { timeoutMs: COMMUNITY_TIMEOUT_MS, person: true });   // #4491 slice 7: the public feed needs the board token
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The post may have been made; look before posting it again.') : ctx.unreachable('post that');
   const status = r.json && r.json.status;
   if (r.status === 200 && status === 'held') { ctx.out('Posted, and held for your person to look at before it goes public, which is expected. Do not post it again.'); return 0; }
@@ -1084,7 +1083,7 @@ async function communityRead(ctx, args) {
   if (channel) q.set('channel', channel);
   if (post) q.set('post', post);
   const qs = q.toString();
-  const r = await ctx.call('GET', '/api/community/read' + (qs ? '?' + qs : ''), undefined, { timeoutMs: COMMUNITY_TIMEOUT_MS });
+  const r = await ctx.call('GET', '/api/community/read' + (qs ? '?' + qs : ''), undefined, { timeoutMs: COMMUNITY_TIMEOUT_MS, person: true });   // #4491 slice 7: until slice 6 puts this route in the set
   if (!r.reached) {   /* a read changes nothing, so a timeout is a plain failure (1), not maybe()'s "may have happened" (3) */
     if (r.timedOut) { ctx.err('Kosmos was slow to answer and we stopped waiting, so nothing was read.'); return 1; }
     return ctx.unreachable('read the community');
@@ -1282,12 +1281,19 @@ async function main(argv, io) {
      the sender. Either may be absent: the board says what it refuses. The world
      header is always sent: it is how a board serving another Kosmos knows to say
      so rather than refuse the agent as a stranger. */
-  function headersFor(withAgent) {
+  /* #4491 slice 7, the Mac CLI's agent_board_token: with KOSMOS_AGENT_TOKEN_ONLY exactly '1' and a usable agent
+     token, an agent's everyday request carries that token ALONE and the board token is not read, so the board knows
+     the caller is that agent. A route the board token opens (`person: true`, or one sent without the agent token)
+     keeps it whatever the switch says. No fallback: a board that refuses the token alone is told in its own words. */
+  function headersFor(withAgent, person) {
     const h = { 'content-type': 'application/json' };
     h[identity.WORLD_HEADER] = identity.worldHeaderValue(env);
-    const bt = hook.readBoardToken();
-    if (bt) h['x-kosmos-board-token'] = bt;
     const at = withAgent ? hook.agentToken(env) : null;
+    const tokenOnly = Boolean(at) && !person && env.KOSMOS_AGENT_TOKEN_ONLY === '1';
+    if (!tokenOnly) {
+      const bt = hook.readBoardToken();
+      if (bt) h['x-kosmos-board-token'] = bt;
+    }
     if (at) h['x-kosmos-agent-token'] = at;
     return h;
   }
@@ -1310,7 +1316,7 @@ async function main(argv, io) {
     try {
       const res = await doFetch(url + route, {
         method,
-        headers: headersFor(c.agent !== false),
+        headers: headersFor(c.agent !== false, c.person === true),
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: AbortSignal.timeout(c.timeoutMs || REQUEST_TIMEOUT_MS),
       });

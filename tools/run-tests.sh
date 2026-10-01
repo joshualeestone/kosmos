@@ -77,6 +77,10 @@ fi
 # inherited ambient value cannot break it. `unset` of an already-unset var is a
 # no-op under `set -u`, and nothing in this runner reads either var.
 unset CODEX_HOME AGENT_WORKFORCE_CODEX_HOME
+# #4491 slice 7, the same boundary for the same reason: an agent launched with KOSMOS_AGENT_TOKEN_ONLY=1 (and every
+# agent carries a KOSMOS_AGENT_TOKEN) would make each CLI test that spreads process.env stop sending the board
+# token, and five tests that expect it went red (measured). A test that wants the switch sets it itself.
+unset KOSMOS_AGENT_TOKEN_ONLY
 
 # #708: label a live board's cwd as the main checkout / a worktree / neither.
 # Sourced HERE rather than beside the cut-guard source below, because

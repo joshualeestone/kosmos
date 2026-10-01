@@ -32,6 +32,9 @@
  *       so this arm guards against a return to two requests (red on the code before fetchRoles).
  *   K13 an incomplete catalogue (#4632) is asked for again on the next open (with ?catalogue=1), not on a path
  *       choice; a complete one is not; an open whose refetch fails keeps the menu already held;
+ *   K14 (#4724) a role chosen on the first-run import link while its roles answer is out survives that answer;
+ *       that answer still clears its "Loading…" and adds the roles it brought to the menu, the choice still selected;
+ *       CONTROL: with no choice made, the late answer still paints the import default;
  *   K10 the roles cannot be read: the Team screen says the org chart cannot be offered (not only "coming soon"),
  *       and choosing Team again tries again and offers it once they load.
  *
@@ -59,6 +62,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
 
 let SEEDED = null;   // null: 404, as before #4555
 let ROLES_DELAY_ONCE = 0;   // K8: hold the next /api/roles this many ms
+let ROLES_EXTRA = null;     // K14: a role only the next DELAYED answer carries
 let IMPORT_DELAY = 0;       // K3b: hold /api/agent-import this many ms
 let NO_OWN = false;          // K9: serve no define-your-own role
 let ROLES_FAIL = false;      // K10: /api/roles answers 500
@@ -89,6 +93,7 @@ const server = http.createServer((req, res) => {
     if (ROLES_SLOW_THEN_FAIL === 2) { res.writeHead(500, { 'content-type': 'application/json' }); return res.end('{}'); }
     const body = { ...ROLES, ...(NO_OWN ? { own: null } : {}), catalogue: { loaded: CATALOGUE_LOADED } };
     const wait = ROLES_DELAY_ONCE; ROLES_DELAY_ONCE = 0;
+    if (wait && ROLES_EXTRA) { body.roles = [...body.roles, ROLES_EXTRA]; ROLES_EXTRA = null; }
     if (wait) { setTimeout(() => json(res, body), wait); return; }
     return json(res, body);
   }
@@ -385,6 +390,51 @@ const visible = (page, sel) => page.evaluate((s) => { const e = document.querySe
         ok(t + ' K13 an open whose refetch fails keeps the menu already held (no error, Continue still works)',
           keptOnFail.failAsked === 1 && keptOnFail.msgBefore === '' && keptOnFail.held && keptOnFail.pm && keptOnFail.msg === '' && keptOnFail.next, JSON.stringify(keptOnFail));
       } finally { CATALOGUE_LOADED = true; ROLES_FAIL = false; }
+
+      // K14 (#4724): on the first-run import link the open itself is on the role screen, so its late roles answer used to
+      // repaint under a choice made there (pickMode('import') cleared PICKED and Create sent no role). A choice the
+      // person makes now claims the screen. CONTROL: with no choice, the same late answer still paints the default.
+      const k14 = async (choose) => {
+        CATALOGUE_LOADED = false;
+        await page.evaluate(() => { ROLES = null; OWN_ROLE = null; openCreate(); });
+        await page.waitForTimeout(400);                   // an incomplete menu is held
+        ROLES_DELAY_ONCE = 1500;                           // the import link's refetch is slow
+        ROLES_EXTRA = { key: 'late', label: 'Late Arrival', blurb: 'Only in the late answer.', group: 'Content' };
+        await page.evaluate(() => openCreate('import'));
+        await page.waitForTimeout(200);
+        let chosen = null;
+        if (choose) {
+          // The way a person does it: click the "Pick another role" row (the radio inside is a 1px, pointer-events:none
+          // input, so a click aimed at it can never land; render-role-order.js clicks the row the same way), then
+          // choose the last role in the menu that opens, which fires the menu's real change event.
+          await page.click('#pick-list');
+          const last = await page.evaluate(() => { const s = document.getElementById('rolesel'); return s.options[s.options.length - 1].value; });
+          await page.selectOption('#rolesel', last);
+          chosen = await page.evaluate(() => document.getElementById('rolesel').value);
+        }
+        const before = await page.evaluate(() => PICKED);
+        await page.waitForTimeout(1800);                   // the late answer lands
+        CATALOGUE_LOADED = true;
+        const seen = await page.evaluate(() => {
+          const s = document.getElementById('rolesel');
+          return { msg: document.getElementById('roles-msg').textContent, lateInMenu: [...s.options].some((o) => o.value === 'late'),
+            shown: s.value };
+        });
+        return { chosen, before, after: await page.evaluate(() => PICKED), consumed: ROLES_DELAY_ONCE === 0 && ROLES_EXTRA === null, ...seen,
+          mode: await page.evaluate(() => (document.querySelector('input[name="rmode"]:checked') || {}).value || null) };
+      };
+      try {
+        const kept = await k14(true);
+        const ctl = await k14(false);
+        ok(t + ' K14 a role chosen on the import link while its roles answer is out survives the answer (#4724)',
+          !!kept.chosen && kept.before === kept.chosen && kept.after === kept.chosen && kept.mode === 'list', JSON.stringify(kept));
+        // Review round 1: the superseded answer was consumed, still cleared its "Loading…", and still put the role only
+        // it carries in the menu, while the person's role stays the one selected.
+        ok(t + ' K14 the late answer after a choice clears Loading and adds its roles to the menu, the choice still selected (#4724 review)',
+          kept.consumed && kept.msg === '' && kept.lateInMenu && kept.chosen !== 'late' && kept.shown === kept.chosen, JSON.stringify(kept));
+        ok(t + ' K14 CONTROL: with no choice made, the late answer still paints the import default',
+          ctl.chosen === null && ctl.mode === 'import' && ctl.after === null, JSON.stringify(ctl));
+      } finally { CATALOGUE_LOADED = true; ROLES_DELAY_ONCE = 0; ROLES_EXTRA = null; }
 
       // K10: the roles cannot be read. The Team screen says why there is no org chart, and choosing Team again retries.
       ROLES_FAIL = true;

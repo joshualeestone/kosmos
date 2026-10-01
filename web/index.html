@@ -1902,6 +1902,19 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 .worldsw-btn:hover { background: var(--k-side); }
 .worldsw-btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .worldsw-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 0.7.15 cut, render-dm-chatfirst-718 (bisected by Baron to #4822): since #4815 the top-left always names this
+   computer, and on a phone its row may wrap (.headleft, 720px), so on a 320-wide phone at 150% text the name took a
+   second header row and the swarm conversation lost its last line. On a phone the name truncates on the K mark's row
+   instead: it may shrink to nothing before it wraps (basis 0), and the header's left column takes only the room the
+   right-hand controls leave. A notice that is showing (the update, offline or login slots) takes a row of its own, so
+   it never squeezes the name (review). The name keeps its 220px cap and room for its arrow. */
+@media (max-width: 40rem) {
+  .apphead header { grid-template-columns: minmax(0, 1fr) auto; }
+  .apphead .headleft { min-width: 0; justify-self: stretch; }
+  .apphead .headleft > .worldsw { flex: 1 1 0; min-width: 2.25rem; }
+  .apphead .headleft > .worldsw > .worldsw-btn { max-width: min(220px, 100%); min-width: 0; }
+  .apphead .headleft > [id$="-slot"]:not(:empty) { flex-basis: 100%; }
+}
 .worldsw-chev { flex: none; color: var(--k-ink-2); transition: transform .12s ease; }
 .worldsw-btn[aria-expanded="true"] .worldsw-chev { transform: rotate(180deg); }
 .worldsw-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
@@ -47591,6 +47604,8 @@ function roleByKey(key) {
 
 let ROLES_FAILED = false;   // #4556 review: the last roles load failed (the Team screen says so)
 let ROLES_GEN = 0;   // #4556: only the latest call applies its default (openCreate and a path choice can both be in flight)
+/* #4724: personChoseRole() moves ROLES_GEN too, so a person's choice supersedes any paint still in flight; the
+   superseded answer then only clears its status line and refreshes the menu (keepChoice in loadRoles). */
 /* #4556 review: ONE /api/roles request at a time, shared by every caller. openCreate and a path choice (Team,
    then Back and Single) used to send one each, and whichever answered last wrote the shared lists; a stale one
    could leave the screen half-built. Now the request writes ROLES / OWN_ROLE / CREATE_MODELS once, and only the
@@ -47637,6 +47652,18 @@ async function loadRoles(initialMode, opening) {
     // cleared it -- a screen showing a selection the page did not have.
     updateRecPill(); paintPathOptions(); pickMode(mode);
   };
+  /* #4724 review: a superseded answer (the person chose, or a newer call) still clears its own "Loading…" and puts
+     the roles it brought in the menu, WITHOUT pickMode, so the choice made meanwhile stands. A chosen role missing
+     from the new menu keeps the old menu, so the screen never shows a role other than the one picked. */
+  const keepChoice = () => {
+    msg.textContent = '';
+    const sel = document.getElementById('rolesel');
+    const chosen = sel.value, oldHtml = sel.innerHTML, oldSig = sel.dataset.menu;
+    if (!ROLES_BUILT) { buildPicker(); ROLES_BUILT = true; } else paintPathOptions();
+    updateRecPill();
+    if (chosen && ![...sel.options].some((o) => o.value === chosen)) { sel.innerHTML = oldHtml; sel.dataset.menu = oldSig; }
+    if (chosen) sel.value = chosen;
+  };
   /* #4632: a menu without the downloaded catalogue (offline, or the download not done yet) is asked
      for again on the next OPEN (openCreate and the ?tab=create boot pass `opening`); the board decides whether to
      try the network again. A path choice paints the menu already held: it does not ask again, and being the newest
@@ -47646,7 +47673,10 @@ async function loadRoles(initialMode, opening) {
   try {
     await fetchRoles();
   } catch (err) {
-    if (gen !== ROLES_GEN) return;   // #4556: a newer call owns the screen
+    if (gen !== ROLES_GEN) {   // #4556: a newer call (or the person's choice) owns the screen
+      if (ROLES && ROLES.length) keepChoice();
+      return;
+    }
     /* An open's refetch for an incomplete catalogue that fails (offline is when it is incomplete) keeps the menu
        already held: it is still the copy agents are created from. */
     if (opening && ROLES && ROLES.length) { paint(); return; }
@@ -47670,7 +47700,7 @@ async function loadRoles(initialMode, opening) {
     document.getElementById('role-next').disabled = true;
     return;
   }
-  if (gen !== ROLES_GEN) return;   // #4556: a newer call owns the screen and paints it
+  if (gen !== ROLES_GEN) { keepChoice(); return; }   // #4556: a newer call (or the person's choice) owns the screen
   paint();
 }
 
@@ -47849,8 +47879,11 @@ function pickMode(mode) {
 /* ⚠️ `change`, NOT `click`. The browser fires it for a click on the label, for
    the space bar, AND for the arrow keys -- which is where the hand-written
    keyboard handler this replaces used to live. */
+/* #4724: a choice the PERSON makes on the role screen makes them the newest roles caller (ROLES_GEN), so an open's
+   late roles answer paints nothing over it: that paint re-applies the opening default and clears PICKED. */
+function personChoseRole() { ROLES_GEN += 1; }
 document.getElementById('roles-list').addEventListener('change', (e) => {
-  if (e.target.name === 'rmode') pickMode(e.target.value);
+  if (e.target.name === 'rmode') { personChoseRole(); pickMode(e.target.value); }
 });
 function paintPickLimit() {
   const line = document.getElementById('pick-limit');
@@ -47860,6 +47893,7 @@ function paintPickLimit() {
   line.hidden = !say;
 }
 document.getElementById('rolesel').addEventListener('change', () => {
+  personChoseRole();
   PICKED = document.getElementById('rolesel').value;
   paintPickLimit();
 });
@@ -49588,6 +49622,7 @@ async function finishImport(data, gen, btn) {
     // The file is the person describing the agent themselves, so it IS the `own`
     // path -- same role, same create call. Lay the imported fields on top and mark
     // them dirty so a later refill keeps the person's words, not the role template.
+    personChoseRole();
     PICKED = 'own';
     FILLED_ROLE = 'own';
     document.getElementById('create-meet').textContent = 'Set up your ' + ((role && role.label) || 'agent');
