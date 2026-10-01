@@ -49,3 +49,13 @@ measured): renderList, both CLIs, the room and chat code print no member role; t
 - NIT: the CLI loaded roles.js (store read, possible stderr line on Windows). Now the board works it out.
 - NIT: no test proved the `menu !== false` filter; `kosmos guide` (setup, menu: false) now does.
 - NIT (stated, not built): no test covers a title only the downloaded catalogue has (node --test loads none).
+
+### Slice 2 (same branch): the New task picker uses roleLine; render-tasks.js asserts it (a route sets the member's
+stored role lower case on GET /api/projects; the option must read "taskmate · Project Manager").
+
+### Review 2 (blind): 0 BLOCKER, 1 WARNING (taken), 2 NITs (stated)
+- WARNING: the precondition's comment claimed more than it checked. It now also reads the page's own PROJECTS and
+  requires the member's role there to be "project manager", so a pass is the picker's doing.
+- NIT (stated): an open picker is not rebuilt if the titles arrive after it opens; it reads "Project manager"
+  until reopened (the board's documented fail-open). The check waits for networkidle, so a miss is a false red.
+- NIT (stated): a whitespace-only role prints as stored, as on main.
