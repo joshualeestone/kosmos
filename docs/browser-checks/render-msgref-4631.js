@@ -104,13 +104,13 @@ async function paintRoom(page) {
         await page.waitForTimeout(250);
         const bar = await post.evaluate((row) => {
           const q = row.querySelector('.rxn-quick');
-          const kids = [...q.children].map((k) => k.classList.contains('rxn-ref') ? 'ref' : k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?');
+          const kids = [...q.children].map((k) => k.classList.contains('rxn-ref') ? 'ref' : k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-speak') ? 'speak' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?');
           const ref = q.querySelector('.rxn-ref');
           const r = ref.getBoundingClientRect();
           return { kids: kids.join(','), n: (ref.querySelector('.rxn-ref-n') || {}).textContent, label: ref.getAttribute('aria-label'),
             op: Number(getComputedStyle(q).opacity), h: r.height, w: r.width };
         });
-        chk(bar.kids === 'ref,pick,pick,pick,more,reply', tag + 'R1 the bar starts with Copy reference and keeps Reply last', bar.kids);
+        chk(bar.kids === 'ref,pick,pick,pick,more,speak,reply', tag + 'R1 the bar starts with Copy reference and keeps Reply last (an agent\'s post, so read aloud, #4409, sits before it)', bar.kids);
         chk(bar.n === '530' && bar.label === 'Copy a reference to message 530' && bar.op === 1, tag + 'R1 on hover it shows the number, and says what it copies', JSON.stringify(bar));
         chk(bar.h >= 24 && bar.w >= 24, tag + 'R1 the button is a 24px target (WCAG 2.5.8)', bar.w + 'x' + bar.h);
         if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await post.screenshot({ path: path.join(SHOTS, 'hover-bar.png') }); }

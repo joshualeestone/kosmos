@@ -6660,6 +6660,19 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   #pj-room .msg.rxn-show .rxn-quick, #pj-room .rxn-quick:focus-within { background: var(--k-surface); border: 1px solid var(--k-rule);
     border-radius: 100px; padding: 2px 4px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
   #pj-room .msg:not(.you) .rxn-quick { right: auto; left: 0; }
+  /* #4409: at its natural width, and it wraps only when pjRxnFitWidth caps it at a thread narrower
+     than the bar (without max-content an absolute bar would shrink to its short bubble and wrap there). */
+  /* max-width 100vw, not none: a length, so the closed cap below can wait for the fade (none to 100% cannot be delayed). */
+  #pj-room .rxn-quick, #d-dmthread .rxn-quick { width: max-content; flex-wrap: wrap; max-width: 100vw; }
+  /* #4409 with #4631: read aloud and Copy reference together make an agent's bar seven buttons, about 320px, and a
+     CLOSED bar (opacity 0, but still laid out) at that natural width ran past a phone's right edge from an agent
+     bubble's left (each change alone fit, by about a pixel). Closed, it wraps within its own bubble; open (tapped, or
+     keyboard focus inside it) it is back at its natural width, and pjRxnFitWidth and rxnKeepInsideX keep it inside.
+     The cap arrives only after the .12s fade: applied at once, a closing bar reshaped into a tall wrapped column while
+     still visible. Only the closed state carries the delay, so an opening bar takes its open width at once (pjRxnPlace
+     measures it in the same frame). */
+  #pj-room .msg:not(.rxn-show) .rxn-quick:not(:focus-within), #d-dmthread .msg:not(.rxn-show) .rxn-quick:not(:focus-within) { max-width: 100%;
+    transition: opacity .12s ease, max-width 0s linear .12s; }
   /* A tap on a message is a gesture now: no grey iOS flash over the whole thread. Links and
      buttons in it keep a tap flash of their own. */
   /* touch-action: no double-tap zoom, since open then close is two quick taps. */
@@ -6674,10 +6687,17 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   /* The room's touch target, said once (#3811): 36px, under the 44px guidance, for these small
      controls repeated on every post; the Allow card's primary buttons are 44. */
   #pj-room { --room-tap: 36px; }
-  #pj-room .rxn-pick, #pj-room .rxn-more, #pj-room .rxn-reply, #pj-room .rxn-ref { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #3745: Reply is a target in the same bar; #4631: Copy reference too */
+  #pj-room .rxn-pick, #pj-room .rxn-more, #pj-room .rxn-reply, #pj-room .rxn-speak, #pj-room .rxn-ref { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #3745: Reply is a target in the same bar; #4409: read-aloud; #4631: Copy reference too */
   /* #4631: on a touchscreen Copy reference is the icon alone. The number is for a pointer resting on a post; a
      thumb's bar is short of width on a phone, and the button's label and the toast still name the number. */
   #pj-room .rxn-ref-n, #d-dmthread .rxn-ref-n { display: none; }
+  /* #4409 after #4631: Reply is its arrow alone on a touchscreen too (its label still says "Reply to this message").
+     Seven buttons with the word were 331px, and the open bar, which sits over the message above its own, then
+     covered that message's whole width: a tap meant to close the bar on the visible corner of a person's message
+     hit Reply. With the arrow alone, and without the pointer bar's extra 4px beside Copy reference and Reply (the
+     touch bar's 4px gap already spaces every button), it is 290px, about the six-button bar's 287 on either parent. */
+  #pj-room .rxn-reply-t, #d-dmthread .rxn-reply-t { display: none; }
+  #pj-room .rxn-quick .rxn-ref, #pj-room .rxn-quick .rxn-reply, #d-dmthread .rxn-quick .rxn-ref, #d-dmthread .rxn-quick .rxn-reply { margin: 0; }
   /* A reaction already on a post is a target too, on any touchscreen (a phone turned
      sideways is wider than the phone block but still a thumb). */
   #pj-room .rxn { min-height: var(--room-tap); padding: 2px 10px; }
@@ -6698,7 +6718,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
     border-radius: 100px; padding: 2px 4px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
   #d-dmthread { -webkit-tap-highlight-color: transparent; touch-action: manipulation; --room-tap: 36px; }
   #d-dmthread a, #d-dmthread button { -webkit-tap-highlight-color: rgba(120, 120, 128, .2); }
-  #d-dmthread .rxn-pick, #d-dmthread .rxn-more, #d-dmthread .rxn-reply, #d-dmthread .rxn-ref { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #4256: Reply is a target in the DM's bar too */
+  #d-dmthread .rxn-pick, #d-dmthread .rxn-more, #d-dmthread .rxn-reply, #d-dmthread .rxn-speak, #d-dmthread .rxn-ref { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #4256: Reply is a target in the DM's bar too; #4409 read-aloud and #4631 Copy reference also */
   #d-dmthread .rxn { min-height: var(--room-tap); padding: 2px 10px; }
 }
 .rxn-pick { border: 0; background: transparent; cursor: pointer; font-size: 1.15rem; line-height: 1;
@@ -7112,6 +7132,29 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    GLYPH span (not .emojibtn) so the hover/focus/expanded affordance backgrounds stay at
    full strength. Same technique as the `.pmark.dim svg` precedent below. */
 .emojibtn-glyph { filter: grayscale(1) opacity(.6); }
+/* #4409: the mic in the composers, drawn only where on-device dictation exists (the Mac app sets
+   html.has-voice). Same quiet grey as the emoji button; while it listens it turns red and pulses, and
+   aria-pressed says so to a screen reader. */
+.micbtn { display: none; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
+  border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
+html.has-voice .micbtn { display: grid; }
+.micbtn:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
+.micbtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.micbtn[aria-pressed="true"] { color: #c62828; background: rgba(198,40,40,.1); }
+.micbtn.asking { opacity: .6; }
+@media (prefers-reduced-motion: no-preference) { .micbtn[aria-pressed="true"] svg { animation: micpulse 1.2s ease-in-out infinite; } }
+@keyframes micpulse { 50% { opacity: .45; } }
+.asp-in .micbtn { width: 28px; height: 28px; background: none; color: var(--k-ink-2); }
+.asp-in .micbtn[aria-pressed="true"] { color: #c62828; background: rgba(198,40,40,.1); }
+/* #4409: read aloud, in a message's hover bar beside Reply (html.has-speak: the page has speechSynthesis). */
+.rxn-speak { display: none; align-items: center; justify-content: center; font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 8px; margin-left: 4px; cursor: pointer; min-height: 24px; }
+html.has-speak .rxn-speak { display: inline-flex; }
+.rxn-speak:hover, .rxn-speak:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
+.rxn-speak:focus-visible, .asp-speak:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.rxn-speak[aria-pressed="true"], .asp-speak[aria-pressed="true"] { color: var(--k-ink); border-color: var(--gold-bright); }
+.asp-speak { display: none; float: right; margin: -2px -4px 0 6px; width: 24px; height: 24px; place-items: center; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--k-ink-2); cursor: pointer; }
+html.has-speak .asp-speak { display: grid; }
+.asp-speak:hover { color: var(--k-ink); border-color: var(--k-rule); }
 .emojipanel { position: absolute; right: 12px; bottom: calc(100% - 6px); z-index: 5;
   width: 18rem; max-height: 15rem; overflow-y: auto;
   background: var(--k-surface); border: 0.5px solid var(--separator); border-radius: 10px;
@@ -11458,6 +11501,8 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #3744 (Josh, 2026-09-25 09:29: "We need emoji support in the agent DM."): the room's
            grey smiley and panel, driven by the same code (EMOJI_AT below), so there is one list
            of emoji and one behaviour. The panel sits inside this box, which is its anchor. -->
+      <!-- #4409: the mic. Drawn only in the Mac app, where the on-device dictation bridge exists (html.has-voice). -->
+      <button class="micbtn" id="d-mic" type="button" data-voice-for="d-say" data-voice-msg="d-say-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
       <button class="emojibtn" id="d-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="d-emoji"><span class="emojibtn-glyph" aria-hidden="true">&#128512;</span></button>
             <button class="btn uprime cpost" id="d-send" type="button">Post</button>
       <div class="emojipanel" id="d-emoji" role="group" aria-label="Pick an emoji" hidden></div>
@@ -15237,6 +15282,7 @@ window.kosmosMeasureScrollbarWidth();
                app: "the yellow post button", match the pack. So Post and the
                agent page's Send wear `.uprime`, the build's gold. The
                argument above stays as the record of what it cost. -->
+                    <button class="micbtn" id="pj-mic" type="button" data-voice-for="pj-post" data-voice-msg="pj-room-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
                     <button class="emojibtn" id="pj-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="pj-emoji"><span class="emojibtn-glyph" aria-hidden="true">&#128512;</span></button>
                     <button class="btn uprime cpost" id="pj-post-go" type="button">Post</button>
         </div>
@@ -15272,7 +15318,7 @@ window.kosmosMeasureScrollbarWidth();
 
       </div>
       <div class="attach-chips" id="pj-attach-chips" hidden></div>
-      <p class="fmsg" id="pj-room-msg"></p>
+      <p class="fmsg" id="pj-room-msg" role="status"></p><!-- #4409: a live region, so the room mic's "Listening" line (and its refusals) are heard -->
       <p class="vh" id="pj-room-say" role="status" aria-live="polite"></p>
 
     <!-- ⚠️ THE RULE THIS BLOCK EXISTS UNDER, because the screen it replaced said
@@ -34046,8 +34092,8 @@ function dmRow(m, name, replyAdjacent) {
        (a DM row has no id; the react route finds the message by it). `typeof`-guarded
        because the lifted dmRow tests run without the room's reaction helpers. */
     const rxns = (m.at && typeof rxnsInner === 'function')
-      ? '<div class="rxns" data-at="' + esc(String(m.at)) + '">' + rxnsInner(m.reactions,
-        typeof CURRENT === 'undefined' || !CURRENT || m.from === CURRENT.sessionName, m.id) + '</div>' : '';   // #4256: Reply on this agent's own messages (the server takes no other sender's)
+      ? '<div class="rxns" data-at="' + esc(String(m.at)) + '" data-speak>' + rxnsInner(m.reactions,
+        typeof CURRENT === 'undefined' || !CURRENT || m.from === CURRENT.sessionName, true, m.id) + '</div>' : '';   // #4409: an agent's row, so it can be read aloud   // #4631: its id for Copy reference   // #4256: Reply on this agent's own messages (the server takes no other sender's)
     return '<div class="msg" data-mid="' + midOf(m) + '">' + av
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(shownFrom) + '</b>'
@@ -58089,6 +58135,31 @@ function pjRxnResetRow(messageRow) {
   messageRow.classList.remove('rxn-show', 'rxn-below');
   const quickBar = messageRow.querySelector('.rxn-quick'); if (quickBar) quickBar.removeAttribute('style');
 }
+/* #4409: keep the bar inside the thread across its width too. Read aloud made an agent's bar one
+   button wider, and at 375px its last button (Reply) ran past the thread's right edge, where no tap
+   reaches it (main had fit by about a pixel). Cap it at the thread's width (the touch CSS lets it wrap
+   onto a second line only when the thread is narrower than the bar), then slide it back inside.
+   Placed before the vertical checks, so they measure the bar's final shape. */
+function pjRxnFitWidth(quickBar, room) {
+  const inLeft = room.getBoundingClientRect().left + room.clientLeft; const inRight = inLeft + room.clientWidth;   // inside its border and scrollbar: what clips
+  quickBar.style.maxWidth = Math.floor(room.clientWidth) + 'px';
+  const B = quickBar.getBoundingClientRect();
+  let shift = B.right > inRight ? inRight - B.right : 0;
+  if (B.left + shift < inLeft) shift = inLeft - B.left;
+  if (Math.abs(shift) < 0.5) return;
+  const left = parseFloat(getComputedStyle(quickBar).left);   // the used left, unrounded (offsetLeft rounds)
+  quickBar.style.left = ((Number.isFinite(left) ? left : quickBar.offsetLeft) + shift) + 'px'; quickBar.style.right = 'auto';
+}
+/* A bar opened by keyboard focus has no tap to re-place it (pjRxnReplaceSoon runs only for a tapped bar), so a turn
+   or the keyboard changing the thread's width fits it again here. */
+function pjRxnRefitFocused() {
+  if (!(window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches)) return;
+  for (const id of rxnHosts()) {
+    const host = document.getElementById(id); const bar = host && host.querySelector('.rxn-quick:focus-within');
+    const row = bar && bar.closest('.msg'); if (!row || row.classList.contains('rxn-show')) continue;
+    bar.removeAttribute('style'); pjRxnFitWidth(bar, host);
+  }
+}
 /* #4631: keep a touchscreen's open bar inside its thread sideways. Copy reference made the bar wider, and on a phone
    a short post of the person's own (its bar hangs from the bubble's right edge) sent it past the thread's left edge,
    and an agent's (hanging from the bubble's left) past the right. Shifted, not re-anchored, so it stays over its own
@@ -58116,6 +58187,7 @@ function pjRxnPlace(row, fromTap) {
   // Also when nothing of the thread is showing (a very short window, header and composer
   // taking the rest): with no place to put the bar, close it, tap or not.
   if (band.bottom <= band.top || rowRect.bottom <= band.top || rowRect.top >= band.bottom) { pjRxnClose(); return; }
+  pjRxnFitWidth(quickBar, room);   // #4409: before the above/below checks, so they measure the bar's final shape
   if (quickBar.getBoundingClientRect().top >= band.top) { RXN_PINNED = false; return; }           // above the message: fits
   row.classList.add('rxn-below');
   if (quickBar.getBoundingClientRect().bottom <= band.bottom) { RXN_PINNED = false; return; }      // below it: fits
@@ -58237,6 +58309,7 @@ function pjRxnReplaceOpenBar() {
    re-places an open bar rather than closing it: the tap that opened it often closes the keyboard
    itself. pjRxnPlace closes it only if its post is no longer on screen. */
 window.addEventListener('resize', pjRxnReplaceSoon);
+window.addEventListener('resize', pjRxnRefitFocused);   // #4409: a bar opened by keyboard focus, too
 /* A bar opened by keyboard focus (an iPad with a keyboard, VoiceOver) opens without a tap, so
    pjRxnPlace never runs for it: flip it below its post where the thread's top would cut it, as a
    tapped bar does, and put it back when focus leaves the bar. */
@@ -58245,17 +58318,19 @@ for (const id of rxnHosts()) document.getElementById(id).addEventListener('focus
   if (!quickBar || !(window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches)) return;
   const row = quickBar.closest('.msg'); if (!row || row.classList.contains('rxn-show')) return;
   row.classList.remove('rxn-below');
+  pjRxnFitWidth(quickBar, event.currentTarget);   // #4409: inside the thread across its width, as a tapped bar is
   if (quickBar.getBoundingClientRect().top < pjRxnVisibleBand(event.currentTarget).top) row.classList.add('rxn-below');
   rxnKeepInsideX(quickBar, event.currentTarget);   // #4631: and inside it sideways
 });
 for (const id of rxnHosts()) document.getElementById(id).addEventListener('focusout', (event) => {
   const quickBar = event.target && event.target.closest && event.target.closest('.rxn-quick');
   if (!quickBar || quickBar.contains(event.relatedTarget)) return;
-  const row = quickBar.closest('.msg'); if (row && !row.classList.contains('rxn-show')) { row.classList.remove('rxn-below'); quickBar.style.transform = ''; }   // #4631: the sideways shift too
+  const row = quickBar.closest('.msg'); if (row && !row.classList.contains('rxn-show')) { row.classList.remove('rxn-below'); quickBar.removeAttribute('style'); }   // #4409's width cap and shift, and #4631's sideways transform
 });
 // iOS reports the keyboard and pinch zoom on the visual viewport, not as a window resize.
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', pjRxnReplaceSoon);
+  window.visualViewport.addEventListener('resize', pjRxnRefitFocused);
   window.visualViewport.addEventListener('scroll', pjRxnReplaceSoon);
 }
 /* A tap anywhere outside the thread holding the bar (the room or the DM) closes it too, except inside the shared emoji
@@ -59036,7 +59111,7 @@ document.addEventListener('click', (e) => {
 });
 window.addEventListener('scroll', () => msgMenuClose(false), true);   // never the event as restoreFocus
 window.addEventListener('resize', () => msgMenuClose(false));
-function rxnsInner(list, withReply, mid) {
+function rxnsInner(list, withReply, withSpeak, mid) {
   const pills = (Array.isArray(list) ? list : []).map((r) => {
     const e = String(r && r.emoji ? r.emoji : '');
     if (!e) return '';
@@ -59064,20 +59139,25 @@ function rxnsInner(list, withReply, mid) {
      small reply arrow before the word. */
   const reply = withReply ? '<button class="rxn-reply" type="button" aria-label="Reply to this message">'
     + '<svg class="rxn-reply-ico" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17l-5-5 5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>'
-    + 'Reply</button>' : '';
+    + '<span class="rxn-reply-t">Reply</span></button>' : '';   /* the word in a span of its own: a touchscreen hides it (#4409 after #4631) */
+  /* #4409: read an agent's message aloud, in the same bar, just before Reply (Reply stays last, #4358). Drawn for agents' messages only, and shown
+     only where the page can speak (html.has-speak). */
+  const speak = withSpeak ? '<button class="rxn-speak" type="button" aria-label="Read this message aloud" aria-pressed="false" title="Read aloud">'
+    + '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>' : '';
   return pills
     /* #4631: Copy message reference goes FIRST, so the emoji stay together and Reply stays last (#4358); the
        faint number at the front reads as the message's own label. Guarded: tests lift rxnsInner alone. */
     + '<span class="rxn-quick">' + (typeof msgRefButton === 'function' ? msgRefButton(mid) : '') + quicks
     + '<button class="rxn-more" type="button" aria-label="More reactions" aria-expanded="false">'
     + '<span class="rxn-more-glyph" aria-hidden="true">\u{1F600}</span></button>'
-    + reply
+    + speak + reply   // #4358 keeps Reply LAST, so read-aloud sits between the smiley and Reply
     + '</span>';
 }
 function pjReactions(m) {
   const id = String(m && m.id ? m.id : '');
   if (!id) return '';
-  return '<div class="rxns" data-post="' + esc(id) + '">' + rxnsInner(m && m.reactions, true, id) + '</div>';
+  const agent = !!m && m.operator !== true;   // #4409: an agent's post can be read aloud; the person's own cannot
+  return '<div class="rxns" data-post="' + esc(id) + '"' + (agent ? ' data-speak' : '') + '>' + rxnsInner(m && m.reactions, true, agent, id) + '</div>';
 }
 /* Repaint one post's reaction row in place from a fresh list (the react route's
    response), so a toggle updates its own row without a full room re-fetch. */
@@ -59085,9 +59165,338 @@ function repaintReactions(box, list) {
   /* #4631: the id the bar shows is the row's own (data-mid), as the first paint took it: a DM box is keyed by its
      time (data-at), so reading data-post alone dropped a DM message's number on the first reaction. */
   const row = box && box.closest ? box.closest('.msg') : null;
-  if (box) box.innerHTML = rxnsInner(list, box.hasAttribute('data-post') || box.hasAttribute('data-at'),
+  if (box) box.innerHTML = rxnsInner(list, box.hasAttribute('data-post') || box.hasAttribute('data-at'), box.hasAttribute('data-speak'),   // #4409: and its read-aloud
     (row && row.getAttribute('data-mid')) || box.getAttribute('data-post') || '');   // a room row and a DM row (#4256) keep their Reply
 }
+
+/* ===== #4409: voice. Talk to an agent (the mic in each composer) and hear an agent (read aloud). =====
+   Josh, 2026-09-28 15:02: "it would be so great to be able to get an agent to speak and to be able to speak
+   to them through Kosmos". Built-in engines only, no paid service, no audio kept.
+
+   TALKING: the Mac app's on-device recognizer (native-app/main.swift VoiceBridge), reached through the
+   `kosmosVoice` bridge. The mic is drawn only where that bridge exists. 🛑 NOT the page's own
+   webkitSpeechRecognition as a fallback in a browser: in Chrome it sends the audio to Google, which is the
+   one thing this feature promises not to do. The words land in the box at the caret for the person to
+   read and send; nothing is sent by talking.
+
+   HEARING: speechSynthesis, measured working in the app's web view with 68 voices, all on-device. Only an
+   on-device voice is used; a page with none says so rather than using a network voice. */
+const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '' };
+/* #4409 (review 1 BLOCKER): which conversation the page is showing. Opening another agent or room does NOT fire
+   hashchange (the URL follows the view through history.replaceState), and #d-say / #pj-post are ONE shared box each,
+   so a word heard after a switch would land in the next agent's box, be parked as THEIR draft, and go to them on
+   Enter: the #967/#2660 cross-agent class. Dictation and read-aloud are both bound to the view they started in. */
+function viewKey() {
+  const agent = (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName) || '';
+  const room = (typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT != null) ? String(PJ_CURRENT) : '';
+  return agent + '|' + room;
+}
+function shownNow(el) {
+  return !!(el && el.isConnected && typeof el.getClientRects === 'function' && el.getClientRects().length > 0);
+}
+/* The box, the conversation, and whether the box is on screen: a closed Guide hides asp-say, and a hidden window
+   hides the page. Any change means the words no longer belong where they would land. */
+function voiceWhere(box) {
+  if (!box) return '';
+  const hidden = typeof document !== 'undefined' && document.hidden === true;
+  /* #4409 (review 5): a box that stops taking words (the Guide ends a chat with readOnly; an agent going offline
+     disables #d-say) is a move too: words must not land where the person cannot type or delete them. */
+  const open = !box.disabled && !box.readOnly;
+  return box.id + '|' + viewKey() + '|' + (shownNow(box) && !hidden ? 'shown' : 'hidden') + '|' + (open ? 'open' : 'closed');
+}
+const VOICE_SAYS = {
+  'mic-denied': 'Kosmos is not allowed to use the microphone. You can turn it on in System Settings, Privacy & Security, Microphone.',
+  'speech-denied': 'Kosmos is not allowed to use speech recognition. You can turn it on in System Settings, Privacy & Security, Speech Recognition.',
+  'speech-unanswered': 'Speech recognition was not allowed, so nothing was heard.',
+  'no-on-device': 'This computer has no on-device speech model for your language, and Kosmos never sends your voice off this computer.',
+  'no-mic': 'No microphone was found.',
+  'not-set-up': 'This copy of Kosmos is not set up for the microphone yet. Updating Kosmos fixes it.',
+  'nothing-heard': 'Nothing was heard.',
+  'recognizer': 'Listening stopped because of an error. Try again.',
+};
+function voiceBridge() {
+  try { return (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosVoice) || null; } catch { return null; }
+}
+/* Where the heard words go: between what was before the caret and what was after it, with one space on
+   each side where the neighbours need it. PURE, for the node suite. */
+function voiceSplice(before, heard, after, max, selected) {
+  const b = String(before || ''), a = String(after || ''), sel = String(selected || '');
+  let h = String(heard || '').trim();
+  /* Review 8: text the person had selected is replaced only when words actually land; nothing heard (or no room)
+     gives it back, selection and all. */
+  const unchanged = { text: b + sel + a, caret: b.length + sel.length };
+  if (!h) return unchanged;
+  const lead = b && !/\s$/.test(b) ? ' ' : '';
+  const tail = a && !/^\s/.test(a) ? ' ' : '';
+  /* The box's own cap still holds, and (review 7) it is the HEARD words that give way, never the person's text: cutting
+     the joined string from its end dropped what they had typed after the caret. No room at all: the box is unchanged. */
+  if (max > 0) {
+    const room = max - (b.length + lead.length + tail.length + a.length);
+    if (room <= 0) return unchanged;
+    if (h.length > room) {
+      h = h.slice(0, room);
+      if (/[\uD800-\uDBFF]$/.test(h)) h = h.slice(0, -1);   // never half an emoji (a lone surrogate)
+      h = h.trimEnd();
+      if (!h) return unchanged;
+    }
+  }
+  return { text: b + lead + h + tail + a, caret: b.length + lead.length + h.length };
+}
+function voicePaint(btn, state) {
+  if (!btn) return;
+  btn.classList.toggle('asking', state === 'asking');
+  btn.setAttribute('aria-pressed', state === 'on' ? 'true' : 'false');
+  const label = state === 'off' ? 'Talk instead of typing' : 'Stop listening';
+  btn.setAttribute('aria-label', label);
+  btn.title = label;
+}
+function voiceSay(btn, line) {
+  const el = btn && document.getElementById(btn.getAttribute('data-voice-msg') || '');
+  if (el) el.textContent = line;
+}
+/* The listening line is ours to clear; an error line said after it is not. */
+const VOICE_LISTENING = 'Listening. Press Escape to stop.';
+function voiceMsgEl(btn) { return btn && document.getElementById(btn.getAttribute('data-voice-msg') || ''); }
+function voiceMsgEmpty(btn) { const el = voiceMsgEl(btn); return !!el && !el.textContent; }
+/* At a new start: the mic's own earlier words (a refusal, the listening line) go; anything else the page said stays. */
+function voiceUnsayOwn(btn) {
+  const el = voiceMsgEl(btn);
+  if (el && (el.textContent === VOICE_LISTENING || Object.values(VOICE_SAYS).includes(el.textContent))) el.textContent = '';
+}
+function voiceUnsay(btn) {
+  const el = btn && document.getElementById(btn.getAttribute('data-voice-msg') || '');
+  if (el && el.textContent === VOICE_LISTENING) el.textContent = '';
+}
+function voiceToggle(btn) {
+  const h = voiceBridge();
+  if (!h || !btn) return;
+  if (VOICE.btn === btn) { h.postMessage({ op: 'stop' }); return; }   // the second press: stop, keep the words
+  if (VOICE.btn) voiceCancel();
+  const box = document.getElementById(btn.getAttribute('data-voice-for') || '');
+  if (!box || box.disabled || box.readOnly) return;   // review 5: a read-only box (an ended Guide chat) takes no words, spoken ones included
+  const v = box.value;
+  const s0 = typeof box.selectionStart === 'number' ? box.selectionStart : v.length;
+  const s1 = typeof box.selectionEnd === 'number' ? box.selectionEnd : v.length;
+  VOICE.seq += 1;
+  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), selected: v.slice(s0, s1), where: voiceWhere(box), id: 's' + VOICE.seq, last: v });
+  voiceUnsayOwn(btn);   // review 6: clear only the mic's own earlier lines, never another message's (a failed send, a refusal)
+  voicePaint(btn, 'asking');
+  h.postMessage({ op: 'start', id: VOICE.id });
+  /* #4409 (review 4): clicking the mic moves focus to the button, and Escape stops only from the box, so give the box
+     focus back (its caret was read above and focusing does not move it). Typing then also takes the box back. */
+  try { box.focus({ preventScroll: true }); } catch { /* a stub box in the node suite */ }
+  voiceSpeakWatch();
+}
+/* Stop and drop whatever is still coming: the person sent, typed, or left. What is already in the box stays. */
+function voiceCancel() {
+  if (!VOICE.btn) return;
+  const btn = VOICE.btn;
+  VOICE.btn = null; VOICE.box = null; VOICE.where = ''; VOICE.id = '';
+  voicePaint(btn, 'off');
+  voiceUnsay(btn);
+  const h = voiceBridge();
+  if (h) h.postMessage({ op: 'cancel' });
+}
+function voiceOnEvent(ev) {
+  if (!ev || !VOICE.btn) return;   // a late word after a cancel goes nowhere
+  /* #4409 (review 2): an event from an EARLIER session (moving from one mic to another is cancel-then-start in one
+     turn, and the cancel's "stopped" lands after the new start) must not end the new one. The app echoes the id the
+     page started with; an app from before the id carries none, and is taken as it always was. */
+  if (ev.id != null && ev.id !== VOICE.id) return;
+  const btn = VOICE.btn;
+  if (ev.kind === 'listening') { voicePaint(btn, 'on'); if (voiceMsgEmpty(btn)) voiceSay(btn, VOICE_LISTENING); return; }   // never over another message's line   // review 5: focus is in the box, so say it there
+  if ((ev.kind === 'partial' || ev.kind === 'final') && VOICE.box) {
+    const box = VOICE.box;
+    /* 🛑 The view moved (another agent, room, the Guide closed, the window hidden): these words were meant for the
+       conversation that is gone, so they go nowhere and the mic stops. What is already in the box stays. */
+    if (voiceWhere(box) !== VOICE.where) { voiceCancel(); return; }
+    /* #4409 (review 6): the box is rebuilt from the before/after read at the start, so ANY other write since (an emoji
+       from the picker, Reply's @mention, undo, autocorrect, a paste or a drop) would be wiped by this word. If the box
+       is not what dictation last left in it, the person changed it: stop, and keep what they have. */
+    if (box.value !== VOICE.last) { voiceCancel(); return; }
+    const out = voiceSplice(VOICE.before, ev.text, VOICE.after, box.maxLength, VOICE.selected);
+    box.value = out.text;
+    VOICE.last = box.value;   // read back: the box may normalise what was written (line endings, its cap)
+    try { box.setSelectionRange(out.caret, out.caret); } catch { /* not focused */ }
+    box.dispatchEvent(new Event('input', { bubbles: true }));   // the box grows, the counter and the @ mirror follow
+    return;
+  }
+  if (ev.kind === 'error') { voiceSay(btn, VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer); return; }
+  if (ev.kind === 'stopped') { VOICE.btn = null; VOICE.box = null; VOICE.where = ''; VOICE.id = ''; voicePaint(btn, 'off'); voiceUnsay(btn); }
+}
+window.kosmosVoiceEvent = voiceOnEvent;
+/* While listening or reading aloud, look twice a second: a switch with nothing heard since must still stop the mic
+   (else it listens into a hidden box until the 300 s cap), and read-aloud must follow its message through a repaint
+   or stop when the message leaves the screen. Runs only while one of them is on. */
+let VOICE_WATCH = 0;
+function voiceSpeakWatch() {
+  if (VOICE_WATCH) return;
+  VOICE_WATCH = setInterval(() => {
+    if (VOICE.btn && VOICE.box && voiceWhere(VOICE.box) !== VOICE.where) voiceCancel();
+    if (SPEAK.btn) speakFollow();
+    if (!VOICE.btn && !SPEAK.btn) { clearInterval(VOICE_WATCH); VOICE_WATCH = 0; }
+  }, 500);
+}
+document.addEventListener('click', (e) => {
+  const mic = e.target.closest && e.target.closest('.micbtn');
+  if (mic) { e.preventDefault(); voiceToggle(mic); return; }
+  /* Send while listening: what is in the box is what goes, and nothing arrives after it. */
+  if (VOICE.btn && e.target.closest && e.target.closest('#d-send, #pj-post-go, #asp-send')) voiceCancel();
+}, true);
+document.addEventListener('keydown', (e) => {
+  if (!VOICE.btn || e.target !== VOICE.box) return;
+  if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); const h = voiceBridge(); if (h) h.postMessage({ op: 'stop' }); return; }
+  if (['Shift', 'Meta', 'Control', 'Alt', 'CapsLock'].includes(e.key)) return;
+  voiceCancel();   // typing (or Enter to send) takes the box back; the words heard so far stay
+}, true);
+/* A paste or a drop changes the box with no key pressed; the next heard word would overwrite it from the stale
+   before/after, so it takes the box back too. */
+for (const t of ['paste', 'drop']) document.addEventListener(t, (e) => { if (VOICE.btn && e.target === VOICE.box) voiceCancel(); }, true);
+document.addEventListener('visibilitychange', () => { if (document.hidden) { voiceCancel(); if (SPEAK.btn) speakStop(); } });
+window.addEventListener('pagehide', () => voiceCancel());
+window.addEventListener('hashchange', () => voiceCancel());
+window.addEventListener('popstate', () => voiceCancel());
+try { if (voiceBridge()) document.documentElement.classList.add('has-voice'); } catch { /* no page root (the node harnesses): nothing to draw */ }
+
+/* ---- read aloud ---- */
+const SPEAK = { btn: null, text: '', where: '', seq: 0, nth: 0 };
+/* Asked at boot, so it must not READ window.speechSynthesis: in Chromium that getter starts the speech service
+   synchronously, which held the first poll (and the board's first paint) back about 750ms. `in` only asks whether the
+   property exists. web.voice-4409.test.js pins that the getter is never called here. */
+function speakCan() {
+  try { return ('speechSynthesis' in window) && typeof window.SpeechSynthesisUtterance === 'function'; } catch { return false; }
+}
+try { if (speakCan()) document.documentElement.classList.add('has-speak'); } catch { /* as above */ }
+/* What a message says, as words to hear. PURE, for the node suite. A code block is announced, not
+   spelled out; an address is "link"; markdown marks are not read as punctuation. */
+function speechTidy(text) {
+  return String(text || '')
+    .replace(/```[\s\S]*?(```|$)/g, ' Code block. ')
+    .replace(/\[([^\]]+)\]\((?:[^)\s]+)\)/g, '$1')
+    .replace(/\bhttps?:\/\/\S*[^\s.,;:!?)'"]/gi, 'link')   // the sentence's own full stop stays
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/(\*\*|__|~~)/g, '')
+    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+[.)])\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+/* Long text in pieces at sentence ends: one very long utterance can stall WebKit's synthesizer. PURE. */
+function speechChunks(text, max) {
+  const cap = max > 0 ? max : 220;
+  const out = [];
+  let cur = '';
+  for (const part of (String(text || '').match(/[^.!?]+(?:[.!?]+|$)/g) || []).map((x) => x.trim()).filter(Boolean)) {   // no lookbehind: a parse error here would take the whole page down on an older WebKit
+    for (let p = part; p;) {
+      const piece = p.length > cap ? (p.slice(0, cap).replace(/\s+\S*$/, '') || p.slice(0, cap)) : p;
+      p = p.slice(piece.length).trim();
+      if (cur && (cur + ' ' + piece).length > cap) { out.push(cur); cur = piece; } else cur = cur ? cur + ' ' + piece : piece;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+/* The words of a rendered message: its body without the name, the time, the reply header, cards or buttons. */
+function speechTextOfRow(row) {
+  const src = row && (row.querySelector('.msg-bd') || row);
+  if (!src) return '';
+  const c = src.cloneNode(true);
+  c.querySelectorAll('.msg-nm, .msg-t, .msg-replyto, .vh, .rxns, button, .att-pic, .att-meta, .att-name, .att-txt').forEach((n) => n.remove());
+  /* A fenced block renders as span.mdcb (pjRich), not <pre>; both are announced. A line break is a space, or
+     "Run this:<br>then" is read as "this:then". Measured by render-voice-4409.js V7, which the <pre>-only
+     version failed. */
+  c.querySelectorAll('pre, .mdcb').forEach((n) => n.replaceWith(document.createTextNode(' Code block. ')));
+  c.querySelectorAll('br, p, li, div').forEach((n) => n.after(document.createTextNode(' ')));
+  return speechTidy(c.textContent);
+}
+function speakVoice() {
+  const all = (window.speechSynthesis.getVoices() || []).filter((v) => v.localService);   // on-device only
+  const lang = String(navigator.language || 'en-US').toLowerCase();
+  return all.find((v) => v.default && v.lang.toLowerCase() === lang)
+    || all.find((v) => v.lang.toLowerCase() === lang)
+    || all.find((v) => v.lang.toLowerCase().slice(0, 2) === lang.slice(0, 2))
+    || null;
+}
+function speakPaint(btn, on) {
+  if (!btn) return;
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  btn.setAttribute('aria-label', on ? 'Stop reading aloud' : 'Read this message aloud');
+  btn.title = on ? 'Stop reading' : 'Read aloud';
+}
+function speakStop() {
+  const was = SPEAK.btn;
+  SPEAK.btn = null; SPEAK.text = ''; SPEAK.where = '';
+  speakPaint(was, false);
+  try { window.speechSynthesis.cancel(); } catch { /* nothing to stop */ }
+}
+/* #4409 (review 1): a reaction or a thread rebuild replaces the row's buttons (innerHTML), so the one that started
+   reading is gone and the new one says "not reading" while the voice goes on, and pressing it restarts from the top.
+   Reading is keyed on the message's WORDS and the view, not the element: the watch hands the pressed state to the
+   repainted button, and stops when the message is no longer on screen or the view moved. */
+function speakSameText(text) {
+  const rowOf = (b) => b && b.closest && b.closest('.msg, .asp-m');
+  return Array.from(document.querySelectorAll('.rxn-speak, .asp-speak')).filter((b) => shownNow(rowOf(b)) && speechTextOfRow(rowOf(b)) === text);
+}
+function speakFollow() {
+  if (!SPEAK.btn) return;
+  if (viewKey() !== SPEAK.where) { speakStop(); return; }
+  const rowOf = (b) => b && b.closest && b.closest('.msg, .asp-m');
+  if (SPEAK.btn.isConnected && shownNow(rowOf(SPEAK.btn))) return;
+  /* Two messages can say the same words ("Done."): keep the one in the same position among them. */
+  const same = speakSameText(SPEAK.text);
+  const next = same[SPEAK.nth] || same[0];
+  if (!next) { speakStop(); return; }
+  SPEAK.btn = next;
+  speakPaint(next, true);
+}
+function speakRow(btn) {
+  if (!speakCan() || !btn) return;
+  const row = btn.closest('.msg, .asp-m');
+  const text = speechTextOfRow(row);
+  if (SPEAK.btn === btn || (SPEAK.btn && text && text === SPEAK.text && viewKey() === SPEAK.where)) { speakStop(); return; }   // the second press stops it, on a repainted button too
+  speakStop();
+  if (!text) return;
+  const voice = speakVoice();
+  if (!voice) {
+    /* A browser can answer getVoices() with nothing before its list loads (Chrome fills it later): wait for the list
+       once rather than saying "no voice" for good. */
+    const vs = window.speechSynthesis;
+    if (!btn.hasAttribute('data-voice-wait') && (vs.getVoices() || []).length === 0 && typeof vs.addEventListener === 'function') {
+      btn.setAttribute('data-voice-wait', '');
+      vs.addEventListener('voiceschanged', () => { btn.removeAttribute('data-voice-wait'); if (speakVoice()) speakRow(btn); }, { once: true });
+      return;
+    }
+    btn.title = 'No voice on this computer can read this aloud'; btn.setAttribute('aria-label', btn.title); return;
+  }
+  SPEAK.btn = btn; SPEAK.text = text; SPEAK.where = viewKey(); SPEAK.nth = Math.max(0, speakSameText(text).indexOf(btn));
+  const mine = ++SPEAK.seq;
+  speakPaint(btn, true);
+  voiceSpeakWatch();
+  const parts = speechChunks(text, 220);
+  parts.forEach((part, i) => {
+    const u = new SpeechSynthesisUtterance(part);
+    u.voice = voice; u.lang = voice.lang;
+    if (i === parts.length - 1) {
+      const done = () => { if (SPEAK.seq === mine && SPEAK.btn) speakStop(); };   // the button may have been repainted since
+      u.onend = done; u.onerror = done;
+    }
+    window.speechSynthesis.speak(u);
+  });
+}
+function speakButtonEl() {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'asp-speak';
+  b.setAttribute('aria-label', 'Read this message aloud');
+  b.setAttribute('aria-pressed', 'false');
+  b.title = 'Read aloud';
+  b.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>';
+  return b;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('.rxn-speak, .asp-speak');
+  if (b) { e.preventDefault(); speakRow(b); }
+});
+window.addEventListener('pagehide', () => { if (SPEAK.btn) speakStop(); });
 /* #2700: fold a run of consecutive room refusals that share one reason into a
    single 'refused-group' row, so a valve-stopped busy room shows ONE band
    naming every held agent (see the refused-group branch in pjRoomRow) instead
@@ -69007,6 +69416,7 @@ function asbLayerEnsure() {
     +     '<button type="button" id="asp-hide-no">Keep it</button>'
     +     '<small>You can turn it back on under Settings&nbsp;&gt;&nbsp;Computer</small></div>'   /* Josh's words for this (#3758) */
     +   '<form class="asp-in" id="asp-in"><textarea id="asp-say" rows="1" aria-label="Ask about Kosmos" placeholder="Ask about Kosmos\u2026"></textarea>'
+    +   '<button class="micbtn" id="asp-mic" type="button" data-voice-for="asp-say" data-voice-msg="asp-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>'   /* #4409 */
     +   '<button type="submit" id="asp-send" aria-label="Send">&uarr;</button></form>'
     + '</div>';
   document.body.appendChild(layer);
@@ -69303,6 +69713,7 @@ function asbPaintThread(rows, session) {
     d.className = 'asp-m ' + (m.from === session ? 'him' : 'you');
     if (m.id || m.at) d.dataset.mid = String(m.id || m.at);   // #3743: the guide's replies, by the same id a DM uses
     d.textContent = String(m.text || '');
+    if (m.from === session) d.appendChild(speakButtonEl());   // #4409: the guide's answers can be read aloud
     th.appendChild(d);
   }
   if (atEnd || ASB.sending) th.scrollTop = th.scrollHeight;
