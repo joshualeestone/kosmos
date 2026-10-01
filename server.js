@@ -8421,7 +8421,8 @@ const server = http.createServer(async (req, res) => {
   /* kosmos#4648 (weekend goal #4647): the computers on this board's Kosmos+ account, for the
      top-left menu's "Your computers". Signed through the tunnel and each online state measured
      (engine/account-computers.js). Always 200: { ok: false, because } when there is no list
-     (not signed in, an old connector or coordinator), and the page hides the section. */
+     (not signed in, an old connector or coordinator), and the page hides the section. Not signed in
+     is marked signedIn: false (kosmos#4815); any other ok: false is a failure the page retries. */
   if (pathname === '/api/remote/computers' && (req.method === 'GET' || req.method === 'HEAD')) {
     accountComputers.fetchComputers()
       .then((r) => sendJson(res, 200, r))

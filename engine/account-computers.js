@@ -21,7 +21,8 @@
  * Best-effort by contract: fetchComputers() never throws. It resolves to
  * { ok: true, computers: [...] } or { ok: false, because } (not signed in, an old
  * connector or coordinator, the tunnel failed). The page hides the section on
- * any { ok: false }.
+ * any { ok: false }. kosmos#4815: "no list to have" (not signed in, no remote access)
+ * also carries signedIn: false; every other ok: false is a failure the page retries.
  */
 
 const ROUTE = '/v1/mac/account-computers';
