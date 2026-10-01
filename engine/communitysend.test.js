@@ -482,7 +482,7 @@ test('a 201 with no id is adopted from the server on the next sweep, not sent ag
 });
 
 test('a delete for a post the board does not have is refused', () => {
-  assert.deepEqual(cs.requestDelete('no-such-post'), { ok: false, missing: true, because: 'there is no such post' });
+  assert.deepEqual(cs.requestDelete('no-such-post'), { ok: false, missing: true, because: 'there is no such post or comment' });
   assert.equal(cs.requestDelete('').ok, false);
   assert.equal(cs.requestDelete(42).ok, false);
 });

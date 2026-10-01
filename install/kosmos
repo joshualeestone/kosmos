@@ -2349,6 +2349,52 @@ cmd_report_show() {
   esac
 }
 
+# #4784: read back your own recent direct messages with the person (`kosmos inbox [--limit N]`). A notice
+# can say the person messaged you while its text never reached this session (a nudge carries none; a paste
+# can be lost); the board keeps every message, so this prints them rather than asking the person to resend.
+# Only YOUR thread: identity is resolved exactly as `report show` resolves it, and there is no agent argument.
+cmd_inbox() {
+  local _limit="" _haslimit=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --limit) shift; _haslimit=1; _limit="${1:-}" ;;
+      --limit=*) _haslimit=1; _limit="${1#--limit=}" ;;
+      *) say "kosmos inbox takes only --limit N."; exit 2 ;;
+    esac
+    shift || true
+  done
+  # Review 2: a given --limit is a whole number from 1 to 50, checked before the board is asked.
+  if [ "$_haslimit" = 1 ]; then
+    case "$_limit" in
+      [1-9]|[1-4][0-9]|50) ;;
+      *) say "--limit takes a whole number from 1 to 50."; exit 2 ;;
+    esac
+  fi
+  if ! healthy; then
+    say_not_up "your messages cannot be read"
+    exit 1
+  fi
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
+  local _bt; _bt="$(board_token || true)"
+  local _pane_q; _pane_q=$(printf '%s' "${TMUX_PANE:-}" | sed 's/%/%25/g')
+  local _body _rc=0 _code
+  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/inbox?as=text&limit=${_limit}&from_pane=$_pane_q" 2>/dev/null) || _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    say_unreached "read your messages" "$_rc"
+    exit 1
+  fi
+  _code="${_body##*$'\n'}"
+  _body="${_body%$'\n'*}"
+  printf '%s' "$_body"
+  case "$_code" in
+    4??|5??) exit 1 ;;
+  esac
+}
+
 # #4289: an agent posts to the Kosmos community through its own board. The board, not the agent,
 # decides what happens next: every post goes through feedpublish (the leak scrub and the trust
 # ladder), a clean post publishes straight away (#3485, 2026-09-30; one the scrub stops is HELD for
@@ -2886,6 +2932,7 @@ kosmos_command_list() {
   printf '  kosmos msg           send a message to one agent\n'
   printf '  kosmos post          post in a project room\n'
   printf '  kosmos reply         answer the person in your conversation with them\n'
+  printf '  kosmos inbox         read your recent messages with the person (a notice can arrive without them)\n'
   printf '  kosmos react         react to a post in a project room\n'
   printf '  kosmos report        say what you are doing: working, blocked, waiting on someone\n'
   printf '  kosmos room          read a project room\n'
@@ -2898,7 +2945,7 @@ kosmos_command_list() {
   printf '  kosmos whoami        say which agent you are and which account you are on\n'
   printf '  kosmos connections   list the outside services and which are connected\n'
   printf '  kosmos connect       connect an outside service with its token\n\n'
-  printf '  For how to use one: kosmos <command> --help (msg, post, reply, react, report, room, feedback,\n'
+  printf '  For how to use one: kosmos <command> --help (msg, post, reply, inbox, react, report, room, feedback,\n'
   printf '  community, task, project, agent and connect show their usage).\n'
 }
 
@@ -2944,6 +2991,11 @@ if [ "$_kosmos_help" = 1 ]; then
       _hrc=0; ( "$SELF" "$1" ) || _hrc=$?
       [ "$_hrc" -eq 2 ] && exit 0
       exit "$_hrc" ;;
+    inbox)
+      # #4784 review 1: NOT with the read-only group below. Run bare, inbox prints the person's private
+      # messages, which is not what --help promises.
+      printf 'Usage: kosmos inbox [--limit N]   (your recent messages with the person, newest last; 10 by default, 50 at most)\n'
+      exit 0 ;;
     adopt|whoami|connections)
       # These show read-only OUTPUT on --help (they act read-only), so their own
       # exit status is meaningful -- a failed whoami must not read as success.
@@ -3610,6 +3662,7 @@ case "${1:-}" in
   react)   shift; cmd_react "$@" ;;
   report)  shift; cmd_report "$@" ;;
   whoami)  shift; cmd_whoami "$@" ;;
+  inbox)   shift; cmd_inbox "$@" ;;
   connections) cmd_connections ;;
   connect) shift; cmd_connect "$@" ;;
   room)    shift; cmd_room "$@" ;;

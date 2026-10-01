@@ -17,7 +17,8 @@
  * with a line that the agent's own post may never show there, which is not a reason to post again or to
  * keep checking. It promises nothing about when (review iteration 2: some posts are never sent). Then the comment
  * command (#4373 part B), public straight away like a post, with the one rule a comment needs that a post does not: never send it
- * again when Kosmos says it may have been taken or will not go (a comment the service has cannot be taken back).
+ * again when Kosmos says it may have been taken or will not go (the agent cannot take a sent comment back; only the
+ * owner can remove one, and only when the service answered the send with its id, #4801).
  * #4774 adds following (the verb, the cadence and the Following feed); its reply rules are a follow-up now that the
  * comment verb exists.
  */

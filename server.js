@@ -1272,6 +1272,12 @@ const os = require('node:os');
    same list and two spellings of it would drift. Pass a fresh read() to
    avoid a second disk read when the caller already holds one. */
 
+/* #4784 (reviews 4 and 5): for `kosmos inbox`'s text rows. INBOX_BREAK is every character a terminal or an agent's
+   context can read as a line break (a message's pieces after the first are indented; a file name's become spaces).
+   INBOX_DROP is C0 and C1 controls (tab kept) plus the bidirectional marks and overrides that can reorder a row. */
+const INBOX_BREAK = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/;
+const INBOX_DROP = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
 /**
  * Who is sending this? One derivation, used by every route that needs it.
  *
@@ -3826,7 +3832,7 @@ const REMOTE_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply']);
    The /api/team handler re-enforces auth itself (a valid agent token OR the board
    token; no-credential refused on an enforcing board), exactly as report/reply do
    one layer down -- see that handler. */
-const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
+const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET /api/inbox']);
 /* #4491 (proof of concept): agent routes a loopback caller may reach with ONLY its own agent
    token, in the `x-kosmos-agent-token` header, instead of the board token. So an agent need not
    hold the person's credential for its everyday verbs, and a request carrying only an agent
@@ -4503,13 +4509,16 @@ const server = http.createServer(async (req, res) => {
      (title, agent, when), with whether Delete still applies. Board-token gated by the
      sensitive-route check above; carries no keys or remote ids. */
   if (pathname === '/api/community/mine' && (req.method === 'GET' || req.method === 'HEAD')) {
-    try { sendJson(res, 200, { posts: communitymine.mine() }); }
-    catch (e) { console.error('FAIL /api/community/mine: ' + (e && e.message || e)); sendJson(res, 500, { error: 'could not load your community posts' }); }
+    // #4801: and the comments they published on community posts, each with its own Delete.
+    try { sendJson(res, 200, { posts: communitymine.mine(), comments: communitymine.mineComments() }); }
+    catch (e) { console.error('FAIL /api/community/mine: ' + (e && e.message || e)); sendJson(res, 500, { error: 'could not load your community posts and comments' }); }
     return;
   }
 
   /* #4287: the owner deletes a post from the public community. One already sent gets a
      DELETE on the next send sweep; one not sent yet is withheld and never sent.
+     #4801: the same for a comment on a community post; requestDelete looks the id up as a
+     post first, then as a comment, and keeps the two apart.
      Board-token gated like release above. */
   if (pathname === '/api/community/delete' && req.method === 'POST') {
     readBody(req)
@@ -4521,7 +4530,13 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         const r = communitysend.requestDelete(body.id);
-        if (!r.ok) { sendJson(res, r.missing ? 404 : r.notEligible ? 400 : 500, { error: r.because }); return; }
+        // #4801 review 1: busy (a comment's POST is out right now) is 409, and an unreadable keys.json a retryable 503
+        // (review 2: or an unreadable comments-sent.json), which says when to ask again.
+        if (!r.ok) {
+          if (r.retryable) res.setHeader('Retry-After', '60');
+          sendJson(res, r.missing ? 404 : r.notEligible ? 400 : r.busy ? 409 : r.retryable ? 503 : 500, { error: r.because });
+          return;
+        }
         sendJson(res, 200, { ok: true, state: r.state });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
@@ -7902,22 +7917,12 @@ const server = http.createServer(async (req, res) => {
      agents' tokens over the last 7 days; it is null ("not measured yet") until community
      turns can be told apart in the usage data, which comes with the managed block (#4289).
      Never 0: a zero would claim a measurement nobody made. */
-  const communityBody = () => { const r = communityswitch.read(); return { on: r.on, ok: r.ok, share: null, noticeSeen: r.noticeSeen }; };
+  /* #4820: no `noticeSeen` any more (the one-time notice is gone). A page from an older build opened
+     that notice only on noticeSeen === false, so an answer without the field opens nothing there either. */
+  const communityBody = () => { const r = communityswitch.read(); return { on: r.on, ok: r.ok, share: null }; };
   if (pathname === '/api/community-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, communityBody()); }
     catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
-    return;
-  }
-  /* #4288 part B: the one-time notice records itself as seen when it OPENS, so two tabs do not both
-     show it (the What's New rule). The body is ignored; the answer is the same body as GET. */
-  if (pathname === '/api/community-setting/notice-seen' && req.method === 'POST') {
-    readBody(req)
-      .then(() => {
-        const saved = communityswitch.markNoticeSeen();
-        if (!saved.ok) { sendJson(res, 500, { error: saved.because }); return; }
-        sendJson(res, 200, communityBody());
-      })
-      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
   if (pathname === '/api/community-setting' && req.method === 'PUT') {
@@ -13098,6 +13103,104 @@ const server = http.createServer(async (req, res) => {
         });
       })
       .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read that request' }));
+    return;
+  }
+  if (pathname === '/api/inbox' && req.method === 'GET') {
+    /* #4784: `kosmos inbox`, an agent's own recent direct messages with the person. An agent can be told a
+       message arrived (the first-reply nudge, #3226, carries no text; a paste can be lost in the pane or a
+       restart) with no way to read it but asking the person to send it again. The board keeps every DM
+       (chat DIRECT, stored even when delivery failed), so this reads it back. ONLY the caller's own thread:
+       the caller is resolved exactly as GET /api/report resolves it (token first, then pane; a bare pane is
+       refused on an enforcing board), and there is no agent parameter, so an agent holding only its own token
+       reads only its own thread. A caller holding the BOARD token (the person, or an agent whose CLI can read
+       it) can name any pane and so any agent: that is no new reach, since GET /api/agent/<name>/thread already
+       serves every thread to the board token. */
+    let asText = false;
+    let fromPane = null;
+    let limit = 10;
+    try {
+      const q = new URL(req.url, ROUTING_BASE).searchParams;
+      asText = q.get('as') === 'text';
+      fromPane = q.get('from_pane');
+      const n = Number.parseInt(q.get('limit') || '', 10);
+      if (Number.isFinite(n) && n > 0) limit = Math.min(n, 50);
+    } catch { asText = false; fromPane = null; }
+    const fail = (status, msg) => {
+      if (asText) { res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(msg + '\n'); }
+      else sendJson(res, status, { ok: false, because: msg });
+    };
+    try {
+      const roster = safeRoster();
+      if (roster === null) { fail(503, 'we could not check which agents are running, so we could not tell who is asking'); return; }
+      const denyPaneFallback = boardAuthState.on
+        && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
+      const sender = resolveAgentSender(req, { from_pane: fromPane }, roster, {
+        denyPaneFallback,
+        denyBecause: 'this board only shows an agent its messages with its own agent token; run `kosmos inbox` as that agent',
+      });
+      if (!sender.ok) { fail(403, sender.because); return; }
+      let thread;
+      try { thread = chat.readThread(chat.DIRECT, sender.card.sessionName); }
+      catch { fail(503, 'we cannot read your conversation with the person on this computer right now'); return; }
+      /* Review 1 of #4784:
+         - Kosmos's own words stored in the agent's name (the daily-limit notice, `kosmos: true`) are not the
+           agent's, so they are left out rather than printed as "you:".
+         - The setup guide's thread is masked as the thread route masks it (#3769), every row: a key the person
+           pasted to it is not shown back, here either.
+         - An attachment and a menu choice are said, and a message of the person's that never reached the
+           agent is marked: that is the message this verb most often exists to recover. */
+      const kept = (thread && Array.isArray(thread.messages) ? thread.messages : [])
+        .filter((m) => m && m.kosmos !== true && (typeof m.text === 'string' || m.attachment || m.attachments))
+        .slice(-limit);
+      const masked = guideMaskedRows(kept, isSetupGuide(sender.card.sessionName) ? true : null);
+      const rows = masked.map((m) => {
+        const person = !(typeof m.from === 'string' && m.from);
+        const files = (Array.isArray(m.attachments) ? m.attachments : (m.attachment ? [m.attachment] : []))
+          // Review 2: a name is the person's, printed into a terminal: brackets (the markers' own delimiters) out.
+          // Review 5: and every line break (as a space) and dropped control, by the same rule as the text.
+          .map((a) => (a && typeof a.name === 'string'
+            ? a.name.split(INBOX_BREAK).join(' ').replace(INBOX_DROP, '').replace(/[\[\]]/g, '') || 'a file'
+            : 'a file'));
+        return {
+          at: typeof m.at === 'string' ? m.at : null,
+          from: person ? 'person' : 'you',
+          text: typeof m.text === 'string' ? m.text : '',
+          attachments: files,
+          chose: person && m.wire != null,
+          // Review 2: could_not is "did not reach you"; unconfirmed (pasted, Enter not confirmed) often did.
+          reached: !person || !m.delivery || m.delivery.state === chat.DELIVERY.PLACED
+            ? 'yes'
+            : (m.delivery.state === chat.DELIVERY.COULD_NOT ? 'no' : 'maybe'),
+        };
+      });
+      if (!asText) { sendJson(res, 200, { ok: true, messages: rows }); return; }
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      if (!rows.length) { res.end('No messages between you and the person yet.\n'); return; }
+      /* One row per message; a message's own further lines are INDENTED, so text a person typed can never read
+         as another row ("<time> you: ...") in the agent's context. */
+      /* Review 2: the markers sit BEFORE the colon, so nothing the person typed (it all comes after it) can
+         pass for one. */
+      const lines = rows.map((r) => {
+        const notes = [];
+        if (r.chose) notes.push('[chose this from a menu]');
+        if (r.attachments.length) notes.push('[attached: ' + r.attachments.join('; ') + ']');   // review 6: "; ", since a name can hold a comma
+        if (r.reached === 'no') notes.push('[this did not reach you]');
+        if (r.reached === 'maybe') notes.push('[this may not have reached you]');
+        // Review 7: a stored `at` is printed only in the ISO shape the board writes; anything else (an outbox entry
+        // file edited by hand can carry any string Date.parse accepts) is left out rather than put in the row.
+        const iso = typeof r.at === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/.test(r.at);
+        const head = (iso ? r.at.replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '')
+          + (r.from === 'person' ? 'the person' : 'you') + (notes.length ? ' ' + notes.join(' ') : '') + ': ';
+        /* Review 4: every character a terminal or an agent's context can read as a line break starts a new,
+           indented piece (INBOX_BREAK), and the controls in INBOX_DROP are dropped, so no typed text can draw a row
+           of its own. Attachment names go through the same two sets above. */
+        const body = r.text.split(INBOX_BREAK).map((l) => l.replace(INBOX_DROP, ''));
+        return [head + body[0], ...body.slice(1).map((l) => '    ' + l)].join('\n');
+      });
+      res.end(lines.join('\n') + '\n');
+    } catch (err) {
+      fail(500, 'Kosmos could not read your messages just now');
+    }
     return;
   }
   if (pathname === '/api/report' && req.method === 'GET') {
@@ -19291,10 +19394,10 @@ if (require.main === module) {
      attempting a Mac-only action on the wrong OS. The user-facing copy + screen
      for an unsupported platform is the operator's to add (see engine/platform.js
      and the PR); this is the mechanism only, and it invents no product copy. */
-  /* #4288 part B: the Community switch's one-time step, on the real-start path only (the routing
-     tests require this module). An existing install gets the one-time notice; a fresh one is told
-     in first run. A first-run flag that cannot be read counts as done, firstrun's own rule. */
-  try { communityswitch.migrate({ existingInstall: firstrun.seen().done === true }); } catch { /* never stops the board */ }
+  /* #4288: the Community switch's one-time step, on the real-start path only (the routing tests
+     require this module): with no setting file, write ON. #4820: fresh and existing installs alike,
+     and no notice is owed to either (a new install decides it in first run). */
+  try { communityswitch.migrate(); } catch { /* never stops the board */ }
   if (platformGate.isSupported()) {
     require('./engine/live-execution').allowLiveExecution();
   } else {
