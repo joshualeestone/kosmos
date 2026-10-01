@@ -429,6 +429,18 @@ test('with no usable state it checks once a day, in the first 15 minutes of the 
   assert.equal(r.code, 1, r.out + r.err);
   assert.match(st.card(), /kosmos-1\.0\.0-win-x64\.zip\.sha256 says 000000000000/);
   assert.match(st.card(), /cannot keep its state at/);
+  assert.doesNotMatch(r.err, /could not record it/, 'it tried to write a state it knows it cannot keep');
+}));
+
+test('a first sighting of a sha mismatch is read again on the next run, not judged twice on one read', () => withSite(async ({ site, base, dir, st }) => {
+  const gets = () => site.hits.filter((h) => h === 'GET /dist/kosmos-1.0.0-win-x64.zip').length;
+  site.files.set('kosmos-1.0.0-win-x64.zip', ['application/zip', Buffer.from('different bytes')]);
+  assert.equal((await run(base, dir, st, { now: T0 })).code, 2, 'CONTROL: a first sighting');
+  assert.equal(gets(), 1);
+  assert.equal((await run(base, dir, st, { now: T0 + 900 })).code, 1);
+  assert.equal(gets(), 2, 'the second sighting reused the first read');
+  await run(base, dir, st, { now: T0 + 1800 });
+  assert.equal(gets(), 2, 'CONTROL: a confirmed mismatch is not downloaded every run');
 }));
 
 test('a catch-all download site still alarms on what fails: a pass proves nothing there, a failure does', () => withSite(async ({ site, base, dir, st }) => {

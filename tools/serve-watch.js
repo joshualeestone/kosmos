@@ -570,10 +570,10 @@ async function main(argv) {
   }
   // A first sighting (pending) is not yet healthy: exit 2, the same as --check.
   const code = v.unknown ? 2 : v.alarm ? 1 : (v.pending && v.pending.length) ? 2 : 0;
-  /* When each problem was last seen (epoch seconds). A run that could not look neither adds nor ages anything out. */
+  /* When each problem was last seen (epoch seconds), kept for HOLD_S. A run that could not look adds nothing. */
   const seen = {};
   const was = state && state.seen && typeof state.seen === 'object' && !Array.isArray(state.seen) ? state.seen : {};
-  for (const [k, at] of Object.entries(was)) if (Number(at) <= now && (v.unknown || now - Number(at) < HOLD_S)) seen[k] = Number(at);
+  for (const [k, at] of Object.entries(was)) if (Number(at) <= now && now - Number(at) < HOLD_S) seen[k] = Number(at);
   if (!v.unknown) for (const p of v.problems) seen[p.key] = now;
   v.held = Object.keys(seen);
   const since = state ? Number(state.unknownSince) : NaN;
