@@ -35,4 +35,11 @@ log line and that a --check is healthy. The job then runs beside coordinator-mon
   "relay up ... build="), with no public route, and this monitor holds no SSH. Said on the card. An unknown name does
   not help either (the relay drops its TLS handshake), so the canary is a real computer: if pizzarama's Mac is off,
   the alert says the relay OR that computer, which one cannot be told from outside.
+- Re-hash on change, not hourly: the card said "at most hourly"; this re-reads the bytes when the pointer's sha or
+  the file's etag/length changes, after a failed read, and once a day. Rejected: hourly (about 140 MB an hour of
+  download-site egress, about 100 GB a month). Weakest premise: a same-length corruption behind an unchanged etag
+  waits up to a day; the sidecar the installers check is still compared every run.
+- Also watched, beyond the pointers: /setup, the tmux bundle and the generic fallback tarball (each tarball against
+  its own sidecar), because every install fetches them (install/setup.sh). Not watched: a Windows setup.ps1 at the
+  site root (none is served there). Pointer names must be the ones the installers derive from version and arch.
 - Pane goes to Splinter (claudebot-discord:0.0) by default: the site and the relay have different owners, and he routes.

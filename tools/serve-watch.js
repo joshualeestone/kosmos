@@ -9,7 +9,9 @@
  *   1. installkosmos.com: each live pointer (latest.json, latest-staging.json, latest-win.json,
  *      latest-win-staging.json) is served, every artifact it names answers 200 with the right content type, and its
  *      .sha256 sidecar (what the installers check) agrees with the pointer, every run; the served bytes hash to the
- *      pointer's sha256, re-read when the pointer or the file's headers change, after a failed read, and daily.
+ *      pointer's sha256, re-read when the pointer or the file's headers change, after a failed read, and daily. The
+ *      names must be the ones the installers derive from `version` (and `arch`). Also what every install fetches
+ *      whatever the pointers say: /setup, the tmux bundle and the generic fallback tarball (each against its sidecar).
  *   2. community.installkosmos.com: /api/health answers {"ok":true}, and the public feed answers.
  *   3. The relay: the canary computer's address answers (through the system curl; see curlStatus), and an alarm needs
  *      two missed runs in a row (the canary is a person's computer). Its build is NOT checked: the relay writes it only to its own
@@ -39,7 +41,7 @@
  *
  * Exit: 0 healthy, 1 alarm, 2 could not tell. EXIT 2 IS NOT A PASS.
  *
- * SEAMS (tests): SERVE_WATCH_DIST, SERVE_WATCH_COMMUNITY, SERVE_WATCH_RELAY (base URLs), SERVE_WATCH_NOW (epoch
+ * SEAMS (tests): SERVE_WATCH_SITE, SERVE_WATCH_DIST, SERVE_WATCH_COMMUNITY, SERVE_WATCH_RELAY (base URLs), SERVE_WATCH_NOW (epoch
  * seconds), SERVE_WATCH_STATE, SERVE_WATCH_MSG_CMD, SERVE_WATCH_TO, SERVE_WATCH_GH_CMD, SERVE_WATCH_ISSUE,
  * SERVE_WATCH_TIMEOUT_MS, SERVE_WATCH_CURL. Under the test runner it posts only through seams a test supplies.
  */
@@ -59,6 +61,7 @@ const WATCHING_S = 7 * 24 * 3600;
 const UNKNOWN_GRACE_S = 3600;
 
 const DIST = (env.SERVE_WATCH_DIST || 'https://installkosmos.com/dist').replace(/\/+$/, '');
+const SITE = (env.SERVE_WATCH_SITE || 'https://installkosmos.com').replace(/\/+$/, '');
 const COMMUNITY = (env.SERVE_WATCH_COMMUNITY || 'https://community.installkosmos.com').replace(/\/+$/, '');
 const RELAY = env.SERVE_WATCH_RELAY || 'https://pizzarama.kosmosplus.com/';
 const TIMEOUT_MS = Number(env.SERVE_WATCH_TIMEOUT_MS) || 30000;
@@ -74,7 +77,15 @@ const POINTERS = Object.freeze([
   { file: 'latest-win.json', kind: 'win', alias: true },
   { file: 'latest-win-staging.json', kind: 'win', alias: false },
 ]);
+/* What every install fetches whatever the pointers say (install/setup.sh): the curl-to-sh script, the tmux bundle, and
+   the generic tarball it falls back to. Each tarball is held to its own .sha256 sidecar. */
+const FIXED = Object.freeze([
+  { url: () => SITE + '/setup', name: 'the installer script (/setup)', type: 'script' },
+  { url: () => DIST + '/tmux-arm64.tar.gz', name: 'tmux-arm64.tar.gz', type: 'tarball', bySidecar: true },
+  { url: () => DIST + '/kosmos-arm64.tar.gz', name: 'kosmos-arm64.tar.gz', type: 'tarball', bySidecar: true },
+]);
 const TYPES = Object.freeze({
+  script: /^(text\/plain|text\/x-shellscript|application\/x-sh|application\/octet-stream)\b/,
   tarball: /^application\/(gzip|x-gzip|x-tar|octet-stream)\b/,
   manifest: /^application\/json\b/,
   sidecar: /^(text\/plain|application\/octet-stream)\b/,
@@ -83,6 +94,7 @@ const TYPES = Object.freeze({
 /* A pointer field must be a bare file name: a value with a slash or a dot-dot would make this fetch some other path. */
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$/;
 const BODY_CAP = 1024 * 1024;   // a pointer, sidecar, health or feed answer; anything bigger is not one
+const HASH_CAP = 512 * 1024 * 1024;   // a download read for its sha256; past this it is not one of ours
 const REHASH_S = 24 * 3600;     // a file whose headers have not changed is still hashed once a day
 const RELAY_FAILS_TO_ALARM = 2; // the canary is a person's computer: one missed run is not an outage
 
@@ -96,14 +108,19 @@ function artifactsOf(p, pt) {
   const out = [];
   const ok = (name) => typeof name === 'string' && NAME_RE.test(name) && !name.includes('..');
   const add = (name, type, hashed, sidecar) => { if (ok(name)) out.push({ name, type, hashed, sidecar }); };
+  const v = typeof p.version === 'string' && /^\d+\.\d+\.\d+$/.test(p.version) ? p.version : null;
+  if (!v) return null;
   if (kind === 'mac') {
-    if (!ok(p.artifact) || !ok(p.manifest)) return null;
+    // install/setup.sh builds the tarball's name from `version` (kosmos-<version>-arm64.tar.gz), not from `artifact`.
+    if (p.artifact !== 'kosmos-' + v + '-arm64.tar.gz' || !ok(p.manifest)) return null;
     add(p.artifact, 'tarball', true, true);
     add(p.manifest, 'manifest', false, false);
   } else {
-    if (!ok(p.artifact) || !ok(p.versioned)) return null;
+    // tools/windows/setup.ps1 requires versioned === kosmos-<version>-win-<arch>.zip; the fixed-name zip is optional.
+    const arch = typeof p.arch === 'string' && /^[a-z0-9]+$/.test(p.arch) ? p.arch : null;
+    if (!arch || p.versioned !== 'kosmos-' + v + '-win-' + arch + '.zip') return null;
     add(p.versioned, 'zip', true, true);
-    add(p.artifact, 'zip', owns, owns);
+    if (p.artifact !== undefined) { if (!ok(p.artifact)) return null; add(p.artifact, 'zip', owns, owns); }
   }
   return out;
 }
@@ -171,7 +188,12 @@ async function shaOf(url) {
   try {
     if (r.res.status !== 200) return { error: 'answered ' + r.res.status };
     const h = crypto.createHash('sha256');
-    for await (const chunk of r.res.body) h.update(chunk);
+    let n = 0;
+    for await (const chunk of r.res.body) {
+      n += chunk.length;
+      if (n > HASH_CAP) return { error: 'over ' + Math.round(HASH_CAP / 1048576) + ' MB, so not one of ours' };
+      h.update(chunk);
+    }
     return { sha: h.digest('hex') };
   } catch (err) {
     return { error: String((err && err.message) || err) };
@@ -193,6 +215,8 @@ function curlStatus(url) {
   }
 }
 const why = (r) => String(r.status || r.error);
+/* A server's own words, before they reach a pane as typed text: short, and no control characters. */
+const shown = (t) => String(t || 'no type').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 60);
 
 /* Every check, one verdict. Each problem is { key, text }: the KEY is the file and the class of failure only, so a
    failure whose error text changes (502 then 504, a timeout then a reset) is one standing alarm, not a new one every
@@ -219,10 +243,17 @@ async function gather(prev, now) {
   // exists for, unless nothing else answered either, in which case it is this computer that is offline.
   const control = await head(DIST + '/' + CONTROL);
   if (control.status >= 200 && control.status < 300) {
-    return { now, unknown: true, why: 'installkosmos.com answered ' + control.status + ' for a file that does not exist, so its answers prove nothing', problems: [], sha: prevSha, relayFails };
+    const why2 = 'installkosmos.com answered ' + control.status + ' for a file that does not exist, so its answers prove nothing';
+    // The community and relay answers above do not depend on the download site: a problem there is still an alarm.
+    if (problems.length) {
+      add('dist-unverifiable', 'the downloads could not be checked: ' + why2);
+      return { now, unknown: false, alarm: true, problems, artifacts: 0, sha: prevSha, relayFails };
+    }
+    return { now, unknown: true, why: why2, problems: [], sha: prevSha, relayFails };
   }
   if (control.status !== 404) {
     if (control.status === 0 && health.status === 0 && relay.status === 0) {
+      // Nothing reached anything, so this run says nothing about the canary either: its count is not advanced.
       return { now, unknown: true, why: 'nothing answered (this computer may be offline: ' + why(control) + ')', problems: [], sha: prevSha, relayFails: prevRelayFails };
     }
     add('dist-down', 'installkosmos.com is not answering (' + why(control) + '): no download or update can start');
@@ -232,7 +263,8 @@ async function gather(prev, now) {
   const urls = new Map();   // one check per artifact URL, even when two pointers name it
   for (const pt of POINTERS) {
     const g = await getJson(DIST + '/' + pt.file);
-    if (g.status !== 200 || !g.json) { add('pointer:' + pt.file, pt.file + ' is not served (' + why(g) + ')'); continue; }
+    if (g.status !== 200) { add('pointer:' + pt.file, pt.file + ' is not served (' + why(g) + ')'); continue; }
+    if (!g.json) { add('pointer-json:' + pt.file, pt.file + ' is served but is not valid JSON'); continue; }
     const arts = artifactsOf(g.json, pt);
     if (!arts) { add('pointer-shape:' + pt.file, pt.file + ' does not name its artifacts the way the app reads them'); continue; }
     const want = typeof g.json.sha256 === 'string' && /^[0-9a-f]{64}$/i.test(g.json.sha256) ? g.json.sha256.toLowerCase() : null;
@@ -250,7 +282,7 @@ async function gather(prev, now) {
     const by = ' (named by ' + from.join(' and ') + ')';
     const h = await head(url);
     if (h.status !== 200) { add('missing:' + a.name, a.name + by + ' is not served (' + why(h) + ')'); continue; }
-    if (!TYPES[a.type].test(h.type)) { add('type:' + a.name, a.name + by + ' is served as "' + (h.type || 'no type') + '", not a ' + a.type); continue; }
+    if (!TYPES[a.type].test(h.type)) { add('type:' + a.name, a.name + by + ' is served as "' + shown(h.type) + '", not a ' + a.type); continue; }
     if (expect.size > 1) { add('two-shas:' + a.name, a.name + by + ' is held to two different sha256s'); continue; }
     const want = expect.size ? [...expect][0] : null;
     if (a.sidecar && want) {
@@ -275,7 +307,28 @@ async function gather(prev, now) {
     if (rec.error) add('unreadable:' + a.name, a.name + by + ' could not be read whole to check its sha256 (' + rec.error + ')');
     else if (rec.got !== want) add('sha:' + a.name, a.name + by + ' does not match: served sha256 ' + String(rec.got).slice(0, 12) + ', pointer says ' + want.slice(0, 12));
   }
-  return { now, unknown: false, alarm: problems.length > 0, problems, artifacts: urls.size, sha, relayFails };
+  for (const f of FIXED) {
+    const url = f.url();
+    const h = await head(url);
+    if (h.status !== 200) { add('missing:' + f.name, f.name + ' is not served (' + why(h) + '): every install fetches it'); continue; }
+    if (!TYPES[f.type].test(h.type)) { add('type:' + f.name, f.name + ' is served as "' + shown(h.type) + '", not a ' + f.type); continue; }
+    if (!f.bySidecar) continue;
+    const s = await getJson(url + '.sha256');
+    const want = s.status === 200 && s.text ? String(s.text).trim().split(/\s+/)[0].toLowerCase() : null;
+    if (!want || !/^[0-9a-f]{64}$/.test(want)) { add('sidecar-missing:' + f.name, f.name + '.sha256 is not served or not a sha256 (' + why(s) + '): installers refuse the download'); continue; }
+    const was = prevSha[url];
+    const due = !was || was.expect !== want || was.stamp !== h.stamp || !!was.error || !(Number(was.at) <= now) || now - Number(was.at) >= REHASH_S;
+    let rec = was;
+    if (due) {
+      let r = await shaOf(url);
+      if (r.error) r = await shaOf(url);
+      rec = { at: now, expect: want, stamp: h.stamp, got: r.sha || null, error: r.error || null };
+    }
+    sha[url] = rec;
+    if (rec.error) add('unreadable:' + f.name, f.name + ' could not be read whole to check its sha256 (' + rec.error + ')');
+    else if (rec.got !== want) add('sha:' + f.name, f.name + ' does not match its own .sha256: served ' + String(rec.got).slice(0, 12) + ', sidecar says ' + want.slice(0, 12));
+  }
+  return { now, unknown: false, alarm: problems.length > 0, problems, artifacts: urls.size + FIXED.length, sha, relayFails };
 }
 
 /* Whether to post now, and what kind, from the verdict and this channel's last post. Pure. */

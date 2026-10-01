@@ -21,6 +21,7 @@ const SCRIPT = path.join(__dirname, 'tools', 'serve-watch.js');
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
 const TAR = Buffer.from('a mac tarball\n');
 const ZIP = Buffer.from('a windows zip\n');
+const TMUX = Buffer.from('a tmux bundle\n');
 
 /* A healthy site: four pointers and every artifact they name. `files` maps a /dist name to [type, body]; a test
    deletes or replaces entries to break it. Anything not listed answers 404 (so the negative control holds). */
@@ -38,7 +39,11 @@ function healthySite() {
   put('kosmos-win-x64.zip.sha256', 'text/plain; charset=utf-8', sha(ZIP) + '  kosmos-win-x64.zip\n');
   put('kosmos-1.0.0-win-x64.zip', 'application/zip', ZIP);
   put('kosmos-1.0.0-win-x64.zip.sha256', 'text/plain; charset=utf-8', sha(ZIP) + '  kosmos-1.0.0-win-x64.zip\n');
-  return { files, health: { ok: true }, feedStatus: 200, relayStatus: 200, catchAll: false, distDown: 0, failOnce: new Set(), failGet: new Map(), hits: [] };
+  put('tmux-arm64.tar.gz', 'application/gzip', TMUX);
+  put('tmux-arm64.tar.gz.sha256', 'application/octet-stream', sha(TMUX) + '  tmux-arm64.tar.gz\n');
+  put('kosmos-arm64.tar.gz', 'application/gzip', TAR);
+  put('kosmos-arm64.tar.gz.sha256', 'application/octet-stream', sha(TAR) + '  kosmos-arm64.tar.gz\n');
+  return { files, setup: true, health: { ok: true }, feedStatus: 200, relayStatus: 200, catchAll: false, distDown: 0, failOnce: new Set(), failGet: new Map(), hits: [] };
 }
 
 function serve(site) {
@@ -56,6 +61,7 @@ function serve(site) {
       if (site.catchAll) return send(200, 'text/html', '<html>the home page</html>');
       return send(404, 'text/plain', 'not found');
     }
+    if (u.pathname === '/site/setup') return site.setup ? send(200, 'text/plain; charset=utf-8', '#!/bin/sh\n') : send(404, 'text/html', 'not found');
     if (u.pathname === '/community/api/health') return send(site.health ? 200 : 503, 'application/json', JSON.stringify(site.health || { ok: false }));
     if (u.pathname === '/community/api/posts/feed') return send(site.feedStatus, 'application/json', JSON.stringify({ items: [] }));
     if (u.pathname === '/relay/') return send(site.relayStatus, 'text/html', '<title>Kosmos+</title>');
@@ -80,7 +86,7 @@ function stubs(dir) {
 function run(base, dir, st, { now, args = [] } = {}) {
   return new Promise((resolve) => {
     const env = Object.assign({}, process.env, {
-      SERVE_WATCH_DIST: base + '/dist', SERVE_WATCH_COMMUNITY: base + '/community', SERVE_WATCH_RELAY: base + '/relay/',
+      SERVE_WATCH_SITE: base + '/site', SERVE_WATCH_DIST: base + '/dist', SERVE_WATCH_COMMUNITY: base + '/community', SERVE_WATCH_RELAY: base + '/relay/',
       SERVE_WATCH_STATE: path.join(dir, 'state.json'), SERVE_WATCH_MSG_CMD: st.msg, SERVE_WATCH_GH_CMD: st.gh,
       SERVE_WATCH_TO: 'test-pane', SERVE_WATCH_ISSUE: '999999', SERVE_WATCH_NOW: String(now), SERVE_WATCH_TIMEOUT_MS: '5000',
     });
@@ -116,7 +122,8 @@ test('a healthy site is silent, every artifact is checked and hashed, and the st
   }
   assert.ok(site.hits.includes('HEAD /dist/' + sw.CONTROL), 'the negative control was not asked');
   const state = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
-  assert.equal(Object.keys(state.sha).length, 3, 'the tarball and both zips are hashed: ' + JSON.stringify(state.sha));
+  assert.equal(Object.keys(state.sha).length, 5, 'the tarball, both zips, tmux and the fallback tarball are hashed: ' + JSON.stringify(state.sha));
+  assert.ok(site.hits.includes('HEAD /site/setup'), 'the installer script was not checked');
 }));
 
 test('a pointer naming a missing artifact alarms within one run, on the pane and the card, and names the file', () => withSite(async ({ site, base, dir, st }) => {
@@ -238,12 +245,16 @@ test('--check prints the verdict and posts nothing; --plist runs every 15 minute
 
 test('the pointers watched are the four the app reads', () => {
   assert.deepEqual(sw.POINTERS.map((p) => p.file), ['latest.json', 'latest-staging.json', 'latest-win.json', 'latest-win-staging.json']);
-  assert.equal(sw.artifactsOf({ artifact: 'a.tar.gz', manifest: 'a.manifest.json' }, 'mac').length, 2);
-  assert.equal(sw.artifactsOf({ artifact: 'a.zip', versioned: 'a-1-win-x64.zip' }, 'win').length, 2);
-  assert.equal(sw.artifactsOf({ artifact: 'a/b.zip', versioned: 'x.zip' }, 'win'), null);
+  assert.equal(sw.artifactsOf({ version: '1.2.3', artifact: 'kosmos-1.2.3-arm64.tar.gz', manifest: 'm.json' }, 'mac').length, 2);
+  assert.equal(sw.artifactsOf({ version: '1.2.3', arch: 'x64', artifact: 'a.zip', versioned: 'kosmos-1.2.3-win-x64.zip' }, 'win').length, 2);
+  assert.equal(sw.artifactsOf({ version: '1.2.3', arch: 'x64', versioned: 'kosmos-1.2.3-win-x64.zip' }, 'win').length, 1, 'the fixed-name zip is optional (setup.ps1 never fetches it)');
+  assert.equal(sw.artifactsOf({ version: '1.2.3', arch: 'x64', artifact: 'a/b.zip', versioned: 'kosmos-1.2.3-win-x64.zip' }, 'win'), null);
+  // The names the installers derive from version (and arch): a pointer that disagrees is refused.
+  assert.equal(sw.artifactsOf({ version: '1.2.4', artifact: 'kosmos-1.2.3-arm64.tar.gz', manifest: 'm.json' }, 'mac'), null);
+  assert.equal(sw.artifactsOf({ version: '1.2.3', arch: 'arm64', versioned: 'kosmos-1.2.3-win-x64.zip' }, 'win'), null);
   // Only the released Windows pointer is held to the fixed-name zip's bytes and sidecar.
-  const staging = sw.artifactsOf({ artifact: 'a.zip', versioned: 'a-2-win-x64.zip' }, sw.POINTERS[3]);
-  assert.deepEqual(staging.map((a) => [a.name, a.hashed, a.sidecar]), [['a-2-win-x64.zip', true, true], ['a.zip', false, false]]);
+  const staging = sw.artifactsOf({ version: '2.0.0', arch: 'x64', artifact: 'a.zip', versioned: 'kosmos-2.0.0-win-x64.zip' }, sw.POINTERS[3]);
+  assert.deepEqual(staging.map((a) => [a.name, a.hashed, a.sidecar]), [['kosmos-2.0.0-win-x64.zip', true, true], ['a.zip', false, false]]);
 });
 
 test('Windows staging ahead of release is healthy: the fixed-name zip still holds the released bytes', () => withSite(async ({ site, base, dir, st }) => {
@@ -311,3 +322,51 @@ test('after "could not tell", the all-clear says it is able to check again', () 
   assert.equal((await run(base, dir, st, { now: T0 + 4500 })).code, 0);
   assert.match(st.card(), /able to check again: every live download/);
 }));
+
+test('what every install fetches is watched too: /setup, the tmux bundle and the fallback tarball against its sidecar', () => withSite(async ({ site, base, dir, st }) => {
+  site.setup = false;
+  site.files.delete('tmux-arm64.tar.gz');
+  site.files.set('kosmos-arm64.tar.gz', ['application/gzip', Buffer.from('stale fallback bytes')]);
+  const r = await run(base, dir, st, { now: T0 });
+  assert.equal(r.code, 1, r.out + r.err);
+  assert.match(st.card(), /the installer script \(\/setup\) is not served \(404\): every install fetches it/);
+  assert.match(st.card(), /tmux-arm64\.tar\.gz is not served \(404\): every install fetches it/);
+  assert.match(st.card(), /kosmos-arm64\.tar\.gz does not match its own \.sha256/);
+}));
+
+test('a pointer whose names disagree with its version is refused (the installers derive the names)', () => withSite(async ({ site, base, dir, st }) => {
+  const j = JSON.parse(site.files.get('latest.json')[1]); j.version = '1.0.1'; site.files.set('latest.json', ['application/json', JSON.stringify(j)]);
+  assert.equal((await run(base, dir, st, { now: T0 })).code, 1);
+  assert.match(st.card(), /latest\.json does not name its artifacts the way the app reads them/);
+}));
+
+test('a catch-all download site still reports a relay outage, not only "could not tell"', () => withSite(async ({ site, base, dir, st }) => {
+  site.catchAll = true;
+  site.relayStatus = 502;
+  await run(base, dir, st, { now: T0 });
+  const r = await run(base, dir, st, { now: T0 + 900 });
+  assert.equal(r.code, 1, r.out + r.err);
+  assert.match(st.card(), /the relay, or the canary computer/);
+  assert.match(st.card(), /the downloads could not be checked: installkosmos\.com answered 200 for a file that does not exist/);
+}));
+
+test('the canary must miss two runs in a row: a miss between answers never alarms', () => withSite(async ({ site, base, dir, st }) => {
+  site.relayStatus = 502;
+  await run(base, dir, st, { now: T0 });
+  site.relayStatus = 200;
+  await run(base, dir, st, { now: T0 + 900 });
+  site.relayStatus = 502;
+  assert.equal((await run(base, dir, st, { now: T0 + 1800 })).code, 0, 'a flapping canary alarmed');
+  assert.doesNotMatch(st.card(), /relay/);
+}));
+
+test('nothing answering at all is "could not tell" (this computer is offline), and does not count against the canary', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'serve-watch-off-'));
+  const st = stubs(dir);
+  const dead = 'http://127.0.0.1:9';   // the discard port: nothing listens
+  fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({ relayFails: 1 }));
+  const r = await run(dead, dir, st, { now: T0 });
+  assert.equal(r.code, 2, r.out + r.err);
+  assert.equal(st.card() + st.pane(), '', 'an offline computer posted before the grace');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')).relayFails, 1, 'an offline run advanced the canary\'s count');
+});
