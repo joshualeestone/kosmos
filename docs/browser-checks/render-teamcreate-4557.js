@@ -237,7 +237,7 @@ function chk(ok, label, extra) {
           chk(posted.every((b) => b.instructions === undefined && typeof b.teamInstructions === 'string' && b.teamInstructions.includes('**' + b.name + '**')),
             `${E} every member carries its team brief (layered into its role's instructions, never raw instructions), with its own name in it`);
           chk(r1[0].state === 'Running' && r1[2].state === 'Running' && !r1[0].editable, `${E} the lead and the other report are made, and a made name is no longer editable`, JSON.stringify(r1.map((r) => r.state)));
-          chk(r1[1].state === 'Not made' && r1[1].why === 'an agent called Leo already exists' && r1[1].retry && r1[1].editable,
+          chk(r1[1].state === 'Not made' && r1[1].why === 'An agent called Leo already exists.' && r1[1].retry && r1[1].editable,
             `${E} the failed one says why on its own row, keeps its name editable and offers Try again`, JSON.stringify(r1[1]));
 
           await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Leo Two');

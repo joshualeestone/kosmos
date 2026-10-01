@@ -8112,6 +8112,10 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 .tc-state.failed { color: var(--danger); }
 .tc-why { grid-column: 1 / -1; margin: 0; color: var(--danger); }
 .tc-retry { grid-column: 1 / -1; justify-self: start; }
+/* Mona's design review of #4709: the Project label had no gap and read as part of the member box above it; it gets
+   the space a field label has on the rest of the sheet. And "(leads the team)" stays on one line. */
+#cstep-teammake .flabel[for="tc-project"] { margin-top: var(--space-4); }
+.tc-leads { white-space: nowrap; }
 @media (max-width: 560px) { .tc-row { grid-template-columns: minmax(0, 1fr) auto; } .tc-name { grid-column: 1 / -1; grid-row: 2; } }
 /* #1652 PR2: the found-on-this-computer import list. Each row shows the file's name,
    its title, its path, and a read-only preview (the same "SHOW the file, do not assert"
@@ -47081,6 +47085,14 @@ let TC = null;       // { key, team, leadSlot, members:[{slot,title,name,firstNa
 let TC_UPLOADING = 0;   // pictures going up; not on TC, because they outlive it (review 28)
 let TC_GEN = 0;      // bumped when the step is left or reopened, so a late answer cannot paint over it
 
+/* Mona's review: a server refusal is shown as a sentence (capital first, full stop last), as written otherwise. */
+function tcSentence(t) {
+  const s = String(t || '').trim();
+  if (!s) return s;
+  const head = s.charAt(0).toUpperCase() + s.slice(1);
+  return /[.!?]$/.test(head) ? head : head + '.';
+}
+
 async function openTeamCreate(key) {
   openCreate();
   cstep('teammake');
@@ -47199,7 +47211,11 @@ function tcPaint() {
     const row = document.createElement('div'); row.className = 'tc-row';
     const seat = document.createElement('span'); seat.className = 'tc-seat';
     const b = document.createElement('b'); b.textContent = m.title;
-    seat.append(b, document.createTextNode(m.slot === TC.leadSlot ? ' (leads the team)' : ''));
+    seat.append(b);
+    if (m.slot === TC.leadSlot) {
+      const leads = document.createElement('span'); leads.className = 'tc-leads'; leads.textContent = '(leads the team)';
+      seat.append(' ', leads);
+    }
     const input = document.createElement('input');
     input.className = 'tc-name'; input.type = 'text'; input.value = m.name; input.maxLength = 64;
     input.setAttribute('aria-label', 'Name for the ' + m.title);
@@ -47221,7 +47237,7 @@ function tcPaint() {
       note.textContent = 'The teammates made before this still know it as ' + m.renamedFrom + '. Tell them in chat if it matters.';
       row.append(note);
     }
-    if (m.state === 'failed' && m.why) { const why = document.createElement('p'); why.className = 'tc-why'; why.textContent = m.why; row.append(why); }
+    if (m.state === 'failed' && m.why) { const why = document.createElement('p'); why.className = 'tc-why'; why.textContent = tcSentence(m.why); row.append(why); }
     /* Round 3: what create reported as not done (its non-fatal steps, a project it could not add) is said
        on the row, as the single create says it, never folded into "Running". */
     for (const w of (m.warn || [])) { const p = document.createElement('p'); p.className = 'tc-why'; p.textContent = w; row.append(p); }
