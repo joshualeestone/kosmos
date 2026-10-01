@@ -129,9 +129,10 @@ Each must fail on the base (main before this branch) and pass here; run on a qui
 - Preview was re-enabled by a reopen during a create, then did nothing when pressed. orgchartUndoAsking keeps it
   disabled while ORGCHART_CREATING.
 - Leaving mid-Undo (Back, or closing the panel) left ORGCHART_UNDO_BUSY true. Both leave paths now clear it; the
-  left run stops at its GEN check either way. The comment claiming a hidden panel is painted is deleted. (Corrected
-  in iteration 14: after a leave, Undo is hidden but NOT disabled, so a left run's answer does repaint the hidden
-  panel in place; harmless, the reopen repaints the same data.)
+  left run stops at its GEN check either way. The comment claiming a hidden panel is painted is deleted. (Iteration 14
+  "corrected" this wrongly; iteration 15 traced it: the ask leaves Undo DISABLED and nothing re-enables it before a
+  reopen, so a left run updates the data and returns at the disabled guard; the reopen repaints. The original
+  sentence was right.)
 - NIT: "removed some of these" when it removed all now reads "removed all of these first."
 
 ## Iteration 8 (Sonnet): one BLOCKER, three warnings
@@ -197,10 +198,21 @@ Each must fail on the base (main before this branch) and pass here; run on a qui
   agent's page).
 
 ## Iteration 14 (Sonnet): two warnings, fixed
-- The plan's iteration-7 note said a left run leaves the repaint to the reopen; it repaints the hidden panel in place
-  (harmless). Plan corrected; code unchanged.
+- (Retracted in iteration 15: the iteration-7 note was right; see there.)
 - resetOrgchartPreview left ORGCHART_RESULT_SHOWN true over a hidden box when nothing was restored (a latent trap;
   every current reader also checks box.hidden). The reset now clears it and ORGCHART_RESULT_RESTORED; the restore
   sets both again when it paints.
 - Deferred NITs: focus on the textarea when a result is restored (the count is a polite live region); a shared busy
   helper for the four create-time early returns (named at the code).
+
+## Iteration 15 (Opus): one warning, fixed; my iteration-14 plan correction RETRACTED
+- Reopening during a create showed an empty panel with Preview disabled and no reason. resetOrgchartPreview now says
+  "Your team is still being created. It will appear here when it is done." (flagged on the message element). Every
+  superseded end of that create replaces it (orgchartCreateWaitEnded): cleared when the result is about to show,
+  "No agents were created." (the create's own count text) when it made nothing, and the same error a watched create
+  shows for a network error, an unreadable answer or a refusal. The note only appears for a superseded create (the
+  reopen that shows it bumps ORGCHART_GEN), so only superseded exits end it. Arms: REOPEN BEFORE THE ANSWER asserts
+  the line; LATE CREATE THAT MADE NOTHING asserts it ends as "No agents were created".
+- The disabled-guard comment names both cases (an ask still checking, a run the person left).
+- Deferred NITs: the second left-run path's "still on your board" drops the engine's reason; New Agent reopened within
+  15 minutes restores the old batch into the hidden panel (by design, bounded by the window).

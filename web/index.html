@@ -47534,7 +47534,7 @@ function resetOrgchartPreview() {
   const count = document.getElementById('orgchart-count');
   if (count) count.textContent = '';
   const msg = document.getElementById('orgchart-msg');
-  if (msg) { msg.textContent = ''; msg.hidden = true; }
+  if (msg) { msg.textContent = ''; msg.hidden = true; delete msg.dataset.createWait; }
   const create = document.getElementById('orgchart-create');
   if (create) create.disabled = false;
   const undo = document.getElementById('orgchart-undo');
@@ -47545,6 +47545,21 @@ function resetOrgchartPreview() {
   ORGCHART_RESULT_RESTORED = false;
   // #4688: a created team's result and Undo come back with the panel (ORGCHART_CREATED is kept).
   orgchartRestoreCreated();
+  // #4688 review: reopened while a create is still answering: say so (Preview waits for it).
+  if (ORGCHART_CREATING && msg) {
+    msg.textContent = 'Your team is still being created. It will appear here when it is done.';
+    msg.hidden = false;
+    msg.dataset.createWait = '1';
+  }
+}
+/* #4688 review: a superseded create has ended. If the reopened panel is still saying the team is being created, that
+   line is replaced by what happened (text), or cleared when the result itself is about to be shown (''). */
+function orgchartCreateWaitEnded(text) {
+  const msg = document.getElementById('orgchart-msg');
+  if (!msg || !msg.dataset.createWait) return;
+  delete msg.dataset.createWait;
+  msg.textContent = text;
+  msg.hidden = !text;
 }
 // #4688 review: drops the kept list once ORGCHART_UNDO_KEEP_MS has passed since its create; true when it did.
 function orgchartDropExpiredUndo() {
@@ -48039,7 +48054,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
        during them would supersede the screen and lose this batch's Undo. Released after them. */
   } catch (err) {
     ORGCHART_CREATING = false; previewBtn.disabled = false;
-    if (gen !== ORGCHART_GEN) return;   // superseded during the fetch
+    if (gen !== ORGCHART_GEN) { orgchartCreateWaitEnded('We could not reach Kosmos to create the team. Try again.'); return; }   // superseded during the fetch
     btn.disabled = false;
     msg.hidden = false;
     msg.textContent = 'We could not reach Kosmos to create the team ('
@@ -48051,7 +48066,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
   const superseded = gen !== ORGCHART_GEN;
   if (!result) {
     ORGCHART_CREATING = false; previewBtn.disabled = false;
-    if (superseded) return;
+    if (superseded) { orgchartCreateWaitEnded('Kosmos did not answer in a way we could read. Try again.'); return; }
     btn.disabled = false;
     msg.hidden = false;
     msg.textContent = 'Kosmos did not answer in a way we could read. Try again.';
@@ -48066,7 +48081,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
      import. So: no `outcome` means it is not a team result -- surface its error plainly. */
   if (result.outcome === undefined) {
     ORGCHART_CREATING = false; previewBtn.disabled = false;
-    if (superseded) return;
+    if (superseded) { orgchartCreateWaitEnded(result.error ? String(result.error) : 'Kosmos refused the request.'); return; }
     btn.disabled = false;
     msg.hidden = false;
     msg.textContent = result.error ? String(result.error) : 'Kosmos refused the request.';
@@ -48150,7 +48165,8 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
        watched would be: the next time the panel opens they are there. If the panel is already open again and
        idle (box hidden, no preview, no consent read, no Undo running), they are shown now. A batch that made
        nothing replaces nothing. */
-    if (!madeList.length) return;
+    if (!madeList.length) { orgchartCreateWaitEnded(countText); return; }
+    orgchartCreateWaitEnded('');
     /* Overwriting is safe: no newer batch can exist here, because Preview, choosing a file and reading one all
        return early while ORGCHART_CREATING is set. */
     ORGCHART_CREATED = madeList;
@@ -48310,7 +48326,7 @@ function orgchartUndoLeftMidRun(runList, todo, answers, onList) {
   const keep = document.getElementById('orgchart-undo-keep');
   if (ORGCHART_UNDO_BUSY) { if (keep && !keep.hidden) orgchartUndoListChanged(); return; }
   const undoBtn = document.getElementById('orgchart-undo');
-  if (undoBtn.disabled) return;   // an ask still checking
+  if (undoBtn.disabled) return;   // an ask still checking, or a run the person left (the reopen repaints)
   const hadFocus = document.activeElement === undoBtn;
   orgchartPaintKeptResult();
   if (hadFocus && undoBtn.hidden) document.getElementById('orgchart-edit').focus();

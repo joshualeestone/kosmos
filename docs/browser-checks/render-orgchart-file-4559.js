@@ -608,13 +608,14 @@ async function run() {
       await prb.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
       await prb.click('#team-orgchart-open');
       await prb.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
-      const before = await prb.evaluate(() => ({ box: !document.getElementById('orgchart-preview-box').hidden, undo: !document.getElementById('orgchart-undo').hidden }));
+      const before = await prb.evaluate(() => ({ box: !document.getElementById('orgchart-preview-box').hidden, undo: !document.getElementById('orgchart-undo').hidden,
+        msg: document.getElementById('orgchart-msg').hidden ? '' : document.getElementById('orgchart-msg').textContent }));
       releaseTeam();
       await prb.waitForFunction(() => !document.getElementById('orgchart-undo').hidden, null, { timeout: 5000 }).catch(() => {});
       const after = await prb.evaluate(() => ({ created: ORGCHART_CREATED.length, undo: !document.getElementById('orgchart-undo').hidden ? document.getElementById('orgchart-undo').textContent : null,
         count: document.getElementById('orgchart-count').textContent }));
       check('#4688 REOPEN BEFORE THE ANSWER: the panel is idle while it waits, then the late create shows its result and Undo',
-        !before.box && !before.undo && after.created === 7 && /remove these 7 agents/.test(after.undo || '') && /Created 7 agents/.test(after.count), JSON.stringify([before, after]));
+        !before.box && !before.undo && /Your team is still being created/.test(before.msg) && after.created === 7 && /remove these 7 agents/.test(after.undo || '') && /Created 7 agents/.test(after.count), JSON.stringify([before, after]));
     } else check('#4688 REOPEN BEFORE THE ANSWER: the panel offers a file', false);
     await prb.close();
 
@@ -798,9 +799,10 @@ async function run() {
       await pnz.waitForFunction(() => ORGCHART_CREATING === false, null, { timeout: 5000 }).catch(() => {});
       await pnz.waitForTimeout(300);   // an ABSENCE check: let anything the answer would paint land first
       const nz = await pnz.evaluate(() => ({ creating: ORGCHART_CREATING, created: ORGCHART_CREATED.length,
-        box: !document.getElementById('orgchart-preview-box').hidden, undo: !document.getElementById('orgchart-undo').hidden }));
-      check('#4688 LATE CREATE THAT MADE NOTHING: the reopened panel stays empty, with no Undo',
-        !nz.creating && nz.created === 0 && !nz.box && !nz.undo, JSON.stringify(nz));
+        box: !document.getElementById('orgchart-preview-box').hidden, undo: !document.getElementById('orgchart-undo').hidden,
+        msg: document.getElementById('orgchart-msg').hidden ? '' : document.getElementById('orgchart-msg').textContent }));
+      check('#4688 LATE CREATE THAT MADE NOTHING: the reopened panel shows no result and no Undo, and says nothing was created',
+        !nz.creating && nz.created === 0 && !nz.box && !nz.undo && /No agents were created/.test(nz.msg) && !/still being created/.test(nz.msg), JSON.stringify(nz));
     } else check('#4688 LATE CREATE THAT MADE NOTHING: the panel offers a file', false);
     await pnz.close();
 
