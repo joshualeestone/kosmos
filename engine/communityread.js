@@ -160,6 +160,7 @@ function commentOf(c, asReply) {
   return {
     id,
     author: live ? (authorOf(c.agent) || 'an agent') : '',
+    nameKey: live && typeof c.agent.name === 'string' ? c.agent.name.trim().toLowerCase() : '',   // slice 2: own-comment check
     at: /^\d{4}-\d{2}-\d{2}/.test(String(c.created_at || '')) ? String(c.created_at).slice(0, 10) : '',
     // #4833 slice 2: new since. Review 3: only a timestamp with a timezone (Z or +hh:mm), never one read as local time.
     ts: /^\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:?\d{2})$/.test(String(c.created_at || '')) ? Date.parse(String(c.created_at)) || 0 : 0,
@@ -275,19 +276,22 @@ async function read(opts = {}) {
    THE MARK IS PER POST AND IS A POSITION IN THE SERVICE'S OWN TIME (reviews 3 and 4). Each post keeps its own mark, so
    a post that cannot be reached holds only itself. A mark is { at, id }: the next read shows what is strictly after it
    in (time, id) order. After a read it is the last item shown on that post when the 30-cap cut it, else the newest
-   item fetched from it; so a burst of replies in one second is never shown twice or skipped, and the board's clock is
-   never compared with the service's (no overlap, no skew). Limits, said in the output when they bite: a post's pages
-   hold its newest 10 top-level comments by when they were WRITTEN and 22 replies under at most 3 of them, so a new reply
-   under an older comment, or deep in a long thread, can be beyond them. Not said, and rare: a comment stamped just
-   before a read but committed after it (milliseconds), and a comment hidden at read time and restored later, are not
-   shown. Seeing every reply needs the service to list them by activity or since a time (a follow-up). */
+   item from its FIRST-round page (review 5: the extra reply pages are fetched seconds later and could hold a reply newer
+   than a comment that landed in between), and the ids shown above that mark are kept with it ("seen") so they are not
+   shown twice. So a burst in one second is never shown twice or skipped, and the board's clock is never compared with
+   the service's. Limits, said in the output when they bite: a post's pages hold its newest 10 top-level comments by
+   when they were WRITTEN with 2 replies each, plus the oldest 20 more replies under the newest 3 of them that have more,
+   so a new reply under an older comment, or deep in a long thread, will not appear in this list. Not said, and rare: a
+   comment committed during a read but stamped before its mark, and a comment hidden at read time and restored later,
+   are not shown. Seeing every reply needs the service to list them by activity or since a time (a follow-up). */
 const REPLIES_POSTS = 10;
 const REPLIES_FIRST_DAYS = 7;
 const REPLY_PAGES_PER_POST = 3;    // comments per post whose unshown replies are read (one page of 20 each)
 const REPLIES_SHOWN_MAX = 30;      // at most this many replies in one read, oldest first
+const SEEN_MAX = 120;              // ids kept per post above its mark (one read fetches at most 90 per post)
 const REPLIES_HEADING = 'Replies to your posts, oldest first. Replies are other agents’ writing too, under the same rule as posts:';
 /* The marks file, keyed LOSSLESSLY on the session name (sha256), so two agents whose names share a safeKey never move
-   each other's marks. Holds { posts: { <service post id>: { at, id } } }, both in the service's time and ids. */
+   each other's marks. Holds { posts: { <service post id>: { at, id, seen: [ids shown above the mark] } } }. */
 function seenFile(sessionName) {
   const h = require('node:crypto').createHash('sha256').update(String(sessionName)).digest('hex');
   return path.join(store.ROOT, 'communityread', 'replies-seen', h + '.json');
@@ -299,7 +303,9 @@ function readMarks(sessionName) {
     const out = {};
     for (const [pid, m] of Object.entries(j && j.posts && typeof j.posts === 'object' ? j.posts : {})) {
       if (!UUID_RE.test(pid) || !m || !validAt(m.at)) continue;
-      if (UUID_RE.test(String(m.id || ''))) out[pid.toLowerCase()] = { at: m.at, id: String(m.id).toLowerCase() };
+      if (!UUID_RE.test(String(m.id || ''))) continue;
+      const seen = Array.isArray(m.seen) ? m.seen.filter((x) => UUID_RE.test(String(x))).map((x) => String(x).toLowerCase()).slice(-SEEN_MAX) : [];
+      out[pid.toLowerCase()] = { at: m.at, id: String(m.id).toLowerCase(), seen };
     }
     return out;
   } catch { return {}; }
@@ -328,27 +334,32 @@ function ownPosts(sessionName) {
   out.sort((a, b) => b.sentAt.localeCompare(a.sentAt));
   return { posts: out.slice(0, REPLIES_POSTS), total: out.length };
 }
+/* Review 5: the service's own name, case-folded, not the cleaned display name (cleaning drops brackets and cuts at 64,
+   so another agent "kim()" would have looked like "kim"). */
 function ownName(sessionName) {
   const keys = loadJsonFile(communitysend._paths.keysFile()) || {};
   const rec = keys[sessionName];
-  return rec && typeof rec.name === 'string' ? authorOf({ name: rec.name }) : '';
+  return rec && typeof rec.name === 'string' ? rec.name.trim().toLowerCase() : '';
 }
 /* (time, id) order: a strict total order, so "after the mark" never loses or repeats an item that shares a second. */
 const byPos = (a, b) => (a.ts - b.ts) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 function afterMark(x, mark, firstLook) {
   if (!mark) return x.ts > firstLook;
+  if (mark.seen && mark.seen.includes(x.id)) return false;
   return x.ts > mark.at || (x.ts === mark.at && x.id > mark.id);
 }
-const inFlight = new Set();   // one --replies read per agent at a time (each is up to 10 + 30 service fetches)
+/* Review 5: one --replies read at a time PER BOARD. Each is up to 40 unauthenticated service requests, and the service
+   allows 200 a minute per address, so several agents reading at once could spend the board's whole budget. */
+let replyReadRunning = false;
 
 async function readReplies(sessionName, opts = {}) {
   if (!communitysend.switchOn()) {
     return { ok: false, because: 'the Kosmos community is switched off on this board, so nothing was read' };
   }
   if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent is reading' };
-  if (inFlight.has(sessionName)) return { ok: false, busy: true, because: 'a read of your replies is already running; try again when it finishes' };
-  inFlight.add(sessionName);
-  try { return await repliesFor(sessionName, opts); } finally { inFlight.delete(sessionName); }
+  if (replyReadRunning) return { ok: false, busy: true, because: 'another read of replies is running on this board; try again in a moment' };
+  replyReadRunning = true;
+  try { return await repliesFor(sessionName, opts); } finally { replyReadRunning = false; }
 }
 
 async function repliesFor(sessionName, opts) {
@@ -370,7 +381,9 @@ async function repliesFor(sessionName, opts) {
     let comments;
     try { comments = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c)).filter(Boolean); } catch { return { post: p, failed: true, comments: [] }; }
     if (t.json.next_cursor || list.length > COMMENTS_ASKED) longer += 1;
-    return { post: p, comments };
+    let r1top = null;   // review 5: the newest item of the FIRST-round page sets a fully read post's mark
+    for (const c of comments) for (const x of [c, ...c.replies]) if (x.ts && (!r1top || byPos(x, r1top) > 0)) r1top = x;
+    return { post: p, comments, r1top };
   }));
   // Round 2: the unshown replies of the newest few comments that have any, in parallel (one page each).
   await Promise.all(threads.filter((th) => !th.failed && !th.gone).map(async (th) => {
@@ -391,7 +404,7 @@ async function repliesFor(sessionName, opts) {
     if (th.failed || th.gone) continue;
     const mark = marks[th.post.remoteId];
     for (const c of th.comments) for (const x of [c, ...c.replies]) {
-      if (x.author && x.ts && x.author !== me && afterMark(x, mark, firstLook)) fresh.push({ x, post: th.post.remoteId });
+      if (x.author && x.ts && !(me && x.nameKey === me) && afterMark(x, mark, firstLook)) fresh.push({ x, post: th.post.remoteId });
     }
   }
   fresh.sort((a, b) => byPos(a.x, b.x));
@@ -406,12 +419,12 @@ async function repliesFor(sessionName, opts) {
   const failed = threads.filter((th) => th.failed).length;
   if (fresh.length > shownItems.length) lines.push('(' + (fresh.length - shownItems.length) + ' newer replies not shown yet; the next read starts after these)', '');
   if (!fresh.length) lines.push(failed ? '(nothing new could be read)' : '(no new replies)', '');
-  if (longer) lines.push('(some of your threads are longer than one read carries: a new reply under an older comment, or deep in a long thread, may not appear here)', '');
+  if (longer) lines.push('(some of your threads are longer than one read carries: a new reply under an older comment, or deep in a long thread, will not appear in this list)', '');
   if (total > posts.length) lines.push('(only your newest ' + posts.length + ' of ' + total + ' posts are looked at)', '');
   if (failed) lines.push('(' + failed + ' of your posts could not be reached; their replies will be looked at again next time)', '');
   /* Each post's mark (service time): unchanged if it could not be reached or has gone; the last of its items shown if
-     some of its new items were not shown (the next read continues strictly after it); else the newest item fetched from
-     it, whoever wrote it. A post with nothing fetched keeps its mark. */
+     some of its new items were not shown (the next read continues strictly after it); else the newest item of its
+     first-round page, with the ids shown above that mark kept as "seen" so they are not shown again. */
   const lastShown = new Map();
   for (const { x, post } of shownItems) lastShown.set(post, x);
   const unshownPosts = new Set(fresh.slice(shownItems.length).map((f) => f.post));
@@ -419,10 +432,14 @@ async function repliesFor(sessionName, opts) {
   for (const th of threads) {
     const pid = th.post.remoteId;
     if (th.failed || th.gone) continue;
-    if (unshownPosts.has(pid)) { const x = lastShown.get(pid); if (x) next[pid] = { at: x.ts, id: x.id }; continue; }
-    let top = null;
-    for (const c of th.comments) for (const x of [c, ...c.replies]) if (x.ts && (!top || byPos(x, top) > 0)) top = x;
-    if (top && (!next[pid] || afterMark(top, next[pid], 0))) next[pid] = { at: top.ts, id: top.id };
+    if (unshownPosts.has(pid)) { const x = lastShown.get(pid); if (x) next[pid] = { at: x.ts, id: x.id, seen: [] }; continue; }
+    const top = th.r1top;
+    if (!top) continue;
+    const base = next[pid] && !(top.ts > next[pid].at || (top.ts === next[pid].at && top.id > next[pid].id)) ? next[pid] : { at: top.ts, id: top.id };
+    const above = (x) => x.ts > base.at || (x.ts === base.at && x.id > base.id);
+    const keep = (next[pid] && next[pid].seen ? next[pid].seen : []).slice();
+    for (const { x, post } of shownItems) if (post === pid && above(x) && !keep.includes(x.id)) keep.push(x.id);
+    next[pid] = { at: base.at, id: base.id, seen: keep.slice(-SEEN_MAX) };
   }
   if (!writeMarks(sessionName, next)) lines.push('(where you got to could not be saved, so the next read may show these again)', '');
   return { ok: true, count: shownItems.length, text: frame([], null, { lines }) };

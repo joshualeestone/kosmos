@@ -499,8 +499,9 @@ test('#4833 slice 2 review 1: a reply body cannot start a header line; a removed
   // Bounded: without the guard the second read would wait on the held fetch forever; fail in 2 s instead of hanging.
   const second = await Promise.race([cr.readReplies('Inj4833', { now: NOW }), new Promise((r) => setTimeout(() => r({ ok: true, hung: true }), 2000))]);
   assert.notEqual(second.hung, true, 'a second read ran beside the first (it waited on the same held fetch)');
-  assert.equal(second.ok, false); assert.match(second.because, /already running/);
-  await new Promise((r) => setImmediate(r)); release(); await first;
+  try {
+    assert.equal(second.ok, false); assert.match(second.because, /is running on this board/);
+  } finally { await new Promise((r) => setImmediate(r)); release(); await first; }   // never leave the board's read held
 });
 
 test('#4833 slice 2 review 2: a taken-down post is skipped, and a thread the service no longer has (404, 410) is not a failure', async () => {
@@ -695,4 +696,62 @@ test('#4833 slice 2 review 4: a timestamp without a timezone is never read as lo
   const t = (await cr.readReplies('Tz4833', { now: NOW })).text;
   assert.ok(!t.includes('no zone'), 'a timestamp with no timezone was read');
   assert.match(t, /with an offset/, 'CONTROL: an offset timestamp is read');
+});
+
+test('#4833 slice 2 review 5: a comment that lands between the two rounds comes next time, and nothing is shown twice', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Rac4833', remoteId: RP(1), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const c1 = () => comment({ id: CID(1), created_at: T(9), body: 'C1', reply_count: 3, replies_cursor: 'C1CUR',
+    replies: [comment({ id: CID(2), parent_id: CID(1), created_at: T(9), body: 'p1' }), comment({ id: CID(3), parent_id: CID(1), created_at: T(9), body: 'p2' })] });
+  let round1 = [c1()];
+  cr.setFetcher(async (url) => {
+    if (url.includes('/replies')) return { status: 200, json: { replies: [comment({ id: CID(4), parent_id: CID(1), created_at: '2026-10-01T10:00:02Z', body: 'R late reply' })] } };
+    return { status: 200, json: { comments: round1 } };
+  });
+  const one = (await cr.readReplies('Rac4833', { now: NOW })).text;
+  assert.match(one, /R late reply/);
+  // Y landed at 10:00:01, after round 1 and before R: the next round-1 page holds it.
+  round1 = [comment({ id: CID(5), created_at: '2026-10-01T10:00:01Z', body: 'Y in between' }), c1()];
+  const two = (await cr.readReplies('Rac4833', { now: NOW + 1000 })).text;
+  assert.match(two, /Y in between/, 'a comment the pages returned was skipped for good');
+  assert.ok(!two.includes('R late reply') && !two.includes('| p1'), 'something shown in read 1 was shown again');
+});
+
+test('#4833 slice 2 review 5: a reply page that fails holds the post\'s mark, and everything comes once it reads', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Rpf4833', remoteId: RP(2), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const page = [comment({ id: CID(1), created_at: T(9), body: 'top', reply_count: 3, replies_cursor: 'CUR',
+    replies: [comment({ id: CID(2), parent_id: CID(1), created_at: T(9), body: 'r1' }), comment({ id: CID(3), parent_id: CID(1), created_at: T(9), body: 'r2' })] })];
+  let replies = { status: 500, json: null };
+  cr.setFetcher(async (url) => (url.includes('/replies') ? replies : { status: 200, json: { comments: page } }));
+  const one = (await cr.readReplies('Rpf4833', { now: NOW })).text;
+  assert.match(one, /1 of your posts could not be reached/);
+  assert.ok(!one.includes('| top'), 'a post whose reply page failed was shown (and its mark would move)');
+  replies = { status: 200, json: { replies: [comment({ id: CID(4), parent_id: CID(1), created_at: T(10), body: 'r3' })] } };
+  const two = (await cr.readReplies('Rpf4833', { now: NOW + 1000 })).text;
+  const ids = (two.match(/\(comment ([0-9a-f-]{36})\)/g) || []);
+  assert.equal(ids.length, 4, 'after the page recovered, not all four came: ' + ids.length);
+  assert.equal(new Set(ids).size, 4);
+});
+
+test('#4833 slice 2 review 5: one --replies read at a time per board; the own-comment check uses the service name', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Kim4833b', remoteId: RP(3), sentAt: '2026-09-30T10:00:00Z' },
+    b: { state: 'sent', agent: 'Lee4833b', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } }, { Kim4833b: { name: 'kim' } });
+  let release;
+  cr.setFetcher(() => new Promise((res) => { release = () => res({ status: 200, json: { comments: [] } }); }));
+  const first = cr.readReplies('Kim4833b', { now: NOW });
+  const other = await Promise.race([cr.readReplies('Lee4833b', { now: NOW }), new Promise((r) => setTimeout(() => r({ hung: true }), 2000))]);
+  try {
+    assert.notEqual(other.hung, true, 'a second agent\'s read ran beside the first');
+    assert.equal(other.busy, true, 'a second agent\'s read was not refused while one ran on this board');
+  } finally { await new Promise((r) => setImmediate(r)); release(); await first; }
+  clearSeen();
+  serve({ ['/posts/' + RP(3) + '/comments']: () => ({ status: 200, json: { comments: [
+    comment({ id: CID(1), created_at: T(9), agent: { name: 'kim()' }, body: 'from kim-brackets' }),
+    comment({ id: CID(2), created_at: T(9), agent: { name: 'KIM' }, body: 'from myself' }),
+  ] } }) });
+  const t = (await cr.readReplies('Kim4833b', { now: NOW })).text;
+  assert.match(t, /from kim-brackets/, 'another agent whose name cleans to the reader\'s was hidden');
+  assert.ok(!t.includes('from myself'), 'the reader\'s own comment (its service name, any case) was shown');
 });
