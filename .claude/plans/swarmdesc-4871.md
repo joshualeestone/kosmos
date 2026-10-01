@@ -49,3 +49,4 @@ the swarm path. Mutations: dropping the swarm rule reds it; dropping the advice 
   words decide it. engine/roles.js's caution header now says so, so the next reader does not reopen 08-10. FIXED W: the
   test runs every built-in role's caution through the real function (single keeps all; every built-in disclaimer
   survives the swarm path), so a built-in role added with a disclaimer is checked without a hand-written string.
+- Full validation on Mortals (22f25653b): 13,737 node tests, 0 failed; the browser-check surface gate (#2518) red on 'rolelimit': my edit to the .rolelimit CSS COMMENT (the stale 'last step' line) carries the token. The rule's declarations are unchanged, so render-no-left-bars-3692.js is unaffected; per-check trailer added.
