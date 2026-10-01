@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: inbox-4784
-diff_hash: 2e5bb17055fa6cdafece5929fee94ba679d5c668624be0e3112da351722891e3
-validation: passed (Mortals) on head daf98998d, full suite 13129 tests / 0 fail, hash 2e5bb17055fa, 20:46 CDT 2026-09-30
+diff_hash: 93606a9f63324b16c25547c0ced8e7b8e5a9164f117a0db3a1c79ea04995e33b
+validation: passed (Mortals) on head daf98998d, full suite 13129 tests / 0 fail, hash 2e5bb17055fa; head 0e72f7182 merges main again (conflict in install/kosmos resolved to main's kosmos_command_list + the inbox line, and the Windows DESCRIBE row); focused on 0e72f7182: inbox, parity, help-lines-4785, busy-4466, nudge files 62/62
 subdir_audit: passed
 timestamp: 2026-10-01T01:47:00Z
 iterations: 8
