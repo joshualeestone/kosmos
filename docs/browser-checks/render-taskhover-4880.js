@@ -5,8 +5,7 @@
  * room's task cards do.
  *
  * What this pins, and why each line can fail:
- *  - a row at rest and the same row under the mouse have different grounds (the hover state), and
- *    the hover ground differs from the list it sits on, so it can be seen,
+ *  - a row at rest and the same row under the mouse have different grounds (the hover state),
  *  - with the mouse away and the keyboard on the row's title, the row shows the same ground
  *    (focus, not only hover),
  *  - the row does not move or change size when hovered (background only),
@@ -18,8 +17,6 @@
  *  - a click in the checkbox column, just below the box, does not open the task,
  *  - on a touchscreen (390 wide) there is no tint or pointer and a tap on the row opens nothing,
  *  - light and dark, with the new look off and on, in Chromium and WebKit; and once in the consolidated layout.
- * CONTROL: run against main before #4880, the rest and hover grounds are the same (the first line
- * fails), and the empty-part click opens nothing.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
  *
