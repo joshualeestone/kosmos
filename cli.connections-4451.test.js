@@ -19,6 +19,10 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+/* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
+   travels to this test's stub board (or into anything the test records). */
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-connections-4451-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const TOKEN = 'bsa_0123456789abcdef0123456789abcdef';
@@ -62,7 +66,7 @@ function curlShim(dir) {
 /** Run the CLI with `stdin` piped in (or null for none), in a private TMPDIR. */
 function cli(port, args, stdin, tmpdir, shimDir) {
   return new Promise((resolve, reject) => {
-    const env = { ...process.env, KOSMOS_PORT: String(port), TMPDIR: tmpdir };
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMPDIR: tmpdir };
     if (shimDir) env.PATH = shimDir + ':' + env.PATH;
     delete env.KOSMOS_AGENT_TOKEN;
     const child = spawn(CLI, args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -140,7 +144,7 @@ test('#4451: an interrupt while the door checks the token leaves no token file b
   'POST /api/svc/brave-search/token': { holdMs: 8000, json: { service: 'Brave Search', connected: true } },
 }, async (port, seen) => {
   const tmp = privateDir();
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMPDIR: tmp };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMPDIR: tmp };
   delete env.KOSMOS_AGENT_TOKEN;
   /* exit code not read (#3628) as a code: a close with none resolves the signal's NAME, which can never equal the 143 asserted, so a kill still fails. */
   const child = spawn(CLI, ['connect', 'brave-search'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -168,7 +172,7 @@ test('#4451: an interrupt while the door checks the token leaves no token file b
 
 test('#4451: an interrupt while the token is still arriving on stdin stops at once too, and leaves nothing behind', () => withStub({}, async (port, seen) => {
   const tmp = privateDir();
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMPDIR: tmp };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMPDIR: tmp };
   delete env.KOSMOS_AGENT_TOKEN;
   /* exit code not read (#3628) as a code: a close with none resolves the signal's NAME, which can never equal the 143 asserted, so a kill still fails. */
   const child = spawn(CLI, ['connect', 'brave-search'], { env, stdio: ['pipe', 'pipe', 'pipe'] });

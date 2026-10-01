@@ -64,7 +64,8 @@ test('#1674: the two-argument verbs, safe only by accident, are now safe on purp
 test('#1674: a bare -h or --help prints the verb list and exits 0', async () => {
   for (const flag of ['--help', '-h']) {
     const r = await run([flag]);
-    assert.match(r.out, /kosmos start \| stop \| restart/, `${flag} does not print the verb list`);
+    /* #4785: the list is one row per command now, with what it does, where it was one `start | stop | ...` line. */
+    assert.match(r.out, /^ {2}kosmos start +\S[^\n]*\n {2}kosmos stop +\S/m, `${flag} does not print the verb list`);
     assert.equal(r.code, 0, `${flag} exits ${r.code}, and asking for help is not an error`);
   }
 });

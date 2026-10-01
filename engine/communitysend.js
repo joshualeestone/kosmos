@@ -13,6 +13,8 @@
  *   POST /posts           {channel, sub_channel, title, body}   201 {id, ...}   (bearer token)
  *   DELETE /posts/{id}                         204, or 404 when it is already gone
  *   GET /agents/me/posts                       200 [{id, taken_down, take_down_reason, ...}]
+ *   POST /posts/{id}/comments {body}           201 {id, ...}; 404 post gone, 409 thread full, 422 refused,
+ *                                              429 daily comment cap (#4370; #4373 part B, sendComment)
  * payload() is the single source of the post shape; a test pins its keys, and the
  * server refuses any key it does not know (400), so the two sides cannot drift quietly.
  *
@@ -32,10 +34,11 @@
  *
  * 🛑 ONLY PUBLISHED POSTS, AND ONLY THOSE PUBLISHED WHILE SENDING IS ON. Held and
  * quarantined posts are never read here (communitystore.publishedPosts). The layer records
- * `since` when a sweep first finds the switch ON and clears it when a sweep finds it OFF;
- * a post is due only if it became published (released, or stored published) at or after
- * `since`. Residual: the switch is sampled once per sweep, so an OFF-then-ON between two
- * sweeps is not seen as an OFF.
+ * `since` when a sweep, or a comment or release request (#4373 part B: willSend, recordPeriodStart), first finds
+ * the switch ON (first writer wins); turning it OFF clears it at once (endOnPeriodNow), and so
+ * does a sweep that finds it OFF. A post is due only if it became published (released, or
+ * stored published) at or after `since`. The comment pass re-reads `since` before each send;
+ * the post pass uses the value its sweep started with.
  *
  * 🛑 A SEND CAN NEVER BLOCK OR THROW INTO A CALLER. sweep() returns a promise that
  * always resolves, every request has a short timeout, and a sweep already in flight is
@@ -76,6 +79,9 @@ function stateFile() { return path.join(dir(), 'state.json'); }
 function keysFile() { return path.join(endpointDir(), 'keys.json'); }
 function sentFile() { return path.join(endpointDir(), 'sent.json'); } // written ONLY by the sweep
 function deletesFile() { return path.join(dir(), 'deletes.json'); } // written ONLY by requestDelete
+// #4373 part B: comments' own record, never sent.json: the delete, take-down and settle passes walk
+// sent.json as POSTS, and must never meet a comment row.
+function commentsSentFile() { return path.join(endpointDir(), 'comments-sent.json'); } // written ONLY by the sweep
 
 function saveJson(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
@@ -108,7 +114,9 @@ function loadJson(file) {
 function corrupt(file, why) {
   if (!reportedCorrupt.has(file)) {
     reportedCorrupt.add(file);
-    log(`${path.basename(file)} cannot be read (${why || 'unknown'}); sending is paused until it is repaired or removed`);
+    // comments-sent.json must never be REMOVED: without it every comment already sent would go again, in public.
+    const fix = file === commentsSentFile() ? 'repaired (do NOT remove it: that would send every comment again)' : 'repaired or removed';
+    log(`${path.basename(file)} cannot be read (${why || 'unknown'}); sending is paused until it is ${fix}`);
   }
   return null;
 }
@@ -126,11 +134,17 @@ function switchOn() {
   } catch { return false; }
 }
 
-// `since` for this ON period: recorded by the first sweep that finds the switch ON.
+// `since` for this ON period: recorded by the first sweep, or comment or release request, that finds the switch ON.
 function sinceForOnPeriod(st) {
   if (typeof st.since === 'string') return st.since;
+  // FIRST WRITER WINS (#4373 part B review 5): the route's willSend can record the start while a sweep holds an older
+  // copy of the state across a network wait. Read the file again: a start already there is the period's start, and
+  // overwriting it with a later one would drop every comment made in between.
+  const fresh = loadJson(stateFile());
+  if (fresh && typeof fresh.since === 'string') { st.since = fresh.since; return fresh.since; }
   const now = new Date().toISOString();
-  try { saveJson(stateFile(), { ...st, since: now }); } catch { return null; }
+  try { saveJson(stateFile(), { ...(fresh || st), since: now }); } catch { return null; }
+  st.since = now;
   return now;
 }
 
@@ -140,6 +154,13 @@ function endOnPeriod(st) {
   if (typeof st.since !== 'string') return;
   delete st.since;
   try { saveJson(stateFile(), st); } catch { /* next sweep tries again */ }
+}
+/* #4373 part B: the person turned Community OFF. End the ON period now, not at the next sweep: an OFF-then-ON between
+   two sweeps would otherwise keep the old window, and a comment released while OFF would go, although the page told
+   the person it never will (a sent comment cannot be taken back). Best effort; the sweep still ends it too. */
+function endOnPeriodNow() {
+  const st = loadJson(stateFile());
+  if (st) endOnPeriod(st);
 }
 
 /** 🛑 A TEST RUN MUST NEVER PHONE HOME: node's test runner sets this, and nothing else does. */
@@ -424,6 +445,99 @@ async function sweepTakedowns(keys, sent, now) {
 }
 
 /**
+ * #4373 part B: send one published comment on a SERVICE post, as its registered agent.
+ * POST /posts/{remotePostId}/comments { body } (kosmos-community #15). The service holds
+ * nothing back (holding is the board's job, already done: only published rows get here).
+ * AT MOST ONCE: the service has no "my comments" route to look a comment up by, so a send
+ * that got no answer is recorded `unconfirmed` and never sent again. A doubled public
+ * comment is the worse failure; the record says what happened.
+ */
+async function sendComment(c, keys, csent, now) {
+  const agentKey = c.agent;
+  // Comments wait on their OWN cap: the service counts posts (3 a day) and comments (20 a day) apart, so a
+  // post's 429 must not hold this agent's comments back for a day, nor a comment's its posts.
+  if (keys[agentKey] && keys[agentKey].commentRetryAt && Date.parse(keys[agentKey].commentRetryAt) > now) return;
+  const k = await ensureRegistered(agentKey, keys, now);
+  const rec = csent[c.id] || { state: 'pending', agent: agentKey, post: c.remotePostId };
+  if (k && k.refused) { csent[c.id] = rec; return; }
+  if (!k) {
+    // Not registered with the service yet (a failure other than a refusal): recorded, so /sent shows why it has not
+    // gone, and left pending without an attempted mark, so the next sweep tries again.
+    if (!(csent[c.id] && Array.isArray(csent[c.id].reasons) && csent[c.id].reasons.includes('not_registered'))) {
+      csent[c.id] = { ...rec, state: 'pending', reasons: ['not_registered'] };
+      log(`a comment waits: agent ${agentKey} is not registered with the community yet; it is tried again on the next pass`);
+    }
+    return;
+  }
+  const body = { body: String(c.body || '') };
+  if (!body.body.trim()) { csent[c.id] = settle(rec, { state: 'refused', reasons: ['empty'] }); return; }
+  // Write-ahead: a board that stops while the POST is out finds this mark and does not send again.
+  csent[c.id] = { ...rec, attempted: true };
+  saveJson(commentsSentFile(), csent);
+  const r = await asAgent(agentKey, keys, 'POST', '/posts/' + encodeURIComponent(c.remotePostId) + '/comments', body);
+  if (r.status === 201) {
+    csent[c.id] = settle(rec, { state: 'sent', sentAt: new Date(now).toISOString(), ...(r.json && r.json.id ? { remoteId: String(r.json.id) } : {}) });
+  } else if (r.status === 404) {
+    csent[c.id] = settle(rec, { state: 'refused', reasons: ['post_gone'] });
+  } else if (r.status === 409) {
+    // Only a reply can meet a full thread today (kosmos-community answers 409 thread_full on parent_id), and this
+    // sends no replies yet: kept so the day replies ship, a full thread is recorded, not retried.
+    csent[c.id] = settle(rec, { state: 'refused', reasons: ['thread_full'] });
+  } else if (r.status === 422) {
+    const why = refusalReasons(r.json);
+    const err = r.json && r.json.detail && typeof r.json.detail.error === 'string' && /^[a-z_]{1,40}$/.test(r.json.detail.error) ? [r.json.detail.error] : [];
+    // The service's validation answer is a LIST under detail (its RequestValidationError handler): a fixed class,
+    // never the server's own text.
+    const invalid = r.json && Array.isArray(r.json.detail) ? ['invalid_text'] : [];
+    csent[c.id] = settle(rec, { state: 'refused', reasons: why.length ? why : (err.length ? err : (invalid.length ? invalid : ['rejected'])) });
+  } else if (r.status === 429) {
+    // The daily comment cap: nothing was stored. Wait as long as the server says, across sweeps.
+    csent[c.id] = settle(rec, {});
+    k.commentRetryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
+    saveJson(keysFile(), keys);
+  } else if (r.status === 401) {
+    csent[c.id] = settle(rec, { lastStatus: 401 });
+    log(`comment for ${agentKey}: the server refused the token and a new one could not be had; retrying next sweep`);
+  } else if (r.status >= 400 && r.status < 500) {
+    csent[c.id] = settle(rec, { state: 'refused', reasons: ['http_' + r.status] });
+    log(`comment for ${agentKey}: refused with ${r.status}`);
+  } else {
+    csent[c.id] = settle(rec, { state: 'unconfirmed', ...(r.status ? { lastStatus: r.status } : {}) });
+    log(`comment for ${agentKey}: no usable answer (status ${r.status || 'none'}); it may be on the server, so it is not sent again`);
+  }
+}
+
+async function sweepComments(keys, from, now) {
+  const csent = loadJson(commentsSentFile());
+  if (!csent) {
+    // Unreadable: send no comment rather than re-send one. NOT safely removable: without it every comment already sent
+    // in this ON period looks unsent and would go again (review 6), so it has to be repaired, not deleted.
+    if (!reportedCorrupt.has('comments-sent-not-removable')) {
+      reportedCorrupt.add('comments-sent-not-removable');
+      log('comments-sent.json cannot be read: comments are not sent until it is REPAIRED; removing it would send again every comment already sent');
+    }
+    return;
+  }
+  const due = communitystore.publishedServiceComments()
+    .filter((c) => c.author && c.author.type === 'agent' && typeof c.agent === 'string' && c.agent)
+    .filter((c) => from && String(c.releasedAt || c.receivedAt) >= from)
+    .filter((c) => !csent[c.id] || (csent[c.id].state === 'pending' && !csent[c.id].attempted));
+  for (const c of due) {
+    if (!switchOn()) break;
+    // Still the ON period this sweep began in? An OFF (which ends the period at once, endOnPeriodNow) and an ON while
+    // this sweep was on the network leave a new start, or none yet, and the old window no longer holds (review).
+    const cur = loadJson(stateFile());
+    if (!cur || cur.since !== from) break;
+    try {
+      await sendComment(c, keys, csent, now);
+      saveJson(commentsSentFile(), csent);
+    } catch (e) {
+      log(`comment ${c.id}: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`);
+    }
+  }
+}
+
+/**
  * #4375: the owner's industry on each registered agent's public profile ("Works for ..."), as
  * PATCH /agents/me { industry } (kosmos-community #4370). Sent when it differs from what this agent
  * was last sent: a key when set, null ONCE when a set industry is cleared, and nothing for an agent
@@ -546,8 +660,9 @@ async function sweepOnce(now) {
     await settleUnconfirmed(keys, sent, now);
     saveJson(sentFile(), sent);
   } catch (e) { log(`unconfirmed sends: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  let from = null;
   if (on && st) {
-    const from = sinceForOnPeriod(st);
+    from = sinceForOnPeriod(st);
     const due = communitystore.publishedPosts()
       .filter((p) => p.author && p.author.type === 'agent' && typeof p.agent === 'string' && p.agent)
       .filter((p) => from && String(p.releasedAt || p.receivedAt) >= from)
@@ -580,6 +695,12 @@ async function sweepOnce(now) {
   } catch (e) { log(`take-down reads: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   try { await sweepIndustry(keys, on); }
   catch (e) { log(`industry: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  // #4373 part B: comments go after the owner's deletes, the take-down reads and the industry pass, so a slow comment
+  // pass (each can take a POST, a login and a re-POST) never holds back taking something off the public site.
+  if (on && st && from) {
+    try { await sweepComments(keys, from, now); }
+    catch (e) { log(`comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  }
   return on ? { ok: true } : { skipped: 'off' };
 }
 
@@ -774,6 +895,72 @@ function statuses() {
 }
 
 /**
+ * #4373 part B: will a comment published NOW go to the community? True only if the switch is on, the send state is
+ * readable, the ON period has a start at or before now (recorded here if a sweep has not yet, so a comment made in
+ * the minutes before the first sweep of this ON period is inside the window and not silently skipped), the address
+ * is one the layer sends to, and this agent's key has not been refused. Called by the route BEFORE it stores.
+ */
+function willSend(agentKey, now = Date.now()) {
+  const no = { sends: false, later: false };
+  if (!switchOn() || !endpointAllowed()) return no;
+  const st = loadJson(stateFile());
+  const keys = loadJson(keysFile());
+  // Every file the sweep refuses to run without (review 6): with any of them unreadable nothing is sent, so the agent
+  // is not told "next pass". Checked BEFORE recording anything.
+  if (!st || !keys || !loadJson(sentFile()) || !loadJson(deletesFile()) || !loadJson(commentsSentFile())) return no;
+  const k = agentKey && keys[agentKey];
+  if (k && k.refused) return no;
+  if (!sinceForOnPeriod(st)) return no;
+  // Past the service's daily comment cap: it goes, but not on the next pass.
+  const later = Boolean(k && k.commentRetryAt && Date.parse(k.commentRetryAt) > now);
+  return { sends: true, later };
+}
+
+/**
+ * #4373 part B review 7: record the ON period's start NOW if Community is on and no sweep has yet, so something made
+ * public from a request (a release) in the minutes before the first sweep is inside the window and not silently
+ * skipped. The same first-writer-wins record as willSend. Nothing happens while off or with an unreadable state.
+ */
+function recordPeriodStart() {
+  if (!switchOn() || !endpointAllowed()) return false;   // as the sweep: no start for an address it will not send to
+  const st = loadJson(stateFile());
+  if (!st) return false;
+  return Boolean(sinceForOnPeriod(st));
+}
+
+/**
+ * #4373 part B review 5/6: a PUBLISHED comment the agent was told "will not go" must then never go, or a resend by the
+ * agent doubles it in public. The AUTHORITATIVE mark is on the comment row (communitystore.markServiceCommentNotSent),
+ * which the sweep only reads, so a sweep in flight cannot lose it, and it holds for every address. A record in
+ * comments-sent.json is added as well, best effort, so /sent shows it; losing that one loses nothing that matters.
+ */
+function markNotSent(commentId, agentKey, remotePostId) {
+  if (!communitystore.markServiceCommentNotSent(commentId)) return false;
+  try {
+    const csent = loadJson(commentsSentFile());
+    if (csent && !csent[commentId]) {
+      csent[commentId] = { state: 'not_sent', agent: agentKey, post: remotePostId || null, reasons: ['not_sending'] };
+      saveJson(commentsSentFile(), csent);
+    }
+  } catch { /* the row's mark is what keeps it home */ }
+  return true;
+}
+
+/** #4373 part B: what happened to each comment the board has tried to send, and those marked never to send. No keys. */
+function commentStatuses() {
+  const csent = loadJson(commentsSentFile()) || {};
+  const keys = loadJson(keysFile()) || {};
+  const out = {};
+  for (const [id, rec] of Object.entries(csent)) {
+    let state = rec.state || 'pending';
+    if (state === 'pending' && rec.attempted) state = 'unconfirmed';
+    const k = rec.agent && keys[rec.agent];
+    out[id] = { state, agent: rec.agent || null, post: rec.post || null, agentRefused: !!(k && k.refused), ...(Array.isArray(rec.reasons) ? { reasons: rec.reasons } : {}), ...(typeof rec.lastStatus === 'number' ? { lastStatus: rec.lastStatus } : {}) };
+  }
+  return out;
+}
+
+/**
  * #4375: how many registered agents still show an industry on their profile that the board can no longer change,
  * because the service refused their key. The page says so when the owner takes the industry off.
  */
@@ -794,8 +981,9 @@ function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
-  switchOn, industryUnreachable, sweep, agentCall, requestDelete, statuses, payload, titleFor, registration, underTest,
+  switchOn, willSend, markNotSent, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, agentCall, requestDelete,
+  statuses, commentStatuses, payload, titleFor, registration, underTest,
   setSender, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
-  _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile },
+  _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile },
 };

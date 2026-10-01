@@ -13,6 +13,12 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const os = require('node:os');
+const fs = require('node:fs');
+/* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
+   travels to this test's stub board (or into anything the test records). */
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-post-stdin-2909-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
@@ -72,7 +78,7 @@ function withStubBoard(fn, reply) {
 const RICH = 'Run `echo PWNED` then check $HOME and "quotes" \\ backslash\n\n- one\n- two';
 
 test('#2909: kosmos post --stdin delivers backticks, $, quotes, backslashes and newlines verbatim', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--stdin', 'proj'], env, RICH + '\n');
   assert.equal(out.code, 0, 'the post should succeed: ' + out.stdout + out.stderr);
   assert.equal(seen.length, 1, 'exactly one post reached the board');
@@ -82,7 +88,7 @@ test('#2909: kosmos post --stdin delivers backticks, $, quotes, backslashes and 
 }));
 
 test('#2909 CONTROL: the same text as a double-quoted arg is mangled by the shell (the hazard --stdin exists for)', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42', HOME: '/home/control' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', HOME: '/home/control' };
   const out = await runShell(`"${CLI}" post proj "Run \`echo PWNED\` then check $HOME"`, env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1);
@@ -91,7 +97,7 @@ test('#2909 CONTROL: the same text as a double-quoted arg is mangled by the shel
 }));
 
 test('#2909: --stdin and --no-reply are leading flags in either order', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const a = await runCli(['post', '--no-reply', '--stdin', 'proj'], env, 'ack one');
   const b = await runCli(['post', '--stdin', '--no-reply', 'proj'], env, 'ack two');
   assert.equal(a.code, 0, a.stdout + a.stderr);
@@ -100,7 +106,7 @@ test('#2909: --stdin and --no-reply are leading flags in either order', () => wi
 }));
 
 test('#2909: --stdin with text args, or with nothing piped in, is refused and posts nothing', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const mixed = await runCli(['post', '--stdin', 'proj', 'also', 'args'], env, 'piped');
   assert.equal(mixed.code, 2, 'stdin AND args is ambiguous');
   assert.match(mixed.stdout + mixed.stderr, /stdin OR as arguments/);
@@ -117,14 +123,14 @@ test('#2909: --stdin with text args, or with nothing piped in, is refused and po
 }));
 
 test('#2909: a CRLF pipe loses only its trailing line endings; inner CRs and tabs are kept, as on Windows', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--stdin', 'proj'], env, 'line one\r\n\tindented\r\n\r\n');
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].text, 'line one\r\n\tindented', 'tab and inner CR survive; the trailing CR/LF run is removed');
 }));
 
 test('#2909: control characters (ESC colors) and a leading BOM are dropped, so the body stays valid JSON', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--stdin', 'proj'], env, '\ufeff\u001b[31mred\u001b[0m done\u0007');
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1);
@@ -133,7 +139,7 @@ test('#2909: control characters (ESC colors) and a leading BOM are dropped, so t
 }));
 
 test('#2909: a 2 MB piped body is sent to the board without hitting the argv limit (the stub has no text cap; the real room refuses long text with its own reason)', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const big = 'x'.repeat(2 * 1024 * 1024);
   const out = await runCli(['post', '--stdin', 'proj'], env, big, BIG_INPUT_TIMEOUT_MS);
   assert.equal(out.code, 0, 'a long body must not fail to send as "could not reach": ' + out.stdout + out.stderr);
@@ -142,7 +148,7 @@ test('#2909: a 2 MB piped body is sent to the board without hitting the argv lim
 }));
 
 test('#2909: bytes that are not UTF-8 are posted (decoded by the board), not an abort', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--stdin', 'proj'], env, Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]));
   assert.equal(out.code, 0, 'a Latin-1 byte must not kill the command: ' + out.stdout + out.stderr);
   assert.equal(seen.length, 1);
@@ -151,7 +157,7 @@ test('#2909: bytes that are not UTF-8 are posted (decoded by the board), not an 
 }));
 
 test('#2909: control-only input and a body over the board limit are refused and post nothing', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const ctl = await runCli(['post', '--stdin', 'proj'], env, '\u001b\u0007\n');
   assert.equal(ctl.code, 2, 'nothing left after dropping control characters is nothing piped in');
   assert.match(ctl.stdout + ctl.stderr, /nothing was piped in/);
@@ -168,7 +174,7 @@ test('#2909: control-only input and a body over the board limit are refused and 
 }));
 
 test('#2909: a long trailing run of CRLF lines is trimmed quickly (linear, not a per-character loop)', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const t0 = Date.now();
   const out = await runCli(['post', '--stdin', 'proj'], env, 'c'.repeat(100) + '\r\n'.repeat(30000));
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -177,7 +183,7 @@ test('#2909: a long trailing run of CRLF lines is trimmed quickly (linear, not a
 }));
 
 test('#2909: argument-mode posts also drop control characters now (same escaper), and keep tabs', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'proj', 'a\u001bb\tc'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].text, 'ab\tc');
@@ -226,7 +232,7 @@ function hasPython3() {
 }
 
 test('#2909: --stdin at a terminal is refused at once instead of waiting on a silent prompt', { skip: !hasPython3() && 'needs python3 for a pseudo-terminal' }, () => withStubBoard((port, seen) => new Promise((resolve, reject) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port) };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port) };
   execFile('python3', ['-c', PTY_HARNESS, '/bin/bash', CLI, 'post', '--stdin', 'proj'], { env, timeout: 40000 }, (err, stdout) => {
     try {
       if (err && typeof err.code !== 'number') throw new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout. ' + stdout);
@@ -241,7 +247,7 @@ test('#2909: --stdin at a terminal is refused at once instead of waiting on a si
 })));
 
 test('#2909: with Kosmos not running, a piped message is read and kept in a file, not lost', async () => {
-  const env = { ...process.env, KOSMOS_PORT: '1', TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: '1', TMUX_PANE: '%42' };
   const out = await runCli(['post', '--stdin', 'proj'], env, 'LIVE-PIPE-BODY');
   assert.equal(out.code, 1, out.stdout + out.stderr);
   assert.match(out.stdout, /Kosmos is not running/);
@@ -260,7 +266,7 @@ test('#2909: the post usage line is the same sentence in install/kosmos and the 
 });
 
 test('#2909: --stdin combines with --in-reply-to (#3224), in either order', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const a = await runCli(['post', '--in-reply-to', 'm9', '--stdin', 'proj'], env, 'the `answer`\n');
   const b = await runCli(['post', '--stdin', '--in-reply-to=m10', 'proj'], env, 'another $one');
   assert.equal(a.code, 0, a.stdout + a.stderr);
@@ -269,7 +275,7 @@ test('#2909: --stdin combines with --in-reply-to (#3224), in either order', () =
 }));
 
 test('#2909: a --stdin after the project is refused instead of posting the word and dropping the pipe', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'proj', '--stdin'], env, 'the real message');
   assert.equal(out.code, 2, out.stdout + out.stderr);
   assert.match(out.stdout + out.stderr, /--stdin must come before the project id/);
@@ -277,7 +283,7 @@ test('#2909: a --stdin after the project is refused instead of posting the word 
 }));
 
 test('#2909: a post the board declines keeps a piped message in a file instead of dumping it', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--stdin', 'proj'], env, 'PIPED-BODY-2909');
   assert.equal(out.code, 1, out.stdout + out.stderr);
   assert.match(out.stdout, /Not posted: there is no project by that name/);
@@ -292,7 +298,7 @@ test('#2909: a post the board declines keeps a piped message in a file instead o
 }, '{"delivery":{"state":"could_not","because":"there is no project by that name."}}'));
 
 test('#2909: a wrong-world post whose outbox keep fails still keeps the piped message', () => withStubBoard(async (port) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_HOME: '/nonexistent-kosmos-home-2909' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_HOME: '/nonexistent-kosmos-home-2909' };
   const out = await runCli(['post', '--stdin', 'proj'], env, 'WRONG-WORLD-BODY');
   const saved = out.stdout.match(/saved at (\S+)/);
   assert.equal(out.code, 1, 'KOSMOS_HOME points nowhere, so the outbox cannot keep it: ' + out.stdout);
@@ -303,7 +309,7 @@ test('#2909: a wrong-world post whose outbox keep fails still keeps the piped me
 }, '{"wrongWorld":true,"world":"other"}'));
 
 test('#2909: a raw pipe over the board limit is refused at the read, not held whole or truncated', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--stdin', 'proj'], env, 'z'.repeat(6 * 1024 * 1024 + 10), BIG_INPUT_TIMEOUT_MS);
   assert.equal(out.code, 2, out.stdout + out.stderr);
   assert.match(out.stdout, /over the 6 MB the board accepts/);
@@ -323,7 +329,7 @@ test('#2909: the dropped control-character range is one fact in both bash copies
 });
 
 test('#2909: an argument made only of control characters is refused, not posted empty', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'proj', '\u001b\u0007'], env);
   assert.equal(out.code, 2, out.stdout + out.stderr);
   assert.match(out.stdout, /empty once control characters are removed/);
@@ -331,7 +337,7 @@ test('#2909: an argument made only of control characters is refused, not posted 
 }));
 
 test('#2909: a piped message with many embedded newlines is escaped quickly', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const body = 'line\n'.repeat(300000) + 'end';
   const t0 = Date.now();
   const out = await runCli(['post', '--stdin', 'proj'], env, body);
@@ -341,7 +347,7 @@ test('#2909: a piped message with many embedded newlines is escaped quickly', ()
 }));
 
 test('#2909: without --stdin, piped input is ignored and the args are the message (unchanged behavior)', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'proj', 'plain', 'words'], env, 'this must not be read');
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].text, 'plain words');

@@ -1,6 +1,6 @@
 'use strict';
 /**
- * #4491 slices 2-4: `kosmos msg`, `kosmos post`, `kosmos react`, `kosmos task message`, and (slice 4) the reads
+ * #4491 slices 2-5 (slice 5 adds `kosmos task add` and `kosmos task close`): `kosmos msg`, `kosmos post`, `kosmos react`, `kosmos task message`, and (slice 4) the reads
  * `kosmos room`, `kosmos task list`, `kosmos agent roles` and `kosmos agent role-draft` present the agent's own token
  * (KOSMOS_AGENT_TOKEN, plain hex only) as `x-kosmos-agent-token`, as reply and report already do,
  * so the board can tell the agent from the person. The board token is still sent as well.
@@ -41,6 +41,9 @@ const ANSWERS = {
   '/api/post': { delivery: { state: 'placed' } },
   '/api/react': { ok: true },
   '/api/project/p4491/task/1/message': { ok: true, delivered: [] },
+  // Slice 5: task add and task close. Each CLI arm reads the board's own {"task":...} shape as success.
+  '/api/project/p4491/tasks': { task: { number: 1, sentence: 'write the docs' } },
+  '/api/project/p4491/task/1/close': { task: { number: 1, state: 'closed' } },
 };
 
 /* Slice 4: the reads. The room is answered as text (its `?as=text` arm), the others as the JSON each verb parses. */
@@ -87,6 +90,9 @@ const VERBS = [
   ['/api/tasks', ['task', 'list', 'p4491']],
   ['/api/roles', ['agent', 'roles']],
   ['/api/roles', ['agent', 'role-draft']],
+  // Slice 5, the two task writes.
+  ['/api/project/p4491/tasks', ['task', 'add', 'p4491', 'write the docs']],
+  ['/api/project/p4491/task/1/close', ['task', 'close', 'p4491', '1']],
 ];
 const verbName = (args) => args.slice(0, args[0] === 'task' || args[0] === 'agent' ? 2 : 1).join(' ');
 
@@ -139,5 +145,36 @@ for (const [route, args] of VERBS) {
         }
       });
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  });
+}
+
+/* Slice 5: the board now refuses an agent that is not on the project. Each verb prints the board's own sentence and
+   exits 1 (its own stub: the shared one above always answers 200). */
+for (const [args, verb] of [[['task', 'add', 'p4491', 'write the docs'], 'add tasks to it'], [['task', 'close', 'p4491', '1'], 'close its tasks']]) {
+  test(`kosmos ${verbName(args)} prints the board's refusal for an agent that is not on the project, and exits 1`, async () => {
+    const home = makeHome();
+    const sentence = 'that agent is not on this project, so it cannot ' + verb;
+    const server = http.createServer((req, res) => {
+      if (req.method === 'POST') {
+        req.resume();
+        res.writeHead(403, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ error: sentence }));
+      }
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<title>Kosmos</title>Agent Workforce');
+    });
+    try {
+      await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const env = { ...process.env, KOSMOS_PORT: String(server.address().port), KOSMOS_HOME: home, AGENT_WORKFORCE_DATA: '', TMUX_PANE: '', KOSMOS_AGENT_TOKEN: TOKEN };
+      const out = await new Promise((resolve, reject) => execFile(CLI, args, { env, timeout: 20000 }, (err, stdout, stderr) => {
+        if (err && typeof err.code !== 'number') { reject(err); return; }
+        resolve({ code: err ? err.code : 0, text: String(stdout) + String(stderr) });
+      }));
+      assert.equal(out.code, 1, 'a refused ' + verbName(args) + ' did not exit 1: ' + out.text.slice(0, 200));
+      assert.ok(out.text.includes(sentence), 'the board\'s sentence was not printed: ' + out.text.slice(0, 200));
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+      fs.rmSync(home, { recursive: true, force: true });
+    }
   });
 }

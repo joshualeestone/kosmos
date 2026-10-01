@@ -106,7 +106,7 @@ test('#4043: run as agy runs it, the bridge answers {} first and exits 0 fast ev
   const start = Date.now();
   const r = spawnSync(process.execPath, [BRIDGE_FILE, 'Stop'], {
     input: JSON.stringify({ conversationId: 'x', fullyIdle: true, error: '' }),
-    env: { ...process.env, KOSMOS_PORT: '9', TMUX_PANE: '%stdout-' + process.pid }, // nothing listens on port 9
+    env: { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_PORT: '9', TMUX_PANE: '%stdout-' + process.pid }, // nothing listens on port 9
     encoding: 'utf8',
     timeout: 15000,
   });
@@ -135,7 +135,8 @@ test('#4043: a board that never answers costs at most the bridge\'s own budget',
   const server = http.createServer(() => { /* never answer */ });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%slow-' + process.pid };
+  // #4796: a data root of its own, so the bridge reads no live board token.
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_PORT: String(port), TMUX_PANE: '%slow-' + process.pid };
   try { fs.rmSync(bridge.markerFile(env), { force: true }); } catch { /* none */ }
   const { spawn } = require('node:child_process');
   const start = Date.now();
@@ -191,7 +192,7 @@ test('#4043: the command-line entry always exits 0 and says why on stderr when i
 test('#4043: run for an ask_question, the bridge answers {"decision":"allow"}, exactly as agy reads it', () => {
   const r = spawnSync(process.execPath, [BRIDGE_FILE, 'PreToolUse'], {
     input: JSON.stringify({ toolCall: { name: 'ask_question', args: { questions: [{ question: 'Go?' }] } } }),
-    env: { ...process.env, KOSMOS_PORT: '9', TMUX_PANE: '%pretool-' + process.pid },
+    env: { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_PORT: '9', TMUX_PANE: '%pretool-' + process.pid },
     encoding: 'utf8', timeout: 15000,
   });
   try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: '9', TMUX_PANE: '%pretool-' + process.pid }), { force: true }); } catch { /* none */ }
@@ -217,7 +218,8 @@ test('#4043: agents without a pane never share one throttle marker', () => {
 function driveBridge(port, eventName, payload, pane) {
   const { spawn } = require('node:child_process');
   return new Promise((resolve, reject) => {
-    const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: pane };
+    // #4796: a data root of its own, so the bridge reads no live board token.
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_PORT: String(port), TMUX_PANE: pane };
     delete env.KOSMOS_AGENT_TOKEN;
     const child = spawn(process.execPath, [BRIDGE_FILE, eventName], { env, stdio: ['pipe', 'ignore', 'ignore'] });
     child.on('error', reject);
@@ -550,7 +552,7 @@ test('#4043 review 1: an unexpected tool, or no payload, reaching the bridge is 
   for (const [label, input] of [['run_command', JSON.stringify({ toolCall: { name: 'run_command', args: { CommandLine: 'rm -rf x' } } })],
     ['no payload', ''], ['garbage', 'not json']]) {
     const r = spawnSync(process.execPath, [BRIDGE_FILE, 'PreToolUse'], {
-      input, env: { ...process.env, KOSMOS_PORT: '9', TMUX_PANE: '%unexp-' + process.pid }, encoding: 'utf8', timeout: 15000,
+      input, env: { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_PORT: '9', TMUX_PANE: '%unexp-' + process.pid }, encoding: 'utf8', timeout: 15000,
     });
     try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: '9', TMUX_PANE: '%unexp-' + process.pid }), { force: true }); } catch { /* none */ }
     assert.equal(r.status, 0, label);
@@ -564,7 +566,7 @@ test('#4043: the bridge\'s REAL PreToolUse answer lets agy run ask_question (so 
   /* The bytes agy actually reads: the bridge run as agy runs it, not answerFor() called in-process. */
   const r = spawnSync(process.execPath, [BRIDGE_FILE, 'PreToolUse'], {
     input: JSON.stringify({ toolCall: { name: 'ask_question', args: { questions: [{ question: 'Red or blue?' }] } } }),
-    env: { ...process.env, KOSMOS_PORT: '9', TMUX_PANE: '%contract-' + process.pid },
+    env: { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_PORT: '9', TMUX_PANE: '%contract-' + process.pid },
     encoding: 'utf8', timeout: 15000,
   });
   try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: '9', TMUX_PANE: '%contract-' + process.pid }), { force: true }); } catch { /* none */ }

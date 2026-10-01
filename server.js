@@ -445,6 +445,13 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     const v = tasks.partValve();
     if (v.refused) return { ok: false, status: 429, because: v.because, retryAfterSecs: v.retryAfterSecs };
   }
+  /* #4588 PR B: the assigner does not give a part to an agent held on its machine's shared Google quota. Refused here,
+     before the part is assigned, so a held agent is not given work and taken off it again every tick. */
+  if (assigner) {
+    let heldUntil = null;
+    try { heldUntil = require('./engine/agyquota').heldForQuota(who, roster || safeRoster(), Date.now()); } catch { heldUntil = null; }
+    if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " is held until " + new Date(heldUntil).toISOString() + ": its Google account's shared quota is out" };
+  }
   const made = assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
   const out = tasks.assignPart(projectId, n, partId, who, made);
   if (!out.ok) return { ok: false, status: 400, because: out.because };
@@ -1055,7 +1062,7 @@ const RETELL_RECENT = [];
    writes the verdict and types the "listed" line for each project it newly wrote. It calls
    `projects.syncAgent` and `projects.speakOfMembership` through the module, never a local
    binding, so the tests that stub them reach both callers. */
-function retellMember(name, id, roster) {
+function retellMember(name, id, roster, { automatic = false } = {}) {
   let told;
   try {
     told = projects.syncAgent(name, roster);
@@ -1086,7 +1093,7 @@ function retellMember(name, id, roster) {
     try { proj = pid === id ? retold : projects.get(pid, roster); } catch { proj = null; }
     const on = !!(proj && (proj.agents || []).some((a) => a && (a.sessionName || a) === name));
     if (!on) continue;
-    const one = projects.speakOfMembership(name, proj, 'listed', roster);
+    const one = projects.speakOfMembership(name, proj, 'listed', roster, { automatic });
     if (pid === id) said = one; else alsoSaid[pid] = one;
   }
   return { project: retold, told, said, alsoSaid };
@@ -1123,10 +1130,15 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
         const card = projects.ourCard(name, board());
         if (!card) return false;
         if (card.state === STATE.STOPPED) return true;
+        /* #4588 PR B: a running agent held on its machine's shared Google quota is not ready: not spent, looked at again
+           next sweep, so neither its instructions write nor the one retell per change is used up during the pause. */
+        let held = null;
+        try { held = require('./engine/agyquota').heldForQuota(card.sessionName, board(), now); } catch { held = null; }
+        if (held !== null) return false;
         const st = projects.toldOverride(instructions.staleness(name, undefined, card.session), name, all);
         return !!(st && st.state === instructions.STALENESS.CURRENT);
       },
-      retell: (name, id) => retellMember(name, id, board()),
+      retell: (name, id) => retellMember(name, id, board(), { automatic: true }),
       log: (r) => process.stdout.write(`autoretell: ${r.name} on ${r.id} -> ${r.state}${r.because ? ' (' + r.because + ')' : ''}\n`),
     });
   } catch { return []; /* best-effort; the notice's Try again still works */ }
@@ -1317,6 +1329,9 @@ function resolveAgentSender(req, body, roster, opts) {
 
   const carded = sendertoken.resolve(presented, roster);
   if (carded.ok) return carded;
+  /* #4763: refused because two of our running agents share this token's key. The paneless path below resolves
+     by key alone, so it would re-admit the token as that key; keep the refusal (its words are NO_MATCH). */
+  if (carded[sendertoken.CLASH]) return carded;
 
   const byName = sendertoken.resolveName(presented);
   if (byName.ok && liveness.alive(byName.key) === true) {
@@ -2986,14 +3001,23 @@ function isSetupGuide(name) {
     return setupAssistant.isGuideFolder(guide);
   } catch { return false; }
 }
-/* The setup guide's words with anything shaped like a secret masked (engine/secretmask.js), for every
-   agent-written text that reaches the person: stored replies (keepAgentReply) and the thread as read.
+/* The setup guide's words with anything shaped like a secret masked (engine/secretmask.js).
    Logs that a mask fired and which kinds, never the value. Any other agent's text passes unchanged. */
 function guideMasked(who, text) {
   if (typeof text !== 'string' || !isSetupGuide(who)) return text;
   const out = require('./engine/secretmask').mask(text);
   if (out.fired.length) console.error(`#3769: caught ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
   return out.text;
+}
+
+/* #4733: the masker for the free-text fields of ONE agent's status report. selfreport makes text of whatever it is
+   handed (String(value)), so the setup guide's value that is not a string is made text here first; left as it
+   came, it would be stored unmasked. An absent value, and every value of any other agent, passes as it came.
+   Any other agent's report asks who it is once, not once per field: the report route runs on every hook
+   heartbeat. (The guide's own fields each ask again, inside guideMasked.) */
+function reportFieldMasker(who) {
+  if (!isSetupGuide(who)) return (value) => value;
+  return (value) => (value === null || value === undefined ? value : guideMasked(who, typeof value === 'string' ? value : String(value)));
 }
 
 /* #3769: rows as read, for a route that serves stored rows: any row the setup guide wrote is masked
@@ -3856,19 +3880,20 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    agents, the pickers that add a member to a project included (#3739), so it is on a project only if a process
    holding the board token put it there.
    What the guide then SAYS is masked for secrets on its replies, `kosmos msg`, `kosmos post` and the team purpose
-   (#3769), and NOT on a task message, a task-built note or a status report: that gap is on main already and is
-   #4733, not this slice's to close. */
+   (#3769), and on a task message, a task-built note and a status report (#4733). */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
   'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks']);   // overview: #4581, `kosmos project list`
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
-   `[^/]+` for the project and `\d+` for the task, so no other task verb (close, reopen, parts) matches. Judged before
+   `[^/]+` for the project and `\d+` for the task, so no other task verb (reopen, due, parts) matches (close joined in slice 5). Judged before
    the handler decodes the project, so an encoded `a%2Fb` passes here and then names no project (404). Each
    handler identifies the caller from the token and refuses an agent that is not on the project. */
 /* #4581: the second pattern is `kosmos project show <id>`, a READ: it writes nothing and answers the same for every
    caller, so, unlike the task verbs, it has no caller to identify (as GET /api/projects/overview in the set above). */
 /* #4491 slice 4: the third pattern is `kosmos room <id>`, a READ of one project's room (anchored like the others, so
    /room/reopen and every other room verb do not match). */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built)$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
+/* #4491 slice 5: `kosmos task add` (POST .../tasks) and `kosmos task close` join: both handlers name the caller from
+   the token and refuse an agent that is not on the project. Reopen, due, parts and every other task verb stay out. */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a roster row (`paneless`, on the result or its card): its
@@ -3925,6 +3950,67 @@ function panelessCaller(tokenSender) {
 }
 function projectHasAgent(stored, name, byKey) {
   return Array.isArray(stored.agents) && stored.agents.some((a) => sameAgentName(a, name, byKey));
+}
+/* #4491 slice 5: who a PROCESS caller is, worked out the way task built and task message do (slice 3): the agent
+   token first (header, or `token` in the body; a bad one is refused, never swapped for the pane), else the pane:
+   a roster target, or through messages.resolveSender (the CLI sends tmux's %N). `notDone` finishes the
+   503 sentence. Returns { refusal: [status, sentence] }, or { card, byKey }: card null is the screen or a
+   process nobody could name, which these routes do not refuse; byKey says the name is the token store's key. */
+function processCaller(req, body, roster, viaScreen, notDone) {
+  if (viaScreen) return { card: null, byKey: false };
+  const couldNot = [503, 'we could not check which agents are running, so ' + notDone];
+  if (roster === null && presentedAgentToken(req, body)) return { refusal: couldNot };
+  /* NEVER THROWS. The close handler calls this outside any try, and the board has no last-resort handler for a
+     throw in a request: the caller would get no answer at all (measured in the test: the request hangs), and
+     the process may end. The token resolver can throw today (engine/sendertoken.js keys every roster
+     row's name before it looks at whose row it is, and a name with no letter or digit cannot be keyed: a tmux
+     session named "!!" sorting ahead of the agent's row does it, #4738), so
+     a token that cannot be checked is a 503 with its own sentence (the roster WAS read in that case). */
+  let tokenSender;
+  try { tokenSender = senderFromAgentToken(req, body, roster); }
+  catch { return { refusal: [503, 'we could not check that agent just now, so ' + notDone] }; }
+  if (tokenSender && !tokenSender.ok) return { refusal: [403, tokenSender.because] };
+  /* A pane with a roster nobody could read names nobody, and the write goes on unnamed, as these two routes
+     always did (task message and task built answer 503 there, a slice-3 choice; here it would be a new refusal
+     for a person typing `kosmos task add` in a tmux window). A TOKEN with an unreadable roster is refused above:
+     it cannot be checked, and a credential nobody could check is not waved through. */
+  const fromPane = roster !== null && body && typeof body.from_pane === 'string' ? body.from_pane : '';
+  /* The pane, as task message reads it: a pane that IS a roster target (session:w.p) and is tied to our agent is
+     that card; otherwise ask resolveSender. A lookup that throws names nobody, like one that finds nobody. */
+  let card = tokenSender ? tokenSender.card : null;
+  if (!tokenSender && fromPane) {
+    try {
+      const targetCard = (roster || []).find((c) => c && c.target === fromPane && c.isNamedOurs === true) || null;
+      const byPane = targetCard ? null : messages.resolveSender(fromPane, roster);
+      card = targetCard || (byPane && byPane.ok ? byPane.card : null);
+    } catch { card = null; }
+  }
+  return { card: card || null, byKey: panelessCaller(tokenSender) };
+}
+/* Slice 5: an identified agent writes only in a project it is on, as task message and task built already require.
+   [status, sentence] to refuse with, or null. An unreadable projects list refuses (503): a member that cannot be
+   checked is not let through. A project nobody stored is left to the handler's own 404.
+   ONE exception: a project a PROCESS made that lists nobody (`made.via === 'process'`, `agents: []`). That is
+   what `kosmos project create` makes (it lists nobody, not even its maker, whose name goes in the record of who
+   made it and not on the member list; run by an agent or by the person in a terminal, the record is the same), and every agent's working rules say "once it exists you ... hand it work
+   the same way as any other project" (engine/defaults.js, "Making a project"): refusing the maker its own new
+   project would break the one workflow the product prescribes. A task there can have no assignee (an assignee
+   must be a member). A project made ON THE PAGE is not that, with nobody ticked or emptied later: nobody
+   identified writes in it until someone is on it. An `agents` that is not an array is not "no members".
+   ⚠️ What it cannot tell apart: a process-made project that was staffed and then emptied again looks the same in
+   the store (removing a member keeps `made`), so it is open too. Accepted: nobody is on it to be spoken for.
+   `made` is an advisory record (engine/projects.js says so), used here only to keep something working, never to
+   let a caller into a project that has members. This exception is a bridge: once project create puts its maker
+   on the project (#4491's next slice), it has no reason to exist. */
+function notOnProjectRefusal(who, id, verb, notDone) {
+  if (!who || !who.card) return null;
+  let stored;
+  try { stored = projects.readAll().filter((x) => x && x.id === id); }
+  catch { return [503, 'we could not read the projects, so ' + notDone]; }
+  if (!stored.length) return null;
+  const agentMadeAndEmpty = (x) => Array.isArray(x.agents) && x.agents.length === 0 && !!x.made && x.made.via === 'process';
+  return stored.every((x) => agentMadeAndEmpty(x) || projectHasAgent(x, who.card.sessionName, who.byKey)) ? null
+    : [403, 'that agent is not on this project, so it cannot ' + verb];
 }
 function agentTokenOk(req) {
   const t = req && req.headers && req.headers['x-kosmos-agent-token'];
@@ -4361,6 +4447,10 @@ const server = http.createServer(async (req, res) => {
            and wants a browser's headers. A speed bump, not a wall (an agent can forge headers); the
            real fix is #4491 (keep the board token out of agents' reach), where this route is noted. */
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can release this, from Settings' }); return; }
+        // #4373 part B review 7: a release in the minutes before the first sweep of an ON period must fall inside the
+        // send window (releasedAt >= since), or the released post or comment never goes and nothing records it. A
+        // release that then fails records it too; that only moves the window earlier while the person has it ON.
+        try { communitysend.recordPeriodStart(); } catch { /* the sweep records it; best effort */ }
         try {
           sendJson(res, 200, { released: communitysite.release(body.id) });
         } catch (e) {
@@ -4403,7 +4493,7 @@ const server = http.createServer(async (req, res) => {
      (sent, refused with reason classes, withheld, deleted, taken down with the moderator's
      reason). Board-token gated like the moderation queue above; carries no keys. */
   if (pathname === '/api/community/sent' && (req.method === 'GET' || req.method === 'HEAD')) {
-    try { sendJson(res, 200, { posts: communitysend.statuses() }); }
+    try { sendJson(res, 200, { posts: communitysend.statuses(), comments: communitysend.commentStatuses() }); }   // #4373 part B: comments too
     catch { sendJson(res, 500, { error: 'could not load what was sent' }); }
     return;
   }
@@ -7838,6 +7928,8 @@ const server = http.createServer(async (req, res) => {
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const saved = communityswitch.setOn(body.on);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        // #4373 part B: OFF ends the ON period now, so what is released while OFF never goes (the page says so).
+        if (body.on === false) { try { communitysend.endOnPeriodNow(); } catch { /* the next sweep ends it */ } }
         sendJson(res, 200, communityBody());
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
@@ -8106,6 +8198,60 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
       })
       .catch((e) => { console.error('FAIL /api/community/comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
+    return;
+  }
+  /* #4373 part B: an agent's comment on a post in the PUBLIC community service (the post ids
+     `kosmos community read` prints). Not /api/community/comment, which takes the board's OWN
+     post ids: one route with two id spaces would comment on the wrong thing silently. The same
+     token, identity and valve as a post, the same feedpublish choke (since #3485 a clean agent
+     comment publishes straight away and one the scrub stops is held), and the send layer
+     delivers it once published (engine/communitysend.js). */
+  if (pathname === '/api/community/service-comment' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!presentedAgentToken(req, body)) {
+          sendJson(res, 403, { error: 'commenting on the community requires an agent token' }); return;
+        }
+        const authRoster = safeRoster();
+        if (authRoster === null) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+        }
+        const sender = resolveAgentSender(req, body, authRoster);
+        if (!sender.ok || !sender.card || !sender.card.sessionName) {
+          sendJson(res, 403, { error: sender.because || 'we could not verify which agent this comment is from' }); return;
+        }
+        const agentId = sender.card.sessionName;
+        const { token: _t, from_pane: _fp, board: _b, candidate: _c, ...content } = body;
+        if (communityValveTripped(agentId)) {
+          sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts and comments. Do not try again this hour' }); return;
+        }
+        content.agent = agentId;
+        // Asked BEFORE the store write: it may record the ON period's start, which must not be later than this row.
+        // (That can move the posts' window earlier too, which only sends posts made while the person had it ON.)
+        let will = { sends: false, later: false };
+        try { will = communitysend.willSend(agentId); } catch { will = { sends: false, later: false }; }
+        let r;
+        try { r = feedpublish.publishServiceComment(content, { agentId }); }
+        catch (e) { console.error('FAIL /api/community/service-comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
+        if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
+        // The comment is STORED from here on (and may be published and sending), so nothing below may turn this into
+        // a failure answer: an agent told "not sent" would send it again, and it would go public twice.
+        try { communityValveRecord(agentId); } catch (e) { console.error('FAIL /api/community/service-comment valve record: ' + (e && e.message || e)); }
+        // A published comment that will not go is MADE not to go (a final record), so "it will not go" stays true and
+        // an agent that resends cannot double it in public. If that record cannot be written, say it may go.
+        let sends = will.sends;
+        if (r.status === 'published' && !sends) {
+          let marked = false;
+          try { marked = communitysend.markNotSent(r.id, agentId, String(content.servicePostId).toLowerCase()); } catch { marked = false; }
+          if (!marked) sends = true;
+        }
+        // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle).
+        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends, later: sends && will.later });
+      })
+      .catch((e) => { console.error('FAIL /api/community/service-comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
     return;
   }
 
@@ -13085,15 +13231,23 @@ const server = http.createServer(async (req, res) => {
           const prior = selfreport.read(who);
           wasNeedsYou = !!(prior && prior.found === true && prior.state === 'needs_you');
         } catch { /* unknown reads as a change */ }
+        /* #4733: the setup guide's words are masked in each field selfreport stores as text; any other agent's
+           pass as they came. Before the store caps them, so a cut can never leave part of a key behind. */
+        const said = reportFieldMasker(who);
         const kept = selfreport.record(who, {
           state: body.state,
-          project: typeof body.project === 'string' ? body.project : undefined,
-          because: body.text,
+          project: typeof body.project === 'string' ? said(body.project) : undefined,
+          because: said(body.text),
           waiting: body.waiting,   // #4569 fix 4: selfreport keeps it only on a sane working report
-          final: body.final,       // #4612: a Muse turn's answer; selfreport keeps it only on a sane idle or working report
-          on: body.on,
-          owner: body.owner,
-          until: body.until,
+          /* #4612: a Muse turn's answer; selfreport keeps it only on a sane idle or working report. #4733: its text
+             is the guide's words too, so it is masked like the fields below (anything else is dropped there),
+             after the store's own cleaning: masked first, a key split by a control character would pass, and
+             the cleaning would join it back. */
+          final: body.final && typeof body.final === 'object' && typeof body.final.text === 'string'
+            ? { ...body.final, text: said(selfreport.finalTextClean(body.final.text)) } : body.final,
+          on: said(body.on),
+          owner: said(body.owner),
+          until: said(body.until),
           /* #570: which RUN said it, when the sender came from a launch token.
              The pane arm resolves no instance and leaves this undefined. */
           instance: sender.instance,
@@ -13144,8 +13298,10 @@ const server = http.createServer(async (req, res) => {
            hook never waits on a pane. */
         if (body.state === 'idle') {
           setImmediate(() => {
+            /* #4588 PR B: an automatic line, so it goes through the Google quota gate; a held verdict is COULD_NOT, which
+               puts the ids back for the next arrival or roomhold.flushReleased after the reset. */
             roomhold.flushOnIdle(who, {
-              deliver: chat.deliverAsync, roster, DELIVERY: chat.DELIVERY, env: process.env,
+              deliver: chat.deliverAutomaticAsync, roster, DELIVERY: chat.DELIVERY, env: process.env,
               shownOf: (id) => { const p = projects.get(id, roster); return p ? p.name : null; },
             }).then((done) => {
               for (const d of done) process.stdout.write(`room-hold: ${who} told of ${d.n} held post(s) in ${d.projectId} delivery=${d.state}\n`);
@@ -13303,7 +13459,27 @@ const server = http.createServer(async (req, res) => {
         // punctuation, e.g. "!!!") is a CLIENT error, not a server fault, so
         // validate keyability up front and return 400 -- consistent with the
         // empty-name 400 above. safeKey throws on an unkeyable name.
-        try { store.safeKey(name); } catch { const bad = new Error('that is not a name we can key a token on'); bad.status = 400; throw bad; }
+        let key;
+        try { key = store.safeKey(name); } catch { const bad = new Error('that is not a name we can key a token on'); bad.status = 400; throw bad; }
+        /* #4763: safeKey is lossy and the token file is keyed on it, so issuing for "mara" while an agent of ours
+           called "Mara" runs in a pane puts a token in Mara's file that resolves as Mara. Refuse, as creating an
+           agent does. Only PANE rows can be told apart by spelling: a paneless or created row is named by its key,
+           so re-issuing for a remote agent under its own name still works. An unreadable roster is refused (503),
+           as creating an agent and this file's other roster routes refuse it: we cannot say there is no clash.
+           #4792 (the name on each token) closes this without a roster. */
+        const tokenRoster = safeRoster();
+        if (tokenRoster === null) {
+          sendJson(res, 503, { issued: false, because: 'we could not check which agents are on this computer, so we did not issue a token; try again' });
+          return;
+        }
+        const clash = tokenRoster.find((r) => {
+          if (!r || r.isNamedOurs !== true || r.paneless === true || !r.sessionName || r.sessionName === name) return false;
+          try { return store.safeKey(r.sessionName) === key; } catch { return false; }
+        });
+        if (clash) {
+          sendJson(res, 409, { issued: false, because: `an agent called ${clash.sessionName} has a session on this computer, and a token for ${name} would be filed under the same name` });
+          return;
+        }
         // #4530: tagged remote, so a Mac supervisor's sweep of untagged tokens skips a token minted here.
         const minted = sendertoken.mint(name, { launcher: 'remote' });
         // Past the keyability check, an ok:false from mint can only be a genuine
@@ -13736,14 +13912,17 @@ const server = http.createServer(async (req, res) => {
                   projectId = pj && pj.id;
                 } catch { projectId = null; }
                 if (projectId) {
-                  /* Carry the poster's existing working CONTENT through unchanged
+                  /* Carry the poster's existing working CONTENT through
                      (because/on/owner/until) -- only the project is being added, and
                      selfreport.read reads those from the single latest line, so
                      omitting them here would silently drop a `working --on/--owner`
-                     note the agent had set. */
+                     note the agent had set. Unchanged, except (#4733) that the setup guide's are
+                     masked, so a report it made before the mask is not written again as it was. */
+                  const carried = reportFieldMasker(who);
                   selfreport.record(who, {
                     state: 'working', project: projectId,
-                    because: current.because, on: current.on, owner: current.owner, until: current.until,
+                    because: carried(current.because), on: carried(current.on),
+                    owner: carried(current.owner), until: carried(current.until),
                     instance: poster.instance, auto: true,
                   });
                 }
@@ -14062,7 +14241,8 @@ const server = http.createServer(async (req, res) => {
         const heard = Date.parse(owes.lastHeardAt || '');
         // Any latest state: the turn that answered is over, and a room turn running now does not unsay it (round 3).
         if (rep && rep.found && rep.final && Number.isFinite(heard) && Date.parse(rep.final.startedAt) >= heard) {
-          owes.unsent = { text: rep.final.text };
+          // #4733: the guide's stored answer is masked as read too (one stored before the write-side mask existed).
+          owes.unsent = { text: guideMasked(name, rep.final.text) };
         }
       } catch { /* no report: the line stays "Nothing back yet" */ }
     }
@@ -15417,7 +15597,8 @@ const server = http.createServer(async (req, res) => {
                         roster read and one commitments reading per agent for
                         the whole request
          waitingOnPerson tasks.waitingOnPerson: its agent needs the person about it (#3949)
-         state          tasks.taskState: closed / decision / built / nobody / working / assigned
+         state          tasks.taskState: closed / decision / held / built / nobody / working / assigned
+         projectPaused  its project is paused (#4771; with the task's own onHold, the held state)
          lastActivityAt the newest transcript event, else created/closed
        A task's own builtAt / builtBy / builtNote (#3951, set by POST .../built) ride every row as stored.
        Added fields only, and only on ?view=tasks, which also leaves out archived
@@ -15787,6 +15968,9 @@ const server = http.createServer(async (req, res) => {
            {"archived": "false"} into an archive), so a mixed body either
            applies whole or not at all. */
         if (body.archived !== undefined) fields.archived = body.archived;
+        /* #4771: paused, carried like archived (a boolean, validated by the engine): the Prompter and the Assigner skip
+           a paused project's tasks, and the members' instructions mark them, so a pause re-tells the members (below). */
+        if (body.paused !== undefined) { fields.paused = body.paused; fields.viaScreen = isViaScreen(req, body); }
         /* #1994: parent is a carried field like the rest -- the engine's edit
            validates it (self-parent, a missing parent, and cycles are refused)
            before its single write, so a body mixing parent with name or
@@ -15805,12 +15989,10 @@ const server = http.createServer(async (req, res) => {
         const roster = safeRoster();
         // Same reason as create and delete: the rename HAPPENED. A failure
         // re-telling the members is a different fact from a failed rename.
-        // (Only when the name moved: the managed block carries the name and
-        // the folder, and neither the description, the archived flag, nor
-        // anything else this route can change, so a name-less save has
-        // nothing to re-tell.)
+        // Only when the name or the pause moved: the managed block carries the name, the folder and (#4771) which
+        // tasks are on hold, which a pause changes.
         try {
-          if (body.name !== undefined) {
+          if (body.name !== undefined || body.paused !== undefined) {
             for (const a of (reRead ? reRead.agents : [])) projects.syncAgent(a, roster);
           }
         } catch { /* reported by the row's own told verdict on the next read */ }
@@ -16786,9 +16968,13 @@ const server = http.createServer(async (req, res) => {
            offered its pane gets named through the same roster the write already
            trusts. */
         const viaScreen = isViaScreen(req, body);
-        const paneCard = !viaScreen && typeof body.from_pane === 'string'
-          ? (Array.isArray(roster) ? roster.find((c) => c && c.target === body.from_pane) : null)
-          : null;
+        /* #4491 slice 5: named as task built and task message name a caller (token, else the pane through
+           resolveSender), and an identified agent adds tasks only to a project it is on. Before, only a pane that
+           was exactly a roster target was named, which the CLI's %N never is, so `by` was empty for a CLI caller. */
+        const who = processCaller(req, body, roster, viaScreen, 'the task was not added');
+        const whoRefusal = who.refusal || notOnProjectRefusal(who, id, 'add tasks to it', 'the task was not added');
+        if (whoRefusal) { sendJson(res, whoRefusal[0], { error: whoRefusal[1] }); return; }
+        const paneCard = who.card;
         /* The runaway breaker (#327, #485, #3959): a task carries an assignee, so a
            looping process would not just litter, it would command. Counted across ALL
            projects; only a loop is stopped (see agentRunawayRefusal). The SCREEN is
@@ -16904,6 +17090,18 @@ const server = http.createServer(async (req, res) => {
   if (taskAct && req.method === 'POST') {
     const id = decodeSegment(taskAct[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    /* #4491 slice 5: `kosmos task close` presents the agent's own token (the header: this route reads no body). A
+       caller that presents one is named by it, and closes or reopens tasks only in a project it is on. A caller
+       with none (the page, the person's terminal, an older CLI) is as before: this route has never read a pane,
+       so an agent that sends no token is not named here, unlike on task add. The roster is read only for a token.
+       Nothing in this block may throw (it is outside the try below): processCaller and notOnProjectRefusal catch
+       their own, and safeRoster answers null. */
+    if (presentedAgentToken(req, {})) {
+      const notDone = 'the task was not ' + (taskAct[3] === 'close' ? 'closed' : 'reopened');
+      const who = processCaller(req, {}, safeRoster(), false, notDone);
+      const whoRefusal = who.refusal || notOnProjectRefusal(who, id, taskAct[3] + ' its tasks', notDone);
+      if (whoRefusal) { sendJson(res, whoRefusal[0], { error: whoRefusal[1] }); return; }
+    }
     try {
       const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2]) : tasks.reopen(id, taskAct[2]);
       // Close and reopen change what the assignee's block should list, so
@@ -16919,6 +17117,32 @@ const server = http.createServer(async (req, res) => {
         : (/no project by that name|no task by that number/.test(msg) ? 404 : 400);
       sendJson(res, code, { error: msg || 'we could not change that task' });
     }
+    return;
+  }
+
+  /* #4771: put a task on hold, or take it off. Body { onHold: true | false }. The Prompter never nudges an agent about a
+     task on hold and the Assigner never hands it out; tasks.setOnHold validates and records it in the task's activity.
+     The person's own hold is lifted only from the screen (isViaScreen). That is ADVISORY, as on /built: a local process
+     that sends a page's headers is taken at its word. The real boundary is the agent-token work of #4491. */
+  const taskHold = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/hold$/);
+  if (taskHold && req.method === 'POST') {
+    const id = decodeSegment(taskHold[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      try {
+        const t = tasks.setOnHold(id, taskHold[2], body.onHold, { viaScreen: isViaScreen(req, body) });
+        // The assignees' instructions mark a held task (projects.blockBody), so the block follows the record, as close does.
+        try { tellEveryoneOn(t); } catch { /* the hold happened; a failed re-tell is reported by the row's told verdict */ }
+        sendJson(res, 200, { task: t });
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400,
+          { error: msg || 'we could not change that task' });
+      }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 
@@ -17220,9 +17444,10 @@ const server = http.createServer(async (req, res) => {
          re-mark it as its own and then clear that), checked inside the write (review round 9). The person is a flag,
          not a name, so an agent named "operator" is not the person. */
       const as = { by, person: viaScreen, refusePersonMark: !viaScreen };
+      /* #4733: the note is masked when `by` is the setup guide. From the screen `by` is null, so the person's is kept. */
       const out = body.clear === true
         ? tasks.clearBuilt(id, taskBuilt[2], as)
-        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? body.note : '' });
+        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? guideMasked(by, body.note) : '' });
       if (!out.ok) {
         const code = out.person ? 403 : out.closed ? 409 : out.code === 'UNREADABLE' ? 500
           : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);
@@ -17323,7 +17548,12 @@ const server = http.createServer(async (req, res) => {
           }
           return;
         }
-        const t = tasks.say(id, taskSay[2], body.text);
+        /* #4733: the setup guide's words are masked before they are recorded or previewed to anyone (its replies,
+           messages and posts already are, #3769). Keyed on the identified sender, so any other agent passes
+           unchanged. Two callers are not masked: one nobody could identify (recorded as "An agent"), and one that
+           claims the screen, which is taken as the person whoever sent it (isViaScreen). */
+        const saidText = !viaScreen && senderCard ? guideMasked(senderCard.sessionName, body.text) : body.text;
+        const t = tasks.say(id, taskSay[2], saidText);
         /* Deliver to the agents ASSIGNED to the task (Josh, 2026-09-12: "only to
            the agents assigned to the task"), never the whole project. The full
            message lives in the task record (say, above); what an assignee receives
@@ -17343,7 +17573,7 @@ const server = http.createServer(async (req, res) => {
            assignee parses. */
         const clean = (s) => String(s == null ? '' : s).replace(/[\r\n"]/g, ' ');
         const projName = clean((proj && proj.name) || id);
-        const rawPreview = clean(body.text);
+        const rawPreview = clean(saidText);
         const preview = rawPreview.length > 140 ? rawPreview.slice(0, 140) + '...' : rawPreview;
         /* The sender (senderCard, resolved above). Two uses: exclude the sender from the recipients (an
            agent that runs `kosmos task message` should not be notified about its own
@@ -18493,6 +18723,19 @@ function start(port = PORT) {
            paneRoster-vs-snapshot confusion this file's own docblock
            warns about, one more time. */
         try { messages.sweepUnanswered(safeRoster()); } catch { /* the line still shows */ }
+        /* #4588 PR B: room posts held for an Antigravity agent while the shared Google quota was out are told once
+           its timers are released (engine/roomhold.js flushReleased), when no idle report arrives to flush them. */
+        try {
+          const r = safeRoster();
+          roomhold.flushReleased(r, {
+            isAgy: (c) => c.runner === 'antigravity' && c.isNamedOurs !== false,
+            readReport: (n) => selfreport.read(n), now: Date.now(), decayMs: require('./engine/status').REPORT_WORKING_DECAY_MS,
+            deliver: chat.deliverAutomaticAsync, DELIVERY: chat.DELIVERY, env: process.env,
+            shownOf: (id) => { const p = projects.get(id, r); return p ? p.name : null; },
+          }).then((done) => {
+            for (const d of done) process.stdout.write(`room-hold: ${d.name} told of ${d.n} held post(s) in ${d.projectId} after the quota hold, delivery=${d.state}\n`);
+          }).catch(() => { /* the posts stay held for the next minute */ });
+        } catch { /* the posts stay held for the next minute */ }
       }, 60 * 1000);
       if (sweep && typeof sweep.unref === 'function') sweep.unref();
       /* #1724: the auto-handoff sweep (the consume half). Sibling to the #185
@@ -18514,7 +18757,7 @@ function start(port = PORT) {
             roster,
             lastBand: autohandoffBands,
             deliver: (session, textToSend) => {
-              try { return chat.deliver(session, textToSend, roster, undefined, undefined); }
+              try { return chat.deliverAutomatic(session, textToSend, roster, undefined, undefined); }
               catch { return { state: chat.DELIVERY.COULD_NOT }; }
             },
             pathFor: (session) => autohandoffSweep.handoffPathFor(store, session),
@@ -18588,6 +18831,8 @@ function start(port = PORT) {
         roster: () => safeRoster(),
         book: CONNLOST_BOOK,
         probe: () => connlostHeal.probeApi(),
+        /* Plain deliver, not deliverAutomatic: it counts a try before delivering (connlost-heal.js), so a quota hold
+           would spend its budget (#4588 PR B review 2). */
         deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
         DELIVERY: chat.DELIVERY,
         log: (r) => process.stdout.write(`connlost-heal: ${r.name} (${r.session}) ${r.act}${r.act === 'nudge' ? ' delivery=' + (r.delivery || '?') : ''} - ${r.because}\n`),
@@ -18609,7 +18854,7 @@ function start(port = PORT) {
         allowed: () => liveExecution.liveExecutionAllowed(),
         roster: () => safeRoster(),
         book: FIRSTREPLY_BOOK,
-        deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+        deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
         DELIVERY: chat.DELIVERY,
         log: (r) => process.stdout.write(`firstreply-nudge: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}\n`),
       });
@@ -18623,6 +18868,7 @@ function start(port = PORT) {
       const AGY_QUOTA_BOOK = new Map();
       const agyQuotaTick = agyQuota.makeTick({
         allowed: () => liveExecution.liveExecutionAllowed(),
+        env: process.env, // both brakes: AGY_QUOTA_RESUME_OFF, and AGY_QUOTA_HOLD_OFF for the pool gate (#4588 B review 5)
         roster: () => safeRoster(),
         book: AGY_QUOTA_BOOK,
         deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
@@ -18669,7 +18915,7 @@ function start(port = PORT) {
               roleOf: (s) => profile(s).role,
               projectsOf: (s) => projects.readAll().filter((p) => p && p.archived !== true && (p.agents || []).includes(s)).map((p) => p.agents || []),
             },
-            deliver: (session, text) => chat.deliver(session, text, cards, undefined, undefined),
+            deliver: (session, text) => chat.deliverAutomatic(session, text, cards, undefined, undefined),
             DELIVERY: chat.DELIVERY,
             log: (r) => process.stdout.write(`account-notify: ${r.session} ${r.act}${r.manager ? ' manager=' + r.manager : ''}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
           });
@@ -18686,6 +18932,7 @@ function start(port = PORT) {
          safeRoster(), never paneRoster(): it needs stateReportedBy/stateProject and full cards
          for chat.deliver. Own ~1-min timer, unref'd, best-effort. */
       let recommenderPrev;
+      let recommenderHeldLogged = new Set();
       const recommenderSweep = setInterval(() => {
         if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
         try {
@@ -18695,11 +18942,23 @@ function start(port = PORT) {
           const out = recommender.runOnce({
             prev: recommenderPrev, roster, setting, members, now: Date.now(),
             roomNote: (projectId, text, opts) => messages.roomNote(projectId, text, opts),   // #4423: the note's facts too
-            deliver: (session, text) => chat.deliver(session, text, roster, undefined, undefined),
+            deliver: (session, text) => chat.deliverAutomatic(session, text, roster, undefined, undefined),
             DELIVERY: chat.DELIVERY,
+            heldUntil: (session) => agyQuota.heldForQuota(session, roster, Date.now()),
           });
           recommenderPrev = out.next;
-          for (const a of out.acted) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: ${a.retry ? 'retry' : 'note ' + (a.noteLanded ? 'written' : 'NOT written') + ', asked [' + a.asked.join(', ') + ']'}, playbook ${a.verdict || 'threw'}\n`);
+          // #4588 PR B: a held item is logged when it becomes held, not every minute it stays held; the set is this tick's.
+          const heldNow = new Set();
+          for (const a of out.acted) {
+            if (a.verdict === 'held') {
+              const heldKey = a.session + ' ' + a.project;
+              heldNow.add(heldKey);
+              if (!recommenderHeldLogged.has(heldKey)) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: held on the shared Google quota, not convened yet\n`);
+              continue;
+            }
+            process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: ${a.retry ? 'retry' : 'note ' + (a.noteLanded ? 'written' : 'NOT written') + ', asked [' + a.asked.join(', ') + ']'}, playbook ${a.verdict || 'threw'}\n`);
+          }
+          recommenderHeldLogged = heldNow;
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) : 60 * 1000); // the env is the test seam only
       if (recommenderSweep && typeof recommenderSweep.unref === 'function') recommenderSweep.unref();
@@ -18707,7 +18966,7 @@ function start(port = PORT) {
          board that reads idle, whose commitments leave it free (assigner.commitmentsFree, #4552) and that has no open part of any task,
          for engine/assigner.js's IDLE_MS, it gives the next task nobody is on in a live project the
          agent belongs to, through givePart in its assigner mode (see givePart). Phase 3: with
-         nothing to hand out, it asks the agent (chat.deliver) to draft tasks toward a project's
+         nothing to hand out, it asks the agent (chat.deliverAutomatic) to draft tasks toward a project's
          BRIEF.md goal (engine/brief.js). The tick's composition is assigner.tick, with the reads
          injected here.
          Gated on live execution like the sweeps above; own ~1-min timer, unref'd, best-effort. */
@@ -18723,7 +18982,7 @@ function start(port = PORT) {
             readCommitment: (session) => commitments.read(session),
             readGoal: (project) => brief.readGoal(project && project.folder),
             give: (projectId, n, partId, who, roster) => givePart(projectId, n, partId, who, { assigner: true, roster }),
-            ask: (session, text, roster) => chat.deliver(session, text, roster),
+            ask: (session, text, roster) => chat.deliverAutomatic(session, text, roster),
             DELIVERY: chat.DELIVERY,
           });
           assignerPrev = out.next;
@@ -18780,7 +19039,8 @@ function start(port = PORT) {
       }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) : 5 * 60 * 1000); // the env is the test seam only
       if (communitySweep && typeof communitySweep.unref === 'function') communitySweep.unref();
       // One sweep soon after boot, so a switch turned on just before a restart does not
-      // wait a full interval (posts published before a sweep first sees ON are not sent).
+      // wait a full interval (posts published before a sweep first sees ON are not sent, unless a comment or release
+      // request recorded the period's start first: #4373 part B).
       const communityBoot = setTimeout(() => { try { communitysend.sweep(); } catch { /* best-effort */ } }, 15 * 1000);
       if (communityBoot && typeof communityBoot.unref === 'function') communityBoot.unref();
       /* #3734: an existing guide's instructions still say it never creates agents; say what it may do now.
@@ -18931,7 +19191,7 @@ function start(port = PORT) {
             allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
             readLimit: () => limits.read(), limitDefaults: limits.DEFAULTS,
             book: AGENT_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, now: Date.now(),
-            deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+            deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
             DELIVERY: chat.DELIVERY,
             log: (r) => process.stdout.write(`agent-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
           });
