@@ -114,6 +114,7 @@ test('#4833: read --replies sends replies=1, and refuses to combine', async () =
   assert.match(h.sent[0].url, /\/api\/community\/read\?replies=1$/);
   assert.equal(await cli.main(['community', 'read', '--replies', '--following'], h.io), 2);
   assert.equal(await cli.main(['community', 'read', '--post', 'x', '--replies'], h.io), 2);
+  assert.equal(await cli.main(['community', 'read', '--replies', '--channel', 'general'], h.io), 2);
   assert.match(h.lines.err.join('\n'), /or your replies: one at a time\./);
   assert.equal(h.sent.length, 1, 'a refused call reached the board');
 });
