@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: teamcreate-ui-4557
-diff_hash: a4f3a6ce655b4077ab90452eb6d11a2f646b474ee91617a53e92dbf8bb2c2b79
-validation: passed (Agent1s full suite at a89e45a4d, detached run "PASSED attempt 1"; 20eb5711d adds only origin/main plus a reason-grep count resolution, measured, and is covered by the PR's CI)
+diff_hash: 70096aa01149540b08eb2d42a07f39f8ba042574388665c0ed395799f789d3b9
+validation: passed (Mortals) full suite on 0db013084 (merged with main), 13220 tests / 0 fail, hash 86d318eb61fc, 19:56 CDT; head ebdd5bdfc changes since are web/index.html (design review + review 30-32 fixes), the two browser checks, two test files and a second merge of main (engine/projects.js exports): focused on ebdd5bdfc 12 files 434/434, and both gated browser checks on ebdd5bdfc (render-teamcreate-4557 165/0, render-newagent-paths-4556 134 passed)
 subdir_audit: passed
-timestamp: 2026-09-30T09:09:12Z
-iterations: 18
+timestamp: 2026-10-01T03:37:00Z
+iterations: 33
 converged: true
 ---
 
@@ -95,3 +95,26 @@ None.
 ### Strengths
 - Iteration 14's BLOCKER was found by testing through the real catalogue once it landed, not the
   agreed-shape fixture that had hidden it in all 112 members.
+
+### Rounds 19 to 33 (the branch plan, .claude/plans/teamcreate-ui-4557.md, has every finding)
+
+#### Iteration 30
+**Reviewer model:** opus
+- [BLOCKER] #4556's gated check deleted window.openTeamCreate, a non-configurable global once the function exists --> FIXED (set to undefined)
+- [WARNING] web.create-ids listed cstep panes by hand without teammake --> FIXED (read from cstep())
+- [WARNING] focus fell to the page on entering the team step; the real Create path was untested --> FIXED (title focused; real-path arm)
+
+#### Iteration 31
+**Reviewer model:** sonnet
+- [BLOCKER] a mid-line `//` comment in the round-30 edit swallowed a statement; the page's main script did not parse --> FIXED (and web.script-parses-4557.test.js compiles every inline script)
+
+#### Iteration 32
+**Reviewer model:** fable
+- [BLOCKER] the taken-name arm still expected the raw lowercase refusal after tcSay became a sentence --> FIXED
+- [WARNING] nothing since round 28 had run in a browser --> FIXED (both gated checks run on HEAD, counts above)
+
+#### Iteration 33
+**Reviewer model:** opus
+No BLOCKER or WARNING (converged).
+- [NIT] a typed name is capitalised at the start of a refusal; the typeof guard in one arm; scripts compiled one at a time --> NOT TAKEN (reasons in the plan)
+
