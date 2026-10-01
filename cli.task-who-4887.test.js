@@ -180,7 +180,7 @@ test('both lists say who added a task when an agent did and it is not the owner,
     ...p,
     tasks: (p.tasks || []).map((t) => {
       if (t.sentence === 'Win: diagnostic') return { ...t, addedVia: 'process', addedBy: 'mara' };   // added by mara, owned by otto
-      if (t.sentence === 'Mac: diagnostic') return { ...t, addedVia: 'process', addedBy: 'mara' };   // added by mara, owned by mara
+      if (t.sentence === 'Mac: diagnostic') return { ...t, addedVia: 'process', addedBy: 'Mara' };   // added by mara (another spelling), owned by mara
       return t;
     }),
   }));
@@ -196,4 +196,9 @@ test('both lists say who added a task when an agent did and it is not the owner,
     assert.doesNotMatch(own, /added by/, label + ': the owner adding its own task was called out: ' + own);
     assert.doesNotMatch(screen, /added by/, label + ': a task nobody identified added was called out: ' + screen);
   }
+});
+
+test('the instructions each agent reads on a project teach --who me', () => {
+  const body = projects.blockBody([projects.get(projectId)], 'mara');
+  assert.match(body, /A task for yourself: add `--who me` \(or `--who <name>` for another agent on it\)\. Without it, Kosmos gives it to whoever is free/);
 });

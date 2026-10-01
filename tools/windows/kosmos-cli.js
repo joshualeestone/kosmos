@@ -652,7 +652,7 @@ async function taskList(ctx, args) {
       : one(x.sentence || '(no description)');
     /* #4887: who added it, when an agent did and it is not the owner, so a title naming one agent beside another's
        name reads as what it is. Same as install/kosmos task list. */
-    const by = (x.addedVia === 'process' && x.addedBy && !(x.whoNames || []).includes(x.addedBy)) ? ' [added by ' + q(x.addedBy) + ']' : '';
+    const by = (x.addedVia === 'process' && x.addedBy && !(x.whoNames || []).some((n) => String(n).toLowerCase() === String(x.addedBy).toLowerCase())) ? ' [added by ' + q(x.addedBy) + ']' : '';
     ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? '[done] ' : ((x.onHold === true || x.projectPaused === true) ? '[on hold] ' : '') + (x.builtAt ? '[built] ' : '')) + words + who + by + up + kids);
   }
   return 0;

@@ -2946,10 +2946,12 @@ function blockBody(projects, sessionName) {
        use it). One line, on every project, so big work lands as one task with its pieces under
        it rather than as a pile of loose tasks nobody can see belong together. */
     const subtaskLine = `\n  - Big work: add one task for the whole thing, then its pieces under it with \`${cliShown} task add ${oneLine(String(p.id))} "the piece" --parent <its number>\``;
+    /* #4887: a task added with no owner goes to whichever agent is free, so a task meant for one agent says so. */
+    const whoLine = `\n  - A task for yourself: add \`--who me\` (or \`--who <name>\` for another agent on it). Without it, Kosmos gives it to whoever is free`;
     const taskLine = (hasTasks
       ? `\n  - Its tasks: \`${cliShown} task list ${oneLine(String(p.id))}\` to see them, \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` to add one (use this, not a hand-rolled task-board file)`
       : `\n  - No tasks set for this project yet. Add one with \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` (use this, not a hand-rolled task-board file)`)
-      + subtaskLine;
+      + subtaskLine + whoLine;
     const head = `- **${oneLine(p.name)}**: \`${oneLine(p.folder)}\`` + (p.id
       ? `\n  - Post to everyone on it: \`${cliShown}${projectPostKey(p.id)}\``
         + taskLine
