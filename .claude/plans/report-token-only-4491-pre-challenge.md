@@ -19,3 +19,18 @@ converged: true
 ### Iteration 1: 0 BLOCKER, 0 SHOULD-FIX (CONVERGED)
 - [NIT] comments said "the CLIs' same switch" while slice 7 is unmerged --> FIXED: they name slice 7
 - The reviewer RAN the report-path tests with the switch and a hex token in the environment: 136/136
+
+### What the round checked (from the plan)
+- Each of the five report paths (the Windows Claude hook and the Codex, Gemini, Grok and Antigravity bridges) has
+  its own test: switch off sends both tokens (the control), switch on sends the agent's token alone, and no token,
+  a junk token, or a switch other than exactly '1' keeps the board token.
+- The three bridge tests' shared drive() sets the switch to '' unless a test sets it, so a machine running the
+  suite with the switch exported cannot change the older #1968 tests in those files.
+- POST /api/report taking the agent token alone is pinned elsewhere (the AGENT-TOKEN arm in
+  server.report-reply-loopback-1968.test.js), so these tests stub the board and measure only what is sent.
+
+### After convergence (not a review round)
+- The stack was rebased onto main; this branch's three patches came through unchanged.
+- It now sits on the reviewed agy-bridge test (#4839, 3 rounds), whose spawn env clears the switch too; that test
+  passes 39/39 here with the switch exported in the shell, the case its round-2 nit named.
+- The whole stack's changed test files: 694/694 at this head. A fresh full run of this head is queued on Agent1s.
