@@ -8,12 +8,16 @@ const path = require('node:path');
 const os = require('node:os');
 
 const REPO = path.resolve(__dirname, '..');
-const SB = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'spike-'));
+const LABEL = process.env.SPIKE_LABEL || 'A';
+const SB = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'spike-' + LABEL + '-'));
 const HOME = path.join(SB, 'home');
 fs.mkdirSync(HOME, { recursive: true });
 const ROOT = path.join(HOME, 'Library', 'Application Support', 'Kosmos');   // store.js's non-Windows default
 fs.mkdirSync(ROOT, { recursive: true });
 fs.writeFileSync(path.join(ROOT, 'internal.json'), JSON.stringify({ internal: true }));
+// A Claude account record, as server.create-live-1903.test.js writes, so create gets past "no account signed in".
+fs.writeFileSync(path.join(HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'spike@example.com' } }));
+fs.mkdirSync(path.join(HOME, '.claude', 'projects'), { recursive: true });
 const PORT = 17890;
 const CLOSED = 'https://127.0.0.1:9';
 const env = Object.assign({}, process.env, {
@@ -25,7 +29,7 @@ const env = Object.assign({}, process.env, {
 delete env.NODE_TEST_CONTEXT;
 
 const out = [];
-const say = (s) => { out.push(s); console.log(s); };
+const say = (s) => { s = '[' + LABEL + '] ' + s; out.push(s); console.log(s); };
 const sh = (cmd, args) => { try { return execFileSync(cmd, args, { encoding: 'utf8', env, timeout: 15000 }); } catch (e) { return 'ERR ' + (e.status) + ' ' + String(e.stderr || e.message).slice(0, 2000); } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -56,22 +60,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     } catch (e) { say('== ' + method + ' ' + p + ' -> THREW ' + e.message); return { status: 0, text: '' }; }
   };
   await call('GET', '/');
-  await call('GET', '/api/agents');
   await call('POST', '/api/agents', { name: 'linuxa', role: 'pm' });
+  say('== workers dir: ' + sh('find', [path.join(HOME), '-maxdepth', '4', '-path', '*linuxa*']).trim().slice(0, 800));
   await sleep(15000);
   say('== tmux ls: ' + sh('tmux', ['ls']).trim());
   const panes = sh('tmux', ['list-panes', '-a', '-F', '#{session_name}:#{window_index}.#{pane_index} #{pane_current_command}']).trim();
   say('== panes: ' + panes);
   const target = (panes.split('\n').find((l) => /linuxa/i.test(l)) || '').split(' ')[0];
   if (target) say('== pane before message:\n' + sh('tmux', ['capture-pane', '-p', '-t', target]));
-  await call('POST', '/api/msg', { to: 'linuxa', text: 'hello from the linux spike' });
+  await call('POST', '/api/agent/linuxa/thread', { text: 'hello from the linux spike' });
   await sleep(10000);
   if (target) {
     const cap = sh('tmux', ['capture-pane', '-p', '-S', '-200', '-t', target]);
     say('== pane after message:\n' + cap);
     say('== AGENT ANSWERED: ' + (/STUB-REPLY: got \[.*hello from the linux spike/.test(cap) ? 'YES' : 'NO'));
   } else say('== AGENT ANSWERED: NO (no tmux pane for linuxa)');
-  await call('GET', '/api/agents');
   say('== restart the agent');
   await call('POST', '/api/agent/linuxa/restart', {});
   await sleep(10000);
@@ -80,8 +83,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   finish(0);
 
   function finish(code) {
-    fs.writeFileSync(path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'board.log'), log);
-    fs.writeFileSync(path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'spike-summary.txt'), out.join('\n') + '\n');
+    fs.writeFileSync(path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'board-' + LABEL + '.log'), log);
+    fs.appendFileSync(path.join(process.env.RUNNER_TEMP || os.tmpdir(), 'spike-summary.txt'), out.join('\n') + '\n');
     try { board.kill('SIGTERM'); } catch { /* gone */ }
     setTimeout(() => process.exit(code), 3000);
   }
