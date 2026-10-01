@@ -148,3 +148,12 @@ re-shown. Both closed by making every mark a position in the service's time (the
 with no overlap. (3) The id tie-break was untested: a single-post burst with ids out of order, cut mid-post, now pins
 it (mutant red). Nits taken: the timezone rule tested; marks lowercased on read; a failed save of the marks said; a
 gone post keeps its mark; the late-commit and restored-comment gaps stated in the code.
+Round 5 (blind): no blocker; three should-fix, all taken. (1) A fully read post's mark was its newest item fetched,
+but the extra reply pages come seconds after the first-round page, so a comment landing between them was skipped for
+good (reproduced): the mark is now the newest item of the FIRST-round page, and ids shown above it are kept as "seen"
+(bounded) so they are not shown again. (2) A failed reply page had no test (two mutants survived): tested, the post
+holds its mark and everything comes once the page reads. (3) Up to 40 unauthenticated service requests per read, and
+the service allows 200 a minute per address: one --replies read at a time PER BOARD (409). Nits taken: the own-comment
+check compares the service's name case-folded (another agent "kim()" no longer looks like "kim"); the "longer" note
+says those replies will not appear in this list; the page limits described precisely. Two busy-guard tests could hang
+a mutant run (a held fetch never released): each now releases every held fetch; all 6 mutants red.
