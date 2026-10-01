@@ -398,3 +398,8 @@ reverted. The control tree (13:xx, 18 FAILs on purpose) proved the check's older
   browser (shared global scope). Noted as the test's known limit.
 Then merged main again (engine/projects.js exports: the union, isPaused + teamBlockState/TEAM_START/TEAM_END);
 focused on the merged tree: 12 files, 434 of 434.
+- CI on b196ccab9 went red in all three suite jobs on ONE thing, the browser-check surface gate (#2518): the round-30
+  change to create-back's visibility touches a surface render-createnav-2190 asserts, and that check had not been
+  run. The tests themselves: 13222, 0 fail. My local surface-gate run had passed only because it ran before the change
+  was committed. Measured now: render-createnav-2190 on b5d29db46, rc 0, its success line (it exits 1 on any problem;
+  its #3042 arm asserts "All agents" stays visible on the create form, which this branch does not touch).
