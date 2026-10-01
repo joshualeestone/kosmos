@@ -237,3 +237,8 @@ is that review.
   says (more conservative; no state other than connecting/restarting/up exists today, so no new arm to pin). FIXED the
   agreement test now also feeds status()'s own sentence back to classify, so a one-sided edit to the sentence reds it
   (mutation: 2 red). NITs left: classify's direct require skips build()'s deps seam; the waiting pill's fit at phone width.
+- Round 11 (opus): FIXED (SELF, my round-8 fix): classify required remote.js, so remote-report.test.js (no data root) loaded
+  the real store and could run the legacy migration against the real home (#2439 class). The rule now lives in a pure leaf,
+  engine/allowwait.js (ALLOW_WAIT_SENTENCE, allowWaitSentence), required by remote.js and remote-report.js; the report's
+  CODES row is built from the same exported sentence, so no copy remains. Measured both arms: classify loads neither
+  remote.js nor store.js; CONTROL: requiring remote.js does load store.js. 139/139 across the three files.

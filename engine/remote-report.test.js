@@ -296,7 +296,7 @@ test('commitHeal only moves forward: a slow send committing an older baseline do
 });
 
 test('kosmos#4640 review 8: classify and remote.js allowWaitSentence agree on every raw line (one rule, not two copies)', () => {
-  const remote = require('./remote');
+  const allowwait = require('./allowwait');   // review 11: the pure module, never remote.js (it would load the real store)
   const SAID = 'this computer is not allowed yet; allow it from your other computer first. If that computer is gone, retire it from your account page, then retire this computer and set it up again';
   const lines = [
     'Kosmos+ refused this Mac: ' + SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)',
@@ -311,11 +311,11 @@ test('kosmos#4640 review 8: classify and remote.js allowWaitSentence agree on ev
   ];
   let waits = 0;
   for (const l of lines) {
-    const engine = remote.allowWaitSentence(l) !== null;
+    const engine = allowwait.allowWaitSentence(l) !== null;
     if (engine) waits += 1;
     assert.equal(report.classify(l) === 'waiting-allow', engine, 'the board and the report disagree about: ' + l);
     // ...and status()'s own sentence for a wait (the because it shows) reads as the wait here too (review 9).
-    if (engine) assert.equal(report.classify(remote.allowWaitSentence(l)), 'waiting-allow', 'status()\'s sentence is not the wait here: ' + l);
+    if (engine) assert.equal(report.classify(allowwait.allowWaitSentence(l)), 'waiting-allow', 'status()\'s sentence is not the wait here: ' + l);
   }
   assert.ok(waits >= 3 && waits < lines.length, 'fixture: the table must hold both waits and non-waits (' + waits + ')');
 });
