@@ -39,8 +39,13 @@ function freshHome() {
   return d;
 }
 
+/* kosmos#4909: a home the RUNNER made for the whole run (tools/browser-checks.sh marks it KOSMOS_BC_RUN_HOME) is shared
+   by every check in the run, so one check's leftovers (an OpenAI-only account, a CLAUDE.md, a codex sign-in) decided
+   another's result: it aborted the 0.7.16 cut on a correct page. A check gets its own fresh home instead. A home a
+   caller set for THIS check (not the run's) is kept, as before. */
+const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a !== '' && b !== '' && path.resolve(a) === path.resolve(b);
 const cur = process.env.AGENT_WORKFORCE_HOME;
-if (!cur || path.resolve(cur) === path.resolve(os.homedir())) process.env.AGENT_WORKFORCE_HOME = freshHome();
+if (!cur || same(cur, os.homedir()) || same(cur, process.env.KOSMOS_BC_RUN_HOME)) process.env.AGENT_WORKFORCE_HOME = freshHome();
 /* The Claude config in a folder THIS file made, never inside a home it was given: under the
    runner that home is shared by every check, and trust.js writes onboarding keys into this
    file, so a shared one would carry one check's writes into the next. */
@@ -51,7 +56,7 @@ if (!process.env.AGENT_WORKFORCE_CLAUDE_CONFIG) process.env.AGENT_WORKFORCE_CLAU
    fresh, empty folder of its own unless the caller named one other than the real one. */
 const realSkills = path.join(os.homedir(), '.claude', 'skills');
 const skills = process.env.AGENT_WORKFORCE_SKILLS_DIR;
-if (!skills || path.resolve(skills) === path.resolve(realSkills)) process.env.AGENT_WORKFORCE_SKILLS_DIR = freshHome();
+if (!skills || same(skills, realSkills) || same(skills, process.env.KOSMOS_BC_RUN_SKILLS)) process.env.AGENT_WORKFORCE_SKILLS_DIR = freshHome();   // #4909: the run's, too
 /* The same trap for projects: engine/projects.js reads AGENT_WORKFORCE_PROJECTS || the REAL
    ~/Kosmos/Projects, and creating a project makes its folder there (makeFolder). Checks
    set it by hand; this covers the one that forgets. */

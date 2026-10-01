@@ -260,12 +260,24 @@ SERVER_PIDS=()
 if [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "${AGENT_WORKFORCE_HOME%/}" = "${HOME%/}" ]; then
   export AGENT_WORKFORCE_HOME="$RUN_DIR/home"
   mkdir -p "$AGENT_WORKFORCE_HOME"
+  # kosmos#4909: this home is the RUN's, shared by every board this script boots. Marked, so
+  # lib-sandbox-home.js gives each check that boots its own board a fresh home instead of this one:
+  # a check that left an account here (an OpenAI-only one aborted the 0.7.16 cut) changed what every
+  # later check saw. A home the caller set (not marked) is kept as before.
+  export KOSMOS_BC_RUN_HOME="$AGENT_WORKFORCE_HOME"
+  # kosmos#4909's control: KOSMOS_BC_SEED_HOME copies a prepared home (an OpenAI-only account, say) into the RUN's
+  # home, so a whole run can be compared with a clean one. Any check whose result differs still reads state it never
+  # set. Only into the home this script made, never into a caller's.
+  if [ -n "${KOSMOS_BC_SEED_HOME:-}" ] && [ -d "$KOSMOS_BC_SEED_HOME" ]; then
+    cp -R "$KOSMOS_BC_SEED_HOME/." "$AGENT_WORKFORCE_HOME/"
+  fi
 fi
 # #3801: the global skills folder is AGENT_WORKFORCE_SKILLS_DIR || the REAL ~/.claude/skills
 # (not the home above), and a board can add to it and delete from it. Its own empty one.
 if [ -z "${AGENT_WORKFORCE_SKILLS_DIR:-}" ] || [ "${AGENT_WORKFORCE_SKILLS_DIR%/}" = "${HOME%/}/.claude/skills" ]; then
   export AGENT_WORKFORCE_SKILLS_DIR="$RUN_DIR/skills"
   mkdir -p "$AGENT_WORKFORCE_SKILLS_DIR"
+  export KOSMOS_BC_RUN_SKILLS="$AGENT_WORKFORCE_SKILLS_DIR"   # kosmos#4909: the same, for the skills folder
 fi
 # The OpenAI default resolves AGENT_WORKFORCE_CODEX_HOME || CODEX_HOME before the home seam
 # (codexupdate.js), and the Gemini/Grok/Claude session readers read GEMINI_CLI_HOME, GROK_HOME
@@ -589,6 +601,7 @@ write_fleet_rich() {
 boot_board_rich() {
   local sb="$1" port="$2"
   write_fleet_rich "$sb"
+  AGENT_WORKFORCE_HOME="$(board_home "$sb")" AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb")" \
   AGENT_WORKFORCE_DATA="$sb/data" AGENT_WORKFORCE_WORKERS="$sb/workers" \
     AGENT_WORKFORCE_LAUNCH="$sb/launch" AGENT_WORKFORCE_PROJECTS="$sb/projects" \
     AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb/panes.txt" \
@@ -640,9 +653,26 @@ write_fleet_org() {
     fs.writeFileSync(sb + "/panes.txt", lines.join("\n") + "\n");
   '
 }
+# kosmos#4909: a board this script boots gets its OWN home and skills folder (under its sandbox) when it would
+# otherwise inherit the RUN's (KOSMOS_BC_RUN_HOME / KOSMOS_BC_RUN_SKILLS), so what one board's checks leave
+# there (an account, a CLAUDE.md, a skill) never reaches another board's. A home the caller set for this board
+# (AGENT_WORKFORCE_HOME="$sbN/home" boot_board ...) is kept.
+board_home() {
+  local sb="$1"
+  if [ -n "${KOSMOS_BC_RUN_HOME:-}" ] && [ "${AGENT_WORKFORCE_HOME:-}" = "$KOSMOS_BC_RUN_HOME" ]; then
+    mkdir -p "$sb/home"; printf '%s' "$sb/home"
+  else printf '%s' "${AGENT_WORKFORCE_HOME:-}"; fi
+}
+board_skills() {
+  local sb="$1"
+  if [ -n "${KOSMOS_BC_RUN_SKILLS:-}" ] && [ "${AGENT_WORKFORCE_SKILLS_DIR:-}" = "$KOSMOS_BC_RUN_SKILLS" ]; then
+    mkdir -p "$sb/skills"; printf '%s' "$sb/skills"
+  else printf '%s' "${AGENT_WORKFORCE_SKILLS_DIR:-}"; fi
+}
 boot_board_org() {
   local sb="$1" port="$2"
   write_fleet_org "$sb" "${3:-}"
+  AGENT_WORKFORCE_HOME="$(board_home "$sb")" AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb")" \
   AGENT_WORKFORCE_DATA="$sb/data" AGENT_WORKFORCE_WORKERS="$sb/workers" \
     AGENT_WORKFORCE_LAUNCH="$sb/launch" AGENT_WORKFORCE_PROJECTS="$sb/projects" \
     AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb/panes.txt" \
@@ -656,6 +686,7 @@ boot_board_org() {
 boot_board() {
   local sb="$1" port="$2"
   write_fleet "$sb"
+  AGENT_WORKFORCE_HOME="$(board_home "$sb")" AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb")" \
   AGENT_WORKFORCE_DATA="$sb/data" AGENT_WORKFORCE_WORKERS="$sb/workers" \
     AGENT_WORKFORCE_LAUNCH="$sb/launch" AGENT_WORKFORCE_PROJECTS="$sb/projects" \
     AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb/panes.txt" \
@@ -1110,6 +1141,7 @@ AGENT_WORKFORCE_OPENAI_WALK_KEY="sk-proj-walkwalkwalkwalkwalkWALK" PORT="$P_OAI"
   }).listen(Number(process.env.PORT), "127.0.0.1");
 ' > "$sb4/openai-stub.log" 2>&1 &
 SERVER_PIDS+=("$!")
+AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb4")" \
 AGENT_WORKFORCE_HOME="$sb4/home" AGENT_WORKFORCE_CODEX_BIN="$sb4/fake-codex" \
   AGENT_WORKFORCE_CLAUDE_BIN="$sb4/fake-claude" \
   AGENT_WORKFORCE_GEMINI_BIN="$KEYED_GEMINI" AGENT_WORKFORCE_GROK_BIN="$KEYED_GROK" \
@@ -1146,8 +1178,10 @@ exit 2
 FAKE
 chmod +x "$sb6/fake-vercel"; rm -f "$sb6/vmark"
 write_fleet "$sb5"; write_fleet "$sb6"
+AGENT_WORKFORCE_HOME="$(board_home "$sb5")" AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb5")" \
 AGENT_WORKFORCE_GH_BIN=/nonexistent/gh AGENT_WORKFORCE_VERCEL_BIN=/nonexistent/vercel AGENT_WORKFORCE_GITHUB_DEVICE_URL="http://127.0.0.1:$P9/device" AGENT_WORKFORCE_GITHUB_TOKEN_URL="http://127.0.0.1:$P9/token" AGENT_WORKFORCE_GITHUB_VERIFY_URL="http://127.0.0.1:$P9/user" AGENT_WORKFORCE_DATA="$sb5/data" AGENT_WORKFORCE_WORKERS="$sb5/workers" AGENT_WORKFORCE_LAUNCH="$sb5/launch" AGENT_WORKFORCE_PROJECTS="$sb5/projects" AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb5/panes.txt" AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 AGENT_WORKFORCE_CLAUDE_CONFIG="$sb5/config/.claude.json" PORT="$P5" node ./server.js > "$sb5/server.log" 2>&1 &
 SERVER_PIDS+=("$!")
+AGENT_WORKFORCE_HOME="$(board_home "$sb6")" AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb6")" \
 FAKE_GH_MARK="$sb6/mark" AGENT_WORKFORCE_GH_BIN="$sb6/fake-gh" FAKE_VERCEL_MARK="$sb6/vmark" AGENT_WORKFORCE_VERCEL_BIN="$sb6/fake-vercel" AGENT_WORKFORCE_CLOUDFLARE_VERIFY_URL="http://127.0.0.1:$P7/verify" AGENT_WORKFORCE_DATA="$sb6/data" AGENT_WORKFORCE_WORKERS="$sb6/workers" AGENT_WORKFORCE_LAUNCH="$sb6/launch" AGENT_WORKFORCE_PROJECTS="$sb6/projects" AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb6/panes.txt" AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 AGENT_WORKFORCE_CLAUDE_CONFIG="$sb6/config/.claude.json" PORT="$P6" node ./server.js > "$sb6/server.log" 2>&1 &
 SERVER_PIDS+=("$!")
 if wait_up "$P5" "$sb5/server.log" && wait_up "$P6" "$sb6/server.log"; then
@@ -1194,6 +1228,7 @@ printf '%s\n' '{"oauthAccount":{"emailAddress":"fixture@example.invalid","organi
   > "$sb8/home/.claude.json"
 printf '#!/bin/sh\n[ "$1" = --version ] && { echo "2.1.282 (Claude Code)"; exit 0; }\nexit 1\n' > "$sb8/fake-claude"
 chmod +x "$sb8/fake-claude"
+AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb8")" \
 AGENT_WORKFORCE_HOME="$sb8/home" AGENT_WORKFORCE_CLAUDE_BIN="$sb8/fake-claude" \
   AGENT_WORKFORCE_DATA="$sb8/data" AGENT_WORKFORCE_WORKERS="$sb8/workers" \
   AGENT_WORKFORCE_LAUNCH="$sb8/launch" AGENT_WORKFORCE_PROJECTS="$sb8/projects" \
@@ -1806,6 +1841,7 @@ for _pair in "$sb_ok:$P14" "$sb_bad:$P15"; do
   # answers list-panes from a file that is not there, which is an empty board by
   # accident rather than by intent.
   : > "$_sb/panes.txt"
+  AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$_sb")" \
   AGENT_WORKFORCE_DATA="$_sb/data" AGENT_WORKFORCE_WORKERS="$_sb/workers" \
     AGENT_WORKFORCE_LAUNCH="$_sb/launch" AGENT_WORKFORCE_PROJECTS="$_sb/projects" \
     AGENT_WORKFORCE_CONFIG_ROOT="$_sb/config" AGENT_WORKFORCE_HOME="$_sb/home" \
