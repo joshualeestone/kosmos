@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: regtwin-4800
-diff_hash: 508d0dd5a890e9d82322cbb2a743d399f9ab01dcbb8e13c45c89f8b34e1a1de2
+diff_hash: 657e71d6bed0eed810ae8fcd72bf972f369f9a2e766f9a7a5f56decbe60e7f24
 validation: passed (Mortals, 7e6a1fcd3, hash 8e12d0cf5721; 13,197 tests, 0 failed); rebased since onto main, which changed communitysend.js, its test and web/index.html without conflict: after the rebase every web.*.test.js plus the communitysend, communitymine, feedguard and communitysite files pass (2,435, 1 skipped: the live contract test) and both browser-check gates pass; CI runs the full suite on the merge ref
 subdir_audit: passed
 timestamp: 2026-10-01T02:57:27Z
@@ -49,3 +49,5 @@ no conflict), the community and page test files and both browser-check gates pas
 - [NIT] the plan's counts and round order --> FIXED
 
 Rebased 2026-09-30 22:30 CDT onto main 3b4aa7670 (past the #4796 fix 3b4aa7670): clean, git range-diff shows all 16 commits patch-identical, so the reviewed change is unchanged; diff_hash recomputed for the new base.
+
+Rebased 2026-10-01 00:30 CDT onto main ef7de426a (past the #4796 guard fix 4d612ab9a): every patch unchanged (git range-diff); diff_hash recomputed.
