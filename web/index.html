@@ -43115,7 +43115,8 @@ function plusSay(text, kind) {
 }
 async function paintDevices() {
   const box = document.getElementById('plus-devices');
-  if (!box || box.hidden) return;
+  // #4824: a hidden list (Plus off, signed out, forgotten) drops what a Remove said; it was about that setup.
+  if (!box || box.hidden) { ASK.said = ''; return; }
   let r = null;
   try { r = await (await fetch('/api/remote/devices', { cache: 'no-store' })).json(); } catch { r = null; }
   const list = document.getElementById('plus-devlist');
@@ -43124,7 +43125,8 @@ async function paintDevices() {
   // #4824: a list that cannot be read this time is said after what a Remove just said, not instead of it.
   if (!r || !Array.isArray(r.allowed)) {
     const err = plusWords((r && r.error) || 'we could not read the devices');
-    msg.textContent = ASK.said ? ASK.said + ' The list above could not be read just now.' : err;
+    const say = ASK.said ? ASK.said + ' The list above could not be read just now.' : err;
+    if (msg.textContent !== say) msg.textContent = say; // the 5 s poll does not re-announce an unchanged alert
     return;
   }
   /* #4824: what the last Remove said stays through every repaint (the 5 s poll included) until the next

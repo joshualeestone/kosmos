@@ -26,7 +26,8 @@ The board's Remove passed none.
   The line lives in `ASK.said` and is repainted by every `paintDevices` (the 5 s `paintPlus` poll included,
   without rewriting an unchanged assertive alert) until the next Remove or Keep click, or two minutes; it used to
   be cleared by the very next repaint, as was the error line of a failed Remove. A list that cannot be read while
-  that line is up adds "The list above could not be read just now." after it rather than replacing it. No timing is promised for the
+  that line is up adds "The list above could not be read just now." after it rather than replacing it (written only
+  when it changes, like the line itself). A hidden devices list (Plus off, signed out, forgotten) drops the line. No timing is promised for the
   other computers: each ends it on its next poll. The confirm keeps its old sentence, which is true whatever
   connector is installed.
 
