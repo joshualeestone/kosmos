@@ -27,7 +27,7 @@ AGENT_WORKFORCE_DATA="$(mktemp -d)"; export AGENT_WORKFORCE_DATA
 # gets that far. `${VAR:-}` keeps `set -u` happy for the ones it never reaches.
 #
 # ⇒ ADD A NEW TEMP DIR TO THIS LINE. Do not write another trap.
-trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SB:-}" "${SB2:-}" "${DATA2:-}" "${SB3:-}" "${DATA3:-}" "${SB4:-}" "${DATA4:-}" "${SB5:-}"' EXIT
+trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SB:-}" "${SB2:-}" "${DATA2:-}" "${SB3:-}" "${DATA3:-}" "${SB4:-}" "${DATA4:-}" "${SB5:-}" "${DATA6:-}"' EXIT
 
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -252,6 +252,79 @@ STUB_DIR="$SB5" HOME="$SB5/knownhome" GH_TOKEN='inherited-canary-3769' AGENT_WOR
   bash "$SB5/bin/agent-supervisor.sh" guidetest "$SB5/work" /usr/bin/true "$SB5/tmux" "$SB5/start.log" "" grok > "$SB5/out.log" 2>&1 || true
 if grep -qx 'XAI_API_KEY=xai-own-key-3769' "$SB5/pane-secrets" && ! grep -q 'xai-own-key-3769' "$SB5/new-session.args"; then ok "#3769: a Grok guide on a default key gets its own XAI_API_KEY privately, so it can sign in"; else bad "#3769: a Grok guide lost its own key or exposed it in argv"; fi
 if grep -q 'canary-3769' "$SB5/new-session.args" "$SB5/pane-secrets" 2>/dev/null; then bad "#3769: the Grok guide got another token"; else ok "#3769: and no other token"; fi
+
+# ---------------------------------------------------------------- #4491
+# THE PILOT SWITCH. An agent the person lists in agent-token-only.json launches with KOSMOS_AGENT_TOKEN_ONLY=1
+# beside its own token, in the one-use file (never argv); an agent not listed, and every agent when the file is
+# absent or broken, launches as today. Drives the SB2 layout (engine-path beside the script, a real mint) against
+# its own sandboxed data root.
+DATA6="$(mktemp -d)"; mkdir -p "$DATA6/Kosmos"   # store.ROOT is <data>/Kosmos
+tokenonly_run() {
+  rm -f "$SB2/new-session.args" "$SB2/pane-secrets"
+  AGENT_WORKFORCE_DATA="$DATA6" STUB_DIR="$SB2" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
+    bash "$SB2/bin/agent-supervisor.sh" "$1" "$SB2/work" /usr/bin/true "$SB2/tmux" "$SB2/start.log" > "$SB2/out.log" 2>&1 || true
+}
+printf '%s\n' '{"agents":["pilotagent"]}' > "$DATA6/Kosmos/agent-token-only.json"
+tokenonly_run pilotagent
+if grep -qE '^KOSMOS_AGENT_TOKEN=[0-9a-f]{64}$' "$SB2/pane-secrets" 2>/dev/null && grep -qx 'KOSMOS_AGENT_TOKEN_ONLY=1' "$SB2/pane-secrets" \
+  && ! grep -qx 'KOSMOS_AGENT_TOKEN_ONLY=1' "$SB2/new-session.args"; then
+  ok "#4491: a listed agent launches with its own token AND the token-only switch, privately"
+else
+  bad "#4491: a listed agent did not get the switch beside its token: $(tr '\n' ' ' < "$SB2/pane-secrets" 2>/dev/null | sed -E 's/[0-9a-f]{64}/<tok>/g')"
+fi
+tokenonly_run pilotagent-discord
+if grep -qx 'KOSMOS_AGENT_TOKEN_ONLY=1' "$SB2/pane-secrets" 2>/dev/null; then ok "#4491: matched on the roster name, so the agent's -discord session gets it too"; else bad "#4491: the -discord session of a listed agent did not get the switch"; fi
+tokenonly_run otheragent
+if grep -qE '^KOSMOS_AGENT_TOKEN=[0-9a-f]{64}$' "$SB2/pane-secrets" 2>/dev/null && ! grep -q 'KOSMOS_AGENT_TOKEN_ONLY' "$SB2/pane-secrets"; then
+  ok "#4491 CONTROL: an agent not listed gets its token and no switch"
+else
+  bad "#4491 CONTROL: an unlisted agent got the switch, or no token at all"
+fi
+# The pin: every pane is handed KOSMOS_AGENT_TOKEN_ONLY empty, so a value on the shared tmux server's global
+# environment cannot put an unlisted agent into the pilot (tmux sessions inherit it, #1704).
+if grep -qx 'KOSMOS_AGENT_TOKEN_ONLY=' "$SB2/new-session.args"; then
+  ok "#4491: an unlisted agent's pane is pinned to no switch, whatever the tmux server's environment holds"
+else
+  bad "#4491: no empty KOSMOS_AGENT_TOKEN_ONLY pin in new-session's arguments"
+fi
+printf '%s\n' '{"agents":"pilotagent"}' > "$DATA6/Kosmos/agent-token-only.json"
+tokenonly_run pilotagent
+if [ -s "$SB2/new-session.args" ] && grep -qE '^KOSMOS_AGENT_TOKEN=[0-9a-f]{64}$' "$SB2/pane-secrets" 2>/dev/null && ! grep -q 'KOSMOS_AGENT_TOKEN_ONLY' "$SB2/pane-secrets"; then
+  ok "#4491: a wrongly shaped setting is off, and the agent still starts with its token"
+else
+  bad "#4491: a wrongly shaped setting turned the switch on or broke the launch"
+fi
+
+# Listed, but nothing minted: no token, so no switch. A stub engine (the SB3 layout) whose tokenOnlyFor says ON for
+# everyone, so the only thing that can keep the switch out is the token guard. The control arm, the same stub with a
+# working mint, shows the switch, so this arm can tell "suppressed" from "never asked".
+tokenonly_stub() {
+  cat > "$SB3/root/app/engine/sendertoken.js" <<STUBJS
+module.exports = { mint: () => ($1), tokenOnlyFor: () => true };
+STUBJS
+  rm -f "$SB3/new-session.args" "$SB3/pane-secrets"
+  ( export AGENT_WORKFORCE_DATA="$DATA3" STUB_DIR="$SB3" AGENT_WORKFORCE_WAIT_POLL_SECS=1
+    /bin/bash "$SB3/bin/agent-supervisor.sh" pilotagent "$SB3/work" /usr/bin/true "$SB3/tmux" "$SB3/start.log" ) > "$SB3/out.log" 2>&1 || true
+}
+tokenonly_stub "{ ok: true, token: 'deadbeef' }"
+if grep -qx 'KOSMOS_AGENT_TOKEN_ONLY=1' "$SB3/pane-secrets" 2>/dev/null; then
+  ok "#4491 CONTROL: the stub engine with a working mint does hand the switch over"
+else
+  bad "#4491 CONTROL: the stub engine with a working mint gave no switch, so the arm below proves nothing"
+fi
+tokenonly_stub "{ ok: false }"
+if [ -s "$SB3/new-session.args" ] && ! grep -qx 'KOSMOS_AGENT_TOKEN_ONLY=1' "$SB3/new-session.args" "$SB3/pane-secrets" 2>/dev/null; then
+  ok "#4491: a listed agent whose mint failed gets no switch, and still starts"
+else
+  bad "#4491: a listed agent with no token got the switch, or did not start"
+fi
+# Antigravity's launch-time report runs the bridge from this shell, not the pane: it must carry the switch too.
+# STRUCTURAL (no test here drives a signed-in Antigravity launch): the seed's env line names it.
+if grep -q 'KOSMOS_AGENT_TOKEN_ONLY="${_LAUNCH_TOKEN_ONLY:-}" TMUX_PANE="$_AGY_PANE"' bin/agent-supervisor.sh; then
+  ok "#4491: the Antigravity launch-time report is handed the same switch"
+else
+  bad "#4491: the Antigravity launch-time report no longer carries KOSMOS_AGENT_TOKEN_ONLY"
+fi
 
 [ "$FAILS" -eq 0 ] && echo "supervisor env handoff: all hold" || echo "supervisor env handoff: $FAILS FAILED"
 exit "$FAILS"

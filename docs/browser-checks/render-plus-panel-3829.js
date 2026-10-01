@@ -8,7 +8,7 @@
  *   connected   -> a green Connected pill, the box with Josh's sentence and Copy (#4744, no Open), one plain line,
  *                  the #4080 switch (it was Pause, before that Turn off), and View account pointing at the web account;
  *   one request -> a compact card: the device, when, one device-neutral sentence, then the code LARGE in
- *                  boxes directly above Allow / Deny (#3952); no Not now, no Not me; the request is NOT repeated in the devices list;
+ *                  code (one large line since #4637) directly above Allow / Not me (#3952); no Not now, no Deny; the request is NOT repeated in the devices list;
  *   two requests-> one stale (older than an hour, faded) and one unnamed ("Unknown device").
  *   waiting     -> #4640: a second computer waiting for its other computer's Allow: a neutral "Waiting to be allowed"
  *                  pill and the coordinator's sentence, never "refused", HTTP or a path (control: an ordinary refusal).
@@ -73,7 +73,7 @@ const STATES = {
       const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
       await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? st.remote : { ok: true })));
       await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: st.pending, email: 'you@example.com', self_device_id: 'd-self' })));
-      await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: st.remote.on, allowed: [{ device_id: 'd-mac', name: 'Mac browser', allowed_at: now() - 86400, last_seen: now() - 600 }, { device_id: 'd-noname', allowed_at: now() - 7200 }, { device_id: 'd-self', allowed_at: now() - 3600 }], pending: st.pending, self_device_id: 'd-self' })));
+      await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: st.remote.on, allowed: [{ device_id: 'd-mac', name: 'Mac browser', allowed_at: now() - 86400, last_seen: now() - 600, allowed_on: null }, { device_id: 'd-noname', allowed_at: now() - 7200 }, { device_id: 'd-other', name: 'iPhone', allowed_at: now() - 3600, last_seen: 0, allowed_on: 'windowsbox' }, { device_id: 'd-self', allowed_at: now() - 3600 }], pending: st.pending, self_device_id: 'd-self' })));
       await page.goto(BASE, { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
       await page.evaluate(() => showTab('settings'));
@@ -105,11 +105,12 @@ const STATES = {
           status: document.getElementById('plus-status').textContent.trim(),
           cardShown: vis('plus-asks'), cardText: (document.getElementById('plus-asks').innerText || '').replace(/\s+/g, ' '),
           reqs: document.querySelectorAll('#plus-ask-rows .askreq').length, stale: document.querySelectorAll('#plus-ask-rows .askreq.stale').length, topCardShown: vis('askcard'), inPanel: vis('plus-asks'), panelW: document.getElementById('plus-asks').getBoundingClientRect().width, flowW: document.getElementById('plus-flow').getBoundingClientRect().width, asksAbove: document.getElementById('plus-asks').getBoundingClientRect().bottom <= document.getElementById('plus-flow').getBoundingClientRect().top + 1,
-          codes: [...document.querySelectorAll('#plus-ask-rows .askcode')].map((e) => ({ t: e.textContent, label: (e.querySelector('.devcode') || { getAttribute: () => '' }).getAttribute('aria-label'), cells: e.querySelectorAll('.devcode-cell').length, nextIsActs: !!(e.nextElementSibling && e.nextElementSibling.classList.contains('acts')),   /* Mona 09-26: nothing between the code and Allow */ h: Math.min(...[...e.querySelectorAll('.devcode-cell')].map((c) => c.getBoundingClientRect().height)), inside: [...e.querySelectorAll('.devcode-cell')].every((c) => c.getBoundingClientRect().right <= e.closest('.askreq').getBoundingClientRect().right),
+          /* #4637: the code is one large line (Mona Lisa's outline), not boxes; what #3952 protects is kept: read out a character at a time, tall, inside its card, directly above Allow, and readable against the navy. */
+          codes: [...document.querySelectorAll('#plus-ask-rows .askcodebig')].map((e) => ({ t: e.textContent, label: e.getAttribute('aria-label'), cells: e.querySelectorAll('.devcode-cell').length, nextIsActs: !!(e.nextElementSibling && e.nextElementSibling.classList.contains('acts')),   /* Mona 09-26: nothing between the code and Allow */ h: e.getBoundingClientRect().height, inside: e.getBoundingClientRect().right <= e.closest('.askreq').getBoundingClientRect().right,
             /* #3952 round 2: the code must read against what is actually behind it (a white fill on the navy skin gave
-               light on light). Ink of the first box against the first opaque background at or behind it. */
+               light on light). The code's ink against the first opaque background at or behind it. */
             contrast: (() => {
-              const c = e.querySelector('.devcode-cell'); if (!c) return 0;
+              const c = e;
               const rgb = (v) => (v.match(/[\d.]+/g) || []).map(Number);
               const lum = ([r, g, b]) => { const f = (x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
               // Composite every translucent fill from the box outward over the first opaque ground (a background
@@ -134,6 +135,7 @@ const STATES = {
               return { ratio: Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 10) / 10, ink: ink.join(','), bg: bg.map(Math.round).join(','), at: n ? (n.id || n.className || n.tagName) : 'none' };
             })() })),   // #3952: the code in the shared boxes
           listPending: document.querySelectorAll('#plus-devlist [data-ask]').length, listNames: [...document.querySelectorAll('#plus-devlist .devname')].map((e) => e.textContent.trim()),
+          listMetas: [...document.querySelectorAll('#plus-devlist .devrow')].map((r) => [r.querySelector('[data-dev="remove"]').dataset.id, r.querySelector('.devmeta').textContent.trim()]),
           leftBar: [...document.querySelectorAll('#plus-ask-rows .askreq')].every((c) => getComputedStyle(c).borderLeftWidth === getComputedStyle(c).borderTopWidth),
         };
       });
@@ -317,8 +319,8 @@ const STATES = {
       if (key === 'one') {
         chk(v.cardShown && v.reqs === 1, `${t} one request is one card`, String(v.reqs));
         chk(/Windows browser/.test(v.cardText) && !/phone/i.test(v.cardText), `${t} a Windows browser is never called a phone`, v.cardText);
-        chk(/Allow only if this code is showing on the device in your hand\./.test(v.cardText) && /\bAllow\b/.test(v.cardText) && /\bDeny\b/.test(v.cardText) && !/Not now|Not me/.test(v.cardText), `${t} one sentence, Allow / Deny, no Not now or Not me`, v.cardText);
-        chk(v.codes.length === 1 && v.codes[0].t === 'VR-D6' && v.codes[0].label === 'V R, D 6' && v.codes[0].cells === 4 && v.codes[0].h >= 30 && v.codes[0].inside && v.codes[0].nextIsActs && v.codes[0].contrast.ratio >= 4.5, `${t} the code is shown large, one box per character, inside its card (#3952)`, JSON.stringify(v.codes));
+        chk(/Allow only if this code is showing on the device in your hand\./.test(v.cardText) && /\bAllow\b/.test(v.cardText) && /\bNot me\b/.test(v.cardText) && !/Not now|\bDeny\b/.test(v.cardText), `${t} one sentence, Allow / Not me (#4637), no Not now or Deny`, v.cardText);
+        chk(v.codes.length === 1 && v.codes[0].t === 'VR-D6' && v.codes[0].label === 'V R, D 6' && v.codes[0].cells === 0 && v.codes[0].h >= 30 && v.codes[0].inside && v.codes[0].nextIsActs && v.codes[0].contrast.ratio >= 4.5, `${t} the code is shown large, once, read out a character at a time, inside its card, directly above Allow (#3952, #4637)`, JSON.stringify(v.codes));
         chk(v.listPending === 0, `${t} the request is not repeated in the devices list`, String(v.listPending));
         chk(v.leftBar, `${t} no solid left bar on the card (#3692)`);
         // #3829 addendum (Josh 20:00): on Kosmos Plus the requests sit directly ABOVE the panel at its width; no top banner.
@@ -327,7 +329,7 @@ const STATES = {
         await page.evaluate(() => showTab('agents'));
         await page.waitForTimeout(300);
         const other = await page.evaluate(() => ({ shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ').trim(), cards: document.querySelectorAll('#askcard .askreq').length, link: !!document.querySelector('#askcard [data-ask="open"]') }));
-        chk(other.shown && other.cards === 0 && other.link && /asking to use this Kosmos/.test(other.text), `${t} on another view, only a compact notice with a link`, JSON.stringify(other));
+        chk(other.shown && other.cards === 0 && other.link && /wants to connect to your Kosmos/.test(other.text), `${t} on another view, only a compact notice with a link`, JSON.stringify(other));
         await page.click('#askcard [data-ask="open"]');
         await page.waitForTimeout(400);
         chk(await page.evaluate(() => !document.getElementById('plus-asks').hidden && document.getElementById('askcard').hidden), `${t} the notice's link opens Kosmos Plus with the request above the panel`);
@@ -375,6 +377,11 @@ const STATES = {
         chk(v.reqs === 2 && v.stale === 1, `${t} two cards, the one older than an hour faded`, JSON.stringify({ reqs: v.reqs, stale: v.stale }));
         chk(/Unknown device/.test(v.cardText) && !/\bdevice\b[^s]*\bis asking/.test(v.cardText), `${t} an unnamed request reads "Unknown device"`, v.cardText);
       }
+      /* #4794 (part C): a device another of the person's computers allowed names that computer; one this computer
+         allowed (allowed_on null) and one from a tunnel without part C (no field) read exactly as before. */
+      { const m = Object.fromEntries(v.listMetas);
+        chk(/^allowed on windowsbox · let in /.test(m['d-other'] || '') && ['d-mac', 'd-noname'].every((id) => typeof m[id] === 'string' && !/allowed on/.test(m[id])),
+          `${t} #4794: a device allowed on another computer says "allowed on windowsbox"; ones allowed here do not`, JSON.stringify(v.listMetas)); }
       chk(!v.listNames.some((n) => n === 'device') && v.listNames.includes('Unknown device'), `${t} an unnamed devices-list row reads "Unknown device", never just "device"`, JSON.stringify(v.listNames));
       /* #4610 (Josh's ruling 2026-09-29 13:00) reverses ICK's #3829 relabel: this computer's own sign-in is granted by the
          board and never sent to the page, so no row is ever called "This computer (Kosmos app)" here. */

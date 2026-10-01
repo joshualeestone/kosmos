@@ -80,7 +80,7 @@ async function open(browser, opts) {
       chk(ask.left === ask.top && ask.leftColor === ask.topColor, '[allow] no left accent bar: the left border is the top border', `left=${ask.left} ${ask.leftColor} top=${ask.top} ${ask.topColor}`);
       // #3829 addendum (Josh 20:00): off Kosmos Plus the top card is a one-line notice with Review; its button is thumb-size too.
       chk(ask.hoverNone && ask.buttons.length >= 1 && ask.buttons.every((b) => b.h >= 44), '[allow/touch] the notice\'s button is at least 44px tall', JSON.stringify(ask.buttons));
-      // On Kosmos Plus the full cards sit above the panel; their Allow and Deny keep the 44px (#718).
+      // On Kosmos Plus the full cards sit above the panel; their Allow and Not me keep the 44px (#718).
       const inPanel = await phone.evaluate(() => {
         // This fixture is not enrolled, so show the connected panel the in-panel slot sits above.
         showTab('settings'); settingsGo('plus');
@@ -91,7 +91,7 @@ async function open(browser, opts) {
         flow.hidden = was; paintAsk();
         return got;
       });
-      chk(Array.isArray(inPanel) && inPanel.length >= 2 && inPanel.every((b) => b.h >= 44), '[allow/touch] every Allow / Deny above the Kosmos Plus panel is at least 44px tall', JSON.stringify(inPanel));
+      chk(Array.isArray(inPanel) && inPanel.length >= 2 && inPanel.every((b) => b.h >= 44), '[allow/touch] every Allow / Not me above the Kosmos Plus panel is at least 44px tall', JSON.stringify(inPanel));
       // #4610 (Josh, 12:50) reverses #3829's review rule here: with the connected panel NOT showing (not enrolled, or mid
       // sign-in) the requests still render in the Kosmos Plus section, never spread across the top of the window.
       const noFlow = await phone.evaluate(() => {
