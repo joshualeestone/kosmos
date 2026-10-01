@@ -220,3 +220,7 @@ is that review.
 - Round 5 (opus): FIXED the case rule (remote-report.js /i removed; a recased line pinned in both files; mutation: /i
   back reds only that pin). DEFERRED the sticky wait (Decisions). FIXED the plan: the removed design's sections now sit
   under History.
+- Round 6 (sonnet): DEFERRED the bare-sentence alternative in remote-report.js's waiting-allow row (prefix only, no code
+  check). Its only producer is status(), which writes that sentence only after allowWaitSentence checked the code; the
+  tunnel's own lines always start "Kosmos+ refused this <device>:". Would change my mind: a second producer of the bare
+  sentence. NITs left (CSS comment for the grey pill; the fixture's relay wording).
