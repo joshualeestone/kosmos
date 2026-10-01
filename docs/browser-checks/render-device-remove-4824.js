@@ -5,7 +5,7 @@
  * #4824: after Remove on the Devices list, the person is told what the Remove reached, from the connector's
  * answer (kosmos#4803), and the line is still there after the list repaints (it used to be cleared by it).
  * Three answers, each through a real click on Remove then the confirm's Remove:
- *   told      -> signed_out true:  "Removed. Its sign-in on your other computers ends too."
+ *   told      -> signed_out true:  "Removed. Its current sign-in on your other computers ends too; it stays ..."
  *   not told  -> signed_out false: "Removed here. Kosmos+ could not confirm it ..."
  *   old       -> neither field (a connector from before kosmos#4803): "Removed here. It still opens your
  *                other computers until you remove it there too ...", said as how it works, not as a failure

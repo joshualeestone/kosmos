@@ -42894,6 +42894,8 @@ paintStyles(true);
    while shown; the two buttons keep their colours whatever the history,
    because swapping the gold one on a re-ask is itself a mis-tap hazard. */
 const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, said: '', saidAt: 0, removing: null };
+/* #4824: how long what a Remove said stays under the list (through the 5 s poll's repaints) before it is dropped. */
+const REMOVE_SAID_MS = 2 * 60 * 1000;
 /* #3829: "Not now" is gone (a waiting request stays on screen until Allow or Deny; an old one fades). A
    session flag an older build left behind must not keep hiding the card, so it is cleared, never read. */
 try { sessionStorage.removeItem('ask-later'); } catch { /* no storage: nothing to clear */ }
@@ -43118,11 +43120,12 @@ async function paintDevices() {
   try { r = await (await fetch('/api/remote/devices', { cache: 'no-store' })).json(); } catch { r = null; }
   const list = document.getElementById('plus-devlist');
   const msg = document.getElementById('plus-devmsg');
-  if (!r || !Array.isArray(r.allowed)) { msg.textContent = plusWords((r && r.error) || 'we could not read the devices'); return; }
+  if (ASK.said && Date.now() - ASK.saidAt > REMOVE_SAID_MS) ASK.said = '';
+  // #4824: a list that cannot be read this time does not replace what a Remove just said (it would come back next poll).
+  if (!r || !Array.isArray(r.allowed)) { if (!ASK.said) msg.textContent = plusWords((r && r.error) || 'we could not read the devices'); return; }
   /* #4824: what the last Remove said stays through every repaint (the 5 s poll included) until the next
      Remove or Keep in this list, or REMOVE_SAID_MS, so the warning that matters most is not gone before it is read.
      An unchanged line is not rewritten: the element is an assertive alert, and the poll runs every 5 s. */
-  if (ASK.said && Date.now() - ASK.saidAt > REMOVE_SAID_MS) ASK.said = '';
   if (msg.textContent !== ASK.said) msg.textContent = ASK.said;
   ASK.allowed = r.allowed;
   document.getElementById('plus-devices-off').hidden = r.on !== false;
@@ -43190,8 +43193,6 @@ function removedWords(said) {
   if (s.local_cutoff !== true) out.push('This computer could not record the end of its current sign-in, so if you let it in again, that old sign-in could come back.');
   return out.join(' ');
 }
-/* How long what a Remove said stays under the list (through the 5 s poll's repaints) before it is dropped. */
-const REMOVE_SAID_MS = 2 * 60 * 1000;
 document.getElementById('plus-devlist').addEventListener('click', async (e) => {
   const a = e.target.closest('[data-ask]');
   if (a) { askAct(a.getAttribute('data-ask'), a.getAttribute('data-id')); return; }

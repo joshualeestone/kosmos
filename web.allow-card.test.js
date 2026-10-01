@@ -145,6 +145,7 @@ test('#4824: removedWords says the other computers are reached only when the con
 test('#4824: what a Remove said stays through every repaint until the next Remove or Keep', () => {
   assert.match(JS, /if \(msg\.textContent !== ASK\.said\) msg\.textContent = ASK\.said;/);
   assert.match(JS, /if \(ASK\.said && Date\.now\(\) - ASK\.saidAt > REMOVE_SAID_MS\) ASK\.said = '';/);
+  assert.match(JS, /if \(!r \|\| !Array\.isArray\(r\.allowed\)\) \{ if \(!ASK\.said\) msg\.textContent = /);
   assert.match(JS, /ASK\.saidAt = Date\.now\(\);/);
   // #4824: one Remove at a time; the row says Removing while the connector is still telling Kosmos+.
   const handler = JS.slice(JS.indexOf("if (act === 'removeyes')"));
