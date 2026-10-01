@@ -6426,9 +6426,9 @@ const server = http.createServer(async (req, res) => {
       return {
         name: a.name || a.sessionName,
         sessionName: a.sessionName,
-        /* #4890: the fleet click leaves a replace for the agent's own page (doctrine.refresh), so the list says so. */
-        state: st.replacing === true ? 'could_not' : st.declined === true && st.state === 'refresh' ? 'declined' : st.state,
-        because: st.replacing === true ? doctrine.FLEET_LEAVES_REPLACE : (st.because || null),
+        /* #4890: what the fleet click leaves for the agent's own page (doctrine.fleetLeaves), the list says so. */
+        state: doctrine.fleetLeaves(st) ? 'could_not' : st.declined === true && st.state === 'refresh' ? 'declined' : st.state,
+        because: doctrine.fleetLeaves(st) || st.because || null,
         sections: (st.sections || []).map((s) => s.heading),
         replacing: st.replacing === true,   // #4890, as GET /doctrine
         updating: st.updating === true,

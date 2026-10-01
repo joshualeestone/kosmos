@@ -47,7 +47,7 @@ missing-headings rule. 3 of 3 here did (v15 twice, v18 once), a small sample. A 
 who edited theirs is offered only missing headings, as before; birth in the span is the lasting fix.
 
 ## Tests
-engine/doctrine-4890.test.js (26): birth span and current-at-birth; the card's case (a same-heading change reaches an
+engine/doctrine-4890.test.js (27): birth span and current-at-birth; the card's case (a same-heading change reaches an
 agent born before it); replace in place with a control; an edited, a one-character-edited and today's copy are not
 replaced; marker fallback; the shipped table's pairing guard; server flag and dialog copy. Mutations: dropping the
 past-block match, the today's-copy skip, or the line-start check each red a test. create.test.js: the verbatim test
@@ -128,4 +128,12 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   already had the rules gets no version claimed; mutation reds it). Left NITs: the cut-only case's empty fold and
   extra blank line; the carried-version rule also holds back a section the person deleted OUTSIDE the span until
   the next version; plainCurrentAt assumes no earlier block has today's as a prefix (true for all 27 rows).
+- Round 15 (sonnet): FIXED W: the fleet click updates a span only when its rules are exactly an earlier block (a
+  fingerprint match, so never edited); an edited span, or one from an older click holding only some sections, is
+  left for the agent's own page, where the dialog says edits are set current. One helper (fleetLeaves) answers for
+  the fleet list and the click. Round 13's control, which expected the fleet click to overwrite an edited span at an
+  older version, is superseded and now expects it left. Both arms mutated: dropping the leave reds two tests,
+  treating every span as edited reds the unedited update. DEFERRED W: create.js records doctrineVersion at every
+  birth, even where the rules landed plain; that predates this branch, and the carried-version rule reads it only for
+  a span (`updating`).
 

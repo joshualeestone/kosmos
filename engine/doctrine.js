@@ -231,7 +231,12 @@ function planFor(text, now, past) {
     if (sectionContentOf(spanInner) === wantedContent) return { state: 'current' };
     const spanNext = spanBody(wanted, now);
     const fileNext = projects.spliceBlock(body, spanNext, START, END);
-    return { state: 'refresh', updating: true, sections: wanted, spanNext, fileNext, hash: hashOf(fileNext) };
+    /* #4890: a span whose rules are exactly an earlier block was never edited; any other content (an edit, or a
+       span from an older click that holds only some sections) is `edited`, which the fleet click leaves. */
+    const content = sectionContentOf(spanInner);
+    const known = (past || PAST).some((r) => r.length === content.length
+      && crypto.createHash('sha256').update(content).digest('hex') === r.sha256);
+    return { state: 'refresh', updating: true, edited: !known, sections: wanted, spanNext, fileNext, hash: hashOf(fileNext) };
   }
   /* No span: an agent born with the doctrine as plain text, or born before
      it. Only genuinely absent sections are offered (constraint 8); a file
@@ -285,6 +290,14 @@ function status(sessionName, now) {
  * again" rather than writing a composition nobody saw.
  */
 const FLEET_LEAVES_REPLACE = 'its older copy of the rules is replaced only from its own page, where the change is shown';
+const FLEET_LEAVES_EDITED = 'its working rules were changed by hand, so they are updated only from its own page, where that is shown';
+/* #4890: why the fleet click (names only, no dialog hash) leaves this plan for the agent's own page, or null. The
+   fleet list (server.js) reads the same answer, so the list and the click agree. */
+function fleetLeaves(plan) {
+  if (plan && plan.replacing) return FLEET_LEAVES_REPLACE;
+  if (plan && plan.updating && plan.edited) return FLEET_LEAVES_EDITED;
+  return null;
+}
 function refresh(sessionName, roster, opts) {
   try {
     const vouched = !!(opts && opts.trusted);
@@ -309,13 +322,12 @@ function refresh(sessionName, roster, opts) {
     if (plan.state === 'could_not') return plan;
     /* #4890: cutting an older copy is consented to only in the per-agent dialog, which shows it and always sends
        its hash. The fleet click (no hash, names only) leaves such an agent for its own page. */
-    if (plan.replacing && !(opts && opts.expectHash)) {
-      return { state: 'could_not', because: FLEET_LEAVES_REPLACE };
-    }
     if (!(opts && opts.expectHash)) {
       let carried = null;
       try { const p = store.readProfile(sessionName) || {}; carried = Number.isFinite(p.doctrineVersion) ? p.doctrineVersion : null; } catch { carried = null; }
       if (personEditedAtCarried(plan, carried)) return { state: 'current' };   // as status() says, so the two agree
+      const leaves = fleetLeaves(plan);
+      if (leaves) return { state: 'could_not', because: leaves };
     }
     if (plan.state === 'current') {
       /* Already has them: said, never silent, and NOTHING is written --
@@ -368,4 +380,4 @@ function decline(sessionName) {
   }
 }
 
-module.exports = { START, END, spanBody, clickDate, planFor, status, refresh, decline, hashOf, atBirth, birthLine, pastBlockIn, FLEET_LEAVES_REPLACE };
+module.exports = { START, END, spanBody, clickDate, planFor, status, refresh, decline, hashOf, atBirth, birthLine, pastBlockIn, FLEET_LEAVES_REPLACE, FLEET_LEAVES_EDITED, fleetLeaves };

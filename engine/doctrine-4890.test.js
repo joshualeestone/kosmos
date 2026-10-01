@@ -90,8 +90,8 @@ test('#4890: the board passes `replacing` through, and the dialog says the older
   assert.equal((server.match(/replacing: st\.replacing === true,/g) || []).length, 2, 'GET /doctrine or the fleet list no longer sends replacing');
   assert.equal((server.match(/updating: st\.updating === true,/g) || []).length, 2, 'GET /doctrine or the fleet list no longer sends updating');
   // #4890 review 10: the fleet list says what the fleet click does with a replace (leaves it), in the click's words.
-  assert.match(server, /state: st\.replacing === true \? 'could_not' :/);
-  assert.match(server, /because: st\.replacing === true \? doctrine\.FLEET_LEAVES_REPLACE :/);
+  assert.match(server, /state: doctrine\.fleetLeaves\(st\) \? 'could_not' :/);
+  assert.match(server, /because: doctrine\.fleetLeaves\(st\) \|\| st\.because \|\| null,/);
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   assert.match(page, /\(plan\.replacing\s*\n\s*\? 'Your words stay exactly as they are\. The older copy of these rules that Kosmos added is replaced with '/,
     'the consent dialog no longer says the older copy is replaced');
@@ -303,8 +303,29 @@ test('#4890 review 13: the fleet click leaves a span the person edited at its ca
   store.writeProfile('fleetedit', { doctrineVersion: defaults.DOCTRINE_VERSION });
   assert.equal(doctrine.refresh('fleetedit', rosterOf('fleetedit'), { now: NOW }).state, 'current');
   assert.equal(fs.readFileSync(file, 'utf8'), born, 'the fleet click overwrote the person\'s edit');
-  // CONTROL: an earlier carried version, and the fleet click brings it current.
+  // At an earlier carried version the edit is still the person's, so the fleet click leaves it too (review 15); the
+  // unedited case is brought current, in the review 15 test.
   store.writeProfile('fleetedit', { doctrineVersion: defaults.DOCTRINE_VERSION - 1 });
-  assert.equal(doctrine.refresh('fleetedit', rosterOf('fleetedit'), { now: NOW }).state, 'added');
-  assert.ok(!fs.readFileSync(file, 'utf8').includes('My own edit.'));
+  assert.equal(doctrine.refresh('fleetedit', rosterOf('fleetedit'), { now: NOW }).because, doctrine.FLEET_LEAVES_EDITED);
+  assert.ok(fs.readFileSync(file, 'utf8').includes('My own edit.'));
+});
+
+test('#4890 review 15: the fleet click updates an UNEDITED span at an older version, and leaves an edited one', () => {
+  const store = require('./store');
+  const unedited = doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD);
+  const a = agentFile('fleetold', unedited);
+  store.writeProfile('fleetold', { doctrineVersion: defaults.DOCTRINE_VERSION - 1 });
+  assert.equal(doctrine.refresh('fleetold', rosterOf('fleetold'), { now: NOW, past: OLD_TABLE }).state, 'added');
+  assert.ok(fs.readFileSync(a, 'utf8').includes(BLOCK) && !fs.readFileSync(a, 'utf8').includes(OLD));
+  const edited = unedited.replace(OLD, () => OLD + ' My own edit.');
+  const b = agentFile('fleetedited', edited);
+  store.writeProfile('fleetedited', { doctrineVersion: defaults.DOCTRINE_VERSION - 1 });
+  const got = doctrine.refresh('fleetedited', rosterOf('fleetedited'), { now: NOW, past: OLD_TABLE });
+  assert.equal(got.state, 'could_not');
+  assert.equal(got.because, doctrine.FLEET_LEAVES_EDITED);
+  assert.equal(fs.readFileSync(b, 'utf8'), edited, 'the fleet click overwrote the person\'s edit');
+  // CONTROL: the per-agent click (with the dialog's hash) does update it, and the dialog said so.
+  const plan = doctrine.planFor(edited, NOW, OLD_TABLE);
+  assert.equal(plan.edited, true);
+  assert.equal(doctrine.refresh('fleetedited', rosterOf('fleetedited'), { now: NOW, past: OLD_TABLE, expectHash: plan.hash }).state, 'added');
 });
