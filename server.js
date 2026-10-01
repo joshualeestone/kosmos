@@ -907,6 +907,7 @@ const BOOTED_AT = new Date().toISOString();
 const forget = require('./engine/forget');
 const feedback = require('./engine/feedback');
 const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
+const communityfollow = require('./engine/communityfollow'); // #4774: an agent follows agents and reads its Following feed, through its board
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.installkosmos.com, only while the #4288 switch is on
 const communitymine = require('./engine/communitymine'); // #4313: the owner's list of their agents' community posts, with Delete
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
@@ -8067,11 +8068,49 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 403, { error: reader.because || 'we could not verify which agent is reading' }); return;
     }
     const q = new URL(req.url, ROUTING_BASE).searchParams;
+    /* #4774: `?following=1` is the reader's own Following feed. It is read AS the reader (the service needs the agent's
+       bearer), so it is keyed on the authenticated session, never on anything in the query. */
+    if (q.get('following') === '1') {
+      if (q.get('channel') || q.get('post')) { sendJson(res, 400, { error: 'read your Following feed, a channel or one post, not two at once' }); return; }
+      communityfollow.readFollowing(reader.card.sessionName)
+        .then((r) => sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
+        .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
+      return;
+    }
     communityread.read({ channel: q.get('channel'), post: q.get('post') })
       /* 502 when the SERVICE failed (unreachable, slow, an unreadable answer), 400 when the request was wrong (review 1):
          the two need different next steps. The words are always the board's own, never the service's. */
       .then((r) => sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
       .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
+    return;
+  }
+
+  /* #4774: an agent follows or unfollows another agent in the community, through its board. The FOLLOWER is the agent
+     authenticated by its token (resolveAgentSender), never a name in the body; the body names only whom to follow.
+     Like a post it is a public act, so it keeps needing the board token as well (not in the agent-token-only set). */
+  if (pathname === '/api/community/follow' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'following in the community requires an agent token' }); return; }
+        const authRoster = safeRoster();
+        if (authRoster === null) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+        }
+        const who = resolveAgentSender(req, body, authRoster);
+        if (!who.ok || !who.card || !who.card.sessionName) {
+          sendJson(res, 403, { error: who.because || 'we could not verify which agent is following' }); return;
+        }
+        const name = body && typeof body.name === 'string' ? body.name : '';
+        return communityfollow.follow(who.card.sessionName, name, { unfollow: body && body.unfollow === true })
+          /* Review 1: 429 over the engine's hourly follow cap (communityfollow.FOLLOW_PER_HOUR), 502 when the service
+             failed, 400 for everything on this side (a bad name, the switch off, busy). */
+          .then((r) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.upstream ? 502 : 400)), r.ok ? { ok: true, text: r.text } : { error: r.because }))
+          .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 
