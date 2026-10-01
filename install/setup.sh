@@ -2705,12 +2705,17 @@ _kosmos_paused_board=no
 _kosmos_put_board_back() {
   [ "$_kosmos_paused_board" = yes ] || return 0
   _kosmos_paused_board=no
+  # Review 1: the mode is read AGAIN. A person who set this computer to connect elsewhere during the run (the app's
+  # first screen) chose to keep its board off; a failure after that must not start it.
+  _kosmos_board_decide 2>/dev/null || true
+  [ "${_kosmos_board_off:-no}" = yes ] && return 0
   rm -f "$KOSMOS_HOME/board.stopped" 2>/dev/null || true
   if [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ] \
-     && "$KOSMOS_HOME/bin/kosmos" start --force >/dev/null 2>&1 \
+     && KOSMOS_RECLAIM_BUSY=1 "$KOSMOS_HOME/bin/kosmos" start --force >/dev/null 2>&1 \
      && curl -fsS -m 5 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; then
     _kosmos_back_v="$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$KOSMOS_HOME/app/package.json" 2>/dev/null | head -1)" || _kosmos_back_v=""
-    printf '  Kosmos is running again on %s, as it was before this update.\n\n' "${_kosmos_back_v:-the version it had}" >&2
+    # The version on disk, which after a failure past the file swap may not be the one from before the update.
+    printf '  Kosmos is running again (%s). This update did not finish; it is safe to paste the install line again.\n\n' "${_kosmos_back_v:-version unrecorded}" >&2
   else
     printf '  Kosmos was paused for this update and could not be started again. Open the Kosmos app, or run: kosmos start\n\n' >&2
   fi

@@ -24,6 +24,18 @@ PAUSED="$(awk '/#4818: the pause held/{getline; print; exit}' "$SETUP")"
 case "$PAUSED" in *'_kosmos_paused_board="$_kosmos_was_running"'*) : ;;
   *) echo "FAIL: could not extract the #4818 pause-held line (anchor drift?)" >&2; exit 1 ;; esac
 
+# The shipped mode readers (review 1: the put-back reads the mode again), the line that clears the flag once the
+# new board started, and die().
+MODEFNS="$(awk '/^_kosmos_mode_read\(\) \{$/{f=1} f{print} f && /^_kosmos_mode_keeps_board_off\(\) \{$/{g=1} g && /^}$/{exit}' "$SETUP")"
+case "$MODEFNS" in *"_kosmos_board_decide() {"*"_kosmos_mode_keeps_board_off() {"*) : ;;
+  *) echo "FAIL: could not extract the mode functions (anchor drift?)" >&2; exit 1 ;; esac
+STARTED="$(awk '/_kosmos_paused_board=no   # #4818: the new board started/{print; exit}' "$SETUP")"
+case "$STARTED" in *"_kosmos_paused_board=no"*) : ;;
+  *) echo "FAIL: could not extract the #4818 started line (anchor drift?)" >&2; exit 1 ;; esac
+DIEFN="$(awk '/^die\(\)   \{$/{f=1} f{print} f && /^}$/{exit}' "$SETUP")"
+case "$DIEFN" in *"exit 1"*) : ;;
+  *) echo "FAIL: could not extract die() (anchor drift?)" >&2; exit 1 ;; esac
+
 PASS=0; FAIL=0
 pass() { echo "PASS  $1"; PASS=$((PASS + 1)); }
 fail() { echo "FAIL  $1"; FAIL=$((FAIL + 1)); }
@@ -65,8 +77,10 @@ answers() { curl -fsS -m 2 -o /dev/null "http://127.0.0.1:$1/" 2>/dev/null; }
 
 # run <home> <port> <script> -> runs the shipped bytes plus <script> in a child sh; stderr to <home>/err.
 run() {
-  KOSMOS_HOME="$1" PORT="$2" sh -c "set -eu
-_kosmos_mode_keeps_board_off() { return 1; }
+  KOSMOS_HOME="$1" PORT="$2" LOG="$1/no-log" sh -c "set -eu
+$MODEFNS
+$DIEFN
+_kosmos_board_decide   # as setup.sh does just before the pause
 $BLOCK
 $WASRUN
 $3" 2> "$1/err"
@@ -81,7 +95,7 @@ run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
 exit 1'
 if answers "$P"; then pass "a failed update puts back a board it paused: the old board answers on its port"; else fail "a failed update left the paused board off"; fi
 if [ ! -e "$H/board.stopped" ]; then pass "and board.stopped is gone (launchd's KeepAlive keys on it)"; else fail "board.stopped was left behind"; fi
-if grep -q "running again on 0.7.11" "$H/err"; then pass "and it says which version is back"; else fail "no 'running again on 0.7.11' line: $(cat "$H/err")"; fi
+if grep -q "running again (0.7.11)" "$H/err"; then pass "and it says which version is running"; else fail "no 'running again (0.7.11)' line: $(cat "$H/err")"; fi
 
 # 2. CONTROL: the board was stopped before the run (board.stopped present, nothing answering): it stays stopped.
 P=$(free_port); H=$(home stopped); export PORT=$P
@@ -107,9 +121,27 @@ P=$(free_port); H=$(home started); export PORT=$P
 "$H/bin/kosmos" start
 run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
 '"$PAUSED"'
-_kosmos_paused_board=no
+'"$STARTED"'
 exit 1'
 if answers "$P"; then fail "a failure after the new board started restarted a board"; else pass "a failure after the new board started restarts nothing"; fi
+
+# 3b. A failure through die() (a sentence and exit 1, the common way setup fails) puts the board back too.
+P=$(free_port); H=$(home died); export PORT=$P
+"$H/bin/kosmos" start
+run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
+'"$PAUSED"'
+die "the download failed"'
+if answers "$P" && [ ! -e "$H/board.stopped" ]; then pass "a failure through die() puts the board back"; else fail "a failure through die() left the board off"; fi
+
+# 3c. Review 1: the person switches this computer to connect elsewhere DURING the run (the mode file says so), and
+#     the run then fails: the board stays off.
+P=$(free_port); H=$(home connect); export PORT=$P
+"$H/bin/kosmos" start
+run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
+'"$PAUSED"'
+printf connect > "$KOSMOS_HOME/mode"
+exit 1'
+if answers "$P"; then fail "a board switched to connect during the run was started by a failed update"; else pass "a board switched to connect during the run stays off after a failed update"; fi
 
 # 4. A run that succeeds (exit 0) after the pause does not start anything either.
 P=$(free_port); H=$(home succeeded); export PORT=$P
