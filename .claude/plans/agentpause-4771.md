@@ -142,3 +142,9 @@ taught line pinned in engine/tasks.test.js and the Recommender arm in engine/rec
 - N6 the person's hold in the person's pause names only "parked": kept, both are the person's and the words are true.
 - N7 the Recommender's inline rule: kept, pinned to projects.isPaused by its test.
 Rounds 6 and 7 found nothing new in the verb, the engine rules or the CLIs; the remaining items are decided above.
+
+## Review 8 (Opus, blind, source-only): 0 blockers, 0 warnings, 4 nits. CONVERGED.
+- N1 the paneless arm could not tell name from session (no profile): FIXED, a display name "Kip Remote".
+- N2 the Mac never asserted the board token on pause: FIXED, `project pause` joins PERSON_VERBS in
+  cli.agent-token-verbs-4491 (token-only switch on, board token still sent); its stub now answers PUT.
+- N3, N4 comments: FIXED.

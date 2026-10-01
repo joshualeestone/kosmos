@@ -79,7 +79,7 @@ test('#4771 Mac CLI: no id, two ids, a bad id and resume are refused before any 
     // The usage names pause and says resuming is the person's.
     const usage = await runCli(['project'], env);
     assert.match(usage.stdout + usage.stderr, /kosmos project pause <project-id>.*it is resumed on the screen/);
-    // CONTROL: the verbs that were there still go through to the board.
+    // CONTROL: a valid pause still reaches the board.
     await runCli(['project', 'pause', 'p1'], env);
     assert.equal(hits.length, 1);
   }));

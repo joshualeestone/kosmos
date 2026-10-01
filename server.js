@@ -16242,7 +16242,7 @@ const server = http.createServer(async (req, res) => {
           try {
             /* The board's one token-to-card resolver (review 6): a pane agent by its exact name, a paneless one (every
                Windows agent) by key, and no card when two names share a key (#4792). The card's display name is
-               `name` (engine/status.js). No card: "Someone", never a raw session name in the person's room. */
+               `name` (engine/status.js), the name the board shows for it. No card: "Someone". */
             const res = sendertoken.resolve(presentedAgentToken(req, body), safeRoster());
             const card = (res && res.ok === true && res.card) ? res.card : null;
             who = (card && typeof card.name === 'string' && card.name.trim()) || null;

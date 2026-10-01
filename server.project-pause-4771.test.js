@@ -148,6 +148,8 @@ test('#4771 review 7: a paneless agent (every Windows agent, listed by key) is n
   const remote = sendertoken.mint('Kip4771', { launcher: 'remote' });
   assert.equal(remote.ok, true, 'fixture: no token was minted');
   require('./engine/liveness').seen('kip4771');
+  // A display name unlike the key (review 8), so the note is shown to use the card's name and not its session.
+  require('./engine/store').writeProfile('kip4771', { displayName: 'Kip Remote' });
   const notesFor = (pid) => messages.record().rows.filter((m) => m.kind === 'note' && m.project === pid).map((m) => m.text);
   const pauseWith = (pid, token) => fetch(`${base}/api/project/${pid}`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': token }, body: JSON.stringify({ paused: true }) });
 
@@ -155,8 +157,7 @@ test('#4771 review 7: a paneless agent (every Windows agent, listed by key) is n
   assert.equal((await pauseWith(a.id, remote.token)).status, 200);
   const said = notesFor(a.id);
   assert.equal(said.length, 1, JSON.stringify(said));
-  assert.doesNotMatch(said[0], /^Someone /, 'a paneless agent was not named: ' + said[0]);
-  assert.match(said[0], / paused this project: /);
+  assert.match(said[0], /^Kip Remote paused this project: /, 'a paneless agent was not named by its display name: ' + said[0]);
 
   // A second name with tokens under the same key: the board cannot say which agent it was, so "Someone".
   sendertoken.mint('kip4771');
