@@ -292,7 +292,8 @@ test('#4491: the bridge presents the agent\'s token, and the board token only wh
   const stop = (extra) => new Promise((resolve, reject) => {
     const pane = '%tok-' + process.pid + '-' + panes.length;
     panes.push(pane);
-    const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: pane, ...extra };
+    // #4796: a data root of its own in the literal; every call also names its own in `extra`, which wins.
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_PORT: String(port), TMUX_PANE: pane, ...extra };
     const child = spawn(process.execPath, [BRIDGE_FILE, 'Stop'], { env, stdio: ['pipe', 'ignore', 'ignore'] });
     child.on('error', reject);
     child.on('close', (code) => (code === 0 ? resolve() : reject(new Error('bridge exited ' + code))));
