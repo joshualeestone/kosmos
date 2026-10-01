@@ -225,7 +225,7 @@ test('#4890 review 6: a role template carrying today\'s block inline is framed i
 
 test('#4890 review 6: an update to an existing span has its own title and sentence', () => {
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
-  assert.ok(page.includes("? 'Your words stay exactly as they are. The working rules in the marked block are brought up to date. '"));
+  assert.ok(page.includes("? 'Your words outside the marked block stay exactly as they are. The working rules in it are brought up to date. '"));
   assert.ok(page.includes("+ ((plan.replacing || plan.updating) ? 'This restarts ' : 'Adding them restarts ')"));
   assert.ok(page.includes("#doc-go').textContent = (plan.replacing || plan.updating) ? 'Update & Restart' : 'Add & Restart';"),
     'the confirm button names a different act from the title');
@@ -294,4 +294,17 @@ test('#4890 review 12 (decided, pinned): a paragraph of the person\'s right afte
   const plan = doctrine.planFor(`# Mine\n\n${OLD}\nMy own paragraph.\n`, NOW, OLD_TABLE);
   assert.equal(plan.replacing, true);
   assert.ok(plan.fileNext.includes(`${doctrine.END}\nMy own paragraph.\n`), 'the person\'s paragraph was lost or moved into the span');
+});
+
+test('#4890 review 13: the fleet click leaves a span the person edited at its carried version, as status() says', () => {
+  const store = require('./store');
+  const born = doctrine.atBirth('# Mine\n', NOW).replace(LINE, () => LINE + ' My own edit.');
+  const file = agentFile('fleetedit', born);
+  store.writeProfile('fleetedit', { doctrineVersion: defaults.DOCTRINE_VERSION });
+  assert.equal(doctrine.refresh('fleetedit', rosterOf('fleetedit'), { now: NOW }).state, 'current');
+  assert.equal(fs.readFileSync(file, 'utf8'), born, 'the fleet click overwrote the person\'s edit');
+  // CONTROL: an earlier carried version, and the fleet click brings it current.
+  store.writeProfile('fleetedit', { doctrineVersion: defaults.DOCTRINE_VERSION - 1 });
+  assert.equal(doctrine.refresh('fleetedit', rosterOf('fleetedit'), { now: NOW }).state, 'added');
+  assert.ok(!fs.readFileSync(file, 'utf8').includes('My own edit.'));
 });

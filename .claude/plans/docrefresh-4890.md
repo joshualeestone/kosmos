@@ -47,7 +47,7 @@ missing-headings rule. 3 of 3 here did (v15 twice, v18 once), a small sample. A 
 who edited theirs is offered only missing headings, as before; birth in the span is the lasting fix.
 
 ## Tests
-engine/doctrine-4890.test.js (25): birth span and current-at-birth; the card's case (a same-heading change reaches an
+engine/doctrine-4890.test.js (26): birth span and current-at-birth; the card's case (a same-heading change reaches an
 agent born before it); replace in place with a control; an edited, a one-character-edited and today's copy are not
 replaced; marker fallback; the shipped table's pairing guard; server flag and dialog copy. Mutations: dropping the
 past-block match, the today's-copy skip, or the line-start check each red a test. create.test.js: the verbatim test
@@ -118,4 +118,9 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   table regenerated: 27 rows, the extra one this branch's unreleased first v21). FIXED NIT: atBirth's docblock names
   the inline framing. PINNED (decided): a paragraph of the person's right after an unedited copy is kept, outside the
   new span. Each new guard mutated, each reds one test.
+- Round 13 (sonnet): FIXED W: the fleet click (no dialog hash) applies status()'s carried-version rule through one
+  helper, so it leaves a span the person edited rather than overwrite what the list called current; control: an
+  earlier carried version is still brought current. FIXED W: the update sentence says "Your words outside the
+  marked block stay exactly as they are". NOTE: the table's second v21 row is this branch's unreleased first v21;
+  after the merge, rerunning tools/doctrine-past.js on main drops it (harmless either way).
 

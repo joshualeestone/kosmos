@@ -247,6 +247,14 @@ function hashOf(text) {
   return crypto.createHash('sha256').update(String(text)).digest('hex').slice(0, 16);
 }
 
+/* #4890: every agent is born inside the span, so a span that differs at the version it already carries differs
+   because the PERSON changed it, not because the rules did. status() raises no banner for it and the fleet click
+   (refresh without the dialog's hash) leaves it; the next version offers the update as usual. */
+function personEditedAtCarried(plan, carried) {
+  return plan.state === 'refresh' && plan.updating === true && !plan.replacing
+    && carried !== null && carried >= defaults.DOCTRINE_VERSION;
+}
+
 /**
  * What the banner and the dialog need for one agent, no write anywhere.
  */
@@ -259,10 +267,7 @@ function status(sessionName, now) {
   let profile = {};
   try { profile = store.readProfile(sessionName) || {}; } catch { profile = {}; }
   const carried = Number.isFinite(profile.doctrineVersion) ? profile.doctrineVersion : null;
-  /* #4890: every agent is born inside the span, so a span that differs at the version it already carries differs
-     because the PERSON changed it, not because the rules did. No "updated working rules" banner for that; the next
-     version offers the update as usual. */
-  if (plan.state === 'refresh' && plan.updating && !plan.replacing && carried !== null && carried >= defaults.DOCTRINE_VERSION) {
+  if (personEditedAtCarried(plan, carried)) {
     return { state: 'current', carried, currentVersion: defaults.DOCTRINE_VERSION, declined: false };
   }
   return {
@@ -306,6 +311,11 @@ function refresh(sessionName, roster, opts) {
        its hash. The fleet click (no hash, names only) leaves such an agent for its own page. */
     if (plan.replacing && !(opts && opts.expectHash)) {
       return { state: 'could_not', because: FLEET_LEAVES_REPLACE };
+    }
+    if (!(opts && opts.expectHash)) {
+      let carried = null;
+      try { const p = store.readProfile(sessionName) || {}; carried = Number.isFinite(p.doctrineVersion) ? p.doctrineVersion : null; } catch { carried = null; }
+      if (personEditedAtCarried(plan, carried)) return { state: 'current' };   // as status() says, so the two agree
     }
     if (plan.state === 'current') {
       /* Already has them: said, never silent, and NOTHING is written --
