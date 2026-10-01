@@ -11,6 +11,12 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+/* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
+   travels to this test's stub board (or into anything the test records). */
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-community-post-4289-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
@@ -52,8 +58,25 @@ function withStubBoard(fn, reply = { status: 200, body: { ok: true, status: 'hel
   });
 }
 const TOKEN = 'ab'.repeat(16);
-const envFor = (port, extra = {}) => ({ ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN, ...extra });
+const envFor = (port, extra = {}) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN, ...extra });
 const RICH = 'We moved invoicing to Tuesdays. `echo PWNED` $HOME "quotes" \\ backslash\n\n- one\n- two';
+
+test('#4796 sandbox: the CLI posts only to the stub board with no board token from outside this test, and would send one it found', () => withStubBoard(async (port, seen) => {
+  const ARGS = ['community', 'post', 'hello'];
+  const out = await runCli(ARGS, envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(seen.length, 1, 'premise: the CLI asked the stub');
+  assert.equal(seen[0].headers['x-kosmos-board-token'], undefined, 'a board token from outside this test\'s data root was sent');
+  // CONTROL: a data root holding a board token (a fake, planted here) does send it, so this test can see a leak.
+  const planted = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-4796-planted-'));
+  fs.mkdirSync(path.join(planted, 'Kosmos'), { recursive: true });
+  fs.writeFileSync(path.join(planted, 'Kosmos', 'board.token'), 'ab'.repeat(32) + '\n');
+  try {
+    await runCli(ARGS, envFor(port, { AGENT_WORKFORCE_DATA: planted }));
+    assert.equal(seen.length, 2, 'premise: the control asked the stub too');
+    assert.equal(seen[1].headers['x-kosmos-board-token'], 'ab'.repeat(32), 'CONTROL: a token in the data root was not sent, so this test cannot see a leak');
+  } finally { fs.rmSync(planted, { recursive: true, force: true }); }
+}));
 
 test('#4289: a post carries the words as written, the topic, the pane and the agent token, and says it is held', () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'post', '--topic', 'Weekly ops', RICH], envFor(port));
@@ -67,7 +90,8 @@ test('#4289: a post carries the words as written, the topic, the pane and the ag
   assert.ok(!Number.isNaN(Date.parse(b.at)), 'no timestamp');
   assert.ok(!('agent' in b), 'the CLI named the agent in the body; identity must come from the token');
   assert.equal(seen[0].headers['x-kosmos-agent-token'], TOKEN);
-  assert.match(out.stdout, /held until your person releases it/);
+  // #3485 (2026-09-30): a held answer now means the safety check stopped it; no release promise.
+  assert.match(out.stdout, /held for your person to look at before it goes public/);
 }));
 
 test('#4289: a piped post and --topic= work, and a published answer says so', () => withStubBoard(async (port, seen) => {

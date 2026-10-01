@@ -220,17 +220,32 @@ function playbookText(item, setting) {
  * the playbook naming the peers who were reached. On a retry: the playbook only.
  * @returns {{next: object, acted: Array<object>}}
  */
-function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIVERY }) {
+function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIVERY, heldUntil }) {
   const out = step({ prev, roster, setting, members, now });
   const acted = [];
   const send = (session, text) => {
     try { const v = deliver(session, text); return (v && v.state) || null; } catch { return null; }
   };
   for (const item of out.toConvene) {
+    /* #4588 PR B: a stuck agent held on its machine's shared Google quota is not convened yet: no note, no asks, no
+       playbook, no attempt counted, and a fresh item gives its hourly charge back. It is convened after the reset. A peer
+       held on the quota is left out of this convening's asks (nothing typed into it), as any unreachable peer is; the
+       item is not held for it, so a stuck agent on another runner is not kept waiting for a Google pause. */
+    const isHeld = (s) => { if (typeof heldUntil !== 'function') return false; try { const h = heldUntil(s); return h !== null && h !== undefined; } catch { return false; } };
+    const held = isHeld(item.session);
+    if (held) {
+      if (!item.retry) {
+        const i = out.next.log.findIndex((e) => e.at === now && e.session === item.session);
+        if (i !== -1) out.next.log.splice(i, 1);
+      }
+      acted.push({ session: item.session, name: item.name, project: item.project, retry: item.retry, noteLanded: null, asked: [], verdict: 'held' });
+      continue;
+    }
     let asked = item.asked || [];
     let noteLanded = null;
     if (!item.retry) {
-      asked = item.peers.filter((p) => send(p.session, peerAskText(item)) === DELIVERY.PLACED);
+      // A held peer is not typed into (not asked); it stays in item.peers, so the playbook says it could not be reached.
+      asked = item.peers.filter((p) => !isHeld(p.session) && send(p.session, peerAskText(item)) === DELIVERY.PLACED);
       /* #4423: the note's facts (who is stuck, who was asked, by session) ride beside its sentence, so the room can
          name them as they are called when it is read, not as they were called when it was written. */
       const rec = { stuck: item.session, asked: asked.map((p) => p.session), because: item.because };

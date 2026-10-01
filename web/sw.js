@@ -15,16 +15,20 @@
 
 /* v2 (#4103): a phone whose offline copy of '/' became the relay's sign-in page drops it on activate (the old cache
    is deleted below) and re-caches the board, now checked, at install. */
-const SHELL_CACHE = 'kosmos-shell-v2';
+/* v3 (#4798): the manifest gained the maskable icons; the manifest is served from this cache, so a phone that
+   already had v2 would keep the old manifest until the version changes. */
+const SHELL_CACHE = 'kosmos-shell-v3';
 
-/* The shell is the one HTML file (served at /) plus the manifest and the two
-   install icons the manifest names. Everything else is live data over the
-   network. */
+/* The shell is the one HTML file (served at /) plus the manifest and the
+   install icons the manifest names (the two "any" and, #4798, the two maskable).
+   Everything else is live data over the network. */
 const SHELL_ASSETS = [
   '/',
   '/manifest.webmanifest',
   '/icons/kosmos-192.png',
   '/icons/kosmos-512.png',
+  '/icons/kosmos-maskable-192.png',
+  '/icons/kosmos-maskable-512.png',
 ];
 
 /* #4103: only the BOARD may become the offline copy of '/'. A signed-out phone's navigation through the relay comes
@@ -132,7 +136,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  /* The named shell assets (manifest + the two icons) change rarely and are
+  /* The named shell assets (the manifest and its four install icons) change rarely and are
      dropped wholesale when a new worker version activates, so this is a plain
      cache-first: serve the cached copy when present, otherwise fetch and cache
      it. NOT stale-while-revalidate -- a hit is returned as-is with no background
@@ -141,7 +145,7 @@ self.addEventListener('fetch', (event) => {
   /* '/' is NOT served from here (#4103, review round 1): only a navigation may put '/' in the cache, and only after
      the board check above. A non-navigation GET of '/' (a script's fetch, a prefetch) goes to the network untouched,
      so a signed-out one can never write the relay's sign-in page as the offline copy. This branch serves the
-     manifest and the two icons. */
+     manifest and its install icons. */
   if (url.pathname !== '/' && SHELL_ASSETS.includes(url.pathname)) {
     event.respondWith((async () => {
       const hit = await caches.match(req);

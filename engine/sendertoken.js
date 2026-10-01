@@ -332,6 +332,10 @@ function sameToken(a, b) {
   return crypto.timingSafeEqual(x, y);
 }
 
+/* #4763: marks a refusal made because more than one of our running agents shares the token's key. */
+const CLASH = Symbol('kosmos.sendertoken.clash');
+const CLASH_LOGGED = new Set();
+
 /**
  * Who is presenting this token, and which run of them. Returns
  * `{ ok, card, instance }` or `{ ok:false, because }`, the same contract
@@ -359,13 +363,38 @@ function resolve(token, roster) {
     try { held = readTokens(key); } catch { continue; }
     const hit = held.find((t) => sameToken(t.token, presented));
     if (!hit) continue;
-    const card = Array.isArray(roster)
-      ? roster.find((a) => a && a.sessionName && store.safeKey(a.sessionName) === key && a.isNamedOurs === true)
-      : null;
+    /* #4738: whose row it is FIRST, and a name that cannot be keyed (a stranger's tmux session named "!!") is simply
+       not this agent. Keying every row before that check threw "invalid agent name" for the whole roster, so one such
+       session sorted ahead of the agents broke every agent's token, with a message that blamed the agent. */
+    const keyOf = (name) => { try { return store.safeKey(name); } catch { return null; } };
+    const cards = Array.isArray(roster)
+      ? roster.filter((a) => a && a.isNamedOurs === true && a.sessionName && keyOf(a.sessionName) === key)
+      : [];
     /* A token matching a file but no tied roster row is the revoked or stale
        case, and it must read the same as a token we never issued. Saying "that
-       agent is gone" would confirm the token was once real. */
-    if (!card) return { ok: false, because: NO_MATCH };
+       agent is gone" would confirm the token was once real.
+       #4763: safeKey is lossy ("Mara" and "mara", "ma.ra" and "mara" share a key, and so one token file), so two
+       running agents of ours can both match. Taking the first let one agent's token speak as the other. With
+       more than one, NO agent is resolved: the answer is the same as a token we never issued, never a guess.
+       Creating an agent and POST /api/agent-token refuse a key clash with a RUNNING pane agent; this covers a
+       clash they cannot see (a session made outside Kosmos, or two made while one was stopped and now both
+       running). It covers ONLY two ROWS: with one of them stopped, or with a remote twin whose paneless row
+       dedupes against the pane row, there is one row and the other's token (same file, no owner field)
+       resolves as it. Closing that needs the session name stored on each token at mint time (#4792).
+       The refusal carries CLASH (a Symbol: never serialized, so the words stay NO_MATCH) so the caller's
+       paneless fallback, which resolves by key alone, does not re-admit the token as the key. */
+    if (cards.length > 1) {
+      /* Both agents go mute at once and the answer is NO_MATCH by design, so the operator's only trace is here.
+         Once per clash: every request from either agent would otherwise log it; one clean resolve re-arms it. */
+      if (!CLASH_LOGGED.has(key)) {
+        CLASH_LOGGED.add(key);
+        console.warn(`[sendertoken] #4763: ${cards.length} agents of ours are filed under the token key "${key}" (${cards.map((c) => c.sessionName).join(', ')}); their tokens are refused until one is renamed or stopped`);
+      }
+      return { ok: false, because: NO_MATCH, [CLASH]: true };
+    }
+    if (cards.length !== 1) return { ok: false, because: NO_MATCH };
+    CLASH_LOGGED.delete(key);   // the clash (if there was one) is over, so a later one logs again
+    const card = cards[0];
     return { ok: true, card, instance: hit.instance || null };
   }
   return { ok: false, because: NO_MATCH };
@@ -421,4 +450,4 @@ function resolveName(token) {
 }
 
 module.exports = {
-  mint, revoke, retire, retireLauncher, live, keys, resolve, resolveName, DIR, MAX_LIVE };
+  mint, revoke, retire, retireLauncher, live, keys, resolve, resolveName, CLASH, DIR, MAX_LIVE };

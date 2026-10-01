@@ -21,6 +21,10 @@ const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');
 const { execFile } = require('node:child_process');
+/* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
+   travels to this test's stub board (or into anything the test records). */
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-react-2255-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const TOKEN = 'boardtok-2255';
@@ -80,7 +84,7 @@ function runCli(args, env) {
 
 async function react(port, seen, args, extraEnv) {
   const before = seen.length;
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42', ...extraEnv };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', ...extraEnv };
   const out = await runCli(['react', ...args], env);
   for (let i = 0; i < 100 && seen.length === before; i += 1) {
     await new Promise((r) => setTimeout(r, 50));
@@ -157,7 +161,7 @@ test('#2255: a curl failure on the POST is REPORTED, not a silent abort (set -e 
     server.listen(0, '127.0.0.1', async () => {
       let failure = null;
       try {
-        const env = { ...process.env, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '%42' };
+        const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '%42' };
         const out = await runCli(['react', 'proj', 'm1', THUMB], env);
         assert.notEqual(out.stdout.trim(), '', 'a curl failure printed nothing -- the process aborted under set -e');
         assert.match(out.stdout, /could not reach Kosmos|may have landed|did not answer in time/, 'a curl failure must be reported to the agent');   // #4466: a cut reply now reads busy
@@ -172,7 +176,7 @@ test('#2255: kosmos react with a missing argument explains itself and does not c
   withStub(() => ({ ok: true, op: 'add', emoji: THUMB, of: 'm3' }), async (port, seen) => {
     const { home } = makeHome();
     try {
-      const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_HOME: home };
+      const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_HOME: home };
       const out = await runCli(['react', 'payroll-app', 'm3'], env);  // no emoji
       assert.match(out.stdout, /Usage: kosmos react/, 'a missing arg must print usage');
       assert.equal(out.code, 2, 'a usage error exits 2');

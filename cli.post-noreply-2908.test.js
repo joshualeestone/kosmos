@@ -14,6 +14,12 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+/* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
+   travels to this test's stub board (or into anything the test records). */
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-post-noreply-2908-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
@@ -55,7 +61,7 @@ function withStubBoard(fn) {
 }
 
 test('#2908: kosmos post --no-reply sends reply_expected:false on the /api/post body', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--no-reply', 'proj', 'thanks, got it'], env);
   assert.equal(out.code, 0, 'the post should succeed: ' + out.stdout + out.stderr);
   assert.equal(seen.length, 1, 'exactly one post reached the board');
@@ -65,7 +71,7 @@ test('#2908: kosmos post --no-reply sends reply_expected:false on the /api/post 
 }));
 
 test('#2908 CONTROL: kosmos post WITHOUT --no-reply sends NO reply_expected field (omitted = current behavior)', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'proj', 'a plain message'], env);
   assert.equal(out.code, 0, 'the post should succeed: ' + out.stdout + out.stderr);
   assert.equal(seen.length, 1, 'exactly one post reached the board');
@@ -74,7 +80,7 @@ test('#2908 CONTROL: kosmos post WITHOUT --no-reply sends NO reply_expected fiel
 }));
 
 test('#2908: --no-reply is a LEADING flag; mid-args it is message text (documented tradeoff, matches --file)', () => withStubBoard(async (port, seen) => {
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   // Here --no-reply is NOT the first token, so it is part of the message, and no field is sent.
   const out = await runCli(['post', 'proj', 'please --no-reply on that'], env);
   assert.equal(out.code, 0, 'the post should still succeed: ' + out.stdout + out.stderr);

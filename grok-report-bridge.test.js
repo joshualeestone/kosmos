@@ -15,6 +15,11 @@ const store = require('./engine/store');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const nodePath = require('node:path');
+/* #4796: the bridge reads the board token from the data root. A fresh one for every run that does not bring
+   its own (a caller's AGENT_WORKFORCE_DATA still wins: it is spread after this), so the live token never
+   travels to this test's stub board. */
+const DATA4796 = require('node:fs').mkdtempSync(nodePath.join(require('node:os').tmpdir(), 'kosmos-grok-bridge-4796-'));
+process.on('exit', () => { try { require('node:fs').rmSync(DATA4796, { recursive: true, force: true }); } catch { /* best effort */ } });
 const { spawn, spawnSync } = require('node:child_process');
 const fsB = require('node:fs');
 const osB = require('node:os');
@@ -42,7 +47,7 @@ function drive(eventJson, env = {}, bridge = BRIDGE) {
     server.listen(0, '127.0.0.1', () => {
       const port = server.address().port;
       const child = spawn(process.execPath, [bridge], {
-        env: { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%77', ...env },
+        env: { ...process.env, AGENT_WORKFORCE_DATA: DATA4796, KOSMOS_PORT: String(port), TMUX_PANE: '%77', ...env },
         stdio: ['pipe', 'ignore', 'ignore'],
       });
       child.on('error', (err) => server.close(() => reject(err)));
@@ -126,7 +131,7 @@ test('a board that is down never becomes a failure the agent can feel', () => {
   // (no in-process server to service), and a non-zero status IS the failure.
   const r = spawnSync(process.execPath, [BRIDGE], {
     input: JSON.stringify({ hook_event_name: 'Stop', reason: 'end_turn', lastAssistantMessage: 'x' }),
-    env: { ...process.env, KOSMOS_PORT: '1', TMUX_PANE: '%1' },
+    env: { ...process.env, AGENT_WORKFORCE_DATA: DATA4796, KOSMOS_PORT: '1', TMUX_PANE: '%1' },
   });
   assert.equal(r.status, 0, 'the bridge must exit 0 even when the board is unreachable');
 });

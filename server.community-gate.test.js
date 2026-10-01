@@ -85,7 +85,7 @@ test('#4287 CONTROL: GET /api/community/sent and POST /api/community/delete STAY
 test('#4287: with the board token, /sent answers, /delete 404s an unknown post and refuses one the board never sends', async () => {
   const r = await fetch(base + '/api/community/sent', { headers: { 'x-kosmos-board-token': TOK } });
   assert.equal(r.status, 200);
-  assert.deepEqual(await r.json(), { posts: {} });
+  assert.deepEqual(await r.json(), { posts: {}, comments: {} });   // #4373 part B: comments' outcomes beside the posts'
   const missing = await post('/api/community/delete', { id: 'no-such-post' }, { 'x-kosmos-board-token': TOK });
   assert.equal(missing.status, 404);
   const made = await post('/api/community/human/post', { authorName: 'Pat', topic: 't', body: 'a post that was never sent' }, { 'x-kosmos-board-token': TOK });
@@ -104,7 +104,7 @@ test('#4313 CONTROL: GET /api/community/mine STAYS gated (403 without a token)',
 test('#4313: with the board token, /mine lists a sent agent post with Delete, and the delete route turns it off', async () => {
   const empty = await fetch(base + '/api/community/mine', { headers: { 'x-kosmos-board-token': TOK } });
   assert.equal(empty.status, 200);
-  assert.deepEqual(await empty.json(), { posts: [] });
+  assert.deepEqual(await empty.json(), { posts: [], comments: [] });   // #4801: comments beside the posts
   // An agent post published through the real choke, and the record shape the send sweep writes.
   const communitystore = require('./engine/communitystore');
   const feedpublish = require('./engine/feedpublish');
@@ -124,6 +124,153 @@ test('#4313: with the board token, /mine lists a sent agent post with Delete, an
   assert.deepEqual([after.posts[0].deleteRequested, after.posts[0].canDelete], [true, false]);
 });
 
+test('#4801: with the board token, /mine lists a sent agent COMMENT with Delete, and the delete route records it as a comment', async () => {
+  const communitystore = require('./engine/communitystore');
+  const feedpublish = require('./engine/feedpublish');
+  const communitysend = require('./engine/communitysend');
+  communitystore.grantTrust('cy');
+  const POST_ID = '7d1b0d2e-5a0e-4f6a-9c1e-2b3c4d5e6f70';
+  const c = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'cy', at: new Date().toISOString(), body: 'Tuesdays work for us too.\nSecond line.', servicePostId: POST_ID }, { agentId: 'cy' });
+  assert.equal(c.ok, true, JSON.stringify(c));
+  fs.mkdirSync(path.dirname(communitysend._paths.commentsSentFile()), { recursive: true });
+  // The shapes sendComment and ensureRegistered write: the record names the registration keys.json holds (agentId).
+  fs.mkdirSync(path.dirname(communitysend._paths.keysFile()), { recursive: true });
+  fs.writeFileSync(communitysend._paths.keysFile(), JSON.stringify({ cy: { remoteId: 'rcy', name: 'cy', apiKey: 'kc_key_rcy', token: 'tok_rcy', registeredAt: '2026-09-28T07:00:00.000Z' } }));
+  fs.writeFileSync(communitysend._paths.commentsSentFile(), JSON.stringify({ [c.id]: { state: 'sent', agent: 'cy', post: POST_ID, remoteId: 'rc-77', sentAt: '2026-09-28T08:00:00Z', agentId: 'rcy' } }));
+  const listed = await (await fetch(base + '/api/community/mine', { headers: { 'x-kosmos-board-token': TOK } })).json();
+  assert.equal(listed.comments.length, 1, JSON.stringify(listed));
+  const row = listed.comments[0];
+  assert.deepEqual([row.id, row.kind, row.text, row.agent, row.state, row.canDelete], [c.id, 'comment', 'Tuesdays work for us too.', 'cy', 'sent', true]);
+  // Review 1: the comment's own service id never reaches the page; the post's id only as the row's link (remotePostId).
+  assert.ok(!JSON.stringify(listed).includes('rc-77'), 'the comment\'s service id reached the page');
+  assert.equal(row.remotePostId, POST_ID);
+  const { remotePostId: _p, ...rest } = row;
+  assert.ok(!JSON.stringify({ ...listed, comments: [rest] }).includes(POST_ID), 'the post id reached the page other than as the link\'s post');
+  const d = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
+  assert.deepEqual([d.status, d.json], [200, { ok: true, state: 'sent' }]);
+  const cdel = JSON.parse(fs.readFileSync(communitysend._paths.commentDeletesFile(), 'utf8'));
+  assert.ok(cdel[c.id], 'the removal was not recorded in comment-deletes.json');
+  const deletes = fs.existsSync(communitysend._paths.deletesFile()) ? JSON.parse(fs.readFileSync(communitysend._paths.deletesFile(), 'utf8')) : {};
+  assert.ok(!deletes[c.id], 'a comment id reached deletes.json, which the sweep walks as POSTS');
+  const after = await (await fetch(base + '/api/community/mine', { headers: { 'x-kosmos-board-token': TOK } })).json();
+  assert.deepEqual([after.comments[0].deleteRequested, after.comments[0].canDelete], [true, false]);
+});
+
+test('#4801 review 1: the delete route answers a retryable 503 when keys.json cannot be read, never the permanent 400', async () => {
+  const communitystore = require('./engine/communitystore');
+  const feedpublish = require('./engine/feedpublish');
+  const communitysend = require('./engine/communitysend');
+  communitystore.grantTrust('cy');
+  const POST_ID = '8e2c1e3f-6b1f-4a7b-8d2f-3c4d5e6f7a81';
+  const c = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'cy', at: new Date().toISOString(), body: 'Keys go missing.', servicePostId: POST_ID }, { agentId: 'cy' });
+  assert.equal(c.ok, true, JSON.stringify(c));
+  const csFile = communitysend._paths.commentsSentFile();
+  const csent = JSON.parse(fs.readFileSync(csFile, 'utf8'));
+  csent[c.id] = { state: 'sent', agent: 'cy', post: POST_ID, remoteId: 'rc-88', sentAt: '2026-09-28T08:00:00Z', agentId: 'rcy' };
+  fs.writeFileSync(csFile, JSON.stringify(csent));
+  const keys = fs.readFileSync(communitysend._paths.keysFile());
+  fs.writeFileSync(communitysend._paths.keysFile(), '{not json');
+  try {
+    const d = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
+    assert.deepEqual([d.status, d.json], [503, { error: 'Kosmos could not read its community registrations just now' }]);
+    assert.equal(d.retryAfter, '60', 'review 2 NIT f: a retryable 503 says when to ask again');
+  } finally { fs.writeFileSync(communitysend._paths.keysFile(), keys); }
+  const ok = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
+  assert.equal(ok.status, 200, 'CONTROL: readable again, the removal is taken');
+  assert.equal(ok.retryAfter, null, 'CONTROL: no Retry-After on a 200');
+});
+
+test('#4801 review 3: the delete route refuses a comment the list never offers removal for with a plain-words 400', async () => {
+  const communitystore = require('./engine/communitystore');
+  const feedpublish = require('./engine/feedpublish');
+  const communitysend = require('./engine/communitysend');
+  communitystore.grantTrust('cy');
+  const POST_ID = '9f3d2f4a-7c2a-4b8c-9e3a-4d5e6f7a8b92';
+  const c = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'cy', at: new Date().toISOString(), body: 'Not accepted.', servicePostId: POST_ID }, { agentId: 'cy' });
+  assert.equal(c.ok, true, JSON.stringify(c));
+  const csFile = communitysend._paths.commentsSentFile();
+  const csent = JSON.parse(fs.readFileSync(csFile, 'utf8'));
+  csent[c.id] = { state: 'refused', agent: 'cy', post: POST_ID, reasons: ['post_gone'] };
+  fs.writeFileSync(csFile, JSON.stringify(csent));
+  const d = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
+  assert.deepEqual([d.status, d.json], [400, { error: 'The community did not accept this comment, so there is nothing to remove' }]);
+  const cdel = JSON.parse(fs.readFileSync(communitysend._paths.commentDeletesFile(), 'utf8'));
+  assert.ok(!cdel[c.id], 'a refused removal was recorded');
+});
+
+test('#4801 review 2: comments-sent.json unreadable: /mine serves comments: null (posts still listed), and a removal is a retryable 503', async () => {
+  const communitystore = require('./engine/communitystore');
+  const feedpublish = require('./engine/feedpublish');
+  const communitysend = require('./engine/communitysend');
+  communitystore.grantTrust('cy');
+  const POST_ID = '9f3d2f4a-7c2a-4b8c-9e3a-4d5e6f7a8b92';
+  const c = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'cy', at: new Date().toISOString(), body: 'Records go missing.', servicePostId: POST_ID }, { agentId: 'cy' });
+  assert.equal(c.ok, true, JSON.stringify(c));
+  const csFile = communitysend._paths.commentsSentFile();
+  const saved = fs.readFileSync(csFile);
+  const before = await (await fetch(base + '/api/community/mine', { headers: { 'x-kosmos-board-token': TOK } })).json();
+  assert.ok(Array.isArray(before.comments) && before.comments.length > 0, 'CONTROL: readable, comments are a list');
+  fs.writeFileSync(csFile, '{not json');
+  try {
+    const r = await fetch(base + '/api/community/mine', { headers: { 'x-kosmos-board-token': TOK } });
+    assert.equal(r.status, 200);
+    const listed = await r.json();
+    assert.equal(listed.comments, null, 'an unreadable record read as a list: ' + JSON.stringify(listed.comments));
+    assert.ok(Array.isArray(listed.posts), 'the posts went with it');
+    const d = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
+    assert.deepEqual([d.status, d.json, d.retryAfter], [503, { error: 'Kosmos could not read its record of sent comments just now' }, '60']);
+  } finally { fs.writeFileSync(csFile, saved); }
+  const ok = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
+  assert.equal(ok.status, 200, 'CONTROL: readable again, the removal is taken');
+});
+
+test('#4801 review 1: while a comment\'s POST is out, the delete route answers 409 "being sent right now"', async () => {
+  const http = require('node:http');
+  const communitystore = require('./engine/communitystore');
+  const feedpublish = require('./engine/feedpublish');
+  const communitysend = require('./engine/communitysend');
+  let release = null;
+  const svc = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      if (req.method === 'POST' && /^\/posts\/[^/]+\/comments$/.test(req.url)) {
+        release = () => { if (!res.headersSent) { res.writeHead(201, { 'content-type': 'application/json' }); res.end(JSON.stringify({ id: 'rc-99' })); } };
+        return;
+      }
+      res.writeHead(404, { 'content-type': 'application/json' }); res.end('{}');
+    });
+  });
+  await new Promise((r) => svc.listen(0, '127.0.0.1', r));
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  process.env.AGENT_WORKFORCE_COMMUNITY_URL = `http://127.0.0.1:${svc.address().port}/`;
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  communitysend.setSender((url, init) => fetch(url, init));
+  try {
+    fs.mkdirSync(path.dirname(communitysend._paths.keysFile()), { recursive: true });
+    fs.writeFileSync(communitysend._paths.keysFile(), JSON.stringify({ dz: { remoteId: 'rdz', name: 'dz', apiKey: 'kc_key_rdz', token: 'tok_rdz', registeredAt: '2026-09-28T07:00:00.000Z' } }));
+    await communitysend.sweep();                       // the ON period starts
+    communitystore.grantTrust('dz');
+    const c = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'dz', at: new Date().toISOString(), body: 'On the wire.', servicePostId: '9f3d2f4a-7c2a-4b8c-9e3a-4d5e6f7a8b92' }, { agentId: 'dz' });
+    assert.equal(c.ok, true, JSON.stringify(c));
+    const sweeping = communitysend.sweep();
+    for (let i = 0; i < 400 && !release; i++) await new Promise((r) => setTimeout(r, 5));
+    assert.ok(release, 'CONTROL: the comment\'s POST reached the service');
+    const d = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
+    assert.deepEqual([d.status, d.json], [409, { error: 'It is being sent right now; try again in a minute' }]);
+    release();
+    await sweeping;
+    const ok = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
+    assert.equal(ok.status, 200, 'CONTROL: answered, the removal is taken');
+  } finally {
+    if (release) release();
+    communitysend.setSender(null);
+    communitysend.setSwitch(null);
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was;
+    svc.closeAllConnections();
+    svc.close();
+  }
+});
+
 test('#4525 CONTROL: POST /api/community/discard STAYS gated (403 without a token)', async () => {
   assert.equal(await hit('/api/community/discard', { method: 'POST' }), 403,
     'discarding a held row is the person\'s moderator action; it must require the board token');
@@ -135,7 +282,8 @@ test('#4525: with the board token, a held agent post is listed, Release publishe
   const H = { 'x-kosmos-board-token': TOK };
   // Release and discard also want the screen (a browser's headers), so a request as the page sends it:
   const S = { ...H, 'sec-fetch-site': 'same-origin' };
-  const agentPost = (topic) => feedpublish.publishPost({ kind: 'community_post', agent: 'nova4525', at: new Date().toISOString(), topic, body: 'What I built today.' }, { agentId: 'nova4525' });
+  // trusted: false since #3485 (2026-09-30): an agentId now publishes straight away, so these stand for rows held before that update.
+  const agentPost = (topic) => feedpublish.publishPost({ kind: 'community_post', agent: 'nova4525', at: new Date().toISOString(), topic, body: 'What I built today.' }, { trusted: false });
   const a = agentPost('Release me');
   const b = agentPost('Discard me');
   assert.deepEqual([a.ok, a.status, b.ok, b.status], [true, 'held', true, 'held'], 'an untrusted agent\'s post is held: ' + JSON.stringify([a, b]));
@@ -185,7 +333,7 @@ async function post(p, body, headers = {}) {
   let json = null;
   const txt = await res.text().catch(() => '');
   try { json = JSON.parse(txt); } catch { /* non-JSON */ }
-  return { status: res.status, json };
+  return { status: res.status, json, retryAfter: res.headers.get('retry-after') };
 }
 
 test('#3485 CONTROL: POST /api/community/human/post STAYS gated (403 without a token)', async () => {

@@ -126,7 +126,8 @@ const look = (page) => page.evaluate(() => {
     chk(await page.evaluate(() => !document.activeElement || document.activeElement === document.body || !!document.activeElement.closest('#fr-choice')),
       'C1 Shift+Tab does not reach the board under the screen');
     await page.waitForTimeout(4500);   // past the 3 s boot timer that starts the tips and the setup assistant
-    chk(await page.evaluate(() => !TIP_OPEN && !document.getElementById('cmnotice')), 'C1 no tip or notice opens under the screen');
+    // #4820: the Community notice is gone, so the tip is the one window that could open under the screen.
+    chk(await page.evaluate(() => !TIP_OPEN), 'C1 no tip opens under the screen');
     chk(await page.evaluate(() => [...document.querySelectorAll('body > *:not(#fr-choice)')].every((n) => n.inert)), 'C1 the rest of the page is inert');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'firstrun-choice-4356.png') });
 

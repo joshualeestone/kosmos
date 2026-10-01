@@ -1,6 +1,7 @@
 'use strict';
 /**
- * #4491 slices 2-3: `kosmos msg`, `kosmos post`, `kosmos react` and `kosmos task message` present the agent's own token
+ * #4491 slices 2-5 (slice 5 adds `kosmos task add` and `kosmos task close`): `kosmos msg`, `kosmos post`, `kosmos react`, `kosmos task message`, and (slice 4) the reads
+ * `kosmos room`, `kosmos task list`, `kosmos agent roles` and `kosmos agent role-draft` present the agent's own token
  * (KOSMOS_AGENT_TOKEN, plain hex only) as `x-kosmos-agent-token`, as reply and report already do,
  * so the board can tell the agent from the person. The board token is still sent as well.
  *
@@ -40,12 +41,27 @@ const ANSWERS = {
   '/api/post': { delivery: { state: 'placed' } },
   '/api/react': { ok: true },
   '/api/project/p4491/task/1/message': { ok: true, delivered: [] },
+  // Slice 5: task add and task close. Each CLI arm reads the board's own {"task":...} shape as success.
+  '/api/project/p4491/tasks': { task: { number: 1, sentence: 'write the docs' } },
+  '/api/project/p4491/task/1/close': { task: { number: 1, state: 'closed' } },
+};
+
+/* Slice 4: the reads. The room is answered as text (its `?as=text` arm), the others as the JSON each verb parses. */
+const READ_ANSWERS = {
+  '/api/project/p4491/room': 'nothing here yet\n',
+  '/api/tasks': JSON.stringify({ tasks: [], count: 0 }),
+  '/api/roles': JSON.stringify({ roles: [{ key: 'builder', label: 'Builder' }], own: { instructions: 'You are {{NAME}}.' } }),
 };
 
 function withStub(fn) {
   const seen = [];
   const server = http.createServer((req, res) => {
     const route = req.url.split('?')[0];
+    if (req.method === 'GET' && READ_ANSWERS[route] !== undefined) {
+      seen.push({ route, method: 'GET', query: req.url.split('?')[1] || '', agent: req.headers['x-kosmos-agent-token'], board: req.headers['x-kosmos-board-token'] });
+      res.writeHead(200, { 'content-type': route.endsWith('/room') ? 'text/plain; charset=utf-8' : 'application/json' });
+      return res.end(READ_ANSWERS[route]);
+    }
     if (req.method === 'POST' && ANSWERS[route]) {
       seen.push({ route, agent: req.headers['x-kosmos-agent-token'], board: req.headers['x-kosmos-board-token'] });
       req.resume();
@@ -69,7 +85,16 @@ const VERBS = [
   ['/api/post', ['post', 'p4491', 'hello']],
   ['/api/react', ['react', 'p4491', 'm1', 'thumbsup']],
   ['/api/project/p4491/task/1/message', ['task', 'message', 'p4491', '1', 'hello']],
+  // Slice 4, the reads (two-word verbs are named by both words in the test titles below).
+  ['/api/project/p4491/room', ['room', 'p4491']],
+  ['/api/tasks', ['task', 'list', 'p4491']],
+  ['/api/roles', ['agent', 'roles']],
+  ['/api/roles', ['agent', 'role-draft']],
+  // Slice 5, the two task writes.
+  ['/api/project/p4491/tasks', ['task', 'add', 'p4491', 'write the docs']],
+  ['/api/project/p4491/task/1/close', ['task', 'close', 'p4491', '1']],
 ];
+const verbName = (args) => args.slice(0, args[0] === 'task' || args[0] === 'agent' ? 2 : 1).join(' ');
 
 // Async execFile, never execFileSync: a synchronous child blocks the event loop the stub answers on.
 // The exit code itself is not asserted (the headers the stub saw are), but a run that ended with no
@@ -87,33 +112,69 @@ async function send(port, seen, home, args, token) {
   const before = seen.length;
   await runCli(args, env);
   for (let i = 0; i < 100 && seen.length === before; i += 1) await new Promise((r) => setTimeout(r, 50));
-  assert.equal(seen.length, before + 1, `kosmos ${args[0]} did not reach the board at all, so its headers cannot be judged`);
+  assert.equal(seen.length, before + 1, `kosmos ${verbName(args)} did not reach the board at all, so its headers cannot be judged`);
   return seen[seen.length - 1];
 }
 
 for (const [route, args] of VERBS) {
-  test(`kosmos ${args.slice(0, args[0] === 'task' ? 2 : 1).join(' ')} presents a valid agent token as x-kosmos-agent-token, and still the board token`, async () => {
+  test(`kosmos ${verbName(args)} presents a valid agent token as x-kosmos-agent-token, and still the board token`, async () => {
     const home = makeHome();
     try {
       await withStub(async (port, seen) => {
         const got = await send(port, seen, home, args, TOKEN);
         assert.equal(got.route, route);
-        assert.equal(got.agent, TOKEN, `kosmos ${args[0]} did not present the agent token`);
-        assert.equal(got.board, BOARD, `kosmos ${args[0]} stopped sending the board token (dropping it is a later slice)`);
+        assert.equal(got.agent, TOKEN, `kosmos ${verbName(args)} did not present the agent token`);
+        assert.equal(got.board, BOARD, `kosmos ${verbName(args)} stopped sending the board token (dropping it is a later slice)`);
+        /* `kosmos agent roles` asks for the downloaded roles too (#4632); role-draft and the others send their own query. */
+        if (args.join(' ') === 'agent roles') assert.equal(got.query, 'catalogue=1', 'kosmos agent roles no longer asks for the catalogue');
+        if (args.join(' ') === 'agent role-draft') assert.equal(got.query, '', 'kosmos agent role-draft started asking for the catalogue');
+        if (args[0] === 'room') assert.equal(got.query, 'as=text');
+        if (args.join(' ').startsWith('task list')) assert.equal(got.query, 'project=p4491');
       });
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
 
-  test(`kosmos ${args.slice(0, args[0] === 'task' ? 2 : 1).join(' ')} sends no agent header for a junk or absent token`, async () => {
+  test(`kosmos ${verbName(args)} sends no agent header for a junk or absent token`, async () => {
     const home = makeHome();
     try {
       await withStub(async (port, seen) => {
         for (const token of ['not-hex; rm -rf', 'ABCDEF', '', null]) {
           const got = await send(port, seen, home, args, token);
-          assert.equal(got.agent, undefined, `kosmos ${args[0]} forwarded ${JSON.stringify(token)} as an agent token`);
+          assert.equal(got.agent, undefined, `kosmos ${verbName(args)} forwarded ${JSON.stringify(token)} as an agent token`);
           assert.equal(got.board, BOARD);
         }
       });
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  });
+}
+
+/* Slice 5: the board now refuses an agent that is not on the project. Each verb prints the board's own sentence and
+   exits 1 (its own stub: the shared one above always answers 200). */
+for (const [args, verb] of [[['task', 'add', 'p4491', 'write the docs'], 'add tasks to it'], [['task', 'close', 'p4491', '1'], 'close its tasks']]) {
+  test(`kosmos ${verbName(args)} prints the board's refusal for an agent that is not on the project, and exits 1`, async () => {
+    const home = makeHome();
+    const sentence = 'that agent is not on this project, so it cannot ' + verb;
+    const server = http.createServer((req, res) => {
+      if (req.method === 'POST') {
+        req.resume();
+        res.writeHead(403, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ error: sentence }));
+      }
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<title>Kosmos</title>Agent Workforce');
+    });
+    try {
+      await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const env = { ...process.env, KOSMOS_PORT: String(server.address().port), KOSMOS_HOME: home, AGENT_WORKFORCE_DATA: '', TMUX_PANE: '', KOSMOS_AGENT_TOKEN: TOKEN };
+      const out = await new Promise((resolve, reject) => execFile(CLI, args, { env, timeout: 20000 }, (err, stdout, stderr) => {
+        if (err && typeof err.code !== 'number') { reject(err); return; }
+        resolve({ code: err ? err.code : 0, text: String(stdout) + String(stderr) });
+      }));
+      assert.equal(out.code, 1, 'a refused ' + verbName(args) + ' did not exit 1: ' + out.text.slice(0, 200));
+      assert.ok(out.text.includes(sentence), 'the board\'s sentence was not printed: ' + out.text.slice(0, 200));
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+      fs.rmSync(home, { recursive: true, force: true });
+    }
   });
 }

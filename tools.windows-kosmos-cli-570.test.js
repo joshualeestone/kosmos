@@ -376,16 +376,16 @@ test('whoami prints the BOARD\'s sentence, verbatim', async () => {
   assert.equal(r.calls[0].headers['x-kosmos-agent-token'], AGENT);
 });
 
-test('room and task sanitize the project id the way install/kosmos does, and present no agent token', async () => {
+test('room and task sanitize the project id the way install/kosmos does; the reads (#4491 slice 4) and task add (slice 5) present the agent token', async () => {
   const room = await run(['room', 'proj/../x y'], () => ({ body: 'room text\n' }));
   assert.equal(room.calls[0].route, '/api/project/proj..xy/room?as=text');
-  assert.equal(room.calls[0].headers['x-kosmos-agent-token'], undefined);
+  assert.equal(room.calls[0].headers['x-kosmos-agent-token'], AGENT, 'the room read answers to the agent\'s own token since #4491 slice 4');
   const list = await run(['task', 'list', 'p1'], () => ({ body: { tasks: [{ number: 1, sentence: 'ship it', isClosed: false, whoNames: ['leo'] }] } }));
   assert.equal(list.calls[0].route, '/api/tasks?project=p1');
   assert.equal(list.out, '[1] ship it (leo)');
   const add = await run(['task', 'add', 'p1', 'write docs', 'more', 'detail'], () => ({ body: { task: {} } }));
   assert.deepEqual(add.calls[0].body, { sentence: 'write docs', detail: 'more detail', from_pane: '' });
-  assert.equal(add.calls[0].headers['x-kosmos-agent-token'], undefined, 'the tasks route ignores it; sending it only suggests it counts');
+  assert.equal(add.calls[0].headers['x-kosmos-agent-token'], AGENT, 'task add names its caller from the agent token since #4491 slice 5');
   const close = await run(['task', 'close', 'p1', 'two']);
   assert.equal(close.code, 2, 'a non-number task is a usage error, sent nowhere');
   assert.equal(close.calls.length, 0);
@@ -454,10 +454,46 @@ test('task message: a missing part or a non-number task is a usage error that se
   }
 });
 
-test('an unknown task subcommand lists all five, as install/kosmos does', async () => {
+test('an unknown task subcommand lists all seven, as install/kosmos does', async () => {
   const r = await run(['task', 'reassign', 'p1']);
   assert.equal(r.code, 2);
-  assert.equal(r.err, 'Unknown: kosmos task reassign. Try: list | add | close | message | built');
+  assert.equal(r.err, 'Unknown: kosmos task reassign. Try: list | add | close | message | built | hold | unhold');
+});
+
+test('#4771 task hold / unhold: POST .../task/<n>/hold with {onHold} and the board token; a non-number is a usage error sent nowhere', async () => {
+  const on = await run(['task', 'hold', 'p1', '3'], () => ({ body: { task: { number: 3, onHold: true } } }));
+  assert.equal(on.code, 0, on.err);
+  assert.equal(on.calls[0].route, '/api/project/p1/task/3/hold');
+  assert.deepEqual(on.calls[0].body, { onHold: true });
+  assert.match(on.out, /Put task 3 on p1 on hold/);
+  const off = await run(['task', 'unhold', 'p1', '3'], () => ({ body: { task: { number: 3 } } }));
+  assert.equal(off.code, 0, off.err);
+  assert.deepEqual(off.calls[0].body, { onHold: false });
+  assert.match(off.out, /Took task 3 on p1 off hold/);
+  const bad = await run(['task', 'hold', 'p1', 'two']);
+  assert.equal(bad.code, 2);
+  assert.equal(bad.calls.length, 0);
+  const refused = await run(['task', 'hold', 'p1', '9'], () => ({ status: 404, body: { error: 'there is no task by that number on this project' } }));
+  assert.equal(refused.code, 1);
+  assert.match(refused.err, /no task by that number/);
+  // The list marks held work, from the task's own hold or its paused project; a plain task is the control.
+  const list = await run(['task', 'list', 'p1'], () => ({ body: { tasks: [
+    { number: 1, sentence: 'held itself', onHold: true },
+    { number: 2, sentence: 'in a paused project', projectPaused: true },
+    { number: 3, sentence: 'real work' },
+    { number: 4, sentence: 'finished while held', onHold: true, isClosed: true },
+  ] } }));
+  assert.equal(list.code, 0, list.err);
+  const lines = list.out.split('\n');
+  assert.ok(lines.includes('[1] [on hold] held itself'), list.out);
+  assert.ok(lines.includes('[2] [on hold] in a paused project'), list.out);
+  assert.ok(lines.includes('[3] real work'), 'control: a task not held is marked: ' + list.out);
+  assert.ok(lines.includes('[4] [done] finished while held'), list.out);
+  // Help: --clear stays under task built, where it belongs.
+  const help = await run(['task']);
+  const h = help.err.split('\n');
+  const at = h.findIndex((l) => /kosmos task built /.test(l));
+  assert.ok(at >= 0 && /--clear/.test(h[at + 1]), help.err);
 });
 
 test('room reopen: POST .../room/reopen with no body and no agent token; 2xx -> 0, 404 -> 1, other -> 1 with the board\'s because', async () => {

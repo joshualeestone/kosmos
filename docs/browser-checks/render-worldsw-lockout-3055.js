@@ -52,6 +52,8 @@ const WORLDS = { worlds: [{ id: 'default', name: 'Kosmos 1' }, { id: 'w2', name:
   }
   const drive = async (scenario) => {
     const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+    // kosmos#4815: several Kosmoses are switched off by default; this check pins the kept structure, so it turns them on.
+    await page.addInitScript(() => { try { localStorage.setItem('kosmos.multiKosmos', '1'); } catch {} });
     await page.goto('file://' + PAGE);
     const out = await page.evaluate(async (s) => {
       try { localStorage.removeItem('kosmos-worlds-last-known'); } catch { /* private window */ }

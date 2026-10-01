@@ -143,16 +143,19 @@ test('the button they pressed never goes silent, on any refusal path', () => {
      pjs-save has THREE (the description pre-check, the description engine-refusal,
      and #1994's parent engine-refusal); pj-create has FOUR (#2606 added the name
      empty pre-check and the name-rule catch alongside the description pre-check and
-     description engine-refusal). A new field-refusal path must add its own pointer
-     here, or the button it was pressed under says nothing when the scroll does not land. */
+     description engine-refusal); #4583 added two more to pj-create (the "done looks like" pre-check and its
+     engine refusal), so SIX. A new field-refusal path must add its own pointer
+     here, or the button it was pressed under says nothing when the scroll does not land.
+     The window is 8000 characters: at 6000 it stopped short of #4583's two sites (measured at 6354 and 7418 from the
+     anchor), so the count still read 4 and could not see them. No other handler's pointer is within 20000. */
   const paths = [
     ["getElementById('pjs-save').addEventListener", 'Nothing saved.', 3],
-    ["getElementById('pj-create').addEventListener", 'Nothing added.', 4],
+    ["getElementById('pj-create').addEventListener", 'Nothing added.', 6],
   ];
   for (const [anchor, expected, count] of paths) {
     const at = PAGE.indexOf(anchor);
     assert.notEqual(at, -1, anchor + ' is gone');
-    const body = PAGE.slice(at, at + 6000);
+    const body = PAGE.slice(at, at + 8000);
     const pointers = (body.match(/There is something to fix above\./g) || []).length;
     assert.equal(pointers, count,
       anchor + ': every field-refusal path must say something at the button');
@@ -162,12 +165,13 @@ test('the button they pressed never goes silent, on any refusal path', () => {
 
 test('the pointer never carries the reason, so the two cannot disagree', () => {
   /* The specific reason lives at the field. If the button line also spelled it
-     out, they would be two copies of one fact and would drift. Seven sites now:
+     out, they would be two copies of one fact and would drift. Nine sites now (#4583 added pj-create's two "done"
+     sites to the seven):
      pjs-save x3 (desc pre-check, desc refusal, #1994 parent refusal) + pj-create x4
      (#2606 added the name empty pre-check and the name-refusal catch, each also
      pointing at the button, alongside the desc pre-check and desc refusal). */
   const pointers = PAGE.match(/'Nothing (saved|added)\. There is something to fix above\.'/g) || [];
-  assert.equal(pointers.length, 7, 'the pointer sites changed shape');
+  assert.equal(pointers.length, 9, 'the pointer sites changed shape');
   for (const p of pointers) {
     assert.doesNotMatch(p, /\d/, 'the pointer names a number, which is a second copy of the cap');
     assert.doesNotMatch(p, /description/i, 'the pointer names the field, which is a second copy of the reason');

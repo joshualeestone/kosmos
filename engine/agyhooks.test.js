@@ -106,7 +106,7 @@ test('#4043: run as agy runs it, the bridge answers {} first and exits 0 fast ev
   const start = Date.now();
   const r = spawnSync(process.execPath, [BRIDGE_FILE, 'Stop'], {
     input: JSON.stringify({ conversationId: 'x', fullyIdle: true, error: '' }),
-    env: { ...process.env, KOSMOS_PORT: '9', TMUX_PANE: '%stdout-' + process.pid }, // nothing listens on port 9
+    env: { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_PORT: '9', TMUX_PANE: '%stdout-' + process.pid }, // nothing listens on port 9
     encoding: 'utf8',
     timeout: 15000,
   });
@@ -135,7 +135,8 @@ test('#4043: a board that never answers costs at most the bridge\'s own budget',
   const server = http.createServer(() => { /* never answer */ });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
-  const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%slow-' + process.pid };
+  // #4796: a data root of its own, so the bridge reads no live board token.
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_PORT: String(port), TMUX_PANE: '%slow-' + process.pid };
   try { fs.rmSync(bridge.markerFile(env), { force: true }); } catch { /* none */ }
   const { spawn } = require('node:child_process');
   const start = Date.now();
@@ -191,7 +192,7 @@ test('#4043: the command-line entry always exits 0 and says why on stderr when i
 test('#4043: run for an ask_question, the bridge answers {"decision":"allow"}, exactly as agy reads it', () => {
   const r = spawnSync(process.execPath, [BRIDGE_FILE, 'PreToolUse'], {
     input: JSON.stringify({ toolCall: { name: 'ask_question', args: { questions: [{ question: 'Go?' }] } } }),
-    env: { ...process.env, KOSMOS_PORT: '9', TMUX_PANE: '%pretool-' + process.pid },
+    env: { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_PORT: '9', TMUX_PANE: '%pretool-' + process.pid },
     encoding: 'utf8', timeout: 15000,
   });
   try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: '9', TMUX_PANE: '%pretool-' + process.pid }), { force: true }); } catch { /* none */ }
@@ -217,7 +218,8 @@ test('#4043: agents without a pane never share one throttle marker', () => {
 function driveBridge(port, eventName, payload, pane) {
   const { spawn } = require('node:child_process');
   return new Promise((resolve, reject) => {
-    const env = { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: pane };
+    // #4796: a data root of its own, so the bridge reads no live board token.
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_PORT: String(port), TMUX_PANE: pane };
     delete env.KOSMOS_AGENT_TOKEN;
     const child = spawn(process.execPath, [BRIDGE_FILE, eventName], { env, stdio: ['pipe', 'ignore', 'ignore'] });
     child.on('error', reject);
@@ -263,6 +265,112 @@ test('#4043: what the board actually receives: the route, state, text, auto and 
   }
   assert.equal(seen[1].body.text, 'Ship it? / Which env?', 'the question the person sees is agy\'s own');
   assert.equal(seen[3].body.text, 'The turn ended with an error: quota exceeded');
+});
+
+/* The merge of main into #4588 put `waiting` (#4569) and `until` (#4588) on one buildBody call: each must reach the
+   board in its own field. Dropping either one at the send site reds this test or the next. */
+test('#4569 + #4588: the real bridge carries a Muse queue count to the board as waiting, with no until', async () => {
+  const http = require('node:http');
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => { body += d; });
+    req.on('end', () => {
+      seen.push(JSON.parse(body));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"recorded":true}');
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  const pane = '%wait-' + process.pid;
+  try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: String(port), TMUX_PANE: pane }), { force: true }); } catch { /* none */ }
+  try {
+    await driveBridge(port, 'PreInvocation', { kosmosWaiting: { n: 4, yours: 1 } }, pane);
+  } finally {
+    server.closeAllConnections(); server.close();
+    try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: String(port), TMUX_PANE: pane }), { force: true }); } catch { /* none */ }
+  }
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].state, 'working');
+  assert.deepEqual(seen[0].waiting, { n: 4, yours: 1 }, 'the queue count did not reach the board');
+  assert.equal(seen[0].until, '', 'a queue count must not travel as a reset time');
+});
+
+test('#4588 (review 7): the real bridge carries a quota Stop\'s reset to the board as a strict ISO until', async () => {
+  const http = require('node:http');
+  const status = require('./status');
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => { body += d; });
+    req.on('end', () => {
+      seen.push(JSON.parse(body));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"recorded":true}');
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  const pane = '%quota-' + process.pid;
+  try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: String(port), TMUX_PANE: pane }), { force: true }); } catch { /* none */ }
+  const before = Date.now();
+  try {
+    await driveBridge(port, 'Stop', { fullyIdle: true, error: 'API error: RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 24m54s.' }, pane);
+    await driveBridge(port, 'Stop', { fullyIdle: true, error: 'boom' }, pane);   // CONTROL: an ordinary error
+  } finally {
+    server.closeAllConnections(); server.close();
+    try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: String(port), TMUX_PANE: pane }), { force: true }); } catch { /* none */ }
+  }
+  assert.equal(seen.length, 2);
+  const [quota, plain] = seen;
+  assert.match(quota.until, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, 'the reset did not reach the board: ' + JSON.stringify(quota));
+  const wait = Date.parse(quota.until) - before;
+  assert.ok(wait >= (24 * 60 + 54) * 1000 && wait < (24 * 60 + 54) * 1000 + 60000, 'until is not the reset: ' + quota.until);
+  assert.ok(quota.text.startsWith(status.QUOTA_REPORT_PREFIX), 'the board reads a pause only after this sentence: ' + quota.text);
+  assert.equal(plain.until, '', 'CONTROL: an ordinary error carries no reset');
+});
+
+/* The merge of main's #4618 into #4588 put `final` (#4612, a Muse agent's answer to a DM) and `until` (#4588, the
+   quota reset) on one buildBody call and one Stop. A Muse Stop that carries an answer AND a quota error must post both:
+   the answer so the DM shows it, the reset so the card shows the pause. Swapping the two arguments at the send, dropping
+   either, or a quota branch that returns without the answer each reds this test. */
+test('#4612 + #4588: the real bridge posts a Muse answer and a quota reset from one Stop, each in its own field', async () => {
+  const http = require('node:http');
+  const status = require('./status');
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => { body += d; });
+    req.on('end', () => {
+      seen.push(JSON.parse(body));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"recorded":true}');
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  const pane = '%final-' + process.pid;
+  const answer = { text: 'Here is the summary you asked for.', startedAt: '2026-09-30T17:00:00.000Z' };
+  try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: String(port), TMUX_PANE: pane }), { force: true }); } catch { /* none */ }
+  const before = Date.now();
+  try {
+    await driveBridge(port, 'Stop', { fullyIdle: true, kosmosFinal: answer, error: 'API error: RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 24m54s.' }, pane);
+    await driveBridge(port, 'Stop', { fullyIdle: true, kosmosFinal: answer }, pane);   // CONTROL: an answer, no quota
+  } finally {
+    server.closeAllConnections(); server.close();
+    try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: String(port), TMUX_PANE: pane }), { force: true }); } catch { /* none */ }
+  }
+  assert.equal(seen.length, 2);
+  const [both, plain] = seen;
+  assert.equal(both.state, 'idle');
+  assert.deepEqual(both.final, answer, 'the quota stop swallowed the Muse answer: ' + JSON.stringify(both));
+  assert.match(both.until, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, 'the reset did not reach the board: ' + JSON.stringify(both));
+  const wait = Date.parse(both.until) - before;
+  assert.ok(wait >= (24 * 60 + 54) * 1000 && wait < (24 * 60 + 54) * 1000 + 60000, 'until is not the reset: ' + both.until);
+  assert.ok(both.text.startsWith(status.QUOTA_REPORT_PREFIX), both.text);
+  assert.deepEqual(plain.final, answer, 'CONTROL: an answer alone still reaches the board');
+  assert.equal(plain.until, '', 'CONTROL: an answer is never sent as a reset time');
 });
 
 test('#4043: the ask_question hooks are written only for an agy that handles them (1.1.9+); older or unknown gets working/idle only', () => {
@@ -444,7 +552,7 @@ test('#4043 review 1: an unexpected tool, or no payload, reaching the bridge is 
   for (const [label, input] of [['run_command', JSON.stringify({ toolCall: { name: 'run_command', args: { CommandLine: 'rm -rf x' } } })],
     ['no payload', ''], ['garbage', 'not json']]) {
     const r = spawnSync(process.execPath, [BRIDGE_FILE, 'PreToolUse'], {
-      input, env: { ...process.env, KOSMOS_PORT: '9', TMUX_PANE: '%unexp-' + process.pid }, encoding: 'utf8', timeout: 15000,
+      input, env: { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_PORT: '9', TMUX_PANE: '%unexp-' + process.pid }, encoding: 'utf8', timeout: 15000,
     });
     try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: '9', TMUX_PANE: '%unexp-' + process.pid }), { force: true }); } catch { /* none */ }
     assert.equal(r.status, 0, label);
@@ -458,7 +566,7 @@ test('#4043: the bridge\'s REAL PreToolUse answer lets agy run ask_question (so 
   /* The bytes agy actually reads: the bridge run as agy runs it, not answerFor() called in-process. */
   const r = spawnSync(process.execPath, [BRIDGE_FILE, 'PreToolUse'], {
     input: JSON.stringify({ toolCall: { name: 'ask_question', args: { questions: [{ question: 'Red or blue?' }] } } }),
-    env: { ...process.env, KOSMOS_PORT: '9', TMUX_PANE: '%contract-' + process.pid },
+    env: { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_PORT: '9', TMUX_PANE: '%contract-' + process.pid },
     encoding: 'utf8', timeout: 15000,
   });
   try { fs.rmSync(bridge.markerFile({ KOSMOS_PORT: '9', TMUX_PANE: '%contract-' + process.pid }), { force: true }); } catch { /* none */ }
@@ -475,3 +583,64 @@ test('#4353 shUnquoteAll inverts shQuote, including a quote and a space in a pat
   assert.deepEqual(agyhooks.shUnquoteAll(cmd), paths);
   assert.deepEqual(agyhooks.shUnquoteAll('node bridge Stop'), [], 'unquoted words are not paths');
 });
+
+/* ---- #4588: Google's shared Antigravity quota ---- */
+const QUOTA = 'API error: RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 24m54s.';
+
+test('#4588: quotaResetMs reads the reset from the quota error, in every unit mix', () => {
+  assert.equal(bridge.quotaResetMs(QUOTA), (24 * 60 + 54) * 1000);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED ... Individual quota reached. Resets in 2h50m.'), (2 * 3600 + 50 * 60) * 1000);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED ... quota reached ... Resets in 37m'), 37 * 60 * 1000);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED ... quota reached ... Resets in 1h0m5s'), 3605 * 1000);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED ... quota reached ... Resets in 9s'), 9000);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED ... quota reached ... Resets in 3d4h'), (3 * 86400 + 4 * 3600) * 1000, 'days (review 5)');
+});
+
+test('#4588: quotaResetMs is null for anything that is not the quota with a reset', () => {
+  // CONTROL arms: another error, the quota with no reset named, a reset with no quota, and junk.
+  assert.equal(bridge.quotaResetMs('API error: INTERNAL (code 500)'), null);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED (code 429): Individual quota reached.'), null);
+  assert.equal(bridge.quotaResetMs('Something else. Resets in 5m.'), null);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED quota reached Resets in soon'), null);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED quota reached Resets in 0s'), null);
+  assert.equal(bridge.quotaResetMs('RESOURCE_EXHAUSTED quota reached Resets in 500ms'), null, 'the m of ms is not minutes (review 1)');
+  assert.equal(bridge.quotaResetMs(undefined), null);
+  // Review 4: a RESOURCE_EXHAUSTED that is not the quota (a per-minute limit with its own reset) is not the account's
+  // shared quota being used up.
+  assert.equal(bridge.quotaResetMs('API error: RESOURCE_EXHAUSTED (code 429): Quota exceeded for metric: generate_content_requests, limit: 60 per minute. Resets in 30s.'), null, "Google's real per-minute wording says Quota too (review 5)");
+});
+
+test('#4588: a quota stop is still idle, and carries the reset time in until', () => {
+  const now = Date.parse('2026-09-28T21:47:00Z');
+  const r = bridge.reportFor('Stop', { fullyIdle: true, error: QUOTA }, now);
+  assert.equal(r.state, 'idle', 'the loop has ended: idle, never an automatic blocked (#2456 would hold it past the resume)');
+  assert.equal(r.until, new Date(now + (24 * 60 + 54) * 1000).toISOString());
+  assert.match(r.text, /shared Antigravity quota/);
+  assert.match(r.text, /Resets in 24m54s/, "Google's own words are kept");
+  // CONTROL: any other errored stop keeps its exact old shape (no until at all).
+  assert.deepEqual(bridge.reportFor('Stop', { error: 'boom' }, now), { state: 'idle', text: 'The turn ended with an error: boom' });
+});
+
+test('#4588: the report body sends until only when there is one', () => {
+  // The sixth argument: the fourth is #4569's `waiting` and the fifth #4612's `final`; a quota stop carries no waiting.
+  const b = bridge.buildBody('idle', 'x', {}, undefined, undefined, '2026-09-28T22:11:54.000Z');
+  assert.equal(b.until, '2026-09-28T22:11:54.000Z');
+  assert.equal('waiting' in b, false, 'the reset was taken for a queue count');
+  assert.equal('final' in b, false, 'the reset was taken for an answer');
+  // CONTROL (#4612 kept): an answer in the fifth place still travels as final, and alone it sets no until.
+  const f = bridge.buildBody('idle', '', {}, null, { text: 'done', startedAt: '2026-09-29T17:00:00.000Z' });
+  assert.deepEqual(f.final, { text: 'done', startedAt: '2026-09-29T17:00:00.000Z' });
+  assert.equal(f.until, '');
+  assert.equal(bridge.buildBody('idle', 'x', {}).until, '');
+  // CONTROL (#4569 kept): a queue count still travels, and alone it sets no until.
+  const w = bridge.buildBody('working', '', {}, { n: 3, yours: 1 });
+  assert.deepEqual(w.waiting, { n: 3, yours: 1 });
+  assert.equal(w.until, '');
+});
+
+test('#4588: the bridge writes the exact sentence the board keys on (status.QUOTA_REPORT_PREFIX)', () => {
+  const r = bridge.reportFor('Stop', { error: QUOTA }, Date.parse('2026-09-28T21:47:00Z'));
+  assert.ok(r.text.startsWith(require('./status').QUOTA_REPORT_PREFIX), r.text);
+  assert.match(r.until, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/, 'the strict ISO form status.js requires');
+});
+

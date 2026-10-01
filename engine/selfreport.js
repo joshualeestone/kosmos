@@ -141,6 +141,22 @@ function waitingOf(state, w) {
   return { n, yours };
 }
 
+/* #4612: a turn answer's text with control characters (but newline and tab) removed, as finalOf stores it.
+   Exported so a caller that masks the text (#4733, the setup guide's answer) masks what will be stored:
+   masking first would miss a secret split by one of these characters, which this then joins back. */
+function finalTextClean(text) {
+  return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '');
+}
+
+/* #4612: { text, startedAt } on an idle or working report, text 1..4000 characters (control characters but newline
+   and tab removed), startedAt a time that parses; else undefined (not written). */
+function finalOf(state, f) {
+  if ((state !== 'idle' && state !== 'working') || !f || typeof f !== 'object' || typeof f.text !== 'string' || typeof f.startedAt !== 'string') return undefined;
+  if (!Number.isFinite(Date.parse(f.startedAt))) return undefined;
+  const text = Array.from(finalTextClean(f.text).trim()).slice(0, 4000).join('');   // characters, not UTF-16 units
+  return text ? { text, startedAt: f.startedAt } : undefined;
+}
+
 function record(sessionName, entry) {
   let file;
   try { file = fileFor(sessionName); } catch {
@@ -275,6 +291,11 @@ function record(sessionName, entry) {
        from these two numbers and fixed words only (no agent text reaches it), and it shows on the reporter's own
        card alone, so a false one is no worse than a false "working". */
     waiting: waitingOf(state, entry.waiting),
+    /* #4612: a turn's answer, { text, startedAt }, on an idle or working report. The Muse front sends it; any agent's
+       own report could too, but it shows only under that agent's own DM, escaped, and only when the person's latest
+       message there is unanswered and startedAt is not before it (server.js), so a false one says nothing the agent
+       could not already post there itself. */
+    final: finalOf(state, entry.final),
     /* #570: WHICH RUN of this agent said it. Two live runs of one agent used to
        interleave into this file with nothing marking two actors, so a pair of
        them disagreeing read as one agent changing its mind. The route fills
@@ -379,6 +400,10 @@ function read(sessionName) {
      report clears it, since nothing from a previous run may leak into this
      one. */
   let project = null;
+  /* #4612 review round 3: the latest turn answer THIS RUN, carried across the reports after it (a room turn that ran
+     next must not make the DM forget what the agent answered), within the TAIL_BYTES this read looks at. A started
+     or stopped report forgets it, like the project. */
+  let final = null;
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let row;
@@ -398,7 +423,8 @@ function read(sessionName) {
        start, compaction and resume included, so after each the questions go
        unattributed until the agent names a project again. A missed light,
        never a wrong one (the direction ruled 2026-08-24 23:05). */
-    if (row.state === 'stopped' || row.state === 'started') project = null;
+    if (row.state === 'stopped' || row.state === 'started') { project = null; final = null; }
+    { const f = finalOf(row.state, row.final); if (f) final = f; }
     // read AFTER the clear, so `started --project X` starts the run on X.
     if (typeof row.project === 'string' && row.project) project = row.project;
   }
@@ -407,6 +433,7 @@ function read(sessionName) {
     found: true,
     state: latest.state,
     waiting: waitingOf(latest.state, latest.waiting) || null,   // #4569 fix 4
+    final,   // #4612: the run's latest turn answer (see the loop above)
     because: latest.because || null,
     on: latest.on || null,
     owner: latest.owner || null,
@@ -431,4 +458,4 @@ function read(sessionName) {
   };
 }
 
-module.exports = { STATES, WAITING_ON_A_PERSON, DIR, NO_READING, TAIL_BYTES, record, read, fileFor, isAutoPermissionWait };
+module.exports = { STATES, WAITING_ON_A_PERSON, DIR, NO_READING, TAIL_BYTES, record, read, fileFor, isAutoPermissionWait, finalTextClean };

@@ -86,7 +86,11 @@
 # belongs to other machinery (on PermissionRequest it is the DECISION
 # channel), and because the SessionStart sentence has already said it.
 #
-# FAIL-SAFE: a reporting bug must never break an agent. Every path exits 0.
+# FAIL-SAFE: a reporting bug must never break an agent. Every path exits 0,
+# with ONE deliberate exception (#4671): the kill-all guard below exits 2 on a
+# PreToolUse that would stop every process the person owns, which blocks
+# that one tool call. It matches only those shapes, and a failure inside it
+# falls through to the normal, non-blocking path.
 #
 # THROTTLE: PreToolUse on a busy agent fires constantly. A per-pane marker
 # keeps the working heartbeat to one line per 60s; state CHANGES always
@@ -148,6 +152,8 @@ KOSMOS="$(resolve_kosmos)"
 
 JQ="$(command -v jq 2>/dev/null || true)"
 if [ -z "$JQ" ] && [ -f /opt/homebrew/bin/jq ] && [ -x /opt/homebrew/bin/jq ]; then JQ=/opt/homebrew/bin/jq; fi
+# #4671: tests drive the no-jq path on a Mac that has jq (a clean Mac has none).
+if [ -n "${KOSMOS_REPORT_HOOK_NO_JQ:-}" ]; then JQ=''; fi
 
 INPUT=$(cat 2>/dev/null || true)
 if [ -n "$JQ" ]; then
@@ -156,7 +162,7 @@ else
   # No jq on this Mac: the event name is still recoverable with sed, and a
   # clean Mac is exactly the machine this install targets. Tool names are
   # nice-to-have and degrade to "a tool" below.
-  EVENT=$(printf '%s' "$INPUT" | sed -n 's/.*"hook_event_name"[[:space:]]*:[[:space:]]*"\([A-Za-z]*\)".*/\1/p' | head -1)
+  EVENT=$(printf '%s' "$INPUT" | LC_ALL=C sed -n 's/.*"hook_event_name"[[:space:]]*:[[:space:]]*"\([A-Za-z]*\)".*/\1/p' | head -1)
 fi
 [ -n "$EVENT" ] || exit 0
 
@@ -164,6 +170,125 @@ json_field() { # $1 jq path, $2 sed key fallback
   if [ -n "$JQ" ]; then printf '%s' "$INPUT" | "$JQ" -r "$1 // empty" 2>/dev/null
   else printf '%s' "$INPUT" | sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1; fi
 }
+
+# --- #4671: never let an agent stop every process the person owns ------------
+# On 2026-09-29 a review subagent on a Kosmos Mac ran a throwaway node script that
+# sent SIGKILL to process id minus one, which means every process this user may
+# signal. It ended the person's whole login session: every agent, the board, the
+# Kosmos app, their open apps. This blocks a tool call (exit 2, the reason on
+# stderr) whose command or written code holds one of these LITERAL shapes:
+#   - a shell kill whose target is minus one (also quoted, or fed to xargs);
+#   - code sending a signal to minus one (node, Python, C, Ruby, Perl, an argv array);
+#   - pkill or killall limited only by a user (-u/-U, no name or pattern), or
+#     with a match-everything pattern; a pgrep like that in a text that also kills;
+#   - pkill/killall of loginwindow or WindowServer (the session, by name);
+#   - launchctl bootout of a whole gui/user/login domain, or its reboot verb.
+# A redirect or trailing flags after the command do not hide it.
+# Allowed: a named pid, SIGHUP to one pid, a group kill, kill 0, pkill/killall by
+# name or pattern (also with -u), signal 0 (it sends nothing), bootout of one service.
+# 🛑 IT DOES NOT STOP THE 2026-09-29 SCRIPT ITSELF: that one took the minus one
+# from a list at run time. No text match can see a computed pid;
+# report-hook-killguard-4671.test.js pins that as a known gap.
+# 🛑 IT IS A SEATBELT, NOT A SANDBOX. Shell has more ways to say "everything" than
+# a text match can list. Known to pass: `ps -U me | xargs kill`, `pkill -f '.+'`,
+# `printf '%s' <minus one> | xargs kill`, Ruby's `Process.kill :KILL, <minus one>`
+# without parentheses, pkill with long flags (--signal), and any shape not listed
+# above. Known to be refused although harmless: `pkill -n -u me`, `killall -s -u
+# me` (a dry run), a user-wide pgrep that is filtered (| grep x | xargs kill) or
+# sits beside an unrelated kill in the same text, a kill whose operands run on
+# past a tab, and a mention inside a command
+# (`git commit -m`, `grep`), which the message tells the agent to reword.
+# Reads: with jq, only what runs or is written (tool_input command, cmd, script,
+# code, args, content, new_string, new_source, edits[].new_string), for ANY tool;
+# the written content of a .md or .markdown file is not checked (a document is not
+# run; a .txt can be run with sh, so it is), but a runnable field always is.
+# Without jq (most installs), the whole input minus old_string, description and
+# prompt (and, for a .md file, the written content), escapes decoded by perl:
+# wider than jq (a mention in another field can be refused; \uXXXX escapes are
+# not decoded). A hook timeout fails open: the call runs.
+# The operator can turn it off for an agent by starting it with
+# KOSMOS_KILL_GUARD=off; an agent cannot change its own hook's environment.
+# Not guarded at all: Windows agents (the node hook, engine/kosmos-report-hook.js)
+# and Codex, Gemini and Grok agents, which have no such hook.
+_kg_text() { # what the guard reads
+  if [ -n "$JQ" ]; then
+    printf '%s' "$INPUT" | "$JQ" -r '
+      (.tool_input | objects) as $t
+      | (($t.file_path // $t.notebook_path // "") | if type == "string" then test("\\.(md|markdown)$"; "i") else false end) as $doc
+      | [ $t.command, $t.cmd, $t.script, $t.code, ($t.args | if type == "array" then map(strings) | join(" ") else . end) ]
+        + (if $doc then [] else [ $t.content, $t.new_string, $t.new_source,
+                                   ($t.edits | arrays | .[] | objects | .new_string) ] end)
+      | map(strings) | join("\n")' 2>/dev/null
+  else
+    # No jq (most installs: a clean Mac has none). The same fields as the jq branch, near enough: the
+    # whole input minus the string values of "old_string" (text being REPLACED is not written, so an agent
+    # can repair a dangerous line), "description" and "prompt" (words about a call, not the call), and,
+    # for a .md/.markdown file_path, "content" and "new_string" too. Then its JSON string escapes are
+    # decoded (\\ first, via a placeholder, then \n \r \t \"), so a multi-line command reads as lines here
+    # exactly as it does with jq. Both steps are linear: /usr/bin/perl (every Mac ships it). awk's gsub
+    # is quadratic on one long line (a 1.4 MB Write took 3.3 s against the hook's 15 s timeout), so awk
+    # is only the fallback where perl is missing, and then for inputs under 256 KB; above that, raw.
+    local _s='"([^"\\]|\\.)*"' _drop='old_string|description|prompt' _raw
+    if printf '%s' "$INPUT" | LC_ALL=C grep -Eiq '"(file_path|notebook_path)"[[:space:]]*:[[:space:]]*"[^"]*\.(md|markdown)"'; then
+      _drop="$_drop|content|new_string|new_source"
+    fi
+    # A to-do list's items are words about work, not work (jq never reads them either).
+    if printf '%s' "$INPUT" | LC_ALL=C grep -Eq '"todos"[[:space:]]*:'; then _drop="$_drop|content|activeForm"; fi
+    _raw="$(printf '%s' "$INPUT" | LC_ALL=C sed -E "s/\"($_drop)\"[[:space:]]*:[[:space:]]*$_s//g" 2>/dev/null)" || _raw="$INPUT"
+    if [ -f /usr/bin/perl ] && [ -x /usr/bin/perl ] && [ -z "${KOSMOS_REPORT_HOOK_NO_PERL:-}" ]; then   # the switch: tests drive the awk fallback
+      printf '%s' "$_raw" | /usr/bin/perl -pe 's/\\\\/\x01/g; s/\\n/\n/g; s/\\r/\r/g; s/\\t/\t/g; s/\\"/"/g; s/\x01/\\/g' 2>/dev/null \
+        && return
+    fi
+    if [ "${#_raw}" -gt 262144 ]; then printf '%s' "$_raw"; return; fi
+    printf '%s' "$_raw" | awk '{ gsub(/\\\\/, "\001"); gsub(/\\n/, "\n"); gsub(/\\r/, "\r"); gsub(/\\t/, "\t");
+                                 gsub(/\\"/, "\""); gsub(/\001/, "\\"); print }' 2>/dev/null
+  fi
+}
+_kill_all_reason() { # $1 the text; prints the reason and succeeds when it would stop everything
+  local B='(^|[^A-Za-z0-9_.-]|\\[nrt])' SP='([[:space:]]|\\t)+' Q="(\\\\?[\"'])?"
+  # E: nothing after the operand but the end of the command. A double quote counts only where a raw JSON
+  # string ends (followed by , or }), so `pkill -u "$USER" node` is not read as ending at "$USER".
+  local T="([[:space:]]|\$|\\\\[nrt]|[;&|)<>\`\"'\\\\])" E="([[:space:]]|\\\\[rt])*(\$|\\\\[rn]|[;&|)]|[0-9]*[<>]|\"[,}])"
+  # FL: any flags before the one that matters (a signal like -TERM or -9 included); the user flag itself is
+  # lowercase letters then u/U, so a signal NAME such as -HUP or -USR1 is never read as a user flag.
+  local NEG1="${Q}-1${Q}" FL="(-[A-Za-z0-9]+${SP})*" NZ='([^0[:space:]]|0[^[:space:])])'
+  # OP: one user or pattern operand, quoted or not, or a $( ... ). Note `(${SP})?`, never `${SP}?`:
+  # that expands to `(...)+?`, which POSIX ERE leaves undefined and BSD grep reads as "at least one".
+  local OP="${Q}(\\\$\\([^)]*\\)|[^[:space:]\\\;&|)\"'(-][^[:space:]\\\;&|)\"'(]*)${Q}"
+  local EF="((${SP})-[A-Za-z0-9]+)*${E}"   # trailing flags only (killall -u me -v still kills everything)
+  # A signal option other than 0: signal 0 sends nothing, so `kill -0 -1` is left alone.
+  local SIG="(-s${SP}[A-Za-z1-9][A-Za-z0-9]*|-n${SP}[1-9][0-9]*|--|-([A-Za-mo-rt-z1-9][A-Za-z0-9]*|[sn][A-Za-z0-9]+))"
+  local shkill="${B}kill${SP}(${SIG}${SP})+([^-[:space:];&|][^[:space:];&|]*${SP})*${NEG1}${T}"
+  local xkill="${B}(echo|printf)${SP}(--${SP})?${NEG1}${T}[^;&\\]*xargs[^;&\\]*${B}kill|xargs[^|;]*${B}kill[^|;]*<<<(${SP})?${NEG1}"
+  local code="((${B}|(globalThis|global|window|self)\\.)([Pp]rocess|os|syscall|unix|libc|posix)|require\\([^)]*\\))(\\.|::)[Kk]ill(pg)?[[:space:]]*\\([[:space:]]*-[[:space:]]*1[[:space:]]*(\\)|,[[:space:]]*${NZ})|${B}kill[[:space:]]*\\([[:space:]]*-1[[:space:]]*,[[:space:]]*${NZ}|${B}Process\\.kill[[:space:]]*\\([^,()]+,[[:space:]]*-1[[:space:]]*\\)|${B}kill(${SP}|[[:space:]]*\\()[-A-Za-z0-9\"'\\\\]+[[:space:]]*(,|=>)[[:space:]]*-1([^0-9]|\$)"
+  local KW="\\\\?[\"']([^\"',]*/)?kill\\\\?[\"']" M1="\\\\?[\"']-1\\\\?[\"']"
+  local argv="\\[[[:space:]]*${KW}[[:space:]]*,[^]]*${M1}|${KW}[[:space:]]*,[[:space:]]*\\[[^]]*${M1}"   # an argv, not any object
+  local user="${B}(pkill|killall)${SP}${FL}-[a-z]*[uU](${SP})?${OP}${EF}"
+  local every="${B}(pkill|killall)${SP}${FL}(-m${SP})?(\\\\?[\"'](\\.(\\*)?|\\^)?\\\\?[\"']|\\.(\\*)?|\\^)${EF}"
+  # A pgrep limited only by a user (or matching everything) counts when the same text also holds a kill:
+  # the plumbing between them (a loop, a variable, $( ), xargs, backticks) is not modelled on purpose.
+  local pgall="${B}pgrep${SP}${FL}(-[a-z]*[uU](${SP})?${OP}|-[a-z]*f${SP}(\\\\?[\"'](\\.(\\*)?|\\^)?\\\\?[\"']|\\.(\\*)?|\\^))((${SP})-[A-Za-z0-9]+)*([[:space:]]|\\\\[rt])*(\$|\\\\[rn]|[;&|)\`]|[0-9]*[<>]|\"[,}])"
+  local kword="${B}(kill|xargs${SP}([^|;]*${SP})?kill)(${SP}|\$|[;&|)\`\"'])"
+  # Ending the session by name: the login window and the window server.
+  local sess="${B}(pkill|killall)${SP}${FL}${Q}(loginwindow|WindowServer)${Q}${T}"
+  local uid="(\\\$\\(id -u[^)]*\\)|\\\$\\{?UID\\}?|[0-9]+)"
+  local lctl="${B}launchctl${SP}(reboot|bootout${SP}${Q}(gui|user|login)/${Q}${uid}${Q}${E})"
+  local _t="$1"
+  if printf '%s' "$_t" | grep -Eq -- "$shkill|$xkill|$code|$argv"; then echo "a signal to process id -1 (every process you own)"
+  elif printf '%s' "$_t" | grep -Eq -- "$user|$every"; then echo "a kill that matches every process you own"
+  elif printf '%s' "$_t" | grep -Eq -- "$pgall" && printf '%s' "$_t" | grep -Eq -- "$kword"; then echo "a kill fed by a pgrep that matches every process you own"
+  elif printf '%s' "$_t" | grep -Eq -- "$sess"; then echo "a kill of the login window or window server (it ends your login session)"
+  elif printf '%s' "$_t" | grep -Eq -- "$lctl"; then echo "a launchctl command that ends your whole login session or the computer"
+  else return 1; fi
+}
+if [ "$EVENT" = PreToolUse ] && [ "${KOSMOS_KILL_GUARD:-}" != off ]; then
+  _KG_TEXT="$(_kg_text)"
+  if [ -n "$_KG_TEXT" ] && _KG_WHY="$(_kill_all_reason "$_KG_TEXT" 2>/dev/null)" && [ -n "$_KG_WHY" ]; then
+    printf 'Kosmos blocked this %s call: it contains %s. On this computer that ends the whole session of the person you work for: every agent, the Kosmos board, and their open apps (kosmos#4671). Stop only exact process ids you started yourself and checked. If you are only writing ABOUT such a command, reword it.\n' \
+      "$(json_field '.tool_name' 'tool_name')" "$_KG_WHY" >&2
+    exit 2
+  fi
+fi
 
 # --- #1099: what does a compaction actually send as `source`? ------------------
 # 🛑 ONE FIELD, AND THE NARROWNESS IS THE WHOLE DESIGN. #1058's guard reports
