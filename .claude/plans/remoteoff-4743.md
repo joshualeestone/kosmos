@@ -15,6 +15,11 @@ the coordinator marked off is cleared).
 while a refresh is already out is told when that refresh ends (review 3) (off: the stamp is set back past the
 off cadence so it is due). Without this the coordinator heard about an OFF flip up to 12 hours later, and the
 account page said "Answering now" all that time for a computer just switched off (review 2).
+Also in `engine/remote.js` (reviews 7-15): `flipPending` (a flip not told yet makes the next standing poll due
+at once); `turnOnAfterSignin` and `cancelledAfter` mark it without asking (inside the sign-in); `cancelledAfter`
+sets the stamp back after `fedSetStanding`; `forgetNow` clears it; test-only exports `turnOnAfterSigninForTests`,
+`cancelledAfterForTests`, `standingQuietForTests`, `standingOutForTests`. `engine/updating.js`: a comment names the
+off check-in as the one signed call that still goes out while off.
 
 ## Coordinator half (kosmos-relay branch remoteoff-4743)
 The account page reads a computer whose latest check-in said `on: false` as "Remote access off, last
@@ -157,6 +162,13 @@ remote-unreadable-4308, engine.reachable, fixture-discipline) pass.
   the shipping order.
 - Nits taken: a doubled comment on an export; the retry stamp's comment says s.on is the pre-ask value and a
   flip meanwhile re-asks.
+
+## Review 16 (opus, blind): 0 blockers, 3 warnings (2 duplicates), 4 nits
+- W, taken: the off stamp askAfterFlip sets back had no test (deleting it left 27 green). New test: an off flip
+  whose ask could not go out, then a restart (flags cleared), then an ordinary poll: it asks, off. Red without.
+- Duplicates: shipping order; forgetNow's clear untested (needs a full Forget in remote.test.js).
+- Nits taken: mac-standing's header no longer says switched-off returns null; updating.js names the off
+  check-in exception; a test comment no longer overstates; the Change section lists everything touched.
 
 ## Weakest premise
 That one bit about remote access is not something #4731 meant to keep back. #4731's comment says "no

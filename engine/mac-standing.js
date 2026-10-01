@@ -22,7 +22,7 @@
  * HARD gate -- this only keeps the UI honest.
  *
  * Best-effort by contract: fetchStanding() resolves to the current standing STRING,
- * or null when it cannot be determined (not enrolled/switched-off, the tunnel
+ * or null when it cannot be determined (not enrolled, the tunnel
  * failed, the coordinator refused, or an unreadable answer). A null NEVER changes
  * the cache upstream (remote.js keeps the last-known value), so a transient failure
  * cannot flicker a member off. A failure is no longer silent: see logFailure().

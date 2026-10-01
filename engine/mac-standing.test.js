@@ -494,7 +494,8 @@ test('#4743: saving the switch at the value it already has sends nothing', async
 test('#4743: a flip whose first ask was stopped is told by the next refresh, even after another writer stamped the standing fresh', async () => {
   await settleStanding();
   remote.resetForTests();   // the flip and in-flight flags start clear, whatever ran before
-  // The flip is made while the board is not enrolled (as during a sign-in), so its own ask stops early.
+  // The flip is made while the board is not enrolled, so its own ask stops early (a sign-in on an enrolled
+  // Mac stops it through busy() instead; the flag behaves the same either way).
   enroll(true);
   unenroll();
   fake.reset();
@@ -518,6 +519,29 @@ test('#4743: a flip whose first ask was stopped is told by the next refresh, eve
     fs.writeFileSync(remote.FILE, JSON.stringify(Object.assign(now, { standing_at: Date.now() })) + '\n');
     await remote.refreshStandingIfStale({ ttlMs: 0 });
     assert.equal(fake.calls().length, 0, 'control: with no flip pending, a fresh stamp was asked again');
+  } finally {
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+  }
+});
+
+test('#4743: an off flip whose ask could not go out is still told after a restart (the stamp it set back)', async () => {
+  await settleStanding();
+  remote.resetForTests();
+  enroll(true);
+  unenroll();                                   // its own ask stops early
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = 'ok:{"standing":"good"}';
+  try {
+    assert.equal(remote.setOn(false).ok, true);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(fake.calls().length, 0, 'precondition: nothing could be sent');
+    remote.resetForTests();                     // a restart: the in-memory flag is gone
+    for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(path.join(STATE, f), 'x');
+    await remote.refreshStandingIfStale({ ttlMs: 10 * 60 * 1000 });   // an ordinary poll after it
+    await waitForFakeCalls(fake, 1, 5000);
+    const off = fake.calls().find((c) => fake.flag(c, '--path') === '/v1/mac/standing');
+    assert.ok(off, 'after a restart the off waited for the whole off cadence (the stamp was not set back)');
+    assert.deepEqual(JSON.parse(off.stdin), { remote: { on: false } });
   } finally {
     delete process.env.FAKE_MAC_REQUEST_MODE;
   }
