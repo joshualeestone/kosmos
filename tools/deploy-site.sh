@@ -469,11 +469,13 @@ fi
 #
 # One read of a live file: sets _CSM_CODE (the HTTP status, 000 when the request never completed)
 # and _CSM_BODY. Only a 404 means absent; anything else that is not a 200 is "could not check".
+# Its temp, and the sidecar temp below, sit in the site-fetch helpers' _FETCH_TMP_P / _FETCH_TMP_S
+# while in flight, so the EXIT/INT/TERM trap removes them; nothing else is in flight at those points.
 _csm_read() {  # <url>
-  _csm_tmp=$(mktemp "${TMPDIR:-/tmp}/deploy-site-staged.XXXXXX") || { echo "deploy-site: could not make a temp file -- refusing (#4819)"; exit 1; }
-  _CSM_CODE=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o "$_csm_tmp" -w '%{http_code}' "$1" 2>/dev/null) || _CSM_CODE=000
+  _FETCH_TMP_P=$(mktemp "${TMPDIR:-/tmp}/deploy-site-staged.XXXXXX") || { _FETCH_TMP_P=""; echo "deploy-site: could not make a temp file -- refusing (#4819)"; exit 1; }
+  _CSM_CODE=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o "$_FETCH_TMP_P" -w '%{http_code}' "$1" 2>/dev/null) || _CSM_CODE=000
   case "$_CSM_CODE" in ''|*[!0-9]*) _CSM_CODE=000 ;; esac
-  _CSM_BODY=$(cat "$_csm_tmp" 2>/dev/null); rm -f "$_csm_tmp"
+  _CSM_BODY=$(cat "$_FETCH_TMP_P" 2>/dev/null); rm -f "$_FETCH_TMP_P"; _FETCH_TMP_P=""
 }
 _csm_version() { printf '%s' "$1" | sed -n 's/^kosmos-\(.*\)-arm64\.tar\.gz$/\1/p'; }
 # Runs BEFORE any artifact is fetched, so a stale checkout is refused before it downloads anything
@@ -498,7 +500,7 @@ check_staging_not_stale() {
         echo "deploy-site: KOSMOS_STAGING_ROLLBACK=$_csm_cv: replacing a live latest-staging.json that names no kosmos-<version>-arm64.tar.gz, on purpose (#4819)"
         return 0
       fi
-      echo "deploy-site: the live latest-staging.json differs from the committed one and names no kosmos-<version>-arm64.tar.gz -- refusing; which is newer cannot be told. To replace it with the committed staging $_csm_cv, re-run with KOSMOS_STAGING_ROLLBACK=$_csm_cv (#4819)"; exit 1
+      echo "deploy-site: the live latest-staging.json differs from the committed one and names no kosmos-<version>-arm64.tar.gz (it begins: $(printf '%s' "$_csm_live" | tr -cd '[:print:]' | cut -c1-120)) -- refusing; which is newer cannot be told. To replace it with the committed staging $_csm_cv, re-run with KOSMOS_STAGING_ROLLBACK=$_csm_cv (#4819)"; exit 1
     fi
     # Same version, different bytes (a same-version re-cut): which build is newer cannot be told.
     if [ "$_csm_lv" = "$_csm_cv" ] && [ "$(ptr_sha "$_csm_live")" != "$(ptr_sha "$_csm_ptr")" ]; then
@@ -541,9 +543,10 @@ carry_staged_mac() {
     # The bytes are the pointer's build. A missing or wrong local .sha256 is rewritten from them
     # (right after a cut, on the cut box, live may not serve the pair yet).
     if [ "$(awk '{print $1; exit}' "$SITE/dist/$_csm_art.sha256" 2>/dev/null)" != "$_csm_sha" ]; then
-      _csm_side=$(mktemp "$SITE/dist/.$_csm_art.sha256.XXXXXX") || { echo "deploy-site: could not make a temp file in $SITE/dist -- refusing (#4819)"; exit 1; }
-      printf '%s  %s\n' "$_csm_sha" "$_csm_art" > "$_csm_side" && mv -f "$_csm_side" "$SITE/dist/$_csm_art.sha256" \
-        || { rm -f "$_csm_side"; echo "deploy-site: could not write $SITE/dist/$_csm_art.sha256 -- refusing (#4819)"; exit 1; }
+      _FETCH_TMP_S=$(mktemp "$SITE/dist/.$_csm_art.sha256.XXXXXX") || { _FETCH_TMP_S=""; echo "deploy-site: could not make a temp file in $SITE/dist -- refusing (#4819)"; exit 1; }
+      printf '%s  %s\n' "$_csm_sha" "$_csm_art" > "$_FETCH_TMP_S" && mv -f "$_FETCH_TMP_S" "$SITE/dist/$_csm_art.sha256" \
+        || { rm -f "$_FETCH_TMP_S"; _FETCH_TMP_S=""; echo "deploy-site: could not write $SITE/dist/$_csm_art.sha256 -- refusing (#4819)"; exit 1; }
+      _FETCH_TMP_S=""
       echo "deploy-site: wrote $SITE/dist/$_csm_art.sha256 from the verified local bytes (#4819)"
     fi
     echo "deploy-site: carrying the staged Mac build $_csm_art from $SITE/dist/ (its bytes match the committed latest-staging.json) (#4819)"
@@ -567,7 +570,7 @@ carry_staged_mac() {
       echo "deploy-site: WARNING (#4819): latest-staging.json names $_csm_art, which is not newer than the prod build $ART, and neither $SITE/dist/ nor live has it. It is superseded, so nothing is carried for it; the next staging publish replaces the pointer." >&2
       return 0
     fi
-    [ -n "$_csm_served" ] || { echo "deploy-site: $SITE/dist/ has no copy of the staged Mac build $_csm_art and live does not serve $_csm_art.sha256 either -- refusing; deploying would drop the build latest-staging.json names (#4819)"; exit 1; }
+    [ -n "$_csm_served" ] || { echo "deploy-site: $SITE/dist/ has no copy of the staged Mac build $_csm_art and live does not serve $_csm_art.sha256 either -- refusing; deploying would drop the build latest-staging.json names. Deploy from the machine that cut it (its dist/ has the bytes), or after that machine has published it (#4819)"; exit 1; }
     [ "$_csm_served" = "$_csm_sha" ] || { echo "deploy-site: live serves a $_csm_art.sha256 (or a page that is not a checksum) that does not name the build the committed latest-staging.json names -- refusing before fetching, so $SITE/dist/ is untouched. If the build was re-cut under the same version and not yet deployed, deploy from the machine that cut it (its dist/ has the bytes) (#4819)"; exit 1; }
     fetch_verified "$HOST/dist/$_csm_art" "$SITE/dist/$_csm_art"
     # fetch_verified reads the served .sha256 again itself. Only if it changed between that read
