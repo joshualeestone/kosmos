@@ -21,7 +21,9 @@ staged WINDOWS build; it had no Mac twin.
     committed staging NEWER than live (a publish not yet deployed) proceeds. A deliberate staging
     ROLLBACK (publish-staging-pointer.sh to an older version, then this deploy, the recorded way to
     put staging back) passes only with `KOSMOS_STAGING_ROLLBACK=<the committed version>` (review 4;
-    publish-staging-pointer.sh now says so). A live pointer whose name does not parse refuses;
+    publish-staging-pointer.sh now says so). A live pointer whose name does not parse refuses,
+    and the same opt-in replaces it (review 6: otherwise a corrupt live pointer blocks every site
+    deploy). Unpublishing staging on purpose has no path through this script, and the refusal says so;
   - `carry_staged_mac`, run after the prod artifacts are fetched and before the export is built:
   - every live read records the HTTP status; only a 404 counts as absent, anything else that is not
     a 200 refuses as "could not read" (review 3: a network blip must not read as "not served", and
@@ -40,7 +42,7 @@ staged WINDOWS build; it had no Mac twin.
 - Post-deploy: `served_matches` on the pair, like the prod tarball, and the served
   `latest-staging.json` must equal the committed one (as the Windows staging pointer already is).
 - DRY RUN summary names the staged build when one was carried.
-- `tools/test-deploy-site-staged-mac-4819.sh` (23 checks), wired into `test:shell`; three end-to-end
+- `tools/test-deploy-site-staged-mac-4819.sh` (24 checks), wired into `test:shell`; end-to-end
   arms in `tools/test-deploy-site-promote.sh` that run the real script.
 
 ## Decided, and why
@@ -77,12 +79,12 @@ one's tarball and not see the served one. Today the Mac staging pointer is track
 statically (measured: 200 application/json from installkosmos.com).
 
 ## Tests
-- `bash tools/test-deploy-site-staged-mac-4819.sh`, 23 checks on the extracted block: nothing
+- `bash tools/test-deploy-site-staged-mac-4819.sh`, 24 checks on the extracted block: nothing
   committed; staged == prod; local copy carried (control); the incident (no local copy, live serves
   it); no copy anywhere refuses; wrong local bytes; local without its sidecar; live serving other
   bytes refuses before fetching; a refusal leaves the local copy byte-identical; superseded with no
   copy warns, superseded but served is carried, 9.9.10 over 9.9.9 is newer; live staging newer than
-  the checkout's refuses, the rollback opt-in passes only for the committed version, older proceeds (control), live-only pointer refuses, an unparsable live pointer refuses, live unreachable
+  the checkout's refuses, the rollback opt-in passes only for the committed version, older proceeds (control), live-only pointer refuses, an unparsable live pointer refuses and the opt-in replaces it, live unreachable
   refuses as "could not read", a superseded build whose sidecar read fails refuses; a path name and a
   missing sha refuse before any fetch; the wiring (call before the export, export checks, post-deploy
   served-verify).
@@ -98,7 +100,8 @@ statically (measured: 200 application/json from installkosmos.com).
   sidecar read treated as absent. Each turned its arm (st1, st4, st5) red. Review 4: the stale
   guard disabled (st1, st1r and both e2e arm-15 checks red); the rollback opt-in disabled (st1r and
   the e2e rollback check red). Review 5: the stale check called after the prod fetch (k and e2e
-  arm 15 red); the post-deploy pointer comparison made tautological (e2e arm 16 red).
+  arm 15 red); the post-deploy pointer comparison made tautological (e2e arm 16 red). Review 6: the
+  unparsable-pointer opt-in disabled (st6r red).
   (A post-fetch pointer-sha check remains as a backstop. `fetch_verified` re-reads the served
   sidecar itself, so it fires only if the sidecar changed between the two reads, a concurrent
   publish; no test reaches it.)
