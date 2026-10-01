@@ -11,7 +11,8 @@ each checked on origin/main:
 - Make a whole team at once: #4625 ddea596ac (Single / Team first screen), #4557 e65e899d1 (team in one go), #4795
   42822e251 (2 to 6). Each member is made through /api/agents, so it holds wherever making one agent does (Windows too).
 - Put work on hold: #4788 ba2f2baea.
-- Room posts arrive faster: #4808 48b8b6d29 (engine/messages.js, shared by both platforms).
+- Say what done looks like: #4722 c3db22766 (a new project asks "What does done look like?" and warns when two
+  coordinators are on it). New since 0.7.11.
 - One Kosmos per computer: #4822 95e96357c.
 
 ## Decided, not missed
@@ -30,3 +31,9 @@ a served build yet (#4409). If that cut's voice check fails, drop the first item
 ## Tests
 - node tools/whats-new-check.js 0.7.16: rc 0. CONTROL: 0.7.15 gives rc 3.
 - tools.whats-new-check-3955.test.js 6/6; server.test.js whats-new tests 2/2 (name filter, count asserted).
+
+## Review rounds
+- Round 1 (sonnet): FIXED W: room posts swapped out (the gain shows only in big rooms, 6.1 s to 0.8 s for 20 members,
+  under a second at normal sizes, and Windows delivers through another path) for #4722, which shows on every new project.
+  FIXED W: "any message box" overclaimed; the mic is in chats, rooms and the Guide, so "a chat or a room". FIXED NITs: no
+  team size (the live catalogue's teams are 3 to 6 today); a paused project is resumed, not taken off hold.

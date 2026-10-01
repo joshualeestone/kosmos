@@ -4,25 +4,25 @@
     {
       "icon": "chat",
       "title": "Talk to your agents",
-      "line": "On a Mac, press the mic in any message box to speak, or the speaker on an agent's message to hear it. It stays on your computer."
+      "line": "On a Mac, press the mic in a chat or a room to speak to your agents. Press the speaker on an agent's message to hear it read aloud."
     },
     {
       "icon": "swarm",
       "title": "Make a whole team at once",
-      "line": "New Agent now asks if you want one agent or a team. Pick a ready-made team of 2 to 6 and Kosmos makes them all in one go."
+      "line": "New Agent now asks if you want one agent or a team. Pick a ready-made team and Kosmos makes every member in one go."
     },
     {
       "icon": "tasks",
       "title": "Put work on hold",
-      "line": "Hold a task or pause a project, and the Prompter and the Assigner leave it alone until you take it off hold."
-    },
-    {
-      "icon": "spark",
-      "title": "Room posts arrive faster",
-      "line": "A post in a project room now reaches every member at once, instead of one after another."
+      "line": "Hold a task or pause a project, and the Prompter and the Assigner leave it alone until you take it off hold or resume it."
     },
     {
       "icon": "list",
+      "title": "Say what done looks like",
+      "line": "A new project asks what done looks like, and warns you when two agents on it would both be coordinating."
+    },
+    {
+      "icon": "spark",
       "title": "One Kosmos per computer",
       "line": "Kosmos no longer shows a list of Kosmoses. The top left now names this computer."
     }
