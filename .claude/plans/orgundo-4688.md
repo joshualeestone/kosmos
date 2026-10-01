@@ -120,3 +120,15 @@ Each must fail on the base (main before this branch) and pass here; run on a qui
 - DEFERRED: hardening the late-create idle test against a visible result. Unreachable by construction (Preview, file
   choice and file read return early while ORGCHART_CREATING, named at the code); a repaint for a state that cannot
   occur would be untested code. Reopen if any of those early returns is relaxed.
+
+## Iteration 7 (Opus): one BLOCKER (mine), two warnings, fixed
+- BLOCKER: iteration 6's "clear ORGCHART_RESULT on expiry" broke the expiry arms' own setup (they restored the list
+  but not the result), so the click on a hidden Undo would throw and end the whole check before the #4688 arms. The
+  arms now save and restore ORGCHART_RESULT with the list. Root cause: I had only syntax-checked the browser check
+  since the rebase; it must RUN before this converges (a suite was live on this Mac all evening).
+- Preview was re-enabled by a reopen during a create, then did nothing when pressed. orgchartUndoAsking keeps it
+  disabled while ORGCHART_CREATING.
+- Leaving mid-Undo (Back, or closing the panel) left ORGCHART_UNDO_BUSY true. Both leave paths now clear it; the
+  left run stops at its GEN check either way. The comment claiming a hidden panel is painted is deleted (a left run
+  finds Undo disabled and leaves the repaint to the reopen).
+- NIT: "removed some of these" when it removed all now reads "removed all of these first."

@@ -243,11 +243,11 @@ async function run() {
         };
         const inside = await reopenAged(14 * 60 * 1000);
         check('#4688 CONTROL: a reopen 14 minutes after the create still offers the Undo', inside.created === 7 && inside.undoShown && inside.box, JSON.stringify(inside));
-        await pk.evaluate(() => { window.__keptList = ORGCHART_CREATED.slice(); });
+        await pk.evaluate(() => { window.__keptList = ORGCHART_CREATED.slice(); window.__keptResult = ORGCHART_RESULT; });
         const past = await reopenAged(16 * 60 * 1000);
         check('#4688 EXPIRED ON REOPEN: a reopen 16 minutes after the create drops the Undo', past.created === 0 && !past.undoShown && !past.box, JSON.stringify(past));
         // The same list back with a fresh create time, shown on screen, then aged past the window before Undo is pressed.
-        await pk.evaluate(() => { ORGCHART_CREATED = window.__keptList; ORGCHART_CREATED_AT = Date.now(); });
+        await pk.evaluate(() => { ORGCHART_CREATED = window.__keptList; ORGCHART_RESULT = window.__keptResult; ORGCHART_CREATED_AT = Date.now(); });
         const shownAgain = await reopenAged(0);
         await pk.evaluate(() => { ORGCHART_CREATED_AT = Date.now() - 16 * 60 * 1000; });
         await pk.click('#orgchart-undo');
@@ -257,7 +257,7 @@ async function run() {
           shownAgain.created === 7 && shownAgain.undoShown && onScreen.created === 0 && !onScreen.undoShown && !onScreen.asking
           && /Undo is no longer offered/.test(onScreen.msg), JSON.stringify([shownAgain, onScreen]));
         // And past the window between the ask and Remove: nothing is removed and the result, not the ask, is back.
-        await pk.evaluate(() => { ORGCHART_CREATED = window.__keptList; ORGCHART_CREATED_AT = Date.now(); });
+        await pk.evaluate(() => { ORGCHART_CREATED = window.__keptList; ORGCHART_RESULT = window.__keptResult; ORGCHART_CREATED_AT = Date.now(); });
         await reopenAged(0);
         await pk.route('**/api/agent/*/removal', (r) => {
           const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
@@ -742,7 +742,7 @@ async function run() {
     const ua0 = await undoAgain(7);
     check('#4688 UNDO AGAIN BEFORE THE OLD ANSWER (none left): the open ask ends with nothing left to offer, and the panel is usable',
       !!ua0 && ua0.deletes === 7 && !ua0.asking && ua0.created === 0 && ua0.undo === null && /Removed 7 agents\./.test(ua0.count)
-      && /The Undo you left removed some of these first\.$/.test(ua0.msg) && ua0.back && ua0.preview, JSON.stringify(ua0));
+      && /The Undo you left removed all of these first\.$/.test(ua0.msg) && ua0.back && ua0.preview, JSON.stringify(ua0));
 
     /* #4688 review: a late create that made NOTHING (every row refused) replaces nothing: the reopened, idle panel stays
        empty rather than showing a result with no Undo. */

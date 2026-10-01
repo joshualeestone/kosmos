@@ -47063,6 +47063,7 @@ let SEEDED_TEAMS = null;
 let SEEDED_GEN = 0;
 function resetTeamStep() {
   ORGCHART_GEN += 1;   // a team create still in flight must not paint over a screen the person has left
+  orgchartUndoAsking(false);   // #4688: an Undo left mid-ask or mid-run has stopped (its GEN check), so it is not busy
   orgchartEndFileFlow();   // #4559's leave rule; the result and its Undo stay, and come back when the panel reopens within ORGCHART_UNDO_KEEP_MS (#4688)
   SEEDED_GEN += 1;
   document.getElementById('orgchartpick').hidden = true;
@@ -47145,7 +47146,10 @@ document.getElementById('team-orgchart-open').addEventListener('click', () => {
   const opening = panel.hidden;
   ORGCHART_GEN += 1;
   if (opening) resetOrgchartPreview();
-  else orgchartEndFileFlow();   // #4559's leave rule; the result and its Undo stay, and come back when the panel reopens within ORGCHART_UNDO_KEEP_MS (#4688)
+  else {
+    orgchartUndoAsking(false);   // #4688: as resetTeamStep: a left Undo is not busy
+    orgchartEndFileFlow();   // #4559's leave rule; the result and its Undo stay, and come back when the panel reopens within ORGCHART_UNDO_KEEP_MS (#4688)
+  }
   panel.hidden = !opening;
   document.getElementById('team-orgchart-open').setAttribute('aria-expanded', opening ? 'true' : 'false');
   if (opening) document.getElementById('orgchart-text').focus();
@@ -48184,7 +48188,7 @@ function orgchartUndoAsking(on) {
   if (go) { go.hidden = !on; if (!on) go.disabled = false; }   // asking decides its own enablement
   if (keep) keep.hidden = !on;
   if (back) back.hidden = on;
-  if (preview) preview.disabled = on;
+  if (preview) preview.disabled = on || ORGCHART_CREATING;   // #4688: a reopen during a create leaves Preview waiting
   /* #4559: a file read landing mid-Undo would supersede the screen (a new GEN) and drop the removal answers, so
      choosing or dropping a file waits too. */
   ORGCHART_UNDO_BUSY = on;
@@ -48291,8 +48295,7 @@ function orgchartUndoLeftMidRun(runList, todo, answers) {
     list: todo.map((c) => '<li>' + esc(c.shownAs) + ' <span class="dhint">' + (gone.has(c.name) ? 'removed' : 'still on your board') + '</span></li>').join(''),
     msg: '',
   };
-  /* With that result in the box (not a preview or a file's rows; a hidden panel is painted too, harmlessly): updated
-     in place. An Undo ask open over it is ended (orgchartUndoListChanged), so it never names agents already gone; an
+  /* With that result in the box (not a preview or a file's rows): updated in place. An Undo ask open over it is ended (orgchartUndoListChanged), so it never names agents already gone; an
      ask still checking ends itself when its check returns. A newer removal run already under way is left to count
      its own answers. */
   const box = document.getElementById('orgchart-preview-box');
@@ -48308,8 +48311,9 @@ function orgchartUndoListChanged() {
   orgchartUndoAsking(false);
   if (ORGCHART_RESULT) orgchartPaintKeptResult(); else showOrgchartUndo();
   const msg = document.getElementById('orgchart-msg');
-  msg.textContent = 'The Undo you left removed some of these first.'
-    + (ORGCHART_CREATED.length ? ' Press Undo again to remove the rest.' : '');
+  msg.textContent = ORGCHART_CREATED.length
+    ? 'The Undo you left removed some of these first. Press Undo again to remove the rest.'
+    : 'The Undo you left removed all of these first.';
   msg.hidden = false;
   const undo = document.getElementById('orgchart-undo');
   (undo.hidden ? document.getElementById('orgchart-edit') : undo).focus();
