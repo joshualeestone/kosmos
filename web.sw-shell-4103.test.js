@@ -70,7 +70,7 @@ test('#4103: install pre-caches the board, never the sign-in page, and still cac
     const w = worker(async () => page(html));
     let done; w.handlers.install({ waitUntil(p) { done = p; } });
     await done;
-    assert.deepEqual(w.added, ['/manifest.webmanifest', '/icons/kosmos-192.png', '/icons/kosmos-512.png']);
+    assert.deepEqual(w.added, ['/manifest.webmanifest', '/icons/kosmos-192.png', '/icons/kosmos-512.png', '/icons/kosmos-maskable-192.png', '/icons/kosmos-maskable-512.png']);
     assert.equal(w.puts.some(([k]) => k === '/'), expectPut, (expectPut ? 'the board was not' : 'the sign-in page was') + ' pre-cached as /');
   }
 });
@@ -105,5 +105,6 @@ test('#4103: a redirected response is not cached as the offline copy', async () 
 });
 
 test('#4103: the shell cache is a new version, so a copy the old worker poisoned is dropped on activate', () => {
-  assert.match(src, /const SHELL_CACHE = 'kosmos-shell-v2';/);
+  // #4798 moved it on again (v3): the manifest it caches gained the maskable icons. Any version after v1 drops the poisoned copy.
+  assert.match(src, /const SHELL_CACHE = 'kosmos-shell-v3';/);
 });

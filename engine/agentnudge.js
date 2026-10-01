@@ -151,8 +151,11 @@ function sweepOnce(o) {
         const text = nudgeText(p.part);
         if (sent.length >= cap) { say({ name: display, session, act: 'held', because: 'Agent Communication\'s limit of ' + cap + ' an hour is reached' }); continue; }
         let state = null;
-        try { const r = o.deliver(session, text, o.roster); state = r && r.state; }
+        let held = false;
+        try { const r = o.deliver(session, text, o.roster); state = r && r.state; held = Boolean(r && r.held === true); }
         catch (err) { state = 'threw: ' + String((err && err.message) || err); }
+        /* #4588 PR B: held on the shared Google quota, nothing typed: no try is spent and nothing counts toward the hour. */
+        if (held) { results.push({ session, name: display, act: 'quota-held', delivered: false, delivery: state, because: p.because, task: p.part.n }); continue; }
         const D = o.DELIVERY || {};
         const delivered = D.PLACED != null && state === D.PLACED;
         const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);

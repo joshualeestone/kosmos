@@ -445,6 +445,13 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     const v = tasks.partValve();
     if (v.refused) return { ok: false, status: 429, because: v.because, retryAfterSecs: v.retryAfterSecs };
   }
+  /* #4588 PR B: the assigner does not give a part to an agent held on its machine's shared Google quota. Refused here,
+     before the part is assigned, so a held agent is not given work and taken off it again every tick. */
+  if (assigner) {
+    let heldUntil = null;
+    try { heldUntil = require('./engine/agyquota').heldForQuota(who, roster || safeRoster(), Date.now()); } catch { heldUntil = null; }
+    if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " is held until " + new Date(heldUntil).toISOString() + ": its Google account's shared quota is out" };
+  }
   const made = assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
   const out = tasks.assignPart(projectId, n, partId, who, made);
   if (!out.ok) return { ok: false, status: 400, because: out.because };
@@ -1054,7 +1061,7 @@ const RETELL_RECENT = [];
    writes the verdict and types the "listed" line for each project it newly wrote. It calls
    `projects.syncAgent` and `projects.speakOfMembership` through the module, never a local
    binding, so the tests that stub them reach both callers. */
-function retellMember(name, id, roster) {
+function retellMember(name, id, roster, { automatic = false } = {}) {
   let told;
   try {
     told = projects.syncAgent(name, roster);
@@ -1085,7 +1092,7 @@ function retellMember(name, id, roster) {
     try { proj = pid === id ? retold : projects.get(pid, roster); } catch { proj = null; }
     const on = !!(proj && (proj.agents || []).some((a) => a && (a.sessionName || a) === name));
     if (!on) continue;
-    const one = projects.speakOfMembership(name, proj, 'listed', roster);
+    const one = projects.speakOfMembership(name, proj, 'listed', roster, { automatic });
     if (pid === id) said = one; else alsoSaid[pid] = one;
   }
   return { project: retold, told, said, alsoSaid };
@@ -1122,10 +1129,15 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
         const card = projects.ourCard(name, board());
         if (!card) return false;
         if (card.state === STATE.STOPPED) return true;
+        /* #4588 PR B: a running agent held on its machine's shared Google quota is not ready: not spent, looked at again
+           next sweep, so neither its instructions write nor the one retell per change is used up during the pause. */
+        let held = null;
+        try { held = require('./engine/agyquota').heldForQuota(card.sessionName, board(), now); } catch { held = null; }
+        if (held !== null) return false;
         const st = projects.toldOverride(instructions.staleness(name, undefined, card.session), name, all);
         return !!(st && st.state === instructions.STALENESS.CURRENT);
       },
-      retell: (name, id) => retellMember(name, id, board()),
+      retell: (name, id) => retellMember(name, id, board(), { automatic: true }),
       log: (r) => process.stdout.write(`autoretell: ${r.name} on ${r.id} -> ${r.state}${r.because ? ' (' + r.because + ')' : ''}\n`),
     });
   } catch { return []; /* best-effort; the notice's Try again still works */ }
@@ -4434,6 +4446,10 @@ const server = http.createServer(async (req, res) => {
            and wants a browser's headers. A speed bump, not a wall (an agent can forge headers); the
            real fix is #4491 (keep the board token out of agents' reach), where this route is noted. */
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can release this, from Settings' }); return; }
+        // #4373 part B review 7: a release in the minutes before the first sweep of an ON period must fall inside the
+        // send window (releasedAt >= since), or the released post or comment never goes and nothing records it. A
+        // release that then fails records it too; that only moves the window earlier while the person has it ON.
+        try { communitysend.recordPeriodStart(); } catch { /* the sweep records it; best effort */ }
         try {
           sendJson(res, 200, { released: communitysite.release(body.id) });
         } catch (e) {
@@ -4476,7 +4492,7 @@ const server = http.createServer(async (req, res) => {
      (sent, refused with reason classes, withheld, deleted, taken down with the moderator's
      reason). Board-token gated like the moderation queue above; carries no keys. */
   if (pathname === '/api/community/sent' && (req.method === 'GET' || req.method === 'HEAD')) {
-    try { sendJson(res, 200, { posts: communitysend.statuses() }); }
+    try { sendJson(res, 200, { posts: communitysend.statuses(), comments: communitysend.commentStatuses() }); }   // #4373 part B: comments too
     catch { sendJson(res, 500, { error: 'could not load what was sent' }); }
     return;
   }
@@ -7901,6 +7917,8 @@ const server = http.createServer(async (req, res) => {
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const saved = communityswitch.setOn(body.on);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        // #4373 part B: OFF ends the ON period now, so what is released while OFF never goes (the page says so).
+        if (body.on === false) { try { communitysend.endOnPeriodNow(); } catch { /* the next sweep ends it */ } }
         sendJson(res, 200, communityBody());
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
@@ -8133,6 +8151,60 @@ const server = http.createServer(async (req, res) => {
       .catch((e) => { console.error('FAIL /api/community/comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
     return;
   }
+  /* #4373 part B: an agent's comment on a post in the PUBLIC community service (the post ids
+     `kosmos community read` prints). Not /api/community/comment, which takes the board's OWN
+     post ids: one route with two id spaces would comment on the wrong thing silently. The same
+     token, identity and valve as a post, the same feedpublish choke (since #3485 a clean agent
+     comment publishes straight away and one the scrub stops is held), and the send layer
+     delivers it once published (engine/communitysend.js). */
+  if (pathname === '/api/community/service-comment' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!presentedAgentToken(req, body)) {
+          sendJson(res, 403, { error: 'commenting on the community requires an agent token' }); return;
+        }
+        const authRoster = safeRoster();
+        if (authRoster === null) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+        }
+        const sender = resolveAgentSender(req, body, authRoster);
+        if (!sender.ok || !sender.card || !sender.card.sessionName) {
+          sendJson(res, 403, { error: sender.because || 'we could not verify which agent this comment is from' }); return;
+        }
+        const agentId = sender.card.sessionName;
+        const { token: _t, from_pane: _fp, board: _b, candidate: _c, ...content } = body;
+        if (communityValveTripped(agentId)) {
+          sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts and comments. Do not try again this hour' }); return;
+        }
+        content.agent = agentId;
+        // Asked BEFORE the store write: it may record the ON period's start, which must not be later than this row.
+        // (That can move the posts' window earlier too, which only sends posts made while the person had it ON.)
+        let will = { sends: false, later: false };
+        try { will = communitysend.willSend(agentId); } catch { will = { sends: false, later: false }; }
+        let r;
+        try { r = feedpublish.publishServiceComment(content, { agentId }); }
+        catch (e) { console.error('FAIL /api/community/service-comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
+        if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
+        // The comment is STORED from here on (and may be published and sending), so nothing below may turn this into
+        // a failure answer: an agent told "not sent" would send it again, and it would go public twice.
+        try { communityValveRecord(agentId); } catch (e) { console.error('FAIL /api/community/service-comment valve record: ' + (e && e.message || e)); }
+        // A published comment that will not go is MADE not to go (a final record), so "it will not go" stays true and
+        // an agent that resends cannot double it in public. If that record cannot be written, say it may go.
+        let sends = will.sends;
+        if (r.status === 'published' && !sends) {
+          let marked = false;
+          try { marked = communitysend.markNotSent(r.id, agentId, String(content.servicePostId).toLowerCase()); } catch { marked = false; }
+          if (!marked) sends = true;
+        }
+        // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle).
+        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends, later: sends && will.later });
+      })
+      .catch((e) => { console.error('FAIL /api/community/service-comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
+    return;
+  }
 
   /* ---- Plus (the relay service): the Settings tab's seam over
      engine/remote.js (#464). READ is always honest; the write routes are
@@ -8349,6 +8421,23 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, { ok: true, stage: got.data.stage });
     return;
   }
+  /* kosmos#4756: the account's bought addresses for the session step (engine/remote.js signinAddresses). The
+     session token stays in the engine; the page gets the rows, the buy link and this computer's own name. */
+  if (pathname === '/api/remote/signin-addresses' && req.method === 'GET') {
+    // A GET, so crossSiteWrite does not see it: refused here, so a page on another site cannot make the engine read
+    // the account's addresses with the held session.
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
+    remote.signinAddresses()
+      .then((got) => {
+        // unsupported: this computer's tunnel program predates the list, so no re-read can ever work (the page then
+        // takes the step as before, as for the switch off).
+        if (!got.ok) { sendJson(res, 400, got.unsupported === true ? { error: got.because, unsupported: true } : { error: got.because }); return; }
+        sendJson(res, 200, Object.assign({ ok: true }, got.data));
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not list your addresses' }));
+    return;
+  }
   if (pathname === '/api/remote/signin-register' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {
@@ -8414,7 +8503,8 @@ const server = http.createServer(async (req, res) => {
   /* kosmos#4648 (weekend goal #4647): the computers on this board's Kosmos+ account, for the
      top-left menu's "Your computers". Signed through the tunnel and each online state measured
      (engine/account-computers.js). Always 200: { ok: false, because } when there is no list
-     (not signed in, an old connector or coordinator), and the page hides the section. */
+     (not signed in, an old connector or coordinator), and the page hides the section. Not signed in
+     is marked signedIn: false (kosmos#4815); any other ok: false is a failure the page retries. */
   if (pathname === '/api/remote/computers' && (req.method === 'GET' || req.method === 'HEAD')) {
     accountComputers.fetchComputers()
       .then((r) => sendJson(res, 200, r))
@@ -13177,8 +13267,10 @@ const server = http.createServer(async (req, res) => {
            hook never waits on a pane. */
         if (body.state === 'idle') {
           setImmediate(() => {
+            /* #4588 PR B: an automatic line, so it goes through the Google quota gate; a held verdict is COULD_NOT, which
+               puts the ids back for the next arrival or roomhold.flushReleased after the reset. */
             roomhold.flushOnIdle(who, {
-              deliver: chat.deliverAsync, roster, DELIVERY: chat.DELIVERY, env: process.env,
+              deliver: chat.deliverAutomaticAsync, roster, DELIVERY: chat.DELIVERY, env: process.env,
               shownOf: (id) => { const p = projects.get(id, roster); return p ? p.name : null; },
             }).then((done) => {
               for (const d of done) process.stdout.write(`room-hold: ${who} told of ${d.n} held post(s) in ${d.projectId} delivery=${d.state}\n`);
@@ -18226,13 +18318,14 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  /* The tab icons (#45, Josh 2026-08-17). An explicit allowlist of the six
-     shipped sizes (192 and 512 joined for the manifest, #718), because everything else below falls through to the page:
+  /* The tab icons (#45, Josh 2026-08-17). An explicit allowlist of the shipped
+     icons (192 and 512 joined for the manifest, #718; the touch and maskable squares, #4798), because everything else below falls through to the page:
      without this route, /icons/kosmos-32.png would answer HTML at 200 with
      the wrong content type, the same silent-success signature the API guard
      above exists to stop. A name outside the allowlist 404s as JSON rather
      than serving the page as an image. */
-  const iconGet = pathname.match(/^\/icons\/(kosmos-(?:16|32|48|180|192|512)\.png)$/);
+  // kosmos#4798: touch-180 (the iPhone home screen) and maskable-192/512 (Android) are full-bleed opaque squares.
+  const iconGet = pathname.match(/^\/icons\/(kosmos-(?:16|32|48|180|192|512|touch-180|maskable-192|maskable-512)\.png)$/);
   if (iconGet && (req.method === 'GET' || req.method === 'HEAD')) {
     fs.readFile(path.join(__dirname, 'web', 'icons', iconGet[1]), (err, buf) => {
       if (err) { sendJson(res, 404, { error: 'no such icon' }); return; }
@@ -18268,7 +18361,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   // /favicon.ico 404s BY DESIGN, matching the site: the icon set is the
-  // four explicit PNGs above, and a probe for the .ico must not receive
+  // explicit PNGs above, and a probe for the .ico must not receive
   // the page dressed as an icon (the silent-success signature again).
   if (apiPath === '/favicon.ico') {
     sendJson(res, 404, { error: 'no favicon.ico: the icons are /icons/kosmos-<size>.png' });
@@ -18600,6 +18693,19 @@ function start(port = PORT) {
            paneRoster-vs-snapshot confusion this file's own docblock
            warns about, one more time. */
         try { messages.sweepUnanswered(safeRoster()); } catch { /* the line still shows */ }
+        /* #4588 PR B: room posts held for an Antigravity agent while the shared Google quota was out are told once
+           its timers are released (engine/roomhold.js flushReleased), when no idle report arrives to flush them. */
+        try {
+          const r = safeRoster();
+          roomhold.flushReleased(r, {
+            isAgy: (c) => c.runner === 'antigravity' && c.isNamedOurs !== false,
+            readReport: (n) => selfreport.read(n), now: Date.now(), decayMs: require('./engine/status').REPORT_WORKING_DECAY_MS,
+            deliver: chat.deliverAutomaticAsync, DELIVERY: chat.DELIVERY, env: process.env,
+            shownOf: (id) => { const p = projects.get(id, r); return p ? p.name : null; },
+          }).then((done) => {
+            for (const d of done) process.stdout.write(`room-hold: ${d.name} told of ${d.n} held post(s) in ${d.projectId} after the quota hold, delivery=${d.state}\n`);
+          }).catch(() => { /* the posts stay held for the next minute */ });
+        } catch { /* the posts stay held for the next minute */ }
       }, 60 * 1000);
       if (sweep && typeof sweep.unref === 'function') sweep.unref();
       /* #1724: the auto-handoff sweep (the consume half). Sibling to the #185
@@ -18621,7 +18727,7 @@ function start(port = PORT) {
             roster,
             lastBand: autohandoffBands,
             deliver: (session, textToSend) => {
-              try { return chat.deliver(session, textToSend, roster, undefined, undefined); }
+              try { return chat.deliverAutomatic(session, textToSend, roster, undefined, undefined); }
               catch { return { state: chat.DELIVERY.COULD_NOT }; }
             },
             pathFor: (session) => autohandoffSweep.handoffPathFor(store, session),
@@ -18695,6 +18801,8 @@ function start(port = PORT) {
         roster: () => safeRoster(),
         book: CONNLOST_BOOK,
         probe: () => connlostHeal.probeApi(),
+        /* Plain deliver, not deliverAutomatic: it counts a try before delivering (connlost-heal.js), so a quota hold
+           would spend its budget (#4588 PR B review 2). */
         deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
         DELIVERY: chat.DELIVERY,
         log: (r) => process.stdout.write(`connlost-heal: ${r.name} (${r.session}) ${r.act}${r.act === 'nudge' ? ' delivery=' + (r.delivery || '?') : ''} - ${r.because}\n`),
@@ -18716,7 +18824,7 @@ function start(port = PORT) {
         allowed: () => liveExecution.liveExecutionAllowed(),
         roster: () => safeRoster(),
         book: FIRSTREPLY_BOOK,
-        deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+        deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
         DELIVERY: chat.DELIVERY,
         log: (r) => process.stdout.write(`firstreply-nudge: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}\n`),
       });
@@ -18730,6 +18838,7 @@ function start(port = PORT) {
       const AGY_QUOTA_BOOK = new Map();
       const agyQuotaTick = agyQuota.makeTick({
         allowed: () => liveExecution.liveExecutionAllowed(),
+        env: process.env, // both brakes: AGY_QUOTA_RESUME_OFF, and AGY_QUOTA_HOLD_OFF for the pool gate (#4588 B review 5)
         roster: () => safeRoster(),
         book: AGY_QUOTA_BOOK,
         deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
@@ -18776,7 +18885,7 @@ function start(port = PORT) {
               roleOf: (s) => profile(s).role,
               projectsOf: (s) => projects.readAll().filter((p) => p && p.archived !== true && (p.agents || []).includes(s)).map((p) => p.agents || []),
             },
-            deliver: (session, text) => chat.deliver(session, text, cards, undefined, undefined),
+            deliver: (session, text) => chat.deliverAutomatic(session, text, cards, undefined, undefined),
             DELIVERY: chat.DELIVERY,
             log: (r) => process.stdout.write(`account-notify: ${r.session} ${r.act}${r.manager ? ' manager=' + r.manager : ''}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
           });
@@ -18793,6 +18902,7 @@ function start(port = PORT) {
          safeRoster(), never paneRoster(): it needs stateReportedBy/stateProject and full cards
          for chat.deliver. Own ~1-min timer, unref'd, best-effort. */
       let recommenderPrev;
+      let recommenderHeldLogged = new Set();
       const recommenderSweep = setInterval(() => {
         if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
         try {
@@ -18802,11 +18912,23 @@ function start(port = PORT) {
           const out = recommender.runOnce({
             prev: recommenderPrev, roster, setting, members, now: Date.now(),
             roomNote: (projectId, text, opts) => messages.roomNote(projectId, text, opts),   // #4423: the note's facts too
-            deliver: (session, text) => chat.deliver(session, text, roster, undefined, undefined),
+            deliver: (session, text) => chat.deliverAutomatic(session, text, roster, undefined, undefined),
             DELIVERY: chat.DELIVERY,
+            heldUntil: (session) => agyQuota.heldForQuota(session, roster, Date.now()),
           });
           recommenderPrev = out.next;
-          for (const a of out.acted) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: ${a.retry ? 'retry' : 'note ' + (a.noteLanded ? 'written' : 'NOT written') + ', asked [' + a.asked.join(', ') + ']'}, playbook ${a.verdict || 'threw'}\n`);
+          // #4588 PR B: a held item is logged when it becomes held, not every minute it stays held; the set is this tick's.
+          const heldNow = new Set();
+          for (const a of out.acted) {
+            if (a.verdict === 'held') {
+              const heldKey = a.session + ' ' + a.project;
+              heldNow.add(heldKey);
+              if (!recommenderHeldLogged.has(heldKey)) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: held on the shared Google quota, not convened yet\n`);
+              continue;
+            }
+            process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: ${a.retry ? 'retry' : 'note ' + (a.noteLanded ? 'written' : 'NOT written') + ', asked [' + a.asked.join(', ') + ']'}, playbook ${a.verdict || 'threw'}\n`);
+          }
+          recommenderHeldLogged = heldNow;
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) : 60 * 1000); // the env is the test seam only
       if (recommenderSweep && typeof recommenderSweep.unref === 'function') recommenderSweep.unref();
@@ -18814,7 +18936,7 @@ function start(port = PORT) {
          board that reads idle, whose commitments leave it free (assigner.commitmentsFree, #4552) and that has no open part of any task,
          for engine/assigner.js's IDLE_MS, it gives the next task nobody is on in a live project the
          agent belongs to, through givePart in its assigner mode (see givePart). Phase 3: with
-         nothing to hand out, it asks the agent (chat.deliver) to draft tasks toward a project's
+         nothing to hand out, it asks the agent (chat.deliverAutomatic) to draft tasks toward a project's
          BRIEF.md goal (engine/brief.js). The tick's composition is assigner.tick, with the reads
          injected here.
          Gated on live execution like the sweeps above; own ~1-min timer, unref'd, best-effort. */
@@ -18830,7 +18952,7 @@ function start(port = PORT) {
             readCommitment: (session) => commitments.read(session),
             readGoal: (project) => brief.readGoal(project && project.folder),
             give: (projectId, n, partId, who, roster) => givePart(projectId, n, partId, who, { assigner: true, roster }),
-            ask: (session, text, roster) => chat.deliver(session, text, roster),
+            ask: (session, text, roster) => chat.deliverAutomatic(session, text, roster),
             DELIVERY: chat.DELIVERY,
           });
           assignerPrev = out.next;
@@ -18887,7 +19009,8 @@ function start(port = PORT) {
       }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) : 5 * 60 * 1000); // the env is the test seam only
       if (communitySweep && typeof communitySweep.unref === 'function') communitySweep.unref();
       // One sweep soon after boot, so a switch turned on just before a restart does not
-      // wait a full interval (posts published before a sweep first sees ON are not sent).
+      // wait a full interval (posts published before a sweep first sees ON are not sent, unless a comment or release
+      // request recorded the period's start first: #4373 part B).
       const communityBoot = setTimeout(() => { try { communitysend.sweep(); } catch { /* best-effort */ } }, 15 * 1000);
       if (communityBoot && typeof communityBoot.unref === 'function') communityBoot.unref();
       /* #3734: an existing guide's instructions still say it never creates agents; say what it may do now.
@@ -19038,7 +19161,7 @@ function start(port = PORT) {
             allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
             readLimit: () => limits.read(), limitDefaults: limits.DEFAULTS,
             book: AGENT_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, now: Date.now(),
-            deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+            deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
             DELIVERY: chat.DELIVERY,
             log: (r) => process.stdout.write(`agent-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
           });

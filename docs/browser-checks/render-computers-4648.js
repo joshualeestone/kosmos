@@ -43,6 +43,8 @@ const FOUR = {
   const browser = await playwright[engine].launch(engine === 'chromium' ? { headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] } : { headless: process.env.HEADED === '0' });
   for (const theme of ['light', 'dark']) {
     const page = await browser.newPage({ viewport: { width: 1200, height: 900 }, colorScheme: theme });
+    // kosmos#4815: several Kosmoses are switched off by default; this check pins the kept structure, so it turns them on.
+    await page.addInitScript(() => { try { localStorage.setItem('kosmos.multiKosmos', '1'); } catch {} });
     /* The page's own startup fetches cannot load at file://. Chromium says ERR_FILE_NOT_FOUND;
        WebKit throws a pageerror "... due to access control checks" and logs "Cross origin
        requests are only supported for HTTP" (the same filter as render-mention-blue-2922's).

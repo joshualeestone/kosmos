@@ -562,15 +562,19 @@ function adminSummary(reports, cardsText, adminUrl) {
   if (!fresh.length) return '';
   const openCards = String(cardsText == null ? '' : cardsText).split('\n').map((x) => x.trim()).filter(Boolean);
   const res = triage(fresh, { openCards });
-  const lines = ['Daily reports: ' + fresh.length + ' new since the last digest. ' + res.candidates.length + ' to review, '
-    + res.duplicatesOfOpenCards.length + ' look already carded, ' + res.noise.length + ' below the bar.'];
+  /* #4415 wording: this is the fallback text, posted only when no agent's own triage result was handed to the job.
+     It reports STATUS and gives the reader no instruction (Josh read "Read them all, and mark them triaged" as a task
+     for him, and "No card was opened" as final, on a day an agent had triaged them and filed four cards). */
+  const lines = ['Daily reports: ' + fresh.length + ' new since the last digest. Not yet triaged into cards.',
+    'Automatic first pass: ' + res.candidates.length + ' look like problems, '
+    + res.duplicatesOfOpenCards.length + ' match open cards, ' + res.noise.length + ' below the bar.'];
   /* Report text is written by any install on the internet and lands where agents read, under the bot's name: each
      line goes in as inline code (backticks swapped out), so a markdown link does not render and nothing reads as the
      bot's own words. */
   for (const c of res.candidates.slice(0, ADMIN_TOP)) lines.push('- `' + String(c.text).replace(/\s+/g, ' ').replace(/`/g, "'").slice(0, 220) + '`');
   if (res.candidates.length > ADMIN_TOP) lines.push('...and ' + (res.candidates.length - ADMIN_TOP) + ' more.');
-  lines.push('This counts reports that arrived since the last digest; one delivered late is only in the inbox. '
-    + 'Read them all, and mark them triaged: ' + adminUrl + ' (Reports). No card was opened.');
+  lines.push('Where they live: ' + adminUrl + ' (Reports). '
+    + 'This counts reports that arrived since the last digest; one delivered late is only there.');
   return lines.join('\n').slice(0, 1900);   // one Discord message
 }
 

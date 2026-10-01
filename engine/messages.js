@@ -1436,7 +1436,7 @@ function mentionedMembers(cleaned, recipients, roster) {
   return { mentioned, ambiguous };
 }
 
-function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery) {
+function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery, deliverAutomaticToPane) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
      composer through the server, which is the operator's own surface),
@@ -1837,6 +1837,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   const quoteFor = (name) => ((operator !== true && answered && answered.operator === true)
     || (originalAudience && !originalAudience.has(name) && !mentioned.has(name)) ? '' : replied.quote);
   const outcomes = {};
+  /* #4588 PR B review 2 (W2): when each quota-held member's post will be told (ISO), beside its HELD outcome, so a
+     reader can say "held until <time>" rather than read HELD as delivered. Present only when something was held. */
+  const heldUntil = {};
   let reached = 0;
   const deliverOne = (name) => {
     if (offHere.has(name)) return null;
@@ -1954,6 +1957,21 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     const heldIds = roomhold.take(name, projectId);
     const heldLine = heldIds.length ? ' ' + roomhold.clauseFor(projectId, shownProject, heldIds) : '';
     const finish = (sent) => {
+      /* #4588 PR B: held on the shared Google quota, nothing typed. The post is kept for this member like a #4624
+         hold (its id, marked when it names them), so it counts as placed for the sender and is told in one line by the
+         idle flush, the next typed arrival here, or roomhold.flushReleased after the reset. Could not keep it: not
+         reached, as before. Only deliverAutomatic(Async) answers held: true, and under the room brake typeInto uses
+         chat.deliver(Async), which never does, so this branch is not reached then. */
+      if (sent && sent.held === true) {
+        roomhold.restore(name, projectId, heldIds);
+        unspill(spilled[name]);
+        if (roomhold.hold(name, projectId, mentioned.has(name) ? roomhold.addressedId(id) : id)) {
+          outcomes[name] = roomhold.HELD;
+          if (typeof sent.heldUntil === 'string') heldUntil[name] = sent.heldUntil;
+          reached += 1;
+        } else outcomes[name] = chat.DELIVERY.COULD_NOT;
+        return sent;
+      }
       outcomes[name] = sent.state;
       if (sent.state !== chat.DELIVERY.COULD_NOT) reached += 1;
       else {
@@ -1964,8 +1982,16 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     };
     // A throw or rejection from the typing path is not a told member either: put the held ids back.
     const putBack = (err) => { roomhold.restore(name, projectId, heldIds); throw err; };
+    /* #4588 PR B: the person's own post is typed at once (never held); a colleague's post, addressed or not, is an
+       automatic sender from this member's side, so it goes through the gate that holds it while a Gemini (Antigravity)
+       member is paused on the shared Google quota.
+       Review 3: the brake (AGENT_WORKFORCE_ROOM_HOLD_OFF=1) types every post as before, so it skips this gate too.
+       Holding under the brake would keep a post only the next typed arrival tells (the idle flush and flushReleased
+       are off), and refusing it would drop a post to a room whose only other member is paused from the room log. */
+    const typeInto = operator === true || roomhold.off(process.env)
+      ? deliverToPane : (deliverAutomaticToPane || deliverToPane);
     let sent;
-    try { sent = deliverToPane(name, envelope + catchUp + heldLine, roster, undefined, typeof trailer === 'string' ? trailer : undefined); }
+    try { sent = typeInto(name, envelope + catchUp + heldLine, roster, undefined, typeof trailer === 'string' ? trailer : undefined); }
     catch (err) { putBack(err); }
     return sent && typeof sent.then === 'function' ? sent.then(finish, putBack) : finish(sent);
   };
@@ -1998,6 +2024,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   // that an ambiguous quote resolves to no styling.
   const quotes = quotedSegments(stored, from, projectId, log);
   appendLog({ kind: 'post', id, project: projectId, from, to: recipients.filter((n) => !offHere.has(n)), text: stored, at, outcomes,
+    ...(Object.keys(heldUntil).length ? { heldUntil } : {}),
     ...(quotes.length ? { quotes } : {}),
     /* #185: the tokenizer's verdict, persisted at the one moment it runs.
        The unanswered state keys on WHO WAS ASKED, and re-deriving that at
@@ -2025,12 +2052,40 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   const state = aggregateState(outcomes);
   // `text` is the form the room stored, so a federated room can send out
   // exactly what this room shows (#3311).
-    return { state, because: null, id, at, outcomes, from, text: stored };
+    return { state, because: null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored };
   };
 
   if (asynchronousDelivery) {
+    /* #4765: every member AT ONCE, not one after another. Most of a delivery is a wait (the paste-to-Enter gap,
+       250 ms at least, 500 ms for Codex, Gemini, Grok and Antigravity), so a room of 20 made the person wait
+       about 6 s after Enter before the post appeared (measured; the page shows it only once this returns).
+       Safe to overlap: each member is its own pane, chat.deliverAsync already queues deliveries to one pane,
+       and what deliverOne shares (outcomes, spilled, the held posts) is keyed by the member's name. Each
+       deliverOne's synchronous part still runs in turn, in the members' order.
+       Every delivery is ALLOWED TO FINISH before the answer, so the person is never told "could not post"
+       while members are still being typed at; then the first failure is thrown, as the old loop threw it.
+       One difference, on purpose: the old loop stopped at a failure, so the members after it were never
+       tried; now they are.
+       ⚠️ ONE MEMBER PER TURN OF THE EVENT LOOP. Each delivery's tmux calls are synchronous (execFileSync), so
+       starting every member in the same tick would run all their pastes as one block with the board answering
+       nothing else, and, their waits ending together, all their Enters as a second block (review 1). A
+       setImmediate between starts lets the board answer other requests between members, and the waits still
+       overlap because each start is only one member's tmux calls after the last. The Enters are spread only as
+       far as the starts were: waits that come due together still end in one turn (review 2 measured two or
+       three members' Enters per turn on 20 members), which is short of one block of all of them. A synchronous throw from
+       deliverOne is caught and becomes that member's failure, so it too waits for the others. */
     const pending = (async () => {
-      for (const name of recipients) await deliverOne(name);
+      const runs = [];
+      for (let i = 0; i < recipients.length; i++) {
+        if (i > 0) await new Promise((resolve) => setImmediate(resolve));
+        const name = recipients[i];
+        const run = new Promise((resolve) => resolve(deliverOne(name)));
+        run.catch(() => {});   // handled at once, or node reports a rejection that allSettled below collects anyway
+        runs.push(run);
+      }
+      const settled = await Promise.allSettled(runs);
+      const failed = settled.find((s) => s.status === 'rejected');
+      if (failed) throw failed.reason;
       return finishDeliveries();
     })();
     return operator === true ? pending : trackInFlight(postKey, pending);
@@ -2040,11 +2095,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
 }
 
 function sendPost(input, roster, members) {
-  return sendPostWithDelivery(input, roster, members, chat.deliver, false);
+  return sendPostWithDelivery(input, roster, members, chat.deliver, false, chat.deliverAutomatic);
 }
 
 function sendPostAsync(input, roster, members) {
-  return Promise.resolve(sendPostWithDelivery(input, roster, members, chat.deliverAsync, true));
+  return Promise.resolve(sendPostWithDelivery(input, roster, members, chat.deliverAsync, true, chat.deliverAutomaticAsync));
 }
 
 /** Messages involving one agent (or all, unfiltered), oldest first. */
@@ -2268,7 +2323,10 @@ function sweepUnanswered(roster, now) {
         if (!card || !card.target) continue;
         const line = '[the room has not seen an answer to ' + postId
           + '; to answer, run: kosmos post --in-reply-to ' + postId + ' ' + projectId + ']';
-        const sent = chat.deliver(name, line, roster);
+        const sent = chat.deliverAutomatic(name, line, roster);
+        /* #4588 PR B: held on the shared Google quota, nothing typed. No row, so the pair's one nudge is still unspent, and
+           unanswered() has only a lower age bound (UNANSWERED_AFTER_MS), so the post is still due after a long pause. */
+        if (sent && sent.held === true) continue;
         appendLog({ kind: 'nudge', post: postId, to: name, project: projectId,
           at: new Date().toISOString(), outcome: sent.state });
         nudged.push({ post: postId, to: name, outcome: sent.state });

@@ -3208,9 +3208,11 @@ function membershipLine(project, kind) {
     // project may have none of.
     + ' The "Your projects" section of your instructions has the details.';
 }
-function speakOfMembership(sessionName, project, kind, roster) {
+function speakOfMembership(sessionName, project, kind, roster, { automatic = false } = {}) {
   try {
-    return chat.deliver(sessionName, membershipLine(project, kind), roster, undefined, undefined);
+    /* #4588 PR B: a timer's line (the auto-retell) goes through deliverAutomatic, which holds it on an empty shared quota. */
+    const send = automatic ? chat.deliverAutomatic : chat.deliver;
+    return send(sessionName, membershipLine(project, kind), roster, undefined, undefined);
   } catch (err) {
     return { state: 'could_not', because: String((err && err.message) || 'we could not reach its window') };
   }
