@@ -51,3 +51,7 @@ writing a nickname ("D: ...") keeps it.
   control is now run through the room renderer (pjRoomRow) and the reply gist in web.quoteb.test.js, a person's post
   included. Left NITs: an agent named with an ordinary word ("Update") loses that word at the start of a message
   (the header still shows it); single-star emphasis is not handled; pjMentionKeys built twice.
+- Round 4 (sonnet): FIXED W: the room's call is guarded like the DM row's and the reply gist's, so a test that lifts the
+  room renderer without the helper does not throw. FIXED W: a tight colon does not count when a slash or a digit follows
+  ("Dario://host", "Dario:30 minutes" are kept). FIXED NIT: a name followed only by spaces is kept whole. 135/135 across
+  the new tests and the renderers' lifted tests.

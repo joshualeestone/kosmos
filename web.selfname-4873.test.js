@@ -43,6 +43,9 @@ test('#4873 CONTROLS: another name, a name later on, a bare name and a longer wo
   assert.equal(drop('Dario-style answers: hi', who), 'Dario-style answers: hi', 'a hyphenated word starting with the name was cut');
   assert.equal(drop('dario-claude did it', ['Dario', 'dario-claude']), 'dario-claude did it', 'the machine name with no separator was cut');
   assert.equal(drop('Dario -- hello', who), 'Dario -- hello', 'a doubled dash left a stray list marker');
+  assert.equal(drop('Dario://host/path', who), 'Dario://host/path', 'an address after the name was cut');
+  assert.equal(drop('Dario:30 minutes', who), 'Dario:30 minutes', 'a number tight after the colon was cut');
+  assert.equal(drop('Dario:\n   ', who), 'Dario:\n   ', 'a name followed only by spaces was emptied');
   assert.equal(drop('Dario -5 degrees today', who), 'Dario -5 degrees today', 'a minus sign was cut');
   assert.equal(drop('Dario:\n    code line', who), '    code line', 'the first line lost its indent');
   assert.equal(drop('Da.io: hi', ['Da.io']), 'hi', 'a name with a regex character is matched literally');
@@ -51,7 +54,7 @@ test('#4873 CONTROLS: another name, a name later on, a bare name and a longer wo
 
 test('#4873: the room and an agent\'s DM row both draw through it; the person\'s own rows do not', () => {
   const room = PAGE.slice(PAGE.indexOf('function pjRoomBody'), PAGE.indexOf('function pjRoomBody') + 2400);
-  assert.match(room, /const shown = typeof pjNameOf === 'function' \? pjNameOf\(p, m\.from\) : null;\s*const dropped = pjDropSelfName\(words, \[shown, keys && keys\.get \? keys\.get\(m\.from\) : null, m\.from\]\);/,
+  assert.match(room, /const shown = typeof pjNameOf === 'function' \? pjNameOf\(p, m\.from\) : null;\s*const dropped = typeof pjDropSelfName === 'function' \? pjDropSelfName\(words, \[shown, keys && keys\.get \? keys\.get\(m\.from\) : null, m\.from\]\) : words;/,
     'a room post no longer drops its sender\'s name by the header\'s own name');
   assert.match(room, /if \(m && m\.operator !== true && m\.from\) \{/, 'the person\'s own posts are no longer exempt');
   assert.match(PAGE, /pjRich\(typeof pjDropSelfName === 'function' \? pjDropSelfName\(pjWords\(m\), \[shownFrom, m\.from\]\) : pjWords\(m\)\)/,
