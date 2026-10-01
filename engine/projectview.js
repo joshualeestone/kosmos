@@ -30,7 +30,8 @@ const FUTURE_SLACK_MINUTES = 5;
  * How current an agent's running summary is: the newest summaries/YYYY-MM-DD-HH.md in its folder, by the
  * time it was last written. Never throws.
  * @returns {{ state: 'current'|'stale'|'future'|'none'|'nofolder'|'unreadable', file: string|null, at: string|null, ageMinutes: number|null }}
- *   (overviewOf may then mark a stale one 'idle', with idleSince and idleMinutes: #4581 N10, idleExcused.)
+ *   (overviewOf may then mark a stale one 'idle', with idleKind ('idle' or 'started'), idleSince and idleMinutes:
+ *   #4581 N10, idleExcused. Not the member's own state, which also reads 'idle'.)
  *   current: written within the four-hour rhythm; stale: longer ago (an agent that has been idle is not
  *   expected to write, so stale is a fact to read, not a fault); none: no summaries yet; unreadable: we
  *   could not look (the reader must not take that as none).
@@ -116,10 +117,16 @@ function openTasks(tasks) {
    summary of a member that is idle now, written within the rhythm of when it went idle, was current when it stopped:
    state 'idle', with when it went idle. A summary already stale when it went idle stays 'stale'. When it went idle is
    its latest report, an `idle` or a `started` (the time of that report), never an operator's clear; any other state,
-   or none, leaves the summary as it was. A member not running reads as before (it is not idle, it is gone). */
+   or none, leaves the summary as it was. A member not running reads as before (it is not idle, it is gone).
+   Known: Antigravity and Muse report their launch as an `idle` (no turn yet), so a restarted one reads "when it went
+   idle" where a Claude member reads "when this session started"; it cannot hide a gap (review 4). */
 function idleExcused(summary, member, readReport, nowMs) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
   if (!member || !member.present || !member.tied || member.state !== 'idle') return summary;
+  /* Review 4: only a runner that also REPORTS working. Codex reports idle and nothing else (bin/codex-report-bridge.js),
+     so after a turn that never completed (interrupted, errored) its latest report is an older idle, and hours of work
+     with no summary would read "current when it went idle". Its summaries read as before until it reports working. */
+  if (member.runner === 'codex') return summary;
   let rep = null;
   try { rep = readReport(member.sessionName); } catch { rep = null; }
   /* Review 2: `started` too (a Claude agent reports started at launch where Antigravity and Muse report idle, so a

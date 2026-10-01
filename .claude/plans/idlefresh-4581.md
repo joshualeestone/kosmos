@@ -56,3 +56,12 @@ working report, no report, and an idle report dated in the future read stale; a 
   this session started (...; started <age> ago, idle since)". Arm added.
 - N2 `by` on older lines reads null and is excused: correct (the operator clear and the field shipped together).
 - N3 a non-idle member with a started or idle report: ADDED an arm (stays stale). N4 the end-to-end arm: confirmed.
+
+## Review 4 (Opus, blind, source-only): 0 blockers, 1 warning, 5 nits
+- W1 Codex reports idle and never working, so after a turn that never completed (interrupted, errored, restarted) its
+  latest report is an older idle and hours of unsummarised work read "current when it went idle": FIXED, a Codex member
+  is never excused until its bridge reports working. Arm added (a real idle Codex member stays stale).
+- N2 Antigravity and Muse report launch as idle, so a restarted one reads "went idle" where Claude reads "started":
+  DOCUMENTED (cannot hide a gap).
+- N3 controls not labelled: FIXED. N4 the end-to-end arm's file: commented. N5 idleKind in the JSDoc and the two
+  "idle" words told apart: FIXED. N6 an older renderer's fallback words: kept (needs version skew).

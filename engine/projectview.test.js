@@ -287,10 +287,11 @@ test('#4581 N10: an idle member whose summary was current when it went idle read
   assert.equal(show({ found: true, state: 'working', at: new Date(NOW - 420 * 60000).toISOString() }).m.summary.state, 'stale');
   assert.equal(show({ found: false }).m.summary.state, 'stale');
   assert.equal(show({ found: true, state: 'idle', at: new Date(NOW + 60000).toISOString() }).m.summary.state, 'stale');
-  // Review 1: an idle report OLDER than the summary, and an unreadable report time, leave it stale.
+  // CONTROL (green on origin/main, which excuses nothing): an idle report OLDER than the summary, and an unreadable
+  // report time, leave it stale (review 1).
   assert.equal(show(idleAt(660)).m.summary.state, 'stale', 'an idle time before the summary was written excused it');
   assert.equal(show({ found: true, state: 'idle', at: 'garbage' }).m.summary.state, 'stale');
-  // Review 2: a `started` report (a Claude agent's launch) counts like idle; an operator's clear never does.
+  // Review 2: a `started` report (a Claude agent's launch) counts like idle; CONTROL: an operator's clear never does.
   const started = show({ found: true, state: 'started', at: new Date(NOW - 420 * 60000).toISOString() });
   assert.equal(started.m.summary.state, 'idle');
   // Review 3: said as a start, not as a turn's end.
@@ -306,7 +307,8 @@ test('#4581 N10: an idle member whose summary was current when it went idle read
 });
 
 /* Review 2: end to end through the REAL report reader (no injected readReport), so a renamed field in
-   selfreport.read cannot silently turn this off while every injected arm stays green. */
+   selfreport.read cannot silently turn this off while every injected arm stays green. It writes ida's real report
+   file in this file's sandbox: a later test that describes ida must inject readReport or inherit it. */
 test('#4581 N10 review 2: the real selfreport reader feeds the idle excuse', () => {
   const selfreport = require('./selfreport');
   const raw = { id: 'ij', name: 'Idle Real', folder: '/p/ij', agents: ['ida'], tasks: [] };
@@ -319,7 +321,7 @@ test('#4581 N10 review 2: the real selfreport reader feeds the idle excuse', () 
   assert.equal(view.members[0].summary.state, 'idle', JSON.stringify(view.members[0].summary));
 });
 
-test('#4581 N10 review 3: a member that is not idle is never excused, whatever its report says', () => {
+test('#4581 N10 review 3 CONTROL (green on origin/main by design): a member that is not idle is never excused, whatever its report says', () => {
   // mark is working and sam is asking (the shared board); a `started` or `idle` report changes nothing for them.
   const folder = agentFolder('notidle', [['2026-09-29-07.md', 600]]);
   for (const report of [{ found: true, state: 'started', at: new Date(NOW - 420 * 60000).toISOString() }, { found: true, state: 'idle', at: new Date(NOW - 420 * 60000).toISOString() }]) {
@@ -329,4 +331,18 @@ test('#4581 N10 review 3: a member that is not idle is never excused, whatever i
       assert.equal(m.summary.state, 'stale', name + ' was excused while ' + m.state);
     }
   }
+});
+
+test('#4581 N10 review 4: a Codex member is never excused (it reports idle and never working, so an old idle can hide work)', () => {
+  const board = fleet.install([fleet.agent('cody', { state: 'idle', runner: 'codex', command: 'node' })]);
+  try {
+    const raw = { id: 'cx', name: 'Codex Night', folder: '/p/cx', agents: ['cody'], tasks: [] };
+    const described = projects.describe(raw, board.agents, [raw]);
+    const cody = described.agents.find((m) => m.sessionName === 'cody');
+    assert.ok(cody && cody.state === 'idle' && cody.runner === 'codex', 'fixture: cody is not an idle Codex member: ' + JSON.stringify(cody));
+    const folder = agentFolder('cody', [['2026-09-29-07.md', 600]]);
+    const o = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }),
+      readReport: () => ({ found: true, state: 'idle', at: new Date(NOW - 420 * 60000).toISOString() }) };
+    assert.equal(v.overviewOf(described, board.agents, o).members[0].summary.state, 'stale');
+  } finally { board.restore(); }
 });
