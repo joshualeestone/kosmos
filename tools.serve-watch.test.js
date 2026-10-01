@@ -67,6 +67,7 @@ function serve(site) {
     if (u.pathname === '/community/api/posts/feed') {
       // The real feed answers HEAD with 405 (measured): only GET reads it.
       if (site.feedNoHead && req.method === 'HEAD') return send(405, 'application/json', '{}');
+      if (site.feedFailGet > 0 && req.method === 'GET') { site.feedFailGet--; return send(502, 'text/plain', 'bad gateway'); }
       return send(site.feedStatus, 'application/json', site.feedBig ? JSON.stringify({ items: 'x'.repeat(2 * 1024 * 1024) }) : JSON.stringify({ items: [] }));
     }
     // The relay's own answer for a computer that is not connected (crates/relay/src/redirect.rs).
@@ -417,15 +418,15 @@ test('a run that could not look keeps the hold: a problem is not dropped across 
   assert.equal(posts(), 1, 'B was dropped after one run without it, across a run that could not look: ' + st.card());
 }));
 
-test('with no usable state it checks once a day, in the first 15 minutes of the UTC day, and a first sighting alarms then', () => withSite(async ({ site, base, dir, st }) => {
+test('with no usable state it checks once a day, in the first 30 minutes of the UTC day, and a first sighting alarms then', () => withSite(async ({ site, base, dir, st }) => {
   fs.mkdirSync(path.join(dir, 'state.json'));   // the state path is a directory: nothing can be kept
   site.files.set('kosmos-1.0.0-win-x64.zip.sha256', ['text/plain', '0'.repeat(64) + '  x\n']);
   const dayStart = T0 - (T0 % 86400);
-  const out = await run(base, dir, st, { now: dayStart + 3600 });
+  const out = await run(base, dir, st, { now: dayStart + 3600 });   // outside the window (the first 30 minutes)
   assert.equal(out.code, 2, out.out + out.err);
   assert.equal(st.card() + st.pane(), '', 'it ran outside its daily window');
   assert.ok(!site.hits.some((h) => h.startsWith('GET /dist/latest')), 'it checked outside its daily window');
-  const r = await run(base, dir, st, { now: dayStart + 60 });
+  const r = await run(base, dir, st, { now: dayStart + 1500 });   // a run that drifted past minute 15 still checks
   assert.equal(r.code, 1, r.out + r.err);
   assert.match(st.card(), /kosmos-1\.0\.0-win-x64\.zip\.sha256 says 000000000000/);
   assert.match(st.card(), /cannot keep its state at/);
@@ -571,10 +572,30 @@ test('while a pointer cannot be read, earlier records are kept: a confirmed mism
   await run(base, dir, st, { now: T0 + 1800 });   // both Windows pointers missing
   site.files.set('latest-win.json', keepWin); site.files.set('latest-win-staging.json', keepStg);
   // Exit 1, not 2: the mismatch alarms at once when the pointers return, not as a new first sighting. (It is not
-  // posted again: it never left the standing alarm, which a problem leaves only after two runs gone.)
+  // posted again: it never left the standing alarm, which a problem leaves only after an hour gone.)
   assert.equal((await run(base, dir, st, { now: T0 + 2700 })).code, 1, 'the mismatch was a first sighting again');
   const state = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
   assert.ok(state.pending.includes('sidecar-sha:kosmos-1.0.0-win-x64.zip'), 'a confirmed mismatch was forgotten across a pointer outage');
+}));
+
+test('the feed as it really is (HEAD refused): one dropped GET is tried again, two are an alarm', () => withSite(async ({ site, base, dir, st }) => {
+  site.feedNoHead = true;
+  site.feedFailGet = 1;
+  assert.equal((await run(base, dir, st, { now: T0, args: ['--check'] })).code, 0, 'one dropped feed GET was an alarm');
+  site.feedFailGet = 2;
+  assert.equal((await run(base, dir, st, { now: T0, args: ['--check'] })).code, 1, 'CONTROL: two dropped GETs are an alarm');
+}));
+
+test('a failed first post is retried an hour on even when the problem came and went in between', () => withSite(async ({ site, base, dir, st }) => {
+  const failGh = path.join(dir, 'gh-fail.sh');
+  fs.writeFileSync(failGh, '#!/bin/sh\nexit 1\n'); fs.chmodSync(failGh, 0o755);
+  site.relayUp = false;
+  await run(base, dir, { msg: st.msg, gh: failGh, pane: st.pane, card: st.card }, { now: T0 });
+  site.relayUp = true;
+  await run(base, dir, st, { now: T0 + 900 });
+  site.relayUp = false;
+  for (const t of [3600, 4500, 5400]) await run(base, dir, st, { now: T0 + t });
+  assert.equal((st.card().match(/serve watch \(kosmos#4877\)/g) || []).length, 1, 'the card never heard: ' + JSON.stringify(JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')).card));
 }));
 
 test('a feed that refuses HEAD and has grown past a megabyte is healthy, judged by its status', () => withSite(async ({ site, base, dir, st }) => {

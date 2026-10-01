@@ -246,7 +246,8 @@ async function gather(prev, now) {
   const healthOk = health.status === 200 && health.json && health.json.ok === true;
   if (!healthOk) add('community-health', 'the community site\'s /api/health did not answer ok (' + why(health) + ')');
   // The status is the answer here: a healthy feed can grow past BODY_CAP, which getJson would read as no answer.
-  const feed = await head(COMMUNITY + '/api/posts/feed').then((h) => (h.status === 405 ? getStatusOnly(COMMUNITY + '/api/posts/feed') : h));
+  // head() is tried twice itself; the live feed refuses HEAD (405), so its GET is the read that needs the second try.
+  const feed = await head(COMMUNITY + '/api/posts/feed').then((h) => (h.status === 405 ? twice(() => getStatusOnly(COMMUNITY + '/api/posts/feed')) : h));
   if (feed.status !== 200) add('community-feed', 'the community feed did not answer (' + why(feed) + ')');
   // Its healthy answer IS a 503, so retried only when it is not the relay's page (twice() would retry every 5xx).
   const relayPage = (r) => r.status === 503 && typeof r.text === 'string' && r.text.includes(RELAY_PAGE);
@@ -391,7 +392,8 @@ function decidePost(v, last, now) {
   const fresh = [...all].some((k) => !lastKeys.includes(k));
   // Only with a problem in hand this run: a post that lists none would say nothing.
   if (v.alarm && (fresh || due)) return { post: 'alarm', key };
-  return { post: null, key: fresh ? (last && last.key) || key : key };
+  // Fresh with nothing in hand: the key stays as it was, even none (a failed first post), so the retry still fires.
+  return { post: null, key: fresh ? (last ? last.key : key) : key };
 }
 
 function message(kind, v) {
@@ -554,11 +556,11 @@ async function main(argv) {
     return v.unknown || (v.pending && v.pending.length) ? 2 : 0;   // a first sighting is not yet healthy
   }
   const noState = stateProblem();
-  /* No state to keep: run (and download) at most once a day, in one fixed 15-minute window of the UTC day, as
+  /* No state to keep: run (and download) at most once or twice a day, in the first 30 minutes of the UTC day, as
      gap-alarm posts. Checked BEFORE gathering: with no record every file looks due for a re-hash, and running every
      15 minutes would download every build each time. */
-  if (noState && now % 86400 >= INTERVAL_S) {
-    process.stderr.write('serve-watch: cannot keep state (' + noState + '); checking only in the first 15 minutes of the UTC day\n');
+  if (noState && now % 86400 >= 2 * INTERVAL_S) {   // twice the interval, so a drifting run never misses a day
+    process.stderr.write('serve-watch: cannot keep state (' + noState + '); checking only in the first 30 minutes of the UTC day\n');
     return 2;
   }
   const state = noState ? { noState: true } : readState();
