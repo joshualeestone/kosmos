@@ -1962,6 +1962,13 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
 .worldsw-computers { margin-top: 4px; padding-top: 4px; border-top: 0.5px solid var(--separator); }
 .worldsw-sec { padding: 4px 8px 2px; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
 .worldsw-state { flex: none; margin-left: auto; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
+/* kosmos#4815 (Josh, 2026-09-30 19:50): one Kosmos per computer (MULTI_KOSMOS off). The menu then holds only Your
+   computers, so its separator has nothing above it and goes; and with no other computer to open, the button is
+   the computer's name as plain text: no chevron, no border, nothing to press. */
+.worldsw.worldsw-onekosmos .worldsw-computers { margin-top: 0; padding-top: 0; border-top: 0; }
+.worldsw.worldsw-fixed .worldsw-chev { display: none; }
+.worldsw.worldsw-fixed .worldsw-btn { cursor: default; border-color: transparent; }
+.worldsw.worldsw-fixed .worldsw-btn:hover, :root[data-look="new"] .worldsw.worldsw-fixed .worldsw-btn:hover { background: none; }
 /* #2238: the honest post-switch status banner. A world's roots load only on board
    boot, so switching needs a board restart; this banner says so (no auto-restart). */
 /* #1704 PR3: the switch dialog's pause/keep choice. A fieldset, so its UA chrome goes. */
@@ -25796,6 +25803,9 @@ async function worldsFetch() {
    live switch, which owns that banner, is never fought; and it only clears a note IT set
    (WORLDSW_STALE), so a switch/manual-restart banner is never wiped. */
 function worldswSetStale(stale) {
+  // #4815: the note is about a list of Kosmoses, which is not shown when MULTI_KOSMOS is off (typeof: lifted by tests).
+  // Still tracked, so the 8 s retry does not re-render the hidden list every time; only the note is not shown.
+  if (typeof MULTI_KOSMOS !== 'undefined' && MULTI_KOSMOS === false) { WORLDSW_STALE = !!stale; return; }
   const banner = document.getElementById('worldsw-restart');
   const bmsg = document.getElementById('worldsw-restart-msg');
   if (stale) {
@@ -25813,6 +25823,100 @@ function worldswSetStale(stale) {
       banner.hidden = true;
     }
     WORLDSW_STALE = false;
+  }
+}
+/* kosmos#4815 (Josh, #admin 2026-09-30 19:50): "I want to remove multiple Kosmoses ... we don't have to remove the
+   structure. I just want it commented out so that it's not visible on anything." One switch, not a deletion: with
+   it false, the Kosmoses list, New Kosmos (and its dialog), each Kosmos's settings cog (rename, add agents from
+   another Kosmos, hide) and the last-known-list note are never shown. The top-left button then names THIS computer
+   (from Your computers, #4648, else "This computer") and opens only when the account has another computer, the
+   menu holding just Your computers. A board that already has several Kosmoses keeps running the one it booted;
+   nothing is moved or deleted, and /api/worlds is unchanged. Change the default below to bring it all back. */
+/* The default is OFF. A browser can turn it back on with localStorage 'kosmos.multiKosmos' = '1' (nothing on a
+   screen offers that): the browser checks that pin the kept structure (#1704, #2238, #2350, #2563, #2628, #2935,
+   #3055, #4648, and #718's phone frame) set it, so the code stays tested while nobody sees it. */
+const MULTI_KOSMOS = (() => { try { return localStorage.getItem('kosmos.multiKosmos') === '1'; } catch { return false; } })();
+let THIS_COMPUTER_NAME = '';
+let COMPUTERS_OPENABLE = false;
+let COMPUTERS_RETRY_T = null;
+let COMPUTERS_STALE_WHILE_HIDDEN = false;
+let COMPUTERS_FAILS = 0;
+/* Called by computersRender with the rows it kept and whether an answer arrived. Only an ANSWER changes
+   the name or whether there is anywhere to go (review round 1): a failed read keeps the last good answer, so one
+   relay hiccup cannot lock the menu shut, and says so inside the menu. */
+function worldswComputersSeen(rows, good) {
+  // With several Kosmoses on, today's menu is untouched: it hides the section on any failure (review round 5).
+  if (MULTI_KOSMOS) return;
+  if (good) {
+    const me = rows.find((c) => c.this === true);
+    THIS_COMPUTER_NAME = me ? me.name : '';
+    COMPUTERS_OPENABLE = rows.length >= 2;
+  } else if (COMPUTERS_OPENABLE) {
+    const box = document.getElementById('worldsw-computers');
+    const list = document.getElementById('worldsw-computers-list');
+    if (box && list) {
+      list.textContent = '';
+      const note = document.createElement('div');
+      note.className = 'worldsw-row worldsw-row-off';
+      note.textContent = 'Kosmos could not reach your computers just now. Try again in a moment.';
+      list.appendChild(note);
+      box.hidden = false;
+    }
+  }
+  worldswOneKosmos();
+  /* Re-read in the background while the menu cannot be opened (opening is what re-reads otherwise): soon after a
+     read that got no answer (the relay not up at boot), and every few minutes while the answer is "nowhere else to
+     go" (a sign-in to Kosmos+, or another computer added, during the session). review round 2. */
+  if (!MULTI_KOSMOS) {
+    clearTimeout(COMPUTERS_RETRY_T);
+    COMPUTERS_FAILS = good ? 0 : COMPUTERS_FAILS + 1;
+    /* Failures back off, 15 s doubling to 5 min, since some never clear on their own (an old connector, a refused
+       computer) and each read is a signed call to Kosmos+ (review round 4). */
+    const first = Number.isFinite(window.__kosmosComputersRetryMs) ? Math.max(100, window.__kosmosComputersRetryMs) : 15000;
+    const wait = !good ? Math.min(5 * 60 * 1000, first * 2 ** (COMPUTERS_FAILS - 1)) : (!COMPUTERS_OPENABLE ? 5 * 60 * 1000 : 0);
+    /* Either way, a hidden tab waits (it reads when it is next looked at, the visibility listener below), and an
+       open menu is not repainted under the person (it reads when the menu is next opened). */
+    const tick = () => {
+      const menu = document.getElementById('worldsw-menu');
+      if (document.hidden) COMPUTERS_STALE_WHILE_HIDDEN = true;                    // read on the next look
+      else if (menu && !menu.hidden) COMPUTERS_RETRY_T = setTimeout(tick, wait);   // try again after, never under the person
+      else computersFetch().catch(() => {});
+    };
+    if (wait) COMPUTERS_RETRY_T = setTimeout(tick, wait);
+  }
+}
+function worldswOneKosmos() {
+  if (MULTI_KOSMOS) return;
+  const sw = document.getElementById('worldsw');
+  const btn = document.getElementById('worldsw-btn');
+  const nameEl = document.getElementById('worldsw-name');
+  if (!sw || !btn || !nameEl) return;
+  for (const id of ['worldsw-list', 'worldsw-new']) { const el = document.getElementById(id); if (el) el.hidden = true; }
+  const name = THIS_COMPUTER_NAME || 'This computer';
+  nameEl.textContent = name;
+  sw.classList.add('worldsw-onekosmos');
+  sw.classList.toggle('worldsw-fixed', !COMPUTERS_OPENABLE);
+  sw.hidden = false;   // the name no longer depends on the Kosmoses read (review round 1)
+  const menu = document.getElementById('worldsw-menu');
+  if (COMPUTERS_OPENABLE) {
+    btn.removeAttribute('aria-disabled');
+    btn.removeAttribute('tabindex');
+    btn.setAttribute('aria-controls', 'worldsw-menu');
+    btn.setAttribute('aria-expanded', menu && !menu.hidden ? 'true' : 'false');
+    btn.setAttribute('aria-label', 'Your computers. This computer: ' + name);
+  } else {
+    /* Plain text, as the card asks: nothing to expand, so no expanded state, no controls and no Tab stop (a screen
+       reader would otherwise announce a collapsed button that never opens). Close a menu left open from before. */
+    if (menu && !menu.hidden) {
+      const focusWasInside = menu.contains(document.activeElement);
+      menu.hidden = true;
+      if (focusWasInside) btn.focus();   // never leave focus on a row that just went away
+    }
+    btn.removeAttribute('aria-expanded');
+    btn.removeAttribute('aria-controls');
+    btn.setAttribute('aria-disabled', 'true');
+    btn.setAttribute('tabindex', '-1');
+    btn.setAttribute('aria-label', name);
   }
 }
 function worldswRender(data, opts) {
@@ -25883,6 +25987,8 @@ function worldswRender(data, opts) {
   }
   sw.hidden = false;
   worldswSetStale(!!(opts && opts.stale));   // #3055: honest note on a last-known render
+  // #4815: with MULTI_KOSMOS off, this computer's name and nothing about Kosmoses (typeof: tests lift this alone).
+  if (typeof worldswOneKosmos === 'function') worldswOneKosmos();
 }
 /* #2238: switch the active Kosmos. POST /api/worlds/active flips the registry and,
    when the board can SAFELY self-restart, restarts it onto the new world (#2346:
@@ -26166,8 +26272,16 @@ async function computersFetch() {
      must never be shown as current (a probe can take seconds). */
   const box = document.getElementById('worldsw-computers');
   const list = document.getElementById('worldsw-computers-list');
-  if (box) box.hidden = true;
   if (list) list.textContent = '';
+  /* #4815: with one Kosmos this section is the whole menu, so it says it is reading rather than leaving an empty box
+     (typeof: lifted alone by web.computers-switcher-4648, where the hide below is what it pins). */
+  if (typeof MULTI_KOSMOS !== 'undefined' && MULTI_KOSMOS === false && box && list) {
+    const note = document.createElement('div');
+    note.className = 'worldsw-row worldsw-row-off';
+    note.textContent = 'Checking your computers...';
+    list.appendChild(note);
+    box.hidden = false;
+  } else if (box) box.hidden = true;
   let data = null;
   try {
     const res = await fetch('/api/remote/computers', { cache: 'no-store' });
@@ -26183,8 +26297,15 @@ function computersRender(data) {
   const rows = (data && data.ok === true && Array.isArray(data.computers))
     ? data.computers.filter((c) => c && typeof c.name === 'string' && c.name && computerAddressOk(c.address, data.domain))
     : [];
+  /* #4815: the rows also give the top-left button this computer's name and whether there is anywhere else to go
+     (worldswComputersSeen). Only an ANSWER changes those: ok: true, or the engine's marked "not signed in"
+     (signedIn: false). The route always answers 200 and a bare ok: false means Kosmos+ did not answer
+     (engine/account-computers.js), so that, like no answer at all, keeps the last good name and menu (review round
+     3). Reached through typeof because tests lift this function alone (web.computers-switcher-4648), where the
+     one-Kosmos helpers do not exist; a lifted copy behaves as before. */
+  const good = !!data && (data.ok === true || data.signedIn === false);
   // Only this computer (or nothing): there is nowhere else to go, so the section stays hidden.
-  if (rows.length < 2) { list.textContent = ''; box.hidden = true; return; }
+  if (rows.length < 2) { list.textContent = ''; box.hidden = true; if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows, good); return; }
   list.textContent = '';
   for (const c of rows) {
     /* Only an ONLINE computer is a link. An offline one would open a browser error page (the
@@ -26219,10 +26340,12 @@ function computersRender(data) {
     list.appendChild(row);
   }
   box.hidden = false;
+  if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows, good);
 }
 function worldswToggle() {
   const menu = document.getElementById('worldsw-menu');
   if (!menu) return;
+  if (typeof MULTI_KOSMOS !== 'undefined' && MULTI_KOSMOS === false && !COMPUTERS_OPENABLE) return;   // #4815: one computer, nothing to open
   if (menu.hidden) worldswOpen();
   else worldswClose();
 }
@@ -26808,6 +26931,15 @@ async function worldHideSubmit() {
     if (menu && !menu.hidden) { worldswClose(); btn.focus(); }
   });
   worldsFetch().catch(() => {});
+  // #4815: with one Kosmos, the button names this computer and opens only onto Your computers, so read them now.
+  if (!MULTI_KOSMOS) {
+    computersFetch().catch(() => {});
+    document.addEventListener('visibilitychange', () => {
+      const menu = document.getElementById('worldsw-menu');
+      // Back in view: read now, unless the menu is open (it read when it opened; never repaint it under the person).
+      if (!document.hidden && COMPUTERS_STALE_WHILE_HIDDEN && !(menu && !menu.hidden)) { COMPUTERS_STALE_WHILE_HIDDEN = false; computersFetch().catch(() => {}); }
+    });
+  }
 })();
 // #3051 + #3360: the upper-right user menu popover. Same shape as wireWorldsw above: the
 // button toggles a hidden menu (aria-expanded tracks it), an outside click or Escape
