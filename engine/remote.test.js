@@ -263,6 +263,19 @@ if (args[0] === 'devices') {
   ] })); process.exit(0); }
   if (verb === 'list') { console.log(JSON.stringify({ devices: [{ device_id: 'dev-1', name: 'iPhone', allowed_at: 1756000000, last_seen: 0, code: 'K7-3M' }] })); process.exit(0); }
   if (verb === 'pending') { console.log(JSON.stringify({ devices: [] })); process.exit(0); }
+  // #4824: a connector from before kosmos#4803 (clap's own words and exit code, measured on that build).
+  if (verb === 'remove' && mode.includes('flag-words-exit1') && args.includes('--coordinator')) {
+    process.stderr.write("error: unexpected argument '--coordinator' found\\n");
+    process.exit(1);
+  }
+  if (verb === 'remove' && mode.includes('old-remove') && args.includes('--coordinator')) {
+    process.stderr.write((mode.includes('ansi') ? "\\u001b[1m\\u001b[31merror:\\u001b[0m unexpected argument '\\u001b[33m--coordinator\\u001b[0m' found\\n" : "error: unexpected argument '--coordinator' found\\n") + "\\nUsage: kosmos-tunnel devices remove --state-dir <STATE_DIR> --device-id <DEVICE_ID>\\n\\nFor more information, try '--help'.\\n");
+    process.exit(2);
+  }
+  if (verb === 'remove' && args.includes('--coordinator')) {
+    console.log(JSON.stringify({ removed: true, device_id: flag('--device-id'), local_cutoff: !mode.includes('remove-no-cutoff'), signed_out: !mode.includes('remove-not-told') }));
+    process.exit(0);
+  }
   console.log(JSON.stringify({ [verb === 'allow' ? 'allowed' : verb === 'deny' ? 'denied' : 'removed']: true, device_id: flag('--device-id') }));
   process.exit(0);
 }
@@ -1080,16 +1093,77 @@ test('deny remembers the No, so a re-ask from the same id carries when this Mac 
   assert.ok(remote.pendingDevices().devices[0].denied_at > 1700000000, 'the re-ask does not know it was said no to');
 });
 
-test('remove has no coordinator (the Mac list is the authority) and the binary’s refusal surfaces as its last sentence', async () => {
+test('#4824: remove tells the coordinator, so the device stops at the sign-in site too; the binary’s refusal surfaces as its last sentence', async () => {
   enrol();
   const ok = await remote.deviceRemove('dev-1');
   assert.equal(ok.ok, true, ok.because);
-  const call = recorded().find((a) => a[0] === 'devices' && a[1] === 'remove');
-  assert.ok(call && !call.includes('--coordinator'), 'remove asked the coordinator, which is not where the list lives');
+  assert.equal(ok.data.signed_out, true);
+  assert.equal(ok.data.local_cutoff, true);
+  const calls = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove');
+  assert.equal(calls.length, 1, 'a connector that knows the flag was asked twice');
+  assert.ok(calls[0].includes('--coordinator'), 'remove did not tell the coordinator');
+  assert.equal(calls[0][calls[0].indexOf('--coordinator') + 1], remote.COORDINATOR());
   process.env.FAKE_TUNNEL_MODE = 'devices-fail';
   const no = await remote.deviceDeny('dev-1');
   assert.equal(no.ok, false);
   assert.match(no.because, /no such pending device/);
+});
+
+test('#4824: a connector from before kosmos#4803 refuses the flag; remove is asked again without it and still removes', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'old-remove';
+  const r = await remote.deviceRemove('dev-1');
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.data.removed, true);
+  assert.equal(r.data.signed_out, undefined, 'an old connector cannot have told the sign-in site');
+  const calls = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove');
+  assert.equal(calls.length, 2);
+  assert.ok(calls[0].includes('--coordinator') && !calls[1].includes('--coordinator'));
+  // Coloured (CLICOLOR_FORCE): clap's escape codes do not hide its refusal.
+  process.env.FAKE_TUNNEL_MODE = 'old-remove,ansi';
+  const nA = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length;
+  const coloured = await remote.deviceRemove('dev-1');
+  assert.equal(coloured.ok, true, coloured.because);
+  assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length, nA + 2, 'a coloured refusal was not retried');
+  // CONTROL: the same words with another exit code are not clap's refusal; not retried.
+  process.env.FAKE_TUNNEL_MODE = 'flag-words-exit1';
+  const n0 = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length;
+  assert.equal((await remote.deviceRemove('dev-1')).ok, false);
+  assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length, n0 + 1, 'a non-clap refusal quoting the flag was retried');
+  // CONTROL: any other refusal is not retried; it surfaces as before.
+  process.env.FAKE_TUNNEL_MODE = 'devices-fail';
+  const before = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length;
+  const no = await remote.deviceRemove('dev-1');
+  assert.equal(no.ok, false);
+  assert.match(no.because, /no such pending device/);
+  assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length, before + 1, 'a refusal that is not the flag was retried');
+});
+
+test('#4824: a Remove whose connector is killed on the timeout is not reported as a failed Remove', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'hung-devices';
+  process.env.FAKE_DEVICE_HANG_MS = '2000';
+  process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '400';
+  try {
+    const r = await remote.deviceRemove('dev-1');
+    assert.equal(r.ok, true, r.because);
+    assert.equal(r.data.timed_out, true);
+    // CONTROL: a refusal that is not a timeout still fails.
+    process.env.FAKE_TUNNEL_MODE = 'devices-fail';
+    assert.equal((await remote.deviceRemove('dev-1')).ok, false);
+  } finally {
+    delete process.env.FAKE_DEVICE_HANG_MS;
+    delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
+  }
+});
+
+test('#4824: what the connector could not do reaches the page in its answer', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'remove-not-told,remove-no-cutoff';
+  const r = await remote.deviceRemove('dev-1');
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.data.signed_out, false);
+  assert.equal(r.data.local_cutoff, false);
 });
 
 test('list joins the sidecar for the screen, and unenrolled is an empty list without a spawn', async () => {

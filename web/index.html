@@ -43415,7 +43415,9 @@ paintStyles(true);
    it asked, never by anything that identifies it; the time keeps ticking
    while shown; the two buttons keep their colours whatever the history,
    because swapping the gold one on a re-ask is itself a mis-tap hazard. */
-const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null };
+const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, said: '', saidAt: 0, removing: null };
+/* #4824: how long what a Remove said stays under the list (through the 5 s poll's repaints) before it is dropped. */
+const REMOVE_SAID_MS = 2 * 60 * 1000;
 /* #3829: "Not now" is gone (a waiting request stays on screen until Allow or Not me; an old one fades). A
    session flag an older build left behind must not keep hiding the card, so it is cleared, never read. */
 try { sessionStorage.removeItem('ask-later'); } catch { /* no storage: nothing to clear */ }
@@ -43656,13 +43658,24 @@ function plusSay(text, kind) {
 }
 async function paintDevices() {
   const box = document.getElementById('plus-devices');
-  if (!box || box.hidden) return;
+  // #4824: a hidden list (Plus off, signed out, forgotten) drops what a Remove said; it was about that setup.
+  if (!box || box.hidden) { ASK.said = ''; return; }
   let r = null;
   try { r = await (await fetch('/api/remote/devices', { cache: 'no-store' })).json(); } catch { r = null; }
   const list = document.getElementById('plus-devlist');
   const msg = document.getElementById('plus-devmsg');
-  if (!r || !Array.isArray(r.allowed)) { msg.textContent = plusWords((r && r.error) || 'we could not read the devices'); return; }
-  msg.textContent = '';
+  if (ASK.said && Date.now() - ASK.saidAt > REMOVE_SAID_MS) ASK.said = '';
+  // #4824: a list that cannot be read this time is said after what a Remove just said, not instead of it.
+  if (!r || !Array.isArray(r.allowed)) {
+    const err = plusWords((r && r.error) || 'we could not read the devices');
+    const say = ASK.said ? ASK.said + ' The list above could not be read just now.' : err;
+    if (msg.textContent !== say) msg.textContent = say; // the 5 s poll does not re-announce an unchanged alert
+    return;
+  }
+  /* #4824: what the last Remove said stays through every repaint (the 5 s poll included) until the next
+     Remove or Keep in this list, or REMOVE_SAID_MS, so the warning that matters most is not gone before it is read.
+     An unchanged line is not rewritten: the element is an assertive alert, and the poll runs every 5 s. */
+  if (msg.textContent !== ASK.said) msg.textContent = ASK.said;
   ASK.allowed = r.allowed;
   document.getElementById('plus-devices-off').hidden = r.on !== false;
   /* #3829: a pending request shows ONCE, as its card at the top of the app (#askcard), not again here.
@@ -43677,7 +43690,7 @@ async function paintDevices() {
       (d.last_seen ? ' &middot; last used ' + askEsc(askAgo(d.last_seen)) : ' &middot; not used yet');
     const confirming = ASK.confirm === d.device_id;
     out.push('<div class="devrow"><div class="devbody"><div class="devname">' + askEsc(name) + '</div><div class="devmeta">' + meta + '</div></div>' +
-      '<div class="acts"><button class="btn" type="button" data-dev="remove" data-id="' + askEsc(d.device_id) + '"' + (confirming ? ' disabled' : '') + '>Remove</button></div>' +
+      '<div class="acts"><button class="btn" type="button" data-dev="remove" data-id="' + askEsc(d.device_id) + '"' + (confirming || ASK.removing ? ' disabled' : '') + '>' + (ASK.removing === d.device_id ? 'Removing' : 'Remove') + '</button></div>' +
       (confirming ? '<div class="confirm">Remove this ' + askEsc(name) + '? It stops right away. It can ask again by signing in.' +
         '<div class="acts"><button class="btn" type="button" data-dev="removeyes" data-id="' + askEsc(d.device_id) + '">Remove</button>' +
         '<button class="btn" type="button" data-dev="keep">Keep</button></div></div>' : '') + '</div>');
@@ -43713,6 +43726,24 @@ async function paintDevices() {
      so #1014's "Open <address> on your phone" instruction is never shown; the element stays for the layout. */
   if (next) { next.hidden = true; next.textContent = ''; }
 }
+/* #4824: what a Remove reached, from the connector's answer (kosmos#4803). The removal on this
+   computer always stands; the rest is said only when the answer says it happened. */
+function removedWords(said) {
+  if (!said || typeof said !== 'object') return 'Removed here.'; // an answer that could not be read says nothing more
+  const s = said;
+  if (s.timed_out === true) return 'This took too long to finish. If it is still on the list above, remove it again. If it is gone, it may still open your other computers until you remove it there too.';
+  const here = s.removed === false ? 'It was not on this computer\'s list.' : s.signed_out === true ? 'Removed.' : 'Removed here.';
+  // A connector from before kosmos#4803 answers neither field: it never tries to reach the other computers or to
+  // end the old sign-in here, so that is said as how it works, not as something that failed.
+  if (!('signed_out' in s) && !('local_cutoff' in s)) {
+    return here + ' If you let it in on your other computers too, it still opens them until you remove it there, and if you let it in again here, its old sign-in comes back with it.';
+  }
+  const out = [here + (s.signed_out === true
+    ? (s.removed === false ? ' Its current sign-in on your other computers ends' : ' Its current sign-in on your other computers ends too') + '; it stays allowed there until you remove it there.'
+    : ' Kosmos+ could not confirm its sign-in was ended, so it may still open your other computers until you remove it there too.')];
+  if (s.local_cutoff !== true) out.push('This computer could not record the end of its current sign-in, so if you let it in again, that old sign-in could come back.');
+  return out.join(' ');
+}
 document.getElementById('plus-devlist').addEventListener('click', async (e) => {
   const a = e.target.closest('[data-ask]');
   if (a) { askAct(a.getAttribute('data-ask'), a.getAttribute('data-id')); return; }
@@ -43720,13 +43751,24 @@ document.getElementById('plus-devlist').addEventListener('click', async (e) => {
   if (!b) return;
   const act = b.getAttribute('data-dev'); const id = b.getAttribute('data-id');
   const msg = document.getElementById('plus-devmsg');
-  if (act === 'remove') { ASK.confirm = id; paintDevices(); return; }
-  if (act === 'keep') { ASK.confirm = null; paintDevices(); return; }
+  if (act === 'remove') { if (ASK.removing) return; ASK.confirm = id; ASK.said = ''; paintDevices(); return; }
+  if (act === 'keep') { ASK.confirm = null; ASK.said = ''; paintDevices(); return; }
   if (act === 'removeyes') {
+    /* #4824: telling Kosmos+ makes a Remove slow (the board waits up to its retire timeout per connector call), so
+       the row says Removing and no second Remove can start (its "not on this computer's list" answer would replace
+       this one's). */
+    if (ASK.removing) return;
     ASK.confirm = null;
+    ASK.removing = id;
+    paintDevices();
     let res = null;
-    try { res = await fetch('/api/remote/devices/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device_id: id }) }); } catch { res = null; }
-    if (!res || !res.ok) { const said = res ? await res.json().catch(() => null) : null; msg.textContent = plusWords((said && said.error) || 'we could not remove that'); }
+    try {
+      try { res = await fetch('/api/remote/devices/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device_id: id }) }); } catch { res = null; }
+      if (!res || !res.ok) { const said = res ? await res.json().catch(() => null) : null; ASK.said = plusWords((said && said.error) || 'we could not remove that'); }
+      else ASK.said = removedWords(await res.json().catch(() => null));
+    } finally { ASK.removing = null; }
+    ASK.saidAt = Date.now();
+    msg.textContent = ASK.said;
     paintDevices();
   }
 });

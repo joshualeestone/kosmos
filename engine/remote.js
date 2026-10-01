@@ -1431,12 +1431,31 @@ async function deviceDeny(id) {
   return r;
 }
 /** Take it back: off this Mac's list at once, and the tunnel drops any live
-    session for it on the next request. */
+    session for it on the next request. #4824: with the coordinator, the connector also ends the
+    device's current sign-ins at the sign-in site and on the account's other computers (kosmos#4803),
+    and answers `signed_out` and `local_cutoff` for the page to say what did not happen.
+    A connector from before kosmos#4803 refuses the flag before doing anything (clap: "unexpected
+    argument '--coordinator'", exit 2, measured on that build), so it is asked again without it: the
+    removal here works as it always did, and the answer has neither `signed_out` nor `local_cutoff`, which the
+    page (removedWords) says as how an older connector works. */
 async function deviceRemove(id) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
-  return parseSaid(await tracked(setupRun(deviceArgs('remove', id, false), null, retireTimeoutMs())));
+  const r = await tracked(setupRun(deviceArgs('remove', id, true), null, retireTimeoutMs()));
+  // ANSI colour codes out first: a CLICOLOR_FORCE environment makes clap colour the argument.
+  const said = (String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, '');
+  if (!r.ok && r.code === 2 && /unexpected argument '--coordinator'/.test(said)) {
+    // A Forget may have started between the two spawns; the same refusal as the first call then.
+    { const b = busy(); if (b) return b; }
+    return removeAnswer(await tracked(setupRun(deviceArgs('remove', id, false), null, retireTimeoutMs())));
+  }
+  return removeAnswer(r);
+}
+/* #4824: a connector killed on the timeout answers `timed_out`, and the page points at the list. */
+function removeAnswer(r) {
+  if (!r.ok && r.timedOut) return { ok: true, because: null, data: { timed_out: true } };
+  return parseSaid(r);
 }
 
 /* ---- Sign in THIS computer (#3149 journey 2). The in-app wizard replaces the
