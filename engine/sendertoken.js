@@ -190,7 +190,9 @@ function mint(sessionName, opts = {}) {
        its write from a list that predates ours and drop this token. */
     held = withSessionLock(sessionName, () => {
       const tokens = readTokens(sessionName);
-      tokens.push({ token, instance, mintedAt: new Date().toISOString(), ...(launcher ? { launcher } : {}) });
+      /* #4792: the agent's own name, exactly as given. The file is keyed by safeKey, which is lossy ("Mara" and
+         "mara" share one file), so without this a token could only say which KEY it was for. */
+      tokens.push({ token, instance, name: String(sessionName), mintedAt: new Date().toISOString(), ...(launcher ? { launcher } : {}) });
       writeTokens(sessionName, tokens.slice(-MAX_LIVE));
     });
   } catch (e) {
@@ -332,6 +334,21 @@ function sameToken(a, b) {
   return crypto.timingSafeEqual(x, y);
 }
 
+/* #4792: the name a token was minted for, or null for a token minted before names were kept (or one whose name does
+   not key to the file it sits in, which only a hand-edited store could hold: read as unnamed, never trusted). */
+function tokenName(t, key) {
+  if (!t || typeof t.name !== 'string' || !t.name) return null;
+  try { return store.safeKey(t.name) === key ? t.name : null; } catch { return null; }
+}
+
+/* #4792: true when the file for this key holds named tokens for more than one name ("Mara" and "mara"). Then the
+   KEY no longer says which agent, so nothing may be resolved by key alone (a paneless row, the paneless fallback). */
+function namesClash(held, key) {
+  const names = new Set();
+  for (const t of held) { const n = tokenName(t, key); if (n) names.add(n); }
+  return names.size > 1;
+}
+
 /* #4763: marks a refusal made because more than one of our running agents shares the token's key. */
 const CLASH = Symbol('kosmos.sendertoken.clash');
 const CLASH_LOGGED = new Set();
@@ -367,6 +384,22 @@ function resolve(token, roster) {
        not this agent. Keying every row before that check threw "invalid agent name" for the whole roster, so one such
        session sorted ahead of the agents broke every agent's token, with a message that blamed the agent. */
     const keyOf = (name) => { try { return store.safeKey(name); } catch { return null; } };
+    /* #4792: a token that carries its agent's name answers for THAT agent only. A row with a tmux session must have
+       exactly that name. A paneless row (status.js: session null, sessionName the key) is matched by key, and only
+       while no other name has tokens in this file. So "Mara"'s token never resolves as running "mara", whether Mara
+       is running too or stopped. `session` and not `paneless`: paneRoster() rows carry no `paneless` field, and
+       both producers carry `session`. A token minted before names were kept has none and falls through below. */
+    const named = tokenName(hit, key);
+    if (named !== null) {
+      const twins = namesClash(held, key);
+      const rows = Array.isArray(roster)
+        ? roster.filter((a) => a && a.isNamedOurs === true && a.sessionName && (a.session
+          ? a.sessionName === named
+          : !twins && keyOf(a.sessionName) === key))
+        : [];
+      if (rows.length !== 1) return { ok: false, because: NO_MATCH, ...(twins ? { [CLASH]: true } : {}) };
+      return { ok: true, card: rows[0], instance: hit.instance || null };
+    }
     const cards = Array.isArray(roster)
       ? roster.filter((a) => a && a.isNamedOurs === true && a.sessionName && keyOf(a.sessionName) === key)
       : [];
@@ -380,7 +413,7 @@ function resolve(token, roster) {
        clash they cannot see (a session made outside Kosmos, or two made while one was stopped and now both
        running). It covers ONLY two ROWS: with one of them stopped, or with a remote twin whose paneless row
        dedupes against the pane row, there is one row and the other's token (same file, no owner field)
-       resolves as it. Closing that needs the session name stored on each token at mint time (#4792).
+       resolves as it. #4792 closes that for tokens that carry their name (above); this is the path for older ones.
        The refusal carries CLASH (a Symbol: never serialized, so the words stay NO_MATCH) so the caller's
        paneless fallback, which resolves by key alone, does not re-admit the token as the key. */
     if (cards.length > 1) {
@@ -442,9 +475,10 @@ function resolveName(token) {
     try { held = readTokens(key); } catch { continue; }
     const hit = held.find((t) => sameToken(t.token, presented));
     if (!hit) continue;
-    /* The filename IS the safeKey'd session name; that is the mapping `mint`
-       wrote and the only name this store knows. */
-    return { ok: true, key, instance: hit.instance || null };
+    /* The filename IS the safeKey'd session name. #4792: `name` is the agent's own name when the token carries it
+       (null for an older token: the caller has only the key). `twins` says this file holds named tokens for more
+       than one name, so the KEY alone does not say which agent: a caller that resolves by key must refuse. */
+    return { ok: true, key, name: tokenName(hit, key), twins: namesClash(held, key), instance: hit.instance || null };
   }
   return no;
 }

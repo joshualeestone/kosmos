@@ -72,7 +72,18 @@ test('#4738: a stranger session whose name cannot be keyed, ahead of the agent i
   } finally { board.restore(); }
 });
 
-test('#4763: two running agents whose names share a key (Mara / mara): neither token resolves to the other', () => {
+/* #4792: a token minted before names were kept: the file as #4763's era wrote it, no `name` on any entry. */
+function legacyTokens(key, n) {
+  const fs = require('node:fs');
+  const crypto = require('node:crypto');
+  const tokens = [];
+  for (let i = 0; i < n; i += 1) tokens.push({ token: crypto.randomBytes(32).toString('hex'), instance: 'old' + i, mintedAt: '2026-09-01T00:00:00.000Z' });
+  fs.mkdirSync(sendertoken.DIR, { recursive: true });
+  fs.writeFileSync(path.join(sendertoken.DIR, key + '.json'), JSON.stringify({ tokens }), { mode: 0o600 });
+  return tokens.map((t) => t.token);
+}
+
+test('#4792: two running agents whose names share a key (Mara / mara): each token resolves to its own agent', () => {
   const store = require('./store');
   assert.equal(store.safeKey('Mara'), store.safeKey('mara'), 'CONTROL: the two names really share a key');
   const board = fleet.install([fleet.agent('Mara', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
@@ -82,30 +93,81 @@ test('#4763: two running agents whose names share a key (Mara / mara): neither t
     assert.equal(a.ok && b.ok, true);
     const ours = board.roster.filter((r) => r.isNamedOurs === true).map((r) => r.sessionName).sort();
     assert.deepEqual(ours, ['Mara', 'mara'], 'CONTROL: both are ours on the roster');
-    for (const t of [a.token, b.token]) {
+    for (const [t, own] of [[a.token, 'Mara'], [b.token, 'mara']]) {
       const who = sendertoken.resolve(t, board.roster);
-      assert.equal(who.ok, false, 'a token resolved while two agents share its key: ' + JSON.stringify(who && who.card && who.card.sessionName));
-      assert.equal(who[sendertoken.CLASH], true, 'the clash refusal is not marked, so the paneless fallback would re-admit it');
-      assert.match(who.because, /could not match that to one of your agents/, 'a clash must read like a token we never issued');
-      // A regression guard for a STRING-keyed mark: while CLASH is a Symbol, JSON.stringify drops it and this cannot fail.
-      assert.equal(JSON.stringify(who).includes('clash'), false, 'the clash mark reached a serialized answer');
-      /* KNOWN LIMIT, pinned so it is not hidden: resolveName is key-level (the file is the key) and still answers
-         for the clash. The key "mara" IS agent mara's exact name, so its callers (the outbox keep-time sender, the
-         token-only read routes) let Mara's token act AS mara. The same defect as this card, on the key-level
-         paths; tracked as #4792 (store the name on each token), not fixed here. */
+      assert.equal(who.ok, true, `${own}'s token did not resolve: ` + JSON.stringify(who));
+      assert.equal(who.card.sessionName, own, `${own}'s token resolved as another agent`);
       const byName = sendertoken.resolveName(t);
-      assert.equal(byName.ok, true);
-      assert.equal(byName.key, 'mara');
+      assert.deepEqual([byName.ok, byName.key, byName.name, byName.twins], [true, 'mara', own, true],
+        'resolveName must say whose token it is, and that the key alone no longer says');
     }
   } finally { board.restore(); }
-  // Control: with only one of them running, its token resolves to it.
+});
+
+test('#4792: with Mara stopped, Mara\'s token is refused, never resolved as running mara', () => {
+  const a = sendertoken.mint('Mara');
+  const b = sendertoken.mint('mara');
   const one = fleet.install([fleet.agent('mara', { state: 'idle' })]);
   try {
-    const t = sendertoken.mint('mara').token;
-    const who = sendertoken.resolve(t, one.roster);
-    assert.equal(who.ok, true, JSON.stringify(who));
-    assert.equal(who.card.sessionName, 'mara');
+    const who = sendertoken.resolve(a.token, one.roster);
+    assert.equal(who.ok, false, 'a stopped twin\'s token spoke as the running one: ' + JSON.stringify(who && who.card && who.card.sessionName));
+    assert.match(who.because, /could not match that to one of your agents/, 'the refusal must read like a token we never issued');
+    assert.equal(who[sendertoken.CLASH], true, 'unmarked, so the paneless fallback would admit it by key');
+    // Control: the running agent's own token still resolves to it.
+    const mine = sendertoken.resolve(b.token, one.roster);
+    assert.equal(mine.ok, true, JSON.stringify(mine));
+    assert.equal(mine.card.sessionName, 'mara');
   } finally { one.restore(); }
+});
+
+test('#4792: a paneless row (listed by key) is matched by key only while one name holds tokens under it', () => {
+  // status.js lists a paneless agent with session null and its key as sessionName. Plain rows: no pane fixture can say this.
+  const paneless = [{ sessionName: 'kip4792', session: null, isNamedOurs: true }];
+  const remote = sendertoken.mint('Kip4792', { launcher: 'remote' });
+  const alone = sendertoken.resolve(remote.token, paneless);
+  assert.equal(alone.ok, true, 'a remote agent with a capitalised name lost its paneless row: ' + JSON.stringify(alone));
+  assert.equal(alone.card.sessionName, 'kip4792');
+  const twin = sendertoken.mint('kip4792');
+  for (const t of [remote.token, twin.token]) {
+    const who = sendertoken.resolve(t, paneless);
+    assert.equal(who.ok, false, 'with two names under one key, a key-listed row took a token: ' + JSON.stringify(who));
+    assert.equal(who[sendertoken.CLASH], true);
+  }
+});
+
+test('#4792: a token minted before names were kept still works, and a #4763 clash still refuses it', () => {
+  const [old] = legacyTokens('pell4792', 1);
+  const one = fleet.install([fleet.agent('pell4792', { state: 'idle' })]);
+  try {
+    const who = sendertoken.resolve(old, one.roster);
+    assert.equal(who.ok, true, 'an older token stopped working: ' + JSON.stringify(who));
+    assert.equal(sendertoken.resolveName(old).name, null, 'an older token has no name to report');
+  } finally { one.restore(); }
+  const both = fleet.install([fleet.agent('Pell4792', { state: 'idle' }), fleet.agent('pell4792', { state: 'idle' })]);
+  try {
+    const who = sendertoken.resolve(old, both.roster);
+    assert.equal(who.ok, false, 'an older token resolved while two agents share its key');
+    assert.equal(who[sendertoken.CLASH], true);
+    assert.match(who.because, /could not match that to one of your agents/);
+    assert.equal(JSON.stringify(who).includes('clash'), false, 'the clash mark reached a serialized answer');
+  } finally { both.restore(); }
+});
+
+test('#4792: a name that does not key to its file is read as no name (a hand-edited store is never trusted)', () => {
+  const fs = require('node:fs');
+  const t = sendertoken.mint('quill4792').token;
+  const file = path.join(sendertoken.DIR, 'quill4792.json');
+  const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(kept.tokens[0].name, 'quill4792', 'CONTROL: mint records the name');
+  kept.tokens[0].name = 'Someone-Else';
+  fs.writeFileSync(file, JSON.stringify(kept), { mode: 0o600 });
+  assert.equal(sendertoken.resolveName(t).name, null);
+  const board = fleet.install([fleet.agent('Someone-Else', { state: 'idle' }), fleet.agent('quill4792', { state: 'idle' })]);
+  try {
+    const who = sendertoken.resolve(t, board.roster);
+    assert.equal(who.ok, true);
+    assert.equal(who.card.sessionName, 'quill4792', 'a rewritten name moved the token to another agent');
+  } finally { board.restore(); }
 });
 
 test('#4763 review 3: a clash logs once per clash, and a clean resolve re-arms it', () => {
@@ -113,8 +175,8 @@ test('#4763 review 3: a clash logs once per clash, and a clean resolve re-arms i
   const orig = console.warn;
   console.warn = (m) => { warned.push(String(m)); };
   try {
-    const t = sendertoken.mint('Zed4763').token;
-    sendertoken.mint('zed4763');
+    // #4792: named tokens no longer clash (each resolves to its own agent); the #4763 refusal is for older tokens.
+    const [t] = legacyTokens('zed4763', 1);
     const both = fleet.install([fleet.agent('Zed4763', { state: 'idle' }), fleet.agent('zed4763', { state: 'idle' })]);
     try { sendertoken.resolve(t, both.roster); sendertoken.resolve(t, both.roster); } finally { both.restore(); }
     assert.equal(warned.filter((w) => w.includes('"zed4763"')).length, 1, 'a clash was not logged exactly once: ' + JSON.stringify(warned));

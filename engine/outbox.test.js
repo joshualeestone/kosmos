@@ -127,6 +127,21 @@ test('from: the launch token wins, an agent\'s pane is the fallback, and neither
   clear();
 });
 
+test('#4792: a kept send is from the token\'s own agent, never the other name that shares its key', () => {
+  const T = 'cd'.repeat(32);
+  const seam = (found) => ({ resolveName: () => found });
+  // Mara's token, while a "mara" also holds tokens under the key: filed as Mara, not as the key "mara".
+  assert.deepEqual(outbox.resolveKeepSender({ KOSMOS_AGENT_TOKEN: T }, seam({ ok: true, key: 'mara', name: 'Mara', twins: true })), { ok: true, name: 'Mara' });
+  // A token minted before names were kept: the key, as before ...
+  assert.deepEqual(outbox.resolveKeepSender({ KOSMOS_AGENT_TOKEN: T }, seam({ ok: true, key: 'mara', name: null, twins: false })), { ok: true, name: 'mara' });
+  // ... unless a second name holds tokens under that key, when the key no longer says who: refused.
+  const twin = outbox.resolveKeepSender({ KOSMOS_AGENT_TOKEN: T, TMUX_PANE: '%3' }, { ...seam({ ok: true, key: 'mara', name: null, twins: true }), paneSession: () => ({ ok: true, session: 'mara' }) });
+  assert.equal(twin.ok, false, 'an older token was filed under a key two agents share: ' + JSON.stringify(twin));
+  // The real store end to end: a minted token carries its name.
+  const minted = sendertoken.mint('Ava4792');
+  assert.deepEqual(outbox.resolveKeepSender({ KOSMOS_AGENT_TOKEN: minted.token }), { ok: true, name: 'Ava4792' });
+});
+
 test('a person\'s own tmux window is not an agent: the keep is refused, nothing is kept, and the command exits 1 (review round 1)', () => {
   clear();
   const personsWindow = { paneSession: () => ({ ok: true, session: 'josh-work' }), paneClaim: () => '' };

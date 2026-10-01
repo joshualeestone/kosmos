@@ -137,7 +137,11 @@ test('a carded agent is unaffected, and needs no heartbeat', () => {
 /* #4763: two running agents of ours share a key (Mara / mara), so `resolve` refuses. The paneless path resolves by
    key alone; with a heartbeat on that key it would re-admit the token as "mara". */
 test('#4763: a key clash is not re-admitted by the paneless path, even with a live heartbeat on the key', () => {
-  const tok = sendertoken.mint('mara').token;
+  /* #4792: a token that carries its name resolves to its own agent, so the #4763 clash is now the path of a token
+     minted before names were kept: written here as that era wrote it, with no name. */
+  const tok = require('node:crypto').randomBytes(32).toString('hex');
+  fs.mkdirSync(sendertoken.DIR, { recursive: true });
+  fs.writeFileSync(path.join(sendertoken.DIR, 'mara.json'), JSON.stringify({ tokens: [{ token: tok, instance: 'old', mintedAt: '2026-09-01T00:00:00.000Z' }] }), { mode: 0o600 });
   sendertoken.mint('Mara');
   liveness.seen('mara');
   const board = fleet.install([fleet.agent('Mara'), fleet.agent('mara')]);
@@ -164,4 +168,36 @@ test('refusals still read alike, so a probe learns nothing', () => {
   const b = resolveAgentSender(hdr('0'.repeat(64)), {}, []);
   assert.equal(a.because, b.because,
     'a real-but-silent token gives a different message from an unissued one');
+});
+
+/* #4792: the paneless path names the agent by the token's own name, and refuses when two names hold tokens under
+   one key (it would otherwise admit "Mara"'s token as the beating key "mara"). */
+test('#4792: a paneless agent is named as itself, and a key two names share admits nobody', () => {
+  const big = sendertoken.mint('Pip4792').token;
+  liveness.seen('pip4792');
+  const alone = resolveAgentSender(hdr(big), {}, []);
+  assert.equal(alone.ok, true, 'refused a beating paneless agent: ' + alone.because);
+  assert.equal(alone.card.sessionName, 'Pip4792', 'the paneless sender was named by its key, not its own name');
+  const small = sendertoken.mint('pip4792').token;
+  for (const t of [big, small]) {
+    const r = resolveAgentSender(hdr(t), {}, []);
+    assert.equal(r.ok, false, 'with two names under one key, the paneless path admitted a token: ' + JSON.stringify(r.card));
+    assert.equal(r.because, resolveAgentSender(hdr('0'.repeat(64)), {}, []).because, 'the refusal must read like a token we never issued');
+  }
+});
+
+/* #4792: a token minted before names were kept, in a file where two names now hold tokens. `resolve` has no name to
+   match and no clash of ROWS to mark (no panes), so only the paneless path's own check stands between it and the
+   beating key. */
+test('#4792: an older token is not admitted by key once two names hold tokens under that key', () => {
+  const old = require('node:crypto').randomBytes(32).toString('hex');
+  fs.mkdirSync(sendertoken.DIR, { recursive: true });
+  fs.writeFileSync(path.join(sendertoken.DIR, 'wren4792.json'), JSON.stringify({ tokens: [{ token: old, instance: 'old', mintedAt: '2026-09-01T00:00:00.000Z' }] }), { mode: 0o600 });
+  liveness.seen('wren4792');
+  sendertoken.mint('wren4792');
+  const one = resolveAgentSender(hdr(old), {}, []);
+  assert.equal(one.ok, true, 'CONTROL: with one name under the key, the older token is still admitted: ' + one.because);
+  sendertoken.mint('Wren4792');
+  const two = resolveAgentSender(hdr(old), {}, []);
+  assert.equal(two.ok, false, 'an older token was admitted by a key two names share, as ' + JSON.stringify(two.card && two.card.sessionName));
 });

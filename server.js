@@ -1339,8 +1339,10 @@ function resolveAgentSender(req, body, roster, opts) {
   if (carded[sendertoken.CLASH]) return carded;
 
   const byName = sendertoken.resolveName(presented);
-  if (byName.ok && liveness.alive(byName.key) === true) {
-    return { ok: true, card: { sessionName: byName.key, isNamedOurs: true }, instance: byName.instance || null, paneless: true };
+  /* #4792: by key only while the key says which agent (no second name has tokens under it), and as the token's own
+     name when it carries one, so "Mara"'s token is never admitted as "mara". */
+  if (byName.ok && byName.twins !== true && liveness.alive(byName.key) === true) {
+    return { ok: true, card: { sessionName: byName.name || byName.key, isNamedOurs: true }, instance: byName.instance || null, paneless: true };
   }
   /* The original refusal, verbatim: `resolve` deliberately gives the same
      sentence for "never issued" and "issued but no card", so that a probe
@@ -4028,17 +4030,24 @@ function agentTokenOk(req) {
 }
 /* #4491 slice 4: did this request get past the board-token gate on its agent token ALONE? Returns null when it did
    not (the board is not enforcing, or the caller also holds the person's credential: the page, the person's
-   terminal, every agent's CLI today), else the token's agent as the token store names it (its key, which is
-   store.safeKey of the session name), or '' when the token names nobody. For the READ handlers only: they have no
-   body, and the gate has already checked the token, so this is the same header read twice.
-   Membership for these reads is therefore BY KEY (projectHasAgent(stored, key, true)), not by exact spelling as
-   the slice-3 writes compare a carded caller: a project that lists "a.b" admits the token whose key is "ab". That
-   is no wider than the token store itself, which keeps both names in the one file for that key. */
+   terminal, every agent's CLI today), else { name, byKey } for projectHasAgent(stored, name, byKey), or '' when the
+   token names nobody. For the READ handlers only: they have no body, and the gate has already checked the token,
+   so this is the same header read twice.
+   #4792: a token minted with its agent's name is matched by that exact name, as the slice-3 writes compare a
+   carded caller. An older token carries only its key (store.safeKey of the name) and is matched BY KEY, as before:
+   a project that lists "a.b" admits it when its key is "ab". That older path is refused when a second name has
+   tokens under the same key, because the key then no longer says which agent. */
 function agentTokenOnlyCaller(req) {
   if (!boardAuthState.on || boardTokenOk(req)) return null;
   let who = null;
   try { who = sendertoken.resolveName(req && req.headers && req.headers['x-kosmos-agent-token']); } catch { who = null; }
-  return who && who.ok === true && typeof who.key === 'string' ? who.key : '';
+  if (!(who && who.ok === true && typeof who.key === 'string')) return '';
+  /* #4792: a token that carries its agent's name is that agent, matched by exact spelling like the slice-3 writes.
+     An older token has only the key: matched by key as before, unless another name now has tokens under that key,
+     when the key no longer says which agent and the caller is nobody. */
+  if (typeof who.name === 'string' && who.name) return { name: who.name, byKey: false };
+  if (who.twins === true) return '';
+  return { name: who.key, byKey: true };
 }
 /* #1307: a project webhook's call, POST /hooks/<id>/<secret>. It carries its own secret (checked
    against a hash by engine/webhooks.js in the handler), not the board token, so it is exempt from
@@ -15657,7 +15666,7 @@ const server = http.createServer(async (req, res) => {
          list the agent on each one). */
       const stored = (everyProject || []).filter((x) => x && x.id === projectScope);
       if (!stored.length) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
-      if (!tokenOnly || !stored.every((x) => projectHasAgent(x, tokenOnly, true))) {
+      if (!tokenOnly || !stored.every((x) => projectHasAgent(x, tokenOnly.name, tokenOnly.byKey))) {
         sendJson(res, 403, { error: 'that agent is not on this project, so it cannot read its tasks' });
         return;
       }
@@ -16274,7 +16283,7 @@ const server = http.createServer(async (req, res) => {
       const everyProject = projects.readAll();
       const stored = everyProject.filter((p) => p && p.id === id);   // every one with that id, as the task read does
       projectKnown = stored.length > 0;
-      if (tokenOnly !== null && stored.length && (!tokenOnly || !stored.every((p) => projectHasAgent(p, tokenOnly, true)))) {
+      if (tokenOnly !== null && stored.length && (!tokenOnly || !stored.every((p) => projectHasAgent(p, tokenOnly.name, tokenOnly.byKey)))) {
         roomRefusal = [403, 'that agent is not on this project, so it cannot read its room'];
       }
     } catch {
