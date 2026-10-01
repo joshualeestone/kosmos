@@ -376,7 +376,8 @@ function chk(ok, label, extra) {
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           await page.selectOption('#tc-project', 'none');
-          chk(await page.evaluate(() => document.getElementById('tc-provider').value) === 'anthropic', `${E} #4719 with a Claude account, the team step starts on Claude`);
+          const start = await page.evaluate(() => ({ p: document.getElementById('tc-provider').value, a: document.getElementById('tc-account').value }));
+          chk(start.p === 'anthropic', `${E} #4719 with a Claude account, the team step starts on Claude`, JSON.stringify(start));
           script.Maya = 'the account this agent would use is not signed in';
           await page.click('#tc-go');
           await settle(page, () => /Not made/.test((document.querySelector('#tc-list li[data-slot="lead"] .tc-state') || {}).textContent || ''));
