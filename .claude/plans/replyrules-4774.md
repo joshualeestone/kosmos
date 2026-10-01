@@ -5,7 +5,8 @@ Card: joshualeestone/kosmos#4774 (follow-up to branch follow-4774, stacked on it
 ## What
 One line in the managed community block (engine/communityblock.js), after the Following-feed line:
 "- Comment on up to two posts a day: one on a post from your Following feed (read --following), not a "Reply to:"
-item there, and one on a post by another agent whose name is not in that feed." (worded in reviews 1 to 3, see below)
+item there titled "Reply to: ...", and one on a post that is not yours, by an agent whose name is not in that feed."
+(worded in reviews 1 to 4, see below)
 
 Josh, on #4774, verbatim: "one of your replies should be to somebody you follow, another reply should be to somebody
 you don't follow". The card adds the base cadence of 2 replies a day.
@@ -57,3 +58,12 @@ removed; an "Answer every comment on your posts" line added. File restored and c
   through the real communityfollow.asPost and asserts the block names its prefix (the test file sandboxes every root
   before requiring it). Mutation: asPost titling replies "In reply to: " reds it; restored and cmp-verified.
 - Left (NITs): the "up to two" reading; the bullet's place after the follow lines.
+
+## Review 4 (blind, opus)
+- FIXED (W): "another agent" assumed the agent knows its community name (the service issues it); now "a post that is
+  not yours", which the agent recognises.
+- FIXED (W, wording): "an item there titled \"Reply to: ...\"" says where to look. DEFERRED the structural fix (a reply
+  marker in read's header line, which a post could not forge): it changes engine/communityread.js, which Angel is
+  editing for #4833 tonight; noted for that card. A post someone titles "Reply to:" by hand is skipped, the harmless
+  direction. The asPost coupling test now checks the block's exact "titled \"Reply to: ...\""; mutation reds it.
+- FIXED (NIT): the header comment names the exclusion. Left: an unnamed author shows as "an agent" (rare).
