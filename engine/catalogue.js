@@ -7,7 +7,8 @@
  * #4632: the catalogue no longer ships inside Kosmos. It is built and signed by the public repo
  * joshualeestone/kosmos-catalogue and published at installkosmos.com/catalogue/. Kosmos downloads
  * it only when it is asked for: the role picker (/api/roles?catalogue=1), `kosmos agent roles`, a
- * create for a role the board does not hold, and, once #4557 lands, the Team screen. It keeps it
+ * create for a role the board does not hold, and the Team step's reads (#4557: `GET /api/teams/seeded`
+ * and `/api/teams/seeded/<key>` in server.js, through engine/teamseed.js `refresh`). It keeps it
  * in the data folder, and uses it only when its Ed25519 signature verifies against PUBLIC_KEY
  * below. Until the first download, and whenever the stored copy does not verify, there is no
  * catalogue: the picker shows the original roles and there are no teams.
@@ -70,6 +71,7 @@ let key = PUBLIC_KEY;
 let data;            // undefined: not read yet; null: none usable; else the parsed catalogue
 let lastTry = 0;
 let lastError = null;
+let lastRefused = false;   // the last download arrived and was REFUSED (its signature, format or serial)
 let inflight = null;
 // Keyed by the hash AND the file name: two members may share one image under two names, and one
 // name failing must not answer for the other.
@@ -83,7 +85,7 @@ const portraitInflight = new Map();   // "<sha256> <image>" -> the download unde
 const portraitUnsaved = new Map();    // sha256 -> bytes
 
 /** Tests sign with their own key pair. In-process only: nothing outside this process can reach it. */
-function useKeyForTest(pem) { key = pem || PUBLIC_KEY; data = undefined; lastTry = 0; lastError = null; portraitFailed.clear(); portraitUnsaved.clear(); portraitInflight.clear(); }
+function useKeyForTest(pem) { key = pem || PUBLIC_KEY; data = undefined; lastTry = 0; lastError = null; lastRefused = false; portraitFailed.clear(); portraitUnsaved.clear(); portraitInflight.clear(); }
 
 const KEY_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const isText = (v) => typeof v === 'string' && v.length > 0;
@@ -243,11 +245,11 @@ function refresh(opts = {}) {
         [bytes, sig] = await download(`?fresh=${Date.now()}`);
         r = check(bytes, sig.toString('utf8'));
       }
-      if (!r.ok) throw new Error(`the downloaded catalogue was refused: ${r.because}`);
+      if (!r.ok) throw Object.assign(new Error(`the downloaded catalogue was refused: ${r.because}`), { refused: true });
       // It is stored as text, so it must survive the round trip to text byte for byte (a BOM or
       // invalid UTF-8 would not): refused now, rather than lost at the next restart.
       const text = bytes.toString('utf8');
-      if (!Buffer.from(text, 'utf8').equals(bytes)) throw new Error('the downloaded catalogue was refused: it is not plain UTF-8 text');
+      if (!Buffer.from(text, 'utf8').equals(bytes)) throw Object.assign(new Error('the downloaded catalogue was refused: it is not plain UTF-8 text'), { refused: true });
       const held = load();
       if (held && r.catalogue.serial < held.serial) {
         throw new Error(`the downloaded catalogue is older than the one held (${r.catalogue.serial} < ${held.serial})`);
@@ -274,9 +276,11 @@ function refresh(opts = {}) {
       }
       data = r.catalogue;
       lastError = saveError;
+      lastRefused = false;
       if (changed) require('./roles').remerge();
     } catch (err) {
       lastError = (err && err.message) || String(err);
+      lastRefused = Boolean(err && err.refused);
     } finally {
       inflight = null;
     }
@@ -288,7 +292,8 @@ function refresh(opts = {}) {
 /** What the board holds, for the routes that serve the picker and the Team screen. */
 function status() {
   const c = load();
-  return { loaded: !!c, serial: c ? c.serial : null, roles: c ? c.roles.length : 0, teams: c ? c.teams.length : 0, error: lastError };
+  // `refused`: the last download arrived and was not used, so trying again helps only after a new publish.
+  return { loaded: !!c, serial: c ? c.serial : null, roles: c ? c.roles.length : 0, teams: c ? c.teams.length : 0, error: lastError, refused: lastRefused };
 }
 
 /** The menu order of role groups, first to last. */
@@ -485,25 +490,12 @@ function memberProblem(teamKey, slot, names) {
 }
 
 /**
- * The full instruction file for one member of one team, ready to write: the
- * member's role text (with {{NAME}} filled in, because create writes explicit
- * instructions verbatim, create.js) plus an `## On this team` section naming the
- * lead and the teammates by the names the person actually chose.
- *
- * @param {string} teamKey
- * @param {string} slot                         the member's slot, e.g. 'lead'
- * @param {Object<string,string>} [names]       slot -> the agent name chosen; a
- *                                              slot left out keeps the seed's name
- * The caller writes the name it passes here, trimmed, as the agent's name, so the file and the
- * agent agree (chosenName trims).
- *
- * The text is EXPLICIT instructions for a built-in role key, which team.vetAgentMember (#4474) refuses
- * when an agent or the setup guide makes the request; a seeded team is made through the operator path.
- *
- * @returns {string|null} null exactly when memberProblem() returns a reason: an unknown
- *   team, slot or role, a name create refuses, or two seats with the same name.
+ * #4557: only the member's `## On this team` section (no role text, no messaging block), for a
+ * create that layers it INTO the role's own instructions (create's `teamInstructions`), where the
+ * role text and the live messaging block come from create itself. null exactly when memberProblem
+ * returns a reason. memberInstructions is this section on its role text, plus the messaging block.
  */
-function memberInstructions(teamKey, slot, names) {
+function memberTeamSection(teamKey, slot, names) {
   if (memberProblem(teamKey, slot, names) !== null) return null;
   const t = team(teamKey);
   const m = t.members.find((x) => x.slot === slot);
@@ -512,11 +504,8 @@ function memberInstructions(teamKey, slot, names) {
   // What a `kosmos msg` command must carry: the machine name (lowercase, spaces folded), so a
   // two-word name cannot split into a recipient and the start of the message.
   const handleOf = (x) => create.slugFor(nameOf(x));
-  // No command path here: this section sits outside any managed block, so a path written into it
-  // would go stale when the install layout changes. It names each teammate's machine name; the
-  // messaging block below (kept current by projects.healColleagues) teaches the command itself.
-  const roles = require('./roles');
-  const base = roles.instructionsFor(m.role, nameOf(m));
+  // No command path here: a path written into this section would go stale when the install layout
+  // changes. It names each teammate's machine name only.
   const lead = leadOf(t);
   const lines = ['', '## On this team', ''];
   if (m.reportsTo === null) {
@@ -537,7 +526,35 @@ function memberInstructions(teamKey, slot, names) {
     lines.push('', 'Your focus here:', '');
     for (const f of m.focus) lines.push(...wrapLines(f, '- ', '  '));
   }
-  const text = base.replace(/\n+$/, '\n') + lines.join('\n') + '\n';
+  return lines.join('\n').replace(/^\n/, '') + '\n';
+}
+
+/**
+ * The full instruction file for one member of one team, ready to write: the
+ * member's role text (with {{NAME}} filled in, because create writes explicit
+ * instructions verbatim, create.js) plus an `## On this team` section naming the
+ * lead and the teammates by the names the person actually chose.
+ *
+ * @param {string} teamKey
+ * @param {string} slot                         the member's slot, e.g. 'lead'
+ * @param {Object<string,string>} [names]       slot -> the agent name chosen; a
+ *                                              slot left out keeps the seed's name
+ * The caller writes the name it passes here, trimmed, as the agent's name, so the file and the
+ * agent agree (chosenName trims).
+ *
+ * The text is EXPLICIT instructions for a built-in role key, which team.vetAgentMember (#4474) refuses
+ * when an agent or the setup guide makes the request; a seeded team is made through the operator path.
+ *
+ * @returns {string|null} null exactly when memberProblem() returns a reason: an unknown
+ *   team, slot or role, a name create refuses, or two seats with the same name.
+ */
+function memberInstructions(teamKey, slot, names) {
+  const section = memberTeamSection(teamKey, slot, names);
+  if (section === null) return null;
+  const t = team(teamKey);
+  const m = t.members.find((x) => x.slot === slot);
+  const base = require('./roles').instructionsFor(m.role, chosenName(m, names));
+  const text = base.replace(/\n+$/, '\n') + '\n' + section;
   /* create adds the messaging block (how to answer the person, kosmos reply / post / msg) only to
      role templates, never to explicit instructions like these, so it is spliced in here with the
      same markers: projects.healColleagues keeps it current afterwards, as for any agent. Without it
@@ -546,4 +563,4 @@ function memberInstructions(teamKey, slot, names) {
   return require('./projects').spliceBlock(text, messages.blockBody(), messages.START, messages.END);
 }
 
-module.exports = { PUBLIC_KEY, FORMAT, MIN_SERIAL, PORTRAIT_MAX_BYTES, cacheFile, portraitFile, check, refresh, status, useKeyForTest, groupOrder, rawRoles, teams, team, leadOf, memberInstructions, memberProblem, portrait };
+module.exports = { PUBLIC_KEY, FORMAT, MIN_SERIAL, PORTRAIT_MAX_BYTES, cacheFile, portraitFile, check, refresh, status, useKeyForTest, groupOrder, rawRoles, teams, team, leadOf, memberInstructions, memberTeamSection, memberProblem, portrait };

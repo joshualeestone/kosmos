@@ -510,6 +510,19 @@ function cleanName(raw) {
    and another to create. */
 function roleKeyOf(opts) { return String((opts && opts.role) || '').trim(); }
 
+/* #4557: the block a seeded team member's brief rides in, inside its role's standard instructions. */
+// A bound, so a catalogue cannot hand create a novel. The published briefs are a few kilobytes (2026-09-30).
+const TEAM_BRIEF_MAX = 32 * 1024;
+function teamBlockBody(brief) {
+  /* Neutralised like every other value that lands in a managed block (round 2): a brief carrying any
+     kosmos marker would make the NEXT splices find two candidate spans, refuse as ambiguous, and leave
+     the agent silently without its reports/colleagues blocks. */
+  // A brief that opens with its own heading (the catalogue's does: "## On this team") keeps it; the
+  // fixed heading is only for one that has none, so no file carries an empty heading above a real one.
+  const body = require('./projects').neutralise(String(brief).trim());
+  return (/^#{1,6} /.test(body) ? '' : '## Your team\n\n') + body + '\n';
+}
+
 function spokenName(clean) {
   try { return status.readIdentity(clean).displayName || clean; }
   catch { return clean; }
@@ -4218,6 +4231,10 @@ function createAgentInner(opts) {
    */
   const wantLabel = opts && opts.label !== undefined ? opts.label : undefined;
   const wantInstructions = opts && opts.instructions !== undefined ? opts.instructions : undefined;
+  // #4557 (Josh, via Splinter on the card): a seeded team member is made by THIS path like any agent, and
+  // its team brief is LAYERED INTO the role's standard instructions as its own block. It never replaces
+  // them the way `instructions` (the person's own words, verbatim) does, so every standard block lands.
+  const wantTeam = opts && opts.teamInstructions !== undefined ? opts.teamInstructions : undefined;
   // Project ids the route already validated; used once, to compose the
   // projects block into the first write (#323). Never read from here again.
   const wantProjects = opts && Array.isArray(opts.projects)
@@ -4235,6 +4252,22 @@ function createAgentInner(opts) {
   if (wantLabel !== undefined
       && (typeof wantLabel !== 'string' || !wantLabel.trim() || wantLabel.trim().length > 80)) {
     return { outcome: OUTCOME.REFUSED, because: 'a role label has to be words (80 characters or fewer)', steps };
+  }
+  if (wantTeam !== undefined) {
+    if (wantInstructions !== undefined) {
+      return { outcome: OUTCOME.REFUSED, because: 'a team member\'s brief is layered into its role\'s instructions, so give one or the other, not both', steps };
+    }
+    if (typeof wantTeam !== 'string' || !wantTeam.trim()) {
+      return { outcome: OUTCOME.REFUSED, because: 'a team member\'s brief has to be words', steps };
+    }
+    if (Buffer.byteLength(wantTeam, 'utf8') > TEAM_BRIEF_MAX) {
+      return { outcome: OUTCOME.REFUSED, because: 'this team member\'s brief is too long to fit in its instructions', steps };
+    }
+    const composed = require('./projects').spliceBlock(roles.instructionsFor(roleKey, shown),
+      teamBlockBody(wantTeam), require('./projects').TEAM_START, require('./projects').TEAM_END);
+    if (Buffer.byteLength(composed, 'utf8') > require('./instructions').MAX_BYTES) {
+      return { outcome: OUTCOME.REFUSED, because: 'this team member\'s brief is too long to fit in its instructions', steps };
+    }
   }
   if (wantInstructions !== undefined
       && (typeof wantInstructions !== 'string' || !wantInstructions.trim())) {
@@ -4424,8 +4457,7 @@ function createAgentInner(opts) {
    * the screen offers Start over, and the person needs to be told what is in
    * the way rather than that an agent they can see is not running exists.
    */
-  const hasFolder = fs.existsSync(workerDir(name));
-  const hasJob = fs.existsSync(plistPath(name));
+  const { folder: hasFolder, job: hasJob } = nameHeld(name);
   if (hasFolder && hasJob) {
     return {
       outcome: OUTCOME.REFUSED,
@@ -4903,6 +4935,12 @@ function createAgentInner(opts) {
     let text = wantInstructions !== undefined
       ? wantInstructions.replace(/\n?$/, '\n')
       : roles.instructionsFor(roleKey, shown);
+    // #4557: the team brief goes INTO the role's text, first, so the blocks below land around it as they
+    // do for any agent. Checked to fit before anything was made (above).
+    if (wantTeam !== undefined) {
+      const pj = require('./projects');
+      text = pj.spliceBlock(text, teamBlockBody(wantTeam), pj.TEAM_START, pj.TEAM_END);
+    }
     // The About-you answers ride the boot file from BIRTH, spliced here
     // rather than told after the fact -- at this moment the session does not
     // exist yet, so the tell path's tied-session gate would refuse the very
@@ -5663,7 +5701,14 @@ function createAgentInner(opts) {
    punctuation: each surface finishes its own sentence. */
 const SELF_STARTS = 'it starts itself when this computer is on and it is not removed';
 
+/* #4557: what holds a machine name on this computer. One derivation: create refuses on it, and the team
+   step's names pre-check (teamseed.js) asks the same thing before anything is made. */
+function nameHeld(name) {
+  return { folder: fs.existsSync(workerDir(name)), job: fs.existsSync(plistPath(name)) };
+}
+
 module.exports = {
+  nameHeld,
   MODELS,
   /* #4479: the name the person sees, for machine.js's login-job row (one derivation with the board's). */
   spokenName,
