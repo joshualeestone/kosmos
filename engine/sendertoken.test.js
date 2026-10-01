@@ -197,6 +197,29 @@ test('#4792 review 1: two named twins with only a key-listed row are refused, an
   } finally { console.warn = orig; }
 });
 
+test('#4792 review 2: one twin resolving does not re-arm the other twin\'s clash log', () => {
+  const warned = [];
+  const orig = console.warn;
+  console.warn = (m) => { warned.push(String(m)); };
+  try {
+    const big = sendertoken.mint('Rue4792').token;   // named
+    const fs = require('node:fs');
+    const file = path.join(sendertoken.DIR, 'rue4792.json');
+    const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const old = require('node:crypto').randomBytes(32).toString('hex');
+    kept.tokens.push({ token: old, instance: 'old', mintedAt: '2026-09-01T00:00:00.000Z' });   // an older token, no name
+    fs.writeFileSync(file, JSON.stringify(kept), { mode: 0o600 });
+    const both = fleet.install([fleet.agent('Rue4792', { state: 'idle' }), fleet.agent('rue4792', { state: 'idle' })]);
+    try {
+      for (let i = 0; i < 5; i += 1) {
+        assert.equal(sendertoken.resolve(big, both.roster).ok, true, 'the named twin stopped resolving');
+        assert.equal(sendertoken.resolve(old, both.roster).ok, false, 'the older token resolved while two rows share its key');
+      }
+    } finally { both.restore(); }
+    assert.equal(warned.filter((w) => w.includes('"rue4792"')).length, 1, 'the clash log is not bounded: ' + warned.length + ' lines');
+  } finally { console.warn = orig; }
+});
+
 test('#4763 review 3: a clash logs once per clash, and a clean resolve re-arms it', () => {
   const warned = [];
   const orig = console.warn;

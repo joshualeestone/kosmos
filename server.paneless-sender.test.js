@@ -172,12 +172,12 @@ test('refusals still read alike, so a probe learns nothing', () => {
 
 /* #4792: the paneless path names the agent by the token's own name, and refuses when two names hold tokens under
    one key (it would otherwise admit "Mara"'s token as the beating key "mara"). */
-test('#4792: a paneless agent is named as itself, and a key two names share admits nobody', () => {
+test('#4792: a paneless agent is admitted under its key, and a key two names share admits nobody', () => {
   const big = sendertoken.mint('Pip4792').token;
   liveness.seen('pip4792');
   const alone = resolveAgentSender(hdr(big), {}, []);
   assert.equal(alone.ok, true, 'refused a beating paneless agent: ' + alone.because);
-  assert.equal(alone.card.sessionName, 'Pip4792', 'the paneless sender was named by its key, not its own name');
+  assert.equal(alone.card.sessionName, 'pip4792', 'the paneless card must be the key, as the board lists and delivers to it');
   const small = sendertoken.mint('pip4792').token;
   for (const t of [big, small]) {
     const r = resolveAgentSender(hdr(t), {}, []);
@@ -200,4 +200,18 @@ test('#4792: an older token is not admitted by key once two names hold tokens un
   sendertoken.mint('Wren4792');
   const two = resolveAgentSender(hdr(old), {}, []);
   assert.equal(two.ok, false, 'an older token was admitted by a key two names share, as ' + JSON.stringify(two.card && two.card.sessionName));
+});
+
+/* #4792 review 2: a running PANE agent "kip" on a token with no name keeps the key alive; a named token for another
+   spelling must not be admitted by the paneless path under that key. */
+test('#4792 review 2: a named token is not admitted by key while a pane agent of another name holds the key', () => {
+  const kip = sendertoken.mint('Kip4792r').token;
+  liveness.seen('kip4792r');
+  const board = fleet.install([fleet.agent('kip4792r')]);
+  try {
+    const r = resolveAgentSender(hdr(kip), {}, board.roster);
+    assert.equal(r.ok, false, 'a named token was admitted under a running pane twin\'s key: ' + JSON.stringify(r.card));
+    // Control: with no pane row the same token and heartbeat ARE admitted, so the refusal above is the pane twin's.
+    assert.equal(resolveAgentSender(hdr(kip), {}, []).ok, true, 'CONTROL: the paneless path did not admit it at all');
+  } finally { board.restore(); }
 });

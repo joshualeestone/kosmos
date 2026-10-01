@@ -352,6 +352,9 @@ function namesClash(held, key) {
 /* #4763: marks a refusal made because more than one of our running agents shares the token's key. */
 const CLASH = Symbol('kosmos.sendertoken.clash');
 const CLASH_LOGGED = new Set();
+/* #4792: its own set, cleared by nothing: a key whose named tokens clash stays clashed until a token file changes,
+   and one twin resolving must not re-arm the other's refusal into a log line per request (review 2). */
+const NAMED_CLASH_LOGGED = new Set();
 
 /**
  * Who is presenting this token, and which run of them. Returns
@@ -401,14 +404,18 @@ function resolve(token, roster) {
           : !twins && keyOf(a.sessionName) === key))
         : [];
       if (rows.length !== 1) {
-        /* Two names under one key with no row of their own: both go mute, so log it once, as #4763 does below. */
-        if (twins && !CLASH_LOGGED.has(key)) {
-          CLASH_LOGGED.add(key);
+        /* #4792 review 2: a PANE row under this key with another name has shown it is not this token's agent (its
+           own token would have matched it). Marked like a clash so the paneless fallback cannot admit this token
+           by the key that row keeps alive. A legitimate agent loses nothing: its own row would have matched. */
+        const paneTwin = Array.isArray(roster) && roster.some((a) => a && a.isNamedOurs === true && a.session
+          && a.sessionName && a.sessionName !== named && keyOf(a.sessionName) === key);
+        /* Two names under one key with no row of their own: both go mute, so log it once per key. */
+        if (twins && !NAMED_CLASH_LOGGED.has(key)) {
+          NAMED_CLASH_LOGGED.add(key);
           console.warn(`[sendertoken] #4792: tokens for more than one name are filed under the key "${key}"; a row listed by that key answers for none of them until one is removed or renamed`);
         }
-        return { ok: false, because: NO_MATCH, ...(twins ? { [CLASH]: true } : {}) };
+        return { ok: false, because: NO_MATCH, ...((twins || paneTwin) ? { [CLASH]: true } : {}) };
       }
-      CLASH_LOGGED.delete(key);
       return { ok: true, card: rows[0], instance: hit.instance || null };
     }
     /* #4792: an older token in a file where two names now hold tokens: the key no longer says whose it is. Refused

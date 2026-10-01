@@ -33,7 +33,11 @@ tokens under it (residual below).
   roster; adopt, win32create and the remote token route pass the agent name. A mismatch would refuse that agent's
   token (fails closed, visible), never admit another.
 - Residuals, disclosed:
-  - An older token whose file has tokens for exactly one name is assumed to be that agent's.
+  - An older token (no name) in a file where at most one name holds named tokens is matched by key as before: it
+    resolves as whichever single pane row holds the key, which need not be that name (remote "Mara"'s older token
+    resolves as pane "mara" when no "Mara" row runs). Older tokens age out as agents relaunch.
+  - Token-only reads have no roster, so a named token whose key is held by a running pane agent of another
+    spelling, on a token with no name, still reads that agent's key-stored projects (the roster paths refuse it).
   - A row with no session (paneless remote, or created-never-run) is listed and stored by its KEY, and the board
     addresses and delivers to it by that key, so the card stays under the key. Such a row cannot tell remote "Kip"
     from a stopped Mac agent "kip" that holds no tokens (its run token is retired when it stops): Kip's token would
@@ -61,3 +65,9 @@ tokens under its key (it resolved as the one running row); token-only reads admi
 code change, stated as a residual above: the key-listed row speaking under the key (renaming the card breaks
 delivery). Nits taken: named twins with only a key row are logged once; stale comments (server.js limitation note,
 sameAgentName, sendertoken overclaim). Mutants for both fixes caught; the four touched files 99/99.
+Round 2 (blind): no blocker, two should-fix, both taken. A named token whose key is held by a running PANE row of
+another spelling is now marked CLASH in resolve, so the paneless fallback cannot admit it under that key (reproduced
+by the reviewer, now a test with a no-row control). The clash logs no longer re-arm when one twin resolves (a named
+success cleared the #4763 set): the #4792 log has its own set, cleared by nothing; tested over five alternations.
+Nits taken: residual 1 restated precisely, plus the token-only residual; the fallback card is the KEY (as status.js
+lists a paneless row), not the token's spelling, so delivery and records match.

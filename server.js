@@ -1298,9 +1298,9 @@ const INBOX_DROP = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\u061c\u200e\u200f\u
  * agent has no heartbeat record, so path 2 simply never fires for them and
  * they keep taking path 1 exactly as before. That is what makes this additive.
  *
- * 📌 #4792: tokens now carry the name they were minted for, and this fallback
- * names its card by it (an older token, by the key as before). It refuses when
- * two names hold tokens under one key, since the key then says neither.
+ * 📌 #4792: tokens now carry the name they were minted for. This fallback still
+ * names its card by the key (as status.js lists a paneless row), and refuses
+ * when two names hold tokens under one key, since the key then says neither.
  */
 function resolveAgentSender(req, body, roster, opts) {
   const presented = presentedAgentToken(req, body);
@@ -1335,10 +1335,12 @@ function resolveAgentSender(req, body, roster, opts) {
   if (carded[sendertoken.CLASH]) return carded;
 
   const byName = sendertoken.resolveName(presented);
-  /* #4792: by key only while the key says which agent (no second name has tokens under it), and as the token's own
-     name when it carries one, so "Mara"'s token is never admitted as "mara". */
+  /* #4792: only while the key says which agent (no second name has tokens under it; resolve marks a named token whose
+     key is held by a pane row of another name, above). The card is the KEY, as status.js lists a paneless row: the
+     board addresses, delivers and keeps records for such an agent by its key (review 2: the token's own spelling
+     here would miss them). */
   if (byName.ok && byName.twins !== true && liveness.alive(byName.key) === true) {
-    return { ok: true, card: { sessionName: byName.name || byName.key, isNamedOurs: true }, instance: byName.instance || null, paneless: true };
+    return { ok: true, card: { sessionName: byName.key, isNamedOurs: true }, instance: byName.instance || null, paneless: true };
   }
   /* The original refusal, verbatim: `resolve` deliberately gives the same
      sentence for "never issued" and "issued but no card", so that a probe
