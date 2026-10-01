@@ -109,6 +109,13 @@ function scrub(value, cap, oneLine) {
 const QUOTE = '  | ';
 const quoted = (text) => text.split('\n').map((l) => QUOTE + l).join('\n');
 
+/* #4833: an author's name as it may appear in a header line: no brackets, parentheses or anything shaped like an id
+   (the #4373 rules, shared by posts and comments). */
+function authorOf(agent) {
+  return scrub(agent && agent.name, 64, true).replace(/[[\]()]/g, '')
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '').replace(/\s{2,}/g, ' ').trim();
+}
+
 function itemOf(p) {
   if (!p || typeof p !== 'object') return null;
   /* Review 2: the header line sits outside the "  | " quoting, so its free-text parts cannot be free: a channel is a
@@ -120,8 +127,7 @@ function itemOf(p) {
     // #4373 part B review: nor parentheses or anything shaped like a post id, so a name cannot forge a second
     // "(post <id>)" in the one header line an agent now takes a comment's post id from.
     // Brackets FIRST: removed after the ids, a bracket inside an id ("1234567(8-...") would leave a whole one.
-    author: scrub(p.agent && p.agent.name, 64, true).replace(/[[\]()]/g, '')
-      .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '').replace(/\s{2,}/g, ' ').trim() || 'an agent',
+    author: authorOf(p.agent) || 'an agent',
     where,
     at: /^\d{4}-\d{2}-\d{2}/.test(String(p.created_at || '')) ? String(p.created_at).slice(0, 10) : '',
     title: scrub(p.title, TITLE_CAP, true),
@@ -129,8 +135,51 @@ function itemOf(p) {
   };
 }
 
-/** The framed text an agent reads. PURE. */
-function frame(items, heading) {
+/* #4833: one comment (or reply) from the service's thread read, or null. A tombstone (removed, deleted, or its author
+   deactivated: no agent, no body) keeps its place and id so replies under it still read, and says nothing more. */
+const COMMENT_CAP = 1000;
+const COMMENTS_ASKED = 10;   // top-level comments per read; the service pages at most 20, and its answer must fit RESPONSE_CAP
+function commentOf(c) {
+  if (!c || typeof c !== 'object') return null;
+  const id = UUID_RE.test(String(c.id || '')) ? String(c.id).toLowerCase() : '';
+  if (!id) return null;
+  const live = c.state === 'live' && c.agent && typeof c.body === 'string';
+  return {
+    id,
+    author: live ? (authorOf(c.agent) || 'an agent') : '',
+    at: /^\d{4}-\d{2}-\d{2}/.test(String(c.created_at || '')) ? String(c.created_at).slice(0, 10) : '',
+    replyTo: live && c.reply_to_name ? authorOf({ name: c.reply_to_name }) : '',
+    body: live ? scrub(c.body, COMMENT_CAP) : '',
+    replies: Array.isArray(c.replies) ? c.replies.map(commentOf).filter(Boolean) : [],
+    replyCount: Number.isInteger(c.reply_count) && c.reply_count >= 0 ? c.reply_count : 0,
+  };
+}
+
+/* #4833: the comment lines under a post. Each header carries the comment's own id (a reply names it as parent), and
+   every line of a comment's text is quoted one level deeper than its header, as a post's text is. */
+function commentLines(comments, more) {
+  const out = ['Comments, oldest first:', ''];
+  if (!comments.length) out.push('(no comments yet)', '');
+  const head = (c, label, pad) => pad + label + (c.author ? ' by ' + c.author : ' (removed)')
+    + (c.replyTo ? ' replying to ' + c.replyTo : '') + (c.at ? ', ' + c.at : '') + ' (comment ' + c.id + ')';
+  const body = (text, pad) => text.split('\n').map((l) => pad + QUOTE + l).join('\n');
+  comments.forEach((c, i) => {
+    out.push(head(c, '[c' + (i + 1) + ']', ''));
+    if (c.body) out.push(body(c.body, ''));
+    c.replies.forEach((r, j) => {
+      out.push(head(r, '[c' + (i + 1) + '.' + (j + 1) + ']', '    '));
+      if (r.body) out.push(body(r.body, '    '));
+    });
+    const hidden = c.replyCount - c.replies.length;
+    if (hidden > 0) out.push('    (' + hidden + ' more ' + (hidden === 1 ? 'reply' : 'replies') + ' not shown)');
+    out.push('');
+  });
+  if (more) out.push('(more comments not shown)', '');
+  return out;
+}
+
+/** The framed text an agent reads. PURE. #4833: `thread` (one post's comments) goes inside the same frame. */
+function frame(items, heading, thread) {
   const out = [FRAME_OPEN, FRAME_RULE, ''];
   if (heading) out.push(heading, '');
   if (!items.length) out.push('(nothing here yet)', '');
@@ -141,6 +190,8 @@ function frame(items, heading) {
     if (it.body) out.push(quoted(it.body));
     out.push('');
   });
+  if (thread && thread.unread) out.push('(the comments could not be read just now)', '');
+  else if (thread) out.push(...commentLines(thread.comments, thread.more));
   out.push(FRAME_CLOSE);
   return out.join('\n');
 }
@@ -171,7 +222,13 @@ async function read(opts = {}) {
     if (r.status === 410) return { ok: false, because: 'that post was taken down' };
     const it = r.status === 200 ? itemOf(r.json) : null;
     if (!it) return { ok: false, upstream: true, because: r.because || 'the community gave an answer we could not read' };
-    return { ok: true, count: 1, text: frame([it]) };
+    /* #4833: the post's first page of comments. A thread that cannot be read does not cost the post: it says so. */
+    const t = await getJson('/posts/' + encodeURIComponent(id.toLowerCase()) + '/comments?order=oldest&limit=' + COMMENTS_ASKED);
+    const list = t.status === 200 && t.json && Array.isArray(t.json.comments) ? t.json.comments : null;
+    const thread = list
+      ? { comments: list.slice(0, COMMENTS_ASKED).map(commentOf).filter(Boolean), more: !!t.json.next_cursor || list.length > COMMENTS_ASKED }
+      : { unread: true };
+    return { ok: true, count: 1, text: frame([it], null, thread) };
   }
   const ch = channelSlug(opts.channel);
   if (!ch.ok) return { ok: false, because: ch.because };
@@ -186,4 +243,4 @@ async function read(opts = {}) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { RULE_TAIL, read, frame, scrub, itemOf, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { RULE_TAIL, read, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
