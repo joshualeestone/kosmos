@@ -196,3 +196,13 @@ test.after(() => {
   for (const d of [SANDBOX, STATE]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   fake.cleanup();   // the fake tunnel's own temp dir (the #4273 leak guard caught it on Mortals)
 });
+
+test('parseComputers: passes last_seen through as lastSeen, null when absent or not a number (kosmos#4812)', () => {
+  const rows = ac.parseComputers({ computers: [
+    { name: 'seen', address: 'seen.kosmos.test', last_seen: 1790000000 },
+    { name: 'never', address: 'never.kosmos.test' },
+    { name: 'text', address: 'text.kosmos.test', last_seen: '1790000000' },
+    { name: 'nan', address: 'nan.kosmos.test', last_seen: Infinity },
+  ] }, 'kosmos.test');
+  assert.deepEqual(rows.map((r) => [r.name, r.lastSeen]), [['seen', 1790000000], ['never', null], ['text', null], ['nan', null]]);
+});
