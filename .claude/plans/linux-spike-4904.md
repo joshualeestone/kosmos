@@ -10,7 +10,7 @@ path, the platform list leaves Linux out, and the agent's keep-alive is a launch
 path and Linux let through, create gets as far as "started it" and fails there, cleanly taking itself back off the
 computer. The keep-alive's replacement is proven: Kosmos's own agent supervisor, unchanged, runs under a systemd user
 unit, and a killed agent is back in 11 seconds. The real Claude Code CLI reports itself to tmux as `claude`, which
-the board and supervisor already accept. The port for one always-on agent is about 3 agent-weeks, including making the test suite pass on Linux.
+the board and supervisor already accept. The port for one always-on agent is about 3 to 4 agent-weeks, including making the test suite pass on Linux.
 
 ## What was run (ubuntu-latest, GitHub-hosted, free; node 26.10.0, tmux 3.4)
 Every run blocked all outbound traffic at the firewall after installs, and logged each attempt. Control: a curl to
@@ -84,7 +84,7 @@ itself has no keep-alive on Linux (`kosmos start` falls back to `nohup`, `instal
 (`install/setup.sh`) refuses Linux and downloads `darwin-` artifacts.
 
 ## Size estimate (agent-weeks, one person's always-on agent on a Linux box)
-Must-have, about 3 agent-weeks:
+Must-have, about 3 to 4 agent-weeks (items 1 to 5 add to 10 to 16 agent-days, plus item 6):
 1. A systemd-user job substrate beside launchd: `unitFor()` from the same fields as `plistFor`, and enable/start/stop/is-active in create, adopt/repair, rollback, remove and restart (B2 to B4). Keep the plist as the record or add a unit reader for set-model/set-account. 4 to 6 days.
 2. tmux found on PATH (B5), then `linux` in `SUPPORTED` (B1). Half a day.
 3. The board's own systemd unit, plus `loginctl enable-linger` so the board and agents start at boot with nobody logged in. 1 to 2 days.
@@ -96,7 +96,7 @@ Nice-to-have, about 1 to 2 agent-weeks: `/proc/<pid>/environ` for runningas; log
 `xdg-open` for reveal; a web terminal for open-terminal; Codex/Gemini/Grok binaries for Linux; self-update for Linux;
 the Mac-only gates hidden rather than "could not check" on Linux.
 
-This matches the research's 2 to 3 agent-weeks for the port, because the board boots unmodified and the
+This is in line with the research's 2 to 3 agent-weeks for the port (it did not count the test suite), because the board boots unmodified and the
 supervisor and tmux need no change (measured); the message and reply paths (tmux send-keys, the agent's HTTP
 reply) read as portable but were not exercised end to end, since no agent got created through the board.
 
