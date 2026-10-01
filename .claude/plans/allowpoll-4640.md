@@ -242,3 +242,7 @@ is that review.
   engine/allowwait.js (ALLOW_WAIT_SENTENCE, allowWaitSentence), required by remote.js and remote-report.js; the report's
   CODES row is built from the same exported sentence, so no copy remains. Measured both arms: classify loads neither
   remote.js nor store.js; CONTROL: requiring remote.js does load store.js. 139/139 across the three files.
+- Round 12 (sonnet): DEFERRED, measured not an issue: "tunnelState maps waiting-allow to starting even with a dead
+  supervisor". status() returns waiting-allow only past `if (!child)` (remote.js, a dead tunnel returns restarting there,
+  which still maps to crashed) and only when the status file's pid is the live child's; so waiting-allow always means a
+  live tunnel that keeps asking, the same as connecting, which main already maps to starting unconditionally.
