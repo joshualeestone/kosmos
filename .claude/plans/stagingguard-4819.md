@@ -4,6 +4,23 @@ Card: joshualeestone/kosmos#4819 (claimed: barondraxum).
 
 ("Review N" below means challenge-loop iteration N of this branch's pre-PR review.)
 
+## Behaviour at a glance (staging pointer committed at the deploy's commit vs. what live serves)
+
+| Situation | Result |
+|---|---|
+| No staging pointer committed, live serves none | nothing to carry |
+| Staged build is the prod build | nothing extra to carry |
+| Local dist/ has the pointer's bytes | carried (sidecar written from them if missing or wrong) |
+| No good local copy, live serves the pointer's build | fetched from live and carried |
+| No copy anywhere, staged build newer than prod | refused, naming the tarball |
+| No copy anywhere, superseded, live pointer unchanged | warned, nothing carried |
+| No copy anywhere, superseded, deploy would move the pointer | refused |
+| Live serves a NEWER staging version than committed | refused before any fetch (opt-in: `KOSMOS_STAGING_ROLLBACK=<committed version>`) |
+| Same version, different bytes / live pointer names no build | refused (same opt-in) |
+| Live serves a pointer, none committed | refused |
+| Live unreachable, 5xx or 429 (after 3 tries), or an empty 200 | refused as "could not read" |
+| After the deploy | the pair is served-verified and the served pointer must equal the committed one |
+
 ## What happened
 2026-09-30 19:52 CDT, `tools/deploy-site.sh --publish` ran from a checkout whose dist/ had no
 `kosmos-0.7.14-arm64.tar.gz`. The export carries tarballs only by the `dist/*.tar.gz` glob from the
@@ -134,7 +151,8 @@ statically (measured: 200 application/json from installkosmos.com).
   live must 404" check has no test arm: reaching it needs a race the pre-deploy check closes.
   Review 15 (nits only, fixed anyway): the post-deploy loop no longer shares its loop variable with
   the reader's own loop (the "last try" check read the inner value; no arm, it changes only a sleep);
-  the empty-200 refusal disabled (st11 red); 5xx no longer retried (st10 red).
+  the empty-200 refusal disabled (st11 red); 5xx no longer retried (st10 red). Review 16: the
+  rewritten sidecar is mode 644 like the fetched ones (mktemp made it 0600); without the chmod, g red.
   (A post-fetch pointer-sha check remains as a backstop. `fetch_verified` re-reads the served
   sidecar itself, so it fires only if the sidecar changed between the two reads, a concurrent
   publish; no test reaches it.)

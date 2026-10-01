@@ -556,7 +556,8 @@ carry_staged_mac() {
     # (right after a cut, on the cut box, live may not serve the pair yet).
     if [ "$(awk '{print $1; exit}' "$SITE/dist/$_csm_art.sha256" 2>/dev/null)" != "$_csm_sha" ]; then
       _FETCH_TMP_S=$(mktemp "$SITE/dist/.$_csm_art.sha256.XXXXXX") || { _FETCH_TMP_S=""; echo "deploy-site: could not make a temp file in $SITE/dist -- refusing (#4819)"; exit 1; }
-      printf '%s  %s\n' "$_csm_sha" "$_csm_art" > "$_FETCH_TMP_S" && mv -f "$_FETCH_TMP_S" "$SITE/dist/$_csm_art.sha256" \
+      # 644 like the sidecars curl writes: mktemp makes 0600, and mv keeps it.
+      printf '%s  %s\n' "$_csm_sha" "$_csm_art" > "$_FETCH_TMP_S" && chmod 644 "$_FETCH_TMP_S" && mv -f "$_FETCH_TMP_S" "$SITE/dist/$_csm_art.sha256" \
         || { rm -f "$_FETCH_TMP_S"; _FETCH_TMP_S=""; echo "deploy-site: could not write $SITE/dist/$_csm_art.sha256 -- refusing (#4819)"; exit 1; }
       _FETCH_TMP_S=""
       echo "deploy-site: wrote $SITE/dist/$_csm_art.sha256 from the verified local bytes (#4819)"

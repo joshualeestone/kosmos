@@ -34,6 +34,7 @@
 #   st2 CONTROL committed staging newer than live   -> proceeds
 #   st3 live has a staging pointer, none committed  -> refuses (would unpublish it)
 #   st4 live unreachable                            -> refuses "could not read", not "absent"
+#   st5 superseded, the sidecar read fails in transport -> refuses, does not take the skip
 #   st6 live pointer names no parsable tarball     -> refuses (cannot tell which is newer)
 #   st6r ...with KOSMOS_STAGING_ROLLBACK=<committed version> -> proceeds
 #   st7 same version, different bytes             -> refuses; the opt-in deploys it
@@ -41,7 +42,6 @@
 #   st9 one transport blip on the live read        -> retried, proceeds
 #   st10 one 503 on the live read                  -> retried, proceeds
 #   st11 an empty 200 for the live pointer         -> refuses
-#   st5 superseded, the sidecar read fails in transport -> refuses, does not take the skip
 #   i  the pointer names a path, not a file         -> refuses before any fetch
 #   j  the pointer has no sha                       -> refuses before any fetch
 #   k  the wiring: deploy-site.sh calls the block, checks the export for the pair, and
@@ -166,7 +166,7 @@ if has "$out" "RC=0 STAGED_ART=$STAGED FETCHED=[https://site.invalid/dist/$STAGE
 S="$T/g"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-g"
 cp "$BYTES" "$S/dist/$STAGED"
 out=$(run_carry "$S" "$T/live-g")
-if has "$out" "RC=0 STAGED_ART=$STAGED FETCHED=[]" && [ "$(awk '{print $1}' "$S/dist/$STAGED.sha256")" = "$SHA" ] && grep -q "  $STAGED\$" "$S/dist/$STAGED.sha256"; then pass "g: the pointer's bytes without a .sha256 are carried and the sidecar written from them (live not asked)"; else bad "g: $out"; fi
+if has "$out" "RC=0 STAGED_ART=$STAGED FETCHED=[]" && [ "$(awk '{print $1}' "$S/dist/$STAGED.sha256")" = "$SHA" ] && grep -q "  $STAGED\$" "$S/dist/$STAGED.sha256" && [ "$(stat -f %Lp "$S/dist/$STAGED.sha256")" = 644 ]; then pass "g: the pointer's bytes without a .sha256 are carried and the sidecar written from them, mode 644 (live not asked)"; else bad "g: $out"; fi
 # ---- g3: local right, sidecar names other bytes: rewritten -------------------------------------------
 S="$T/g3"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-g3"
 cp "$BYTES" "$S/dist/$STAGED"; printf '%s  %s\n' "$(sha_of "$OTHER")" "$STAGED" > "$S/dist/$STAGED.sha256"
