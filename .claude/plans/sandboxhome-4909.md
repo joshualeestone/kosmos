@@ -51,3 +51,14 @@ different ones) and a caller's own is kept; every board boot in the runner names
 - N3 the boot scan accepted the run home and did not tie the sandbox to the boot: FIXED (the sandbox must be the one
   its AGENT_WORKFORCE_DATA names; $RUN_DIR refused). N4 comments that still said the home is shared: FIXED (lib,
   runner, release.sh). N5 the parallel-mode reason: corrected above.
+
+## Review 2 (Sonnet, blind, source-only): 0 blockers, 3 warnings, 5 nits
+- W1 a seed refusal exited before the cleanup trap and leaked the run folder: FIXED, the seed is checked before the run
+  folder exists.
+- W2 a caller-set home silently disabled the seed while the banner claimed it: FIXED, refused.
+- W3 the runner's seed paths were untested: ADDED, board_home seeds once, a failed copy still hands the board its own
+  home and leaves the marker, the marker reaches the verdict, and the refusal precedes the run folder (source-pinned).
+- N4 the banner overclaimed (sb1/sb4/sb8 and the walk pair name their own homes and are not seeded): reworded.
+- N5 the boot scan does not see boot_thread_server: kept (thread-server.js requires the lib, so it gets a fresh home).
+- N6 AMBIENT now drops KOSMOS_BC_SEED_HOME. N7 seed edge cases: documented (keep a seed small). N8 board_home
+  re-seeding a re-booted board: FIXED, only an empty home is seeded.

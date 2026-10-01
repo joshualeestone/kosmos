@@ -249,6 +249,20 @@ fi
 # tools/run-tests.sh that counted them as 200 live gates (#708). Every sandbox
 # now lives under one per-run directory, and cleanup removes that directory.
 # Servers were never affected: boot_board appends to SERVER_PIDS directly.
+# kosmos#4909's control: KOSMOS_BC_SEED_HOME names a prepared home (an OpenAI-only account, say) copied into each home
+# board_home gives a board and each fresh home lib-sandbox-home.js gives a self-booting check, so a whole run can be
+# compared with a clean one: any check whose result differs reads state it never set. (Boards that name their own
+# home, sb1/sb4/sb8 and the walk pair, are not seeded.) Loud and strict, and checked BEFORE the run folder exists, so a
+# refusal leaves nothing behind (review 2): refused when it is not a folder, when it is the real home, and when the
+# caller set their own home (then nothing would be seeded). release.sh clears it, so a cut is never a seeded run.
+if [ -n "${KOSMOS_BC_SEED_HOME:-}" ]; then
+  if [ ! -d "$KOSMOS_BC_SEED_HOME" ]; then echo "browser-checks: KOSMOS_BC_SEED_HOME=$KOSMOS_BC_SEED_HOME is not a folder; refusing a run that would only look seeded" >&2; exit 1; fi
+  if [ "$KOSMOS_BC_SEED_HOME" -ef "$HOME" ]; then echo "browser-checks: KOSMOS_BC_SEED_HOME is the real home; refusing to copy it" >&2; exit 1; fi
+  if [ -n "${AGENT_WORKFORCE_HOME:-}" ] && [ "${AGENT_WORKFORCE_HOME%/}" != "${HOME%/}" ]; then
+    echo "browser-checks: KOSMOS_BC_SEED_HOME needs the run's own home, but AGENT_WORKFORCE_HOME is set; nothing would be seeded, so refusing" >&2; exit 1
+  fi
+  echo "browser-checks: SEEDED RUN from $KOSMOS_BC_SEED_HOME (kosmos#4909 control): each board's and each self-booting check's own home starts with it"
+fi
 RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bc.XXXXXX")"
 SERVER_PIDS=()
 # #3675: no fixture board in this run may read the host Mac's real accounts. The
@@ -265,16 +279,6 @@ if [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "${AGENT_WORKFORCE_HOME%/}" = "${HOME
   # a check that left an account here (an OpenAI-only one aborted the 0.7.16 cut) changed what every
   # later check saw. A home the caller set (not marked) is kept as before.
   export KOSMOS_BC_RUN_HOME="$AGENT_WORKFORCE_HOME"
-fi
-# kosmos#4909's control: KOSMOS_BC_SEED_HOME names a prepared home (an OpenAI-only account, say) that is copied into
-# EVERY home this run makes (each board's in board_home, each check's in lib-sandbox-home.js), so a whole run can be
-# compared with a clean one: any check whose result differs reads state it never set. Review 1: loud and strict. It
-# says so, refuses a missing folder or the real home, and fails the run on a copy that did not happen. release.sh
-# clears it, so a cut is never a seeded run.
-if [ -n "${KOSMOS_BC_SEED_HOME:-}" ]; then
-  if [ ! -d "$KOSMOS_BC_SEED_HOME" ]; then echo "browser-checks: KOSMOS_BC_SEED_HOME=$KOSMOS_BC_SEED_HOME is not a folder; refusing a run that would only look seeded" >&2; exit 1; fi
-  if [ "$KOSMOS_BC_SEED_HOME" -ef "$HOME" ]; then echo "browser-checks: KOSMOS_BC_SEED_HOME is the real home; refusing to copy it" >&2; exit 1; fi
-  echo "browser-checks: SEEDED RUN from $KOSMOS_BC_SEED_HOME (kosmos#4909 control): every home this run makes starts with it"
 fi
 # #3801: the global skills folder is AGENT_WORKFORCE_SKILLS_DIR || the REAL ~/.claude/skills
 # (not the home above), and a board can add to it and delete from it. Its own empty one.
@@ -664,8 +668,9 @@ board_home() {
   local sb="$1"
   if [ -n "${KOSMOS_BC_RUN_HOME:-}" ] && [ "${AGENT_WORKFORCE_HOME:-}" = "$KOSMOS_BC_RUN_HOME" ]; then
     mkdir -p "$sb/home"
-    # The control's seed reaches the board's own home (review 1: in the run home alone nothing read it).
-    if [ -n "${KOSMOS_BC_SEED_HOME:-}" ]; then
+    # The control's seed reaches the board's own home (review 1: in the run home alone nothing read it), once: a board
+    # booted again on the same sandbox keeps what its first life wrote (review 2).
+    if [ -n "${KOSMOS_BC_SEED_HOME:-}" ] && [ -z "$(ls -A "$sb/home" 2>/dev/null)" ]; then
       # Inside $(...), so an exit would end only the subshell and hand the board an EMPTY home (the real one):
       # the failure is recorded instead and fails the run at its summary, and the board keeps its own folder.
       cp -R "$KOSMOS_BC_SEED_HOME/." "$sb/home/" || { echo "browser-checks: could not seed $sb/home" >&2; : > "$RUN_DIR/seed-failed"; }
