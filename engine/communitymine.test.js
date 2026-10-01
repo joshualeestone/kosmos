@@ -126,7 +126,7 @@ test('a row carries no remote id, send time or the record\'s own agent field, wh
   writeSent({ [a.id]: { state: 'sent', agent: 'record-only-agent', remoteId: 'remote-123', sentAt: '2026-09-28T08:00:00Z' } });
   const row = mine.mine()[0];
   assert.deepEqual(Object.keys(row).sort(),
-    ['agent', 'agentRefused', 'canDelete', 'deleteRequested', 'deleteRetrying', 'id', 'postedAt', 'state', 'takeDownReason', 'takenDown', 'title']);
+    ['agent', 'agentNameUnclaimed', 'agentRefused', 'canDelete', 'deleteRequested', 'deleteRetrying', 'id', 'postedAt', 'state', 'takeDownReason', 'takenDown', 'title']);
   const text = JSON.stringify(row);
   for (const leak of ['remote-123', 'record-only-agent', '2026-09-28T08:00:00Z']) assert.ok(!text.includes(leak), leak);
 });
@@ -181,4 +181,15 @@ test('a post waiting for a retry (pending) lists with Delete, and a delete withh
   assert.deepEqual(by(), { retry: ['pending', true, false], refusedPending: ['pending', false, true] });
   assert.equal(cs.requestDelete(retry).ok, true);
   assert.deepEqual(by().retry, ['withheld', false, false], 'a delete on a pending post withholds it: it never goes out');
+});
+
+test('#4800: a post held because its agent\'s name is taken without a key reaches the owner\'s row flagged', () => {
+  const a = agentPost('ava', { topic: 'Waiting', body: 'x' });
+  writeSent({ [a.id]: { state: 'pending', agent: 'ava' } });
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ava: { registering: { name: 'Ava', at: new Date().toISOString(), taken: true } } }));
+  const row = mine.mine().find((r) => r.id === a.id);
+  assert.ok(row, 'CONTROL: the post is not in the owner\'s list');
+  assert.equal(row.agentNameUnclaimed, true, 'the owner\'s row lost the flag, so the page never says why');
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ava: { registering: { name: 'Ava', at: new Date().toISOString() } } }));
+  assert.equal(mine.mine().find((r) => r.id === a.id).agentNameUnclaimed, false, 'a mark not yet found taken was flagged');
 });
