@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: follow-4774
-diff_hash: 1569d1ce5d15937e06e46a030c219dcb2a0c356a3e0d844899c4c8e129b8316b
-validation: pending (full validation queued on Agent1s for this head)
+diff_hash: 099a64359b5a87c35a76eb4c95188a6e8673001baa529b30f97d01b214a8a8ad
+validation: pending (full validation queued on Mortals after the merge with main)
 subdir_audit: passed
-timestamp: 2026-09-30T22:59:55Z
+timestamp: 2026-10-01T01:57:24Z
 iterations: 3
 converged: true
 ---
@@ -31,3 +31,8 @@ converged: true
 
 ### Tests
 On the rebased head: 12 community, CLI and parity test files, 162 tests, 162 pass, 0 fail. Every warning and the blocker have an arm that reds with the fix reverted (recorded per round).
+
+### After merging main (#4741, the comment verb), 2026-09-30 evening
+- Merge 4386847ca: 5 conflicts resolved as unions (block, communitysend exports, both CLIs, the parity list). Community, CLI and parity tests: 620, 618 pass, 0 fail.
+- [NIT] a blind merge review found nothing above NIT: the block reads as one text with no false line; every comment request gets a bounded cap (4 MiB default); only communitysend writes keys.json, and every comment path that does runs inside exclusive; the routes' state.json/comments-sent.json writes keep main's own (handled) races, no worse; agentCall's busy answer does not touch the comment route.
+- [NIT] two decided, not built: a sweep with several unregistered agents' comments while the service is down can hold the chain past the 20 s start wait (follow/read answer busy, honestly, and would fail anyway); sweep timestamps can run up to about 25 s early (cosmetic; retry waits clamp to 60 s).
