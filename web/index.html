@@ -34239,12 +34239,12 @@ function dmReplyHead(m, name, adjacent) {
   const orig = DM_ROWS.get(m.replyTo);
   /* As in a room (#3745): right under the message it answers, the thread already reads that way, so the
      header is left out; a screen reader still hears what it answers. */
-  if (adjacent === true && orig) return '<span class="vh">' + esc(replyHeardLine(dmReplyWho(orig, name), pjReplyGist(orig))) + '</span>';
+  if (adjacent === true && orig) return '<span class="vh">' + esc(replyHeardLine(dmReplyWho(orig, name), pjReplyGist(orig, dmReplyWho(orig, name)))) + '</span>';
   /* Never silence: a header whose original is not here says why, and "further back" is not "gone". */
   /* "Further back" only when older messages were left out AND the original is older than the oldest one sent;
      otherwise it is gone (pruned, or never here). */
   if (!orig) return '<span class="msg-replyto gone">' + (DM_ROWS_OLDER && DM_ROWS_OLDEST && m.replyTo < DM_ROWS_OLDEST ? 'Original message is further back' : 'Original message unavailable') + '</span>';
-  const who = dmReplyWho(orig, name); const gist = pjReplyGist(orig);
+  const who = dmReplyWho(orig, name); const gist = pjReplyGist(orig, who);
   return '<button type="button" class="msg-replyto" data-jump-at="' + esc(m.replyTo) + '" aria-label="'
     + esc(who + ': ' + gist + ', the message this answers. Go to it') + '"><b>' + esc(who) + ':</b> ' + esc(gist) + '</button>';
 }
@@ -34291,7 +34291,7 @@ function dmReplyStart(at) {
   // guard is the server's: it refuses a reply to a message that is not in this conversation.
   if (!agent || !m || DM_ROWS_OF !== agent) { dmReplySay('Could not start a reply. Try again.'); return; }
   /* #4423: `from` kept beside the name, so the strip names the sender as they are called NOW (dmReplyPaint). */
-  DM_REPLY[agent] = { at, from: (m && m.from) || null, who: dmReplyWho(m, DM_ROWS_NAME), words: pjReplyGist(m) };
+  DM_REPLY[agent] = { at, from: (m && m.from) || null, who: dmReplyWho(m, DM_ROWS_NAME), words: pjReplyGist(m, dmReplyWho(m, DM_ROWS_NAME)) };
   dmReplyPaint(agent);
   dmReplyAnnounce('Replying to ' + DM_REPLY[agent].who + ': ' + DM_REPLY[agent].words);
   const said = document.getElementById('d-say-msg');   // a refusal about the previous reply is done with
@@ -58848,8 +58848,11 @@ function pjReplyWords(text) {
 }
 /* What the strip and the header quote: the first line, or for a post with no words the file it
    carried, so "Replying to You:" is never followed by nothing. */
-function pjReplyGist(m) {
-  const words = pjReplyWords(m && m.text);
+function pjReplyGist(m, who) {
+  /* #4873: an agent's own leading name is dropped here too, since the strip and the header name it beside the gist. */
+  const raw = m && m.text;
+  const words = pjReplyWords(m && m.operator !== true && m.from && typeof pjDropSelfName === 'function'
+    ? pjDropSelfName(raw, [who, m.from]) : raw);
   if (words) return words;
   const f = pjFiles(m)[0];
   return f ? (typeof f.name === 'string' && f.name ? f.name : 'a file') : 'a message';
@@ -58893,7 +58896,7 @@ function pjReplyStart(postId) {
   if (!p || !m || !PJ_CURRENT || PJ_ROOM_POSTS_OF !== PJ_CURRENT) { pjRoomAnnounce('Could not start a reply. Try again.'); return; }
   const was = PJ_REPLY[PJ_CURRENT];
   /* #4423: who it answers, kept as the id (or "you"), so the strip names them as they are called NOW (pjReplyPaint). */
-  PJ_REPLY[PJ_CURRENT] = { id: m.id, from: (m && m.operator !== true && m.from) || null, who: pjReplyWho(p, m), words: pjReplyGist(m), mention: null };
+  PJ_REPLY[PJ_CURRENT] = { id: m.id, from: (m && m.operator !== true && m.from) || null, who: pjReplyWho(p, m), words: pjReplyGist(m, pjReplyWho(p, m)), mention: null };
   pjReplyPaint(PJ_CURRENT);
   pjReplyMention(p, m, was && was.mention);
   const said = document.getElementById('pj-room-msg');   // a refusal about the previous reply is done with
@@ -59926,15 +59929,15 @@ function pjRoomRow(m, p, hideHeader) {
     ? PJ_ROOM_POSTS.get(m.replyTo) : null;
   /* The header is left out when the reply sits right under what it answers; that closeness is only
      seen, so a screen reader still hears what it answers. */
-  if (origForSr) replyEl = '<span class="vh">' + esc(replyHeardLine(pjReplyWho(p, origForSr), pjReplyGist(origForSr))) + '</span>';
+  if (origForSr) replyEl = '<span class="vh">' + esc(replyHeardLine(pjReplyWho(p, origForSr), pjReplyGist(origForSr, pjReplyWho(p, origForSr)))) + '</span>';
   // Left out only when the original is there to name; otherwise the header says it is gone (never silence).
   if (typeof m.replyTo === 'string' && m.replyTo && !origForSr) {
     const orig = PJ_ROOM_POSTS.get(m.replyTo);
     replyEl = !orig && PJ_ROOM_PARTIAL
       ? '<span class="msg-replyto gone">Original message could not be read just now</span>'   // unknown is not gone
       : orig
-      ? '<button type="button" class="msg-replyto" data-jump="' + esc(m.replyTo) + '" aria-label="' + esc(pjReplyWho(p, orig) + ': ' + pjReplyGist(orig) + ', the message this answers. Go to it') + '">'
-        + '<b>' + esc(pjReplyWho(p, orig)) + ':</b> ' + esc(pjReplyGist(orig)) + '</button>'
+      ? '<button type="button" class="msg-replyto" data-jump="' + esc(m.replyTo) + '" aria-label="' + esc(pjReplyWho(p, orig) + ': ' + pjReplyGist(orig, pjReplyWho(p, orig)) + ', the message this answers. Go to it') + '">'
+        + '<b>' + esc(pjReplyWho(p, orig)) + ':</b> ' + esc(pjReplyGist(orig, pjReplyWho(p, orig))) + '</button>'
       : '<span class="msg-replyto gone">Original message unavailable</span>';
   }
   const timeEl = whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '';

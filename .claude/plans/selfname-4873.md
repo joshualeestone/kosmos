@@ -26,7 +26,7 @@ writing a nickname ("D: ...") keeps it.
 
 ## Tests
 - engine/defaults.test.js: the section by content, its own heading, offered to an agent missing it; fingerprint v21.
-- web.selfname-4873.test.js: eight shapes dropped, nine controls kept (another name, mid-text, bare name, longer word,
+- web.selfname-4873.test.js: the shapes dropped and the controls kept (another name, mid-text, bare name, longer word,
   hyphenated word, regex characters), and the wiring of both renderers. Mutations: removing the room call reds it;
   letting a tight dash count reds the hyphen control.
 - The tests that lift dmRow / pjRoomBody (agent-answers, links-everywhere, mention-live, quoteb, rename-4421): 92/92 with
@@ -45,3 +45,9 @@ writing a nickname ("D: ...") keeps it.
   its indent. DEFERRED W: the Ask Kosmos guide panel (.asp-m) is Kosmos's own assistant drawn as plain text, not a named
   agent in a room or a DM, so it is out of this card's scope. Left NITs: pjMentionKeys built twice per post; the wiring
   pins are source-text pins; "above every message" also covers grouped posts (the header above them).
+- Round 3 (opus): FIXED W: the reply surfaces (the room's and the DM's reply header, the composer's Replying-to strip,
+  the screen-reader line) read the raw text and said "Dario: Dario: ..."; pjReplyGist(m, who) now drops it with the
+  name it sits beside, every caller passes it, and a test pins that no one-argument call is left. FIXED W: the card's
+  control is now run through the room renderer (pjRoomRow) and the reply gist in web.quoteb.test.js, a person's post
+  included. Left NITs: an agent named with an ordinary word ("Update") loses that word at the start of a message
+  (the header still shows it); single-star emphasis is not handled; pjMentionKeys built twice.

@@ -50,7 +50,7 @@ function pageScope() {
   return new Function(
     'document', 'window', 'navigator', 'fetch', 'setInterval', 'setTimeout',
     'clearInterval', 'EventSource', 'location', 'localStorage',
-    src[1] + '\n return { pjRoomRow, pjRoomBody };',
+    src[1] + '\n return { pjRoomRow, pjRoomBody, pjReplyGist };',
   )(document, window, {}, () => new Promise(() => {}), () => 0, () => 0, () => {},
     function EventSource() {}, window.location, window.localStorage);
 }
@@ -143,4 +143,19 @@ test('#4873: a quote that starts inside the name leaves the post drawn as writte
   const text = 'Leo: ' + QUOTE;
   const html = api.pjRoomRow(row('leo', text, { quotes: [{ of: 'r1', from: 'mara', start: 0, end: text.length }] }), P);
   assert.match(html, /Leo:/, 'a quote covering the name lost the name');
+});
+
+/* #4873, through the room renderer itself (not only the pure function): the card's own control. */
+test('#4873: a room post drops its sender\'s own leading name, keeps another agent\'s, and the person\'s post is untouched', () => {
+  const own = api.pjRoomRow(row('leo', 'Leo: hello there'), P);
+  assert.match(own, /<p>hello there<\/p>/, 'the sender\'s own name was not dropped');
+  const other = api.pjRoomRow(row('leo', 'Mara: hello there'), P);
+  assert.match(other, /Mara: hello there/, 'another agent\'s name was dropped (the card\'s control)');
+  const person = api.pjRoomRow({ ...row('leo', 'Leo: hello there'), operator: true }, P);
+  assert.match(person, /Leo: hello there/, 'the person\'s own post was changed');
+});
+test('#4873: the reply gist drops the original sender\'s own leading name, beside the name it already shows', () => {
+  assert.equal(api.pjReplyGist(row('leo', 'Leo: the plan is ready'), 'Leo'), 'the plan is ready');
+  assert.equal(api.pjReplyGist(row('leo', 'Mara: the plan is ready'), 'Leo'), 'Mara: the plan is ready');
+  assert.equal(api.pjReplyGist({ ...row('leo', 'Leo: mine'), operator: true }, 'You'), 'Leo: mine', 'the person\'s gist was changed');
 });

@@ -56,5 +56,6 @@ test('#4873: the room and an agent\'s DM row both draw through it; the person\'s
   assert.match(room, /if \(m && m\.operator !== true && m\.from\) \{/, 'the person\'s own posts are no longer exempt');
   assert.match(PAGE, /pjRich\(typeof pjDropSelfName === 'function' \? pjDropSelfName\(pjWords\(m\), \[shownFrom, m\.from\]\) : pjWords\(m\)\)/,
     'an agent\'s DM row no longer drops its own name');
-  assert.equal((PAGE.match(/pjDropSelfName\(/g) || []).length, 3, 'pjDropSelfName is called from somewhere new, or lost a caller');
+  assert.equal((PAGE.match(/pjDropSelfName\(/g) || []).length, 4, 'pjDropSelfName is called from somewhere new, or lost a caller (the definition, the room, the DM row, the reply gist)');
+  assert.equal((PAGE.match(/pjReplyGist\([a-zA-Z]+\)/g) || []).length, 0, 'a reply gist is drawn without the name it sits beside');
 });
