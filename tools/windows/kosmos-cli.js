@@ -798,13 +798,16 @@ async function projectPause(ctx, args) {
   if (args.length !== 1 || !args[0]) { ctx.err('Usage: kosmos project pause <project-id>   (only your person resumes it, on the screen)'); return 2; }
   const project = args[0];
   const slug = projectSlug(project);
-  if (!slug.replace(/\./g, '')) { ctx.err('there is no project by that name'); return 1; }
+  // Refused, never rewritten (review 1): a stripped id could name a different project, and this is a write. The Mac
+  // refuses the same ids (require_valid_project_id), and an all-dots id names no project on either.
+  if (slug !== project || !slug.replace(/\./g, '')) { ctx.err('there is no project by that name'); return 1; }
   const r = await ctx.call('PUT', '/api/project/' + slug, { paused: true }, { person: true });
   if (!r.reached) {
     return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
       : ctx.unreachable('pause that project');
   }
-  if (r.json && r.json.project) {
+  // A 200 whose re-read came back empty ({project: null}) still paused it (review 1), as the Mac's prefix match reads.
+  if (r.status === 200 && r.json && Object.prototype.hasOwnProperty.call(r.json, 'project')) {
     ctx.out('Paused ' + project + '. Kosmos will not nudge anyone about its tasks or hand them out until your person resumes it on the screen.');
     return 0;
   }

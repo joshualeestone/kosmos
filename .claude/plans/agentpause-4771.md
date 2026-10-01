@@ -42,3 +42,18 @@ cli.project-pause-4771 (Mac, stub board recording method, URL, body and agent to
 project-pause-4771 (Windows via main()), server.project-pause-4771 (sandboxed board: agent pause is not the
 person's, the person's cannot be lifted by an agent, and a screen pause empties the Prompter's open work), plus the
 taught line pinned in engine/tasks.test.js and the Recommender arm in engine/recommender.test.js.
+
+## Review 1 (Sonnet, blind, source-only): 0 blockers, 3 warnings, 5 nits
+- W1 the verb sends the person's board token, and PUT /api/project/:id has no membership check: kept, it is the
+  `task hold` precedent exactly (same token, same gap). A dedicated agent-token route that checks membership would
+  close it for both verbs at once; that is its own card, not this one.
+- W2 taught only to agents holding tasks: FIXED, taught to every member (a coordinator with no tasks is the likeliest
+  to be asked); arm in onhold-4771.
+- W3 Windows rewrote a bad id (projectSlug strips) where the Mac refuses, on a WRITE: FIXED, refused; arms added.
+- N4 Windows read {project: null} after a landed pause as a failure: FIXED (status 200 + the key); arm added.
+- N5 no tokenless arm: ADDED (server: no token, no browser headers, still an agent's pause).
+- N6 a repeated pause re-tells every member: kept (a repeat is an agent re-running one command; the re-tell is
+  idempotent writes).
+- N7 an agent's pause told members "until it is taken off hold" though no verb lifts it: FIXED, "until your person
+  resumes it".
+- N8 a wrong-world answer reads as unreadable on the Mac: kept (create does the same).

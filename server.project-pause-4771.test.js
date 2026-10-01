@@ -57,6 +57,14 @@ test('#4771: an agent\'s pause is recorded as an agent\'s, and the person\'s own
   assert.equal(stored(p.id).paused, true);
   assert.notEqual(stored(p.id).pausedByPerson, true, 'an agent\'s pause was recorded as the person\'s');
 
+  // Review 1: with no agent token at all (the CLI with KOSMOS_AGENT_TOKEN unset) and no browser headers, still an
+  // agent's pause, never the person's.
+  const q = projects.create({ name: 'Pause No Token' });
+  const bare = await fetch(`${base}/api/project/${q.id}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ paused: true }) });
+  assert.equal(bare.status, 200, await bare.text());
+  assert.equal(stored(q.id).paused, true);
+  assert.notEqual(stored(q.id).pausedByPerson, true, 'a tokenless pause was recorded as the person\'s');
+
   // The person pauses on the screen: theirs now, and an agent cannot lift it.
   assert.equal((await asScreen(p.id, true)).status, 200);
   assert.equal(stored(p.id).pausedByPerson, true);

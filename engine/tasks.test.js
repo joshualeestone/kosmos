@@ -268,7 +268,7 @@ test('the managed block teaches the join: tasks listed in the matching spelling,
   const bare = projects.blockBody([stored]);
   assert.ok(!/task 1 of /.test(bare) && !/task <number>/.test(bare), 'task lines appear with no agent to scope them');
   assert.ok(!/task built/.test(bare), 'the built line appears with no tasks to apply it to');
-  assert.ok(!/project pause/.test(bare), 'the pause line appears with no tasks to apply it to');
+  assert.ok(!/project pause/.test(bare), 'the pause line appears with no agent to teach');
 });
 
 test('a task records who added it, while the answer is still free', () => {

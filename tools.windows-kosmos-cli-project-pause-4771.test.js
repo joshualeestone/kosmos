@@ -34,6 +34,9 @@ test('#4771 Windows: project pause PUTs {paused:true} with both tokens, and says
   assert.deepEqual(JSON.parse(r.calls[0].body), { paused: true });
   assert.equal(r.calls[0].headers['x-kosmos-agent-token'], AGENT, 'without the agent token the board cannot tell it is an agent\'s pause');
   assert.equal(r.calls[0].headers['x-kosmos-board-token'], 'BOARD4771');
+  // A 200 whose re-read came back empty still paused it (review 1).
+  const empty = await run(['project', 'pause', 'p1'], () => ({ body: JSON.stringify({ project: null, agentsUnreadable: false }) }));
+  assert.equal(empty.code, 0, empty.err);
   // Token-only agents too: the board token opens this route, so it rides whatever the switch says (as create).
   const only = await run(['project', 'pause', 'p1'], () => ({ body: JSON.stringify({ project: { id: 'p1' } }) }), { KOSMOS_AGENT_TOKEN_ONLY: '1' });
   assert.equal(only.calls[0].headers['x-kosmos-board-token'], 'BOARD4771');
@@ -43,7 +46,7 @@ test('#4771 Windows: a refusal says the board\'s reason and exits 1; bad calls a
   const refused = await run(['project', 'pause', 'nosuch'], () => ({ status: 404, body: JSON.stringify({ error: 'there is no project by that name' }) }));
   assert.equal(refused.code, 1);
   assert.match(refused.err, /could not pause that project: there is no project by that name/);
-  for (const argv of [['project', 'pause'], ['project', 'pause', 'a', 'b'], ['project', 'resume', 'p1'], ['project', 'unpause', 'p1'], ['project', 'pause', '..']]) {
+  for (const argv of [['project', 'pause'], ['project', 'pause', 'a', 'b'], ['project', 'resume', 'p1'], ['project', 'unpause', 'p1'], ['project', 'pause', '..'], ['project', 'pause', 'bad id!'], ['project', 'pause', 'my proj']]) {
     const r = await run(argv, () => ({ body: '{}' }));
     assert.notEqual(r.code, 0, argv.join(' '));
     assert.equal(r.calls.length, 0, argv.join(' ') + ' sent a request');
