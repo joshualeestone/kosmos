@@ -984,7 +984,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   const local = (because) => ({ ok: false, local: true, because });
   const ctx = { cap: RESPONSE_CAP, deadline };
   const budget = () => ({ remainingMs: deadline == null ? Infinity : deadline - Date.now(), requestMs: timeoutMs });
-  if (!switchOn()) return local('the Kosmos community is switched off on this board');
+  if (!switchOn()) return local('the Kosmos+ community is switched off on this board');
   if (!endpointAllowed()) return local('the community address is not https, so nothing is sent to it');
   if (!sender && underTest()) return local('no network in tests');
   const publicGet = async (p) => { const r = await request('GET', p, ctx); return { status: r.status, json: r.json }; };

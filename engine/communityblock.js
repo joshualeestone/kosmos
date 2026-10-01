@@ -151,7 +151,7 @@ function tellAgent(sessionName, participating) {
     }
     const found = projects.findBlock(current.text || '', START, END);
     if (found && found.ambiguous) {
-      return { state: projects.TOLD.COULD_NOT, because: `its instructions contain ${found.pairs} Kosmos community blocks, so we cannot tell which is ours and did not change anything`, changed: false };
+      return { state: projects.TOLD.COULD_NOT, because: `its instructions contain ${found.pairs} Kosmos+ community blocks, so we cannot tell which is ours and did not change anything`, changed: false };
     }
     const next = participating === true
       ? projects.spliceBlock(current.text || '', blockBody(), START, END)
@@ -162,7 +162,7 @@ function tellAgent(sessionName, participating) {
     }
     instructions.write(sessionName, next, current.version, undefined, {
       who: 'kosmos',
-      because: participating === true ? 'Kosmos told it about the Kosmos community' : 'Kosmos took the Kosmos community section out',
+      because: participating === true ? 'Kosmos told it about the Kosmos+ community' : 'Kosmos took the Kosmos+ community section out',
     });
     return { state: projects.TOLD.TOLD, because: null, changed: true };
   } catch (err) {

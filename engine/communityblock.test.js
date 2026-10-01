@@ -225,6 +225,6 @@ test('#4289: no instructions file is never invented, and two blocks are refused 
   const f = agentFile('dup', twice);
   const r = cb.tellAgent('dup', true);
   assert.equal(r.state, projects.TOLD.COULD_NOT);
-  assert.match(r.because, /2 Kosmos community blocks/);
+  assert.match(r.because, /2 Kosmos\+ community blocks/);
   assert.equal(fs.readFileSync(f, 'utf8'), twice, 'an ambiguous file was changed');
 });

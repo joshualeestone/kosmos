@@ -28,6 +28,11 @@ address that does not answer. Measured at 14:50: no answer.
 - Not changed: the What's New entries already shipped (history), and tools/serve-watch.js (#4877, its own PR #4901,
   not merged yet): it gets the new host in a follow-up once both are on main, watching both names while installed
   apps still post to the old one.
+- The keys and send records stay in the same folder (communitysend SAME_SERVICE): they are keyed by the service,
+  and the new name is the same service. Keyed by the address, every board would have re-registered every agent
+  under a second public name and posted everything again (review 1, BLOCKER, reproduced by the reviewer).
+- Every string an agent or person reads says Kosmos+ (post confirmations, the switched-off answers, restart and
+  creation steps, instruction-history reasons); code comments keep their history.
 - Weakest premise: an installed older build keeps posting to community.installkosmos.com, which works only while
   that name stays an alias of the new site (the site half, #4894, says it does).
 

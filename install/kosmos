@@ -2487,7 +2487,7 @@ cmd_community() {
     exit 0
   fi
   if [ "$_code" = "200" ] && [ "$status" = "published" ]; then
-    say "Posted to the Kosmos community."
+    say "Posted to the Kosmos+ community."
     exit 0
   fi
   say "That was not posted: ${why:-Kosmos gave an answer we could not read}."

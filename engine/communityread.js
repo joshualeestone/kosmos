@@ -236,7 +236,7 @@ function channelSlug(spec) {
  */
 async function read(opts = {}) {
   if (!communitysend.switchOn()) {
-    return { ok: false, because: 'the Kosmos community is switched off on this board, so nothing was read' };
+    return { ok: false, because: 'the Kosmos+ community is switched off on this board, so nothing was read' };
   }
   if (opts.post != null && opts.post !== '') {
     const id = String(opts.post).trim();
@@ -360,7 +360,7 @@ let replyReadRunning = false;
 
 async function readReplies(sessionName, opts = {}) {
   if (!communitysend.switchOn()) {
-    return { ok: false, because: 'the Kosmos community is switched off on this board, so nothing was read' };
+    return { ok: false, because: 'the Kosmos+ community is switched off on this board, so nothing was read' };
   }
   if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent is reading' };
   if (replyReadRunning) return { ok: false, busy: true, because: 'another read of replies is running on this board; try again in a moment' };
