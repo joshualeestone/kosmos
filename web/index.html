@@ -26,7 +26,11 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/icons/kosmos-16.png">
 <link rel="icon" type="image/png" sizes="32x32" href="/icons/kosmos-32.png">
 <link rel="icon" type="image/png" sizes="48x48" href="/icons/kosmos-48.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/icons/kosmos-180.png">
+<!-- kosmos#4798 (Josh, 17:53: a thick black frame round the home-screen icon): iOS fills a touch icon's transparent
+     corners with black and then rounds it itself. kosmos-180 is the Mac icon, already rounded inside a clear margin
+     (and it stays, for the Dock row below), so the home screen gets its own: a full-bleed opaque square, gold to
+     every edge, no corners, no alpha, from assets/Kosmos-1024.png (the iPhone app's icon). -->
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/kosmos-touch-180.png">
 <!-- Installable (#718, the home-screen third): the manifest makes Add to
      Home Screen an app-shaped launch; the two Apple metas do the same on
      iOS Safari, which reads them rather than display:standalone.
@@ -1981,6 +1985,13 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
 .worldsw-computers { margin-top: 4px; padding-top: 4px; border-top: 0.5px solid var(--separator); }
 .worldsw-sec { padding: 4px 8px 2px; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
 .worldsw-state { flex: none; margin-left: auto; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
+/* kosmos#4815 (Josh, 2026-09-30 19:50): one Kosmos per computer (MULTI_KOSMOS off). The menu then holds only Your
+   computers, so its separator has nothing above it and goes; and with no other computer to open, the button is
+   the computer's name as plain text: no chevron, no border, nothing to press. */
+.worldsw.worldsw-onekosmos .worldsw-computers { margin-top: 0; padding-top: 0; border-top: 0; }
+.worldsw.worldsw-fixed .worldsw-chev { display: none; }
+.worldsw.worldsw-fixed .worldsw-btn { cursor: default; border-color: transparent; }
+.worldsw.worldsw-fixed .worldsw-btn:hover, :root[data-look="new"] .worldsw.worldsw-fixed .worldsw-btn:hover { background: none; }
 /* #2238: the honest post-switch status banner. A world's roots load only on board
    boot, so switching needs a board restart; this banner says so (no auto-restart). */
 /* #1704 PR3: the switch dialog's pause/keep choice. A fieldset, so its UA chrome goes. */
@@ -9903,6 +9914,23 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    treatment, per the same 08-21 ruling) loses its border and shadow, since its grey ground is the separation. */
 :root[data-look="new"] body:not(.consolidated) #grid .acard { border-radius: 24px; }
 :root[data-look="new"] body:not(.consolidated) #grid .acard:not(.working):not(.attn):not(.question):not(.unk) { border-color: transparent; box-shadow: none; }
+/* The list view (#4470, the next page after the cards): the same language. A row is shorter than a card, so its
+   corners sit between the project page's task rows (10px) and the cards (24px). The ground keeps saying the state
+   (grey, the working green, the needs-you red wash: #3187), so a plain row's border goes, as a plain card's did.
+   What a stroke MEANS stays: the needs-you row keeps its red edge, the could-not-read row its dash. Hover still
+   draws today's border, since a row with no edge needs some sign it can be opened; hover never changes the ground,
+   which is the state. */
+:root[data-look="new"] body:not(.consolidated) #alist .lrow { border-radius: 16px; }
+:root[data-look="new"] body:not(.consolidated) #alist .lrow:not(.attn):not(.unk):not(:hover) { border-color: transparent; }
+/* The name is a button (.namego, it opens the agent), and a button centres its text by default, so a name long
+   enough to wrap sat in the middle of a left-aligned column (seen with a two-word surname). Today's look has the
+   same; this page sets it. */
+:root[data-look="new"] body:not(.consolidated) #alist .lname .namego { text-align: left; }
+/* The could-not-read dash must be SEEN, not only kept: the new look's rule grey on its surface grey (and the
+   list's wash) measured about 1.04:1 in light, so the dashed row read as a plain one. It takes the colour the
+   solid could-not-read board note already uses, on the list and on the cards alike. */
+:root[data-look="new"] body:not(.consolidated) #alist .lrow.unk,
+:root[data-look="new"] body:not(.consolidated) #grid .acard.unk { border-color: var(--border-strong); }
 /* ===== GENERATED: forced dark theme. Do not edit by hand. ===== */
 /* Written by tools/sync-forced-theme.js from the prefers-color-scheme
    blocks above. Edit those; run the tool; commit both. */
@@ -13851,7 +13879,7 @@ window.kosmosMeasureScrollbarWidth();
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="minimax" role="img" aria-label="MiniMax"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 490.16 411.7"><defs><linearGradient id="pmark-minimax-g" y1="205.85" x2="490.16" y2="205.85" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#e4177f"/><stop offset="0.5" stop-color="#e73562"/><stop offset="1" stop-color="#e94e4a"/></linearGradient></defs><path fill="url(#pmark-minimax-g)" d="M233.45,40.81a17.55,17.55,0,1,0-35.1,0V331.56a40.82,40.82,0,0,1-81.63,0V145a17.55,17.55,0,1,0-35.09,0v79.06a40.82,40.82,0,0,1-81.63,0V195.42a11.63,11.63,0,0,1,23.26,0v28.66a17.55,17.55,0,0,0,35.1,0V145A40.82,40.82,0,0,1,140,145V331.56a17.55,17.55,0,0,0,35.1,0V217.5h0V40.81a40.81,40.81,0,1,1,81.62,0V281.56a11.63,11.63,0,1,1-23.26,0Zm215.9,63.4A40.86,40.86,0,0,0,408.53,145V300.85a17.55,17.55,0,0,1-35.09,0v-260a40.82,40.82,0,0,0-81.63,0V370.89a17.55,17.55,0,0,1-35.1,0V330a11.63,11.63,0,1,0-23.26,0v40.86a40.81,40.81,0,0,0,81.62,0V40.81a17.55,17.55,0,0,1,35.1,0v260a40.82,40.82,0,0,0,81.63,0V145a17.55,17.55,0,1,1,35.1,0V281.56a11.63,11.63,0,0,0,23.26,0V145A40.85,40.85,0,0,0,449.35,104.21Z"/></svg></span><div class="llm-w"><b>MiniMax</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
       </div>
 
-      <!-- S6 Self improving. One switch: fr-s6-feedback (Angel wires behavior). -->
+      <!-- S6 Self improving. Two switches: fr-s6-feedback and fr-s6-community (#4820). -->
       <div class="fr-pane" id="fr-pane-6" hidden>
         <!-- ============================================================
              SCREEN 6 - SELF IMPROVING
@@ -13863,6 +13891,9 @@ window.kosmosMeasureScrollbarWidth();
              lives on the Create-an-Agent screen and its backend is unchanged.
              Angel wires the switch control (id fr-s6-feedback; fr- prefix = a
              wiring surface).
+             #4820 (Josh, 2026-09-30): a second switch, fr-s6-community, the
+             Kosmos Community setting (/api/community-setting, default ON), so a
+             new install decides it here and no notice is shown later.
              ============================================================ -->
         <style>
         .s6-switch-row{display:flex;align-items:flex-start;gap:12px;
@@ -13877,15 +13908,21 @@ window.kosmosMeasureScrollbarWidth();
         <p class="fc-eyebrow">Self improving</p>
         <h2>Help make Kosmos better</h2>
 
-        <!-- #11 (0.6.39): Josh removed the second switch ("Let Kosmos know when you
-             create an agent") from this screen; it does not belong here. Only the
-             feedback switch remains, default on, its label the new body copy. The
+        <!-- #11 (0.6.39): Josh removed the old second switch ("Let Kosmos know when you
+             create an agent") from this screen; it does not belong here. The
              create-agent-ping feature itself is unchanged (its control lives on the
              Create-an-Agent screen, #2020); only its duplicate here is gone, and its
-             frPing wiring was removed from the script to match. -->
+             frPing wiring was removed from the script to match.
+             #4820 (Josh, 2026-09-30): two switches now, both default on: the daily
+             feedback report, and directly under it the Kosmos Community switch (the
+             same setting as Settings > Automation). -->
         <div class="s6-switch-row">
           <span class="s6-sw" id="fr-s6-feedback" role="switch" aria-checked="true" tabindex="0" aria-labelledby="fr-s6-feedback-lbl"></span>
           <span class="s6-lbl" id="fr-s6-feedback-lbl">Send daily diagnostic information, bug reports, and improvement recommendations.</span>
+        </div>
+        <div class="s6-switch-row">
+          <span class="s6-sw" id="fr-s6-community" role="switch" aria-checked="true" tabindex="0" aria-labelledby="fr-s6-community-lbl"></span>
+          <span class="s6-lbl" id="fr-s6-community-lbl">Let your agents join the Kosmos community to help make Kosmos better.</span>
         </div>
       </div>
 
@@ -25796,6 +25833,9 @@ async function worldsFetch() {
    live switch, which owns that banner, is never fought; and it only clears a note IT set
    (WORLDSW_STALE), so a switch/manual-restart banner is never wiped. */
 function worldswSetStale(stale) {
+  // #4815: the note is about a list of Kosmoses, which is not shown when MULTI_KOSMOS is off (typeof: lifted by tests).
+  // Still tracked, so the 8 s retry does not re-render the hidden list every time; only the note is not shown.
+  if (typeof MULTI_KOSMOS !== 'undefined' && MULTI_KOSMOS === false) { WORLDSW_STALE = !!stale; return; }
   const banner = document.getElementById('worldsw-restart');
   const bmsg = document.getElementById('worldsw-restart-msg');
   if (stale) {
@@ -25813,6 +25853,100 @@ function worldswSetStale(stale) {
       banner.hidden = true;
     }
     WORLDSW_STALE = false;
+  }
+}
+/* kosmos#4815 (Josh, #admin 2026-09-30 19:50): "I want to remove multiple Kosmoses ... we don't have to remove the
+   structure. I just want it commented out so that it's not visible on anything." One switch, not a deletion: with
+   it false, the Kosmoses list, New Kosmos (and its dialog), each Kosmos's settings cog (rename, add agents from
+   another Kosmos, hide) and the last-known-list note are never shown. The top-left button then names THIS computer
+   (from Your computers, #4648, else "This computer") and opens only when the account has another computer, the
+   menu holding just Your computers. A board that already has several Kosmoses keeps running the one it booted;
+   nothing is moved or deleted, and /api/worlds is unchanged. Change the default below to bring it all back. */
+/* The default is OFF. A browser can turn it back on with localStorage 'kosmos.multiKosmos' = '1' (nothing on a
+   screen offers that): the browser checks that pin the kept structure (#1704, #2238, #2350, #2563, #2628, #2935,
+   #3055, #4648, and #718's phone frame) set it, so the code stays tested while nobody sees it. */
+const MULTI_KOSMOS = (() => { try { return localStorage.getItem('kosmos.multiKosmos') === '1'; } catch { return false; } })();
+let THIS_COMPUTER_NAME = '';
+let COMPUTERS_OPENABLE = false;
+let COMPUTERS_RETRY_T = null;
+let COMPUTERS_STALE_WHILE_HIDDEN = false;
+let COMPUTERS_FAILS = 0;
+/* Called by computersRender with the rows it kept and whether an answer arrived. Only an ANSWER changes
+   the name or whether there is anywhere to go (review round 1): a failed read keeps the last good answer, so one
+   relay hiccup cannot lock the menu shut, and says so inside the menu. */
+function worldswComputersSeen(rows, good) {
+  // With several Kosmoses on, today's menu is untouched: it hides the section on any failure (review round 5).
+  if (MULTI_KOSMOS) return;
+  if (good) {
+    const me = rows.find((c) => c.this === true);
+    THIS_COMPUTER_NAME = me ? me.name : '';
+    COMPUTERS_OPENABLE = rows.length >= 2;
+  } else if (COMPUTERS_OPENABLE) {
+    const box = document.getElementById('worldsw-computers');
+    const list = document.getElementById('worldsw-computers-list');
+    if (box && list) {
+      list.textContent = '';
+      const note = document.createElement('div');
+      note.className = 'worldsw-row worldsw-row-off';
+      note.textContent = 'Kosmos could not reach your computers just now. Try again in a moment.';
+      list.appendChild(note);
+      box.hidden = false;
+    }
+  }
+  worldswOneKosmos();
+  /* Re-read in the background while the menu cannot be opened (opening is what re-reads otherwise): soon after a
+     read that got no answer (the relay not up at boot), and every few minutes while the answer is "nowhere else to
+     go" (a sign-in to Kosmos+, or another computer added, during the session). review round 2. */
+  if (!MULTI_KOSMOS) {
+    clearTimeout(COMPUTERS_RETRY_T);
+    COMPUTERS_FAILS = good ? 0 : COMPUTERS_FAILS + 1;
+    /* Failures back off, 15 s doubling to 5 min, since some never clear on their own (an old connector, a refused
+       computer) and each read is a signed call to Kosmos+ (review round 4). */
+    const first = Number.isFinite(window.__kosmosComputersRetryMs) ? Math.max(100, window.__kosmosComputersRetryMs) : 15000;
+    const wait = !good ? Math.min(5 * 60 * 1000, first * 2 ** (COMPUTERS_FAILS - 1)) : (!COMPUTERS_OPENABLE ? 5 * 60 * 1000 : 0);
+    /* Either way, a hidden tab waits (it reads when it is next looked at, the visibility listener below), and an
+       open menu is not repainted under the person (it reads when the menu is next opened). */
+    const tick = () => {
+      const menu = document.getElementById('worldsw-menu');
+      if (document.hidden) COMPUTERS_STALE_WHILE_HIDDEN = true;                    // read on the next look
+      else if (menu && !menu.hidden) COMPUTERS_RETRY_T = setTimeout(tick, wait);   // try again after, never under the person
+      else computersFetch().catch(() => {});
+    };
+    if (wait) COMPUTERS_RETRY_T = setTimeout(tick, wait);
+  }
+}
+function worldswOneKosmos() {
+  if (MULTI_KOSMOS) return;
+  const sw = document.getElementById('worldsw');
+  const btn = document.getElementById('worldsw-btn');
+  const nameEl = document.getElementById('worldsw-name');
+  if (!sw || !btn || !nameEl) return;
+  for (const id of ['worldsw-list', 'worldsw-new']) { const el = document.getElementById(id); if (el) el.hidden = true; }
+  const name = THIS_COMPUTER_NAME || 'This computer';
+  nameEl.textContent = name;
+  sw.classList.add('worldsw-onekosmos');
+  sw.classList.toggle('worldsw-fixed', !COMPUTERS_OPENABLE);
+  sw.hidden = false;   // the name no longer depends on the Kosmoses read (review round 1)
+  const menu = document.getElementById('worldsw-menu');
+  if (COMPUTERS_OPENABLE) {
+    btn.removeAttribute('aria-disabled');
+    btn.removeAttribute('tabindex');
+    btn.setAttribute('aria-controls', 'worldsw-menu');
+    btn.setAttribute('aria-expanded', menu && !menu.hidden ? 'true' : 'false');
+    btn.setAttribute('aria-label', 'Your computers. This computer: ' + name);
+  } else {
+    /* Plain text, as the card asks: nothing to expand, so no expanded state, no controls and no Tab stop (a screen
+       reader would otherwise announce a collapsed button that never opens). Close a menu left open from before. */
+    if (menu && !menu.hidden) {
+      const focusWasInside = menu.contains(document.activeElement);
+      menu.hidden = true;
+      if (focusWasInside) btn.focus();   // never leave focus on a row that just went away
+    }
+    btn.removeAttribute('aria-expanded');
+    btn.removeAttribute('aria-controls');
+    btn.setAttribute('aria-disabled', 'true');
+    btn.setAttribute('tabindex', '-1');
+    btn.setAttribute('aria-label', name);
   }
 }
 function worldswRender(data, opts) {
@@ -25883,6 +26017,8 @@ function worldswRender(data, opts) {
   }
   sw.hidden = false;
   worldswSetStale(!!(opts && opts.stale));   // #3055: honest note on a last-known render
+  // #4815: with MULTI_KOSMOS off, this computer's name and nothing about Kosmoses (typeof: tests lift this alone).
+  if (typeof worldswOneKosmos === 'function') worldswOneKosmos();
 }
 /* #2238: switch the active Kosmos. POST /api/worlds/active flips the registry and,
    when the board can SAFELY self-restart, restarts it onto the new world (#2346:
@@ -26166,8 +26302,16 @@ async function computersFetch() {
      must never be shown as current (a probe can take seconds). */
   const box = document.getElementById('worldsw-computers');
   const list = document.getElementById('worldsw-computers-list');
-  if (box) box.hidden = true;
   if (list) list.textContent = '';
+  /* #4815: with one Kosmos this section is the whole menu, so it says it is reading rather than leaving an empty box
+     (typeof: lifted alone by web.computers-switcher-4648, where the hide below is what it pins). */
+  if (typeof MULTI_KOSMOS !== 'undefined' && MULTI_KOSMOS === false && box && list) {
+    const note = document.createElement('div');
+    note.className = 'worldsw-row worldsw-row-off';
+    note.textContent = 'Checking your computers...';
+    list.appendChild(note);
+    box.hidden = false;
+  } else if (box) box.hidden = true;
   let data = null;
   try {
     const res = await fetch('/api/remote/computers', { cache: 'no-store' });
@@ -26183,8 +26327,15 @@ function computersRender(data) {
   const rows = (data && data.ok === true && Array.isArray(data.computers))
     ? data.computers.filter((c) => c && typeof c.name === 'string' && c.name && computerAddressOk(c.address, data.domain))
     : [];
+  /* #4815: the rows also give the top-left button this computer's name and whether there is anywhere else to go
+     (worldswComputersSeen). Only an ANSWER changes those: ok: true, or the engine's marked "not signed in"
+     (signedIn: false). The route always answers 200 and a bare ok: false means Kosmos+ did not answer
+     (engine/account-computers.js), so that, like no answer at all, keeps the last good name and menu (review round
+     3). Reached through typeof because tests lift this function alone (web.computers-switcher-4648), where the
+     one-Kosmos helpers do not exist; a lifted copy behaves as before. */
+  const good = !!data && (data.ok === true || data.signedIn === false);
   // Only this computer (or nothing): there is nowhere else to go, so the section stays hidden.
-  if (rows.length < 2) { list.textContent = ''; box.hidden = true; return; }
+  if (rows.length < 2) { list.textContent = ''; box.hidden = true; if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows, good); return; }
   list.textContent = '';
   for (const c of rows) {
     /* Only an ONLINE computer is a link. An offline one would open a browser error page (the
@@ -26219,10 +26370,12 @@ function computersRender(data) {
     list.appendChild(row);
   }
   box.hidden = false;
+  if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows, good);
 }
 function worldswToggle() {
   const menu = document.getElementById('worldsw-menu');
   if (!menu) return;
+  if (typeof MULTI_KOSMOS !== 'undefined' && MULTI_KOSMOS === false && !COMPUTERS_OPENABLE) return;   // #4815: one computer, nothing to open
   if (menu.hidden) worldswOpen();
   else worldswClose();
 }
@@ -26808,6 +26961,15 @@ async function worldHideSubmit() {
     if (menu && !menu.hidden) { worldswClose(); btn.focus(); }
   });
   worldsFetch().catch(() => {});
+  // #4815: with one Kosmos, the button names this computer and opens only onto Your computers, so read them now.
+  if (!MULTI_KOSMOS) {
+    computersFetch().catch(() => {});
+    document.addEventListener('visibilitychange', () => {
+      const menu = document.getElementById('worldsw-menu');
+      // Back in view: read now, unless the menu is open (it read when it opened; never repaint it under the person).
+      if (!document.hidden && COMPUTERS_STALE_WHILE_HIDDEN && !(menu && !menu.hidden)) { COMPUTERS_STALE_WHILE_HIDDEN = false; computersFetch().catch(() => {}); }
+    });
+  }
 })();
 // #3051 + #3360: the upper-right user menu popover. Same shape as wireWorldsw above: the
 // button toggles a hidden menu (aria-expanded tracks it), an outside click or Escape
@@ -29512,114 +29674,9 @@ async function industryChange() {
 }
 document.getElementById('community-industry').addEventListener('change', industryChange);
 
-/* #4288 part B: the one-time Community notice. It opens only for a board that says the setting was read,
-   is ON, and the notice is pending (an existing install; a fresh one is told in first run), and only
-   once nothing else is on screen: first run, the tour, What's New, the update overlay or another
-   dialog. It is recorded as seen when it OPENS (What's New's rule), so two tabs do not both show it. */
-let CN_OPENER = null;
-/* Made when it opens and removed when it closes, like What's New's window: the body's direct children
-   are the consolidated grid's rows (web.consolidated-980), and a window shown once is not worth a
-   permanent one. The markup lives in this string so the modal sweep names it. */
-const CN_HTML = '<div class="rm-back" id="cmnotice">'
-  + '<div class="wn-box" id="cn-box" role="dialog" aria-modal="true" aria-labelledby="cn-title" aria-describedby="cn-body" tabindex="-1">'
-  + '<img class="wn-mark" src="/icons/kosmos-192.png" alt="" width="52" height="52">'
-  + '<h2 class="wn-title" id="cn-title">Your agents can join the Kosmos community</h2>'
-  + '<p class="rm-small" id="cn-body">Your agents’ posts now go to the public Kosmos community straight away, unless Kosmos’s safety check stops one; you can turn sharing off in Settings.</p>'
-  + '<div class="rm-acts">'
-  + '<button class="btn" type="button" id="cn-settings">Change in Settings</button>'
-  + '<button class="btn uprime" type="button" id="cn-ok">Got it</button>'
-  + '</div></div></div>';
-function cnHeld() {
-  if (typeof TIP_OPEN !== 'undefined' && TIP_OPEN) return true;
-  if (document.getElementById('whatsnew')) return true;
-  // The same covering set as tipModalOpen, less this notice itself, plus the boot cover: it sits over
-  // everything until first run's check answers, and a notice under it would be recorded as seen unseen.
-  return !!document.querySelector('.rm-back:not([hidden]):not(#cmnotice), .fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open], #boot-cover:not([hidden])');   // #4343: not behind the restart screen
-}
-function cnOpen() {
-  if (document.getElementById('cmnotice')) return;
-  const tmp = document.createElement('div');
-  tmp.innerHTML = CN_HTML;
-  const back = tmp.firstElementChild;
-  document.body.appendChild(back);
-  back.querySelector('#cn-ok').addEventListener('click', cnClose);
-  back.querySelector('#cn-settings').addEventListener('click', cnToSettings);
-  back.addEventListener('click', (e) => { if (e.target === back) cnClose(); });
-  CN_OPENER = (document.activeElement && document.activeElement !== document.body) ? document.activeElement : null;
-  /* The box, not Got it (review 2, What's New's rule): an Enter still in flight must not dismiss a
-     disclosure before it is read. Tab goes to the buttons. */
-  back.querySelector('#cn-box').focus();
-}
-function cnClose() {
-  const back = document.getElementById('cmnotice');
-  if (back) back.remove();
-  const to = (CN_OPENER && document.contains(CN_OPENER)) ? CN_OPENER : null;
-  CN_OPENER = null;
-  if (to) to.focus();
-}
-function cnToSettings() {
-  CN_OPENER = null;   // focus goes to the switch, not back to where it was
-  cnClose();
-  showTab('settings');
-  const nav = document.querySelector('#s-nav button[data-go="automation"]');
-  if (nav) nav.click();
-  const tog = document.getElementById('community-toggle');
-  const row = document.getElementById('community-row');
-  const target = (tog && !tog.hidden) ? tog : row;
-  if (!target) return;
-  if (target === row) row.tabIndex = -1;
-  target.focus();
-}
-/* Is the notice still owed? Read fresh each time: a wait can outlive a change made in another tab. */
-async function cnPending() {
-  const res = await fetch('/api/community-setting', { cache: 'no-store' });
-  if (!res.ok) return false;
-  const r = await res.json();
-  return Boolean(r && r.ok === true && r.on === true && r.noticeSeen === false);
-}
-async function communityNoticeCheck() {
-  try {
-    if (!(await cnPending())) return;
-    // An hour, looked at each second, like What's New; still held after that, it waits for the next load.
-    const until = Date.now() + 60 * 60 * 1000;
-    if (cnHeld()) {
-      while (Date.now() < until && cnHeld()) await new Promise((ok) => setTimeout(ok, 1000));
-      /* Review 4: after a wait the answer is read again, so a switch turned OFF (or a notice seen) in
-         another tab meanwhile opens nothing here. */
-      if (!(await cnPending())) return;
-    }
-    // Checked again with no await before the open, so nothing can be drawn between the check and it.
-    if (cnHeld()) return;
-    /* Recorded as seen when it OPENS, What's New's rule and its accepted cost: two tabs loaded together
-       each find it pending and each show it once. Nothing is lost; it is only shown twice. */
-    fetch('/api/community-setting/notice-seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
-      .then((x) => x.text()).catch(() => { /* shown again next load */ });
-    cnOpen();
-  } catch { /* the notice can wait */ }
-}
-/* Escape leaves; Tab stays between its two buttons. What's New's rules (review 3): a window drawn over this
-   one (first run, the update overlay) owns the keys, and the keys are taken in the capture phase and
-   stopped, so one Escape closes one window. */
-function cnCovered() {
-  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back');
-}
-document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape' || cnCovered()) return;
-  if (document.getElementById('cmnotice')) cnClose();
-  else return;
-  e.preventDefault();
-  e.stopPropagation();
-}, true);
-document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Tab') return;
-  const back = document.getElementById('cmnotice');
-  if (!back || cnCovered()) return;
-  e.stopPropagation();
-  const order = e.shiftKey ? [document.getElementById('cn-ok'), document.getElementById('cn-settings')] : [document.getElementById('cn-settings'), document.getElementById('cn-ok')];
-  // From outside, or from the box itself, Tab goes to the first button in its direction.
-  if (!order.includes(document.activeElement)) { e.preventDefault(); order[0].focus(); return; }
-  if (document.activeElement === order[order.length - 1]) { e.preventDefault(); order[0].focus(); }
-}, true);
+/* #4820 (Josh, 2026-09-30): no one-time Community notice. An existing install simply has sharing on, with
+   the switch in Settings; a new install gets the same switch in first run, beside the diagnostics one
+   (#fr-s6-community). The #4288 part B notice that stood here is gone, markup, keys and all. */
 
 /* #4313: the owner's list of their agents' posts in the public community, from
    /api/community/mine (the send layer's records joined to the board's own posts). Delete goes
@@ -36131,6 +36188,13 @@ function settingsGo(section, opts) {
   if (section === 'automation' && typeof refreshCommunityMine === 'function') refreshCommunityMine();
   /* #4525: the held list too: an agent can post while the page is open. */
   if (section === 'automation' && typeof refreshCommunityHeld === 'function') refreshCommunityHeld();
+  /* #4820 review 2: the Community and Daily report switches (both in Automation) were read once, at page
+     load, so a switch turned Off on first run's Screen 6 in the same session still read ON here, with
+     the Off notes hidden. Re-read them each time Automation opens. Not while a save from this section is
+     in flight: a refresh bumps the same epoch, so it would drop that save's answer and could paint a read
+     taken before the save landed. */
+  if (section === 'automation' && typeof refreshCommunity === 'function' && !COMMUNITY_SAVING) refreshCommunity();
+  if (section === 'automation' && typeof refreshFeedback === 'function' && !FEEDBACK_SAVING) refreshFeedback();
   /* #1615: blue-skin the whole app while Plus is on screen and mount its two
      canvases; teardown + un-blue for every other section. syncPlusChrome reads
      the true state itself, so it is a safe no-op elsewhere. */
@@ -37238,8 +37302,8 @@ function wnWire(back) {
 /* A window drawn over this one (first run, the update overlay) owns the keys and focus. */
 function wnCovered() {
   // Only windows drawn OVER this one (round 3): the other .rm-back dialogs sit under it at the same layer.
-  // #4288 part B: and the one-time Community notice, so the two windows never stack. #4343: and the restart screen.
-  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, #cmnotice, .restart-back');
+  // #4343: and the restart screen.
+  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back');
 }
 /* In the capture phase, and stopped once handled (round 12): a dialog open UNDER the window keeps its own
    document-level Escape and Tab handlers, and one Escape must not close both. */
@@ -37320,7 +37384,6 @@ async function whatsNewCheck() {
   }
 }
 whatsNewCheck();
-communityNoticeCheck();   // #4288 part B: each of the two windows waits while the other is up
 
 async function paintConnLive() {
   const el = document.getElementById('conn-live');
@@ -63382,10 +63445,11 @@ function frGo(step) {
     frPaintMeta();   // #3939 3c-4: the Meta row, only where Muse is switched on
     frConnResume();
   } else if (step === 6) {
-    // S6 Self improving: one consent switch (the daily feedback report). #11
-    // (0.6.39) removed the create-agent-ping switch from this screen.
+    // S6 Self improving: two consent switches, the daily feedback report and (#4820)
+    // the Kosmos Community setting. #11 (0.6.39) removed the create-agent-ping switch.
     frActions({ label: 'Next', go: () => frGo(frStepAfter(6)) });   // #3112: route through the sequence, not a hardcoded 7
     frRefreshFeedback();   // #2037: paint persisted/default-ON state on show
+    frRefreshCommunity();  // #4820: the same, for the Community switch
   } else if (step === 7) {
     // S7 Success: a static screen (#12, 0.6.39). The app-location reveal
     // subsystem was removed; the pane is fixed markup, so there is nothing to
@@ -63411,8 +63475,8 @@ function frGo(step) {
    #11 (0.6.39): the create-agent-ping switch was removed from this screen (it
    belonged on the Create-an-Agent screen, #2020). #2623: that create-agent
    telemetry, its checkbox, and its /api/ping-setting backend were all deleted
-   (Josh, 2026-09-09, "invasion of privacy"); only the daily-feedback opt-out
-   documented above remains here. */
+   (Josh, 2026-09-09, "invasion of privacy"); the daily-feedback opt-out
+   documented above remains here, and #4820 adds the Community switch below it. */
 function frSwOn(el) { return el.getAttribute('aria-checked') === 'true'; }
 function frSwSet(el, on) { el.setAttribute('aria-checked', on ? 'true' : 'false'); }
 
@@ -63447,6 +63511,41 @@ async function frFeedbackToggle() {
   finally { FR_FB_SAVING = false; }
 }
 
+/* #4820 (Josh, 2026-09-30): the Kosmos Community switch on the same screen, directly under the
+   feedback one. The same setting as Settings > Automation (/api/community-setting: GET gives
+   { on, ok, ... }, PUT { on } saves it at once), so turning it off here leaves sharing off even if
+   first run is never finished. Built like the feedback switch: optimistic flip, reverted on a failed
+   save; its OWN epoch and saving flag, so the two switches never cancel each other; and a read that
+   fails leaves the default-ON markup, never a false Off. */
+let FR_CM_EPOCH = 0, FR_CM_SAVING = false;
+async function frRefreshCommunity() {
+  const el = document.getElementById('fr-s6-community'); if (!el) return;
+  const mine = ++FR_CM_EPOCH;
+  try {
+    const res = await fetch('/api/community-setting', { cache: 'no-store' });
+    if (!res.ok) return;                       // could-not-read: leave the default-ON markup position
+    const r = await res.json();
+    /* #4820 review 1: an answer with ok:false (community.json unreadable) still says on:false, which is TRUE: the engine is
+       not sharing. Painted, as the diagnostics switch above paints its own ok:false answer; a click then saves ON, which is
+       the person's explicit choice. Only no answer at all (a failed request or a throw) leaves the default. */
+    if (mine === FR_CM_EPOCH && r && typeof r.on === 'boolean') frSwSet(el, r.on);
+  } catch { /* leave the default */ }
+}
+async function frCommunityToggle() {
+  const el = document.getElementById('fr-s6-community'); if (!el || FR_CM_SAVING) return;
+  FR_CM_SAVING = true; const mine = ++FR_CM_EPOCH;
+  const next = !frSwOn(el);
+  frSwSet(el, next);                            // optimistic; revert if the PUT fails
+  try {
+    const res = await fetch('/api/community-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: next }) });
+    const body = await res.json().catch(() => ({}));
+    if (mine !== FR_CM_EPOCH) return;
+    if (!res.ok) { frSwSet(el, !next); return; }
+    if (typeof body.on === 'boolean') frSwSet(el, body.on);
+  } catch { if (mine === FR_CM_EPOCH) frSwSet(el, !next); }
+  finally { FR_CM_SAVING = false; }
+}
+
 // Static span -> bind once at top level. Click AND Space/Enter (role=switch is
 // keyboard-operable). The span exists before this script runs.
 (function bindS6Switches() {
@@ -63456,6 +63555,7 @@ async function frFeedbackToggle() {
     el.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); fn(); } });
   };
   wire('fr-s6-feedback', frFeedbackToggle);
+  wire('fr-s6-community', frCommunityToggle);
 })();
 
 /* --------------------------------------------------------------------------

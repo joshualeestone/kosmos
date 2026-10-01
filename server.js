@@ -7901,22 +7901,12 @@ const server = http.createServer(async (req, res) => {
      agents' tokens over the last 7 days; it is null ("not measured yet") until community
      turns can be told apart in the usage data, which comes with the managed block (#4289).
      Never 0: a zero would claim a measurement nobody made. */
-  const communityBody = () => { const r = communityswitch.read(); return { on: r.on, ok: r.ok, share: null, noticeSeen: r.noticeSeen }; };
+  /* #4820: no `noticeSeen` any more (the one-time notice is gone). A page from an older build opened
+     that notice only on noticeSeen === false, so an answer without the field opens nothing there either. */
+  const communityBody = () => { const r = communityswitch.read(); return { on: r.on, ok: r.ok, share: null }; };
   if (pathname === '/api/community-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, communityBody()); }
     catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
-    return;
-  }
-  /* #4288 part B: the one-time notice records itself as seen when it OPENS, so two tabs do not both
-     show it (the What's New rule). The body is ignored; the answer is the same body as GET. */
-  if (pathname === '/api/community-setting/notice-seen' && req.method === 'POST') {
-    readBody(req)
-      .then(() => {
-        const saved = communityswitch.markNoticeSeen();
-        if (!saved.ok) { sendJson(res, 500, { error: saved.because }); return; }
-        sendJson(res, 200, communityBody());
-      })
-      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
   if (pathname === '/api/community-setting' && req.method === 'PUT') {
@@ -8513,7 +8503,8 @@ const server = http.createServer(async (req, res) => {
   /* kosmos#4648 (weekend goal #4647): the computers on this board's Kosmos+ account, for the
      top-left menu's "Your computers". Signed through the tunnel and each online state measured
      (engine/account-computers.js). Always 200: { ok: false, because } when there is no list
-     (not signed in, an old connector or coordinator), and the page hides the section. */
+     (not signed in, an old connector or coordinator), and the page hides the section. Not signed in
+     is marked signedIn: false (kosmos#4815); any other ok: false is a failure the page retries. */
   if (pathname === '/api/remote/computers' && (req.method === 'GET' || req.method === 'HEAD')) {
     accountComputers.fetchComputers()
       .then((r) => sendJson(res, 200, r))
@@ -18327,13 +18318,14 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  /* The tab icons (#45, Josh 2026-08-17). An explicit allowlist of the six
-     shipped sizes (192 and 512 joined for the manifest, #718), because everything else below falls through to the page:
+  /* The tab icons (#45, Josh 2026-08-17). An explicit allowlist of the shipped
+     icons (192 and 512 joined for the manifest, #718; the touch and maskable squares, #4798), because everything else below falls through to the page:
      without this route, /icons/kosmos-32.png would answer HTML at 200 with
      the wrong content type, the same silent-success signature the API guard
      above exists to stop. A name outside the allowlist 404s as JSON rather
      than serving the page as an image. */
-  const iconGet = pathname.match(/^\/icons\/(kosmos-(?:16|32|48|180|192|512)\.png)$/);
+  // kosmos#4798: touch-180 (the iPhone home screen) and maskable-192/512 (Android) are full-bleed opaque squares.
+  const iconGet = pathname.match(/^\/icons\/(kosmos-(?:16|32|48|180|192|512|touch-180|maskable-192|maskable-512)\.png)$/);
   if (iconGet && (req.method === 'GET' || req.method === 'HEAD')) {
     fs.readFile(path.join(__dirname, 'web', 'icons', iconGet[1]), (err, buf) => {
       if (err) { sendJson(res, 404, { error: 'no such icon' }); return; }
@@ -18369,7 +18361,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   // /favicon.ico 404s BY DESIGN, matching the site: the icon set is the
-  // four explicit PNGs above, and a probe for the .ico must not receive
+  // explicit PNGs above, and a probe for the .ico must not receive
   // the page dressed as an icon (the silent-success signature again).
   if (apiPath === '/favicon.ico') {
     sendJson(res, 404, { error: 'no favicon.ico: the icons are /icons/kosmos-<size>.png' });
@@ -19250,10 +19242,10 @@ if (require.main === module) {
      attempting a Mac-only action on the wrong OS. The user-facing copy + screen
      for an unsupported platform is the operator's to add (see engine/platform.js
      and the PR); this is the mechanism only, and it invents no product copy. */
-  /* #4288 part B: the Community switch's one-time step, on the real-start path only (the routing
-     tests require this module). An existing install gets the one-time notice; a fresh one is told
-     in first run. A first-run flag that cannot be read counts as done, firstrun's own rule. */
-  try { communityswitch.migrate({ existingInstall: firstrun.seen().done === true }); } catch { /* never stops the board */ }
+  /* #4288: the Community switch's one-time step, on the real-start path only (the routing tests
+     require this module): with no setting file, write ON. #4820: fresh and existing installs alike,
+     and no notice is owed to either (a new install decides it in first run). */
+  try { communityswitch.migrate(); } catch { /* never stops the board */ }
   if (platformGate.isSupported()) {
     require('./engine/live-execution').allowLiveExecution();
   } else {

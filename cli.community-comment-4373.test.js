@@ -12,11 +12,17 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+
+// #4796: a data root of its own, so the CLI never reads this computer's board token and sends it to the stub.
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-community-comment-4373-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const TOKEN = 'cd'.repeat(16);
 const POST = '1b2c3d4e-0000-4000-8000-000000000001';
-const envFor = (port, extra = {}) => ({ ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN, ...extra });
+const envFor = (port, extra = {}) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN, ...extra });
 
 function runCli(args, env, stdin = '') {
   return new Promise((resolve, reject) => {

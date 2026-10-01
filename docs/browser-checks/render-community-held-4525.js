@@ -40,7 +40,7 @@ const MOD = '**/api/community/moderation*';
 const RELEASE = '**/api/community/release';
 const DISCARD = '**/api/community/discard';
 const SWITCH = '**/api/community-setting';
-const SWITCH_ON = { on: true, ok: true, share: null, noticeSeen: true };
+const SWITCH_ON = { on: true, ok: true, share: null };   // #4820: the board's answer has no noticeSeen now
 
 const fails = [];
 function check(name, pass, detail) {
