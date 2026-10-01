@@ -34,3 +34,9 @@ writer's (404) and the third member (none) get the generated mark (png); the pag
   other GET routes a phone uses through Kosmos+ (the roles picker's catalogue read), so a relay host it refused would
   already break those.
 - The ceiling claim was measured: web.api-routes-3957 29/29 with UNREAD_CEILING 19.
+
+## Re-enabling portraits (April 08:55: kosmos-catalogue noportrait-4720, PUBLISH_PORTRAITS=false)
+The catalogue side stops publishing portraits (avatar.image null) until this ships. Turn PUBLISH_PORTRAITS back on
+only after a PRODUCTION build carrying this change is served (latest.json), not when staging has it: every install
+still on an older build reads a named portrait as a static path and shows "could not be set". Even then, installs that
+have not updated yet will do that until they do; that tail is the cost of re-enabling and is accepted then, not now.
