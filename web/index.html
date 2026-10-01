@@ -58758,8 +58758,11 @@ try { if (voiceBridge()) document.documentElement.classList.add('has-voice'); } 
 
 /* ---- read aloud ---- */
 const SPEAK = { btn: null, text: '', where: '', seq: 0, nth: 0 };
+/* Asked at boot, so it must not READ window.speechSynthesis: in Chromium that getter starts the speech service
+   synchronously, which held the first poll (and the board's first paint) back about 750ms. `in` only asks whether the
+   property exists. web.voice-4409.test.js pins that the getter is never called here. */
 function speakCan() {
-  try { return !!(window.speechSynthesis && typeof window.SpeechSynthesisUtterance === 'function'); } catch { return false; }
+  try { return ('speechSynthesis' in window) && typeof window.SpeechSynthesisUtterance === 'function'; } catch { return false; }
 }
 try { if (speakCan()) document.documentElement.classList.add('has-speak'); } catch { /* as above */ }
 /* What a message says, as words to hear. PURE, for the node suite. A code block is announced, not

@@ -357,3 +357,15 @@ test('#4409: the signature carries the microphone entitlement and the bundle car
   assert.match(SETUP, /<key>NSMicrophoneUsageDescription<\/key><string>Kosmos listens only while the microphone button is on, [^<]+<\/string>/);
   assert.match(SETUP, /<key>NSSpeechRecognitionUsageDescription<\/key><string>[^<]+<\/string>/);
 });
+
+test('#4409 CI: speakCan, which runs at boot, never reads window.speechSynthesis (that getter starts the speech service)', () => {
+  // eslint-disable-next-line no-new-func
+  const speakCan = new Function('window', fn('speakCan') + '\nreturn speakCan;');
+  let reads = 0;
+  const win = { SpeechSynthesisUtterance: function SpeechSynthesisUtterance() {} };
+  Object.defineProperty(win, 'speechSynthesis', { enumerable: true, get() { reads += 1; return {}; } });
+  assert.equal(speakCan(win)(), true, 'a page with speech is not seen as having it');
+  assert.equal(reads, 0, 'speakCan read window.speechSynthesis at boot (measured: ~750ms off the first paint in Chromium)');
+  assert.equal(speakCan({ SpeechSynthesisUtterance: function () {} })(), false, 'CONTROL: no speechSynthesis property is no speech');
+  assert.equal(speakCan({ speechSynthesis: {} })(), false, 'CONTROL: no SpeechSynthesisUtterance is no speech');
+});
