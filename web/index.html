@@ -47541,6 +47541,8 @@ function resetOrgchartPreview() {
   if (undo) { undo.hidden = true; undo.disabled = false; }
   orgchartUndoAsking(false);
   orgchartEndFileFlow();
+  ORGCHART_RESULT_SHOWN = false;   // the box is hidden; orgchartRestoreCreated sets both again if it paints
+  ORGCHART_RESULT_RESTORED = false;
   // #4688: a created team's result and Undo come back with the panel (ORGCHART_CREATED is kept).
   orgchartRestoreCreated();
 }

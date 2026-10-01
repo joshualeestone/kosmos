@@ -129,8 +129,9 @@ Each must fail on the base (main before this branch) and pass here; run on a qui
 - Preview was re-enabled by a reopen during a create, then did nothing when pressed. orgchartUndoAsking keeps it
   disabled while ORGCHART_CREATING.
 - Leaving mid-Undo (Back, or closing the panel) left ORGCHART_UNDO_BUSY true. Both leave paths now clear it; the
-  left run stops at its GEN check either way. The comment claiming a hidden panel is painted is deleted (a left run
-  finds Undo disabled and leaves the repaint to the reopen).
+  left run stops at its GEN check either way. The comment claiming a hidden panel is painted is deleted. (Corrected
+  in iteration 14: after a leave, Undo is hidden but NOT disabled, so a left run's answer does repaint the hidden
+  panel in place; harmless, the reopen repaints the same data.)
 - NIT: "removed some of these" when it removed all now reads "removed all of these first."
 
 ## Iteration 8 (Sonnet): one BLOCKER, three warnings
@@ -194,3 +195,12 @@ Each must fail on the base (main before this branch) and pass here; run on a qui
 - Deferred NITs: "will appear on your board in a moment" replayed by a restore up to 15 minutes later (the create's
   own copy, unchanged); the expiry sentence replacing a create's fix-it message once (the fix-it stays true on the
   agent's page).
+
+## Iteration 14 (Sonnet): two warnings, fixed
+- The plan's iteration-7 note said a left run leaves the repaint to the reopen; it repaints the hidden panel in place
+  (harmless). Plan corrected; code unchanged.
+- resetOrgchartPreview left ORGCHART_RESULT_SHOWN true over a hidden box when nothing was restored (a latent trap;
+  every current reader also checks box.hidden). The reset now clears it and ORGCHART_RESULT_RESTORED; the restore
+  sets both again when it paints.
+- Deferred NITs: focus on the textarea when a result is restored (the count is a polite live region); a shared busy
+  helper for the four create-time early returns (named at the code).
