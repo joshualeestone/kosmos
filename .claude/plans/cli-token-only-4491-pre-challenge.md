@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: cli-token-only-4491
-diff_hash: d6664681bdb14a63a819ab9f50df35cbb4fac818e90c65a75061fea24312de70
+diff_hash: faaab1f1a7ea2519a7cce6d51482e1f3b79256a8b9379151c12df9320b8ce4c4
 validation: passed (Mortals, stack top report-token-only-4491 at be5555c23, hash 798376dfea0e, #4749 E: the top of a stack validates it); rebased since onto the rebased agent-projects-4491 (this branch's patches unchanged); the whole stack's changed test files at the top 694/694 and tools/test-run-tests-codexhome-2858.sh ALL PASS; CI runs the full suite on the merge ref
 subdir_audit: passed
 timestamp: 2026-10-01T04:33:18Z
@@ -28,3 +28,5 @@ converged: true
 
 ### Iteration 3: 0 BLOCKER, 0 SHOULD-FIX (CONVERGED)
 - Two nits on comments, taken
+
+Rebased 2026-10-01 01:29 CDT onto main after #4740 merged as f8d520a82 (patches unchanged); focused at this head with the file-scanning guards 205/205; hash recomputed.
