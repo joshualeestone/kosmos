@@ -1401,12 +1401,14 @@ cmd_version() {
     # The path travels as an environment variable, never interpolated into
     # the JS source: a quote or backslash in a path must stay a path.
     KOSMOS_PKG="$KOSMOS_HOME/app/package.json" "$NODE" -p 'JSON.parse(require("fs").readFileSync(process.env.KOSMOS_PKG,"utf8")).version'
-    # #4892: the number above is the installed app's. A copy of this command run from elsewhere (an agent's patched
-    # copy in /tmp printed the current version while lacking newer commands) is told so, on stderr, so stdout stays
-    # the version. Compared by content: an identical copy behaves the same and is not flagged.
+    # #4892: the number above is the installed app's. A copy of this
+    # command run from elsewhere (an agent's patched copy in /tmp printed
+    # the current version while lacking newer commands) is told so, on
+    # stderr, so stdout stays the version. Compared by content: an
+    # identical copy behaves the same and is not flagged.
     local installed="$KOSMOS_HOME/bin/kosmos"
     if [ -f "$installed" ] && [ -f "$SELF" ] && ! cmp -s "$SELF" "$installed"; then
-      say "This kosmos command ($SELF) is not the one installed with Kosmos ($installed), so it may lack commands this version has. Run $installed instead." >&2
+      say "This kosmos command ($SELF) is not the one installed with Kosmos ($installed), so its commands may not match this version. Run $installed instead." >&2
     fi
   else
     die "Kosmos looks incomplete here."

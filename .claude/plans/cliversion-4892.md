@@ -23,6 +23,16 @@ That an agent running a copy has KOSMOS_HOME pointing at the real install (it ne
 the command says "Kosmos looks incomplete here"). A copy with no installed command beside its home says nothing.
 
 ## Tests
-cli.version-4892.test.js runs the real script against a throwaway Kosmos home: the installed command prints only
+cli.version-4892.test.js (4) runs the real script against a throwaway Kosmos home: the installed command prints only
 the version; an identical copy elsewhere is not flagged; a patched copy warns on stderr naming the installed command
 while stdout stays the version. Mutation (comparison disabled) reds it.
+
+## Review rounds
+- Round 1 (opus): W (no test through a symlink, how every install runs it): ADDED a test through a two-link chain
+  (absolute, then relative). Its feared failure cannot happen through this check, measured: with the script's link
+  resolution disabled the test stays green, because cmp reads through links and compares the same bytes. So the test
+  pins the real-world behaviour (no warning via ~/.local/bin), not the resolution. FIXED NITs: the warning says the
+  copy's commands "may not match this version" (a dev checkout can be newer); the identical-copy test checks the
+  exit code; the new comment wraps at the file's width. Left NIT: a missing cmp would warn falsely (macOS always has
+  /usr/bin/cmp; this file is Mac only).
+

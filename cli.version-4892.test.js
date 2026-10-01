@@ -38,8 +38,20 @@ test('#4892: an identical copy elsewhere behaves the same and is not flagged', (
   const copy = path.join(SB, 'same-kosmos');
   fs.copyFileSync(INSTALLED, copy);
   const r = run(copy);
+  assert.equal(r.code, 0, r.err);
   assert.equal(r.out, '9.9.9\n');
   assert.equal(r.err, '');
+});
+
+test('#4892: run through a chain of links to the installed command (as ~/.local/bin/kosmos is), it is not flagged', () => {
+  const bin = path.join(SB, 'link-bin');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.symlinkSync(INSTALLED, path.join(bin, 'kosmos-abs'));        // absolute target
+  fs.symlinkSync('kosmos-abs', path.join(bin, 'kosmos'));          // relative target, second link in the chain
+  const r = run(path.join(bin, 'kosmos'));
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.out, '9.9.9\n');
+  assert.equal(r.err, '', 'the installed command, reached through links, was flagged as a copy');
 });
 
 test('#4892: a patched copy elsewhere says it is not the installed one, on stderr, and stdout stays the version', () => {
