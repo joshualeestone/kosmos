@@ -241,6 +241,13 @@ test('a healthy week brings one "still watching" line on the card, and no pane m
   assert.equal(st.pane(), '', 'the weekly line went to a pane');
 }));
 
+test('the weekly "still watching" line is not posted on a run with a first sighting still to confirm', () => withSite(async ({ site, base, dir, st }) => {
+  assert.equal((await run(base, dir, st, { now: T0 })).code, 0);
+  site.files.set('kosmos-1.0.0-win-x64.zip.sha256', ['text/plain', '0'.repeat(64) + '  x\n']);
+  assert.equal((await run(base, dir, st, { now: T0 + 7 * 24 * 3600 })).code, 2);
+  assert.doesNotMatch(st.card(), /still watching/, 'still watching on a run that could not tell');
+}));
+
 test('--check prints the verdict and posts nothing; --plist runs every 15 minutes under its own label', () => withSite(async ({ site, base, dir, st }) => {
   site.files.delete('kosmos-win-x64.zip');
   const r = await run(base, dir, st, { now: T0, args: ['--check'] });
