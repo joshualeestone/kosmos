@@ -129,6 +129,9 @@ function chk(ok, label, extra) {
               const body = Buffer.concat([Buffer.from('RIFF'), Buffer.from([16, 0, 0, 0]), Buffer.from('WEBPVP8 '), Buffer.alloc(8)]);
               return r.fulfill({ status: 200, contentType: 'image/webp', body });
             }
+            /* Both ways a read can come to nothing: the route's own 404 in chromium, a read that never answers
+               (the catch branch) in webkit. Either way the member gets the generated mark (review 1). */
+            if (engineName === 'webkit') return r.abort('failed');
             return r.fulfill({ status: 404, json: { error: 'the Content Writer of the Marketing Team has no portrait yet' } });
           });
           await page.route('**/avatars/**', (r) => { staticAsks.push(r.request().url()); return r.fulfill({ status: 404, body: 'no' }); });

@@ -48169,7 +48169,9 @@ async function tcPortrait(name, image, shown, team, slot) {
       try {
         const img = await fetch('/api/catalogue/portrait?team=' + encodeURIComponent(team) + '&slot=' + encodeURIComponent(slot), { cache: 'no-store' });
         if (img.ok) blob = await img.blob();
-      } catch { blob = null; }
+        // 404 is "no portrait yet" (the route's own answer); anything else is a fault worth a line (review 1).
+        else if (img.status !== 404) console.warn('[team] portrait for ' + slot + ' not read: status ' + img.status);
+      } catch (err) { blob = null; console.warn('[team] portrait for ' + slot + ' not read: ' + ((err && err.message) || err)); }
     }
     if (!blob) {
       const seed = String(shown || name || '').trim();

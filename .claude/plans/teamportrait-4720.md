@@ -26,3 +26,11 @@ the catalogue's own key and member slot).
 ## Tests
 render-teamcreate-4557 (chromium + webkit): the lead's portrait is read by team/slot and set as image/webp; the
 writer's (404) and the third member (none) get the generated mark (png); the page never reads /avatars/...
+
+## Review 1 (sonnet, blind): 0 blockers, 2 warnings, 2 nits
+- Taken: a non-404 failure or a thrown read logs one console line (404 stays quiet: "no portrait yet").
+- Taken: the writer's read aborts in webkit (the catch branch) and 404s in chromium; both must give the mark.
+- Not changed (reasoned, not measured): the route's crossSiteRead through the relay. The same guard already fronts
+  other GET routes a phone uses through Kosmos+ (the roles picker's catalogue read), so a relay host it refused would
+  already break those.
+- The ceiling claim was measured: web.api-routes-3957 29/29 with UNREAD_CEILING 19.
