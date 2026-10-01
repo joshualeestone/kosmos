@@ -42893,7 +42893,7 @@ paintStyles(true);
    it asked, never by anything that identifies it; the time keeps ticking
    while shown; the two buttons keep their colours whatever the history,
    because swapping the gold one on a re-ask is itself a mis-tap hazard. */
-const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, said: '', saidAt: 0 };
+const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, said: '', saidAt: 0, removing: null };
 /* #3829: "Not now" is gone (a waiting request stays on screen until Allow or Deny; an old one fades). A
    session flag an older build left behind must not keep hiding the card, so it is cleared, never read. */
 try { sessionStorage.removeItem('ask-later'); } catch { /* no storage: nothing to clear */ }
@@ -43138,7 +43138,7 @@ async function paintDevices() {
       (d.last_seen ? ' &middot; last used ' + askEsc(askAgo(d.last_seen)) : ' &middot; not used yet');
     const confirming = ASK.confirm === d.device_id;
     out.push('<div class="devrow"><div class="devbody"><div class="devname">' + askEsc(name) + '</div><div class="devmeta">' + meta + '</div></div>' +
-      '<div class="acts"><button class="btn" type="button" data-dev="remove" data-id="' + askEsc(d.device_id) + '"' + (confirming ? ' disabled' : '') + '>Remove</button></div>' +
+      '<div class="acts"><button class="btn" type="button" data-dev="remove" data-id="' + askEsc(d.device_id) + '"' + (confirming || ASK.removing ? ' disabled' : '') + '>' + (ASK.removing === d.device_id ? 'Removing' : 'Remove') + '</button></div>' +
       (confirming ? '<div class="confirm">Remove this ' + askEsc(name) + '? It stops right away. It can ask again by signing in.' +
         '<div class="acts"><button class="btn" type="button" data-dev="removeyes" data-id="' + askEsc(d.device_id) + '">Remove</button>' +
         '<button class="btn" type="button" data-dev="keep">Keep</button></div></div>' : '') + '</div>');
@@ -43182,10 +43182,10 @@ function removedWords(said) {
   // A connector from before kosmos#4803 answers neither field: it never tries to reach the other computers or to
   // end the old sign-in here, so that is said as how it works, not as something that failed.
   if (!('signed_out' in s) && !('local_cutoff' in s)) {
-    return here + ' It still opens your other computers until you remove it there too, and if you let it in again here, its old sign-in comes back with it.';
+    return here + ' If you let it in on your other computers too, it still opens them until you remove it there, and if you let it in again here, its old sign-in comes back with it.';
   }
   const out = [here + (s.signed_out === true
-    ? ' Its sign-in on your other computers ends too.'
+    ? ' Its current sign-in on your other computers ends too; it stays allowed there until you remove it there.'
     : ' Kosmos+ could not confirm it, so it may still open your other computers until you remove it there too.')];
   if (s.local_cutoff !== true) out.push('This computer could not record the end of its current sign-in, so if you let it in again, that old sign-in could come back.');
   return out.join(' ');
@@ -43199,14 +43199,21 @@ document.getElementById('plus-devlist').addEventListener('click', async (e) => {
   if (!b) return;
   const act = b.getAttribute('data-dev'); const id = b.getAttribute('data-id');
   const msg = document.getElementById('plus-devmsg');
-  if (act === 'remove') { ASK.confirm = id; ASK.said = ''; paintDevices(); return; }
+  if (act === 'remove') { if (ASK.removing) return; ASK.confirm = id; ASK.said = ''; paintDevices(); return; }
   if (act === 'keep') { ASK.confirm = null; ASK.said = ''; paintDevices(); return; }
   if (act === 'removeyes') {
+    /* #4824: telling Kosmos+ can take the connector up to 10 s, so the row says Removing and no second Remove
+       can start (its "not on this computer's list" answer would replace this one's). */
+    if (ASK.removing) return;
     ASK.confirm = null;
+    ASK.removing = id;
+    paintDevices();
     let res = null;
-    try { res = await fetch('/api/remote/devices/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device_id: id }) }); } catch { res = null; }
-    if (!res || !res.ok) { const said = res ? await res.json().catch(() => null) : null; ASK.said = plusWords((said && said.error) || 'we could not remove that'); }
-    else ASK.said = removedWords(await res.json().catch(() => null));
+    try {
+      try { res = await fetch('/api/remote/devices/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device_id: id }) }); } catch { res = null; }
+      if (!res || !res.ok) { const said = res ? await res.json().catch(() => null) : null; ASK.said = plusWords((said && said.error) || 'we could not remove that'); }
+      else ASK.said = removedWords(await res.json().catch(() => null));
+    } finally { ASK.removing = null; }
     ASK.saidAt = Date.now();
     msg.textContent = ASK.said;
     paintDevices();

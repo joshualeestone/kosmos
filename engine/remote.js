@@ -1430,8 +1430,8 @@ async function deviceDeny(id) {
     and answers `signed_out` and `local_cutoff` for the page to say what did not happen.
     A connector from before kosmos#4803 refuses the flag before doing anything (clap: "unexpected
     argument '--coordinator'", exit 2, measured on that build), so it is asked again without it: the
-    removal here works as it always did, and the answer has no `signed_out`, which the page reads as
-    "Kosmos+ was not told". */
+    removal here works as it always did, and the answer has neither `signed_out` nor `local_cutoff`, which the
+    page (removedWords) says as how an older connector works. */
 async function deviceRemove(id) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;

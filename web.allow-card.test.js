@@ -125,12 +125,12 @@ test('#4824: removedWords says the other computers are reached only when the con
   const src = JS.slice(JS.indexOf('function removedWords('), JS.indexOf("document.getElementById('plus-devlist').addEventListener"));
   assert.ok(src.length > 100, 'removedWords moved; re-anchor');
   const removedWords = new Function(src + '; return removedWords;')();
-  assert.match(removedWords({ removed: true, signed_out: true, local_cutoff: true }), /^Removed\. Its sign-in on your other computers ends too\.$/);
-  assert.match(removedWords({ removed: false, signed_out: true, local_cutoff: true }), /^It was not on this computer's list\. Its sign-in on your other computers ends too\.$/);
+  assert.equal(removedWords({ removed: true, signed_out: true, local_cutoff: true }), 'Removed. Its current sign-in on your other computers ends too; it stays allowed there until you remove it there.');
+  assert.match(removedWords({ removed: false, signed_out: true, local_cutoff: true }), /^It was not on this computer's list\. Its current sign-in on your other computers ends too;/);
   // An older connector: neither field. Said as how it works, not as a failure.
-  assert.equal(removedWords({ removed: true }), 'Removed here. It still opens your other computers until you remove it there too, and if you let it in again here, its old sign-in comes back with it.');
+  assert.equal(removedWords({ removed: true }), 'Removed here. If you let it in on your other computers too, it still opens them until you remove it there, and if you let it in again here, its old sign-in comes back with it.');
   assert.doesNotMatch(removedWords({ removed: true }), /could not/);
-  // An old connector answers no signed_out; an unreachable Kosmos+ answers false: both are "not told".
+  // An unreachable Kosmos+ answers false, and a new connector that left the field out is read the same way.
   for (const said of [{ removed: true, signed_out: false, local_cutoff: true }, { removed: true, local_cutoff: true }]) {
     assert.match(removedWords(said), /^Removed here\. Kosmos\+ could not confirm it/, JSON.stringify(said));
   }
@@ -146,8 +146,14 @@ test('#4824: what a Remove said stays through every repaint until the next Remov
   assert.match(JS, /if \(msg\.textContent !== ASK\.said\) msg\.textContent = ASK\.said;/);
   assert.match(JS, /if \(ASK\.said && Date\.now\(\) - ASK\.saidAt > REMOVE_SAID_MS\) ASK\.said = '';/);
   assert.match(JS, /ASK\.saidAt = Date\.now\(\);/);
+  // #4824: one Remove at a time; the row says Removing while the connector is still telling Kosmos+.
+  const handler = JS.slice(JS.indexOf("if (act === 'removeyes')"));
+  assert.match(handler, /if \(ASK\.removing\) return;\s*ASK\.confirm = null;\s*ASK\.removing = id;\s*paintDevices\(\);/);
+  assert.match(handler, /finally \{ ASK\.removing = null; \}/);
+  assert.match(JS, /if \(act === 'remove'\) \{ if \(ASK\.removing\) return;/);
+  assert.match(JS, /confirming \|\| ASK\.removing \? ' disabled' : ''/);
   assert.doesNotMatch(JS.slice(JS.indexOf('async function paintDevices'), JS.indexOf('function removedWords')), /msg\.textContent = '';/, 'a repaint clears the line again');
-  assert.match(JS, /if \(act === 'remove'\) \{ ASK\.confirm = id; ASK\.said = '';/);
+  assert.match(JS, /if \(act === 'remove'\) \{ if \(ASK\.removing\) return; ASK\.confirm = id; ASK\.said = '';/);
   assert.match(JS, /if \(act === 'keep'\) \{ ASK\.confirm = null; ASK\.said = '';/);
   assert.match(JS.slice(JS.indexOf("if (act === 'removeyes')")), /ASK\.said = removedWords\(/);
 });
