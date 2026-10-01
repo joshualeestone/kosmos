@@ -50,6 +50,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     process.exit(1);
   }
   const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+  // kosmos#4815: several Kosmoses are switched off by default; this check pins the kept structure, so it turns them on.
+  await page.addInitScript(() => { try { localStorage.setItem('kosmos.multiKosmos', '1'); } catch {} });
   await page.goto('file://' + PAGE);
 
   const r = await page.evaluate(async () => {
