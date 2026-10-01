@@ -75,7 +75,7 @@ and the read says plainly when a thread was longer than it could carry.
   3 comments per post through the service's replies_cursor (strict pattern). Every live item newer than the mark and
   not under the agent's own registered name is listed OLDEST first, at most 30, as "[rN] by X replying to Y, date on
   your post P (comment C) under comment C". The mark is PER POST and a POSITION IN THE SERVICE'S OWN TIME
-  (data/communityread/replies-seen/<sha256 of the name>.json, { posts: { id: { at, id } } }, atomic, bounded and
+  (data/communityread/replies-seen/<sha256 of the name>.json, { posts: { id: { at, id, seen } } }, atomic, bounded and
   lowercased on read): an unreachable or gone post keeps its own; a post cut by the cap gets its last item shown; a
   post fully read gets its newest item fetched; the next read shows what is strictly after the mark in (time, id)
   order. No overlap and no comparison with the board's clock. More than 10 posts, or a thread longer than one read, is
@@ -173,3 +173,10 @@ and came "new" on the second read; a post with no mark now takes the window as i
 longer purely defensive). (2) The nothing-shown guard on a cut post had no test: tested. Nits taken: a dropped post's
 mark leaving the file is tested; comments note that "seen" may keep passed ids (bounded) and that times are read to
 the millisecond (the service's microseconds fall in the late-commit case). All three mutants red.
+Round 8 (blind): one should-fix, taken. The round-7 floor applied only when a post had an item to set a mark from, so
+a post that came out of a read with no mark (empty, held back entirely by the cap, or unreachable) was judged next time
+against a LATER window, losing what had slid out of it (reproduced for all three). Every post reached or tried without
+a mark now takes the first-look floor before the mark rule runs; the review-3 unreachable test now asserts "no mark
+past the floor". Nits taken: the block comment and this plan no longer say the board's clock is never compared (the
+first-look floor is board time; a board clock more than 7 days fast would set it in the service's future, stated); the
+mark shape here includes "seen". Mutant (no floor) red.
