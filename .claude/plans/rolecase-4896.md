@@ -64,3 +64,11 @@ stored role lower case on GET /api/projects; the option must read "taskmate · P
 - NIT: the "option carries a role" precondition matches any " · "; the final "· Project Manager$" check still holds.
 - NIT: `require('./roles')` sits inside the member map (cached, cheap).
 - Also measured by the reviewer: server.project-overview-4581.test.js 9/9 with the added field.
+
+### Full suite (convergence run, 17:57 CDT): 13578 passed, 1 failed, fixed
+- The one failure was fixture-discipline.test.js "no test builds an agent card or a roster row by hand": my new
+  projectview test built member rows with `sessionName` literals. Rewritten to use the fixture's three described
+  members, changing only their roles; the acronym case moved into the roleTitle unit test. fixture-discipline and
+  projectview: 41/41. The PR's CI runs the whole suite again before the merge.
+- Browser check render-tasks.js (the picker): PASS on 5f8c58892 (its #4896 asserts sit on the straight-line path,
+  so a pass means each held).
