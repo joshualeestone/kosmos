@@ -12,9 +12,9 @@ hold, tap and dialog mics, so it merges after it.
   `voiceBridge` returns the Mac bridge first, then the phone shim. So every mic (composers, dialogs, hold, tap) works on
   a phone unchanged, except that on a phone the mic is a TAP started from its click (a user activation; a touch press
   is not one, and a held finger opens the long-press menu), so hold-to-talk is a computer feature.
-- On a phone a bar of its own at the foot of the screen says who hears the audio, from the tap (before any audio
+- On a phone a bar of its own at the top of the visible screen says who hears the audio, from the tap (before any audio
   can be sent) until listening ends; the box's message lines are left to the rest of the page. It says ("Apple" on any iPhone or iPad browser, all Safari's engine;
-  "Google" on Android Chrome only; another Android browser gets no mic rather than a guess) and "Tap the
+  "Google" on Android Chrome only, by its user agent AND its "Google Chrome" brand, so a rebranded Chromium fails closed; another Android browser gets no mic rather than a guess) and "Tap the
   mic to stop" (no Escape); a refused microphone or speech recognition points at the phone's settings.
 - Read aloud: already drawn wherever the page can speak (speechSynthesis), phones included; the check now proves it.
 
@@ -70,5 +70,14 @@ pinning that the recognizer is reached only in the phone shim and the Mac bridge
   itself (P2a reads it in the click's own task). FIXED W: Brave on Android sends Chrome's exact user agent and was
   named Google; navigator.brave now excludes it, and DuckDuckGo and Vivaldi by name (P1b's Brave control; removing
   the guard reds it). NITs taken: the EU's other iOS engines are named in the comment; a session that ends by itself
-  is pinned (P7).
+  is pinned (P7).- Round 4 (sonnet): FIXED W: the bar sat at the foot of the screen, where the composer, the mic and an on-screen
+  keyboard are; it is now at the top of the visible screen (the visual viewport's top, which iOS pans with the
+  keyboard). P2a asserts it is in the top half and clear of the mic; the old placement reds it (and "clear of the
+  mic" alone did not, because this file:// page cannot lay the composer at the foot: found by mutating, noted in the
+  check). FIXED W: the status region was created and filled in one task, then toggled through display:none, which
+  screen readers often do not announce; it is now made once at load, empty and invisible but in the tree, and only
+  its text changes. NOT MEASURED: a real screen reader announcing it. FIXED W: "Google" was a denylist over Chrome's
+  user agent; it now also requires the "Google Chrome" brand, failing closed (P1b's rebranded-Chromium control).
+  FIXED W: a recognizer constructor that throws (P9) and an error with no onend after it (P8) both left the mic and
+  the bar stuck; both now end the session. NIT taken: a comment on the bar clearing during a switch between mics.
 
