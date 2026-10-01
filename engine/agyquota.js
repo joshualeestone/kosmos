@@ -38,12 +38,104 @@ const LAST = Symbol('lastNudgeAt');
 function pausedUntil(report) {
   return status.quotaResetOf(report);
 }
+/* #4588 PR B: Antigravity sign-in is machine-wide, so every antigravity agent here draws on one Google account's quota.
+   A reset more than MAX_POOL_MS ahead is not believed: Google's longest window is a week. */
+const MAX_POOL_MS = 8 * 24 * 3600 * 1000;
+/* Each antigravity agent's last-seen reset, by session. A card stops carrying quotaUntil once its reset passes, and can
+   stop showing its pause before then (its screen changed), while the pool is still empty; so the board remembers.
+   A card that shows a new reset corrects only its own entry; an entry is dropped 2 * MAX_AGE_MS after its reset.
+   `seen` is when each pause was first seen. Nothing
+   releases it early: a card reading working is no proof the pool refilled (a resumed agent, an in-flight turn), so a
+   hold lasts to its recorded reset, bounded by MAX_POOL_MS.
+   In memory only: a board restart forgets it, and the release after that one reset is then lost. */
+const POOL_MEMO = { bySession: new Map(), seen: new Map() };
+function newPoolMemo() { return { bySession: new Map(), seen: new Map() }; }
+/* One release step: the resume timer's period (60 s) or its stagger, whichever is longer. */
+const SLOT_MS = Math.max(STAGGER_MS, 60 * 1000);
+/* Our antigravity panes: a pane on this machine that is not ours (isNamedOurs false) is not in our pool or order. */
+const isOurAgy = (c) => Boolean(c && c.runner === 'antigravity' && c.isNamedOurs !== false);
+function agyNames(roster) {
+  return (Array.isArray(roster) ? roster : []).filter((c) => isOurAgy(c) && c.sessionName)
+    .map((c) => String(c.sessionName)).sort();
+}
+/* After the pool's reset R, agent i (by session name) is released at R + GRACE_MS + (i + 1) * SLOT_MS: one agent per step,
+   so the held timers do not all fire in the minute the pool refills. This does not wait on the resume sweep below; the
+   two may reach different agents in the same minute, into a pool that has refilled (decided, review 5). */
+function releaseAfterMs(card, roster) {
+  const names = agyNames(roster);
+  const i = names.indexOf(String(card.sessionName));
+  return GRACE_MS + SLOT_MS * ((i === -1 ? names.length : i) + 1);
+}
+/* Records what the cards show now and returns the pool's reset (the latest remembered), or null when none is pending. */
+function notePool(roster, now, memo = POOL_MEMO) {
+  const cards = Array.isArray(roster) ? roster : [];
+  const cap = now + MAX_POOL_MS;
+  for (const c of cards) {
+    if (!isOurAgy(c) || !c.sessionName || typeof c.quotaUntil !== 'string') continue;
+    const at = Date.parse(c.quotaUntil);
+    if (Number.isFinite(at) && at > now && at <= cap) {
+      const k = String(c.sessionName);
+      const prev = memo.bySession.get(k);
+      // When this pause was first seen: a correction of a reset still ahead keeps it; a new pause after the old reset,
+      // or the first one, starts it now.
+      if (prev === undefined || prev <= now || !memo.seen.has(k)) memo.seen.set(k, now);
+      memo.bySession.set(k, at);
+    }
+  }
+  // Kept past every release (MAX_AGE_MS covers any sane number of agents at one SLOT_MS each) and through the resume's
+  // six hours (see heldBackBy); a constant, so the horizon does not depend on which caller's roster prunes.
+  const keep = 2 * MAX_AGE_MS;
+  let reset = null;
+  for (const [k, at] of memo.bySession) {
+    if (now >= at + keep) { memo.bySession.delete(k); memo.seen.delete(k); continue; }
+    if (reset === null || at > reset) reset = at;
+  }
+  return reset;
+}
+/* The quota-hold brake (#4588 PR B reviews 4 and 5): AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF=1. One rule, read by heldForQuota
+   and by the resume sweep's pool gate (sweepOnce), so the two cannot drift. Only "1" is the brake. */
+function quotaHoldOff(env) {
+  return Boolean(env && env.AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF === '1');
+}
+/* When an automatic line to `session` may be typed, in epoch ms, or null for now. Only an antigravity card is held: while
+   the pool is paused, then until its own step after the reset (releaseAfterMs). The card is found by chat's own rule
+   (resolveCard), so the gate and the delivery always mean the same card.
+   Brake (quotaHoldOff): holds nothing, for every heldForQuota caller at once (deliverAutomatic(Async) and every timer
+   and room post sent through it, the assigner, the recommender, and server.js's own checks), AND lifts the resume
+   sweep's pool gate (sweepOnce), so PR A's per-agent resume timing is back. A misread reset up to MAX_POOL_MS ahead
+   would otherwise hold them all with no way out but the wait; the card still shows the pause either way. It restores
+   only resumes still inside their own six hours (heldBackBy is not applied under it), not ones that already aged out. */
+function heldForQuota(session, roster, now, memo = POOL_MEMO, env = process.env) {
+  if (quotaHoldOff(env)) return null;
+  let card = null;
+  try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
+  if (!isOurAgy(card)) return null;
+  const reset = notePool(roster, now, memo);
+  if (reset === null) return null;
+  if (now < reset) return reset;
+  const releaseAt = reset + releaseAfterMs(card, roster);
+  return now < releaseAt ? releaseAt : null;
+}
+
 /* The card states a nudge may be typed over: never a question (a typed line could answer it), work, or a lost
    connection, which the board's screen reading ranks above the quota report (review 3). */
 const NUDGE_OVER = Object.freeze(['idle', 'unknown', 'rate_limited']);
 
+/* The pool reset that held back an agent whose own reset was `own`: the latest remembered one after it whose pause was
+   first seen while the agent's own six hours were still open. A pause that began after that window had closed did not
+   hold this agent back, so it does not reopen a stop PR A leaves alone. Null when none. */
+function heldBackBy(own, memo = POOL_MEMO) {
+  if (!Number.isFinite(own)) return null;
+  let until = null;
+  for (const [k, at] of memo.bySession) {
+    const seen = memo.seen.get(k);
+    if (at > own && Number.isFinite(seen) && seen <= own + MAX_AGE_MS && (until === null || at > until)) until = at;
+  }
+  return until;
+}
+
 /* One agent: { act: 'none' | 'wait' | 'nudge', because }. entry is its book entry for this pause, or undefined. */
-function plan(report, entry, now) {
+function plan(report, entry, now, heldBackUntil) {
   const at = pausedUntil(report);
   if (at === null) return { act: 'none', because: 'not paused on the quota' };
   if (entry && entry.until === report.until) {
@@ -56,13 +148,17 @@ function plan(report, entry, now) {
     }
   }
   if (now < at + GRACE_MS) return { act: 'wait', because: 'its quota resets at ' + new Date(at).toISOString() };
-  if (now > at + MAX_AGE_MS) return { act: 'none', because: 'its quota reset more than six hours ago; left alone' };
+  /* #4588 PR B: an agent held back by a later reset elsewhere in the pool (heldBackUntil, see heldBackBy) counts its six
+     hours from that reset, so it is still resumed once the pool opens. */
+  const since = Number.isFinite(heldBackUntil) && heldBackUntil > at ? heldBackUntil : at;
+  if (now > since + MAX_AGE_MS) return { act: 'none', because: 'its quota reset more than six hours ago; left alone' };
   return { act: 'nudge', because: 'its quota reset at ' + new Date(at).toISOString() };
 }
 
 /*
- * One sweep. o = { roster, book (Map), now, readReport (session) => selfreport.read shape, deliver (session, text,
- * roster) => result, DELIVERY, log }. Nudges at most one agent. Returns { results }. Never throws.
+ * One sweep. o = { roster, book (Map), now, memo (the pool memory; POOL_MEMO by default), env (process.env by default),
+ * readReport (session) => selfreport.read shape, deliver (session, text, roster) => result, DELIVERY, log }. Nudges at
+ * most one agent. Returns { results }. Never throws.
  */
 function sweepOnce(o) {
   const results = [];
@@ -72,6 +168,15 @@ function sweepOnce(o) {
     const now = Number.isFinite(o.now) ? o.now : Date.now();
     const read = typeof o.readReport === 'function' ? o.readReport : (s) => require('./selfreport').read(s);
     const log = typeof o.log === 'function' ? o.log : null;
+    /* #4588 PR B: one pool. While any antigravity card is still inside its pause, a resume into another one would spend
+       a turn against the same empty pool, so nobody is resumed until the latest reset has passed. */
+    /* Under the quota-hold brake (quotaHoldOff) the pool gate is lifted: each agent is resumed on its own reset, PR A's
+       timing, so a misread pool reset cannot stop every resume (review 5). The memory is still kept current. */
+    const holdOff = quotaHoldOff(o.env === undefined ? process.env : o.env);
+    const poolReset = notePool(o.roster, now, o.memo || POOL_MEMO);
+    if (!holdOff && poolReset !== null && now < poolReset) return { results, skipped: 'the shared pool is still paused' };
+    // An agent whose own reset came earlier still waits the grace after the POOL refills.
+    if (!holdOff && poolReset !== null && now < poolReset + GRACE_MS) return { results, skipped: 'the shared pool has just refilled' };
     const last = book.get(LAST);
     if (Number.isFinite(last) && now - last < STAGGER_MS) return { results, skipped: 'spacing resumes out' };
     const due = [];
@@ -82,7 +187,7 @@ function sweepOnce(o) {
       let report = null;
       try { report = read(session); } catch { report = null; }
       const entry = book.get(session);
-      const p = plan(report, entry, now);
+      const p = plan(report, entry, now, holdOff ? null : heldBackBy(pausedUntil(report), o.memo || POOL_MEMO));
       if (p.act === 'nudge') due.push({ card, session, report, entry, because: p.because, at: pausedUntil(report) });
     }
     if (!due.length) return { results };
@@ -112,16 +217,16 @@ function resumeEnabled(allowed, env) {
   return allowed === true && (env || process.env).AGENT_WORKFORCE_AGY_QUOTA_RESUME_OFF !== '1';
 }
 
-/* The server's per-tick wrapper. deps = { allowed, env, roster, readReport?, deliver, DELIVERY, log, book, now? }. */
+/* The server's per-tick wrapper. deps = { allowed, env (process.env by default; also reaches the pool gate), roster, readReport?, deliver, DELIVERY, log, book, now? }. */
 function makeTick(deps) {
   return function tick() {
     try {
       if (!resumeEnabled(deps.allowed() === true, deps.env)) return null;
       const roster = deps.roster();
       if (!Array.isArray(roster)) return null;
-      return sweepOnce({ roster, book: deps.book, now: deps.now ? deps.now() : Date.now(), readReport: deps.readReport, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log });
+      return sweepOnce({ roster, book: deps.book, now: deps.now ? deps.now() : Date.now(), env: deps.env || process.env, readReport: deps.readReport, deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log });
     } catch { return null; }
   };
 }
 
-module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, plan, sweepOnce, resumeEnabled, makeTick };
+module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, notePool, heldBackBy, releaseAfterMs, SLOT_MS, heldForQuota, quotaHoldOff, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };

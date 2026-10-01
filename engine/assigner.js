@@ -194,7 +194,8 @@ function askText(item) {
 }
 
 /**
- * One Assigner step. Pure.
+ * One Assigner step. Pure apart from one read: #4588 PR B asks agyquota.heldForQuota, which also records the
+ * Antigravity quota pool's reset in that module's memory (POOL_MEMO).
  * @param {object} o
  * @param {{idleSince: Map, log: Array}|undefined} o.prev  memory from the last step
  * @param {Array|null} o.roster  the board roster (safeRoster); null = read failure
@@ -229,6 +230,11 @@ function step({ prev, roster, setting, records, commitments, goals, now }) {
     const since = base.idleSince.has(session) ? base.idleSince.get(session) : now;
     idleSince.set(session, since);
     if (now - since < IDLE_MS) continue;
+    /* #4588 PR B: an agent held on its machine's shared Google quota is neither given a part nor asked. Skipped here,
+       after its idle clock is kept, so no part is reserved for it that an unheld colleague could have had. */
+    let held = null;
+    try { held = require('./agyquota').heldForQuota(session, roster, now); } catch { held = null; }
+    if (held !== null) continue;
     const choice = pick(session, projects, taken);
     if (choice) {
       // The assignment caps gate assignments only; the ask below has its own.
@@ -281,8 +287,19 @@ function runOnce({ prev, roster, setting, records, commitments, goals, now, give
   const asks = [];
   for (const item of out.toAsk) {
     let state = null;
+    let held = false;
     if (typeof ask === 'function') {
-      try { const v = ask(item.session, askText(item)); state = (v && v.state) || null; } catch { state = null; }
+      try { const v = ask(item.session, askText(item)); state = (v && v.state) || null; held = Boolean(v && v.held === true); } catch { state = null; }
+    }
+    if (held) {
+      /* #4588 PR B: held on the shared Google quota, nothing typed. A backstop: step() already skips a held agent, so this
+         runs only if the hold starts between step() and the ask. Not a failure: the charge comes back off the hour and the
+         ask is due again after ASK_RETRY_MS, with no failure counted toward the day-long wait. */
+      const i = out.next.askLog.findIndex((e) => e.at === now && e.session === item.session && e.projectId === item.projectId);
+      if (i !== -1) out.next.askLog.splice(i, 1);
+      out.next.asked.set(item.projectId, now - GOAL_ASK_MS + ASK_RETRY_MS);
+      asks.push({ session: item.session, name: item.name, projectId: item.projectId, verdict: 'held' });
+      continue;
     }
     const landed = state !== null && state !== (DELIVERY || chat.DELIVERY).COULD_NOT;
     if (landed) {

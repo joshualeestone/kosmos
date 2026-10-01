@@ -445,6 +445,13 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     const v = tasks.partValve();
     if (v.refused) return { ok: false, status: 429, because: v.because, retryAfterSecs: v.retryAfterSecs };
   }
+  /* #4588 PR B: the assigner does not give a part to an agent held on its machine's shared Google quota. Refused here,
+     before the part is assigned, so a held agent is not given work and taken off it again every tick. */
+  if (assigner) {
+    let heldUntil = null;
+    try { heldUntil = require('./engine/agyquota').heldForQuota(who, roster || safeRoster(), Date.now()); } catch { heldUntil = null; }
+    if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " is held until " + new Date(heldUntil).toISOString() + ": its Google account's shared quota is out" };
+  }
   const made = assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
   const out = tasks.assignPart(projectId, n, partId, who, made);
   if (!out.ok) return { ok: false, status: 400, because: out.because };
@@ -1054,7 +1061,7 @@ const RETELL_RECENT = [];
    writes the verdict and types the "listed" line for each project it newly wrote. It calls
    `projects.syncAgent` and `projects.speakOfMembership` through the module, never a local
    binding, so the tests that stub them reach both callers. */
-function retellMember(name, id, roster) {
+function retellMember(name, id, roster, { automatic = false } = {}) {
   let told;
   try {
     told = projects.syncAgent(name, roster);
@@ -1085,7 +1092,7 @@ function retellMember(name, id, roster) {
     try { proj = pid === id ? retold : projects.get(pid, roster); } catch { proj = null; }
     const on = !!(proj && (proj.agents || []).some((a) => a && (a.sessionName || a) === name));
     if (!on) continue;
-    const one = projects.speakOfMembership(name, proj, 'listed', roster);
+    const one = projects.speakOfMembership(name, proj, 'listed', roster, { automatic });
     if (pid === id) said = one; else alsoSaid[pid] = one;
   }
   return { project: retold, told, said, alsoSaid };
@@ -1122,10 +1129,15 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
         const card = projects.ourCard(name, board());
         if (!card) return false;
         if (card.state === STATE.STOPPED) return true;
+        /* #4588 PR B: a running agent held on its machine's shared Google quota is not ready: not spent, looked at again
+           next sweep, so neither its instructions write nor the one retell per change is used up during the pause. */
+        let held = null;
+        try { held = require('./engine/agyquota').heldForQuota(card.sessionName, board(), now); } catch { held = null; }
+        if (held !== null) return false;
         const st = projects.toldOverride(instructions.staleness(name, undefined, card.session), name, all);
         return !!(st && st.state === instructions.STALENESS.CURRENT);
       },
-      retell: (name, id) => retellMember(name, id, board()),
+      retell: (name, id) => retellMember(name, id, board(), { automatic: true }),
       log: (r) => process.stdout.write(`autoretell: ${r.name} on ${r.id} -> ${r.state}${r.because ? ' (' + r.because + ')' : ''}\n`),
     });
   } catch { return []; /* best-effort; the notice's Try again still works */ }
@@ -13187,8 +13199,10 @@ const server = http.createServer(async (req, res) => {
            hook never waits on a pane. */
         if (body.state === 'idle') {
           setImmediate(() => {
+            /* #4588 PR B: an automatic line, so it goes through the Google quota gate; a held verdict is COULD_NOT, which
+               puts the ids back for the next arrival or roomhold.flushReleased after the reset. */
             roomhold.flushOnIdle(who, {
-              deliver: chat.deliverAsync, roster, DELIVERY: chat.DELIVERY, env: process.env,
+              deliver: chat.deliverAutomaticAsync, roster, DELIVERY: chat.DELIVERY, env: process.env,
               shownOf: (id) => { const p = projects.get(id, roster); return p ? p.name : null; },
             }).then((done) => {
               for (const d of done) process.stdout.write(`room-hold: ${who} told of ${d.n} held post(s) in ${d.projectId} delivery=${d.state}\n`);
@@ -18610,6 +18624,19 @@ function start(port = PORT) {
            paneRoster-vs-snapshot confusion this file's own docblock
            warns about, one more time. */
         try { messages.sweepUnanswered(safeRoster()); } catch { /* the line still shows */ }
+        /* #4588 PR B: room posts held for an Antigravity agent while the shared Google quota was out are told once
+           its timers are released (engine/roomhold.js flushReleased), when no idle report arrives to flush them. */
+        try {
+          const r = safeRoster();
+          roomhold.flushReleased(r, {
+            isAgy: (c) => c.runner === 'antigravity' && c.isNamedOurs !== false,
+            readReport: (n) => selfreport.read(n), now: Date.now(), decayMs: require('./engine/status').REPORT_WORKING_DECAY_MS,
+            deliver: chat.deliverAutomaticAsync, DELIVERY: chat.DELIVERY, env: process.env,
+            shownOf: (id) => { const p = projects.get(id, r); return p ? p.name : null; },
+          }).then((done) => {
+            for (const d of done) process.stdout.write(`room-hold: ${d.name} told of ${d.n} held post(s) in ${d.projectId} after the quota hold, delivery=${d.state}\n`);
+          }).catch(() => { /* the posts stay held for the next minute */ });
+        } catch { /* the posts stay held for the next minute */ }
       }, 60 * 1000);
       if (sweep && typeof sweep.unref === 'function') sweep.unref();
       /* #1724: the auto-handoff sweep (the consume half). Sibling to the #185
@@ -18631,7 +18658,7 @@ function start(port = PORT) {
             roster,
             lastBand: autohandoffBands,
             deliver: (session, textToSend) => {
-              try { return chat.deliver(session, textToSend, roster, undefined, undefined); }
+              try { return chat.deliverAutomatic(session, textToSend, roster, undefined, undefined); }
               catch { return { state: chat.DELIVERY.COULD_NOT }; }
             },
             pathFor: (session) => autohandoffSweep.handoffPathFor(store, session),
@@ -18705,6 +18732,8 @@ function start(port = PORT) {
         roster: () => safeRoster(),
         book: CONNLOST_BOOK,
         probe: () => connlostHeal.probeApi(),
+        /* Plain deliver, not deliverAutomatic: it counts a try before delivering (connlost-heal.js), so a quota hold
+           would spend its budget (#4588 PR B review 2). */
         deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
         DELIVERY: chat.DELIVERY,
         log: (r) => process.stdout.write(`connlost-heal: ${r.name} (${r.session}) ${r.act}${r.act === 'nudge' ? ' delivery=' + (r.delivery || '?') : ''} - ${r.because}\n`),
@@ -18726,7 +18755,7 @@ function start(port = PORT) {
         allowed: () => liveExecution.liveExecutionAllowed(),
         roster: () => safeRoster(),
         book: FIRSTREPLY_BOOK,
-        deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+        deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
         DELIVERY: chat.DELIVERY,
         log: (r) => process.stdout.write(`firstreply-nudge: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}\n`),
       });
@@ -18740,6 +18769,7 @@ function start(port = PORT) {
       const AGY_QUOTA_BOOK = new Map();
       const agyQuotaTick = agyQuota.makeTick({
         allowed: () => liveExecution.liveExecutionAllowed(),
+        env: process.env, // both brakes: AGY_QUOTA_RESUME_OFF, and AGY_QUOTA_HOLD_OFF for the pool gate (#4588 B review 5)
         roster: () => safeRoster(),
         book: AGY_QUOTA_BOOK,
         deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
@@ -18786,7 +18816,7 @@ function start(port = PORT) {
               roleOf: (s) => profile(s).role,
               projectsOf: (s) => projects.readAll().filter((p) => p && p.archived !== true && (p.agents || []).includes(s)).map((p) => p.agents || []),
             },
-            deliver: (session, text) => chat.deliver(session, text, cards, undefined, undefined),
+            deliver: (session, text) => chat.deliverAutomatic(session, text, cards, undefined, undefined),
             DELIVERY: chat.DELIVERY,
             log: (r) => process.stdout.write(`account-notify: ${r.session} ${r.act}${r.manager ? ' manager=' + r.manager : ''}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
           });
@@ -18803,6 +18833,7 @@ function start(port = PORT) {
          safeRoster(), never paneRoster(): it needs stateReportedBy/stateProject and full cards
          for chat.deliver. Own ~1-min timer, unref'd, best-effort. */
       let recommenderPrev;
+      let recommenderHeldLogged = new Set();
       const recommenderSweep = setInterval(() => {
         if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
         try {
@@ -18812,11 +18843,23 @@ function start(port = PORT) {
           const out = recommender.runOnce({
             prev: recommenderPrev, roster, setting, members, now: Date.now(),
             roomNote: (projectId, text, opts) => messages.roomNote(projectId, text, opts),   // #4423: the note's facts too
-            deliver: (session, text) => chat.deliver(session, text, roster, undefined, undefined),
+            deliver: (session, text) => chat.deliverAutomatic(session, text, roster, undefined, undefined),
             DELIVERY: chat.DELIVERY,
+            heldUntil: (session) => agyQuota.heldForQuota(session, roster, Date.now()),
           });
           recommenderPrev = out.next;
-          for (const a of out.acted) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: ${a.retry ? 'retry' : 'note ' + (a.noteLanded ? 'written' : 'NOT written') + ', asked [' + a.asked.join(', ') + ']'}, playbook ${a.verdict || 'threw'}\n`);
+          // #4588 PR B: a held item is logged when it becomes held, not every minute it stays held; the set is this tick's.
+          const heldNow = new Set();
+          for (const a of out.acted) {
+            if (a.verdict === 'held') {
+              const heldKey = a.session + ' ' + a.project;
+              heldNow.add(heldKey);
+              if (!recommenderHeldLogged.has(heldKey)) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: held on the shared Google quota, not convened yet\n`);
+              continue;
+            }
+            process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: ${a.retry ? 'retry' : 'note ' + (a.noteLanded ? 'written' : 'NOT written') + ', asked [' + a.asked.join(', ') + ']'}, playbook ${a.verdict || 'threw'}\n`);
+          }
+          recommenderHeldLogged = heldNow;
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_RECOMMENDER_MS) : 60 * 1000); // the env is the test seam only
       if (recommenderSweep && typeof recommenderSweep.unref === 'function') recommenderSweep.unref();
@@ -18824,7 +18867,7 @@ function start(port = PORT) {
          board that reads idle, whose commitments leave it free (assigner.commitmentsFree, #4552) and that has no open part of any task,
          for engine/assigner.js's IDLE_MS, it gives the next task nobody is on in a live project the
          agent belongs to, through givePart in its assigner mode (see givePart). Phase 3: with
-         nothing to hand out, it asks the agent (chat.deliver) to draft tasks toward a project's
+         nothing to hand out, it asks the agent (chat.deliverAutomatic) to draft tasks toward a project's
          BRIEF.md goal (engine/brief.js). The tick's composition is assigner.tick, with the reads
          injected here.
          Gated on live execution like the sweeps above; own ~1-min timer, unref'd, best-effort. */
@@ -18840,7 +18883,7 @@ function start(port = PORT) {
             readCommitment: (session) => commitments.read(session),
             readGoal: (project) => brief.readGoal(project && project.folder),
             give: (projectId, n, partId, who, roster) => givePart(projectId, n, partId, who, { assigner: true, roster }),
-            ask: (session, text, roster) => chat.deliver(session, text, roster),
+            ask: (session, text, roster) => chat.deliverAutomatic(session, text, roster),
             DELIVERY: chat.DELIVERY,
           });
           assignerPrev = out.next;
@@ -19048,7 +19091,7 @@ function start(port = PORT) {
             allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
             readLimit: () => limits.read(), limitDefaults: limits.DEFAULTS,
             book: AGENT_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, now: Date.now(),
-            deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+            deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
             DELIVERY: chat.DELIVERY,
             log: (r) => process.stdout.write(`agent-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
           });
