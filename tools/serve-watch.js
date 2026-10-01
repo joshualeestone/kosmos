@@ -360,7 +360,9 @@ async function gather(prev, now) {
   for (const [url, rec] of Object.entries(prevSha)) if (!(url in sha) && (pointerFailed || namedUrls.has(url))) sha[url] = rec;
   if (blind) {
     // Nothing failed: every pass may be the catch-all answering, so could not tell. Anything failed: an alarm.
-    if (!problems.length) return { now, unknown: true, why: blind + '; the community site and the relay answer', problems: [], sha: prevSha, pending: prevPending };
+    // The hashes and first sightings made this run are kept: a real mismatch then alarms on its second sighting, and
+    // the files are not downloaded again every run while the catch-all lasts.
+    if (!problems.length) return { now, unknown: true, why: blind + '; the community site and the relay answer', problems: [], sha, pending };
     add('dist-unverifiable', 'the downloads that did pass could not be believed: ' + blind);
   }
   return { now, unknown: false, alarm: problems.length > 0, problems, artifacts: urls.size + FIXED.length, sha, pending };
@@ -370,10 +372,13 @@ async function gather(prev, now) {
 function decidePost(v, last, now) {
   /* A problem leaves a standing alarm only after it is gone two runs in a row, as an all-clear does: so a second
      problem that comes and goes beside a first is one post, not one every run. A NEW problem posts at once. */
+  /* Held only while nothing new appeared: when a new problem posts, the key is exactly what that post says, so the
+     problem it replaced is not dropped in a second post with the same words 15 minutes later. */
   const keys = v.alarm ? v.problems.map((p) => p.key) : [];
   if (v.alarm && last && typeof last.key === 'string' && last.key.startsWith('alarm:')) {
+    const lastKeys = last.key.slice('alarm:'.length).split(',').filter(Boolean);
     const prevRun = new Set(Array.isArray(v.prevRunKeys) ? v.prevRunKeys : []);
-    for (const k of last.key.slice('alarm:'.length).split(',')) if (k && !keys.includes(k) && prevRun.has(k)) keys.push(k);
+    if (keys.every((k) => lastKeys.includes(k))) for (const k of lastKeys) if (!keys.includes(k) && prevRun.has(k)) keys.push(k);
   }
   const key = v.unknown ? 'unknown' : v.alarm ? 'alarm:' + [...new Set(keys)].sort().join(',') : 'clear';
   const due = !last || now - (last.at || 0) >= REPOST_S;
@@ -561,7 +566,8 @@ async function main(argv) {
   const code = v.unknown ? 2 : v.alarm ? 1 : (v.pending && v.pending.length) ? 2 : 0;
   v.cleanRuns = code === 0 ? (Number(state && state.cleanRuns) || 0) + 1 : 0;
   v.prevRunKeys = Array.isArray(state && state.runKeys) ? state.runKeys.filter((k) => typeof k === 'string') : [];
-  const runKeys = v.problems.map((p) => p.key);
+  // An unknown run saw no problems because it could not look, so the last run's keys stand for the hold above.
+  const runKeys = v.unknown ? v.prevRunKeys : v.problems.map((p) => p.key);
   const since = state ? Number(state.unknownSince) : NaN;
   const unknownSince = v.unknown ? (Number.isFinite(since) && since > 0 && since <= now ? since : now) : null;
   if (!noState && v.unknown && now - unknownSince < UNKNOWN_GRACE_S) {

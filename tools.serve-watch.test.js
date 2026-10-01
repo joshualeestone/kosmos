@@ -383,6 +383,54 @@ test('a catch-all download site still reports a relay outage, not only "could no
   assert.match(st.card(), /the downloads that did pass could not be believed: installkosmos\.com answered 200 for a file that does not exist/);
 }));
 
+test('a catch-all site keeps this run\'s hashes and first sightings: a real mismatch alarms, nothing is downloaded every run', () => withSite(async ({ site, base, dir, st }) => {
+  site.catchAll = true;
+  const tarGets = () => site.hits.filter((h) => h === 'GET /dist/kosmos-1.0.0-arm64.tar.gz').length;
+  for (let i = 0; i < 3; i++) assert.equal((await run(base, dir, st, { now: T0 + i * 900 })).code, 2);
+  assert.equal(tarGets(), 1, 'the tarball was downloaded every run under the catch-all');
+  site.files.set('kosmos-1.0.0-win-x64.zip', ['application/zip', Buffer.from('different bytes')]);
+  assert.equal((await run(base, dir, st, { now: T0 + 2700 })).code, 2, 'CONTROL: a first sighting is not yet an alarm');
+  assert.equal((await run(base, dir, st, { now: T0 + 3600 })).code, 1, 'a real mismatch never alarmed under the catch-all');
+  assert.match(st.card(), /kosmos-1\.0\.0-win-x64\.zip \(named by [^)]*\) does not match/);
+}));
+
+test('one problem replaced by another is two posts, not a third repeating the second', () => withSite(async ({ site, base, dir, st }) => {
+  const posts = () => (st.card().match(/serve watch \(kosmos#4877\)/g) || []).length;
+  site.relayUp = false;
+  await run(base, dir, st, { now: T0 });
+  site.relayUp = true; site.feedStatus = 500;
+  await run(base, dir, st, { now: T0 + 900 });
+  await run(base, dir, st, { now: T0 + 1800 });
+  await run(base, dir, st, { now: T0 + 2700 });
+  assert.equal(posts(), 2, posts() + ' posts: ' + st.card());
+}));
+
+test('a run that could not look keeps the hold: a problem is not dropped across an offline run', () => withSite(async ({ site, base, dir, st }) => {
+  const posts = () => (st.card().match(/serve watch \(kosmos#4877\)/g) || []).length;
+  site.files.delete('kosmos-1.0.0-arm64.tar.gz'); site.relayUp = false;   // A and B
+  await run(base, dir, st, { now: T0 });
+  assert.equal(posts(), 1);
+  site.catchAll = true; site.files.set('kosmos-1.0.0-arm64.tar.gz', ['application/gzip', TAR]); site.relayUp = true;
+  assert.equal((await run(base, dir, st, { now: T0 + 900 })).code, 2, 'CONTROL: this run could not tell');
+  site.catchAll = false; site.files.delete('kosmos-1.0.0-arm64.tar.gz');   // A alone
+  await run(base, dir, st, { now: T0 + 1800 });
+  assert.equal(posts(), 1, 'B was dropped after one run without it, across a run that could not look: ' + st.card());
+}));
+
+test('with no usable state it checks once a day, in the first 15 minutes of the UTC day, and a first sighting alarms then', () => withSite(async ({ site, base, dir, st }) => {
+  fs.mkdirSync(path.join(dir, 'state.json'));   // the state path is a directory: nothing can be kept
+  site.files.set('kosmos-1.0.0-win-x64.zip.sha256', ['text/plain', '0'.repeat(64) + '  x\n']);
+  const dayStart = T0 - (T0 % 86400);
+  const out = await run(base, dir, st, { now: dayStart + 3600 });
+  assert.equal(out.code, 2, out.out + out.err);
+  assert.equal(st.card() + st.pane(), '', 'it ran outside its daily window');
+  assert.ok(!site.hits.some((h) => h.startsWith('GET /dist/latest')), 'it checked outside its daily window');
+  const r = await run(base, dir, st, { now: dayStart + 60 });
+  assert.equal(r.code, 1, r.out + r.err);
+  assert.match(st.card(), /kosmos-1\.0\.0-win-x64\.zip\.sha256 says 000000000000/);
+  assert.match(st.card(), /cannot keep its state at/);
+}));
+
 test('a catch-all download site still alarms on what fails: a pass proves nothing there, a failure does', () => withSite(async ({ site, base, dir, st }) => {
   site.catchAll = true;
   site.files.set('latest.json', ['text/html', '<html>the home page</html>']);   // the deploy also broke the pointer
