@@ -1124,6 +1124,7 @@ async function forgetNow() {
   // Off before the retire wait, not after: nothing may bring this Mac online on
   // the key being retired (the ensure tick, a stale page).
   write({ on: false }, { repair: true });
+  flipPending = false;   // kosmos#4743: a flip not yet told belonged to the identity being forgotten
   let retired = false;
   let because = null;
   if (canRetire) {
@@ -2034,7 +2035,9 @@ function turnOnAfterSignin() {
   // kosmos#4743: an off-to-on flip made by signing in makes the NEXT standing poll due at once, whatever
   // its stamp (the account page would otherwise read "Remote access off" until the next on-cadence
   // refresh). Not asked here: a signed call started inside the sign-in would hold up a Forget right
-  // after it, which waits for signed calls in flight before it switches off.
+  // after it, which waits for signed calls in flight before it switches off. (A refresh already out when
+  // this runs still re-asks when it ends, once the register has finished: the same narrow window any
+  // signed call in flight has.)
   if (!(before.ok === true && before.on === true)) flipPending = true;
 }
 
@@ -2278,7 +2281,8 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  turnOnAfterSigninForTests: turnOnAfterSignin,   // kosmos#4743: tests only (it skips setOn's busy() check)
+  turnOnAfterSigninForTests: turnOnAfterSignin,
+  standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it   // kosmos#4743: tests only (it skips setOn's busy() check)
   resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */

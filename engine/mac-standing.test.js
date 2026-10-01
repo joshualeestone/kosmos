@@ -367,10 +367,12 @@ test('#4743: switching remote access ON tells the coordinator at once too (it cl
     assert.ok(on, 'switching on, on a fresh stamp, sent no standing question');
     assert.equal(JSON.parse(on.stdin).remote.on, true);
   } finally {
-    // Switching back off is itself a flip that asks: wait for that ask, so it does not land in the next test.
-    const before = fake.calls().length;
+    // Switching back off is itself a flip that asks (or re-asks when the ON ask still out ends): wait until
+    // no refresh is out and no flip is pending, so nothing lands in the next test.
     remote.setOn(false);
-    await waitForFakeCalls(fake, before + 1, 5000).catch(() => {});
+    for (const t0 = Date.now(); !remote.standingQuietForTests() && Date.now() - t0 < 5000;) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
     delete process.env.FAKE_MAC_REQUEST_MODE;
   }
 });

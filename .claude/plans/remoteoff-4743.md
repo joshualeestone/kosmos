@@ -90,7 +90,7 @@ remote-unreadable-4308, engine.reachable, fixture-discipline) pass.
   turnOnAfterSignin is exported only as turnOnAfterSigninForTests; setOn says why it may ask at once (the
   person's own toggle; a Forget after it waits at most one signed call, 20 s) while the sign-in does not.
   Left: a reset at the start of each #4743 test (a leak would fail loudly, not pass).
-- Run: engine/mac-standing.test.js 25/25, engine/remote.test.js 130/130 (main added tests),
+- Run (then): engine/mac-standing.test.js 25/25, engine/remote.test.js 130/130 (main added tests),
   engine/remote-standing-refresh.test.js 12/12.
 
 ## Review 9 (sonnet, blind): 0 blockers, 4 warnings, 4 nits
@@ -112,6 +112,17 @@ remote-unreadable-4308, engine.reachable, fixture-discipline) pass.
 - Stated: switching on asks at once, right after ensure() starts the tunnel, so the report then says
   "starting" and replaces the diagnosis the coordinator kept while the switch was off; the next on-cadence
   report (60 s to 10 min) replaces it.
+
+## Review 11 (sonnet, blind): 0 blockers, 4 warnings, 4 nits
+- W, taken: review 10's new ON test was flaky (1 in 3): its clean-up could finish while its own ask was still
+  out, and that ask's re-ask landed in the next test. The clean-up now waits until no refresh is out and no
+  flip is pending (standingQuietForTests). Run 10 times after: 10 of 10 green.
+- W, taken: forgetNow clears a pending flip (it belonged to the identity being forgotten).
+- W, taken: the sign-in comment states the one window it does not close (a refresh already out re-asks when
+  it ends, after the register).
+- W, duplicate: the shipping order (held by sequencing).
+- Nits: the plan's earlier run counts are marked as of then. Left: cancelledAfter's flag after a failed write
+  (one spare check-in); no test drives cancelledAfter's flag or a Forget-then-enrol flag (stated).
 
 ## Weakest premise
 That one bit about remote access is not something #4731 meant to keep back. #4731's comment says "no
