@@ -2691,9 +2691,44 @@ _kosmos_mode_keeps_board_off() {
   esac
   return 0
 }
+# ---- #4818: a failed update puts back the board it paused --------------------
+# The pause below stops the board and writes board.stopped, which launchd's KeepAlive keys on, so a run that
+# FAILS after it left Kosmos off for good (Josh's laptop, 54 agents, 2026-09-30, until a hand-typed
+# `kosmos start`), and an automatic update runs this same script. So: if the board was RUNNING before the
+# pause (answering on its port, no board.stopped, a mode that runs it here), and the run then exits with a
+# failure for any reason (a die, or set -e), the exit trap takes the marker away and starts it again, and
+# says which version is back. A board the person had stopped stays stopped. Cleared once the new board has
+# started, so a failure after that does not restart anything.
+# BEGIN #4818 put-back
+_kosmos_was_running=no
+_kosmos_paused_board=no
+_kosmos_put_board_back() {
+  [ "$_kosmos_paused_board" = yes ] || return 0
+  _kosmos_paused_board=no
+  rm -f "$KOSMOS_HOME/board.stopped" 2>/dev/null || true
+  if [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ] \
+     && "$KOSMOS_HOME/bin/kosmos" start --force >/dev/null 2>&1 \
+     && curl -fsS -m 5 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; then
+    _kosmos_back_v="$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$KOSMOS_HOME/app/package.json" 2>/dev/null | head -1)" || _kosmos_back_v=""
+    printf '  Kosmos is running again on %s, as it was before this update.\n\n' "${_kosmos_back_v:-the version it had}" >&2
+  else
+    printf '  Kosmos was paused for this update and could not be started again. Open the Kosmos app, or run: kosmos start\n\n' >&2
+  fi
+}
+_kosmos_on_exit() {
+  _kosmos_exit_rc=$?
+  if [ "$_kosmos_exit_rc" -ne 0 ]; then _kosmos_put_board_back || true; fi
+}
+trap '_kosmos_on_exit' EXIT
+# END #4818 put-back
+
 _kosmos_board_decide
 if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
   if _kosmos_mode_keeps_board_off; then info "making sure Kosmos is paused for the update"; else info "pausing Kosmos for the update"; fi
+  if ! _kosmos_mode_keeps_board_off && [ ! -e "$KOSMOS_HOME/board.stopped" ] \
+     && curl -fsS -m 2 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; then
+    _kosmos_was_running=yes   # #4818: running before the pause, so a failed run puts it back
+  fi
   "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
   # Did the stop actually work? A POST-CONDITION of the line above, which is
   # why it needs the binary to exist. Fresh installs get their own check far
@@ -2816,6 +2851,8 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   # 404, a checksum refusal, a failed swap) is a different signal (install.status /
   # the #1728 in-flight marker), so clearing here on passing the pause is correct.
   rm -f "$LOG_DIR/update-abort" 2>/dev/null || true
+  # #4818: the pause held (the board no longer answers), so from here a failure puts back a board that was running.
+  _kosmos_paused_board="$_kosmos_was_running"
 fi
 
 step "Setting up the pieces Kosmos needs."
@@ -3794,6 +3831,7 @@ else
   # has just stopped the old one; a fresh install never had one), so a Kosmos that holds the port without
   # answering is a stale build, not a busy one (the #3079 reclaim frees it, as it did before #4466).
   KOSMOS_SAY_INDENT="     " KOSMOS_RECLAIM_BUSY=1 "$KOSMOS_HOME/bin/kosmos" start --force || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."
+  _kosmos_paused_board=no   # #4818: the new board started, so a later failure restarts nothing
 fi
 ok
 
