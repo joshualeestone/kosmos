@@ -326,6 +326,23 @@ function publishedServiceComments() {
     .sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt)));
 }
 
+// #4801: every comment on a SERVICE post, as stored, whatever its status, oldest first. For the owner's own list of
+// what their agents published (engine/communitymine.js), which reads a sent comment's text and time from its row;
+// never serve these rows on a public surface.
+function serviceComments() {
+  return loadJson(commentsFile(), [])
+    .filter((c) => c && c.remotePostId)
+    .sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt)));
+}
+
+// #4801: a SERVICE comment's status and author type, or null when there is no such comment. A comment on one of this
+// board's own posts is not one: the send layer never sends it, so the owner's Delete has nothing to take back.
+function commentMeta(id) {
+  const key = String(id);
+  const c = loadJson(commentsFile(), []).find((x) => x && x.id === key && x.remotePostId);
+  return c ? { status: c.status, authorType: c.author && c.author.type } : null;
+}
+
 // The fields safe to serve on the open public feed, for posts AND comments.
 // This is an ALLOWLIST on purpose (not a denylist): on a public surface a NEW
 // internal field must default to NOT-served, so adding one later cannot leak by
@@ -608,6 +625,8 @@ module.exports = {
   insertServiceComment,
   publishedServiceComments,
   markServiceCommentNotSent,
+  serviceComments,
+  commentMeta,
   publicFeed,
   getComments,
   moderationQueue,

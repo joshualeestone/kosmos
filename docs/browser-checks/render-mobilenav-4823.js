@@ -203,8 +203,9 @@ let unsettled = 0;   // a wait that timed out is reported, never swallowed (revi
         chk(l.nav && l.nav.focusIn, T + 'M6 Shift+Tab stays inside the menu', JSON.stringify({ focus: l.focus }));
         // The board's other layers treat the open menu as covering (What's New, the community notice, tips), the
         // menu's keys stand down while a screen above makes it inert, and the status stamp reads as the page's does.
-        const cov = await page.evaluate(() => ({ tip: tipModalOpen(), wn: wnCovered(), cn: cnHeld() }));
-        chk(cov.tip && cov.wn && cov.cn, T + 'K1 with the menu open, tips, What\'s New and the community notice wait', JSON.stringify(cov));
+        // (The one-time community notice this also held is gone from main, #4820.)
+        const cov = await page.evaluate(() => ({ tip: tipModalOpen(), wn: wnCovered() }));
+        chk(cov.tip && cov.wn, T + 'K1 with the menu open, tips and What\'s New wait', JSON.stringify(cov));
         const stamp = await page.evaluate(() => ({ menu: document.getElementById('pnav-stamp').textContent,
           page: [...document.getElementById('checked').childNodes].map((n) => n.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' ') }));
         chk(stamp.menu !== '' && stamp.menu === stamp.page && !/[a-z][A-Z]/.test(stamp.menu), T + 'K2 the menu carries the Agent status stamp, its parts spaced', JSON.stringify(stamp));

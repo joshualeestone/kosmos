@@ -182,8 +182,9 @@ const nextPolls = (page) => page.waitForTimeout(6500);
       const keys = await page.evaluate(() => ({ dialogOpen: document.getElementById('updconfirm').hidden === false,
         screen: !!document.querySelector('.restart-back'), inertKept: [...document.querySelectorAll('body > *')].filter((el) => el !== document.querySelector('.restart-back')).every((el) => el.inert) }));
       ok(t + ' Escape and Tab do nothing behind the screen: the dialog under it stays open and everything stays inert', keys.dialogOpen && keys.screen && keys.inertKept, JSON.stringify(keys));
-      const covered = await page.evaluate(() => ({ wn: wnCovered(), tip: tipModalOpen(), notice: cnHeld() }));
-      ok(t + ' the What\'s New window and the tips know they are covered (their keys stand down)', covered.wn === true && covered.tip === true && covered.notice === true, JSON.stringify(covered));
+      // #4820 removed the Community notice (and its cnHeld), so two windows are asked, not three.
+      const covered = await page.evaluate(() => ({ wn: wnCovered(), tip: tipModalOpen() }));
+      ok(t + ' the What\'s New window and the tips know they are covered (their keys stand down)', covered.wn === true && covered.tip === true, JSON.stringify(covered));
       const late = await page.evaluate(() => {
         const d = document.createElement('div'); d.tabIndex = 0; window.__late4343 = d; document.body.appendChild(d);
         return new Promise((r) => setTimeout(() => r(d.inert === true), 50));

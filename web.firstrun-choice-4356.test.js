@@ -244,10 +244,11 @@ test('#4356: first run ends at the existing Kosmos Plus sign-in only for "both"'
   assert.doesNotMatch(lift('frFinish'), /frClose\(\); then\(\)/, 'a way out of first run skips the last step');
 });
 
-test('#4356: tips, the Community notice, What\'s New and the setup assistant all count the first screen as covering the board', () => {
+test('#4356: tips, What\'s New and the setup assistant all count the first screen as covering the board', () => {
   // The tour started under the screen, took focus and was recorded as seen unseen (review round 3);
   // the setup assistant's layer did the same (round 4).
-  for (const fn of ['tipModalOpen', 'cnHeld', 'cnCovered', 'wnCovered']) assert.match(lift(fn), /\.frc-back:not\(\[hidden\]\)/, fn + ' does not know the first screen');
+  // #4820 removed the Community notice, and cnHeld / cnCovered with it.
+  for (const fn of ['tipModalOpen', 'wnCovered']) assert.match(lift(fn), /\.frc-back:not\(\[hidden\]\)/, fn + ' does not know the first screen');
   // The type-to-focus handler that steals a keystroke into the composer bails under every covering backdrop.
   assert.match(PAGE, /if \(document\.querySelector\('\.rm-back:not\(\[hidden\]\), \.fr-back:not\(\[hidden\]\), \.frc-back:not\(\[hidden\]\)'\)\) return;\n\s+const c = activeComposer\(\);/);
   // Every covering check that knows first run's .fr-back also knows the first screen.
