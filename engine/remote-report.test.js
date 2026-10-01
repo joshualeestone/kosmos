@@ -221,6 +221,21 @@ test('classify is bounded: a 100k-character hostile line classifies fast', () =>
   assert.ok(Date.now() - t0 < 200, 'classify took ' + (Date.now() - t0) + ' ms on a long line');
 });
 
+/* kosmos#4737: a computer registered while it waits for the other computer's Allow has its identity and the tunnel's
+   `held` mark, and no certificate yet. It is set up and waiting, not "not enrolled, missing its certificate". The
+   control is the same folder without the mark, which is a register cut off before its certificate. */
+test('kosmos#4737: a computer waiting to be allowed is not reported as missing its certificate', () => {
+  report.resetForTests();
+  const ALLOW_SAID = 'this computer is not allowed yet; allow it from your other computer first';
+  const waiting = { state: 'waiting-allow', because: 'Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)' };
+  const held = report.build({ remote: fakeRemote({ dir: stateDir(['mac_id', 'mac_key', 'address', 'held']), ...waiting }), env: {} });
+  assert.equal(held.tunnel, 'starting', 'a waiting computer read as one that will never start');
+  assert.equal(held.error, 'waiting-allow', 'a waiting computer was reported as: ' + held.error);
+  const cut = report.build({ remote: fakeRemote({ dir: stateDir(['mac_id', 'mac_key', 'address']), ...waiting }), env: {} });
+  assert.equal(cut.error, 'not-enrolled; missing: tls.crt, tls.key', 'control: without the mark the missing certificate must still be named');
+  assert.equal(cut.tunnel, 'stopped', 'control: without the mark the folder is not set up');
+});
+
 test('switch on, key held, not enrolled: the error names the missing enrolment files, not the sign-in sentence', () => {
   report.resetForTests();
   const dir = stateDir(['mac_id', 'mac_key']);

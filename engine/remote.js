@@ -550,14 +550,14 @@ function write(patch, opts) {
 }
 
 /** Enrolled means setup finished: the state dir holds the identity and the
-    certificate. Half a state dir is not enrolled. */
+    certificate, or the identity and the tunnel's `held` mark for a computer waiting
+    to be allowed (kosmos#4737, engine/enrolment.js). Half a state dir is not enrolled. */
 /* mac_key is deliberately not listed: enrolled() asks whether the Mac can serve,
    halfRegistered() whether it holds a key the coordinator knows (#3827). */
-const ENROL_FILES = ['mac_id', 'address', 'tls.crt', 'tls.key'];
+const { ENROL_FILES, HELD_FILE, enrolledBy } = require('./enrolment');
+const inState = (f) => fs.existsSync(path.join(STATE_DIR(), f));
 function enrolled() {
-  const dir = STATE_DIR();
-  return ENROL_FILES.every((f) =>
-    fs.existsSync(path.join(dir, f)));
+  return enrolledBy(inState);
 }
 
 function address() {
@@ -1911,8 +1911,12 @@ const retireTimeoutMs = () => {
 // it (or meet "already owns the name"); Forget retires it.
 // Exactly that: key and id, and no certificate. A Mac with its certificate is not
 // half anything (a missing address file alone must never retire and wipe it).
+// kosmos#4737: nor is a computer waiting to be allowed. Its registration was accepted with no
+// certificate on purpose and the tunnel marked it `held`; retiring it here would remove the very
+// computer the owner is about to allow.
 const halfRegistered = () => !enrolled()
   && holdsKey()
+  && !inState(HELD_FILE)
   // The certificate is tls.crt; the tunnel writes tls.key first, so a kill between
   // the two leaves a key and no certificate, which is still half registered.
   && !fs.existsSync(path.join(STATE_DIR(), 'tls.crt'));
