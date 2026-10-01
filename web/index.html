@@ -1902,6 +1902,17 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 .worldsw-btn:hover { background: var(--k-side); }
 .worldsw-btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .worldsw-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 0.7.15 cut, render-dm-chatfirst-718 (bisected by Baron to #4822): since #4815 the top-left always names this
+   computer, and on a phone its row may wrap (.headleft, 720px), so on a 320-wide phone at 150% text the name took a
+   second header row and the swarm conversation lost its last line. On a phone the name truncates on the K mark's row
+   instead: it may shrink to nothing before it wraps (basis 0), and the header's left column takes only the room the
+   right-hand controls leave. A notice in the same row (the update or login slots) still wraps onto its own row. */
+@media (max-width: 40rem) {
+  .apphead header { grid-template-columns: minmax(0, 1fr) auto; }
+  .apphead .headleft { min-width: 0; }
+  .apphead .headleft > .worldsw { flex: 1 1 0; min-width: 0; }
+  .apphead .headleft > .worldsw > .worldsw-btn { max-width: 100%; min-width: 0; }
+}
 .worldsw-chev { flex: none; color: var(--k-ink-2); transition: transform .12s ease; }
 .worldsw-btn[aria-expanded="true"] .worldsw-chev { transform: rotate(180deg); }
 .worldsw-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
