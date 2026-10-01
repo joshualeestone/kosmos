@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: glowpaint-4765
-diff_hash: 0f6247c2886526c9080fb0d5cec18d58d591595da4cd062bda5f0da1fbee8af5
+diff_hash: 3d0bd3619e1dcfb5eb16eb7893d990a7e81f140a3056ffbda6ae0bf456150a7b
 validation: passed (Mortals full run at dafb30f7d); rebased since onto main (past 3b4aa7670) with git range-diff showing the same six patches; at 8f4336b4f (same patches) render-working-pulse-3956 56/56 and render-newlook-4470 143/143; at the final head both browser-check gates rc 0 and server.test.js, web.not-running, web.pill-remembered-3958 372/372; CI runs the full suite on the merge ref
 subdir_audit: passed
 timestamp: 2026-10-01T03:47:40Z
@@ -33,3 +33,5 @@ change touches pass on Agent1s, and both gates and the page tests pass at the fi
 
 ### Iteration 3: 0 BLOCKER, 0 WARNING (CONVERGED)
 - Nits: a comment, the reduced-motion arm also reads the box, a check header --> all taken
+
+Rebased 2026-10-01 00:30 CDT onto main ef7de426a (past the #4796 guard fix 4d612ab9a): every patch unchanged (git range-diff); diff_hash recomputed.
