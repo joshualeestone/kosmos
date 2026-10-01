@@ -1,0 +1,44 @@
+# #4904: a measurement on a THROWAWAY branch (never merged). Boots today's board on ubuntu-latest.
+name: linux-spike-4904
+on:
+  push:
+    branches: ["linuxspike-4904"]
+permissions:
+  contents: read
+jobs:
+  spike:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: install tmux and deps
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq tmux >/dev/null
+          tmux -V
+          if [ -f package-lock.json ]; then npm ci --ignore-scripts --no-audit --no-fund || npm install --ignore-scripts --no-audit --no-fund; fi
+      - name: block every outbound connection (logged), so nothing reaches a public counter
+        run: |
+          sudo iptables -A OUTPUT -o lo -j ACCEPT
+          sudo iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+          sudo iptables -A OUTPUT -j LOG --log-prefix "SPIKE-OUT " --log-level 4
+          sudo iptables -A OUTPUT -j REJECT
+          sudo ip6tables -A OUTPUT -o lo -j ACCEPT
+          sudo ip6tables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+          sudo ip6tables -A OUTPUT -j LOG --log-prefix "SPIKE-OUT6 " --log-level 4
+          sudo ip6tables -A OUTPUT -j REJECT
+          ( curl -sS -m 5 https://installkosmos.com/ >/dev/null && echo "CONTROL FAILED: outbound still open" ) || echo "control: outbound blocked, as intended"
+      - name: run the board on Linux
+        run: node spike/run.js
+      - name: what tried to go out
+        if: always()
+        run: |
+          sudo dmesg | grep -E "SPIKE-OUT" | sed -E 's/.*(SPIKE-OUT6? ).*(DST=[^ ]+).*(DPT=[0-9]+).*/\1\2 \3/' | sort | uniq -c || true
+      - name: summary
+        if: always()
+        run: |
+          cat "$RUNNER_TEMP/spike-summary.txt" || true
+          echo "===== board log ====="
+          cat "$RUNNER_TEMP/board.log" || true
