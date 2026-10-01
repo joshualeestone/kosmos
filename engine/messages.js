@@ -950,6 +950,9 @@ function filteredText(from, text) {
 // fan-out that finished at 110 s must still be inside the window when the agent re-runs the command. The quiet-since
 // rule below, not the window, is what keeps a real second answer from being folded.
 const SEND_DEDUP_WINDOW_MS = 5 * 60 * 1000;
+/* #4786: a step of work moving forward earns 1/ROOM_PROGRESS_STEPS of a room's cap; that many steps earn the most
+   progress can (one more cap). */
+const ROOM_PROGRESS_STEPS = 4;
 /* The log row is written only when a send FINISHES, and on a busy board the fan-out can outlast the
    sender's timeout, which is exactly when the retry arrives. So a send still in flight is remembered
    too: the same send arriving meanwhile waits for the first one's receipt instead of sending again.
@@ -1758,7 +1761,24 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   const offHere = new Set(recipients.filter((n) => !mentioned.has(n) && offInProject.has(String(n))));
   /* #3564: the post is charged for the members it is sent to. */
   const charged = recipients.length - offHere.size;
-  if (operator !== true && arrivals + charged > lim.roomArrivalsPerWindow) {
+  /* #4786: WORK MOVING EARNS MORE ROOM, BOUNDED. A pipeline of agents handing tasks along fills the budget as fast
+     as a loop does, and was held until the person stepped in (daily feedback, 2026-09-30). So each first-time step
+     forward in this project since countFrom (engine/taskchat.js progressTimes: a task made, a part added, a first
+     close or built mark, a part given to someone new; never talk or going backwards) adds a quarter of the cap, and
+     all of it together at most one more cap. It never moves countFrom: only the person resets the count, so the
+     note above ("agents cannot reset it") still holds. Rejected (review rounds 1-2): progress as a full reset, which
+     one cheap task creation per budget would have turned into no valve at all. The worst a loop that also makes
+     tasks can do is run to twice the cap. The task files are read only when the room is already over its cap and
+     the limit is on (with it off the room is never held, so the allowance could only suppress the notice row; a
+     busy room with the limit off would otherwise re-read its task files on every post). Each post over the cap
+     (refused, or let through on the allowance) lists the task-chats folder and reads every file of this project
+     written since countFrom, synchronously. */
+  let allowed = lim.roomArrivalsPerWindow;
+  if (lim.on && operator !== true && arrivals + charged > allowed) {
+    const steps = require('./taskchat').progressTimes(projectId, now, countFrom).filter((t) => t >= countFrom).length;
+    allowed += Math.min(lim.roomArrivalsPerWindow, steps * Math.ceil(lim.roomArrivalsPerWindow / ROOM_PROGRESS_STEPS));
+  }
+  if (operator !== true && arrivals + charged > allowed) {
     const because = lim.on
       ? 'This conversation went back and forth for a while without landing, '
         + 'so Kosmos stopped it and asked everyone to bring you in.'
