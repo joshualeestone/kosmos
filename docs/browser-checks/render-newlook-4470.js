@@ -185,7 +185,9 @@ async function tasksLook(page) {
       m = /^color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/.exec(c);
       return m ? [m[1] * 255, m[2] * 255, m[3] * 255] : null;
     };
-    const isRed = (c) => { const v = rgb(c); return !!v && v[0] > v[1] + 40 && v[0] > v[2] + 40; };
+    /* Red: red well above both, and green and blue close together (round 3: dark gold #d6a62e is red-dominant too, but
+       its green sits far above its blue; the real red mixes have |G - B| under 7, the golds over 80). */
+    const isRed = (c) => { const v = rgb(c); return !!v && v[0] > v[1] + 40 && v[0] > v[2] + 40 && Math.abs(v[1] - v[2]) < 30; };
     const isGold = (c) => { const v = rgb(c); return !!v && v[0] > v[2] + 40 && v[1] > v[2] + 20; };
     const tiles = [...document.querySelectorAll('#panel-tasks .tsk-tile')];
     const plain = tiles.find((t) => t.dataset.tile !== 'decision' && t.getAttribute('aria-pressed') !== 'true');
@@ -195,13 +197,19 @@ async function tasksLook(page) {
     const r = { found: true, plain: getComputedStyle(plain).borderTopColor, radius: getComputedStyle(plain).borderTopLeftRadius,
       list: list ? getComputedStyle(list).borderTopColor : 'absent', listRadius: list ? getComputedStyle(list).borderTopLeftRadius : 'absent' };
     const n0 = dec.getAttribute('data-n');
-    dec.setAttribute('data-n', '2'); r.decision = getComputedStyle(dec).borderTopColor;
-    dec.setAttribute('data-n', '0'); r.decisionZero = getComputedStyle(dec).borderTopColor;   // #3949: a zero tile is drawn like the others
-    if (n0 === null) dec.removeAttribute('data-n'); else dec.setAttribute('data-n', n0);
+    try {
+      dec.setAttribute('data-n', '2'); r.decision = getComputedStyle(dec).borderTopColor;
+      dec.setAttribute('data-n', '0'); r.decisionZero = getComputedStyle(dec).borderTopColor;   // #3949: a zero tile is drawn like the others
+    } finally { if (n0 === null) dec.removeAttribute('data-n'); else dec.setAttribute('data-n', n0); }
     r.decisionRed = isRed(r.decision);
-    r.controlNotRed = !isRed(r.plain === 'rgba(0, 0, 0, 0)' ? 'rgb(128, 128, 128)' : r.plain);   // negative control: a plain border is not read as red
-    const p0 = plain.getAttribute('aria-pressed'); plain.setAttribute('aria-pressed', 'true'); r.pressed = getComputedStyle(plain).borderTopColor; r.pressedGold = isGold(r.pressed);
-    if (p0 === null) plain.removeAttribute('aria-pressed'); else plain.setAttribute('aria-pressed', p0);
+    const p0 = plain.getAttribute('aria-pressed');
+    try { plain.setAttribute('aria-pressed', 'true'); r.pressed = getComputedStyle(plain).borderTopColor; }
+    finally { if (p0 === null) plain.removeAttribute('aria-pressed'); else plain.setAttribute('aria-pressed', p0); }
+    r.pressedGold = isGold(r.pressed);
+    /* Negative controls, read off the page (round 3): the filtering gold, the closest wrong answer, is not red, and a
+       visible plain border (look off) is not red either; each makes the red test show it can say no. */
+    r.goldNotRed = !isRed(r.pressed);
+    r.plainNotRed = r.plain === 'rgba(0, 0, 0, 0)' ? null : !isRed(r.plain);
     return r;
   });
   if (out.found) {   // under the pointer the border comes back (the tiles are filters, i.e. controls)
@@ -530,7 +538,7 @@ const AGENTS_LOOK = `(() => {
       const tkOn = await tasksLook(page);
       chk(tkOn.found && tkOn.plain === 'rgba(0, 0, 0, 0)' && tkOn.radius === '16px' && tkOn.list === 'rgba(0, 0, 0, 0)' && tkOn.listRadius === '16px',
         `${tag} On, Tasks: a plain tile and the task list lose their border and take 16px corners`, JSON.stringify(tkOn));
-      chk(tkOn.found && tkOn.decisionRed && tkOn.controlNotRed && tkOn.pressedGold,
+      chk(tkOn.found && tkOn.decisionRed && tkOn.pressedGold && tkOn.goldNotRed,
         `${tag} On, Tasks: Needs Your Decision holding tasks keeps its red edge, a filtering tile its gold`, JSON.stringify(tkOn));
       chk(tkOn.found && tkOn.decisionZero === 'rgba(0, 0, 0, 0)' && tkOn.hover && tkOn.hover !== 'missed' && tkOn.hover !== 'rgba(0, 0, 0, 0)',
         `${tag} On, Tasks: Needs Your Decision at zero is drawn like the others (no border), and a tile under the pointer shows its border`, JSON.stringify(tkOn));
@@ -578,7 +586,7 @@ const AGENTS_LOOK = `(() => {
         `${tag} Off, Tasks: today's bordered tiles and task list with 12px corners (the control)`, JSON.stringify(tkOff));
       /* The decision edge is mixed from the danger red and the rule grey, and the new look remaps that grey, so it is
          not byte-identical across looks (round 1); what must hold in both is that it reads red. */
-      chk(tkOn.found && tkOff.found && tkOn.decisionRed && tkOff.decisionRed,
+      chk(tkOn.found && tkOff.found && tkOn.decisionRed && tkOff.decisionRed && tkOff.plainNotRed === true && tkOff.goldNotRed,
         `${tag} the Needs Your Decision edge reads red with the look on and off`, JSON.stringify({ on: tkOn.decision, off: tkOff.decision }));
       /* The new look remaps the colour tokens (its surface and rule greys differ from today's), so the row's own
          colour and the dash's colour are the new look's, not today's. What must NOT change is the state wash laid

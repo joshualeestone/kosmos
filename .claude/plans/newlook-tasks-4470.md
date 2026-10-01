@@ -31,3 +31,8 @@ color(srgb ...) (0-1 channels), so it would fail on a correct page: now one pars
 (a plain border is not red); the hover read fell back to body (not transparent) on a miss: a miss is now reported as
 "missed"; NIT taken: the pressed arm asserts gold, not merely non-transparent. Left: a tapped tile on a phone keeps
 its hover border until the next tap (as the Agents rows do).
+Review R3 (opus) 0B 2W 0C 2N: the negative control read a hard-coded grey, never the page: replaced by two read off
+the page (the filtering gold, the closest wrong answer, and the look-off plain border, both must not read red); the
+red test accepted dark gold (#d6a62e is red-dominant): it now also requires green and blue close together (reds under
+7 apart, golds over 80), checked against both golds and both reds. NIT taken: forged attributes restored in finally.
+Left: the look-off hover value is read and not asserted.
