@@ -7322,9 +7322,9 @@ html.has-voice .micbtn { display: grid; }
 .micwrap.line > input { width: 100%; box-sizing: border-box; }
 .micwrap > .fieldmic { position: absolute; right: calc(8px + var(--scrollbar-width, 0px)); top: 6px; width: 28px; height: 28px; }   /* clear of a classic scrollbar */
 .micwrap.line > .fieldmic { top: 50%; right: 8px; transform: translateY(-50%); }
-.micwrap > :disabled + .fieldmic { display: none; }
+.micwrap > :disabled + .fieldmic { display: none; }   /* a box that takes no words (instructions still loading) shows no mic */
 .micwrap > textarea { resize: vertical; }   /* a box dragged narrower would leave the mic outside it */
-#nt-voice-msg:empty { display: none; }   /* takes no room unless the mic says something (and never without a mic) */   /* a box that takes no words (instructions still loading) shows no mic */
+#nt-voice-msg:empty { display: none; }   /* takes no room unless the mic says something (and never without a mic) */
 html.has-voice .micwrap > textarea:not(:disabled), html.has-voice .micwrap > input:not(:disabled),
 html.has-voice .micwrap > #d-instr:not(:disabled), html.has-voice .micwrap > #create-instr:not(:disabled) { padding-right: 44px; }   /* the two ID rules set their own padding */
 html.has-voice .micwrap:not(.line) > textarea:not(:disabled),

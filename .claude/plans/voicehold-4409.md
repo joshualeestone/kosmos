@@ -118,4 +118,8 @@ the pointer's click as well reds V2, V10, V11, V12. web.voice-4409.test.js 20/20
   REFUTED NIT (measured): the mic is not misplaced in .tk-inp boxes; their top margin collapses through the wrapper,
   so the textarea mic is 6 px inside and pjs-name's mic is centred to the pixel. A first fix built on the claim put
   the mic 12 px down and V12 caught it; reverted.
+- Round 10 (sonnet): NITs only. CONVERGED. One NIT taken after it, comment-only: the disabled-box comment had been
+  pushed onto the #nt-voice-msg rule by my round-9 insertion; moved back. Left NITs: the unit test pins the composer
+  cancel's selector, not its call (V16 runs it); a 5 s poll's read-failure line can replace a dialog's listening line;
+  "Press Escape to stop" also fits a held mic (letting go stops it too).
 
