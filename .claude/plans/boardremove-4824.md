@@ -10,7 +10,9 @@ The board's Remove passed none.
   the pre-#4803 build at ~/work/kosmos-relay/dist/kosmos-tunnel), so on exactly that refusal it is asked again
   without the flag (exit 2 and that wording, both required; ANSI colour stripped first). Any other refusal surfaces
   as before. A connector killed on the retire timeout (either call) answers `timed_out` rather than a failed Remove;
-  the page says it took too long and, if the device is still on the list, to remove it again.
+  the page says it took too long and, if the device is still on the list, to remove it again; if it is gone, that
+  it may still open the other computers (the kill can land after the list write and before the tell). The page's
+  POST has no timeout of its own: the board answers within the retire timeout, and `finally` clears Removing.
 - web/index.html, the Devices list: after a Remove, `removedWords` says what it reached, from the answer: "Its
   current sign-in on your other computers ends too; it stays allowed there until you remove it there" only when
   `signed_out` is true; "Kosmos+ could not confirm it, so it

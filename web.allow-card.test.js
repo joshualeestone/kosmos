@@ -128,7 +128,7 @@ test('#4824: removedWords says the other computers are reached only when the con
   assert.equal(removedWords({ removed: true, signed_out: true, local_cutoff: true }), 'Removed. Its current sign-in on your other computers ends too; it stays allowed there until you remove it there.');
   assert.equal(removedWords({ removed: false, signed_out: true, local_cutoff: true }), "It was not on this computer's list. Its current sign-in on your other computers ends; it stays allowed there until you remove it there.");
   assert.equal(removedWords(null), 'Removed here.', 'an unreadable answer claimed how the connector works');
-  assert.equal(removedWords({ timed_out: true }), 'This took too long to finish. If it is still on the list below, remove it again.');
+  assert.equal(removedWords({ timed_out: true }), 'This took too long to finish. If it is still on the list below, remove it again. If it is gone, it may still open your other computers until you remove it there too.');
   // An older connector: neither field. Said as how it works, not as a failure.
   assert.equal(removedWords({ removed: true }), 'Removed here. If you let it in on your other computers too, it still opens them until you remove it there, and if you let it in again here, its old sign-in comes back with it.');
   assert.doesNotMatch(removedWords({ removed: true }), /could not/);
