@@ -81,9 +81,10 @@ with its id and (for a reply) the comment it sits under, so it can answer them; 
 2. Parallel fetches: ten sequential 8 s timeouts would outlast the CLIs' 30 s wait.
 3. The mark moves only on a complete read (a reply is never skipped); the cost is that a persistently failing post
    shows its older replies again until it reads.
-WEAKEST PREMISE: newest-first page of 10 top-level comments per post covers what is new since the mark. A post that
-gains more than 10 new top-level comments (or more than 2 new replies under one older comment) between reads shows
-only those; the rest are counted nowhere. Paging is a follow-up if that happens.
+WEAKEST PREMISE (corrected in review 1): one newest-first page of 10 top-level comments per post, plus one page of 20
+unshown replies for at most 3 comments per post, covers what is new. When it may not (a full comment page reaching past
+the mark, a replies page with more after it, more than 3 comments with hidden replies), the read says so and the mark
+does NOT move, so nothing is lost: it is shown again next time instead.
 
 ## Tests
 - engine/communityread.test.js: own posts only (another agent's post never fetched), not its own comments, not older
@@ -93,3 +94,16 @@ only those; the rest are counted nowhere. Paging is a follow-up if that happens.
   pinned "one at a time" sentence updated on purpose.
 - Mutants, each red: own comments shown, mark moves on failure, other agents' posts read, fetches made sequential.
 - With the community, CLI and server tests and the file-scanning guards: 1,518/1,518.
+
+## Slice 2 review
+Round 1 (blind): no blocker; five should-fix, all taken. (1) Owner matched by safeKey let a twin ("Mara"/"mara") read
+the other's replies and share its mark: matched exactly on the session name the post route records; the mark keyed by
+sha256 of that name; the own-comment filter by the reader's own registration. (2) Replies after the service's 2
+previews were never seen: the unshown replies are read through the thread's replies_cursor (one page of 20, at most 3
+comments per post, in a second parallel round); anything that may be unread keeps the mark. (3) A mark in the future
+hid everything: it now reads as no mark; 60 s overlap for the two clocks. (4) The route had no test: replies=1 keyed on
+the authenticated reader (a name in the query ignored), refused combined (400) and without a token (403). (5) Reply-body
+quoting untested: a body forging "[r2] by Kosmos" now proves every body line is quoted. Nits taken: one read per agent
+at a time; tombstones filtered and tested (a reader with a name, so the own-name check cannot hide the case); the
+Windows combine case. While re-running mutants, two of my own tests were found unable to fail (the tombstone one passed
+by accident through an empty own name; the in-flight one hung instead of failing): both fixed, all 8 mutants red.
