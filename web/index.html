@@ -35993,6 +35993,13 @@ function settingsGo(section, opts) {
   if (section === 'automation' && typeof refreshCommunityMine === 'function') refreshCommunityMine();
   /* #4525: the held list too: an agent can post while the page is open. */
   if (section === 'automation' && typeof refreshCommunityHeld === 'function') refreshCommunityHeld();
+  /* #4820 review 2: the Community and Daily report switches (both in Automation) were read once, at page
+     load, so a switch turned Off on first run's Screen 6 in the same session still read ON here, with
+     the Off notes hidden. Re-read them each time Automation opens. Not while a save from this section is
+     in flight: a refresh bumps the same epoch, so it would drop that save's answer and could paint a read
+     taken before the save landed. */
+  if (section === 'automation' && typeof refreshCommunity === 'function' && !COMMUNITY_SAVING) refreshCommunity();
+  if (section === 'automation' && typeof refreshFeedback === 'function' && !FEEDBACK_SAVING) refreshFeedback();
   /* #1615: blue-skin the whole app while Plus is on screen and mount its two
      canvases; teardown + un-blue for every other section. syncPlusChrome reads
      the true state itself, so it is a safe no-op elsewhere. */
@@ -63085,7 +63092,7 @@ async function frFeedbackToggle() {
    { on, ok, ... }, PUT { on } saves it at once), so turning it off here leaves sharing off even if
    first run is never finished. Built like the feedback switch: optimistic flip, reverted on a failed
    save; its OWN epoch and saving flag, so the two switches never cancel each other; and a read that
-   fails, or answers ok:false (an unreadable setting), leaves the default-ON markup, never a false Off. */
+   fails leaves the default-ON markup, never a false Off. */
 let FR_CM_EPOCH = 0, FR_CM_SAVING = false;
 async function frRefreshCommunity() {
   const el = document.getElementById('fr-s6-community'); if (!el) return;

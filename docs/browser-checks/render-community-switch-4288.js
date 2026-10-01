@@ -18,6 +18,8 @@
  *             community spend of 0 renders "none".
  *   CLICK     pressing the knob PUTs on:false and paints what the board answered.
  *   CLICK-FAIL  a refused save shows its message and leaves the knob where it was.
+ *   FIRST-RUN OFF  (#4820 review 2) the switch turned Off on first run's Screen 6 reads Off, with the
+ *             OFF note, when Settings > Automation is opened afterwards in the same session.
  *   NO-NOTICE (#4820, Josh 2026-09-30: no pop-up for existing users) an existing install with sharing
  *             on and the old one-time notice never seen (the answer the old board gave it) gets NO
  *             community dialog and posts nothing, while the switch still reads ON in Settings. The #4288
@@ -212,6 +214,42 @@ async function run() {
     check('CLICK-FAIL: a refused save shows its message', /could not save that setting/i.test(f.msg), JSON.stringify(f.msg));
     check('CLICK-FAIL: the knob still reads ON and the OFF note stays hidden', f.checked === 'true' && f.offNoteHidden === true, JSON.stringify(f));
     await p6.close();
+
+    /* #4820 review 2, FIRST-RUN OFF: Settings read the switch once at page load, so a person who turned
+       Community off on first run's Screen 6 and then opened Settings > Automation in the same session saw
+       ON. The board's state is held here: a GET answers it, a PUT changes it, as the board does. First
+       run is opened the way Settings' re-run link opens it (?first-run=1&fr-step=6), the switch is pressed
+       for real, first run is closed with Escape (the same exit load() uses), and Automation is opened
+       through its nav. */
+    const p7 = await page();
+    const frState = { on: true, ok: true, share: null };
+    const frPuts = [];
+    await p7.route(ROUTE, (route) => {
+      const req = route.request();
+      if (req.method() === 'PUT') { frPuts.push(req.postData()); try { frState.on = JSON.parse(req.postData()).on === true; } catch { /* keep */ } }
+      return answer(frState)(route);
+    });
+    await p7.goto(BASE.replace(/\/$/, '') + '/?first-run=1&fr-step=6', { waitUntil: 'load', timeout: 60000 });
+    await p7.waitForFunction(() => typeof showTab === 'function' && typeof communityPaint === 'function', null, { timeout: 30000 });
+    await p7.waitForSelector('#boot-cover', { state: 'hidden', timeout: 60000 });
+    await p7.waitForSelector('#fr-s6-community', { state: 'visible', timeout: 30000 });
+    // Precondition: Settings painted its load-time read (ON), so the arm measures a re-read, not a first read.
+    await p7.waitForFunction(() => { const t = document.getElementById('community-share'); return t && t.textContent.length > 0; }, null, { timeout: 30000 });
+    const before = await p7.evaluate(() => document.getElementById('community-toggle').getAttribute('aria-checked'));
+    check('FIRST-RUN OFF: precondition, Settings read the switch ON at page load', before === 'true', String(before));
+    await p7.click('#fr-s6-community');
+    await p7.waitForFunction(() => document.getElementById('fr-s6-community').getAttribute('aria-checked') === 'false', null, { timeout: 10000 });
+    check('FIRST-RUN OFF: Screen 6 PUT on:false once', frPuts.length === 1 && JSON.parse(frPuts[0]).on === false, JSON.stringify(frPuts));
+    await p7.keyboard.press('Escape');
+    await p7.waitForSelector('#firstrun', { state: 'hidden', timeout: 30000 });
+    await p7.evaluate(() => showTab('settings'));
+    await p7.waitForTimeout(400);
+    await p7.click('#s-nav button[data-go="automation"]');
+    await p7.waitForTimeout(600);
+    const fo = await readRow(p7);
+    check('FIRST-RUN OFF: Settings > Automation re-reads and the knob reads Off', fo.hidden === false && fo.checked === 'false', JSON.stringify(fo));
+    check('FIRST-RUN OFF: and the OFF note shows', fo.offNoteHidden === false, String(fo.offNoteHidden));
+    await p7.close();
 
     /* #4820 NO-NOTICE. The removed notice opened within about a second of the boot cover lifting, so a
        dialog is polled for up to 10 s (and the poll stops early if one appears, so a red is quick). A

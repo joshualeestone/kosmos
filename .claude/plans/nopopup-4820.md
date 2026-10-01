@@ -17,7 +17,8 @@ along with the diagnostic that says their agents can join the community to make 
    markup and classes, id fr-s6-community, default ON, label "Let your agents join the Kosmos community to
    help make Kosmos better." Wired like the feedback switch against GET/PUT /api/community-setting:
    optimistic flip, revert on a refused or thrown PUT, its own epoch and saving flag, a could-not-read
-   (non-ok, ok:false or a throw) leaves the default-ON markup. Refreshed from frGo step 6, the only place
+   (a non-ok response or a throw) leaves the default-ON markup, and an ok:false answer paints its on:false
+   (amended by Review round 1). Refreshed from frGo step 6, the only place
    frRefreshFeedback is called. The PUT persists at once, so turning it off before finishing first run
    leaves sharing off.
 4. mobile-shots.js: the seed's markNoticeSeen step, the per-shot `COVERED: #cmnotice` check, the
@@ -39,7 +40,7 @@ along with the diagnostic that says their agents can join the community to make 
 
 ## Weakest premise
 
-The first-run refresh treats ok:false (an unreadable community.json) as could-not-read and leaves the
+SUPERSEDED by Review round 1 (the ok:false answer is now painted, not left ON): The first-run refresh treats ok:false (an unreadable community.json) as could-not-read and leaves the
 switch drawn ON, matching the feedback switch's rule and the brief. On such a board the engine reads OFF
 (participating false) while the switch shows ON. A first toggle then PUTs off and the file is repaired to
 OFF, so nothing is sent that should not be; but the drawn position is a default, not a reading. What would
@@ -69,3 +70,18 @@ cover lifting, so 10 s is wide; a future notice with different wording would not
 - NITs decided: write() dropping unknown keys only matters on a downgrade (the old notice shows once); the no-dialog check
   matches the notice's wording (a future pop-up with other words would pass; named in the plan); existing users who saw
   the old "held until you release" notice now publish straight away untold (the #4781 behaviour; Josh's "no big message").
+
+## Review round 2, 2026-09-30: 0 BLOCKER, 1 WARNING, 4 NIT
+- [WARNING] FIXED. Settings read the Community and Daily report switches once, at page load, so a person who turned
+  Community off on Screen 6 and then opened Settings > Automation in the same session saw ON with the Off notes hidden.
+  settingsGo now calls refreshCommunity() and refreshFeedback() when Automation opens (both rows live in Automation),
+  except while that switch's own save is in flight: a refresh bumps the same epoch, so it would drop the save's answer
+  and could paint a read taken before the save landed. Pinned by the FIRST-RUN OFF arm in
+  render-community-switch-4288.js, which opens first run at Screen 6 (?first-run=1&fr-step=6), presses the switch,
+  closes with Escape, opens Automation through its nav and asserts Off with the note shown.
+- NIT (a) FIXED: frRefreshCommunity's header comment no longer says ok:false leaves the default.
+- NIT (b) FIXED: the Call item amended and the first Weakest-premise paragraph marked superseded.
+- NIT (c) RECORDED: a person who presses Escape before Screen 6 never sees the first-run switch. Sharing stays ON and the
+  Settings switch is still there; the diagnostics switch behaves the same way.
+- NIT (d) RECORDED: on a FR_FORCED re-run, a could-not-read (failed request or throw) leaves the switch drawn ON even
+  over a saved Off. Harmless direction: nothing is sent because of the drawing, and a click saves Off.
