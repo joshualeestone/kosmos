@@ -73,6 +73,8 @@ test('familyOf: the families as named (Claude, OpenAI for GPT, Gemini, Grok, Met
 /* Real member rows: fleet's cards through projects.describe, never a hand-built row (fixture-discipline).
    mark runs Claude and is working, sam runs Codex and is asking, ghost is on the project and not running. */
 const CODEX_ASKING = '  Do you want to run this?\n› 1. Yes\n  2. No';
+/* #4581: an idle Codex pane, the shape engine/chat.test.js uses; without a screen the engine reads a Codex member as unknown. */
+const CODEX_IDLE = '› Ask Codex to do anything\n';
 const BOARD = fleet.install([
   fleet.agent('mark', { state: 'working', role: 'Project Manager' }),
   fleet.agent('sam', { state: 'needs_you', runner: 'codex', command: 'node', screen: CODEX_ASKING }),
@@ -336,7 +338,7 @@ test('#4581 N10 review 3 CONTROL (green on origin/main by design): a member that
 });
 
 test('#4581 N10 review 4: a Codex member is never excused (it reports idle and never working, so an old idle can hide work)', () => {
-  const board = fleet.install([fleet.agent('cody', { state: 'idle', runner: 'codex', command: 'node' })]);
+  const board = fleet.install([fleet.agent('cody', { state: 'idle', runner: 'codex', command: 'node', screen: CODEX_IDLE })]);
   try {
     const raw = { id: 'cx', name: 'Codex Night', folder: '/p/cx', agents: ['cody'], tasks: [] };
     const described = projects.describe(raw, board.agents, [raw]);
