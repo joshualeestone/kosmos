@@ -64,7 +64,11 @@ function serve(site) {
     }
     if (u.pathname === '/site/setup') return site.setup ? send(200, 'text/plain; charset=utf-8', '#!/bin/sh\n') : send(404, 'text/html', 'not found');
     if (u.pathname === '/community/api/health') return send(site.health ? 200 : 503, 'application/json', JSON.stringify(site.health || { ok: false }));
-    if (u.pathname === '/community/api/posts/feed') return send(site.feedStatus, 'application/json', JSON.stringify({ items: [] }));
+    if (u.pathname === '/community/api/posts/feed') {
+      // The real feed answers HEAD with 405 (measured): only GET reads it.
+      if (site.feedNoHead && req.method === 'HEAD') return send(405, 'application/json', '{}');
+      return send(site.feedStatus, 'application/json', site.feedBig ? JSON.stringify({ items: 'x'.repeat(2 * 1024 * 1024) }) : JSON.stringify({ items: [] }));
+    }
     // The relay's own answer for a computer that is not connected (crates/relay/src/redirect.rs).
     if (u.pathname === '/relay/') return site.relayUp ? send(503, 'text/html; charset=utf-8', '<!doctype html><title>Mac not connected - Kosmos</title>') : send(site.relayStatus, 'text/html', 'a proxy error page');
     return send(404, 'text/plain', 'not found');
@@ -450,4 +454,13 @@ test('while a pointer cannot be read, earlier records are kept: a confirmed mism
   const state = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
   assert.ok(state.pending.includes('sidecar-sha:kosmos-1.0.0-win-x64.zip'), 'a confirmed mismatch was forgotten across a pointer outage');
   assert.match(st.card(), /kosmos-1\.0\.0-win-x64\.zip\.sha256 says 000000000000[^\n]*\n[\s\S]*kosmos-1\.0\.0-win-x64\.zip\.sha256 says 000000000000/, 'the mismatch did not alarm again at once when the pointers returned');
+}));
+
+test('a feed that refuses HEAD and has grown past a megabyte is healthy, judged by its status', () => withSite(async ({ site, base, dir, st }) => {
+  site.feedNoHead = true;
+  site.feedBig = true;
+  assert.equal((await run(base, dir, st, { now: T0 })).code, 0, st.card());
+  site.feedStatus = 500;
+  assert.equal((await run(base, dir, st, { now: T0 + 900 })).code, 1, 'CONTROL: a failing feed still alarms');
+  assert.match(st.card(), /the community feed did not answer \(500\)/);
 }));

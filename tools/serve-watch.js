@@ -31,8 +31,9 @@
  *     owners), and
  *   - a comment on kosmos#4877.
  * It posts when an alarm starts or what is wrong changes, again every 6 h while it lasts, once when it clears, and
- * once every 6 h while it cannot tell, said only once that has lasted an hour (when it cannot keep state, it runs once a day
- * and says so at once). While healthy, the card alone gets one
+ * once every 6 h while it cannot tell, said only once that has lasted an hour. When it cannot keep state it checks once
+ * a day, and says so in whatever it posts then; a day with nothing wrong posts nothing, so that mode shows only in its
+ * log (~/Library/Logs/kosmos/serve-watch.log), as in gap-alarm. While healthy, the card alone gets one
  * "still watching" line a week, so a job that stopped running is visible. Each channel keeps its own clock, and a post
  * that failed is retried after an hour, not every run.
  *
@@ -172,6 +173,14 @@ async function getText(url) {
     return { status: 0, error: String((err && err.message) || err) };
   } finally { r.clear(); }
 }
+/* A GET whose body is not read (only its status): for a route that may not answer HEAD. */
+async function getStatusOnly(url) {
+  const r = await request(url);
+  if (!r.res) return { status: 0, error: r.error };
+  try { await r.res.body.cancel(); } catch { /* gone */ }
+  r.clear();
+  return { status: r.res.status };
+}
 async function getJson(url) {
   const g = await twice(() => getText(url));
   let json = null;
@@ -233,8 +242,9 @@ async function gather(prev, now) {
   const health = await getJson(COMMUNITY + '/api/health');
   const healthOk = health.status === 200 && health.json && health.json.ok === true;
   if (!healthOk) add('community-health', 'the community site\'s /api/health did not answer ok (' + why(health) + ')');
-  const feed = await getJson(COMMUNITY + '/api/posts/feed');
-  if (!(feed.status === 200 && feed.json && typeof feed.json === 'object')) add('community-feed', 'the community feed did not answer (' + why(feed) + ')');
+  // The status is the answer here: a healthy feed can grow past BODY_CAP, which getJson would read as no answer.
+  const feed = await twice(() => head(COMMUNITY + '/api/posts/feed').then((h) => (h.status === 405 ? getStatusOnly(COMMUNITY + '/api/posts/feed') : h)));
+  if (feed.status !== 200) add('community-feed', 'the community feed did not answer (' + why(feed) + ')');
   // Its healthy answer IS a 503, so retried only when it is not the relay's page (twice() would retry every 5xx).
   const relayPage = (r) => r.status === 503 && typeof r.text === 'string' && r.text.includes(RELAY_PAGE);
   let relay = await getText(RELAY);
