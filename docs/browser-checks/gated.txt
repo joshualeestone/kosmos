@@ -60,6 +60,7 @@ render-createnav-2190
 render-detail-header-1841
 render-detail-openai-model-2140
 render-detail-ring-1915
+render-device-remove-4824
 render-dialog-gutter-4506
 render-disconnect-stop-2570
 render-dm-badges-2863
