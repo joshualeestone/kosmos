@@ -17,7 +17,7 @@
  *  - a picked (ticked) row keeps its own wash under the mouse,
  *  - a click in the checkbox column, just below the box, does not open the task,
  *  - on a touchscreen (390 wide) there is no tint or pointer and a tap on the row opens nothing,
- *  - light and dark, with the new look off and on.
+ *  - light and dark, with the new look off and on, in Chromium and WebKit; and once in the consolidated layout.
  * CONTROL: run against main before #4880, the rest and hover grounds are the same (the first line
  * fails), and the empty-part click opens nothing.
  *
@@ -43,7 +43,7 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 const SANDBOXES = [SANDBOX, process.env.AGENT_WORKFORCE_WORKERS, process.env.AGENT_WORKFORCE_PROJECTS,
   process.env.AGENT_WORKFORCE_LAUNCH, process.env.AGENT_WORKFORCE_CONFIG_ROOT];
 
-const { chromium } = require('playwright');
+const { chromium, webkit } = require('playwright');
 const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 const projects = require('../../engine/projects');
@@ -81,9 +81,11 @@ function chk(ok, label, extra) {
   };
   const same = (a, b) => a && b && a.patch === b.patch;
 
+  for (const engine of ['chromium', 'webkit']) {
+  const eb = engine === 'chromium' ? browser : await webkit.launch({ headless: process.env.HEADED === '0' });
   for (const newLook of [false, true]) for (const theme of ['light', 'dark']) {
-    const T = (newLook ? 'new look ' : 'old look ') + theme + ': ';
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: theme });
+    const T = '[' + engine + '] ' + (newLook ? 'new look ' : 'old look ') + theme + ': ';
+    const ctx = await eb.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: theme });
     if (newLook) await ctx.addInitScript(() => { try { localStorage.setItem('kosmos-look', 'new'); } catch {} });
     const page = await ctx.newPage();
     page.on('pageerror', (e) => errs.push(T + e.message));
@@ -111,7 +113,8 @@ function chk(ok, label, extra) {
     // Keyboard: mouse away, then Tab from the row's checkbox onto its title (a real key, so the focus is :focus-visible).
     await page.mouse.move(2, 2);
     await page.locator('#tsk-groups .tsk-row', { hasText: S }).first().locator('input[type="checkbox"]').focus();
-    await page.keyboard.press('Tab');
+    // WebKit, as Safari on a Mac, moves Tab between fields only; Option-Tab (Alt+Tab) reaches buttons.
+    await page.keyboard.press(engine === 'webkit' ? 'Alt+Tab' : 'Tab');
     await page.waitForTimeout(250);
     const onTitle = await page.evaluate(() => !!document.activeElement && document.activeElement.classList.contains('tl'));
     chk(onTitle, T + 'CONTROL: Tab from the checkbox lands on the row\'s title');
@@ -168,6 +171,8 @@ function chk(ok, label, extra) {
     chk(opened.task && opened.title.includes(S), T + 'a click on an empty part of the row opens that task\'s page', JSON.stringify(opened));
     await ctx.close();
   }
+  if (eb !== browser) await eb.close();
+  }
   /* A touchscreen (390 wide): no tint and no pointer, and a tap on the row's empty part opens nothing (its tap areas
      sit close together, so a near-miss must not leave the view). */
   for (const theme of ['light', 'dark']) {
@@ -192,6 +197,35 @@ function chk(ok, label, extra) {
     const after = await look(page, S);
     chk(after && after.cursor !== 'pointer' && same(after, rest), T + 'no pointer and no tint on a touchscreen, before or after a tap', after && after.cursor);
     await ctx.close();
+  }
+  /* The consolidated layout (Tasks in the display column). Last, because it saves the board's layout. */
+  {
+    const T = '[consolidated] ';
+    const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: 'light' });
+    page.on('pageerror', (e) => errs.push(T + e.message));
+    await page.goto(URL, { waitUntil: 'networkidle' });
+    if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+    await page.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'consolidated' }) }).then((r) => r.text()));
+    await page.reload({ waitUntil: 'networkidle' });
+    if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+    await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 8000 }).catch(() => {});
+    await page.click('#tabs .tab[data-tab="tasks"]').catch(() => {});
+    await page.waitForSelector('#tsk-groups .tsk-row .tl', { timeout: 10000 }).catch(() => {});
+    const inCol = await page.evaluate(() => { const pt = document.getElementById('panel-tasks'); return document.body.classList.contains('consolidated') && !pt.hidden && !!pt.parentElement && pt.parentElement.id === 'panel-projects'; });
+    chk(inCol, T + 'CONTROL: the Tasks view is open in the consolidated display column');
+    const S = 'Book the podcast tour';
+    await page.mouse.move(2, 2);
+    await page.waitForTimeout(250);
+    const rest = await look(page, S);
+    const b = await page.locator('#tsk-groups .tsk-row', { hasText: S }).first().boundingBox();
+    await page.mouse.move(b.x + b.width - 6, b.y + b.height - 4);
+    await page.waitForTimeout(250);
+    chk(rest && !same(rest, await look(page, S)), T + 'a task row under the mouse is painted differently from the same row at rest');
+    await page.mouse.click(b.x + b.width - 6, b.y + b.height - 4);
+    await page.waitForTimeout(1000);
+    const o = await page.evaluate(() => { const tv = document.getElementById('pj-task-view'); return !!tv && !tv.hidden && tv.getClientRects().length > 0 && (document.getElementById('tk-title') || {}).textContent; });
+    chk(typeof o === 'string' && o.includes(S), T + 'a click on an empty part of the row opens that task\'s page', JSON.stringify(o));
+    await page.close();
   }
   chk(errs.length === 0, 'no page errors', JSON.stringify(errs.slice(0, 3)));
   await browser.close();

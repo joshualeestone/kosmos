@@ -8,7 +8,7 @@ Hovering or tabbing to a task on the Tasks tab shows an active state; a browser 
 ## Calls (Mona Lisa)
 - **Ground, not border.** The rows are list rows inside one rounded list, not separate cards, so the room's card treatment (border colour in the old look, `--k-bg` ground in the new look) is translated to a ground tint on the row. Rejected: a border per row (rows share rules; a border on hover would shift or double the rule).
 - **A see-through tint** `color-mix(in srgb, var(--k-ink) 5%, transparent)` over the row's own ground. First attempt mixed toward `--k-surface`, which on the old look's cream list read as a cooler grey (wrong direction for Josh's warm-cream preference). A tint over the ground keeps cream warm, shades white softly, and lifts dark.
-- **:focus-within as well as :hover**, so a keyboard user sees the same state.
+- **Keyboard focus as well as hover** (`:has(:focus-visible)`, changed from `:focus-within` in review round 1), so a keyboard user sees the same state.
 - **A ticked row keeps its gold wash** (`:not(.sel)`).
 - **The row itself opens the task on click** (empty parts only). A row that lights up but does nothing when clicked would be an affordance it cannot honour; only the title opened the task before. Controls keep their own action; a click ending a text selection does not navigate.
 - Weakest premise: that Josh wants the whole row clickable, not just a visual cue. If not, drop the click handler; the hover stays.
@@ -24,3 +24,8 @@ Wiring: README row, `docs/browser-checks/gated.txt`, reason-grep EXPECTED_SITES 
 - Keyboard state is `:has(:focus-visible)`, not `:focus-within`, so a mouse tick does not leave the row tinted.
 - Known limit, accepted: the first click of a double-click on row text opens the task before the word can be selected. Selecting by drag still works. Text in a row can also be read on the task page.
 - Check: project-open control now asserts the project page opened; a theme CONTROL; a phone pass (390, touch). Mutations removing the touch guard and the checkbox-column guard each turn their lines red.
+
+## Review round 2 (sonnet) changes
+- The control guard only counts a control INSIDE the row (`row.contains`), so an ancestor control can never swallow the row click.
+- The checkbox guard covers everything left of the checkbox's right edge (the row's left padding and an indent too). Intended: that strip is the tick's territory.
+- Check: desktop passes in Chromium AND WebKit (the Mac app is WebKit); one consolidated-layout pass (Tasks in the display column).

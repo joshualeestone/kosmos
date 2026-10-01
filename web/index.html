@@ -3903,7 +3903,7 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-row:first-child { border-top: 0; }
 .tsk-row.sel { background: var(--tsk-wash); }
 /* #4880 (Josh 10/01): a row reads as clickable, as a project room's task cards do: a faint ink tint over the row's own
-   ground under a mouse, and while the keyboard focus is inside the row. Background only. A ticked row keeps its wash.
+   ground under a mouse, and while a keyboard-focused control is inside the row. Background only. A ticked row keeps its wash.
    A touchscreen gets neither the tint nor the pointer: it has no hover to show, and the row opens nothing there. */
 @media (hover: hover) {
   .tsk-row { cursor: pointer; }
@@ -54960,10 +54960,12 @@ document.getElementById('panel-tasks').addEventListener('click', (e) => {
   if ((b = el('[data-open-project]'))) { tskOpenProject(b.dataset.openProject); return; }
   if ((b = el('[data-agent]'))) { openDetail(b.dataset.agent); return; }
   /* #4880 (Josh 10/01): with a mouse, a click on an empty part of a row opens the task, as its title does. Not on a
-     touchscreen (no hover is shown there, and its tap areas sit close together), not in the checkbox's column, not on
-     a control, and not when the press leaves text selected. */
+     touchscreen, not left of the checkbox's right edge, not on a control in the row, and not when a drag left text
+     selected. */
   const row = el('.tsk-row[data-key]');
-  if (!row || el('button, a, input, label, select, summary, textarea')) return;
+  if (!row) return;
+  const ctl = el('button, a, input, label, select, summary, textarea');
+  if (ctl && row.contains(ctl)) return;
   if (window.matchMedia && !window.matchMedia('(hover: hover)').matches) return;
   const hit = row.querySelector('.tsk-hit');
   if (hit && e.clientX <= hit.getBoundingClientRect().right + 6) return;
