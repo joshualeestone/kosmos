@@ -50,11 +50,11 @@ test('a role\'s limit is said on step one, under the dropdown, the moment it is 
   const body = PAGE.replace(/<!--[\s\S]*?-->/g, '');
   assert.match(body, /<select id="rolesel"><\/select>\s*<p class="rolelimit" id="pick-limit" hidden><\/p>/);
   const at = SCRIPT.indexOf('function paintPickLimit'); const fn = SCRIPT.slice(at, SCRIPT.indexOf('\n}\n', at) + 3);
-  const run = (picked, hidden, caution) => {
+  const run = (picked, hidden, caution, path) => {
     const line = { textContent: '', hidden: undefined };
     const document = { getElementById: (id) => (id === 'pick-limit' ? line : { hidden }) };
     // eslint-disable-next-line no-new-func
-    new Function('document', 'PICKED', 'roleByKey', fn + '\npaintPickLimit();')(document, picked, () => ({ caution }));
+    new Function('document', 'PICKED', 'roleByKey', 'CREATE_PATH', fn + '\npaintPickLimit();')(document, picked, () => ({ caution }), path);
     return line;
   };
   const ea = run('ea', false, 'It never sends anything.');
@@ -62,6 +62,16 @@ test('a role\'s limit is said on step one, under the dropdown, the moment it is 
   assert.equal(run('bk', false, null).hidden, true, 'a role with no limit draws a line');
   assert.equal(run('ea', true, 'It never sends anything.').hidden, true, 'the line shows while the dropdown is closed');
   assert.equal(run('own', false, 'x').hidden, true, 'describe-it-yourself has no limit to say');
+  // #4871: on the swarm path the operational line goes (Josh 10-01); a professional-advice disclaimer stays (Josh 08-10).
+  const om = 'It drafts customer messages and plans; nothing goes out without the owner.';
+  assert.equal(run('officemanager', false, om, 'swarm').hidden, true, 'the swarm path still shows an operational line under the menu');
+  assert.equal(run('officemanager', false, om, 'single').hidden, false, 'the single-agent path lost its line');
+  for (const c of ['Not a lawyer, and not legal advice. It drafts and explains.', 'Not financial advice. It records and reconciles.',
+    'It is not medical advice.', 'It organises paperwork; it is not tax advice.', 'It is not an accountant or a financial adviser.',
+    'It organizes care; it never gives veterinary advice.']) {
+    const l = run('x', false, c, 'swarm');
+    assert.equal(l.hidden, false, 'a professional-advice disclaimer was hidden on the swarm path: ' + c); assert.equal(l.textContent, c);
+  }
   assert.match(SCRIPT, /PICKED = document\.getElementById\('rolesel'\)\.value;\n  paintPickLimit\(\);/);
   assert.match(SCRIPT, /getElementById\('role-next'\)\.disabled = importing;\n  paintPickLimit\(\);\n\}/);   // #4556: the org chart moved to the Team screen
 });

@@ -48587,7 +48587,15 @@ document.getElementById('roles-list').addEventListener('change', (e) => {
 function paintPickLimit() {
   const line = document.getElementById('pick-limit');
   const role = PICKED && PICKED !== 'own' ? roleByKey(PICKED) : null;
-  const say = role && role.caution && !document.getElementById('rolepick').hidden ? role.caution : '';
+  /* #4871 (Josh, 2026-10-01: "On the Create a Swarm page I don't want the extra descriptor underneath Picking a Role"):
+     on the swarm path the line under the menu goes, EXCEPT a professional-advice disclaimer (not a lawyer; not
+     financial, tax, medical or veterinary advice). Shipping Legal at all was conditional on that kind being visible
+     at the moment of choice (Josh, 2026-08-10, engine/roles.js), and his 10-01 words were said looking at an
+     operational line (Office Manager's "nothing goes out without the owner"). The single-agent path is unchanged. */
+  const ADVICE = /\b(advice|adviser|advisor|lawyer|attorney|accountant|medical|veterinary)\b/i;
+  const swarmQuiet = typeof CREATE_PATH !== 'undefined' && CREATE_PATH === 'swarm'
+    && !(role && role.caution && ADVICE.test(role.caution));
+  const say = role && role.caution && !swarmQuiet && !document.getElementById('rolepick').hidden ? role.caution : '';
   line.textContent = say;
   line.hidden = !say;
 }
