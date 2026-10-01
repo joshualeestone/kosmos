@@ -127,7 +127,7 @@ const STATES = {
               return { ratio: Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 10) / 10, ink: ink.join(','), bg: bg.map(Math.round).join(','), at: n ? (n.id || n.className || n.tagName) : 'none' };
             })() })),   // #3952: the code in the shared boxes
           listPending: document.querySelectorAll('#plus-devlist [data-ask]').length, listNames: [...document.querySelectorAll('#plus-devlist .devname')].map((e) => e.textContent.trim()),
-          listMetas: [...document.querySelectorAll('#plus-devlist .devrow')].map((r) => [r.querySelector('.devname').textContent.trim(), r.querySelector('.devmeta').textContent.trim()]),
+          listMetas: [...document.querySelectorAll('#plus-devlist .devrow')].map((r) => [r.querySelector('[data-dev="remove"]').dataset.id, r.querySelector('.devmeta').textContent.trim()]),
           leftBar: [...document.querySelectorAll('#plus-ask-rows .askreq')].every((c) => getComputedStyle(c).borderLeftWidth === getComputedStyle(c).borderTopWidth),
         };
       });
@@ -361,7 +361,7 @@ const STATES = {
       /* #4794 (part C): a device another of the person's computers allowed names that computer; one this computer
          allowed (allowed_on null) and one from a tunnel without part C (no field) read exactly as before. */
       { const m = Object.fromEntries(v.listMetas);
-        chk(/^allowed on windowsbox · let in /.test(m['iPhone'] || '') && !/allowed on/.test(m['Mac browser'] || '') && !/allowed on/.test(m['Unknown device'] || ''),
+        chk(/^allowed on windowsbox · let in /.test(m['d-other'] || '') && ['d-mac', 'd-noname'].every((id) => typeof m[id] === 'string' && !/allowed on/.test(m[id])),
           `${t} #4794: a device allowed on another computer says "allowed on windowsbox"; ones allowed here do not`, JSON.stringify(v.listMetas)); }
       chk(!v.listNames.some((n) => n === 'device') && v.listNames.includes('Unknown device'), `${t} an unnamed devices-list row reads "Unknown device", never just "device"`, JSON.stringify(v.listNames));
       /* #4610 (Josh's ruling 2026-09-29 13:00) reverses ICK's #3829 relabel: this computer's own sign-in is granted by the

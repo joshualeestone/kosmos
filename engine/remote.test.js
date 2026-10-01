@@ -1031,7 +1031,7 @@ test('#4794: allowed_on carries the name of the computer that allowed a device, 
     assert.equal(by['dev-2'], null, 'null is this computer');
     assert.equal(by['dev-3'], null, 'a number is not a computer name');
     assert.equal(by['dev-4'], null, 'a blank name is not a computer name');
-    assert.equal(by['dev-5'].length, 60, 'a long name is cut like a device name');
+    assert.equal(by['dev-5'], 'x'.repeat(60), 'a long name is cut to its first 60 characters, like a device name');
   } finally { delete process.env.FAKE_TUNNEL_MODE; }
 });
 
