@@ -195,6 +195,10 @@ const GUIDE_SECRET_LINES = [
  * setup is a thing they have forgotten by the time the draft arrives. The
  * boundary is also written into the agent's own instructions, so it holds for
  * the agent as well as for the person. Both, or neither is worth much.
+ *
+ * 📌 #4871 (Josh, 2026-10-01): on the Create a Swarm path the picker shows only a caution that disclaims professional
+ * advice (web/index.html paintPickLimit); an operational line such as "nothing goes out without the owner" is not
+ * shown there. The single-agent path shows every caution as above.
  */
 
 /* ⚠️ THE CATALOGUE IS WRITTEN ELSEWHERE AND BUILT HERE. The roles below

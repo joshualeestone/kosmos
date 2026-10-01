@@ -44,3 +44,8 @@ the swarm path. Mutations: dropping the swarm rule reds it; dropping the advice 
 - Round 5 (opus): DUPLICATE W (the partial-removal call; it goes to Josh through Splinter with the card comment).
   FIXED W: the paintPickLimit call in paintPathOptions is pinned in the test; deleting it reds the test (mutation run,
   file restored and cmp-verified; the browser run in flight was frozen at aab1af746 and could not see it).
+- Round 6 (sonnet): DEFERRED W: reach cautions (e.g. "can make a new agent once you say yes") go on the swarm path too;
+  Josh's own example ("nothing goes out without the owner") is a reach line and is the one he asked gone, so his 10-01
+  words decide it. engine/roles.js's caution header now says so, so the next reader does not reopen 08-10. FIXED W: the
+  test runs every built-in role's caution through the real function (single keeps all; every built-in disclaimer
+  survives the swarm path), so a built-in role added with a disclaimer is checked without a hand-written string.

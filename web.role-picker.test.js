@@ -66,6 +66,16 @@ test('a role\'s limit is said on step one, under the dropdown, the moment it is 
   const om = 'It drafts customer messages and plans; nothing goes out without the owner.';
   assert.equal(run('officemanager', false, om, 'swarm').hidden, true, 'the swarm path still shows an operational line under the menu');
   assert.equal(run('officemanager', false, om, 'single').hidden, false, 'the single-agent path lost its line');
+  // Every built-in role's caution, through the real function: one that disclaims professional advice survives the
+  // swarm path; the single path keeps every one.
+  const roles = require('./engine/roles');
+  const builtin = (roles.ROLES || []).filter((r) => r.caution);
+  assert.ok(builtin.length >= 3, 'the built-in roles carry no cautions to check');
+  for (const r of builtin) {
+    assert.equal(run(r.key, false, r.caution, 'single').hidden, false, 'single path hid ' + r.key);
+    if (/\b(advice|lawyer)\b/i.test(r.caution)) assert.equal(run(r.key, false, r.caution, 'swarm').hidden, false, 'swarm path hid the disclaimer of ' + r.key);
+  }
+  assert.ok(builtin.filter((r) => /\b(advice|lawyer)\b/i.test(r.caution)).length >= 3, 'no built-in disclaimer reached the swarm check');
   // ACCEPTED, so it is a decision and not an accident: an operational line that names a professional word is KEPT on
   // the swarm path. A wrong keep shows one sentence too many; a wrong hide would break the 08-10 condition.
   assert.equal(run('x', false, 'It tracks tax deadlines; nothing is filed without the owner.', 'swarm').hidden, false);
