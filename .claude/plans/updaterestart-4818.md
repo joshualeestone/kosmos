@@ -8,9 +8,10 @@ again on the install that is on disk, no board.stopped, and a line saying which 
 had stopped stays stopped.
 
 ## The change (install/setup.sh)
-- A `BEGIN/END #4818 put-back` block before the update pause: `_kosmos_put_board_back` (remove board.stopped, `kosmos
-  start --force`, check the port answers, say "Kosmos is running again on <version>" or how to start it) and an EXIT
-  trap that calls it when the run exits non-zero (a die, or set -e).
+- A `BEGIN/END #4818 put-back` block before the update pause: `_kosmos_put_board_back` (read the mode again and start
+  nothing if it now keeps the board off; remove board.stopped; `KOSMOS_RECLAIM_BUSY=1 kosmos start --force`; check the
+  port answers; say "Kosmos is running again (<version on disk>)" or how to start it) and an EXIT trap that calls it
+  when the run exits non-zero (a die, or set -e).
 - At the pause: `_kosmos_was_running=yes` only if the mode runs the board here, there is no board.stopped, and the board
   answers on its port BEFORE the stop.
 - After the pause holds (the existing #2055 "got past the pause" point): `_kosmos_paused_board="$_kosmos_was_running"`.
@@ -31,7 +32,16 @@ KeepAlive start the board at the same time as `kosmos start --force`; the same p
 ## Tests (tools/test-update-putback-4818.sh, wired into test:shell; runs the shipped bytes)
 A fake kosmos on a real port: a failed update puts the board back (answers, no board.stopped, "running again on
 0.7.11"); controls: a board stopped before the run stays stopped, and a board answering but marked stopped stays
-stopped; a failure after the new board started, and a successful run, restart nothing. Mutants, each failing a test:
-trap neutered, any exit restarts, the marker ignored, the marker kept. The installer shell tests near the pause
+stopped; a failure after the new board started (the shipped line), and a successful run, restart nothing; a failure
+through the shipped die() puts it back; a switch to connect during the run keeps it off. The harness takes the shipped
+mode readers and calls _kosmos_board_decide where setup does. 10/10. Mutants, each failing a test:
+trap neutered, any exit restarts, the marker ignored, the marker kept, the mode not re-read (any edit to the
+anchored lines also fails the test, by design). The installer shell tests near the pause
 (#2055, #964, install-static and its control, runnable guard, progress emit, resolve user, zsh tied names) and the
 wiring tests (every-test-runs, shell shard, install reachable, local board) pass.
+
+## Review
+Round 1: no blocker. 2 should-fix taken: the put-back re-reads the mode (a connect switch during the run kept its board
+off only until a failure), and the test now drives the shipped started line and die(). Nits taken: the message names the
+version on disk without claiming it is the old one; the start reclaims a busy port as the normal start does. Noted, not
+changed: a Ctrl-C also stops the log reader, so the trap's line can be lost while the board is still started.
