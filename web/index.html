@@ -43121,8 +43121,12 @@ async function paintDevices() {
   const list = document.getElementById('plus-devlist');
   const msg = document.getElementById('plus-devmsg');
   if (ASK.said && Date.now() - ASK.saidAt > REMOVE_SAID_MS) ASK.said = '';
-  // #4824: a list that cannot be read this time does not replace what a Remove just said (it would come back next poll).
-  if (!r || !Array.isArray(r.allowed)) { if (!ASK.said) msg.textContent = plusWords((r && r.error) || 'we could not read the devices'); return; }
+  // #4824: a list that cannot be read this time is said after what a Remove just said, not instead of it.
+  if (!r || !Array.isArray(r.allowed)) {
+    const err = plusWords((r && r.error) || 'we could not read the devices');
+    msg.textContent = ASK.said ? ASK.said + ' The list above could not be read just now.' : err;
+    return;
+  }
   /* #4824: what the last Remove said stays through every repaint (the 5 s poll included) until the next
      Remove or Keep in this list, or REMOVE_SAID_MS, so the warning that matters most is not gone before it is read.
      An unchanged line is not rewritten: the element is an assertive alert, and the poll runs every 5 s. */
