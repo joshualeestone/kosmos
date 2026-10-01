@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: digestwords-4415
 diff_hash: a60b22a929a8e05b801702d6dc4739bb935a01049b3d90ed9fe84bb60dcfe215
-validation: pending (full validation queued on Agent1s for this head)
+validation: passed (Agent1s, 65e17478a: 13113 tests, 1 red = cli.busy-health-4466 timing budget, untouched here, 46/46 alone 3 of 4 runs; timeout-only amendment)
 subdir_audit: passed
 timestamp: 2026-09-30T22:46:05Z
 iterations: 6
