@@ -28,3 +28,16 @@ agent whose launch folder differs from its worker folder.
 ## Tests
 engine/musefront.test.js (kept, unchanged by a turn with no model, an unsafe id refused, a change kept, mode 0600);
 server.whoami-muse-4603.test.js (no model claimed before a turn, then the card and whoami name the kept one).
+
+## Review 1 (Opus, blind, source-only): 1 blocker, 2 warnings, 3 nits
+- B1 the board read the agent-writable model file with a bare readFileSync on every tick (a fifo hangs snapshot(), a
+  link to /dev/zero floods it): FIXED, through readWorkerFile (refuses links and non-regular files, O_NONBLOCK, size
+  cap), as every other reader of the workers directory does. Arm: a fifo returns at once and names no model.
+- W2 the front's folder (fixed in the job at write time) and the board's (workerDir live) could diverge if the
+  recorded folder changes after the job was written: ACCEPTED and stated; both come from workerDir today, and
+  readGrokSession rests on the same assumption.
+- W3 the kept model is never cleared (provider switched away and back, a new sign-in): FIXED, the front forgets it at
+  start (forgetModel), so no model is claimed until a turn of this life names one.
+- N4 readMuseSession sat under the Grok comment: FIXED, moved above it.
+- N5 test pins: FIXED, source 'session' and the display name "Muse Spark 1".
+- N6 keepModel followed links: FIXED, lstat; only a regular file is read or replaced, written via a temp + rename.

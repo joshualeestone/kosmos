@@ -823,3 +823,18 @@ test('#4603 N12: the model a turn names is kept beside the session id; a turn wi
   assert.equal(kept(), 'muse-spark-2', 'a changed model was not kept');
   assert.equal((fs.statSync(front.modelFile(ws)).mode & 0o777).toString(8), '600');
 });
+
+test('#4603 N12 review 1: a link or fifo at the model file is not followed or replaced; forgetModel clears a kept model at start', () => {
+  const ws = mkTemp('muse-model-guard-');
+  fs.mkdirSync(path.dirname(front.modelFile(ws)), { recursive: true });
+  const target = path.join(ws, 'elsewhere.txt');
+  fs.writeFileSync(target, 'untouched\n');
+  fs.symlinkSync(target, front.modelFile(ws));
+  assert.equal(front.keepModel(ws, 'muse-spark-1'), false, 'a link was written through');
+  assert.equal(fs.readFileSync(target, 'utf8'), 'untouched\n');
+  fs.unlinkSync(front.modelFile(ws));
+  // CONTROL: a regular file is kept, then forgotten at a start.
+  assert.equal(front.keepModel(ws, 'muse-spark-1'), true);
+  assert.equal(front.forgetModel(ws), true);
+  assert.equal(fs.existsSync(front.modelFile(ws)), false, 'the last life\'s model survived a start');
+});

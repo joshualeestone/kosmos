@@ -5691,12 +5691,9 @@ function geminiLastCompletionAt(agentName) {
  * the Gemini ring landed before the Gemini launcher.
  * ------------------------------------------------------------------------- */
 
-/* Resolve a Grok agent's launch folder to its session and read it, ONCE.
-   Mirrors readGeminiSession: workerDir + readJob, gate on runner 'grok', read the
-   agent's OWN account home (job.configDir), FAIL CLOSED to the default-account home
-   only when configDir is null (never the board's). #2906 discipline. */
 /* #4603 N12: a Muse (Meta) agent's model, as its front kept it from the last turn that named one (engine/musefront.js
-   keepModel, `.kosmos/muse-model` in its folder). { found, model }; never throws. */
+   keepModel, `.kosmos/muse-model` in its folder). { found, model }; never throws. Read through readWorkerFile (review
+   1): the agent can write that file, so a fifo, a link or a huge file must not hang or flood the board's tick. */
 function readMuseSession(agentName) {
   const create = require('./create');
   let dir;
@@ -5705,11 +5702,17 @@ function readMuseSession(agentName) {
   try { job = create.readJob(agentName); } catch { job = null; }
   if (!dir || !job || job.runner !== 'muse') return { found: false };
   try {
-    const model = fs.readFileSync(require('./musefront').modelFile(dir), 'utf8').trim();
+    const got = readWorkerFile(require('./musefront').modelFile(dir), dir);
+    if (!got || !got.ok) return { found: false };
+    const model = got.buf.toString('utf8').trim();
     return /^[A-Za-z0-9._:/-]{1,120}$/.test(model) ? { found: true, model } : { found: false };
   } catch { return { found: false }; }
 }
 
+/* Resolve a Grok agent's launch folder to its session and read it, ONCE.
+   Mirrors readGeminiSession: workerDir + readJob, gate on runner 'grok', read the
+   agent's OWN account home (job.configDir), FAIL CLOSED to the default-account home
+   only when configDir is null (never the board's). #2906 discipline. */
 function readGrokSession(agentName) {
   const create = require('./create');
   let dir;

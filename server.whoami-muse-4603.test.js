@@ -53,5 +53,15 @@ test('#4603 N12: a Muse agent\'s card and whoami name the model its last turn na
   assert.equal(after.model, 'muse-spark-1', 'the card did not read the kept model');
   const who = whoamiFor(after, [], NO_LIVE());
   assert.equal(who.model && who.model.id, 'muse-spark-1', JSON.stringify(who.model));
-  assert.match(sentenceForWhoami(who.account, who.model, who.resolvedRunner), /Meta Muse agent, .*its model is /);
+  assert.equal(who.source.model, 'session', 'answered from somewhere other than the card\'s own record');
+  assert.equal(who.model.name, 'Muse Spark 1');
+  assert.match(sentenceForWhoami(who.account, who.model, who.resolvedRunner), /Meta Muse agent, .*its model is Muse Spark 1\./);
+
+  // Review 1: the agent can write that file. A fifo in its place must not hang the board's tick, and names no model.
+  fs.rmSync(musefront.modelFile(dir));
+  require('node:child_process').execFileSync('mkfifo', [musefront.modelFile(dir)]);
+  const t0 = Date.now();
+  const fifo = card();
+  assert.ok(Date.now() - t0 < 10000, 'the board waited on a fifo');
+  assert.equal(fifo.model || null, null, 'a fifo was read as a model');
 });

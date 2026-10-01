@@ -48,12 +48,25 @@ function modelFile(workspace) { return path.join(workspace, '.kosmos', 'muse-mod
 function keepModel(workspace, model) {
   if (typeof model !== 'string' || !/^[A-Za-z0-9._:/-]{1,120}$/.test(model)) return false;
   const file = modelFile(workspace);
-  try { if (fs.readFileSync(file, 'utf8').trim() === model) return true; } catch { /* not kept yet */ }
+  // Only a regular file is read or replaced (review 1): a link or a fifo in its place is left alone, not followed.
+  let st = null;
+  try { st = fs.lstatSync(file); } catch { st = null; }
+  if (st && !st.isFile()) return false;
+  try { if (st && fs.readFileSync(file, 'utf8').trim() === model) return true; } catch { /* rewritten below */ }
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, model + '\n', { mode: 0o600 });
+    const tmp = file + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tmp, model + '\n', { mode: 0o600 });
+    fs.renameSync(tmp, file);
     return true;
   } catch { return false; }
+}
+
+/* At the front's start the last life's model is forgotten (review 1): a Muse agent moved to another provider and back,
+   or signed in again, must not show an old model until its first turn names the current one. */
+function forgetModel(workspace) {
+  try { const st = fs.lstatSync(modelFile(workspace)); if (st.isFile()) fs.unlinkSync(modelFile(workspace)); return true; }
+  catch { return false; }
 }
 
 /**
@@ -458,6 +471,7 @@ function main(argv = process.argv) {
      execution is off". Never at module load: tests require this file and must stay fail-closed. */
   require('./live-execution').allowLiveExecution();
   const { id, note } = loadSession(workspace);
+  forgetModel(workspace);   // #4603 N12: no model is claimed until a turn of this life names one
   write(HELLO + '\n');
   if (note) write(note + '\n');
   const report = makeReporter();
@@ -479,4 +493,4 @@ function main(argv = process.argv) {
 
 if (require.main === module) main();
 
-module.exports = { createFront, loadSession, sessionFile, modelFile, keepModel, makeReporter, printable, answersTheDm, UUID_RE, PROMPT, HELLO, WORKING_EVERY_MS };
+module.exports = { createFront, loadSession, sessionFile, modelFile, keepModel, forgetModel, makeReporter, printable, answersTheDm, UUID_RE, PROMPT, HELLO, WORKING_EVERY_MS };
