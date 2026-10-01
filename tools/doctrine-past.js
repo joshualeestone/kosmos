@@ -3,8 +3,8 @@
 /*
  * Regenerates engine/doctrine-past.js (#4890): the fingerprint of every working-rules block Kosmos has ever
  * written into an agent's instructions, so doctrine.planFor can recognise an unedited plain copy and offer the
- * current rules in its place. Run it after changing BLOCK in engine/defaults.js (doctrine.test.js reds until you
- * do):
+ * current rules in its place. Run it after changing BLOCK in engine/defaults.js (engine/doctrine-4890.test.js
+ * reds until you do):
  *
  *   node tools/doctrine-past.js
  *
@@ -31,7 +31,8 @@ try {
   sources.forEach((src, i) => {
     const file = path.join(tmp, `d${i}.js`);
     fs.writeFileSync(file, src.text);
-    const mod = require(file);
+    let mod;
+    try { mod = require(file); } catch (err) { console.warn(`skipped ${src.from}: ${err.message}`); return; }
     const block = typeof mod.block === 'function' ? mod.block() : null;
     if (typeof block !== 'string' || !block) return;
     const sha256 = crypto.createHash('sha256').update(block).digest('hex');

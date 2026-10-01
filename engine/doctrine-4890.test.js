@@ -81,7 +81,7 @@ test('#4890: the shipped table holds today\'s block and every version before it 
 
 test('#4890: the board passes `replacing` through, and the dialog says the older copy is replaced in place', () => {
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(server, /replacing: st\.replacing === true,/, 'GET /doctrine no longer sends replacing');
+  assert.equal((server.match(/replacing: st\.replacing === true,/g) || []).length, 2, 'GET /doctrine or the fleet list no longer sends replacing');
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   assert.match(page, /\(plan\.replacing\s*\n\s*\? 'Your words stay exactly as they are\. The older copy of these rules that Kosmos added is replaced with '/,
     'the consent dialog no longer says the older copy is replaced');

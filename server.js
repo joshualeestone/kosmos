@@ -6428,6 +6428,7 @@ const server = http.createServer(async (req, res) => {
         state: st.declined === true && st.state === 'refresh' ? 'declined' : st.state,
         because: st.because || null,
         sections: (st.sections || []).map((s) => s.heading),
+        replacing: st.replacing === true,   // #4890, as GET /doctrine
       };
     });
     sendJson(res, 200, { currentVersion: require('./engine/defaults').DOCTRINE_VERSION, agents: rows });

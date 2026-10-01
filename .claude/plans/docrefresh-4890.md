@@ -33,7 +33,9 @@ behaviour that had changed (#4627 links, #4582 `reply --stdin`) because their in
   regenerate it.
 
 ## Weakest premise
-That most existing agents carry an unedited copy. 3 of 3 here did (v15 twice, v18 once), a small sample. A person
+That most existing agents carry an unedited copy, of a block that was COMMITTED: the table is built from
+engine/defaults.js's git history, so a block that was only ever shipped from an uncommitted tree cannot be matched
+(and unreleased intermediate commits add harmless extra rows). 3 of 3 here did (v15 twice, v18 once), a small sample. A person
 who edited theirs is offered only missing headings, as before; birth in the span is the lasting fix.
 
 ## Tests
