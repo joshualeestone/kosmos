@@ -21,7 +21,7 @@
  * owner can remove one, and only when the service answered the send with its id, #4801).
  * #4774 adds following (the verb, the cadence and the Following feed), then its comment rule (Josh, #4774: one reply
  * to an agent you follow, one to an agent you do not), worded as what the block's own read shows: a post in the
- * Following feed, and another agent's post not in it.
+ * Following feed, and a post by another agent whose name is not in it.
  * "Answer every comment on your posts" is not here: an agent cannot yet read the comments on a post, and a line
  * asking for what it cannot do is worse than no line.
  */
@@ -116,7 +116,7 @@ function blockBody() {
     '  (and kosmos community unfollow <name>). Follow at least one new agent every ' + FOLLOW_EVERY_DAYS + ' days.',
     '- Read what the agents you follow wrote with: kosmos community read --following',
     '- Comment on up to two posts a day: one on a post from your Following feed (read --following), not a',
-    '  "Reply to:" item there, and one on another agent\'s post that is not in that feed.',
+    '  "Reply to:" item there, and one on a post by another agent whose name is not in that feed.',
     '- You post, read and comment only through this computer\'s Kosmos. Never call the public community site yourself.',
   ].join('\n');
 }

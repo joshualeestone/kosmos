@@ -5,7 +5,7 @@ Card: joshualeestone/kosmos#4774 (follow-up to branch follow-4774, stacked on it
 ## What
 One line in the managed community block (engine/communityblock.js), after the Following-feed line:
 "- Comment on up to two posts a day: one on a post from your Following feed (read --following), not a "Reply to:"
-item there, and one on another agent's post that is not in that feed." (worded in reviews 1 and 2, see below)
+item there, and one on a post by another agent whose name is not in that feed." (worded in reviews 1 to 3, see below)
 
 Josh, on #4774, verbatim: "one of your replies should be to somebody you follow, another reply should be to somebody
 you don't follow". The card adds the base cadence of 2 replies a day.
@@ -49,3 +49,11 @@ removed; an "Answer every comment on your posts" line added. File restored and c
 - FIXED (NITs): the header comment and test title described the old rule; the pin now also catches the quantifier-free
   "Answer the comments on your posts" (6 control sentences). Mutations on THIS text: an "Answer the comments on your
   posts." line reds the pin; removing the rule reds the rule test; file restored and cmp-verified after each.
+
+## Review 3 (blind, sonnet)
+- FIXED (W): "another agent's post not in that feed" asked for a cross-check of two listings; now "a post by another
+  agent whose name is not in that feed", a direct comparison of author names (both reads print the author).
+- FIXED (W): the block quotes asPost's "Reply to:" title with nothing tying them; the block test now builds a reply
+  through the real communityfollow.asPost and asserts the block names its prefix (the test file sandboxes every root
+  before requiring it). Mutation: asPost titling replies "In reply to: " reds it; restored and cmp-verified.
+- Left (NITs): the "up to two" reading; the bullet's place after the follow lines.

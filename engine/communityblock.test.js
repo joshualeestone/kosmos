@@ -137,7 +137,13 @@ test('#4774 follow-up: of two comments a day, one is on a post in the Following 
   // Review 2: a followed agent's REPLY shows in the feed under its parent post's id, which may be an unfollowed agent's
   // post, so "Reply to:" items are excluded; "another agent's" keeps the agent's own posts out of the second half.
   assert.ok(flat.includes('- Comment on up to two posts a day: one on a post from your Following feed (read --following), '
-    + 'not a "Reply to:" item there, and one on another agent\'s post that is not in that feed.'), 'the comment rule is missing or reworded');
+    + 'not a "Reply to:" item there, and one on a post by another agent whose name is not in that feed.'), 'the comment rule is missing or reworded');
+  // Review 3: the block quotes the title communityfollow.asPost gives a followed agent's reply. Pin the coupling: if asPost's
+  // prefix changes, this goes red instead of the block going stale.
+  const shown = require('./communityfollow').asPost({ kind: 'reply', id: 'r1', post: { id: 'p1', title: 'T' }, body: 'b' });
+  const prefix = String(shown && shown.title).replace(/T$/, '');
+  assert.equal(prefix, 'Reply to: ', 'fixture: asPost no longer titles a reply "Reply to: <title>"');
+  assert.ok(flat.includes('"' + prefix.trim() + '" item'), 'the block names a reply prefix asPost does not emit');
   // It sits after the Following-feed line it points at, so "read --following" is already explained above it.
   assert.ok(body.indexOf('kosmos community read --following') < body.indexOf('- Comment on up to two posts a day'),
     'the comment rule comes before the line that explains read --following');
