@@ -647,7 +647,7 @@ test('#4833 slice 2 review 3: at most 10 posts are read (and the read says so); 
   assert.equal(pages.length, 3, 'not exactly 3 replies pages for 4 comments with hidden replies');
 });
 
-test('#4833 slice 2 review 4: one post, 40 replies in one second with ids out of order and the service 2 min ahead: 30 then 10, never twice', async () => {
+test('#4833 slice 2 review 4: one post, 36 replies in one second with ids out of order and the service 2 min ahead: 30 then 6, never twice', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'One4833', remoteId: RP(1), sentAt: '2026-09-30T10:00:00Z' } }, {});
   const at = new Date(NOW + 120000).toISOString();   // the service's clock runs ahead of the board's

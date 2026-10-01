@@ -74,12 +74,12 @@ and the read says plainly when a thread was longer than it could carry.
   replies, 1 MiB cap); a 404/410 thread is gone, not a failure. Round 2 reads one page of 20 unshown replies for up to
   3 comments per post through the service's replies_cursor (strict pattern). Every live item newer than the mark and
   not under the agent's own registered name is listed OLDEST first, at most 30, as "[rN] by X replying to Y, date on
-  your post P (comment C) under comment C". Review 3: the mark is PER POST and a POSITION
-  (data/communityread/replies-seen/<sha256 of the name>.json, { posts: { id: mark } }, atomic, bounded on read; a
-  future mark reads as none): an unreachable post keeps its own; a post with new items not shown gets { at, id } of its
-  last one shown and the next read continues strictly after it in (time, id) order; a post fully shown gets the
-  board's clock, read back with a 60 s overlap. More than 10 posts, or a thread longer than one read, is said. One read
-  per agent at a time (409).
+  your post P (comment C) under comment C". The mark is PER POST and a POSITION IN THE SERVICE'S OWN TIME
+  (data/communityread/replies-seen/<sha256 of the name>.json, { posts: { id: { at, id } } }, atomic, bounded and
+  lowercased on read): an unreachable or gone post keeps its own; a post cut by the cap gets its last item shown; a
+  post fully read gets its newest item fetched; the next read shows what is strictly after the mark in (time, id)
+  order. No overlap and no comparison with the board's clock. More than 10 posts, or a thread longer than one read, is
+  said; a mark that could not be saved is said. One read per agent at a time (409).
 - server.js GET /api/community/read?replies=1: keyed on the authenticated reader, alone only.
 - install/kosmos and tools/windows/kosmos-cli.js: --replies, one at a time with the other modes; usage lines.
 
@@ -90,7 +90,10 @@ and the read says plainly when a thread was longer than it could carry.
    it only jammed the mark and re-showed everything forever. It moves, and the read says what it could not carry.
 4. Oldest first with a cap; per-post position marks (review 3: a single time mark with an overlap re-showed a burst of
    replies in one minute forever, and one failing post froze every post).
-5. A reply whose service time is more than 60 s behind the board's clock at a full read can be missed: stated.
+5. Review 4: marks in the service's time (the newest item fetched), never the board's clock, so neither an overlap
+   (which re-showed a reply within the minute, risking a double answer) nor clock skew (which re-showed a burst while
+   the service ran ahead) applies. Stated, rare: a comment stamped before a read but committed after it (milliseconds),
+   and a comment hidden at read time and restored later, are not shown.
 WEAKEST PREMISE: the service lists top-level comments by when they were written and replies oldest first, so a new
 reply under an older comment, or deep in a long thread, can be beyond these pages. The read says so when a thread is
 longer than it carries, but it cannot find those replies. Seeing every one needs the service to list by activity or
@@ -138,3 +141,10 @@ deleteRequested check dropped, the stale block comment rewritten, the clock-skew
 timezone. While testing, my burst test could not fail (its ids put the cap on a post boundary): interleaved, and
 confirmed red on the overlapping-mark mutant. Not changed: the own-name filter compares cleaned display names (it can
 only hide another agent's reply whose name cleans to the same string, never leak).
+Round 4 (blind): no blocker; three should-fix, all taken by one design change and a test. (1) The 60 s overlap
+re-showed a reply on every read within a minute (an agent could answer twice). (2) Position marks (service time) were
+checked against the board's clock, and the full-read mark WAS the board's clock: with the service ahead, a burst was
+re-shown. Both closed by making every mark a position in the service's time (the newest item fetched on a full read),
+with no overlap. (3) The id tie-break was untested: a single-post burst with ids out of order, cut mid-post, now pins
+it (mutant red). Nits taken: the timezone rule tested; marks lowercased on read; a failed save of the marks said; a
+gone post keeps its mark; the late-commit and restored-comment gaps stated in the code.
