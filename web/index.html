@@ -2644,6 +2644,26 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    track it is the least readable thing on screen at exactly the moment it is
    the only thing that matters (same rule the projects grid records) */
 .cards > .err, .cards > .pj-empty { grid-column: 1 / -1; }
+/* kosmos#4812: other computers' agents, below this computer's cards. Read-only cards: a link, no buttons. */
+.oa-wrap { margin-top: 32px; }
+.oa-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+          border-top: 1px solid var(--k-rule); padding-top: 18px; }
+.oa-title { margin: 0; font-size: 15px; font-weight: 600; color: var(--k-ink); }
+.oa-only { font-size: 13px; color: var(--k-ink-2); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.oa-group { margin-top: 18px; }
+.oa-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.oa-badge { font-size: 12px; font-weight: 600; color: var(--k-ink); background: var(--k-sunk);
+            border: 1px solid var(--k-rule); border-radius: 999px; padding: 2px 10px; }
+.oa-note { font-size: 13px; color: var(--k-ink-2); }
+.oa-open { font-size: 13px; color: var(--k-ink); }
+.oa-cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); }
+.oa-card { display: flex; flex-direction: column; gap: 4px; min-width: 0; text-decoration: none;
+           background: var(--k-surface); color: var(--k-ink); border: 1px solid var(--k-rule);
+           border-radius: 12px; padding: 12px 14px; }
+a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
+.oa-card .oa-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oa-card .oa-sub { font-size: 12px; color: var(--k-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oa-card.oa-off { opacity: .55; }
 .acard { display: flex; flex-direction: column; background: var(--k-surface);
          color: var(--k-ink);
          border: 1px solid var(--k-rule); border-radius: 16px;
@@ -18535,6 +18555,16 @@ window.kosmosMeasureScrollbarWidth();
      which is the ordinary case and must not carry a banner. -->
 <div id="restart-wrap" hidden></div>
 <div class="cards" id="grid"></div>
+<!-- kosmos#4812: the agents of this account's OTHER computers, read by this browser from each of them (each
+     computer decides who reads it). Only on a page served from this computer's own Kosmos+ address; absent
+     everywhere else. Read-only: every card opens the agent on its own computer. -->
+<section class="oa-wrap" id="oa-wrap" aria-labelledby="oa-title" hidden>
+  <div class="oa-top">
+    <h2 class="oa-title" id="oa-title">Your other computers</h2>
+    <label class="oa-only"><input type="checkbox" id="oa-only"> This computer only</label>
+  </div>
+  <div id="oa-groups"></div>
+</section>
 <!-- #520, piece two: the agents rail's head. Exists only in the consolidated
      view (showTab shows it with the mode). The + is the board's own New
      agent; the arrow folds the column to its letters. -->
@@ -27730,6 +27760,204 @@ function computersRender(data) {
   /* #4823: the phone menu's computers level copies these rows; refill it from whichever answer this was. */
   if (typeof pnavRefresh === 'function') pnavRefresh();
 }
+/* ===== kosmos#4812: the agents of all your computers, in the Agents view =====
+   🔑 READ BY THIS BROWSER, FROM EACH COMPUTER, NEVER BY THE BOARD. Each other computer is asked for its own
+   /api/status with this browser's own sign-in for it (credentials: 'include'). That computer's relay answers a
+   listed sibling of its own account, and only for a browser it already lets in (kosmos-relay siblingcors-4812);
+   any other browser gets its gate's answer and the group says so, with no agents. That is the card's rule: each
+   computer still decides who may read it.
+   🔑 ONLY FROM THIS COMPUTER'S OWN KOSMOS+ ADDRESS. A page anywhere else (the app's 127.0.0.1 board, a LAN
+   address) is another site to every sibling, so its cookie is never sent: the section is absent there.
+   🛑 NOT MIXED INTO `LAST`. Every button on today's cards acts on THIS board's engine. Another computer's agents
+   live in their own read-only groups, and each card opens the agent on its own computer.
+   ⚠️ The other computer's answer is untrusted here: text goes in through textContent, and every URL is built from
+   the coordinator's checked address plus an encoded sessionName, never from the answer. */
+const OA_COMPUTERS_EVERY_MS = 60000;   // the computers route probes each computer, so not every round
+const OA_STATUS_EVERY_MS = 15000;
+const OA_READ_LIMIT_MS = 10000;
+let OA_COMPUTERS = null;               // the last good /api/remote/computers answer
+let OA_COMPUTERS_AT = 0;
+const OA_SEEN = new Map();             // address -> { state: 'ok'|'notin'|'blocked'|'out', agents, at }
+let OA_TIMER = null;
+let OA_BUSY = false;
+
+function oaThisOnly() {
+  try { return localStorage.getItem('kosmos.agents.thisOnly') === '1'; } catch { return false; }
+}
+function oaSetThisOnly(on) {
+  try { if (on) localStorage.setItem('kosmos.agents.thisOnly', '1'); else localStorage.removeItem('kosmos.agents.thisOnly'); } catch { /* display preference only */ }
+}
+/* Whether this page can read its siblings: served over https from the address of the row marked `this`. */
+function oaEligible(data, loc) {
+  if (!data || data.ok !== true || !Array.isArray(data.computers) || !loc || loc.protocol !== 'https:') return false;
+  const me = data.computers.find((c) => c && c.this === true);
+  return !!me && typeof me.address === 'string' && me.address === String(loc.hostname || '').toLowerCase()
+    && computerAddressOk(me.address, data.domain);
+}
+function oaOthers(data) {
+  if (!data || !Array.isArray(data.computers)) return [];
+  return data.computers.filter((c) => c && c.this !== true && typeof c.name === 'string' && c.name
+    && computerAddressOk(c.address, data.domain));
+}
+/* An answer: 200 with an agents list is that computer's agents; any other answer short of a server error is its
+   gate (this browser is not let in there). No answer, or a server error, is "not reachable". */
+function oaClassify(status, body) {
+  if (status === 200 && body && Array.isArray(body.agents)) return 'ok';
+  if (typeof status === 'number' && status >= 200 && status < 500) return 'notin';
+  return 'out';
+}
+/* What to keep. Unreachable keeps the last list this page read, to be shown greyed; not let in keeps nothing. */
+function oaRemember(seen, address, state, agents, now) {
+  const prev = seen.get(address);
+  let next;
+  if (state === 'ok') next = { state, agents, at: now };
+  else if (state === 'out' || state === 'blocked') next = { state, agents: prev && prev.agents ? prev.agents : null, at: prev ? prev.at : null };
+  else next = { state, agents: null, at: null };
+  seen.set(address, next);
+  return next;
+}
+function oaAgentsOf(body) {
+  return body.agents.filter((a) => a && typeof a === 'object' && a.isGuide !== true
+    && typeof a.sessionName === 'string' && a.sessionName);
+}
+function oaAgentHref(address, sessionName) {
+  return 'https://' + address + '/?agent=' + encodeURIComponent(sessionName);
+}
+async function oaReadOne(c) {
+  const ac = typeof AbortController === 'function' ? new AbortController() : null;
+  const cut = ac ? setTimeout(() => ac.abort(), OA_READ_LIMIT_MS) : null;
+  let state = 'out', agents = null;
+  try {
+    const opts = { cache: 'no-store', credentials: 'include', mode: 'cors' };
+    if (ac) opts.signal = ac.signal;
+    const res = await fetch('https://' + c.address + '/api/status', opts);
+    let body = null;
+    try { body = await res.json(); } catch { body = null; }
+    state = oaClassify(res.status, body);
+    if (state === 'ok') agents = oaAgentsOf(body);
+  } catch {
+    /* No answer the page may read. A computer the board just reached is up, so it answered and did not let this
+       page read it (an older connector without the sibling answer does exactly that). */
+    state = c.online === true ? 'blocked' : 'out';
+  } finally { if (cut) clearTimeout(cut); }
+  return oaRemember(OA_SEEN, c.address, state, agents, Date.now());
+}
+function oaNote(c, seen, now) {
+  const st = seen ? seen.state : 'reading';
+  const last = typeof c.lastSeen === 'number' ? agoWords(now - c.lastSeen * 1000) : '';
+  if (st === 'reading') return 'Reading its agents...';
+  if (st === 'ok') return '';
+  if (st === 'notin') return 'This browser is not let in on ' + c.name + ' yet. Open it to sign in.';
+  const kept = seen && seen.agents ? ' Showing what this page last read.' : '';
+  if (st === 'blocked') return c.name + ' is online but did not let this page read its agents.' + kept;
+  return 'Not connected' + (last ? ', last seen ' + last : '') + '.' + kept;
+}
+function oaCard(a, c, off) {
+  const el = document.createElement(off ? 'div' : 'a');
+  el.className = off ? 'oa-card oa-off' : 'oa-card';
+  const name = (typeof a.name === 'string' && a.name.trim()) || a.sessionName;
+  if (!off) {
+    el.href = oaAgentHref(c.address, a.sessionName);
+    el.target = '_blank';
+    el.rel = 'noopener noreferrer';
+    el.setAttribute('aria-label', 'Open ' + name + ' on ' + c.name);
+  }
+  const nm = document.createElement('span');
+  nm.className = 'oa-name';
+  nm.textContent = name;
+  const sub = document.createElement('span');
+  sub.className = 'oa-sub';
+  const copy = typeof STATE_COPY !== 'undefined' && typeof a.state === 'string' && Object.prototype.hasOwnProperty.call(STATE_COPY, a.state) ? STATE_COPY[a.state] : null;
+  sub.textContent = c.name + (copy && copy.label && !off ? ' · ' + copy.label : '');
+  el.append(nm, sub);
+  return el;
+}
+function oaGroup(c, seen, now) {
+  const g = document.createElement('section');
+  g.className = 'oa-group';
+  const head = document.createElement('div');
+  head.className = 'oa-head';
+  const badge = document.createElement('span');
+  badge.className = 'oa-badge';
+  badge.textContent = c.name;
+  head.appendChild(badge);
+  const said = oaNote(c, seen, now);
+  if (said) { const n = document.createElement('span'); n.className = 'oa-note'; n.textContent = said; head.appendChild(n); }
+  const st = seen ? seen.state : 'reading';
+  if (st !== 'out') {
+    const open = document.createElement('a');
+    open.className = 'oa-open';
+    open.href = 'https://' + c.address + '/';
+    open.target = '_blank';
+    open.rel = 'noopener noreferrer';
+    open.textContent = 'Open ' + c.name;
+    head.appendChild(open);
+  }
+  g.appendChild(head);
+  const off = st !== 'ok';
+  const list = seen && Array.isArray(seen.agents) ? sortAgents(seen.agents, typeof AGENT_SORT === 'string' ? AGENT_SORT : 'name', []) : [];
+  if (list.length) {
+    const cards = document.createElement('div');
+    cards.className = 'oa-cards';
+    for (const a of list) cards.appendChild(oaCard(a, c, off));
+    g.appendChild(cards);
+  } else if (st === 'ok') {
+    const n = document.createElement('div');
+    n.className = 'oa-note';
+    n.textContent = 'No agents on ' + c.name + '.';
+    g.appendChild(n);
+  }
+  return g;
+}
+function oaPaint() {
+  const wrap = document.getElementById('oa-wrap');
+  const grid = document.getElementById('grid');
+  if (!wrap || !grid) return;
+  const others = OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) ? oaOthers(OA_COMPUTERS) : [];
+  wrap.hidden = grid.hidden || others.length === 0;
+  if (wrap.hidden) return;
+  const only = oaThisOnly();
+  const box = document.getElementById('oa-only');
+  if (box) box.checked = only;
+  const groups = document.getElementById('oa-groups');
+  groups.hidden = only;
+  groups.textContent = '';
+  if (only) return;
+  const now = Date.now();
+  for (const c of others) groups.appendChild(oaGroup(c, OA_SEEN.get(c.address), now));
+}
+async function oaRound() {
+  if (OA_BUSY || typeof location === 'undefined' || location.protocol !== 'https:') return;
+  if (document.hidden) return;
+  const grid = document.getElementById('grid');
+  if (!grid || grid.hidden) { oaPaint(); return; }
+  OA_BUSY = true;
+  try {
+    const now = Date.now();
+    if (!OA_COMPUTERS || now - OA_COMPUTERS_AT >= OA_COMPUTERS_EVERY_MS) {
+      OA_COMPUTERS_AT = now;
+      try {
+        const res = await fetch('/api/remote/computers', { cache: 'no-store' });
+        const data = res.ok ? await res.json() : null;
+        if (data && data.ok === true) OA_COMPUTERS = data;
+        else if (data && data.signedIn === false) OA_COMPUTERS = null;   // no Kosmos+ here: nothing to show
+      } catch { /* keep the last good list */ }
+    }
+    if (OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) && !oaThisOnly()) {
+      oaPaint();   // groups appear at once, "Reading its agents..." until each answers
+      await Promise.all(oaOthers(OA_COMPUTERS).map((c) => oaReadOne(c).catch(() => null)));
+    }
+    oaPaint();
+  } finally { OA_BUSY = false; }
+}
+function oaStart() {
+  if (OA_TIMER || typeof location === 'undefined' || location.protocol !== 'https:') return;
+  const box = document.getElementById('oa-only');
+  if (box) box.addEventListener('change', () => { oaSetThisOnly(box.checked); oaPaint(); if (!box.checked) oaRound(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) oaRound(); });
+  oaRound();
+  OA_TIMER = setInterval(oaRound, OA_STATUS_EVERY_MS);
+}
 function worldswToggle() {
   const menu = document.getElementById('worldsw-menu');
   if (!menu) return;
@@ -33592,6 +33820,7 @@ function boardApplyVisibility(onAgents) {
        click on Grid is a real choice rather than a silent overwrite of the list (review round 2). */
     consLaySync();
     if (!orgC.hidden) paintOrg();
+    if (typeof oaPaint === 'function') oaPaint();   // kosmos#4812
     return;
   }
   document.getElementById('grid').hidden = !onAgents || lay !== 'grid';
@@ -33603,6 +33832,7 @@ function boardApplyVisibility(onAgents) {
      chart waits for the tabs, where the person's choice is still kept. */
   const show = onAgents && BOARD_LAYOUT === 'org' && !document.body.classList.contains('consolidated');
   org.hidden = !show;
+  if (typeof oaPaint === 'function') oaPaint();   // kosmos#4812: the other computers' section follows the grid
   /* The diagram is absolutely positioned inside a sized box, so it can only be
      laid out once it has a width. Painting it while hidden measures zero. */
   if (show) paintOrg();
@@ -74372,6 +74602,7 @@ async function firstRunBoot(force, step) {
        done/error paths the cover comes down onto the board, which is correct. */
     revealBoot();
     tipsStart();   // #3574: the tips read the screen, so they wait out first run by themselves
+    oaStart();     // kosmos#4812: the other computers' agents, on a Kosmos+ address only
     asbStart();    // #3034: the setup assistant; it hides itself during first run and keeps looking for a guide
   }
 }
@@ -74433,7 +74664,7 @@ fetch('/api/roles').then((r) => (r.ok ? r.json() : null)).then((j) => {
    is the concern the comment above records, now that the board starts hidden.
    Idempotent with firstRunBoot's finally: whichever fires first wins. */
 kplusBar();   // #3837 F: the Kosmos+ bar, only through a Kosmos+ address; drawn at once, it needs nothing from the board
-setTimeout(() => { revealBoot(); tipsStart(); asbStart(); }, 3000);
+setTimeout(() => { revealBoot(); tipsStart(); oaStart(); asbStart(); }, 3000);
 firstRunBoot(PARAMS.get('first-run') === '1', Number(PARAMS.get('fr-step')) || 1);
 
 /* #3641 (Josh, 2026-09-24): the corner version marker was removed; the version lives in
