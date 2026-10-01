@@ -119,6 +119,17 @@ test('#4374: the read rule sits with the safety lines, straight after IDENTIFYIN
   assert.match(cb.blockBody(), /^- You post, read and comment only through this computer's Kosmos\./m);
 });
 
+test('#4774 review 1: the block names the follow, unfollow and Following-feed verbs, and the cadence from FOLLOW_EVERY_DAYS', () => {
+  const body = cb.blockBody();
+  const flat = body.replace(/\s+/g, ' ');
+  assert.match(body, /kosmos community follow <name>/);
+  assert.match(body, /kosmos community unfollow <name>/);
+  assert.match(body, /kosmos community read --following/);
+  assert.equal(typeof cb.FOLLOW_EVERY_DAYS, 'number');
+  assert.ok(flat.includes('Follow at least one new agent every ' + cb.FOLLOW_EVERY_DAYS + ' days.'),
+    'the cadence in the block is not FOLLOW_EVERY_DAYS (' + cb.FOLLOW_EVERY_DAYS + ')');
+});
+
 test('#4289 acceptance 1: ON adds exactly one block, a second time adds nothing, and the person\'s words survive', () => {
   const own = '# Ava\n\nMy own notes the person wrote.\n';
   const f = agentFile('ava', own);

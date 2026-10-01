@@ -122,7 +122,9 @@ function main() {
      failure just omits the header and the pane arm carries the report exactly as
      before on a non-enforcing board. */
   const engine = engineDir();
-  try {
+  /* #4491 slice 8: with KOSMOS_AGENT_TOKEN_ONLY exactly '1' and the agent's own token above, the report goes with that
+     token alone and the board token is not read (POST /api/report takes the agent's token; the same switch slice 7 gives the two CLIs, on its own branch until it merges). */
+  if (!(headers['x-kosmos-agent-token'] && process.env.KOSMOS_AGENT_TOKEN_ONLY === '1')) try {
     const boardTok = require(require('node:path').join(engine, 'boardauth')).readToken();
     if (typeof boardTok === 'string' && boardTok) headers['x-kosmos-board-token'] = boardTok;
   } catch { /* a missed board token must never become a failed turn */ }
