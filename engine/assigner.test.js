@@ -108,6 +108,30 @@ test('a working agent, or one outside the project, is not assigned', () => {
   } finally { w.restore(); }
 });
 
+test('#4740: an agent alone on a project it made itself is not asked to draft tasks toward its goal; tasks already there are still handed out', () => {
+  const w = world([{ name: 'wkmaker' }, { name: 'wkother', member: false }]);
+  try {
+    addTask(w.pid, 'task one');
+    const base = { roster: w.cards, setting: ON, commitments: w.states() };
+    const run = (records) => {
+      const first = a.step({ prev: undefined, ...base, records, now: T0 });
+      return a.step({ prev: first.next, ...base, records, now: T0 + a.IDLE_MS });
+    };
+    const stored = projects.readAll();
+    const as = (patch) => stored.map((p) => (p.id === w.pid ? { ...p, ...patch } : p));
+    const asked = (records) => a.goalProject(w.key.wkmaker, [{ ...records.find((p) => p.id === w.pid), tasks: [] }], new Map([[w.pid, 'ship it']]), new Map(), T0);
+    const own = as({ made: { via: 'process', by: w.key.wkmaker } });
+    assert.equal(asked(own), null, 'the maker, alone on its own project, was asked to draft tasks toward its own goal');
+    /* A task that is already there is handed out, as the Assigner's description on the page says of any project. */
+    assert.deepEqual(run(own).toAssign.map((x) => x.session), [w.key.wkmaker], 'a task on the maker\'s own project was not handed out');
+    /* CONTROLS for the goal ask: the same project is asked about when the person made it, when another agent made
+       it, and once a second member is on it. */
+    assert.ok(asked(as({ made: { via: 'screen', by: null } })), 'control: a project the person staffed');
+    assert.ok(asked(as({ made: { via: 'process', by: 'someone-else' } })), 'control: another agent made it');
+    assert.ok(asked(as({ made: { via: 'process', by: w.key.wkmaker }, agents: [w.key.wkmaker, w.key.wkother] })), 'control: with a second member it is asked');
+  } finally { w.restore(); }
+});
+
 test('#3564: a swarm switched off in the project is neither assigned a task nor asked about its goal; switched on, it is', () => {
   const w = world([{ name: 'wkoff' }]);
   try {

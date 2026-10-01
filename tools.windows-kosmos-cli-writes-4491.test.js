@@ -57,3 +57,20 @@ for (const [argv, route, answer] of WRITES) {
     assert.match(r.err, new RegExp('that agent is not on this project, so it cannot ' + verb));
   });
 }
+
+/* Slice 5b: project create presents the agent's own token too, so the board names the maker and puts it on the
+   project. The board token is still what opens the route. */
+test('#4491 Windows kosmos project create presents the agent\'s own token and still the board token', async () => {
+  const okBody = { project: { id: 'my-project' }, told: [], id: 'my-project', agentsUnreadable: false };
+  const r = await run(['project', 'create', 'My Project', 'C:\\p\\mp'], () => ({ body: okBody }));
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.calls[0].route, '/api/projects');
+  assert.equal(r.calls[0].headers['x-kosmos-agent-token'], AGENT);
+  assert.equal(r.calls[0].headers['x-kosmos-board-token'], BOARD);
+  for (const env of [{}, { KOSMOS_AGENT_TOKEN: 'not-hex; rm -rf' }, { KOSMOS_AGENT_TOKEN: '' }]) {
+    const none = await run(['project', 'create', 'My Project', 'C:\\p\\mp'], () => ({ body: okBody }), env);
+    assert.equal(none.calls[0].headers['x-kosmos-agent-token'], undefined, 'forwarded ' + JSON.stringify(env));
+    assert.equal(none.calls[0].headers['x-kosmos-board-token'], BOARD);
+  }
+});
+

@@ -3425,7 +3425,11 @@ cmd_project() {
       # rc via `|| rc=$?`, NOT a bare `body=$(...); rc=$?`: under set -euo pipefail a
       # failing substitution in a bare assignment aborts the process at that line
       # (the #2321 lesson cmd_post documents).
-      body=$(kosmos_curl "$_bt" "" -sS -m 30 -X POST "$URL/api/projects" \
+      # #4491 slice 5b: the agent's own token too (plain hex only), so the board names the maker and puts it on the
+      # project it made. The board token is still what opens this route.
+      local _ptok=""
+      case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _ptok="$KOSMOS_AGENT_TOKEN" ;; esac
+      body=$(kosmos_curl "$_bt" "$_ptok" -sS -m 30 -X POST "$URL/api/projects" \
         -H 'content-type: application/json' \
         --data "$_data" 2>/dev/null) || rc=$?
       if [ "$rc" -ne 0 ]; then
