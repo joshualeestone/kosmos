@@ -1964,7 +1964,7 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
 .worldsw.worldsw-onekosmos .worldsw-computers { margin-top: 0; padding-top: 0; border-top: 0; }
 .worldsw.worldsw-fixed .worldsw-chev { display: none; }
 .worldsw.worldsw-fixed .worldsw-btn { cursor: default; border-color: transparent; }
-.worldsw.worldsw-fixed .worldsw-btn:hover { background: none; }
+.worldsw.worldsw-fixed .worldsw-btn:hover, :root[data-look="new"] .worldsw.worldsw-fixed .worldsw-btn:hover { background: none; }
 /* #2238: the honest post-switch status banner. A world's roots load only on board
    boot, so switching needs a board restart; this banner says so (no auto-restart). */
 /* #1704 PR3: the switch dialog's pause/keep choice. A fieldset, so its UA chrome goes. */
@@ -25785,6 +25785,7 @@ function worldswSetStale(stale) {
 const MULTI_KOSMOS = (() => { try { return localStorage.getItem('kosmos.multiKosmos') === '1'; } catch { return false; } })();
 let THIS_COMPUTER_NAME = '';
 let COMPUTERS_OPENABLE = false;
+let COMPUTERS_RETRY_T = null;
 /* Called by computersRender with the rows it kept and whether an answer arrived. Only an ANSWER changes
    the name or whether there is anywhere to go (review round 1): a failed read keeps the last good answer, so one
    relay hiccup cannot lock the menu shut, and says so inside the menu. */
@@ -25806,6 +25807,15 @@ function worldswComputersSeen(rows, good) {
     }
   }
   worldswOneKosmos();
+  /* Re-read in the background while the menu cannot be opened (opening is what re-reads otherwise): soon after a
+     read that got no answer (the relay not up at boot), and every few minutes while the answer is "nowhere else to
+     go" (a sign-in to Kosmos+, or another computer added, during the session). review round 2. */
+  if (!MULTI_KOSMOS) {
+    clearTimeout(COMPUTERS_RETRY_T);
+    const soon = typeof window.__kosmosComputersRetryMs === 'number' ? window.__kosmosComputersRetryMs : 15000;
+    if (!good) COMPUTERS_RETRY_T = setTimeout(() => { computersFetch().catch(() => {}); }, soon);
+    else if (!COMPUTERS_OPENABLE) COMPUTERS_RETRY_T = setTimeout(() => { computersFetch().catch(() => {}); }, 5 * 60 * 1000);
+  }
 }
 function worldswOneKosmos() {
   if (MULTI_KOSMOS) return;
@@ -25829,7 +25839,11 @@ function worldswOneKosmos() {
   } else {
     /* Plain text, as the card asks: nothing to expand, so no expanded state, no controls and no Tab stop (a screen
        reader would otherwise announce a collapsed button that never opens). Close a menu left open from before. */
-    if (menu && !menu.hidden) menu.hidden = true;
+    if (menu && !menu.hidden) {
+      const focusWasInside = menu.contains(document.activeElement);
+      menu.hidden = true;
+      if (focusWasInside) btn.focus();   // never leave focus on a row that just went away
+    }
     btn.removeAttribute('aria-expanded');
     btn.removeAttribute('aria-controls');
     btn.setAttribute('aria-disabled', 'true');
@@ -26215,11 +26229,10 @@ function computersRender(data) {
   const rows = (data && data.ok === true && Array.isArray(data.computers))
     ? data.computers.filter((c) => c && typeof c.name === 'string' && c.name && computerAddressOk(c.address, data.domain))
     : [];
-  /* #4815: this computer's name for the top-left button, and whether there is anywhere else to go. Reached
-     through typeof because tests lift this function alone (web.computers-switcher-4648), where the page's
-     one-Kosmos helpers do not exist; a lifted copy then behaves exactly as before. */
-  /* #4815: an ANSWER, { ok: false } (not signed in) included, is good; only no answer at all (a failed read, null)
-     keeps the last good name and menu. */
+  /* #4815: the rows also give the top-left button this computer's name and whether there is anywhere else to go
+     (worldswComputersSeen). An ANSWER, { ok: false } (not signed in) included, is good; only no answer at all (a
+     failed read, null) keeps the last good name and menu. Reached through typeof because tests lift this function
+     alone (web.computers-switcher-4648), where the one-Kosmos helpers do not exist; a lifted copy behaves as before. */
   const good = data !== null && typeof data === 'object';
   // Only this computer (or nothing): there is nowhere else to go, so the section stays hidden.
   if (rows.length < 2) { list.textContent = ''; box.hidden = true; if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows, good); return; }

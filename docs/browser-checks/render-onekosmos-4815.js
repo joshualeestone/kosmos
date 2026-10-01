@@ -14,6 +14,8 @@
  *   - a screen reader hears the plain name as text (no expanded state, no Tab stop), the openable one as a menu;
  *   - after a good read, a FAILED read keeps the name and the menu and says it could not reach the computers, and a
  *     SLOW read shows "Checking your computers..." rather than an empty menu (review round 1);
+ *   - at BOOT, with nothing called by hand: four computers name this one and open; no answer starts as plain
+ *     "This computer" and recovers on the page's own re-read (review round 2);
  *   - CONTROL, the answer this check must be able to give: with the switch back on (localStorage
  *     kosmos.multiKosmos = 1), the same board shows the Kosmoses list, New Kosmos and "Kosmos 1".
  *
@@ -52,7 +54,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
         page.on('pageerror', (e) => { if (!HARNESS.test(e.message)) problems.push(`[${engine} ${theme}] pageerror: ${e.message}`); });
         await page.addInitScript((answers) => {
           window.setInterval = () => 0;
-          window.__answers = answers; window.__which = 'one';
+          window.__answers = answers; window.__which = window.__bootWhich || 'one';
           const real = window.fetch;
           window.fetch = (url, opts) => {
             if (String(url).indexOf('/api/remote/computers') !== -1) {
@@ -137,6 +139,45 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           });
           ok(`${t} a slow read: the open menu says it is checking, then shows the computers`,
             slow.during.shown && /Checking your computers/.test(slow.during.says) && slow.rows >= 2, JSON.stringify(slow));
+          /* The BOOT read, with nothing called by hand (review round 2): the page reads Your computers itself. */
+          const boot = async (which, retryMs) => {
+            const bp = await browser.newPage({ viewport: { width: 1200, height: 900 }, colorScheme: theme });
+            await bp.addInitScript(({ w, ms }) => { window.__bootWhich = w; if (ms) window.__kosmosComputersRetryMs = ms; }, { w: which, ms: retryMs });
+            await bp.addInitScript((answers) => {
+              window.setInterval = () => 0;
+              window.__answers = answers; window.__which = window.__bootWhich || 'one';
+              const real = window.fetch;
+              window.fetch = (url, opts) => {
+                if (String(url).indexOf('/api/remote/computers') !== -1) {
+                  if (window.__which === 'fail') return Promise.reject(new TypeError('the relay did not answer'));
+                  return Promise.resolve(new Response(JSON.stringify(window.__answers[window.__which]), { status: 200, headers: { 'content-type': 'application/json' } }));
+                }
+                return real(url, opts);
+              };
+            }, ANSWERS);
+            await bp.goto(PAGE);
+            return bp;
+          };
+          const look = (bp) => bp.evaluate(() => ({ name: document.getElementById('worldsw-name').textContent,
+            shown: !document.getElementById('worldsw').hidden, fixed: document.getElementById('worldsw').classList.contains('worldsw-fixed') }));
+          const b4 = await boot('four');
+          await b4.waitForTimeout(400);
+          const b4look = await look(b4);
+          await b4.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; document.getElementById('worldsw-btn').click(); });
+          await b4.waitForTimeout(150);
+          const b4open = await b4.evaluate(() => !document.getElementById('worldsw-menu').hidden);
+          ok(`${t} at boot, four computers: the page names this one and the menu opens, with nothing called by hand`,
+            b4look.shown && b4look.name === 'studio-laptop' && !b4look.fixed && b4open, JSON.stringify({ ...b4look, b4open }));
+          await b4.close();
+          const bf = await boot('fail', 200);
+          await bf.waitForTimeout(120);
+          const bfBefore = await look(bf);
+          await bf.evaluate(() => { window.__which = 'four'; });
+          await bf.waitForTimeout(800);
+          const bfAfter = await look(bf);
+          ok(`${t} at boot, no answer: plain "This computer", then the page reads again and recovers on its own`,
+            bfBefore.name === 'This computer' && bfBefore.fixed && bfAfter.name === 'studio-laptop' && !bfAfter.fixed, JSON.stringify({ bfBefore, bfAfter }));
+          await bf.close();
         } else {
           const c = await read('one');
           ok(`${t} CONTROL: with the switch on, the Kosmoses list, New Kosmos and "Kosmos 1" are back`,
@@ -149,6 +190,6 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
   }
   console.log(problems.length ? `FAIL ${problems.length}:\n  ${problems.join('\n  ')}` : 'all checks passed');
   console.log(`${pass}/${pass + problems.length} passed`);
-  // 2 engines x 2 themes x (9 arms off + 1 control) = 40.
-  process.exit(problems.length || pass + problems.length < 40 ? 1 : 0);
+  // 2 engines x 2 themes x (11 arms off + 1 control) = 48.
+  process.exit(problems.length || pass + problems.length < 48 ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
