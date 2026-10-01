@@ -180,9 +180,10 @@ test('a board token that is WRONG does not lift the narrowing: the caller still 
   assert.ok(refusedAtGate(await call('GET', '/api/project/p4491/room?as=text', { headers: { 'x-kosmos-board-token': 'not-the-board-token' } })));
 });
 
-test('membership is by the token store\'s key: a project that lists the name as written admits its token', async (t) => {
+test('a project that lists the name as written admits its token, though the store keys it differently', async (t) => {
   /* A stored name that is not its own key ("Reader.Agent" is kept under "readeragent"). An exact comparison of the
-     key against the stored name would refuse the agent its own project. */
+     key against the stored name would refuse the agent its own project. #4792: the token carries its name, so the
+     match is by that exact name. */
   const dotted = sendertoken.mint('Reader.Agent');
   assert.ok(dotted.ok);
   t.after(() => sendertoken.revoke('Reader.Agent'));
@@ -192,6 +193,48 @@ test('membership is by the token store\'s key: a project that lists the name as 
   assert.equal((await call('GET', '/api/tasks?project=p4491', asAgent(dotted.token))).code, 200, 'an agent was refused the tasks of a project that lists it');
   assert.equal((await call('GET', '/api/project/other4491/room?as=text', asAgent(dotted.token))).code, 403, 'control: by-key matching admitted it to a project that does not list it');
   assert.equal((await call('GET', '/api/project/p4491/room?as=text', asAgent(agentToken))).code, 403, 'control: reader-agent is not on p4491 in this test, so it must be refused');
+});
+
+test('#4792: two names that share a key: each token reads only the projects that list its own name', async (t) => {
+  const big = sendertoken.mint('Mara4792');
+  const small = sendertoken.mint('mara4792');
+  assert.ok(big.ok && small.ok);
+  t.after(() => sendertoken.revoke('mara4792'));
+  assert.equal(sendertoken.resolveName(big.token).key, sendertoken.resolveName(small.token).key, 'control: the two names really share a key');
+  withProject(t, ['mara4792']);
+  assert.equal((await call('GET', '/api/project/p4491/room?as=text', asAgent(big.token))).code, 403, 'Mara4792 read the room of a project that lists only mara4792');
+  assert.equal((await call('GET', '/api/tasks?project=p4491', asAgent(big.token))).code, 403, 'Mara4792 read the tasks of a project that lists only mara4792');
+  assert.equal((await call('GET', '/api/project/p4491/room?as=text', asAgent(small.token))).code, 200, 'control: mara4792 must read its own project');
+});
+
+test('#4792 review 1: a remote agent the board stored by its key still reads its project', async (t) => {
+  /* The board lists a paneless agent by its key and stores its membership the same way, so remote "Kip4792" sits in
+     a project as "kip4792". Its named token must still read there while no other name holds tokens under that key. */
+  const kip = sendertoken.mint('Kip4792');
+  assert.ok(kip.ok);
+  t.after(() => sendertoken.revoke('kip4792'));
+  withProject(t, ['kip4792']);
+  assert.equal((await call('GET', '/api/project/p4491/room?as=text', asAgent(kip.token))).code, 200, 'a remote agent lost its own project, stored by its key');
+  assert.equal((await call('GET', '/api/tasks?project=p4491', asAgent(kip.token))).code, 200);
+  assert.equal((await call('GET', '/api/project/other4491/room?as=text', asAgent(kip.token))).code, 403, 'control: it is still refused a project that does not list it');
+});
+
+test('#4792: a token minted before names were kept still reads by key, unless a second name holds tokens under it', async (t) => {
+  const fs = require('node:fs');
+  const crypto = require('node:crypto');
+  const file = path.join(sendertoken.DIR, 'oldreader4792.json');
+  const old = crypto.randomBytes(32).toString('hex');
+  fs.mkdirSync(sendertoken.DIR, { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ tokens: [{ token: old, instance: 'old', mintedAt: '2026-09-01T00:00:00.000Z' }] }), { mode: 0o600 });
+  t.after(() => sendertoken.revoke('oldreader4792'));
+  withProject(t, ['OldReader4792']);
+  assert.equal((await call('GET', '/api/project/p4491/room?as=text', asAgent(old))).code, 200, 'an older token lost its by-key read');
+  /* One name with tokens under the key is the ordinary case (the same agent, relaunched after names were kept), so
+     the older token still reads. Two names under it, and the key no longer says whose the older token is. */
+  sendertoken.mint('oldreader4792');
+  assert.equal((await call('GET', '/api/project/p4491/room?as=text', asAgent(old))).code, 200, 'one named relaunch cut off the agent\'s older token');
+  sendertoken.mint('OldReader4792');
+  assert.equal((await call('GET', '/api/project/p4491/room?as=text', asAgent(old))).code, 403, 'an older token read by a key two names now share');
 });
 
 test('a project id stored twice: the agent must be on every one of them', async (t) => {
