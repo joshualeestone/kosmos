@@ -254,6 +254,13 @@ if (args[0] === 'devices') {
     process.stderr.write('the coordinator said no (404): no such pending device\\n');
     process.exit(1);
   }
+  if (verb === 'list' && mode === 'list-allowed-on') { console.log(JSON.stringify({ devices: [
+    { device_id: 'dev-1', name: 'iPhone', allowed_at: 1756000000, last_seen: 0, code: 'K7-3M', allowed_on: 'windowsbox' },
+    { device_id: 'dev-2', name: 'iPad', allowed_at: 1756000000, last_seen: 0, code: 'Q2-8P', allowed_on: null },
+    { device_id: 'dev-3', name: 'Mac', allowed_at: 1756000000, last_seen: 0, code: 'Z9-4T', allowed_on: 42 },
+    { device_id: 'dev-4', name: 'Pixel', allowed_at: 1756000000, last_seen: 0, code: 'W3-1N', allowed_on: '   ' },
+    { device_id: 'dev-5', name: 'Phone', allowed_at: 1756000000, last_seen: 0, code: 'R5-6V', allowed_on: 'x'.repeat(80) },
+  ] })); process.exit(0); }
   if (verb === 'list') { console.log(JSON.stringify({ devices: [{ device_id: 'dev-1', name: 'iPhone', allowed_at: 1756000000, last_seen: 0, code: 'K7-3M' }] })); process.exit(0); }
   if (verb === 'pending') { console.log(JSON.stringify({ devices: [] })); process.exit(0); }
   console.log(JSON.stringify({ [verb === 'allow' ? 'allowed' : verb === 'deny' ? 'denied' : 'removed']: true, device_id: flag('--device-id') }));
@@ -1009,6 +1016,23 @@ test('list joins the sidecar for the screen, and unenrolled is an empty list wit
   assert.equal(got.ok, true, got.because);
   assert.equal(got.data.devices[0].name, 'iPhone');
   assert.equal(got.data.devices[0].code, 'K7-3M');
+  /* #4794: a tunnel without part C sends no allowed_on, and the list reads it as this computer (null). */
+  assert.equal(got.data.devices[0].allowed_on, null);
+});
+
+test('#4794: allowed_on carries the name of the computer that allowed a device, null for this computer or a bad value', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'list-allowed-on';
+  try {
+    const got = await remote.devicesList();
+    assert.equal(got.ok, true, got.because);
+    const by = Object.fromEntries(got.data.devices.map((d) => [d.device_id, d.allowed_on]));
+    assert.equal(by['dev-1'], 'windowsbox');
+    assert.equal(by['dev-2'], null, 'null is this computer');
+    assert.equal(by['dev-3'], null, 'a number is not a computer name');
+    assert.equal(by['dev-4'], null, 'a blank name is not a computer name');
+    assert.equal(by['dev-5'].length, 60, 'a long name is cut like a device name');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
 });
 
 test('#648: with nothing set, the Mac dials the real relay and coordinator, and bakes no CA', () => {

@@ -66,7 +66,7 @@ const STATES = {
       const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
       await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? st.remote : { ok: true })));
       await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: st.pending, email: 'you@example.com', self_device_id: 'd-self' })));
-      await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: st.remote.on, allowed: [{ device_id: 'd-mac', name: 'Mac browser', allowed_at: now() - 86400, last_seen: now() - 600 }, { device_id: 'd-noname', allowed_at: now() - 7200 }, { device_id: 'd-self', allowed_at: now() - 3600 }], pending: st.pending, self_device_id: 'd-self' })));
+      await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: st.remote.on, allowed: [{ device_id: 'd-mac', name: 'Mac browser', allowed_at: now() - 86400, last_seen: now() - 600, allowed_on: null }, { device_id: 'd-noname', allowed_at: now() - 7200 }, { device_id: 'd-other', name: 'iPhone', allowed_at: now() - 3600, last_seen: 0, allowed_on: 'windowsbox' }, { device_id: 'd-self', allowed_at: now() - 3600 }], pending: st.pending, self_device_id: 'd-self' })));
       await page.goto(BASE, { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
       await page.evaluate(() => showTab('settings'));
@@ -127,6 +127,7 @@ const STATES = {
               return { ratio: Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 10) / 10, ink: ink.join(','), bg: bg.map(Math.round).join(','), at: n ? (n.id || n.className || n.tagName) : 'none' };
             })() })),   // #3952: the code in the shared boxes
           listPending: document.querySelectorAll('#plus-devlist [data-ask]').length, listNames: [...document.querySelectorAll('#plus-devlist .devname')].map((e) => e.textContent.trim()),
+          listMetas: [...document.querySelectorAll('#plus-devlist .devrow')].map((r) => [r.querySelector('.devname').textContent.trim(), r.querySelector('.devmeta').textContent.trim()]),
           leftBar: [...document.querySelectorAll('#plus-ask-rows .askreq')].every((c) => getComputedStyle(c).borderLeftWidth === getComputedStyle(c).borderTopWidth),
         };
       });
@@ -357,6 +358,11 @@ const STATES = {
         chk(v.reqs === 2 && v.stale === 1, `${t} two cards, the one older than an hour faded`, JSON.stringify({ reqs: v.reqs, stale: v.stale }));
         chk(/Unknown device/.test(v.cardText) && !/\bdevice\b[^s]*\bis asking/.test(v.cardText), `${t} an unnamed request reads "Unknown device"`, v.cardText);
       }
+      /* #4794 (part C): a device another of the person's computers allowed names that computer; one this computer
+         allowed (allowed_on null) and one from a tunnel without part C (no field) read exactly as before. */
+      { const m = Object.fromEntries(v.listMetas);
+        chk(/^allowed on windowsbox · let in /.test(m['iPhone'] || '') && !/allowed on/.test(m['Mac browser'] || '') && !/allowed on/.test(m['Unknown device'] || ''),
+          `${t} #4794: a device allowed on another computer says "allowed on windowsbox"; ones allowed here do not`, JSON.stringify(v.listMetas)); }
       chk(!v.listNames.some((n) => n === 'device') && v.listNames.includes('Unknown device'), `${t} an unnamed devices-list row reads "Unknown device", never just "device"`, JSON.stringify(v.listNames));
       /* #4610 (Josh's ruling 2026-09-29 13:00) reverses ICK's #3829 relabel: this computer's own sign-in is granted by the
          board and never sent to the page, so no row is ever called "This computer (Kosmos app)" here. */

@@ -42964,7 +42964,10 @@ async function paintDevices() {
   const out = [];
   for (const d of r.allowed) {
     const name = askKind(d);
-    const meta = 'let in ' + askEsc(d.allowed_at ? askAgo(d.allowed_at).replace(/^on /, '') : 'today') +
+    /* #4794 (part C): a device another of the person's computers allowed says which one. The wording is ours to
+       change (Mona owns the copy); a device this computer allowed reads exactly as before. */
+    const meta = (d.allowed_on ? 'allowed on ' + askEsc(d.allowed_on) + ' &middot; ' : '') +
+      'let in ' + askEsc(d.allowed_at ? askAgo(d.allowed_at).replace(/^on /, '') : 'today') +
       (d.last_seen ? ' &middot; last used ' + askEsc(askAgo(d.last_seen)) : ' &middot; not used yet');
     const confirming = ASK.confirm === d.device_id;
     out.push('<div class="devrow"><div class="devbody"><div class="devname">' + askEsc(name) + '</div><div class="devmeta">' + meta + '</div></div>' +
