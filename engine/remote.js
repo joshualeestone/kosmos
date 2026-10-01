@@ -1389,6 +1389,10 @@ async function devicesList() {
       allowed_at: Number(d.allowed_at) || 0,
       last_seen: Number(d.last_seen) || 0,
       code: typeof d.code === 'string' ? d.code : '',
+      /* #4794 (part C): the name of the computer that allowed this device, when it was another of the person's
+         computers (its signed allow reached this one). null when this computer allowed it, and for a tunnel
+         without part C, which sends nothing. */
+      allowed_on: typeof d.allowed_on === 'string' && d.allowed_on.trim() ? d.allowed_on.trim().slice(0, 60) : null,
     })) } };
 }
 /** Let a device in: the binary writes this Mac's list FIRST, then tells the
