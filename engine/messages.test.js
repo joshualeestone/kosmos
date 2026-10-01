@@ -3262,13 +3262,16 @@ test('#4888: two room posts from two agents at the same moment get different ids
 test('#4888: a send that was refused does not hand its id to the next one', () => {
   withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
     armSender('leo-discord');
-    const refused = () => ({ state: chat.DELIVERY.COULD_NOT, because: 'the pane closed' });
+    // The refusal returns id: null, so the id it used is read from the envelope it was handed.
+    let refusedEnvelope = '';
+    const refused = (_to, envelope) => { refusedEnvelope = envelope; return { state: chat.DELIVERY.COULD_NOT, because: 'the pane closed' }; };
     const first = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'will not land' }, board.agents, refused);
     assert.equal(first.state, chat.DELIVERY.COULD_NOT);
+    const usedId = (refusedEnvelope.match(/ · (m\d+)[ \]]/) || [])[1];
+    assert.ok(usedId, 'the refused envelope carried no id: ' + JSON.stringify(refusedEnvelope));
     const placed = () => ({ state: chat.DELIVERY.PLACED, because: null });
-    const a = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'lands' }, board.agents, placed);
-    const b = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'lands too' }, board.agents, placed);
-    assert.equal(a.state, chat.DELIVERY.PLACED, JSON.stringify(a));
-    assert.notEqual(a.id, b.id);
+    const next = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'lands' }, board.agents, placed);
+    assert.equal(next.state, chat.DELIVERY.PLACED, JSON.stringify(next));
+    assert.notEqual(next.id, usedId, 'the next send was given the id the refused one had used');
   });
 });

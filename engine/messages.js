@@ -854,7 +854,7 @@ function rowShaped(m) {
 }
 
 /* The send path keeps the old contract on purpose: an unreadable log
-   fails OPEN there (the valve cannot count, ids restart) rather than
+   fails OPEN there (the valve cannot count; ids restart only on a board that has minted none since it started) rather than
    blocking every send on a read error -- a RECORDED trade, revisit when
    retention lands. */
 function readLog() {
@@ -1208,9 +1208,6 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     if (lim.on) return { state: chat.DELIVERY.COULD_NOT, because, id: null, at };
   }
 
-  // Over the PARSE-ONLY rows: a foreign append that fails shape must
-  // still burn the id it names, or this re-mints an id a recipient may
-  // already have seen and overwrites its spill file.
   const id = mintId(rec.parsed);
 
   /* The envelope: one line (a newline in the pane is a submit), sender and
@@ -2040,7 +2037,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   if (!reached && charged > 0) {
     /* Reaching NOBODY is a failed post, not a quieter success: nothing
        was typed anywhere, so nothing is logged (send()'s typed-only
-       rule) and the spill must not wait for the next mint of this id. */
+       rule). */
     /* #4447: every member's spill was removed as its delivery failed (above), so none is left here. */
     const failed = refuse('we could not get this post to anybody on ' + shownProject);
     failed.outcomes = outcomes;

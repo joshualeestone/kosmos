@@ -32,3 +32,12 @@ Red check: ids from the log alone (`ID_HIGH = inLog + 1`) must fail both overlap
 ## Weakest premise
 That `withFleet`'s early restore (it returns before an async test's promise settles, as the #4580 tests already
 rely on) leaves the log readable when the held deliveries finish. The #4580 tests make the same assumption and pass.
+
+## Review 1 (opus, blind): 0 blockers, 1 warning, 3 nits; all taken
+- W: the refused-send test could not fail without the fix (a refusal returns id: null, and the two later sends
+  were sequential, so the log alone already separated them). Now the refusing delivery keeps the envelope it was
+  handed, the test reads the id the refused send used from it, and asserts the next send got a different one.
+  Red check now requires all three #4888 tests to fail under log-only ids.
+- Nits: the room path's comment about a refused post's spill and the next mint is deleted (no longer true while the
+  board runs); readLog's "ids restart" now says only on a board that has minted none since it started; the duplicate
+  PARSE-ONLY comment at the direct call site is removed (mintId keeps it).
