@@ -463,8 +463,9 @@ fi
 # restores a dropped one), else the copy live serves now, fetched and checked against the served
 # .sha256 AND the committed pointer's sha. Refuse when neither exists, naming the tarball, unless
 # the staged build is not newer than prod (superseded, as #3600 decides for Windows): then warn and
-# carry nothing, since nobody will promote it (a local copy with other bytes refuses instead, as the
-# glob would ship it unchecked). A superseded build that is present is still carried and checked.
+# carry nothing, since nobody will promote it. Two exceptions refuse instead: a local copy with other
+# bytes (the glob would ship it unchecked), and a deploy that would MOVE the live staging pointer to
+# that build (the skip would then break staging on its own). A superseded build that is present is still carried and checked.
 # Sets STAGED_ART, empty when nothing extra is carried.
 # Before any fetch, check_staging_not_stale refuses a checkout whose committed staging pointer is
 # OLDER than the one live serves, or commits none while live serves one (deploying it would move
@@ -484,10 +485,12 @@ _csm_read() {  # <url>
   for _csm_try in 1 2 3; do
     _CSM_CODE=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o "$_FETCH_TMP_P" -w '%{http_code}' "$1" 2>/dev/null) || _CSM_CODE=000
     case "$_CSM_CODE" in ''|*[!0-9]*) _CSM_CODE=000 ;; esac
-    case "$_CSM_CODE" in 000|429|5[0-9][0-9]) [ "$_csm_try" = 3 ] || sleep "${KOSMOS_DEPLOY_RETRY_SLEEP:-3}" ;; *) break ;; esac
+    case "$_CSM_CODE" in 000|429|5[0-9][0-9]) [ "$_csm_try" = 3 ] || sleep "$_CSM_SLEEP" ;; *) break ;; esac
   done
   _CSM_BODY=$(cat "$_FETCH_TMP_P" 2>/dev/null); rm -f "$_FETCH_TMP_P"; _FETCH_TMP_P=""
 }
+# Seconds between retries of a live read; a value that is not a whole number falls back to 3.
+case "${KOSMOS_DEPLOY_RETRY_SLEEP:-3}" in ''|*[!0-9]*) _CSM_SLEEP=3 ;; *) _CSM_SLEEP=${KOSMOS_DEPLOY_RETRY_SLEEP:-3} ;; esac
 _csm_version() { printf '%s' "$1" | sed -n 's/^kosmos-\(.*\)-arm64\.tar\.gz$/\1/p'; }
 # Runs BEFORE any artifact is fetched, so a stale checkout is refused before it downloads anything
 # or touches the shared dist/.
@@ -808,7 +811,7 @@ else
     # A 404 is the old answer when there was no pointer before: retried like a mismatch.
     case "$_CSM_CODE" in 200|404) : ;; *) echo "deploy-site: could not re-read the served latest-staging.json after deploy (HTTP $_CSM_CODE) -- the deploy already ran; re-check it (#4819)."; exit 1 ;; esac
     [ "$_CSM_CODE" != 200 ] || [ "$_CSM_BODY" != "$_csm_committed" ] || break
-    [ "$_csm_ptry" = 3 ] || sleep "${KOSMOS_DEPLOY_RETRY_SLEEP:-3}"
+    [ "$_csm_ptry" = 3 ] || sleep "$_CSM_SLEEP"
   done
   [ "$_CSM_CODE" = 200 ] && [ "$_CSM_BODY" = "$_csm_committed" ] || { echo "deploy-site: the served latest-staging.json is not the committed one (HTTP $_CSM_CODE) -- the deploy already ran; investigate (#4819)."; exit 1; }
 fi
