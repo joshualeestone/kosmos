@@ -87,6 +87,7 @@ test('Windows `task add` refuses a bad --who before the board; a non-member and 
   assert.equal((await win(['task', 'add', projectId, 'x', '--who', '--parent', '1'])).code, 2, 'a flag was taken as the name');
   assert.equal((await win(['task', 'add', projectId, 'x', '--who=otto'])).code, 2);
   assert.equal((await win(['task', 'add', projectId, 'x', '--who', '   '])).code, 2, 'a name of only spaces went to the board');
+  assert.equal((await win(['task', 'add', projectId, 'x', '--who', '\u0001\u0002'])).code, 2, 'a name of only control bytes went to the board (and could land as no owner)');
   assert.equal((await win(['task', 'add', projectId, '--who', 'otto'])).code, 2);
   const zed = await win(['task', 'add', projectId, 'x', '--who', 'zed']);
   assert.equal(zed.code, 1);
@@ -145,6 +146,7 @@ test('Mac `task add` refuses a bad --who before the board; a non-member and an u
   assert.equal((await mac(['task', 'add', projectId, 'x', '--who', '--parent', '1'])).code, 2, 'a flag was taken as the name');
   assert.equal((await mac(['task', 'add', projectId, 'x', '--who=otto'])).code, 2);
   assert.equal((await mac(['task', 'add', projectId, 'x', '--who', '   '])).code, 2, 'a name of only spaces went to the board');
+  assert.equal((await mac(['task', 'add', projectId, 'x', '--who', '\u0001\u0002'])).code, 2, 'a name of only control bytes went to the board (and could land as no owner)');
   assert.equal((await mac(['task', 'add', projectId, '--who', 'otto'])).code, 2);
   const ctl = await mac(['task', 'add', projectId, 'x', '--who', 'zed\u0001']);
   assert.equal(ctl.code, 1, ctl.out);

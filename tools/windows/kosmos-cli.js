@@ -677,8 +677,9 @@ async function taskAdd(ctx, args) {
     if (rest[i].startsWith('--who=')) { ctx.err('Write it as --who <agent>, with a space.'); return 2; }
     if (rest[i] === '--who') {
       const n = rest[i + 1];
-      if (typeof n !== 'string' || !n.trim() || n.startsWith('-')) { ctx.err("--who needs the name of an agent on the project (or me)."); return 2; }
-      who = n; i += 1; continue;
+      const clean = typeof n === 'string' ? n.replace(/[\u0000-\u001f\u007f]/g, '') : '';   // as install/kosmos drops them
+      if (!clean.trim() || n.startsWith('-')) { ctx.err("--who needs the name of an agent on the project (or me)."); return 2; }
+      who = clean; i += 1; continue;
     }
     if (rest[i] === '--parent') {
       const n = rest[i + 1];
