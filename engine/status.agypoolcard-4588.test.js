@@ -28,6 +28,17 @@ test('#4588 part 3: own reset passed, pool still paused by a colleague: Paused, 
   assert.doesNotMatch(r.because, /has not picked up again/);
 });
 
+test('#4588 part 3 + PR B brake: with AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF=1 nothing is held, so the card does not say the pool holds it', () => {
+  const later = OWN + 3600e3;
+  colleague(later, OWN - 10 * 60e3);
+  process.env.AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF = '1';
+  try {
+    const r = status.reconcileReport(quota(), UNKNOWN, OWN + 60e3);
+    assert.equal(r.poolUntil == null, true, 'the brake is on, yet the card says the shared pool holds it');
+    assert.doesNotMatch(r.because, /shared quota was reported paused until/);
+  } finally { delete process.env.AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF; }
+});
+
 test('#4588 part 3 CONTROLS: an empty memory, or a pool reset no later than its own, keeps the post-reset wording', () => {
   const after = OWN + 60e3;
   let r = status.reconcileReport(quota(), UNKNOWN, after);

@@ -149,3 +149,10 @@ line; two on the old signed form). All three now use the one rule; web.agypoolca
   render-needsyou-dealarm-2808 PASS. contrast and render-fields were given the same turn at 16:31:53 and refused by
   browser-checks.sh's own "another browser-checks run is already live" guard (rc 1, no check ran); queued again one
   after the other: contrast PASS, render-fields PASS. All five pass.
+
+## Rebased onto main after PR B merged (#4813, 0c9c78c99), 2026-09-30 evening
+The 15 part-3 commits were squashed into one and rebased once (history kept on branch agypoolcard-4588-prebuild-backup).
+PR B added the quota-hold brake (AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF=1) after part 3 was written. Under it nothing is
+held and the resume restarts each agent on its own reset, so the card's "shared quota was reported paused" line would
+be false. FIXED: status.js asks agyquota.quotaHoldOff first; a test with the brake on reds without the check.
+Focused set on the rebased head: 106 files, 1625 tests, 0 fail.

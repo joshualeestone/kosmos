@@ -6800,7 +6800,12 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
        and this falls to the line below. It is a reported time, held to on purpose, so it is said as reported; the card
        does not say how long Kosmos holds its messages (the hold runs by its own rule and release steps, agyquota.js). */
     let poolAt = null;
-    try { poolAt = require('./agyquota').heldBackBy(quotaAt); } catch { poolAt = null; }
+    /* With the quota-hold brake on (AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF=1) the resume restarts each agent on its own reset
+       and nothing is held, so the card must not say the pool holds it. */
+    try {
+      const agy = require('./agyquota');
+      poolAt = agy.quotaHoldOff(process.env) ? null : agy.heldBackBy(quotaAt);
+    } catch { poolAt = null; }
     if (poolAt !== null && poolAt > now) {
       const poolHhmm = require('./quotawords').quotaResetWords(poolAt, now);
       return { state: STATE.RATE_LIMITED, confidence: CONFIDENCE.STRUCTURED, because: 'the reset it was given (' + hhmm + ") has passed, but its Google account's shared quota was reported paused until " + poolHhmm, evidence: null, reported: true, conflict: null, poolUntil: new Date(poolAt).toISOString() };
