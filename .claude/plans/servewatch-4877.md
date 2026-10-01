@@ -8,7 +8,11 @@ when anything people download or reach stops answering, and stays silent while h
    Windows) answers 200 with the expected content type, every run; and the served bytes hash to the pointer's
    sha256, at most hourly per artifact.
 2. community.installkosmos.com: /api/health answers 200 {"ok":true}, and the public feed (/api/posts/feed) answers.
-3. The relay: the canary computer address (pizzarama.kosmosplus.com) answers 200.
+3. The relay: the canary computer address (pizzarama.kosmosplus.com) answers 200, two missed runs in a row before
+   it alarms (the canary is a person's computer).
+Robustness: a request with no answer or a 5xx is tried once more in the same run; an alarm's identity is the file and
+the class of failure (not the error text), so a changing error does not repost every run. The download site not
+answering is an alarm at once, unless nothing else answered either (this computer is offline: could not tell).
 Alerts go to the same two places as gap-alarm: a pane (Splinter, who routes) by claude-msg, and a comment on
 kosmos#4877. Tested against a fake pointer naming a missing file (alarm), a healthy site (silent), and a clear after.
 
@@ -17,6 +21,10 @@ kosmos#4877. Tested against a fake pointer naming a missing file (alarm), a heal
   12 review rounds: own clock per channel, retry backoff, repost while it lasts, cleared once, weekly "still watching"
   on the card, could-not-tell said only after a grace period, never posts from a test), --check, --plist, --install.
 - tools.serve-watch.test.js: a local HTTP server stands in for all three sites through env seams.
+
+## After merge
+`node tools/serve-watch.js --install` from the MAIN checkout on Agent1s (as gap-alarm), then confirm the first run's
+log line and that a --check is healthy. The job then runs beside coordinator-monitor.
 
 ## Decisions
 - Its own tool, modelled on tools/gap-alarm.js, rather than refactoring gap-alarm's reviewed machinery into a shared
