@@ -294,7 +294,7 @@ test('#4581 N10: an idle member whose summary was current when it went idle read
   const started = show({ found: true, state: 'started', at: new Date(NOW - 420 * 60000).toISOString() });
   assert.equal(started.m.summary.state, 'idle');
   // Review 3: said as a start, not as a turn's end.
-  assert.match(started.text, /summary: current when this session started \(summaries\/2026-09-29-07\.md, 10h 0m ago; started 7h 0m ago, idle since\)$/m);
+  assert.match(started.text, /summary: current when this session started \(summaries\/2026-09-29-07\.md, 10h 0m ago; started 7h 0m ago and idle since then\)$/m);
   assert.equal(show({ found: true, state: 'idle', by: 'operator', at: new Date(NOW - 420 * 60000).toISOString() }).m.summary.state, 'stale');
   // The edge: idle exactly four hours after the summary is still current when it stopped (to the millisecond; the
   // freshness rule rounds to the minute, so the two can differ by under a minute).

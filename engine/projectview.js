@@ -273,7 +273,7 @@ const SUMMARY_WORDS = {
   stale: (s) => 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
   // #4581 N10: the rhythm is while working; this one was current when the member went idle.
   idle: (s) => s.idleKind === 'started'
-    ? 'current when this session started (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; started ' + ago(s.idleMinutes) + ', idle since)'
+    ? 'current when this session started (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; started ' + ago(s.idleMinutes) + ' and idle since then)'
     : 'current when it went idle (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; idle since ' + ago(s.idleMinutes) + ')',
   none: () => 'none yet',
   nofolder: () => 'we do not know where its folder is',
