@@ -15,7 +15,9 @@ handled, see test arm 9.)
 
 ## The change
 - tools/lib/browser-check-surface-gate.sh and tools/lib/browser-check-gate.sh record their own absolute path when
-  sourced. Each gate function, when BASH_VERSION is empty, says so on stderr and runs itself in a fresh bash
+  sourced. Each gate function, when BASH_VERSION is empty OR `grep` is a shell function (review 3: a Claude Code
+  session running bash carries the same function), says so on stderr and runs itself in a fresh bash (BASH_ENV and an
+  exported grep function removed from its environment; KOSMOS_BCG_REEXEC set so it never re-runs itself)
   (`env <settings> bash -c '. <lib> && <gate>'`), returning that answer. The five KOSMOS_BCG_* / KOSMOS_BCSG_*
   settings are handed over explicitly, each only when set (review 1: a plain unexported zsh variable did not reach
   the child bash, which then checked the real branch and could pass). Measured: plain, exported and prefix settings
@@ -51,6 +53,10 @@ closed (rc 1, a cryptic error), never open; normal zsh records it correctly (mea
   test-bc-surface-map.sh, test-ci-gate-armed-2518.sh and test-browser-check-surface-map.sh pass.
 
 ## Review
+Round 3: no blocker; 2 should-fix taken: a bash whose grep is a function re-runs too, and the child's environment is
+cleaned (BASH_ENV, an exported grep function). Found while fixing: in bash the old ${X+X="$X"} forwarding split a value
+with spaces, so the settings are now forwarded with set --, one word each in both shells. Nits taken: none needed for
+the throwaway repos (a broken setup fails the controls loudly, never passes falsely).
 Round 2: no blocker; 2 should-fix (three forwards unpinned by any test; the plan overstated the mutant coverage),
 taken; nit noted (a clearer message when the recorded path is wrong under emulate sh: it already fails closed).
 Round 1: 1 blocker (plain zsh variables did not reach the re-run), taken; 1 should-fix (no positive control through
