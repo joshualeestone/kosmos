@@ -27,6 +27,7 @@
 #   s2 superseded, live serves it                   -> still carried
 #   s3 9.9.10 over 9.9.9 (version, not string, order) -> not superseded, refuses
 #   st1 live staging newer than the committed one   -> refuses (would roll staging back)
+#   st1r KOSMOS_STAGING_ROLLBACK=<committed version> -> passes; another version -> still refuses
 #   st2 CONTROL committed staging newer than live   -> proceeds
 #   st3 live has a staging pointer, none committed  -> refuses (would unpublish it)
 #   st4 live unreachable                            -> refuses "could not read", not "absent"
@@ -183,6 +184,10 @@ S="$T/st1"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-st1"; ptr "
 cp "$BYTES" "$S/dist/$STAGED"; printf '%s  %s\n' "$SHA" "$STAGED" > "$S/dist/$STAGED.sha256"
 out=$(run_carry "$S" "$T/live-st1")
 if has "$out" "RC=1 " && has "$out" "live staging is 9.9.03" && has "$out" "move staging back"; then pass "st1: live staging newer than the checkout's refuses (the deploy would roll staging back)"; else bad "st1: $out"; fi
+# The rollback opt-in: the same checkout passes when it names the committed version, and only then.
+out=$(KOSMOS_STAGING_ROLLBACK=9.9.02 run_carry "$S" "$T/live-st1")
+out2=$(KOSMOS_STAGING_ROLLBACK=9.9.01 run_carry "$S" "$T/live-st1")
+if has "$out" "RC=0 STAGED_ART=$STAGED" && has "$out" "rolling staging back from 9.9.03 to 9.9.02" && has "$out2" "RC=1 "; then pass "st1r: KOSMOS_STAGING_ROLLBACK naming the committed version lets a deliberate rollback through; naming another does not"; else bad "st1r: $out // $out2"; fi
 S="$T/st2"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-st2"; ptr "$SHA" "$OLDSTG" > "$T/live-st2/latest-staging.json"
 cp "$BYTES" "$S/dist/$STAGED"; printf '%s  %s\n' "$SHA" "$STAGED" > "$S/dist/$STAGED.sha256"
 out=$(run_carry "$S" "$T/live-st2")
@@ -227,5 +232,5 @@ if [ -n "$call" ] && [ -n "$export_at" ] && [ "$call" -lt "$export_at" ]; then :
 [ "$k_ok" = 1 ] && pass "k: deploy-site.sh runs the carry before the export, checks the export for the pair, and served-verifies the pair"
 
 echo
-if [ "$fail" = 0 ] && [ "$npass" = 21 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
-echo "FAILED ($npass passed, expected 21)"; exit 1
+if [ "$fail" = 0 ] && [ "$npass" = 22 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
+echo "FAILED ($npass passed, expected 22)"; exit 1

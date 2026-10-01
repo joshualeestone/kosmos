@@ -325,5 +325,20 @@ run_deploy "$S14" "$L14" --promote
 { [ "$RC" = 1 ] && has "$out" "live does not serve $STGART.sha256 either" && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L14/dist/latest.json")" = "$OLD" ]; } \
   && pass "mac staged: no copy anywhere refuses before any deploy, naming $STGART, LIVE left on OLD" || bad "mac staged not served (rc=$RC) out=$out"
 
+# 15) a checkout committing an OLDER staging than LIVE serves refuses before any deploy, LIVE
+#     untouched; the same checkout with KOSMOS_STAGING_ROLLBACK naming its version goes through.
+read -r S15 L15 <<<"$(make_scenario)"; add_staged_mac "$S15" "$L15"
+write_ptr "$L15/dist/latest-staging.json" 0.6.33 "$(sha_of "$T/stg-bytes")" kosmos-0.6.33-arm64.tar.gz
+cp "$L15/dist/latest-staging.json" "$T/live-staging-before"
+run_deploy "$S15" "$L15" --promote
+{ [ "$RC" = 1 ] && has "$out" "live staging is 0.6.33" && cmp -s "$L15/dist/latest-staging.json" "$T/live-staging-before" \
+  && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L15/dist/latest.json")" = "$OLD" ]; } \
+  && pass "mac staged: a checkout behind LIVE's staging refuses before any deploy, LIVE untouched" || bad "mac staged stale checkout (rc=$RC) out=$out"
+export KOSMOS_STAGING_ROLLBACK="$STG"
+run_deploy "$S15" "$L15" --promote
+unset KOSMOS_STAGING_ROLLBACK
+{ [ "$RC" = 0 ] && has "$out" "rolling staging back from 0.6.33 to $STG" && has "$(cat "$L15/dist/latest-staging.json")" "$STGART"; } \
+  && pass "mac staged: KOSMOS_STAGING_ROLLBACK=$STG deploys the deliberate rollback" || bad "mac staged rollback (rc=$RC) out=$out"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

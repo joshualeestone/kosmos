@@ -58,6 +58,9 @@
 #                                     # which runs the experience + agent-spawn gates and refreshes
 #                                     # the alias LOCALLY) and COMMIT latest.json first; this is the
 #                                     # deploy that publishes it.
+#   KOSMOS_STAGING_ROLLBACK=<version> tools/deploy-site.sh --publish
+#                                     # a deliberate staging ROLLBACK (#4819): without it a checkout
+#                                     # committing an older staging version than live is refused.
 #
 # NOTE ON THE SHELL: this is #!/bin/sh but sources two #!/bin/bash libraries (site-deploy.sh,
 # pkg-inputs.sh) that use `local` and ${var:0:2} substrings, so it needs a bash-compatible /bin/sh.
@@ -500,18 +503,21 @@ fi
 # >>> staged Mac carry (#4819) -- tools/test-deploy-site-staged-mac-4819.sh extracts and tests this block.
 # The STAGED Mac build: the tarball the committed latest-staging.json names, and its .sha256. Both
 # are gitignored and carried by the export's dist/*.tar.gz and dist/*.tar.gz.sha256 globs, so a
-# checkout without them DROPPED
-# them while the pointer still named them: 2026-09-30 19:52, a site deploy left 0.7.14 staging
-# answering 404, and every staging install and update failed until the site was redeployed from the
-# cut box. Carry it rather than only refuse: the local copy when it is the committed pointer's bytes
-# (that is how a redeploy from the cut box restores a dropped one), else the copy live serves now,
-# fetched and checked against the served .sha256 AND the committed pointer's sha. Refuse when
-# neither exists, naming the tarball, unless the staged build is not newer than prod (superseded,
-# as #3600 decides for Windows): then warn and carry nothing, since nobody will promote it.
-# Sets STAGED_ART, empty when nothing extra is carried.
+# deploy from a checkout without them dropped them while the pointer still named them: 2026-09-30
+# 19:52, a site deploy left 0.7.14 staging answering 404, and every staging install and update
+# failed until the site was redeployed from the cut box. Carry it rather than only refuse: the
+# local copy when it is the committed pointer's bytes (that is how a redeploy from the cut box
+# restores a dropped one), else the copy live serves now, fetched and checked against the served
+# .sha256 AND the committed pointer's sha. Refuse when neither exists, naming the tarball, unless
+# the staged build is not newer than prod (superseded, as #3600 decides for Windows): then warn and
+# neither fetch nor check it, since nobody will promote it (a local copy without a matching
+# sidecar, if any, still ships by the glob, unchecked). Sets STAGED_ART, empty when nothing extra
+# is carried.
 # It also refuses a checkout whose committed staging pointer is OLDER than the one live serves (or
 # that commits none while live serves one): deploying it would move staging back and drop the newer
-# tarball, the same incident one version over.
+# tarball, the same incident one version over. A deliberate staging ROLLBACK
+# (publish-staging-pointer.sh to an older version, then this deploy) passes only with
+# KOSMOS_STAGING_ROLLBACK=<that version>.
 #
 # One read of a live file: sets _CSM_CODE (the HTTP status, 000 when the request never completed)
 # and _CSM_BODY. Only a 404 means absent; anything else that is not a 200 is "could not check".
@@ -537,7 +543,11 @@ carry_staged_mac() {
   if [ -n "$_csm_live" ] && [ "$_csm_live" != "$_csm_ptr" ]; then
     _csm_lv=$(_csm_version "$(ptr_artifact "$_csm_live")"); _csm_cv=$(_csm_version "$(ptr_artifact "$_csm_ptr")")
     if [ -n "$_csm_lv" ] && [ "$_csm_lv" != "$_csm_cv" ] && [ "$(printf '%s\n%s\n' "$_csm_lv" "$_csm_cv" | sort -V | tail -1)" = "$_csm_lv" ]; then
-      echo "deploy-site: live staging is $_csm_lv but $H commits staging ${_csm_cv:-(unreadable)} -- refusing; the deploy would move staging back and drop the newer build. Sync $SITE to the current release, then retry (#4819)"; exit 1
+      if [ -n "$_csm_cv" ] && [ "${KOSMOS_STAGING_ROLLBACK:-}" = "$_csm_cv" ]; then
+        echo "deploy-site: KOSMOS_STAGING_ROLLBACK=$_csm_cv: rolling staging back from $_csm_lv to $_csm_cv on purpose (#4819)"
+      else
+        echo "deploy-site: live staging is $_csm_lv but $H commits staging ${_csm_cv:-(unreadable)} -- refusing; the deploy would move staging back and drop the newer build. Sync $SITE to the current release and retry, or, for a deliberate staging rollback, re-run with KOSMOS_STAGING_ROLLBACK=${_csm_cv:-<version>} (#4819)"; exit 1
+      fi
     fi
   fi
   [ -n "$_csm_ptr" ] || { echo "deploy-site: no committed dist/latest-staging.json at $H, so no staged Mac build to carry (#4819)"; return 0; }
