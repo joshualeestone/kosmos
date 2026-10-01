@@ -21,7 +21,16 @@ const fs = require('node:fs');
 const os = require('node:os');
 /* #4796: a fresh data root, so the live board's token never travels to this test's stub board. */
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-gaps-4891-'));
-process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
+/* The validation run: the CLI renders a task list with ITS node, $KOSMOS_HOME/runtime/bin/node, and prints the raw JSON
+   when there is none. KOSMOS_HOME defaults to the checkout, which has a runtime/ only where a build left one, so the
+   empty-list control read '{"tasks":[]}' in a clean tree. A sandboxed KOSMOS_HOME with this node, as the sibling CLI
+   tests do (cli.agent-create-3734.test.js). */
+const KHOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-gaps-4891-home-')));
+fs.mkdirSync(path.join(KHOME, 'runtime', 'bin'), { recursive: true });
+fs.symlinkSync(process.execPath, path.join(KHOME, 'runtime', 'bin', 'node'));
+process.on('exit', () => {
+  for (const d of [DATA, KHOME]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+});
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const HEALTH = '<title>Kosmos</title>Agent Workforce';
@@ -69,7 +78,7 @@ function withBoard(fn) {
   });
 }
 
-const envFor = (port) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' });
+const envFor = (port) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_HOME: KHOME, KOSMOS_PORT: String(port), TMUX_PANE: '%42' });
 const roomReads = (hits) => hits.filter((h) => h.method === 'GET' && /\/room\?/.test(h.url)).map((h) => h.url);
 
 test('#4891 N8: -n, --limit and --limit= reach the board as &n=, either side of the project id', () =>
