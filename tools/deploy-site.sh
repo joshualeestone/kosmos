@@ -514,7 +514,7 @@ carry_staged_mac() {
   _csm_show=$(printf '%s' "$_csm_art" | tr -cd '[:print:]')
   case "$_csm_art" in
     kosmos-[0-9]*-arm64.tar.gz) : ;;
-    *) echo "deploy-site: the committed latest-staging.json names '${_csm_show:-nothing}', not a kosmos-<version>-arm64.tar.gz -- refusing (#4819)"; exit 1 ;;
+    *) echo "deploy-site: the committed latest-staging.json names '${_csm_show:-nothing}', not a kosmos-<digit>...-arm64.tar.gz -- refusing (#4819)"; exit 1 ;;
   esac
   # Second check, not redundant: the glob's * above also matches '/' and '..'.
   case "$_csm_art" in *[!A-Za-z0-9._-]*|*..*) echo "deploy-site: the committed latest-staging.json names '$_csm_show', which is not a bare file name -- refusing (#4819)"; exit 1 ;; esac
@@ -528,6 +528,13 @@ carry_staged_mac() {
     echo "deploy-site: carrying the staged Mac build $_csm_art from $SITE/dist/ (its bytes and its .sha256 match the committed latest-staging.json) (#4819)"
   else
     echo "deploy-site: $SITE/dist/ has no copy of the staged Mac build $_csm_art matching the committed latest-staging.json; fetching the one live serves (#4819)"
+    # Read the served sidecar FIRST and refuse before anything is fetched when it names other
+    # bytes: fetch_verified renames what it fetched over the local copy, so a refusal after it
+    # would leave the wrong build in dist/ under the real name.
+    _csm_served=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/$_csm_art.sha256" 2>/dev/null) || _csm_served=""
+    _csm_served=$(printf '%s\n' "$_csm_served" | awk '{print $1; exit}')
+    [ -n "$_csm_served" ] || { echo "deploy-site: $SITE/dist/ has no copy of the staged Mac build $_csm_art and live does not serve $_csm_art.sha256 either -- refusing; deploying would drop the build latest-staging.json names (#4819)"; exit 1; }
+    [ "$_csm_served" = "$_csm_sha" ] || { echo "deploy-site: live serves a $_csm_art.sha256 that is not the build the committed latest-staging.json names -- refusing before fetching, so $SITE/dist/ is untouched (#4819)"; exit 1; }
     fetch_verified "$HOST/dist/$_csm_art" "$SITE/dist/$_csm_art"
     [ "$(_sha256_of "$SITE/dist/$_csm_art")" = "$_csm_sha" ] || { echo "deploy-site: the served $_csm_art is not the build the committed latest-staging.json names (sha differs) -- refusing; deploying would point staging at bytes nobody verified (#4819)"; exit 1; }
   fi
@@ -542,8 +549,9 @@ carry_staged_mac
 
 echo "deploy-site: fetched and verified the current live GITIGNORED artifacts into $SITE/dist/"
 # ⚠️ This wrote into the SHARED site checkout's dist/ (also the live board, also shared with
-# tools/release.sh), but ONLY gitignored artifacts (the tarball, pkg triple, tmux, alias) -- each
-# sha-verified against live, and none of them tracked, so `git status` stays clean and no later
+# tools/release.sh), but ONLY gitignored artifacts (the tarball, pkg triple, tmux, alias, and the
+# staged Mac build when it was fetched rather than already present, #4819) -- each
+# sha-verified (against live; a staged Mac build already in dist/ against the committed pointer), and none of them tracked, so `git status` stays clean and no later
 # `git commit -a` can sweep them up. It is still not side-effect-free on the filesystem, so do not
 # run a --publish concurrently with a release cut populating the same dist/.
 

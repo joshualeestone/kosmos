@@ -290,5 +290,40 @@ run_deploy "$S11" "$L11" --promote
 unset DROP_FROM_DEPLOY
 [ "$RC" = 1 ] && has "$out" "latest-win-staging.json failed served-verify" && pass "win staged: a deploy that drops the staging pointer fails the served-verify" || bad "win staged dropped pointer (rc=$RC) out=$out"
 
+# =============================================================================================
+# #4819: the STAGED MAC build. A committed latest-staging.json names a third version, served by
+# LIVE but absent from the checkout's dist/ (the 2026-09-30 19:52 shape). The real deploy-site.sh
+# must carry it (fetched from LIVE), deploy it, and served-verify it.
+STG=0.6.32
+STGART="kosmos-$STG-arm64.tar.gz"
+add_staged_mac() {  # <site> <live> [not-served]
+  printf 'STAGED-MAC-BYTES-%s\n' "$STG" > "$T/stg-bytes"
+  write_ptr "$1/dist/latest-staging.json" "$STG" "$(sha_of "$T/stg-bytes")" "$STGART"
+  git -C "$1" add dist/latest-staging.json && git -C "$1" commit -q -m "staging at $STG"
+  if [ "${3:-}" != not-served ]; then
+    cp "$T/stg-bytes" "$2/dist/$STGART"
+    ( cd "$2/dist" && shasum -a 256 "$STGART" > "$STGART.sha256" )
+  fi
+}
+
+# 12) carried from LIVE, deployed, served-verified.
+read -r S12 L12 <<<"$(make_scenario)"; add_staged_mac "$S12" "$L12"
+run_deploy "$S12" "$L12" --promote
+{ [ "$RC" = 0 ] && has "$out" "fetching the one live serves" && [ -f "$S12/dist/$STGART" ] && [ -f "$S12/dist/$STGART.sha256" ]; } \
+  && pass "mac staged: a checkout without the staged Mac build fetches it from LIVE and the deploy succeeds" || bad "mac staged carry (rc=$RC) out=$out"
+
+# 13) a deploy that drops it is caught by the post-deploy served-verify (the pair is checked).
+read -r S13 L13 <<<"$(make_scenario)"; add_staged_mac "$S13" "$L13"
+export DROP_FROM_DEPLOY="$STGART"
+run_deploy "$S13" "$L13" --promote
+unset DROP_FROM_DEPLOY
+[ "$RC" = 1 ] && has "$out" "SERVED dist/$STGART could not be fetched after deploy" && pass "mac staged: a deploy that drops the staged Mac build fails the served-verify" || bad "mac staged dropped (rc=$RC) out=$out"
+
+# 14) neither the checkout nor LIVE has it: refuse BEFORE the deploy, naming it, LIVE untouched.
+read -r S14 L14 <<<"$(make_scenario)"; add_staged_mac "$S14" "$L14" not-served
+run_deploy "$S14" "$L14" --promote
+{ [ "$RC" = 1 ] && has "$out" "$STGART" && has "$out" "refusing" && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L14/dist/latest.json")" = "$OLD" ]; } \
+  && pass "mac staged: no copy anywhere refuses before any deploy, naming $STGART, LIVE left on OLD" || bad "mac staged not served (rc=$RC) out=$out"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

@@ -21,7 +21,8 @@
 #   e  no local copy, live does not serve it        -> refuses, naming the tarball
 #   f  local copy has the WRONG bytes               -> not trusted, fetched from live
 #   g  local copy right, its .sha256 missing        -> not trusted, fetched from live
-#   h  live serves other bytes than the pointer     -> refuses
+#   h  live serves other bytes than the pointer     -> refuses before fetching
+#   h2 local right without a .sha256, live wrong    -> refuses, local copy byte-identical
 #   i  the pointer names a path, not a file         -> refuses before any fetch
 #   j  the pointer has no sha                       -> refuses before any fetch
 #   k  the wiring: deploy-site.sh calls the block, checks the export for the pair, and
@@ -81,6 +82,13 @@ run_carry() {  # <site> <live dir>
       [ -f "$src" ] || { echo "deploy-site: could not fetch $1 -- refusing (stub)"; exit 1; }
       cp "$src" "$2"; printf '%s  %s\n' "$(sha_of "$src")" "${1##*/}" > "$2.sha256"
     }
+    # Stub: the block reads the served .sha256 itself before fetching; serve it from $LIVE_DIR,
+    # exit 22 (curl -f's failure) when the artifact is not served.
+    curl() {
+      _u=""; for _a in "$@"; do case "$_a" in http*) _u="$_a";; esac; done
+      _f="${_u##*/}"; _src="$LIVE_DIR/${_f%.sha256}"
+      case "$_f" in *.sha256) [ -f "$_src" ] || return 22; printf '%s  %s\n' "$(sha_of "$_src")" "${_f%.sha256}";; *) return 22;; esac
+    }
     . "$LIB"
     trap 'echo "RC=$? STAGED_ART=${STAGED_ART:-} FETCHED=[$(tr "\n" " " < "$FETCH_LOG")]"' EXIT
     carry_staged_mac
@@ -113,7 +121,7 @@ else bad "d: $out"; fi
 # ---- e: no local copy, not served ------------------------------------------------------------------
 S="$T/e"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-e"
 out=$(run_carry "$S" "$T/live-e")
-if has "$out" "RC=1 " && has "$out" "$STAGED" && ! has "$out" "STAGED_ART=$STAGED"; then pass "e: neither a local copy nor a served one: refuses, naming $STAGED"; else bad "e: $out"; fi
+if has "$out" "RC=1 " && has "$out" "live does not serve $STAGED.sha256" && has "$out" "FETCHED=[]"; then pass "e: neither a local copy nor a served one: refuses, naming $STAGED"; else bad "e: $out"; fi
 
 # ---- f: local bytes wrong ----------------------------------------------------------------------------
 S="$T/f"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-f"; cp "$BYTES" "$T/live-f/$STAGED"
@@ -130,7 +138,14 @@ if has "$out" "RC=0 STAGED_ART=$STAGED FETCHED=[https://site.invalid/dist/$STAGE
 # ---- h: live serves other bytes than the pointer -------------------------------------------------------
 S="$T/h"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-h"; cp "$OTHER" "$T/live-h/$STAGED"
 out=$(run_carry "$S" "$T/live-h")
-if has "$out" "RC=1 " && has "$out" "not the build the committed latest-staging.json names"; then pass "h: served bytes that are not the pointer's build: refuses"; else bad "h: $out"; fi
+if has "$out" "RC=1 " && has "$out" "not the build the committed latest-staging.json names" && has "$out" "FETCHED=[]"; then pass "h: served bytes that are not the pointer's build: refuses before fetching"; else bad "h: $out"; fi
+
+# ---- h2: the local copy is the pointer's build but has no .sha256, and live serves other bytes ---------
+# The refusal must not replace the only correct copy with the served wrong one.
+S="$T/h2"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-h2"; cp "$OTHER" "$T/live-h2/$STAGED"
+cp "$BYTES" "$S/dist/$STAGED"
+out=$(run_carry "$S" "$T/live-h2")
+if has "$out" "RC=1 " && has "$out" "FETCHED=[]" && [ "$(sha_of "$S/dist/$STAGED")" = "$SHA" ] && [ ! -e "$S/dist/$STAGED.sha256" ]; then pass "h2: a refusal leaves the local copy byte-identical (the right build is not overwritten by the served wrong one)"; else bad "h2: $out (local sha now $(sha_of "$S/dist/$STAGED"))"; fi
 
 # ---- i: a path, not a file --------------------------------------------------------------------------
 S="$T/i"; mksite "$S" "$(ptr "$SHA" "kosmos-9/../../etc-arm64.tar.gz")"; mkdir -p "$T/live-i"
@@ -161,5 +176,5 @@ if [ -n "$call" ] && [ -n "$export_at" ] && [ "$call" -lt "$export_at" ]; then :
 [ "$k_ok" = 1 ] && pass "k: deploy-site.sh runs the carry before the export, checks the export for the pair, and served-verifies the pair"
 
 echo
-if [ "$fail" = 0 ] && [ "$npass" = 12 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
-echo "FAILED ($npass passed, expected 12)"; exit 1
+if [ "$fail" = 0 ] && [ "$npass" = 13 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
+echo "FAILED ($npass passed, expected 13)"; exit 1
