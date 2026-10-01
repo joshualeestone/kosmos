@@ -133,10 +133,13 @@ function artifactsOf(p, pt) {
     add(p.artifact, 'tarball', true, true);
     add(p.manifest, 'manifest', false, false);
   } else {
-    // tools/windows/setup.ps1 requires versioned === kosmos-<version>-win-<arch>.zip; the fixed-name zip is optional.
+    // tools/windows/setup.ps1 requires versioned === kosmos-<version>-win-<arch>.zip; it treats the fixed-name zip as optional.
     const arch = typeof p.arch === 'string' && /^[a-z0-9]+$/.test(p.arch) ? p.arch : null;
     if (!arch || p.versioned !== 'kosmos-' + v + '-win-' + arch + '.zip') return null;
     add(p.versioned, 'zip', true, true);
+    // The release pointer must name it (tools/lib/write-latest-win-pointer.js always does): it is the home page's
+    // Windows download, and without it nothing here would watch that button.
+    if (owns && p.artifact === undefined) return null;
     if (p.artifact !== undefined) { if (!ok(p.artifact)) return null; add(p.artifact, 'zip', owns, owns); }
   }
   return out;

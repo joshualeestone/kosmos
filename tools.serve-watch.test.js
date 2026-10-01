@@ -301,7 +301,8 @@ test('the pointers watched are the four the app reads', () => {
   assert.deepEqual(sw.POINTERS.map((p) => p.file), ['latest.json', 'latest-staging.json', 'latest-win.json', 'latest-win-staging.json']);
   assert.equal(sw.artifactsOf({ version: '1.2.3', artifact: 'kosmos-1.2.3-arm64.tar.gz', manifest: 'm.json' }, 'mac').length, 2);
   assert.equal(sw.artifactsOf({ version: '1.2.3', arch: 'x64', artifact: 'a.zip', versioned: 'kosmos-1.2.3-win-x64.zip' }, 'win').length, 2);
-  assert.equal(sw.artifactsOf({ version: '1.2.3', arch: 'x64', versioned: 'kosmos-1.2.3-win-x64.zip' }, 'win').length, 1, 'the fixed-name zip is optional (setup.ps1 never fetches it)');
+  assert.equal(sw.artifactsOf({ version: '1.2.3', arch: 'x64', versioned: 'kosmos-1.2.3-win-x64.zip' }, 'win'), null, 'the released pointer must name the home page\'s zip');
+  assert.equal(sw.artifactsOf({ version: '1.2.3', arch: 'x64', versioned: 'kosmos-1.2.3-win-x64.zip' }, sw.POINTERS[3]).length, 1, 'staging may leave it out');
   assert.equal(sw.artifactsOf({ version: '1.2.3', arch: 'x64', artifact: 'a/b.zip', versioned: 'kosmos-1.2.3-win-x64.zip' }, 'win'), null);
   // The names the installers derive from version (and arch): a pointer that disagrees is refused.
   assert.equal(sw.artifactsOf({ version: '1.2.4', artifact: 'kosmos-1.2.3-arm64.tar.gz', manifest: 'm.json' }, 'mac'), null);
@@ -391,16 +392,16 @@ test('a possible loss on the pane (claude-msg exit 8) is a failure, tried again 
   assert.match(st.card(), /did not go/);
 }));
 
-test('a pending mismatch for a file still named but no longer held to a sha is dropped, not carried forever', () => withSite(async ({ site, base, dir, st }) => {
-  site.files.set('kosmos-win-x64.zip.sha256', ['text/plain', '0'.repeat(64) + '  kosmos-win-x64.zip\n']);
-  const r1 = await run(base, dir, st, { now: T0 });
-  assert.equal(r1.code, 2, 'CONTROL: a first sighting is pending ' + r1.out + r1.err);
-  // latest-win.json stops naming the fixed-name zip (the field is optional); staging still names it, but staging
-  // does not hold it to a sha, so nothing compares it any more.
+test('latest-win.json without the fixed-name zip is refused: the home page\'s Windows download would be watched by nothing', () => withSite(async ({ site, base, dir, st }) => {
   const win = JSON.parse(site.files.get('latest-win.json')[1]); delete win.artifact;
   site.files.set('latest-win.json', ['application/json', JSON.stringify(win)]);
-  assert.equal((await run(base, dir, st, { now: T0 + 900 })).code, 0, 'a pending key outlived its comparison');
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')).pending, []);
+  assert.equal((await run(base, dir, st, { now: T0 })).code, 1);
+  assert.match(st.card(), /latest-win\.json does not name its artifacts the way the app reads them/);
+  // CONTROL: staging may leave it out (it does not hold the zip).
+  site.files.set('latest-win.json', ['application/json', JSON.stringify(Object.assign(win, { artifact: 'kosmos-win-x64.zip' }))]);
+  const stg = JSON.parse(site.files.get('latest-win-staging.json')[1]); delete stg.artifact;
+  site.files.set('latest-win-staging.json', ['application/json', JSON.stringify(stg)]);
+  assert.equal((await run(base, dir, st, { now: T0 + 900 })).code, 0);
 }));
 
 test('after "could not tell", the all-clear says it is able to check again', () => withSite(async ({ site, base, dir, st }) => {
