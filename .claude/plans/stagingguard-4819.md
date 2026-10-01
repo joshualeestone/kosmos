@@ -52,7 +52,7 @@ staged WINDOWS build; it had no Mac twin.
   read again twice on a mismatch before it fails, since an edge can serve the old pointer briefly
   (review 14; a persistent mismatch is arm 16, the brief one has no arm).
 - DRY RUN summary names the staged build when one was carried.
-- `tools/test-deploy-site-staged-mac-4819.sh` (30 checks), wired into `test:shell`; end-to-end
+- `tools/test-deploy-site-staged-mac-4819.sh` (32 checks), wired into `test:shell`; end-to-end
   arms in `tools/test-deploy-site-promote.sh` that run the real script.
 
 ## Decided, and why
@@ -102,14 +102,14 @@ one's tarball and not see the served one. Today the Mac staging pointer is track
 statically (measured: 200 application/json from installkosmos.com).
 
 ## Tests
-- `bash tools/test-deploy-site-staged-mac-4819.sh`, 30 checks on the extracted block: nothing
+- `bash tools/test-deploy-site-staged-mac-4819.sh`, 32 checks on the extracted block: nothing
   committed; staged == prod; local copy carried (control); the incident (no local copy, live serves
   it); no copy anywhere refuses; wrong local bytes; local without its sidecar (carried, sidecar written); a wrong
   local sidecar rewritten; live serving other bytes refuses before fetching; a refusal leaves the
   local file byte-identical; superseded, served nowhere, with a stray local copy refuses; superseded with no
   copy warns when the pointer is unchanged and refuses when the deploy moves it, superseded but served is carried, 9.9.10 over 9.9.9 is newer; live staging newer than
   the checkout's refuses, the rollback opt-in passes only for the committed version, older proceeds (control), live-only pointer refuses, an unparsable live pointer refuses and the opt-in replaces it, same version with different bytes refuses and the opt-in deploys it, a malformed committed pointer refuses with "repair it", live unreachable
-  refuses as "could not read", one transport blip is retried, a superseded build whose sidecar read fails refuses; a path name and a
+  refuses as "could not read", one transport blip and one 503 are retried, an empty 200 for the live pointer refuses, a superseded build whose sidecar read fails refuses; a path name and a
   missing sha refuse before any fetch; the wiring (call before the export, export checks, post-deploy
   served-verify).
 - `bash tools/test-deploy-site-promote.sh` arms 12-18, the real script end to end: carried from live
@@ -132,6 +132,9 @@ statically (measured: 200 application/json from installkosmos.com).
   three (st9 red). Review 12: the post-deploy pointer re-read now uses the same three-try reader.
   Review 13: the moves-the-pointer refusal disabled (s5 red). The post-deploy "none committed, so
   live must 404" check has no test arm: reaching it needs a race the pre-deploy check closes.
+  Review 15 (nits only, fixed anyway): the post-deploy loop no longer shares its loop variable with
+  the reader's own loop (the "last try" check read the inner value; no arm, it changes only a sleep);
+  the empty-200 refusal disabled (st11 red); 5xx no longer retried (st10 red).
   (A post-fetch pointer-sha check remains as a backstop. `fetch_verified` re-reads the served
   sidecar itself, so it fires only if the sidecar changed between the two reads, a concurrent
   publish; no test reaches it.)

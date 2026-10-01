@@ -39,6 +39,8 @@
 #   st7 same version, different bytes             -> refuses; the opt-in deploys it
 #   st8 malformed committed pointer, live differs  -> refuses with 'repair it'
 #   st9 one transport blip on the live read        -> retried, proceeds
+#   st10 one 503 on the live read                  -> retried, proceeds
+#   st11 an empty 200 for the live pointer         -> refuses
 #   st5 superseded, the sidecar read fails in transport -> refuses, does not take the skip
 #   i  the pointer names a path, not a file         -> refuses before any fetch
 #   j  the pointer has no sha                       -> refuses before any fetch
@@ -110,6 +112,8 @@ run_carry() {  # <site> <live dir>
       [ ! -e "$LIVE_DIR/.down" ] || { [ -z "$_w" ] || printf '000'; return 7; }
       # .flaky-once: the first request fails in transport, the rest are served normally.
       if [ -e "$LIVE_DIR/.flaky-once" ]; then rm -f "$LIVE_DIR/.flaky-once"; [ -z "$_w" ] || printf '000'; return 7; fi
+      # .503-once: the first request answers 503 (curl -sS exits 0 on an HTTP error without -f).
+      if [ -e "$LIVE_DIR/.503-once" ]; then rm -f "$LIVE_DIR/.503-once"; [ -z "$_o" ] || : > "$_o"; [ -z "$_w" ] || printf '503'; return 0; fi
       case "$_f" in *.sha256) [ ! -e "$LIVE_DIR/.down-sidecar" ] || { [ -z "$_w" ] || printf '000'; return 7; };; esac
       if [ -f "$LIVE_DIR/$_f" ]; then _body=$(cat "$LIVE_DIR/$_f"); _code=200
       else case "$_f" in *.sha256) [ ! -f "$LIVE_DIR/${_f%.sha256}" ] || { _body="$(sha_of "$LIVE_DIR/${_f%.sha256}")  ${_f%.sha256}"; _code=200; };; esac; fi
@@ -245,6 +249,14 @@ S="$T/st9"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-st9"; ptr "
 cp "$BYTES" "$S/dist/$STAGED"; printf '%s  %s\n' "$SHA" "$STAGED" > "$S/dist/$STAGED.sha256"
 out=$(run_carry "$S" "$T/live-st9")
 if has "$out" "RC=0 STAGED_ART=$STAGED" && [ ! -e "$T/live-st9/.flaky-once" ]; then pass "st9: one transport failure on the live pointer read is retried, not refused"; else bad "st9: $out"; fi
+# A 503 once is retried too, and an empty 200 is refused rather than read as "absent".
+S="$T/st10"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-st10"; ptr "$SHA" "$STAGED" > "$T/live-st10/latest-staging.json"; : > "$T/live-st10/.503-once"
+cp "$BYTES" "$S/dist/$STAGED"; printf '%s  %s\n' "$SHA" "$STAGED" > "$S/dist/$STAGED.sha256"
+out=$(run_carry "$S" "$T/live-st10")
+if has "$out" "RC=0 STAGED_ART=$STAGED" && [ ! -e "$T/live-st10/.503-once" ]; then pass "st10: one 503 on the live pointer read is retried, not refused"; else bad "st10: $out"; fi
+S="$T/st11"; mksite "$S" ""; mkdir -p "$T/live-st11"; : > "$T/live-st11/latest-staging.json"
+out=$(run_carry "$S" "$T/live-st11")
+if has "$out" "RC=1 " && has "$out" "answered 200 with nothing in it"; then pass "st11: an empty 200 for the live pointer refuses, it is not read as absent"; else bad "st11: $out"; fi
 # A transport failure on the SIDECAR read of a superseded build must refuse, not take the skip.
 S="$T/st5"; mksite "$S" "$(ptr "$SHA" "$OLDSTG")"; mkdir -p "$T/live-st5"; cp "$BYTES" "$T/live-st5/$OLDSTG"; : > "$T/live-st5/.down-sidecar"
 out=$(run_carry "$S" "$T/live-st5")
@@ -284,5 +296,5 @@ if [ -n "$call" ] && [ -n "$export_at" ] && [ "$call" -lt "$export_at" ]; then :
 [ "$k_ok" = 1 ] && pass "k: deploy-site.sh checks staging staleness before any fetch, runs the carry before the export, checks the export for the pair, and served-verifies the pair and the pointer"
 
 echo
-if [ "$fail" = 0 ] && [ "$npass" = 30 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
-echo "FAILED ($npass passed, expected 30)"; exit 1
+if [ "$fail" = 0 ] && [ "$npass" = 32 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
+echo "FAILED ($npass passed, expected 32)"; exit 1

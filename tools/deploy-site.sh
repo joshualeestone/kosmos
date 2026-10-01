@@ -491,7 +491,8 @@ check_staging_not_stale() {
   _csm_ptr=$(git -C "$SITE" show "$H:dist/latest-staging.json" 2>/dev/null) || _csm_ptr=""
   _csm_read "$HOST/dist/latest-staging.json"
   case "$_CSM_CODE" in
-    200) _csm_live=$_CSM_BODY ;;
+    200) _csm_live=$_CSM_BODY
+         [ -n "$_csm_live" ] || { echo "deploy-site: the live latest-staging.json answered 200 with nothing in it -- refusing; that is neither a pointer nor absent (#4819)"; exit 1; } ;;
     404) _csm_live="" ;;
     *) echo "deploy-site: could not read the live latest-staging.json (HTTP $_CSM_CODE) -- refusing; without it this cannot tell whether the checkout's staging pointer is stale (#4819)"; exit 1 ;;
   esac
@@ -796,11 +797,11 @@ if [ -z "$_csm_committed" ]; then
   [ "$_CSM_CODE" = 404 ] || { echo "deploy-site: $H commits no latest-staging.json but live answers HTTP $_CSM_CODE for it after the deploy -- investigate (#4819)."; exit 1; }
 else
   # A mismatch is read again twice before it fails: an edge can serve the old pointer briefly.
-  for _csm_try in 1 2 3; do
+  for _csm_ptry in 1 2 3; do   # not _csm_try: _csm_read's own loop uses that name
     _csm_read "$HOST/dist/latest-staging.json"   # itself three tries on a transport failure
     [ "$_CSM_CODE" = 200 ] || { echo "deploy-site: could not re-read the served latest-staging.json after deploy (HTTP $_CSM_CODE) -- the deploy already ran; re-check it (#4819)."; exit 1; }
     [ "$_CSM_BODY" != "$_csm_committed" ] || break
-    [ "$_csm_try" = 3 ] || sleep "${KOSMOS_DEPLOY_RETRY_SLEEP:-3}"
+    [ "$_csm_ptry" = 3 ] || sleep "${KOSMOS_DEPLOY_RETRY_SLEEP:-3}"
   done
   [ "$_CSM_BODY" = "$_csm_committed" ] || { echo "deploy-site: the served latest-staging.json is not the committed one -- investigate (#4819)."; exit 1; }
 fi
