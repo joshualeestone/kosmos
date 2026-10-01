@@ -184,30 +184,36 @@ async function listLook(page) {
     const h = await read(); hover = h.border; hoverGround = h.groundImg + ' | ' + h.groundColor; await page.mouse.move(1, 1);
   }
   /* The strokes that mean something, on rows drawn by hand (the fixture has no needs-you or could-not-read agent). */
-  const strokes = await page.evaluate(() => {
+  const strokes = await page.evaluate((ratioFn) => {
     const l = document.getElementById('alist'); if (!l) return null;
     const out = {};
     for (const c of ['attn', 'unk']) {
       const d = document.createElement('div'); d.className = 'lrow ' + c; d.textContent = 'x'; l.append(d);
       const cs = getComputedStyle(d); out[c] = { color: cs.borderTopColor, style: cs.borderTopStyle };
-      /* How far the edge stands off the row's own ground: the surface, the state wash laid over it, then the edge
-         laid over that (all composited here, since both can be translucent). */
-      const rgba = (v) => { const m = v.match(/[\d.]+/g).map(Number); return { r: m[0], g: m[1], b: m[2], a: m.length > 3 ? m[3] : 1 }; };
-      const over = (top, under) => ({ r: top.r * top.a + under.r * (1 - top.a), g: top.g * top.a + under.g * (1 - top.a), b: top.b * top.a + under.b * (1 - top.a), a: 1 });
-      const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
-      const wash = (cs.backgroundImage.match(/rgba?\([^)]*\)/) || [null])[0];
-      let ground = rgba(cs.backgroundColor); if (wash) ground = over(rgba(wash), ground);
-      const edge = over(rgba(cs.borderTopColor), ground);
-      const [hi, lo] = [lum(edge), lum(ground)].sort((x, y) => y - x);
-      out[c].ratio = Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100;
+      out[c].ratio = new Function(`return (${ratioFn})`)()(d);
       d.remove();
     }
     return out;
-  });
+  }, EDGE_RATIO);
   const grid = await page.$('#boardbar .vt[data-layout="grid"]');
   if (grid) { await grid.click(); await page.waitForTimeout(300); }
   return { ...rest, hover, hoverGround, strokes };
 }
+/* How far an element's top edge stands off its own ground (surface, then any state wash, then the edge; all may be
+   translucent), as a contrast ratio. Evaluated in the page. 1.5:1 is the floor the dash arms ask: under WCAG's 3:1
+   for indicators, which is acceptable here because the dash is never the only sign (each state also has its glyph
+   and its words); the floor exists to catch a dash that has vanished (1.04:1 was measured before #4470's fix). */
+const EDGE_RATIO = `(el) => {
+  const cs = getComputedStyle(el);
+  const rgba = (v) => { const m = v.match(/[\\d.]+/g).map(Number); return { r: m[0], g: m[1], b: m[2], a: m.length > 3 ? m[3] : 1 }; };
+  const over = (t, u) => ({ r: t.r * t.a + u.r * (1 - t.a), g: t.g * t.a + u.g * (1 - t.a), b: t.b * t.a + u.b * (1 - t.a), a: 1 });
+  const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
+  const wash = (cs.backgroundImage.match(/rgba?\\([^)]*\\)/) || [null])[0];
+  let ground = rgba(cs.backgroundColor); if (wash) ground = over(rgba(wash), ground);
+  const edge = over(rgba(cs.borderTopColor), ground);
+  const [hi, lo] = [lum(edge), lum(ground)].sort((x, y) => y - x);
+  return Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100;
+}`;
 const COMPOSER_BG = `getComputedStyle(document.querySelector('#pj-one-view .pjmid .composer .composerbox')).backgroundColor`;
 /* The Agents page in the new look: the idle and the working card's border, the Agents tile's border, the New
    agent button's round, the current view segment's ground, and the page's own ground. */
@@ -389,17 +395,17 @@ const AGENTS_LOOK = `(() => {
       chk(tileHover === 'rgba(0, 0, 0, 0)', `${tag} On, Agents page: the Agents tile shows no box under the pointer`, tileHover);
       /* Every stroke that means something survives the plain-card rule: Issue, Question and could-not-read (dashed).
          The fixture has none of these, so each is drawn by hand into the grid for the read and removed after. */
-      const strokes = await page.evaluate(() => {
+      const strokes = await page.evaluate((ratioFn) => {
         const g = document.getElementById('grid'); if (!g) return { found: false };
         const out = { found: true };
         for (const c of ['attn', 'question', 'unk']) {
           const d = document.createElement('div'); d.className = 'acard ' + c; d.textContent = 'x'; g.append(d);
-          const cs = getComputedStyle(d); out[c] = { color: cs.borderTopColor, style: cs.borderTopStyle }; d.remove();
+          const cs = getComputedStyle(d); out[c] = { color: cs.borderTopColor, style: cs.borderTopStyle, ratio: new Function(`return (${ratioFn})`)()(d) }; d.remove();
         }
         return out;
-      });
-      chk(strokes.found && ['attn', 'question', 'unk'].every((c) => strokes[c].color !== 'rgba(0, 0, 0, 0)') && strokes.unk.style === 'dashed',
-        `${tag} On, Agents page: Issue, Question and could-not-read cards keep their strokes (dashed for could-not-read)`, JSON.stringify(strokes));
+      }, EDGE_RATIO);
+      chk(strokes.found && ['attn', 'question', 'unk'].every((c) => strokes[c].color !== 'rgba(0, 0, 0, 0)') && strokes.unk.style === 'dashed' && strokes.unk.ratio >= 1.5,
+        `${tag} On, Agents page: Issue, Question and could-not-read cards keep their strokes (a could-not-read dash you can see, 1.5:1 or more)`, JSON.stringify(strokes));
       /* The Messages filter is a control: at rest it keeps the soft grey ground (its "you can press this", which a
          touch screen needs), and hovering it does not change its width (nothing in the row jumps). Shown by hand for
          the read, since the fixture has no unread messages, then hidden again. */
