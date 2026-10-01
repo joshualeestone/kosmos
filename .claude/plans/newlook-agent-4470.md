@@ -42,3 +42,4 @@ panel-detail, dmbar, msg, msg-bd) and no trailer: added, citing this PR's CI, wh
 measured), with the merge waiting for its green. NITs taken: why the detail panel's id is in the selector (weight over
 the one-id dark rules); the hand-made rows removed in finally. Left: the chosen-Dark box and tail already read #000
 without this slice (the arm still catches regressions through the messages and the composer).
+Review R4 (sonnet) 0B 0W 0C 4N: CONVERGED at round 4 (gate rc 0 with the 16 trailers, re-run by the reviewer). NITs left: rows made before the inner try; the terminal composer (a later slice).
