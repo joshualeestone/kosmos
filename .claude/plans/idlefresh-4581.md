@@ -29,8 +29,11 @@ later idle time; its summary from the evening then reads stale if that wake was 
 would change my mind: PMs reading such members as behind on a quiet night.
 
 ## Tests
-engine/projectview.test.js: idle 3h after the summary reads "current when it went idle"; idle 8h after reads stale; a
-working report, no report, and an idle report dated in the future read stale; a current summary is untouched.
+engine/projectview.test.js (see the review ledgers below for each): idle within four hours of the summary reads
+"current when it went idle", a `started` reads "current when this session started"; stale for: idle over four hours
+after, idle before the summary, garbage time, future time, working, no report, operator clear, a non-idle member, a
+Codex member, any runner not on the working-reporting allowlist (null, codex, unknown); the four-hour edge; and one arm
+through the real selfreport reader.
 
 ## Review 1 (Sonnet, blind, source-only): 0 blockers, 2 warnings, 4 nits
 - W1 a summary written AFTER the idle report was excused and printed an idle time before the summary: FIXED, it stays
@@ -73,3 +76,13 @@ working report, no report, and an idle report dated in the future read stale; a 
 - N2 a live Codex pane with no runner marker fronted by node reads as claude: kept (Kosmos-made agents carry the
   marker; the allowlist cannot see a mislabelled runner).
 - Checked: every other bridge reports working before its idle; only Codex is idle-only.
+
+## Review 6 (Opus, blind, source-only): 0 blockers, 1 warning, 3 nits
+- Checked: the allowlist names are exactly the runner strings the board writes; a normal Claude pane reads 'claude';
+  the fleet default member is 'claude', so the earlier arms hold.
+- W1 work done while the BOARD was down sends no working report, so the last idle before the outage can excuse it:
+  ACCEPTED and stated in the code. Refusing idles older than the board's start would read every idle member stale after
+  each Kosmos restart or update, which is the complaint this card answers. What would change my mind: agents doing
+  hours of work outside a running board (Kosmos agents run under it).
+- N2 a missing report hook reads as a long "idle since": kept (the printed idle-since makes it visible).
+- N3 the member summary's 'idle' shape: documented on overviewOf. N4 the plan's Tests section: updated.

@@ -118,6 +118,9 @@ function openTasks(tasks) {
    state 'idle', with when it went idle. A summary already stale when it went idle stays 'stale'. When it went idle is
    its latest report, an `idle` or a `started` (the time of that report), never an operator's clear; any other state,
    or none, leaves the summary as it was. A member not running reads as before (it is not idle, it is gone).
+   Known (review 6): reports reach the board only while it is running, so work done while the board was down leaves no
+   working report, and the last idle before the outage can excuse it. Not refused by the board's start time: that would
+   read every idle member stale after each Kosmos restart or update, the complaint this answers.
    Known: Antigravity and Muse report their launch as an `idle` (no turn yet), so a restarted one reads "when it went
    idle" where a Claude member reads "when this session started"; it cannot hide a gap (review 4). */
 const REPORTS_WORKING = new Set(['claude', 'gemini', 'grok', 'antigravity', 'muse']);
@@ -153,6 +156,8 @@ function idleExcused(summary, member, readReport, nowMs) {
  * @param {Array} roster  the cards the list was described against (for each member's model)
  * @param {{ now?: number, folderOf?: (sessionName: string) => string|null, readBrief?: (folder: string) => object,
  *   readReport?: (sessionName: string) => object }} [o]
+ * Each member's `summary` is summaryFreshness's answer, or (#4581 N10, idleExcused) a stale one marked
+ * { state: 'idle', idleKind: 'idle'|'started', idleSince, idleMinutes } when it was current as the member stopped.
  */
 function overviewOf(p, roster, o) {
   const opts = o || {};
