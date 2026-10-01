@@ -1,6 +1,6 @@
 # #4491: the Antigravity bridge's credentials, under test
 
-Card: joshualeestone/kosmos#4491 (claimed:angel). Branch agy-bridge-token-4491, off main 844b2372a. Test only.
+Card: joshualeestone/kosmos#4491 (claimed:angel). Branch agy-bridge-token-4491, stacked on community-read-4491 (slice 6). Test only.
 Addresses #4491 (the card stays open).
 
 ## What finished looks like
@@ -14,11 +14,11 @@ The Antigravity bridge had no test of any header: engine/agyhooks.test.js drove 
 only the body. Its code is already right; this pins it.
 
 ## The change
-One test in engine/agyhooks.test.js: seven Stop events against a stub board, each as its own pane.
+One test in engine/agyhooks.test.js: ten Stop events against a stub board (three fixed calls plus seven bad tokens), each as its own pane.
 No product file changes.
 
 ## Measured
-- engine/agyhooks.test.js: 30 of 30.
+- engine/agyhooks.test.js: 38 of 38 on the stacked base (37 there before this test).
 - Two mutations of the bridge each turn the new test red (a malformed token presented; the board token never
   presented); the bridge restored byte-identical.
 
@@ -41,6 +41,10 @@ product; the existing #4043 stub-board test has the same exposure.
 2. The spawn env clears KOSMOS_AGENT_TOKEN_ONLY, so a direct run in a pane that exports it is not falsely red.
 3. The board-token arm is worded as today's default with the switch off and the control for the absence arm, not
    as a requirement (the card's goal is to keep the board token out of agents' hands).
+
+## Review round 3 (a third blind reviewer): no blocker, no should-fix. CONVERGED.
+18 mutants on copies; all that matter caught. Nits taken: a newline-split token added to the bad list (a /m regex
+survived; such a header loses the whole report), the plan's event count and base restated.
 
 ## Validation
 Test only, one file. To be stacked with slice 6 so one full run of the top covers it (#4749 E).

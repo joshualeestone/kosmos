@@ -305,7 +305,8 @@ test('#4491: the bridge presents the agent\'s token, and the board token only wh
   const none = path.join(SB, 'no-board-token');       // a data folder the board never wrote a token into
   const held = path.join(SB, 'with-board-token');
   // Junk after a token and junk in front of one (review 2: a regex without its ^ let the second through).
-  const BAD = ['', ' ', 'not-hex', 'ABCDEF', 'deadbeef warning: x', 'warning: deadbeef'];
+  // And one split by a newline: a multiline regex would pass it, and a header with a newline loses the whole report.
+  const BAD = ['', ' ', 'not-hex', 'ABCDEF', 'deadbeef warning: x', 'warning: deadbeef', 'deadbeef\nwarning: x'];
   try {
     fs.mkdirSync(none, { recursive: true });
     fs.mkdirSync(path.join(held, store.APP), { recursive: true });
