@@ -232,6 +232,49 @@ test('#4792 review 2: one twin resolving does not re-arm the other twin\'s clash
   } finally { console.warn = orig; }
 });
 
+test('#4844: revoking one of two names that share a key keeps the other\'s tokens, and drops unattributable ones', () => {
+  const fs = require('node:fs');
+  const big = sendertoken.mint('Vale4844').token;
+  const small = sendertoken.mint('vale4844').token;
+  const file = path.join(sendertoken.DIR, 'vale4844.json');
+  const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const old = require('node:crypto').randomBytes(32).toString('hex');
+  kept.tokens.push({ token: old, instance: 'old', mintedAt: '2026-09-01T00:00:00.000Z' });
+  fs.writeFileSync(file, JSON.stringify(kept), { mode: 0o600 });
+  assert.equal(sendertoken.revoke('Vale4844').ok, true);
+  assert.equal(sendertoken.resolveName(big).ok, false, 'the revoked agent can still speak');
+  assert.equal(sendertoken.resolveName(old).ok, false, 'an unattributable older token survived a revoke of its key');
+  const left = sendertoken.resolveName(small);
+  assert.equal(left.ok, true, 'revoking Vale4844 cut off vale4844');
+  assert.equal(left.name, 'vale4844');
+  // Control: revoking the last name removes the file, as before.
+  assert.equal(sendertoken.revoke('vale4844').ok, true);
+  assert.equal(fs.existsSync(file), false, 'the last name\'s revoke left the file');
+});
+
+test('#4844: a revoke that names nobody in a shared file takes every token (fail closed)', () => {
+  const a = sendertoken.mint('Wyn4844').token;
+  const b = sendertoken.mint('wyn4844').token;
+  assert.equal(sendertoken.revoke('WYN4844').ok, true);   // a spelling no token carries
+  assert.equal(sendertoken.resolveName(a).ok, false, 'a revoke by an unknown spelling left a token alive');
+  assert.equal(sendertoken.resolveName(b).ok, false, 'a revoke by an unknown spelling left a token alive');
+  // And with one name only, the whole key goes whatever the spelling, as before #4844.
+  const c = sendertoken.mint('Yew4844').token;
+  assert.equal(sendertoken.revoke('yew4844').ok, true);
+  assert.equal(sendertoken.resolveName(c).ok, false, 'one name under the key: a revoke by another spelling must still take it');
+});
+
+test('#4844: one name\'s untagged sweep keeps another name\'s tokens under the same key', () => {
+  const mine = sendertoken.mint('Zia4844', { launcher: 'supervisor:Zia4844' });
+  const oldRun = sendertoken.mint('Zia4844').token;            // untagged, this agent's
+  const theirs = sendertoken.mint('zia4844').token;            // untagged (adopt / Windows), the other agent's
+  const r = sendertoken.retireLauncher('Zia4844', 'supervisor:Zia4844', mine.instance, { untagged: true });
+  assert.equal(r.ok, true);
+  assert.equal(sendertoken.resolveName(mine.token).ok, true, 'the kept run was swept');
+  assert.equal(sendertoken.resolveName(oldRun).ok, false, 'this agent\'s own untagged run survived its sweep');
+  assert.equal(sendertoken.resolveName(theirs).ok, true, 'Zia4844\'s sweep took zia4844\'s token');
+});
+
 test('#4763 review 3: a clash logs once per clash, and a clean resolve re-arms it', () => {
   const warned = [];
   const orig = console.warn;

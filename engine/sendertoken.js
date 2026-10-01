@@ -215,13 +215,41 @@ function revokeUnlocked(sessionName) {
   }
 }
 
+/* #4844: whose tokens may one name's revoke or sweep take, when the file is shared? Returns a predicate for the
+   tokens that are NOT this agent's (kept), or null for "take them all", today's rule. Only narrows when the file holds
+   named tokens for more than one name AND one of those names is exactly `sessionName`: then the other names' tokens
+   are kept, and tokens with no name (minted before #4792, unattributable) are taken as before. In every other case
+   (one name, no names, or a spelling no token carries) it takes them all, so a caller passing a spelling the mint did
+   not use can never leave a removed agent's tokens alive. That is the security direction: revoke is create.js's
+   new-agent gate (#1782). */
+function othersTokens(held, sessionName) {
+  let key;
+  try { key = store.safeKey(sessionName); } catch { return null; }
+  const names = new Set();
+  for (const t of held) { const n = tokenName(t, key); if (n) names.add(n); }
+  if (names.size < 2 || !names.has(String(sessionName))) return null;
+  return (t) => { const n = tokenName(t, key); return n !== null && n !== String(sessionName); };
+}
+
 /** Drop EVERY token for an agent. A deleted or recreated agent stops speaking.
  *  #1782: under the lock, so a straggler `mint` cannot land its write between the
  *  read and this unlink and resurrect a token the recreate meant to erase -
- *  `create.js` uses `revoke` as exactly that new-agent security gate. */
+ *  `create.js` uses `revoke` as exactly that new-agent security gate.
+ *  #4844: "every token for an agent", not every token in the file: when another agent whose name shares the key holds
+ *  named tokens here, theirs are kept (othersTokens). Otherwise the whole file goes, as before. */
 function revoke(sessionName) {
   let held;
-  try { held = withSessionLock(sessionName, () => revokeUnlocked(sessionName)); }
+  try {
+    held = withSessionLock(sessionName, () => {
+      const all = readTokens(sessionName);
+      const theirs = othersTokens(all, sessionName);
+      if (!theirs) return revokeUnlocked(sessionName);
+      const kept = all.filter(theirs);
+      if (kept.length === 0) return revokeUnlocked(sessionName);
+      writeTokens(sessionName, kept);
+      return { ok: true };
+    });
+  }
   catch { return { ok: false, because: 'we could not remove that agent\'s tokens' }; }
   if (!held.ok) return { ok: false, because: held.because };
   return held.value;
@@ -270,7 +298,12 @@ function retireLauncher(sessionName, launcher, keepInstance, opts = {}) {
     held = withSessionLock(sessionName, () => {
       const all = readTokens(sessionName);
       const untagged = !!(opts && opts.untagged);
+      /* #4844: the untagged sweep never takes another agent's NAMED tokens when that agent shares this key (adopt and
+         Windows create mint with no launcher). Same rule as revoke: narrowed only when the file names this agent among
+         others; tokens with no name are swept as before. */
+      const theirs = untagged ? othersTokens(all, sessionName) : null;
       const left = all.filter((t) => t.instance === keepInstance
+        || (theirs !== null && theirs(t))
         || (t.launcher !== launcher && !(untagged && !t.launcher)));
       if (left.length === all.length) return { ok: true, retired: 0 };
       if (left.length === 0) { const r = revokeUnlocked(sessionName); return r.ok ? { ok: true, retired: all.length } : r; }
