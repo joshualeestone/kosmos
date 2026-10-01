@@ -576,6 +576,14 @@ function measure() {
           // The accepted cost, with a floor so it cannot quietly get worse: at 150% on a 320x568 phone the four whole
           // words take two rows and the conversation keeps about one line (measured in the plan).
           chk(sg2.threadH >= 24, `${t} #4661: at ${pct}% text the conversation keeps at least a line`, `threadH=${sg2.threadH} rowH=${sg2.rowH}`);
+          // 0.7.15 cut (#4822): the top-left names this computer, and on a phone it truncates on the K mark's row rather
+          // than taking a second row (which is what cost the line above). The name must stay readable there: on the K
+          // mark's row, at least two characters wide, inside the screen.
+          const nm = await page.evaluate(() => { const n = document.getElementById('worldsw-name'), k = document.getElementById('klink');
+            const sw = document.getElementById('worldsw'); if (!n || !k || !sw || sw.hidden) return { shown: false };
+            const a = n.getBoundingClientRect(), b = k.getBoundingClientRect();
+            return { shown: true, w: Math.round(a.width), sameRow: Math.abs((a.top + a.height / 2) - (b.top + b.height / 2)) <= 8, inside: a.right <= innerWidth + 0.5, text: n.textContent }; });
+          chk(nm.shown && nm.w >= 2 * 16 * pct / 100 && nm.sameRow && nm.inside, `${t} at ${pct}% text the top-left computer name stays on the K mark's row, readable and on screen`, JSON.stringify(nm));
         }
         await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
         const swn = await page.evaluate(() => {

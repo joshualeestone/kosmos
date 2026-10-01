@@ -1906,12 +1906,14 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
    computer, and on a phone its row may wrap (.headleft, 720px), so on a 320-wide phone at 150% text the name took a
    second header row and the swarm conversation lost its last line. On a phone the name truncates on the K mark's row
    instead: it may shrink to nothing before it wraps (basis 0), and the header's left column takes only the room the
-   right-hand controls leave. A notice in the same row (the update or login slots) still wraps onto its own row. */
+   right-hand controls leave. A notice that is showing (the update, offline or login slots) takes a row of its own, so
+   it never squeezes the name (review). The name keeps its 220px cap and room for its arrow. */
 @media (max-width: 40rem) {
   .apphead header { grid-template-columns: minmax(0, 1fr) auto; }
-  .apphead .headleft { min-width: 0; }
-  .apphead .headleft > .worldsw { flex: 1 1 0; min-width: 0; }
-  .apphead .headleft > .worldsw > .worldsw-btn { max-width: 100%; min-width: 0; }
+  .apphead .headleft { min-width: 0; justify-self: stretch; }
+  .apphead .headleft > .worldsw { flex: 1 1 0; min-width: 2.25rem; }
+  .apphead .headleft > .worldsw > .worldsw-btn { max-width: min(220px, 100%); min-width: 0; }
+  .apphead .headleft > [id$="-slot"]:not(:empty) { flex-basis: 100%; }
 }
 .worldsw-chev { flex: none; color: var(--k-ink-2); transition: transform .12s ease; }
 .worldsw-btn[aria-expanded="true"] .worldsw-chev { transform: rotate(180deg); }

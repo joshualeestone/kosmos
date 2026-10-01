@@ -1,0 +1,27 @@
+# chatfirst-4822: the 0.7.15 cut blocker from #4822 (the top-left computer name on a phone)
+
+Reported by Baron Draxum, 2026-10-01 00:28: the 0.7.15 staging cut stopped at step 3b on ONE browser check,
+render-dm-chatfirst-718.js, deterministic (3 of 3 alone on Mortals, 2 FAIL / 407 PASS):
+- [chromium 320x568 swarm] #4661: at 150% text the conversation keeps at least a line (threadH=4)
+- [chromium 320x568 swarm] with notes showing too, the Swarm Settings pill stays on screen and the thread keeps room
+  (threadH=35, needs 60)
+Control: 409/409 on 0.7.14's tree (47133e513). Bisect: first bad commit 95e96357c (#4822, mine).
+
+Finished looks like: the check passes on main, the top-left still names this computer (#4815), and nothing above
+40rem changes.
+
+Cause (read from the #4822 diff, then confirmed by the fix's result): #4822 shows the top-left name on every
+one-Kosmos board (sw.hidden = false); before, a one-Kosmos board hid it, and the check's page is one. Below 720px
+.headleft may wrap, so at 320 wide and 150% text the name took a second header row (about 30px).
+
+Fix: on a phone (40rem) the name truncates on the K mark's row: the header's left column is minmax(0, 1fr) beside
+the right-hand controls, .headleft may shrink, and .worldsw has flex basis 0 so it shrinks before it wraps. Notices in
+the row still wrap onto their own row.
+Rejected: hiding the name on a phone (it is #4815's point: which computer you are on); a fixed max-width (the right
+column's width varies with the person's name).
+Weakest premise: that a truncated name ("This comp...") on a 320-wide phone at 150% text is acceptable; the full name is
+in the menu it opens when there is somewhere to go.
+
+Validation (all on 89a0d27fc, run by Baron on Mortals, headless chromium): render-dm-chatfirst-718 409/0;
+render-onekosmos-4815 56/56; render-tophead-stable-2624 OK; render-worldsw-lockout-3055 1/0; render-plus-bar-3837
+19/0; render-worldsw-height-2350 0 FAIL; render-computers-4648 88 passed, no problems. web.* 2224/0 here.
