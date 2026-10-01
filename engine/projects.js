@@ -2979,6 +2979,8 @@ function blockBody(projects, sessionName) {
       const T = require('./tasks');
       if (!isPaused(p) && !T.isOnHold(t)) return '';
       const person = (isPaused(p) && p.pausedByPerson === true) || (T.isOnHold(t) && t.onHoldByPerson === true);
+      // Review 6: the person's hold in an agent-paused project names the pause too, so lifting the hold alone is not read as go.
+      if (person && isPaused(p) && p.pausedByPerson !== true) return ' [on hold: the person parked it, and the project is paused; do not start it]';
       if (person) return ' [on hold: the person parked it; do not start it]';
       // Review 1: an agent's pause is lifted on the screen (no verb resumes one), so say so rather than "taken off hold".
       // Review 2: held AND paused needs both undone, so both are named.

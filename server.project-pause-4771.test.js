@@ -1,7 +1,8 @@
 'use strict';
 /**
- * #4771 (Josh's 0.7.15 report), the board's half of `kosmos project pause`, as a GUARD: the board already did all of
- * this before the verb existed (review 2), so these arms pin it for the new caller rather than prove a change, over HTTP on a fully sandboxed board:
+ * #4771 (Josh's 0.7.15 report), the board's half of `kosmos project pause`. Two kinds of arm (review 6): GUARDS of
+ * what the board already did before the verb existed (the pause flags, the 403, the Prompter skip), pinned for the
+ * new caller; and the ROOM NOTE arms, new behaviour that fails on origin/main (no note was ever written there), over HTTP on a fully sandboxed board:
  * a PUT {paused:true} carrying an agent token is an AGENT's pause (pausedByPerson stays off), the person's own pause
  * comes only from the screen, and an agent cannot lift it. And the reading-2 check the card asks for, at the level
  * this repo can run it: a pause made the way the screen makes it takes the project's task out of the Prompter's

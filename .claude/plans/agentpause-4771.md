@@ -116,3 +116,16 @@ taught line pinned in engine/tasks.test.js and the Recommender arm in engine/rec
 - N2 a missing card put the raw session name in the room: FIXED, "Someone".
 - N3 safeRoster twice on a non-screen pause: kept (only on a change, and it fails soft to "Someone").
 - N4 the rename and refused-pause arms pass on main: they are controls by design (the note must not appear).
+
+## Review 6 (Opus, blind, source-only): 0 blockers, 2 warnings, 4 nits
+- W1 the note matched cards by the token's exact name, so a paneless agent (every Windows agent, listed by key) was
+  always "Someone": FIXED, sendertoken.resolve (the board's one resolver: pane by name, paneless by key, twins
+  refused). Not driven by a new arm: the fleet helper builds pane cards only; resolve's paneless path is the one
+  resolveAgentSender already relies on and tests.
+- W2 a Mac agent with no KOSMOS_AGENT_TOKEN (pane-only) is "Someone", the same word as the person's own terminal:
+  ACCEPTED and stated. Supervisor-launched agents carry the token; an un-tokened pane would need from_pane plus
+  messages.resolveSender on this route, which the #4491 route work should decide with the rest of agent identity.
+- N3 the server test's header called every arm a guard: FIXED, guards and new room-note arms told apart.
+- N4 the person's hold in an agent-paused project did not name the pause: FIXED.
+- N5 wrongWorld (421) reads as unreadable: kept, as create.
+- N6 the hint's 80-character cap is not the CLIs': FIXED in the comment.
