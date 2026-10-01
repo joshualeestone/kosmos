@@ -621,7 +621,7 @@ test('#4833 slice 2 review 3: a post that always fails holds only its own mark; 
   assert.ok(!marks[RP(1)] || marks[RP(1)].at <= NOW - 7 * 24 * 3600 * 1000, 'the unreachable post got a mark past what it never read');
 });
 
-test('#4833 slice 2 review 3/4: a full read of an empty thread sets no mark, so a reply stamped before it that appears later still comes', async () => {
+test('#4833 slice 2 review 3/4/8: a full read of an empty thread sets only the first-look floor, so a reply stamped before it that appears later still comes', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Skw4833', remoteId: RP(3), sentAt: '2026-09-30T10:00:00Z' } }, {});
   serve({ ['/posts/' + RP(3) + '/comments']: () => ({ status: 200, json: { comments: [] } }) });
@@ -884,4 +884,19 @@ test('#4833 slice 2 review 8: a post with nothing to set a mark from keeps the w
   const later = (await cr.readReplies('Flo4833', { now: NOW + 10 * DAY })).text;
   assert.match(later, /on the empty post/, 'a reply on a post that was empty at the first read was lost when the window slid');
   assert.match(later, /on the unreachable post/, 'a reply on a post that was unreachable was lost when the window slid');
+});
+
+test('#4833 slice 2 review 9: a post held back entirely by the cap keeps the window it was first read in', async () => {
+  on(); clearSeen();
+  writeSendState({ p: { state: 'sent', agent: 'Hbk4833', remoteId: RP(6), sentAt: '2026-09-30T11:00:00Z' },
+    q: { state: 'sent', agent: 'Hbk4833', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const DAY = 24 * 3600 * 1000;
+  const qPage = qItems(10, new Date(NOW - 6 * DAY - 3600000).toISOString());   // 30 items, all older than P's
+  qPage.forEach((q, i) => { q.replies = [0, 1].map((j) => comment({ id: 'b6000000-0000-4000-8000-0000000000' + String(i * 2 + j).padStart(2, '0'), parent_id: q.id, created_at: q.created_at })); q.reply_count = 2; });
+  serve({ ['/posts/' + RP(6) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(1), created_at: new Date(NOW - 6 * DAY).toISOString(), body: 'six days old, held back' })] } }),
+    ['/posts/' + RP(7) + '/comments']: () => ({ status: 200, json: { comments: qPage } }) });
+  const one = (await cr.readReplies('Hbk4833', { now: NOW })).text;
+  assert.ok(!one.includes('six days old, held back'), 'CONTROL: the cap held P back on read 1');
+  // Two days later the window has slid past P's item: it must still come.
+  assert.match((await cr.readReplies('Hbk4833', { now: NOW + 2 * DAY })).text, /six days old, held back/, 'a post held back by the cap lost its item when the window slid');
 });

@@ -78,7 +78,7 @@ and the read says plainly when a thread was longer than it could carry.
   (data/communityread/replies-seen/<sha256 of the name>.json, { posts: { id: { at, id, seen } } }, atomic, bounded and
   lowercased on read): an unreachable or gone post keeps its own; a post cut by the cap gets its last item shown; a
   post fully read gets its newest item fetched; the next read shows what is strictly after the mark in (time, id)
-  order. No overlap and no comparison with the board's clock. More than 10 posts, or a thread longer than one read, is
+  order. No overlap; the board's clock enters only as the first-look floor (a new post's starting mark). More than 10 posts, or a thread longer than one read, is
   said; a mark that could not be saved is said. One read per agent at a time (409).
 - server.js GET /api/community/read?replies=1: keyed on the authenticated reader, alone only.
 - install/kosmos and tools/windows/kosmos-cli.js: --replies, one at a time with the other modes; usage lines.
@@ -90,7 +90,7 @@ and the read says plainly when a thread was longer than it could carry.
    it only jammed the mark and re-showed everything forever. It moves, and the read says what it could not carry.
 4. Oldest first with a cap; per-post position marks (review 3: a single time mark with an overlap re-showed a burst of
    replies in one minute forever, and one failing post froze every post).
-5. Review 4: marks in the service's time (the newest item fetched), never the board's clock, so neither an overlap
+5. Review 4: marks in the service's time (the newest item fetched), never the board's clock apart from the first-look floor (review 8), so neither an overlap
    (which re-showed a reply within the minute, risking a double answer) nor clock skew (which re-showed a burst while
    the service ran ahead) applies. Stated, rare: a comment stamped before a read but committed after it (milliseconds),
    and a comment hidden at read time and restored later, are not shown.
@@ -180,3 +180,6 @@ a mark now takes the first-look floor before the mark rule runs; the review-3 un
 past the floor". Nits taken: the block comment and this plan no longer say the board's clock is never compared (the
 first-look floor is board time; a board clock more than 7 days fast would set it in the service's future, stated); the
 mark shape here includes "seen". Mutant (no floor) red.
+Round 9 (blind): CONVERGED (no blocker, no should-fix; the floor mutant red). Nits taken: a post gone at a read and back
+later stated as a limit; a test title made true; two plan lines carry the first-look exception; a third test for a post
+held back entirely by the cap.

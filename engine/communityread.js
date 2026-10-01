@@ -284,7 +284,8 @@ async function read(opts = {}) {
    when they were WRITTEN with 2 replies each, plus the oldest 20 more replies under the newest 3 of them that have more,
    (times are read to the millisecond: the service's microseconds are a late-commit case below)
    so a new reply under an older comment, or deep in a long thread, will not appear in this list. Not said, and rare: a
-   comment committed during a read but stamped before its mark, and a comment hidden at read time and restored later,
+   comment committed during a read but stamped before its mark, a comment hidden at read time and restored later, and a
+   post gone (404/410) at a read and back later (it gets no floor, so it is judged against a later window),
    are not shown. Seeing every reply needs the service to list them by activity or since a time (a follow-up). */
 const REPLIES_POSTS = 10;
 const REPLIES_FIRST_DAYS = 7;
