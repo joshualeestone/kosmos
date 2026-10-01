@@ -27,9 +27,7 @@ staged WINDOWS build; it had no Mac twin.
 - `tools/test-deploy-site-staged-mac-4819.sh` (12 checks), wired into `test:shell`.
 
 ## Decided, and why
-- **Carry, not only refuse** (the card's ask 1 is a refusal). A refusal alone would have blocked the
-  very restore that fixed the incident? No: the restore deployed from Mortals, whose dist HAD the
-  bytes. But refusing a checkout that lacks a file live still serves makes every site-copy deploy
+- **Carry, not only refuse** (the card's ask 1 is a refusal). Refusing a checkout that lacks a file live still serves makes every site-copy deploy
   from any machine other than the cut box fail after each staging cut; fetching it is what the
   script already does for the prod tarball, tmux and the alias. A refusal remains when neither copy
   exists (the card's "refuses with a line naming the artifact").
