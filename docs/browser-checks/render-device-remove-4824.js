@@ -7,8 +7,8 @@
  * Three answers, each through a real click on Remove then the confirm's Remove:
  *   told      -> signed_out true:  "Removed. Its current sign-in on your other computers ends too; it stays ..."
  *   not told  -> signed_out false: "Removed here. Kosmos+ could not confirm it ..."
- *   old       -> neither field (a connector from before kosmos#4803): "Removed here. It still opens your
- *                other computers until you remove it there too ...", said as how it works, not as a failure
+ *   old       -> neither field (a connector from before kosmos#4803): "Removed here. If you let it in on your
+ *                other computers too, it still opens them ...", said as how it works, not as a failure
  * The line must still be there after one of the page's own 5 s polls has repainted the list (counted, not timed).
  * CONTROL: the next Remove click clears it, so a line that never clears cannot pass.
  *
@@ -158,7 +158,11 @@ async function open(browser, BASE, answer) {
       await page.waitForTimeout(400);
       const btn = await page.evaluate(() => { const b = document.querySelector('#plus-devlist [data-dev="remove"]'); return b ? { text: b.textContent, disabled: b.disabled } : null; });
       chk(!!btn && btn.text === 'Removing' && btn.disabled === true, 'busy: the row says Removing and its button is disabled while the Remove is out', JSON.stringify(btn));
-      await page.evaluate(() => { const b = document.querySelector('#plus-devlist [data-dev="remove"]'); if (b) { b.disabled = false; b.click(); } });
+      // The confirm's Remove is what sends; force one back on screen while the first is out and press it.
+      await page.evaluate(() => { ASK.confirm = 'd-mac'; return paintDevices(); });
+      const forced = await page.$('#plus-devlist [data-dev="removeyes"]');
+      chk(!!forced, 'busy: a confirm was forced back on screen for the second press (otherwise this arm tests nothing)');
+      if (forced) await forced.click();
       await page.waitForTimeout(3000);
       chk(posts === 1, 'busy: a second Remove while one is out sends nothing', 'posts=' + posts);
       chk(/^Removed\. Its current sign-in/.test((await page.textContent('#plus-devmsg') || '').trim()), 'busy: the answer of the first Remove is the one shown');

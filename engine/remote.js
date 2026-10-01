@@ -1437,7 +1437,9 @@ async function deviceRemove(id) {
   const bad = checkId(id); if (bad) return bad;
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   const r = await tracked(setupRun(deviceArgs('remove', id, true), null, retireTimeoutMs()));
-  if (!r.ok && r.code === 2 && /unexpected argument '--coordinator'/.test(String(r.stderr || '') + '\n' + String(r.because || ''))) {
+  // ANSI colour codes out first: a CLICOLOR_FORCE environment makes clap colour the argument.
+  const said = (String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, '');
+  if (!r.ok && r.code === 2 && /unexpected argument '--coordinator'/.test(said)) {
     // A Forget may have started between the two spawns; the same refusal as the first call then.
     { const b = busy(); if (b) return b; }
     return parseSaid(await tracked(setupRun(deviceArgs('remove', id, false), null, retireTimeoutMs())));

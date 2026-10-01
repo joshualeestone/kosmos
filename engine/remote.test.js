@@ -269,7 +269,7 @@ if (args[0] === 'devices') {
     process.exit(1);
   }
   if (verb === 'remove' && mode.includes('old-remove') && args.includes('--coordinator')) {
-    process.stderr.write("error: unexpected argument '--coordinator' found\\n\\nUsage: kosmos-tunnel devices remove --state-dir <STATE_DIR> --device-id <DEVICE_ID>\\n\\nFor more information, try '--help'.\\n");
+    process.stderr.write((mode.includes('ansi') ? "\\u001b[1m\\u001b[31merror:\\u001b[0m unexpected argument '\\u001b[33m--coordinator\\u001b[0m' found\\n" : "error: unexpected argument '--coordinator' found\\n") + "\\nUsage: kosmos-tunnel devices remove --state-dir <STATE_DIR> --device-id <DEVICE_ID>\\n\\nFor more information, try '--help'.\\n");
     process.exit(2);
   }
   if (verb === 'remove' && args.includes('--coordinator')) {
@@ -1104,6 +1104,12 @@ test('#4824: a connector from before kosmos#4803 refuses the flag; remove is ask
   const calls = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove');
   assert.equal(calls.length, 2);
   assert.ok(calls[0].includes('--coordinator') && !calls[1].includes('--coordinator'));
+  // Coloured (CLICOLOR_FORCE): clap's escape codes do not hide its refusal.
+  process.env.FAKE_TUNNEL_MODE = 'old-remove,ansi';
+  const nA = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length;
+  const coloured = await remote.deviceRemove('dev-1');
+  assert.equal(coloured.ok, true, coloured.because);
+  assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length, nA + 2, 'a coloured refusal was not retried');
   // CONTROL: the same words with another exit code are not clap's refusal; not retried.
   process.env.FAKE_TUNNEL_MODE = 'flag-words-exit1';
   const n0 = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length;

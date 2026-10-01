@@ -43180,7 +43180,8 @@ async function paintDevices() {
 /* #4824: what a Remove reached, from the connector's answer (kosmos#4803). The removal on this
    computer always stands; the rest is said only when the answer says it happened. */
 function removedWords(said) {
-  const s = said || {};
+  if (!said || typeof said !== 'object') return 'Removed here.'; // an answer that could not be read says nothing more
+  const s = said;
   const here = s.removed === false ? 'It was not on this computer\'s list.' : s.signed_out === true ? 'Removed.' : 'Removed here.';
   // A connector from before kosmos#4803 answers neither field: it never tries to reach the other computers or to
   // end the old sign-in here, so that is said as how it works, not as something that failed.
