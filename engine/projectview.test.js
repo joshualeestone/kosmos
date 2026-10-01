@@ -290,10 +290,28 @@ test('#4581 N10: an idle member whose summary was current when it went idle read
   // Review 1: an idle report OLDER than the summary, and an unreadable report time, leave it stale.
   assert.equal(show(idleAt(660)).m.summary.state, 'stale', 'an idle time before the summary was written excused it');
   assert.equal(show({ found: true, state: 'idle', at: 'garbage' }).m.summary.state, 'stale');
-  // The edge: idle exactly four hours after the summary is still current when it stopped (as summaryFreshness's <= 4h).
+  // Review 2: a `started` report (a Claude agent's launch) counts like idle; an operator's clear never does.
+  assert.equal(show({ found: true, state: 'started', at: new Date(NOW - 420 * 60000).toISOString() }).m.summary.state, 'idle');
+  assert.equal(show({ found: true, state: 'idle', by: 'operator', at: new Date(NOW - 420 * 60000).toISOString() }).m.summary.state, 'stale');
+  // The edge: idle exactly four hours after the summary is still current when it stopped (to the millisecond; the
+  // freshness rule rounds to the minute, so the two can differ by under a minute).
   assert.equal(show(idleAt(360)).m.summary.state, 'idle');
   // CONTROL: a current summary is untouched by any report.
   const fresh = agentFolder('ida-fresh', [['2026-09-29-16.md', 30]]);
   const o = { now: NOW, folderOf: () => fresh, readBrief: () => ({ found: false }), readReport: () => idleAt(420) };
   assert.equal(v.overviewOf(described, BOARD.agents, o).members[0].summary.state, 'current');
+});
+
+/* Review 2: end to end through the REAL report reader (no injected readReport), so a renamed field in
+   selfreport.read cannot silently turn this off while every injected arm stays green. */
+test('#4581 N10 review 2: the real selfreport reader feeds the idle excuse', () => {
+  const selfreport = require('./selfreport');
+  const raw = { id: 'ij', name: 'Idle Real', folder: '/p/ij', agents: ['ida'], tasks: [] };
+  const described = projects.describe(raw, BOARD.agents, [raw]);
+  const folder = agentFolder('ida-real', [['2026-09-29-07.md', 600]]);
+  fs.mkdirSync(selfreport.DIR, { recursive: true });
+  fs.appendFileSync(selfreport.fileFor('ida'), JSON.stringify({ v: 1, state: 'idle', because: 'turn ended', by: 'auto', at: new Date(NOW - 420 * 60000).toISOString() }) + '\n');
+  assert.equal(selfreport.read('ida').state, 'idle', 'fixture: the report did not read back');
+  const view = v.overviewOf(described, BOARD.agents, { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }) });
+  assert.equal(view.members[0].summary.state, 'idle', JSON.stringify(view.members[0].summary));
 });

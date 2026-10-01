@@ -115,13 +115,17 @@ function openTasks(tasks) {
    five agents as behind". The rhythm is a summary every four hours WHILE WORKING (roles.js SUMMARY_RHYTHM). So a stale
    summary of a member that is idle now, written within the rhythm of when it went idle, was current when it stopped:
    state 'idle', with when it went idle. A summary already stale when it went idle stays 'stale'. When it went idle is
-   its latest report, an `idle` (the time of that report); any other state, or none, leaves the summary as it was. */
+   its latest report, an `idle` or a `started` (the time of that report), never an operator's clear; any other state,
+   or none, leaves the summary as it was. A member not running reads as before (it is not idle, it is gone). */
 function idleExcused(summary, member, readReport, nowMs) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
   if (!member || !member.present || !member.tied || member.state !== 'idle') return summary;
   let rep = null;
   try { rep = readReport(member.sessionName); } catch { rep = null; }
-  if (!rep || rep.found !== true || rep.state !== 'idle') return summary;
+  /* Review 2: `started` too (a Claude agent reports started at launch where Antigravity and Muse report idle, so a
+     member restarted and given no turn reads alike across families), and never an operator's clear: that is when the
+     person cleared a stuck report, not when the agent stopped. */
+  if (!rep || rep.found !== true || (rep.state !== 'idle' && rep.state !== 'started') || rep.by === 'operator') return summary;
   const idleAt = Date.parse(rep.at);
   const wroteAt = Date.parse(summary.at);
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();

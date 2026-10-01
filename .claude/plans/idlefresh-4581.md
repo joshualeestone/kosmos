@@ -42,3 +42,11 @@ working report, no report, and an idle report dated in the future read stale; a 
 - N3 the documented premise; no change. N4 garbage report time: arm added (stays stale). N5 edges: consistent.
 - N6 the PM role text does not mention the new phrase: kept (it raises "stale" only, which is the intended outcome);
   a roles.js change rewrites every PM's boot text.
+
+## Review 2 (Opus, blind, source-only): 0 blockers, 2 warnings, 4 nits
+- W1 Claude reports `started` at launch where Antigravity and Muse report `idle`, so a member restarted and given no
+  turn read differently by family: FIXED, a latest `started` counts like idle (same gap rule). A member not running is
+  unchanged on purpose: it is gone, not idle; stated in the comment. Arm added.
+- W2 an operator's clear (state idle, by operator) was read as when the agent stopped: FIXED, never excused. Arm added.
+- N3 every arm injected readReport: ADDED an arm through the real selfreport.read.
+- N4 the edge comment overstated the match with summaryFreshness: softened. N5, N6: kept.
