@@ -61,3 +61,8 @@ server.whoami-muse-4603.test.js (no model claimed before a turn, then the card a
 - N3 the fifo arm is green on main by design and could silently test nothing: comment says so; a readJob fixture
   assert added. N4 the linked-.kosmos refusal: arm added. N5 a relative workspace: refused. N6 a planted link or fifo
   hid the model for good: forgetModel now clears any non-folder entry (the entry only, never its target).
+
+## Review 4 (Sonnet, blind, source-only): 0 blockers, 0 warnings, 5 nits. CONVERGED.
+- N1 forgetModel lacked keepModel's linked-.kosmos guard: FIXED. N3 the catch could remove a colliding file: FIXED,
+  only our own temp. N2 a temp left by a process death between write and rename: kept (needs a kill in that window).
+  N4 an old front finishing a turn after a new one starts: kept (needs two fronts overlapping). N5 confirmed correct.

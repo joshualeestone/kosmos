@@ -61,18 +61,26 @@ function keepModel(workspace, model) {
   }
   // Review 3: a random name opened exclusively ('wx'), so nothing planted at a predictable name is followed.
   const tmp = file + '.' + crypto.randomBytes(6).toString('hex') + '.tmp';
+  let wrote = false;
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(tmp, model + '\n', { mode: 0o600, flag: 'wx' });
+    wrote = true;
     fs.renameSync(tmp, file);
     return true;
-  } catch { try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ } return false; }
+  } catch {
+    // Only our own temp is removed (review 4), never a file that was already at that name.
+    if (wrote) { try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ } }
+    return false;
+  }
 }
 
 /* At the front's start the last life's model is forgotten (review 1): a Muse agent moved to another provider and back,
    or signed in again, must not show an old model until its first turn names the current one. */
 function forgetModel(workspace) {
   if (typeof workspace !== 'string' || !path.isAbsolute(workspace)) return false;
+  // Review 4: the same guard as keepModel; a `.kosmos` that is a link is not reached through.
+  try { if (fs.lstatSync(path.dirname(modelFile(workspace))).isSymbolicLink()) return false; } catch { return false; }
   // Review 3: any entry but a folder goes (a planted link or fifo too: unlinking touches the entry, never its target),
   // so nothing left there can hide the model for good.
   try { const st = fs.lstatSync(modelFile(workspace)); if (!st.isDirectory()) fs.unlinkSync(modelFile(workspace)); return true; }
