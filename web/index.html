@@ -4503,6 +4503,11 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
        itself and can be scrolled inside, rather than a sliver. Below that the
        grid exceeds the viewport and the body scroll above carries it. */
     grid-template-rows: repeat(39, auto) auto minmax(200px, 1fr) auto; }
+  /* #4872 (Josh, 0.7.15): "the page lets me scroll down just ever so slightly ... Can we disable it". Nothing here
+     overflows (render-shell-noscroll-4872 measures the root and body exactly the window tall); what moved was the Mac's
+     elastic overscroll, which drags a page that cannot scroll and shows a gap past its edge. The shell is fixed to the
+     window, so it does not bounce; the inner panes still scroll, and keep their own bounce. */
+  html[data-layout="consolidated"]:has(> body.consolidated), html[data-layout="consolidated"] body.consolidated { overscroll-behavior: none; }
   html[data-layout="consolidated"] body.consolidated > * { grid-column: 1 / -1; }
   /* ⚠️ #conn CARRIES NO HORIZONTAL MARGIN OF ITS OWN (its `.conn {` rule carries margin-bottom
      only): it is a rounded, bordered card drawn against the body's
@@ -4870,6 +4875,10 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      remains the surface where that distinction lives. */
   html[data-layout="consolidated"] body.consolidated.fold-a #alist .pj-empty { display: none; }
   html[data-layout="consolidated"] body.consolidated.fold-a .lrow { grid-template-columns: 34px; justify-content: center; padding: 4px 0; border: 0; background: none; }
+  /* #4872 (Josh, 0.7.15): folded, a row fills the 48px strip edge to edge, so the bubble's usual hang past the row's
+     corner (right/top -6px, #3339) put it past the strip's edge, where #alist cut it off. Folded only, it sits just
+     inside the corner, over the avatar's top-right; open, it keeps its #3339 place. render-shell-noscroll-4872 measures both. */
+  html[data-layout="consolidated"] body.consolidated.fold-a .lrow > .dmbadge { right: 1px; top: -2px; }
   /* #3187-followup (Josh 6.72): when the rail is FOLDED to its 48px strip, keep the status
      colour EDGE-TO-EDGE behind a working (green) or needs-you (red) agent, so you can see
      them light up at a glance; idle/offline get NO wash (the rule above's `background: none`
