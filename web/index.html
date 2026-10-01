@@ -60153,10 +60153,10 @@ function repaintReactions(box, list) {
    to them through Kosmos". Built-in engines only, no paid service, no audio kept.
 
    TALKING: the Mac app's on-device recognizer (native-app/main.swift VoiceBridge), reached through the
-   `kosmosVoice` bridge. The mic is drawn only where that bridge exists. 🛑 NOT the page's own
-   webkitSpeechRecognition as a fallback in a browser: in Chrome it sends the audio to Google, which is the
-   one thing this feature promises not to do. The words land in the box at the caret for the person to
-   read and send; nothing is sent by talking.
+   `kosmosVoice` bridge. The mic is drawn only where a bridge exists: the Mac app's, or (slice 3) on a phone the
+   browser's own recognizer (voicePhoneBridge), which sends the audio to Apple or Google and says so. A computer's
+   browser gets no mic. The words land in the box at the caret for the person to read and send; nothing is sent by
+   talking.
 
    HEARING: speechSynthesis, measured working in the app's web view with 68 voices, all on-device. Only an
    on-device voice is used; a page with none says so rather than using a network voice. */
@@ -60193,8 +60193,71 @@ const VOICE_SAYS = {
   'nothing-heard': 'Nothing was heard.',
   'recognizer': 'Listening stopped because of an error. Try again.',
 };
+/* Slice 3: on a phone the refusals point at the phone's settings, not the Mac's. */
+const VOICE_SAYS_PHONE = {
+  'mic-denied': 'This browser is not allowed to use the microphone. On an iPhone: Settings, Apps, Safari, Microphone. On Android: Chrome\'s settings for this site.',
+  'speech-denied': 'Speech recognition is turned off for this browser. On an iPhone: Settings, Apps, Safari, and allow speech recognition.',
+};
 function voiceBridge() {
-  try { return (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosVoice) || null; } catch { return null; }
+  try {
+    const native = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosVoice;
+    if (native) return native;
+  } catch { /* fall through */ }
+  return voicePhoneBridge();
+}
+/* #4409 slice 3 (Josh, 2026-10-01 17:16: "Can we do it in mobile too?"): on a PHONE with no app bridge, the browser's
+   own recognizer, behind the same interface as the Mac's (postMessage {op} in, kosmosVoiceEvent out), so holding,
+   tapping and the dialogs work unchanged. On iPhone Safari Apple hears the audio; on Android Chrome, Google. Slice 1
+   kept browser recognition out on privacy grounds; that was an agent's call, and Josh's ruling is that he does not mind
+   (Splinter, on the card). The listening line says who hears it. The Mac app keeps its on-device bridge, and a
+   computer's browser (a fine pointer) gets no mic. */
+let VOICE_PHONE = undefined;   // the shim, built once; null where there is none
+function voicePhoneWho() {
+  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+  return /Android/i.test(ua) ? 'Google' : /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document) ? 'Apple' : 'your phone\'s speech service';
+}
+function voicePhoneBridge() {
+  if (VOICE_PHONE !== undefined) return VOICE_PHONE;
+  VOICE_PHONE = null;
+  try {
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const phone = window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+    if (!Rec || !phone) return null;
+    let rec = null, id = null;
+    const emit = (ev) => { if (typeof window.kosmosVoiceEvent === 'function') window.kosmosVoiceEvent(Object.assign({ id }, ev)); };
+    const REASON = { 'not-allowed': 'mic-denied', 'service-not-allowed': 'speech-denied', 'audio-capture': 'no-mic', 'no-speech': 'nothing-heard' };
+    VOICE_PHONE = {
+      phone: true,
+      postMessage(m) {
+        const op = m && m.op;
+        if (op === 'start') {
+          if (rec) { try { rec.abort(); } catch { /* already ended */ } }
+          id = m.id;
+          const mine = new Rec();
+          rec = mine;
+          mine.continuous = true;
+          mine.interimResults = true;
+          try { mine.lang = navigator.language || 'en-US'; } catch { /* the default */ }
+          mine.onstart = () => { if (rec === mine) emit({ kind: 'listening' }); };
+          mine.onresult = (e) => {
+            if (rec !== mine) return;
+            let text = '', done = true;
+            for (let i = 0; i < e.results.length; i += 1) { text += e.results[i][0].transcript; if (!e.results[i].isFinal) done = false; }
+            emit({ kind: done ? 'final' : 'partial', text });
+          };
+          mine.onerror = (e) => { if (rec === mine && e.error !== 'aborted') emit({ kind: 'error', reason: REASON[e.error] || 'recognizer' }); };
+          mine.onend = () => { if (rec === mine) { rec = null; emit({ kind: 'stopped' }); } };
+          mine.start();   // in the press itself: a phone starts the microphone only from a person's gesture
+        } else if (op === 'stop') {
+          if (rec) rec.stop();   // the last words come as a final result, then stopped
+        } else if (op === 'cancel') {
+          const was = rec; rec = null;
+          if (was) { try { was.abort(); } catch { /* already ended */ } }
+        }
+      },
+    };
+  } catch { VOICE_PHONE = null; }
+  return VOICE_PHONE;
 }
 /* Where the heard words go: between what was before the caret and what was after it, with one space on
    each side where the neighbours need it. PURE, for the node suite. */
@@ -60236,16 +60299,21 @@ function voiceSay(btn, line) {
 }
 /* The listening line is ours to clear; an error line said after it is not. */
 const VOICE_LISTENING = 'Listening. Press Escape to stop.';
+/* On a phone there is no Escape, and the person is told who hears the audio (slice 3). */
+function voiceListeningLine() {
+  const b = voiceBridge();
+  return b && b.phone ? 'Listening. ' + voicePhoneWho() + ' hears this audio to turn it into words. Tap the mic to stop.' : VOICE_LISTENING;
+}
 function voiceMsgEl(btn) { return btn && document.getElementById(btn.getAttribute('data-voice-msg') || ''); }
 function voiceMsgEmpty(btn) { const el = voiceMsgEl(btn); return !!el && !el.textContent; }
 /* At a new start: the mic's own earlier words (a refusal, the listening line) go; anything else the page said stays. */
 function voiceUnsayOwn(btn) {
   const el = voiceMsgEl(btn);
-  if (el && (el.textContent === VOICE_LISTENING || Object.values(VOICE_SAYS).includes(el.textContent))) el.textContent = '';
+  if (el && (el.textContent === VOICE_LISTENING || el.textContent === voiceListeningLine() || Object.values(VOICE_SAYS).includes(el.textContent))) el.textContent = '';
 }
 function voiceUnsay(btn) {
   const el = btn && document.getElementById(btn.getAttribute('data-voice-msg') || '');
-  if (el && el.textContent === VOICE_LISTENING) el.textContent = '';
+  if (el && (el.textContent === VOICE_LISTENING || el.textContent === voiceListeningLine())) el.textContent = '';
 }
 function voiceToggle(btn) {
   const h = voiceBridge();
@@ -60284,7 +60352,7 @@ function voiceOnEvent(ev) {
      page started with; an app from before the id carries none, and is taken as it always was. */
   if (ev.id != null && ev.id !== VOICE.id) return;
   const btn = VOICE.btn;
-  if (ev.kind === 'listening') { VOICE.listening = true; voicePaint(btn, 'on'); if (voiceMsgEmpty(btn)) voiceSay(btn, VOICE_LISTENING); return; }   // never over another message's line   // review 5: focus is in the box, so say it there
+  if (ev.kind === 'listening') { VOICE.listening = true; voicePaint(btn, 'on'); if (voiceMsgEmpty(btn)) voiceSay(btn, voiceListeningLine()); return; }   // never over another message's line   // review 5: focus is in the box, so say it there
   if ((ev.kind === 'partial' || ev.kind === 'final') && VOICE.box) {
     const box = VOICE.box;
     /* 🛑 The view moved (another agent, room, the Guide closed, the window hidden): these words were meant for the
@@ -60301,7 +60369,11 @@ function voiceOnEvent(ev) {
     box.dispatchEvent(new Event('input', { bubbles: true }));   // the box grows, the counter and the @ mirror follow
     return;
   }
-  if (ev.kind === 'error') { voiceSay(btn, VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer); return; }
+  if (ev.kind === 'error') {
+    const b = voiceBridge();
+    voiceSay(btn, (b && b.phone && VOICE_SAYS_PHONE[ev.reason]) || VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer);
+    return;
+  }
   if (ev.kind === 'stopped') { VOICE.btn = null; VOICE.box = null; VOICE.where = ''; VOICE.id = ''; voicePaint(btn, 'off'); voiceUnsay(btn); }
 }
 window.kosmosVoiceEvent = voiceOnEvent;

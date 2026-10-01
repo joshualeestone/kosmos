@@ -30,6 +30,12 @@
  *   V17 (slice 2) pressing a mic still closes an open emoji panel (its close-on-mousedown-outside runs), as in slice 1
  *   V18 (slice 2) Escape in a dialog's box stops listening and does not close the dialog
  *   V19 (slice 2) a press whose release the page never heard does not block the next press of the same pointer
+ *   P1 (slice 3) a phone with no app bridge draws the mic through the browser's recognizer; a computer's browser with
+ *       the same recognizer draws none
+ *   P2 (slice 3) tapping it starts the recognizer inside the tap, the line says Apple hears the audio, heard words
+ *       land, and the next tap stops it
+ *   P3 (slice 3) a refused microphone on a phone points at the phone's settings
+ *   P4 (slice 3) read aloud is offered and speaks on a phone
  *   V1b in a browser (no bridge) the Name field fills its row exactly as with no wrapper: wrapping changes nothing
  *
  * Harness: file:// with fetch answered here (render-dm-reply-4256.js's posture), the real paintTalk. The
@@ -414,6 +420,58 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     await page.click('#d-dmthread .msg:not(.you) .rxn-speak');
     const v8 = await page.evaluate(() => ({ cancelled: window.__spoken.slice(-1)[0].cancel === true, pressed: document.querySelector('#d-dmthread .msg:not(.you) .rxn-speak').getAttribute('aria-pressed') }));
     chk(on === 'true' && v8.cancelled && v8.pressed === 'false', 'V8 while reading the button says so, and a second press stops it', JSON.stringify({ on, ...v8 }));
+
+    // P1-P4 (slice 3): a phone. A recording stand-in for the browser's recognizer, an iPhone's touch screen.
+    const SR = () => {
+      window.__rec = [];
+      // Both names: this Chromium already has an unprefixed one, which the page prefers.
+      window.SpeechRecognition = window.webkitSpeechRecognition = class { constructor() { window.__recLast = this; window.__rec.push('new'); }
+        start() { window.__rec.push('start'); setTimeout(() => this.onstart && this.onstart(), 0); }
+        stop() { window.__rec.push('stop'); setTimeout(() => { this.onresult && this.onresult({ results: [Object.assign([{ transcript: 'call the client' }], { isFinal: true })] }); this.onend && this.onend(); }, 0); }
+        abort() { window.__rec.push('abort'); } };
+    };
+    const desk = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+    desk.on('pageerror', (e) => errs.push(e.message));
+    await desk.addInitScript(harness(false), [false]);
+    await desk.addInitScript(SR);
+    await desk.goto(PAGE);
+    const deskMic = await desk.evaluate(() => document.documentElement.classList.contains('has-voice'));
+    await desk.close();
+    const phoneCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' });
+    const phone = await phoneCtx.newPage();
+    phone.on('pageerror', (e) => errs.push(e.message));
+    await phone.addInitScript(harness(false), [false]);
+    await phone.addInitScript(SR);
+    await phone.goto(PAGE);
+    await openDm(phone);
+    const p1 = { cls: await phone.evaluate(() => document.documentElement.classList.contains('has-voice')), shown: await shown(phone, '#d-mic') };
+    chk(p1.cls && p1.shown && !deskMic, 'P1 a phone draws the mic through the browser\'s recognizer; a computer\'s browser does not', JSON.stringify({ ...p1, deskMic }));
+    await phone.fill('#d-say', '');
+    await phone.tap('#d-mic');
+    await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
+    const line = await phone.evaluate(() => document.getElementById('d-say-msg').textContent);
+    await phone.evaluate(() => window.__recLast.onresult({ results: [Object.assign([{ transcript: 'call the' }], { isFinal: false })] }));
+    const mid = await phone.evaluate(() => document.getElementById('d-say').value);
+    await phone.tap('#d-mic');
+    await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'false');
+    const p2 = await phone.evaluate(() => ({ rec: window.__rec.slice(), box: document.getElementById('d-say').value }));
+    chk(JSON.stringify(p2.rec) === '["new","start","stop"]' && mid === 'call the' && p2.box === 'call the client' && /Apple hears this audio/.test(line) && !/Escape/.test(line),
+      'P2 a tap starts the recognizer, the line says Apple hears the audio, the words land, and the next tap stops it', JSON.stringify({ ...p2, mid, line }));
+    await phone.tap('#d-mic');
+    await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
+    await phone.evaluate(() => { window.__recLast.onerror({ error: 'not-allowed' }); window.__recLast.onend(); });
+    const refused = await phone.evaluate(() => document.getElementById('d-say-msg').textContent);
+    chk(/Settings, Apps, Safari, Microphone/.test(refused) && !/System Settings/.test(refused), 'P3 a refused microphone on a phone points at the phone\'s settings', refused);
+    const spk = await shown(phone, '#d-dmthread .msg:not(.you) .rxn-speak');
+    await phone.evaluate(() => { window.__spoken.length = 0; });
+    /* Pressed directly: whether a thumb reaches it is the #718 tap-to-open bar, unchanged by voice and not measurable
+       in this file:// harness (its phone layout puts the thread behind the search row). What is under test is that a
+       phone draws read aloud and it speaks with an on-device voice. */
+    await phone.evaluate(() => document.querySelector('#d-dmthread .msg:not(.you) .rxn-speak').click());
+    const heard = await phone.evaluate(() => window.__spoken.filter((x) => !x.cancel).map((x) => x.text).join(' '));
+    chk(spk && heard === 'The fix is in. Run this: Code block. then tell me.', 'P4 read aloud is offered and speaks on a phone', JSON.stringify({ spk, heard }));
+    await phoneCtx.close();
 
     chk(errs.length === 0, 'V9 no page errors', errs.join(' | '));
   } finally {

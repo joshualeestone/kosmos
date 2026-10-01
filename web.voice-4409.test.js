@@ -105,9 +105,16 @@ test('#4409: the mic is drawn only where the on-device bridge exists; a browser 
   assert.match(PAGE, /html\.has-voice \.micbtn \{ display: grid; \}/);
   assert.match(PAGE, /try \{ if \(voiceBridge\(\)\) document\.documentElement\.classList\.add\('has-voice'\);/);
   assert.match(fn('voiceBridge'), /window\.webkit\.messageHandlers\.kosmosVoice/);
-  // 🛑 USE, not mention: no page code constructs the browser recognizer (Chrome's sends audio to Google).
-  assert.doesNotMatch(PAGE, /new\s+\(?\s*(window\.)?(webkit)?SpeechRecognition\b/i, 'the page builds a browser recognizer');
-  assert.doesNotMatch(PAGE, /=\s*(window\.)?(webkitSpeechRecognition|SpeechRecognition)\b/, 'the page reaches for a browser recognizer');
+  // Slice 3: the browser's recognizer is reached ONLY inside voicePhoneBridge, ONLY on a phone (a coarse pointer with no
+  // hover), and ONLY when the Mac app's bridge is absent. Anywhere else in the page it would put a mic on a computer.
+  const phone = fn('voicePhoneBridge');
+  assert.match(phone, /window\.SpeechRecognition \|\| window\.webkitSpeechRecognition/);
+  assert.match(phone, /matchMedia\('\(hover: none\) and \(pointer: coarse\)'\)/, 'the recognizer is no longer limited to phones');
+  assert.match(phone, /if \(!Rec \|\| !phone\) return null;/);
+  assert.match(fn('voiceBridge'), /if \(native\) return native;[\s\S]*return voicePhoneBridge\(\);/, 'the Mac app\'s on-device bridge no longer comes first');
+  const rest = PAGE.replace(phone, '');
+  assert.doesNotMatch(rest, /new\s+\(?\s*(window\.)?(webkit)?SpeechRecognition\b/i, 'the page builds a browser recognizer outside the phone shim');
+  assert.doesNotMatch(rest, /=\s*(window\.)?(webkitSpeechRecognition|SpeechRecognition)\b/, 'the page reaches for a browser recognizer outside the phone shim');
 });
 
 test('#4409: sending, typing or leaving while listening drops anything still coming', () => {
@@ -139,9 +146,9 @@ function voiceHarness() {
   // eslint-disable-next-line no-new-func
   const timers = [];
   const make = new Function('window', 'document', 'posted', 'setInterval', 'clearInterval',
-    'let CURRENT = null; let PJ_CURRENT = null; const VOICE_SAYS = {};\n'
-    + ['const VOICE = {', 'const SPEAK = {', 'let VOICE_WATCH =', 'const VOICE_LISTENING ='].map(pageLine).join('\n') + '\n'   // the page's own state, not a copy
-    + ['viewKey', 'shownNow', 'voiceWhere', 'voiceBridge', 'voiceSplice', 'voicePaint', 'voiceSay', 'voiceMsgEl', 'voiceMsgEmpty', 'voiceUnsayOwn', 'voiceUnsay', 'voiceToggle', 'voiceCancel', 'voiceOnEvent', 'voiceSpeakWatch', 'speakStop', 'speakPaint', 'speakSameText', 'speakFollow', 'speechTidy', 'speechTextOfRow'].map(fn).join('\n')
+    'let CURRENT = null; let PJ_CURRENT = null; const VOICE_SAYS = {}; const VOICE_SAYS_PHONE = {};\n'
+    + ['const VOICE = {', 'const SPEAK = {', 'let VOICE_WATCH =', 'const VOICE_LISTENING =', 'let VOICE_PHONE ='].map(pageLine).join('\n') + '\n'   // the page's own state, not a copy
+    + ['viewKey', 'shownNow', 'voiceWhere', 'voiceBridge', 'voicePhoneWho', 'voicePhoneBridge', 'voiceListeningLine', 'voiceSplice', 'voicePaint', 'voiceSay', 'voiceMsgEl', 'voiceMsgEmpty', 'voiceUnsayOwn', 'voiceUnsay', 'voiceToggle', 'voiceCancel', 'voiceOnEvent', 'voiceSpeakWatch', 'speakStop', 'speakPaint', 'speakSameText', 'speakFollow', 'speechTidy', 'speechTextOfRow'].map(fn).join('\n')
     + '\nreturn { VOICE, SPEAK, voiceWhere, voiceToggle, voiceOnEvent, speakFollow, viewKey, watching() { return VOICE_WATCH; }, set(card, room) { CURRENT = card || null; PJ_CURRENT = room; } };');
   const win = { webkit: { messageHandlers: { kosmosVoice: { postMessage(m) { posted.push(m); } } } }, speechSynthesis: { cancel() {} } };
   const doc = { hidden: false, boxes: {}, getElementById(id) { return this.boxes[id] || null; }, querySelectorAll: () => [] };
