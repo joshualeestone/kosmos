@@ -346,3 +346,14 @@ test('#4581 N10 review 4: a Codex member is never excused (it reports idle and n
     assert.equal(v.overviewOf(described, board.agents, o).members[0].summary.state, 'stale');
   } finally { board.restore(); }
 });
+
+test('#4581 N10 review 5: only a runner known to report working is excused; a paneless member (no runner) never is', () => {
+  const stale = { state: 'stale', file: 'summaries/2026-09-29-07.md', at: new Date(NOW - 600 * 60000).toISOString(), ageMinutes: 600 };
+  const report = () => ({ found: true, state: 'idle', at: new Date(NOW - 420 * 60000).toISOString() });
+  const member = (runner) => ({ present: true, tied: true, state: 'idle', sessionName: 'x', runner });
+  // CONTROL: a Claude member is excused.
+  assert.equal(v.idleExcused(stale, member('claude'), report, NOW).state, 'idle');
+  for (const runner of [null, undefined, 'codex', 'someday-runner']) {
+    assert.equal(v.idleExcused(stale, member(runner), report, NOW).state, 'stale', 'excused a member with runner ' + runner);
+  }
+});

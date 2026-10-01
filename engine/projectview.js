@@ -120,13 +120,15 @@ function openTasks(tasks) {
    or none, leaves the summary as it was. A member not running reads as before (it is not idle, it is gone).
    Known: Antigravity and Muse report their launch as an `idle` (no turn yet), so a restarted one reads "when it went
    idle" where a Claude member reads "when this session started"; it cannot hide a gap (review 4). */
+const REPORTS_WORKING = new Set(['claude', 'gemini', 'grok', 'antigravity', 'muse']);
 function idleExcused(summary, member, readReport, nowMs) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
   if (!member || !member.present || !member.tied || member.state !== 'idle') return summary;
-  /* Review 4: only a runner that also REPORTS working. Codex reports idle and nothing else (bin/codex-report-bridge.js),
-     so after a turn that never completed (interrupted, errored) its latest report is an older idle, and hours of work
-     with no summary would read "current when it went idle". Its summaries read as before until it reports working. */
-  if (member.runner === 'codex') return summary;
+  /* Review 4/5: only a runner known to REPORT working too, so a newer working report always replaces an old idle. Codex
+     reports idle and nothing else (bin/codex-report-bridge.js), and a paneless member (Windows, remote) carries no
+     runner at all; for either, an older idle after an unfinished turn would hide hours of unsummarised work. An
+     allowlist, so a runner added later is not excused until someone checks its bridge. */
+  if (!REPORTS_WORKING.has(member.runner)) return summary;
   let rep = null;
   try { rep = readReport(member.sessionName); } catch { rep = null; }
   /* Review 2: `started` too (a Claude agent reports started at launch where Antigravity and Muse report idle, so a
@@ -322,4 +324,4 @@ function renderShow(payload) {
   return out;
 }
 
-module.exports = { summaryFreshness, familyOf, overviewOf, listOf, renderList, renderShow, SUMMARY_RHYTHM_HOURS };
+module.exports = { summaryFreshness, idleExcused, familyOf, overviewOf, listOf, renderList, renderShow, SUMMARY_RHYTHM_HOURS };

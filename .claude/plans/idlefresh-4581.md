@@ -65,3 +65,11 @@ working report, no report, and an idle report dated in the future read stale; a 
   DOCUMENTED (cannot hide a gap).
 - N3 controls not labelled: FIXED. N4 the end-to-end arm's file: commented. N5 idleKind in the JSDoc and the two
   "idle" words told apart: FIXED. N6 an older renderer's fallback words: kept (needs version skew).
+
+## Review 5 (Sonnet, blind, source-only): 0 blockers, 1 warning, 1 nit
+- W1 a paneless Codex member (Windows, remote) carries runner null, so the by-name Codex exclusion missed it: FIXED,
+  an allowlist of runners whose bridges report working (claude, gemini, grok, antigravity, muse); null, codex or any
+  later runner is never excused until its bridge is checked. Unit arm on idleExcused (now exported).
+- N2 a live Codex pane with no runner marker fronted by node reads as claude: kept (Kosmos-made agents carry the
+  marker; the allowlist cannot see a mislabelled runner).
+- Checked: every other bridge reports working before its idle; only Codex is idle-only.
