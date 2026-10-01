@@ -18722,6 +18722,13 @@ function stateReason(a, opts) {
   if (Number.isFinite(resetAt)) {
     return 'Usage limit reached. The Google quota resets at ' + quotaResetWords(resetAt, Date.now()) + '.';
   }
+  /* #4588 part 3: its own reset passed, but its Google account's shared quota is still paused, so it waits for that
+     reset. */
+  const poolAt = typeof a.poolUntil === 'string' ? Date.parse(a.poolUntil) : NaN;
+  if (typeof a.poolUntil === 'string' && !(poolAt > Date.now())) return 'Waiting for the shared Google quota.'; // a stale card's past time is not said
+  if (Number.isFinite(poolAt)) {
+    return 'Waiting for the shared Google quota, reported to reset at ' + quotaResetWords(poolAt, Date.now()) + '.';
+  }
   /* 📌 THE HEDGE STAYS, THE VOCABULARY CHANGED (#215, Josh 2026-08-21 18:38:
      "the screen of a terminal is not something a white-collar person thinks
      about"). "Its screen mentions" named our instrument, a regex over a pane.

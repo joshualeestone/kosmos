@@ -86,6 +86,19 @@ function accountProblemOf(card) {
        The card and the Direct Message line already say it. */
     return { kind: 'usage', provider, notify: false, text, summary: text };
   }
+  /* #4588 part 3: its own quota reset has passed, but its Google account's shared quota is still paused (status.js
+     poolUntil). No "add credits" and no "send it a message": a message now would spend a turn against the empty quota.
+     No promise that it carries on by itself either: the resume can be switched off or give up. notify: false, as above. */
+  if (card.state === 'rate_limited' && card.runner === 'antigravity' && typeof card.poolUntil === 'string') {
+    const resetAt = Date.parse(card.poolUntil);
+    // The time only while it is still ahead: a stale card's past time is not said as "paused until".
+    const until = resetAt > Date.now()
+      ? ' It was reported paused until ' + require('./quotawords').quotaResetWords(resetAt) + '.'
+      : '';
+    const text = `${who} is waiting for its Google account's shared Antigravity quota, which every Antigravity agent signed`
+      + ` in to that account shares.${until}`;
+    return { kind: 'usage', provider, notify: false, text, summary: text };
+  }
   if (card.state === 'rate_limited') {
     /* Which reader saw it. A Codex pane's usage limit comes only from Codex's own sentence, anchored
        at the start of a row (engine/status.js CODEX_LIMIT_MARKERS), so it is a firm reading. Every
