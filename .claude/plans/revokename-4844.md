@@ -32,10 +32,18 @@ after that they can resolve by key through a paneless or never-run row. Low like
 
 ## Tests (engine/sendertoken.test.js)
 - One name's untagged sweep keeps the other name's untagged token and still takes its own.
+- The sweep still takes an unnamed older token beside two names (the other name's kept), and a sweep by a spelling
+  no token carries takes every untagged token.
 - revoke by the KEY spelling (how a paneless agent is removed) and by the typed spelling both take every token.
-- Mutants: the sweep not narrowed (1 red); the narrowed revoke put back (1 red).
+- Mutants (review 3, on copies): no narrowing (2 red); the unnamed guard dropped (1 red); the absent-spelling arm
+  dropped (1 red); the narrowed revoke put back (1 red).
 - With the revoke callers' tests (remove, create, delete-leftover, supervisor retire, win32create) and the #4796
-  guard: 403/403.
+  guard: 404/404.
+
+## Trade-off accepted
+An untagged token from adopt, for a different-spelling agent that vanished without a revoke, used to be cleaned up
+by the other name's sweep; now it stays until MAX_LIVE pushes it out or a create or revoke on the key takes it. It
+can only resolve through a pane row with exactly that name, or a key row while no clash exists.
 
 ## Review
 Round 1 (blind): BLOCKER, the narrowed revoke (above), reproduced by the reviewer in a sandboxed store. Taken by
@@ -44,3 +52,6 @@ Round 2 (blind): no blocker, two should-fix, both taken. The unnamed-token arm o
 mutant dropping it survived): a test now sweeps an unnamed older token beside two names and checks it goes while
 the other name's stays. A stale comment said the sweep follows revoke's rule; it now says revoke does not narrow.
 Nits taken: the absent-spelling arm is tested; retireLauncher's doc names #4844; the case-rename residual above.
+Round 3 (blind): no blocker, no should-fix. CONVERGED. Nits taken: the size<2 arm is a short-cut (said in the
+comment), "Windows create" corrected to adopt for a Mac store, the Tests section brought current; the reviewer's
+trade-off recorded above.

@@ -230,7 +230,8 @@ function othersTokens(held, sessionName) {
   try { key = store.safeKey(sessionName); } catch { return null; }
   const names = new Set();
   for (const t of held) { const n = tokenName(t, key); if (n) names.add(n); }
-  // The second arm (this name absent) is defensive: the kept run always carries this name today. Tested below.
+  /* `names.size < 2` is only a short-cut (with one name, the predicate below keeps nothing anyway). The second arm
+     (this name absent) is defensive: the kept run always carries this name today. Both are tested. */
   if (names.size < 2 || !names.has(String(sessionName))) return null;
   return (t) => { const n = tokenName(t, key); return n !== null && n !== String(sessionName); };
 }
@@ -293,8 +294,8 @@ function retireLauncher(sessionName, launcher, keepInstance, opts = {}) {
     held = withSessionLock(sessionName, () => {
       const all = readTokens(sessionName);
       const untagged = !!(opts && opts.untagged);
-      /* #4844: the untagged sweep never takes another agent's NAMED tokens when that agent shares this key (adopt and
-         Windows create mint with no launcher). Narrowed only when the file names this agent among others (othersTokens);
+      /* #4844: the untagged sweep never takes another agent's NAMED tokens when that agent shares this key (on a Mac,
+         adopt mints with no launcher). Narrowed only when the file names this agent among others (othersTokens);
          tokens with no name are swept as before. revoke deliberately does NOT narrow: see othersTokens. */
       const theirs = untagged ? othersTokens(all, sessionName) : null;
       const left = all.filter((t) => t.instance === keepInstance
