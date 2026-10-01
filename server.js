@@ -8271,26 +8271,6 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, { ok: true, stage: got.data.stage });
     return;
   }
-  /* #4640: a second computer, on its "allow it there" landing, asks whether its first computer has allowed it.
-     Only device_status ever comes back (pending, acked, denied); `stop` says there is nothing left to wait for
-     (no second computer waiting, a final answer given, or a tunnel too old to ask), so the page stops asking. */
-  if (pathname === '/api/remote/signin-allowed' && req.method === 'GET') {
-    // Another website must not learn whether this computer was allowed, or spend the engine's asks on it.
-    const refusedRead = crossSiteRead(req);
-    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
-    remote.signinAllowStatus()
-      .then((got) => sendJson(res, 200, got.ok
-        ? { ok: true, device_status: got.data.device_status }
-        : { ok: false, stop: Boolean(got.data && got.data.stop) }))
-      .catch(() => sendJson(res, 200, { ok: false, stop: false }));
-    return;
-  }
-  /* #4640: the landing is done waiting: drop the token the engine kept for the asking, and nothing else. */
-  if (pathname === '/api/remote/signin-allowed-done' && req.method === 'POST') {
-    remote.signinAllowDone();
-    sendJson(res, 200, { ok: true });
-    return;
-  }
   if (pathname === '/api/remote/signin-register' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {
@@ -8299,7 +8279,7 @@ const server = http.createServer(async (req, res) => {
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const name = String(body.name || '').trim();
         if (!name) { sendJson(res, 400, { error: 'pick a name for this computer' }); return; }
-        const got = await remote.signinRegister(name, { awaitAllow: body.awaitAllow === true });   // #4640
+        const got = await remote.signinRegister(name);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
         sendJson(res, 200, {

@@ -1083,7 +1083,6 @@ async function forget() {
   if (forgetInFlight) return forgetInFlight;
   signinEpoch += 1;
   signinSession = null;
-  endAllowWait();
   forgetting = true;
   // Offline now, not after the wait: the person asked to be forgotten.
   stopChild();
@@ -1538,18 +1537,12 @@ function absorbSession(data) {
   if (stage === 'session') {
     const token = data && typeof data.token === 'string' ? data.token : '';
     if (!token) { signinSession = null; return { ok: false, because: 'Kosmos+ sign-in did not return a usable session' }; }
+    signinSession = { token };
     /* #3796 addendum 8: when the account already has an address, the name step asks for nothing and
        says "This computer will connect as <address>". The coordinator's sign-in answer carries it as
        account_address (a coordinator that predates it sends none, and the page falls back). Passed
        through only in its own shape: a lowercase label and a domain, nothing else. */
     const addr = typeof data.account_address === 'string' && /^[a-z0-9-]{3,32}\.[a-z0-9.-]{3,253}$/.test(data.account_address) ? data.account_address : '';
-    /* #4640: a SECOND computer on the account: no account_address (another live computer holds the account's name,
-       kosmos-relay #3823) while the account still lists addresses. It is the one case that may keep the token past
-       register, and only when the page asks to wait for the Allow (signinRegister awaitAllow, signinAllowStatus).
-       Nothing about it reaches the page (#4638's page fields were reverted, a67b04cd3). */
-    const second = !addr && (Array.isArray(data.addresses) ? data.addresses : [])
-      .some((a) => typeof a === 'string' && /^[a-z0-9-]{3,32}\.[a-z0-9.-]{3,253}$/.test(a));
-    signinSession = { token, second };
     return { ok: true, because: null, data: { stage: 'session', account_address: addr } };
   }
   if (stage === 'second') {
@@ -1644,7 +1637,6 @@ function pushDeviceName(args, deviceName) {
 function signinCancel() {
   signinEpoch += 1;
   signinSession = null;
-  endAllowWait();
   return { ok: true, because: null, data: { stage: 'cancelled' } };
 }
 /* #3796 (review): a step still waiting on the tunnel program when Sign out lands must not
@@ -1652,88 +1644,6 @@ function signinCancel() {
    person believes they signed out of. Every step records the epoch before it awaits and, if a
    cancel moved it meanwhile, returns this instead of absorbing anything. */
 let signinEpoch = 0;
-
-/* #4640 (Josh, 15:17): a SECOND computer shows the code its first computer's Allow card shows, and should move on by
-   itself once that computer allows it. The coordinator reports it (/v1/account/me device_status, pending/acked/denied)
-   to the same session register just used; register does not spend a session (kosmos-relay coordinator/tests/api.rs
-   kosmos4640_register_keeps_the_session_and_it_sees_the_allow). So register keeps the token for this ONE purpose:
-   only on a second computer (a first one has nobody to wait for), only for ALLOW_WATCH_MS, only here in the engine
-   (the page gets device_status and nothing else), and it is dropped by Sign out, a new sign-in, Forget, and the
-   first final answer. Past the window the page keeps its Done button, which is how it worked before.
-   ⚠️ After the #4638 revert (a67b04cd3) no page sends awaitAllow: the code landing that asked was #4638's. This half
-   (signinRegister's awaitAllow, signinAllowStatus, /api/remote/signin-allowed) is kept, tested, for the sign-in that
-   replaces it (#4754) to call; until then a second computer's Allow shows as the 'waiting-allow' pill instead. */
-const ALLOW_WATCH_MS = 15 * 60 * 1000;
-let allowWatchMsForTests = 0;   // a test seam only (setAllowWatchMsForTests); nothing in the environment lengthens it
-const allowWatchMs = () => (allowWatchMsForTests > 0 ? allowWatchMsForTests : ALLOW_WATCH_MS);
-let allowWatch = null;          // { token, until, timer } while a second computer waits to be allowed
-let allowWatchInFlight = null;  // { w, p }: one status call per watch; a caller for the same watch shares it
-const ALLOW_STATUSES = new Set(['pending', 'acked', 'denied']);
-/* A tunnel built before `signin status` existed refuses the verb (clap). Waiting on it can never end, so stop.
-   Read against the WHOLE stderr: clap's error is its first line, and `because` is only the last one (setupRun). */
-const OLD_TUNNEL = /^error: .*(unrecognized subcommand|unexpected argument|invalid subcommand)/m;   // clap's own line only
-/* The coordinator refused the session itself ("Kosmos+ said no (401): ..."): as final as denied. 401 only: the
-   session reader answers 401 for a bad or expired session; nothing on this route is known to answer 403. */
-const SESSION_REFUSED = /^Error: Kosmos\+ said no \(401\)/m;   // the tunnel's own refusal line only
-function keepAllowWatch(token) {
-  endAllowWait();
-  const w = { token, until: Date.now() + allowWatchMs(), timer: null };
-  // The window is enforced by the clock, not only by the next ask: a page that is closed, or a Done pressed
-  // while pending, must not leave the token here.
-  w.timer = setTimeout(() => { if (allowWatch === w) allowWatch = null; }, allowWatchMs());
-  if (w.timer && typeof w.timer.unref === 'function') w.timer.unref();
-  allowWatch = w;
-}
-function dropAllowWatch() {
-  if (allowWatch && allowWatch.timer) clearTimeout(allowWatch.timer);
-  allowWatch = null;
-}
-/* The final answer, once given, WITHOUT the token: kept to the end of the same window (or until a new watch or a
-   Sign out, a new sign-in or Forget replaces it) so a second tab or a lost response is told the same thing instead
-   of "stop" on a question that was answered (possibly with a no). An answer that arrives after Done ended the wait
-   is not kept: the page that pressed Done has moved on. */
-let allowFinal = null;   // { status, until }
-/* The page is done waiting (Done, or moving on after "Allowed"): drop the token and nothing else. Not a Sign out: a
-   sign-in in progress elsewhere is untouched, and the final answer stays for a second tab or a lost response. */
-function signinAllowDone() {
-  dropAllowWatch();
-  return { ok: true, because: null, data: {} };
-}
-function endAllowWait() {
-  dropAllowWatch();
-  allowFinal = null;
-}
-async function signinAllowStatus() {
-  const w = allowWatch;
-  if (!w || Date.now() > w.until) {
-    dropAllowWatch();
-    if (allowFinal && Date.now() <= allowFinal.until) return { ok: true, because: null, data: { device_status: allowFinal.status } };
-    allowFinal = null;
-    return { ok: false, because: 'nothing to wait for', data: { stop: true } };
-  }
-  if (allowWatchInFlight && allowWatchInFlight.w === w) return allowWatchInFlight.p;
-  const p = (async () => {
-    // Bounds, innermost first: the tunnel's own request deadline (10 s), this child (20 s), the page's fetch (25 s).
-    const r = parseSaid(await setupRun(['signin', 'status', '--coordinator', COORDINATOR()], w.token, 20000));
-    // The watch this answer is about has ended (Sign out, a new sign-in, Forget, the window). If a NEW watch
-    // exists, its page must ask again rather than be told to stop by an old answer.
-    if (allowWatch !== w) return { ok: false, because: 'nothing to wait for', data: { stop: !allowWatch } };
-    if (!r.ok) {
-      // Once per watch, never the token: the page asks every few seconds, and the page is told only "ask again".
-      if (!w.logged) { w.logged = true; process.stderr.write('remote: could not ask Kosmos+ whether this computer was allowed (#4640): ' + String(r.because || 'no answer') + '\n'); }
-      const why = String(r.stderr || '') + '\n' + String(r.because || '');
-      if (OLD_TUNNEL.test(why) || SESSION_REFUSED.test(why)) { dropAllowWatch(); return { ok: false, because: r.because, data: { stop: true } }; }
-      return { ok: false, because: r.because, data: { stop: false } };
-    }
-    const status = r.data && typeof r.data.device_status === 'string' ? r.data.device_status : '';
-    if (!ALLOW_STATUSES.has(status)) return { ok: false, because: 'the tunnel program answered in a shape we could not read', data: { stop: false } };
-    // A final answer: the token has done its job. It is answered once; a lost answer leaves the page on its Done.
-    if (status !== 'pending') { allowFinal = { status, until: w.until }; dropAllowWatch(); }
-    return { ok: true, because: null, data: { device_status: status } };
-  })();
-  allowWatchInFlight = { w, p };
-  try { return await p; } finally { if (allowWatchInFlight && allowWatchInFlight.p === p) allowWatchInFlight = null; }
-}
 const SIGNIN_CANCELLED = { ok: false, because: 'the sign-in was cancelled' };
 /* A Sign out or Forget that landed while a register was out. If the register
    still succeeded, the Mac now has an identity the person asked to leave: the
@@ -1789,7 +1699,6 @@ async function signinStart(email, deviceName) {
     return { ok: false, because: 'that does not look like an email address' };
   }
   signinSession = null;
-  endAllowWait();
   const args = ['signin', 'start', '--coordinator', COORDINATOR(),
     '--email', email, '--device-id', signinDeviceId()];
   pushDeviceName(args, deviceName);
@@ -2073,10 +1982,7 @@ function turnOnAfterSignin() {
   if (!wrote.ok) process.stderr.write('remote: signed in, but could not switch Kosmos+ on: ' + wrote.because + '\n');
 }
 
-async function signinRegister(name, opts) {
-  /* #4640: the page says it will wait on the code screen (awaitAllow). The token is kept only then AND when the sign-in
-     answer named another computer, so a page that took the chooser (a reinstalled computer) leaves nothing behind. */
-  const awaitAllow = Boolean(opts && opts.awaitAllow === true);
+async function signinRegister(name) {
   // First, before every path (the #1010 shortcut included): one register at a time (a
   // page that lost its connection can press Try again while the first is still
   // out, and a second must not start into the same directory), and none while
@@ -2109,10 +2015,6 @@ async function signinRegister(name, opts) {
       /* #3827: signing in IS asking to be reachable; ensure() only starts the tunnel when switched on. */
       turnOnAfterSignin();
       ensure(localPort);
-      // #4640: this shortcut neither keeps nor drops a watch. Every sign-in starts by dropping any watch
-      // (signinStart), so one that is live here was kept by THIS sign-in's own register, and this is its Try again
-      // after the page lost the answer: the watch is still the right one. Keeping a new one here would hold a
-      // session the account-switch edge above may have issued for another account.
       signinSession = null;
       // standing is '' on this path, not omitted: the engine cannot know it
       // without the coordinator round-trip this short-circuit skips, and a
@@ -2138,7 +2040,6 @@ async function signinRegister(name, opts) {
   // waiting on the connector must not be followed by this turning Kosmos+ on.
   const epoch = signinEpoch;
   const token = signinSession.token;
-  const second = awaitAllow && signinSession.second === true;
   const before = macIdHere();
   const addressBefore = address();
   const startedAt = Date.now();
@@ -2165,9 +2066,7 @@ async function signinRegister(name, opts) {
     abandonChangedIdentity(before, addressBefore, startedAt);
     return r;
   }
-  signinSession = null;   // the token is spent; it must not linger in this process...
-  // ...except on a second computer, which keeps it to learn when it is allowed (#4640, signinAllowStatus).
-  if (second) keepAllowWatch(token); else endAllowWait();
+  signinSession = null;   // the token is spent; it must not linger in this process
   /* #3827 (Josh's live test: registered, then the relay never heard from this Mac): ensure() starts the
      tunnel only when switched ON, and nothing set it, so the pane showed "Turn on" and the wizard's
      "connecting" was false. Signing in IS asking to be reachable; turning off stays one press away.
@@ -2224,10 +2123,6 @@ module.exports = { OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, 
   signinConfirmEnrol,
   signinRegister,
   signinCancel,
-  signinAllowStatus,
-  signinAllowDone,
-  allowWatchHeldForTests: () => allowWatch !== null,
-  setAllowWatchMsForTests: (ms) => { allowWatchMsForTests = Number(ms) > 0 ? Number(ms) : 0; },
   pendingDevices,
   devicesList,
   deviceAllow,
@@ -2260,7 +2155,7 @@ module.exports = { OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, 
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; endAllowWait(); allowWatchInFlight = null; allowWatchMsForTests = 0; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,

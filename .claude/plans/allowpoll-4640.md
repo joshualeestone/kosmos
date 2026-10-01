@@ -1,4 +1,4 @@
-# allowpoll-4640: a second computer waiting for its other computer's Allow says so (the auto-advance engine half is kept for #4754)
+# allowpoll-4640: a second computer waiting for its other computer's Allow says so
 
 Card: #4640 (follow-up to #4638). Owner: renettilley. #4638 was reverted on main, so this branch is merged onto
 main on its own (see "Rebased onto main after the #4638 revert" below).
@@ -11,11 +11,12 @@ main on its own (see "Rebased onto main after the #4638 revert" below).
   device word, so the relay renaming "this Mac" does not break either.
 - web/index.html paintPlus: a neutral "Waiting to be allowed" pill and the sentence. server.js hookPublicLink: its
   own sentence for the state.
-- The ENGINE half of the auto-advance is kept, tested, with NO caller: signinAllowStatus / signinAllowDone, the
-  awaitAllow opt-in on signinRegister, and the routes GET /api/remote/signin-allowed and POST
-  /api/remote/signin-allowed-done. No page sends awaitAllow, so no session token is ever kept today. The page poll
-  described in the earlier rounds below (plusSiWatchAllow, "Allowed. <computer> is in.") was dropped with the
-  #4638 revert; #4754 (the sign-in that replaces it) inherits this half and the premise below.
+- REMOVED in the 2026-10-01 re-review: the engine half of the auto-advance (signinAllowStatus / signinAllowDone,
+  signinRegister's awaitAllow, the routes /api/remote/signin-allowed and /signin-allowed-done, their tests and the
+  reachability excuse). Nothing called it after the #4638 revert, it kept a session token for 15 minutes, and
+  Josh's 09-30 ruling (a new computer is a purchase, #4754) put the free second-computer join it served on hold.
+  Rejected: keeping it for #4754 (unused credential-holding code for a design that does not exist yet; three
+  blind rounds raised it). It is in git history (b68b8d3ca and before) if #4754 wants it.
 - History: the rounds below record the earlier design and how it got here; they are not the current state.
 
 ## Decisions
@@ -185,3 +186,16 @@ the guard counts live code, and it is right to: the relay's own text will follow
 device word (`refused this \S+:`), with an arm that a "refused this computer:" line parses and a CONTROL that a line
 without "this <device>:" does not. Both arms, and the guard, red with the old regex. Rejected: spelling the literal
 around the guard ("this [M]ac"), which would pass it without making it true.
+
+## Re-review after the proof was hand-updated (2026-10-01, Renet)
+The proof's hash had been updated by hand after b68b8d3ca (a remote.js fix) with no review of that fix. This re-review
+is that review.
+- Round 1 (opus): FIXED the stale plan (Change section, title); FIXED remote-report.js matching the relay line's device
+  word ("this Mac") while remote.js does not (mutation: reverting reds only the two new pins); DEFERRED the no-caller
+  half, then REMOVED it after round 3.
+- Round 2 (sonnet): the no-caller half again; "does a new process clear lastTunnelFailure": yes, startChild()
+  (remote.js, already on main); the fixture's "refused this Mac" is the relay's own text.
+- Round 3 (opus): the no-caller half a third time (now removed); its comments that described #4638's page (removed
+  with it); "the wait may not survive a tunnel exit": the real tunnel does not exit on a session error, run_forever
+  (kosmos-relay crates/tunnel/src/lib.rs) writes restarting with the refusal, then connecting, and loops with backoff,
+  which is the retry the status() test drives. NITs left: the case rule differs (remote.js exact, remote-report /i).
