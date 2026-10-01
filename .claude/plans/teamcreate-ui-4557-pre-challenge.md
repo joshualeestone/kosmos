@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: teamcreate-ui-4557
-diff_hash: 70096aa01149540b08eb2d42a07f39f8ba042574388665c0ed395799f789d3b9
-validation: passed (Mortals) full suite on 0db013084 (merged with main), 13220 tests / 0 fail, hash 86d318eb61fc, 19:56 CDT; head ebdd5bdfc changes since are web/index.html (design review + review 30-32 fixes), the two browser checks, two test files and a second merge of main (engine/projects.js exports): focused on ebdd5bdfc 12 files 434/434, and both gated browser checks on ebdd5bdfc (render-teamcreate-4557 165/0, render-newagent-paths-4556 134 passed)
+diff_hash: 720d5ca51c457fe278eba7202ff061624d3783c60792180d5ac1f1ad983dc165
+validation: passed (Mortals) full suite on the exact head 816a5f312, 13467 tests / 0 fail, hash 720d5ca51c45, 03:59 CDT 2026-10-01; both gated browser checks on 816a5f312 (render-teamcreate-4557 165/0, render-newagent-paths-4556 146 passed); path C on the merge with origin/main ec7a3f1ca (588066986): 47 files (the focused set + every test main added or changed since b6effce46) 1190/1190
 subdir_audit: passed
 timestamp: 2026-10-01T03:37:00Z
 iterations: 33
